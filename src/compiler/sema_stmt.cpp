@@ -354,7 +354,7 @@ lir::LStmt SemaChecker::lower_let_destruct(TinyMapView node) {
         define(names[i], elem_t);
 
         auto tmp_ref = builder().var_ref(tmp, rhs_type);
-        auto elem_expr = make_expr(elem_t, lir::ETupleIndex{std::move(tmp_ref), (uint32_t)i});
+        auto elem_expr = builder().tuple_index(std::move(tmp_ref), (uint32_t)i, elem_t);
 
         lir::SLet elem_let;
         elem_let.name   = names[i];
@@ -484,7 +484,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
             TypeRef(rhs_type).kind() != LogosType::Kind::IntLit &&
             TypeRef(rhs_type).kind() != LogosType::Kind::Enum &&
             can_widen_int(TypeRef(rhs_type).kind(), TypeRef(ann).kind())) {
-            widen_int_expr(rhs, ann);
+            widen_int_expr(rhs, ann, builder());
             rhs_type = rhs->type;
         }
         // Retype float literal to concrete annotation type (f32 or f64).
@@ -496,16 +496,15 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
             (TypeRef(ann).kind() == LogosType::Kind::F32 || TypeRef(ann).kind() == LogosType::Kind::F64)) {
             if (auto* il = std::get_if<lir::ELitInt>(&rhs->kind)) {
                 // Simple integer literal: convert directly to float literal.
+                // Build a fresh node so the Hermes mirror is emitted with
+                // Code::LitFloat (in-place mutation would leave the stale
+                // LitInt mirror that view-based readers in mono pick up).
                 double fval = static_cast<double>(il->value);
-                rhs->kind = lir::ELitFloat{fval};
-                rhs->type = ann;
+                rhs = builder().lit_float(fval, ann);
             } else {
                 // Non-literal IntLit expression (e.g. 1 + 2): wrap in ECast to float.
-                auto inner = std::move(rhs);
-                rhs = std::make_unique<lir::LExpr>();
-                rhs->kind = lir::ECast{std::move(inner)};
-                rhs->type = ann;
-                rhs_type   = ann;
+                rhs = builder().cast(std::move(rhs), ann);
+                rhs_type = ann;
             }
         }
         // Detect integer literals that don't fit in the annotated type.
@@ -546,8 +545,8 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
                          TypeRef(TypeRef(ann).tuple_elems()[ei]).kind() == LogosType::Kind::F64)) {
                         if (auto* il = std::get_if<lir::ELitInt>(&tlit->elems[ei]->kind)) {
                             double fval = static_cast<double>(il->value);
-                            tlit->elems[ei]->kind = lir::ELitFloat{fval};
-                            tlit->elems[ei]->type = TypeRef(ann).tuple_elems()[ei];
+                            tlit->elems[ei] = builder().lit_float(
+                                fval, TypeRef(ann).tuple_elems()[ei]);
                         }
                     }
                     if (TypeRef(tlit->elems[ei]->type).kind() == LogosType::Kind::IntLit)
@@ -681,7 +680,7 @@ lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
         TypeRef(rhs->type).kind() != LogosType::Kind::IntLit &&
         TypeRef(rhs->type).kind() != LogosType::Kind::Enum &&
         can_widen_int(TypeRef(rhs->type).kind(), TypeRef(var_type).kind())) {
-        widen_int_expr(rhs, var_type);
+        widen_int_expr(rhs, var_type, builder());
     }
     // Check IntLit literal fits in the variable's declared type.
     if (TypeRef(rhs->type).kind() == LogosType::Kind::IntLit &&
@@ -1152,7 +1151,7 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, TypeRef scrut_type) {
             LogosTypeBuilder ref_t;
             ref_t.kind    = is_mut ? LogosType::Kind::MutRef : LogosType::Kind::Ref;
             ref_t.pointee = scrut_type;
-            TypeRef btype = pool_.alloc(std::move(ref_t));
+            TypeRef btype = pool_->alloc(std::move(ref_t));
             return lir::PatRefBind{bname, is_mut, btype};
         }
     }
@@ -1393,8 +1392,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             want_arity = 3;
             auto sv = str_of(p.get(la::VALUE.code));
             std::string lit(sv);
-            extra_args.push_back(make_expr(make_slice_type(prim(LogosType::Kind::U8)),
-                lir::ELitStr{std::move(lit)}));
+            extra_args.push_back(builder().lit_str(std::move(lit), make_slice_type(prim(LogosType::Kind::U8))));
         }
 
         auto cands = find_func_candidates(helper);
@@ -1408,13 +1406,13 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             return builder().lit_bool(false, bool_t());
         }
         std::vector<lir::LExprPtr> args;
-        args.push_back(make_expr(ptr_t, lir::EAddrOf{sv}));
+        args.push_back(builder().addr_of(sv, ptr_t));
         if (pc == la::PAT_HERMES_STR) {
             args.push_back(builder().var_ref(base_var, u8_ptr_t));
         }
         for (auto& a : extra_args) args.push_back(std::move(a));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
-        return make_expr(bool_t(), lir::ECall{sym, {}, std::move(args)});
+        return builder().call(sym, {}, std::move(args), bool_t());
     };
 
     // Emit `let __hp_N: AnyVal = helper(&parent_av, base, ...);`
@@ -1434,12 +1432,11 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             return "";
         }
         std::vector<lir::LExprPtr> args;
-        args.push_back(make_expr(ptr_t_outer, lir::EAddrOf{parent_av}));
+        args.push_back(builder().addr_of(parent_av, ptr_t_outer));
         args.push_back(builder().var_ref(base_var, u8_ptr_t_outer));
         for (auto& a : extra_args) args.push_back(std::move(a));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
-        auto call = make_expr(scrut_type,
-            lir::ECall{sym, {}, std::move(args)});
+        auto call = builder().call(sym, {}, std::move(args), scrut_type);
         std::string child = "__hp_" + std::to_string(tmp_var_count_++);
         lir::SLet sl;
         sl.name = child; sl.type = scrut_type; sl.is_mut = false;
@@ -1461,11 +1458,11 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             return builder().lit_bool(false, bool_t());
         }
         std::vector<lir::LExprPtr> args;
-        args.push_back(make_expr(ptr_t_outer, lir::EAddrOf{sv}));
+        args.push_back(builder().addr_of(sv, ptr_t_outer));
         args.push_back(builder().var_ref(base_var, u8_ptr_t_outer));
         args.push_back(builder().lit_int((int64_t)n, u64_t));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
-        return make_expr(bool_t(), lir::ECall{sym, {}, std::move(args)});
+        return builder().call(sym, {}, std::move(args), bool_t());
     };
     // Emit `hermes_pat_array_len_ge(&sv, base, n)` as a bool expr.
     auto emit_array_len_ge = [&](const std::string& sv, uint64_t n) -> lir::LExprPtr {
@@ -1481,11 +1478,11 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             return builder().lit_bool(false, bool_t());
         }
         std::vector<lir::LExprPtr> args;
-        args.push_back(make_expr(ptr_t_outer, lir::EAddrOf{sv}));
+        args.push_back(builder().addr_of(sv, ptr_t_outer));
         args.push_back(builder().var_ref(base_var, u8_ptr_t_outer));
         args.push_back(builder().lit_int((int64_t)n, u64_t));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
-        return make_expr(bool_t(), lir::ECall{sym, {}, std::move(args)});
+        return builder().call(sym, {}, std::move(args), bool_t());
     };
     // Emit `hermes_pat_has_type_code(&sv, base, tc)` bool expr.
     auto emit_has_type_code = [&](const std::string& sv, uint64_t tc) -> lir::LExprPtr {
@@ -1501,11 +1498,11 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             return builder().lit_bool(false, bool_t());
         }
         std::vector<lir::LExprPtr> args;
-        args.push_back(make_expr(ptr_t_outer, lir::EAddrOf{sv}));
+        args.push_back(builder().addr_of(sv, ptr_t_outer));
         args.push_back(builder().var_ref(base_var, u8_ptr_t_outer));
         args.push_back(builder().lit_int((int64_t)tc, u64_t));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
-        return make_expr(bool_t(), lir::ECall{sym, {}, std::move(args)});
+        return builder().call(sym, {}, std::move(args), bool_t());
     };
     // Emit `hermes_pat_is_map(&sv, base)` bool expr.
     auto emit_is_map = [&](const std::string& sv) -> lir::LExprPtr {
@@ -1521,10 +1518,10 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             return builder().lit_bool(false, bool_t());
         }
         std::vector<lir::LExprPtr> args;
-        args.push_back(make_expr(ptr_t_outer, lir::EAddrOf{sv}));
+        args.push_back(builder().addr_of(sv, ptr_t_outer));
         args.push_back(builder().var_ref(base_var, u8_ptr_t_outer));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
-        return make_expr(bool_t(), lir::ECall{sym, {}, std::move(args)});
+        return builder().call(sym, {}, std::move(args), bool_t());
     };
     // Emit `hermes_pat_is_present(&sv)` bool expr.
     auto emit_present = [&](const std::string& sv) -> lir::LExprPtr {
@@ -1539,9 +1536,9 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             return builder().lit_bool(false, bool_t());
         }
         std::vector<lir::LExprPtr> args;
-        args.push_back(make_expr(ptr_t_outer, lir::EAddrOf{sv}));
+        args.push_back(builder().addr_of(sv, ptr_t_outer));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
-        return make_expr(bool_t(), lir::ECall{sym, {}, std::move(args)});
+        return builder().call(sym, {}, std::move(args), bool_t());
     };
     // Recursive: build a guard expr for pattern `p` against AnyVal local `sv`.
     std::function<lir::LExprPtr(TinyMapView, const std::string&)> build_rec;
@@ -1568,9 +1565,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
                     if (code_of(ent) != la::PAT_HERMES_MAP_ENTRY) continue;
                     auto ksv = str_of(ent.get(la::KEY.code));
                     std::vector<lir::LExprPtr> xargs;
-                    xargs.push_back(make_expr(
-                        make_slice_type(prim(LogosType::Kind::U8)),
-                        lir::ELitStr{std::string(ksv)}));
+                    xargs.push_back(builder().lit_str(std::string(ksv), make_slice_type(prim(LogosType::Kind::U8))));
                     std::string child = emit_child_let(
                         "hermes_pat_map_slot", sv, std::move(xargs), 3);
                     if (child.empty()) {
@@ -2174,8 +2169,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         // Synthesize __iter.next() call expression (inside the loop)
         auto make_next_call = [&]() -> lir::LExprPtr {
             auto iter_ref = builder().var_ref(iter_var, iter_type);
-            return make_expr(next_ret,
-                lir::EMethodCall{std::move(iter_ref), "next", "", {}, {}, -1});
+            return builder().method_call(std::move(iter_ref), "next", "", {}, {}, -1, next_ret);
         };
 
         // Then arm: Some(x) → body
@@ -2281,8 +2275,7 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
                     let_s.name   = tmp;
                     let_s.type   = mut_ptr_T;
                     let_s.is_mut = false;
-                    let_s.value  = make_expr(mut_ptr_T,
-                        lir::EMethodCall{std::move(recv_expr), "mut_ptr", "", {}, {}, -1});
+                    let_s.value  = builder().method_call(std::move(recv_expr), "mut_ptr", "", {}, {}, -1, mut_ptr_T);
                     // Synthesize: (*__dr_tmp).field = val
                     lir::SDerefFieldWrite dfw;
                     dfw.receiver  = tmp;
@@ -2527,10 +2520,10 @@ lir::LStmt SemaChecker::lower_chain_field_compound_assign(TinyMapView node) {
     auto recv_expr = builder().var_ref(std::string(recv_name), lookup(recv_name) ? lookup(recv_name) : error_t());
     // mid read: recv.mid  (as EFieldRead)
     TypeRef mid_read_t = mid_ft ? mid_ft : error_t();
-    auto mid_expr = make_expr(mid_read_t, lir::EFieldRead{std::move(recv_expr), std::string(mid_name)});
+    auto mid_expr = builder().field_read(std::move(recv_expr), std::string(mid_name), mid_read_t);
     // field read: (recv.mid).field  (as EFieldRead)
     TypeRef ft2 = ft ? ft : error_t();
-    auto field_expr = make_expr(ft2, lir::EFieldRead{std::move(mid_expr), std::string(field_name)});
+    auto field_expr = builder().field_read(std::move(mid_expr), std::string(field_name), ft2);
 
     // op(old, rhs)
     lir::LExprPtr combined = builder().bin_op(base_op, std::move(field_expr), std::move(rhs), ft2);
@@ -2578,7 +2571,7 @@ lir::LStmt SemaChecker::lower_field_compound_assign(TinyMapView node) {
 
     // lhs = s.field (read): EFieldRead{VarRef(recv_name), field_name}
     auto recv_varref = builder().var_ref(std::string(recv_name), recv_var_type);
-    auto lhs_read    = make_expr(result_type, lir::EFieldRead{std::move(recv_varref), std::string(field_name)});
+    auto lhs_read    = builder().field_read(std::move(recv_varref), std::string(field_name), result_type);
     // rhs = expr
     auto rhs = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
@@ -2909,7 +2902,7 @@ lir::LStmt SemaChecker::lower_index_compound_assign(TinyMapView node) {
     }
     // Build lhs read: arr[idx_for_read]
     auto arr_recv = builder().var_ref(std::string(arr_name), arr_type);
-    auto lhs_read = make_expr(elem_type, lir::EIndexRead{std::move(arr_recv), std::move(idx_for_read)});
+    auto lhs_read = builder().index_read(std::move(arr_recv), std::move(idx_for_read), elem_type);
     // combined = lhs op rhs
     auto combined = builder().bin_op(base_op, std::move(lhs_read), std::move(rhs), elem_type);
 
@@ -3121,8 +3114,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
         root_var = "__hmatch_root_" + std::to_string(tmp_var_count_++);
         {
             auto view_ref = builder().var_ref(view_var, scrut_type);
-            auto root_call = make_expr(anyval_t,
-                lir::EMethodCall{std::move(view_ref), "root", "", {}, {}, -1});
+            auto root_call = builder().method_call(std::move(view_ref), "root", "", {}, {}, -1, anyval_t);
             lir::SLet sl;
             sl.name = root_var; sl.type = anyval_t; sl.is_mut = false;
             sl.value = std::move(root_call);
@@ -3132,8 +3124,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
         {
             TypeRef u8_ptr_t = make_ptr(false, prim(LogosType::Kind::U8));
             auto view_ref = builder().var_ref(view_var, scrut_type);
-            auto base_call = make_expr(u8_ptr_t,
-                lir::EMethodCall{std::move(view_ref), "base", "", {}, {}, -1});
+            auto base_call = builder().method_call(std::move(view_ref), "base", "", {}, {}, -1, u8_ptr_t);
             lir::SLet sl;
             sl.name = base_var; sl.type = u8_ptr_t; sl.is_mut = false;
             sl.value = std::move(base_call);
@@ -3165,8 +3156,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
                 if (!g_stmts.empty() && raw) {
                     auto blk = std::make_unique<lir::LBlock>();
                     blk->stmts = std::move(g_stmts);
-                    synth_guard = make_expr(bool_t(),
-                        lir::EBlockExpr{std::move(blk), std::move(raw)});
+                    synth_guard = builder().block_expr(std::move(blk), std::move(raw), bool_t());
                 } else {
                     synth_guard = std::move(raw);
                 }
@@ -3385,8 +3375,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         root_var = "__hmatche_root_" + std::to_string(tmp_var_count_++);
         {
             auto view_ref = builder().var_ref(view_var, scrut_type);
-            auto root_call = make_expr(anyval_t,
-                lir::EMethodCall{std::move(view_ref), "root", "", {}, {}, -1});
+            auto root_call = builder().method_call(std::move(view_ref), "root", "", {}, {}, -1, anyval_t);
             lir::SLet sl;
             sl.name = root_var; sl.type = anyval_t; sl.is_mut = false;
             sl.value = std::move(root_call);
@@ -3396,8 +3385,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         {
             TypeRef u8_ptr_t = make_ptr(false, prim(LogosType::Kind::U8));
             auto view_ref = builder().var_ref(view_var, scrut_type);
-            auto base_call = make_expr(u8_ptr_t,
-                lir::EMethodCall{std::move(view_ref), "base", "", {}, {}, -1});
+            auto base_call = builder().method_call(std::move(view_ref), "base", "", {}, {}, -1, u8_ptr_t);
             lir::SLet sl;
             sl.name = base_var; sl.type = u8_ptr_t; sl.is_mut = false;
             sl.value = std::move(base_call);
@@ -3429,8 +3417,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 if (!g_stmts.empty() && raw) {
                     auto blk = std::make_unique<lir::LBlock>();
                     blk->stmts = std::move(g_stmts);
-                    synth_guard = make_expr(bool_t(),
-                        lir::EBlockExpr{std::move(blk), std::move(raw)});
+                    synth_guard = builder().block_expr(std::move(blk), std::move(raw), bool_t());
                 } else {
                     synth_guard = std::move(raw);
                 }
@@ -3494,8 +3481,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                     else
                         blk.stmts.push_back(lower_stmt(body_node));
                     auto blk_ptr = std::make_unique<lir::LBlock>(std::move(blk));
-                    val = make_expr(error_t(),
-                        lir::EBlockExpr{std::move(blk_ptr), error_expr()});
+                    val = builder().block_expr(std::move(blk_ptr), error_expr(), error_t());
                 } else if (code_of(body_node) == la::BLOCK &&
                            body_node.has_key(la::ITEMS)) {
                     // Non-diverging block: last item must be an expression.
@@ -3522,7 +3508,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                         last_expr = error_expr();
                     }
                     TypeRef vt = last_expr->type;
-                    val = make_expr(vt, lir::EBlockExpr{std::move(blk), std::move(last_expr)});
+                    val = builder().block_expr(std::move(blk), std::move(last_expr), vt);
                 } else {
                     error("match expression: block arm must end with an expression or always return");
                     val = error_expr();
@@ -3544,8 +3530,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 auto blk = std::make_unique<lir::LBlock>();
                 blk->stmts = std::move(prologue);
                 TypeRef vt = val->type;
-                val = make_expr(vt,
-                    lir::EBlockExpr{std::move(blk), std::move(val)});
+                val = builder().block_expr(std::move(blk), std::move(val), vt);
             }
             if (TypeRef(result_type).kind() == LogosType::Kind::Error) {
                 result_type = val->type;
@@ -3634,14 +3619,13 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         }
     }
 
-    auto me_expr = make_expr(result_type, std::move(me));
+    auto me_expr = builder().match_expr_v(std::move(me), result_type);
     if (has_hoist_let) {
         auto blk = std::make_unique<lir::LBlock>();
         blk->stmts.push_back(std::move(hoist_let_view));
         blk->stmts.push_back(std::move(hoist_let_root));
         blk->stmts.push_back(std::move(hoist_let_base));
-        return make_expr(result_type,
-            lir::EBlockExpr{std::move(blk), std::move(me_expr)});
+        return builder().block_expr(std::move(blk), std::move(me_expr), result_type);
     }
     return me_expr;
 }
@@ -3694,7 +3678,7 @@ lir::LStmt SemaChecker::lower_deref_field_compound_assign(TinyMapView node) {
 
     // lhs_read = (*ptr).field
     auto ptr_ref  = builder().var_ref(std::string(recv_name), ptr_type);
-    auto lhs_read = make_expr(ft, lir::EFieldRead{std::move(ptr_ref), std::string(field_name)});
+    auto lhs_read = builder().field_read(std::move(ptr_ref), std::string(field_name), ft);
     auto rhs = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
 
@@ -3756,7 +3740,7 @@ lir::LStmt SemaChecker::lower_tuple_field_compound_assign(TinyMapView node) {
 
     TypeRef ft = TypeRef(recv_t).tuple_elems()[idx];
     auto recv_ref = builder().var_ref(std::string(recv_name), orig_recv_t ? orig_recv_t : recv_t);
-    auto lhs_read = make_expr(ft, lir::ETupleIndex{std::move(recv_ref), (uint32_t)idx});
+    auto lhs_read = builder().tuple_index(std::move(recv_ref), (uint32_t)idx, ft);
     auto rhs = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
 
@@ -3835,8 +3819,8 @@ lir::LStmt SemaChecker::lower_field_index_compound_assign(TinyMapView node) {
     }
     // Build lhs read: s.field[idx_for_read]
     auto recv_ref  = builder().var_ref(std::string(recv_name), recv_t ? recv_t : error_t());
-    auto field_rd  = make_expr(field_t, lir::EFieldRead{std::move(recv_ref), std::string(field_name)});
-    auto lhs_read  = make_expr(elem_t, lir::EIndexRead{std::move(field_rd), std::move(idx_for_read)});
+    auto field_rd  = builder().field_read(std::move(recv_ref), std::string(field_name), field_t);
+    auto lhs_read  = builder().index_read(std::move(field_rd), std::move(idx_for_read), elem_t);
     auto combined  = builder().bin_op(base_op, std::move(lhs_read), std::move(rhs), elem_t);
 
     lir::SFieldIndexWrite sfiw;

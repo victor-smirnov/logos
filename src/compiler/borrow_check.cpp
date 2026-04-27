@@ -304,17 +304,13 @@ class BorrowChecker {
     //   or result of a function call where we don't track cross-call lifetimes).
 
     lir_view::ExprRef expr_ref(const LExprPtr& e) const {
-        auto& tbl = *prog_.mirror_table;
-        auto it = tbl.expr.find(e.get());
-        if (it == tbl.expr.end()) return {};
-        return lir_view::ExprRef(prog_.type_pool.arena(), it->second);
+        if (!e || e->mirror_offset_ == hermes::arena_offset_t{}) return {};
+        return lir_view::ExprRef(prog_.type_pool.arena(), e->mirror_offset_);
     }
 
     lir_view::StmtRef stmt_ref(const LStmt& s) const {
-        auto& tbl = *prog_.mirror_table;
-        auto it = tbl.stmt.find(&s);
-        if (it == tbl.stmt.end()) return {};
-        return lir_view::StmtRef(prog_.type_pool.arena(), it->second);
+        if (s.mirror_offset_ == hermes::arena_offset_t{}) return {};
+        return lir_view::StmtRef(prog_.type_pool.arena(), s.mirror_offset_);
     }
 
     const LBlock* block_ptr(lir_view::BlockRef br) const {

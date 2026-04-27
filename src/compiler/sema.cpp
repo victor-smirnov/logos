@@ -15,6 +15,7 @@
 
 #include "sema_impl.hpp"
 
+#include <logos/compiler/lir_mirror.hpp>
 #include <logos/compiler/sha256.hpp>
 #include <logos/compiler/sema_schema.hpp>
 #include <logos/hermes/arena.hpp>
@@ -955,13 +956,15 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
                                 const std::vector<bool>& from_binary) {
     filenames_ = &filenames;
     from_binary_ = from_binary.empty() ? nullptr : &from_binary;
+
+    lir::LProgram prog;
+    pool_ = &prog.type_pool;  // bind so all alloc()s share prog's arena
+
     init_primitives();
     collect(asts);
 
-    lir::LProgram prog;
     if (!result_.ok()) {
         prog.diags = std::move(result_);
-        prog.type_pool = std::move(pool_);
         return prog;
     }
 
@@ -1031,16 +1034,21 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     }
 
     prog.diags      = std::move(result_);
-    prog.type_pool  = std::move(pool_);
     prog.metaprog_handlers = std::move(metaprog_handlers_);
     prog.metaprog_targets = std::move(metaprog_targets_);
+
+    // Stage 3g.1: populate prog.mirror_table after lowering completes. With
+    // pool_ bound to prog.type_pool throughout sema, mirror offsets and
+    // TypeRef offsets share the same arena from the start.
+    lir_mirror_emit_into(prog, *prog.mirror_table);
+
     return prog;
 }
 
 void SemaChecker::init_primitives() {
     auto ap = [&](LogosType::Kind k) {
         LogosTypeBuilder t; t.kind = k;
-        prims_[int(k)] = pool_.alloc(t);
+        prims_[int(k)] = pool_->alloc(t);
     };
     ap(LogosType::Kind::Void);
     ap(LogosType::Kind::I32);
@@ -1508,7 +1516,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         nt.pkg_name = t.pkg_name();  // preserve package qualification after substitution
         nt.type_args = std::move(new_args);
         nt.lifetime_args = std::move(new_lt_args);
-        return pool_.alloc(std::move(nt));
+        return pool_->alloc(std::move(nt));
     }
     case LogosType::Kind::Enum: {
         if (t.type_args().empty() && t.lifetime_args().empty()) return t;
@@ -1532,7 +1540,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         nt.enum_name = t.enum_name();
         nt.type_args = std::move(new_args);
         nt.lifetime_args = std::move(new_lt_args);
-        return pool_.alloc(std::move(nt));
+        return pool_->alloc(std::move(nt));
     }
     case LogosType::Kind::Tuple: {
         std::vector<TypeRef> new_elems;
@@ -1567,7 +1575,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         nt.kind = t.kind();  // preserve Closure vs FnPtr
         nt.closure_params = std::move(new_params);
         nt.closure_ret = new_ret;
-        return pool_.alloc(std::move(nt));
+        return pool_->alloc(std::move(nt));
     }
     case LogosType::Kind::AssocType: {
         // Substitute the base type first.
@@ -1660,7 +1668,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             LogosTypeBuilder nt = t.to_builder();
             nt.assoc_base = subbed_base;
             nt.gat_args   = std::move(subbed_gat_args);
-            return pool_.alloc(std::move(nt));
+            return pool_->alloc(std::move(nt));
         }
         return t;
     }
@@ -1755,7 +1763,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         t.kind       = LogosType::Kind::TaggedPtr;
         t.struct_name = ts_name;   // tag system type name
         t.trait_name  = tname;     // dispatched trait name
-        return pool_.alloc(std::move(t));
+        return pool_->alloc(std::move(t));
     }
 
     if (tc == la::IMPL_TYPE) {
@@ -1763,7 +1771,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         LogosTypeBuilder t;
         t.kind = LogosType::Kind::ImplTrait;
         t.struct_name = tname;  // reuse struct_name to store trait name
-        return pool_.alloc(std::move(t));
+        return pool_->alloc(std::move(t));
     }
 
     if (tc == la::CLOSURE_TYPE) {
@@ -1780,7 +1788,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         t.closure_ret = node.has_key(la::RET_TYPE)
             ? resolve_type(map_of(node.get(la::RET_TYPE.code)))
             : void_t();
-        return pool_.alloc(std::move(t));
+        return pool_->alloc(std::move(t));
     }
 
     if (tc == la::FN_PTR_TYPE) {
@@ -1799,14 +1807,14 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         t.closure_ret = node.has_key(la::RET_TYPE)
             ? resolve_type(map_of(node.get(la::RET_TYPE.code)))
             : void_t();
-        return pool_.alloc(std::move(t));
+        return pool_->alloc(std::move(t));
     }
 
     if (tc == la::LIT_INT) {
         auto sv = str_of(node.get(la::VALUE.code));
         LogosTypeBuilder t; t.kind = LogosType::Kind::IntLit;
         t.const_val = parse_int_literal(sv);
-        return pool_.alloc(std::move(t));
+        return pool_->alloc(std::move(t));
     }
 
     if (tc == la::ARR_TYPE) {
@@ -1961,7 +1969,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         t.assoc_type_name = assoc;
         t.gat_args        = std::move(gat_args);
 
-        auto result = pool_.alloc(std::move(t));
+        auto result = pool_->alloc(std::move(t));
         // Propagate bounds for T::Item back into the context
         auto tit = traits_.find(trait_for_assoc);
         if (tit != traits_.end()) {
@@ -2014,7 +2022,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         t.kind = LogosType::Kind::Struct;
         t.struct_name = "HermesArr";
         t.type_args.push_back(elem_t);
-        return pool_.alloc(std::move(t));
+        return pool_->alloc(std::move(t));
     }
     if (tc == la::HERMES_MAP_TYPE) {
         auto key_name = str_of(node.get(la::TYPE.code));
@@ -2041,7 +2049,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
             LogosTypeBuilder vt{};
             vt.kind = LogosType::Kind::Struct;
             vt.struct_name = "AnyVal";
-            val_t = pool_.alloc(std::move(vt));
+            val_t = pool_->alloc(std::move(vt));
         } else {
             // C6-fix2: emit error for unsupported val type (previously silent error_t()).
             error(std::format("<{},{}>" "{{}} type: unsupported val type '{}'; "
@@ -2053,7 +2061,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         t.struct_name = "HermesMap";
         t.type_args.push_back(key_t);
         t.type_args.push_back(val_t);
-        return pool_.alloc(std::move(t));
+        return pool_->alloc(std::move(t));
     }
 
     if (tc == la::TYPE_REF) {
@@ -2158,7 +2166,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
             if (!epkg.empty()) t.pkg_name = epkg;
             t.type_args = std::move(args);
             t.lifetime_args = std::move(lt_args);
-            return pool_.alloc(std::move(t));
+            return pool_->alloc(std::move(t));
         }
         if (is_dtype) {
             if (dsi) check_type_bounds(std::string(name), dsi->type_params, args);
@@ -2167,7 +2175,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
             if (!dpkg.empty()) t.pkg_name = dpkg;
             t.type_args = std::move(args);
             t.lifetime_args = std::move(lt_args);
-            return pool_.alloc(std::move(t));
+            return pool_->alloc(std::move(t));
         }
         if (ssi) check_type_bounds(std::string(name), ssi->type_params, args);
         {
@@ -2176,7 +2184,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
             if (!spkg.empty()) t.pkg_name = spkg;
             t.type_args = std::move(args);
             t.lifetime_args = std::move(lt_args);
-            return pool_.alloc(std::move(t));
+            return pool_->alloc(std::move(t));
         }
     }
 

@@ -92,10 +92,8 @@ private:
     const LirMirrorTable* mirror_ = nullptr;
 
     lir_view::ExprRef expr_ref_of(const LExpr& e) const noexcept {
-        if (!mirror_ || !prog_) return {};
-        auto it = mirror_->expr.find(&e);
-        if (it == mirror_->expr.end()) return {};
-        return lir_view::ExprRef(prog_->type_pool.arena(), it->second);
+        if (!prog_ || e.mirror_offset_ == hermes::arena_offset_t{}) return {};
+        return lir_view::ExprRef(prog_->type_pool.arena(), e.mirror_offset_);
     }
     // Resolve an ExprRef back to its variant LExpr* via the mirror's reverse
     // map. Used inside view-handlers to recurse through gen_expr() on
@@ -107,16 +105,18 @@ private:
         return it->second;
     }
     lir_view::StmtRef stmt_ref_of(const LStmt& s) const noexcept {
-        if (!mirror_ || !prog_) return {};
-        auto it = mirror_->stmt.find(&s);
-        if (it == mirror_->stmt.end()) return {};
-        return lir_view::StmtRef(prog_->type_pool.arena(), it->second);
+        if (!prog_ || s.mirror_offset_ == hermes::arena_offset_t{}) return {};
+        return lir_view::StmtRef(prog_->type_pool.arena(), s.mirror_offset_);
     }
     lir_view::PatRef pat_ref_of(const Pattern& p) const noexcept {
         if (!mirror_ || !prog_) return {};
         auto it = mirror_->pat.find(&p);
         if (it == mirror_->pat.end()) return {};
         return lir_view::PatRef(prog_->type_pool.arena(), it->second);
+    }
+    lir_view::BlockRef block_ref_of(const LBlock& b) const noexcept {
+        if (!prog_ || b.mirror_offset_ == hermes::arena_offset_t{}) return {};
+        return lir_view::BlockRef(prog_->type_pool.arena(), b.mirror_offset_);
     }
     const LBlock* lblock_of(lir_view::BlockRef r) const noexcept {
         if (!mirror_) return nullptr;
@@ -364,10 +364,12 @@ private:
     bool gen_function_body(mlir::func::FuncOp func, const LFunction& fn);
 
     // ── Block ─────────────────────────────────────────────────────
-    void gen_block(const LBlock& block);
+    // Stage 3g.3: BlockRef / StmtRef in signatures so the dispatcher no
+    // longer round-trips offset → C++ block ptr → offset via lblock_of.
+    void gen_block(lir_view::BlockRef block);
 
     // ── Statements ────────────────────────────────────────────────
-    void gen_stmt(const LStmt& stmt);
+    void gen_stmt(lir_view::StmtRef stmt);
 
     void gen_stmt_kind(lir_view::SLetView v);
     void gen_stmt_kind(lir_view::SAssignView v);
@@ -414,6 +416,7 @@ private:
 
     // ── Expressions ───────────────────────────────────────────────
     mlir::Value gen_expr(const LExpr& e);
+    mlir::Value gen_expr(lir_view::ExprRef er);
 
     mlir::Value gen_expr_kind(lir_view::ELitIntView v,   TypeRef type);
     mlir::Value gen_expr_kind(lir_view::ELitFloatView v, TypeRef type);

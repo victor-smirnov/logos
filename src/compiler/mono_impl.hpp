@@ -37,10 +37,9 @@ public:
 private:
     lir::LProgram  in_;
     lir::LProgram  out_;
-    // Mirror of in_'s L-IR, populated at the start of run() so subst_*
-    // passes can read sub-nodes via lir_view::PatRef/ExprRef. Offsets refer
-    // into out_.type_pool.arena() (in_.type_pool is moved into out_ early).
-    std::unique_ptr<LirMirrorTable>  in_mirror_;
+    // Mirror of in_'s L-IR. Stage 3g.1: in_.mirror_table is the canonical
+    // home — pre-populated by sema's LirBuilder for LExprs and topped up
+    // by lir_mirror_emit_into() in run() for stmts/blocks/patterns.
     int            max_depth_;
     int            depth_ = 0;
     PackMap        cur_packs_;
@@ -49,16 +48,44 @@ protected:
     // Resolve an input Pattern* to its mirror PatRef. Returns null PatRef
     // when the mirror has no entry (caller falls back to variant access).
     lir_view::PatRef pat_ref_of(const lir::Pattern& p) const noexcept {
-        if (!in_mirror_) return {};
-        auto it = in_mirror_->pat.find(&p);
-        if (it == in_mirror_->pat.end()) return {};
+        auto& tbl = *in_.mirror_table;
+        auto it = tbl.pat.find(&p);
+        if (it == tbl.pat.end()) return {};
         return lir_view::PatRef(out_.type_pool.arena(), it->second);
     }
     lir_view::ExprRef expr_ref_of(const lir::LExpr& e) const noexcept {
-        if (!in_mirror_) return {};
-        auto it = in_mirror_->expr.find(&e);
-        if (it == in_mirror_->expr.end()) return {};
-        return lir_view::ExprRef(out_.type_pool.arena(), it->second);
+        if (e.mirror_offset_ == hermes::arena_offset_t{}) return {};
+        return lir_view::ExprRef(out_.type_pool.arena(), e.mirror_offset_);
+    }
+    lir_view::StmtRef stmt_ref_of(const lir::LStmt& s) const noexcept {
+        if (s.mirror_offset_ == hermes::arena_offset_t{}) return {};
+        return lir_view::StmtRef(out_.type_pool.arena(), s.mirror_offset_);
+    }
+    lir_view::BlockRef block_ref_of(const lir::LBlock& b) const noexcept {
+        if (b.mirror_offset_ == hermes::arena_offset_t{}) return {};
+        return lir_view::BlockRef(out_.type_pool.arena(), b.mirror_offset_);
+    }
+    lir_view::HermesValRef hv_ref_of(const lir::HermesVal& v) const noexcept {
+        if (v.mirror_offset_ == hermes::arena_offset_t{}) return {};
+        return lir_view::HermesValRef(out_.type_pool.arena(), v.mirror_offset_);
+    }
+    // Reverse maps: ref → variant pointer. Used by subst_* to look up the
+    // input variant whose kind is being substituted while reading sub-refs
+    // through views. The input mirror_table lives on `in_`.
+    const lir::LExpr* lexpr_of(lir_view::ExprRef r) const noexcept {
+        if (!r || !in_.mirror_table) return nullptr;
+        auto it = in_.mirror_table->expr_by_offset.find(uint32_t(r.offset()));
+        return it == in_.mirror_table->expr_by_offset.end() ? nullptr : it->second;
+    }
+    const lir::LStmt* lstmt_of(lir_view::StmtRef r) const noexcept {
+        if (!r || !in_.mirror_table) return nullptr;
+        auto it = in_.mirror_table->stmt_by_offset.find(uint32_t(r.offset()));
+        return it == in_.mirror_table->stmt_by_offset.end() ? nullptr : it->second;
+    }
+    const lir::LBlock* lblock_of(lir_view::BlockRef r) const noexcept {
+        if (!r || !in_.mirror_table) return nullptr;
+        auto it = in_.mirror_table->block_by_offset.find(uint32_t(r.offset()));
+        return it == in_.mirror_table->block_by_offset.end() ? nullptr : it->second;
     }
 private:
 
@@ -296,9 +323,9 @@ private:
 
     // ── Struct/enum needs collection (defined in mono_clone.cpp) ────
     void collect_struct_needs_from_output();
-    void collect_struct_needs_from_block(const lir::LBlock& b);
-    void collect_struct_needs_from_stmt(const lir::LStmt& st);
-    void collect_struct_needs_from_expr(const lir::LExpr& e);
+    void collect_struct_needs_from_block(lir_view::BlockRef b);
+    void collect_struct_needs_from_stmt(lir_view::StmtRef s);
+    void collect_struct_needs_from_expr(lir_view::ExprRef e);
 
     // ── Instantiation (defined in mono_clone.cpp) ─────────────────────────
     void instantiate_struct_templates();

@@ -18,6 +18,7 @@
 
 #include <logos/compiler/sema.hpp>   // LogosType, TypePool, SemaResult
 #include <logos/compiler/str_map.hpp>
+#include <logos/hermes/config.hpp>    // arena_offset_t
 #include <unordered_set>
 #include <string>
 
@@ -159,6 +160,7 @@ struct HVCapture {
 
 struct HermesVal {
     std::variant<HVNull, HVBool, HVInt, HVFloat, HVStr, HVMap, HVArray, HVCapture> kind;
+    mutable hermes::arena_offset_t mirror_offset_{};  // Stage 3g.2 back-pointer
 };
 
 // A Hermes SDN literal (@{...}, @[...], @scalar) lowered to a tree.
@@ -435,6 +437,11 @@ struct LExpr {
         ETry, EMatchExpr, ESizeOf, ETypeCodeOf, EBlockExpr,
         EHermesLit, EPtrArith, EPtrDiff, EReflectOf
     > kind;
+    // Stage 3g.2: back-pointer to this node's Hermes mirror in the program's
+    // arena. Set by LirMirrorEmitter (or LirBuilder's eager-emit path) on
+    // first emission; subsequent visits short-circuit. NULL_OFFSET = "not
+    // yet mirrored".
+    mutable hermes::arena_offset_t mirror_offset_{};
 };
 
 // ── Statement node payloads ───────────────────────────────────────────────
@@ -574,12 +581,14 @@ struct LStmt {
         SBreak, SContinue, SBlock, SFieldWrite, SIndexWrite, SFieldIndexWrite, SExprStmt, SMatch, SDelete, SForEach, SDerefWrite,
         SDrop, SDerefFieldWrite, STupleWrite, SLetElse, SChainFieldWrite
     > kind;
+    mutable hermes::arena_offset_t mirror_offset_{};  // Stage 3g.2 back-pointer
 };
 
 // ── Block ─────────────────────────────────────────────────────────────────
 
 struct LBlock {
     std::vector<LStmt> stmts;
+    mutable hermes::arena_offset_t mirror_offset_{};  // Stage 3g.2 back-pointer
 };
 
 // ── Top-level declarations ────────────────────────────────────────────────

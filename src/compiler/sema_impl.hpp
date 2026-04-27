@@ -79,7 +79,10 @@ public:
 private:
     // ── Type pool and primitives ─────────────────────────────────
 
-    TypePool pool_;
+    // Bound to the TypePool living inside the LProgram constructed in run()
+    // so eager mirror emits, type interning, and downstream stages share a
+    // single arena identity (no late std::move out of the SemaChecker).
+    TypePool* pool_ = nullptr;
 
     // prims_[int(Kind)] for primitive kinds.  TypeVar is not a primitive.
     // Size = int(Kind::Error) + 1 to cover all Kind values.
@@ -98,30 +101,30 @@ private:
     TypeRef make_ptr(bool mut, TypeRef pointee) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Ptr;
         t.mut_ptr = mut; t.pointee = pointee;
-        return pool_.alloc(t);
+        return pool_->alloc(t);
     }
     TypeRef make_ref(bool mut, TypeRef pointee, std::string lifetime = "") {
         LogosTypeBuilder t;
         t.kind = mut ? LogosType::Kind::MutRef : LogosType::Kind::Ref;
         t.pointee = pointee;
         t.lifetime = std::move(lifetime);
-        return pool_.alloc(std::move(t));
+        return pool_->alloc(std::move(t));
     }
     TypeRef make_array(TypeRef elem, uint64_t n, std::string_view symbolic = "") {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Array;
         t.elem = elem; t.arr_size = n;
         t.arr_size_var = std::string(symbolic);
-        return pool_.alloc(std::move(t));
+        return pool_->alloc(std::move(t));
     }
     TypeRef make_struct_type(std::string_view name, std::string_view pkg = {}) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Struct; t.struct_name = name;
         if (!pkg.empty()) t.pkg_name = std::string(pkg);
-        return pool_.alloc(std::move(t));
+        return pool_->alloc(std::move(t));
     }
     TypeRef make_datatype_type(std::string_view name, std::string_view pkg = {}) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::ZonedStruct; t.struct_name = std::string(name);
         if (!pkg.empty()) t.pkg_name = std::string(pkg);
-        return pool_.alloc(std::move(t));
+        return pool_->alloc(std::move(t));
     }
     TypeRef make_generic_datatype(std::string_view name,
                                    std::vector<TypeRef> args,
@@ -132,7 +135,7 @@ private:
         t.type_args     = std::move(args);
         t.lifetime_args = std::move(lt_args);
         if (!pkg.empty()) t.pkg_name = std::string(pkg);
-        return pool_.alloc(std::move(t));
+        return pool_->alloc(std::move(t));
     }
     TypeRef make_generic_struct(std::string_view name,
                                  std::vector<TypeRef> args,
@@ -143,29 +146,29 @@ private:
         t.type_args     = std::move(args);
         t.lifetime_args = std::move(lt_args);
         if (!pkg.empty()) t.pkg_name = std::string(pkg);
-        return pool_.alloc(std::move(t));
+        return pool_->alloc(std::move(t));
     }
     TypeRef make_enum_type(std::string_view name, std::string_view pkg = {}) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Enum; t.enum_name = name;
         if (!pkg.empty()) t.pkg_name = std::string(pkg);
-        return pool_.alloc(std::move(t));
+        return pool_->alloc(std::move(t));
     }
     TypeRef make_tuple_type(std::vector<TypeRef> elems) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Tuple;
         t.tuple_elems = std::move(elems);
-        return pool_.alloc(std::move(t));
+        return pool_->alloc(std::move(t));
     }
     TypeRef make_closure_type(std::vector<TypeRef> params, TypeRef ret) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Closure;
         t.closure_params = std::move(params);
         t.closure_ret = ret;
-        return pool_.alloc(std::move(t));
+        return pool_->alloc(std::move(t));
     }
     TypeRef make_fn_ptr_type(std::vector<TypeRef> params, TypeRef ret) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::FnPtr;
         t.closure_params = std::move(params);
         t.closure_ret = ret ? ret : void_t();
-        return pool_.alloc(std::move(t));
+        return pool_->alloc(std::move(t));
     }
     // Coerce a non-capturing closure to fn ptr when target type is FnPtr.
     // Returns true if coercion was applied (arg's type is changed to FnPtr).
@@ -179,24 +182,29 @@ private:
         if (at.closure_params().size() != er.closure_params().size()) return false;
         for (size_t i = 0; i < at.closure_params().size(); ++i)
             if (!types_compatible(at.closure_params()[i], er.closure_params()[i])) return false;
-        box->inner->as_fn_ptr = true;
-        arg->type = make_fn_ptr_type(at.closure_params(), at.closure_ret());
+        // Rebuild via builder so the Hermes mirror reflects as_fn_ptr=true
+        // and the FnPtr-typed result. In-place mutation would leave the
+        // stale closure mirror that view-based readers (mono) pick up.
+        auto inner = std::move(box->inner);
+        inner->as_fn_ptr = true;
+        TypeRef fp_ty = make_fn_ptr_type(at.closure_params(), at.closure_ret());
+        arg = builder().closure_box(std::move(inner), fp_ty);
         return true;
     }
     TypeRef make_slice_type(TypeRef elem) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Slice;
         t.elem = elem;
-        return pool_.alloc(std::move(t));
+        return pool_->alloc(std::move(t));
     }
     TypeRef make_trait_object(std::string_view tname) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::TraitObject;
         t.trait_name = std::string(tname);
-        return pool_.alloc(std::move(t));
+        return pool_->alloc(std::move(t));
     }
     TypeRef make_typevar(std::string_view name) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::TypeVar;
         t.type_var_name = std::string(name);
-        return pool_.alloc(t);
+        return pool_->alloc(t);
     }
 
     TypeRef lookup_type_by_name(std::string_view name);
@@ -212,7 +220,7 @@ private:
     }
 
     lir::LExprPtr error_expr() {
-        return make_expr(error_t(), lir::ELitInt{0});
+        return builder().lit_int(0, error_t());
     }
 
     // Stage 3f L-IR builder. Bound to cur_prog_ when sema is lowering a
@@ -743,7 +751,7 @@ private:
                 LogosTypeBuilder c; c.kind = LogosType::Kind::ConstVar;
                 c.type_var_name = tp.name;
                 c.pointee = tp.const_type;
-                current_type_params_[tp.name] = pool_.alloc(std::move(c));
+                current_type_params_[tp.name] = pool_->alloc(std::move(c));
             } else {
                 current_type_params_[tp.name] = make_typevar(tp.name);
             }
@@ -1109,7 +1117,7 @@ inline TypeRef unify_int(TypeRef a, TypeRef b) noexcept {
 // the cast is inserted even if the static narrow→narrow widening rule would
 // otherwise reject it. Lets `push_u8(0u64)` and similar typed-but-trivially-
 // fits literals coerce without an explicit `as` cast.
-inline void widen_int_expr(lir::LExprPtr& e, TypeRef target) {
+inline void widen_int_expr(lir::LExprPtr& e, TypeRef target, LirBuilder b) {
     if (!e || !target || !e->type) return;
     auto ek = TypeRef(e->type).kind();
     auto tk = TypeRef(target).kind();
@@ -1121,10 +1129,7 @@ inline void widen_int_expr(lir::LExprPtr& e, TypeRef target) {
                 ok = true;
     }
     if (!ok) return;
-    auto inner = std::move(e);
-    e = std::make_unique<lir::LExpr>();
-    e->kind = lir::ECast{std::move(inner)};
-    e->type = target;
+    e = b.cast(std::move(e), target);
 }
 
 // Predicate used during overload resolution: types are compatible, or the
