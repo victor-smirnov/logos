@@ -879,42 +879,65 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                             error(std::format("call to '{}' arg {}: value {} does not fit in {}",
                                   callee, i + 1, *v, type_str(pt)));
                 // Check array literal elements against narrow array param type.
-                if (TypeRef(at).kind() == LogosType::Kind::Array && TypeRef(pt).kind() == LogosType::Kind::Array && TypeRef(pt).elem())
-                    if (auto* al = std::get_if<lir::EArrLit>(&arg_exprs[i]->kind))
-                        for (size_t ei = 0; ei < al->elems.size(); ++ei)
-                            if (TypeRef(al->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                                if (auto v = get_intlit_value(al->elems[ei]))
+                if (TypeRef(at).kind() == LogosType::Kind::Array && TypeRef(pt).kind() == LogosType::Kind::Array && TypeRef(pt).elem()) {
+                    auto vr = expr_ref_of(*arg_exprs[i]);
+                    if (vr.kind() == lir_schema::expr::Code::ArrLit) {
+                        lir_view::EArrLitView al{vr};
+                        for (uint64_t ei = 0; ei < al.count(); ++ei) {
+                            auto el = al.elem(ei);
+                            if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                if (auto v = get_intlit_value(el))
                                     if (!intlit_fits(*v, TypeRef(pt).elem().kind()))
                                         error(std::format("call to '{}' arg {}: array element {}: value {} does not fit in {}",
                                               callee, i + 1, ei, *v, type_str(TypeRef(pt).elem())));
+                        }
+                    }
+                }
                 // Check tuple literal elements against narrow tuple param element types.
-                if (TypeRef(at).kind() == LogosType::Kind::Tuple && TypeRef(pt).kind() == LogosType::Kind::Tuple)
-                    if (auto* tl = std::get_if<lir::ETupleLit>(&arg_exprs[i]->kind))
-                        for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(pt).tuple_elems().size(); ++ei) {
-                            if (TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                                if (auto v = get_intlit_value(tl->elems[ei]))
+                if (TypeRef(at).kind() == LogosType::Kind::Tuple && TypeRef(pt).kind() == LogosType::Kind::Tuple) {
+                    auto vr = expr_ref_of(*arg_exprs[i]);
+                    if (vr.kind() == lir_schema::expr::Code::TupleLit) {
+                        lir_view::ETupleLitView tl{vr};
+                        uint64_t ei = 0;
+                        tl.each_elem([&](lir_view::ExprRef el) {
+                            if (ei >= TypeRef(pt).tuple_elems().size()) { ++ei; return; }
+                            if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                if (auto v = get_intlit_value(el))
                                     if (TypeRef(pt).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).kind()))
                                         error(std::format("call to '{}' arg {}: tuple element {}: value {} does not fit in {}",
                                               callee, i + 1, ei, *v, type_str(TypeRef(pt).tuple_elems()[ei])));
                             if (TypeRef(pt).tuple_elems()[ei] && TypeRef(TypeRef(pt).tuple_elems()[ei]).kind() == LogosType::Kind::Array &&
-                                TypeRef(TypeRef(pt).tuple_elems()[ei]).elem() && TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::Array)
-                                if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
-                                    for (size_t ii = 0; ii < ial->elems.size(); ++ii)
-                                        if (TypeRef(ial->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                            if (auto v = get_intlit_value(ial->elems[ii]))
-                                                if (!intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).elem().kind()))
-                                                    error(std::format("call to '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
-                                                          callee, i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).elem())));
+                                TypeRef(TypeRef(pt).tuple_elems()[ei]).elem() && el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Array &&
+                                el.kind() == lir_schema::expr::Code::ArrLit) {
+                                lir_view::EArrLitView ial{el};
+                                for (uint64_t ii = 0; ii < ial.count(); ++ii) {
+                                    auto iel = ial.elem(ii);
+                                    if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                        if (auto v = get_intlit_value(iel))
+                                            if (!intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).elem().kind()))
+                                                error(std::format("call to '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
+                                                      callee, i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).elem())));
+                                }
+                            }
                             if (TypeRef(pt).tuple_elems()[ei] && TypeRef(TypeRef(pt).tuple_elems()[ei]).kind() == LogosType::Kind::Tuple &&
-                                TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::Tuple)
-                                if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
-                                    for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems().size(); ++ii)
-                                        if (TypeRef(itl->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                            if (auto v = get_intlit_value(itl->elems[ii]))
-                                                if (TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
-                                                    error(std::format("call to '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                          callee, i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii])));
-                        }
+                                el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Tuple &&
+                                el.kind() == lir_schema::expr::Code::TupleLit) {
+                                lir_view::ETupleLitView itl{el};
+                                uint64_t ii = 0;
+                                itl.each_elem([&](lir_view::ExprRef iel) {
+                                    if (ii >= TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems().size()) { ++ii; return; }
+                                    if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                        if (auto v = get_intlit_value(iel))
+                                            if (TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
+                                                error(std::format("call to '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
+                                                      callee, i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii])));
+                                    ++ii;
+                                });
+                            }
+                            ++ei;
+                        });
+                    }
+                }
             }
         }
 
@@ -1062,42 +1085,65 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                         error(std::format("call to '{}' arg {}: value {} does not fit in {}",
                               callee, i + 1, *v, type_str(pt)));
             // Check array literal elements against narrow array param type.
-            if (TypeRef(at).kind() == LogosType::Kind::Array && TypeRef(pt).kind() == LogosType::Kind::Array && TypeRef(pt).elem())
-                if (auto* al = std::get_if<lir::EArrLit>(&arg_exprs[i]->kind))
-                    for (size_t ei = 0; ei < al->elems.size(); ++ei)
-                        if (TypeRef(al->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(al->elems[ei]))
+            if (TypeRef(at).kind() == LogosType::Kind::Array && TypeRef(pt).kind() == LogosType::Kind::Array && TypeRef(pt).elem()) {
+                auto vr = expr_ref_of(*arg_exprs[i]);
+                if (vr.kind() == lir_schema::expr::Code::ArrLit) {
+                    lir_view::EArrLitView al{vr};
+                    for (uint64_t ei = 0; ei < al.count(); ++ei) {
+                        auto el = al.elem(ei);
+                        if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                            if (auto v = get_intlit_value(el))
                                 if (!intlit_fits(*v, TypeRef(pt).elem().kind()))
                                     error(std::format("call to '{}' arg {}: array element {}: value {} does not fit in {}",
                                           callee, i + 1, ei, *v, type_str(TypeRef(pt).elem())));
+                    }
+                }
+            }
             // Check tuple literal elements against narrow tuple param element types.
-            if (TypeRef(at).kind() == LogosType::Kind::Tuple && TypeRef(pt).kind() == LogosType::Kind::Tuple)
-                if (auto* tl = std::get_if<lir::ETupleLit>(&arg_exprs[i]->kind))
-                    for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(pt).tuple_elems().size(); ++ei) {
-                        if (TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(tl->elems[ei]))
+            if (TypeRef(at).kind() == LogosType::Kind::Tuple && TypeRef(pt).kind() == LogosType::Kind::Tuple) {
+                auto vr = expr_ref_of(*arg_exprs[i]);
+                if (vr.kind() == lir_schema::expr::Code::TupleLit) {
+                    lir_view::ETupleLitView tl{vr};
+                    uint64_t ei = 0;
+                    tl.each_elem([&](lir_view::ExprRef el) {
+                        if (ei >= TypeRef(pt).tuple_elems().size()) { ++ei; return; }
+                        if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                            if (auto v = get_intlit_value(el))
                                 if (TypeRef(pt).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).kind()))
                                     error(std::format("call to '{}' arg {}: tuple element {}: value {} does not fit in {}",
                                           callee, i + 1, ei, *v, type_str(TypeRef(pt).tuple_elems()[ei])));
                         if (TypeRef(pt).tuple_elems()[ei] && TypeRef(TypeRef(pt).tuple_elems()[ei]).kind() == LogosType::Kind::Array &&
-                            TypeRef(TypeRef(pt).tuple_elems()[ei]).elem() && TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::Array)
-                            if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
-                                for (size_t ii = 0; ii < ial->elems.size(); ++ii)
-                                    if (TypeRef(ial->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                        if (auto v = get_intlit_value(ial->elems[ii]))
-                                            if (!intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).elem().kind()))
-                                                error(std::format("call to '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
-                                                      callee, i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).elem())));
+                            TypeRef(TypeRef(pt).tuple_elems()[ei]).elem() && el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Array &&
+                            el.kind() == lir_schema::expr::Code::ArrLit) {
+                            lir_view::EArrLitView ial{el};
+                            for (uint64_t ii = 0; ii < ial.count(); ++ii) {
+                                auto iel = ial.elem(ii);
+                                if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                    if (auto v = get_intlit_value(iel))
+                                        if (!intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).elem().kind()))
+                                            error(std::format("call to '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
+                                                  callee, i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).elem())));
+                            }
+                        }
                         if (TypeRef(pt).tuple_elems()[ei] && TypeRef(TypeRef(pt).tuple_elems()[ei]).kind() == LogosType::Kind::Tuple &&
-                            TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::Tuple)
-                            if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
-                                for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems().size(); ++ii)
-                                    if (TypeRef(itl->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                        if (auto v = get_intlit_value(itl->elems[ii]))
-                                            if (TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
-                                                error(std::format("call to '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                      callee, i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii])));
-                    }
+                            el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Tuple &&
+                            el.kind() == lir_schema::expr::Code::TupleLit) {
+                            lir_view::ETupleLitView itl{el};
+                            uint64_t ii = 0;
+                            itl.each_elem([&](lir_view::ExprRef iel) {
+                                if (ii >= TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems().size()) { ++ii; return; }
+                                if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                    if (auto v = get_intlit_value(iel))
+                                        if (TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
+                                            error(std::format("call to '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
+                                                  callee, i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii])));
+                                ++ii;
+                            });
+                        }
+                        ++ei;
+                    });
+                }
+            }
         }
     }
 
@@ -1332,42 +1378,65 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                             error(std::format("call to '{}' arg {}: value {} does not fit in {}",
                                   callee_diag, i + 1, *v, type_str(pt)));
                 // Check array literal elements against narrow array param type.
-                if (TypeRef(at).kind() == LogosType::Kind::Array && TypeRef(pt).kind() == LogosType::Kind::Array && TypeRef(pt).elem())
-                    if (auto* al = std::get_if<lir::EArrLit>(&arg_exprs[i]->kind))
-                        for (size_t ei = 0; ei < al->elems.size(); ++ei)
-                            if (TypeRef(al->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                                if (auto v = get_intlit_value(al->elems[ei]))
+                if (TypeRef(at).kind() == LogosType::Kind::Array && TypeRef(pt).kind() == LogosType::Kind::Array && TypeRef(pt).elem()) {
+                    auto vr = expr_ref_of(*arg_exprs[i]);
+                    if (vr.kind() == lir_schema::expr::Code::ArrLit) {
+                        lir_view::EArrLitView al{vr};
+                        for (uint64_t ei = 0; ei < al.count(); ++ei) {
+                            auto el = al.elem(ei);
+                            if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                if (auto v = get_intlit_value(el))
                                     if (!intlit_fits(*v, TypeRef(pt).elem().kind()))
                                         error(std::format("call to '{}' arg {}: array element {}: value {} does not fit in {}",
                                               callee_diag, i + 1, ei, *v, type_str(TypeRef(pt).elem())));
+                        }
+                    }
+                }
                 // Check tuple literal elements against narrow tuple param element types.
-                if (TypeRef(at).kind() == LogosType::Kind::Tuple && TypeRef(pt).kind() == LogosType::Kind::Tuple)
-                    if (auto* tl = std::get_if<lir::ETupleLit>(&arg_exprs[i]->kind))
-                        for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(pt).tuple_elems().size(); ++ei) {
-                            if (TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                                if (auto v = get_intlit_value(tl->elems[ei]))
+                if (TypeRef(at).kind() == LogosType::Kind::Tuple && TypeRef(pt).kind() == LogosType::Kind::Tuple) {
+                    auto vr = expr_ref_of(*arg_exprs[i]);
+                    if (vr.kind() == lir_schema::expr::Code::TupleLit) {
+                        lir_view::ETupleLitView tl{vr};
+                        uint64_t ei = 0;
+                        tl.each_elem([&](lir_view::ExprRef el) {
+                            if (ei >= TypeRef(pt).tuple_elems().size()) { ++ei; return; }
+                            if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                if (auto v = get_intlit_value(el))
                                     if (TypeRef(pt).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).kind()))
                                         error(std::format("call to '{}' arg {}: tuple element {}: value {} does not fit in {}",
                                               callee_diag, i + 1, ei, *v, type_str(TypeRef(pt).tuple_elems()[ei])));
                             if (TypeRef(pt).tuple_elems()[ei] && TypeRef(TypeRef(pt).tuple_elems()[ei]).kind() == LogosType::Kind::Array &&
-                                TypeRef(TypeRef(pt).tuple_elems()[ei]).elem() && TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::Array)
-                                if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
-                                    for (size_t ii = 0; ii < ial->elems.size(); ++ii)
-                                        if (TypeRef(ial->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                            if (auto v = get_intlit_value(ial->elems[ii]))
-                                                if (!intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).elem().kind()))
-                                                    error(std::format("call to '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
-                                                          callee_diag, i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).elem())));
+                                TypeRef(TypeRef(pt).tuple_elems()[ei]).elem() && el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Array &&
+                                el.kind() == lir_schema::expr::Code::ArrLit) {
+                                lir_view::EArrLitView ial{el};
+                                for (uint64_t ii = 0; ii < ial.count(); ++ii) {
+                                    auto iel = ial.elem(ii);
+                                    if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                        if (auto v = get_intlit_value(iel))
+                                            if (!intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).elem().kind()))
+                                                error(std::format("call to '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
+                                                      callee_diag, i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).elem())));
+                                }
+                            }
                             if (TypeRef(pt).tuple_elems()[ei] && TypeRef(TypeRef(pt).tuple_elems()[ei]).kind() == LogosType::Kind::Tuple &&
-                                TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::Tuple)
-                                if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
-                                    for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems().size(); ++ii)
-                                        if (TypeRef(itl->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                            if (auto v = get_intlit_value(itl->elems[ii]))
-                                                if (TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
-                                                    error(std::format("call to '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                          callee_diag, i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii])));
-                        }
+                                el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Tuple &&
+                                el.kind() == lir_schema::expr::Code::TupleLit) {
+                                lir_view::ETupleLitView itl{el};
+                                uint64_t ii = 0;
+                                itl.each_elem([&](lir_view::ExprRef iel) {
+                                    if (ii >= TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems().size()) { ++ii; return; }
+                                    if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                        if (auto v = get_intlit_value(iel))
+                                            if (TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
+                                                error(std::format("call to '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
+                                                      callee_diag, i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii])));
+                                    ++ii;
+                                });
+                            }
+                            ++ei;
+                        });
+                    }
+                }
             }
         }
     }
@@ -1968,43 +2037,65 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                         error(std::format("method '{}' arg {}: value {} does not fit in {}",
                                                           std::string(method_name), i + 1, *v, type_str(pt)));
                             // Check array literal elements against narrow array param type.
-                            if (TypeRef(at).kind() == LogosType::Kind::Array && TypeRef(pt).kind() == LogosType::Kind::Array && TypeRef(pt).elem())
-                                if (auto* al = std::get_if<lir::EArrLit>(&arg_exprs[i]->kind))
-                                    for (size_t ei = 0; ei < al->elems.size(); ++ei)
-                                        if (TypeRef(al->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                                            if (auto v = get_intlit_value(al->elems[ei]))
+                            if (TypeRef(at).kind() == LogosType::Kind::Array && TypeRef(pt).kind() == LogosType::Kind::Array && TypeRef(pt).elem()) {
+                                auto vr = expr_ref_of(*arg_exprs[i]);
+                                if (vr.kind() == lir_schema::expr::Code::ArrLit) {
+                                    lir_view::EArrLitView al{vr};
+                                    for (uint64_t ei = 0; ei < al.count(); ++ei) {
+                                        auto el = al.elem(ei);
+                                        if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                            if (auto v = get_intlit_value(el))
                                                 if (!intlit_fits(*v, TypeRef(pt).elem().kind()))
                                                     error(std::format("method '{}' arg {}: array element {}: value {} does not fit in {}",
                                                                       std::string(method_name), i + 1, ei, *v, type_str(TypeRef(pt).elem())));
+                                    }
+                                }
+                            }
                             // Check tuple literal elements against narrow tuple param element types.
-                            if (TypeRef(at).kind() == LogosType::Kind::Tuple && TypeRef(pt).kind() == LogosType::Kind::Tuple)
-                                if (auto* tl = std::get_if<lir::ETupleLit>(&arg_exprs[i]->kind))
-                                    for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(pt).tuple_elems().size(); ++ei) {
-                                        if (TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                                            if (auto v = get_intlit_value(tl->elems[ei]))
+                            if (TypeRef(at).kind() == LogosType::Kind::Tuple && TypeRef(pt).kind() == LogosType::Kind::Tuple) {
+                                auto vr = expr_ref_of(*arg_exprs[i]);
+                                if (vr.kind() == lir_schema::expr::Code::TupleLit) {
+                                    lir_view::ETupleLitView tl{vr};
+                                    uint64_t ei = 0;
+                                    tl.each_elem([&](lir_view::ExprRef el) {
+                                        if (ei >= TypeRef(pt).tuple_elems().size()) { ++ei; return; }
+                                        if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                            if (auto v = get_intlit_value(el))
                                                 if (TypeRef(pt).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).kind()))
                                                     error(std::format("method '{}' arg {}: tuple element {}: value {} does not fit in {}",
                                                                       std::string(method_name), i + 1, ei, *v, type_str(TypeRef(pt).tuple_elems()[ei])));
                                         if (TypeRef(pt).tuple_elems()[ei] && TypeRef(TypeRef(pt).tuple_elems()[ei]).kind() == LogosType::Kind::Array &&
-                                            TypeRef(TypeRef(pt).tuple_elems()[ei]).elem() && TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::Array)
-                                            if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
-                                                for (size_t ii = 0; ii < ial->elems.size(); ++ii)
-                                                    if (TypeRef(ial->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                                        if (auto v = get_intlit_value(ial->elems[ii]))
-                                                            if (!intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).elem().kind()))
-                                                                error(std::format("method '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
-                                                                      std::string(method_name), i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).elem())));
-
-                                        if (TypeRef(pt).tuple_elems()[ei] && TypeRef(TypeRef(pt).tuple_elems()[ei]).kind() == LogosType::Kind::Tuple &&
-                                            TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::Tuple)
-                                            if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
-                                                for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems().size(); ++ii)
-                                                    if (TypeRef(itl->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                                        if (auto v = get_intlit_value(itl->elems[ii]))
-                                                            if (TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
-                                                                error(std::format("method '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                                      std::string(method_name), i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii])));
+                                            TypeRef(TypeRef(pt).tuple_elems()[ei]).elem() && el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Array &&
+                                            el.kind() == lir_schema::expr::Code::ArrLit) {
+                                            lir_view::EArrLitView ial{el};
+                                            for (uint64_t ii = 0; ii < ial.count(); ++ii) {
+                                                auto iel = ial.elem(ii);
+                                                if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                                    if (auto v = get_intlit_value(iel))
+                                                        if (!intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).elem().kind()))
+                                                            error(std::format("method '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
+                                                                  std::string(method_name), i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).elem())));
+                                            }
                                         }
+                                        if (TypeRef(pt).tuple_elems()[ei] && TypeRef(TypeRef(pt).tuple_elems()[ei]).kind() == LogosType::Kind::Tuple &&
+                                            el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Tuple &&
+                                            el.kind() == lir_schema::expr::Code::TupleLit) {
+                                            lir_view::ETupleLitView itl{el};
+                                            uint64_t ii = 0;
+                                            itl.each_elem([&](lir_view::ExprRef iel) {
+                                                if (ii >= TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems().size()) { ++ii; return; }
+                                                if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                                    if (auto v = get_intlit_value(iel))
+                                                        if (TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
+                                                            error(std::format("method '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
+                                                                  std::string(method_name), i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii])));
+                                                ++ii;
+                                            });
+                                        }
+                                        ++ei;
+                                    });
+                                }
+                            }
                         }
                     }
                     // Return type: substitute Self → &dyn Trait
@@ -2175,43 +2266,65 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                                   std::string(method_name), i + 1,
                                                   *v, type_str(pt)));
                     // Check array literal elements against narrow array param type.
-                    if (TypeRef(at).kind() == LogosType::Kind::Array && TypeRef(pt).kind() == LogosType::Kind::Array && TypeRef(pt).elem())
-                        if (auto* al = std::get_if<lir::EArrLit>(&arg_exprs[i]->kind))
-                            for (size_t ei = 0; ei < al->elems.size(); ++ei)
-                                if (TypeRef(al->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                                    if (auto v = get_intlit_value(al->elems[ei]))
+                    if (TypeRef(at).kind() == LogosType::Kind::Array && TypeRef(pt).kind() == LogosType::Kind::Array && TypeRef(pt).elem()) {
+                        auto vr = expr_ref_of(*arg_exprs[i]);
+                        if (vr.kind() == lir_schema::expr::Code::ArrLit) {
+                            lir_view::EArrLitView al{vr};
+                            for (uint64_t ei = 0; ei < al.count(); ++ei) {
+                                auto el = al.elem(ei);
+                                if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                    if (auto v = get_intlit_value(el))
                                         if (!intlit_fits(*v, TypeRef(pt).elem().kind()))
                                             error(std::format("method '{}' arg {}: array element {}: value {} does not fit in {}",
                                                               std::string(method_name), i + 1, ei, *v, type_str(TypeRef(pt).elem())));
+                            }
+                        }
+                    }
                     // Check tuple literal elements against narrow tuple param element types.
-                    if (TypeRef(at).kind() == LogosType::Kind::Tuple && TypeRef(pt).kind() == LogosType::Kind::Tuple)
-                        if (auto* tl = std::get_if<lir::ETupleLit>(&arg_exprs[i]->kind))
-                            for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(pt).tuple_elems().size(); ++ei) {
-                                if (TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                                    if (auto v = get_intlit_value(tl->elems[ei]))
+                    if (TypeRef(at).kind() == LogosType::Kind::Tuple && TypeRef(pt).kind() == LogosType::Kind::Tuple) {
+                        auto vr = expr_ref_of(*arg_exprs[i]);
+                        if (vr.kind() == lir_schema::expr::Code::TupleLit) {
+                            lir_view::ETupleLitView tl{vr};
+                            uint64_t ei = 0;
+                            tl.each_elem([&](lir_view::ExprRef el) {
+                                if (ei >= TypeRef(pt).tuple_elems().size()) { ++ei; return; }
+                                if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                    if (auto v = get_intlit_value(el))
                                         if (TypeRef(pt).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).kind()))
                                             error(std::format("method '{}' arg {}: tuple element {}: value {} does not fit in {}",
                                                               std::string(method_name), i + 1, ei, *v, type_str(TypeRef(pt).tuple_elems()[ei])));
                                 if (TypeRef(pt).tuple_elems()[ei] && TypeRef(TypeRef(pt).tuple_elems()[ei]).kind() == LogosType::Kind::Array &&
-                                    TypeRef(TypeRef(pt).tuple_elems()[ei]).elem() && TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::Array)
-                                    if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
-                                        for (size_t ii = 0; ii < ial->elems.size(); ++ii)
-                                            if (TypeRef(ial->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                                if (auto v = get_intlit_value(ial->elems[ii]))
-                                                    if (!intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).elem().kind()))
-                                                        error(std::format("method '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
-                                                              std::string(method_name), i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).elem())));
-
-                                if (TypeRef(pt).tuple_elems()[ei] && TypeRef(TypeRef(pt).tuple_elems()[ei]).kind() == LogosType::Kind::Tuple &&
-                                    TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::Tuple)
-                                    if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
-                                        for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems().size(); ++ii)
-                                            if (TypeRef(itl->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                                if (auto v = get_intlit_value(itl->elems[ii]))
-                                                    if (TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
-                                                        error(std::format("method '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                              std::string(method_name), i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii])));
+                                    TypeRef(TypeRef(pt).tuple_elems()[ei]).elem() && el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Array &&
+                                    el.kind() == lir_schema::expr::Code::ArrLit) {
+                                    lir_view::EArrLitView ial{el};
+                                    for (uint64_t ii = 0; ii < ial.count(); ++ii) {
+                                        auto iel = ial.elem(ii);
+                                        if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                            if (auto v = get_intlit_value(iel))
+                                                if (!intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).elem().kind()))
+                                                    error(std::format("method '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
+                                                          std::string(method_name), i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).elem())));
+                                    }
                                 }
+                                if (TypeRef(pt).tuple_elems()[ei] && TypeRef(TypeRef(pt).tuple_elems()[ei]).kind() == LogosType::Kind::Tuple &&
+                                    el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Tuple &&
+                                    el.kind() == lir_schema::expr::Code::TupleLit) {
+                                    lir_view::ETupleLitView itl{el};
+                                    uint64_t ii = 0;
+                                    itl.each_elem([&](lir_view::ExprRef iel) {
+                                        if (ii >= TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems().size()) { ++ii; return; }
+                                        if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                            if (auto v = get_intlit_value(iel))
+                                                if (TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
+                                                    error(std::format("method '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
+                                                          std::string(method_name), i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii])));
+                                        ++ii;
+                                    });
+                                }
+                                ++ei;
+                            });
+                        }
+                    }
                 }
             }
 
@@ -2731,43 +2844,65 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                             error(std::format("method '{}' arg {}: value {} does not fit in {}",
                                   mangled, i + 1, *v, type_str(pt)));
                 // Check array literal elements against narrow array param type.
-                if (TypeRef(at).kind() == LogosType::Kind::Array && TypeRef(pt).kind() == LogosType::Kind::Array && TypeRef(pt).elem())
-                    if (auto* al = std::get_if<lir::EArrLit>(&arg_exprs[i]->kind))
-                        for (size_t ei = 0; ei < al->elems.size(); ++ei)
-                            if (TypeRef(al->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                                if (auto v = get_intlit_value(al->elems[ei]))
+                if (TypeRef(at).kind() == LogosType::Kind::Array && TypeRef(pt).kind() == LogosType::Kind::Array && TypeRef(pt).elem()) {
+                    auto vr = expr_ref_of(*arg_exprs[i]);
+                    if (vr.kind() == lir_schema::expr::Code::ArrLit) {
+                        lir_view::EArrLitView al{vr};
+                        for (uint64_t ei = 0; ei < al.count(); ++ei) {
+                            auto el = al.elem(ei);
+                            if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                if (auto v = get_intlit_value(el))
                                     if (!intlit_fits(*v, TypeRef(pt).elem().kind()))
                                         error(std::format("method '{}' arg {}: array element {}: value {} does not fit in {}",
                                               mangled, i + 1, ei, *v, type_str(TypeRef(pt).elem())));
+                        }
+                    }
+                }
                 // Check tuple literal elements against narrow tuple param element types.
-                if (TypeRef(at).kind() == LogosType::Kind::Tuple && TypeRef(pt).kind() == LogosType::Kind::Tuple)
-                    if (auto* tl = std::get_if<lir::ETupleLit>(&arg_exprs[i]->kind))
-                        for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(pt).tuple_elems().size(); ++ei) {
-                            if (TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                                if (auto v = get_intlit_value(tl->elems[ei]))
+                if (TypeRef(at).kind() == LogosType::Kind::Tuple && TypeRef(pt).kind() == LogosType::Kind::Tuple) {
+                    auto vr = expr_ref_of(*arg_exprs[i]);
+                    if (vr.kind() == lir_schema::expr::Code::TupleLit) {
+                        lir_view::ETupleLitView tl{vr};
+                        uint64_t ei = 0;
+                        tl.each_elem([&](lir_view::ExprRef el) {
+                            if (ei >= TypeRef(pt).tuple_elems().size()) { ++ei; return; }
+                            if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                if (auto v = get_intlit_value(el))
                                     if (TypeRef(pt).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).kind()))
                                         error(std::format("method '{}' arg {}: tuple element {}: value {} does not fit in {}",
                                               mangled, i + 1, ei, *v, type_str(TypeRef(pt).tuple_elems()[ei])));
                             if (TypeRef(pt).tuple_elems()[ei] && TypeRef(TypeRef(pt).tuple_elems()[ei]).kind() == LogosType::Kind::Array &&
-                                TypeRef(TypeRef(pt).tuple_elems()[ei]).elem() && TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::Array)
-                                if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
-                                    for (size_t ii = 0; ii < ial->elems.size(); ++ii)
-                                        if (TypeRef(ial->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                            if (auto v = get_intlit_value(ial->elems[ii]))
-                                                if (!intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).elem().kind()))
-                                                    error(std::format("method '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
-                                                          mangled, i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).elem())));
-
-                            if (TypeRef(pt).tuple_elems()[ei] && TypeRef(TypeRef(pt).tuple_elems()[ei]).kind() == LogosType::Kind::Tuple &&
-                                TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::Tuple)
-                                if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
-                                    for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems().size(); ++ii)
-                                        if (TypeRef(itl->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                            if (auto v = get_intlit_value(itl->elems[ii]))
-                                                if (TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
-                                                    error(std::format("method '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                          mangled, i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii])));
+                                TypeRef(TypeRef(pt).tuple_elems()[ei]).elem() && el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Array &&
+                                el.kind() == lir_schema::expr::Code::ArrLit) {
+                                lir_view::EArrLitView ial{el};
+                                for (uint64_t ii = 0; ii < ial.count(); ++ii) {
+                                    auto iel = ial.elem(ii);
+                                    if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                        if (auto v = get_intlit_value(iel))
+                                            if (!intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).elem().kind()))
+                                                error(std::format("method '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
+                                                      mangled, i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).elem())));
+                                }
                             }
+                            if (TypeRef(pt).tuple_elems()[ei] && TypeRef(TypeRef(pt).tuple_elems()[ei]).kind() == LogosType::Kind::Tuple &&
+                                el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Tuple &&
+                                el.kind() == lir_schema::expr::Code::TupleLit) {
+                                lir_view::ETupleLitView itl{el};
+                                uint64_t ii = 0;
+                                itl.each_elem([&](lir_view::ExprRef iel) {
+                                    if (ii >= TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems().size()) { ++ii; return; }
+                                    if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                        if (auto v = get_intlit_value(iel))
+                                            if (TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
+                                                error(std::format("method '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
+                                                      mangled, i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii])));
+                                    ++ii;
+                                });
+                            }
+                            ++ei;
+                        });
+                    }
+                }
             }
         }
     }
@@ -3264,43 +3399,65 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                               sname, fname, *v, type_str(ft)));
             // Check array literal elements against narrow array field type.
             if (ft && TypeRef(ft).kind() == LogosType::Kind::Array && TypeRef(ft).elem() &&
-                TypeRef(fval->type).kind() == LogosType::Kind::Array)
-                if (auto* al = std::get_if<lir::EArrLit>(&fval->kind))
-                    for (size_t i = 0; i < al->elems.size(); ++i)
-                        if (TypeRef(al->elems[i]->type).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(al->elems[i]))
+                TypeRef(fval->type).kind() == LogosType::Kind::Array) {
+                auto vr = expr_ref_of(*fval);
+                if (vr.kind() == lir_schema::expr::Code::ArrLit) {
+                    lir_view::EArrLitView al{vr};
+                    for (uint64_t i = 0; i < al.count(); ++i) {
+                        auto el = al.elem(i);
+                        if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                            if (auto v = get_intlit_value(el))
                                 if (!intlit_fits(*v, TypeRef(ft).elem().kind()))
                                     error(std::format("struct literal '{}' field '{}': array element {}: value {} does not fit in {}",
                                           sname, fname, i, *v, type_str(TypeRef(ft).elem())));
+                    }
+                }
+            }
             // Check tuple literal elements against narrow tuple field element types.
-            if (ft && TypeRef(ft).kind() == LogosType::Kind::Tuple && TypeRef(fval->type).kind() == LogosType::Kind::Tuple)
-                if (auto* tl = std::get_if<lir::ETupleLit>(&fval->kind))
-                    for (size_t i = 0; i < tl->elems.size() && i < TypeRef(ft).tuple_elems().size(); ++i) {
-                        if (TypeRef(tl->elems[i]->type).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(tl->elems[i]))
+            if (ft && TypeRef(ft).kind() == LogosType::Kind::Tuple && TypeRef(fval->type).kind() == LogosType::Kind::Tuple) {
+                auto vr = expr_ref_of(*fval);
+                if (vr.kind() == lir_schema::expr::Code::TupleLit) {
+                    lir_view::ETupleLitView tl{vr};
+                    uint64_t i = 0;
+                    tl.each_elem([&](lir_view::ExprRef el) {
+                        if (i >= TypeRef(ft).tuple_elems().size()) { ++i; return; }
+                        if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                            if (auto v = get_intlit_value(el))
                                 if (TypeRef(ft).tuple_elems()[i] && !intlit_fits(*v, TypeRef(TypeRef(ft).tuple_elems()[i]).kind()))
                                     error(std::format("struct literal '{}' field '{}': tuple element {}: value {} does not fit in {}",
                                           sname, fname, i, *v, type_str(TypeRef(ft).tuple_elems()[i])));
                         if (TypeRef(ft).tuple_elems()[i] && TypeRef(TypeRef(ft).tuple_elems()[i]).kind() == LogosType::Kind::Array &&
-                            TypeRef(TypeRef(ft).tuple_elems()[i]).elem() && TypeRef(tl->elems[i]->type).kind() == LogosType::Kind::Array)
-                            if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[i]->kind))
-                                for (size_t ii = 0; ii < ial->elems.size(); ++ii)
-                                    if (TypeRef(ial->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                        if (auto v = get_intlit_value(ial->elems[ii]))
-                                            if (!intlit_fits(*v, TypeRef(TypeRef(ft).tuple_elems()[i]).elem().kind()))
-                                                error(std::format("struct literal '{}' field '{}': tuple element {}: array element {}: value {} does not fit in {}",
-                                                      sname, fname, i, ii, *v, type_str(TypeRef(TypeRef(ft).tuple_elems()[i]).elem())));
-
-                        if (TypeRef(ft).tuple_elems()[i] && TypeRef(TypeRef(ft).tuple_elems()[i]).kind() == LogosType::Kind::Tuple &&
-                            TypeRef(tl->elems[i]->type).kind() == LogosType::Kind::Tuple)
-                            if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[i]->kind))
-                                for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(TypeRef(ft).tuple_elems()[i]).tuple_elems().size(); ++ii)
-                                    if (TypeRef(itl->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                        if (auto v = get_intlit_value(itl->elems[ii]))
-                                            if (TypeRef(TypeRef(ft).tuple_elems()[i]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(ft).tuple_elems()[i]).tuple_elems()[ii]).kind()))
-                                                error(std::format("struct literal '{}' field '{}': tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                      sname, fname, i, ii, *v, type_str(TypeRef(TypeRef(ft).tuple_elems()[i]).tuple_elems()[ii])));
+                            TypeRef(TypeRef(ft).tuple_elems()[i]).elem() && el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Array &&
+                            el.kind() == lir_schema::expr::Code::ArrLit) {
+                            lir_view::EArrLitView ial{el};
+                            for (uint64_t ii = 0; ii < ial.count(); ++ii) {
+                                auto iel = ial.elem(ii);
+                                if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                    if (auto v = get_intlit_value(iel))
+                                        if (!intlit_fits(*v, TypeRef(TypeRef(ft).tuple_elems()[i]).elem().kind()))
+                                            error(std::format("struct literal '{}' field '{}': tuple element {}: array element {}: value {} does not fit in {}",
+                                                  sname, fname, i, ii, *v, type_str(TypeRef(TypeRef(ft).tuple_elems()[i]).elem())));
+                            }
                         }
+                        if (TypeRef(ft).tuple_elems()[i] && TypeRef(TypeRef(ft).tuple_elems()[i]).kind() == LogosType::Kind::Tuple &&
+                            el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Tuple &&
+                            el.kind() == lir_schema::expr::Code::TupleLit) {
+                            lir_view::ETupleLitView itl{el};
+                            uint64_t ii = 0;
+                            itl.each_elem([&](lir_view::ExprRef iel) {
+                                if (ii >= TypeRef(TypeRef(ft).tuple_elems()[i]).tuple_elems().size()) { ++ii; return; }
+                                if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                    if (auto v = get_intlit_value(iel))
+                                        if (TypeRef(TypeRef(ft).tuple_elems()[i]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(ft).tuple_elems()[i]).tuple_elems()[ii]).kind()))
+                                            error(std::format("struct literal '{}' field '{}': tuple element {}: sub-element {}: value {} does not fit in {}",
+                                                  sname, fname, i, ii, *v, type_str(TypeRef(TypeRef(ft).tuple_elems()[i]).tuple_elems()[ii])));
+                                ++ii;
+                            });
+                        }
+                        ++i;
+                    });
+                }
+            }
         }
     }
     // Handle struct update syntax: Foo { x: 1, ..base }
@@ -3426,43 +3583,65 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
                                   i, *v, type_str(elem_type)));
                 // Check array literal elements against narrow nested array element types.
                 if (TypeRef(elem_type).kind() == LogosType::Kind::Array && TypeRef(elem_type).elem() &&
-                    TypeRef(t).kind() == LogosType::Kind::Array)
-                    if (auto* al = std::get_if<lir::EArrLit>(&elems[i]->kind))
-                        for (size_t ei = 0; ei < al->elems.size(); ++ei)
-                            if (TypeRef(al->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                                if (auto v = get_intlit_value(al->elems[ei]))
+                    TypeRef(t).kind() == LogosType::Kind::Array) {
+                    auto vr = expr_ref_of(*elems[i]);
+                    if (vr.kind() == lir_schema::expr::Code::ArrLit) {
+                        lir_view::EArrLitView al{vr};
+                        for (uint64_t ei = 0; ei < al.count(); ++ei) {
+                            auto el = al.elem(ei);
+                            if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                if (auto v = get_intlit_value(el))
                                     if (!intlit_fits(*v, TypeRef(elem_type).elem().kind()))
                                         error(std::format("array literal: element {}: sub-element {}: value {} does not fit in {}",
                                               i, ei, *v, type_str(TypeRef(elem_type).elem())));
+                        }
+                    }
+                }
                 // Check tuple literal elements against narrow nested tuple element types.
-                if (TypeRef(elem_type).kind() == LogosType::Kind::Tuple && TypeRef(t).kind() == LogosType::Kind::Tuple)
-                    if (auto* tl = std::get_if<lir::ETupleLit>(&elems[i]->kind))
-                        for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(elem_type).tuple_elems().size(); ++ei) {
-                            if (TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                                if (auto v = get_intlit_value(tl->elems[ei]))
+                if (TypeRef(elem_type).kind() == LogosType::Kind::Tuple && TypeRef(t).kind() == LogosType::Kind::Tuple) {
+                    auto vr = expr_ref_of(*elems[i]);
+                    if (vr.kind() == lir_schema::expr::Code::TupleLit) {
+                        lir_view::ETupleLitView tl{vr};
+                        uint64_t ei = 0;
+                        tl.each_elem([&](lir_view::ExprRef el) {
+                            if (ei >= TypeRef(elem_type).tuple_elems().size()) { ++ei; return; }
+                            if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                if (auto v = get_intlit_value(el))
                                     if (TypeRef(elem_type).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(TypeRef(elem_type).tuple_elems()[ei]).kind()))
                                         error(std::format("array literal: element {}: tuple element {}: value {} does not fit in {}",
                                               i, ei, *v, type_str(TypeRef(elem_type).tuple_elems()[ei])));
                             if (TypeRef(elem_type).tuple_elems()[ei] && TypeRef(TypeRef(elem_type).tuple_elems()[ei]).kind() == LogosType::Kind::Array &&
-                                TypeRef(TypeRef(elem_type).tuple_elems()[ei]).elem() && TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::Array)
-                                if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
-                                    for (size_t ii = 0; ii < ial->elems.size(); ++ii)
-                                        if (TypeRef(ial->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                            if (auto v = get_intlit_value(ial->elems[ii]))
-                                                if (!intlit_fits(*v, TypeRef(TypeRef(elem_type).tuple_elems()[ei]).elem().kind()))
-                                                    error(std::format("array literal: element {}: tuple element {}: array element {}: value {} does not fit in {}",
-                                                          i, ei, ii, *v, type_str(TypeRef(TypeRef(elem_type).tuple_elems()[ei]).elem())));
-
-                            if (TypeRef(elem_type).tuple_elems()[ei] && TypeRef(TypeRef(elem_type).tuple_elems()[ei]).kind() == LogosType::Kind::Tuple &&
-                                TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::Tuple)
-                                if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
-                                    for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(TypeRef(elem_type).tuple_elems()[ei]).tuple_elems().size(); ++ii)
-                                        if (TypeRef(itl->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                            if (auto v = get_intlit_value(itl->elems[ii]))
-                                                if (TypeRef(TypeRef(elem_type).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(elem_type).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
-                                                    error(std::format("array literal: element {}: tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                          i, ei, ii, *v, type_str(TypeRef(TypeRef(elem_type).tuple_elems()[ei]).tuple_elems()[ii])));
+                                TypeRef(TypeRef(elem_type).tuple_elems()[ei]).elem() && el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Array &&
+                                el.kind() == lir_schema::expr::Code::ArrLit) {
+                                lir_view::EArrLitView ial{el};
+                                for (uint64_t ii = 0; ii < ial.count(); ++ii) {
+                                    auto iel = ial.elem(ii);
+                                    if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                        if (auto v = get_intlit_value(iel))
+                                            if (!intlit_fits(*v, TypeRef(TypeRef(elem_type).tuple_elems()[ei]).elem().kind()))
+                                                error(std::format("array literal: element {}: tuple element {}: array element {}: value {} does not fit in {}",
+                                                      i, ei, ii, *v, type_str(TypeRef(TypeRef(elem_type).tuple_elems()[ei]).elem())));
+                                }
                             }
+                            if (TypeRef(elem_type).tuple_elems()[ei] && TypeRef(TypeRef(elem_type).tuple_elems()[ei]).kind() == LogosType::Kind::Tuple &&
+                                el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Tuple &&
+                                el.kind() == lir_schema::expr::Code::TupleLit) {
+                                lir_view::ETupleLitView itl{el};
+                                uint64_t ii = 0;
+                                itl.each_elem([&](lir_view::ExprRef iel) {
+                                    if (ii >= TypeRef(TypeRef(elem_type).tuple_elems()[ei]).tuple_elems().size()) { ++ii; return; }
+                                    if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                        if (auto v = get_intlit_value(iel))
+                                            if (TypeRef(TypeRef(elem_type).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(elem_type).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
+                                                error(std::format("array literal: element {}: tuple element {}: sub-element {}: value {} does not fit in {}",
+                                                      i, ei, ii, *v, type_str(TypeRef(TypeRef(elem_type).tuple_elems()[ei]).tuple_elems()[ii])));
+                                    ++ii;
+                                });
+                            }
+                            ++ei;
+                        });
+                    }
+                }
                 elem_type = unify_numeric(elem_type, t);
             }
         }
@@ -3492,42 +3671,65 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
                               *v, type_str(anchor)));
             // Array literal at element 0 (e.g. [[1,200,3], concrete_arr]).
             if (TypeRef(anchor).kind() == LogosType::Kind::Array && TypeRef(anchor).elem() &&
-                TypeRef(t0).kind() == LogosType::Kind::Array)
-                if (auto* al = std::get_if<lir::EArrLit>(&e->kind))
-                    for (size_t ei = 0; ei < al->elems.size(); ++ei)
-                        if (TypeRef(al->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(al->elems[ei]))
+                TypeRef(t0).kind() == LogosType::Kind::Array) {
+                auto vr = expr_ref_of(*e);
+                if (vr.kind() == lir_schema::expr::Code::ArrLit) {
+                    lir_view::EArrLitView al{vr};
+                    for (uint64_t ei = 0; ei < al.count(); ++ei) {
+                        auto el = al.elem(ei);
+                        if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                            if (auto v = get_intlit_value(el))
                                 if (!intlit_fits(*v, TypeRef(anchor).elem().kind()))
                                     error(std::format("array literal: element 0: sub-element {}: value {} does not fit in {}",
                                           ei, *v, type_str(TypeRef(anchor).elem())));
+                    }
+                }
+            }
             // Tuple literal at element 0 (tuple elements, including nested array/tuple).
-            if (TypeRef(anchor).kind() == LogosType::Kind::Tuple && TypeRef(t0).kind() == LogosType::Kind::Tuple)
-                if (auto* tl = std::get_if<lir::ETupleLit>(&e->kind))
-                    for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(anchor).tuple_elems().size(); ++ei) {
-                        if (TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(tl->elems[ei]))
+            if (TypeRef(anchor).kind() == LogosType::Kind::Tuple && TypeRef(t0).kind() == LogosType::Kind::Tuple) {
+                auto vr = expr_ref_of(*e);
+                if (vr.kind() == lir_schema::expr::Code::TupleLit) {
+                    lir_view::ETupleLitView tl{vr};
+                    uint64_t ei = 0;
+                    tl.each_elem([&](lir_view::ExprRef el) {
+                        if (ei >= TypeRef(anchor).tuple_elems().size()) { ++ei; return; }
+                        if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                            if (auto v = get_intlit_value(el))
                                 if (TypeRef(anchor).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(TypeRef(anchor).tuple_elems()[ei]).kind()))
                                     error(std::format("array literal: element 0: tuple element {}: value {} does not fit in {}",
                                           ei, *v, type_str(TypeRef(anchor).tuple_elems()[ei])));
                         if (TypeRef(anchor).tuple_elems()[ei] && TypeRef(TypeRef(anchor).tuple_elems()[ei]).kind() == LogosType::Kind::Array &&
-                            TypeRef(TypeRef(anchor).tuple_elems()[ei]).elem() && TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::Array)
-                            if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
-                                for (size_t ii = 0; ii < ial->elems.size(); ++ii)
-                                    if (TypeRef(ial->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                        if (auto v = get_intlit_value(ial->elems[ii]))
-                                            if (!intlit_fits(*v, TypeRef(TypeRef(anchor).tuple_elems()[ei]).elem().kind()))
-                                                error(std::format("array literal: element 0: tuple element {}: array element {}: value {} does not fit in {}",
-                                                      ei, ii, *v, type_str(TypeRef(TypeRef(anchor).tuple_elems()[ei]).elem())));
+                            TypeRef(TypeRef(anchor).tuple_elems()[ei]).elem() && el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Array &&
+                            el.kind() == lir_schema::expr::Code::ArrLit) {
+                            lir_view::EArrLitView ial{el};
+                            for (uint64_t ii = 0; ii < ial.count(); ++ii) {
+                                auto iel = ial.elem(ii);
+                                if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                    if (auto v = get_intlit_value(iel))
+                                        if (!intlit_fits(*v, TypeRef(TypeRef(anchor).tuple_elems()[ei]).elem().kind()))
+                                            error(std::format("array literal: element 0: tuple element {}: array element {}: value {} does not fit in {}",
+                                                  ei, ii, *v, type_str(TypeRef(TypeRef(anchor).tuple_elems()[ei]).elem())));
+                            }
+                        }
                         if (TypeRef(anchor).tuple_elems()[ei] && TypeRef(TypeRef(anchor).tuple_elems()[ei]).kind() == LogosType::Kind::Tuple &&
-                            TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::Tuple)
-                            if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
-                                for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(TypeRef(anchor).tuple_elems()[ei]).tuple_elems().size(); ++ii)
-                                    if (TypeRef(itl->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                        if (auto v = get_intlit_value(itl->elems[ii]))
-                                            if (TypeRef(TypeRef(anchor).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(anchor).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
-                                                error(std::format("array literal: element 0: tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                      ei, ii, *v, type_str(TypeRef(TypeRef(anchor).tuple_elems()[ei]).tuple_elems()[ii])));
-                    }
+                            el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Tuple &&
+                            el.kind() == lir_schema::expr::Code::TupleLit) {
+                            lir_view::ETupleLitView itl{el};
+                            uint64_t ii = 0;
+                            itl.each_elem([&](lir_view::ExprRef iel) {
+                                if (ii >= TypeRef(TypeRef(anchor).tuple_elems()[ei]).tuple_elems().size()) { ++ii; return; }
+                                if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                    if (auto v = get_intlit_value(iel))
+                                        if (TypeRef(TypeRef(anchor).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(anchor).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
+                                            error(std::format("array literal: element 0: tuple element {}: sub-element {}: value {} does not fit in {}",
+                                                  ei, ii, *v, type_str(TypeRef(TypeRef(anchor).tuple_elems()[ei]).tuple_elems()[ii])));
+                                ++ii;
+                            });
+                        }
+                        ++ei;
+                    });
+                }
+            }
         }
     }
     // For IntLit element type: upgrade to i64 if any value overflows i32.
@@ -4294,46 +4496,68 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
             if (resolved_payload_types[i] &&
                 TypeRef(resolved_payload_types[i]).kind() == LogosType::Kind::Array &&
                 TypeRef(resolved_payload_types[i]).elem() &&
-                TypeRef(payload[i]->type).kind() == LogosType::Kind::Array)
-                if (auto* al = std::get_if<lir::EArrLit>(&payload[i]->kind))
-                    for (size_t ei = 0; ei < al->elems.size(); ++ei)
-                        if (TypeRef(al->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(al->elems[ei]))
+                TypeRef(payload[i]->type).kind() == LogosType::Kind::Array) {
+                auto vr = expr_ref_of(*payload[i]);
+                if (vr.kind() == lir_schema::expr::Code::ArrLit) {
+                    lir_view::EArrLitView al{vr};
+                    for (uint64_t ei = 0; ei < al.count(); ++ei) {
+                        auto el = al.elem(ei);
+                        if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                            if (auto v = get_intlit_value(el))
                                 if (!intlit_fits(*v, TypeRef(resolved_payload_types[i]).elem().kind()))
                                     error(std::format("{}::{} arg {}: array element {}: value {} does not fit in {}",
                                           ename, vname, i, ei, *v, type_str(TypeRef(resolved_payload_types[i]).elem())));
+                    }
+                }
+            }
             // Check tuple literal elements against narrow tuple payload type.
             if (resolved_payload_types[i] &&
                 TypeRef(resolved_payload_types[i]).kind() == LogosType::Kind::Tuple &&
-                TypeRef(payload[i]->type).kind() == LogosType::Kind::Tuple)
-                if (auto* tl = std::get_if<lir::ETupleLit>(&payload[i]->kind))
-                    for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(resolved_payload_types[i]).tuple_elems().size(); ++ei) {
-                        if (TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(tl->elems[ei]))
+                TypeRef(payload[i]->type).kind() == LogosType::Kind::Tuple) {
+                auto vr = expr_ref_of(*payload[i]);
+                if (vr.kind() == lir_schema::expr::Code::TupleLit) {
+                    lir_view::ETupleLitView tl{vr};
+                    uint64_t ei = 0;
+                    tl.each_elem([&](lir_view::ExprRef el) {
+                        if (ei >= TypeRef(resolved_payload_types[i]).tuple_elems().size()) { ++ei; return; }
+                        if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                            if (auto v = get_intlit_value(el))
                                 if (TypeRef(resolved_payload_types[i]).tuple_elems()[ei] &&
                                     !intlit_fits(*v, TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).kind()))
                                     error(std::format("{}::{} arg {}: tuple element {}: value {} does not fit in {}",
                                           ename, vname, i, ei, *v, type_str(TypeRef(resolved_payload_types[i]).tuple_elems()[ei])));
                         if (TypeRef(resolved_payload_types[i]).tuple_elems()[ei] && TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).kind() == LogosType::Kind::Array &&
-                            TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).elem() && TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::Array)
-                            if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
-                                for (size_t ii = 0; ii < ial->elems.size(); ++ii)
-                                    if (TypeRef(ial->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                        if (auto v = get_intlit_value(ial->elems[ii]))
-                                            if (!intlit_fits(*v, TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).elem().kind()))
-                                                error(std::format("{}::{} arg {}: tuple element {}: array element {}: value {} does not fit in {}",
-                                                      ename, vname, i, ei, ii, *v, type_str(TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).elem())));
-
-                        if (TypeRef(resolved_payload_types[i]).tuple_elems()[ei] && TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).kind() == LogosType::Kind::Tuple &&
-                            TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::Tuple)
-                            if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
-                                for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems().size(); ++ii)
-                                    if (TypeRef(itl->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                        if (auto v = get_intlit_value(itl->elems[ii]))
-                                            if (TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
-                                                error(std::format("{}::{} arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                      ename, vname, i, ei, ii, *v, type_str(TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems()[ii])));
+                            TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).elem() && el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Array &&
+                            el.kind() == lir_schema::expr::Code::ArrLit) {
+                            lir_view::EArrLitView ial{el};
+                            for (uint64_t ii = 0; ii < ial.count(); ++ii) {
+                                auto iel = ial.elem(ii);
+                                if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                    if (auto v = get_intlit_value(iel))
+                                        if (!intlit_fits(*v, TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).elem().kind()))
+                                            error(std::format("{}::{} arg {}: tuple element {}: array element {}: value {} does not fit in {}",
+                                                  ename, vname, i, ei, ii, *v, type_str(TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).elem())));
+                            }
                         }
+                        if (TypeRef(resolved_payload_types[i]).tuple_elems()[ei] && TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).kind() == LogosType::Kind::Tuple &&
+                            el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Tuple &&
+                            el.kind() == lir_schema::expr::Code::TupleLit) {
+                            lir_view::ETupleLitView itl{el};
+                            uint64_t ii = 0;
+                            itl.each_elem([&](lir_view::ExprRef iel) {
+                                if (ii >= TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems().size()) { ++ii; return; }
+                                if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                    if (auto v = get_intlit_value(iel))
+                                        if (TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
+                                            error(std::format("{}::{} arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
+                                                  ename, vname, i, ei, ii, *v, type_str(TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems()[ii])));
+                                ++ii;
+                            });
+                        }
+                        ++ei;
+                    });
+                }
+            }
         }
     } else {
         // Variadic variant: match each arg against the pack's type (if it's not a generic expansion itself).
@@ -4438,46 +4662,68 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
             if (resolved_payload_types[i] &&
                 TypeRef(resolved_payload_types[i]).kind() == LogosType::Kind::Array &&
                 TypeRef(resolved_payload_types[i]).elem() &&
-                TypeRef(payload[i]->type).kind() == LogosType::Kind::Array)
-                if (auto* al = std::get_if<lir::EArrLit>(&payload[i]->kind))
-                    for (size_t ei = 0; ei < al->elems.size(); ++ei)
-                        if (TypeRef(al->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(al->elems[ei]))
+                TypeRef(payload[i]->type).kind() == LogosType::Kind::Array) {
+                auto vr = expr_ref_of(*payload[i]);
+                if (vr.kind() == lir_schema::expr::Code::ArrLit) {
+                    lir_view::EArrLitView al{vr};
+                    for (uint64_t ei = 0; ei < al.count(); ++ei) {
+                        auto el = al.elem(ei);
+                        if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                            if (auto v = get_intlit_value(el))
                                 if (!intlit_fits(*v, TypeRef(resolved_payload_types[i]).elem().kind()))
                                     error(std::format("{}::{} arg {}: array element {}: value {} does not fit in {}",
                                           ename, vname, i, ei, *v, type_str(TypeRef(resolved_payload_types[i]).elem())));
+                    }
+                }
+            }
             // Check tuple literal elements against narrow tuple payload type.
             if (resolved_payload_types[i] &&
                 TypeRef(resolved_payload_types[i]).kind() == LogosType::Kind::Tuple &&
-                TypeRef(payload[i]->type).kind() == LogosType::Kind::Tuple)
-                if (auto* tl = std::get_if<lir::ETupleLit>(&payload[i]->kind))
-                    for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(resolved_payload_types[i]).tuple_elems().size(); ++ei) {
-                        if (TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(tl->elems[ei]))
+                TypeRef(payload[i]->type).kind() == LogosType::Kind::Tuple) {
+                auto vr = expr_ref_of(*payload[i]);
+                if (vr.kind() == lir_schema::expr::Code::TupleLit) {
+                    lir_view::ETupleLitView tl{vr};
+                    uint64_t ei = 0;
+                    tl.each_elem([&](lir_view::ExprRef el) {
+                        if (ei >= TypeRef(resolved_payload_types[i]).tuple_elems().size()) { ++ei; return; }
+                        if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                            if (auto v = get_intlit_value(el))
                                 if (TypeRef(resolved_payload_types[i]).tuple_elems()[ei] &&
                                     !intlit_fits(*v, TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).kind()))
                                     error(std::format("{}::{} arg {}: tuple element {}: value {} does not fit in {}",
                                           ename, vname, i, ei, *v, type_str(TypeRef(resolved_payload_types[i]).tuple_elems()[ei])));
                         if (TypeRef(resolved_payload_types[i]).tuple_elems()[ei] && TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).kind() == LogosType::Kind::Array &&
-                            TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).elem() && TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::Array)
-                            if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
-                                for (size_t ii = 0; ii < ial->elems.size(); ++ii)
-                                    if (TypeRef(ial->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                        if (auto v = get_intlit_value(ial->elems[ii]))
-                                            if (!intlit_fits(*v, TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).elem().kind()))
-                                                error(std::format("{}::{} arg {}: tuple element {}: array element {}: value {} does not fit in {}",
-                                                      ename, vname, i, ei, ii, *v, type_str(TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).elem())));
-
-                        if (TypeRef(resolved_payload_types[i]).tuple_elems()[ei] && TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).kind() == LogosType::Kind::Tuple &&
-                            TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::Tuple)
-                            if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
-                                for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems().size(); ++ii)
-                                    if (TypeRef(itl->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                        if (auto v = get_intlit_value(itl->elems[ii]))
-                                            if (TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
-                                                error(std::format("{}::{} arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                      ename, vname, i, ei, ii, *v, type_str(TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems()[ii])));
+                            TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).elem() && el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Array &&
+                            el.kind() == lir_schema::expr::Code::ArrLit) {
+                            lir_view::EArrLitView ial{el};
+                            for (uint64_t ii = 0; ii < ial.count(); ++ii) {
+                                auto iel = ial.elem(ii);
+                                if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                    if (auto v = get_intlit_value(iel))
+                                        if (!intlit_fits(*v, TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).elem().kind()))
+                                            error(std::format("{}::{} arg {}: tuple element {}: array element {}: value {} does not fit in {}",
+                                                  ename, vname, i, ei, ii, *v, type_str(TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).elem())));
+                            }
                         }
+                        if (TypeRef(resolved_payload_types[i]).tuple_elems()[ei] && TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).kind() == LogosType::Kind::Tuple &&
+                            el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Tuple &&
+                            el.kind() == lir_schema::expr::Code::TupleLit) {
+                            lir_view::ETupleLitView itl{el};
+                            uint64_t ii = 0;
+                            itl.each_elem([&](lir_view::ExprRef iel) {
+                                if (ii >= TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems().size()) { ++ii; return; }
+                                if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                    if (auto v = get_intlit_value(iel))
+                                        if (TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
+                                            error(std::format("{}::{} arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
+                                                  ename, vname, i, ei, ii, *v, type_str(TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems()[ii])));
+                                ++ii;
+                            });
+                        }
+                        ++ei;
+                    });
+                }
+            }
         }
     } else {
         if (!resolved_payload_types.empty()) {
