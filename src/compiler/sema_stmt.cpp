@@ -627,8 +627,11 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
 
     // Move semantics: if RHS is a variable reference to a move type, mark it moved
     if (rhs && is_move_type(rhs_type)) {
-        if (auto* vr = std::get_if<lir::EVarRef>(&rhs->kind))
-            mark_moved(vr->name);
+        {
+            auto er = expr_ref_of(*rhs);
+            if (er.kind() == lir_schema::expr::Code::VarRef)
+                mark_moved(std::string(lir_view::EVarRefView{er}.name()));
+        }
     }
 
     lir::SLet slet;
@@ -845,9 +848,13 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
             std::function<void(const lir::LExpr*)> mark_moved_in_expr;
             mark_moved_in_expr = [&](const lir::LExpr* e) {
                 if (!e) return;
-                if (auto* vr = std::get_if<lir::EVarRef>(&e->kind)) {
-                    if (is_move_type(e->type)) mark_moved(vr->name);
-                    return;
+                {
+                    auto er = expr_ref_of(*e);
+                    if (er.kind() == lir_schema::expr::Code::VarRef) {
+                        if (is_move_type(e->type))
+                            mark_moved(std::string(lir_view::EVarRefView{er}.name()));
+                        return;
+                    }
                 }
                 if (auto* ev = std::get_if<lir::EEnumLitData>(&e->kind)) {
                     for (auto& a : ev->payload) mark_moved_in_expr(a);
