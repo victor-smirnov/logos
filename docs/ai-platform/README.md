@@ -6,7 +6,8 @@ The section walks the argument in stages — from how models actually work, to w
 
 ## Files
 
-- [How Models Work](models.md) — the parts of model behavior that matter for platform design: context as the sole memory, attention and recall, the role of prompt structure, what cannot be assumed.
+- [How Models Behave](models.md) — facts about LLMs in isolation: compressibility-split tasks, the determinism gap, deterministic components as offload / cache / guardrail, iterated-map dynamics, attraction basins, in-distribution vs out-of-distribution behavior, what cannot be assumed.
+- [Models, Humans, and Programs as One System](joint-system.md) — the joint-system consequences: mutual steering, the responsibility asymmetry, the spectrum of ownership, why AI-primary is self-reinforcing, the human as binding constraint, the engaged human's irreplaceability and why AI needs humans, leadership notes on attention as the scarce resource, and the platform's two fundamental goals.
 - [Coding Tasks](coding-tasks.md) — what changes when the task is code: the gap between local-syntactic competence and global-semantic correctness, failure modes that humans do not exhibit, the role of feedback signals.
 - [New Requirements](requirements.md) — what platforms have to provide to make AI authorship work: machine-readable diagnostics, observable compilation, programmable extension, structured data substrate, fast and incremental feedback loops.
 - [Logos Fit](logos-fit.md) — how Logos's design (Hermes-as-IR, modular SOA compiler, metaprogramming-in-the-large, lforge as a data platform) maps onto those requirements, and where it deliberately diverges from Rust/C++/Go defaults.
