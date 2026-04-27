@@ -1117,7 +1117,7 @@ inline TypeRef unify_int(TypeRef a, TypeRef b) noexcept {
 // the cast is inserted even if the static narrow→narrow widening rule would
 // otherwise reject it. Lets `push_u8(0u64)` and similar typed-but-trivially-
 // fits literals coerce without an explicit `as` cast.
-inline void widen_int_expr(lir::LExprPtr& e, TypeRef target) {
+inline void widen_int_expr(lir::LExprPtr& e, TypeRef target, LirBuilder b) {
     if (!e || !target || !e->type) return;
     auto ek = TypeRef(e->type).kind();
     auto tk = TypeRef(target).kind();
@@ -1129,10 +1129,7 @@ inline void widen_int_expr(lir::LExprPtr& e, TypeRef target) {
                 ok = true;
     }
     if (!ok) return;
-    auto inner = std::move(e);
-    e = std::make_unique<lir::LExpr>();
-    e->kind = lir::ECast{std::move(inner)};
-    e->type = target;
+    e = b.cast(std::move(e), target);
 }
 
 // Predicate used during overload resolution: types are compatible, or the

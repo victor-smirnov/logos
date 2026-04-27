@@ -758,7 +758,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             error(std::format("{}: expected {} args, got {}", kind_str, n_params, n_args));
         } else {
             for (uint64_t i = 0; i < n_args; ++i) {
-                widen_int_expr(arg_exprs[i], TypeRef(callee_type).closure_params()[i]);
+                widen_int_expr(arg_exprs[i], TypeRef(callee_type).closure_params()[i], builder());
                 auto at = arg_exprs[i]->type;
                 auto pt = TypeRef(callee_type).closure_params()[i];
                 if (TypeRef(at).kind() != LogosType::Kind::Error &&
@@ -840,7 +840,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                       callee, exact_fi->param_types.size(), n_args));
             } else {
                 for (uint64_t i = 0; i < exact_fi->param_types.size(); ++i) {
-                    widen_int_expr(arg_exprs[i], exact_fi->param_types[i]);
+                    widen_int_expr(arg_exprs[i], exact_fi->param_types[i], builder());
                     auto at = arg_exprs[i]->type;
                     auto pt = exact_fi->param_types[i];
                     if (TypeRef(at).kind() != LogosType::Kind::Error &&
@@ -861,7 +861,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         } else {
             for (uint64_t i = 0; i < n_args; ++i) {
                 try_coerce_closure_to_fnptr(arg_exprs[i], exact_fi->param_types[i]);
-                widen_int_expr(arg_exprs[i], exact_fi->param_types[i]);
+                widen_int_expr(arg_exprs[i], exact_fi->param_types[i], builder());
                 auto at = arg_exprs[i]->type;
                 auto pt = exact_fi->param_types[i];
                 if (TypeRef(at).kind() != LogosType::Kind::Error &&
@@ -1022,7 +1022,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         } else {
             for (uint64_t i = 0; i < fi.param_types.size(); ++i) {
                 try_coerce_closure_to_fnptr(arg_exprs[i], fi.param_types[i]);
-                widen_int_expr(arg_exprs[i], fi.param_types[i]);
+                widen_int_expr(arg_exprs[i], fi.param_types[i], builder());
                 auto at = arg_exprs[i]->type;
                 auto pt = fi.param_types[i];
                 if (TypeRef(at).kind() != LogosType::Kind::Error &&
@@ -1043,7 +1043,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     } else {
         for (uint64_t i = 0; i < n_args; ++i) {
             try_coerce_closure_to_fnptr(arg_exprs[i], fi.param_types[i]);
-            widen_int_expr(arg_exprs[i], fi.param_types[i]);
+            widen_int_expr(arg_exprs[i], fi.param_types[i], builder());
             auto at = arg_exprs[i]->type;
             auto pt = fi.param_types[i];
             if (TypeRef(at).kind() != LogosType::Kind::Error &&
@@ -1287,7 +1287,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
         for (uint64_t i = 0; i < fixed_params && i < n_args; ++i) {
             auto pt = subst_type_sema(fi.param_types[i], subst);
             try_coerce_closure_to_fnptr(arg_exprs[i], pt);
-            widen_int_expr(arg_exprs[i], pt);
+            widen_int_expr(arg_exprs[i], pt, builder());
             auto at = arg_exprs[i]->type;
             if (TypeRef(at).kind() != LogosType::Kind::Error &&
                 TypeRef(pt).kind() != LogosType::Kind::Error &&
@@ -1310,7 +1310,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
             for (uint64_t i = 0; i < n_args; ++i) {
                 auto pt = subst_type_sema(fi.param_types[i], subst);
                 try_coerce_closure_to_fnptr(arg_exprs[i], pt);
-                widen_int_expr(arg_exprs[i], pt);
+                widen_int_expr(arg_exprs[i], pt, builder());
                 auto at = arg_exprs[i]->type;
                 if (TypeRef(at).kind() != LogosType::Kind::Error &&
                     TypeRef(pt).kind() != LogosType::Kind::Error &&
@@ -1888,7 +1888,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             if (TypeRef(at).kind() != LogosType::Kind::Error && !types_compatible(at, i64ty))
                 error(std::format("pointer method '{}': argument must be i64, got {}",
                       method_name, type_str(at)));
-            widen_int_expr(args[0], i64ty);
+            widen_int_expr(args[0], i64ty, builder());
             auto ret_type = recv->type;
             return builder().ptr_arith(op, std::move(recv), std::move(args[0]), ret_type);
         };
@@ -1944,7 +1944,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                         self_subst["Self"] = recv->type;
                         for (uint64_t i = 0; i < explicit_args; ++i) {
                             auto pt = subst_type_sema(m.param_types[i + 1], self_subst);
-                            widen_int_expr(arg_exprs[i], pt);
+                            widen_int_expr(arg_exprs[i], pt, builder());
                             auto at = arg_exprs[i]->type;
                             if (TypeRef(at).kind() != LogosType::Kind::Error &&
                                 TypeRef(pt).kind() != LogosType::Kind::Error &&
@@ -2149,7 +2149,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 }
                 for (uint64_t i = 0; i < arg_exprs.size(); ++i) {
                     auto pt = subst_type_sema(chosen_method->param_types[i + 1], self_subst);
-                    widen_int_expr(arg_exprs[i], pt);
+                    widen_int_expr(arg_exprs[i], pt, builder());
                     auto at = arg_exprs[i]->type;
                     if (TypeRef(at).kind() != LogosType::Kind::Error &&
                         TypeRef(pt).kind() != LogosType::Kind::Error &&
@@ -2709,7 +2709,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             if (pi < fi.param_types.size()) {
                 auto pt = fi.param_types[pi];
                 if (!struct_subst.empty()) pt = subst_type_sema(pt, struct_subst);
-                widen_int_expr(arg_exprs[i], pt);
+                widen_int_expr(arg_exprs[i], pt, builder());
             }
             auto at = arg_exprs[i]->type;
             if (pi < fi.param_types.size()) {
@@ -4767,7 +4767,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
               mangled, fi.param_types.size(), n_args));
     } else {
         for (uint64_t i = 0; i < n_args; ++i) {
-            widen_int_expr(arg_exprs[i], fi.param_types[i]);
+            widen_int_expr(arg_exprs[i], fi.param_types[i], builder());
             auto at = arg_exprs[i]->type;
             auto pt = fi.param_types[i];
             if (TypeRef(at).kind() != LogosType::Kind::Error &&

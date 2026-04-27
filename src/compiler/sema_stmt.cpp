@@ -484,7 +484,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
             TypeRef(rhs_type).kind() != LogosType::Kind::IntLit &&
             TypeRef(rhs_type).kind() != LogosType::Kind::Enum &&
             can_widen_int(TypeRef(rhs_type).kind(), TypeRef(ann).kind())) {
-            widen_int_expr(rhs, ann);
+            widen_int_expr(rhs, ann, builder());
             rhs_type = rhs->type;
         }
         // Retype float literal to concrete annotation type (f32 or f64).
@@ -503,11 +503,8 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
                 rhs = builder().lit_float(fval, ann);
             } else {
                 // Non-literal IntLit expression (e.g. 1 + 2): wrap in ECast to float.
-                auto inner = std::move(rhs);
-                rhs = std::make_unique<lir::LExpr>();
-                rhs->kind = lir::ECast{std::move(inner)};
-                rhs->type = ann;
-                rhs_type   = ann;
+                rhs = builder().cast(std::move(rhs), ann);
+                rhs_type = ann;
             }
         }
         // Detect integer literals that don't fit in the annotated type.
@@ -683,7 +680,7 @@ lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
         TypeRef(rhs->type).kind() != LogosType::Kind::IntLit &&
         TypeRef(rhs->type).kind() != LogosType::Kind::Enum &&
         can_widen_int(TypeRef(rhs->type).kind(), TypeRef(var_type).kind())) {
-        widen_int_expr(rhs, var_type);
+        widen_int_expr(rhs, var_type, builder());
     }
     // Check IntLit literal fits in the variable's declared type.
     if (TypeRef(rhs->type).kind() == LogosType::Kind::IntLit &&
