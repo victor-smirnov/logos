@@ -294,7 +294,10 @@ hermes::arena_offset_t LirMirrorEmitter::emit_block(const LBlock& b) {
         table_.block_by_offset[b.mirror_offset_.value()] = &b;
         backfill_only = true;
     } else if (auto it = table_.block.find(&b); it != table_.block.end()) {
-        return it->second;
+        // Heap-address recycling: stale cache entry for a freed LBlock.
+        // Invalidate and fall through to emit a fresh mirror.
+        table_.block_by_offset.erase(it->second.value());
+        table_.block.erase(it);
     }
 
     bool save_dry = dry_run_;
@@ -470,7 +473,9 @@ hermes::arena_offset_t LirMirrorEmitter::emit_hv(const HermesVal& v) {
         table_.hermes_val[&v] = v.mirror_offset_;
         backfill_only = true;
     } else if (auto it = table_.hermes_val.find(&v); it != table_.hermes_val.end()) {
-        return it->second;
+        // Heap-address recycling: stale cache entry for a freed HermesVal.
+        // Invalidate and fall through to emit a fresh mirror.
+        table_.hermes_val.erase(it);
     }
 
     bool save_dry = dry_run_;
@@ -671,7 +676,10 @@ hermes::arena_offset_t LirMirrorEmitter::emit_stmt(const LStmt& s) {
         table_.stmt_by_offset[s.mirror_offset_.value()] = &s;
         backfill_only = true;
     } else if (auto it = table_.stmt.find(&s); it != table_.stmt.end()) {
-        return it->second;
+        // Heap-address recycling: stale cache entry for a freed LStmt.
+        // Invalidate and fall through to emit a fresh mirror.
+        table_.stmt_by_offset.erase(it->second.value());
+        table_.stmt.erase(it);
     }
 
     bool save_dry = dry_run_;
