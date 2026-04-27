@@ -507,7 +507,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         // Retype float literal to concrete annotation type (f32 or f64).
         if (TypeRef(rhs_type).kind() == LogosType::Kind::FloatLit && ann &&
             (TypeRef(ann).kind() == LogosType::Kind::F32 || TypeRef(ann).kind() == LogosType::Kind::F64))
-            rhs->type = ann;
+            builder().retype_expr(rhs, ann);
         // Retype/coerce integer literal (or IntLit-typed expr) to float annotation type (f32 or f64).
         if (TypeRef(rhs_type).kind() == LogosType::Kind::IntLit && ann &&
             (TypeRef(ann).kind() == LogosType::Kind::F32 || TypeRef(ann).kind() == LogosType::Kind::F64)) {
@@ -554,7 +554,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
                     if (TypeRef(tlit->elems[ei]->type).kind() == LogosType::Kind::FloatLit && TypeRef(ann).tuple_elems()[ei] &&
                         (TypeRef(TypeRef(ann).tuple_elems()[ei]).kind() == LogosType::Kind::F32 ||
                          TypeRef(TypeRef(ann).tuple_elems()[ei]).kind() == LogosType::Kind::F64)) {
-                        tlit->elems[ei]->type = TypeRef(ann).tuple_elems()[ei];
+                        builder().retype_expr(tlit->elems[ei], TypeRef(ann).tuple_elems()[ei]);
                     }
                     // Retype IntLit element to concrete float annotation (f32/f64).
                     if (TypeRef(tlit->elems[ei]->type).kind() == LogosType::Kind::IntLit && TypeRef(ann).tuple_elems()[ei] &&
@@ -601,7 +601,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         // This ensures codegen sees (f32, f32) instead of (FloatLit, FloatLit).
         if (!ann_is_impl && TypeRef(ann).kind() == LogosType::Kind::Tuple &&
             TypeRef(rhs_type).kind() == LogosType::Kind::Tuple)
-            rhs->type = ann;
+            builder().retype_expr(rhs, ann);
     } else {
         var_type = rhs_type;
         if (TypeRef(var_type).kind() == LogosType::Kind::IntLit) {
@@ -614,7 +614,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         if (TypeRef(var_type).kind() == LogosType::Kind::FloatLit) {
             // Default FloatLit to f64.
             var_type = prim(LogosType::Kind::F64);
-            rhs->type = var_type;
+            builder().retype_expr(rhs, var_type);
         }
     }
 
@@ -783,9 +783,9 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
             // Retype float literal to concrete return type.
             if (ret_type_ && TypeRef(val->type).kind() == LogosType::Kind::FloatLit &&
                 (TypeRef(ret_type_).kind() == LogosType::Kind::F32 || TypeRef(ret_type_).kind() == LogosType::Kind::F64))
-                val->type = ret_type_;
+                builder().retype_expr(val, ret_type_);
             else if (TypeRef(val->type).kind() == LogosType::Kind::FloatLit)
-                val->type = prim(LogosType::Kind::F64);
+                builder().retype_expr(val, prim(LogosType::Kind::F64));
             // Detect integer literals that don't fit in the return type.
             if (ret_type_ && TypeRef(val->type).kind() == LogosType::Kind::IntLit &&
                 TypeRef(ret_type_).kind() != LogosType::Kind::Error) {

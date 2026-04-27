@@ -4158,7 +4158,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
             auto cit = assoc_const_impls_.find(key);
             if (cit != assoc_const_impls_.end()) {
                 auto val = lower_expr(map_of(cit->second.value_ast));
-                if (cit->second.type) val->type = cit->second.type;
+                if (cit->second.type) builder().retype_expr(val, cit->second.type);
                 return val;
             }
         }
@@ -4193,7 +4193,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
             auto cit = assoc_const_impls_.find(key);
             if (cit != assoc_const_impls_.end()) {
                 auto val = lower_expr(map_of(cit->second.value_ast));
-                if (cit->second.type) val->type = cit->second.type;
+                if (cit->second.type) builder().retype_expr(val, cit->second.type);
                 return val;
             }
         }
@@ -4615,7 +4615,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
             if (cit != assoc_const_impls_.end()) {
                 // Lower the constant value expression and return it directly.
                 auto val = lower_expr(map_of(cit->second.value_ast));
-                if (cit->second.type) val->type = cit->second.type;
+                if (cit->second.type) builder().retype_expr(val, cit->second.type);
                 return val;
             }
         }

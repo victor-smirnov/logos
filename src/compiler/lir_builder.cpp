@@ -206,6 +206,12 @@ lir::LExprPtr LirBuilder::hermes_cast(lir::LExprPtr operand, std::string build_f
     return make_expr(prog_, ty, lir::ECast{std::move(operand), std::move(build_fn)});
 }
 
+void LirBuilder::retype_expr(lir::LExpr* e, TypeRef new_ty) {
+    e->type = new_ty;
+    e->mirror_offset_ = hermes::arena_offset_t{};
+    lir_mirror_emit_expr_node(prog_, *e);
+}
+
 lir::LStmt LirBuilder::stmt_expr(lir::LExprPtr expr, uint32_t line) {
     lir::LStmt s;
     s.line = line;

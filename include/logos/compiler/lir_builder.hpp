@@ -91,6 +91,15 @@ public:
     lir::LExprPtr hermes_cast(lir::LExprPtr operand, std::string build_fn,
                               TypeRef ty);
 
+    // ── Post-construction retype ────────────────────────────────────────
+    // Update the type of an already-built LExpr and re-emit its Hermes
+    // mirror so view readers see the new type. Used for literal-type
+    // narrowing (FloatLit/IntLit → f32/f64/concrete) at annotation sites
+    // in lower_let / lower_return / assoc-const lookup. Must only be
+    // called when no enclosing structure has snapshotted `e` yet — i.e.
+    // before the LExpr is fed into a parent builder call.
+    void retype_expr(lir::LExpr* e, TypeRef new_ty);
+
     // ── Statement constructors ──────────────────────────────────────────
     // Build an LStmt and eager-emit its Hermes mirror. After this call,
     // `stmt_ref_of(s)` is valid (mirror_offset_ is set). Used by sub-slice
