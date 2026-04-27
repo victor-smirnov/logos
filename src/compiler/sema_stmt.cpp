@@ -2314,7 +2314,9 @@ lir::LStmt SemaChecker::lower_loop(TinyMapView node) {
     }
     break_value_type_ = saved_break_type;  // restore for outer loops
     break_without_value_ = saved_break_without_value;
-    return make_stmt(node_line_, std::move(sl));
+    auto result = make_stmt(node_line_, std::move(sl));
+    if (cur_prog_) lir_mirror_emit_stmt_node(*cur_prog_, result);
+    return result;
 }
 
 lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {

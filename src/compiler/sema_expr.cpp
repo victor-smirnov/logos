@@ -407,9 +407,13 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
         auto loop_stmt = lower_loop(expr);
         TypeRef result_type = nullptr;
         std::string break_slot;
-        if (auto* sl = std::get_if<lir::SLoop>(&loop_stmt.kind)) {
-            result_type = sl->result_type;
-            break_slot  = sl->break_slot;
+        {
+            auto sr = stmt_ref_of(loop_stmt);
+            if (sr.kind() == lir_schema::stmt::Code::Loop) {
+                lir_view::SLoopView v{sr};
+                result_type = v.result_type(cur_prog_->type_pool.impl());
+                break_slot  = std::string(v.break_slot());
+            }
         }
         if (!result_type || break_slot.empty()) {
             // loop never yields — treat as void (infinite loop used as stmt-expr)
