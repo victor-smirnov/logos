@@ -5215,148 +5215,196 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         seen.insert(name);
     };
 
-    std::function<void(const lir::LBlock&)> scan_block;
-    std::function<void(const lir::LStmt&)> scan_stmt;
-    std::function<void(const lir::LExpr&)> scan_captures;
-    scan_captures = [&](const lir::LExpr& e) {
-        {
-            auto er = expr_ref_of(e);
-            if (er.kind() == lir_schema::expr::Code::VarRef)
-                add_capture(std::string(lir_view::EVarRefView{er}.name()));
+    // View-based capture scanner. The closure body was just lowered through
+    // the builder, so every LExpr / LStmt / LBlock has its mirror eager-emitted
+    // — `expr_ref_of` / `stmt_ref_of` / a fresh BlockRef from the LBlock's
+    // mirror_offset_ all yield non-null views.
+    using EC = lir_schema::expr::Code;
+    using SC = lir_schema::stmt::Code;
+    std::function<void(lir_view::BlockRef)> scan_block_v;
+    std::function<void(lir_view::StmtRef)>  scan_stmt_v;
+    std::function<void(lir_view::ExprRef)>  scan_captures_v;
+    scan_captures_v = [&](lir_view::ExprRef e) {
+        if (!e) return;
+        auto k = e.kind();
+        if (k == EC::VarRef) {
+            add_capture(std::string(lir_view::EVarRefView{e}.name()));
+            return;
         }
-
-        // Recurse into sub-expressions
-        std::visit([&](const auto& k) {
-            using K = std::decay_t<decltype(k)>;
-            if constexpr (std::is_same_v<K, lir::EBinOp>) {
-                scan_captures(*k.lhs); scan_captures(*k.rhs);
-            } else if constexpr (std::is_same_v<K, lir::EUnary>) {
-                scan_captures(*k.operand);
-            } else if constexpr (std::is_same_v<K, lir::ECall>) {
-                for (auto& a : k.args) scan_captures(*a);
-            } else if constexpr (std::is_same_v<K, lir::EMethodCall>) {
-                scan_captures(*k.receiver);
-                for (auto& a : k.args) scan_captures(*a);
-            } else if constexpr (std::is_same_v<K, lir::EFieldRead>) {
-                scan_captures(*k.receiver);
-            } else if constexpr (std::is_same_v<K, lir::EIndexRead>) {
-                scan_captures(*k.receiver); scan_captures(*k.index);
-            } else if constexpr (std::is_same_v<K, lir::EDeref>) {
-                scan_captures(*k.operand);
-            } else if constexpr (std::is_same_v<K, lir::ECast>) {
-                scan_captures(*k.operand);
-            } else if constexpr (std::is_same_v<K, lir::EEnumLitData>) {
-                for (auto& p : k.payload) scan_captures(*p);
-            } else if constexpr (std::is_same_v<K, lir::EStructLit>) {
-                for (auto& [_, field] : k.fields) scan_captures(*field);
-            } else if constexpr (std::is_same_v<K, lir::EArrLit>) {
-                for (auto& elem : k.elems) scan_captures(*elem);
-            } else if constexpr (std::is_same_v<K, lir::ENew>) {
-                for (auto& [_, field] : k.fields) scan_captures(*field);
-            } else if constexpr (std::is_same_v<K, lir::EIfExpr>) {
-                scan_captures(*k.cond); scan_captures(*k.then_val); scan_captures(*k.else_val);
-            } else if constexpr (std::is_same_v<K, lir::EMatchExpr>) {
-                scan_captures(*k.scrut);
-                for (auto& arm : k.arms) {
-                    if (arm.guard && *arm.guard) scan_captures(**arm.guard);
-                    scan_captures(*arm.value);
-                }
-            } else if constexpr (std::is_same_v<K, lir::ETupleLit>) {
-                for (auto& elem : k.elems) scan_captures(*elem);
-            } else if constexpr (std::is_same_v<K, lir::ETupleIndex>) {
-                scan_captures(*k.receiver);
-            } else if constexpr (std::is_same_v<K, lir::ESliceLit>) {
-                scan_captures(*k.base); scan_captures(*k.len);
-            } else if constexpr (std::is_same_v<K, lir::ESliceIndex>) {
-                scan_captures(*k.slice); scan_captures(*k.index);
-            } else if constexpr (std::is_same_v<K, lir::ESliceLen>) {
-                scan_captures(*k.slice);
-            } else if constexpr (std::is_same_v<K, lir::ESlicePtr>) {
-                scan_captures(*k.slice);
-            } else if constexpr (std::is_same_v<K, lir::EClosureBox>) {
-                if (k.inner) {
-                    for (auto& cap : k.inner->captures)
-                        add_capture(cap);
-                }
-            } else if constexpr (std::is_same_v<K, lir::EClosureCall>) {
-                scan_captures(*k.callee);
-                for (auto& arg : k.args) scan_captures(*arg);
-            } else if constexpr (std::is_same_v<K, lir::EFormatCall>) {
-                scan_captures(*k.fmt);
-                for (auto& arg : k.args) scan_captures(*arg);
-            } else if constexpr (std::is_same_v<K, lir::ETry>) {
-                scan_captures(*k.inner);
-            } else if constexpr (std::is_same_v<K, lir::EBlockExpr>) {
-                if (k.block) scan_block(*k.block);
-                if (k.result) scan_captures(*k.result);
-            } else if constexpr (std::is_same_v<K, lir::EHermesLit>) {
+        switch (k) {
+            case EC::BinOp: {
+                auto v = lir_view::EBinOpView{e};
+                scan_captures_v(v.lhs()); scan_captures_v(v.rhs()); break;
+            }
+            case EC::Unary:        scan_captures_v(lir_view::EUnaryView{e}.operand()); break;
+            case EC::Call: {
+                lir_view::ECallView{e}.each_arg([&](lir_view::ExprRef a){ scan_captures_v(a); });
+                break;
+            }
+            case EC::MethodCall: {
+                auto v = lir_view::EMethodCallView{e};
+                scan_captures_v(v.receiver());
+                v.each_arg([&](lir_view::ExprRef a){ scan_captures_v(a); });
+                break;
+            }
+            case EC::FieldRead:    scan_captures_v(lir_view::EFieldReadView{e}.receiver()); break;
+            case EC::IndexRead: {
+                auto v = lir_view::EIndexReadView{e};
+                scan_captures_v(v.receiver()); scan_captures_v(v.index()); break;
+            }
+            case EC::Deref:        scan_captures_v(lir_view::EDerefView{e}.operand()); break;
+            case EC::Cast:         scan_captures_v(lir_view::ECastView{e}.operand()); break;
+            case EC::EnumLitData:
+                lir_view::EEnumLitDataView{e}.each_payload([&](lir_view::ExprRef p){ scan_captures_v(p); });
+                break;
+            case EC::StructLit:
+                lir_view::EStructLitView{e}.each_field_value([&](lir_view::ExprRef f){ scan_captures_v(f); });
+                break;
+            case EC::ArrLit:
+                lir_view::EArrLitView{e}.each_elem([&](lir_view::ExprRef el){ scan_captures_v(el); });
+                break;
+            case EC::New:
+                lir_view::ENewView{e}.each_field_value([&](lir_view::ExprRef f){ scan_captures_v(f); });
+                break;
+            case EC::IfExpr: {
+                auto v = lir_view::EIfExprView{e};
+                scan_captures_v(v.cond()); scan_captures_v(v.then_val()); scan_captures_v(v.else_val()); break;
+            }
+            case EC::MatchExpr: {
+                auto v = lir_view::EMatchExprView{e};
+                scan_captures_v(v.scrut());
+                v.each_arm([&](lir_view::EMatchArmRef arm){
+                    if (auto g = arm.guard()) scan_captures_v(g);
+                    scan_captures_v(arm.value());
+                });
+                break;
+            }
+            case EC::TupleLit:
+                lir_view::ETupleLitView{e}.each_elem([&](lir_view::ExprRef el){ scan_captures_v(el); });
+                break;
+            case EC::TupleIndex:   scan_captures_v(lir_view::ETupleIndexView{e}.receiver()); break;
+            case EC::SliceLit: {
+                auto v = lir_view::ESliceLitView{e};
+                scan_captures_v(v.base()); scan_captures_v(v.len()); break;
+            }
+            case EC::SliceIndex: {
+                auto v = lir_view::ESliceIndexView{e};
+                scan_captures_v(v.slice()); scan_captures_v(v.index()); break;
+            }
+            case EC::SliceLen:     scan_captures_v(lir_view::ESliceLenView{e}.slice()); break;
+            case EC::SlicePtr:     scan_captures_v(lir_view::ESlicePtrView{e}.slice()); break;
+            case EC::ClosureBox:
+                lir_view::EClosureBoxView{e}.each_capture_name([&](std::string_view n){
+                    add_capture(std::string(n));
+                });
+                break;
+            case EC::ClosureCall: {
+                auto v = lir_view::EClosureCallView{e};
+                scan_captures_v(v.callee());
+                v.each_arg([&](lir_view::ExprRef a){ scan_captures_v(a); });
+                break;
+            }
+            case EC::FormatCall: {
+                auto v = lir_view::EFormatCallView{e};
+                scan_captures_v(v.fmt());
+                v.each_arg([&](lir_view::ExprRef a){ scan_captures_v(a); });
+                break;
+            }
+            case EC::Try:          scan_captures_v(lir_view::ETryView{e}.inner()); break;
+            case EC::BlockExpr: {
+                auto v = lir_view::EBlockExprView{e};
+                if (auto b = v.block()) scan_block_v(b);
+                scan_captures_v(v.result()); break;
+            }
+            case EC::HermesLit:
                 // C2 bug fix: scan capture_exprs so closures that use $-captures
                 // correctly include those outer variables in their capture list.
-                for (auto& ce : k.capture_exprs) scan_captures(*ce);
+                lir_view::EHermesLitView{e}.each_capture_expr([&](lir_view::ExprRef ce){
+                    scan_captures_v(ce);
+                });
+                break;
+            default: break;
+        }
+    };
+    scan_block_v = [&](lir_view::BlockRef b) {
+        if (!b) return;
+        b.each_stmt([&](lir_view::StmtRef s){ scan_stmt_v(s); });
+    };
+    scan_stmt_v = [&](lir_view::StmtRef s) {
+        if (!s) return;
+        switch (s.kind()) {
+            case SC::Let:        scan_captures_v(lir_view::SLetView{s}.value()); break;
+            case SC::Assign:     scan_captures_v(lir_view::SAssignView{s}.value()); break;
+            case SC::Return:     scan_captures_v(lir_view::SReturnView{s}.value()); break;
+            case SC::If: {
+                auto v = lir_view::SIfView{s};
+                scan_captures_v(v.cond());
+                scan_block_v(v.then_block());
+                scan_block_v(v.else_block());
+                break;
             }
-        }, e.kind);
-    };
-    // Scan all statements in body for variable references.
-    scan_block = [&](const lir::LBlock& b) {
-        for (auto& s : b.stmts) scan_stmt(s);
-    };
-    scan_stmt = [&](const lir::LStmt& s) {
-        std::visit([&](const auto& k) {
-            using K = std::decay_t<decltype(k)>;
-            if constexpr (std::is_same_v<K, lir::SLet>) {
-                scan_captures(*k.value);
-            } else if constexpr (std::is_same_v<K, lir::SAssign>) {
-                scan_captures(*k.value);
-            } else if constexpr (std::is_same_v<K, lir::SReturn>) {
-                if (k.value) scan_captures(*k.value);
-            } else if constexpr (std::is_same_v<K, lir::SIf>) {
-                scan_captures(*k.cond); scan_block(*k.then_);
-                if (k.else_) scan_block(**k.else_);
-            } else if constexpr (std::is_same_v<K, lir::SWhile>) {
-                scan_captures(*k.cond); scan_block(*k.body);
-            } else if constexpr (std::is_same_v<K, lir::SFor>) {
-                scan_captures(*k.lo); scan_captures(*k.hi); scan_block(*k.body);
-            } else if constexpr (std::is_same_v<K, lir::SLoop>) {
-                scan_block(*k.body);
-            } else if constexpr (std::is_same_v<K, lir::SBreak>) {
-                if (k.value) scan_captures(*k.value);
-            } else if constexpr (std::is_same_v<K, lir::SBlock>) {
-                scan_block(*k.body);
-            } else if constexpr (std::is_same_v<K, lir::SFieldWrite>) {
-                scan_captures(*k.value);
-            } else if constexpr (std::is_same_v<K, lir::SIndexWrite>) {
-                scan_captures(*k.index); scan_captures(*k.value);
-            } else if constexpr (std::is_same_v<K, lir::SFieldIndexWrite>) {
-                scan_captures(*k.index); scan_captures(*k.value);
-            } else if constexpr (std::is_same_v<K, lir::SExprStmt>) {
-                scan_captures(*k.expr);
-            } else if constexpr (std::is_same_v<K, lir::SMatch>) {
-                scan_captures(*k.scrut);
-                for (auto& arm : k.arms) {
-                    if (arm.guard && *arm.guard) scan_captures(**arm.guard);
-                    if (arm.body) scan_block(*arm.body);
-                }
-            } else if constexpr (std::is_same_v<K, lir::SDelete>) {
-                scan_captures(*k.expr);
-            } else if constexpr (std::is_same_v<K, lir::SForEach>) {
-                scan_captures(*k.iter); scan_block(*k.body);
-            } else if constexpr (std::is_same_v<K, lir::SDerefWrite>) {
-                scan_captures(*k.ptr); scan_captures(*k.value);
-            } else if constexpr (std::is_same_v<K, lir::SDerefFieldWrite>) {
-                scan_captures(*k.value);
-            } else if constexpr (std::is_same_v<K, lir::STupleWrite>) {
-                scan_captures(*k.value);
+            case SC::While: {
+                auto v = lir_view::SWhileView{s};
+                scan_captures_v(v.cond()); scan_block_v(v.body()); break;
             }
-        }, s.kind);
+            case SC::For: {
+                auto v = lir_view::SForView{s};
+                scan_captures_v(v.lo()); scan_captures_v(v.hi()); scan_block_v(v.body()); break;
+            }
+            case SC::Loop:       scan_block_v(lir_view::SLoopView{s}.body()); break;
+            case SC::Break:      scan_captures_v(lir_view::SBreakView{s}.value()); break;
+            case SC::Block:      scan_block_v(lir_view::SBlockView{s}.body()); break;
+            case SC::FieldWrite: scan_captures_v(lir_view::SFieldWriteView{s}.value()); break;
+            case SC::IndexWrite: {
+                auto v = lir_view::SIndexWriteView{s};
+                scan_captures_v(v.index()); scan_captures_v(v.value()); break;
+            }
+            case SC::FieldIndexWrite: {
+                auto v = lir_view::SFieldIndexWriteView{s};
+                scan_captures_v(v.index()); scan_captures_v(v.value()); break;
+            }
+            case SC::ExprStmt:   scan_captures_v(lir_view::SExprStmtView{s}.expr()); break;
+            case SC::Match: {
+                auto v = lir_view::SMatchView{s};
+                scan_captures_v(v.scrut());
+                v.each_arm([&](lir_view::EMatchArmRef arm){
+                    if (auto g = arm.guard()) scan_captures_v(g);
+                    if (auto b = arm.body()) scan_block_v(b);
+                });
+                break;
+            }
+            case SC::Delete:     scan_captures_v(lir_view::SDeleteView{s}.expr()); break;
+            case SC::ForEach: {
+                auto v = lir_view::SForEachView{s};
+                scan_captures_v(v.iter()); scan_block_v(v.body()); break;
+            }
+            case SC::DerefWrite: {
+                auto v = lir_view::SDerefWriteView{s};
+                scan_captures_v(v.ptr()); scan_captures_v(v.value()); break;
+            }
+            case SC::DerefFieldWrite: scan_captures_v(lir_view::SDerefFieldWriteView{s}.value()); break;
+            case SC::TupleWrite:      scan_captures_v(lir_view::STupleWriteView{s}.value()); break;
+            default: break;
+        }
     };
-    scan_block(body);
-
     auto ec = lir::alloc_closure(*cur_prog_);
     ec->closure_id    = closure_id;
     ec->params        = std::move(params);
     ec->ret_type      = ret_type;
     ec->body          = std::move(body);
     ec->is_move       = is_move;
+
+    {
+        // Scan ec->body's mirror after the move so &ec->body is the stable
+        // address registered in the mirror table (not the local `body`
+        // which std::move just invalidated). The scanner pushes into the
+        // local `captures` / `capture_types`, so they must still own data
+        // here — moves into ec happen below.
+        if (ec->body.mirror_offset_ == hermes::arena_offset_t{})
+            lir_mirror_emit_block_node(*cur_prog_, ec->body);
+        lir_view::BlockRef br{cur_prog_->type_pool.arena(), ec->body.mirror_offset_};
+        scan_block_v(br);
+    }
     ec->captures      = std::move(captures);
     ec->capture_types = std::move(capture_types);
 
