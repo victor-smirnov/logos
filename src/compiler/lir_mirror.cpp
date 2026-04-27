@@ -573,8 +573,21 @@ hermes::arena_offset_t LirMirrorEmitter::emit_hv(const HermesVal& v) {
 // ──────────────────────────────────────────────────────────────────────────
 
 hermes::arena_offset_t LirMirrorEmitter::emit_pat(const Pattern& p) {
-    if (auto it = table_.pat.find(&p); it != table_.pat.end())
-        return it->second;
+    // A.2: field-as-truth + heap-recycle invalidation, mirroring expr/stmt/
+    // block/hv. Pattern is especially exposed here because vector<Pattern>
+    // moves invalidate &p; the table key is fragile, so the field on the
+    // struct itself is authoritative.
+    if (p.mirror_offset_ != hermes::arena_offset_t{}) {
+        if (auto it = table_.pat.find(&p); it != table_.pat.end())
+            return it->second;
+        table_.pat[&p] = p.mirror_offset_;
+        return p.mirror_offset_;
+    }
+    if (auto it = table_.pat.find(&p); it != table_.pat.end()) {
+        // Heap-address recycling: stale cache entry for a freed Pattern.
+        // Invalidate and fall through to emit a fresh mirror.
+        table_.pat.erase(it);
+    }
     using namespace lir;
     hermes::arena_offset_t map_off;
     std::visit([&](auto const& alt) {
@@ -658,6 +671,7 @@ hermes::arena_offset_t LirMirrorEmitter::emit_pat(const Pattern& p) {
             put(map_off, pk::IS_MUT, put_bool(alt.is_mut));
         }
     }, p.kind);
+    p.mirror_offset_ = map_off;
     table_.pat[&p] = map_off;
     return map_off;
 }

@@ -867,6 +867,14 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
 }
 
 lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, TypeRef scrut_type) {
+    auto result = build_pattern_impl(pnode, scrut_type);
+    // A.2: eager mirror so `pat_ref_of` works during sema and downstream
+    // back-fill is a no-op (cache hits via mirror_offset_).
+    lir_mirror_emit_pat_node(*cur_prog_, result);
+    return result;
+}
+
+lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_type) {
     int32_t pc = code_of(pnode);
     if (pc == la::PAT_VARIANT) {
         auto pename = std::string(str_of(pnode.get(la::NAME.code)));

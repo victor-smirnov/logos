@@ -235,11 +235,8 @@ private:
         return lir_view::StmtRef(cur_prog_->type_pool.arena(), s.mirror_offset_);
     }
     lir_view::PatRef pat_ref_of(const lir::Pattern& p) const noexcept {
-        if (!cur_prog_->mirror_table) return {};
-        auto& tbl = *cur_prog_->mirror_table;
-        auto it = tbl.pat.find(&p);
-        if (it == tbl.pat.end()) return {};
-        return lir_view::PatRef(cur_prog_->type_pool.arena(), it->second);
+        if (p.mirror_offset_ == hermes::arena_offset_t{}) return {};
+        return lir_view::PatRef(cur_prog_->type_pool.arena(), p.mirror_offset_);
     }
 
     template<typename K>
@@ -973,6 +970,9 @@ private:
     lir::LStmt lower_assign(hermes::TinyMapView node);
     lir::LStmt lower_return(hermes::TinyMapView node);
     lir::Pattern build_pattern(hermes::TinyMapView pnode, TypeRef scrut_type);
+    // Internal: build_pattern's body without eager mirror emit. Recurses via
+    // build_pattern (so sub-patterns get their own eager emit).
+    lir::Pattern build_pattern_impl(hermes::TinyMapView pnode, TypeRef scrut_type);
     // If pnode is a Hermes scalar pattern (PAT_HERMES_NULL/BOOL/INT), returns a
     // bool-typed guard call that evaluates the pattern against `scrut_var`
     // (which must be an AnyVal).  Returns nullptr otherwise.
