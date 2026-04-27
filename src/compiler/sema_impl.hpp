@@ -220,7 +220,7 @@ private:
     }
 
     lir::LExprPtr error_expr() {
-        return make_expr(error_t(), lir::ELitInt{0});
+        return builder().lit_int(0, error_t());
     }
 
     // Stage 3f L-IR builder. Bound to cur_prog_ when sema is lowering a

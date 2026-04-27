@@ -7,6 +7,7 @@
 #include "mono_impl.hpp"
 #include "logos/compiler/sha256.hpp"
 #include <logos/compiler/lir_mirror.hpp>
+#include <logos/compiler/lir_builder.hpp>
 #include <functional>
 
 namespace logos::compiler {
@@ -497,10 +498,9 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                     auto pit = cur_packs_.find(pack_name);
                     if (pit != cur_packs_.end()) {
                         for (size_t pi = 0; pi < pit->second.size(); ++pi) {
-                            auto ref = std::make_unique<lir::LExpr>();
-                            ref->type = pit->second[pi];
-                            ref->kind = lir::EVarRef{make_pack_arg_name(pe_var_name, pi)};
-                            nc.args.push_back(std::move(ref));
+                            nc.args.push_back(LirBuilder(out_).var_ref(
+                                make_pack_arg_name(pe_var_name, pi),
+                                pit->second[pi]));
                         }
                         if (templates_.count(nc.callee)) {
                             for (auto pt : pit->second)
@@ -802,10 +802,9 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                     auto pit = cur_packs_.find(pack_name);
                     if (pit != cur_packs_.end()) {
                         for (size_t pi = 0; pi < pit->second.size(); ++pi) {
-                            auto ref = std::make_unique<lir::LExpr>();
-                            ref->type = pit->second[pi];
-                            ref->kind = lir::EVarRef{make_pack_arg_name(pe_var_name, pi)};
-                            nc.args.push_back(std::move(ref));
+                            nc.args.push_back(LirBuilder(out_).var_ref(
+                                make_pack_arg_name(pe_var_name, pi),
+                                pit->second[pi]));
                         }
                         // If callee is a template, add pack types as type_args
                         // so mono enqueues the recursive instantiation.
