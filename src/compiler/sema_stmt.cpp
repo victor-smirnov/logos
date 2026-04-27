@@ -3664,18 +3664,23 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             if (eit == enums_.end()) eit = enums_.find(TypeRef(scrut_type).enum_name());
             if (eit != enums_.end()) {
                 std::set<int32_t> covered;
-                auto add_pat2 = [&](const lir::Pattern& p) {
-                    if (auto* pv = std::get_if<lir::PatVariant>(&p.kind))
-                        covered.insert(pv->disc);
-                    else if (auto* pvd = std::get_if<lir::PatVariantData>(&p.kind))
-                        covered.insert(pvd->disc);
+                namespace ps = lir_schema::pat;
+                auto add_pat2_ref = [&](lir_view::PatRef pr) {
+                    if (!pr) return;
+                    auto k = pr.kind();
+                    if (k == ps::Code::Variant)
+                        covered.insert(static_cast<int32_t>(lir_view::PatVariantView{pr}.disc()));
+                    else if (k == ps::Code::VariantData)
+                        covered.insert(static_cast<int32_t>(lir_view::PatVariantDataView{pr}.disc()));
                 };
                 for (auto& arm : me.arms) {
                     if (arm.guard) continue;
-                    if (auto* por = std::get_if<lir::PatOr>(&arm.pat.kind)) {
-                        for (auto& alt : por->alts) add_pat2(alt);
+                    auto apr = pat_ref_of(arm.pat);
+                    if (apr.kind() == ps::Code::Or) {
+                        lir_view::PatOrView{apr}.each_alt(
+                            [&](lir_view::PatRef alt) { add_pat2_ref(alt); });
                     } else {
-                        add_pat2(arm.pat);
+                        add_pat2_ref(apr);
                     }
                 }
                 std::string missing;
