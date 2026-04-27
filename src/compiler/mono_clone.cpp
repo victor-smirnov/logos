@@ -724,9 +724,33 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             }
             break;
         }
-        // Stage 3g.3.5d ClosureBox view-path produced wrong results vs the
-        // variant fallback (closure_in_struct_field, iter_*). Revert to
-        // std::visit until the discrepancy is root-caused.
+        case C::ClosureBox: {
+            lir_view::EClosureBoxView v{eref};
+            auto br = v.body();
+            if (!br) {
+                result->kind = lir::EClosureBox{nullptr};
+                break;
+            }
+            auto nc = std::make_unique<lir::EClosure>();
+            nc->closure_id = std::string(v.closure_id());
+            v.each_param(out_.type_pool.impl(),
+                [&](std::string_view nm, TypeRef pt) {
+                    nc->params.push_back({std::string(nm), subst_type(pt, s)});
+                });
+            nc->ret_type  = subst_type(v.ret_type(out_.type_pool.impl()), s);
+            nc->body      = subst_child_block(br);
+            nc->is_move   = v.is_move();
+            nc->as_fn_ptr = v.as_fn_ptr();
+            v.each_capture_name([&](std::string_view cn) {
+                nc->captures.push_back(std::string(cn));
+            });
+            v.each_capture(out_.type_pool.impl(),
+                [&](std::string_view, TypeRef ct) {
+                    nc->capture_types.push_back(subst_type(ct, s));
+                });
+            result->kind = lir::EClosureBox{std::move(nc)};
+            break;
+        }
         default:
             handled = false;
             break;

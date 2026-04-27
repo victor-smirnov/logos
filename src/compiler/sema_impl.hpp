@@ -182,8 +182,13 @@ private:
         if (at.closure_params().size() != er.closure_params().size()) return false;
         for (size_t i = 0; i < at.closure_params().size(); ++i)
             if (!types_compatible(at.closure_params()[i], er.closure_params()[i])) return false;
-        box->inner->as_fn_ptr = true;
-        arg->type = make_fn_ptr_type(at.closure_params(), at.closure_ret());
+        // Rebuild via builder so the Hermes mirror reflects as_fn_ptr=true
+        // and the FnPtr-typed result. In-place mutation would leave the
+        // stale closure mirror that view-based readers (mono) pick up.
+        auto inner = std::move(box->inner);
+        inner->as_fn_ptr = true;
+        TypeRef fp_ty = make_fn_ptr_type(at.closure_params(), at.closure_ret());
+        arg = builder().closure_box(std::move(inner), fp_ty);
         return true;
     }
     TypeRef make_slice_type(TypeRef elem) {
