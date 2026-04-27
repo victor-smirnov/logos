@@ -7,6 +7,8 @@
 // Symbol: "__logos_reflect__<type_hash_hex>" with WeakODR linkage.
 
 #include <logos/compiler/lir.hpp>
+#include <logos/compiler/lir_mirror.hpp>
+#include <logos/compiler/lir_view.hpp>
 #include <logos/compiler/sha256.hpp>
 
 #include <logos/hermes/access.hpp>
@@ -146,41 +148,47 @@ static AnyVal build_field_map(Hermes& doc, const lir::LField& f) {
 }
 
 // ── Serialize a HermesVal tree into a Hermes document ────────────────────
+//
+// Reads the HermesVal via Hermes mirror (HermesValRef + HV*View). Caller is
+// responsible for ensuring the mirror is emitted (call
+// `lir_mirror_emit_hv_node(prog, *root)` first).
 
-static AnyVal hermes_val_to_doc(Hermes& doc, const lir::HermesVal& v);
-
-static AnyVal hermes_val_to_doc(Hermes& doc, const lir::HermesVal& v) {
-    return std::visit([&](auto&& alt) -> AnyVal {
-        using T = std::decay_t<decltype(alt)>;
-        if constexpr (std::is_same_v<T, lir::HVNull>)  return AnyVal{};
-        if constexpr (std::is_same_v<T, lir::HVBool>)  return hval_bool(doc, alt.value);
-        if constexpr (std::is_same_v<T, lir::HVInt>)   return hval_i64(doc, alt.value);
-        if constexpr (std::is_same_v<T, lir::HVFloat>)
-            return anyval_put<double>(HermesAccess::arena(doc), alt.value).get();
-        if constexpr (std::is_same_v<T, lir::HVStr>)   return hval_str(doc, alt.value);
-        if constexpr (std::is_same_v<T, lir::HVMap>) {
+static AnyVal hermes_val_to_doc(Hermes& doc, lir_view::HermesValRef v) {
+    using HVC = lir_schema::hermes_val::Code;
+    switch (v.kind()) {
+        case HVC::Null:    return AnyVal{};
+        case HVC::Bool:    return hval_bool(doc, lir_view::HVBoolView{v}.value());
+        case HVC::Int:     return hval_i64 (doc, lir_view::HVIntView{v}.value());
+        case HVC::Float:
+            return anyval_put<double>(HermesAccess::arena(doc),
+                                      lir_view::HVFloatView{v}.value()).get();
+        case HVC::Str:     return hval_str (doc, lir_view::HVStrView{v}.value());
+        case HVC::Map: {
+            lir_view::HVMapView mv{v};
             uint32_t m = begin_map(doc);
-            for (auto& e : alt.entries) {
-                std::string_view k = std::holds_alternative<std::string>(e.key)
-                    ? std::string_view(std::get<std::string>(e.key)) : "";
-                map_put(doc, m, k, hermes_val_to_doc(doc, *e.val));
+            uint64_t n = mv.size();
+            for (uint64_t i = 0; i < n; ++i) {
+                std::string_view k = mv.int_keyed() ? "" : mv.str_key(i);
+                map_put(doc, m, k, hermes_val_to_doc(doc, mv.value(i)));
             }
             return as_ptr(m);
         }
-        if constexpr (std::is_same_v<T, lir::HVArray>) {
+        case HVC::Array: {
+            lir_view::HVArrayView av{v};
             uint32_t a = begin_array(doc);
-            for (auto& elem : alt.elements)
-                array_push(doc, a, hermes_val_to_doc(doc, *elem));
+            uint64_t n = av.size();
+            for (uint64_t i = 0; i < n; ++i)
+                array_push(doc, a, hermes_val_to_doc(doc, av.elem(i)));
             return as_ptr(a);
         }
-        if constexpr (std::is_same_v<T, lir::HVCapture>) return AnyVal{};
-        return AnyVal{};
-    }, v.kind);
+        case HVC::Capture: return AnyVal{};
+    }
+    return AnyVal{};
 }
 
 // ── Build TypeInfo blob for one struct ───────────────────────────────────
 
-static std::vector<uint8_t> build_type_info_blob(const lir::LStructDef& sd) {
+static std::vector<uint8_t> build_type_info_blob(lir::LProgram& prog, const lir::LStructDef& sd) {
     auto doc = make_doc(131072).get();
 
     // Root map — log2=4 → 16 buckets.
@@ -205,8 +213,11 @@ static std::vector<uint8_t> build_type_info_blob(const lir::LStructDef& sd) {
     map_put(doc, root, "annotations", as_ptr(annots_arr));
 
     // meta @{} block — contributed as-is under "meta" key
-    if (sd.meta_val)
-        map_put(doc, root, "meta", hermes_val_to_doc(doc, *sd.meta_val));
+    if (sd.meta_val) {
+        auto off = lir_mirror_emit_hv_node(prog, *sd.meta_val);
+        lir_view::HermesValRef hv{prog.type_pool.arena(), off};
+        map_put(doc, root, "meta", hermes_val_to_doc(doc, hv));
+    }
 
     HermesAccess::set_root_offset(doc, arena_offset_t(root));
 
@@ -233,7 +244,7 @@ static std::string reflect_symbol(const std::array<uint8_t, 23>& hash) {
     return sym;
 }
 
-static std::vector<uint8_t> build_genos_info_blob(const lir::LTraitDef& td) {
+static std::vector<uint8_t> build_genos_info_blob(lir::LProgram& prog, const lir::LTraitDef& td) {
     auto doc = make_doc(65536).get();
     uint32_t root = begin_map(doc, 3);
     map_put(doc, root, "name", hval_str(doc, td.name));
@@ -241,8 +252,11 @@ static std::vector<uint8_t> build_genos_info_blob(const lir::LTraitDef& td) {
     map_put(doc, root, "kind", hval_i64(doc, 3));
     if (td.type_code != 0)
         map_put(doc, root, "type_code", hval_u64(doc, td.type_code));
-    if (td.meta_val)
-        map_put(doc, root, "meta", hermes_val_to_doc(doc, *td.meta_val));
+    if (td.meta_val) {
+        auto off = lir_mirror_emit_hv_node(prog, *td.meta_val);
+        lir_view::HermesValRef hv{prog.type_pool.arena(), off};
+        map_put(doc, root, "meta", hermes_val_to_doc(doc, hv));
+    }
     HermesAccess::set_root_offset(doc, arena_offset_t(root));
     auto packed = clone(doc).get();
     auto& arena = HermesAccess::arena(packed);
@@ -285,7 +299,7 @@ lir::LProgram reflection_emit(lir::LProgram prog) {
         auto sym = reflect_symbol(sd.type_hash);
         if (!emitted.insert(sym).second) continue;  // already done
 
-        auto blob = build_type_info_blob(sd);
+        auto blob = build_type_info_blob(prog, sd);
         prog.reflection_globals.push_back({std::move(sym), std::move(blob)});
     }
 
@@ -300,7 +314,7 @@ lir::LProgram reflection_emit(lir::LProgram prog) {
         auto hash = type_hash_23(fqn);
         auto sym = reflect_symbol(hash);
         if (!emitted.insert(sym).second) continue;
-        auto blob = build_genos_info_blob(td);
+        auto blob = build_genos_info_blob(prog, td);
         prog.reflection_globals.push_back({std::move(sym), std::move(blob)});
     }
 
