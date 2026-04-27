@@ -248,7 +248,7 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
         return make_stmt(node_line_, lir::SBlock{lir::alloc_block(*cur_prog_, std::move(inner))});
     }
     // Unknown stmt — emit dummy expr stmt
-    return make_stmt(node_line_, lir::SExprStmt{error_expr()});
+    return builder().stmt_expr(error_expr(), node_line_);
 }
 
 lir::LBlock SemaChecker::lower_block(TinyMapView block) {
@@ -314,7 +314,7 @@ lir::LStmt SemaChecker::lower_let_destruct(TinyMapView node) {
     if (TypeRef(rhs_type).kind() != LogosType::Kind::Tuple) {
         error(std::format("let (...) = ...: right-hand side must be a tuple, got {}",
               type_str(rhs_type)));
-        return make_stmt(node_line_, lir::SExprStmt{std::move(rhs)});
+        return builder().stmt_expr(std::move(rhs), node_line_);
     }
 
     // Collect binding names
@@ -2488,7 +2488,7 @@ lir::LStmt SemaChecker::lower_chain_field_write(TinyMapView node) {
     auto outer_sname = struct_name_of(recv_name);
     if (outer_sname.empty()) {
         error(std::format("chain field write: '{}' is not a struct", recv_name));
-        return make_stmt(node_line_, lir::SExprStmt{error_expr()});
+        return builder().stmt_expr(error_expr(), node_line_);
     }
     // Require mutable receiver.
     auto recv_type = lookup(recv_name);
@@ -2511,7 +2511,7 @@ lir::LStmt SemaChecker::lower_chain_field_write(TinyMapView node) {
         : field_type_of(std::string(outer_sname), mid_name);
     if (!mid_ft) {
         error(std::format("chain field write: struct '{}' has no field '{}'", outer_sname, mid_name));
-        return make_stmt(node_line_, lir::SExprStmt{error_expr()});
+        return builder().stmt_expr(error_expr(), node_line_);
     }
     // Resolve through pointer if mid-field is itself a pointer type.
     TypeRef mid_struct_t = mid_ft;
@@ -2520,14 +2520,14 @@ lir::LStmt SemaChecker::lower_chain_field_write(TinyMapView node) {
     auto mid_sname = mid_struct_t ? concrete_struct_name(mid_struct_t) : std::string{};
     if (mid_sname.empty()) {
         error(std::format("chain field write: '{}.{}' has no struct type", recv_name, mid_name));
-        return make_stmt(node_line_, lir::SExprStmt{error_expr()});
+        return builder().stmt_expr(error_expr(), node_line_);
     }
 
     // Get final field type — again via typed lookup for generic substitution.
     TypeRef ft = field_type_of_for_type(mid_struct_t, field_name);
     if (!ft) {
         error(std::format("chain field write: struct '{}' has no field '{}'", mid_sname, field_name));
-        return make_stmt(node_line_, lir::SExprStmt{error_expr()});
+        return builder().stmt_expr(error_expr(), node_line_);
     }
 
     if (!inside_unsafe_ && recv_type && TypeRef(recv_type).kind() == LogosType::Kind::Ptr)
