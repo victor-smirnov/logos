@@ -143,6 +143,13 @@ lir::LExprPtr LirBuilder::closure_box(lir::EClosure* inner,
     return make_expr(prog_, ty, lir::EClosureBox{inner});
 }
 
+lir::LExprPtr LirBuilder::closure_to_fnptr(lir::LExpr* arg, TypeRef new_ty) {
+    auto* box = std::get_if<lir::EClosureBox>(&arg->kind);
+    if (!box || !box->inner) return arg;
+    box->inner->as_fn_ptr = true;
+    return closure_box(box->inner, new_ty);
+}
+
 lir::LExprPtr LirBuilder::closure_call(lir::LExprPtr callee,
                                         std::vector<lir::LExprPtr> args,
                                         TypeRef ty) {

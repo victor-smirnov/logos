@@ -722,6 +722,15 @@ public:
         return TypeRef(self.arena(), av.to_offset(), pool);
     }
 
+    uint64_t capture_count() const noexcept {
+        auto* m = cl_map();
+        if (!m) return 0;
+        auto names_av = m->get(
+            lir_schema::closure_keys::CAPTURE_NAMES.code, self.base());
+        if (names_av.is_null()) return 0;
+        return names_av.as_ptr<const hermes::ObjectArray>(self.base())->size();
+    }
+
     template <class F>
     void each_capture_name(F&& f) const noexcept {
         auto* m = cl_map();

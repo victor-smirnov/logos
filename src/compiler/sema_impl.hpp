@@ -179,18 +179,15 @@ private:
         if (!arg || !er || er.kind() != LogosType::Kind::FnPtr) return false;
         TypeRef at(arg->type);
         if (!at || at.kind() != LogosType::Kind::Closure) return false;
-        auto* box = std::get_if<lir::EClosureBox>(&arg->kind);
-        if (!box || !box->inner || !box->inner->captures.empty()) return false;
+        auto xref = expr_ref_of(*arg);
+        if (!xref || xref.kind() != lir_schema::expr::Code::ClosureBox) return false;
+        lir_view::EClosureBoxView box{xref};
+        if (box.capture_count() != 0) return false;
         if (at.closure_params().size() != er.closure_params().size()) return false;
         for (size_t i = 0; i < at.closure_params().size(); ++i)
             if (!types_compatible(at.closure_params()[i], er.closure_params()[i])) return false;
-        // Rebuild via builder so the Hermes mirror reflects as_fn_ptr=true
-        // and the FnPtr-typed result. In-place mutation would leave the
-        // stale closure mirror that view-based readers (mono) pick up.
-        auto inner = std::move(box->inner);
-        inner->as_fn_ptr = true;
         TypeRef fp_ty = make_fn_ptr_type(at.closure_params(), at.closure_ret());
-        arg = builder().closure_box(std::move(inner), fp_ty);
+        arg = builder().closure_to_fnptr(arg, fp_ty);
         return true;
     }
     TypeRef make_slice_type(TypeRef elem) {

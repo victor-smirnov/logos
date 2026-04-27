@@ -67,6 +67,11 @@ public:
     lir::LExprPtr enum_lit(std::string enum_name, std::string variant,
                            int64_t disc, TypeRef ty);
     lir::LExprPtr closure_box(lir::EClosure* inner, TypeRef ty);
+    // Coerce an existing EClosureBox expr into an FnPtr-typed closure_box.
+    // Sets inner->as_fn_ptr=true and re-emits via closure_box() so the Hermes
+    // mirror reflects the new type. Caller is responsible for verifying that
+    // the input is an EClosureBox with no captures.
+    lir::LExprPtr closure_to_fnptr(lir::LExpr* arg, TypeRef new_ty);
     lir::LExprPtr closure_call(lir::LExprPtr callee,
                                std::vector<lir::LExprPtr> args, TypeRef ty);
     lir::LExprPtr fn_ptr_call(lir::LExprPtr callee,
