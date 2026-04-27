@@ -511,12 +511,13 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         // Retype/coerce integer literal (or IntLit-typed expr) to float annotation type (f32 or f64).
         if (TypeRef(rhs_type).kind() == LogosType::Kind::IntLit && ann &&
             (TypeRef(ann).kind() == LogosType::Kind::F32 || TypeRef(ann).kind() == LogosType::Kind::F64)) {
-            if (auto* il = std::get_if<lir::ELitInt>(&rhs->kind)) {
+            auto rhs_ref = expr_ref_of(*rhs);
+            if (rhs_ref.kind() == lir_schema::expr::Code::LitInt) {
                 // Simple integer literal: convert directly to float literal.
                 // Build a fresh node so the Hermes mirror is emitted with
                 // Code::LitFloat (in-place mutation would leave the stale
                 // LitInt mirror that view-based readers in mono pick up).
-                double fval = static_cast<double>(il->value);
+                double fval = static_cast<double>(lir_view::ELitIntView{rhs_ref}.value());
                 rhs = builder().lit_float(fval, ann);
             } else {
                 // Non-literal IntLit expression (e.g. 1 + 2): wrap in ECast to float.
@@ -560,8 +561,9 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
                     if (TypeRef(tlit->elems[ei]->type).kind() == LogosType::Kind::IntLit && TypeRef(ann).tuple_elems()[ei] &&
                         (TypeRef(TypeRef(ann).tuple_elems()[ei]).kind() == LogosType::Kind::F32 ||
                          TypeRef(TypeRef(ann).tuple_elems()[ei]).kind() == LogosType::Kind::F64)) {
-                        if (auto* il = std::get_if<lir::ELitInt>(&tlit->elems[ei]->kind)) {
-                            double fval = static_cast<double>(il->value);
+                        auto er = expr_ref_of(*tlit->elems[ei]);
+                        if (er.kind() == lir_schema::expr::Code::LitInt) {
+                            double fval = static_cast<double>(lir_view::ELitIntView{er}.value());
                             tlit->elems[ei] = builder().lit_float(
                                 fval, TypeRef(ann).tuple_elems()[ei]);
                         }
@@ -607,9 +609,12 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         if (TypeRef(var_type).kind() == LogosType::Kind::IntLit) {
             // Default IntLit to i32; upgrade to i64 if the literal value overflows i32.
             var_type = i32_t();
-            if (auto* lit = std::get_if<lir::ELitInt>(&rhs->kind))
-                if (lit->value > (int64_t)INT32_MAX || lit->value < (int64_t)INT32_MIN)
+            auto er = expr_ref_of(*rhs);
+            if (er.kind() == lir_schema::expr::Code::LitInt) {
+                int64_t v = lir_view::ELitIntView{er}.value();
+                if (v > (int64_t)INT32_MAX || v < (int64_t)INT32_MIN)
                     var_type = prim(LogosType::Kind::I64);
+            }
         }
         if (TypeRef(var_type).kind() == LogosType::Kind::FloatLit) {
             // Default FloatLit to f64.
@@ -3633,9 +3638,12 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 if (auto* blk = std::get_if<lir::EBlockExpr>(&ve->kind))
                     ve = blk->result;
                 if (ve) {
-                    if (auto* lit = std::get_if<lir::ELitInt>(&ve->kind))
-                        if (lit->value > (int64_t)INT32_MAX || lit->value < (int64_t)INT32_MIN)
+                    auto er = expr_ref_of(*ve);
+                    if (er.kind() == lir_schema::expr::Code::LitInt) {
+                        int64_t v = lir_view::ELitIntView{er}.value();
+                        if (v > (int64_t)INT32_MAX || v < (int64_t)INT32_MIN)
                             result_type = prim(LogosType::Kind::I64);
+                    }
                 }
             }
 
