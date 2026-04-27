@@ -202,14 +202,14 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
         std::string break_label;
         if (stmt.has_key(la::LABEL))
             break_label = std::string(str_of(stmt.get(la::LABEL.code)));
-        return make_stmt(node_line_, lir::SBreak{std::move(bval), std::move(break_label)});
+        return builder().stmt_break(std::move(bval), std::move(break_label), node_line_);
     }
     if (c == la::CONTINUE) {
         if (loop_depth_ == 0) error("'continue' outside loop");
         std::string cont_label;
         if (stmt.has_key(la::LABEL))
             cont_label = std::string(str_of(stmt.get(la::LABEL.code)));
-        return make_stmt(node_line_, lir::SContinue{std::move(cont_label)});
+        return builder().stmt_continue(std::move(cont_label), node_line_);
     }
     if (c == la::DEREF_WRITE) {
         // *ptr = value;
@@ -230,7 +230,7 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
         // *const T is read-only; only *mut T or &mut T can be written through
         if (TypeRef(pt).kind() == LogosType::Kind::Ptr && !TypeRef(pt).mut_ptr())
             error("deref-write: cannot write through *const pointer (use *mut)");
-        return make_stmt(node_line_, lir::SDerefWrite{std::move(ptr), std::move(val)});
+        return builder().stmt_deref_write(std::move(ptr), std::move(val), node_line_);
     }
     if (c == la::UNSAFE_BLOCK) {
         bool was = inside_unsafe_;
@@ -648,7 +648,7 @@ lir::LStmt SemaChecker::lower_compound_assign(TinyMapView node) {
     if (!var_type) {
         error(std::format("compound assignment to undefined variable '{}'", name));
         if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
-        return make_stmt(node_line_, lir::SBreak{});
+        return builder().stmt_break(nullptr, "", node_line_);
     }
     if (!lookup_is_mut(name))
         error(std::format("compound assignment to immutable variable '{}'", name));
@@ -667,7 +667,7 @@ lir::LStmt SemaChecker::lower_compound_assign(TinyMapView node) {
     }
     // Synthesize the binop LIR node
     auto binop = builder().bin_op(base_op, std::move(lhs_ref), std::move(rhs), var_type);
-    return make_stmt(node_line_, lir::SAssign{std::string(name), std::move(binop)});
+    return builder().stmt_assign(std::string(name), std::move(binop), node_line_);
 }
 
 lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
@@ -678,7 +678,7 @@ lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
         lir::LExprPtr dummy = node.has_key(la::VALUE)
             ? lower_expr(map_of(node.get(la::VALUE.code)))
             : error_expr();
-        return make_stmt(node_line_, lir::SAssign{std::string(name), std::move(dummy)});
+        return builder().stmt_assign(std::string(name), std::move(dummy), node_line_);
     }
     if (!lookup_is_mut(name))
         error(std::format("assignment to immutable variable '{}'", name));
@@ -749,7 +749,7 @@ lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
     // Re-assignment revives the variable (the old value was already consumed).
     moved_vars_.erase(std::string(name));
 
-    return make_stmt(node_line_, lir::SAssign{std::string(name), std::move(rhs)});
+    return builder().stmt_assign(std::string(name), std::move(rhs), node_line_);
 }
 
 lir::LStmt SemaChecker::lower_return(TinyMapView node) {
@@ -866,7 +866,7 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
                 }
             };
             mark_moved_in_expr(val);
-            return make_stmt(node_line_, lir::SReturn{std::move(val)});
+            return builder().stmt_return(std::move(val), node_line_);
         }
     }
     // void return
@@ -876,7 +876,7 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
         error(std::format("return without value in function returning {}",
               type_str(ret_type_)));
     }
-    return make_stmt(node_line_, lir::SReturn{nullptr});
+    return builder().stmt_return(nullptr, node_line_);
 }
 
 lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, TypeRef scrut_type) {
@@ -1957,7 +1957,7 @@ lir::LStmt SemaChecker::lower_while(TinyMapView node) {
 
         // Else arm: wildcard → break
         lir::LBlockPtr else_body = lir::alloc_block(*cur_prog_);
-        else_body->stmts.push_back(make_stmt(node_line_, lir::SBreak{}));
+        else_body->stmts.push_back(builder().stmt_break(nullptr, "", node_line_));
 
         lir::SMatch sm;
         sm.scrut = std::move(scrut);
@@ -2133,7 +2133,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         auto sname = struct_name_from_type(iter_type);
         if (sname.empty()) {
             error(std::format("for-in: '{}' is not iterable (not a struct)", type_str(iter_type)));
-            return make_stmt(node_line_, lir::SBreak{});
+            return builder().stmt_break(nullptr, "", node_line_);
         }
 
         // For generic iterators (MapIter<I,T,R>) trait-impl methods are registered
@@ -2166,7 +2166,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
 
         if (!fi_ptr) {
             error(std::format("for-in: type '{}' has no `next()` method", sname));
-            return make_stmt(node_line_, lir::SBreak{});
+            return builder().stmt_break(nullptr, "", node_line_);
         }
 
         // next() must return an enum (Option-like)
@@ -2199,7 +2199,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         if (TypeRef(next_ret).kind() != LogosType::Kind::Enum) {
             error(std::format("for-in: `{}.next()` must return an enum, got {}",
                   sname, type_str(next_ret)));
-            return make_stmt(node_line_, lir::SBreak{});
+            return builder().stmt_break(nullptr, "", node_line_);
         }
 
         // Find the payload variant (Some-like: first variant with payload)
@@ -2209,13 +2209,13 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         if (eit == enums_.end()) eit = enums_.find(TypeRef(next_ret).enum_name());
         if (eit == enums_.end()) {
             error(std::format("for-in: enum '{}' not found", TypeRef(next_ret).enum_name()));
-            return make_stmt(node_line_, lir::SBreak{});
+            return builder().stmt_break(nullptr, "", node_line_);
         }
         for (auto& v : eit->second.variants)
             if (!v.payload_types.empty()) { some_variant = &v; break; }
         if (!some_variant) {
             error(std::format("for-in: enum '{}' has no payload variant", TypeRef(next_ret).enum_name()));
-            return make_stmt(node_line_, lir::SBreak{});
+            return builder().stmt_break(nullptr, "", node_line_);
         }
 
         // Resolve element type (substitute generics from next_ret's type_args)
@@ -2267,7 +2267,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
 
         // Else arm: _ → break
         auto else_body = lir::alloc_block(*cur_prog_);
-        else_body->stmts.push_back(make_stmt(node_line_, lir::SBreak{}));
+        else_body->stmts.push_back(builder().stmt_break(nullptr, "", node_line_));
 
         lir::SMatch sm;
         sm.scrut = make_next_call();
@@ -2283,7 +2283,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         return make_stmt(node_line_, lir::SBlock{std::move(outer_block)});
     }
 
-    return make_stmt(node_line_, lir::SBreak{});
+    return builder().stmt_break(nullptr, "", node_line_);
 }
 
 lir::LStmt SemaChecker::lower_loop(TinyMapView node) {
@@ -2630,7 +2630,7 @@ lir::LStmt SemaChecker::lower_field_compound_assign(TinyMapView node) {
     if (!sname.empty() && !ft) {
         error(std::format("field compound assign: struct '{}' has no field '{}'", sname, field_name));
         if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
-        return make_stmt(node_line_, lir::SBreak{});
+        return builder().stmt_break(nullptr, "", node_line_);
     }
 
     // Check mutability
@@ -2944,7 +2944,7 @@ lir::LStmt SemaChecker::lower_index_compound_assign(TinyMapView node) {
     if (!arr_type) {
         error(std::format("index compound assign: undefined variable '{}'", arr_name));
         if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
-        return make_stmt(node_line_, lir::SBreak{});
+        return builder().stmt_break(nullptr, "", node_line_);
     }
     if (TypeRef(arr_type).kind() == LogosType::Kind::Array && !lookup_is_mut(arr_name))
         error(std::format("index compound assign to immutable array '{}'", arr_name));
@@ -3738,13 +3738,13 @@ lir::LStmt SemaChecker::lower_deref_field_compound_assign(TinyMapView node) {
     if (!ptr_type) {
         error(std::format("deref-field compound assign: undefined variable '{}'", recv_name));
         if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
-        return make_stmt(node_line_, lir::SBreak{});
+        return builder().stmt_break(nullptr, "", node_line_);
     }
     if (!is_ref_like(TypeRef(ptr_type).kind()) || !TypeRef(ptr_type).pointee()) {
         error(std::format("deref-field compound assign: '{}' is not a pointer (got {})",
                           recv_name, type_str(ptr_type)));
         if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
-        return make_stmt(node_line_, lir::SBreak{});
+        return builder().stmt_break(nullptr, "", node_line_);
     }
     if (TypeRef(ptr_type).kind() == LogosType::Kind::Ptr && !TypeRef(ptr_type).mut_ptr())
         error(std::format("deref-field compound assign: '{}' is *const (need *mut)", recv_name));
@@ -3763,7 +3763,7 @@ lir::LStmt SemaChecker::lower_deref_field_compound_assign(TinyMapView node) {
     if (!ft) {
         error(std::format("deref-field compound assign: '{}' has no field '{}'", type_name, field_name));
         if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
-        return make_stmt(node_line_, lir::SBreak{});
+        return builder().stmt_break(nullptr, "", node_line_);
     }
 
     // lhs_read = (*ptr).field
@@ -3807,7 +3807,7 @@ lir::LStmt SemaChecker::lower_tuple_field_compound_assign(TinyMapView node) {
     if (!recv_t) {
         error(std::format("tuple field compound assign: undefined variable '{}'", recv_name));
         if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
-        return make_stmt(node_line_, lir::SBreak{});
+        return builder().stmt_break(nullptr, "", node_line_);
     }
     if (TypeRef(recv_t).kind() == LogosType::Kind::MutRef && TypeRef(recv_t).pointee())
         recv_t = TypeRef(recv_t).pointee();
@@ -3815,13 +3815,13 @@ lir::LStmt SemaChecker::lower_tuple_field_compound_assign(TinyMapView node) {
         error(std::format("tuple field compound assign: '{}' is not a tuple (got {})",
                           recv_name, type_str(recv_t)));
         if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
-        return make_stmt(node_line_, lir::SBreak{});
+        return builder().stmt_break(nullptr, "", node_line_);
     }
     if (idx >= TypeRef(recv_t).tuple_elems().size()) {
         error(std::format("tuple field compound assign: index {} out of range (tuple has {} elements)",
                           idx, TypeRef(recv_t).tuple_elems().size()));
         if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
-        return make_stmt(node_line_, lir::SBreak{});
+        return builder().stmt_break(nullptr, "", node_line_);
     }
     TypeRef orig_recv_t = lookup(recv_name);
     if (!lookup_is_mut(recv_name) &&
@@ -3875,7 +3875,7 @@ lir::LStmt SemaChecker::lower_field_index_compound_assign(TinyMapView node) {
         error(std::format("field index compound assign: cannot resolve field '{}.{}'",
                           recv_name, field_name));
         if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
-        return make_stmt(node_line_, lir::SBreak{});
+        return builder().stmt_break(nullptr, "", node_line_);
     }
     if (TypeRef(field_t).kind() != LogosType::Kind::Array &&
         TypeRef(field_t).kind() != LogosType::Kind::Ptr &&
