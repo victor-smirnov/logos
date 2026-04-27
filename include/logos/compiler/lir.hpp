@@ -46,7 +46,9 @@ struct LFunction;
 // Variant fields previously holding unique_ptr<LExpr> now hold raw LExpr*.
 // std::move() on LExprPtr remains legal (it's a no-op pointer copy).
 using LExprPtr     = LExpr*;
-using LBlockPtr    = std::unique_ptr<LBlock>;
+// ADR 0007 slice 1c: LBlock is pool-owned by LProgram::block_pool_.
+// LBlockPtr is a non-owning raw handle — allocate via lir::alloc_block(prog, ...).
+using LBlockPtr    = LBlock*;
 using LFunctionPtr = std::unique_ptr<LFunction>;
 
 // ── Patterns (for match arms) ─────────────────────────────────────────────
@@ -144,14 +146,15 @@ struct Pattern {
 
 struct LMatchArm {
     Pattern                  pat;
-    LBlockPtr                body;   // arm body (single stmts are wrapped in a 1-stmt block)
+    LBlockPtr                body = nullptr;   // arm body (single stmts are wrapped in a 1-stmt block)
     std::optional<LExprPtr>  guard;  // if-guard: arm only matches when guard is true
 };
 
 // ── Hermes SDN literal tree ───────────────────────────────────────────────
 
 struct HermesVal;
-using HermesValPtr = std::unique_ptr<HermesVal>;
+// ADR 0007 slice 1c: HermesVal is pool-owned by LProgram::hermes_val_pool_.
+using HermesValPtr = HermesVal*;
 
 struct HVNull  {};
 struct HVBool  { bool value; };
@@ -161,7 +164,7 @@ struct HVStr   { std::string value; };
 
 struct HVMapEntry {
     std::variant<std::string, int64_t> key;
-    HermesValPtr val;
+    HermesValPtr val = nullptr;
 };
 
 struct HVMap   {
@@ -194,7 +197,7 @@ struct HermesVal {
 //   capture_types[v] = resolved LogosType* for value_index v (for coercion).
 //   capture_param_count = total number of PARAM slots in template.
 struct EHermesLit {
-    HermesValPtr root;
+    HermesValPtr root = nullptr;
     bool has_captures = false;
     std::vector<LExprPtr>                    capture_exprs;   // one per unique value
     std::vector<TypeRef>                     capture_types;   // one per unique value
@@ -343,10 +346,10 @@ struct ETupleIndex {
 };
 
 // Closure: wrapper for the full EClosure (defined after LBlock).
-// Uses unique_ptr to break the dependency cycle.
+// ADR 0007 slice 1c: EClosure is pool-owned by LProgram::closure_pool_.
 struct EClosure;
 struct EClosureBox {
-    std::unique_ptr<EClosure> inner;
+    EClosure* inner = nullptr;
 };
 
 // Closure call: closure(args...)
@@ -440,7 +443,7 @@ struct ETry {
 
 // Represents an inline block of statements returning a final value
 struct EBlockExpr {
-    std::unique_ptr<LBlock> block;
+    LBlockPtr block = nullptr;
     LExprPtr result = nullptr; // may be null if it evaluates to void
 };
 
@@ -484,13 +487,13 @@ struct SReturn    { LExprPtr value = nullptr; };   // value is null for void ret
 // else_: null → no else; block with single SIf → else-if chain
 struct SIf {
     LExprPtr                  cond = nullptr;
-    LBlockPtr                 then_;
+    LBlockPtr                 then_ = nullptr;
     std::optional<LBlockPtr>  else_;
 };
 
 struct SWhile {
     LExprPtr  cond = nullptr;
-    LBlockPtr body;
+    LBlockPtr body = nullptr;
     std::string label;  // optional loop label (e.g. "'outer"), empty = unlabeled
 };
 
@@ -499,19 +502,19 @@ struct SFor {
     LExprPtr         lo = nullptr;
     LExprPtr         hi = nullptr;
     bool             inclusive;
-    LBlockPtr        body;
+    LBlockPtr        body = nullptr;
     std::string      label;  // optional loop label, empty = unlabeled
 };
 
 struct SLoop {
-    LBlockPtr        body;
+    LBlockPtr        body = nullptr;
     TypeRef result_type = nullptr;  // non-null when loop yields a value
     std::string      break_slot;             // alloca name for the break value (non-empty ↔ result_type != null)
     std::string      label;                  // optional loop label, empty = unlabeled
 };
 struct SBreak     { LExprPtr value = nullptr; std::string label; };  // label: target loop label (may be empty)
 struct SContinue  { std::string label; };                   // label: target loop label (may be empty)
-struct SBlock     { LBlockPtr body; };  // scoping block statement
+struct SBlock     { LBlockPtr body = nullptr; };  // scoping block statement
 
 struct SFieldWrite {
     std::string receiver;
@@ -572,7 +575,7 @@ struct SForEach {
     TypeRef elem_type;   // element type
     int64_t          arr_size;    // static array size; 0 for slices
     bool             is_slice = false;  // true → iter is &[T] (dynamic length from fat pointer)
-    LBlockPtr        body;
+    LBlockPtr        body = nullptr;
 };
 
 struct SMatch {
@@ -585,7 +588,7 @@ struct SMatch {
 struct SLetElse {
     Pattern               pat;        // the irrefutable-or-test pattern
     LExprPtr              scrut = nullptr;      // scrutinee expression
-    LBlockPtr             else_block; // must-diverge block
+    LBlockPtr             else_block = nullptr; // must-diverge block
 };
 
 // Auto-generated drop call: Type__drop(var) at scope exit
@@ -721,7 +724,7 @@ struct LStructDef {
     // User-annotation metadata.
     bool                             is_annotation_type = false;  // true → this datatype is itself a `#[annotation]` marker type
     std::vector<LAnnotationInstance> annotations;                  // user-annotations attached to this type
-    std::shared_ptr<HermesVal>       meta_val;                     // meta @{...} block; null if absent
+    HermesValPtr                     meta_val = nullptr;            // meta @{...} block; null if absent
 
     // Specialisation support (mirrors LFunction).
     bool                          is_specialization = false;
@@ -772,7 +775,7 @@ struct LTraitDef {
                                                         // propagates to each eidos via `impl Trait for Eidos`
     bool                           is_genos  = false;   // declared with `genos` keyword (not `trait`)
     bool                           is_auto   = false;   // declared with `auto trait` (compiler-synthesized impls)
-    std::shared_ptr<HermesVal>     meta_val;             // meta @{...} block; null if absent
+    HermesValPtr                   meta_val = nullptr;   // meta @{...} block; null if absent
 };
 
 struct LImplBlock {
@@ -860,6 +863,13 @@ struct LProgram {
     // destruction, so handles never dangle.
     std::vector<std::unique_ptr<LExpr>> expr_pool_;
 
+    // ADR 0007 slice 1c: matching pools for LBlock / HermesVal / EClosure.
+    // Same semantics as expr_pool_ — append-only, lifetime = LProgram. Mono
+    // moves these alongside expr_pool_ to keep raw handles valid.
+    std::vector<std::unique_ptr<LBlock>>     block_pool_;
+    std::vector<std::unique_ptr<HermesVal>>  hermes_val_pool_;
+    std::vector<std::unique_ptr<EClosure>>   closure_pool_;
+
     // Phase 3b: Hermes mirror back-references. Populated by lir_mirror_emit.
     // Held by unique_ptr to keep lir.hpp free of <unordered_map> for the
     // millions of TUs that include it just for the variant tree.
@@ -928,6 +938,24 @@ struct LProgram {
 inline LExpr* alloc_expr(LProgram& prog) {
     prog.expr_pool_.push_back(std::make_unique<LExpr>());
     return prog.expr_pool_.back().get();
+}
+
+// Slice 1c allocators. Forward Args... so callers can `alloc_block(prog, std::move(inner))`
+// or `alloc_block(prog)` for default-construction.
+template <class... Args>
+inline LBlock* alloc_block(LProgram& prog, Args&&... args) {
+    prog.block_pool_.push_back(std::make_unique<LBlock>(std::forward<Args>(args)...));
+    return prog.block_pool_.back().get();
+}
+template <class... Args>
+inline HermesVal* alloc_hermes_val(LProgram& prog, Args&&... args) {
+    prog.hermes_val_pool_.push_back(std::make_unique<HermesVal>(std::forward<Args>(args)...));
+    return prog.hermes_val_pool_.back().get();
+}
+template <class... Args>
+inline EClosure* alloc_closure(LProgram& prog, Args&&... args) {
+    prog.closure_pool_.push_back(std::make_unique<EClosure>(std::forward<Args>(args)...));
+    return prog.closure_pool_.back().get();
 }
 
 } // namespace logos::compiler::lir

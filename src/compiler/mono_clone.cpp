@@ -206,7 +206,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             lir_view::EBlockExprView v{eref};
             lir::EBlockExpr nb;
             if (auto br = v.block(); br)
-                nb.block = std::make_unique<lir::LBlock>(subst_child_block(br));
+                nb.block = lir::alloc_block(out_, subst_child_block(br));
             if (auto rr = v.result(); rr)
                 nb.result = subst_child_expr(rr);
             result->kind = std::move(nb);
@@ -412,7 +412,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             namespace hvc = lir_schema::hermes_val;
             std::function<lir::HermesValPtr(const lir::HermesVal&)> clone_hv =
                 [&](const lir::HermesVal& hv) -> lir::HermesValPtr {
-                auto out = std::make_unique<lir::HermesVal>();
+                auto out = lir::alloc_hermes_val(out_);
                 auto vref = hv_ref_of(hv);
                 if (!vref) {
                     std::fprintf(stderr,
@@ -721,7 +721,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 result->kind = lir::EClosureBox{nullptr};
                 break;
             }
-            auto nc = std::make_unique<lir::EClosure>();
+            auto nc = lir::alloc_closure(out_);
             nc->closure_id = std::string(v.closure_id());
             v.each_param(out_.type_pool.impl(),
                 [&](std::string_view nm, TypeRef pt) {
@@ -890,9 +890,9 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
         lir_view::SIfView v{sref};
         lir::SIf ni;
         ni.cond  = subst_child_expr(v.cond());
-        ni.then_ = std::make_unique<lir::LBlock>(subst_child_block(v.then_block()));
+        ni.then_ = lir::alloc_block(out_, subst_child_block(v.then_block()));
         if (auto eb = v.else_block())
-            ni.else_ = std::make_unique<lir::LBlock>(subst_child_block(eb));
+            ni.else_ = lir::alloc_block(out_, subst_child_block(eb));
         ns.kind = std::move(ni);
         break;
     }
@@ -900,7 +900,7 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
         lir_view::SWhileView v{sref};
         lir::SWhile nw;
         nw.cond  = subst_child_expr(v.cond());
-        nw.body  = std::make_unique<lir::LBlock>(subst_child_block(v.body()));
+        nw.body  = lir::alloc_block(out_, subst_child_block(v.body()));
         nw.label = std::string(v.label());
         ns.kind  = std::move(nw);
         break;
@@ -912,7 +912,7 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
         nf.lo        = subst_child_expr(v.lo());
         nf.hi        = subst_child_expr(v.hi());
         nf.inclusive = v.inclusive();
-        nf.body      = std::make_unique<lir::LBlock>(subst_child_block(v.body()));
+        nf.body      = lir::alloc_block(out_, subst_child_block(v.body()));
         nf.label     = std::string(v.label());
         ns.kind      = std::move(nf);
         break;
@@ -920,7 +920,7 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
     case SCode::Loop: {
         lir_view::SLoopView v{sref};
         lir::SLoop nl;
-        nl.body        = std::make_unique<lir::LBlock>(subst_child_block(v.body()));
+        nl.body        = lir::alloc_block(out_, subst_child_block(v.body()));
         nl.result_type = v.result_type(pool);
         nl.break_slot  = std::string(v.break_slot());
         nl.label       = std::string(v.label());
@@ -930,7 +930,7 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
     case SCode::Block: {
         lir_view::SBlockView v{sref};
         ns.kind = lir::SBlock{
-            std::make_unique<lir::LBlock>(subst_child_block(v.body()))};
+            lir::alloc_block(out_, subst_child_block(v.body()))};
         break;
     }
     case SCode::Break: {
@@ -1030,7 +1030,7 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
                     }
                 }
             }
-            na.body = std::make_unique<lir::LBlock>(subst_child_block(arm.body()));
+            na.body = lir::alloc_block(out_, subst_child_block(arm.body()));
             if (auto g = arm.guard()) na.guard = subst_child_expr(g);
             nm.arms.push_back(std::move(na));
         });
@@ -1045,7 +1045,7 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
         nf.elem_type = subst_type(v.elem_type(pool), s);
         nf.arr_size  = v.arr_size();
         nf.is_slice  = v.is_slice();
-        nf.body      = std::make_unique<lir::LBlock>(subst_child_block(v.body()));
+        nf.body      = lir::alloc_block(out_, subst_child_block(v.body()));
         ns.kind      = std::move(nf);
         break;
     }
@@ -1059,7 +1059,7 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
             }
         }
         sle.scrut      = subst_child_expr(v.scrut());
-        sle.else_block = std::make_unique<lir::LBlock>(subst_child_block(v.else_block()));
+        sle.else_block = lir::alloc_block(out_, subst_child_block(v.else_block()));
         ns.kind        = std::move(sle);
         break;
     }

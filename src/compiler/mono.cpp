@@ -41,6 +41,10 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // pointing into in_.expr_pool_ — so we must transfer the pool too. New
     // mono-cloned exprs are appended onto this same pool by alloc_expr(out_).
     out_.expr_pool_          = std::move(in_.expr_pool_);
+    // Slice 1c: same hazard for LBlock / HermesVal / EClosure pools.
+    out_.block_pool_         = std::move(in_.block_pool_);
+    out_.hermes_val_pool_    = std::move(in_.hermes_val_pool_);
+    out_.closure_pool_       = std::move(in_.closure_pool_);
     out_.consts              = std::move(in_.consts);
     out_.type_aliases        = std::move(in_.type_aliases);
     out_.traits              = std::move(in_.traits);

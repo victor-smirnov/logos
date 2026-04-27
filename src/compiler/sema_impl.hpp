@@ -284,7 +284,7 @@ private:
     // ── meta @{} helpers ─────────────────────────────────────────
 
     lir::HermesValPtr               eval_static_hermes_lit(hermes::TinyMapView node);
-    std::shared_ptr<lir::HermesVal> extract_meta_val(hermes::TinyMapView node);
+    lir::HermesValPtr               extract_meta_val(hermes::TinyMapView node);
 
     // ── Hermes helpers ───────────────────────────────────────────
 

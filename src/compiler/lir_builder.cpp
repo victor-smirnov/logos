@@ -121,9 +121,9 @@ lir::LExprPtr LirBuilder::call(std::string callee,
                                     std::move(args)});
 }
 
-lir::LExprPtr LirBuilder::block_expr(std::unique_ptr<lir::LBlock> block,
+lir::LExprPtr LirBuilder::block_expr(lir::LBlock* block,
                                       lir::LExprPtr result, TypeRef ty) {
-    return make_expr(prog_, ty, lir::EBlockExpr{std::move(block), std::move(result)});
+    return make_expr(prog_, ty, lir::EBlockExpr{block, std::move(result)});
 }
 
 lir::LExprPtr LirBuilder::struct_lit(
@@ -138,9 +138,9 @@ lir::LExprPtr LirBuilder::enum_lit(std::string enum_name, std::string variant,
     return make_expr(prog_, ty, lir::EEnumLit{std::move(enum_name), std::move(variant), disc});
 }
 
-lir::LExprPtr LirBuilder::closure_box(std::unique_ptr<lir::EClosure> inner,
+lir::LExprPtr LirBuilder::closure_box(lir::EClosure* inner,
                                        TypeRef ty) {
-    return make_expr(prog_, ty, lir::EClosureBox{std::move(inner)});
+    return make_expr(prog_, ty, lir::EClosureBox{inner});
 }
 
 lir::LExprPtr LirBuilder::closure_call(lir::LExprPtr callee,

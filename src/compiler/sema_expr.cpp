@@ -417,14 +417,14 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
         }
         if (!result_type || break_slot.empty()) {
             // loop never yields — treat as void (infinite loop used as stmt-expr)
-            auto block = std::make_unique<lir::LBlock>();
+            auto block = lir::alloc_block(*cur_prog_);
             block->stmts.push_back(std::move(loop_stmt));
             return builder().block_expr(std::move(block), nullptr, void_t());
         }
         // Wrap: { loop { ... }; __loop_val }
         // gen_loop allocates the break slot alloca and registers it in scope_;
         // we just read it back via EVarRef after the loop exits.
-        auto block = std::make_unique<lir::LBlock>();
+        auto block = lir::alloc_block(*cur_prog_);
         block->stmts.push_back(std::move(loop_stmt));
         auto slot_ref = builder().var_ref(break_slot, result_type);
         return builder().block_expr(std::move(block), std::move(slot_ref), result_type);
@@ -436,7 +436,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
         bool was = inside_unsafe_;
         inside_unsafe_ = true;
         lir::LExprPtr result = nullptr;
-        auto block = std::make_unique<lir::LBlock>();
+        auto block = lir::alloc_block(*cur_prog_);
         if (inner.has_key(la::ITEMS)) {
             auto stmts = arr_of(inner.get(la::ITEMS.code));
             for (uint64_t i = 0; i < stmts.size(); ++i) {
@@ -3622,11 +3622,11 @@ lir::LExprPtr SemaChecker::lower_list_comp(TinyMapView node) {
     lir::SExprStmt push_stmt;
     push_stmt.expr = std::move(push_call);
 
-    auto loop_body = std::make_unique<lir::LBlock>();
+    auto loop_body = lir::alloc_block(*cur_prog_);
     if (guard_expr) {
         lir::SIf sif;
         sif.cond = std::move(guard_expr);
-        sif.then_ = std::make_unique<lir::LBlock>();
+        sif.then_ = lir::alloc_block(*cur_prog_);
         sif.then_->stmts.push_back(make_stmt(node_line_, std::move(push_stmt)));
         loop_body->stmts.push_back(make_stmt(node_line_, std::move(sif)));
     } else {
@@ -3641,7 +3641,7 @@ lir::LExprPtr SemaChecker::lower_list_comp(TinyMapView node) {
     sfe.is_slice  = is_slice;
     sfe.body      = std::move(loop_body);
 
-    auto outer = std::make_unique<lir::LBlock>();
+    auto outer = lir::alloc_block(*cur_prog_);
     outer->stmts.push_back(make_stmt(node_line_, std::move(let_v)));
     outer->stmts.push_back(make_stmt(node_line_, std::move(sfe)));
 
@@ -3725,11 +3725,11 @@ lir::LExprPtr SemaChecker::lower_map_comp(TinyMapView node) {
     lir::SExprStmt ins_stmt;
     ins_stmt.expr = std::move(ins_call);
 
-    auto loop_body = std::make_unique<lir::LBlock>();
+    auto loop_body = lir::alloc_block(*cur_prog_);
     if (guard_body) {
         lir::SIf sif;
         sif.cond = std::move(guard_body);
-        sif.then_ = std::make_unique<lir::LBlock>();
+        sif.then_ = lir::alloc_block(*cur_prog_);
         sif.then_->stmts.push_back(make_stmt(node_line_, std::move(ins_stmt)));
         loop_body->stmts.push_back(make_stmt(node_line_, std::move(sif)));
     } else {
@@ -3744,7 +3744,7 @@ lir::LExprPtr SemaChecker::lower_map_comp(TinyMapView node) {
     sfe.is_slice  = is_slice;
     sfe.body      = std::move(loop_body);
 
-    auto outer = std::make_unique<lir::LBlock>();
+    auto outer = lir::alloc_block(*cur_prog_);
     outer->stmts.push_back(make_stmt(node_line_, std::move(let_m)));
     outer->stmts.push_back(make_stmt(node_line_, std::move(sfe)));
 
@@ -3865,11 +3865,11 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
     lir::SExprStmt push_stmt;
     push_stmt.expr = std::move(push_call);
 
-    auto loop_body = std::make_unique<lir::LBlock>();
+    auto loop_body = lir::alloc_block(*cur_prog_);
     if (guard_body) {
         lir::SIf sif;
         sif.cond = std::move(guard_body);
-        sif.then_ = std::make_unique<lir::LBlock>();
+        sif.then_ = lir::alloc_block(*cur_prog_);
         sif.then_->stmts.push_back(make_stmt(node_line_, std::move(push_stmt)));
         loop_body->stmts.push_back(make_stmt(node_line_, std::move(sif)));
     } else {
@@ -3884,7 +3884,7 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
     sfe.is_slice  = is_slice;
     sfe.body      = std::move(loop_body);
 
-    auto outer = std::make_unique<lir::LBlock>();
+    auto outer = lir::alloc_block(*cur_prog_);
     outer->stmts.push_back(make_stmt(node_line_, std::move(let_c)));
     outer->stmts.push_back(make_stmt(node_line_, std::move(sfe)));
 
@@ -4020,11 +4020,11 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
     lir::SExprStmt put_stmt;
     put_stmt.expr = std::move(put_call);
 
-    auto loop_body = std::make_unique<lir::LBlock>();
+    auto loop_body = lir::alloc_block(*cur_prog_);
     if (guard_body) {
         lir::SIf sif;
         sif.cond = std::move(guard_body);
-        sif.then_ = std::make_unique<lir::LBlock>();
+        sif.then_ = lir::alloc_block(*cur_prog_);
         sif.then_->stmts.push_back(make_stmt(node_line_, std::move(put_stmt)));
         loop_body->stmts.push_back(make_stmt(node_line_, std::move(sif)));
     } else {
@@ -4039,7 +4039,7 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
     sfe.is_slice  = is_slice;
     sfe.body      = std::move(loop_body);
 
-    auto outer = std::make_unique<lir::LBlock>();
+    auto outer = lir::alloc_block(*cur_prog_);
     outer->stmts.push_back(make_stmt(node_line_, std::move(let_c)));
     outer->stmts.push_back(make_stmt(node_line_, std::move(sfe)));
 
@@ -4821,7 +4821,7 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
         auto stmts = arr_of(blk.get(la::ITEMS.code));
         if (stmts.size() == 0) { error("block-as-expression: empty branch"); return error_expr(); }
         lir::LExprPtr result = nullptr;
-        auto block = std::make_unique<lir::LBlock>();
+        auto block = lir::alloc_block(*cur_prog_);
         for (uint64_t i = 0; i < stmts.size(); ++i) {
             auto s = map_of(stmts.get(i));
             if (i == stmts.size() - 1) {
@@ -5095,7 +5095,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     };
     scan_block(body);
 
-    auto ec = std::make_unique<lir::EClosure>();
+    auto ec = lir::alloc_closure(*cur_prog_);
     ec->closure_id    = closure_id;
     ec->params        = std::move(params);
     ec->ret_type      = ret_type;
@@ -5126,16 +5126,16 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
     if (c == la::HERMES_NEG_INT.code) {
         auto sv = str_of(node.get(la::VALUE.code));
         int64_t v = std::stoll(std::string(sv));
-        return std::make_unique<lir::HermesVal>(lir::HVInt{-v});
+        return lir::alloc_hermes_val(*cur_prog_, lir::HVInt{-v});
     }
 
     if (c == la::HERMES_NULL.code)
-        return std::make_unique<lir::HermesVal>(lir::HVNull{});
+        return lir::alloc_hermes_val(*cur_prog_, lir::HVNull{});
 
     if (c == la::HERMES_BOOL.code) {
         AnyVal av = node.get(la::VALUE.code);
         bool v = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
-        return std::make_unique<lir::HermesVal>(lir::HVBool{v});
+        return lir::alloc_hermes_val(*cur_prog_, lir::HVBool{v});
     }
 
     if (c == la::HERMES_INT.code) {
@@ -5160,7 +5160,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
         else
             v = (int64_t)std::stoull(s, nullptr, 10);
         if (neg) v = -v;
-        return std::make_unique<lir::HermesVal>(lir::HVInt{v});
+        return lir::alloc_hermes_val(*cur_prog_, lir::HVInt{v});
     }
 
     if (c == la::HERMES_FLOAT.code) {
@@ -5170,7 +5170,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
         if (s.size() > 3 && (s.substr(s.size()-3) == "f32" || s.substr(s.size()-3) == "f64"))
             s = s.substr(0, s.size()-3);
         double v = std::stod(s);
-        return std::make_unique<lir::HermesVal>(lir::HVFloat{v});
+        return lir::alloc_hermes_val(*cur_prog_, lir::HVFloat{v});
     }
 
     if (c == la::HERMES_STR.code) {
@@ -5196,7 +5196,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                 out += s[i];
             }
         }
-        return std::make_unique<lir::HermesVal>(lir::HVStr{std::move(out)});
+        return lir::alloc_hermes_val(*cur_prog_, lir::HVStr{std::move(out)});
     }
 
     if (c == la::HERMES_MAP.code) {
@@ -5239,7 +5239,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                 m.entries.push_back(std::move(e));
             }
         }
-        return std::make_unique<lir::HermesVal>(std::move(m));
+        return lir::alloc_hermes_val(*cur_prog_, std::move(m));
     }
 
     if (c == la::HERMES_ARRAY.code) {
@@ -5253,7 +5253,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                 a.elements.push_back(std::move(hv));
             }
         }
-        return std::make_unique<lir::HermesVal>(std::move(a));
+        return lir::alloc_hermes_val(*cur_prog_, std::move(a));
     }
 
     if (c == la::HERMES_TYPED_ARRAY.code) {
@@ -5321,7 +5321,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                 a.elements.push_back(std::move(hv));
             }
         }
-        return std::make_unique<lir::HermesVal>(std::move(a));
+        return lir::alloc_hermes_val(*cur_prog_, std::move(a));
     }
 
     if (c == la::HERMES_TYPED_MAP.code) {
@@ -5441,7 +5441,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                 m.entries.push_back(std::move(e));
             }
         }
-        return std::make_unique<lir::HermesVal>(std::move(m));
+        return lir::alloc_hermes_val(*cur_prog_, std::move(m));
     }
 
     if (c == la::HERMES_CAP_IDENT.code || c == la::HERMES_CAP_EXPR.code) {
@@ -5505,7 +5505,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                 hermes_cap_ctx_->ident_dedup[name] = value_idx;
             }
             uint32_t param_idx = hermes_cap_ctx_->next_slot++;
-            return std::make_unique<lir::HermesVal>(lir::HVCapture{param_idx, value_idx});
+            return lir::alloc_hermes_val(*cur_prog_, lir::HVCapture{param_idx, value_idx});
         } else {
             // HERMES_CAP_EXPR: ${expr} — always fresh (no dedup: may have side effects).
             auto expr_node = map_of(node.get(la::VALUE.code));
@@ -5524,7 +5524,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
             uint32_t param_idx = hermes_cap_ctx_->next_slot++;
             hermes_cap_ctx_->exprs.push_back(std::move(cap_expr));
             hermes_cap_ctx_->types.push_back(expr_type);
-            return std::make_unique<lir::HermesVal>(lir::HVCapture{param_idx, value_idx});
+            return lir::alloc_hermes_val(*cur_prog_, lir::HVCapture{param_idx, value_idx});
         }
     }
 

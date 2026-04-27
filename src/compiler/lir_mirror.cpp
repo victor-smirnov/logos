@@ -1146,7 +1146,7 @@ hermes::arena_offset_t LirMirrorEmitter::emit_expr(const LExpr& e) {
             map_off = make_map(hermes::schema::lir_expr(Code::TypeCodeOf));
             put(map_off, ek::ELEM_TYPE, type_av(alt.elem_type));
         } else if constexpr (std::is_same_v<T, EBlockExpr>) {
-            auto b_av = block_av_raw(alt.block.get());
+            auto b_av = block_av_raw(alt.block);
             auto r_av = expr_av(alt.result);
             map_off = make_map(hermes::schema::lir_expr(Code::BlockExpr));
             put(map_off, ek::BLOCK,  b_av);

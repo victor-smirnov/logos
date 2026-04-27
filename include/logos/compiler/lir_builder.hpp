@@ -59,14 +59,14 @@ public:
                        std::vector<TypeRef> type_args,
                        std::vector<lir::LExprPtr> args,
                        TypeRef ty);
-    lir::LExprPtr block_expr(std::unique_ptr<lir::LBlock> block,
+    lir::LExprPtr block_expr(lir::LBlock* block,
                              lir::LExprPtr result, TypeRef ty);
     lir::LExprPtr struct_lit(std::string name,
                              std::vector<std::pair<std::string, lir::LExprPtr>> fields,
                              TypeRef ty);
     lir::LExprPtr enum_lit(std::string enum_name, std::string variant,
                            int64_t disc, TypeRef ty);
-    lir::LExprPtr closure_box(std::unique_ptr<lir::EClosure> inner, TypeRef ty);
+    lir::LExprPtr closure_box(lir::EClosure* inner, TypeRef ty);
     lir::LExprPtr closure_call(lir::LExprPtr callee,
                                std::vector<lir::LExprPtr> args, TypeRef ty);
     lir::LExprPtr fn_ptr_call(lir::LExprPtr callee,
