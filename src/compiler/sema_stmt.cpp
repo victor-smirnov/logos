@@ -408,14 +408,14 @@ lir::LStmt SemaChecker::lower_let_else(TinyMapView node) {
     pop_scope();
 
     // 4. Add pattern bindings to outer scope
-    if (auto* pvd = std::get_if<lir::PatVariantData>(&pat)) {
+    if (auto* pvd = std::get_if<lir::PatVariantData>(&pat.kind)) {
         for (size_t i = 0; i < pvd->bindings.size() && i < pvd->binding_types.size(); ++i)
             define(pvd->bindings[i], pvd->binding_types[i]);
-    } else if (auto* pt = std::get_if<lir::PatTuple>(&pat)) {
+    } else if (auto* pt = std::get_if<lir::PatTuple>(&pat.kind)) {
         for (size_t i = 0; i < pt->bindings.size() && i < pt->binding_types.size(); ++i)
             if (pt->bindings[i] != "_")
                 define(pt->bindings[i], pt->binding_types[i]);
-    } else if (auto* pw = std::get_if<lir::PatWild>(&pat)) {
+    } else if (auto* pw = std::get_if<lir::PatWild>(&pat.kind)) {
         if (pw->name != "_")
             define(pw->name, scrut_type);
     }
@@ -969,26 +969,26 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, TypeRef scrut_type) {
         // NG4: validate that all alternatives bind the exact same set of names.
         std::function<void(const lir::Pattern&, std::vector<std::string>&)> collect_names;
         collect_names = [&](const lir::Pattern& p, std::vector<std::string>& out) {
-            if (auto* pw  = std::get_if<lir::PatWild>(&p))
+            if (auto* pw  = std::get_if<lir::PatWild>(&p.kind))
                 { if (pw->name != "_") out.push_back(pw->name); }
-            else if (auto* pa  = std::get_if<lir::PatAt>(&p))
+            else if (auto* pa  = std::get_if<lir::PatAt>(&p.kind))
                 { if (pa->name != "_") out.push_back(pa->name);
                   if (!pa->sub.empty()) collect_names(pa->sub[0], out); }
-            else if (auto* pt  = std::get_if<lir::PatTuple>(&p))
+            else if (auto* pt  = std::get_if<lir::PatTuple>(&p.kind))
                 { for (auto& n : pt->bindings) if (n != "_") out.push_back(n); }
-            else if (auto* pst = std::get_if<lir::PatStruct>(&p))
+            else if (auto* pst = std::get_if<lir::PatStruct>(&p.kind))
                 { for (auto& f : pst->fields)
                     { if (!f.sub.empty()) collect_names(f.sub[0], out);
                       else out.push_back(f.field_name); } }
-            else if (auto* pvd = std::get_if<lir::PatVariantData>(&p))
+            else if (auto* pvd = std::get_if<lir::PatVariantData>(&p.kind))
                 { for (auto& n : pvd->bindings) if (n != "_") out.push_back(n); }
-            else if (auto* por2 = std::get_if<lir::PatOr>(&p))
+            else if (auto* por2 = std::get_if<lir::PatOr>(&p.kind))
                 { if (!por2->alts.empty()) collect_names(por2->alts[0], out); }
-            else if (auto* prb = std::get_if<lir::PatRefBind>(&p))
+            else if (auto* prb = std::get_if<lir::PatRefBind>(&p.kind))
                 { if (!prb->name.empty() && prb->name != "_") out.push_back(prb->name); }
-            else if (auto* prp = std::get_if<lir::PatRefPat>(&p))
+            else if (auto* prp = std::get_if<lir::PatRefPat>(&p.kind))
                 { if (!prp->inner.empty()) collect_names(prp->inner[0], out); }
-            else if (auto* psl = std::get_if<lir::PatSlice>(&p))
+            else if (auto* psl = std::get_if<lir::PatSlice>(&p.kind))
                 { for (auto& sp : psl->prefix) collect_names(sp, out);
                   for (auto& sp : psl->rest)   collect_names(sp, out);
                   for (auto& sp : psl->suffix) collect_names(sp, out); }
@@ -1220,10 +1220,10 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, TypeRef scrut_type) {
                             // and other refutable kinds aren't tested by codegen yet and
                             // would silently match — reject early.
                             bool sub_irrefutable =
-                                std::holds_alternative<lir::PatWild>(sub) ||
-                                std::holds_alternative<lir::PatRefBind>(sub) ||
-                                std::holds_alternative<lir::PatRefPat>(sub) ||
-                                std::holds_alternative<lir::PatAt>(sub);
+                                std::holds_alternative<lir::PatWild>(sub.kind) ||
+                                std::holds_alternative<lir::PatRefBind>(sub.kind) ||
+                                std::holds_alternative<lir::PatRefPat>(sub.kind) ||
+                                std::holds_alternative<lir::PatAt>(sub.kind);
                             if (!sub_irrefutable)
                                 error("struct pattern: refutable field sub-pattern "
                                       "not yet supported");
@@ -1735,24 +1735,24 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
 
 void SemaChecker::bind_pattern(const lir::Pattern& pat,
                       TypeRef scrut_type) {
-    if (auto* pvd = std::get_if<lir::PatVariantData>(&pat)) {
+    if (auto* pvd = std::get_if<lir::PatVariantData>(&pat.kind)) {
         for (size_t i = 0; i < pvd->bindings.size() &&
                             i < pvd->binding_types.size(); ++i)
             define(pvd->bindings[i], pvd->binding_types[i]);
-    } else if (auto* pt = std::get_if<lir::PatTuple>(&pat)) {
+    } else if (auto* pt = std::get_if<lir::PatTuple>(&pat.kind)) {
         for (size_t i = 0; i < pt->bindings.size() &&
                             i < pt->binding_types.size(); ++i)
             if (pt->bindings[i] != "_")
                 define(pt->bindings[i], pt->binding_types[i]);
-    } else if (auto* pw = std::get_if<lir::PatWild>(&pat)) {
+    } else if (auto* pw = std::get_if<lir::PatWild>(&pat.kind)) {
         if (pw->name != "_" && scrut_type)
             define(pw->name, scrut_type);
-    } else if (auto* prb = std::get_if<lir::PatRefBind>(&pat)) {
+    } else if (auto* prb = std::get_if<lir::PatRefBind>(&pat.kind)) {
         define(prb->name, prb->bind_type);
-    } else if (auto* pa = std::get_if<lir::PatAt>(&pat)) {
+    } else if (auto* pa = std::get_if<lir::PatAt>(&pat.kind)) {
         if (pa->type && pa->name != "_") define(pa->name, pa->type);  // S5: guard _ name
         if (!pa->sub.empty()) bind_pattern(pa->sub[0], pa->type);
-    } else if (auto* prp = std::get_if<lir::PatRefPat>(&pat)) {
+    } else if (auto* prp = std::get_if<lir::PatRefPat>(&pat.kind)) {
         // NS4: only extract pointee when the kind is actually Ref or MutRef.
         TypeRef inner_t = error_t();
         if (scrut_type && (TypeRef(scrut_type).kind() == LogosType::Kind::Ref ||
@@ -1760,7 +1760,7 @@ void SemaChecker::bind_pattern(const lir::Pattern& pat,
             TypeRef(scrut_type).pointee())
             inner_t = TypeRef(scrut_type).pointee();
         if (!prp->inner.empty()) bind_pattern(prp->inner[0], inner_t);
-    } else if (auto* ps = std::get_if<lir::PatStruct>(&pat)) {
+    } else if (auto* ps = std::get_if<lir::PatStruct>(&pat.kind)) {
         // Look up struct info to get field types.
         const SemaStructInfo* sinfo = nullptr;
         auto sit = structs_.find(ps->struct_name);
@@ -1781,12 +1781,12 @@ void SemaChecker::bind_pattern(const lir::Pattern& pat,
                 bind_pattern(pfb.sub[0], ftype);
             }
         }
-    } else if (auto* psl = std::get_if<lir::PatSlice>(&pat)) {
+    } else if (auto* psl = std::get_if<lir::PatSlice>(&pat.kind)) {
         TypeRef elem_t = (scrut_type && TypeRef(scrut_type).elem()) ? TypeRef(scrut_type).elem() : error_t();
         for (auto& p : psl->prefix) bind_pattern(p, elem_t);
         for (auto& p : psl->rest)   bind_pattern(p, elem_t);  // S4: elem_t not scrut_type
         for (auto& p : psl->suffix) bind_pattern(p, elem_t);
-    } else if (auto* por = std::get_if<lir::PatOr>(&pat)) {
+    } else if (auto* por = std::get_if<lir::PatOr>(&pat.kind)) {
         // OR patterns: bind only if all alternatives bind the same names (first alt wins).
         if (!por->alts.empty()) bind_pattern(por->alts[0], scrut_type);
     }
@@ -3255,7 +3255,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
     {
         bool has_wild = false;
         for (auto& arm : smatch.arms) {
-            if (!arm.guard && std::holds_alternative<lir::PatWild>(arm.pat)) {
+            if (!arm.guard && std::holds_alternative<lir::PatWild>(arm.pat.kind)) {
                 has_wild = true;
                 break;
             }
@@ -3267,14 +3267,14 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             if (eit != enums_.end()) {
                 std::set<int32_t> covered;
                 auto add_pat = [&](const lir::Pattern& p) {
-                    if (auto* pv = std::get_if<lir::PatVariant>(&p))
+                    if (auto* pv = std::get_if<lir::PatVariant>(&p.kind))
                         covered.insert(pv->disc);
-                    else if (auto* pvd = std::get_if<lir::PatVariantData>(&p))
+                    else if (auto* pvd = std::get_if<lir::PatVariantData>(&p.kind))
                         covered.insert(pvd->disc);
                 };
                 for (auto& arm : smatch.arms) {
                     if (arm.guard) continue;
-                    if (auto* por = std::get_if<lir::PatOr>(&arm.pat)) {
+                    if (auto* por = std::get_if<lir::PatOr>(&arm.pat.kind)) {
                         for (auto& alt : por->alts) add_pat(alt);
                     } else {
                         add_pat(arm.pat);
@@ -3296,7 +3296,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             bool has_true = false, has_false = false;
             for (auto& arm : smatch.arms) {
                 if (arm.guard) continue;
-                if (auto* pb = std::get_if<lir::PatBool>(&arm.pat)) {
+                if (auto* pb = std::get_if<lir::PatBool>(&arm.pat.kind)) {
                     if (pb->value) has_true = true; else has_false = true;
                 }
             }
@@ -3572,7 +3572,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
     {
         bool has_wild = false;
         for (auto& arm : me.arms) {
-            if (!arm.guard && std::holds_alternative<lir::PatWild>(arm.pat)) {
+            if (!arm.guard && std::holds_alternative<lir::PatWild>(arm.pat.kind)) {
                 has_wild = true;
                 break;
             }
@@ -3584,14 +3584,14 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             if (eit != enums_.end()) {
                 std::set<int32_t> covered;
                 auto add_pat2 = [&](const lir::Pattern& p) {
-                    if (auto* pv = std::get_if<lir::PatVariant>(&p))
+                    if (auto* pv = std::get_if<lir::PatVariant>(&p.kind))
                         covered.insert(pv->disc);
-                    else if (auto* pvd = std::get_if<lir::PatVariantData>(&p))
+                    else if (auto* pvd = std::get_if<lir::PatVariantData>(&p.kind))
                         covered.insert(pvd->disc);
                 };
                 for (auto& arm : me.arms) {
                     if (arm.guard) continue;
-                    if (auto* por = std::get_if<lir::PatOr>(&arm.pat)) {
+                    if (auto* por = std::get_if<lir::PatOr>(&arm.pat.kind)) {
                         for (auto& alt : por->alts) add_pat2(alt);
                     } else {
                         add_pat2(arm.pat);
@@ -3613,7 +3613,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             bool has_true = false, has_false = false;
             for (auto& arm : me.arms) {
                 if (arm.guard) continue;
-                if (auto* pb = std::get_if<lir::PatBool>(&arm.pat)) {
+                if (auto* pb = std::get_if<lir::PatBool>(&arm.pat.kind)) {
                     if (pb->value) has_true = true; else has_false = true;
                 }
             }

@@ -83,9 +83,10 @@ struct PatRefBind {
 // Reference pattern: &pat or &mut pat — strips one level of indirection.
 struct PatRefPat;
 
-using Pattern = std::variant<
-    PatVariant, PatInt, PatBool, PatWild, PatVariantData, PatOr, PatTuple,
-    PatRange, PatStruct, PatSlice, PatAt, PatRefBind, PatRefPat>;
+// Forward declaration: Pattern is defined after all alternatives are complete
+// (see end of pattern section). Sub-pattern containers (vector<Pattern>) work
+// with the forward decl.
+struct Pattern;
 
 struct PatOr   { std::vector<Pattern> alts; };
 struct PatTuple {
@@ -116,6 +117,25 @@ struct PatAt {
 struct PatRefPat {
     std::vector<Pattern> inner;  // exactly 1 element: the dereferenced pattern
     bool                 is_mut;
+};
+
+// All Pat* alternatives are complete here; define the kind variant and the
+// Pattern wrapper. The implicit converting ctor lets `return PatInt{v};` and
+// `Pattern{std::move(some_pat_alt)}` keep working without churn.
+using PatternKind = std::variant<
+    PatVariant, PatInt, PatBool, PatWild, PatVariantData, PatOr, PatTuple,
+    PatRange, PatStruct, PatSlice, PatAt, PatRefBind, PatRefPat>;
+
+struct Pattern {
+    PatternKind kind;
+    mutable hermes::arena_offset_t mirror_offset_{};
+
+    Pattern() = default;
+    template <class T,
+              class = std::enable_if_t<
+                  !std::is_same_v<std::decay_t<T>, Pattern> &&
+                  std::is_constructible_v<PatternKind, T&&>>>
+    Pattern(T&& v) : kind(std::forward<T>(v)) {}
 };
 
 struct LMatchArm {
@@ -991,7 +1011,7 @@ static_assert(std::variant_size_v<decltype(std::declval<LStmt>().kind)> == lir_s
               "LStmt variant count out of sync with lir_schema::stmt::Count");
 
 #define LIR_PAT_CODE_CHECK(T, CODE) \
-    static_assert(variant_index_of<T, Pattern>::value == std::size_t(lir_schema::CODE), \
+    static_assert(variant_index_of<T, PatternKind>::value == std::size_t(lir_schema::CODE), \
                   #T " Pattern variant index drift")
 
 LIR_PAT_CODE_CHECK(PatVariant,     pat::Code::Variant);
@@ -1007,7 +1027,7 @@ LIR_PAT_CODE_CHECK(PatSlice,       pat::Code::Slice);
 LIR_PAT_CODE_CHECK(PatAt,          pat::Code::At);
 LIR_PAT_CODE_CHECK(PatRefBind,     pat::Code::RefBind);
 LIR_PAT_CODE_CHECK(PatRefPat,      pat::Code::RefPat);
-static_assert(std::variant_size_v<Pattern> == lir_schema::pat::Count,
+static_assert(std::variant_size_v<PatternKind> == lir_schema::pat::Count,
               "Pattern variant count out of sync with lir_schema::pat::Count");
 
 #undef LIR_VARIANT_CODE_CHECK
