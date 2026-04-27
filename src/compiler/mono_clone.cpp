@@ -847,6 +847,11 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
 }
 
 lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
+    // Returns LStmt with mirror_offset_=0 by design. Caller (instantiate_fn /
+    // clone_struct_def) bulk-emits via lir_mirror_emit_function only after the
+    // owning LFunction reaches a heap-stable address (unique_ptr) and its
+    // body's stmt-vector buffers stop reallocating. See the call sites in
+    // the worklist drain and per-method emit loop for the full rationale.
     lir::LStmt ns;
     ns.line = st.line;
 
@@ -1495,9 +1500,16 @@ void Mono::instantiate_struct_templates() {
             }
 
             auto inst = clone_struct_def(*tmpl, subst, packs, cname);
-            // Emit mirror for each method before scan_fn; methods are
-            // unique_ptr<LFunction> so body addresses are stable across the
-            // later move into out_.structs.
+            // Mirror emit happens here — *after* clone, *before* scan_fn — because
+            // only at this point are stmt/expr addresses stable. Two conditions:
+            //   (a) all recursive subst_block push_backs are done, so the
+            //       LBlock::stmts vector buffers won't reallocate again and
+            //       LStmt addresses inside them are fixed;
+            //   (b) each LFunction sits behind a unique_ptr in inst.methods,
+            //       so the LFunction itself (and therefore its body LBlock) is
+            //       heap-stable even when `inst` is later moved into out_.structs.
+            // subst_stmt deliberately returns LStmt with mirror_offset_=0 — emitting
+            // mid-clone would point the mirror at a transient vector slot.
             for (auto& m : inst.methods)
                 lir_mirror_emit_function(out_, *out_.mirror_table, *m);
             for (auto& m : inst.methods) scan_fn(*m);
@@ -1521,6 +1533,10 @@ void Mono::instantiate_struct_templates() {
             worklist_.pop_back();
             depth_ = item.depth;
             auto fn_inst = instantiate_fn(*item.tmpl, item.mangled, item.subst, item.packs);
+            // Same two-step stabilization as the struct-method case above:
+            // (a) instantiate_fn's recursive subst_block push_backs have ended
+            //     so stmt-vector buffers are fixed; (b) make_unique parks the
+            //     LFunction at a heap-stable address before emit walks it.
             out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(fn_inst)));
             auto& fn_ref = *out_.functions.back();
             lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
