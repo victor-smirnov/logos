@@ -481,6 +481,249 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             result->kind = std::move(nl);
             break;
         }
+        case C::Call: {
+            lir_view::ECallView v{eref};
+            lir::ECall nc;
+            nc.callee = std::string(v.callee());
+            for (auto ta : v.type_args(out_.type_pool.impl()))
+                nc.type_args.push_back(subst_type(ta, s));
+            v.each_arg([&](lir_view::ExprRef ar) {
+                if (ar && ar.kind() == lir_schema::expr::Code::PackExpand) {
+                    std::string pe_var_name(lir_view::EPackExpandView{ar}.var_name());
+                    std::string pack_name;
+                    TypeRef at = ar.type(out_.type_pool.impl());
+                    if (at && at.kind() == LogosType::Kind::TypeVar)
+                        pack_name = std::string(at.type_var_name());
+                    auto pit = cur_packs_.find(pack_name);
+                    if (pit != cur_packs_.end()) {
+                        for (size_t pi = 0; pi < pit->second.size(); ++pi) {
+                            auto ref = std::make_unique<lir::LExpr>();
+                            ref->type = pit->second[pi];
+                            ref->kind = lir::EVarRef{make_pack_arg_name(pe_var_name, pi)};
+                            nc.args.push_back(std::move(ref));
+                        }
+                        if (templates_.count(nc.callee)) {
+                            for (auto pt : pit->second)
+                                nc.type_args.push_back(pt);
+                        }
+                    }
+                } else {
+                    nc.args.push_back(subst_child_expr(ar));
+                }
+            });
+            // Generic static-trait-dispatch: rewrite "DT__method" prefix when
+            // DT is bound by the substitution map.
+            {
+                auto sep = nc.callee.find("__");
+                if (sep != std::string::npos) {
+                    std::string prefix = nc.callee.substr(0, sep);
+                    auto it = s.find(prefix);
+                    if (it != s.end() && it->second) {
+                        std::string cname;
+                        TypeRef t = it->second;
+                        if (TypeRef(t).kind() == LogosType::Kind::Struct)
+                            cname = concrete_struct_name(t);
+                        else
+                            cname = type_str(t);
+                        if (cname == "&[u8]") cname = "str";
+                        if (!cname.empty())
+                            nc.callee = cname + nc.callee.substr(sep);
+                    }
+                }
+            }
+            // Rewrite callee if it's a generic call already instantiated.
+            if (!nc.type_args.empty()) {
+                bool rewritten_as_struct_method = false;
+                auto sep = nc.callee.find("__");
+                if (sep != std::string::npos) {
+                    std::string struct_part = nc.callee.substr(0, sep);
+                    std::string method_part = nc.callee.substr(sep);
+                    auto sit = struct_templates_.find(struct_part);
+                    if (sit != struct_templates_.end()) {
+                        bool all_concrete = true;
+                        for (auto ta : nc.type_args)
+                            if (ta && TypeRef(ta).kind() == LogosType::Kind::TypeVar)
+                                { all_concrete = false; break; }
+                        if (all_concrete) {
+                            size_t n_impl_tp = sit->second->type_params.size();
+                            size_t n_args    = std::min(n_impl_tp, nc.type_args.size());
+                            std::vector<TypeRef> args(
+                                nc.type_args.begin(), nc.type_args.begin() + n_args);
+                            std::string cname = concrete_struct_name_raw(struct_part, args);
+                            nc.callee = cname + method_part;
+                            nc.type_args.clear();
+                            rewritten_as_struct_method = true;
+                        }
+                    }
+                }
+                if (!rewritten_as_struct_method)
+                    nc.callee = mangle(nc.callee, nc.type_args);
+            }
+            result->kind = std::move(nc);
+            break;
+        }
+        case C::MethodCall: {
+            lir_view::EMethodCallView v{eref};
+            auto recv_ref = v.receiver();
+            auto orig_recv_type = recv_ref.type(out_.type_pool.impl());
+            auto new_recv = subst_child_expr(recv_ref);
+            std::string method{v.method()};
+            std::string resolved_symbol{v.resolved_symbol()};
+            std::string resolved_type{v.resolved_type()};
+            std::string tag_system{v.tag_system()};
+            std::string tag_trait{v.tag_trait()};
+            int32_t vtable_index = v.vtable_index();
+            // Unwrap pointer/reference for TypeVar check.
+            auto orig_inner = orig_recv_type;
+            if (orig_inner && (TypeRef(orig_inner).kind() == LogosType::Kind::Ptr ||
+                               TypeRef(orig_inner).kind() == LogosType::Kind::Ref ||
+                               TypeRef(orig_inner).kind() == LogosType::Kind::MutRef) &&
+                TypeRef(orig_inner).pointee())
+                orig_inner = TypeRef(orig_inner).pointee();
+            if (orig_inner && TypeRef(orig_inner).kind() == LogosType::Kind::TypeVar &&
+                new_recv && new_recv->type) {
+                std::string cname;
+                auto rt = new_recv->type;
+                if (TypeRef(rt).kind() == LogosType::Kind::Struct ||
+                    TypeRef(rt).kind() == LogosType::Kind::ZonedStruct)
+                    cname = concrete_struct_name(rt);
+                else if ((TypeRef(rt).kind() == LogosType::Kind::Ptr ||
+                          TypeRef(rt).kind() == LogosType::Kind::Ref ||
+                          TypeRef(rt).kind() == LogosType::Kind::MutRef) && TypeRef(rt).pointee()) {
+                    if (TypeRef(rt).pointee().kind() == LogosType::Kind::Struct ||
+                        TypeRef(rt).pointee().kind() == LogosType::Kind::ZonedStruct)
+                        cname = concrete_struct_name(TypeRef(rt).pointee());
+                    else {
+                        std::string ptr_cname = type_str(rt);
+                        std::string ptr_fn = ptr_cname + "__" + method;
+                        bool ptr_exists = templates_.count(ptr_fn) || specs_.count(ptr_fn);
+                        if (!ptr_exists)
+                            for (auto& f : in_.functions)
+                                if (f->name == ptr_fn) { ptr_exists = true; break; }
+                        if (!ptr_exists)
+                            for (auto& f : out_.functions)
+                                if (f->name == ptr_fn) { ptr_exists = true; break; }
+                        cname = ptr_exists ? ptr_cname : type_str(TypeRef(rt).pointee());
+                    }
+                }
+                if (cname.empty()) cname = type_str(rt);
+                if (cname == "&[u8]") cname = "str";
+                if (!cname.empty()) {
+                    lir::ECall nc;
+                    std::string base_fn = cname + "__" + method;
+                    std::string tmpl_key = base_fn;
+                    if (!templates_.count(tmpl_key) && !specs_.count(tmpl_key)) {
+                        std::string p = base_fn + "__g__";
+                        for (auto& [kn, _] : templates_)
+                            if (kn.rfind(p, 0) == 0) { tmpl_key = kn; break; }
+                        if (tmpl_key == base_fn)
+                            for (auto& [kn, _] : specs_)
+                                if (kn.rfind(p, 0) == 0) { tmpl_key = kn; break; }
+                    }
+                    nc.callee = tmpl_key;
+                    nc.args.push_back(std::move(new_recv));
+                    v.each_arg([&](lir_view::ExprRef ar) {
+                        nc.args.push_back(subst_child_expr(ar));
+                    });
+                    for (auto ta : v.type_args(out_.type_pool.impl()))
+                        nc.type_args.push_back(subst_type(ta, s));
+                    if (!nc.type_args.empty())
+                        nc.callee = mangle(tmpl_key, nc.type_args);
+                    result->kind = std::move(nc);
+                    break;
+                }
+                // Fallback: keep as method call
+                lir::EMethodCall nm;
+                nm.receiver = std::move(new_recv);
+                nm.method = method;
+                nm.resolved_symbol = resolved_symbol;
+                nm.vtable_index = vtable_index;
+                nm.resolved_type = resolved_type;
+                nm.tag_system = tag_system;
+                nm.tag_trait  = tag_trait;
+                v.each_arg([&](lir_view::ExprRef ar) {
+                    nm.args.push_back(subst_child_expr(ar));
+                });
+                result->kind = std::move(nm);
+                break;
+            }
+            // Non-trait-method-on-TypeVar path.
+            lir::EMethodCall nm;
+            nm.receiver = std::move(new_recv);
+            nm.method = method;
+            nm.resolved_symbol = resolved_symbol;
+            for (auto ta : v.type_args(out_.type_pool.impl()))
+                nm.type_args.push_back(subst_type(ta, s));
+            nm.vtable_index = vtable_index;
+            nm.tag_system = tag_system;
+            nm.tag_trait  = tag_trait;
+            // SPECIALIZATION LOOKUP (Bug 12)
+            bool rewritten = false;
+            if (nm.receiver && nm.receiver->type) {
+                TypeRef rt = nm.receiver->type;
+                while (rt && (TypeRef(rt).kind() == LogosType::Kind::Ptr ||
+                              TypeRef(rt).kind() == LogosType::Kind::Ref ||
+                              TypeRef(rt).kind() == LogosType::Kind::MutRef) && TypeRef(rt).pointee()) {
+                    rt = TypeRef(rt).pointee();
+                }
+                if (rt &&
+                    (TypeRef(rt).kind() == LogosType::Kind::Struct ||
+                     TypeRef(rt).kind() == LogosType::Kind::ZonedStruct ||
+                     TypeRef(rt).kind() == LogosType::Kind::Enum)) {
+                    std::vector<TypeRef> combined_args = TypeRef(rt).type_args();
+                    for (auto mta : nm.type_args) combined_args.push_back(mta);
+                    std::string base_struct;
+                    if (!resolved_type.empty()) {
+                        base_struct = resolved_type;
+                    } else if (TypeRef(rt).kind() == LogosType::Kind::Enum) {
+                        base_struct = TypeRef(rt).enum_name();
+                    } else {
+                        base_struct = TypeRef(rt).struct_name();
+                    }
+                    std::string base_name = base_struct + "__" + method;
+                    auto pick_mono_template_key = [&]() -> std::string {
+                        if (templates_.count(base_name) || specs_.count(base_name))
+                            return base_name;
+                        std::string p = base_name + "__";
+                        for (auto& [kname, _] : templates_)
+                            if (kname.rfind(p, 0) == 0) return kname;
+                        for (auto& [kname, _] : specs_)
+                            if (kname.rfind(p, 0) == 0) return kname;
+                        return {};
+                    };
+                    std::string mono_base = pick_mono_template_key();
+                    if (auto* spec = find_best_spec(mono_base.empty() ? base_name : mono_base,
+                                                    combined_args)) {
+                        lir::ECall nc;
+                        nc.callee = spec->name;
+                        nc.args.push_back(std::move(nm.receiver));
+                        v.each_arg([&](lir_view::ExprRef ar) {
+                            nc.args.push_back(subst_child_expr(ar));
+                        });
+                        result->kind = std::move(nc);
+                        rewritten = true;
+                    } else if (!combined_args.empty() && !mono_base.empty()) {
+                        lir::ECall nc;
+                        nc.callee = mangle(mono_base, combined_args);
+                        nc.type_args = combined_args;
+                        nc.args.push_back(std::move(nm.receiver));
+                        v.each_arg([&](lir_view::ExprRef ar) {
+                            nc.args.push_back(subst_child_expr(ar));
+                        });
+                        result->kind = std::move(nc);
+                        rewritten = true;
+                    }
+                }
+            }
+            if (!rewritten) {
+                nm.resolved_type = resolved_type;
+                v.each_arg([&](lir_view::ExprRef ar) {
+                    nm.args.push_back(subst_child_expr(ar));
+                });
+                result->kind = std::move(nm);
+            }
+            break;
+        }
         case C::ClosureBox: {
             lir_view::EClosureBoxView v{eref};
             auto br = v.body();
