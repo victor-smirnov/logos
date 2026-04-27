@@ -15,6 +15,8 @@
 
 #include <logos/compiler/lir.hpp>
 #include <logos/compiler/lir_builder.hpp>
+#include <logos/compiler/lir_view.hpp>
+#include <logos/compiler/lir_mirror.hpp>
 #include <logos/compiler/ast.hpp>
 #include <logos/compiler/sha256.hpp>
 #include <logos/compiler/str_map.hpp>
@@ -219,6 +221,25 @@ private:
     // caller change.
     LirBuilder builder() {
         return LirBuilder(*cur_prog_);
+    }
+
+    // ── Mirror ref accessors (read-only view of just-built L-IR nodes) ──
+    // Every LirBuilder-constructed node has mirror_offset_ set, so these
+    // never return a null Ref unless `e` was built outside the builder.
+    lir_view::ExprRef expr_ref_of(const lir::LExpr& e) const noexcept {
+        if (e.mirror_offset_ == hermes::arena_offset_t{}) return {};
+        return lir_view::ExprRef(cur_prog_->type_pool.arena(), e.mirror_offset_);
+    }
+    lir_view::StmtRef stmt_ref_of(const lir::LStmt& s) const noexcept {
+        if (s.mirror_offset_ == hermes::arena_offset_t{}) return {};
+        return lir_view::StmtRef(cur_prog_->type_pool.arena(), s.mirror_offset_);
+    }
+    lir_view::PatRef pat_ref_of(const lir::Pattern& p) const noexcept {
+        if (!cur_prog_->mirror_table) return {};
+        auto& tbl = *cur_prog_->mirror_table;
+        auto it = tbl.pat.find(&p);
+        if (it == tbl.pat.end()) return {};
+        return lir_view::PatRef(cur_prog_->type_pool.arena(), it->second);
     }
 
     template<typename K>

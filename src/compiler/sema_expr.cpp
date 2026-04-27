@@ -823,7 +823,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
 
     bool call_has_pack_expand = false;
     for (auto& a : arg_exprs) {
-        if (std::holds_alternative<lir::EPackExpand>(a->kind)) {
+        if (expr_ref_of(*a).kind() == lir_schema::expr::Code::PackExpand) {
             call_has_pack_expand = true;
             break;
         }
@@ -980,7 +980,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         // indicate we're in a partially-substituted context — defer to mono.
         bool in_generic_context = false;
         for (auto& a : arg_exprs) {
-            if (std::holds_alternative<lir::EPackExpand>(a->kind)) {
+            if (expr_ref_of(*a).kind() == lir_schema::expr::Code::PackExpand) {
                 in_generic_context = true; break;
             }
             auto t = a->type;
@@ -1010,7 +1010,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     // If any arg is a pack expansion, skip checking — mono will expand
     bool has_pack_expand = false;
     for (auto& a : arg_exprs)
-        if (std::holds_alternative<lir::EPackExpand>(a->kind))
+        if (expr_ref_of(*a).kind() == lir_schema::expr::Code::PackExpand)
             has_pack_expand = true;
 
     if (has_pack_expand) {
@@ -1273,7 +1273,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
     uint64_t n_args = arg_exprs.size();
     bool has_pack_expand = false;
     for (auto& a : arg_exprs)
-        if (std::holds_alternative<lir::EPackExpand>(a->kind)) {
+        if (expr_ref_of(*a).kind() == lir_schema::expr::Code::PackExpand) {
             has_pack_expand = true; break;
         }
 
