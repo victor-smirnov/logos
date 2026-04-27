@@ -91,6 +91,16 @@ public:
     lir::LExprPtr hermes_cast(lir::LExprPtr operand, std::string build_fn,
                               TypeRef ty);
 
+    // ── Statement constructors ──────────────────────────────────────────
+    // Build an LStmt and eager-emit its Hermes mirror. After this call,
+    // `stmt_ref_of(s)` is valid (mirror_offset_ is set). Used by sub-slice
+    // 2.0 to eliminate the make_stmt/eager-emit gap (gap memo
+    // feat_lir_mirror_eager_emit_gaps): every kind that's safe for eager
+    // emit (i.e. construction is final-state, no later mutation of children
+    // or reparenting of child blocks) gets its own builder method here.
+
+    lir::LStmt stmt_expr(lir::LExprPtr expr, uint32_t line);
+
     // ── Adopt-style: pre-built variants populated incrementally ─────────────
     // Stage 3g deletes these along with the variant types. Until then, sema
     // sites that fill multi-field variants in place hand the result here so

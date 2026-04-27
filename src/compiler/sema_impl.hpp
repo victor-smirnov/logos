@@ -449,8 +449,8 @@ private:
                k == LogosType::Kind::MutRef;
     }
 
-    std::string_view struct_name_of(std::string_view var_name);
-    std::string_view struct_name_from_type(TypeRef t);
+    std::string struct_name_of(std::string_view var_name);
+    std::string struct_name_from_type(TypeRef t);
 
     // ── Module-level symbol tables ───────────────────────────────
 

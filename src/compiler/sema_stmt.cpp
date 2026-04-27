@@ -174,7 +174,7 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
         lir::LExprPtr e = stmt.has_key(la::VALUE)
             ? lower_expr(map_of(stmt.get(la::VALUE.code)))
             : error_expr();
-        return make_stmt(node_line_, lir::SExprStmt{std::move(e)});
+        return builder().stmt_expr(std::move(e), node_line_);
     }
     if (c == la::BREAK) {
         if (loop_depth_ == 0) error("'break' outside loop");

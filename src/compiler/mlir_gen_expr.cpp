@@ -1006,7 +1006,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                     TypeRef(vt_type).struct_name() == "Box" &&
                     TypeRef(vt_type).type_args().size() == 1)
                     vt_type = TypeRef(vt_type).type_args()[0];
-                v = coerce_to_dyn(v, TypeRef(param_lt).trait_name(), type_str(vt_type));
+                v = coerce_to_dyn(v, std::string(TypeRef(param_lt).trait_name()), type_str(vt_type));
             }
         }
         if (i < param_types.size()) {

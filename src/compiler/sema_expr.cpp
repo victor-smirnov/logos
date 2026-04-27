@@ -4519,7 +4519,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
             if (aliased && (TypeRef(aliased).kind() == LogosType::Kind::Struct ||
                             TypeRef(aliased).kind() == LogosType::Kind::ZonedStruct)) {
                 resolved_class = TypeRef(aliased).type_args().empty()
-                    ? TypeRef(aliased).struct_name()
+                    ? TypeRef(aliased).struct_name().to_string()
                     : concrete_struct_name(aliased);
             }
         }
