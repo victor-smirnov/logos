@@ -342,6 +342,172 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             result->kind = std::move(nn);
             break;
         }
+        case C::MatchExpr: {
+            lir_view::EMatchExprView v{eref};
+            lir::EMatchExpr nm;
+            nm.scrut = subst_child_expr(v.scrut());
+            PatSubstWalker pw([&](TypeRef t) { return subst_type(t, s); },
+                              out_.type_pool.impl());
+            v.each_arm([&](lir_view::EMatchArmRef arm) {
+                lir::EMatchArm na;
+                if (auto pr = arm.pat(); pr) na.pat = pw.walk(pr);
+                else                         na.pat = lir::PatWild{};
+                if (auto gr = arm.guard(); gr)
+                    na.guard = subst_child_expr(gr);
+                na.value = subst_child_expr(arm.value());
+                nm.arms.push_back(std::move(na));
+            });
+            result->kind = std::move(nm);
+            break;
+        }
+        case C::TypeCodeOf: {
+            auto resolved = subst_type(
+                lir_view::ETypeCodeOfView{eref}.elem_type(out_.type_pool.impl()), s);
+            bool has_tv = false;
+            std::function<void(TypeRef)> walk = [&](TypeRef t) {
+                if (!t || has_tv) return;
+                if (TypeRef(t).kind() == LogosType::Kind::TypeVar) { has_tv = true; return; }
+                for (auto a : TypeRef(t).type_args()) walk(a);
+                if (TypeRef(t).pointee()) walk(TypeRef(t).pointee());
+                if (TypeRef(t).elem())    walk(TypeRef(t).elem());
+            };
+            walk(resolved);
+            if (has_tv || !resolved) {
+                result->kind = lir::ETypeCodeOf{resolved};
+            } else {
+                uint64_t code = 0;
+                if (TypeRef(resolved).kind() == LogosType::Kind::Struct ||
+                    TypeRef(resolved).kind() == LogosType::Kind::ZonedStruct) {
+                    std::string mangled = TypeRef(resolved).type_args().empty()
+                        ? std::string(TypeRef(resolved).struct_name())
+                        : concrete_struct_name(resolved);
+                    for (auto& sd : out_.structs)
+                        if (sd.name == mangled && sd.type_code != 0)
+                            { code = sd.type_code; break; }
+                    if (code == 0)
+                        for (auto& ia : out_.inst_annotations)
+                            if (ia.mangled_name == mangled && ia.type_code != 0)
+                                { code = ia.type_code; break; }
+                }
+                if (code == 0) {
+                    auto hash = type_hash_23(type_str(resolved));
+                    uint64_t raw = type_hash_56bit(hash);
+                    code = (raw < 128) ? (raw + 128) : raw;
+                }
+                result->kind = lir::ELitInt{(int64_t)code};
+            }
+            break;
+        }
+        case C::HermesLit: {
+            // Reuse the variant-driven clone_hv from the std::visit branch
+            // by reading the input variant. clone_hv itself dispatches on
+            // HermesValRef internally (3g.3.5a).
+            lir_view::EHermesLitView v{eref};
+            namespace hvc = lir_schema::hermes_val;
+            std::function<lir::HermesValPtr(const lir::HermesVal&)> clone_hv =
+                [&](const lir::HermesVal& hv) -> lir::HermesValPtr {
+                auto out = std::make_unique<lir::HermesVal>();
+                auto vref = hv_ref_of(hv);
+                if (!vref) {
+                    std::visit([&](const auto& kk) {
+                        using KK = std::decay_t<decltype(kk)>;
+                        if constexpr (std::is_same_v<KK, lir::HVMap>) {
+                            lir::HVMap nm;
+                            nm.key_type = kk.key_type;
+                            for (auto& e : kk.entries)
+                                nm.entries.push_back({e.key, clone_hv(*e.val)});
+                            out->kind = std::move(nm);
+                        } else if constexpr (std::is_same_v<KK, lir::HVArray>) {
+                            lir::HVArray na;
+                            na.elem_type = kk.elem_type;
+                            for (auto& elem : kk.elements)
+                                na.elements.push_back(clone_hv(*elem));
+                            out->kind = std::move(na);
+                        } else {
+                            out->kind = kk;
+                        }
+                    }, hv.kind);
+                    return out;
+                }
+                switch (vref.kind()) {
+                case hvc::Code::Null:    out->kind = lir::HVNull{}; break;
+                case hvc::Code::Bool:    out->kind = lir::HVBool{lir_view::HVBoolView{vref}.value()}; break;
+                case hvc::Code::Int:     out->kind = lir::HVInt{lir_view::HVIntView{vref}.value()}; break;
+                case hvc::Code::Float:   out->kind = lir::HVFloat{lir_view::HVFloatView{vref}.value()}; break;
+                case hvc::Code::Str:     out->kind = lir::HVStr{std::string(lir_view::HVStrView{vref}.value())}; break;
+                case hvc::Code::Capture: {
+                    lir_view::HVCaptureView cv{vref};
+                    out->kind = lir::HVCapture{cv.param_index(), cv.value_index()};
+                    break;
+                }
+                case hvc::Code::Map: {
+                    auto* in_hv = std::get_if<lir::HVMap>(&hv.kind);
+                    lir::HVMap nm;
+                    if (in_hv) {
+                        nm.key_type = in_hv->key_type;
+                        for (auto& e : in_hv->entries)
+                            nm.entries.push_back({e.key, clone_hv(*e.val)});
+                    }
+                    out->kind = std::move(nm);
+                    break;
+                }
+                case hvc::Code::Array: {
+                    auto* in_hv = std::get_if<lir::HVArray>(&hv.kind);
+                    lir::HVArray na;
+                    if (in_hv) {
+                        na.elem_type = in_hv->elem_type;
+                        for (auto& elem : in_hv->elements)
+                            na.elements.push_back(clone_hv(*elem));
+                    }
+                    out->kind = std::move(na);
+                    break;
+                }
+                }
+                return out;
+            };
+            lir::EHermesLit nl;
+            // root: the EHermesLit-mirror's ROOT key gives a HermesValRef but we
+            // need the input lir::HermesVal* to recurse. Look up via the variant
+            // (root is unique_ptr, mirror reverse-map for HV not yet built).
+            auto* in_lit = std::get_if<lir::EHermesLit>(&e.kind);
+            if (in_lit && in_lit->root) nl.root = clone_hv(*in_lit->root);
+            nl.has_captures        = v.has_captures();
+            nl.capture_param_count = v.capture_param_count();
+            v.each_capture_expr([&](lir_view::ExprRef er) {
+                nl.capture_exprs.push_back(subst_child_expr(er));
+            });
+            v.each_capture_type(out_.type_pool.impl(),
+                [&](TypeRef ct) { nl.capture_types.push_back(subst_type(ct, s)); });
+            result->kind = std::move(nl);
+            break;
+        }
+        case C::ClosureBox: {
+            lir_view::EClosureBoxView v{eref};
+            auto br = v.body();
+            if (!br) {
+                result->kind = lir::EClosureBox{nullptr};
+                break;
+            }
+            auto nc = std::make_unique<lir::EClosure>();
+            nc->closure_id = std::string(v.closure_id());
+            v.each_param(out_.type_pool.impl(),
+                [&](std::string_view nm, TypeRef pt) {
+                    nc->params.push_back({std::string(nm), subst_type(pt, s)});
+                });
+            nc->ret_type  = subst_type(v.ret_type(out_.type_pool.impl()), s);
+            nc->body      = subst_child_block(br);
+            nc->is_move   = v.is_move();
+            nc->as_fn_ptr = v.as_fn_ptr();
+            v.each_capture_name([&](std::string_view cn) {
+                nc->captures.push_back(std::string(cn));
+            });
+            v.each_capture(out_.type_pool.impl(),
+                [&](std::string_view, TypeRef ct) {
+                    nc->capture_types.push_back(subst_type(ct, s));
+                });
+            result->kind = lir::EClosureBox{std::move(nc)};
+            break;
+        }
         default:
             handled = false;
             break;
