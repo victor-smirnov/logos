@@ -44,9 +44,10 @@ struct LirMirrorTable {
     // Reverse maps. Populated alongside their forward counterparts so view
     // code can descend back to the variant tree where the recursion target
     // is still a C++ struct (e.g. visit_block(LBlock&) during Phase 3d).
-    std::unordered_map<uint32_t, const lir::LBlock*> block_by_offset;
-    std::unordered_map<uint32_t, const lir::LExpr*>  expr_by_offset;
-    std::unordered_map<uint32_t, const lir::LStmt*>  stmt_by_offset;
+    std::unordered_map<uint32_t, const lir::LBlock*>     block_by_offset;
+    std::unordered_map<uint32_t, const lir::LExpr*>      expr_by_offset;
+    std::unordered_map<uint32_t, const lir::LStmt*>      stmt_by_offset;
+    std::unordered_map<uint32_t, const lir::HermesVal*>  hermes_val_by_offset;
 
     bool empty() const noexcept {
         return expr.empty() && stmt.empty() && block.empty() && pat.empty()

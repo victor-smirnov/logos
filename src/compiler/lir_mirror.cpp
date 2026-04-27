@@ -471,10 +471,12 @@ hermes::arena_offset_t LirMirrorEmitter::emit_hv(const HermesVal& v) {
             return it->second;
         }
         table_.hermes_val[&v] = v.mirror_offset_;
+        table_.hermes_val_by_offset[v.mirror_offset_.value()] = &v;
         backfill_only = true;
     } else if (auto it = table_.hermes_val.find(&v); it != table_.hermes_val.end()) {
         // Heap-address recycling: stale cache entry for a freed HermesVal.
         // Invalidate and fall through to emit a fresh mirror.
+        table_.hermes_val_by_offset.erase(uint32_t(it->second.value()));
         table_.hermes_val.erase(it);
     }
 
@@ -565,6 +567,7 @@ hermes::arena_offset_t LirMirrorEmitter::emit_hv(const HermesVal& v) {
     if (backfill_only) return v.mirror_offset_;
     v.mirror_offset_ = map_off;
     table_.hermes_val[&v] = map_off;
+    table_.hermes_val_by_offset[map_off.value()] = &v;
     return map_off;
 }
 

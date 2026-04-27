@@ -405,19 +405,14 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             break;
         }
         case C::HermesLit: {
-            // Reuse the variant-driven clone_hv from the std::visit branch
-            // by reading the input variant. clone_hv itself dispatches on
-            // HermesValRef internally (3g.3.5a).
             lir_view::EHermesLitView v{eref};
             namespace hvc = lir_schema::hermes_val;
-            std::function<lir::HermesValPtr(const lir::HermesVal&)> clone_hv =
-                [&](const lir::HermesVal& hv) -> lir::HermesValPtr {
+            std::function<lir::HermesValPtr(lir_view::HermesValRef)> clone_hv =
+                [&](lir_view::HermesValRef vref) -> lir::HermesValPtr {
                 auto out = lir::alloc_hermes_val(out_);
-                auto vref = hv_ref_of(hv);
                 if (!vref) {
                     std::fprintf(stderr,
-                        "mono.clone_hv: input HermesVal lacks mirror_offset_ "
-                        "(variant index=%zu)\n", hv.kind.index());
+                        "mono.clone_hv: null HermesValRef\n");
                     std::abort();
                 }
                 switch (vref.kind()) {
@@ -432,24 +427,26 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                     break;
                 }
                 case hvc::Code::Map: {
-                    auto* in_hv = std::get_if<lir::HVMap>(&hv.kind);
+                    lir_view::HVMapView mv{vref};
                     lir::HVMap nm;
-                    if (in_hv) {
-                        nm.key_type = in_hv->key_type;
-                        for (auto& e : in_hv->entries)
-                            nm.entries.push_back({e.key, clone_hv(*e.val)});
+                    nm.key_type = std::string(mv.key_type());
+                    bool int_keys = mv.int_keyed();
+                    for (uint64_t i = 0; i < mv.size(); ++i) {
+                        lir::HVMapEntry ent;
+                        if (int_keys) ent.key = mv.int_key(i);
+                        else          ent.key = std::string(mv.str_key(i));
+                        ent.val = clone_hv(mv.value(i));
+                        nm.entries.push_back(std::move(ent));
                     }
                     out->kind = std::move(nm);
                     break;
                 }
                 case hvc::Code::Array: {
-                    auto* in_hv = std::get_if<lir::HVArray>(&hv.kind);
+                    lir_view::HVArrayView av{vref};
                     lir::HVArray na;
-                    if (in_hv) {
-                        na.elem_type = in_hv->elem_type;
-                        for (auto& elem : in_hv->elements)
-                            na.elements.push_back(clone_hv(*elem));
-                    }
+                    na.elem_type = std::string(av.elem_type());
+                    for (uint64_t i = 0; i < av.size(); ++i)
+                        na.elements.push_back(clone_hv(av.elem(i)));
                     out->kind = std::move(na);
                     break;
                 }
@@ -457,11 +454,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 return out;
             };
             lir::EHermesLit nl;
-            // root: the EHermesLit-mirror's ROOT key gives a HermesValRef but we
-            // need the input lir::HermesVal* to recurse. Look up via the variant
-            // (root is unique_ptr, mirror reverse-map for HV not yet built).
-            auto* in_lit = std::get_if<lir::EHermesLit>(&e.kind);
-            if (in_lit && in_lit->root) nl.root = clone_hv(*in_lit->root);
+            if (auto root_ref = v.root()) nl.root = clone_hv(root_ref);
             nl.has_captures        = v.has_captures();
             nl.capture_param_count = v.capture_param_count();
             v.each_capture_expr([&](lir_view::ExprRef er) {
