@@ -36,6 +36,11 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // (so scan_fn can dispatch via lir_view). Empty at start of mono.
     out_.mirror_table = std::make_unique<LirMirrorTable>();
 
+    // Slice 1b: LExprPtr is now a raw pointer into LProgram::expr_pool_.
+    // Moving consts/functions/etc. from in_ to out_ leaves their LExpr*'s
+    // pointing into in_.expr_pool_ — so we must transfer the pool too. New
+    // mono-cloned exprs are appended onto this same pool by alloc_expr(out_).
+    out_.expr_pool_          = std::move(in_.expr_pool_);
     out_.consts              = std::move(in_.consts);
     out_.type_aliases        = std::move(in_.type_aliases);
     out_.traits              = std::move(in_.traits);

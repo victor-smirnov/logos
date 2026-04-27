@@ -16,7 +16,7 @@ namespace {
 // nodes (table cache hits).
 template <class K>
 inline lir::LExprPtr make_expr(lir::LProgram& prog, TypeRef t, K&& k) {
-    auto e = std::make_unique<lir::LExpr>();
+    auto* e = lir::alloc_expr(prog);
     e->type = t;
     e->kind = std::forward<K>(k);
     lir_mirror_emit_expr_node(prog, *e);

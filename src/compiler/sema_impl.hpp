@@ -1136,7 +1136,7 @@ inline void widen_int_expr(lir::LExprPtr& e, TypeRef target, LirBuilder b) {
     if (ek == tk) return;
     bool ok = can_widen_int(ek, tk);
     if (!ok && is_integer_kind(TypeRef(e->type).kind()) && is_integer_kind(TypeRef(target).kind())) {
-        if (auto v = get_intlit_value(e.get()))
+        if (auto v = get_intlit_value(e))
             if (intlit_fits(*v, TypeRef(target).kind()))
                 ok = true;
     }
@@ -1171,11 +1171,11 @@ inline TypeRef unify_numeric(TypeRef a, TypeRef b) noexcept {
 inline std::optional<int64_t> get_intlit_value(const lir::LExpr* e) noexcept {
     if (!e) return std::nullopt;
     if (auto* blk = std::get_if<lir::EBlockExpr>(&e->kind))
-        e = blk->result.get();
+        e = blk->result;
     if (!e) return std::nullopt;
     if (auto* u = std::get_if<lir::EUnary>(&e->kind)) {
         if (u->op == "-") {
-            auto inner = get_intlit_value(u->operand.get());
+            auto inner = get_intlit_value(u->operand);
             if (inner) return -(*inner);
         }
         return std::nullopt;

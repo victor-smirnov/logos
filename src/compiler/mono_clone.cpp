@@ -37,7 +37,7 @@ lir::Pattern Mono::subst_pattern(const lir::Pattern& pat, const SubstMap& s) {
 lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                           const PackMap& /*unused*/) {
     // packs are stored in cur_packs_ (set by clone_fn)
-    auto result = std::make_unique<lir::LExpr>();
+    auto* result = lir::alloc_expr(out_);
     result->type = subst_type(e.type, s);
 
     // Stage 3g.4b: every LExpr reaching mono is mirrored — sema's LirBuilder

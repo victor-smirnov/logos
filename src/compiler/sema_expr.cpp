@@ -472,7 +472,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
             // Upgrade IntLit element type to i64 if the literal overflows i32.
             TypeRef et = e->type;
             if (TypeRef(et).kind() == LogosType::Kind::IntLit) {
-                if (auto v = get_intlit_value(e.get()))
+                if (auto v = get_intlit_value(e))
                     if (*v > (int64_t)INT32_MAX || *v < (int64_t)INT32_MIN)
                         et = prim(LogosType::Kind::I64);
             }
@@ -571,7 +571,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             error(std::format("operator '{}': type mismatch ({} vs {})",
                   op, type_str(lt), type_str(rt)));
         if (ptr_null_cmp) {
-            const lir::LExpr* lit_expr = (TypeRef(lt).kind() == LogosType::Kind::IntLit) ? lhs.get() : rhs.get();
+            const lir::LExpr* lit_expr = (TypeRef(lt).kind() == LogosType::Kind::IntLit) ? lhs : rhs;
             if (auto v = get_intlit_value(lit_expr)) {
                 if (*v != 0)
                     error(std::format(
@@ -581,12 +581,12 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         // Detect comparisons against IntLit values that can't fit in the other operand.
         // E.g. x: i32 == 10000000000 — the literal can never equal any i32 value.
         if (TypeRef(lt).kind() == LogosType::Kind::IntLit && is_integer_kind(TypeRef(rt).kind())) {
-            if (auto v = get_intlit_value(lhs.get()))
+            if (auto v = get_intlit_value(lhs))
                 if (!intlit_fits(*v, TypeRef(rt).kind()))
                     error(std::format("operator '{}': literal value {} does not fit in {}",
                           op, *v, type_str(rt)));
         } else if (TypeRef(rt).kind() == LogosType::Kind::IntLit && is_integer_kind(TypeRef(lt).kind())) {
-            if (auto v = get_intlit_value(rhs.get()))
+            if (auto v = get_intlit_value(rhs))
                 if (!intlit_fits(*v, TypeRef(lt).kind()))
                     error(std::format("operator '{}': literal value {} does not fit in {}",
                           op, *v, type_str(lt)));
@@ -615,12 +615,12 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             result_type = unify_int(lt, rt);
             // Check IntLit operand fits in the concrete type of the other operand.
             if (TypeRef(lt).kind() == LogosType::Kind::IntLit && TypeRef(rt).kind() != LogosType::Kind::IntLit)
-                if (auto v = get_intlit_value(lhs.get()))
+                if (auto v = get_intlit_value(lhs))
                     if (!intlit_fits(*v, TypeRef(rt).kind()))
                         error(std::format("operator '{}': left value {} does not fit in {}",
                               op, *v, type_str(rt)));
             if (TypeRef(rt).kind() == LogosType::Kind::IntLit && TypeRef(lt).kind() != LogosType::Kind::IntLit)
-                if (auto v = get_intlit_value(rhs.get()))
+                if (auto v = get_intlit_value(rhs))
                     if (!intlit_fits(*v, TypeRef(lt).kind()))
                         error(std::format("operator '{}': right value {} does not fit in {}",
                               op, *v, type_str(lt)));
@@ -634,12 +634,12 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         result_type = unify_int(lt, rt);
         // Check IntLit operand fits in the concrete type of the other operand.
         if (TypeRef(lt).kind() == LogosType::Kind::IntLit && TypeRef(rt).kind() != LogosType::Kind::IntLit)
-            if (auto v = get_intlit_value(lhs.get()))
+            if (auto v = get_intlit_value(lhs))
                 if (!intlit_fits(*v, TypeRef(rt).kind()))
                     error(std::format("operator '{}': left value {} does not fit in {}",
                           op, *v, type_str(rt)));
         if (TypeRef(rt).kind() == LogosType::Kind::IntLit && TypeRef(lt).kind() != LogosType::Kind::IntLit)
-            if (auto v = get_intlit_value(rhs.get()))
+            if (auto v = get_intlit_value(rhs))
                 if (!intlit_fits(*v, TypeRef(lt).kind()))
                     error(std::format("operator '{}': right value {} does not fit in {}",
                           op, *v, type_str(lt)));
@@ -853,7 +853,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                         error(std::format("call to '{}' arg {}: expected {}, got {}",
                               callee, i + 1, type_str(pt), type_str(at)));
                     if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
-                        if (auto v = get_intlit_value(arg_exprs[i].get()))
+                        if (auto v = get_intlit_value(arg_exprs[i]))
                             if (!intlit_fits(*v, TypeRef(pt).kind()))
                                 error(std::format("call to '{}' arg {}: value {} does not fit in {}",
                                       callee, i + 1, *v, type_str(pt)));
@@ -874,7 +874,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                     error(std::format("call to '{}' arg {}: expected {}, got {}",
                           callee, i + 1, type_str(pt), type_str(at)));
                 if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
-                    if (auto v = get_intlit_value(arg_exprs[i].get()))
+                    if (auto v = get_intlit_value(arg_exprs[i]))
                         if (!intlit_fits(*v, TypeRef(pt).kind()))
                             error(std::format("call to '{}' arg {}: value {} does not fit in {}",
                                   callee, i + 1, *v, type_str(pt)));
@@ -883,7 +883,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                     if (auto* al = std::get_if<lir::EArrLit>(&arg_exprs[i]->kind))
                         for (size_t ei = 0; ei < al->elems.size(); ++ei)
                             if (TypeRef(al->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                                if (auto v = get_intlit_value(al->elems[ei].get()))
+                                if (auto v = get_intlit_value(al->elems[ei]))
                                     if (!intlit_fits(*v, TypeRef(pt).elem().kind()))
                                         error(std::format("call to '{}' arg {}: array element {}: value {} does not fit in {}",
                                               callee, i + 1, ei, *v, type_str(TypeRef(pt).elem())));
@@ -892,7 +892,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                     if (auto* tl = std::get_if<lir::ETupleLit>(&arg_exprs[i]->kind))
                         for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(pt).tuple_elems().size(); ++ei) {
                             if (TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                                if (auto v = get_intlit_value(tl->elems[ei].get()))
+                                if (auto v = get_intlit_value(tl->elems[ei]))
                                     if (TypeRef(pt).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).kind()))
                                         error(std::format("call to '{}' arg {}: tuple element {}: value {} does not fit in {}",
                                               callee, i + 1, ei, *v, type_str(TypeRef(pt).tuple_elems()[ei])));
@@ -901,7 +901,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                                 if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
                                     for (size_t ii = 0; ii < ial->elems.size(); ++ii)
                                         if (TypeRef(ial->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                            if (auto v = get_intlit_value(ial->elems[ii].get()))
+                                            if (auto v = get_intlit_value(ial->elems[ii]))
                                                 if (!intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).elem().kind()))
                                                     error(std::format("call to '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
                                                           callee, i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).elem())));
@@ -910,7 +910,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                                 if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
                                     for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems().size(); ++ii)
                                         if (TypeRef(itl->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                            if (auto v = get_intlit_value(itl->elems[ii].get()))
+                                            if (auto v = get_intlit_value(itl->elems[ii]))
                                                 if (TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
                                                     error(std::format("call to '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
                                                           callee, i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii])));
@@ -1035,7 +1035,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                     error(std::format("call to '{}' arg {}: expected {}, got {}",
                           callee, i + 1, type_str(pt), type_str(at)));
                 if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
-                    if (auto v = get_intlit_value(arg_exprs[i].get()))
+                    if (auto v = get_intlit_value(arg_exprs[i]))
                         if (!intlit_fits(*v, TypeRef(pt).kind()))
                             error(std::format("call to '{}' arg {}: value {} does not fit in {}",
                                   callee, i + 1, *v, type_str(pt)));
@@ -1056,7 +1056,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 error(std::format("call to '{}' arg {}: expected {}, got {}",
                       callee, i + 1, type_str(pt), type_str(at)));
             if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
-                if (auto v = get_intlit_value(arg_exprs[i].get()))
+                if (auto v = get_intlit_value(arg_exprs[i]))
                     if (!intlit_fits(*v, TypeRef(pt).kind()))
                         error(std::format("call to '{}' arg {}: value {} does not fit in {}",
                               callee, i + 1, *v, type_str(pt)));
@@ -1065,7 +1065,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 if (auto* al = std::get_if<lir::EArrLit>(&arg_exprs[i]->kind))
                     for (size_t ei = 0; ei < al->elems.size(); ++ei)
                         if (TypeRef(al->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(al->elems[ei].get()))
+                            if (auto v = get_intlit_value(al->elems[ei]))
                                 if (!intlit_fits(*v, TypeRef(pt).elem().kind()))
                                     error(std::format("call to '{}' arg {}: array element {}: value {} does not fit in {}",
                                           callee, i + 1, ei, *v, type_str(TypeRef(pt).elem())));
@@ -1074,7 +1074,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 if (auto* tl = std::get_if<lir::ETupleLit>(&arg_exprs[i]->kind))
                     for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(pt).tuple_elems().size(); ++ei) {
                         if (TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(tl->elems[ei].get()))
+                            if (auto v = get_intlit_value(tl->elems[ei]))
                                 if (TypeRef(pt).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).kind()))
                                     error(std::format("call to '{}' arg {}: tuple element {}: value {} does not fit in {}",
                                           callee, i + 1, ei, *v, type_str(TypeRef(pt).tuple_elems()[ei])));
@@ -1083,7 +1083,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                             if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
                                 for (size_t ii = 0; ii < ial->elems.size(); ++ii)
                                     if (TypeRef(ial->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                        if (auto v = get_intlit_value(ial->elems[ii].get()))
+                                        if (auto v = get_intlit_value(ial->elems[ii]))
                                             if (!intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).elem().kind()))
                                                 error(std::format("call to '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
                                                       callee, i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).elem())));
@@ -1092,7 +1092,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                             if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
                                 for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems().size(); ++ii)
                                     if (TypeRef(itl->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                        if (auto v = get_intlit_value(itl->elems[ii].get()))
+                                        if (auto v = get_intlit_value(itl->elems[ii]))
                                             if (TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
                                                 error(std::format("call to '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
                                                       callee, i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii])));
@@ -1301,7 +1301,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                       callee_diag, i + 1, type_str(pt), type_str(at)));
             if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error &&
                 TypeRef(pt).kind() != LogosType::Kind::TypeVar)
-                if (auto v = get_intlit_value(arg_exprs[i].get()))
+                if (auto v = get_intlit_value(arg_exprs[i]))
                     if (!intlit_fits(*v, TypeRef(pt).kind()))
                         error(std::format("call to '{}' arg {}: value {} does not fit in {}",
                               callee_diag, i + 1, *v, type_str(pt)));
@@ -1325,7 +1325,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                           callee_diag, i + 1, type_str(pt), type_str(at)));
                 if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error &&
                     TypeRef(pt).kind() != LogosType::Kind::TypeVar)
-                    if (auto v = get_intlit_value(arg_exprs[i].get()))
+                    if (auto v = get_intlit_value(arg_exprs[i]))
                         if (!intlit_fits(*v, TypeRef(pt).kind()))
                             error(std::format("call to '{}' arg {}: value {} does not fit in {}",
                                   callee_diag, i + 1, *v, type_str(pt)));
@@ -1334,7 +1334,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                     if (auto* al = std::get_if<lir::EArrLit>(&arg_exprs[i]->kind))
                         for (size_t ei = 0; ei < al->elems.size(); ++ei)
                             if (TypeRef(al->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                                if (auto v = get_intlit_value(al->elems[ei].get()))
+                                if (auto v = get_intlit_value(al->elems[ei]))
                                     if (!intlit_fits(*v, TypeRef(pt).elem().kind()))
                                         error(std::format("call to '{}' arg {}: array element {}: value {} does not fit in {}",
                                               callee_diag, i + 1, ei, *v, type_str(TypeRef(pt).elem())));
@@ -1343,7 +1343,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                     if (auto* tl = std::get_if<lir::ETupleLit>(&arg_exprs[i]->kind))
                         for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(pt).tuple_elems().size(); ++ei) {
                             if (TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                                if (auto v = get_intlit_value(tl->elems[ei].get()))
+                                if (auto v = get_intlit_value(tl->elems[ei]))
                                     if (TypeRef(pt).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).kind()))
                                         error(std::format("call to '{}' arg {}: tuple element {}: value {} does not fit in {}",
                                               callee_diag, i + 1, ei, *v, type_str(TypeRef(pt).tuple_elems()[ei])));
@@ -1352,7 +1352,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                                 if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
                                     for (size_t ii = 0; ii < ial->elems.size(); ++ii)
                                         if (TypeRef(ial->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                            if (auto v = get_intlit_value(ial->elems[ii].get()))
+                                            if (auto v = get_intlit_value(ial->elems[ii]))
                                                 if (!intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).elem().kind()))
                                                     error(std::format("call to '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
                                                           callee_diag, i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).elem())));
@@ -1361,7 +1361,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                                 if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
                                     for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems().size(); ++ii)
                                         if (TypeRef(itl->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                            if (auto v = get_intlit_value(itl->elems[ii].get()))
+                                            if (auto v = get_intlit_value(itl->elems[ii]))
                                                 if (TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
                                                     error(std::format("call to '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
                                                           callee_diag, i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii])));
@@ -1961,7 +1961,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                             if (TypeRef(at).kind() == LogosType::Kind::IntLit &&
                                 TypeRef(pt).kind() != LogosType::Kind::Error &&
                                 TypeRef(pt).kind() != LogosType::Kind::TypeVar)
-                                if (auto v = get_intlit_value(arg_exprs[i].get()))
+                                if (auto v = get_intlit_value(arg_exprs[i]))
                                     if (!intlit_fits(*v, TypeRef(pt).kind()))
                                         error(std::format("method '{}' arg {}: value {} does not fit in {}",
                                                           std::string(method_name), i + 1, *v, type_str(pt)));
@@ -1970,7 +1970,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                 if (auto* al = std::get_if<lir::EArrLit>(&arg_exprs[i]->kind))
                                     for (size_t ei = 0; ei < al->elems.size(); ++ei)
                                         if (TypeRef(al->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                                            if (auto v = get_intlit_value(al->elems[ei].get()))
+                                            if (auto v = get_intlit_value(al->elems[ei]))
                                                 if (!intlit_fits(*v, TypeRef(pt).elem().kind()))
                                                     error(std::format("method '{}' arg {}: array element {}: value {} does not fit in {}",
                                                                       std::string(method_name), i + 1, ei, *v, type_str(TypeRef(pt).elem())));
@@ -1979,7 +1979,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                 if (auto* tl = std::get_if<lir::ETupleLit>(&arg_exprs[i]->kind))
                                     for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(pt).tuple_elems().size(); ++ei) {
                                         if (TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                                            if (auto v = get_intlit_value(tl->elems[ei].get()))
+                                            if (auto v = get_intlit_value(tl->elems[ei]))
                                                 if (TypeRef(pt).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).kind()))
                                                     error(std::format("method '{}' arg {}: tuple element {}: value {} does not fit in {}",
                                                                       std::string(method_name), i + 1, ei, *v, type_str(TypeRef(pt).tuple_elems()[ei])));
@@ -1988,7 +1988,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                             if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
                                                 for (size_t ii = 0; ii < ial->elems.size(); ++ii)
                                                     if (TypeRef(ial->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                                        if (auto v = get_intlit_value(ial->elems[ii].get()))
+                                                        if (auto v = get_intlit_value(ial->elems[ii]))
                                                             if (!intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).elem().kind()))
                                                                 error(std::format("method '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
                                                                       std::string(method_name), i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).elem())));
@@ -1998,7 +1998,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                             if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
                                                 for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems().size(); ++ii)
                                                     if (TypeRef(itl->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                                        if (auto v = get_intlit_value(itl->elems[ii].get()))
+                                                        if (auto v = get_intlit_value(itl->elems[ii]))
                                                             if (TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
                                                                 error(std::format("method '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
                                                                       std::string(method_name), i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii])));
@@ -2167,7 +2167,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                         TypeRef(pt).kind() != LogosType::Kind::Error &&
                         TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
                         TypeRef(pt).kind() != LogosType::Kind::AssocType)
-                        if (auto v = get_intlit_value(arg_exprs[i].get()))
+                        if (auto v = get_intlit_value(arg_exprs[i]))
                             if (!intlit_fits(*v, TypeRef(pt).kind()))
                                 error(std::format("method '{}' arg {}: value {} does not fit in {}",
                                                   std::string(method_name), i + 1,
@@ -2177,7 +2177,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                         if (auto* al = std::get_if<lir::EArrLit>(&arg_exprs[i]->kind))
                             for (size_t ei = 0; ei < al->elems.size(); ++ei)
                                 if (TypeRef(al->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                                    if (auto v = get_intlit_value(al->elems[ei].get()))
+                                    if (auto v = get_intlit_value(al->elems[ei]))
                                         if (!intlit_fits(*v, TypeRef(pt).elem().kind()))
                                             error(std::format("method '{}' arg {}: array element {}: value {} does not fit in {}",
                                                               std::string(method_name), i + 1, ei, *v, type_str(TypeRef(pt).elem())));
@@ -2186,7 +2186,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                         if (auto* tl = std::get_if<lir::ETupleLit>(&arg_exprs[i]->kind))
                             for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(pt).tuple_elems().size(); ++ei) {
                                 if (TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                                    if (auto v = get_intlit_value(tl->elems[ei].get()))
+                                    if (auto v = get_intlit_value(tl->elems[ei]))
                                         if (TypeRef(pt).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).kind()))
                                             error(std::format("method '{}' arg {}: tuple element {}: value {} does not fit in {}",
                                                               std::string(method_name), i + 1, ei, *v, type_str(TypeRef(pt).tuple_elems()[ei])));
@@ -2195,7 +2195,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                     if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
                                         for (size_t ii = 0; ii < ial->elems.size(); ++ii)
                                             if (TypeRef(ial->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                                if (auto v = get_intlit_value(ial->elems[ii].get()))
+                                                if (auto v = get_intlit_value(ial->elems[ii]))
                                                     if (!intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).elem().kind()))
                                                         error(std::format("method '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
                                                               std::string(method_name), i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).elem())));
@@ -2205,7 +2205,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                     if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
                                         for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems().size(); ++ii)
                                             if (TypeRef(itl->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                                if (auto v = get_intlit_value(itl->elems[ii].get()))
+                                                if (auto v = get_intlit_value(itl->elems[ii]))
                                                     if (TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
                                                         error(std::format("method '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
                                                               std::string(method_name), i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii])));
@@ -2495,7 +2495,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 auto pt = cand->param_types[i];
                 if (!recv_struct_subst.empty())
                     pt = subst_type_sema(pt, recv_struct_subst);
-                if (!at || !pt || !arg_compatible_for_dispatch(arg_exprs[i - 1].get(), at, pt)) {
+                if (!at || !pt || !arg_compatible_for_dispatch(arg_exprs[i - 1], at, pt)) {
                     ok = false;
                     break;
                 }
@@ -2569,7 +2569,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     auto pt = cand->param_types[i];
                     if (!recv_struct_subst.empty())
                         pt = subst_type_sema(pt, recv_struct_subst);
-                    if (!at || !pt || !arg_compatible_for_dispatch(arg_exprs[i - 1].get(), at, pt)) {
+                    if (!at || !pt || !arg_compatible_for_dispatch(arg_exprs[i - 1], at, pt)) {
                         ok = false;
                         break;
                     }
@@ -2724,7 +2724,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     error(std::format("method '{}' arg {}: expected {}, got {}",
                           mangled, i + 1, type_str(pt), type_str(at)));
                 if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
-                    if (auto v = get_intlit_value(arg_exprs[i].get()))
+                    if (auto v = get_intlit_value(arg_exprs[i]))
                         if (!intlit_fits(*v, TypeRef(pt).kind()))
                             error(std::format("method '{}' arg {}: value {} does not fit in {}",
                                   mangled, i + 1, *v, type_str(pt)));
@@ -2733,7 +2733,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     if (auto* al = std::get_if<lir::EArrLit>(&arg_exprs[i]->kind))
                         for (size_t ei = 0; ei < al->elems.size(); ++ei)
                             if (TypeRef(al->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                                if (auto v = get_intlit_value(al->elems[ei].get()))
+                                if (auto v = get_intlit_value(al->elems[ei]))
                                     if (!intlit_fits(*v, TypeRef(pt).elem().kind()))
                                         error(std::format("method '{}' arg {}: array element {}: value {} does not fit in {}",
                                               mangled, i + 1, ei, *v, type_str(TypeRef(pt).elem())));
@@ -2742,7 +2742,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     if (auto* tl = std::get_if<lir::ETupleLit>(&arg_exprs[i]->kind))
                         for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(pt).tuple_elems().size(); ++ei) {
                             if (TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                                if (auto v = get_intlit_value(tl->elems[ei].get()))
+                                if (auto v = get_intlit_value(tl->elems[ei]))
                                     if (TypeRef(pt).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).kind()))
                                         error(std::format("method '{}' arg {}: tuple element {}: value {} does not fit in {}",
                                               mangled, i + 1, ei, *v, type_str(TypeRef(pt).tuple_elems()[ei])));
@@ -2751,7 +2751,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                 if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
                                     for (size_t ii = 0; ii < ial->elems.size(); ++ii)
                                         if (TypeRef(ial->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                            if (auto v = get_intlit_value(ial->elems[ii].get()))
+                                            if (auto v = get_intlit_value(ial->elems[ii]))
                                                 if (!intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).elem().kind()))
                                                     error(std::format("method '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
                                                           mangled, i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).elem())));
@@ -2761,7 +2761,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                 if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
                                     for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems().size(); ++ii)
                                         if (TypeRef(itl->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                            if (auto v = get_intlit_value(itl->elems[ii].get()))
+                                            if (auto v = get_intlit_value(itl->elems[ii]))
                                                 if (TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
                                                     error(std::format("method '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
                                                           mangled, i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii])));
@@ -2984,7 +2984,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             int32_t ic = code_of(init);
             if (ic != la::FIELD_INIT && ic != la::FIELD_SHORTHAND) continue;
             auto fname = str_of(init.get(la::NAME.code));
-            lir::LExprPtr val;
+            lir::LExprPtr val = nullptr;
             if (ic == la::FIELD_SHORTHAND) {
                 // Point { x, y } — same as Point { x: x, y: y }
                 auto t = lookup(fname);
@@ -3197,7 +3197,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 }
                 // Check IntLit field value fits in the declared field type.
                 if (ft && TypeRef(fval->type).kind() == LogosType::Kind::IntLit)
-                    if (auto v = get_intlit_value(fval.get()))
+                    if (auto v = get_intlit_value(fval))
                         if (!intlit_fits(*v, TypeRef(ft).kind()))
                             error(std::format("struct literal '{}' field '{}': value {} does not fit in {}",
                                   sname, fname, *v, type_str(ft)));
@@ -3231,7 +3231,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                     }
                     if (ft && TypeRef(ft).kind() != LogosType::Kind::Error &&
                         TypeRef(fval->type).kind() == LogosType::Kind::IntLit)
-                        if (auto v = get_intlit_value(fval.get()))
+                        if (auto v = get_intlit_value(fval))
                             if (!intlit_fits(*v, TypeRef(ft).kind()))
                                 error(std::format("struct literal '{}' field '{}': value {} does not fit in {}",
                                       sname, fname, *v, type_str(ft)));
@@ -3256,7 +3256,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             }
             // Check IntLit field value fits in the declared field type.
             if (ft && TypeRef(fval->type).kind() == LogosType::Kind::IntLit)
-                if (auto v = get_intlit_value(fval.get()))
+                if (auto v = get_intlit_value(fval))
                     if (!intlit_fits(*v, TypeRef(ft).kind()))
                         error(std::format("struct literal '{}' field '{}': value {} does not fit in {}",
                               sname, fname, *v, type_str(ft)));
@@ -3266,7 +3266,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 if (auto* al = std::get_if<lir::EArrLit>(&fval->kind))
                     for (size_t i = 0; i < al->elems.size(); ++i)
                         if (TypeRef(al->elems[i]->type).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(al->elems[i].get()))
+                            if (auto v = get_intlit_value(al->elems[i]))
                                 if (!intlit_fits(*v, TypeRef(ft).elem().kind()))
                                     error(std::format("struct literal '{}' field '{}': array element {}: value {} does not fit in {}",
                                           sname, fname, i, *v, type_str(TypeRef(ft).elem())));
@@ -3275,7 +3275,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 if (auto* tl = std::get_if<lir::ETupleLit>(&fval->kind))
                     for (size_t i = 0; i < tl->elems.size() && i < TypeRef(ft).tuple_elems().size(); ++i) {
                         if (TypeRef(tl->elems[i]->type).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(tl->elems[i].get()))
+                            if (auto v = get_intlit_value(tl->elems[i]))
                                 if (TypeRef(ft).tuple_elems()[i] && !intlit_fits(*v, TypeRef(TypeRef(ft).tuple_elems()[i]).kind()))
                                     error(std::format("struct literal '{}' field '{}': tuple element {}: value {} does not fit in {}",
                                           sname, fname, i, *v, type_str(TypeRef(ft).tuple_elems()[i])));
@@ -3284,7 +3284,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                             if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[i]->kind))
                                 for (size_t ii = 0; ii < ial->elems.size(); ++ii)
                                     if (TypeRef(ial->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                        if (auto v = get_intlit_value(ial->elems[ii].get()))
+                                        if (auto v = get_intlit_value(ial->elems[ii]))
                                             if (!intlit_fits(*v, TypeRef(TypeRef(ft).tuple_elems()[i]).elem().kind()))
                                                 error(std::format("struct literal '{}' field '{}': tuple element {}: array element {}: value {} does not fit in {}",
                                                       sname, fname, i, ii, *v, type_str(TypeRef(TypeRef(ft).tuple_elems()[i]).elem())));
@@ -3294,7 +3294,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                             if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[i]->kind))
                                 for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(TypeRef(ft).tuple_elems()[i]).tuple_elems().size(); ++ii)
                                     if (TypeRef(itl->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                        if (auto v = get_intlit_value(itl->elems[ii].get()))
+                                        if (auto v = get_intlit_value(itl->elems[ii]))
                                             if (TypeRef(TypeRef(ft).tuple_elems()[i]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(ft).tuple_elems()[i]).tuple_elems()[ii]).kind()))
                                                 error(std::format("struct literal '{}' field '{}': tuple element {}: sub-element {}: value {} does not fit in {}",
                                                       sname, fname, i, ii, *v, type_str(TypeRef(TypeRef(ft).tuple_elems()[i]).tuple_elems()[ii])));
@@ -3314,7 +3314,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             if (!inited) {
                 inited = true;
                 auto ft = field_type_of(std::string(sname), fname);
-                lir::LExprPtr recv;
+                lir::LExprPtr recv = nullptr;
                 if (!base_var.empty()) {
                     recv = builder().var_ref(base_var, base_expr->type);
                 } else {
@@ -3413,7 +3413,7 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
                 // If the concrete element type is narrow and this element is IntLit, check range.
                 if (TypeRef(t).kind() == LogosType::Kind::IntLit &&
                     TypeRef(elem_type).kind() != LogosType::Kind::IntLit)
-                    if (auto v = get_intlit_value(elems[i].get()))
+                    if (auto v = get_intlit_value(elems[i]))
                         if (!intlit_fits(*v, TypeRef(elem_type).kind()))
                             error(std::format("array literal: element {}: value {} does not fit in {}",
                                   i, *v, type_str(elem_type)));
@@ -3423,7 +3423,7 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
                     if (auto* al = std::get_if<lir::EArrLit>(&elems[i]->kind))
                         for (size_t ei = 0; ei < al->elems.size(); ++ei)
                             if (TypeRef(al->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                                if (auto v = get_intlit_value(al->elems[ei].get()))
+                                if (auto v = get_intlit_value(al->elems[ei]))
                                     if (!intlit_fits(*v, TypeRef(elem_type).elem().kind()))
                                         error(std::format("array literal: element {}: sub-element {}: value {} does not fit in {}",
                                               i, ei, *v, type_str(TypeRef(elem_type).elem())));
@@ -3432,7 +3432,7 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
                     if (auto* tl = std::get_if<lir::ETupleLit>(&elems[i]->kind))
                         for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(elem_type).tuple_elems().size(); ++ei) {
                             if (TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                                if (auto v = get_intlit_value(tl->elems[ei].get()))
+                                if (auto v = get_intlit_value(tl->elems[ei]))
                                     if (TypeRef(elem_type).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(TypeRef(elem_type).tuple_elems()[ei]).kind()))
                                         error(std::format("array literal: element {}: tuple element {}: value {} does not fit in {}",
                                               i, ei, *v, type_str(TypeRef(elem_type).tuple_elems()[ei])));
@@ -3441,7 +3441,7 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
                                 if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
                                     for (size_t ii = 0; ii < ial->elems.size(); ++ii)
                                         if (TypeRef(ial->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                            if (auto v = get_intlit_value(ial->elems[ii].get()))
+                                            if (auto v = get_intlit_value(ial->elems[ii]))
                                                 if (!intlit_fits(*v, TypeRef(TypeRef(elem_type).tuple_elems()[ei]).elem().kind()))
                                                     error(std::format("array literal: element {}: tuple element {}: array element {}: value {} does not fit in {}",
                                                           i, ei, ii, *v, type_str(TypeRef(TypeRef(elem_type).tuple_elems()[ei]).elem())));
@@ -3451,7 +3451,7 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
                                 if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
                                     for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(TypeRef(elem_type).tuple_elems()[ei]).tuple_elems().size(); ++ii)
                                         if (TypeRef(itl->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                            if (auto v = get_intlit_value(itl->elems[ii].get()))
+                                            if (auto v = get_intlit_value(itl->elems[ii]))
                                                 if (TypeRef(TypeRef(elem_type).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(elem_type).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
                                                     error(std::format("array literal: element {}: tuple element {}: sub-element {}: value {} does not fit in {}",
                                                           i, ei, ii, *v, type_str(TypeRef(TypeRef(elem_type).tuple_elems()[ei]).tuple_elems()[ii])));
@@ -3475,7 +3475,7 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
                 anchor = ti;
         }
         if (anchor) {
-            auto* e = elems[0].get();
+            auto* e = elems[0];
             auto t0 = elems[0]->type;
             // Scalar IntLit at element 0.
             if (TypeRef(t0).kind() == LogosType::Kind::IntLit)
@@ -3489,7 +3489,7 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
                 if (auto* al = std::get_if<lir::EArrLit>(&e->kind))
                     for (size_t ei = 0; ei < al->elems.size(); ++ei)
                         if (TypeRef(al->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(al->elems[ei].get()))
+                            if (auto v = get_intlit_value(al->elems[ei]))
                                 if (!intlit_fits(*v, TypeRef(anchor).elem().kind()))
                                     error(std::format("array literal: element 0: sub-element {}: value {} does not fit in {}",
                                           ei, *v, type_str(TypeRef(anchor).elem())));
@@ -3498,7 +3498,7 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
                 if (auto* tl = std::get_if<lir::ETupleLit>(&e->kind))
                     for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(anchor).tuple_elems().size(); ++ei) {
                         if (TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(tl->elems[ei].get()))
+                            if (auto v = get_intlit_value(tl->elems[ei]))
                                 if (TypeRef(anchor).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(TypeRef(anchor).tuple_elems()[ei]).kind()))
                                     error(std::format("array literal: element 0: tuple element {}: value {} does not fit in {}",
                                           ei, *v, type_str(TypeRef(anchor).tuple_elems()[ei])));
@@ -3507,7 +3507,7 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
                             if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
                                 for (size_t ii = 0; ii < ial->elems.size(); ++ii)
                                     if (TypeRef(ial->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                        if (auto v = get_intlit_value(ial->elems[ii].get()))
+                                        if (auto v = get_intlit_value(ial->elems[ii]))
                                             if (!intlit_fits(*v, TypeRef(TypeRef(anchor).tuple_elems()[ei]).elem().kind()))
                                                 error(std::format("array literal: element 0: tuple element {}: array element {}: value {} does not fit in {}",
                                                       ei, ii, *v, type_str(TypeRef(TypeRef(anchor).tuple_elems()[ei]).elem())));
@@ -3516,7 +3516,7 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
                             if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
                                 for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(TypeRef(anchor).tuple_elems()[ei]).tuple_elems().size(); ++ii)
                                     if (TypeRef(itl->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                        if (auto v = get_intlit_value(itl->elems[ii].get()))
+                                        if (auto v = get_intlit_value(itl->elems[ii]))
                                             if (TypeRef(TypeRef(anchor).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(anchor).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
                                                 error(std::format("array literal: element 0: tuple element {}: sub-element {}: value {} does not fit in {}",
                                                       ei, ii, *v, type_str(TypeRef(TypeRef(anchor).tuple_elems()[ei]).tuple_elems()[ii])));
@@ -3529,7 +3529,7 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
     if (TypeRef(elem_type).kind() == LogosType::Kind::IntLit) {
         bool needs_i64 = false;
         for (const auto& elem : elems) {
-            if (auto v = get_intlit_value(elem.get()))
+            if (auto v = get_intlit_value(elem))
                 if (*v > (int64_t)INT32_MAX || *v < (int64_t)INT32_MIN)
                     { needs_i64 = true; break; }
         }
@@ -4279,7 +4279,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                       type_str(payload[i]->type)));
             // Check IntLit payload value fits in the declared payload type.
             if (resolved_payload_types[i] && TypeRef(payload[i]->type).kind() == LogosType::Kind::IntLit)
-                if (auto v = get_intlit_value(payload[i].get()))
+                if (auto v = get_intlit_value(payload[i]))
                     if (!intlit_fits(*v, TypeRef(resolved_payload_types[i]).kind()))
                         error(std::format("{}::{} arg {}: value {} does not fit in {}",
                               ename, vname, i, *v, type_str(resolved_payload_types[i])));
@@ -4291,7 +4291,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                 if (auto* al = std::get_if<lir::EArrLit>(&payload[i]->kind))
                     for (size_t ei = 0; ei < al->elems.size(); ++ei)
                         if (TypeRef(al->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(al->elems[ei].get()))
+                            if (auto v = get_intlit_value(al->elems[ei]))
                                 if (!intlit_fits(*v, TypeRef(resolved_payload_types[i]).elem().kind()))
                                     error(std::format("{}::{} arg {}: array element {}: value {} does not fit in {}",
                                           ename, vname, i, ei, *v, type_str(TypeRef(resolved_payload_types[i]).elem())));
@@ -4302,7 +4302,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                 if (auto* tl = std::get_if<lir::ETupleLit>(&payload[i]->kind))
                     for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(resolved_payload_types[i]).tuple_elems().size(); ++ei) {
                         if (TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(tl->elems[ei].get()))
+                            if (auto v = get_intlit_value(tl->elems[ei]))
                                 if (TypeRef(resolved_payload_types[i]).tuple_elems()[ei] &&
                                     !intlit_fits(*v, TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).kind()))
                                     error(std::format("{}::{} arg {}: tuple element {}: value {} does not fit in {}",
@@ -4312,7 +4312,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                             if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
                                 for (size_t ii = 0; ii < ial->elems.size(); ++ii)
                                     if (TypeRef(ial->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                        if (auto v = get_intlit_value(ial->elems[ii].get()))
+                                        if (auto v = get_intlit_value(ial->elems[ii]))
                                             if (!intlit_fits(*v, TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).elem().kind()))
                                                 error(std::format("{}::{} arg {}: tuple element {}: array element {}: value {} does not fit in {}",
                                                       ename, vname, i, ei, ii, *v, type_str(TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).elem())));
@@ -4322,7 +4322,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                             if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
                                 for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems().size(); ++ii)
                                     if (TypeRef(itl->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                        if (auto v = get_intlit_value(itl->elems[ii].get()))
+                                        if (auto v = get_intlit_value(itl->elems[ii]))
                                             if (TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
                                                 error(std::format("{}::{} arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
                                                       ename, vname, i, ei, ii, *v, type_str(TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems()[ii])));
@@ -4422,7 +4422,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                       type_str(payload[i]->type)));
             if (resolved_payload_types[i] &&
                 TypeRef(payload[i]->type).kind() == LogosType::Kind::IntLit)
-                if (auto v = get_intlit_value(payload[i].get()))
+                if (auto v = get_intlit_value(payload[i]))
                     if (!intlit_fits(*v, TypeRef(resolved_payload_types[i]).kind()))
                         error(std::format("{}::{} arg {}: value {} does not fit in {}",
                               ename, vname, i, *v,
@@ -4435,7 +4435,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                 if (auto* al = std::get_if<lir::EArrLit>(&payload[i]->kind))
                     for (size_t ei = 0; ei < al->elems.size(); ++ei)
                         if (TypeRef(al->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(al->elems[ei].get()))
+                            if (auto v = get_intlit_value(al->elems[ei]))
                                 if (!intlit_fits(*v, TypeRef(resolved_payload_types[i]).elem().kind()))
                                     error(std::format("{}::{} arg {}: array element {}: value {} does not fit in {}",
                                           ename, vname, i, ei, *v, type_str(TypeRef(resolved_payload_types[i]).elem())));
@@ -4446,7 +4446,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                 if (auto* tl = std::get_if<lir::ETupleLit>(&payload[i]->kind))
                     for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(resolved_payload_types[i]).tuple_elems().size(); ++ei) {
                         if (TypeRef(tl->elems[ei]->type).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(tl->elems[ei].get()))
+                            if (auto v = get_intlit_value(tl->elems[ei]))
                                 if (TypeRef(resolved_payload_types[i]).tuple_elems()[ei] &&
                                     !intlit_fits(*v, TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).kind()))
                                     error(std::format("{}::{} arg {}: tuple element {}: value {} does not fit in {}",
@@ -4456,7 +4456,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                             if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
                                 for (size_t ii = 0; ii < ial->elems.size(); ++ii)
                                     if (TypeRef(ial->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                        if (auto v = get_intlit_value(ial->elems[ii].get()))
+                                        if (auto v = get_intlit_value(ial->elems[ii]))
                                             if (!intlit_fits(*v, TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).elem().kind()))
                                                 error(std::format("{}::{} arg {}: tuple element {}: array element {}: value {} does not fit in {}",
                                                       ename, vname, i, ei, ii, *v, type_str(TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).elem())));
@@ -4466,7 +4466,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                             if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
                                 for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems().size(); ++ii)
                                     if (TypeRef(itl->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                        if (auto v = get_intlit_value(itl->elems[ii].get()))
+                                        if (auto v = get_intlit_value(itl->elems[ii]))
                                             if (TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
                                                 error(std::format("{}::{} arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
                                                       ename, vname, i, ei, ii, *v, type_str(TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems()[ii])));
@@ -4483,7 +4483,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                           ename, vname, i, type_str(pack_t), type_str(payload[i]->type)));
                 if (TypeRef(pack_t).kind() != LogosType::Kind::Error &&
                     TypeRef(payload[i]->type).kind() == LogosType::Kind::IntLit)
-                    if (auto v = get_intlit_value(payload[i].get()))
+                    if (auto v = get_intlit_value(payload[i]))
                         if (!intlit_fits(*v, TypeRef(pack_t).kind()))
                             error(std::format("{}::{} variadic arg {}: value {} does not fit in {}",
                                   ename, vname, i, *v, type_str(pack_t)));
@@ -4795,7 +4795,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
 }
 
 lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
-    lir::LExprPtr cond;
+    lir::LExprPtr cond = nullptr;
     if (node.has_key(la::COND)) {
         cond = lower_expr(map_of(node.get(la::COND.code)));
         if (TypeRef(cond->type).kind() != LogosType::Kind::Bool &&
@@ -4874,13 +4874,13 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
         auto intlit_overflow = [](const lir::LExpr* e) -> bool {
             // Look through block expressions to the final result.
             if (auto* blk = std::get_if<lir::EBlockExpr>(&e->kind))
-                e = blk->result.get();
+                e = blk->result;
             if (!e) return false;
             if (auto* lit = std::get_if<lir::ELitInt>(&e->kind))
                 return lit->value > (int64_t)INT32_MAX || lit->value < (int64_t)INT32_MIN;
             return false;
         };
-        if (intlit_overflow(then_val.get()) || intlit_overflow(else_val.get()))
+        if (intlit_overflow(then_val) || intlit_overflow(else_val))
             result_type = prim(LogosType::Kind::I64);
     }
 

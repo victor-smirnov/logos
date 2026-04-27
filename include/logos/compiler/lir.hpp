@@ -41,7 +41,11 @@ struct LStmt;
 struct LBlock;
 struct LFunction;
 
-using LExprPtr     = std::unique_ptr<LExpr>;
+// ADR 0007 slice 1b: LExpr is pool-owned by LProgram::expr_pool_.
+// LExprPtr is now a non-owning raw handle — allocate via lir::alloc_expr(prog).
+// Variant fields previously holding unique_ptr<LExpr> now hold raw LExpr*.
+// std::move() on LExprPtr remains legal (it's a no-op pointer copy).
+using LExprPtr     = LExpr*;
 using LBlockPtr    = std::unique_ptr<LBlock>;
 using LFunctionPtr = std::unique_ptr<LFunction>;
 
@@ -227,7 +231,7 @@ struct ECall      {
 };
 
 struct EMethodCall {
-    LExprPtr                      receiver;
+    LExprPtr                      receiver = nullptr;
     std::string                   method;
     // Concrete function symbol selected by sema for direct calls.
     // Empty means "resolve by receiver type + method name" in later phases.
@@ -245,13 +249,13 @@ struct EMethodCall {
 
 struct EBinOp {
     std::string op;             // "+", "-", "==", "&&", ...
-    LExprPtr    lhs;
-    LExprPtr    rhs;
+    LExprPtr    lhs = nullptr;
+    LExprPtr    rhs = nullptr;
 };
 
 struct EUnary {
     std::string op;             // "-" or "!"
-    LExprPtr    operand;
+    LExprPtr    operand = nullptr;
 };
 
 // & address-of: returns alloca pointer for a variable (does not dereference)
@@ -262,22 +266,22 @@ struct EAddrOf {
 // Address of a temporary rvalue: &expr where expr is not a named variable.
 // Codegen spills the inner expression to an anonymous alloca.
 struct EAddrOfTemp {
-    LExprPtr inner;
+    LExprPtr inner = nullptr;
     bool     is_mut = false;  // true → &mut T, false → &T
 };
 
 struct EDeref {
-    LExprPtr operand;
+    LExprPtr operand = nullptr;
 };
 
 struct EFieldRead {
-    LExprPtr    receiver;
+    LExprPtr    receiver = nullptr;
     std::string field;
 };
 
 struct EIndexRead {
-    LExprPtr receiver;
-    LExprPtr index;
+    LExprPtr receiver = nullptr;
+    LExprPtr index = nullptr;
 };
 
 struct EStructLit {
@@ -291,7 +295,7 @@ struct EArrLit {
 };
 
 struct ECast {
-    LExprPtr operand;
+    LExprPtr operand = nullptr;
     // target type is LExpr::type.
     // For Hermes typed container casts (e.g. &[i32] as <I32>[]):
     //   hermes_build_fn names the stdlib builder (e.g. "hermes_build_array_i32").
@@ -309,21 +313,21 @@ struct ENew {
 // if cond { then_val } else { else_val }  — used when if is an expression.
 // Both branches must yield the same type.
 struct EIfExpr {
-    LExprPtr cond;
-    LExprPtr then_val;
-    LExprPtr else_val;
+    LExprPtr cond = nullptr;
+    LExprPtr then_val = nullptr;
+    LExprPtr else_val = nullptr;
 };
 
 // Match expression arm: pattern [guard] => expr
 struct EMatchArm {
     Pattern                  pat;
     std::optional<LExprPtr>  guard;
-    LExprPtr                 value;
+    LExprPtr                 value = nullptr;
 };
 
 // match expr { pat => val, ... } — produces a value
 struct EMatchExpr {
-    LExprPtr               scrut;
+    LExprPtr               scrut = nullptr;
     std::vector<EMatchArm> arms;
 };
 
@@ -334,7 +338,7 @@ struct ETupleLit {
 
 // Tuple element access: t.0, t.1
 struct ETupleIndex {
-    LExprPtr  receiver;
+    LExprPtr  receiver = nullptr;
     uint32_t  index;
 };
 
@@ -347,43 +351,43 @@ struct EClosureBox {
 
 // Closure call: closure(args...)
 struct EClosureCall {
-    LExprPtr              callee;
+    LExprPtr              callee = nullptr;
     std::vector<LExprPtr> args;
 };
 
 // Call via fn(T) -> R bare function pointer (no env_ptr, no fat pointer).
 struct EFnPtrCall {
-    LExprPtr              callee;  // EVarRef to the fn-ptr variable
+    LExprPtr              callee = nullptr;  // EVarRef to the fn-ptr variable
     std::vector<LExprPtr> args;
 };
 
 // Slice construction: &arr (whole array → slice) or &arr[lo..hi]
 struct ESliceLit {
-    LExprPtr base;    // pointer to first element
-    LExprPtr len;     // length as i64
+    LExprPtr base = nullptr;    // pointer to first element
+    LExprPtr len = nullptr;     // length as i64
 };
 
 // Slice element access: s[i]
 struct ESliceIndex {
-    LExprPtr slice;
-    LExprPtr index;
+    LExprPtr slice = nullptr;
+    LExprPtr index = nullptr;
 };
 
 // Slice length: s.len()
 struct ESliceLen {
-    LExprPtr slice;
+    LExprPtr slice = nullptr;
 };
 
 // Slice / str as_ptr: s.as_ptr() → *const u8
 struct ESlicePtr {
-    LExprPtr slice;
+    LExprPtr slice = nullptr;
 };
 
 // format() compiler built-in: format("x={}, y={}", x, y)
 // Returns *mut u8 (heap-allocated, caller frees via format_free).
 // The compiler builds tags[] and data[] arrays and calls __format_impl.
 struct EFormatCall {
-    LExprPtr                    fmt;        // format string expr
+    LExprPtr                    fmt = nullptr;        // format string expr
     std::vector<LExprPtr>       args;       // arguments (without fmt)
     std::vector<TypeRef> arg_types; // parallel to args, resolved at sema
 };
@@ -408,14 +412,14 @@ struct ESizeOf {
 struct EPtrArith {
     enum Op { ByteAdd, ByteSub, Add, Sub };
     Op       op;
-    LExprPtr ptr;
-    LExprPtr offset;
+    LExprPtr ptr = nullptr;
+    LExprPtr offset = nullptr;
 };
 
 struct EPtrDiff {
     bool     by_byte;   // true = byte distance, false = element distance
-    LExprPtr lhs;
-    LExprPtr rhs;
+    LExprPtr lhs = nullptr;
+    LExprPtr rhs = nullptr;
 };
 
 // type_code_of::<T>() — Hermes wire-format type_code of T.  Deferred to mono
@@ -429,7 +433,7 @@ struct ETypeCodeOf {
 // ok_disc / err_disc are the discriminant values for Ok and Err variants.
 // The ETry expression itself has type T (the Ok payload type).
 struct ETry {
-    LExprPtr inner;
+    LExprPtr inner = nullptr;
     int32_t  ok_disc  = 0;   // discriminant of Ok  (typically 0)
     int32_t  err_disc = 1;   // discriminant of Err (typically 1)
 };
@@ -437,7 +441,7 @@ struct ETry {
 // Represents an inline block of statements returning a final value
 struct EBlockExpr {
     std::unique_ptr<LBlock> block;
-    LExprPtr result; // may be null if it evaluates to void
+    LExprPtr result = nullptr; // may be null if it evaluates to void
 };
 
 
@@ -470,30 +474,30 @@ struct SLet {
     std::string      name;
     TypeRef type;         // concrete type (annotations resolved; IntLit → i32)
     bool             is_mut;
-    LExprPtr         value;
+    LExprPtr         value = nullptr;
 };
 
-struct SAssign    { std::string name; LExprPtr value; };
+struct SAssign    { std::string name; LExprPtr value = nullptr; };
 
-struct SReturn    { LExprPtr value; };   // value is null for void return
+struct SReturn    { LExprPtr value = nullptr; };   // value is null for void return
 
 // else_: null → no else; block with single SIf → else-if chain
 struct SIf {
-    LExprPtr                  cond;
+    LExprPtr                  cond = nullptr;
     LBlockPtr                 then_;
     std::optional<LBlockPtr>  else_;
 };
 
 struct SWhile {
-    LExprPtr  cond;
+    LExprPtr  cond = nullptr;
     LBlockPtr body;
     std::string label;  // optional loop label (e.g. "'outer"), empty = unlabeled
 };
 
 struct SFor {
     std::string      var;
-    LExprPtr         lo;
-    LExprPtr         hi;
+    LExprPtr         lo = nullptr;
+    LExprPtr         hi = nullptr;
     bool             inclusive;
     LBlockPtr        body;
     std::string      label;  // optional loop label, empty = unlabeled
@@ -505,28 +509,28 @@ struct SLoop {
     std::string      break_slot;             // alloca name for the break value (non-empty ↔ result_type != null)
     std::string      label;                  // optional loop label, empty = unlabeled
 };
-struct SBreak     { LExprPtr value; std::string label; };  // label: target loop label (may be empty)
+struct SBreak     { LExprPtr value = nullptr; std::string label; };  // label: target loop label (may be empty)
 struct SContinue  { std::string label; };                   // label: target loop label (may be empty)
 struct SBlock     { LBlockPtr body; };  // scoping block statement
 
 struct SFieldWrite {
     std::string receiver;
     std::string field;
-    LExprPtr    value;
+    LExprPtr    value = nullptr;
 };
 
 struct SIndexWrite {
     std::string arr;
-    LExprPtr    index;
-    LExprPtr    value;
+    LExprPtr    index = nullptr;
+    LExprPtr    value = nullptr;
 };
 
 // a.field[index] = value — field index write (e.g. self.ptr[i] = val)
 struct SFieldIndexWrite {
     std::string receiver;   // struct/class variable
     std::string field;      // pointer-typed field name
-    LExprPtr    index;
-    LExprPtr    value;
+    LExprPtr    index = nullptr;
+    LExprPtr    value = nullptr;
 };
 
 // (*ptr_var).field = value  — field write through a named pointer variable
@@ -534,7 +538,7 @@ struct SDerefFieldWrite {
     std::string receiver;    // variable name (holds *mut ClassName)
     std::string type_name;   // class or struct name of the pointee
     std::string field;
-    LExprPtr    value;
+    LExprPtr    value = nullptr;
 };
 
 // a.mid_field.field = value  — chained field write (2 levels deep)
@@ -543,28 +547,28 @@ struct SChainFieldWrite {
     std::string receiver;    // outer variable name
     std::string mid_field;   // intermediate field name
     std::string field;       // final field name
-    LExprPtr    value;
+    LExprPtr    value = nullptr;
 };
 
-struct SExprStmt  { LExprPtr expr; };
+struct SExprStmt  { LExprPtr expr = nullptr; };
 
-struct SDelete    { LExprPtr expr; };   // delete ptr — call free on a class pointer
+struct SDelete    { LExprPtr expr = nullptr; };   // delete ptr — call free on a class pointer
 
 // *ptr = value;  — write through a raw pointer
-struct SDerefWrite { LExprPtr ptr; LExprPtr value; };
+struct SDerefWrite { LExprPtr ptr = nullptr; LExprPtr value = nullptr; };
 
 // var.N = value;  — tuple field write (N is a small integer index)
 struct STupleWrite {
     std::string      receiver;      // local variable holding the tuple
     uint32_t         index;         // field index (0, 1, ...)
-    LExprPtr         value;
+    LExprPtr         value = nullptr;
     TypeRef recv_type = nullptr;  // LogosType of the tuple variable
 };
 
 // for item in array { body } — iterates over a fixed-size array
 struct SForEach {
     std::string      var;         // loop variable name (item)
-    LExprPtr         iter;        // the array or slice expression
+    LExprPtr         iter = nullptr;        // the array or slice expression
     TypeRef elem_type;   // element type
     int64_t          arr_size;    // static array size; 0 for slices
     bool             is_slice = false;  // true → iter is &[T] (dynamic length from fat pointer)
@@ -572,7 +576,7 @@ struct SForEach {
 };
 
 struct SMatch {
-    LExprPtr               scrut;
+    LExprPtr               scrut = nullptr;
     std::vector<LMatchArm> arms;
 };
 
@@ -580,7 +584,7 @@ struct SMatch {
 // After this statement, the pattern's bindings are in scope.
 struct SLetElse {
     Pattern               pat;        // the irrefutable-or-test pattern
-    LExprPtr              scrut;      // scrutinee expression
+    LExprPtr              scrut = nullptr;      // scrutinee expression
     LBlockPtr             else_block; // must-diverge block
 };
 
@@ -788,7 +792,7 @@ struct LImplBlock {
 struct LConst {
     std::string      name;
     TypeRef type;
-    LExprPtr         value;
+    LExprPtr         value = nullptr;
 };
 
 struct LTypeAlias {
@@ -849,6 +853,12 @@ struct LProgram {
     SemaResult             diags;
 
     TypePool               type_pool;  // owns all LogosType*
+
+    // ADR 0007 slice 1b: pool that owns every LExpr in this program. Builder
+    // and mono allocate through `alloc_expr(prog)`; variant fields hold raw
+    // LExpr* into this pool. Pool is append-only and survives until LProgram
+    // destruction, so handles never dangle.
+    std::vector<std::unique_ptr<LExpr>> expr_pool_;
 
     // Phase 3b: Hermes mirror back-references. Populated by lir_mirror_emit.
     // Held by unique_ptr to keep lir.hpp free of <unordered_map> for the
@@ -911,6 +921,14 @@ struct LProgram {
     LProgram(const LProgram&)            = delete;
     LProgram& operator=(const LProgram&) = delete;
 };
+
+// ADR 0007 slice 1b: allocator for LExpr nodes in the program pool.
+// Returns a non-owning raw pointer; the unique_ptr in expr_pool_ keeps
+// the node alive for the lifetime of the LProgram.
+inline LExpr* alloc_expr(LProgram& prog) {
+    prog.expr_pool_.push_back(std::make_unique<LExpr>());
+    return prog.expr_pool_.back().get();
+}
 
 } // namespace logos::compiler::lir
 
