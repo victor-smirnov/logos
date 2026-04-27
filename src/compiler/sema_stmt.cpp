@@ -1227,11 +1227,12 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                             // only _ / name bindings, references, or @-bindings. Literals
                             // and other refutable kinds aren't tested by codegen yet and
                             // would silently match — reject early.
+                            auto sk = pat_ref_of(sub).kind();
                             bool sub_irrefutable =
-                                std::holds_alternative<lir::PatWild>(sub.kind) ||
-                                std::holds_alternative<lir::PatRefBind>(sub.kind) ||
-                                std::holds_alternative<lir::PatRefPat>(sub.kind) ||
-                                std::holds_alternative<lir::PatAt>(sub.kind);
+                                sk == lir_schema::pat::Code::Wild ||
+                                sk == lir_schema::pat::Code::RefBind ||
+                                sk == lir_schema::pat::Code::RefPat ||
+                                sk == lir_schema::pat::Code::At;
                             if (!sub_irrefutable)
                                 error("struct pattern: refutable field sub-pattern "
                                       "not yet supported");
@@ -3263,7 +3264,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
     {
         bool has_wild = false;
         for (auto& arm : smatch.arms) {
-            if (!arm.guard && std::holds_alternative<lir::PatWild>(arm.pat.kind)) {
+            if (!arm.guard && pat_ref_of(arm.pat).kind() == lir_schema::pat::Code::Wild) {
                 has_wild = true;
                 break;
             }
@@ -3580,7 +3581,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
     {
         bool has_wild = false;
         for (auto& arm : me.arms) {
-            if (!arm.guard && std::holds_alternative<lir::PatWild>(arm.pat.kind)) {
+            if (!arm.guard && pat_ref_of(arm.pat).kind() == lir_schema::pat::Code::Wild) {
                 has_wild = true;
                 break;
             }
