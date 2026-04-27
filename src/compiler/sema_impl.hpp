@@ -1185,6 +1185,31 @@ inline std::optional<int64_t> get_intlit_value(const lir::LExpr* e) noexcept {
     return std::nullopt;
 }
 
+// ExprRef overload — view-based traversal for callers that already hold
+// an ExprRef (e.g. element iteration via EArrLitView/ETupleLitView). Walks
+// the same shape (BlockExpr.result → Unary/-/LitInt) but reads from the
+// Hermes mirror so it composes with view-migrated read sites without an
+// LExpr*/ExprRef impedance mismatch.
+inline std::optional<int64_t> get_intlit_value(lir_view::ExprRef e) noexcept {
+    if (!e) return std::nullopt;
+    using C = lir_schema::expr::Code;
+    if (e.kind() == C::BlockExpr) {
+        auto inner = lir_view::EBlockExprView{e}.result();
+        return get_intlit_value(inner);
+    }
+    if (e.kind() == C::Unary) {
+        auto u = lir_view::EUnaryView{e};
+        if (u.op() == "-") {
+            auto inner = get_intlit_value(u.operand());
+            if (inner) return -(*inner);
+        }
+        return std::nullopt;
+    }
+    if (e.kind() == C::LitInt)
+        return lir_view::ELitIntView{e}.value();
+    return std::nullopt;
+}
+
 inline bool intlit_fits(int64_t v, LogosType::Kind k) noexcept {
     switch (k) {
     case LogosType::Kind::I8:  return v >= -128 && v <= 127;

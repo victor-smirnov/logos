@@ -536,9 +536,11 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         if (TypeRef(ann).kind() == LogosType::Kind::Array && TypeRef(ann).elem() &&
             TypeRef(rhs_type).kind() == LogosType::Kind::Array && TypeRef(rhs_type).elem() &&
             TypeRef(rhs_type).elem().kind() == LogosType::Kind::IntLit) {
-            if (auto* arrlit = std::get_if<lir::EArrLit>(&rhs->kind)) {
-                for (size_t ei = 0; ei < arrlit->elems.size(); ++ei) {
-                    if (auto v = get_intlit_value(arrlit->elems[ei]))
+            auto rhs_ref = expr_ref_of(*rhs);
+            if (rhs_ref.kind() == lir_schema::expr::Code::ArrLit) {
+                lir_view::EArrLitView arrlit{rhs_ref};
+                for (uint64_t ei = 0; ei < arrlit.count(); ++ei) {
+                    if (auto v = get_intlit_value(arrlit.elem(ei)))
                         if (!intlit_fits(*v, TypeRef(ann).elem().kind()))
                             error(std::format("let '{}': array element {}: value {} does not fit in {}",
                                   name, ei, *v, type_str(TypeRef(ann).elem())));
