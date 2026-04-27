@@ -589,23 +589,40 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
                     // Tuple element is itself an array literal.
                     if (TypeRef(ann).tuple_elems()[ei] && TypeRef(TypeRef(ann).tuple_elems()[ei]).kind() == LogosType::Kind::Array &&
                         TypeRef(TypeRef(ann).tuple_elems()[ei]).elem() && TypeRef(tlit->elems[ei]->type).kind() == LogosType::Kind::Array)
-                        if (auto* ial = std::get_if<lir::EArrLit>(&tlit->elems[ei]->kind))
-                            for (size_t ii = 0; ii < ial->elems.size(); ++ii)
-                                if (TypeRef(ial->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                    if (auto v = get_intlit_value(ial->elems[ii]))
+                    if (TypeRef(ann).tuple_elems()[ei] && TypeRef(TypeRef(ann).tuple_elems()[ei]).kind() == LogosType::Kind::Array &&
+                        TypeRef(TypeRef(ann).tuple_elems()[ei]).elem() && TypeRef(tlit->elems[ei]->type).kind() == LogosType::Kind::Array) {
+                        auto er = expr_ref_of(*tlit->elems[ei]);
+                        if (er.kind() == lir_schema::expr::Code::ArrLit) {
+                            lir_view::EArrLitView ial{er};
+                            for (uint64_t ii = 0; ii < ial.count(); ++ii) {
+                                auto iel = ial.elem(ii);
+                                if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                    if (auto v = get_intlit_value(iel))
                                         if (!intlit_fits(*v, TypeRef(TypeRef(ann).tuple_elems()[ei]).elem().kind()))
                                             error(std::format("let '{}': tuple element {}: array element {}: value {} does not fit in {}",
                                                   name, ei, ii, *v, type_str(TypeRef(TypeRef(ann).tuple_elems()[ei]).elem())));
+                            }
+                        }
+                    }
                     // Tuple element is itself a tuple literal.
                     if (TypeRef(ann).tuple_elems()[ei] && TypeRef(TypeRef(ann).tuple_elems()[ei]).kind() == LogosType::Kind::Tuple &&
-                        TypeRef(tlit->elems[ei]->type).kind() == LogosType::Kind::Tuple)
-                        if (auto* itl = std::get_if<lir::ETupleLit>(&tlit->elems[ei]->kind))
-                            for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(TypeRef(ann).tuple_elems()[ei]).tuple_elems().size(); ++ii)
-                                if (TypeRef(itl->elems[ii]->type).kind() == LogosType::Kind::IntLit)
-                                    if (auto v = get_intlit_value(itl->elems[ii]))
-                                        if (TypeRef(TypeRef(ann).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(ann).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
+                        TypeRef(tlit->elems[ei]->type).kind() == LogosType::Kind::Tuple) {
+                        auto er = expr_ref_of(*tlit->elems[ei]);
+                        if (er.kind() == lir_schema::expr::Code::TupleLit) {
+                            lir_view::ETupleLitView itl{er};
+                            uint64_t ii = 0;
+                            const auto& sub_anns = TypeRef(TypeRef(ann).tuple_elems()[ei]).tuple_elems();
+                            itl.each_elem([&](lir_view::ExprRef iel) {
+                                if (ii < sub_anns.size() &&
+                                    iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                    if (auto v = get_intlit_value(iel))
+                                        if (sub_anns[ii] && !intlit_fits(*v, TypeRef(sub_anns[ii]).kind()))
                                             error(std::format("let '{}': tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                  name, ei, ii, *v, type_str(TypeRef(TypeRef(ann).tuple_elems()[ei]).tuple_elems()[ii])));
+                                                  name, ei, ii, *v, type_str(sub_anns[ii])));
+                                ++ii;
+                            });
+                        }
+                    }
                 }
             }
         }
