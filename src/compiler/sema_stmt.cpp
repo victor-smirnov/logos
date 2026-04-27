@@ -496,9 +496,11 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
             (TypeRef(ann).kind() == LogosType::Kind::F32 || TypeRef(ann).kind() == LogosType::Kind::F64)) {
             if (auto* il = std::get_if<lir::ELitInt>(&rhs->kind)) {
                 // Simple integer literal: convert directly to float literal.
+                // Build a fresh node so the Hermes mirror is emitted with
+                // Code::LitFloat (in-place mutation would leave the stale
+                // LitInt mirror that view-based readers in mono pick up).
                 double fval = static_cast<double>(il->value);
-                rhs->kind = lir::ELitFloat{fval};
-                rhs->type = ann;
+                rhs = builder().lit_float(fval, ann);
             } else {
                 // Non-literal IntLit expression (e.g. 1 + 2): wrap in ECast to float.
                 auto inner = std::move(rhs);
@@ -546,8 +548,8 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
                          TypeRef(TypeRef(ann).tuple_elems()[ei]).kind() == LogosType::Kind::F64)) {
                         if (auto* il = std::get_if<lir::ELitInt>(&tlit->elems[ei]->kind)) {
                             double fval = static_cast<double>(il->value);
-                            tlit->elems[ei]->kind = lir::ELitFloat{fval};
-                            tlit->elems[ei]->type = TypeRef(ann).tuple_elems()[ei];
+                            tlit->elems[ei] = builder().lit_float(
+                                fval, TypeRef(ann).tuple_elems()[ei]);
                         }
                     }
                     if (TypeRef(tlit->elems[ei]->type).kind() == LogosType::Kind::IntLit)
