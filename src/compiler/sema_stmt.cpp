@@ -847,39 +847,44 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
             // Move semantics: recursively mark any move-type variable that
             // appears in the return expression as moved, so collect_all_drops()
             // won't also drop them (avoids double-free).
-            std::function<void(const lir::LExpr*)> mark_moved_in_expr;
-            mark_moved_in_expr = [&](const lir::LExpr* e) {
-                if (!e) return;
-                {
-                    auto er = expr_ref_of(*e);
-                    if (er.kind() == lir_schema::expr::Code::VarRef) {
-                        if (is_move_type(e->type))
+            std::function<void(lir_view::ExprRef)> mark_moved_in_expr;
+            mark_moved_in_expr = [&](lir_view::ExprRef er) {
+                if (!er) return;
+                using C = lir_schema::expr::Code;
+                switch (er.kind()) {
+                    case C::VarRef: {
+                        if (is_move_type(er.type(cur_prog_->type_pool.impl())))
                             mark_moved(std::string(lir_view::EVarRefView{er}.name()));
                         return;
                     }
-                }
-                if (auto* ev = std::get_if<lir::EEnumLitData>(&e->kind)) {
-                    for (auto& a : ev->payload) mark_moved_in_expr(a);
-                    return;
-                }
-                if (auto* ec = std::get_if<lir::ECall>(&e->kind)) {
-                    for (auto& a : ec->args) mark_moved_in_expr(a);
-                    return;
-                }
-                if (auto* es = std::get_if<lir::EStructLit>(&e->kind)) {
-                    for (auto& f : es->fields) mark_moved_in_expr(f.second);
-                    return;
-                }
-                if (auto* et = std::get_if<lir::ETupleLit>(&e->kind)) {
-                    for (auto& a : et->elems) mark_moved_in_expr(a);
-                    return;
-                }
-                if (auto* blk = std::get_if<lir::EBlockExpr>(&e->kind)) {
-                    if (blk->result) mark_moved_in_expr(blk->result);
-                    return;
+                    case C::EnumLitData: {
+                        lir_view::EEnumLitDataView{er}.each_payload(
+                            [&](lir_view::ExprRef a) { mark_moved_in_expr(a); });
+                        return;
+                    }
+                    case C::Call: {
+                        lir_view::ECallView{er}.each_arg(
+                            [&](lir_view::ExprRef a) { mark_moved_in_expr(a); });
+                        return;
+                    }
+                    case C::StructLit: {
+                        lir_view::EStructLitView{er}.each_field(
+                            [&](std::string_view, lir_view::ExprRef v) { mark_moved_in_expr(v); });
+                        return;
+                    }
+                    case C::TupleLit: {
+                        lir_view::ETupleLitView{er}.each_elem(
+                            [&](lir_view::ExprRef a) { mark_moved_in_expr(a); });
+                        return;
+                    }
+                    case C::BlockExpr: {
+                        mark_moved_in_expr(lir_view::EBlockExprView{er}.result());
+                        return;
+                    }
+                    default: return;
                 }
             };
-            mark_moved_in_expr(val);
+            if (val) mark_moved_in_expr(expr_ref_of(*val));
             return builder().stmt_return(std::move(val), node_line_);
         }
     }
@@ -3643,11 +3648,10 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             }
             // Upgrade IntLit result to i64 if any arm literal overflows i32.
             if (TypeRef(result_type).kind() == LogosType::Kind::IntLit) {
-                const lir::LExpr* ve = val;
-                if (auto* blk = std::get_if<lir::EBlockExpr>(&ve->kind))
-                    ve = blk->result;
-                if (ve) {
-                    auto er = expr_ref_of(*ve);
+                if (val) {
+                    auto er = expr_ref_of(*val);
+                    if (er.kind() == lir_schema::expr::Code::BlockExpr)
+                        er = lir_view::EBlockExprView{er}.result();
                     if (er.kind() == lir_schema::expr::Code::LitInt) {
                         int64_t v = lir_view::ELitIntView{er}.value();
                         if (v > (int64_t)INT32_MAX || v < (int64_t)INT32_MIN)

@@ -4880,11 +4880,10 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
     // If still IntLit, upgrade to i64 if any branch literal overflows i32.
     if (TypeRef(result_type).kind() == LogosType::Kind::IntLit) {
         auto intlit_overflow = [this](const lir::LExpr* e) -> bool {
-            // Look through block expressions to the final result.
-            if (auto* blk = std::get_if<lir::EBlockExpr>(&e->kind))
-                e = blk->result;
             if (!e) return false;
             auto er = expr_ref_of(*e);
+            if (er.kind() == lir_schema::expr::Code::BlockExpr)
+                er = lir_view::EBlockExprView{er}.result();
             if (er.kind() != lir_schema::expr::Code::LitInt) return false;
             int64_t v = lir_view::ELitIntView{er}.value();
             return v > (int64_t)INT32_MAX || v < (int64_t)INT32_MIN;
