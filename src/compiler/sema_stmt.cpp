@@ -1063,11 +1063,11 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         if (bindings.size() != binding_types.size())
             error(std::format("pattern {}::{}: expected {} bindings, got {}",
                   pename, pvname, binding_types.size(), bindings.size()));
+        auto mo = lir_mirror_emit_pat_variant_data(
+            *cur_prog_, pename, pvname, disc, bindings, binding_types);
         lir::Pattern p_(lir::PatVariantData{pename, pvname, disc,
                                             std::move(bindings), std::move(binding_types)});
-        auto& vd_ = std::get<lir::PatVariantData>(p_.kind);
-        p_.mirror_offset_ = lir_mirror_emit_pat_variant_data(
-            *cur_prog_, vd_.enum_name, vd_.variant, vd_.disc, vd_.bindings, vd_.binding_types);
+        p_.mirror_offset_ = mo;
         return p_;
     }
     if (pc == la::PAT_INT || pc == la::PAT_NEG_INT) {
@@ -1155,9 +1155,9 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                     error(std::format("or-pattern: all alternatives must bind the same variable names"));
             }
         }
+        auto mo = lir_mirror_emit_pat_or(*cur_prog_, por.alts);
         lir::Pattern p_(std::move(por));
-        auto& or_ = std::get<lir::PatOr>(p_.kind);
-        p_.mirror_offset_ = lir_mirror_emit_pat_or(*cur_prog_, or_.alts);
+        p_.mirror_offset_ = mo;
         return p_;
     }
     if (pc == la::PAT_BOOL) {
@@ -1223,9 +1223,9 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         // Fill binding types from tuple elements.
         for (size_t i = 0; i < TypeRef(scrut_type).tuple_elems().size(); ++i)
             pt.binding_types.push_back(TypeRef(scrut_type).tuple_elems()[i]);
+        auto mo = lir_mirror_emit_pat_tuple(*cur_prog_, pt.bindings, pt.binding_types, pt.subs);
         lir::Pattern p_(std::move(pt));
-        auto& t_ = std::get<lir::PatTuple>(p_.kind);
-        p_.mirror_offset_ = lir_mirror_emit_pat_tuple(*cur_prog_, t_.bindings, t_.binding_types, t_.subs);
+        p_.mirror_offset_ = mo;
         return p_;
     }
     // ── PAT_RANGE: 0..=9 inclusive integer range ──────────────────────────
@@ -1273,9 +1273,9 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         // bind_pattern can always define the variable (even with error type).
         pa.type = scrut_type ? scrut_type : error_t();
         pa.sub.push_back(std::move(sub_pat));
+        auto mo = lir_mirror_emit_pat_at(*cur_prog_, pa.name, pa.sub, pa.type);
         lir::Pattern p_(std::move(pa));
-        auto& a_ = std::get<lir::PatAt>(p_.kind);
-        p_.mirror_offset_ = lir_mirror_emit_pat_at(*cur_prog_, a_.name, a_.sub, a_.type);
+        p_.mirror_offset_ = mo;
         return p_;
     }
 
@@ -1304,9 +1304,9 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         lir::PatRefPat prp;
         prp.is_mut = is_mut;
         prp.inner.push_back(std::move(inner_pat));
+        auto mo = lir_mirror_emit_pat_ref_pat(*cur_prog_, prp.inner, prp.is_mut);
         lir::Pattern p_(std::move(prp));
-        auto& rp_ = std::get<lir::PatRefPat>(p_.kind);
-        p_.mirror_offset_ = lir_mirror_emit_pat_ref_pat(*cur_prog_, rp_.inner, rp_.is_mut);
+        p_.mirror_offset_ = mo;
         return p_;
     }
 
@@ -1416,9 +1416,9 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                           f.name));
             }
         }
+        auto mo = lir_mirror_emit_pat_struct(*cur_prog_, ps.struct_name, ps.fields, ps.has_rest);
         lir::Pattern p_(std::move(ps));
-        auto& s_ = std::get<lir::PatStruct>(p_.kind);
-        p_.mirror_offset_ = lir_mirror_emit_pat_struct(*cur_prog_, s_.struct_name, s_.fields, s_.has_rest);
+        p_.mirror_offset_ = mo;
         return p_;
     }
 
@@ -1477,9 +1477,9 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         if (scrut_type && TypeRef(scrut_type).kind() == LogosType::Kind::Slice &&
             found_rest && !psl.suffix.empty())
             error("slice pattern: suffix after '..' not supported for dynamic slices");
+        auto mo = lir_mirror_emit_pat_slice(*cur_prog_, psl.prefix, psl.rest, psl.suffix);
         lir::Pattern p_(std::move(psl));
-        auto& sl_ = std::get<lir::PatSlice>(p_.kind);
-        p_.mirror_offset_ = lir_mirror_emit_pat_slice(*cur_prog_, sl_.prefix, sl_.rest, sl_.suffix);
+        p_.mirror_offset_ = mo;
         return p_;
     }
 
@@ -2408,12 +2408,11 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
 
         lir::SMatch sm;
         sm.scrut = make_next_call();
+        auto some_mo = lir_mirror_emit_pat_variant_data(
+            *cur_prog_, some_pat.enum_name, some_pat.variant, some_pat.disc,
+            some_pat.bindings, some_pat.binding_types);
         lir::Pattern some_pattern(std::move(some_pat));
-        {
-            auto& vd_ = std::get<lir::PatVariantData>(some_pattern.kind);
-            some_pattern.mirror_offset_ = lir_mirror_emit_pat_variant_data(
-                *cur_prog_, vd_.enum_name, vd_.variant, vd_.disc, vd_.bindings, vd_.binding_types);
-        }
+        some_pattern.mirror_offset_ = some_mo;
         sm.arms.push_back({std::move(some_pattern), std::move(then_body), std::nullopt});
         sm.arms.push_back({make_pat_wild("_"), std::move(else_body), std::nullopt});
 
