@@ -253,6 +253,14 @@ private:
         return s;
     }
 
+    template<typename K>
+    lir::LStmt make_stmt_emit(uint32_t line, K&& k) {
+        lir::LStmt s; s.line = line;
+        s.kind = std::forward<K>(k);
+        if (cur_prog_) lir_mirror_emit_stmt_node(*cur_prog_, s);
+        return s;
+    }
+
     // ── File / line tracking ─────────────────────────────────────
 
     const std::vector<std::string>* filenames_    = nullptr;

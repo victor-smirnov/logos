@@ -239,13 +239,13 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
             ? lower_block(map_of(stmt.get(la::BODY.code)))
             : lir::LBlock{};
         inside_unsafe_ = was;
-        return make_stmt(node_line_, lir::SBlock{lir::alloc_block(*cur_prog_, std::move(inner))});
+        return make_stmt_emit(node_line_, lir::SBlock{lir::alloc_block(*cur_prog_, std::move(inner))});
     }
     if (c == la::BLOCK_STMT) {
         auto inner = stmt.has_key(la::BODY)
             ? lower_block(map_of(stmt.get(la::BODY.code)))
             : lir::LBlock{};
-        return make_stmt(node_line_, lir::SBlock{lir::alloc_block(*cur_prog_, std::move(inner))});
+        return make_stmt_emit(node_line_, lir::SBlock{lir::alloc_block(*cur_prog_, std::move(inner))});
     }
     // Unknown stmt — emit dummy expr stmt
     return builder().stmt_expr(error_expr(), node_line_);
@@ -277,7 +277,7 @@ lir::LBlock SemaChecker::lower_block(TinyMapView block) {
                     sl.name = tmp; sl.type = rt; sl.is_mut = false;
                     sl.value = lexpr_of(val_ref);
                     result.stmts.push_back(
-                        make_stmt(node_line_, std::move(sl)));
+                        make_stmt_emit(node_line_, std::move(sl)));
                     for (auto& d : drops)
                         result.stmts.push_back(std::move(d));
                     result.stmts.push_back(
@@ -356,7 +356,7 @@ lir::LStmt SemaChecker::lower_let_destruct(TinyMapView node) {
     tmp_let.type    = rhs_type;
     tmp_let.is_mut  = false;
     tmp_let.value   = std::move(rhs);
-    blk->stmts.push_back(make_stmt(node_line_, std::move(tmp_let)));
+    blk->stmts.push_back(make_stmt_emit(node_line_, std::move(tmp_let)));
 
     // let name_i = __destruct_N.i
     for (size_t i = 0; i < names.size() && i < TypeRef(rhs_type).tuple_elems().size(); ++i) {
@@ -371,12 +371,12 @@ lir::LStmt SemaChecker::lower_let_destruct(TinyMapView node) {
         elem_let.type   = elem_t;
         elem_let.is_mut = false;
         elem_let.value  = std::move(elem_expr);
-        blk->stmts.push_back(make_stmt(node_line_, std::move(elem_let)));
+        blk->stmts.push_back(make_stmt_emit(node_line_, std::move(elem_let)));
     }
 
     lir::SBlock sb;
     sb.body = std::move(blk);
-    return make_stmt(node_line_, std::move(sb));
+    return make_stmt_emit(node_line_, std::move(sb));
 }
 
 lir::LStmt SemaChecker::lower_let_else(TinyMapView node) {
@@ -449,7 +449,7 @@ lir::LStmt SemaChecker::lower_let_else(TinyMapView node) {
     sle.pat        = std::move(pat);
     sle.scrut      = std::move(scrut);
     sle.else_block = lir::alloc_block(*cur_prog_, std::move(else_blk));
-    return make_stmt(node_line_, std::move(sle));
+    return make_stmt_emit(node_line_, std::move(sle));
 }
 
 lir::LStmt SemaChecker::lower_let(TinyMapView node) {
@@ -673,7 +673,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     slet.type   = var_type;
     slet.is_mut = is_mut;
     slet.value  = std::move(rhs);
-    return make_stmt(node_line_, std::move(slet));
+    return make_stmt_emit(node_line_, std::move(slet));
 }
 
 lir::LStmt SemaChecker::lower_compound_assign(TinyMapView node) {
@@ -1584,7 +1584,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         lir::SLet sl;
         sl.name = child; sl.type = scrut_type; sl.is_mut = false;
         sl.value = std::move(call);
-        out_stmts.push_back(make_stmt(node_line_, std::move(sl)));
+        out_stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
         return child;
     };
     // Emit `hermes_pat_array_len_eq(&sv, base, n)` as a bool expr.
@@ -1990,7 +1990,7 @@ lir::LStmt SemaChecker::lower_if(TinyMapView node) {
         sm.scrut = std::move(scrut);
         sm.arms.push_back({std::move(pat), std::move(then_body), std::nullopt});
         sm.arms.push_back({lir::PatWild{"_"}, std::move(else_body), std::nullopt});
-        return make_stmt(node_line_, std::move(sm));
+        return make_stmt_emit(node_line_, std::move(sm));
     }
 
     // ── regular if cond { ... } ────────────────────────────────────
@@ -2026,7 +2026,7 @@ lir::LStmt SemaChecker::lower_if(TinyMapView node) {
     sif.cond  = std::move(cond);
     sif.then_ = std::move(then_block);
     sif.else_ = std::move(else_opt);
-    return make_stmt(node_line_, std::move(sif));
+    return make_stmt_emit(node_line_, std::move(sif));
 }
 
 lir::LStmt SemaChecker::lower_while(TinyMapView node) {
@@ -2060,9 +2060,9 @@ lir::LStmt SemaChecker::lower_while(TinyMapView node) {
         sm.arms.push_back({lir::PatWild{"_"}, std::move(else_body), std::nullopt});
 
         auto loop_body = lir::alloc_block(*cur_prog_);
-        loop_body->stmts.push_back(make_stmt(node_line_, std::move(sm)));
+        loop_body->stmts.push_back(make_stmt_emit(node_line_, std::move(sm)));
         lir::SLoop sl; sl.body = std::move(loop_body);
-        return make_stmt(node_line_, std::move(sl));
+        return make_stmt_emit(node_line_, std::move(sl));
     }
 
     // ── regular while cond { ... } ─────────────────────────────────
@@ -2088,7 +2088,7 @@ lir::LStmt SemaChecker::lower_while(TinyMapView node) {
     sw.cond  = std::move(cond);
     sw.body  = std::move(body);
     sw.label = std::move(my_label);
-    return make_stmt(node_line_, std::move(sw));
+    return make_stmt_emit(node_line_, std::move(sw));
 }
 
 lir::LStmt SemaChecker::lower_for(TinyMapView node) {
@@ -2163,7 +2163,7 @@ lir::LStmt SemaChecker::lower_for(TinyMapView node) {
     sf.inclusive = inclusive;
     sf.body      = std::move(body);
     sf.label     = std::move(my_label);
-    return make_stmt(node_line_, std::move(sf));
+    return make_stmt_emit(node_line_, std::move(sf));
 }
 
 lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
@@ -2195,7 +2195,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         sfe.elem_type = elem_type;
         sfe.arr_size  = arr_size;
         sfe.body      = std::move(body);
-        return make_stmt(node_line_, std::move(sfe));
+        return make_stmt_emit(node_line_, std::move(sfe));
     }
 
     // ── slice path: &[T] — iterate by index over fat pointer ────────
@@ -2217,7 +2217,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         sfe.arr_size  = 0;
         sfe.is_slice  = true;
         sfe.body      = std::move(body);
-        return make_stmt(node_line_, std::move(sfe));
+        return make_stmt_emit(node_line_, std::move(sfe));
     }
 
     // ── iterator path: desugar to while-let loop ─────────────────
@@ -2333,7 +2333,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
 
         // Build outer block: { let mut __iter = iter; loop { match __iter.next() ... } }
         auto outer_block = lir::alloc_block(*cur_prog_);
-        outer_block->stmts.push_back(make_stmt(node_line_, std::move(let_iter)));
+        outer_block->stmts.push_back(make_stmt_emit(node_line_, std::move(let_iter)));
 
         // Synthesize __iter.next() call expression (inside the loop)
         auto make_next_call = [&]() -> lir::LExprPtr {
@@ -2370,12 +2370,12 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         sm.arms.push_back({lir::PatWild{"_"}, std::move(else_body), std::nullopt});
 
         auto loop_body = lir::alloc_block(*cur_prog_);
-        loop_body->stmts.push_back(make_stmt(node_line_, std::move(sm)));
+        loop_body->stmts.push_back(make_stmt_emit(node_line_, std::move(sm)));
         lir::SLoop sl; sl.body = std::move(loop_body);
-        outer_block->stmts.push_back(make_stmt(node_line_, std::move(sl)));
+        outer_block->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
 
         // Wrap in a block statement
-        return make_stmt(node_line_, lir::SBlock{std::move(outer_block)});
+        return make_stmt_emit(node_line_, lir::SBlock{std::move(outer_block)});
     }
 
     return builder().stmt_break(nullptr, "", node_line_);
@@ -2405,9 +2405,7 @@ lir::LStmt SemaChecker::lower_loop(TinyMapView node) {
     }
     break_value_type_ = saved_break_type;  // restore for outer loops
     break_without_value_ = saved_break_without_value;
-    auto result = make_stmt(node_line_, std::move(sl));
-    if (cur_prog_) lir_mirror_emit_stmt_node(*cur_prog_, result);
-    return result;
+    return make_stmt_emit(node_line_, std::move(sl));
 }
 
 lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
@@ -2454,9 +2452,9 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
                     dfw.field     = std::string(field_name);
                     dfw.value     = std::move(val);
                     lir::LBlock inner;
-                    inner.stmts.push_back(make_stmt(node_line_, std::move(let_s)));
-                    inner.stmts.push_back(make_stmt(node_line_, std::move(dfw)));
-                    return make_stmt(node_line_,
+                    inner.stmts.push_back(make_stmt_emit(node_line_, std::move(let_s)));
+                    inner.stmts.push_back(make_stmt_emit(node_line_, std::move(dfw)));
+                    return make_stmt_emit(node_line_,
                         lir::SBlock{lir::alloc_block(*cur_prog_, std::move(inner))});
                 }
             }
@@ -2592,7 +2590,7 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
     sfw.receiver = std::string(recv_name);
     sfw.field    = std::string(field_name);
     sfw.value    = std::move(val);
-    return make_stmt(node_line_, std::move(sfw));
+    return make_stmt_emit(node_line_, std::move(sfw));
 }
 
 // a.mid.field = val  — chained 2-level field write
@@ -2663,7 +2661,7 @@ lir::LStmt SemaChecker::lower_chain_field_write(TinyMapView node) {
     scfw.mid_field = std::string(mid_name);
     scfw.field     = std::string(field_name);
     scfw.value     = std::move(val);
-    return make_stmt(node_line_, std::move(scfw));
+    return make_stmt_emit(node_line_, std::move(scfw));
 }
 
 // a.mid.field op= val  →  a.mid.field = a.mid.field op val
@@ -2726,7 +2724,7 @@ lir::LStmt SemaChecker::lower_chain_field_compound_assign(TinyMapView node) {
     scfw.mid_field = std::string(mid_name);
     scfw.field     = std::string(field_name);
     scfw.value     = std::move(combined);
-    return make_stmt(node_line_, std::move(scfw));
+    return make_stmt_emit(node_line_, std::move(scfw));
 }
 
 // s.field op= expr  →  s.field = s.field op expr
@@ -2783,7 +2781,7 @@ lir::LStmt SemaChecker::lower_field_compound_assign(TinyMapView node) {
     sfw.receiver = std::string(recv_name);
     sfw.field    = std::string(field_name);
     sfw.value    = std::move(combined);
-    return make_stmt(node_line_, std::move(sfw));
+    return make_stmt_emit(node_line_, std::move(sfw));
 }
 
 lir::LStmt SemaChecker::lower_tuple_field_write(TinyMapView node) {
@@ -2794,7 +2792,7 @@ lir::LStmt SemaChecker::lower_tuple_field_write(TinyMapView node) {
     TypeRef recv_t = lookup(recv_name);
     if (!recv_t) {
         error(std::format("tuple field write: undefined variable '{}'", recv_name));
-        return make_stmt(node_line_, lir::STupleWrite{std::string(recv_name), (uint32_t)idx, error_expr()});
+        return make_stmt_emit(node_line_, lir::STupleWrite{std::string(recv_name), (uint32_t)idx, error_expr()});
     }
     // Strip &mut wrapper if present
     if (TypeRef(recv_t).kind() == LogosType::Kind::MutRef && TypeRef(recv_t).pointee())
@@ -2802,12 +2800,12 @@ lir::LStmt SemaChecker::lower_tuple_field_write(TinyMapView node) {
 
     if (TypeRef(recv_t).kind() != LogosType::Kind::Tuple) {
         error(std::format("tuple field write: '{}' is not a tuple (got {})", recv_name, type_str(recv_t)));
-        return make_stmt(node_line_, lir::STupleWrite{std::string(recv_name), (uint32_t)idx, error_expr()});
+        return make_stmt_emit(node_line_, lir::STupleWrite{std::string(recv_name), (uint32_t)idx, error_expr()});
     }
     if (idx >= TypeRef(recv_t).tuple_elems().size()) {
         error(std::format("tuple field write: index {} out of range (tuple has {} elements)",
                           idx, TypeRef(recv_t).tuple_elems().size()));
-        return make_stmt(node_line_, lir::STupleWrite{std::string(recv_name), (uint32_t)idx, error_expr()});
+        return make_stmt_emit(node_line_, lir::STupleWrite{std::string(recv_name), (uint32_t)idx, error_expr()});
     }
     TypeRef orig_recv_t = lookup(recv_name);
     bool via_mut_ref = orig_recv_t && TypeRef(orig_recv_t).kind() == LogosType::Kind::MutRef;
@@ -2831,7 +2829,7 @@ lir::LStmt SemaChecker::lower_tuple_field_write(TinyMapView node) {
             if (!intlit_fits(*v, TypeRef(ft).kind()))
                 error(std::format("tuple field write '{}.{}': value {} does not fit in {}",
                       recv_name, idx, *v, type_str(ft)));
-    return make_stmt(node_line_, lir::STupleWrite{std::string(recv_name), (uint32_t)idx, std::move(val), recv_t});
+    return make_stmt_emit(node_line_, lir::STupleWrite{std::string(recv_name), (uint32_t)idx, std::move(val), recv_t});
 }
 
 lir::LStmt SemaChecker::lower_deref_field_write(TinyMapView node) {
@@ -2969,7 +2967,7 @@ lir::LStmt SemaChecker::lower_deref_field_write(TinyMapView node) {
     sdfw.type_name = type_name;
     sdfw.field     = std::string(field_name);
     sdfw.value     = std::move(val);
-    return make_stmt(node_line_, std::move(sdfw));
+    return make_stmt_emit(node_line_, std::move(sdfw));
 }
 
 lir::LStmt SemaChecker::lower_index_write(TinyMapView node) {
@@ -3088,7 +3086,7 @@ lir::LStmt SemaChecker::lower_index_write(TinyMapView node) {
     siw.arr   = std::string(arr_name);
     siw.index = std::move(idx);
     siw.value = std::move(val);
-    return make_stmt(node_line_, std::move(siw));
+    return make_stmt_emit(node_line_, std::move(siw));
 }
 
 // arr[i] op= expr  →  arr[i] = arr[i] op expr
@@ -3147,7 +3145,7 @@ lir::LStmt SemaChecker::lower_index_compound_assign(TinyMapView node) {
     siw.arr   = std::string(arr_name);
     siw.index = std::move(idx_for_write);
     siw.value = std::move(combined);
-    return make_stmt(node_line_, std::move(siw));
+    return make_stmt_emit(node_line_, std::move(siw));
 }
 
 lir::LStmt SemaChecker::lower_field_index_write(TinyMapView node) {
@@ -3300,7 +3298,7 @@ lir::LStmt SemaChecker::lower_field_index_write(TinyMapView node) {
     sfiw.field    = std::string(field_name);
     sfiw.index    = std::move(idx);
     sfiw.value    = std::move(val);
-    return make_stmt(node_line_, std::move(sfiw));
+    return make_stmt_emit(node_line_, std::move(sfiw));
 }
 
 lir::LStmt SemaChecker::lower_match(TinyMapView node) {
@@ -3367,7 +3365,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             lir::SLet sl;
             sl.name = view_var; sl.type = scrut_type; sl.is_mut = false;
             sl.value = std::move(scrut);
-            hoist_let_view = make_stmt(node_line_, std::move(sl));
+            hoist_let_view = make_stmt_emit(node_line_, std::move(sl));
         }
         anyval_t = make_datatype_type("AnyVal");
         root_var = "__hmatch_root_" + std::to_string(tmp_var_count_++);
@@ -3377,7 +3375,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             lir::SLet sl;
             sl.name = root_var; sl.type = anyval_t; sl.is_mut = false;
             sl.value = std::move(root_call);
-            hoist_let_root = make_stmt(node_line_, std::move(sl));
+            hoist_let_root = make_stmt_emit(node_line_, std::move(sl));
         }
         base_var = "__hmatch_base_" + std::to_string(tmp_var_count_++);
         {
@@ -3387,7 +3385,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             lir::SLet sl;
             sl.name = base_var; sl.type = u8_ptr_t; sl.is_mut = false;
             sl.value = std::move(base_call);
-            hoist_let_base = make_stmt(node_line_, std::move(sl));
+            hoist_let_base = make_stmt_emit(node_line_, std::move(sl));
         }
         has_hoist_let = true;
         scrut = builder().var_ref(view_var, scrut_type);
@@ -3480,11 +3478,11 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
                 if (match_in_tail_position_) {
                     // Tail-position match: EXPR arms produce the function's return value.
                     lir::SReturn ret; ret.value = std::move(val);
-                    body->stmts.push_back(make_stmt(node_line_, std::move(ret)));
+                    body->stmts.push_back(make_stmt_emit(node_line_, std::move(ret)));
                 } else {
                     // Statement-position match: EXPR arms are evaluated for side effects.
                     lir::SExprStmt es; es.expr = std::move(val);
-                    body->stmts.push_back(make_stmt(node_line_, std::move(es)));
+                    body->stmts.push_back(make_stmt_emit(node_line_, std::move(es)));
                 }
             }
             // Prepend Hermes @-pattern prologue (helper __hp_N lets + user
@@ -3495,7 +3493,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
                     lir::SLet sl;
                     sl.name = b.name; sl.type = anyval_t; sl.is_mut = false;
                     sl.value = builder().var_ref(b.av_var, anyval_t);
-                    prologue.push_back(make_stmt(node_line_, std::move(sl)));
+                    prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
                 }
                 body->stmts.insert(body->stmts.begin(),
                     std::make_move_iterator(prologue.begin()),
@@ -3573,10 +3571,10 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
         blk->stmts.push_back(std::move(hoist_let_view));
         blk->stmts.push_back(std::move(hoist_let_root));
         blk->stmts.push_back(std::move(hoist_let_base));
-        blk->stmts.push_back(make_stmt(node_line_, std::move(smatch)));
-        return make_stmt(node_line_, lir::SBlock{std::move(blk)});
+        blk->stmts.push_back(make_stmt_emit(node_line_, std::move(smatch)));
+        return make_stmt_emit(node_line_, lir::SBlock{std::move(blk)});
     }
-    return make_stmt(node_line_, std::move(smatch));
+    return make_stmt_emit(node_line_, std::move(smatch));
 }
 
 lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
@@ -3635,7 +3633,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             lir::SLet sl;
             sl.name = view_var; sl.type = scrut_type; sl.is_mut = false;
             sl.value = std::move(scrut);
-            hoist_let_view = make_stmt(node_line_, std::move(sl));
+            hoist_let_view = make_stmt_emit(node_line_, std::move(sl));
         }
         anyval_t = make_datatype_type("AnyVal");
         root_var = "__hmatche_root_" + std::to_string(tmp_var_count_++);
@@ -3645,7 +3643,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             lir::SLet sl;
             sl.name = root_var; sl.type = anyval_t; sl.is_mut = false;
             sl.value = std::move(root_call);
-            hoist_let_root = make_stmt(node_line_, std::move(sl));
+            hoist_let_root = make_stmt_emit(node_line_, std::move(sl));
         }
         base_var = "__hmatche_base_" + std::to_string(tmp_var_count_++);
         {
@@ -3655,7 +3653,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             lir::SLet sl;
             sl.name = base_var; sl.type = u8_ptr_t; sl.is_mut = false;
             sl.value = std::move(base_call);
-            hoist_let_base = make_stmt(node_line_, std::move(sl));
+            hoist_let_base = make_stmt_emit(node_line_, std::move(sl));
         }
         has_hoist_let = true;
         scrut = builder().var_ref(view_var, scrut_type);
@@ -3791,7 +3789,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                     lir::SLet sl;
                     sl.name = b.name; sl.type = anyval_t; sl.is_mut = false;
                     sl.value = builder().var_ref(b.av_var, anyval_t);
-                    prologue.push_back(make_stmt(node_line_, std::move(sl)));
+                    prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
                 }
                 auto blk = lir::alloc_block(*cur_prog_);
                 blk->stmts = std::move(prologue);
@@ -3971,7 +3969,7 @@ lir::LStmt SemaChecker::lower_deref_field_compound_assign(TinyMapView node) {
     sdfw.type_name = type_name;
     sdfw.field     = std::string(field_name);
     sdfw.value     = std::move(combined);
-    return make_stmt(node_line_, std::move(sdfw));
+    return make_stmt_emit(node_line_, std::move(sdfw));
 }
 
 // ---------------------------------------------------------------------------
@@ -4028,7 +4026,7 @@ lir::LStmt SemaChecker::lower_tuple_field_compound_assign(TinyMapView node) {
     }
     auto combined = builder().bin_op(base_op, std::move(lhs_read), std::move(rhs), ft);
 
-    return make_stmt(node_line_, lir::STupleWrite{std::string(recv_name), (uint32_t)idx,
+    return make_stmt_emit(node_line_, lir::STupleWrite{std::string(recv_name), (uint32_t)idx,
                                                    std::move(combined), recv_t});
 }
 
@@ -4103,7 +4101,7 @@ lir::LStmt SemaChecker::lower_field_index_compound_assign(TinyMapView node) {
     sfiw.field    = std::string(field_name);
     sfiw.index    = std::move(idx_for_write);
     sfiw.value    = std::move(combined);
-    return make_stmt(node_line_, std::move(sfiw));
+    return make_stmt_emit(node_line_, std::move(sfiw));
 }
 
 } // namespace logos::compiler

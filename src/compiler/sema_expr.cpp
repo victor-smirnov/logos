@@ -3836,10 +3836,10 @@ lir::LExprPtr SemaChecker::lower_list_comp(TinyMapView node) {
         lir::SIf sif;
         sif.cond = std::move(guard_expr);
         sif.then_ = lir::alloc_block(*cur_prog_);
-        sif.then_->stmts.push_back(make_stmt(node_line_, std::move(push_stmt)));
-        loop_body->stmts.push_back(make_stmt(node_line_, std::move(sif)));
+        sif.then_->stmts.push_back(make_stmt_emit(node_line_, std::move(push_stmt)));
+        loop_body->stmts.push_back(make_stmt_emit(node_line_, std::move(sif)));
     } else {
-        loop_body->stmts.push_back(make_stmt(node_line_, std::move(push_stmt)));
+        loop_body->stmts.push_back(make_stmt_emit(node_line_, std::move(push_stmt)));
     }
 
     lir::SForEach sfe;
@@ -3851,8 +3851,8 @@ lir::LExprPtr SemaChecker::lower_list_comp(TinyMapView node) {
     sfe.body      = std::move(loop_body);
 
     auto outer = lir::alloc_block(*cur_prog_);
-    outer->stmts.push_back(make_stmt(node_line_, std::move(let_v)));
-    outer->stmts.push_back(make_stmt(node_line_, std::move(sfe)));
+    outer->stmts.push_back(make_stmt_emit(node_line_, std::move(let_v)));
+    outer->stmts.push_back(make_stmt_emit(node_line_, std::move(sfe)));
 
     auto result = builder().var_ref(vec_var, vec_t);
     return builder().block_expr(std::move(outer), std::move(result), vec_t);
@@ -3939,10 +3939,10 @@ lir::LExprPtr SemaChecker::lower_map_comp(TinyMapView node) {
         lir::SIf sif;
         sif.cond = std::move(guard_body);
         sif.then_ = lir::alloc_block(*cur_prog_);
-        sif.then_->stmts.push_back(make_stmt(node_line_, std::move(ins_stmt)));
-        loop_body->stmts.push_back(make_stmt(node_line_, std::move(sif)));
+        sif.then_->stmts.push_back(make_stmt_emit(node_line_, std::move(ins_stmt)));
+        loop_body->stmts.push_back(make_stmt_emit(node_line_, std::move(sif)));
     } else {
-        loop_body->stmts.push_back(make_stmt(node_line_, std::move(ins_stmt)));
+        loop_body->stmts.push_back(make_stmt_emit(node_line_, std::move(ins_stmt)));
     }
 
     lir::SForEach sfe;
@@ -3954,8 +3954,8 @@ lir::LExprPtr SemaChecker::lower_map_comp(TinyMapView node) {
     sfe.body      = std::move(loop_body);
 
     auto outer = lir::alloc_block(*cur_prog_);
-    outer->stmts.push_back(make_stmt(node_line_, std::move(let_m)));
-    outer->stmts.push_back(make_stmt(node_line_, std::move(sfe)));
+    outer->stmts.push_back(make_stmt_emit(node_line_, std::move(let_m)));
+    outer->stmts.push_back(make_stmt_emit(node_line_, std::move(sfe)));
 
     auto result = builder().var_ref(hm_var, hm_t);
     return builder().block_expr(std::move(outer), std::move(result), hm_t);
@@ -4079,10 +4079,10 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
         lir::SIf sif;
         sif.cond = std::move(guard_body);
         sif.then_ = lir::alloc_block(*cur_prog_);
-        sif.then_->stmts.push_back(make_stmt(node_line_, std::move(push_stmt)));
-        loop_body->stmts.push_back(make_stmt(node_line_, std::move(sif)));
+        sif.then_->stmts.push_back(make_stmt_emit(node_line_, std::move(push_stmt)));
+        loop_body->stmts.push_back(make_stmt_emit(node_line_, std::move(sif)));
     } else {
-        loop_body->stmts.push_back(make_stmt(node_line_, std::move(push_stmt)));
+        loop_body->stmts.push_back(make_stmt_emit(node_line_, std::move(push_stmt)));
     }
 
     lir::SForEach sfe;
@@ -4094,8 +4094,8 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
     sfe.body      = std::move(loop_body);
 
     auto outer = lir::alloc_block(*cur_prog_);
-    outer->stmts.push_back(make_stmt(node_line_, std::move(let_c)));
-    outer->stmts.push_back(make_stmt(node_line_, std::move(sfe)));
+    outer->stmts.push_back(make_stmt_emit(node_line_, std::move(let_c)));
+    outer->stmts.push_back(make_stmt_emit(node_line_, std::move(sfe)));
 
     auto result = builder().var_ref(ctr_var, ctr_t);
     return builder().block_expr(std::move(outer), std::move(result), ctr_t);
@@ -4234,10 +4234,10 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
         lir::SIf sif;
         sif.cond = std::move(guard_body);
         sif.then_ = lir::alloc_block(*cur_prog_);
-        sif.then_->stmts.push_back(make_stmt(node_line_, std::move(put_stmt)));
-        loop_body->stmts.push_back(make_stmt(node_line_, std::move(sif)));
+        sif.then_->stmts.push_back(make_stmt_emit(node_line_, std::move(put_stmt)));
+        loop_body->stmts.push_back(make_stmt_emit(node_line_, std::move(sif)));
     } else {
-        loop_body->stmts.push_back(make_stmt(node_line_, std::move(put_stmt)));
+        loop_body->stmts.push_back(make_stmt_emit(node_line_, std::move(put_stmt)));
     }
 
     lir::SForEach sfe;
@@ -4249,8 +4249,8 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
     sfe.body      = std::move(loop_body);
 
     auto outer = lir::alloc_block(*cur_prog_);
-    outer->stmts.push_back(make_stmt(node_line_, std::move(let_c)));
-    outer->stmts.push_back(make_stmt(node_line_, std::move(sfe)));
+    outer->stmts.push_back(make_stmt_emit(node_line_, std::move(let_c)));
+    outer->stmts.push_back(make_stmt_emit(node_line_, std::move(sfe)));
 
     auto result = builder().var_ref(ctr_var, ctr_t);
     return builder().block_expr(std::move(outer), std::move(result), ctr_t);
