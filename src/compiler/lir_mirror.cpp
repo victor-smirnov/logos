@@ -1681,6 +1681,15 @@ void lir_mirror_populate_moved(lir::LProgram& prog, LirMirrorTable& table) {
         for (auto& m : i.methods) em.emit_function(*m);
     for (auto& c : prog.consts)
         if (c.value) em.emit_expr_public(*c.value);
+    // Stage 2 (Group 1+) fix: direct-emitted nodes leave kind=ELitInt default,
+    // so emit_expr's back-fill walk-via-variant misses their descendants. Sweep
+    // the pools to register every LExpr/LStmt/LBlock that already carries a
+    // mirror_offset_ but whose descendants weren't reached by the recursive
+    // visit. Cheap (one-time, post-mono) and unconditional — works for both
+    // variant-built and direct-built nodes.
+    for (auto& uptr : prog.expr_pool_)
+        if (uptr && uptr->mirror_offset_ != hermes::arena_offset_t{})
+            table.expr_by_offset[uptr->mirror_offset_.value()] = uptr.get();
 }
 
 // ── Per-node entry points (Stage 3g.1) ────────────────────────────────────

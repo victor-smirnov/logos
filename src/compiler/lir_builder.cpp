@@ -107,7 +107,8 @@ lir::LExprPtr LirBuilder::deref(lir::LExprPtr operand, TypeRef ty) {
 }
 
 lir::LExprPtr LirBuilder::cast(lir::LExprPtr operand, TypeRef ty) {
-    return make_expr(prog_, ty, lir::ECast{std::move(operand)});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_cast(p, t, operand, {}); });
 }
 
 lir::LExprPtr LirBuilder::field_read(lir::LExprPtr receiver, std::string field, TypeRef ty) {
