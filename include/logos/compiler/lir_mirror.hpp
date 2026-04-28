@@ -96,6 +96,11 @@ hermes::arena_offset_t lir_mirror_emit_reflect_of   (lir::LProgram& prog, TypeRe
 // Stage 2 Group 1 — children-only expr kinds. Caller has already built each
 // child (with mirror_offset_ set). Helper recursively emit_av's children via
 // the cache-hit fast path.
+hermes::arena_offset_t lir_mirror_emit_enum_lit     (lir::LProgram& prog, TypeRef ty, std::string_view enum_name, std::string_view variant, int64_t disc);
+hermes::arena_offset_t lir_mirror_emit_enum_lit_data(lir::LProgram& prog, TypeRef ty, std::string_view enum_name, std::string_view variant, int64_t disc, const std::vector<lir::LExprPtr>& payload);
+hermes::arena_offset_t lir_mirror_emit_struct_lit   (lir::LProgram& prog, TypeRef ty, std::string_view name, const std::vector<std::pair<std::string, lir::LExprPtr>>& fields);
+hermes::arena_offset_t lir_mirror_emit_call         (lir::LProgram& prog, TypeRef ty, std::string_view callee, const std::vector<TypeRef>& type_args, const std::vector<lir::LExprPtr>& args);
+hermes::arena_offset_t lir_mirror_emit_method_call  (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& receiver, std::string_view method, std::string_view resolved_symbol, const std::vector<TypeRef>& type_args, const std::vector<lir::LExprPtr>& args, int32_t vtable_index, std::string_view resolved_type, std::string_view tag_system, std::string_view tag_trait);
 hermes::arena_offset_t lir_mirror_emit_unary        (lir::LProgram& prog, TypeRef ty, std::string_view op, const lir::LExprPtr& operand);
 hermes::arena_offset_t lir_mirror_emit_bin_op       (lir::LProgram& prog, TypeRef ty, std::string_view op, const lir::LExprPtr& lhs, const lir::LExprPtr& rhs);
 hermes::arena_offset_t lir_mirror_emit_field_read   (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& receiver, std::string_view field);

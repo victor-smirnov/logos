@@ -154,8 +154,8 @@ lir::LExprPtr LirBuilder::call(std::string callee,
                                 std::vector<TypeRef> type_args,
                                 std::vector<lir::LExprPtr> args,
                                 TypeRef ty) {
-    return make_expr(prog_, ty, lir::ECall{std::move(callee), std::move(type_args),
-                                    std::move(args)});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_call(p, t, callee, type_args, args); });
 }
 
 lir::LExprPtr LirBuilder::block_expr(lir::LBlock* block,
@@ -168,12 +168,14 @@ lir::LExprPtr LirBuilder::struct_lit(
     std::string name,
     std::vector<std::pair<std::string, lir::LExprPtr>> fields,
     TypeRef ty) {
-    return make_expr(prog_, ty, lir::EStructLit{std::move(name), std::move(fields)});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_struct_lit(p, t, name, fields); });
 }
 
 lir::LExprPtr LirBuilder::enum_lit(std::string enum_name, std::string variant,
                                     int64_t disc, TypeRef ty) {
-    return make_expr(prog_, ty, lir::EEnumLit{std::move(enum_name), std::move(variant), disc});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_enum_lit(p, t, enum_name, variant, disc); });
 }
 
 lir::LExprPtr LirBuilder::closure_box(lir::EClosure* inner,
@@ -251,8 +253,10 @@ lir::LExprPtr LirBuilder::enum_lit_data(std::string enum_name, std::string varia
                                          int64_t disc,
                                          std::vector<lir::LExprPtr> payload,
                                          TypeRef ty) {
-    return make_expr(prog_, ty, lir::EEnumLitData{
-        std::move(enum_name), std::move(variant), disc, std::move(payload)});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){
+            return lir_mirror_emit_enum_lit_data(p, t, enum_name, variant, disc, payload);
+        });
 }
 
 lir::LExprPtr LirBuilder::method_call(lir::LExprPtr receiver, std::string method,
@@ -260,14 +264,17 @@ lir::LExprPtr LirBuilder::method_call(lir::LExprPtr receiver, std::string method
                                        std::vector<TypeRef> type_args,
                                        std::vector<lir::LExprPtr> args,
                                        int32_t vtable_index, TypeRef ty) {
-    return make_expr(prog_, ty, lir::EMethodCall{
-        std::move(receiver), std::move(method), std::move(resolved_symbol),
-        std::move(type_args), std::move(args), vtable_index});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){
+            return lir_mirror_emit_method_call(p, t, receiver, method, resolved_symbol,
+                                                type_args, args, vtable_index, {}, {}, {});
+        });
 }
 
 lir::LExprPtr LirBuilder::hermes_cast(lir::LExprPtr operand, std::string build_fn,
                                        TypeRef ty) {
-    return make_expr(prog_, ty, lir::ECast{std::move(operand), std::move(build_fn)});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_cast(p, t, operand, build_fn); });
 }
 
 void LirBuilder::retype_expr(lir::LExpr* e, TypeRef new_ty) {
@@ -327,11 +334,19 @@ lir::LStmt LirBuilder::stmt_deref_write(lir::LExprPtr ptr, lir::LExprPtr value, 
 }
 
 lir::LExprPtr LirBuilder::call_v(lir::ECall ec, TypeRef ty) {
-    return make_expr(prog_, ty, std::move(ec));
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){
+            return lir_mirror_emit_call(p, t, ec.callee, ec.type_args, ec.args);
+        });
 }
 
 lir::LExprPtr LirBuilder::method_call_v(lir::EMethodCall mc, TypeRef ty) {
-    return make_expr(prog_, ty, std::move(mc));
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){
+            return lir_mirror_emit_method_call(p, t, mc.receiver, mc.method,
+                mc.resolved_symbol, mc.type_args, mc.args, mc.vtable_index,
+                mc.resolved_type, mc.tag_system, mc.tag_trait);
+        });
 }
 
 lir::LExprPtr LirBuilder::if_expr_v(lir::EIfExpr eif, TypeRef ty) {

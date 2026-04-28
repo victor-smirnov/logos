@@ -220,6 +220,92 @@ public:
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
+    hermes::arena_offset_t emit_enum_lit_direct(TypeRef ty,
+                                                 std::string_view enum_name,
+                                                 std::string_view variant,
+                                                 int64_t disc) {
+        auto en_av = put_string(enum_name);
+        auto vr_av = put_string(variant);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::EnumLit));
+        put(map_off, ek::ENUM_NAME, en_av);
+        put(map_off, ek::VARIANT,   vr_av);
+        put(map_off, ek::DISC,      put_i64(disc));
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_enum_lit_data_direct(TypeRef ty,
+                                                      std::string_view enum_name,
+                                                      std::string_view variant,
+                                                      int64_t disc,
+                                                      const std::vector<lir::LExprPtr>& payload) {
+        auto en_av = put_string(enum_name);
+        auto vr_av = put_string(variant);
+        auto pl_av = expr_array(payload);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::EnumLitData));
+        put(map_off, ek::ENUM_NAME, en_av);
+        put(map_off, ek::VARIANT,   vr_av);
+        put(map_off, ek::DISC,      put_i64(disc));
+        put(map_off, ek::PAYLOAD,   pl_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_struct_lit_direct(TypeRef ty,
+                                                   std::string_view name,
+                                                   const std::vector<std::pair<std::string, lir::LExprPtr>>& fields) {
+        auto n_av = put_string(name);
+        auto fa   = struct_fields(fields);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::StructLit));
+        put(map_off, ek::STRUCT_NAME,  n_av);
+        put(map_off, ek::FIELD_NAMES,  fa.names);
+        put(map_off, ek::FIELD_VALUES, fa.values);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_call_direct(TypeRef ty,
+                                             std::string_view callee,
+                                             const std::vector<TypeRef>& type_args,
+                                             const std::vector<lir::LExprPtr>& args) {
+        auto cn_av = put_string(callee);
+        auto ta_av = type_array(type_args);
+        auto ar_av = expr_array(args);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::Call));
+        put(map_off, ek::CALLEE,    cn_av);
+        put(map_off, ek::TYPE_ARGS, ta_av);
+        put(map_off, ek::ARGS,      ar_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_method_call_direct(TypeRef ty,
+                                                    const lir::LExprPtr& receiver,
+                                                    std::string_view method,
+                                                    std::string_view resolved_symbol,
+                                                    const std::vector<TypeRef>& type_args,
+                                                    const std::vector<lir::LExprPtr>& args,
+                                                    int32_t vtable_index,
+                                                    std::string_view resolved_type,
+                                                    std::string_view tag_system,
+                                                    std::string_view tag_trait) {
+        auto recv_av = expr_av(receiver);
+        auto m_av    = put_string(method);
+        auto ta_av   = type_array(type_args);
+        auto ar_av   = expr_array(args);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::MethodCall));
+        put(map_off, ek::RECEIVER,     recv_av);
+        put(map_off, ek::METHOD,       m_av);
+        put(map_off, ek::TYPE_ARGS,    ta_av);
+        put(map_off, ek::ARGS,         ar_av);
+        put(map_off, ek::VTABLE_INDEX, put_i32(vtable_index));
+        if (!resolved_symbol.empty())
+            put(map_off, ek::RESOLVED_SYMBOL, put_string(resolved_symbol));
+        if (!resolved_type.empty())
+            put(map_off, ek::RESOLVED_TYPE, put_string(resolved_type));
+        if (!tag_system.empty())
+            put(map_off, ek::TAG_SYSTEM, put_string(tag_system));
+        if (!tag_trait.empty())
+            put(map_off, ek::TAG_TRAIT, put_string(tag_trait));
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
     hermes::arena_offset_t emit_unary_direct(TypeRef ty, std::string_view op,
                                               const lir::LExprPtr& operand) {
         auto op_av = put_string(op);
@@ -1613,6 +1699,31 @@ hermes::arena_offset_t lir_mirror_emit_reflect_of(lir::LProgram& prog, TypeRef t
     return em.emit_reflect_of_direct(ty, elem);
 }
 
+hermes::arena_offset_t lir_mirror_emit_enum_lit(lir::LProgram& prog, TypeRef ty, std::string_view enum_name, std::string_view variant, int64_t disc) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_enum_lit_direct(ty, enum_name, variant, disc);
+}
+hermes::arena_offset_t lir_mirror_emit_enum_lit_data(lir::LProgram& prog, TypeRef ty, std::string_view enum_name, std::string_view variant, int64_t disc, const std::vector<lir::LExprPtr>& payload) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_enum_lit_data_direct(ty, enum_name, variant, disc, payload);
+}
+hermes::arena_offset_t lir_mirror_emit_struct_lit(lir::LProgram& prog, TypeRef ty, std::string_view name, const std::vector<std::pair<std::string, lir::LExprPtr>>& fields) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_struct_lit_direct(ty, name, fields);
+}
+hermes::arena_offset_t lir_mirror_emit_call(lir::LProgram& prog, TypeRef ty, std::string_view callee, const std::vector<TypeRef>& type_args, const std::vector<lir::LExprPtr>& args) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_call_direct(ty, callee, type_args, args);
+}
+hermes::arena_offset_t lir_mirror_emit_method_call(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& receiver, std::string_view method, std::string_view resolved_symbol, const std::vector<TypeRef>& type_args, const std::vector<lir::LExprPtr>& args, int32_t vtable_index, std::string_view resolved_type, std::string_view tag_system, std::string_view tag_trait) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_method_call_direct(ty, receiver, method, resolved_symbol, type_args, args, vtable_index, resolved_type, tag_system, tag_trait);
+}
 hermes::arena_offset_t lir_mirror_emit_unary(lir::LProgram& prog, TypeRef ty, std::string_view op, const lir::LExprPtr& operand) {
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, *prog.mirror_table);
