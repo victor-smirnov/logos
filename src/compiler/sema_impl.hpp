@@ -247,13 +247,6 @@ private:
     }
 
     template<typename K>
-    static lir::LStmt make_stmt(uint32_t line, K&& k) {
-        lir::LStmt s; s.line = line;
-        s.kind = std::forward<K>(k);
-        return s;
-    }
-
-    template<typename K>
     lir::LStmt make_stmt_emit(uint32_t line, K&& k) {
         lir::LStmt s; s.line = line;
         if (cur_prog_) {
@@ -310,7 +303,7 @@ private:
                 static_assert(sizeof(K) == 0, "make_stmt_emit: unknown stmt kind");
             }
         }
-        s.kind = std::forward<K>(k);
+        (void)k;  // payload swallowed — only mirror_offset_ matters now
         return s;
     }
 

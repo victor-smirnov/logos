@@ -610,12 +610,15 @@ struct SDrop {
 
 struct LStmt {
     uint32_t line = 0;             // source line (0 = unknown)
-    std::variant<
-        SLet, SAssign, SReturn, SIf, SWhile, SFor, SLoop,
-        SBreak, SContinue, SBlock, SFieldWrite, SIndexWrite, SFieldIndexWrite, SExprStmt, SMatch, SDelete, SForEach, SDerefWrite,
-        SDrop, SDerefFieldWrite, STupleWrite, SLetElse, SChainFieldWrite
-    > kind;
     mutable hermes::arena_offset_t mirror_offset_{};  // Stage 3g.2 back-pointer
+
+    LStmt() = default;
+    LStmt(const LStmt&) = default;
+    LStmt(LStmt&&) noexcept = default;
+    LStmt& operator=(const LStmt&) = default;
+    LStmt& operator=(LStmt&&) noexcept = default;
+    // B.6 Stage 3.5 step 7e transitional: `LStmt{line, SDrop{...}}` etc.
+    template <class K> LStmt(uint32_t line_, K&&) noexcept : line(line_) {}
 };
 
 // ── Block ─────────────────────────────────────────────────────────────────
