@@ -1549,114 +1549,24 @@ hermes::arena_offset_t LirMirrorEmitter::emit_hv(const HermesVal& v) {
 // ──────────────────────────────────────────────────────────────────────────
 
 hermes::arena_offset_t LirMirrorEmitter::emit_pat(const Pattern& p) {
-    // A.2: field-as-truth + heap-recycle invalidation, mirroring expr/stmt/
-    // block/hv. Pattern is especially exposed here because vector<Pattern>
-    // moves invalidate &p; the table key is fragile, so the field on the
-    // struct itself is authoritative.
-    if (p.mirror_offset_ != hermes::arena_offset_t{}) {
-        if (auto it = table_.pat.find(&p); it != table_.pat.end()) {
-            if (it->second == p.mirror_offset_) return it->second;
-            // Stale cache entry from a recycled Pattern address whose
-            // previous incarnation pointed at a different arena offset.
-            // Honour mirror_offset_ (field-as-truth) and update the cache.
-            it->second = p.mirror_offset_;
-            return p.mirror_offset_;
-        }
-        table_.pat[&p] = p.mirror_offset_;
+    // B.6 Stage 3.5 step 3: mirror_offset_ is now field-as-truth. All
+    // Pattern construction sites (sema build_pattern_impl, sema
+    // make_pat_wild, mono PatSubstWalker) eagerly emit and set
+    // mirror_offset_. The bulk std::visit fallback below should be
+    // unreachable; assert and return.
+    LOGOS_ASSERT(p.mirror_offset_ != hermes::arena_offset_t{},
+                 "B6.S35.S3",
+                 "emit_pat: Pattern reached without mirror_offset_ set "
+                 "(construction site missed direct-emit migration)");
+    if (auto it = table_.pat.find(&p); it != table_.pat.end()) {
+        if (it->second == p.mirror_offset_) return it->second;
+        it->second = p.mirror_offset_;
         return p.mirror_offset_;
     }
-    if (auto it = table_.pat.find(&p); it != table_.pat.end()) {
-        // Heap-address recycling: stale cache entry for a freed Pattern.
-        // Invalidate and fall through to emit a fresh mirror.
-        table_.pat.erase(it);
-    }
-    using namespace lir;
-    hermes::arena_offset_t map_off;
-    std::visit([&](auto const& alt) {
-        using T = std::decay_t<decltype(alt)>;
-        if constexpr (std::is_same_v<T, PatVariant>) {
-            auto enum_av    = put_string(alt.enum_name);
-            auto variant_av = put_string(alt.variant);
-            map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Variant));
-            put(map_off, pk::ENUM_NAME, enum_av);
-            put(map_off, pk::VARIANT,   variant_av);
-            put(map_off, pk::DISC,      put_i64(alt.disc));
-        } else if constexpr (std::is_same_v<T, PatInt>) {
-            map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Int));
-            put(map_off, pk::INT_VALUE, put_i64(alt.value));
-        } else if constexpr (std::is_same_v<T, PatBool>) {
-            map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Bool));
-            put(map_off, pk::BOOL_VALUE, put_bool(alt.value));
-        } else if constexpr (std::is_same_v<T, PatWild>) {
-            auto name_av = alt.name.empty() ? hermes::AnyVal{} : put_string(alt.name);
-            map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Wild));
-            put(map_off, pk::NAME, name_av);
-        } else if constexpr (std::is_same_v<T, PatVariantData>) {
-            auto enum_av    = put_string(alt.enum_name);
-            auto variant_av = put_string(alt.variant);
-            auto bindings_av = string_array(alt.bindings);
-            auto btypes_av   = type_array(alt.binding_types);
-            map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::VariantData));
-            put(map_off, pk::ENUM_NAME,      enum_av);
-            put(map_off, pk::VARIANT,        variant_av);
-            put(map_off, pk::DISC,           put_i64(alt.disc));
-            put(map_off, pk::BINDINGS,       bindings_av);
-            put(map_off, pk::BINDING_TYPES,  btypes_av);
-        } else if constexpr (std::is_same_v<T, PatOr>) {
-            auto subs_av = pat_array(alt.alts);
-            map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Or));
-            put(map_off, pk::SUBS, subs_av);
-        } else if constexpr (std::is_same_v<T, PatTuple>) {
-            auto bindings_av = string_array(alt.bindings);
-            auto btypes_av   = type_array(alt.binding_types);
-            auto subs_av     = pat_array(alt.subs);
-            map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Tuple));
-            put(map_off, pk::BINDINGS,      bindings_av);
-            put(map_off, pk::BINDING_TYPES, btypes_av);
-            put(map_off, pk::SUBS,          subs_av);
-        } else if constexpr (std::is_same_v<T, PatRange>) {
-            map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Range));
-            put(map_off, pk::LO, put_i64(alt.lo));
-            put(map_off, pk::HI, put_i64(alt.hi));
-        } else if constexpr (std::is_same_v<T, PatStruct>) {
-            auto name_av   = put_string(alt.struct_name);
-            auto fields_av = field_binding_array(alt.fields);
-            map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Struct));
-            put(map_off, pk::STRUCT_NAME, name_av);
-            put(map_off, pk::FIELDS,      fields_av);
-            put(map_off, pk::HAS_REST,    put_bool(alt.has_rest));
-        } else if constexpr (std::is_same_v<T, PatSlice>) {
-            auto pre_av  = pat_array(alt.prefix);
-            auto rest_av = pat_array(alt.rest);
-            auto suf_av  = pat_array(alt.suffix);
-            map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Slice));
-            put(map_off, pk::PREFIX, pre_av);
-            put(map_off, pk::REST,   rest_av);
-            put(map_off, pk::SUFFIX, suf_av);
-        } else if constexpr (std::is_same_v<T, PatAt>) {
-            auto name_av = put_string(alt.name);
-            auto sub_av  = pat_array(alt.sub);
-            map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::At));
-            put(map_off, pk::NAME, name_av);
-            put(map_off, pk::SUB,  sub_av);
-            put(map_off, pk::TYPE, type_av(alt.type));
-        } else if constexpr (std::is_same_v<T, PatRefBind>) {
-            auto name_av = put_string(alt.name);
-            map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::RefBind));
-            put(map_off, pk::NAME,      name_av);
-            put(map_off, pk::IS_MUT,    put_bool(alt.is_mut));
-            put(map_off, pk::BIND_TYPE, type_av(alt.bind_type));
-        } else if constexpr (std::is_same_v<T, PatRefPat>) {
-            auto inner_av = pat_array(alt.inner);
-            map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::RefPat));
-            put(map_off, pk::INNER,  inner_av);
-            put(map_off, pk::IS_MUT, put_bool(alt.is_mut));
-        }
-    }, p.kind);
-    p.mirror_offset_ = map_off;
-    table_.pat[&p] = map_off;
-    return map_off;
+    table_.pat[&p] = p.mirror_offset_;
+    return p.mirror_offset_;
 }
+
 
 // ──────────────────────────────────────────────────────────────────────────
 // LStmt mirror

@@ -2408,7 +2408,13 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
 
         lir::SMatch sm;
         sm.scrut = make_next_call();
-        sm.arms.push_back({lir::Pattern{std::move(some_pat)}, std::move(then_body), std::nullopt});
+        lir::Pattern some_pattern(std::move(some_pat));
+        {
+            auto& vd_ = std::get<lir::PatVariantData>(some_pattern.kind);
+            some_pattern.mirror_offset_ = lir_mirror_emit_pat_variant_data(
+                *cur_prog_, vd_.enum_name, vd_.variant, vd_.disc, vd_.bindings, vd_.binding_types);
+        }
+        sm.arms.push_back({std::move(some_pattern), std::move(then_body), std::nullopt});
         sm.arms.push_back({make_pat_wild("_"), std::move(else_body), std::nullopt});
 
         auto loop_body = lir::alloc_block(*cur_prog_);
