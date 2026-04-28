@@ -462,19 +462,9 @@ struct EReflectOf { TypeRef type; };
 
 struct LExpr {
     TypeRef type = nullptr;   // always set; error_t() on ill-typed nodes
-    std::variant<
-        ELitInt, ELitFloat, ELitBool, ELitStr, EVarRef, EEnumLit, EEnumLitData,
-        ECall, EMethodCall, EBinOp, EUnary, EAddrOf, EAddrOfTemp, EDeref,
-        EFieldRead, EIndexRead, EStructLit, EArrLit, ECast, ENew, EIfExpr,
-        ETupleLit, ETupleIndex, ESliceLit, ESliceIndex, ESliceLen, ESlicePtr,
-        EClosureBox, EClosureCall, EFnPtrCall, EFormatCall, EPackExpand,
-        ETry, EMatchExpr, ESizeOf, ETypeCodeOf, EBlockExpr,
-        EHermesLit, EPtrArith, EPtrDiff, EReflectOf
-    > kind;
-    // Stage 3g.2: back-pointer to this node's Hermes mirror in the program's
-    // arena. Set by LirMirrorEmitter (or LirBuilder's eager-emit path) on
-    // first emission; subsequent visits short-circuit. NULL_OFFSET = "not
-    // yet mirrored".
+    // Stage 3g.2 / 7e: back-pointer to this node's Hermes mirror is the only
+    // payload — the variant kind has been dropped, all readers go through the
+    // mirror via lir_view::ExprRef.
     mutable hermes::arena_offset_t mirror_offset_{};
 };
 

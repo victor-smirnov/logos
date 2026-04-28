@@ -51,8 +51,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
     auto eref = expr_ref_of(e);
     if (!eref) {
         std::fprintf(stderr,
-            "mono.subst_expr: input LExpr lacks mirror_offset_ "
-            "(variant index=%zu)\n", e.kind.index());
+            "mono.subst_expr: input LExpr lacks mirror_offset_\n");
         std::abort();
     }
     {

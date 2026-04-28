@@ -23,18 +23,6 @@ inline lir::LExprPtr direct(lir::LProgram& prog, TypeRef ty, EmitFn&& emit) {
     return e;
 }
 
-// Variant-bearing path retained for nodes whose downstream code still
-// inspects LExpr::kind (closure_to_fnptr reads EClosureBox.inner via
-// std::get_if). Will be removed in step 7 once those readers go through
-// the mirror.
-template <class K>
-inline lir::LExprPtr make_expr(lir::LProgram& prog, TypeRef t, K&& k) {
-    auto* e = lir::alloc_expr(prog);
-    e->type = t;
-    e->kind = std::forward<K>(k);
-    lir_mirror_emit_expr_node(prog, *e);
-    return e;
-}
 } // anonymous
 
 lir::LExprPtr LirBuilder::lit_int(int64_t v, TypeRef ty) {
