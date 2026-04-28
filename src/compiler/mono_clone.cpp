@@ -203,18 +203,20 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         }
         case C::ClosureCall: {
             lir_view::EClosureCallView v{eref};
-            lir::EClosureCall nc;
-            nc.callee = subst_child_expr(v.callee());
-            v.each_arg([&](lir_view::ExprRef er) { nc.args.push_back(subst_child_expr(er)); });
-            result->kind = std::move(nc);
+            auto callee = subst_child_expr(v.callee());
+            std::vector<lir::LExprPtr> args;
+            v.each_arg([&](lir_view::ExprRef er) { args.push_back(subst_child_expr(er)); });
+            result->mirror_offset_ = lir_mirror_emit_closure_call(
+                out_, result->type, callee, args);
             break;
         }
         case C::FnPtrCall: {
             lir_view::EFnPtrCallView v{eref};
-            lir::EFnPtrCall nc;
-            nc.callee = subst_child_expr(v.callee());
-            v.each_arg([&](lir_view::ExprRef er) { nc.args.push_back(subst_child_expr(er)); });
-            result->kind = std::move(nc);
+            auto callee = subst_child_expr(v.callee());
+            std::vector<lir::LExprPtr> args;
+            v.each_arg([&](lir_view::ExprRef er) { args.push_back(subst_child_expr(er)); });
+            result->mirror_offset_ = lir_mirror_emit_fn_ptr_call(
+                out_, result->type, callee, args);
             break;
         }
         case C::FormatCall: {
@@ -246,14 +248,16 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         }
         case C::BlockExpr: {
             lir_view::EBlockExprView v{eref};
-            lir::EBlockExpr nb;
+            lir::LBlock* nb_block = nullptr;
+            lir::LExprPtr nb_result = nullptr;
             if (auto br = v.block(); br) {
-                nb.block = lir::alloc_block(out_, subst_child_block(br));
-                lir_mirror_emit_block_node(out_, *nb.block);
+                nb_block = lir::alloc_block(out_, subst_child_block(br));
+                lir_mirror_emit_block_node(out_, *nb_block);
             }
             if (auto rr = v.result(); rr)
-                nb.result = subst_child_expr(rr);
-            result->kind = std::move(nb);
+                nb_result = subst_child_expr(rr);
+            result->mirror_offset_ = lir_mirror_emit_block_expr(
+                out_, result->type, nb_block, nb_result);
             break;
         }
         case C::ReflectOf: {

@@ -156,7 +156,8 @@ lir::LExprPtr LirBuilder::call(std::string callee,
 
 lir::LExprPtr LirBuilder::block_expr(lir::LBlock* block,
                                       lir::LExprPtr result, TypeRef ty) {
-    return make_expr(prog_, ty, lir::EBlockExpr{block, std::move(result)});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_block_expr(p, t, block, result); });
 }
 
 lir::LExprPtr LirBuilder::struct_lit(
@@ -195,13 +196,15 @@ void LirBuilder::set_tuple_elem(lir::LExpr* tuple, size_t idx,
 lir::LExprPtr LirBuilder::closure_call(lir::LExprPtr callee,
                                         std::vector<lir::LExprPtr> args,
                                         TypeRef ty) {
-    return make_expr(prog_, ty, lir::EClosureCall{std::move(callee), std::move(args)});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_closure_call(p, t, callee, args); });
 }
 
 lir::LExprPtr LirBuilder::fn_ptr_call(lir::LExprPtr callee,
                                        std::vector<lir::LExprPtr> args,
                                        TypeRef ty) {
-    return make_expr(prog_, ty, lir::EFnPtrCall{std::move(callee), std::move(args)});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_fn_ptr_call(p, t, callee, args); });
 }
 
 lir::LExprPtr LirBuilder::addr_of_temp(lir::LExprPtr inner, bool is_mut, TypeRef ty) {
