@@ -2,6 +2,10 @@
 // metacall returning HermesStatic — callee builds an @-literal and the
 // driver freezes its blob bytes into rodata, splicing a HERMES_BLOB into
 // the AST. The user-facing type stays HermesStatic.
+//
+// Parity check: the same callee is invoked at runtime (no metacall),
+// and both views must report the same size. The metacall path is a
+// CTFE-equivalent of the runtime call.
 package metacall_hermes_static;
 
 use std.hermes.ctr;
@@ -12,10 +16,23 @@ fn build_cfg() -> HermesStatic {
 }
 
 unsafe fn main() -> i32 {
-    let cfg: HermesStatic = metacall build_cfg();
-    let view = cfg.as_view();
-    if view.size() == 0u64 {
+    // Compile-time: blob is spliced into rodata as HERMES_BLOB.
+    let cfg_meta: HermesStatic = metacall build_cfg();
+    let view_meta = cfg_meta.as_view();
+
+    // Runtime: same callee, ordinary call.
+    let cfg_rt: HermesStatic = build_cfg();
+    let view_rt = cfg_rt.as_view();
+
+    if view_meta.size() == 0u64 {
         return 1;
+    }
+    if view_rt.size() == 0u64 {
+        return 2;
+    }
+    // Both paths build the same blob — sizes must match byte-for-byte.
+    if view_meta.size() != view_rt.size() {
+        return 3;
     }
     return 42;
 }
