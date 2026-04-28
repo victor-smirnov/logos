@@ -132,8 +132,10 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         }
         case C::Cast: {
             lir_view::ECastView v{eref};
-            result->kind = lir::ECast{subst_child_expr(v.operand()),
-                                      std::string(v.hermes_build_fn())};
+            std::string hbf(v.hermes_build_fn());
+            auto op = subst_child_expr(v.operand());
+            result->mirror_offset_ = lir_mirror_emit_cast(
+                out_, result->type, op, hbf);
             break;
         }
         case C::Try: {
