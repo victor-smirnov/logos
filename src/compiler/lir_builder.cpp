@@ -360,8 +360,9 @@ lir::LExprPtr LirBuilder::hermes_lit_v(lir::EHermesLit lit, TypeRef ty) {
     auto cex   = std::move(lit.capture_exprs);
     auto cty   = std::move(lit.capture_types);
     auto cpc   = lit.capture_param_count;
+    auto blob  = std::move(lit.static_blob);
     return direct(prog_, ty,
-        [&](auto& p, TypeRef t){ return lir_mirror_emit_hermes_lit(p, t, root, hc, cex, cty, cpc); });
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_hermes_lit(p, t, root, hc, cex, cty, cpc, blob); });
 }
 
 lir::LExprPtr LirBuilder::match_expr_v(lir::EMatchExpr me, TypeRef ty) {

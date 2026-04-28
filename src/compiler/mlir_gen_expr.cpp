@@ -2797,6 +2797,45 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EReflectOfView v, TypeRef) {
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EHermesLitView v, TypeRef ret_type) {
+    // Metacall splice path: pre-serialised blob bypasses build_hermes_zone.
+    // Same rodata layout as the captures-free @-literal: [u64 size][bytes],
+    // ptr returned by the wrapper points after the size prefix.
+    if (auto sb = v.static_blob(); !sb.empty()) {
+        auto i8 = builder_.getIntegerType(8);
+        auto size_le = static_cast<uint64_t>(sb.size());
+        std::vector<uint8_t> prefixed(8);
+        for (int k = 0; k < 8; ++k)
+            prefixed[k] = static_cast<uint8_t>((size_le >> (k * 8)) & 0xFF);
+        prefixed.insert(prefixed.end(), sb.begin(), sb.end());
+
+        auto lit_idx     = hermes_lit_counter_++;
+        auto global_name = "__hermes_blob_" + std::to_string(lit_idx);
+        auto parent_mod  = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+        auto save_pt     = builder_.saveInsertionPoint();
+        builder_.setInsertionPointToStart(parent_mod.getBody());
+
+        auto arr_type  = mlir::LLVM::LLVMArrayType::get(i8, prefixed.size());
+        auto blob_attr = builder_.getStringAttr(
+            llvm::StringRef(reinterpret_cast<const char*>(prefixed.data()), prefixed.size()));
+        builder_.create<mlir::LLVM::GlobalOp>(
+            loc_, arr_type, /*isConstant=*/true, mlir::LLVM::Linkage::Internal,
+            global_name, blob_attr);
+        builder_.restoreInsertionPoint(save_pt);
+
+        auto global_ptr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), global_name);
+        mlir::Value offset8 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 8, 64);
+        auto blob_ptr = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), i8, global_ptr, mlir::ValueRange{offset8});
+
+        auto sit = struct_types_.find("HermesStatic");
+        if (sit == struct_types_.end()) return blob_ptr;
+        auto alloca = create_entry_alloca(sit->second.llvm_type);
+        auto gep = gep_field(alloca, sit->second, "ptr");
+        if (!gep) return blob_ptr;
+        builder_.create<mlir::LLVM::StoreOp>(loc_, blob_ptr, gep);
+        return alloca;
+    }
+
     auto [blob, param_slots] = build_hermes_zone(v);
     bool has_captures = v.has_captures();
     std::vector<TypeRef> capture_types;

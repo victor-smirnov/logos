@@ -392,6 +392,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::HERMES_FLOAT:
     case la::HERMES_BOOL:
     case la::HERMES_NULL:  return lower_hermes_lit(expr);
+    case la::HERMES_BLOB:  return lower_hermes_blob(expr);
     // C1 bug fix: $-capture nodes must not appear as standalone expressions;
     // they are only valid inside hermes_val (within lower_hermes_val).
     case la::HERMES_CAP_IDENT:
@@ -5869,6 +5870,19 @@ lir::LExprPtr SemaChecker::lower_hermes_lit(TinyMapView node) {
     return builder().hermes_lit_v(std::move(lit), result_type);
 }
 
+// HERMES_BLOB — sema-internal node spliced by the metacall driver after
+// invoking a thunk whose return type is HermesStatic. VALUE is the raw
+// Hermes blob bytes (Varchar). We lower to EHermesLit{static_blob=bytes,
+// root=null, has_captures=false} with type=HermesStatic; mlir_gen takes
+// the static_blob fast-path and emits the bytes directly into rodata.
+lir::LExprPtr SemaChecker::lower_hermes_blob(TinyMapView node) {
+    auto bytes = str_of(node.get(la::VALUE.code));
+    lir::EHermesLit lit;
+    lit.static_blob.assign(bytes.data(), bytes.size());
+    auto result_type = make_struct_type("HermesStatic");
+    return builder().hermes_lit_v(std::move(lit), result_type);
+}
+
 // ── metacall <call_expr> ─────────────────────────────────────────────────
 //
 // M.1 stage 2: validate the metacall site (return type is primitive
@@ -5992,6 +6006,8 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
     auto lowered = lower_expr(inner);
     auto rt = lowered ? lowered->type : nullptr;
     auto rk = TypeRef(rt).kind();
+    bool is_hermes_static =
+        rk == LogosType::Kind::Struct && TypeRef(rt).struct_name() == "HermesStatic";
     bool prim_ok =
         rk == LogosType::Kind::Bool ||
         rk == LogosType::Kind::I8   || rk == LogosType::Kind::I16 ||
@@ -6006,11 +6022,12 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
         // &str / Slice<u8>
         (rk == LogosType::Kind::Slice && TypeRef(rt).elem() &&
          TypeRef(rt).elem().kind() == LogosType::Kind::U8);
-    if (rt && !prim_ok)
-        error("metacall: ret type must be primitive scalar");
+    bool ok_ret = prim_ok || is_hermes_static;
+    if (rt && !ok_ret)
+        error("metacall: ret type must be primitive scalar or HermesStatic");
 
     // Record site for the eventual driver-side splice (M.1 Stage 2).
-    if (cur_prog_ && rt && prim_ok) {
+    if (cur_prog_ && rt && ok_ret) {
         lir::LProgram::MetacallSite site;
         site.ast_idx = cur_ast_idx_;
         site.expr_offset = static_cast<uint32_t>(node.offset().value());
@@ -6036,6 +6053,9 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
         case LogosType::Kind::I64:   site.ret_tag = RT::I64; break;
         case LogosType::Kind::FloatLit: site.ret_tag = RT::F64; break;
         case LogosType::Kind::Slice: site.ret_tag = RT::Str; break;
+        case LogosType::Kind::Struct:
+            site.ret_tag = is_hermes_static ? RT::HermesStatic : RT::I64;
+            break;
         default: site.ret_tag = RT::I64; break;
         }
 
@@ -6107,10 +6127,16 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
                 ret_text = type_str(rt);
             }
             std::string pkg = cur_package_.empty() ? "__metacall_thunks" : cur_package_;
+            // HermesStatic ret needs std.hermes.view in scope.
+            const char* extra_uses =
+                (site.ret_tag == lir::LProgram::MetacallSite::RetTag::HermesStatic)
+                ? "use std.hermes.view;\n"
+                : "";
             site.thunk_source = std::format(
                 "package {};\n"
+                "{}"
                 "fn {}() -> {} {{ return {}; }}\n",
-                pkg, site.thunk_name, ret_text, call_text);
+                pkg, extra_uses, site.thunk_name, ret_text, call_text);
         }
         cur_prog_->metacall_sites.push_back(std::move(site));
     }

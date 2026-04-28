@@ -1026,6 +1026,7 @@ private:
                                           TypeRef ctr_t,
                                           std::string_view context);
     lir::LExprPtr lower_hermes_lit(hermes::TinyMapView node);
+    lir::LExprPtr lower_hermes_blob(hermes::TinyMapView node);
 
     // Capture context: non-null while lowering a hermes literal that has $-captures.
     // lower_hermes_val populates it as it encounters HERMES_CAP_IDENT/EXPR nodes.

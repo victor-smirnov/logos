@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: Apache-2.0
+// metacall returning HermesStatic — callee builds an @-literal and the
+// driver freezes its blob bytes into rodata, splicing a HERMES_BLOB into
+// the AST. The user-facing type stays HermesStatic.
+package metacall_hermes_static;
+
+use std.hermes.ctr;
+use std.hermes.view;
+
+fn build_cfg() -> HermesStatic {
+    return @{"x": 42, "y": "hello"};
+}
+
+unsafe fn main() -> i32 {
+    let cfg: HermesStatic = metacall build_cfg();
+    let view = cfg.as_view();
+    if view.size() == 0u64 {
+        return 1;
+    }
+    return 42;
+}

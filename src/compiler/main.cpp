@@ -10,6 +10,7 @@
 #include "mlir_gen.hpp"
 #include "module_manifest.hpp"
 #include <chrono>
+#include <cstring>
 #include "module_loader.hpp"
 #include <logos/compiler/borrow_check.hpp>
 #include <logos/compiler/ast.hpp>
@@ -57,6 +58,9 @@
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/SourceMgr.h>
+#include <llvm/Transforms/IPO/Internalize.h>
+#include <llvm/Transforms/IPO/GlobalDCE.h>
+#include <llvm/IR/PassManager.h>
 
 // JIT (Phase 4)
 #include <logos/jit/jit.hpp>
@@ -671,6 +675,24 @@ int main(int argc, char** argv) {
             mc_llvm->setTargetTriple(llvm::Triple(llvm::sys::getDefaultTargetTriple()));
             llvm::InitializeNativeTarget();
             llvm::InitializeNativeTargetAsmPrinter();
+
+            // Trim the meta-jit module to thunks + transitive deps. Without
+            // this, ORC tries to materialize user main (and its stdlib
+            // closure: fibers/TLS getters) which RuntimeDyld can't relocate.
+            // Internalize everything except __metacall_thunk_*, then run
+            // GlobalDCE to drop the now-dead user main and unrelated stdlib.
+            llvm::internalizeModule(*mc_llvm, [](const llvm::GlobalValue& gv) {
+                return gv.getName().starts_with("__metacall_thunk_");
+            });
+            {
+                llvm::ModulePassManager mpm;
+                mpm.addPass(llvm::GlobalDCEPass());
+                llvm::ModuleAnalysisManager mam;
+                llvm::PassBuilder pb;
+                pb.registerModuleAnalyses(mam);
+                mpm.run(*mc_llvm, mam);
+            }
+
             auto mc_jit = build_jit_from_module(*mc_llvm, "logosc-metacall",
                                                 /*with_process_symbols=*/true,
                                                 &archive_paths);
@@ -694,7 +716,9 @@ int main(int argc, char** argv) {
                 double   f_val = 0.0;
                 bool     b_val = false;
                 std::string s_val;
+                std::string blob_bytes;  // for HermesStatic ret
                 bool is_float = false, is_bool = false, is_str = false, is_unsigned = false;
+                bool is_hermes_blob = false;
                 switch (site.ret_tag) {
                 case RT::Bool:  b_val = reinterpret_cast<bool   (*)()>(sym)(); is_bool = true; break;
                 case RT::I8:    i_val = reinterpret_cast<int8_t (*)()>(sym)(); break;
@@ -717,11 +741,26 @@ int main(int argc, char** argv) {
                     s_val.assign(sf.p ? sf.p : "", sf.n);
                     is_str = true; break;
                 }
+                case RT::HermesStatic: {
+                    // HermesStatic = { ptr: *const u8 }, DataPlain ≤ 16B, returned in rax.
+                    // Layout in meta-jit rodata: [u64 size_le][bytes]; ptr points past the prefix.
+                    auto blob_ptr = reinterpret_cast<const uint8_t* (*)()>(sym)();
+                    if (!blob_ptr) {
+                        std::fprintf(stderr, "logosc: metacall HermesStatic thunk returned null\n");
+                        return 1;
+                    }
+                    uint64_t size = 0;
+                    std::memcpy(&size, blob_ptr - 8, 8);
+                    blob_bytes.assign(reinterpret_cast<const char*>(blob_ptr), size);
+                    is_hermes_blob = true;
+                    break;
+                }
                 }
 
                 std::string lit_text;
                 int32_t new_code = logos::compiler::ast::LIT_INT;
                 if (is_bool) { lit_text = b_val ? "true" : "false"; new_code = logos::compiler::ast::LIT_BOOL; }
+                else if (is_hermes_blob) { lit_text = blob_bytes; new_code = logos::compiler::ast::HERMES_BLOB; }
                 else if (is_str) { lit_text = s_val; new_code = logos::compiler::ast::LIT_STR; }
                 else if (is_float) {
                     char buf[64];
