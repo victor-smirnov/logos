@@ -477,6 +477,43 @@ public:
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
+    hermes::arena_offset_t emit_new_direct(TypeRef ty,
+                                            std::string_view class_name,
+                                            const std::vector<std::pair<std::string, lir::LExprPtr>>& fields) {
+        auto n_av = put_string(class_name);
+        auto fa   = struct_fields(fields);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::New));
+        put(map_off, ek::CLASS_NAME,   n_av);
+        put(map_off, ek::FIELD_NAMES,  fa.names);
+        put(map_off, ek::FIELD_VALUES, fa.values);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_format_call_direct(TypeRef ty,
+                                                    const lir::LExprPtr& fmt,
+                                                    const std::vector<lir::LExprPtr>& args,
+                                                    const std::vector<TypeRef>& arg_types) {
+        auto f_av  = expr_av(fmt);
+        auto a_av  = expr_array(args);
+        auto at_av = type_array(arg_types);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::FormatCall));
+        put(map_off, ek::FMT,       f_av);
+        put(map_off, ek::ARGS,      a_av);
+        put(map_off, ek::ARG_TYPES, at_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_closure_box_direct(TypeRef ty,
+                                                    const lir::EClosure* inner) {
+        // Closure body / captures live inside `inner`; emit_closure walks the
+        // sub-tree (block + captures + params) and yields the closure's mirror
+        // offset, which we attach as ek::CLOSURE.
+        auto cl_av = inner ? closure_av(*inner) : hermes::AnyVal{};
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::ClosureBox));
+        put(map_off, ek::CLOSURE, cl_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
 
     // Stage B.6 — LStmt direct mirror writers. Mirror the per-kind branches of
     // emit_stmt's std::visit but allocate from primitive args, never reading
@@ -884,6 +921,131 @@ public:
         auto map_off = make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 7));
         put(map_off, hk::PARAM_INDEX, put_u32(param_index));
         put(map_off, hk::VALUE_INDEX, put_u32(value_index));
+        return map_off;
+    }
+
+    // Stage B.6 — Pattern direct mirror writers. Mirror the per-kind branches
+    // of emit_pat's std::visit but allocate from primitive args, never reading
+    // Pattern::kind. Sub-pattern children must already carry their own
+    // mirror_offset_; pat_array recurses through the cache-hit fast path.
+    hermes::arena_offset_t emit_pat_variant_direct(std::string_view enum_name,
+                                                    std::string_view variant,
+                                                    int64_t disc) {
+        auto enum_av    = put_string(enum_name);
+        auto variant_av = put_string(variant);
+        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Variant));
+        put(map_off, pk::ENUM_NAME, enum_av);
+        put(map_off, pk::VARIANT,   variant_av);
+        put(map_off, pk::DISC,      put_i64(disc));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_pat_int_direct(int64_t value) {
+        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Int));
+        put(map_off, pk::INT_VALUE, put_i64(value));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_pat_bool_direct(bool value) {
+        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Bool));
+        put(map_off, pk::BOOL_VALUE, put_bool(value));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_pat_wild_direct(std::string_view name) {
+        auto name_av = name.empty() ? hermes::AnyVal{} : put_string(name);
+        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Wild));
+        put(map_off, pk::NAME, name_av);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_pat_variant_data_direct(std::string_view enum_name,
+                                                         std::string_view variant,
+                                                         int64_t disc,
+                                                         const std::vector<std::string>& bindings,
+                                                         const std::vector<TypeRef>& binding_types) {
+        auto enum_av     = put_string(enum_name);
+        auto variant_av  = put_string(variant);
+        auto bindings_av = string_array(bindings);
+        auto btypes_av   = type_array(binding_types);
+        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::VariantData));
+        put(map_off, pk::ENUM_NAME,      enum_av);
+        put(map_off, pk::VARIANT,        variant_av);
+        put(map_off, pk::DISC,           put_i64(disc));
+        put(map_off, pk::BINDINGS,       bindings_av);
+        put(map_off, pk::BINDING_TYPES,  btypes_av);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_pat_or_direct(const std::vector<lir::Pattern>& alts) {
+        auto subs_av = pat_array(alts);
+        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Or));
+        put(map_off, pk::SUBS, subs_av);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_pat_tuple_direct(const std::vector<std::string>& bindings,
+                                                  const std::vector<TypeRef>& binding_types,
+                                                  const std::vector<lir::Pattern>& subs) {
+        auto bindings_av = string_array(bindings);
+        auto btypes_av   = type_array(binding_types);
+        auto subs_av     = pat_array(subs);
+        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Tuple));
+        put(map_off, pk::BINDINGS,      bindings_av);
+        put(map_off, pk::BINDING_TYPES, btypes_av);
+        put(map_off, pk::SUBS,          subs_av);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_pat_range_direct(int64_t lo, int64_t hi) {
+        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Range));
+        put(map_off, pk::LO, put_i64(lo));
+        put(map_off, pk::HI, put_i64(hi));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_pat_struct_direct(std::string_view struct_name,
+                                                   const std::vector<lir::PatFieldBinding>& fields,
+                                                   bool has_rest) {
+        auto name_av   = put_string(struct_name);
+        auto fields_av = field_binding_array(fields);
+        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Struct));
+        put(map_off, pk::STRUCT_NAME, name_av);
+        put(map_off, pk::FIELDS,      fields_av);
+        put(map_off, pk::HAS_REST,    put_bool(has_rest));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_pat_slice_direct(const std::vector<lir::Pattern>& prefix,
+                                                  const std::vector<lir::Pattern>& rest,
+                                                  const std::vector<lir::Pattern>& suffix) {
+        auto pre_av  = pat_array(prefix);
+        auto rest_av = pat_array(rest);
+        auto suf_av  = pat_array(suffix);
+        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Slice));
+        put(map_off, pk::PREFIX, pre_av);
+        put(map_off, pk::REST,   rest_av);
+        put(map_off, pk::SUFFIX, suf_av);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_pat_at_direct(std::string_view name,
+                                               const std::vector<lir::Pattern>& sub,
+                                               TypeRef type) {
+        auto name_av = put_string(name);
+        auto sub_av  = pat_array(sub);
+        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::At));
+        put(map_off, pk::NAME, name_av);
+        put(map_off, pk::SUB,  sub_av);
+        put(map_off, pk::TYPE, type_av(type));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_pat_ref_bind_direct(std::string_view name,
+                                                     bool is_mut,
+                                                     TypeRef bind_type) {
+        auto name_av = put_string(name);
+        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::RefBind));
+        put(map_off, pk::NAME,      name_av);
+        put(map_off, pk::IS_MUT,    put_bool(is_mut));
+        put(map_off, pk::BIND_TYPE, type_av(bind_type));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_pat_ref_pat_direct(const std::vector<lir::Pattern>& inner,
+                                                    bool is_mut) {
+        auto inner_av = pat_array(inner);
+        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::RefPat));
+        put(map_off, pk::INNER,  inner_av);
+        put(map_off, pk::IS_MUT, put_bool(is_mut));
         return map_off;
     }
 
@@ -2266,6 +2428,21 @@ hermes::arena_offset_t lir_mirror_emit_match_expr(lir::LProgram& prog, TypeRef t
     LirMirrorEmitter em(arena, *prog.mirror_table);
     return em.emit_match_expr_direct(ty, scrut, arms);
 }
+hermes::arena_offset_t lir_mirror_emit_new(lir::LProgram& prog, TypeRef ty, std::string_view class_name, const std::vector<std::pair<std::string, lir::LExprPtr>>& fields) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_new_direct(ty, class_name, fields);
+}
+hermes::arena_offset_t lir_mirror_emit_format_call(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& fmt, const std::vector<lir::LExprPtr>& args, const std::vector<TypeRef>& arg_types) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_format_call_direct(ty, fmt, args, arg_types);
+}
+hermes::arena_offset_t lir_mirror_emit_closure_box(lir::LProgram& prog, TypeRef ty, const lir::EClosure* inner) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_closure_box_direct(ty, inner);
+}
 
 // ── Stage B.6 — LStmt direct mirror writers ──────────────────────────────
 hermes::arena_offset_t lir_mirror_emit_let(lir::LProgram& prog, uint32_t line, std::string_view name, TypeRef ty, const lir::LExprPtr& value, bool is_mut) {
@@ -2424,6 +2601,73 @@ hermes::arena_offset_t lir_mirror_emit_hv_capture(lir::LProgram& prog, uint32_t 
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, *prog.mirror_table);
     return em.emit_hv_capture_direct(param_index, value_index);
+}
+
+// ── Stage B.6 — Pattern direct mirror writers ────────────────────────────
+hermes::arena_offset_t lir_mirror_emit_pat_variant(lir::LProgram& prog, std::string_view enum_name, std::string_view variant, int64_t disc) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_variant_direct(enum_name, variant, disc);
+}
+hermes::arena_offset_t lir_mirror_emit_pat_int(lir::LProgram& prog, int64_t value) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_int_direct(value);
+}
+hermes::arena_offset_t lir_mirror_emit_pat_bool(lir::LProgram& prog, bool value) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_bool_direct(value);
+}
+hermes::arena_offset_t lir_mirror_emit_pat_wild(lir::LProgram& prog, std::string_view name) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_wild_direct(name);
+}
+hermes::arena_offset_t lir_mirror_emit_pat_variant_data(lir::LProgram& prog, std::string_view enum_name, std::string_view variant, int64_t disc, const std::vector<std::string>& bindings, const std::vector<TypeRef>& binding_types) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_variant_data_direct(enum_name, variant, disc, bindings, binding_types);
+}
+hermes::arena_offset_t lir_mirror_emit_pat_or(lir::LProgram& prog, const std::vector<lir::Pattern>& alts) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_or_direct(alts);
+}
+hermes::arena_offset_t lir_mirror_emit_pat_tuple(lir::LProgram& prog, const std::vector<std::string>& bindings, const std::vector<TypeRef>& binding_types, const std::vector<lir::Pattern>& subs) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_tuple_direct(bindings, binding_types, subs);
+}
+hermes::arena_offset_t lir_mirror_emit_pat_range(lir::LProgram& prog, int64_t lo, int64_t hi) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_range_direct(lo, hi);
+}
+hermes::arena_offset_t lir_mirror_emit_pat_struct(lir::LProgram& prog, std::string_view struct_name, const std::vector<lir::PatFieldBinding>& fields, bool has_rest) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_struct_direct(struct_name, fields, has_rest);
+}
+hermes::arena_offset_t lir_mirror_emit_pat_slice(lir::LProgram& prog, const std::vector<lir::Pattern>& prefix, const std::vector<lir::Pattern>& rest, const std::vector<lir::Pattern>& suffix) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_slice_direct(prefix, rest, suffix);
+}
+hermes::arena_offset_t lir_mirror_emit_pat_at(lir::LProgram& prog, std::string_view name, const std::vector<lir::Pattern>& sub, TypeRef type) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_at_direct(name, sub, type);
+}
+hermes::arena_offset_t lir_mirror_emit_pat_ref_bind(lir::LProgram& prog, std::string_view name, bool is_mut, TypeRef bind_type) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_ref_bind_direct(name, is_mut, bind_type);
+}
+hermes::arena_offset_t lir_mirror_emit_pat_ref_pat(lir::LProgram& prog, const std::vector<lir::Pattern>& inner, bool is_mut) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_ref_pat_direct(inner, is_mut);
 }
 
 void lir_mirror_retype_expr(lir::LProgram& prog,

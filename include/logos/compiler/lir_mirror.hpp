@@ -124,6 +124,9 @@ hermes::arena_offset_t lir_mirror_emit_block_expr   (lir::LProgram& prog, TypeRe
 hermes::arena_offset_t lir_mirror_emit_closure_call (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& callee, const std::vector<lir::LExprPtr>& args);
 hermes::arena_offset_t lir_mirror_emit_fn_ptr_call  (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& callee, const std::vector<lir::LExprPtr>& args);
 hermes::arena_offset_t lir_mirror_emit_match_expr   (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& scrut, const std::vector<lir::EMatchArm>& arms);
+hermes::arena_offset_t lir_mirror_emit_new          (lir::LProgram& prog, TypeRef ty, std::string_view class_name, const std::vector<std::pair<std::string, lir::LExprPtr>>& fields);
+hermes::arena_offset_t lir_mirror_emit_format_call  (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& fmt, const std::vector<lir::LExprPtr>& args, const std::vector<TypeRef>& arg_types);
+hermes::arena_offset_t lir_mirror_emit_closure_box  (lir::LProgram& prog, TypeRef ty, const lir::EClosure* inner);
 
 // Stage B.6 — LStmt direct mirror writers. Allocate a fresh mirror map for a
 // single stmt kind from primitive args, without reading LStmt::kind. Caller
@@ -164,6 +167,24 @@ hermes::arena_offset_t lir_mirror_emit_hv_str     (lir::LProgram& prog, std::str
 hermes::arena_offset_t lir_mirror_emit_hv_map     (lir::LProgram& prog, const std::vector<lir::HVMapEntry>& entries, std::string_view key_type);
 hermes::arena_offset_t lir_mirror_emit_hv_array   (lir::LProgram& prog, const std::vector<lir::HermesValPtr>& elements, std::string_view elem_type);
 hermes::arena_offset_t lir_mirror_emit_hv_capture (lir::LProgram& prog, uint32_t param_index, uint32_t value_index);
+
+// Stage B.6 — Pattern direct mirror writers. Allocate a fresh mirror map for a
+// single Pattern variant from primitive args, without reading Pattern::kind.
+// Caller assigns the returned offset to Pattern::mirror_offset_. Sub-patterns
+// must already carry their own mirror_offset_.
+hermes::arena_offset_t lir_mirror_emit_pat_variant      (lir::LProgram& prog, std::string_view enum_name, std::string_view variant, int64_t disc);
+hermes::arena_offset_t lir_mirror_emit_pat_int          (lir::LProgram& prog, int64_t value);
+hermes::arena_offset_t lir_mirror_emit_pat_bool         (lir::LProgram& prog, bool value);
+hermes::arena_offset_t lir_mirror_emit_pat_wild         (lir::LProgram& prog, std::string_view name);
+hermes::arena_offset_t lir_mirror_emit_pat_variant_data (lir::LProgram& prog, std::string_view enum_name, std::string_view variant, int64_t disc, const std::vector<std::string>& bindings, const std::vector<TypeRef>& binding_types);
+hermes::arena_offset_t lir_mirror_emit_pat_or           (lir::LProgram& prog, const std::vector<lir::Pattern>& alts);
+hermes::arena_offset_t lir_mirror_emit_pat_tuple        (lir::LProgram& prog, const std::vector<std::string>& bindings, const std::vector<TypeRef>& binding_types, const std::vector<lir::Pattern>& subs);
+hermes::arena_offset_t lir_mirror_emit_pat_range        (lir::LProgram& prog, int64_t lo, int64_t hi);
+hermes::arena_offset_t lir_mirror_emit_pat_struct       (lir::LProgram& prog, std::string_view struct_name, const std::vector<lir::PatFieldBinding>& fields, bool has_rest);
+hermes::arena_offset_t lir_mirror_emit_pat_slice        (lir::LProgram& prog, const std::vector<lir::Pattern>& prefix, const std::vector<lir::Pattern>& rest, const std::vector<lir::Pattern>& suffix);
+hermes::arena_offset_t lir_mirror_emit_pat_at           (lir::LProgram& prog, std::string_view name, const std::vector<lir::Pattern>& sub, TypeRef type);
+hermes::arena_offset_t lir_mirror_emit_pat_ref_bind     (lir::LProgram& prog, std::string_view name, bool is_mut, TypeRef bind_type);
+hermes::arena_offset_t lir_mirror_emit_pat_ref_pat      (lir::LProgram& prog, const std::vector<lir::Pattern>& inner, bool is_mut);
 
 // Update the TYPE field of an existing expr mirror in-place. Used by
 // LirBuilder::retype_expr so retyping doesn't need to re-walk the variant
