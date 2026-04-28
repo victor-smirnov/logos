@@ -209,8 +209,10 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         case C::BlockExpr: {
             lir_view::EBlockExprView v{eref};
             lir::EBlockExpr nb;
-            if (auto br = v.block(); br)
+            if (auto br = v.block(); br) {
                 nb.block = lir::alloc_block(out_, subst_child_block(br));
+                lir_mirror_emit_block_node(out_, *nb.block);
+            }
             if (auto rr = v.result(); rr)
                 nb.result = subst_child_expr(rr);
             result->kind = std::move(nb);
@@ -726,6 +728,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 });
             nc->ret_type  = subst_type(v.ret_type(out_.type_pool.impl()), s);
             nc->body      = subst_child_block(br);
+            lir_mirror_emit_block_node(out_, nc->body);
             nc->is_move   = v.is_move();
             nc->as_fn_ptr = v.as_fn_ptr();
             v.each_capture_name([&](std::string_view cn) {
@@ -894,8 +897,12 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
         lir::SIf ni;
         ni.cond  = subst_child_expr(v.cond());
         ni.then_ = lir::alloc_block(out_, subst_child_block(v.then_block()));
-        if (auto eb = v.else_block())
-            ni.else_ = lir::alloc_block(out_, subst_child_block(eb));
+        lir_mirror_emit_block_node(out_, *ni.then_);
+        if (auto eb = v.else_block()) {
+            auto* elseb = lir::alloc_block(out_, subst_child_block(eb));
+            lir_mirror_emit_block_node(out_, *elseb);
+            ni.else_ = elseb;
+        }
         ns.kind = std::move(ni);
         break;
     }
@@ -904,6 +911,7 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
         lir::SWhile nw;
         nw.cond  = subst_child_expr(v.cond());
         nw.body  = lir::alloc_block(out_, subst_child_block(v.body()));
+        lir_mirror_emit_block_node(out_, *nw.body);
         nw.label = std::string(v.label());
         ns.kind  = std::move(nw);
         break;
@@ -916,6 +924,7 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
         nf.hi        = subst_child_expr(v.hi());
         nf.inclusive = v.inclusive();
         nf.body      = lir::alloc_block(out_, subst_child_block(v.body()));
+        lir_mirror_emit_block_node(out_, *nf.body);
         nf.label     = std::string(v.label());
         ns.kind      = std::move(nf);
         break;
@@ -924,6 +933,7 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
         lir_view::SLoopView v{sref};
         lir::SLoop nl;
         nl.body        = lir::alloc_block(out_, subst_child_block(v.body()));
+        lir_mirror_emit_block_node(out_, *nl.body);
         nl.result_type = v.result_type(pool);
         nl.break_slot  = std::string(v.break_slot());
         nl.label       = std::string(v.label());
@@ -932,8 +942,9 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
     }
     case SCode::Block: {
         lir_view::SBlockView v{sref};
-        ns.kind = lir::SBlock{
-            lir::alloc_block(out_, subst_child_block(v.body()))};
+        auto* blk = lir::alloc_block(out_, subst_child_block(v.body()));
+        lir_mirror_emit_block_node(out_, *blk);
+        ns.kind = lir::SBlock{blk};
         break;
     }
     case SCode::Break: {
@@ -1026,6 +1037,7 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
             lir::LMatchArm na;
             if (auto pref = arm.pat()) na.pat = subst_pattern(pref, s);
             na.body = lir::alloc_block(out_, subst_child_block(arm.body()));
+            lir_mirror_emit_block_node(out_, *na.body);
             if (auto g = arm.guard()) na.guard = subst_child_expr(g);
             nm.arms.push_back(std::move(na));
         });
@@ -1041,6 +1053,7 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
         nf.arr_size  = v.arr_size();
         nf.is_slice  = v.is_slice();
         nf.body      = lir::alloc_block(out_, subst_child_block(v.body()));
+        lir_mirror_emit_block_node(out_, *nf.body);
         ns.kind      = std::move(nf);
         break;
     }
@@ -1050,6 +1063,7 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
         if (auto pref = v.pat()) sle.pat = subst_pattern(pref, s);
         sle.scrut      = subst_child_expr(v.scrut());
         sle.else_block = lir::alloc_block(out_, subst_child_block(v.else_block()));
+        lir_mirror_emit_block_node(out_, *sle.else_block);
         ns.kind        = std::move(sle);
         break;
     }
