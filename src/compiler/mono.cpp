@@ -258,11 +258,13 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     out_.diags          = std::move(in_.diags);
     out_.binary_symbols = std::move(in_.binary_symbols);
 
-    // Final fixup: emit mirror entries for items not produced by per-fn
-    // clone+push_back paths above (consts, impl methods, struct method
-    // bodies of non-instantiated structs, etc.). Already-emitted nodes
-    // are deduplicated by the table caches.
-    lir_mirror_emit_into(out_, *out_.mirror_table);
+    // B.6 Stage 1b: full bulk emit pass replaced with cache-only walker.
+    // Functions, struct methods, and enum-impl methods are emit'd eagerly at
+    // their push_back sites. The remaining items moved wholesale from in_ →
+    // out_ (impl methods, const value exprs) carry mirror_offset_ from sema
+    // but need their fresh out_.mirror_table cache populated for downstream
+    // offset → ptr reverse lookups (mlir_gen, borrow_check).
+    lir_mirror_populate_moved(out_, *out_.mirror_table);
 
     return std::move(out_);
 }

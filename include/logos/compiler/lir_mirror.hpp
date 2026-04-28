@@ -77,6 +77,13 @@ void lir_mirror_emit_function(lir::LProgram& prog,
 // structs). Already-emitted nodes are deduplicated by the table caches.
 void lir_mirror_emit_into(lir::LProgram& prog, LirMirrorTable& table);
 
+// Cache-only walker for items moved wholesale from in_ → out_ during mono
+// (impl methods, const value exprs). These nodes carry mirror_offset_ from
+// sema's emit pass, but the fresh out_.mirror_table cache is empty for them.
+// Walks impls/consts and back-fills the cache via the mirror_offset_ != 0
+// branch of emit_*; no new mirror nodes are allocated.
+void lir_mirror_populate_moved(lir::LProgram& prog, LirMirrorTable& table);
+
 // Stage 3g.1 — per-node entry points. Used by LirBuilder to emit a mirror
 // for a single freshly-constructed node (and any of its children that are
 // not yet in the table). Idempotent: calling on an already-mirrored node

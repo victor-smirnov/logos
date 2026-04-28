@@ -1265,6 +1265,15 @@ void lir_mirror_emit_into(lir::LProgram& prog, LirMirrorTable& table) {
     em.run(prog);
 }
 
+void lir_mirror_populate_moved(lir::LProgram& prog, LirMirrorTable& table) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, table);
+    for (auto& i : prog.impls)
+        for (auto& m : i.methods) em.emit_function(*m);
+    for (auto& c : prog.consts)
+        if (c.value) em.emit_expr_public(*c.value);
+}
+
 // ── Per-node entry points (Stage 3g.1) ────────────────────────────────────
 //
 // LirBuilder calls these immediately after constructing each variant. The
