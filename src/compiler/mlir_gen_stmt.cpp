@@ -515,7 +515,7 @@ void MLIRGenImpl::gen_return(lir_view::SReturnView v) {
             if (TypeRef(src_lt).kind() == LogosType::Kind::Ptr && TypeRef(src_lt).pointee())
                 src_lt = TypeRef(src_lt).pointee();
             auto vtable = build_inline_vtable(
-                TypeRef(cur_fn_ret_logos_type_).trait_name(), type_str(src_lt));
+                std::string(TypeRef(cur_fn_ret_logos_type_).trait_name()), type_str(src_lt));
             // Heap-allocate the fat struct so it survives past this function's frame.
             auto size16 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 16LL, 64);
             auto fat_ptr = call_malloc(size16);

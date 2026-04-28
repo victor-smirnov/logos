@@ -41,16 +41,22 @@ struct LStmt;
 struct LBlock;
 struct LFunction;
 
-using LExprPtr     = std::unique_ptr<LExpr>;
-using LBlockPtr    = std::unique_ptr<LBlock>;
+// ADR 0007 slice 1b: LExpr is pool-owned by LProgram::expr_pool_.
+// LExprPtr is now a non-owning raw handle — allocate via lir::alloc_expr(prog).
+// Variant fields previously holding unique_ptr<LExpr> now hold raw LExpr*.
+// std::move() on LExprPtr remains legal (it's a no-op pointer copy).
+using LExprPtr     = LExpr*;
+// ADR 0007 slice 1c: LBlock is pool-owned by LProgram::block_pool_.
+// LBlockPtr is a non-owning raw handle — allocate via lir::alloc_block(prog, ...).
+using LBlockPtr    = LBlock*;
 using LFunctionPtr = std::unique_ptr<LFunction>;
 
 // ── Patterns (for match arms) ─────────────────────────────────────────────
-
-struct PatVariant { std::string enum_name; std::string variant; int64_t disc; };
-struct PatInt     { int64_t value; };
-struct PatBool    { bool value; };
-struct PatWild    { std::string name; };   // _ or named wildcard (name may be "_")
+//
+// B.6 Stage 3.5 step 7e/7f: leaf payload structs (PatInt/PatBool/PatVariant/
+// PatWild/PatRange) were deleted — their data flows directly into the mirror
+// via lir_mirror_emit_pat_*. Compound payload structs below are scratchpad
+// types: sema_stmt fills their fields, then passes to lir_mirror_emit_pat_X.
 
 // Pattern with payload bindings: Option::Some(x) => { use x }
 struct PatVariantData {
@@ -65,9 +71,6 @@ struct PatVariantData {
 struct PatOr;
 // Tuple pattern: (a, b, c) — matches a tuple, binding each element.
 struct PatTuple;
-// Range pattern: lo..=hi inclusive integer range.
-// G4 note: lo/hi are int64_t; u64 values > INT64_MAX are unsupported (sema rejects via intlit_fits).
-struct PatRange { int64_t lo; int64_t hi; };
 // Struct pattern: Point { x: p, y } — binds/tests struct fields.
 struct PatStruct;
 // Slice pattern: [a, b] or [first, .., last].
@@ -83,9 +86,10 @@ struct PatRefBind {
 // Reference pattern: &pat or &mut pat — strips one level of indirection.
 struct PatRefPat;
 
-using Pattern = std::variant<
-    PatVariant, PatInt, PatBool, PatWild, PatVariantData, PatOr, PatTuple,
-    PatRange, PatStruct, PatSlice, PatAt, PatRefBind, PatRefPat>;
+// Forward declaration: Pattern is defined after all alternatives are complete
+// (see end of pattern section). Sub-pattern containers (vector<Pattern>) work
+// with the forward decl.
+struct Pattern;
 
 struct PatOr   { std::vector<Pattern> alts; };
 struct PatTuple {
@@ -118,16 +122,29 @@ struct PatRefPat {
     bool                 is_mut;
 };
 
+// B.6 Stage 3.5 step 7e: Pattern is a POD shell — payload lives in the LIR
+// mirror; pattern variant kinds are transient parameter packs, not stored.
+struct Pattern {
+    mutable hermes::arena_offset_t mirror_offset_{};
+
+    Pattern() = default;
+    Pattern(const Pattern&) = default;
+    Pattern(Pattern&&) noexcept = default;
+    Pattern& operator=(const Pattern&) = default;
+    Pattern& operator=(Pattern&&) noexcept = default;
+};
+
 struct LMatchArm {
     Pattern                  pat;
-    LBlockPtr                body;   // arm body (single stmts are wrapped in a 1-stmt block)
+    LBlockPtr                body = nullptr;   // arm body (single stmts are wrapped in a 1-stmt block)
     std::optional<LExprPtr>  guard;  // if-guard: arm only matches when guard is true
 };
 
 // ── Hermes SDN literal tree ───────────────────────────────────────────────
 
 struct HermesVal;
-using HermesValPtr = std::unique_ptr<HermesVal>;
+// ADR 0007 slice 1c: HermesVal is pool-owned by LProgram::hermes_val_pool_.
+using HermesValPtr = HermesVal*;
 
 struct HVNull  {};
 struct HVBool  { bool value; };
@@ -137,7 +154,7 @@ struct HVStr   { std::string value; };
 
 struct HVMapEntry {
     std::variant<std::string, int64_t> key;
-    HermesValPtr val;
+    HermesValPtr val = nullptr;
 };
 
 struct HVMap   {
@@ -159,8 +176,13 @@ struct HVCapture {
 };
 
 struct HermesVal {
-    std::variant<HVNull, HVBool, HVInt, HVFloat, HVStr, HVMap, HVArray, HVCapture> kind;
     mutable hermes::arena_offset_t mirror_offset_{};  // Stage 3g.2 back-pointer
+
+    HermesVal() = default;
+    HermesVal(const HermesVal&) = default;
+    HermesVal(HermesVal&&) noexcept = default;
+    HermesVal& operator=(const HermesVal&) = default;
+    HermesVal& operator=(HermesVal&&) noexcept = default;
 };
 
 // A Hermes SDN literal (@{...}, @[...], @scalar) lowered to a tree.
@@ -170,7 +192,7 @@ struct HermesVal {
 //   capture_types[v] = resolved LogosType* for value_index v (for coercion).
 //   capture_param_count = total number of PARAM slots in template.
 struct EHermesLit {
-    HermesValPtr root;
+    HermesValPtr root = nullptr;
     bool has_captures = false;
     std::vector<LExprPtr>                    capture_exprs;   // one per unique value
     std::vector<TypeRef>                     capture_types;   // one per unique value
@@ -207,7 +229,7 @@ struct ECall      {
 };
 
 struct EMethodCall {
-    LExprPtr                      receiver;
+    LExprPtr                      receiver = nullptr;
     std::string                   method;
     // Concrete function symbol selected by sema for direct calls.
     // Empty means "resolve by receiver type + method name" in later phases.
@@ -225,13 +247,13 @@ struct EMethodCall {
 
 struct EBinOp {
     std::string op;             // "+", "-", "==", "&&", ...
-    LExprPtr    lhs;
-    LExprPtr    rhs;
+    LExprPtr    lhs = nullptr;
+    LExprPtr    rhs = nullptr;
 };
 
 struct EUnary {
     std::string op;             // "-" or "!"
-    LExprPtr    operand;
+    LExprPtr    operand = nullptr;
 };
 
 // & address-of: returns alloca pointer for a variable (does not dereference)
@@ -242,22 +264,22 @@ struct EAddrOf {
 // Address of a temporary rvalue: &expr where expr is not a named variable.
 // Codegen spills the inner expression to an anonymous alloca.
 struct EAddrOfTemp {
-    LExprPtr inner;
+    LExprPtr inner = nullptr;
     bool     is_mut = false;  // true → &mut T, false → &T
 };
 
 struct EDeref {
-    LExprPtr operand;
+    LExprPtr operand = nullptr;
 };
 
 struct EFieldRead {
-    LExprPtr    receiver;
+    LExprPtr    receiver = nullptr;
     std::string field;
 };
 
 struct EIndexRead {
-    LExprPtr receiver;
-    LExprPtr index;
+    LExprPtr receiver = nullptr;
+    LExprPtr index = nullptr;
 };
 
 struct EStructLit {
@@ -271,7 +293,7 @@ struct EArrLit {
 };
 
 struct ECast {
-    LExprPtr operand;
+    LExprPtr operand = nullptr;
     // target type is LExpr::type.
     // For Hermes typed container casts (e.g. &[i32] as <I32>[]):
     //   hermes_build_fn names the stdlib builder (e.g. "hermes_build_array_i32").
@@ -289,21 +311,21 @@ struct ENew {
 // if cond { then_val } else { else_val }  — used when if is an expression.
 // Both branches must yield the same type.
 struct EIfExpr {
-    LExprPtr cond;
-    LExprPtr then_val;
-    LExprPtr else_val;
+    LExprPtr cond = nullptr;
+    LExprPtr then_val = nullptr;
+    LExprPtr else_val = nullptr;
 };
 
 // Match expression arm: pattern [guard] => expr
 struct EMatchArm {
     Pattern                  pat;
     std::optional<LExprPtr>  guard;
-    LExprPtr                 value;
+    LExprPtr                 value = nullptr;
 };
 
 // match expr { pat => val, ... } — produces a value
 struct EMatchExpr {
-    LExprPtr               scrut;
+    LExprPtr               scrut = nullptr;
     std::vector<EMatchArm> arms;
 };
 
@@ -314,56 +336,56 @@ struct ETupleLit {
 
 // Tuple element access: t.0, t.1
 struct ETupleIndex {
-    LExprPtr  receiver;
+    LExprPtr  receiver = nullptr;
     uint32_t  index;
 };
 
 // Closure: wrapper for the full EClosure (defined after LBlock).
-// Uses unique_ptr to break the dependency cycle.
+// ADR 0007 slice 1c: EClosure is pool-owned by LProgram::closure_pool_.
 struct EClosure;
 struct EClosureBox {
-    std::unique_ptr<EClosure> inner;
+    EClosure* inner = nullptr;
 };
 
 // Closure call: closure(args...)
 struct EClosureCall {
-    LExprPtr              callee;
+    LExprPtr              callee = nullptr;
     std::vector<LExprPtr> args;
 };
 
 // Call via fn(T) -> R bare function pointer (no env_ptr, no fat pointer).
 struct EFnPtrCall {
-    LExprPtr              callee;  // EVarRef to the fn-ptr variable
+    LExprPtr              callee = nullptr;  // EVarRef to the fn-ptr variable
     std::vector<LExprPtr> args;
 };
 
 // Slice construction: &arr (whole array → slice) or &arr[lo..hi]
 struct ESliceLit {
-    LExprPtr base;    // pointer to first element
-    LExprPtr len;     // length as i64
+    LExprPtr base = nullptr;    // pointer to first element
+    LExprPtr len = nullptr;     // length as i64
 };
 
 // Slice element access: s[i]
 struct ESliceIndex {
-    LExprPtr slice;
-    LExprPtr index;
+    LExprPtr slice = nullptr;
+    LExprPtr index = nullptr;
 };
 
 // Slice length: s.len()
 struct ESliceLen {
-    LExprPtr slice;
+    LExprPtr slice = nullptr;
 };
 
 // Slice / str as_ptr: s.as_ptr() → *const u8
 struct ESlicePtr {
-    LExprPtr slice;
+    LExprPtr slice = nullptr;
 };
 
 // format() compiler built-in: format("x={}, y={}", x, y)
 // Returns *mut u8 (heap-allocated, caller frees via format_free).
 // The compiler builds tags[] and data[] arrays and calls __format_impl.
 struct EFormatCall {
-    LExprPtr                    fmt;        // format string expr
+    LExprPtr                    fmt = nullptr;        // format string expr
     std::vector<LExprPtr>       args;       // arguments (without fmt)
     std::vector<TypeRef> arg_types; // parallel to args, resolved at sema
 };
@@ -388,14 +410,14 @@ struct ESizeOf {
 struct EPtrArith {
     enum Op { ByteAdd, ByteSub, Add, Sub };
     Op       op;
-    LExprPtr ptr;
-    LExprPtr offset;
+    LExprPtr ptr = nullptr;
+    LExprPtr offset = nullptr;
 };
 
 struct EPtrDiff {
     bool     by_byte;   // true = byte distance, false = element distance
-    LExprPtr lhs;
-    LExprPtr rhs;
+    LExprPtr lhs = nullptr;
+    LExprPtr rhs = nullptr;
 };
 
 // type_code_of::<T>() — Hermes wire-format type_code of T.  Deferred to mono
@@ -409,15 +431,15 @@ struct ETypeCodeOf {
 // ok_disc / err_disc are the discriminant values for Ok and Err variants.
 // The ETry expression itself has type T (the Ok payload type).
 struct ETry {
-    LExprPtr inner;
+    LExprPtr inner = nullptr;
     int32_t  ok_disc  = 0;   // discriminant of Ok  (typically 0)
     int32_t  err_disc = 1;   // discriminant of Err (typically 1)
 };
 
 // Represents an inline block of statements returning a final value
 struct EBlockExpr {
-    std::unique_ptr<LBlock> block;
-    LExprPtr result; // may be null if it evaluates to void
+    LBlockPtr block = nullptr;
+    LExprPtr result = nullptr; // may be null if it evaluates to void
 };
 
 
@@ -428,19 +450,9 @@ struct EReflectOf { TypeRef type; };
 
 struct LExpr {
     TypeRef type = nullptr;   // always set; error_t() on ill-typed nodes
-    std::variant<
-        ELitInt, ELitFloat, ELitBool, ELitStr, EVarRef, EEnumLit, EEnumLitData,
-        ECall, EMethodCall, EBinOp, EUnary, EAddrOf, EAddrOfTemp, EDeref,
-        EFieldRead, EIndexRead, EStructLit, EArrLit, ECast, ENew, EIfExpr,
-        ETupleLit, ETupleIndex, ESliceLit, ESliceIndex, ESliceLen, ESlicePtr,
-        EClosureBox, EClosureCall, EFnPtrCall, EFormatCall, EPackExpand,
-        ETry, EMatchExpr, ESizeOf, ETypeCodeOf, EBlockExpr,
-        EHermesLit, EPtrArith, EPtrDiff, EReflectOf
-    > kind;
-    // Stage 3g.2: back-pointer to this node's Hermes mirror in the program's
-    // arena. Set by LirMirrorEmitter (or LirBuilder's eager-emit path) on
-    // first emission; subsequent visits short-circuit. NULL_OFFSET = "not
-    // yet mirrored".
+    // Stage 3g.2 / 7e: back-pointer to this node's Hermes mirror is the only
+    // payload — the variant kind has been dropped, all readers go through the
+    // mirror via lir_view::ExprRef.
     mutable hermes::arena_offset_t mirror_offset_{};
 };
 
@@ -450,63 +462,63 @@ struct SLet {
     std::string      name;
     TypeRef type;         // concrete type (annotations resolved; IntLit → i32)
     bool             is_mut;
-    LExprPtr         value;
+    LExprPtr         value = nullptr;
 };
 
-struct SAssign    { std::string name; LExprPtr value; };
+struct SAssign    { std::string name; LExprPtr value = nullptr; };
 
-struct SReturn    { LExprPtr value; };   // value is null for void return
+struct SReturn    { LExprPtr value = nullptr; };   // value is null for void return
 
 // else_: null → no else; block with single SIf → else-if chain
 struct SIf {
-    LExprPtr                  cond;
-    LBlockPtr                 then_;
+    LExprPtr                  cond = nullptr;
+    LBlockPtr                 then_ = nullptr;
     std::optional<LBlockPtr>  else_;
 };
 
 struct SWhile {
-    LExprPtr  cond;
-    LBlockPtr body;
+    LExprPtr  cond = nullptr;
+    LBlockPtr body = nullptr;
     std::string label;  // optional loop label (e.g. "'outer"), empty = unlabeled
 };
 
 struct SFor {
     std::string      var;
-    LExprPtr         lo;
-    LExprPtr         hi;
+    LExprPtr         lo = nullptr;
+    LExprPtr         hi = nullptr;
     bool             inclusive;
-    LBlockPtr        body;
+    LBlockPtr        body = nullptr;
     std::string      label;  // optional loop label, empty = unlabeled
 };
 
 struct SLoop {
-    LBlockPtr        body;
+    LBlockPtr        body = nullptr;
     TypeRef result_type = nullptr;  // non-null when loop yields a value
     std::string      break_slot;             // alloca name for the break value (non-empty ↔ result_type != null)
     std::string      label;                  // optional loop label, empty = unlabeled
 };
-struct SBreak     { LExprPtr value; std::string label; };  // label: target loop label (may be empty)
+struct SBreak     { LExprPtr value = nullptr; std::string label; };  // label: target loop label (may be empty)
 struct SContinue  { std::string label; };                   // label: target loop label (may be empty)
-struct SBlock     { LBlockPtr body; };  // scoping block statement
+struct SBlock     { LBlockPtr body = nullptr; };  // scoping block statement
 
 struct SFieldWrite {
     std::string receiver;
     std::string field;
-    LExprPtr    value;
+    LExprPtr    value = nullptr;
 };
 
 struct SIndexWrite {
     std::string arr;
-    LExprPtr    index;
-    LExprPtr    value;
+    LExprPtr    index = nullptr;
+    LExprPtr    value = nullptr;
 };
 
 // a.field[index] = value — field index write (e.g. self.ptr[i] = val)
 struct SFieldIndexWrite {
     std::string receiver;   // struct/class variable
     std::string field;      // pointer-typed field name
-    LExprPtr    index;
-    LExprPtr    value;
+    LExprPtr    index = nullptr;
+    LExprPtr    value = nullptr;
 };
 
 // (*ptr_var).field = value  — field write through a named pointer variable
@@ -514,7 +526,7 @@ struct SDerefFieldWrite {
     std::string receiver;    // variable name (holds *mut ClassName)
     std::string type_name;   // class or struct name of the pointee
     std::string field;
-    LExprPtr    value;
+    LExprPtr    value = nullptr;
 };
 
 // a.mid_field.field = value  — chained field write (2 levels deep)
@@ -523,36 +535,36 @@ struct SChainFieldWrite {
     std::string receiver;    // outer variable name
     std::string mid_field;   // intermediate field name
     std::string field;       // final field name
-    LExprPtr    value;
+    LExprPtr    value = nullptr;
 };
 
-struct SExprStmt  { LExprPtr expr; };
+struct SExprStmt  { LExprPtr expr = nullptr; };
 
-struct SDelete    { LExprPtr expr; };   // delete ptr — call free on a class pointer
+struct SDelete    { LExprPtr expr = nullptr; };   // delete ptr — call free on a class pointer
 
 // *ptr = value;  — write through a raw pointer
-struct SDerefWrite { LExprPtr ptr; LExprPtr value; };
+struct SDerefWrite { LExprPtr ptr = nullptr; LExprPtr value = nullptr; };
 
 // var.N = value;  — tuple field write (N is a small integer index)
 struct STupleWrite {
     std::string      receiver;      // local variable holding the tuple
     uint32_t         index;         // field index (0, 1, ...)
-    LExprPtr         value;
+    LExprPtr         value = nullptr;
     TypeRef recv_type = nullptr;  // LogosType of the tuple variable
 };
 
 // for item in array { body } — iterates over a fixed-size array
 struct SForEach {
     std::string      var;         // loop variable name (item)
-    LExprPtr         iter;        // the array or slice expression
+    LExprPtr         iter = nullptr;        // the array or slice expression
     TypeRef elem_type;   // element type
     int64_t          arr_size;    // static array size; 0 for slices
     bool             is_slice = false;  // true → iter is &[T] (dynamic length from fat pointer)
-    LBlockPtr        body;
+    LBlockPtr        body = nullptr;
 };
 
 struct SMatch {
-    LExprPtr               scrut;
+    LExprPtr               scrut = nullptr;
     std::vector<LMatchArm> arms;
 };
 
@@ -560,8 +572,8 @@ struct SMatch {
 // After this statement, the pattern's bindings are in scope.
 struct SLetElse {
     Pattern               pat;        // the irrefutable-or-test pattern
-    LExprPtr              scrut;      // scrutinee expression
-    LBlockPtr             else_block; // must-diverge block
+    LExprPtr              scrut = nullptr;      // scrutinee expression
+    LBlockPtr             else_block = nullptr; // must-diverge block
 };
 
 // Auto-generated drop call: Type__drop(var) at scope exit
@@ -576,12 +588,13 @@ struct SDrop {
 
 struct LStmt {
     uint32_t line = 0;             // source line (0 = unknown)
-    std::variant<
-        SLet, SAssign, SReturn, SIf, SWhile, SFor, SLoop,
-        SBreak, SContinue, SBlock, SFieldWrite, SIndexWrite, SFieldIndexWrite, SExprStmt, SMatch, SDelete, SForEach, SDerefWrite,
-        SDrop, SDerefFieldWrite, STupleWrite, SLetElse, SChainFieldWrite
-    > kind;
     mutable hermes::arena_offset_t mirror_offset_{};  // Stage 3g.2 back-pointer
+
+    LStmt() = default;
+    LStmt(const LStmt&) = default;
+    LStmt(LStmt&&) noexcept = default;
+    LStmt& operator=(const LStmt&) = default;
+    LStmt& operator=(LStmt&&) noexcept = default;
 };
 
 // ── Block ─────────────────────────────────────────────────────────────────
@@ -697,7 +710,7 @@ struct LStructDef {
     // User-annotation metadata.
     bool                             is_annotation_type = false;  // true → this datatype is itself a `#[annotation]` marker type
     std::vector<LAnnotationInstance> annotations;                  // user-annotations attached to this type
-    std::shared_ptr<HermesVal>       meta_val;                     // meta @{...} block; null if absent
+    HermesValPtr                     meta_val = nullptr;            // meta @{...} block; null if absent
 
     // Specialisation support (mirrors LFunction).
     bool                          is_specialization = false;
@@ -748,7 +761,7 @@ struct LTraitDef {
                                                         // propagates to each eidos via `impl Trait for Eidos`
     bool                           is_genos  = false;   // declared with `genos` keyword (not `trait`)
     bool                           is_auto   = false;   // declared with `auto trait` (compiler-synthesized impls)
-    std::shared_ptr<HermesVal>     meta_val;             // meta @{...} block; null if absent
+    HermesValPtr                   meta_val = nullptr;   // meta @{...} block; null if absent
 };
 
 struct LImplBlock {
@@ -768,7 +781,7 @@ struct LImplBlock {
 struct LConst {
     std::string      name;
     TypeRef type;
-    LExprPtr         value;
+    LExprPtr         value = nullptr;
 };
 
 struct LTypeAlias {
@@ -829,6 +842,19 @@ struct LProgram {
     SemaResult             diags;
 
     TypePool               type_pool;  // owns all LogosType*
+
+    // ADR 0007 slice 1b: pool that owns every LExpr in this program. Builder
+    // and mono allocate through `alloc_expr(prog)`; variant fields hold raw
+    // LExpr* into this pool. Pool is append-only and survives until LProgram
+    // destruction, so handles never dangle.
+    std::vector<std::unique_ptr<LExpr>> expr_pool_;
+
+    // ADR 0007 slice 1c: matching pools for LBlock / HermesVal / EClosure.
+    // Same semantics as expr_pool_ — append-only, lifetime = LProgram. Mono
+    // moves these alongside expr_pool_ to keep raw handles valid.
+    std::vector<std::unique_ptr<LBlock>>     block_pool_;
+    std::vector<std::unique_ptr<HermesVal>>  hermes_val_pool_;
+    std::vector<std::unique_ptr<EClosure>>   closure_pool_;
 
     // Phase 3b: Hermes mirror back-references. Populated by lir_mirror_emit.
     // Held by unique_ptr to keep lir.hpp free of <unordered_map> for the
@@ -892,128 +918,39 @@ struct LProgram {
     LProgram& operator=(const LProgram&) = delete;
 };
 
+// ADR 0007 slice 1b: allocator for LExpr nodes in the program pool.
+// Returns a non-owning raw pointer; the unique_ptr in expr_pool_ keeps
+// the node alive for the lifetime of the LProgram.
+inline LExpr* alloc_expr(LProgram& prog) {
+    prog.expr_pool_.push_back(std::make_unique<LExpr>());
+    return prog.expr_pool_.back().get();
+}
+
+// Slice 1c allocators. Forward Args... so callers can `alloc_block(prog, std::move(inner))`
+// or `alloc_block(prog)` for default-construction.
+template <class... Args>
+inline LBlock* alloc_block(LProgram& prog, Args&&... args) {
+    prog.block_pool_.push_back(std::make_unique<LBlock>(std::forward<Args>(args)...));
+    return prog.block_pool_.back().get();
+}
+template <class... Args>
+inline HermesVal* alloc_hermes_val(LProgram& prog, Args&&... args) {
+    prog.hermes_val_pool_.push_back(std::make_unique<HermesVal>(std::forward<Args>(args)...));
+    return prog.hermes_val_pool_.back().get();
+}
+template <class... Args>
+inline EClosure* alloc_closure(LProgram& prog, Args&&... args) {
+    prog.closure_pool_.push_back(std::make_unique<EClosure>(std::forward<Args>(args)...));
+    return prog.closure_pool_.back().get();
+}
+
 } // namespace logos::compiler::lir
 
-// ── Phase 3a: schema_type_code ↔ variant index sync ───────────────────────
-//
-// lir_schema::expr/stmt/pat::Code values must match the std::variant
-// alternative indices in LExpr::kind / LStmt::kind / Pattern. Validated here
-// so a future variant reorder fails to compile, not silently corrupts the
-// Hermes mirror.
+// B.6 Stage 3.5 step 7e: variant `kind` fields removed from
+// LExpr/LStmt/Pattern/HermesVal. Schema codes (lir_schema::expr/stmt/pat) are
+// the sole source of truth; payload lives in the Hermes mirror.
 
 #include <logos/compiler/lir_schema.hpp>
-
-namespace logos::compiler::lir {
-
-template <class T, class V> struct variant_index_of;
-template <class T, class... Ts>
-struct variant_index_of<T, std::variant<Ts...>> {
-    template <std::size_t I = 0> static constexpr std::size_t find() {
-        if constexpr (I == sizeof...(Ts)) return std::size_t(-1);
-        else if constexpr (std::is_same_v<T, std::variant_alternative_t<I, std::variant<Ts...>>>) return I;
-        else return find<I + 1>();
-    }
-    static constexpr std::size_t value = find();
-};
-
-#define LIR_VARIANT_CODE_CHECK(VAR, KIND, T, CODE) \
-    static_assert(variant_index_of<T, decltype(std::declval<VAR>().KIND)>::value == \
-                  std::size_t(lir_schema::CODE), #T " variant index drift")
-
-LIR_VARIANT_CODE_CHECK(LExpr, kind, ELitInt,      expr::Code::LitInt);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, ELitFloat,    expr::Code::LitFloat);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, ELitBool,     expr::Code::LitBool);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, ELitStr,      expr::Code::LitStr);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, EVarRef,      expr::Code::VarRef);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, EEnumLit,     expr::Code::EnumLit);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, EEnumLitData, expr::Code::EnumLitData);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, ECall,        expr::Code::Call);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, EMethodCall,  expr::Code::MethodCall);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, EBinOp,       expr::Code::BinOp);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, EUnary,       expr::Code::Unary);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, EAddrOf,      expr::Code::AddrOf);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, EAddrOfTemp,  expr::Code::AddrOfTemp);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, EDeref,       expr::Code::Deref);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, EFieldRead,   expr::Code::FieldRead);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, EIndexRead,   expr::Code::IndexRead);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, EStructLit,   expr::Code::StructLit);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, EArrLit,      expr::Code::ArrLit);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, ECast,        expr::Code::Cast);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, ENew,         expr::Code::New);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, EIfExpr,      expr::Code::IfExpr);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, ETupleLit,    expr::Code::TupleLit);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, ETupleIndex,  expr::Code::TupleIndex);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, ESliceLit,    expr::Code::SliceLit);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, ESliceIndex,  expr::Code::SliceIndex);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, ESliceLen,    expr::Code::SliceLen);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, ESlicePtr,    expr::Code::SlicePtr);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, EClosureBox,  expr::Code::ClosureBox);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, EClosureCall, expr::Code::ClosureCall);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, EFnPtrCall,   expr::Code::FnPtrCall);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, EFormatCall,  expr::Code::FormatCall);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, EPackExpand,  expr::Code::PackExpand);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, ETry,         expr::Code::Try);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, EMatchExpr,   expr::Code::MatchExpr);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, ESizeOf,      expr::Code::SizeOf);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, ETypeCodeOf,  expr::Code::TypeCodeOf);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, EBlockExpr,   expr::Code::BlockExpr);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, EHermesLit,   expr::Code::HermesLit);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, EPtrArith,    expr::Code::PtrArith);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, EPtrDiff,     expr::Code::PtrDiff);
-LIR_VARIANT_CODE_CHECK(LExpr, kind, EReflectOf,   expr::Code::ReflectOf);
-static_assert(std::variant_size_v<decltype(std::declval<LExpr>().kind)> == lir_schema::expr::Count,
-              "LExpr variant count out of sync with lir_schema::expr::Count");
-
-LIR_VARIANT_CODE_CHECK(LStmt, kind, SLet,             stmt::Code::Let);
-LIR_VARIANT_CODE_CHECK(LStmt, kind, SAssign,          stmt::Code::Assign);
-LIR_VARIANT_CODE_CHECK(LStmt, kind, SReturn,          stmt::Code::Return);
-LIR_VARIANT_CODE_CHECK(LStmt, kind, SIf,              stmt::Code::If);
-LIR_VARIANT_CODE_CHECK(LStmt, kind, SWhile,           stmt::Code::While);
-LIR_VARIANT_CODE_CHECK(LStmt, kind, SFor,             stmt::Code::For);
-LIR_VARIANT_CODE_CHECK(LStmt, kind, SLoop,            stmt::Code::Loop);
-LIR_VARIANT_CODE_CHECK(LStmt, kind, SBreak,           stmt::Code::Break);
-LIR_VARIANT_CODE_CHECK(LStmt, kind, SContinue,        stmt::Code::Continue);
-LIR_VARIANT_CODE_CHECK(LStmt, kind, SBlock,           stmt::Code::Block);
-LIR_VARIANT_CODE_CHECK(LStmt, kind, SFieldWrite,      stmt::Code::FieldWrite);
-LIR_VARIANT_CODE_CHECK(LStmt, kind, SIndexWrite,      stmt::Code::IndexWrite);
-LIR_VARIANT_CODE_CHECK(LStmt, kind, SFieldIndexWrite, stmt::Code::FieldIndexWrite);
-LIR_VARIANT_CODE_CHECK(LStmt, kind, SExprStmt,        stmt::Code::ExprStmt);
-LIR_VARIANT_CODE_CHECK(LStmt, kind, SMatch,           stmt::Code::Match);
-LIR_VARIANT_CODE_CHECK(LStmt, kind, SDelete,          stmt::Code::Delete);
-LIR_VARIANT_CODE_CHECK(LStmt, kind, SForEach,         stmt::Code::ForEach);
-LIR_VARIANT_CODE_CHECK(LStmt, kind, SDerefWrite,      stmt::Code::DerefWrite);
-LIR_VARIANT_CODE_CHECK(LStmt, kind, SDrop,            stmt::Code::Drop);
-LIR_VARIANT_CODE_CHECK(LStmt, kind, SDerefFieldWrite, stmt::Code::DerefFieldWrite);
-LIR_VARIANT_CODE_CHECK(LStmt, kind, STupleWrite,      stmt::Code::TupleWrite);
-LIR_VARIANT_CODE_CHECK(LStmt, kind, SLetElse,         stmt::Code::LetElse);
-LIR_VARIANT_CODE_CHECK(LStmt, kind, SChainFieldWrite, stmt::Code::ChainFieldWrite);
-static_assert(std::variant_size_v<decltype(std::declval<LStmt>().kind)> == lir_schema::stmt::Count,
-              "LStmt variant count out of sync with lir_schema::stmt::Count");
-
-#define LIR_PAT_CODE_CHECK(T, CODE) \
-    static_assert(variant_index_of<T, Pattern>::value == std::size_t(lir_schema::CODE), \
-                  #T " Pattern variant index drift")
-
-LIR_PAT_CODE_CHECK(PatVariant,     pat::Code::Variant);
-LIR_PAT_CODE_CHECK(PatInt,         pat::Code::Int);
-LIR_PAT_CODE_CHECK(PatBool,        pat::Code::Bool);
-LIR_PAT_CODE_CHECK(PatWild,        pat::Code::Wild);
-LIR_PAT_CODE_CHECK(PatVariantData, pat::Code::VariantData);
-LIR_PAT_CODE_CHECK(PatOr,          pat::Code::Or);
-LIR_PAT_CODE_CHECK(PatTuple,       pat::Code::Tuple);
-LIR_PAT_CODE_CHECK(PatRange,       pat::Code::Range);
-LIR_PAT_CODE_CHECK(PatStruct,      pat::Code::Struct);
-LIR_PAT_CODE_CHECK(PatSlice,       pat::Code::Slice);
-LIR_PAT_CODE_CHECK(PatAt,          pat::Code::At);
-LIR_PAT_CODE_CHECK(PatRefBind,     pat::Code::RefBind);
-LIR_PAT_CODE_CHECK(PatRefPat,      pat::Code::RefPat);
-static_assert(std::variant_size_v<Pattern> == lir_schema::pat::Count,
-              "Pattern variant count out of sync with lir_schema::pat::Count");
-
-#undef LIR_VARIANT_CODE_CHECK
-#undef LIR_PAT_CODE_CHECK
-
-} // namespace logos::compiler::lir
 
 // ── Entry point ───────────────────────────────────────────────────────────
 

@@ -233,9 +233,9 @@ template <class F>
 inline void BlockRef::each_stmt(F&& f) const noexcept {
     auto av = mirror()->get(/*stmt_keys::ARMS*/ 24, base());
     if (av.is_null()) return;
-    auto* arr = av.as_ptr<const hermes::ObjectArray>(base());
-    for (uint64_t i = 0; i < arr->size(); ++i) {
-        auto el = arr->get(i, base());
+    uint64_t n = av.as_ptr<const hermes::ObjectArray>(base())->size();
+    for (uint64_t i = 0; i < n; ++i) {
+        auto el = av.as_ptr<const hermes::ObjectArray>(base())->get(i, base());
         if (el.is_null()) continue;
         f(StmtRef(arena_, el.to_offset()));
     }
@@ -258,9 +258,9 @@ template <class F>
 void for_each_expr(const RefBase& r, uint8_t key, F&& f) noexcept {
     auto av = r.mirror()->get(key, r.base());
     if (av.is_null()) return;
-    auto* arr = av.as_ptr<const hermes::ObjectArray>(r.base());
-    for (uint64_t i = 0; i < arr->size(); ++i) {
-        auto el = arr->get(i, r.base());
+    uint64_t n = av.as_ptr<const hermes::ObjectArray>(r.base())->size();
+    for (uint64_t i = 0; i < n; ++i) {
+        auto el = av.as_ptr<const hermes::ObjectArray>(r.base())->get(i, r.base());
         if (el.is_null()) { f(ExprRef{}); continue; }
         f(ExprRef(r.arena(), el.to_offset()));
     }
@@ -380,9 +380,9 @@ struct EMatchExprView {
     void each_arm(F&& f) const noexcept {
         auto av = self.mirror()->get(ek::ARMS.code, self.base());
         if (av.is_null()) return;
-        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
-        for (uint64_t i = 0; i < arr->size(); ++i) {
-            auto el = arr->get(i, self.base());
+        uint64_t n = av.as_ptr<const hermes::ObjectArray>(self.base())->size();
+        for (uint64_t i = 0; i < n; ++i) {
+            auto el = av.as_ptr<const hermes::ObjectArray>(self.base())->get(i, self.base());
             if (el.is_null()) continue;
             f(EMatchArmRef(self.arena(), el.to_offset()));
         }
@@ -584,12 +584,12 @@ struct EStructLitView {
         auto names_av  = self.mirror()->get(ek::FIELD_NAMES.code,  self.base());
         auto values_av = self.mirror()->get(ek::FIELD_VALUES.code, self.base());
         if (names_av.is_null() || values_av.is_null()) return;
-        auto* names_arr  = names_av.as_ptr<const hermes::ObjectArray>(self.base());
-        auto* values_arr = values_av.as_ptr<const hermes::ObjectArray>(self.base());
-        uint64_t n = std::min(names_arr->size(), values_arr->size());
+        uint64_t n = std::min(
+            names_av.as_ptr<const hermes::ObjectArray>(self.base())->size(),
+            values_av.as_ptr<const hermes::ObjectArray>(self.base())->size());
         for (uint64_t i = 0; i < n; ++i) {
-            auto nv = names_arr->get(i, self.base());
-            auto vv = values_arr->get(i, self.base());
+            auto nv = names_av.as_ptr<const hermes::ObjectArray>(self.base())->get(i, self.base());
+            auto vv = values_av.as_ptr<const hermes::ObjectArray>(self.base())->get(i, self.base());
             std::string_view fname;
             if (!nv.is_null())
                 fname = nv.as_ptr<const hermes::ArenaString>(self.base())->view();
@@ -612,12 +612,12 @@ struct ENewView {
         auto names_av  = self.mirror()->get(ek::FIELD_NAMES.code,  self.base());
         auto values_av = self.mirror()->get(ek::FIELD_VALUES.code, self.base());
         if (names_av.is_null() || values_av.is_null()) return;
-        auto* names_arr  = names_av.as_ptr<const hermes::ObjectArray>(self.base());
-        auto* values_arr = values_av.as_ptr<const hermes::ObjectArray>(self.base());
-        uint64_t n = std::min(names_arr->size(), values_arr->size());
+        uint64_t n = std::min(
+            names_av.as_ptr<const hermes::ObjectArray>(self.base())->size(),
+            values_av.as_ptr<const hermes::ObjectArray>(self.base())->size());
         for (uint64_t i = 0; i < n; ++i) {
-            auto nv = names_arr->get(i, self.base());
-            auto vv = values_arr->get(i, self.base());
+            auto nv = names_av.as_ptr<const hermes::ObjectArray>(self.base())->get(i, self.base());
+            auto vv = values_av.as_ptr<const hermes::ObjectArray>(self.base())->get(i, self.base());
             std::string_view name;
             if (!nv.is_null())
                 name = nv.as_ptr<const hermes::ArenaString>(self.base())->view();
@@ -653,6 +653,20 @@ struct ETupleLitView {
     ExprRef self;
     template <class F> void each_elem(F&& f) const noexcept {
         detail::for_each_elem(self, std::forward<F>(f));
+    }
+    uint64_t count() const noexcept {
+        auto av = self.mirror()->get(ek::ELEMS.code, self.base());
+        if (av.is_null()) return 0;
+        return av.as_ptr<const hermes::ObjectArray>(self.base())->size();
+    }
+    ExprRef elem(uint64_t i) const noexcept {
+        auto av = self.mirror()->get(ek::ELEMS.code, self.base());
+        if (av.is_null()) return {};
+        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
+        if (i >= arr->size()) return {};
+        auto el = arr->get(i, self.base());
+        if (el.is_null()) return {};
+        return ExprRef(self.arena(), el.to_offset());
     }
 };
 
@@ -722,6 +736,15 @@ public:
         return TypeRef(self.arena(), av.to_offset(), pool);
     }
 
+    uint64_t capture_count() const noexcept {
+        auto* m = cl_map();
+        if (!m) return 0;
+        auto names_av = m->get(
+            lir_schema::closure_keys::CAPTURE_NAMES.code, self.base());
+        if (names_av.is_null()) return 0;
+        return names_av.as_ptr<const hermes::ObjectArray>(self.base())->size();
+    }
+
     template <class F>
     void each_capture_name(F&& f) const noexcept {
         auto* m = cl_map();
@@ -729,9 +752,9 @@ public:
         auto names_av = m->get(
             lir_schema::closure_keys::CAPTURE_NAMES.code, self.base());
         if (names_av.is_null()) return;
-        auto* arr = names_av.as_ptr<const hermes::ObjectArray>(self.base());
-        for (uint64_t i = 0; i < arr->size(); ++i) {
-            auto el = arr->get(i, self.base());
+        uint64_t n = names_av.as_ptr<const hermes::ObjectArray>(self.base())->size();
+        for (uint64_t i = 0; i < n; ++i) {
+            auto el = names_av.as_ptr<const hermes::ObjectArray>(self.base())->get(i, self.base());
             if (el.is_null()) continue;
             f(el.as_ptr<const hermes::ArenaString>(self.base())->view());
         }
@@ -745,19 +768,17 @@ public:
         auto names_av = m->get(lir_schema::closure_keys::CAPTURE_NAMES.code, self.base());
         auto types_av = m->get(lir_schema::closure_keys::CAPTURE_TYPES.code, self.base());
         if (names_av.is_null()) return;
-        auto* names_arr = names_av.as_ptr<const hermes::ObjectArray>(self.base());
-        const hermes::ObjectArray* types_arr = nullptr;
-        if (!types_av.is_null())
-            types_arr = types_av.as_ptr<const hermes::ObjectArray>(self.base());
-        uint64_t n = names_arr->size();
+        uint64_t n = names_av.as_ptr<const hermes::ObjectArray>(self.base())->size();
+        uint64_t tn = types_av.is_null() ? 0
+            : types_av.as_ptr<const hermes::ObjectArray>(self.base())->size();
         for (uint64_t i = 0; i < n; ++i) {
-            auto nv = names_arr->get(i, self.base());
+            auto nv = names_av.as_ptr<const hermes::ObjectArray>(self.base())->get(i, self.base());
             std::string_view name;
             if (!nv.is_null())
                 name = nv.as_ptr<const hermes::ArenaString>(self.base())->view();
             TypeRef t;
-            if (types_arr && i < types_arr->size()) {
-                auto tv = types_arr->get(i, self.base());
+            if (i < tn) {
+                auto tv = types_av.as_ptr<const hermes::ObjectArray>(self.base())->get(i, self.base());
                 if (!tv.is_null()) t = TypeRef(self.arena(), tv.to_offset(), pool);
             }
             f(name, t);
@@ -772,19 +793,17 @@ public:
         auto names_av = m->get(lir_schema::closure_keys::PARAM_NAMES.code, self.base());
         auto types_av = m->get(lir_schema::closure_keys::PARAM_TYPES.code, self.base());
         if (names_av.is_null()) return;
-        auto* names_arr = names_av.as_ptr<const hermes::ObjectArray>(self.base());
-        const hermes::ObjectArray* types_arr = nullptr;
-        if (!types_av.is_null())
-            types_arr = types_av.as_ptr<const hermes::ObjectArray>(self.base());
-        uint64_t n = names_arr->size();
+        uint64_t n = names_av.as_ptr<const hermes::ObjectArray>(self.base())->size();
+        uint64_t tn = types_av.is_null() ? 0
+            : types_av.as_ptr<const hermes::ObjectArray>(self.base())->size();
         for (uint64_t i = 0; i < n; ++i) {
-            auto nv = names_arr->get(i, self.base());
+            auto nv = names_av.as_ptr<const hermes::ObjectArray>(self.base())->get(i, self.base());
             std::string_view name;
             if (!nv.is_null())
                 name = nv.as_ptr<const hermes::ArenaString>(self.base())->view();
             TypeRef t;
-            if (types_arr && i < types_arr->size()) {
-                auto tv = types_arr->get(i, self.base());
+            if (i < tn) {
+                auto tv = types_av.as_ptr<const hermes::ObjectArray>(self.base())->get(i, self.base());
                 if (!tv.is_null()) t = TypeRef(self.arena(), tv.to_offset(), pool);
             }
             f(name, t);
@@ -964,9 +983,9 @@ struct EHermesLitView {
     template <class F> void each_capture_type(const TypePoolImpl* pool, F&& f) const noexcept {
         auto av = self.mirror()->get(hl::CAPTURE_TYPES.code, self.base());
         if (av.is_null()) return;
-        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
-        for (uint64_t i = 0; i < arr->size(); ++i) {
-            auto el = arr->get(i, self.base());
+        uint64_t n = av.as_ptr<const hermes::ObjectArray>(self.base())->size();
+        for (uint64_t i = 0; i < n; ++i) {
+            auto el = av.as_ptr<const hermes::ObjectArray>(self.base())->get(i, self.base());
             if (el.is_null()) { f(TypeRef{}); continue; }
             f(TypeRef(self.arena(), el.to_offset(), pool));
         }
@@ -1001,9 +1020,9 @@ struct PatVariantDataView {
     void each_binding(F&& f) const noexcept {
         auto av = self.mirror()->get(pk::BINDINGS.code, self.base());
         if (av.is_null()) return;
-        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
-        for (uint64_t i = 0; i < arr->size(); ++i) {
-            auto el = arr->get(i, self.base());
+        uint64_t n = av.as_ptr<const hermes::ObjectArray>(self.base())->size();
+        for (uint64_t i = 0; i < n; ++i) {
+            auto el = av.as_ptr<const hermes::ObjectArray>(self.base())->get(i, self.base());
             if (el.is_null()) continue;
             f(el.as_ptr<const hermes::ArenaString>(self.base())->view());
         }
@@ -1012,9 +1031,9 @@ struct PatVariantDataView {
     void each_binding_type(const TypePoolImpl* pool, F&& f) const noexcept {
         auto av = self.mirror()->get(pk::BINDING_TYPES.code, self.base());
         if (av.is_null()) return;
-        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
-        for (uint64_t i = 0; i < arr->size(); ++i) {
-            auto el = arr->get(i, self.base());
+        uint64_t n = av.as_ptr<const hermes::ObjectArray>(self.base())->size();
+        for (uint64_t i = 0; i < n; ++i) {
+            auto el = av.as_ptr<const hermes::ObjectArray>(self.base())->get(i, self.base());
             if (el.is_null()) { f(TypeRef{}); continue; }
             f(TypeRef(self.arena(), el.to_offset(), pool));
         }
@@ -1042,9 +1061,9 @@ struct PatOrView {
     void each_alt(F&& f) const noexcept {
         auto av = self.mirror()->get(pk::SUBS.code, self.base());
         if (av.is_null()) return;
-        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
-        for (uint64_t i = 0; i < arr->size(); ++i) {
-            auto el = arr->get(i, self.base());
+        uint64_t n = av.as_ptr<const hermes::ObjectArray>(self.base())->size();
+        for (uint64_t i = 0; i < n; ++i) {
+            auto el = av.as_ptr<const hermes::ObjectArray>(self.base())->get(i, self.base());
             if (el.is_null()) continue;
             f(PatRef(self.arena(), el.to_offset()));
         }
@@ -1058,9 +1077,9 @@ template <class F>
 inline void for_each_pat(const PatRef& r, uint8_t key, F&& f) noexcept {
     auto av = r.mirror()->get(key, r.base());
     if (av.is_null()) return;
-    auto* arr = av.as_ptr<const hermes::ObjectArray>(r.base());
-    for (uint64_t i = 0; i < arr->size(); ++i) {
-        auto el = arr->get(i, r.base());
+    uint64_t n = av.as_ptr<const hermes::ObjectArray>(r.base())->size();
+    for (uint64_t i = 0; i < n; ++i) {
+        auto el = av.as_ptr<const hermes::ObjectArray>(r.base())->get(i, r.base());
         if (el.is_null()) continue;
         f(PatRef(r.arena(), el.to_offset()));
     }
@@ -1071,9 +1090,9 @@ template <class F>
 inline void for_each_string(const PatRef& r, uint8_t key, F&& f) noexcept {
     auto av = r.mirror()->get(key, r.base());
     if (av.is_null()) return;
-    auto* arr = av.as_ptr<const hermes::ObjectArray>(r.base());
-    for (uint64_t i = 0; i < arr->size(); ++i) {
-        auto el = arr->get(i, r.base());
+    uint64_t n = av.as_ptr<const hermes::ObjectArray>(r.base())->size();
+    for (uint64_t i = 0; i < n; ++i) {
+        auto el = av.as_ptr<const hermes::ObjectArray>(r.base())->get(i, r.base());
         if (el.is_null()) { f(std::string_view{}); continue; }
         f(el.as_ptr<const hermes::ArenaString>(r.base())->view());
     }
@@ -1085,9 +1104,9 @@ inline void for_each_type(const PatRef& r, uint8_t key,
                           const TypePoolImpl* pool, F&& f) noexcept {
     auto av = r.mirror()->get(key, r.base());
     if (av.is_null()) return;
-    auto* arr = av.as_ptr<const hermes::ObjectArray>(r.base());
-    for (uint64_t i = 0; i < arr->size(); ++i) {
-        auto el = arr->get(i, r.base());
+    uint64_t n = av.as_ptr<const hermes::ObjectArray>(r.base())->size();
+    for (uint64_t i = 0; i < n; ++i) {
+        auto el = av.as_ptr<const hermes::ObjectArray>(r.base())->get(i, r.base());
         if (el.is_null()) { f(TypeRef{}); continue; }
         f(TypeRef(r.arena(), el.to_offset(), pool));
     }

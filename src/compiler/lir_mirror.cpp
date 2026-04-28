@@ -75,6 +75,979 @@ public:
     hermes::arena_offset_t emit_stmt_public (const LStmt& s)    { return emit_stmt(s); }
     hermes::arena_offset_t emit_block_public(const LBlock& b)   { return emit_block(b); }
     hermes::arena_offset_t emit_pat_public  (const Pattern& p)  { return emit_pat(p); }
+    hermes::arena_offset_t emit_hv_public   (const HermesVal& v){ return emit_hv(v); }
+
+    // Stage 2 — variant-free direct mirror writers. Allocate a fresh map for
+    // a single expr kind without reading from a variant payload. Used by
+    // LirBuilder / mono_clone after Stage 2 retires the variant alternative
+    // for that kind.
+    hermes::arena_offset_t emit_lit_bool_direct(TypeRef ty, bool v) {
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::LitBool));
+        put(map_off, ek::LIT_BOOL, put_bool(v));
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_lit_int_direct(TypeRef ty, int64_t v) {
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::LitInt));
+        put(map_off, ek::LIT_I64, put_i64(v));
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_lit_float_direct(TypeRef ty, double v) {
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::LitFloat));
+        put(map_off, ek::LIT_F64, put_f64(v));
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_lit_str_direct(TypeRef ty, std::string_view v) {
+        auto s_av = put_string(v);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::LitStr));
+        put(map_off, ek::LIT_STR, s_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_var_ref_direct(TypeRef ty, std::string_view name) {
+        auto n_av = put_string(name);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::VarRef));
+        put(map_off, ek::NAME, n_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_addr_of_direct(TypeRef ty, std::string_view var_name) {
+        auto n_av = put_string(var_name);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::AddrOf));
+        put(map_off, ek::NAME, n_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_pack_expand_direct(TypeRef ty, std::string_view var_name) {
+        auto n_av = put_string(var_name);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::PackExpand));
+        put(map_off, ek::NAME, n_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_size_of_direct(TypeRef ty, TypeRef elem) {
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::SizeOf));
+        put(map_off, ek::ELEM_TYPE, type_av(elem));
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_type_code_of_direct(TypeRef ty, TypeRef elem) {
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::TypeCodeOf));
+        put(map_off, ek::ELEM_TYPE, type_av(elem));
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_reflect_of_direct(TypeRef ty, TypeRef elem) {
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::ReflectOf));
+        put(map_off, ek::ELEM_TYPE, type_av(elem));
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+
+    // Stage 2 Group 1 — children-only direct writers. Children must already
+    // have their own mirror_offset_ set (cache-hit fast path inside expr_av).
+    hermes::arena_offset_t emit_deref_direct(TypeRef ty, const lir::LExprPtr& operand) {
+        auto o_av = expr_av(operand);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::Deref));
+        put(map_off, ek::OPERAND, o_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_cast_direct(TypeRef ty, const lir::LExprPtr& operand,
+                                             std::string_view hermes_build_fn) {
+        auto o_av = expr_av(operand);
+        hermes::AnyVal hbf_av;
+        bool has_hbf = !hermes_build_fn.empty();
+        if (has_hbf) hbf_av = put_string(hermes_build_fn);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::Cast));
+        put(map_off, ek::OPERAND, o_av);
+        if (has_hbf) put(map_off, ek::HERMES_BUILD_FN, hbf_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_try_direct(TypeRef ty, const lir::LExprPtr& inner,
+                                            int32_t ok_disc, int32_t err_disc) {
+        auto in_av = expr_av(inner);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::Try));
+        put(map_off, ek::INNER,    in_av);
+        put(map_off, ek::OK_DISC,  put_i32(ok_disc));
+        put(map_off, ek::ERR_DISC, put_i32(err_disc));
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_slice_lit_direct(TypeRef ty, const lir::LExprPtr& base,
+                                                  const lir::LExprPtr& len) {
+        auto b_av = expr_av(base);
+        auto l_av = expr_av(len);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::SliceLit));
+        put(map_off, ek::BASE_PTR, b_av);
+        put(map_off, ek::LEN,      l_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_slice_index_direct(TypeRef ty, const lir::LExprPtr& slice,
+                                                    const lir::LExprPtr& index) {
+        auto s_av = expr_av(slice);
+        auto i_av = expr_av(index);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::SliceIndex));
+        put(map_off, ek::SLICE, s_av);
+        put(map_off, ek::INDEX, i_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_slice_len_direct(TypeRef ty, const lir::LExprPtr& slice) {
+        auto s_av = expr_av(slice);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::SliceLen));
+        put(map_off, ek::SLICE, s_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_slice_ptr_direct(TypeRef ty, const lir::LExprPtr& slice) {
+        auto s_av = expr_av(slice);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::SlicePtr));
+        put(map_off, ek::SLICE, s_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_addr_of_temp_direct(TypeRef ty, const lir::LExprPtr& inner,
+                                                     bool is_mut) {
+        auto in_av = expr_av(inner);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::AddrOfTemp));
+        put(map_off, ek::INNER,  in_av);
+        put(map_off, ek::IS_MUT, put_bool(is_mut));
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_hermes_lit_direct(TypeRef ty,
+                                                   const lir::HermesValPtr& root,
+                                                   bool has_captures,
+                                                   const std::vector<lir::LExprPtr>& capture_exprs,
+                                                   const std::vector<TypeRef>& capture_types,
+                                                   uint32_t capture_param_count) {
+        auto root_av = hv_av(root);
+        auto cap_ex  = expr_array(capture_exprs);
+        auto cap_ty  = type_array(capture_types);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::HermesLit));
+        put(map_off, hl::ROOT,                  root_av);
+        put(map_off, hl::HAS_CAPTURES,          put_bool(has_captures));
+        put(map_off, hl::CAPTURE_EXPRS,         cap_ex);
+        put(map_off, hl::CAPTURE_TYPES,         cap_ty);
+        put(map_off, hl::CAPTURE_PARAM_COUNT,   put_u32(capture_param_count));
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_enum_lit_direct(TypeRef ty,
+                                                 std::string_view enum_name,
+                                                 std::string_view variant,
+                                                 int64_t disc) {
+        auto en_av = put_string(enum_name);
+        auto vr_av = put_string(variant);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::EnumLit));
+        put(map_off, ek::ENUM_NAME, en_av);
+        put(map_off, ek::VARIANT,   vr_av);
+        put(map_off, ek::DISC,      put_i64(disc));
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_enum_lit_data_direct(TypeRef ty,
+                                                      std::string_view enum_name,
+                                                      std::string_view variant,
+                                                      int64_t disc,
+                                                      const std::vector<lir::LExprPtr>& payload) {
+        auto en_av = put_string(enum_name);
+        auto vr_av = put_string(variant);
+        auto pl_av = expr_array(payload);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::EnumLitData));
+        put(map_off, ek::ENUM_NAME, en_av);
+        put(map_off, ek::VARIANT,   vr_av);
+        put(map_off, ek::DISC,      put_i64(disc));
+        put(map_off, ek::PAYLOAD,   pl_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_struct_lit_direct(TypeRef ty,
+                                                   std::string_view name,
+                                                   const std::vector<std::pair<std::string, lir::LExprPtr>>& fields) {
+        auto n_av = put_string(name);
+        auto fa   = struct_fields(fields);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::StructLit));
+        put(map_off, ek::STRUCT_NAME,  n_av);
+        put(map_off, ek::FIELD_NAMES,  fa.names);
+        put(map_off, ek::FIELD_VALUES, fa.values);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_call_direct(TypeRef ty,
+                                             std::string_view callee,
+                                             const std::vector<TypeRef>& type_args,
+                                             const std::vector<lir::LExprPtr>& args) {
+        auto cn_av = put_string(callee);
+        auto ta_av = type_array(type_args);
+        auto ar_av = expr_array(args);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::Call));
+        put(map_off, ek::CALLEE,    cn_av);
+        put(map_off, ek::TYPE_ARGS, ta_av);
+        put(map_off, ek::ARGS,      ar_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_method_call_direct(TypeRef ty,
+                                                    const lir::LExprPtr& receiver,
+                                                    std::string_view method,
+                                                    std::string_view resolved_symbol,
+                                                    const std::vector<TypeRef>& type_args,
+                                                    const std::vector<lir::LExprPtr>& args,
+                                                    int32_t vtable_index,
+                                                    std::string_view resolved_type,
+                                                    std::string_view tag_system,
+                                                    std::string_view tag_trait) {
+        auto recv_av = expr_av(receiver);
+        auto m_av    = put_string(method);
+        auto ta_av   = type_array(type_args);
+        auto ar_av   = expr_array(args);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::MethodCall));
+        put(map_off, ek::RECEIVER,     recv_av);
+        put(map_off, ek::METHOD,       m_av);
+        put(map_off, ek::TYPE_ARGS,    ta_av);
+        put(map_off, ek::ARGS,         ar_av);
+        put(map_off, ek::VTABLE_INDEX, put_i32(vtable_index));
+        if (!resolved_symbol.empty())
+            put(map_off, ek::RESOLVED_SYMBOL, put_string(resolved_symbol));
+        if (!resolved_type.empty())
+            put(map_off, ek::RESOLVED_TYPE, put_string(resolved_type));
+        if (!tag_system.empty())
+            put(map_off, ek::TAG_SYSTEM, put_string(tag_system));
+        if (!tag_trait.empty())
+            put(map_off, ek::TAG_TRAIT, put_string(tag_trait));
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_unary_direct(TypeRef ty, std::string_view op,
+                                              const lir::LExprPtr& operand) {
+        auto op_av = put_string(op);
+        auto o_av  = expr_av(operand);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::Unary));
+        put(map_off, ek::OP,      op_av);
+        put(map_off, ek::OPERAND, o_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_bin_op_direct(TypeRef ty, std::string_view op,
+                                               const lir::LExprPtr& lhs,
+                                               const lir::LExprPtr& rhs) {
+        auto op_av = put_string(op);
+        auto l_av  = expr_av(lhs);
+        auto r_av  = expr_av(rhs);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::BinOp));
+        put(map_off, ek::OP,  op_av);
+        put(map_off, ek::LHS, l_av);
+        put(map_off, ek::RHS, r_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_field_read_direct(TypeRef ty,
+                                                   const lir::LExprPtr& receiver,
+                                                   std::string_view field) {
+        auto r_av = expr_av(receiver);
+        auto f_av = put_string(field);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::FieldRead));
+        put(map_off, ek::RECEIVER, r_av);
+        put(map_off, ek::NAME,     f_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_index_read_direct(TypeRef ty,
+                                                   const lir::LExprPtr& receiver,
+                                                   const lir::LExprPtr& index) {
+        auto r_av = expr_av(receiver);
+        auto i_av = expr_av(index);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::IndexRead));
+        put(map_off, ek::RECEIVER, r_av);
+        put(map_off, ek::INDEX,    i_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_ptr_arith_direct(TypeRef ty, uint8_t op,
+                                                  const lir::LExprPtr& ptr,
+                                                  const lir::LExprPtr& offset) {
+        auto p_av = expr_av(ptr);
+        auto o_av = expr_av(offset);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::PtrArith));
+        put(map_off, ek::PTR_ARITH_OP, put_u8(op));
+        put(map_off, ek::BASE_PTR,     p_av);
+        put(map_off, ek::OFFSET,       o_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_ptr_diff_direct(TypeRef ty, bool by_byte,
+                                                 const lir::LExprPtr& lhs,
+                                                 const lir::LExprPtr& rhs) {
+        auto l_av = expr_av(lhs);
+        auto r_av = expr_av(rhs);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::PtrDiff));
+        put(map_off, pdk::BY_BYTE, put_bool(by_byte));
+        put(map_off, ek::LHS,      l_av);
+        put(map_off, ek::RHS,      r_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_if_expr_direct(TypeRef ty,
+                                                const lir::LExprPtr& cond,
+                                                const lir::LExprPtr& then_val,
+                                                const lir::LExprPtr& else_val) {
+        auto c_av = expr_av(cond);
+        auto t_av = expr_av(then_val);
+        auto e_av = expr_av(else_val);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::IfExpr));
+        put(map_off, ek::COND,     c_av);
+        put(map_off, ek::THEN_VAL, t_av);
+        put(map_off, ek::ELSE_VAL, e_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_tuple_lit_direct(TypeRef ty,
+                                                  const std::vector<lir::LExprPtr>& elems) {
+        auto el_av = expr_array(elems);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::TupleLit));
+        put(map_off, ek::ELEMS, el_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_tuple_index_direct(TypeRef ty,
+                                                    const lir::LExprPtr& receiver,
+                                                    uint32_t index) {
+        auto r_av = expr_av(receiver);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::TupleIndex));
+        put(map_off, ek::RECEIVER,        r_av);
+        put(map_off, ek::TUPLE_INDEX_VAL, put_u32(index));
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_arr_lit_direct(TypeRef ty,
+                                                const std::vector<lir::LExprPtr>& elems) {
+        auto el_av = expr_array(elems);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::ArrLit));
+        put(map_off, ek::ELEMS, el_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_block_expr_direct(TypeRef ty,
+                                                   const lir::LBlock* block,
+                                                   const lir::LExprPtr& result) {
+        auto b_av = block_av_raw(block);
+        auto r_av = expr_av(result);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::BlockExpr));
+        put(map_off, ek::BLOCK,  b_av);
+        put(map_off, ek::RESULT, r_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_closure_call_direct(TypeRef ty,
+                                                     const lir::LExprPtr& callee,
+                                                     const std::vector<lir::LExprPtr>& args) {
+        auto c_av = expr_av(callee);
+        auto a_av = expr_array(args);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::ClosureCall));
+        put(map_off, ek::CALLEE, c_av);
+        put(map_off, ek::ARGS,   a_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_fn_ptr_call_direct(TypeRef ty,
+                                                    const lir::LExprPtr& callee,
+                                                    const std::vector<lir::LExprPtr>& args) {
+        auto c_av = expr_av(callee);
+        auto a_av = expr_array(args);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::FnPtrCall));
+        put(map_off, ek::CALLEE, c_av);
+        put(map_off, ek::ARGS,   a_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_match_expr_direct(TypeRef ty,
+                                                   const lir::LExprPtr& scrut,
+                                                   const std::vector<lir::EMatchArm>& arms) {
+        auto sc_av = expr_av(scrut);
+        auto ar_av = expr_arm_array(arms);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::MatchExpr));
+        put(map_off, ek::SCRUT, sc_av);
+        put(map_off, ek::ARMS,  ar_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_new_direct(TypeRef ty,
+                                            std::string_view class_name,
+                                            const std::vector<std::pair<std::string, lir::LExprPtr>>& fields) {
+        auto n_av = put_string(class_name);
+        auto fa   = struct_fields(fields);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::New));
+        put(map_off, ek::CLASS_NAME,   n_av);
+        put(map_off, ek::FIELD_NAMES,  fa.names);
+        put(map_off, ek::FIELD_VALUES, fa.values);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_format_call_direct(TypeRef ty,
+                                                    const lir::LExprPtr& fmt,
+                                                    const std::vector<lir::LExprPtr>& args,
+                                                    const std::vector<TypeRef>& arg_types) {
+        auto f_av  = expr_av(fmt);
+        auto a_av  = expr_array(args);
+        auto at_av = type_array(arg_types);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::FormatCall));
+        put(map_off, ek::FMT,       f_av);
+        put(map_off, ek::ARGS,      a_av);
+        put(map_off, ek::ARG_TYPES, at_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_closure_box_direct(TypeRef ty,
+                                                    const lir::EClosure* inner) {
+        // Closure body / captures live inside `inner`; emit_closure walks the
+        // sub-tree (block + captures + params) and yields the closure's mirror
+        // offset, which we attach as ek::CLOSURE.
+        auto cl_av = inner ? closure_av(*inner) : hermes::AnyVal{};
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::ClosureBox));
+        put(map_off, ek::CLOSURE, cl_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+
+    // Stage B.6 — LStmt direct mirror writers. Mirror the per-kind branches of
+    // emit_stmt's std::visit but allocate from primitive args, never reading
+    // LStmt::kind.
+    void put_line(hermes::arena_offset_t map_off, uint32_t line) {
+        if (line != 0) put(map_off, sc::LINE, put_u32(line));
+    }
+    hermes::arena_offset_t emit_let_direct(uint32_t line, std::string_view name,
+                                            TypeRef ty, const lir::LExprPtr& value,
+                                            bool is_mut) {
+        auto name_av = put_string(name);
+        auto val_av  = expr_av(value);
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Let));
+        put(map_off, sk::NAME,   name_av);
+        put(map_off, sk::TYPE,   type_av(ty));
+        put(map_off, sk::VALUE,  val_av);
+        put(map_off, sk::IS_MUT, put_bool(is_mut));
+        put_line(map_off, line);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_assign_direct(uint32_t line, std::string_view name,
+                                               const lir::LExprPtr& value) {
+        auto name_av = put_string(name);
+        auto val_av  = expr_av(value);
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Assign));
+        put(map_off, sk::NAME,  name_av);
+        put(map_off, sk::VALUE, val_av);
+        put_line(map_off, line);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_return_direct(uint32_t line, const lir::LExprPtr& value) {
+        auto val_av = expr_av(value);
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Return));
+        put(map_off, sk::VALUE, val_av);
+        put_line(map_off, line);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_if_stmt_direct(uint32_t line,
+                                                const lir::LExprPtr& cond,
+                                                const lir::LBlock* then_blk,
+                                                const lir::LBlock* else_blk) {
+        auto cond_av = expr_av(cond);
+        auto then_av = block_av_raw(then_blk);
+        hermes::AnyVal else_av;
+        if (else_blk) else_av = block_av_raw(else_blk);
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::If));
+        put(map_off, sk::COND,       cond_av);
+        put(map_off, sk::THEN_BLOCK, then_av);
+        put(map_off, sk::ELSE_BLOCK, else_av);
+        put_line(map_off, line);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_while_direct(uint32_t line,
+                                              const lir::LExprPtr& cond,
+                                              const lir::LBlock* body,
+                                              std::string_view label) {
+        auto cond_av = expr_av(cond);
+        auto body_av = block_av_raw(body);
+        hermes::AnyVal label_av;
+        if (!label.empty()) label_av = put_string(label);
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::While));
+        put(map_off, sk::COND,  cond_av);
+        put(map_off, sk::BODY,  body_av);
+        put(map_off, sk::LABEL, label_av);
+        put_line(map_off, line);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_for_direct(uint32_t line,
+                                            std::string_view var,
+                                            const lir::LExprPtr& lo,
+                                            const lir::LExprPtr& hi,
+                                            bool inclusive,
+                                            const lir::LBlock* body,
+                                            std::string_view label) {
+        auto var_av  = put_string(var);
+        auto lo_av   = expr_av(lo);
+        auto hi_av   = expr_av(hi);
+        auto body_av = block_av_raw(body);
+        hermes::AnyVal label_av;
+        if (!label.empty()) label_av = put_string(label);
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::For));
+        put(map_off, sk::VAR,       var_av);
+        put(map_off, sk::LO,        lo_av);
+        put(map_off, sk::HI,        hi_av);
+        put(map_off, sk::INCLUSIVE, put_bool(inclusive));
+        put(map_off, sk::BODY,      body_av);
+        put(map_off, sk::LABEL,     label_av);
+        put_line(map_off, line);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_loop_direct(uint32_t line,
+                                             const lir::LBlock* body,
+                                             std::string_view label,
+                                             std::string_view break_slot,
+                                             TypeRef result_type) {
+        auto body_av = block_av_raw(body);
+        hermes::AnyVal label_av, slot_av;
+        if (!label.empty())      label_av = put_string(label);
+        if (!break_slot.empty()) slot_av  = put_string(break_slot);
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Loop));
+        put(map_off, sk::BODY,        body_av);
+        put(map_off, sk::LABEL,       label_av);
+        put(map_off, sk::BREAK_SLOT,  slot_av);
+        put(map_off, sk::RESULT_TYPE, type_av(result_type));
+        put_line(map_off, line);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_break_direct(uint32_t line,
+                                              const lir::LExprPtr& value,
+                                              std::string_view label) {
+        auto val_av = expr_av(value);
+        hermes::AnyVal label_av;
+        if (!label.empty()) label_av = put_string(label);
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Break));
+        put(map_off, sk::VALUE, val_av);
+        put(map_off, sk::LABEL, label_av);
+        put_line(map_off, line);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_continue_direct(uint32_t line,
+                                                 std::string_view label) {
+        hermes::AnyVal label_av;
+        if (!label.empty()) label_av = put_string(label);
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Continue));
+        put(map_off, sk::LABEL, label_av);
+        put_line(map_off, line);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_block_stmt_direct(uint32_t line,
+                                                   const lir::LBlock* body) {
+        auto body_av = block_av_raw(body);
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Block));
+        put(map_off, sk::BODY, body_av);
+        put_line(map_off, line);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_field_write_direct(uint32_t line,
+                                                    std::string_view receiver,
+                                                    std::string_view field,
+                                                    const lir::LExprPtr& value) {
+        auto recv_av  = put_string(receiver);
+        auto field_av = put_string(field);
+        auto val_av   = expr_av(value);
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::FieldWrite));
+        put(map_off, sk::RECEIVER, recv_av);
+        put(map_off, sk::FIELD,    field_av);
+        put(map_off, sk::VALUE,    val_av);
+        put_line(map_off, line);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_index_write_direct(uint32_t line,
+                                                    std::string_view arr,
+                                                    const lir::LExprPtr& index,
+                                                    const lir::LExprPtr& value) {
+        auto arr_av  = put_string(arr);
+        auto idx_av  = expr_av(index);
+        auto val_av  = expr_av(value);
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::IndexWrite));
+        put(map_off, sk::NAME,  arr_av);
+        put(map_off, sk::INDEX, idx_av);
+        put(map_off, sk::VALUE, val_av);
+        put_line(map_off, line);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_field_index_write_direct(uint32_t line,
+                                                          std::string_view receiver,
+                                                          std::string_view field,
+                                                          const lir::LExprPtr& index,
+                                                          const lir::LExprPtr& value) {
+        auto recv_av  = put_string(receiver);
+        auto field_av = put_string(field);
+        auto idx_av   = expr_av(index);
+        auto val_av   = expr_av(value);
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::FieldIndexWrite));
+        put(map_off, sk::RECEIVER, recv_av);
+        put(map_off, sk::FIELD,    field_av);
+        put(map_off, sk::INDEX,    idx_av);
+        put(map_off, sk::VALUE,    val_av);
+        put_line(map_off, line);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_expr_stmt_direct(uint32_t line,
+                                                  const lir::LExprPtr& expr) {
+        auto expr_avv = expr_av(expr);
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::ExprStmt));
+        put(map_off, sk::EXPR, expr_avv);
+        put_line(map_off, line);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_match_stmt_direct(uint32_t line,
+                                                   const lir::LExprPtr& scrut,
+                                                   const std::vector<lir::LMatchArm>& arms) {
+        auto scrut_av = expr_av(scrut);
+        auto arms_av  = arm_array(arms);
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Match));
+        put(map_off, sk::SCRUT, scrut_av);
+        put(map_off, sk::ARMS,  arms_av);
+        put_line(map_off, line);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_delete_direct(uint32_t line,
+                                               const lir::LExprPtr& expr) {
+        auto expr_avv = expr_av(expr);
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Delete));
+        put(map_off, sk::EXPR, expr_avv);
+        put_line(map_off, line);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_for_each_direct(uint32_t line,
+                                                 std::string_view var,
+                                                 const lir::LExprPtr& iter,
+                                                 TypeRef elem_type,
+                                                 int64_t arr_size,
+                                                 bool is_slice,
+                                                 const lir::LBlock* body) {
+        auto var_av  = put_string(var);
+        auto iter_av = expr_av(iter);
+        auto body_av = block_av_raw(body);
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::ForEach));
+        put(map_off, sk::VAR,       var_av);
+        put(map_off, sk::ITER,      iter_av);
+        put(map_off, sk::ELEM_TYPE, type_av(elem_type));
+        put(map_off, sk::ARR_SIZE,  put_i64(arr_size));
+        put(map_off, sk::IS_SLICE,  put_bool(is_slice));
+        put(map_off, sk::BODY,      body_av);
+        put_line(map_off, line);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_deref_write_direct(uint32_t line,
+                                                    const lir::LExprPtr& ptr,
+                                                    const lir::LExprPtr& value) {
+        auto ptr_av = expr_av(ptr);
+        auto val_av = expr_av(value);
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::DerefWrite));
+        put(map_off, sk::PTR,   ptr_av);
+        put(map_off, sk::VALUE, val_av);
+        put_line(map_off, line);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_drop_direct(uint32_t line,
+                                             std::string_view var_name,
+                                             std::string_view drop_fn,
+                                             TypeRef ty,
+                                             bool drop_fields) {
+        auto var_av = put_string(var_name);
+        hermes::AnyVal drop_av;
+        if (!drop_fn.empty()) drop_av = put_string(drop_fn);
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Drop));
+        put(map_off, sk::NAME,         var_av);
+        put(map_off, sk::DROP_FN,      drop_av);
+        put(map_off, sk::TYPE,         type_av(ty));
+        put(map_off, sk::DROP_FIELDS,  put_bool(drop_fields));
+        put_line(map_off, line);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_deref_field_write_direct(uint32_t line,
+                                                          std::string_view receiver,
+                                                          std::string_view type_name,
+                                                          std::string_view field,
+                                                          const lir::LExprPtr& value) {
+        auto recv_av  = put_string(receiver);
+        auto type_avv = put_string(type_name);
+        auto field_av = put_string(field);
+        auto val_av   = expr_av(value);
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::DerefFieldWrite));
+        put(map_off, sk::RECEIVER,   recv_av);
+        put(map_off, sk::TYPE_NAME,  type_avv);
+        put(map_off, sk::FIELD,      field_av);
+        put(map_off, sk::VALUE,      val_av);
+        put_line(map_off, line);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_tuple_write_direct(uint32_t line,
+                                                    std::string_view receiver,
+                                                    uint32_t index,
+                                                    const lir::LExprPtr& value,
+                                                    TypeRef recv_type) {
+        auto recv_av = put_string(receiver);
+        auto val_av  = expr_av(value);
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::TupleWrite));
+        put(map_off, sk::RECEIVER,        recv_av);
+        put(map_off, sk::TUPLE_INDEX_VAL, put_u32(index));
+        put(map_off, sk::VALUE,           val_av);
+        put(map_off, sk::RECV_TYPE,       type_av(recv_type));
+        put_line(map_off, line);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_let_else_direct(uint32_t line,
+                                                 const lir::Pattern& pat,
+                                                 const lir::LExprPtr& scrut,
+                                                 const lir::LBlock* else_block) {
+        auto pat_off  = emit_pat(pat);
+        auto scrut_av = expr_av(scrut);
+        auto eb_av    = block_av_raw(else_block);
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::LetElse));
+        put(map_off, sk::PAT,           hermes::AnyVal::from_offset(pat_off));
+        put(map_off, sk::SCRUT,         scrut_av);
+        put(map_off, sk::ELSE_DIVERGE,  eb_av);
+        put_line(map_off, line);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_chain_field_write_direct(uint32_t line,
+                                                          std::string_view receiver,
+                                                          std::string_view mid_field,
+                                                          std::string_view field,
+                                                          const lir::LExprPtr& value) {
+        auto recv_av = put_string(receiver);
+        auto mid_av  = put_string(mid_field);
+        auto fld_av  = put_string(field);
+        auto val_av  = expr_av(value);
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::ChainFieldWrite));
+        put(map_off, sk::RECEIVER,  recv_av);
+        put(map_off, sk::MID_FIELD, mid_av);
+        put(map_off, sk::FIELD,     fld_av);
+        put(map_off, sk::VALUE,     val_av);
+        put_line(map_off, line);
+        return map_off;
+    }
+
+    // ── Stage B.6 — HermesVal direct mirror writers ─────────────────────────
+    // Each mirrors the corresponding branch of emit_hv's std::visit but
+    // allocates from primitive args, never reading HermesVal::kind. Children
+    // (HermesValPtr) must already have their own mirror_offset_; hv_av will
+    // back-fill the cache via the field-as-truth path.
+    static constexpr int32_t HV_BASE_DIRECT = 200;
+
+    hermes::arena_offset_t emit_hv_null_direct() {
+        return make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 0));
+    }
+    hermes::arena_offset_t emit_hv_bool_direct(bool value) {
+        auto map_off = make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 1));
+        put(map_off, hk::BOOL_VALUE, put_bool(value));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_hv_int_direct(int64_t value) {
+        auto map_off = make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 2));
+        put(map_off, hk::INT_VALUE, put_i64(value));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_hv_float_direct(double value) {
+        auto map_off = make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 3));
+        put(map_off, hk::FLOAT_VALUE, put_f64(value));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_hv_str_direct(std::string_view value) {
+        auto s_av = put_string(value);
+        auto map_off = make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 4));
+        put(map_off, hk::STR_VALUE, s_av);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_hv_map_direct(const std::vector<lir::HVMapEntry>& entries,
+                                               std::string_view key_type) {
+        std::vector<hermes::AnyVal> key_strs, key_ints, val_avs;
+        key_strs.reserve(entries.size());
+        key_ints.reserve(entries.size());
+        val_avs.reserve(entries.size());
+        for (auto& e : entries) {
+            if (std::holds_alternative<std::string>(e.key))
+                key_strs.push_back(put_string(std::get<std::string>(e.key)));
+            else
+                key_ints.push_back(put_i64(std::get<int64_t>(e.key)));
+            val_avs.push_back(hv_av(e.val));
+        }
+        hermes::AnyVal keys_av;
+        if (!key_strs.empty()) {
+            auto off = make_array(key_strs.size());
+            for (auto av : key_strs) array_push(off, av);
+            keys_av = hermes::AnyVal::from_offset(off);
+        } else if (!key_ints.empty()) {
+            auto off = make_array(key_ints.size());
+            for (auto av : key_ints) array_push(off, av);
+            keys_av = hermes::AnyVal::from_offset(off);
+        }
+        hermes::AnyVal vals_av;
+        if (!val_avs.empty()) {
+            auto off = make_array(val_avs.size());
+            for (auto av : val_avs) array_push(off, av);
+            vals_av = hermes::AnyVal::from_offset(off);
+        }
+        auto map_off = make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 5));
+        put(map_off, hk::MAP_KEYS,   keys_av);
+        put(map_off, hk::MAP_VALUES, vals_av);
+        if (!key_type.empty())
+            put(map_off, hk::TYPE_NAME, put_string(key_type));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_hv_array_direct(const std::vector<lir::HermesValPtr>& elements,
+                                                 std::string_view elem_type) {
+        std::vector<hermes::AnyVal> elems;
+        elems.reserve(elements.size());
+        for (auto& e : elements) elems.push_back(hv_av(e));
+        hermes::AnyVal arr_av;
+        if (!elems.empty()) {
+            auto off = make_array(elems.size());
+            for (auto av : elems) array_push(off, av);
+            arr_av = hermes::AnyVal::from_offset(off);
+        }
+        auto map_off = make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 6));
+        put(map_off, hk::ELEMS, arr_av);
+        if (!elem_type.empty())
+            put(map_off, hk::TYPE_NAME, put_string(elem_type));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_hv_capture_direct(uint32_t param_index, uint32_t value_index) {
+        auto map_off = make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 7));
+        put(map_off, hk::PARAM_INDEX, put_u32(param_index));
+        put(map_off, hk::VALUE_INDEX, put_u32(value_index));
+        return map_off;
+    }
+
+    // Stage B.6 — Pattern direct mirror writers. Mirror the per-kind branches
+    // of emit_pat's std::visit but allocate from primitive args, never reading
+    // Pattern::kind. Sub-pattern children must already carry their own
+    // mirror_offset_; pat_array recurses through the cache-hit fast path.
+    hermes::arena_offset_t emit_pat_variant_direct(std::string_view enum_name,
+                                                    std::string_view variant,
+                                                    int64_t disc) {
+        auto enum_av    = put_string(enum_name);
+        auto variant_av = put_string(variant);
+        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Variant));
+        put(map_off, pk::ENUM_NAME, enum_av);
+        put(map_off, pk::VARIANT,   variant_av);
+        put(map_off, pk::DISC,      put_i64(disc));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_pat_int_direct(int64_t value) {
+        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Int));
+        put(map_off, pk::INT_VALUE, put_i64(value));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_pat_bool_direct(bool value) {
+        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Bool));
+        put(map_off, pk::BOOL_VALUE, put_bool(value));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_pat_wild_direct(std::string_view name) {
+        auto name_av = name.empty() ? hermes::AnyVal{} : put_string(name);
+        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Wild));
+        put(map_off, pk::NAME, name_av);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_pat_variant_data_direct(std::string_view enum_name,
+                                                         std::string_view variant,
+                                                         int64_t disc,
+                                                         const std::vector<std::string>& bindings,
+                                                         const std::vector<TypeRef>& binding_types) {
+        auto enum_av     = put_string(enum_name);
+        auto variant_av  = put_string(variant);
+        auto bindings_av = string_array(bindings);
+        auto btypes_av   = type_array(binding_types);
+        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::VariantData));
+        put(map_off, pk::ENUM_NAME,      enum_av);
+        put(map_off, pk::VARIANT,        variant_av);
+        put(map_off, pk::DISC,           put_i64(disc));
+        put(map_off, pk::BINDINGS,       bindings_av);
+        put(map_off, pk::BINDING_TYPES,  btypes_av);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_pat_or_direct(const std::vector<lir::Pattern>& alts) {
+        auto subs_av = pat_array(alts);
+        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Or));
+        put(map_off, pk::SUBS, subs_av);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_pat_tuple_direct(const std::vector<std::string>& bindings,
+                                                  const std::vector<TypeRef>& binding_types,
+                                                  const std::vector<lir::Pattern>& subs) {
+        auto bindings_av = string_array(bindings);
+        auto btypes_av   = type_array(binding_types);
+        auto subs_av     = pat_array(subs);
+        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Tuple));
+        put(map_off, pk::BINDINGS,      bindings_av);
+        put(map_off, pk::BINDING_TYPES, btypes_av);
+        put(map_off, pk::SUBS,          subs_av);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_pat_range_direct(int64_t lo, int64_t hi) {
+        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Range));
+        put(map_off, pk::LO, put_i64(lo));
+        put(map_off, pk::HI, put_i64(hi));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_pat_struct_direct(std::string_view struct_name,
+                                                   const std::vector<lir::PatFieldBinding>& fields,
+                                                   bool has_rest) {
+        auto name_av   = put_string(struct_name);
+        auto fields_av = field_binding_array(fields);
+        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Struct));
+        put(map_off, pk::STRUCT_NAME, name_av);
+        put(map_off, pk::FIELDS,      fields_av);
+        put(map_off, pk::HAS_REST,    put_bool(has_rest));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_pat_slice_direct(const std::vector<lir::Pattern>& prefix,
+                                                  const std::vector<lir::Pattern>& rest,
+                                                  const std::vector<lir::Pattern>& suffix) {
+        auto pre_av  = pat_array(prefix);
+        auto rest_av = pat_array(rest);
+        auto suf_av  = pat_array(suffix);
+        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Slice));
+        put(map_off, pk::PREFIX, pre_av);
+        put(map_off, pk::REST,   rest_av);
+        put(map_off, pk::SUFFIX, suf_av);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_pat_at_direct(std::string_view name,
+                                               const std::vector<lir::Pattern>& sub,
+                                               TypeRef type) {
+        auto name_av = put_string(name);
+        auto sub_av  = pat_array(sub);
+        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::At));
+        put(map_off, pk::NAME, name_av);
+        put(map_off, pk::SUB,  sub_av);
+        put(map_off, pk::TYPE, type_av(type));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_pat_ref_bind_direct(std::string_view name,
+                                                     bool is_mut,
+                                                     TypeRef bind_type) {
+        auto name_av = put_string(name);
+        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::RefBind));
+        put(map_off, pk::NAME,      name_av);
+        put(map_off, pk::IS_MUT,    put_bool(is_mut));
+        put(map_off, pk::BIND_TYPE, type_av(bind_type));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_pat_ref_pat_direct(const std::vector<lir::Pattern>& inner,
+                                                    bool is_mut) {
+        auto inner_av = pat_array(inner);
+        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::RefPat));
+        put(map_off, pk::INNER,  inner_av);
+        put(map_off, pk::IS_MUT, put_bool(is_mut));
+        return map_off;
+    }
 
 private:
     // ── primitive helpers ───────────────────────────────────────────────────
@@ -294,7 +1267,10 @@ hermes::arena_offset_t LirMirrorEmitter::emit_block(const LBlock& b) {
         table_.block_by_offset[b.mirror_offset_.value()] = &b;
         backfill_only = true;
     } else if (auto it = table_.block.find(&b); it != table_.block.end()) {
-        return it->second;
+        // Heap-address recycling: stale cache entry for a freed LBlock.
+        // Invalidate and fall through to emit a fresh mirror.
+        table_.block_by_offset.erase(it->second.value());
+        table_.block.erase(it);
     }
 
     bool save_dry = dry_run_;
@@ -462,712 +1438,104 @@ hermes::arena_offset_t LirMirrorEmitter::emit_closure(const EClosure& c) {
 // ──────────────────────────────────────────────────────────────────────────
 
 hermes::arena_offset_t LirMirrorEmitter::emit_hv(const HermesVal& v) {
-    bool backfill_only = false;
-    if (v.mirror_offset_ != hermes::arena_offset_t{}) {
-        if (auto it = table_.hermes_val.find(&v); it != table_.hermes_val.end()) {
-            return it->second;
-        }
-        table_.hermes_val[&v] = v.mirror_offset_;
-        backfill_only = true;
-    } else if (auto it = table_.hermes_val.find(&v); it != table_.hermes_val.end()) {
-        return it->second;
+    // B.6 Stage 3.5 step 6: mirror_offset_ is field-as-truth. All HermesVal
+    // construction sites (sema alloc_hv_emit, mono clone_hv) eagerly emit
+    // and set mirror_offset_ via per-kind direct emitters; nested children
+    // are registered transitively. The bulk std::visit fallback is now
+    // unreachable.
+    LOGOS_ASSERT(v.mirror_offset_ != hermes::arena_offset_t{},
+                 "B6.S35.S6",
+                 "emit_hv: HermesVal reached without mirror_offset_ set "
+                 "(construction site missed direct-emit migration)");
+    if (auto it = table_.hermes_val.find(&v); it != table_.hermes_val.end()) {
+        if (it->second == v.mirror_offset_) return it->second;
+        table_.hermes_val_by_offset.erase(uint32_t(it->second.value()));
+        it->second = v.mirror_offset_;
+        table_.hermes_val_by_offset[v.mirror_offset_.value()] = &v;
+        return v.mirror_offset_;
     }
-
-    bool save_dry = dry_run_;
-    if (backfill_only) dry_run_ = true;
-
-    using namespace lir;
-    int32_t code = v.kind.index();
-    // HermesVal lives outside the formal expr/stmt/pat enum — give it its own
-    // synthetic category by piggybacking on lir_expr with an offset into the
-    // unused code range. (Phase 3a left no dedicated category for HV; OK for
-    // now since no readers consume mirrors yet.)
-    constexpr int32_t HV_BASE = 200;
-
-    hermes::arena_offset_t map_off;
-    std::visit([&](auto const& alt) {
-        using T = std::decay_t<decltype(alt)>;
-        if constexpr (std::is_same_v<T, HVNull>) {
-            map_off = make_map(hermes::schema::lir_expr(HV_BASE + 0));
-        } else if constexpr (std::is_same_v<T, HVBool>) {
-            map_off = make_map(hermes::schema::lir_expr(HV_BASE + 1));
-            put(map_off, hk::BOOL_VALUE, put_bool(alt.value));
-        } else if constexpr (std::is_same_v<T, HVInt>) {
-            map_off = make_map(hermes::schema::lir_expr(HV_BASE + 2));
-            put(map_off, hk::INT_VALUE, put_i64(alt.value));
-        } else if constexpr (std::is_same_v<T, HVFloat>) {
-            map_off = make_map(hermes::schema::lir_expr(HV_BASE + 3));
-            put(map_off, hk::FLOAT_VALUE, put_f64(alt.value));
-        } else if constexpr (std::is_same_v<T, HVStr>) {
-            map_off = make_map(hermes::schema::lir_expr(HV_BASE + 4));
-            put(map_off, hk::STR_VALUE, put_string(alt.value));
-        } else if constexpr (std::is_same_v<T, HVMap>) {
-            // Pre-emit values
-            std::vector<hermes::AnyVal> key_strs, key_ints, val_avs;
-            key_strs.reserve(alt.entries.size());
-            key_ints.reserve(alt.entries.size());
-            val_avs.reserve(alt.entries.size());
-            for (auto& e : alt.entries) {
-                if (std::holds_alternative<std::string>(e.key))
-                    key_strs.push_back(put_string(std::get<std::string>(e.key)));
-                else
-                    key_ints.push_back(put_i64(std::get<int64_t>(e.key)));
-                val_avs.push_back(hv_av(e.val));
-            }
-            hermes::AnyVal keys_av;
-            if (!key_strs.empty()) {
-                auto off = make_array(key_strs.size());
-                for (auto av : key_strs) array_push(off, av);
-                keys_av = hermes::AnyVal::from_offset(off);
-            } else if (!key_ints.empty()) {
-                auto off = make_array(key_ints.size());
-                for (auto av : key_ints) array_push(off, av);
-                keys_av = hermes::AnyVal::from_offset(off);
-            }
-            hermes::AnyVal vals_av;
-            if (!val_avs.empty()) {
-                auto off = make_array(val_avs.size());
-                for (auto av : val_avs) array_push(off, av);
-                vals_av = hermes::AnyVal::from_offset(off);
-            }
-            map_off = make_map(hermes::schema::lir_expr(HV_BASE + 5));
-            put(map_off, hk::MAP_KEYS,   keys_av);
-            put(map_off, hk::MAP_VALUES, vals_av);
-            if (!alt.key_type.empty())
-                put(map_off, hk::TYPE_NAME, put_string(alt.key_type));
-        } else if constexpr (std::is_same_v<T, HVArray>) {
-            std::vector<hermes::AnyVal> elems;
-            elems.reserve(alt.elements.size());
-            for (auto& e : alt.elements) elems.push_back(hv_av(e));
-            hermes::AnyVal arr_av;
-            if (!elems.empty()) {
-                auto off = make_array(elems.size());
-                for (auto av : elems) array_push(off, av);
-                arr_av = hermes::AnyVal::from_offset(off);
-            }
-            map_off = make_map(hermes::schema::lir_expr(HV_BASE + 6));
-            put(map_off, hk::ELEMS, arr_av);
-            if (!alt.elem_type.empty())
-                put(map_off, hk::TYPE_NAME, put_string(alt.elem_type));
-        } else if constexpr (std::is_same_v<T, HVCapture>) {
-            map_off = make_map(hermes::schema::lir_expr(HV_BASE + 7));
-            put(map_off, hk::PARAM_INDEX, put_u32(alt.param_index));
-            put(map_off, hk::VALUE_INDEX, put_u32(alt.value_index));
-        }
-    }, v.kind);
-    (void)code;
-    dry_run_ = save_dry;
-    if (backfill_only) return v.mirror_offset_;
-    v.mirror_offset_ = map_off;
-    table_.hermes_val[&v] = map_off;
-    return map_off;
+    table_.hermes_val[&v] = v.mirror_offset_;
+    table_.hermes_val_by_offset[v.mirror_offset_.value()] = &v;
+    return v.mirror_offset_;
 }
+
 
 // ──────────────────────────────────────────────────────────────────────────
 // Pattern mirror
 // ──────────────────────────────────────────────────────────────────────────
 
 hermes::arena_offset_t LirMirrorEmitter::emit_pat(const Pattern& p) {
-    if (auto it = table_.pat.find(&p); it != table_.pat.end())
-        return it->second;
-    using namespace lir;
-    hermes::arena_offset_t map_off;
-    std::visit([&](auto const& alt) {
-        using T = std::decay_t<decltype(alt)>;
-        if constexpr (std::is_same_v<T, PatVariant>) {
-            auto enum_av    = put_string(alt.enum_name);
-            auto variant_av = put_string(alt.variant);
-            map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Variant));
-            put(map_off, pk::ENUM_NAME, enum_av);
-            put(map_off, pk::VARIANT,   variant_av);
-            put(map_off, pk::DISC,      put_i64(alt.disc));
-        } else if constexpr (std::is_same_v<T, PatInt>) {
-            map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Int));
-            put(map_off, pk::INT_VALUE, put_i64(alt.value));
-        } else if constexpr (std::is_same_v<T, PatBool>) {
-            map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Bool));
-            put(map_off, pk::BOOL_VALUE, put_bool(alt.value));
-        } else if constexpr (std::is_same_v<T, PatWild>) {
-            auto name_av = alt.name.empty() ? hermes::AnyVal{} : put_string(alt.name);
-            map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Wild));
-            put(map_off, pk::NAME, name_av);
-        } else if constexpr (std::is_same_v<T, PatVariantData>) {
-            auto enum_av    = put_string(alt.enum_name);
-            auto variant_av = put_string(alt.variant);
-            auto bindings_av = string_array(alt.bindings);
-            auto btypes_av   = type_array(alt.binding_types);
-            map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::VariantData));
-            put(map_off, pk::ENUM_NAME,      enum_av);
-            put(map_off, pk::VARIANT,        variant_av);
-            put(map_off, pk::DISC,           put_i64(alt.disc));
-            put(map_off, pk::BINDINGS,       bindings_av);
-            put(map_off, pk::BINDING_TYPES,  btypes_av);
-        } else if constexpr (std::is_same_v<T, PatOr>) {
-            auto subs_av = pat_array(alt.alts);
-            map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Or));
-            put(map_off, pk::SUBS, subs_av);
-        } else if constexpr (std::is_same_v<T, PatTuple>) {
-            auto bindings_av = string_array(alt.bindings);
-            auto btypes_av   = type_array(alt.binding_types);
-            auto subs_av     = pat_array(alt.subs);
-            map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Tuple));
-            put(map_off, pk::BINDINGS,      bindings_av);
-            put(map_off, pk::BINDING_TYPES, btypes_av);
-            put(map_off, pk::SUBS,          subs_av);
-        } else if constexpr (std::is_same_v<T, PatRange>) {
-            map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Range));
-            put(map_off, pk::LO, put_i64(alt.lo));
-            put(map_off, pk::HI, put_i64(alt.hi));
-        } else if constexpr (std::is_same_v<T, PatStruct>) {
-            auto name_av   = put_string(alt.struct_name);
-            auto fields_av = field_binding_array(alt.fields);
-            map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Struct));
-            put(map_off, pk::STRUCT_NAME, name_av);
-            put(map_off, pk::FIELDS,      fields_av);
-            put(map_off, pk::HAS_REST,    put_bool(alt.has_rest));
-        } else if constexpr (std::is_same_v<T, PatSlice>) {
-            auto pre_av  = pat_array(alt.prefix);
-            auto rest_av = pat_array(alt.rest);
-            auto suf_av  = pat_array(alt.suffix);
-            map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Slice));
-            put(map_off, pk::PREFIX, pre_av);
-            put(map_off, pk::REST,   rest_av);
-            put(map_off, pk::SUFFIX, suf_av);
-        } else if constexpr (std::is_same_v<T, PatAt>) {
-            auto name_av = put_string(alt.name);
-            auto sub_av  = pat_array(alt.sub);
-            map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::At));
-            put(map_off, pk::NAME, name_av);
-            put(map_off, pk::SUB,  sub_av);
-            put(map_off, pk::TYPE, type_av(alt.type));
-        } else if constexpr (std::is_same_v<T, PatRefBind>) {
-            auto name_av = put_string(alt.name);
-            map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::RefBind));
-            put(map_off, pk::NAME,      name_av);
-            put(map_off, pk::IS_MUT,    put_bool(alt.is_mut));
-            put(map_off, pk::BIND_TYPE, type_av(alt.bind_type));
-        } else if constexpr (std::is_same_v<T, PatRefPat>) {
-            auto inner_av = pat_array(alt.inner);
-            map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::RefPat));
-            put(map_off, pk::INNER,  inner_av);
-            put(map_off, pk::IS_MUT, put_bool(alt.is_mut));
-        }
-    }, p);
-    table_.pat[&p] = map_off;
-    return map_off;
+    // B.6 Stage 3.5 step 3: mirror_offset_ is now field-as-truth. All
+    // Pattern construction sites (sema build_pattern_impl, sema
+    // make_pat_wild, mono PatSubstWalker) eagerly emit and set
+    // mirror_offset_. The bulk std::visit fallback below should be
+    // unreachable; assert and return.
+    LOGOS_ASSERT(p.mirror_offset_ != hermes::arena_offset_t{},
+                 "B6.S35.S3",
+                 "emit_pat: Pattern reached without mirror_offset_ set "
+                 "(construction site missed direct-emit migration)");
+    if (auto it = table_.pat.find(&p); it != table_.pat.end()) {
+        if (it->second == p.mirror_offset_) return it->second;
+        it->second = p.mirror_offset_;
+        return p.mirror_offset_;
+    }
+    table_.pat[&p] = p.mirror_offset_;
+    return p.mirror_offset_;
 }
+
 
 // ──────────────────────────────────────────────────────────────────────────
 // LStmt mirror
 // ──────────────────────────────────────────────────────────────────────────
 
 hermes::arena_offset_t LirMirrorEmitter::emit_stmt(const LStmt& s) {
-    bool backfill_only = false;
-    if (s.mirror_offset_ != hermes::arena_offset_t{}) {
-        if (auto it = table_.stmt.find(&s); it != table_.stmt.end()) {
-            return it->second;
-        }
-        table_.stmt[&s] = s.mirror_offset_;
+    // B.6 Stage 3.5 step 5: mirror_offset_ is field-as-truth. All LStmt
+    // construction sites (sema make_stmt_emit, sema LirBuilder stmt_*,
+    // mono subst_stmt) eagerly emit and set mirror_offset_ via per-kind
+    // direct emitters; children (LExpr/LBlock) are registered transitively
+    // by those direct emitters' internal expr_av/block_av calls. The bulk
+    // std::visit fallback below is now unreachable.
+    LOGOS_ASSERT(s.mirror_offset_ != hermes::arena_offset_t{},
+                 "B6.S35.S5",
+                 "emit_stmt: LStmt reached without mirror_offset_ set "
+                 "(construction site missed direct-emit migration)");
+    if (auto it = table_.stmt.find(&s); it != table_.stmt.end()) {
+        if (it->second == s.mirror_offset_) return it->second;
+        table_.stmt_by_offset.erase(it->second.value());
+        it->second = s.mirror_offset_;
         table_.stmt_by_offset[s.mirror_offset_.value()] = &s;
-        backfill_only = true;
-    } else if (auto it = table_.stmt.find(&s); it != table_.stmt.end()) {
-        return it->second;
+        return s.mirror_offset_;
     }
-
-    bool save_dry = dry_run_;
-    if (backfill_only) dry_run_ = true;
-
-    using namespace lir;
-    hermes::arena_offset_t map_off;
-    std::visit([&](auto const& alt) {
-        using T = std::decay_t<decltype(alt)>;
-        if constexpr (std::is_same_v<T, SLet>) {
-            auto name_av = put_string(alt.name);
-            auto val_av  = expr_av(alt.value);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Let));
-            put(map_off, sk::NAME,   name_av);
-            put(map_off, sk::TYPE,   type_av(alt.type));
-            put(map_off, sk::VALUE,  val_av);
-            put(map_off, sk::IS_MUT, put_bool(alt.is_mut));
-        } else if constexpr (std::is_same_v<T, SAssign>) {
-            auto name_av = put_string(alt.name);
-            auto val_av  = expr_av(alt.value);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Assign));
-            put(map_off, sk::NAME,  name_av);
-            put(map_off, sk::VALUE, val_av);
-        } else if constexpr (std::is_same_v<T, SReturn>) {
-            auto val_av = expr_av(alt.value);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Return));
-            put(map_off, sk::VALUE, val_av);
-        } else if constexpr (std::is_same_v<T, SIf>) {
-            auto cond_av = expr_av(alt.cond);
-            auto then_av = block_av(alt.then_);
-            hermes::AnyVal else_av;
-            if (alt.else_.has_value()) else_av = block_av(*alt.else_);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::If));
-            put(map_off, sk::COND,       cond_av);
-            put(map_off, sk::THEN_BLOCK, then_av);
-            put(map_off, sk::ELSE_BLOCK, else_av);
-        } else if constexpr (std::is_same_v<T, SWhile>) {
-            auto cond_av = expr_av(alt.cond);
-            auto body_av = block_av(alt.body);
-            hermes::AnyVal label_av;
-            if (!alt.label.empty()) label_av = put_string(alt.label);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::While));
-            put(map_off, sk::COND,  cond_av);
-            put(map_off, sk::BODY,  body_av);
-            put(map_off, sk::LABEL, label_av);
-        } else if constexpr (std::is_same_v<T, SFor>) {
-            auto var_av  = put_string(alt.var);
-            auto lo_av   = expr_av(alt.lo);
-            auto hi_av   = expr_av(alt.hi);
-            auto body_av = block_av(alt.body);
-            hermes::AnyVal label_av;
-            if (!alt.label.empty()) label_av = put_string(alt.label);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::For));
-            put(map_off, sk::VAR,       var_av);
-            put(map_off, sk::LO,        lo_av);
-            put(map_off, sk::HI,        hi_av);
-            put(map_off, sk::INCLUSIVE, put_bool(alt.inclusive));
-            put(map_off, sk::BODY,      body_av);
-            put(map_off, sk::LABEL,     label_av);
-        } else if constexpr (std::is_same_v<T, SLoop>) {
-            auto body_av = block_av(alt.body);
-            hermes::AnyVal label_av, slot_av;
-            if (!alt.label.empty())      label_av = put_string(alt.label);
-            if (!alt.break_slot.empty()) slot_av  = put_string(alt.break_slot);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Loop));
-            put(map_off, sk::BODY,        body_av);
-            put(map_off, sk::LABEL,       label_av);
-            put(map_off, sk::BREAK_SLOT,  slot_av);
-            put(map_off, sk::RESULT_TYPE, type_av(alt.result_type));
-        } else if constexpr (std::is_same_v<T, SBreak>) {
-            auto val_av = expr_av(alt.value);
-            hermes::AnyVal label_av;
-            if (!alt.label.empty()) label_av = put_string(alt.label);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Break));
-            put(map_off, sk::VALUE, val_av);
-            put(map_off, sk::LABEL, label_av);
-        } else if constexpr (std::is_same_v<T, SContinue>) {
-            hermes::AnyVal label_av;
-            if (!alt.label.empty()) label_av = put_string(alt.label);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Continue));
-            put(map_off, sk::LABEL, label_av);
-        } else if constexpr (std::is_same_v<T, SBlock>) {
-            auto body_av = block_av(alt.body);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Block));
-            put(map_off, sk::BODY, body_av);
-        } else if constexpr (std::is_same_v<T, SFieldWrite>) {
-            auto recv_av  = put_string(alt.receiver);
-            auto field_av = put_string(alt.field);
-            auto val_av   = expr_av(alt.value);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::FieldWrite));
-            put(map_off, sk::RECEIVER, recv_av);
-            put(map_off, sk::FIELD,    field_av);
-            put(map_off, sk::VALUE,    val_av);
-        } else if constexpr (std::is_same_v<T, SIndexWrite>) {
-            auto arr_av  = put_string(alt.arr);
-            auto idx_av  = expr_av(alt.index);
-            auto val_av  = expr_av(alt.value);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::IndexWrite));
-            put(map_off, sk::NAME,  arr_av);
-            put(map_off, sk::INDEX, idx_av);
-            put(map_off, sk::VALUE, val_av);
-        } else if constexpr (std::is_same_v<T, SFieldIndexWrite>) {
-            auto recv_av  = put_string(alt.receiver);
-            auto field_av = put_string(alt.field);
-            auto idx_av   = expr_av(alt.index);
-            auto val_av   = expr_av(alt.value);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::FieldIndexWrite));
-            put(map_off, sk::RECEIVER, recv_av);
-            put(map_off, sk::FIELD,    field_av);
-            put(map_off, sk::INDEX,    idx_av);
-            put(map_off, sk::VALUE,    val_av);
-        } else if constexpr (std::is_same_v<T, SExprStmt>) {
-            auto expr_avv = expr_av(alt.expr);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::ExprStmt));
-            put(map_off, sk::EXPR, expr_avv);
-        } else if constexpr (std::is_same_v<T, SMatch>) {
-            auto scrut_av = expr_av(alt.scrut);
-            auto arms_av  = arm_array(alt.arms);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Match));
-            put(map_off, sk::SCRUT, scrut_av);
-            put(map_off, sk::ARMS,  arms_av);
-        } else if constexpr (std::is_same_v<T, SDelete>) {
-            auto expr_avv = expr_av(alt.expr);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Delete));
-            put(map_off, sk::EXPR, expr_avv);
-        } else if constexpr (std::is_same_v<T, SForEach>) {
-            auto var_av  = put_string(alt.var);
-            auto iter_av = expr_av(alt.iter);
-            auto body_av = block_av(alt.body);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::ForEach));
-            put(map_off, sk::VAR,       var_av);
-            put(map_off, sk::ITER,      iter_av);
-            put(map_off, sk::ELEM_TYPE, type_av(alt.elem_type));
-            put(map_off, sk::ARR_SIZE,  put_i64(alt.arr_size));
-            put(map_off, sk::IS_SLICE,  put_bool(alt.is_slice));
-            put(map_off, sk::BODY,      body_av);
-        } else if constexpr (std::is_same_v<T, SDerefWrite>) {
-            auto ptr_av = expr_av(alt.ptr);
-            auto val_av = expr_av(alt.value);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::DerefWrite));
-            put(map_off, sk::PTR,   ptr_av);
-            put(map_off, sk::VALUE, val_av);
-        } else if constexpr (std::is_same_v<T, SDrop>) {
-            auto var_av = put_string(alt.var_name);
-            hermes::AnyVal drop_av;
-            if (!alt.drop_fn.empty()) drop_av = put_string(alt.drop_fn);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Drop));
-            put(map_off, sk::NAME,         var_av);
-            put(map_off, sk::DROP_FN,      drop_av);
-            put(map_off, sk::TYPE,         type_av(alt.type));
-            put(map_off, sk::DROP_FIELDS,  put_bool(alt.drop_fields));
-        } else if constexpr (std::is_same_v<T, SDerefFieldWrite>) {
-            auto recv_av  = put_string(alt.receiver);
-            auto type_avv = put_string(alt.type_name);
-            auto field_av = put_string(alt.field);
-            auto val_av   = expr_av(alt.value);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::DerefFieldWrite));
-            put(map_off, sk::RECEIVER,   recv_av);
-            put(map_off, sk::TYPE_NAME,  type_avv);
-            put(map_off, sk::FIELD,      field_av);
-            put(map_off, sk::VALUE,      val_av);
-        } else if constexpr (std::is_same_v<T, STupleWrite>) {
-            auto recv_av = put_string(alt.receiver);
-            auto val_av  = expr_av(alt.value);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::TupleWrite));
-            put(map_off, sk::RECEIVER,        recv_av);
-            put(map_off, sk::TUPLE_INDEX_VAL, put_u32(alt.index));
-            put(map_off, sk::VALUE,           val_av);
-            put(map_off, sk::RECV_TYPE,       type_av(alt.recv_type));
-        } else if constexpr (std::is_same_v<T, SLetElse>) {
-            auto pat_off  = emit_pat(alt.pat);
-            auto scrut_av = expr_av(alt.scrut);
-            auto eb_av    = block_av(alt.else_block);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::LetElse));
-            put(map_off, sk::PAT,           hermes::AnyVal::from_offset(pat_off));
-            put(map_off, sk::SCRUT,         scrut_av);
-            put(map_off, sk::ELSE_DIVERGE,  eb_av);
-        } else if constexpr (std::is_same_v<T, SChainFieldWrite>) {
-            auto recv_av = put_string(alt.receiver);
-            auto mid_av  = put_string(alt.mid_field);
-            auto fld_av  = put_string(alt.field);
-            auto val_av  = expr_av(alt.value);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::ChainFieldWrite));
-            put(map_off, sk::RECEIVER,  recv_av);
-            put(map_off, sk::MID_FIELD, mid_av);
-            put(map_off, sk::FIELD,     fld_av);
-            put(map_off, sk::VALUE,     val_av);
-        }
-    }, s.kind);
-
-    if (s.line != 0)
-        put(map_off, sc::LINE, put_u32(s.line));
-
-    dry_run_ = save_dry;
-    if (backfill_only) return s.mirror_offset_;
-
-    s.mirror_offset_ = map_off;
-    table_.stmt[&s] = map_off;
-    table_.stmt_by_offset[map_off.value()] = &s;
-    return map_off;
+    table_.stmt[&s] = s.mirror_offset_;
+    table_.stmt_by_offset[s.mirror_offset_.value()] = &s;
+    return s.mirror_offset_;
 }
+
 
 // ──────────────────────────────────────────────────────────────────────────
 // LExpr mirror — biggest switch
 // ──────────────────────────────────────────────────────────────────────────
 
 hermes::arena_offset_t LirMirrorEmitter::emit_expr(const LExpr& e) {
-    // Field-as-truth fast path. The field is the cross-table back-pointer
-    // (set on first emission); honouring it before the cache prevents stale
-    // cache hits from reused heap addresses (LExpr deletion + std::make_unique
-    // recycling). When the field is set but the current table doesn't know
-    // about &e (e.g. nodes carried across via std::move(in_.consts) into
-    // out_), back-fill both directions of the current table so consumers
-    // (mlir_gen, borrow_check) that reverse-lookup by offset can find &e —
-    // and fall through to the variant walk in dry-run mode so each child
-    // emit_* call back-fills its own descendants.
-    bool backfill_only = false;
-    if (e.mirror_offset_ != hermes::arena_offset_t{}) {
-        if (auto it = table_.expr.find(&e); it != table_.expr.end()) {
-            return it->second;
-        }
-        table_.expr[&e] = e.mirror_offset_;
+    // B.6 Stage 3.5 step 7d: mirror_offset_ is field-as-truth. All LExpr
+    // construction sites (sema LirBuilder direct(), mono subst_expr per-kind
+    // direct emitters, closure_box) eagerly emit and set mirror_offset_ via
+    // per-kind direct emitters; children are registered transitively. The
+    // bulk std::visit body that previously walked LExpr::kind is gone.
+    LOGOS_ASSERT(e.mirror_offset_ != hermes::arena_offset_t{},
+                 "B6.S35.S7D",
+                 "emit_expr: LExpr reached without mirror_offset_ set "
+                 "(construction site missed direct-emit migration)");
+    if (auto it = table_.expr.find(&e); it != table_.expr.end()) {
+        if (it->second == e.mirror_offset_) return it->second;
+        table_.expr_by_offset.erase(it->second.value());
+        it->second = e.mirror_offset_;
         table_.expr_by_offset[e.mirror_offset_.value()] = &e;
-        backfill_only = true;
-    } else if (auto it = table_.expr.find(&e); it != table_.expr.end()) {
-        // Address-cache hit but the LExpr's own mirror_offset_ is unset:
-        // this is heap-address recycling after a prior LExpr was deleted.
-        // The cached offset points to the *old* arena map, which is stale
-        // for this fresh node. Invalidate and fall through to emit a new
-        // mirror for &e. (See line 884 comment: field-as-truth comes
-        // first; the address cache is only valid when mirror_offset_ also
-        // matches.)
-        table_.expr_by_offset.erase(uint32_t(it->second.value()));
-        table_.expr.erase(it);
+        return e.mirror_offset_;
     }
-
-    bool save_dry = dry_run_;
-    if (backfill_only) dry_run_ = true;
-
-    using namespace lir;
-    hermes::arena_offset_t map_off;
-    std::visit([&](auto const& alt) {
-        using T = std::decay_t<decltype(alt)>;
-        using Code = lir_schema::expr::Code;
-
-        if constexpr (std::is_same_v<T, ELitInt>) {
-            map_off = make_map(hermes::schema::lir_expr(Code::LitInt));
-            put(map_off, ek::LIT_I64, put_i64(alt.value));
-        } else if constexpr (std::is_same_v<T, ELitFloat>) {
-            map_off = make_map(hermes::schema::lir_expr(Code::LitFloat));
-            put(map_off, ek::LIT_F64, put_f64(alt.value));
-        } else if constexpr (std::is_same_v<T, ELitBool>) {
-            map_off = make_map(hermes::schema::lir_expr(Code::LitBool));
-            put(map_off, ek::LIT_BOOL, put_bool(alt.value));
-        } else if constexpr (std::is_same_v<T, ELitStr>) {
-            auto s_av = put_string(alt.value);
-            map_off = make_map(hermes::schema::lir_expr(Code::LitStr));
-            put(map_off, ek::LIT_STR, s_av);
-        } else if constexpr (std::is_same_v<T, EVarRef>) {
-            auto n_av = put_string(alt.name);
-            map_off = make_map(hermes::schema::lir_expr(Code::VarRef));
-            put(map_off, ek::NAME, n_av);
-        } else if constexpr (std::is_same_v<T, EEnumLit>) {
-            auto en_av = put_string(alt.enum_name);
-            auto vr_av = put_string(alt.variant);
-            map_off = make_map(hermes::schema::lir_expr(Code::EnumLit));
-            put(map_off, ek::ENUM_NAME, en_av);
-            put(map_off, ek::VARIANT,   vr_av);
-            put(map_off, ek::DISC,      put_i64(alt.disc));
-        } else if constexpr (std::is_same_v<T, EEnumLitData>) {
-            auto en_av  = put_string(alt.enum_name);
-            auto vr_av  = put_string(alt.variant);
-            auto pl_av  = expr_array(alt.payload);
-            map_off = make_map(hermes::schema::lir_expr(Code::EnumLitData));
-            put(map_off, ek::ENUM_NAME, en_av);
-            put(map_off, ek::VARIANT,   vr_av);
-            put(map_off, ek::DISC,      put_i64(alt.disc));
-            put(map_off, ek::PAYLOAD,   pl_av);
-        } else if constexpr (std::is_same_v<T, ECall>) {
-            auto cn_av  = put_string(alt.callee);
-            auto ta_av  = type_array(alt.type_args);
-            auto ar_av  = expr_array(alt.args);
-            map_off = make_map(hermes::schema::lir_expr(Code::Call));
-            put(map_off, ek::CALLEE,     cn_av);
-            put(map_off, ek::TYPE_ARGS,  ta_av);
-            put(map_off, ek::ARGS,       ar_av);
-        } else if constexpr (std::is_same_v<T, EMethodCall>) {
-            auto recv_av = expr_av(alt.receiver);
-            auto m_av    = put_string(alt.method);
-            auto ta_av   = type_array(alt.type_args);
-            auto ar_av   = expr_array(alt.args);
-            map_off = make_map(hermes::schema::lir_expr(Code::MethodCall));
-            put(map_off, ek::RECEIVER,        recv_av);
-            put(map_off, ek::METHOD,          m_av);
-            put(map_off, ek::TYPE_ARGS,       ta_av);
-            put(map_off, ek::ARGS,            ar_av);
-            put(map_off, ek::VTABLE_INDEX,    put_i32(alt.vtable_index));
-            if (!alt.resolved_symbol.empty())
-                put(map_off, ek::RESOLVED_SYMBOL, put_string(alt.resolved_symbol));
-            if (!alt.resolved_type.empty())
-                put(map_off, ek::RESOLVED_TYPE, put_string(alt.resolved_type));
-            if (!alt.tag_system.empty())
-                put(map_off, ek::TAG_SYSTEM, put_string(alt.tag_system));
-            if (!alt.tag_trait.empty())
-                put(map_off, ek::TAG_TRAIT, put_string(alt.tag_trait));
-        } else if constexpr (std::is_same_v<T, EBinOp>) {
-            auto op_av = put_string(alt.op);
-            auto l_av  = expr_av(alt.lhs);
-            auto r_av  = expr_av(alt.rhs);
-            map_off = make_map(hermes::schema::lir_expr(Code::BinOp));
-            put(map_off, ek::OP,  op_av);
-            put(map_off, ek::LHS, l_av);
-            put(map_off, ek::RHS, r_av);
-        } else if constexpr (std::is_same_v<T, EUnary>) {
-            auto op_av = put_string(alt.op);
-            auto o_av  = expr_av(alt.operand);
-            map_off = make_map(hermes::schema::lir_expr(Code::Unary));
-            put(map_off, ek::OP,      op_av);
-            put(map_off, ek::OPERAND, o_av);
-        } else if constexpr (std::is_same_v<T, EAddrOf>) {
-            auto n_av = put_string(alt.var_name);
-            map_off = make_map(hermes::schema::lir_expr(Code::AddrOf));
-            put(map_off, ek::NAME, n_av);
-        } else if constexpr (std::is_same_v<T, EAddrOfTemp>) {
-            auto in_av = expr_av(alt.inner);
-            map_off = make_map(hermes::schema::lir_expr(Code::AddrOfTemp));
-            put(map_off, ek::INNER,  in_av);
-            put(map_off, ek::IS_MUT, put_bool(alt.is_mut));
-        } else if constexpr (std::is_same_v<T, EDeref>) {
-            auto o_av = expr_av(alt.operand);
-            map_off = make_map(hermes::schema::lir_expr(Code::Deref));
-            put(map_off, ek::OPERAND, o_av);
-        } else if constexpr (std::is_same_v<T, EFieldRead>) {
-            auto r_av = expr_av(alt.receiver);
-            auto f_av = put_string(alt.field);
-            map_off = make_map(hermes::schema::lir_expr(Code::FieldRead));
-            put(map_off, ek::RECEIVER, r_av);
-            put(map_off, ek::NAME,     f_av);
-        } else if constexpr (std::is_same_v<T, EIndexRead>) {
-            auto r_av = expr_av(alt.receiver);
-            auto i_av = expr_av(alt.index);
-            map_off = make_map(hermes::schema::lir_expr(Code::IndexRead));
-            put(map_off, ek::RECEIVER, r_av);
-            put(map_off, ek::INDEX,    i_av);
-        } else if constexpr (std::is_same_v<T, EStructLit>) {
-            auto n_av = put_string(alt.name);
-            auto fa   = struct_fields(alt.fields);
-            map_off = make_map(hermes::schema::lir_expr(Code::StructLit));
-            put(map_off, ek::STRUCT_NAME,  n_av);
-            put(map_off, ek::FIELD_NAMES,  fa.names);
-            put(map_off, ek::FIELD_VALUES, fa.values);
-        } else if constexpr (std::is_same_v<T, EArrLit>) {
-            auto el_av = expr_array(alt.elems);
-            map_off = make_map(hermes::schema::lir_expr(Code::ArrLit));
-            put(map_off, ek::ELEMS, el_av);
-        } else if constexpr (std::is_same_v<T, ECast>) {
-            auto o_av = expr_av(alt.operand);
-            map_off = make_map(hermes::schema::lir_expr(Code::Cast));
-            put(map_off, ek::OPERAND, o_av);
-            if (!alt.hermes_build_fn.empty())
-                put(map_off, ek::HERMES_BUILD_FN, put_string(alt.hermes_build_fn));
-        } else if constexpr (std::is_same_v<T, ENew>) {
-            auto n_av = put_string(alt.class_name);
-            auto fa   = struct_fields(alt.fields);
-            map_off = make_map(hermes::schema::lir_expr(Code::New));
-            put(map_off, ek::CLASS_NAME,   n_av);
-            put(map_off, ek::FIELD_NAMES,  fa.names);
-            put(map_off, ek::FIELD_VALUES, fa.values);
-        } else if constexpr (std::is_same_v<T, EIfExpr>) {
-            auto c_av = expr_av(alt.cond);
-            auto t_av = expr_av(alt.then_val);
-            auto e_av = expr_av(alt.else_val);
-            map_off = make_map(hermes::schema::lir_expr(Code::IfExpr));
-            put(map_off, ek::COND,     c_av);
-            put(map_off, ek::THEN_VAL, t_av);
-            put(map_off, ek::ELSE_VAL, e_av);
-        } else if constexpr (std::is_same_v<T, ETupleLit>) {
-            auto el_av = expr_array(alt.elems);
-            map_off = make_map(hermes::schema::lir_expr(Code::TupleLit));
-            put(map_off, ek::ELEMS, el_av);
-        } else if constexpr (std::is_same_v<T, ETupleIndex>) {
-            auto r_av = expr_av(alt.receiver);
-            map_off = make_map(hermes::schema::lir_expr(Code::TupleIndex));
-            put(map_off, ek::RECEIVER,        r_av);
-            put(map_off, ek::TUPLE_INDEX_VAL, put_u32(alt.index));
-        } else if constexpr (std::is_same_v<T, ESliceLit>) {
-            auto b_av = expr_av(alt.base);
-            auto l_av = expr_av(alt.len);
-            map_off = make_map(hermes::schema::lir_expr(Code::SliceLit));
-            put(map_off, ek::BASE_PTR, b_av);
-            put(map_off, ek::LEN,      l_av);
-        } else if constexpr (std::is_same_v<T, ESliceIndex>) {
-            auto s_av = expr_av(alt.slice);
-            auto i_av = expr_av(alt.index);
-            map_off = make_map(hermes::schema::lir_expr(Code::SliceIndex));
-            put(map_off, ek::SLICE, s_av);
-            put(map_off, ek::INDEX, i_av);
-        } else if constexpr (std::is_same_v<T, ESliceLen>) {
-            auto s_av = expr_av(alt.slice);
-            map_off = make_map(hermes::schema::lir_expr(Code::SliceLen));
-            put(map_off, ek::SLICE, s_av);
-        } else if constexpr (std::is_same_v<T, ESlicePtr>) {
-            auto s_av = expr_av(alt.slice);
-            map_off = make_map(hermes::schema::lir_expr(Code::SlicePtr));
-            put(map_off, ek::SLICE, s_av);
-        } else if constexpr (std::is_same_v<T, EClosureBox>) {
-            auto cl_av = closure_av(*alt.inner);
-            map_off = make_map(hermes::schema::lir_expr(Code::ClosureBox));
-            put(map_off, ek::CLOSURE, cl_av);
-        } else if constexpr (std::is_same_v<T, EClosureCall>) {
-            auto c_av = expr_av(alt.callee);
-            auto a_av = expr_array(alt.args);
-            map_off = make_map(hermes::schema::lir_expr(Code::ClosureCall));
-            put(map_off, ek::CALLEE, c_av);
-            put(map_off, ek::ARGS,   a_av);
-        } else if constexpr (std::is_same_v<T, EFnPtrCall>) {
-            auto c_av = expr_av(alt.callee);
-            auto a_av = expr_array(alt.args);
-            map_off = make_map(hermes::schema::lir_expr(Code::FnPtrCall));
-            put(map_off, ek::CALLEE, c_av);
-            put(map_off, ek::ARGS,   a_av);
-        } else if constexpr (std::is_same_v<T, EFormatCall>) {
-            auto f_av  = expr_av(alt.fmt);
-            auto a_av  = expr_array(alt.args);
-            auto at_av = type_array(alt.arg_types);
-            map_off = make_map(hermes::schema::lir_expr(Code::FormatCall));
-            put(map_off, ek::FMT,       f_av);
-            put(map_off, ek::ARGS,      a_av);
-            put(map_off, ek::ARG_TYPES, at_av);
-        } else if constexpr (std::is_same_v<T, EPackExpand>) {
-            auto n_av = put_string(alt.var_name);
-            map_off = make_map(hermes::schema::lir_expr(Code::PackExpand));
-            put(map_off, ek::NAME, n_av);
-        } else if constexpr (std::is_same_v<T, ETry>) {
-            auto in_av = expr_av(alt.inner);
-            map_off = make_map(hermes::schema::lir_expr(Code::Try));
-            put(map_off, ek::INNER,    in_av);
-            put(map_off, ek::OK_DISC,  put_i32(alt.ok_disc));
-            put(map_off, ek::ERR_DISC, put_i32(alt.err_disc));
-        } else if constexpr (std::is_same_v<T, EMatchExpr>) {
-            auto sc_av = expr_av(alt.scrut);
-            auto ar_av = expr_arm_array(alt.arms);
-            map_off = make_map(hermes::schema::lir_expr(Code::MatchExpr));
-            put(map_off, ek::SCRUT, sc_av);
-            put(map_off, ek::ARMS,  ar_av);
-        } else if constexpr (std::is_same_v<T, ESizeOf>) {
-            map_off = make_map(hermes::schema::lir_expr(Code::SizeOf));
-            put(map_off, ek::ELEM_TYPE, type_av(alt.elem_type));
-        } else if constexpr (std::is_same_v<T, ETypeCodeOf>) {
-            map_off = make_map(hermes::schema::lir_expr(Code::TypeCodeOf));
-            put(map_off, ek::ELEM_TYPE, type_av(alt.elem_type));
-        } else if constexpr (std::is_same_v<T, EBlockExpr>) {
-            auto b_av = block_av_raw(alt.block.get());
-            auto r_av = expr_av(alt.result);
-            map_off = make_map(hermes::schema::lir_expr(Code::BlockExpr));
-            put(map_off, ek::BLOCK,  b_av);
-            put(map_off, ek::RESULT, r_av);
-        } else if constexpr (std::is_same_v<T, EHermesLit>) {
-            auto root_av = hv_av(alt.root);
-            auto cap_ex  = expr_array(alt.capture_exprs);
-            auto cap_ty  = type_array(alt.capture_types);
-            map_off = make_map(hermes::schema::lir_expr(Code::HermesLit));
-            put(map_off, hl::ROOT,                  root_av);
-            put(map_off, hl::HAS_CAPTURES,          put_bool(alt.has_captures));
-            put(map_off, hl::CAPTURE_EXPRS,         cap_ex);
-            put(map_off, hl::CAPTURE_TYPES,         cap_ty);
-            put(map_off, hl::CAPTURE_PARAM_COUNT,   put_u32(alt.capture_param_count));
-        } else if constexpr (std::is_same_v<T, EPtrArith>) {
-            auto p_av = expr_av(alt.ptr);
-            auto o_av = expr_av(alt.offset);
-            map_off = make_map(hermes::schema::lir_expr(Code::PtrArith));
-            put(map_off, ek::PTR_ARITH_OP, put_u8(uint8_t(alt.op)));
-            put(map_off, ek::BASE_PTR,     p_av);
-            put(map_off, ek::OFFSET,       o_av);
-        } else if constexpr (std::is_same_v<T, EPtrDiff>) {
-            auto l_av = expr_av(alt.lhs);
-            auto r_av = expr_av(alt.rhs);
-            map_off = make_map(hermes::schema::lir_expr(Code::PtrDiff));
-            put(map_off, pdk::BY_BYTE, put_bool(alt.by_byte));
-            put(map_off, ek::LHS,     l_av);
-            put(map_off, ek::RHS,     r_av);
-        } else if constexpr (std::is_same_v<T, EReflectOf>) {
-            map_off = make_map(hermes::schema::lir_expr(Code::ReflectOf));
-            put(map_off, ek::ELEM_TYPE, type_av(alt.type));
-        }
-    }, e.kind);
-
-    if (e.type) put(map_off, ec::TYPE, type_av(e.type));
-
-    dry_run_ = save_dry;
-    if (backfill_only) return e.mirror_offset_;
-
-    e.mirror_offset_ = map_off;
-    table_.expr[&e] = map_off;
-    table_.expr_by_offset[map_off.value()] = &e;
-    return map_off;
+    table_.expr[&e] = e.mirror_offset_;
+    table_.expr_by_offset[e.mirror_offset_.value()] = &e;
+    return e.mirror_offset_;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -1239,6 +1607,472 @@ void lir_mirror_emit_into(lir::LProgram& prog, LirMirrorTable& table) {
     em.run(prog);
 }
 
+hermes::arena_offset_t lir_mirror_emit_lit_bool(lir::LProgram& prog, TypeRef ty, bool v) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_lit_bool_direct(ty, v);
+}
+hermes::arena_offset_t lir_mirror_emit_lit_int(lir::LProgram& prog, TypeRef ty, int64_t v) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_lit_int_direct(ty, v);
+}
+hermes::arena_offset_t lir_mirror_emit_lit_float(lir::LProgram& prog, TypeRef ty, double v) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_lit_float_direct(ty, v);
+}
+hermes::arena_offset_t lir_mirror_emit_lit_str(lir::LProgram& prog, TypeRef ty, std::string_view v) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_lit_str_direct(ty, v);
+}
+hermes::arena_offset_t lir_mirror_emit_var_ref(lir::LProgram& prog, TypeRef ty, std::string_view name) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_var_ref_direct(ty, name);
+}
+hermes::arena_offset_t lir_mirror_emit_addr_of(lir::LProgram& prog, TypeRef ty, std::string_view var_name) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_addr_of_direct(ty, var_name);
+}
+hermes::arena_offset_t lir_mirror_emit_pack_expand(lir::LProgram& prog, TypeRef ty, std::string_view var_name) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pack_expand_direct(ty, var_name);
+}
+hermes::arena_offset_t lir_mirror_emit_size_of(lir::LProgram& prog, TypeRef ty, TypeRef elem) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_size_of_direct(ty, elem);
+}
+hermes::arena_offset_t lir_mirror_emit_type_code_of(lir::LProgram& prog, TypeRef ty, TypeRef elem) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_type_code_of_direct(ty, elem);
+}
+hermes::arena_offset_t lir_mirror_emit_reflect_of(lir::LProgram& prog, TypeRef ty, TypeRef elem) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_reflect_of_direct(ty, elem);
+}
+
+hermes::arena_offset_t lir_mirror_emit_enum_lit(lir::LProgram& prog, TypeRef ty, std::string_view enum_name, std::string_view variant, int64_t disc) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_enum_lit_direct(ty, enum_name, variant, disc);
+}
+hermes::arena_offset_t lir_mirror_emit_enum_lit_data(lir::LProgram& prog, TypeRef ty, std::string_view enum_name, std::string_view variant, int64_t disc, const std::vector<lir::LExprPtr>& payload) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_enum_lit_data_direct(ty, enum_name, variant, disc, payload);
+}
+hermes::arena_offset_t lir_mirror_emit_struct_lit(lir::LProgram& prog, TypeRef ty, std::string_view name, const std::vector<std::pair<std::string, lir::LExprPtr>>& fields) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_struct_lit_direct(ty, name, fields);
+}
+hermes::arena_offset_t lir_mirror_emit_call(lir::LProgram& prog, TypeRef ty, std::string_view callee, const std::vector<TypeRef>& type_args, const std::vector<lir::LExprPtr>& args) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_call_direct(ty, callee, type_args, args);
+}
+hermes::arena_offset_t lir_mirror_emit_method_call(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& receiver, std::string_view method, std::string_view resolved_symbol, const std::vector<TypeRef>& type_args, const std::vector<lir::LExprPtr>& args, int32_t vtable_index, std::string_view resolved_type, std::string_view tag_system, std::string_view tag_trait) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_method_call_direct(ty, receiver, method, resolved_symbol, type_args, args, vtable_index, resolved_type, tag_system, tag_trait);
+}
+hermes::arena_offset_t lir_mirror_emit_unary(lir::LProgram& prog, TypeRef ty, std::string_view op, const lir::LExprPtr& operand) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_unary_direct(ty, op, operand);
+}
+hermes::arena_offset_t lir_mirror_emit_bin_op(lir::LProgram& prog, TypeRef ty, std::string_view op, const lir::LExprPtr& lhs, const lir::LExprPtr& rhs) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_bin_op_direct(ty, op, lhs, rhs);
+}
+hermes::arena_offset_t lir_mirror_emit_field_read(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& receiver, std::string_view field) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_field_read_direct(ty, receiver, field);
+}
+hermes::arena_offset_t lir_mirror_emit_index_read(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& receiver, const lir::LExprPtr& index) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_index_read_direct(ty, receiver, index);
+}
+hermes::arena_offset_t lir_mirror_emit_hermes_lit(lir::LProgram& prog, TypeRef ty, const lir::HermesValPtr& root, bool has_captures, const std::vector<lir::LExprPtr>& capture_exprs, const std::vector<TypeRef>& capture_types, uint32_t capture_param_count) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_hermes_lit_direct(ty, root, has_captures, capture_exprs, capture_types, capture_param_count);
+}
+hermes::arena_offset_t lir_mirror_emit_deref(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& operand) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_deref_direct(ty, operand);
+}
+hermes::arena_offset_t lir_mirror_emit_cast(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& operand, std::string_view hermes_build_fn) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_cast_direct(ty, operand, hermes_build_fn);
+}
+hermes::arena_offset_t lir_mirror_emit_try(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& inner, int32_t ok_disc, int32_t err_disc) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_try_direct(ty, inner, ok_disc, err_disc);
+}
+hermes::arena_offset_t lir_mirror_emit_slice_lit(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& base, const lir::LExprPtr& len) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_slice_lit_direct(ty, base, len);
+}
+hermes::arena_offset_t lir_mirror_emit_slice_index(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& slice, const lir::LExprPtr& index) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_slice_index_direct(ty, slice, index);
+}
+hermes::arena_offset_t lir_mirror_emit_slice_len(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& slice) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_slice_len_direct(ty, slice);
+}
+hermes::arena_offset_t lir_mirror_emit_slice_ptr(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& slice) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_slice_ptr_direct(ty, slice);
+}
+hermes::arena_offset_t lir_mirror_emit_addr_of_temp(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& inner, bool is_mut) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_addr_of_temp_direct(ty, inner, is_mut);
+}
+hermes::arena_offset_t lir_mirror_emit_ptr_arith(lir::LProgram& prog, TypeRef ty, uint8_t op, const lir::LExprPtr& ptr, const lir::LExprPtr& offset) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_ptr_arith_direct(ty, op, ptr, offset);
+}
+hermes::arena_offset_t lir_mirror_emit_ptr_diff(lir::LProgram& prog, TypeRef ty, bool by_byte, const lir::LExprPtr& lhs, const lir::LExprPtr& rhs) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_ptr_diff_direct(ty, by_byte, lhs, rhs);
+}
+hermes::arena_offset_t lir_mirror_emit_if_expr(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& cond, const lir::LExprPtr& then_val, const lir::LExprPtr& else_val) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_if_expr_direct(ty, cond, then_val, else_val);
+}
+hermes::arena_offset_t lir_mirror_emit_tuple_lit(lir::LProgram& prog, TypeRef ty, const std::vector<lir::LExprPtr>& elems) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_tuple_lit_direct(ty, elems);
+}
+hermes::arena_offset_t lir_mirror_emit_tuple_index(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& receiver, uint32_t index) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_tuple_index_direct(ty, receiver, index);
+}
+hermes::arena_offset_t lir_mirror_emit_arr_lit(lir::LProgram& prog, TypeRef ty, const std::vector<lir::LExprPtr>& elems) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_arr_lit_direct(ty, elems);
+}
+hermes::arena_offset_t lir_mirror_emit_block_expr(lir::LProgram& prog, TypeRef ty, const lir::LBlock* block, const lir::LExprPtr& result) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_block_expr_direct(ty, block, result);
+}
+hermes::arena_offset_t lir_mirror_emit_closure_call(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& callee, const std::vector<lir::LExprPtr>& args) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_closure_call_direct(ty, callee, args);
+}
+hermes::arena_offset_t lir_mirror_emit_fn_ptr_call(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& callee, const std::vector<lir::LExprPtr>& args) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_fn_ptr_call_direct(ty, callee, args);
+}
+hermes::arena_offset_t lir_mirror_emit_match_expr(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& scrut, const std::vector<lir::EMatchArm>& arms) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_match_expr_direct(ty, scrut, arms);
+}
+hermes::arena_offset_t lir_mirror_emit_new(lir::LProgram& prog, TypeRef ty, std::string_view class_name, const std::vector<std::pair<std::string, lir::LExprPtr>>& fields) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_new_direct(ty, class_name, fields);
+}
+hermes::arena_offset_t lir_mirror_emit_format_call(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& fmt, const std::vector<lir::LExprPtr>& args, const std::vector<TypeRef>& arg_types) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_format_call_direct(ty, fmt, args, arg_types);
+}
+hermes::arena_offset_t lir_mirror_emit_closure_box(lir::LProgram& prog, TypeRef ty, const lir::EClosure* inner) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_closure_box_direct(ty, inner);
+}
+
+// ── Stage B.6 — LStmt direct mirror writers ──────────────────────────────
+hermes::arena_offset_t lir_mirror_emit_let(lir::LProgram& prog, uint32_t line, std::string_view name, TypeRef ty, const lir::LExprPtr& value, bool is_mut) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_let_direct(line, name, ty, value, is_mut);
+}
+hermes::arena_offset_t lir_mirror_emit_assign(lir::LProgram& prog, uint32_t line, std::string_view name, const lir::LExprPtr& value) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_assign_direct(line, name, value);
+}
+hermes::arena_offset_t lir_mirror_emit_return(lir::LProgram& prog, uint32_t line, const lir::LExprPtr& value) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_return_direct(line, value);
+}
+hermes::arena_offset_t lir_mirror_emit_if_stmt(lir::LProgram& prog, uint32_t line, const lir::LExprPtr& cond, const lir::LBlock* then_blk, const lir::LBlock* else_blk) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_if_stmt_direct(line, cond, then_blk, else_blk);
+}
+hermes::arena_offset_t lir_mirror_emit_while(lir::LProgram& prog, uint32_t line, const lir::LExprPtr& cond, const lir::LBlock* body, std::string_view label) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_while_direct(line, cond, body, label);
+}
+hermes::arena_offset_t lir_mirror_emit_for(lir::LProgram& prog, uint32_t line, std::string_view var, const lir::LExprPtr& lo, const lir::LExprPtr& hi, bool inclusive, const lir::LBlock* body, std::string_view label) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_for_direct(line, var, lo, hi, inclusive, body, label);
+}
+hermes::arena_offset_t lir_mirror_emit_loop(lir::LProgram& prog, uint32_t line, const lir::LBlock* body, std::string_view label, std::string_view break_slot, TypeRef result_type) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_loop_direct(line, body, label, break_slot, result_type);
+}
+hermes::arena_offset_t lir_mirror_emit_break(lir::LProgram& prog, uint32_t line, const lir::LExprPtr& value, std::string_view label) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_break_direct(line, value, label);
+}
+hermes::arena_offset_t lir_mirror_emit_continue(lir::LProgram& prog, uint32_t line, std::string_view label) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_continue_direct(line, label);
+}
+hermes::arena_offset_t lir_mirror_emit_block_stmt(lir::LProgram& prog, uint32_t line, const lir::LBlock* body) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_block_stmt_direct(line, body);
+}
+hermes::arena_offset_t lir_mirror_emit_field_write(lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view field, const lir::LExprPtr& value) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_field_write_direct(line, receiver, field, value);
+}
+hermes::arena_offset_t lir_mirror_emit_index_write(lir::LProgram& prog, uint32_t line, std::string_view arr, const lir::LExprPtr& index, const lir::LExprPtr& value) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_index_write_direct(line, arr, index, value);
+}
+hermes::arena_offset_t lir_mirror_emit_field_index_write(lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view field, const lir::LExprPtr& index, const lir::LExprPtr& value) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_field_index_write_direct(line, receiver, field, index, value);
+}
+hermes::arena_offset_t lir_mirror_emit_expr_stmt(lir::LProgram& prog, uint32_t line, const lir::LExprPtr& expr) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_expr_stmt_direct(line, expr);
+}
+hermes::arena_offset_t lir_mirror_emit_match_stmt(lir::LProgram& prog, uint32_t line, const lir::LExprPtr& scrut, const std::vector<lir::LMatchArm>& arms) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_match_stmt_direct(line, scrut, arms);
+}
+hermes::arena_offset_t lir_mirror_emit_delete(lir::LProgram& prog, uint32_t line, const lir::LExprPtr& expr) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_delete_direct(line, expr);
+}
+hermes::arena_offset_t lir_mirror_emit_for_each(lir::LProgram& prog, uint32_t line, std::string_view var, const lir::LExprPtr& iter, TypeRef elem_type, int64_t arr_size, bool is_slice, const lir::LBlock* body) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_for_each_direct(line, var, iter, elem_type, arr_size, is_slice, body);
+}
+hermes::arena_offset_t lir_mirror_emit_deref_write(lir::LProgram& prog, uint32_t line, const lir::LExprPtr& ptr, const lir::LExprPtr& value) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_deref_write_direct(line, ptr, value);
+}
+hermes::arena_offset_t lir_mirror_emit_drop(lir::LProgram& prog, uint32_t line, std::string_view var_name, std::string_view drop_fn, TypeRef ty, bool drop_fields) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_drop_direct(line, var_name, drop_fn, ty, drop_fields);
+}
+hermes::arena_offset_t lir_mirror_emit_deref_field_write(lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view type_name, std::string_view field, const lir::LExprPtr& value) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_deref_field_write_direct(line, receiver, type_name, field, value);
+}
+hermes::arena_offset_t lir_mirror_emit_tuple_write(lir::LProgram& prog, uint32_t line, std::string_view receiver, uint32_t index, const lir::LExprPtr& value, TypeRef recv_type) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_tuple_write_direct(line, receiver, index, value, recv_type);
+}
+hermes::arena_offset_t lir_mirror_emit_let_else(lir::LProgram& prog, uint32_t line, const lir::Pattern& pat, const lir::LExprPtr& scrut, const lir::LBlock* else_block) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_let_else_direct(line, pat, scrut, else_block);
+}
+hermes::arena_offset_t lir_mirror_emit_chain_field_write(lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view mid_field, std::string_view field, const lir::LExprPtr& value) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_chain_field_write_direct(line, receiver, mid_field, field, value);
+}
+
+// ── Stage B.6 — HermesVal direct mirror writers ──────────────────────────
+hermes::arena_offset_t lir_mirror_emit_hv_null(lir::LProgram& prog) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_hv_null_direct();
+}
+hermes::arena_offset_t lir_mirror_emit_hv_bool(lir::LProgram& prog, bool value) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_hv_bool_direct(value);
+}
+hermes::arena_offset_t lir_mirror_emit_hv_int(lir::LProgram& prog, int64_t value) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_hv_int_direct(value);
+}
+hermes::arena_offset_t lir_mirror_emit_hv_float(lir::LProgram& prog, double value) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_hv_float_direct(value);
+}
+hermes::arena_offset_t lir_mirror_emit_hv_str(lir::LProgram& prog, std::string_view value) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_hv_str_direct(value);
+}
+hermes::arena_offset_t lir_mirror_emit_hv_map(lir::LProgram& prog, const std::vector<lir::HVMapEntry>& entries, std::string_view key_type) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_hv_map_direct(entries, key_type);
+}
+hermes::arena_offset_t lir_mirror_emit_hv_array(lir::LProgram& prog, const std::vector<lir::HermesValPtr>& elements, std::string_view elem_type) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_hv_array_direct(elements, elem_type);
+}
+hermes::arena_offset_t lir_mirror_emit_hv_capture(lir::LProgram& prog, uint32_t param_index, uint32_t value_index) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_hv_capture_direct(param_index, value_index);
+}
+
+// ── Stage B.6 — Pattern direct mirror writers ────────────────────────────
+hermes::arena_offset_t lir_mirror_emit_pat_variant(lir::LProgram& prog, std::string_view enum_name, std::string_view variant, int64_t disc) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_variant_direct(enum_name, variant, disc);
+}
+hermes::arena_offset_t lir_mirror_emit_pat_int(lir::LProgram& prog, int64_t value) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_int_direct(value);
+}
+hermes::arena_offset_t lir_mirror_emit_pat_bool(lir::LProgram& prog, bool value) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_bool_direct(value);
+}
+hermes::arena_offset_t lir_mirror_emit_pat_wild(lir::LProgram& prog, std::string_view name) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_wild_direct(name);
+}
+hermes::arena_offset_t lir_mirror_emit_pat_variant_data(lir::LProgram& prog, std::string_view enum_name, std::string_view variant, int64_t disc, const std::vector<std::string>& bindings, const std::vector<TypeRef>& binding_types) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_variant_data_direct(enum_name, variant, disc, bindings, binding_types);
+}
+hermes::arena_offset_t lir_mirror_emit_pat_or(lir::LProgram& prog, const std::vector<lir::Pattern>& alts) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_or_direct(alts);
+}
+hermes::arena_offset_t lir_mirror_emit_pat_tuple(lir::LProgram& prog, const std::vector<std::string>& bindings, const std::vector<TypeRef>& binding_types, const std::vector<lir::Pattern>& subs) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_tuple_direct(bindings, binding_types, subs);
+}
+hermes::arena_offset_t lir_mirror_emit_pat_range(lir::LProgram& prog, int64_t lo, int64_t hi) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_range_direct(lo, hi);
+}
+hermes::arena_offset_t lir_mirror_emit_pat_struct(lir::LProgram& prog, std::string_view struct_name, const std::vector<lir::PatFieldBinding>& fields, bool has_rest) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_struct_direct(struct_name, fields, has_rest);
+}
+hermes::arena_offset_t lir_mirror_emit_pat_slice(lir::LProgram& prog, const std::vector<lir::Pattern>& prefix, const std::vector<lir::Pattern>& rest, const std::vector<lir::Pattern>& suffix) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_slice_direct(prefix, rest, suffix);
+}
+hermes::arena_offset_t lir_mirror_emit_pat_at(lir::LProgram& prog, std::string_view name, const std::vector<lir::Pattern>& sub, TypeRef type) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_at_direct(name, sub, type);
+}
+hermes::arena_offset_t lir_mirror_emit_pat_ref_bind(lir::LProgram& prog, std::string_view name, bool is_mut, TypeRef bind_type) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_ref_bind_direct(name, is_mut, bind_type);
+}
+hermes::arena_offset_t lir_mirror_emit_pat_ref_pat(lir::LProgram& prog, const std::vector<lir::Pattern>& inner, bool is_mut) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_ref_pat_direct(inner, is_mut);
+}
+
+void lir_mirror_retype_expr(lir::LProgram& prog,
+                            hermes::arena_offset_t expr_off,
+                            TypeRef new_ty) {
+    if (expr_off == hermes::arena_offset_t{}) return;
+    auto& arena = prog.type_pool.arena_or_init();
+    auto* tom = reinterpret_cast<hermes::TinyObjectMap*>(
+        arena.head().data() + expr_off.value());
+    auto av = new_ty ? hermes::AnyVal::from_offset(new_ty.offset())
+                     : hermes::AnyVal{};
+    if (av.is_null()) return;
+    auto r = tom->put(lir_schema::expr_common::TYPE.code, av, arena);
+    LOGOS_ASSERT(r.has_value(), "LIR-MIRROR-006",
+        "retype_expr put failed");
+}
+
+void lir_mirror_populate_moved(lir::LProgram& prog, LirMirrorTable& table) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, table);
+    for (auto& i : prog.impls)
+        for (auto& m : i.methods) em.emit_function(*m);
+    for (auto& c : prog.consts)
+        if (c.value) em.emit_expr_public(*c.value);
+    // Stage 2 (Group 1+) fix: direct-emitted nodes leave kind=ELitInt default,
+    // so emit_expr's back-fill walk-via-variant misses their descendants. Sweep
+    // the pools to register every LExpr/LStmt/LBlock that already carries a
+    // mirror_offset_ but whose descendants weren't reached by the recursive
+    // visit. Cheap (one-time, post-mono) and unconditional — works for both
+    // variant-built and direct-built nodes.
+    for (auto& uptr : prog.expr_pool_)
+        if (uptr && uptr->mirror_offset_ != hermes::arena_offset_t{})
+            table.expr_by_offset[uptr->mirror_offset_.value()] = uptr.get();
+}
+
 // ── Per-node entry points (Stage 3g.1) ────────────────────────────────────
 //
 // LirBuilder calls these immediately after constructing each variant. The
@@ -1266,6 +2100,11 @@ hermes::arena_offset_t lir_mirror_emit_pat_node(lir::LProgram& prog, const lir::
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, *prog.mirror_table);
     return em.emit_pat_public(p);
+}
+hermes::arena_offset_t lir_mirror_emit_hv_node(lir::LProgram& prog, const lir::HermesVal& v) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_hv_public(v);
 }
 
 } // namespace logos::compiler

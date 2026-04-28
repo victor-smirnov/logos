@@ -87,6 +87,11 @@ protected:
         auto it = in_.mirror_table->block_by_offset.find(uint32_t(r.offset()));
         return it == in_.mirror_table->block_by_offset.end() ? nullptr : it->second;
     }
+    const lir::HermesVal* hermes_val_of(lir_view::HermesValRef r) const noexcept {
+        if (!r || !in_.mirror_table) return nullptr;
+        auto it = in_.mirror_table->hermes_val_by_offset.find(uint32_t(r.offset()));
+        return it == in_.mirror_table->hermes_val_by_offset.end() ? nullptr : it->second;
+    }
 private:
 
     StrMap<const lir::LFunction*>  templates_;
@@ -130,6 +135,7 @@ private:
 
     // Pattern substitution — view-based walk over the input mirror.
     lir::Pattern subst_pattern(const lir::Pattern& pat, const SubstMap& s);
+    lir::Pattern subst_pattern(lir_view::PatRef pref, const SubstMap& s);
 
     // ── Record needed instantiations (small — inline) ────────────────────
     void record_needed_struct(TypeRef tr) {

@@ -21,6 +21,7 @@
 #include <logos/hermes/arena.hpp>
 #include <logos/hermes/arena_value.hpp>
 #include <logos/hermes/arena_string.hpp>
+#include <logos/hermes/mem_holder.hpp>
 #include <logos/hermes/object_array.hpp>
 #include <logos/hermes/schema_codes.hpp>
 #include <logos/verification/assert.hpp>
@@ -44,7 +45,14 @@ namespace logos::compiler {
 
 class TypePoolImpl {
 public:
-    hermes::Arena                                          arena_;
+    // Owning ref to MemHolder: refcount==1 at init, dropped in dtor. Views
+    // (OStringView et al.) take additional refs via Own<>. The arena moves on
+    // grow() — never cache base pointers; always re-fetch via holder_->base().
+    hermes::MemHolder*                                     holder_ = nullptr;
+
+    hermes::Arena&       arena()       noexcept { return holder_->arena(); }
+    const hermes::Arena& arena() const noexcept { return holder_->arena(); }
+    hermes::MemHolder*   holder() const noexcept { return holder_; }
 
     // 2c.5.4: intern table keyed by TypeUID (32-byte SHA-256-derived).
     // Bucket walk via builder_equals_typeref preserves byte-strict equality
@@ -69,17 +77,25 @@ public:
     }
 
     TypeRef ref(hermes::arena_offset_t off) const noexcept {
-        return TypeRef{&arena_, off, this};
+        return TypeRef{&arena(), off, this};
     }
 
-    TypePoolImpl(logos::InitTag& tag)
-        : arena_(tag, hermes::ArenaMode::GrowableSingleChunk, 64 * 1024)
-    {
-        if (!tag.ok()) return;
+    TypePoolImpl(logos::InitTag& tag) {
+        // MemHolder is heap-only (private dtor), so allocate directly and
+        // release via ref/unref on failure.
+        holder_ = new hermes::MemHolder(
+            tag, 64 * 1024, hermes::ArenaMode::GrowableSingleChunk);
+        if (!tag.ok()) {
+            holder_->ref();
+            holder_->unref();
+            holder_ = nullptr;
+            return;
+        }
+        holder_->ref();  // initial owning reference
         // Reserve offset 0 for the DocumentHeader so a zero offset reads as
         // the canonical "null" sentinel for AnyVal / RelativePtr.
-        auto hdr_exp = arena_.allocate_raw(sizeof(hermes::DocumentHeader),
-                                           alignof(hermes::DocumentHeader));
+        auto hdr_exp = arena().allocate_raw(sizeof(hermes::DocumentHeader),
+                                            alignof(hermes::DocumentHeader));
         if (!hdr_exp) {
             tag.fail(std::move(hdr_exp.error()));
             return;
@@ -87,6 +103,12 @@ public:
         auto* hdr = static_cast<hermes::DocumentHeader*>(*hdr_exp);
         hdr->root_offset = hermes::NULL_OFFSET;
     }
+
+    ~TypePoolImpl() {
+        if (holder_) holder_->unref();
+    }
+    TypePoolImpl(const TypePoolImpl&) = delete;
+    TypePoolImpl& operator=(const TypePoolImpl&) = delete;
 
     static std::unique_ptr<TypePoolImpl> make() {
         logos::InitTag tag;
@@ -98,18 +120,18 @@ public:
 
     hermes::arena_offset_t offset_of(const void* p) const noexcept {
         auto off = static_cast<uint32_t>(
-            static_cast<const uint8_t*>(p) - arena_.head().data());
+            static_cast<const uint8_t*>(p) - arena().head().data());
         return hermes::arena_offset_t{off};
     }
 
     hermes::TinyObjectMap* at(hermes::arena_offset_t off) noexcept {
         return reinterpret_cast<hermes::TinyObjectMap*>(
-            arena_.head().data() + off.value());
+            arena().head().data() + off.value());
     }
 
     // Allocate an ArenaString and return an AnyVal pointing at it.
     hermes::AnyVal put_string(std::string_view s) {
-        auto p = hermes::ArenaString::create(arena_, s);
+        auto p = hermes::ArenaString::create(arena(), s);
         LOGOS_ASSERT(p.has_value(), "SEMA-TYPEPOOL-003", "ArenaString alloc failed");
         return hermes::AnyVal::from_offset(offset_of(*p));
     }
@@ -122,14 +144,14 @@ public:
 
     // Build an ObjectArray from a vector<TypeRef> and return AnyVal.
     hermes::AnyVal put_type_vec(const std::vector<TypeRef>& v) {
-        auto arr = hermes::ObjectArray::create(arena_, v.empty() ? 1 : v.size());
+        auto arr = hermes::ObjectArray::create(arena(), v.empty() ? 1 : v.size());
         LOGOS_ASSERT(arr.has_value(), "SEMA-TYPEPOOL-003", "ObjectArray alloc failed");
         auto arr_off = offset_of(*arr);
         for (auto elem : v) {
             auto v_any = ptr_to_mirror(elem);
             auto r = reinterpret_cast<hermes::ObjectArray*>(
-                         arena_.head().data() + arr_off.value())
-                     ->push_back(v_any, arena_);
+                         arena().head().data() + arr_off.value())
+                     ->push_back(v_any, arena());
             LOGOS_ASSERT(r.has_value(), "SEMA-TYPEPOOL-003", "ObjectArray push failed");
         }
         return hermes::AnyVal::from_offset(arr_off);
@@ -137,14 +159,14 @@ public:
 
     // Build an ObjectArray from a vector<std::string> (lifetime_args).
     hermes::AnyVal put_string_vec(const std::vector<std::string>& v) {
-        auto arr = hermes::ObjectArray::create(arena_, v.empty() ? 1 : v.size());
+        auto arr = hermes::ObjectArray::create(arena(), v.empty() ? 1 : v.size());
         LOGOS_ASSERT(arr.has_value(), "SEMA-TYPEPOOL-003", "ObjectArray alloc failed");
         auto arr_off = offset_of(*arr);
         for (const auto& s : v) {
             auto v_any = put_string(s);
             auto r = reinterpret_cast<hermes::ObjectArray*>(
-                         arena_.head().data() + arr_off.value())
-                     ->push_back(v_any, arena_);
+                         arena().head().data() + arr_off.value())
+                     ->push_back(v_any, arena());
             LOGOS_ASSERT(r.has_value(), "SEMA-TYPEPOOL-003", "ObjectArray push failed");
         }
         return hermes::AnyVal::from_offset(arr_off);
@@ -172,12 +194,12 @@ public:
                 t.mut_ptr ? 1 : 0, hermes::type_hash::Bool);
         }
         if (t.kind == LogosType::Kind::Array && t.arr_size != 0) {
-            auto av = hermes::anyval_put<uint64_t>(arena_, t.arr_size);
+            auto av = hermes::anyval_put<uint64_t>(arena(), t.arr_size);
             LOGOS_ASSERT(av.has_value(), "SEMA-TYPEPOOL-003", "arr_size put failed");
             v_arr_size = *av;
         }
         if (t.const_val.has_value()) {
-            auto av = hermes::anyval_put<int64_t>(arena_, *t.const_val);
+            auto av = hermes::anyval_put<int64_t>(arena(), *t.const_val);
             LOGOS_ASSERT(av.has_value(), "SEMA-TYPEPOOL-003", "const_val put failed");
             v_const_val = *av;
         }
@@ -204,7 +226,7 @@ public:
 
         // Create the map last so it doesn't get moved around by sub-allocs
         // (the map's own grow() handles relocation internally during put()).
-        auto map_exp = hermes::TinyObjectMap::create(arena_, /*capacity=*/8);
+        auto map_exp = hermes::TinyObjectMap::create(arena(), /*capacity=*/8);
         LOGOS_ASSERT(map_exp.has_value(), "SEMA-TYPEPOOL-002",
             "TinyObjectMap allocation failed");
         hermes::arena_offset_t map_off = offset_of(*map_exp);
@@ -213,7 +235,7 @@ public:
 
         auto put = [&](const sema_schema::Key& key, hermes::AnyVal val) {
             if (val.is_null()) return;
-            auto r = at(map_off)->put(key.code, val, arena_);
+            auto r = at(map_off)->put(key.code, val, arena());
             LOGOS_ASSERT(r.has_value(), "SEMA-TYPEPOOL-003",
                 "TinyObjectMap put failed");
         };
@@ -427,14 +449,14 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
 } // namespace
 
 hermes::Arena* TypePool::arena() noexcept {
-    return impl_ ? &impl_->arena_ : nullptr;
+    return impl_ ? &impl_->arena() : nullptr;
 }
 const hermes::Arena* TypePool::arena() const noexcept {
-    return impl_ ? &impl_->arena_ : nullptr;
+    return impl_ ? &impl_->arena() : nullptr;
 }
 hermes::Arena& TypePool::arena_or_init() {
     if (!impl_) impl_ = TypePoolImpl::make();
-    return impl_->arena_;
+    return impl_->arena();
 }
 
 TypeRef TypePool::alloc(LogosTypeBuilder t) {
@@ -474,6 +496,28 @@ TypeRef TypeRef::pointee()     const noexcept { return ptr_via_mirror(*this, sem
 TypeRef TypeRef::elem()        const noexcept { return ptr_via_mirror(*this, sema_schema::ELEM);        }
 TypeRef TypeRef::assoc_base()  const noexcept { return ptr_via_mirror(*this, sema_schema::ASSOC_BASE);  }
 TypeRef TypeRef::closure_ret() const noexcept { return ptr_via_mirror(*this, sema_schema::CLOSURE_RET); }
+
+// String accessors return realloc-safe owning views. The MemHolder is reached
+// via pool_; if pool_ is null (synthetic / TypeUID-only TypeRef) the result is
+// a null OStringView.
+namespace {
+hermes::OStringView ostr_via_mirror(const TypeRef& self,
+                                    sema_schema::Key key) noexcept {
+    if (!self || !self.pool()) return {};
+    auto av = self.mirror()->get(key.code, self.mirror_base());
+    if (av.is_null()) return {};
+    return hermes::OStringView(av.to_offset(), self.pool()->holder());
+}
+} // namespace
+
+hermes::OStringView TypeRef::lifetime()        const noexcept { return ostr_via_mirror(*this, sema_schema::LIFETIME);        }
+hermes::OStringView TypeRef::struct_name()     const noexcept { return ostr_via_mirror(*this, sema_schema::STRUCT_NAME);     }
+hermes::OStringView TypeRef::enum_name()       const noexcept { return ostr_via_mirror(*this, sema_schema::ENUM_NAME);       }
+hermes::OStringView TypeRef::pkg_name()        const noexcept { return ostr_via_mirror(*this, sema_schema::PKG_NAME);        }
+hermes::OStringView TypeRef::trait_name()      const noexcept { return ostr_via_mirror(*this, sema_schema::TRAIT_NAME);      }
+hermes::OStringView TypeRef::type_var_name()   const noexcept { return ostr_via_mirror(*this, sema_schema::TYPE_VAR_NAME);   }
+hermes::OStringView TypeRef::assoc_type_name() const noexcept { return ostr_via_mirror(*this, sema_schema::ASSOC_TYPE_NAME); }
+hermes::OStringView TypeRef::arr_size_var()    const noexcept { return ostr_via_mirror(*this, sema_schema::ARR_SIZE_VAR);    }
 
 // 2c.4e.3.0/.1: vector accessors via mirror ObjectArray, sourced from
 // TypeRef's base/off/pool fat pointer.
@@ -1177,7 +1221,10 @@ std::optional<lir::LStmt> SemaChecker::make_drop_stmt(const std::string& name, c
     auto dfn = drop_fn_for(info.type);
     bool df  = has_droppable_fields(info.type);
     if (dfn.empty() && !df) return std::nullopt;
-    return lir::LStmt{node_line_, lir::SDrop{name, dfn, info.type, df}};
+    lir::LStmt s; s.line = node_line_;
+    if (cur_prog_)
+        s.mirror_offset_ = lir_mirror_emit_drop(*cur_prog_, node_line_, name, dfn, info.type, df);
+    return s;
 }
 
 std::vector<lir::LStmt> SemaChecker::collect_drops() const {
@@ -1210,40 +1257,30 @@ std::vector<lir::LStmt> SemaChecker::collect_all_drops() const {
 
 // ── Name helpers ─────────────────────────────────────────────────────────────
 
-std::string_view SemaChecker::struct_name_of(std::string_view var_name) {
+std::string SemaChecker::struct_name_of(std::string_view var_name) {
     auto t = lookup(var_name);
     if (!t) return {};
     if (TypeRef(t).kind() == LogosType::Kind::Struct ||
-        TypeRef(t).kind() == LogosType::Kind::ZonedStruct) return TypeRef(t).struct_name();
+        TypeRef(t).kind() == LogosType::Kind::ZonedStruct) return TypeRef(t).struct_name().to_string();
     if (is_ref_like(TypeRef(t).kind()) && TypeRef(t).pointee() &&
         (TypeRef(t).pointee().kind() == LogosType::Kind::Struct ||
          TypeRef(t).pointee().kind() == LogosType::Kind::ZonedStruct))
-        return TypeRef(t).pointee().struct_name();
+        return TypeRef(t).pointee().struct_name().to_string();
     return {};
 }
 
 
-std::string_view SemaChecker::struct_name_from_type(TypeRef t) {
+std::string SemaChecker::struct_name_from_type(TypeRef t) {
     if (!t) return {};
     if (TypeRef(t).kind() == LogosType::Kind::Struct || TypeRef(t).kind() == LogosType::Kind::ZonedStruct) {
-        // For generic instantiations, the method is registered under the mangled name.
-        if (!TypeRef(t).type_args().empty()) {
-            // Store in a thread-local to return a stable string_view.
-            thread_local std::string buf;
-            buf = concrete_struct_name(t);
-            return buf;
-        }
-        return TypeRef(t).struct_name();
+        if (!TypeRef(t).type_args().empty()) return concrete_struct_name(t);
+        return TypeRef(t).struct_name().to_string();
     }
     if (is_ref_like(TypeRef(t).kind()) && TypeRef(t).pointee() &&
         (TypeRef(t).pointee().kind() == LogosType::Kind::Struct ||
          TypeRef(t).pointee().kind() == LogosType::Kind::ZonedStruct)) {
-        if (!TypeRef(t).pointee().type_args().empty()) {
-            thread_local std::string buf2;
-            buf2 = concrete_struct_name(TypeRef(t).pointee());
-            return buf2;
-        }
-        return TypeRef(t).pointee().struct_name();
+        if (!TypeRef(t).pointee().type_args().empty()) return concrete_struct_name(TypeRef(t).pointee());
+        return TypeRef(t).pointee().struct_name().to_string();
     }
     return {};
 }

@@ -24,6 +24,7 @@
 #include <logos/hermes/arena.hpp>
 #include <logos/hermes/tiny_object_map.hpp>
 #include <logos/hermes/schema_codes.hpp>
+#include <logos/hermes/view.hpp>
 #include <logos/verification/assert.hpp>
 
 namespace logos::compiler {
@@ -152,21 +153,17 @@ public:
         return *av.as_ptr<const uint64_t>(mirror_base());
     }
 
-private:
-    std::string_view str_from_mirror(sema_schema::Key key) const noexcept {
-        auto av = mirror()->get(key.code, mirror_base());
-        if (av.is_null()) return {};
-        return av.as_ptr<const hermes::ArenaString>(mirror_base())->view();
-    }
-public:
-    std::string_view lifetime()        const noexcept { return str_from_mirror(sema_schema::LIFETIME);        }
-    std::string_view struct_name()     const noexcept { return str_from_mirror(sema_schema::STRUCT_NAME);     }
-    std::string_view enum_name()       const noexcept { return str_from_mirror(sema_schema::ENUM_NAME);       }
-    std::string_view pkg_name()        const noexcept { return str_from_mirror(sema_schema::PKG_NAME);        }
-    std::string_view trait_name()      const noexcept { return str_from_mirror(sema_schema::TRAIT_NAME);      }
-    std::string_view type_var_name()   const noexcept { return str_from_mirror(sema_schema::TYPE_VAR_NAME);   }
-    std::string_view assoc_type_name() const noexcept { return str_from_mirror(sema_schema::ASSOC_TYPE_NAME); }
-    std::string_view arr_size_var()    const noexcept { return str_from_mirror(sema_schema::ARR_SIZE_VAR);    }
+    // String accessors return realloc-safe owning views (refcounted MemHolder).
+    // Implementation is out-of-line in sema.cpp because it needs MemHolder*,
+    // which is reachable only through TypePoolImpl (PIMPL).
+    hermes::OStringView lifetime()        const noexcept;
+    hermes::OStringView struct_name()     const noexcept;
+    hermes::OStringView enum_name()       const noexcept;
+    hermes::OStringView pkg_name()        const noexcept;
+    hermes::OStringView trait_name()      const noexcept;
+    hermes::OStringView type_var_name()   const noexcept;
+    hermes::OStringView assoc_type_name() const noexcept;
+    hermes::OStringView arr_size_var()    const noexcept;
 
     std::vector<TypeRef> type_args()      const noexcept;
     std::vector<TypeRef> tuple_elems()    const noexcept;

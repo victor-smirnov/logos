@@ -15,6 +15,8 @@
 
 #include <logos/compiler/lir.hpp>
 #include <logos/compiler/lir_builder.hpp>
+#include <logos/compiler/lir_view.hpp>
+#include <logos/compiler/lir_mirror.hpp>
 #include <logos/compiler/ast.hpp>
 #include <logos/compiler/sha256.hpp>
 #include <logos/compiler/str_map.hpp>
@@ -51,8 +53,9 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept;
 // Inline (defined below, after class, so visible in all TUs):
 inline bool is_integer_kind(LogosType::Kind k) noexcept;
 inline int64_t parse_int_literal(std::string_view sv) noexcept;
-inline std::optional<int64_t> get_intlit_value(const lir::LExpr* e) noexcept;
+inline std::optional<int64_t> get_intlit_value(lir_view::ExprRef e) noexcept;
 inline bool intlit_fits(int64_t v, LogosType::Kind k) noexcept;
+inline bool can_widen_int(LogosType::Kind from, LogosType::Kind to) noexcept;
 
 // Aliases used throughout SemaChecker method implementations.
 // Placed here so all sema_*.cpp files get them automatically.
@@ -177,18 +180,15 @@ private:
         if (!arg || !er || er.kind() != LogosType::Kind::FnPtr) return false;
         TypeRef at(arg->type);
         if (!at || at.kind() != LogosType::Kind::Closure) return false;
-        auto* box = std::get_if<lir::EClosureBox>(&arg->kind);
-        if (!box || !box->inner || !box->inner->captures.empty()) return false;
+        auto xref = expr_ref_of(*arg);
+        if (!xref || xref.kind() != lir_schema::expr::Code::ClosureBox) return false;
+        lir_view::EClosureBoxView box{xref};
+        if (box.capture_count() != 0) return false;
         if (at.closure_params().size() != er.closure_params().size()) return false;
         for (size_t i = 0; i < at.closure_params().size(); ++i)
             if (!types_compatible(at.closure_params()[i], er.closure_params()[i])) return false;
-        // Rebuild via builder so the Hermes mirror reflects as_fn_ptr=true
-        // and the FnPtr-typed result. In-place mutation would leave the
-        // stale closure mirror that view-based readers (mono) pick up.
-        auto inner = std::move(box->inner);
-        inner->as_fn_ptr = true;
         TypeRef fp_ty = make_fn_ptr_type(at.closure_params(), at.closure_ret());
-        arg = builder().closure_box(std::move(inner), fp_ty);
+        arg = builder().closure_to_fnptr(arg, fp_ty);
         return true;
     }
     TypeRef make_slice_type(TypeRef elem) {
@@ -221,11 +221,120 @@ private:
         return LirBuilder(*cur_prog_);
     }
 
+    // ── Mirror ref accessors (read-only view of just-built L-IR nodes) ──
+    // Every LirBuilder-constructed node has mirror_offset_ set, so these
+    // never return a null Ref unless `e` was built outside the builder.
+    lir_view::ExprRef expr_ref_of(const lir::LExpr& e) const noexcept {
+        if (e.mirror_offset_ == hermes::arena_offset_t{}) return {};
+        return lir_view::ExprRef(cur_prog_->type_pool.arena(), e.mirror_offset_);
+    }
+    lir_view::StmtRef stmt_ref_of(const lir::LStmt& s) const noexcept {
+        if (s.mirror_offset_ == hermes::arena_offset_t{}) return {};
+        return lir_view::StmtRef(cur_prog_->type_pool.arena(), s.mirror_offset_);
+    }
+    lir_view::PatRef pat_ref_of(const lir::Pattern& p) const noexcept {
+        if (p.mirror_offset_ == hermes::arena_offset_t{}) return {};
+        return lir_view::PatRef(cur_prog_->type_pool.arena(), p.mirror_offset_);
+    }
+    // Reverse lookup ExprRef → owning LExpr* via the program's mirror table.
+    // Returns nullptr if the ref is null or its offset isn't in the table
+    // (e.g. mono-cloned exprs not registered in cur_prog_).
+    lir::LExpr* lexpr_of(lir_view::ExprRef r) const noexcept {
+        if (!r || !cur_prog_->mirror_table) return nullptr;
+        auto it = cur_prog_->mirror_table->expr_by_offset.find(uint32_t(r.offset()));
+        if (it == cur_prog_->mirror_table->expr_by_offset.end()) return nullptr;
+        return const_cast<lir::LExpr*>(it->second);
+    }
+
     template<typename K>
-    static lir::LStmt make_stmt(uint32_t line, K&& k) {
+    lir::LStmt make_stmt_emit(uint32_t line, K&& k) {
         lir::LStmt s; s.line = line;
-        s.kind = std::forward<K>(k);
+        if (cur_prog_) {
+            using KT = std::decay_t<K>;
+            auto& p = *cur_prog_;
+            if constexpr (std::is_same_v<KT, lir::SLet>) {
+                s.mirror_offset_ = lir_mirror_emit_let(p, line, k.name, k.type, k.value, k.is_mut);
+            } else if constexpr (std::is_same_v<KT, lir::SAssign>) {
+                s.mirror_offset_ = lir_mirror_emit_assign(p, line, k.name, k.value);
+            } else if constexpr (std::is_same_v<KT, lir::SReturn>) {
+                s.mirror_offset_ = lir_mirror_emit_return(p, line, k.value);
+            } else if constexpr (std::is_same_v<KT, lir::SIf>) {
+                const lir::LBlock* eb = k.else_.has_value() ? *k.else_ : nullptr;
+                s.mirror_offset_ = lir_mirror_emit_if_stmt(p, line, k.cond, k.then_, eb);
+            } else if constexpr (std::is_same_v<KT, lir::SWhile>) {
+                s.mirror_offset_ = lir_mirror_emit_while(p, line, k.cond, k.body, k.label);
+            } else if constexpr (std::is_same_v<KT, lir::SFor>) {
+                s.mirror_offset_ = lir_mirror_emit_for(p, line, k.var, k.lo, k.hi, k.inclusive, k.body, k.label);
+            } else if constexpr (std::is_same_v<KT, lir::SLoop>) {
+                s.mirror_offset_ = lir_mirror_emit_loop(p, line, k.body, k.label, k.break_slot, k.result_type);
+            } else if constexpr (std::is_same_v<KT, lir::SBreak>) {
+                s.mirror_offset_ = lir_mirror_emit_break(p, line, k.value, k.label);
+            } else if constexpr (std::is_same_v<KT, lir::SContinue>) {
+                s.mirror_offset_ = lir_mirror_emit_continue(p, line, k.label);
+            } else if constexpr (std::is_same_v<KT, lir::SBlock>) {
+                s.mirror_offset_ = lir_mirror_emit_block_stmt(p, line, k.body);
+            } else if constexpr (std::is_same_v<KT, lir::SFieldWrite>) {
+                s.mirror_offset_ = lir_mirror_emit_field_write(p, line, k.receiver, k.field, k.value);
+            } else if constexpr (std::is_same_v<KT, lir::SIndexWrite>) {
+                s.mirror_offset_ = lir_mirror_emit_index_write(p, line, k.arr, k.index, k.value);
+            } else if constexpr (std::is_same_v<KT, lir::SFieldIndexWrite>) {
+                s.mirror_offset_ = lir_mirror_emit_field_index_write(p, line, k.receiver, k.field, k.index, k.value);
+            } else if constexpr (std::is_same_v<KT, lir::SExprStmt>) {
+                s.mirror_offset_ = lir_mirror_emit_expr_stmt(p, line, k.expr);
+            } else if constexpr (std::is_same_v<KT, lir::SMatch>) {
+                s.mirror_offset_ = lir_mirror_emit_match_stmt(p, line, k.scrut, k.arms);
+            } else if constexpr (std::is_same_v<KT, lir::SDelete>) {
+                s.mirror_offset_ = lir_mirror_emit_delete(p, line, k.expr);
+            } else if constexpr (std::is_same_v<KT, lir::SForEach>) {
+                s.mirror_offset_ = lir_mirror_emit_for_each(p, line, k.var, k.iter, k.elem_type, k.arr_size, k.is_slice, k.body);
+            } else if constexpr (std::is_same_v<KT, lir::SDerefWrite>) {
+                s.mirror_offset_ = lir_mirror_emit_deref_write(p, line, k.ptr, k.value);
+            } else if constexpr (std::is_same_v<KT, lir::SDrop>) {
+                s.mirror_offset_ = lir_mirror_emit_drop(p, line, k.var_name, k.drop_fn, k.type, k.drop_fields);
+            } else if constexpr (std::is_same_v<KT, lir::SDerefFieldWrite>) {
+                s.mirror_offset_ = lir_mirror_emit_deref_field_write(p, line, k.receiver, k.type_name, k.field, k.value);
+            } else if constexpr (std::is_same_v<KT, lir::STupleWrite>) {
+                s.mirror_offset_ = lir_mirror_emit_tuple_write(p, line, k.receiver, k.index, k.value, k.recv_type);
+            } else if constexpr (std::is_same_v<KT, lir::SLetElse>) {
+                s.mirror_offset_ = lir_mirror_emit_let_else(p, line, k.pat, k.scrut, k.else_block);
+            } else if constexpr (std::is_same_v<KT, lir::SChainFieldWrite>) {
+                s.mirror_offset_ = lir_mirror_emit_chain_field_write(p, line, k.receiver, k.mid_field, k.field, k.value);
+            } else {
+                static_assert(sizeof(K) == 0, "make_stmt_emit: unknown stmt kind");
+            }
+        }
+        (void)k;  // payload swallowed — only mirror_offset_ matters now
         return s;
+    }
+
+    template<typename K>
+    lir::HermesValPtr alloc_hv_emit(K&& k) {
+        using KT = std::decay_t<K>;
+        auto& p = *cur_prog_;
+        ::logos::hermes::arena_offset_t mo;
+        if constexpr (std::is_same_v<KT, lir::HVNull>) {
+            mo = lir_mirror_emit_hv_null(p);
+        } else if constexpr (std::is_same_v<KT, lir::HVBool>) {
+            mo = lir_mirror_emit_hv_bool(p, k.value);
+        } else if constexpr (std::is_same_v<KT, lir::HVInt>) {
+            mo = lir_mirror_emit_hv_int(p, k.value);
+        } else if constexpr (std::is_same_v<KT, lir::HVFloat>) {
+            mo = lir_mirror_emit_hv_float(p, k.value);
+        } else if constexpr (std::is_same_v<KT, lir::HVStr>) {
+            mo = lir_mirror_emit_hv_str(p, k.value);
+        } else if constexpr (std::is_same_v<KT, lir::HVMap>) {
+            mo = lir_mirror_emit_hv_map(p, k.entries, k.key_type);
+        } else if constexpr (std::is_same_v<KT, lir::HVArray>) {
+            mo = lir_mirror_emit_hv_array(p, k.elements, k.elem_type);
+        } else if constexpr (std::is_same_v<KT, lir::HVCapture>) {
+            mo = lir_mirror_emit_hv_capture(p, k.param_index, k.value_index);
+        } else {
+            static_assert(sizeof(K) == 0, "alloc_hv_emit: unknown HermesVal payload");
+        }
+        (void)k;  // payload consumed by per-kind dispatch above
+        auto* hv = lir::alloc_hermes_val(*cur_prog_);
+        hv->mirror_offset_ = mo;
+        return hv;
     }
 
     // ── File / line tracking ─────────────────────────────────────
@@ -266,7 +375,7 @@ private:
     // ── meta @{} helpers ─────────────────────────────────────────
 
     lir::HermesValPtr               eval_static_hermes_lit(hermes::TinyMapView node);
-    std::shared_ptr<lir::HermesVal> extract_meta_val(hermes::TinyMapView node);
+    lir::HermesValPtr               extract_meta_val(hermes::TinyMapView node);
 
     // ── Hermes helpers ───────────────────────────────────────────
 
@@ -431,8 +540,8 @@ private:
                k == LogosType::Kind::MutRef;
     }
 
-    std::string_view struct_name_of(std::string_view var_name);
-    std::string_view struct_name_from_type(TypeRef t);
+    std::string struct_name_of(std::string_view var_name);
+    std::string struct_name_from_type(TypeRef t);
 
     // ── Module-level symbol tables ───────────────────────────────
 
@@ -952,6 +1061,11 @@ private:
     lir::LStmt lower_assign(hermes::TinyMapView node);
     lir::LStmt lower_return(hermes::TinyMapView node);
     lir::Pattern build_pattern(hermes::TinyMapView pnode, TypeRef scrut_type);
+    // Internal: build_pattern's body without eager mirror emit. Recurses via
+    // build_pattern (so sub-patterns get their own eager emit).
+    lir::Pattern build_pattern_impl(hermes::TinyMapView pnode, TypeRef scrut_type);
+    // Helper for inline PatWild construction with eager mirror emit.
+    lir::Pattern make_pat_wild(std::string_view name);
     // If pnode is a Hermes scalar pattern (PAT_HERMES_NULL/BOOL/INT), returns a
     // bool-typed guard call that evaluates the pattern against `scrut_var`
     // (which must be an AnyVal).  Returns nullptr otherwise.
@@ -989,6 +1103,7 @@ private:
     bool in_match_hermes_ctx_ = false;
     void bind_pattern(const lir::Pattern& pat,
                       TypeRef scrut_type = nullptr);
+    void bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type);
     lir::LStmt lower_if(hermes::TinyMapView node);
     lir::LStmt lower_while(hermes::TinyMapView node);
     lir::LStmt lower_for(hermes::TinyMapView node);
@@ -1030,6 +1145,43 @@ private:
                                   std::string_view ann_name,
                                   std::string_view ann_pkg,
                                   const SemaStructInfo& ann_info);
+
+    // ── Member overloads of LExpr*-taking helpers (B.5 sites 1-3) ───────
+    // These wrap the free ExprRef-based helpers so the variant peek lives
+    // here (via expr_ref_of), letting B.6 drop the LExpr-variant payload
+    // without touching ~100 call sites in sema_stmt/sema_expr.
+    std::optional<int64_t> get_intlit_value(const lir::LExpr* e) const noexcept {
+        if (!e) return std::nullopt;
+        return logos::compiler::get_intlit_value(expr_ref_of(*e));
+    }
+    std::optional<int64_t> get_intlit_value(lir_view::ExprRef e) const noexcept {
+        return logos::compiler::get_intlit_value(e);
+    }
+    void widen_int_expr(lir::LExprPtr& e, TypeRef target, LirBuilder b) {
+        if (!e || !target || !e->type) return;
+        auto ek = TypeRef(e->type).kind();
+        auto tk = TypeRef(target).kind();
+        if (ek == tk) return;
+        bool ok = can_widen_int(ek, tk);
+        if (!ok && is_integer_kind(TypeRef(e->type).kind()) && is_integer_kind(TypeRef(target).kind())) {
+            if (auto v = get_intlit_value(e))
+                if (intlit_fits(*v, TypeRef(target).kind()))
+                    ok = true;
+        }
+        if (!ok) return;
+        e = b.cast(std::move(e), target);
+    }
+    bool arg_compatible_for_dispatch(const lir::LExpr* arg,
+                                     TypeRef at,
+                                     TypeRef pt) const noexcept {
+        if (types_equal(at, pt)) return true;
+        if (types_compatible(at, pt)) return true;
+        if (arg && at && pt && is_integer_kind(TypeRef(at).kind()) && is_integer_kind(TypeRef(pt).kind()))
+            if (auto v = get_intlit_value(arg))
+                if (intlit_fits(*v, TypeRef(pt).kind()))
+                    return true;
+        return false;
+    }
 };
 
 // ── File-scope helpers used across sema_*.cpp TUs ─────────────────────────
@@ -1098,46 +1250,9 @@ inline TypeRef unify_int(TypeRef a, TypeRef b) noexcept {
     return a;
 }
 
-// If `e`'s type is a concrete integer kind strictly narrower than `target`,
-// and widens safely, wrap `e` in ECast(target).  No-op for IntLit (literals
-// are retyped directly, not cast) and for types that don't safely widen.
-//
-// Also handles the const-narrow case: if `e` is a constant integer literal
-// expression (per get_intlit_value) and the value fits in `target`'s range,
-// the cast is inserted even if the static narrow→narrow widening rule would
-// otherwise reject it. Lets `push_u8(0u64)` and similar typed-but-trivially-
-// fits literals coerce without an explicit `as` cast.
-inline void widen_int_expr(lir::LExprPtr& e, TypeRef target, LirBuilder b) {
-    if (!e || !target || !e->type) return;
-    auto ek = TypeRef(e->type).kind();
-    auto tk = TypeRef(target).kind();
-    if (ek == tk) return;
-    bool ok = can_widen_int(ek, tk);
-    if (!ok && is_integer_kind(TypeRef(e->type).kind()) && is_integer_kind(TypeRef(target).kind())) {
-        if (auto v = get_intlit_value(e.get()))
-            if (intlit_fits(*v, TypeRef(target).kind()))
-                ok = true;
-    }
-    if (!ok) return;
-    e = b.cast(std::move(e), target);
-}
-
-// Predicate used during overload resolution: types are compatible, or the
-// argument is a compile-time integer constant whose value fits the parameter's
-// integer range. Lets `s.push_u8(0u64)` find the `push_u8(c: u8)` candidate
-// without an explicit cast on the call site. The actual ECast is inserted
-// later by widen_int_expr once a candidate is picked.
-inline bool arg_compatible_for_dispatch(const lir::LExpr* arg,
-                                        TypeRef at,
-                                        TypeRef pt) noexcept {
-    if (types_equal(at, pt)) return true;
-    if (types_compatible(at, pt)) return true;
-    if (arg && at && pt && is_integer_kind(TypeRef(at).kind()) && is_integer_kind(TypeRef(pt).kind()))
-        if (auto v = get_intlit_value(arg))
-            if (intlit_fits(*v, TypeRef(pt).kind()))
-                return true;
-    return false;
-}
+// widen_int_expr / arg_compatible_for_dispatch are members of SemaChecker
+// (see class body above) — they need expr_ref_of to migrate the
+// get_intlit_value(LExpr*) variant peek.
 
 // Like unify_int but also promotes FloatLit to a concrete float type (F32/F64).
 // Use in contexts where both integers and floats need unification.
@@ -1146,20 +1261,28 @@ inline TypeRef unify_numeric(TypeRef a, TypeRef b) noexcept {
     return a;
 }
 
-inline std::optional<int64_t> get_intlit_value(const lir::LExpr* e) noexcept {
+// ExprRef overload — view-based traversal for callers that already hold
+// an ExprRef (e.g. element iteration via EArrLitView/ETupleLitView). Walks
+// the same shape (BlockExpr.result → Unary/-/LitInt) but reads from the
+// Hermes mirror so it composes with view-migrated read sites without an
+// LExpr*/ExprRef impedance mismatch.
+inline std::optional<int64_t> get_intlit_value(lir_view::ExprRef e) noexcept {
     if (!e) return std::nullopt;
-    if (auto* blk = std::get_if<lir::EBlockExpr>(&e->kind))
-        e = blk->result.get();
-    if (!e) return std::nullopt;
-    if (auto* u = std::get_if<lir::EUnary>(&e->kind)) {
-        if (u->op == "-") {
-            auto inner = get_intlit_value(u->operand.get());
+    using C = lir_schema::expr::Code;
+    if (e.kind() == C::BlockExpr) {
+        auto inner = lir_view::EBlockExprView{e}.result();
+        return get_intlit_value(inner);
+    }
+    if (e.kind() == C::Unary) {
+        auto u = lir_view::EUnaryView{e};
+        if (u.op() == "-") {
+            auto inner = get_intlit_value(u.operand());
             if (inner) return -(*inner);
         }
         return std::nullopt;
     }
-    if (auto* lit = std::get_if<lir::ELitInt>(&e->kind))
-        return lit->value;
+    if (e.kind() == C::LitInt)
+        return lir_view::ELitIntView{e}.value();
     return std::nullopt;
 }
 

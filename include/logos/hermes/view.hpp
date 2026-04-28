@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <format>
 #include <string_view>
 
 #include <logos/hermes/config.hpp>
@@ -134,12 +135,48 @@ public:
 
     ArenaString* ptr() const noexcept { return reinterpret_cast<ArenaString*>(base() + offset_.value()); }
 
+    // view() is the unsafe escape hatch — its result is freshly computed each
+    // call but, once obtained, becomes stale at the next arena allocation.
+    // Use it only within a single expression. For comparisons, `operator==`
+    // and `to_string()` below are realloc-safe (each refetches via base()).
     std::string_view view() const noexcept { return ptr()->view(); }
     size_t length() const noexcept { return ptr()->length(); }
+    size_t size()   const noexcept { return ptr()->length(); }
+    bool   empty()  const noexcept { return is_null() || ptr()->length() == 0; }
 
-    bool operator==(std::string_view other) const noexcept { return view() == other; }
-    bool operator!=(std::string_view other) const noexcept { return view() != other; }
+    bool operator==(std::string_view other) const noexcept {
+        return std::string_view{is_null() ? std::string_view{} : view()} == other;
+    }
+    bool operator!=(std::string_view other) const noexcept { return !(*this == other); }
+    bool operator==(const StringView& other) const noexcept {
+        return std::string_view{*this} == std::string_view{other};
+    }
+    bool operator!=(const StringView& other) const noexcept { return !(*this == other); }
+
+    // Owning copy into a heap std::string. Realloc-safe (single read).
+    std::string to_string() const { return is_null() ? std::string{} : std::string(view()); }
+
+    // Explicit conversion to std::string copies out (realloc-safe). Explicit
+    // so it does not interfere with operator==(string_view) overload resolution
+    // when comparing against string literals; `std::string(sv)` still works.
+    explicit operator std::string() const { return to_string(); }
+
+    // Implicit conversion to std::string_view: each call refetches via base(),
+    // so the resulting string_view is realloc-safe at the moment of the call,
+    // but stale at the next arena allocation. Use only within a single
+    // expression. Implicit so existing string_view-taking APIs (sema_key,
+    // string::append, etc.) accept OStringView without rewrites.
+    operator std::string_view() const noexcept { return is_null() ? std::string_view{} : view(); }
 };
+
+// Free comparison operators in hermes namespace so ADL finds them when the
+// LHS is std::string_view (or std::string, which converts implicitly to
+// string_view). Member operator== covers the StringView-on-LHS case.
+// LHS-is-string overloads. Needed because the member operator== reverse-
+// rewriting does not cross the std::string→std::string_view standard
+// conversion through user-defined-conversion candidates cleanly.
+inline bool operator==(std::string_view lhs, const StringView& rhs) noexcept { return rhs == lhs; }
+inline bool operator!=(std::string_view lhs, const StringView& rhs) noexcept { return rhs != lhs; }
 
 class DatatypeView : public ViewBase {
 public:
@@ -201,13 +238,14 @@ private:
 // Store these. Pass Views for cheap temporary access.
 // ---------------------------------------------------------------------------
 
-using TinyMap   = Own<TinyMapView>;
-using Array     = Own<ArrayView>;
-using Map       = Own<MapView>;
-using String    = Own<StringView>;
-using Datatype  = Own<DatatypeView>;
-using Parameter = Own<ParameterView>;
-using Object    = Own<ObjectView>;
+using TinyMap     = Own<TinyMapView>;
+using Array       = Own<ArrayView>;
+using Map         = Own<MapView>;
+using String      = Own<StringView>;
+using OStringView = Own<StringView>;  // Canonical name in compiler / fact-base code.
+using Datatype    = Own<DatatypeView>;
+using Parameter   = Own<ParameterView>;
+using Object      = Own<ObjectView>;
 
 // ---------------------------------------------------------------------------
 // HermesView: non-owning view of a document.
@@ -319,3 +357,22 @@ logos::expected<void*> copy_object_into(const void* src_obj, const uint8_t* src_
 [[nodiscard]] logos::expected<Hermes> from_bytes_copy(const uint8_t* data, size_t size) noexcept;
 
 } // namespace logos::hermes
+
+// std::formatter specialization for StringView (and Own<StringView> via
+// inheritance). Delegates to the std::string_view formatter — refetches the
+// view at format time, so it is realloc-safe at the moment of formatting.
+template <>
+struct std::formatter<logos::hermes::StringView, char>
+    : std::formatter<std::string_view, char>
+{
+    template <typename FormatContext>
+    auto format(const logos::hermes::StringView& sv, FormatContext& ctx) const {
+        return std::formatter<std::string_view, char>::format(
+            sv.is_null() ? std::string_view{} : sv.view(), ctx);
+    }
+};
+
+template <>
+struct std::formatter<logos::hermes::Own<logos::hermes::StringView>, char>
+    : std::formatter<logos::hermes::StringView, char>
+{};
