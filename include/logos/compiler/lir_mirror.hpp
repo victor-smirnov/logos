@@ -96,6 +96,10 @@ hermes::arena_offset_t lir_mirror_emit_reflect_of   (lir::LProgram& prog, TypeRe
 // Stage 2 Group 1 — children-only expr kinds. Caller has already built each
 // child (with mirror_offset_ set). Helper recursively emit_av's children via
 // the cache-hit fast path.
+hermes::arena_offset_t lir_mirror_emit_unary        (lir::LProgram& prog, TypeRef ty, std::string_view op, const lir::LExprPtr& operand);
+hermes::arena_offset_t lir_mirror_emit_bin_op       (lir::LProgram& prog, TypeRef ty, std::string_view op, const lir::LExprPtr& lhs, const lir::LExprPtr& rhs);
+hermes::arena_offset_t lir_mirror_emit_field_read   (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& receiver, std::string_view field);
+hermes::arena_offset_t lir_mirror_emit_index_read   (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& receiver, const lir::LExprPtr& index);
 hermes::arena_offset_t lir_mirror_emit_deref        (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& operand);
 hermes::arena_offset_t lir_mirror_emit_cast         (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& operand, std::string_view hermes_build_fn);
 hermes::arena_offset_t lir_mirror_emit_try          (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& inner, int32_t ok_disc, int32_t err_disc);

@@ -93,12 +93,13 @@ lir::LExprPtr LirBuilder::bin_op(std::string op,
                                   lir::LExprPtr lhs,
                                   lir::LExprPtr rhs,
                                   TypeRef ty) {
-    return make_expr(prog_, ty,
-        lir::EBinOp{std::move(op), std::move(lhs), std::move(rhs)});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_bin_op(p, t, op, lhs, rhs); });
 }
 
 lir::LExprPtr LirBuilder::unary(std::string op, lir::LExprPtr operand, TypeRef ty) {
-    return make_expr(prog_, ty, lir::EUnary{std::move(op), std::move(operand)});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_unary(p, t, op, operand); });
 }
 
 lir::LExprPtr LirBuilder::deref(lir::LExprPtr operand, TypeRef ty) {
@@ -112,11 +113,13 @@ lir::LExprPtr LirBuilder::cast(lir::LExprPtr operand, TypeRef ty) {
 }
 
 lir::LExprPtr LirBuilder::field_read(lir::LExprPtr receiver, std::string field, TypeRef ty) {
-    return make_expr(prog_, ty, lir::EFieldRead{std::move(receiver), std::move(field)});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_field_read(p, t, receiver, field); });
 }
 
 lir::LExprPtr LirBuilder::index_read(lir::LExprPtr receiver, lir::LExprPtr index, TypeRef ty) {
-    return make_expr(prog_, ty, lir::EIndexRead{std::move(receiver), std::move(index)});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_index_read(p, t, receiver, index); });
 }
 
 lir::LExprPtr LirBuilder::tuple_index(lir::LExprPtr receiver, uint32_t index, TypeRef ty) {

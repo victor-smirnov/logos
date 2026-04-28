@@ -220,6 +220,51 @@ public:
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
+    hermes::arena_offset_t emit_unary_direct(TypeRef ty, std::string_view op,
+                                              const lir::LExprPtr& operand) {
+        auto op_av = put_string(op);
+        auto o_av  = expr_av(operand);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::Unary));
+        put(map_off, ek::OP,      op_av);
+        put(map_off, ek::OPERAND, o_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_bin_op_direct(TypeRef ty, std::string_view op,
+                                               const lir::LExprPtr& lhs,
+                                               const lir::LExprPtr& rhs) {
+        auto op_av = put_string(op);
+        auto l_av  = expr_av(lhs);
+        auto r_av  = expr_av(rhs);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::BinOp));
+        put(map_off, ek::OP,  op_av);
+        put(map_off, ek::LHS, l_av);
+        put(map_off, ek::RHS, r_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_field_read_direct(TypeRef ty,
+                                                   const lir::LExprPtr& receiver,
+                                                   std::string_view field) {
+        auto r_av = expr_av(receiver);
+        auto f_av = put_string(field);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::FieldRead));
+        put(map_off, ek::RECEIVER, r_av);
+        put(map_off, ek::NAME,     f_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_index_read_direct(TypeRef ty,
+                                                   const lir::LExprPtr& receiver,
+                                                   const lir::LExprPtr& index) {
+        auto r_av = expr_av(receiver);
+        auto i_av = expr_av(index);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::IndexRead));
+        put(map_off, ek::RECEIVER, r_av);
+        put(map_off, ek::INDEX,    i_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
     hermes::arena_offset_t emit_ptr_arith_direct(TypeRef ty, uint8_t op,
                                                   const lir::LExprPtr& ptr,
                                                   const lir::LExprPtr& offset) {
@@ -1568,6 +1613,26 @@ hermes::arena_offset_t lir_mirror_emit_reflect_of(lir::LProgram& prog, TypeRef t
     return em.emit_reflect_of_direct(ty, elem);
 }
 
+hermes::arena_offset_t lir_mirror_emit_unary(lir::LProgram& prog, TypeRef ty, std::string_view op, const lir::LExprPtr& operand) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_unary_direct(ty, op, operand);
+}
+hermes::arena_offset_t lir_mirror_emit_bin_op(lir::LProgram& prog, TypeRef ty, std::string_view op, const lir::LExprPtr& lhs, const lir::LExprPtr& rhs) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_bin_op_direct(ty, op, lhs, rhs);
+}
+hermes::arena_offset_t lir_mirror_emit_field_read(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& receiver, std::string_view field) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_field_read_direct(ty, receiver, field);
+}
+hermes::arena_offset_t lir_mirror_emit_index_read(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& receiver, const lir::LExprPtr& index) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_index_read_direct(ty, receiver, index);
+}
 hermes::arena_offset_t lir_mirror_emit_deref(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& operand) {
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, *prog.mirror_table);
