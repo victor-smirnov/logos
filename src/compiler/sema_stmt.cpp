@@ -975,11 +975,9 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
 }
 
 lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, TypeRef scrut_type) {
-    auto result = build_pattern_impl(pnode, scrut_type);
-    // A.2: eager mirror so `pat_ref_of` works during sema and downstream
-    // back-fill is a no-op (cache hits via mirror_offset_).
-    lir_mirror_emit_pat_node(*cur_prog_, result);
-    return result;
+    // build_pattern_impl now sets mirror_offset_ directly via per-kind direct
+    // emitters; no bulk lir_mirror_emit_pat_node call needed here.
+    return build_pattern_impl(pnode, scrut_type);
 }
 
 lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_type) {
@@ -1005,7 +1003,9 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             if (!found)
                 error(std::format("pattern: enum '{}' has no variant '{}'", pename, pvname));
         }
-        return lir::PatVariant{pename, pvname, disc};
+        lir::Pattern p_(lir::PatVariant{pename, pvname, disc});
+        p_.mirror_offset_ = lir_mirror_emit_pat_variant(*cur_prog_, pename, pvname, disc);
+        return p_;
     }
     if (pc == la::PAT_VARIANT_DATA) {
         auto pename = std::string(str_of(pnode.get(la::NAME.code)));
@@ -1057,8 +1057,12 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         if (bindings.size() != binding_types.size())
             error(std::format("pattern {}::{}: expected {} bindings, got {}",
                   pename, pvname, binding_types.size(), bindings.size()));
-        return lir::PatVariantData{pename, pvname, disc,
-                                   std::move(bindings), std::move(binding_types)};
+        lir::Pattern p_(lir::PatVariantData{pename, pvname, disc,
+                                            std::move(bindings), std::move(binding_types)});
+        auto& vd_ = std::get<lir::PatVariantData>(p_.kind);
+        p_.mirror_offset_ = lir_mirror_emit_pat_variant_data(
+            *cur_prog_, vd_.enum_name, vd_.variant, vd_.disc, vd_.bindings, vd_.binding_types);
+        return p_;
     }
     if (pc == la::PAT_INT || pc == la::PAT_NEG_INT) {
         auto sv = str_of(pnode.get(la::VALUE.code));
@@ -1072,7 +1076,9 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                 error(std::format("match pattern: value {} does not fit in {}",
                       v, type_str(scrut_type)));
         }
-        return lir::PatInt{v};
+        lir::Pattern p_(lir::PatInt{v});
+        p_.mirror_offset_ = lir_mirror_emit_pat_int(*cur_prog_, v);
+        return p_;
     }
     if (pc == la::PAT_OR) {
         auto arr = arr_of(pnode.get(la::ITEMS.code));
@@ -1143,7 +1149,10 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                     error(std::format("or-pattern: all alternatives must bind the same variable names"));
             }
         }
-        return por;
+        lir::Pattern p_(std::move(por));
+        auto& or_ = std::get<lir::PatOr>(p_.kind);
+        p_.mirror_offset_ = lir_mirror_emit_pat_or(*cur_prog_, or_.alts);
+        return p_;
     }
     if (pc == la::PAT_BOOL) {
         AnyVal bv = pnode.get(la::VALUE.code);
@@ -1152,7 +1161,9 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             TypeRef(scrut_type).kind() != LogosType::Kind::Bool)
             error(std::format("bool pattern requires bool scrutinee, got '{}'",
                   type_str(scrut_type)));
-        return lir::PatBool{bval};
+        lir::Pattern p_(lir::PatBool{bval});
+        p_.mirror_offset_ = lir_mirror_emit_pat_bool(*cur_prog_, bval);
+        return p_;
     }
     if (pc == la::PAT_TUPLE) {
         // Tuple pattern: (a, b, c) — irrefutable, binds each element.
@@ -1161,7 +1172,9 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         if (!scrut_type || TypeRef(scrut_type).kind() != LogosType::Kind::Tuple) {
             error(std::format("tuple pattern requires tuple scrutinee, got {}",
                   scrut_type ? type_str(scrut_type) : "?"));
-            return lir::PatWild{"_"};
+            lir::Pattern pw_(lir::PatWild{"_"});
+            pw_.mirror_offset_ = lir_mirror_emit_pat_wild(*cur_prog_, "_");
+            return pw_;
         }
         // ITEMS holds an array of pat_single nodes (peg $... collects all captures).
         // Filter: only PAT_WILD nodes are the actual sub-patterns; LPAREN/RPAREN/COMMA
@@ -1204,7 +1217,10 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         // Fill binding types from tuple elements.
         for (size_t i = 0; i < TypeRef(scrut_type).tuple_elems().size(); ++i)
             pt.binding_types.push_back(TypeRef(scrut_type).tuple_elems()[i]);
-        return pt;
+        lir::Pattern p_(std::move(pt));
+        auto& t_ = std::get<lir::PatTuple>(p_.kind);
+        p_.mirror_offset_ = lir_mirror_emit_pat_tuple(*cur_prog_, t_.bindings, t_.binding_types, t_.subs);
+        return p_;
     }
     // ── PAT_RANGE: 0..=9 inclusive integer range ──────────────────────────
     if (pc == la::PAT_RANGE) {
@@ -1235,7 +1251,9 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         }
         if (lo > hi)
             error(std::format("range pattern: lo ({}) > hi ({})", lo, hi));
-        return lir::PatRange{lo, hi};
+        lir::Pattern p_(lir::PatRange{lo, hi});
+        p_.mirror_offset_ = lir_mirror_emit_pat_range(*cur_prog_, lo, hi);
+        return p_;
     }
 
     // ── PAT_AT: name @ sub_pat ────────────────────────────────────────────
@@ -1249,7 +1267,10 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         // bind_pattern can always define the variable (even with error type).
         pa.type = scrut_type ? scrut_type : error_t();
         pa.sub.push_back(std::move(sub_pat));
-        return pa;
+        lir::Pattern p_(std::move(pa));
+        auto& a_ = std::get<lir::PatAt>(p_.kind);
+        p_.mirror_offset_ = lir_mirror_emit_pat_at(*cur_prog_, a_.name, a_.sub, a_.type);
+        return p_;
     }
 
     // ── PAT_REF: &pat or &mut pat ─────────────────────────────────────────
@@ -1277,7 +1298,10 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         lir::PatRefPat prp;
         prp.is_mut = is_mut;
         prp.inner.push_back(std::move(inner_pat));
-        return prp;
+        lir::Pattern p_(std::move(prp));
+        auto& rp_ = std::get<lir::PatRefPat>(p_.kind);
+        p_.mirror_offset_ = lir_mirror_emit_pat_ref_pat(*cur_prog_, rp_.inner, rp_.is_mut);
+        return p_;
     }
 
     // ── PAT_WILD with IS_REF: ref x or ref mut x ─────────────────────────
@@ -1294,7 +1318,9 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             ref_t.kind    = is_mut ? LogosType::Kind::MutRef : LogosType::Kind::Ref;
             ref_t.pointee = scrut_type;
             TypeRef btype = pool_->alloc(std::move(ref_t));
-            return lir::PatRefBind{bname, is_mut, btype};
+            lir::Pattern p_(lir::PatRefBind{bname, is_mut, btype});
+            p_.mirror_offset_ = lir_mirror_emit_pat_ref_bind(*cur_prog_, bname, is_mut, btype);
+            return p_;
         }
     }
 
@@ -1384,7 +1410,10 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                           f.name));
             }
         }
-        return ps;
+        lir::Pattern p_(std::move(ps));
+        auto& s_ = std::get<lir::PatStruct>(p_.kind);
+        p_.mirror_offset_ = lir_mirror_emit_pat_struct(*cur_prog_, s_.struct_name, s_.fields, s_.has_rest);
+        return p_;
     }
 
     // ── PAT_SLICE: [a, b] or [first, .., last] ───────────────────────────
@@ -1442,7 +1471,10 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         if (scrut_type && TypeRef(scrut_type).kind() == LogosType::Kind::Slice &&
             found_rest && !psl.suffix.empty())
             error("slice pattern: suffix after '..' not supported for dynamic slices");
-        return psl;
+        lir::Pattern p_(std::move(psl));
+        auto& sl_ = std::get<lir::PatSlice>(p_.kind);
+        p_.mirror_offset_ = lir_mirror_emit_pat_slice(*cur_prog_, sl_.prefix, sl_.rest, sl_.suffix);
+        return p_;
     }
 
     // ── Hermes scalar patterns ────────────────────────────────────────────
@@ -1460,12 +1492,16 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                   "is only supported in `match` arms, not in if-let / "
                   "while-let / let-bindings / nested pattern positions.");
         }
-        return lir::PatWild{"_"};
+        lir::Pattern pw_(lir::PatWild{"_"});
+        pw_.mirror_offset_ = lir_mirror_emit_pat_wild(*cur_prog_, "_");
+        return pw_;
     }
 
     // PAT_WILD or fallback
-    auto wname = str_of(pnode.get(la::NAME.code));
-    return lir::PatWild{std::string(wname)};
+    auto wname = std::string(str_of(pnode.get(la::NAME.code)));
+    lir::Pattern p_(lir::PatWild{wname});
+    p_.mirror_offset_ = lir_mirror_emit_pat_wild(*cur_prog_, wname);
+    return p_;
 }
 
 // Build the synthesized guard expression for a Hermes scalar match pattern.
