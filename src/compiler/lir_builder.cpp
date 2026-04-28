@@ -285,48 +285,42 @@ void LirBuilder::retype_expr(lir::LExpr* e, TypeRef new_ty) {
 lir::LStmt LirBuilder::stmt_expr(lir::LExprPtr expr, uint32_t line) {
     lir::LStmt s;
     s.line = line;
-    s.kind = lir::SExprStmt{expr};
-    lir_mirror_emit_stmt_node(prog_, s);
+    s.mirror_offset_ = lir_mirror_emit_expr_stmt(prog_, line, expr);
     return s;
 }
 
 lir::LStmt LirBuilder::stmt_break(lir::LExprPtr value, std::string label, uint32_t line) {
     lir::LStmt s;
     s.line = line;
-    s.kind = lir::SBreak{value, std::move(label)};
-    lir_mirror_emit_stmt_node(prog_, s);
+    s.mirror_offset_ = lir_mirror_emit_break(prog_, line, value, label);
     return s;
 }
 
 lir::LStmt LirBuilder::stmt_continue(std::string label, uint32_t line) {
     lir::LStmt s;
     s.line = line;
-    s.kind = lir::SContinue{std::move(label)};
-    lir_mirror_emit_stmt_node(prog_, s);
+    s.mirror_offset_ = lir_mirror_emit_continue(prog_, line, label);
     return s;
 }
 
 lir::LStmt LirBuilder::stmt_return(lir::LExprPtr value, uint32_t line) {
     lir::LStmt s;
     s.line = line;
-    s.kind = lir::SReturn{value};
-    lir_mirror_emit_stmt_node(prog_, s);
+    s.mirror_offset_ = lir_mirror_emit_return(prog_, line, value);
     return s;
 }
 
 lir::LStmt LirBuilder::stmt_assign(std::string name, lir::LExprPtr value, uint32_t line) {
     lir::LStmt s;
     s.line = line;
-    s.kind = lir::SAssign{std::move(name), value};
-    lir_mirror_emit_stmt_node(prog_, s);
+    s.mirror_offset_ = lir_mirror_emit_assign(prog_, line, name, value);
     return s;
 }
 
 lir::LStmt LirBuilder::stmt_deref_write(lir::LExprPtr ptr, lir::LExprPtr value, uint32_t line) {
     lir::LStmt s;
     s.line = line;
-    s.kind = lir::SDerefWrite{ptr, value};
-    lir_mirror_emit_stmt_node(prog_, s);
+    s.mirror_offset_ = lir_mirror_emit_deref_write(prog_, line, ptr, value);
     return s;
 }
 
