@@ -105,6 +105,7 @@ hermes::arena_offset_t lir_mirror_emit_unary        (lir::LProgram& prog, TypeRe
 hermes::arena_offset_t lir_mirror_emit_bin_op       (lir::LProgram& prog, TypeRef ty, std::string_view op, const lir::LExprPtr& lhs, const lir::LExprPtr& rhs);
 hermes::arena_offset_t lir_mirror_emit_field_read   (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& receiver, std::string_view field);
 hermes::arena_offset_t lir_mirror_emit_index_read   (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& receiver, const lir::LExprPtr& index);
+hermes::arena_offset_t lir_mirror_emit_hermes_lit   (lir::LProgram& prog, TypeRef ty, const lir::HermesValPtr& root, bool has_captures, const std::vector<lir::LExprPtr>& capture_exprs, const std::vector<TypeRef>& capture_types, uint32_t capture_param_count);
 hermes::arena_offset_t lir_mirror_emit_deref        (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& operand);
 hermes::arena_offset_t lir_mirror_emit_cast         (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& operand, std::string_view hermes_build_fn);
 hermes::arena_offset_t lir_mirror_emit_try          (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& inner, int32_t ok_disc, int32_t err_disc);

@@ -358,7 +358,13 @@ lir::LExprPtr LirBuilder::if_expr_v(lir::EIfExpr eif, TypeRef ty) {
 }
 
 lir::LExprPtr LirBuilder::hermes_lit_v(lir::EHermesLit lit, TypeRef ty) {
-    return make_expr(prog_, ty, std::move(lit));
+    auto root  = lit.root;
+    auto hc    = lit.has_captures;
+    auto cex   = std::move(lit.capture_exprs);
+    auto cty   = std::move(lit.capture_types);
+    auto cpc   = lit.capture_param_count;
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_hermes_lit(p, t, root, hc, cex, cty, cpc); });
 }
 
 lir::LExprPtr LirBuilder::match_expr_v(lir::EMatchExpr me, TypeRef ty) {

@@ -220,6 +220,24 @@ public:
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
+    hermes::arena_offset_t emit_hermes_lit_direct(TypeRef ty,
+                                                   const lir::HermesValPtr& root,
+                                                   bool has_captures,
+                                                   const std::vector<lir::LExprPtr>& capture_exprs,
+                                                   const std::vector<TypeRef>& capture_types,
+                                                   uint32_t capture_param_count) {
+        auto root_av = hv_av(root);
+        auto cap_ex  = expr_array(capture_exprs);
+        auto cap_ty  = type_array(capture_types);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::HermesLit));
+        put(map_off, hl::ROOT,                  root_av);
+        put(map_off, hl::HAS_CAPTURES,          put_bool(has_captures));
+        put(map_off, hl::CAPTURE_EXPRS,         cap_ex);
+        put(map_off, hl::CAPTURE_TYPES,         cap_ty);
+        put(map_off, hl::CAPTURE_PARAM_COUNT,   put_u32(capture_param_count));
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
     hermes::arena_offset_t emit_enum_lit_direct(TypeRef ty,
                                                  std::string_view enum_name,
                                                  std::string_view variant,
@@ -1743,6 +1761,11 @@ hermes::arena_offset_t lir_mirror_emit_index_read(lir::LProgram& prog, TypeRef t
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, *prog.mirror_table);
     return em.emit_index_read_direct(ty, receiver, index);
+}
+hermes::arena_offset_t lir_mirror_emit_hermes_lit(lir::LProgram& prog, TypeRef ty, const lir::HermesValPtr& root, bool has_captures, const std::vector<lir::LExprPtr>& capture_exprs, const std::vector<TypeRef>& capture_types, uint32_t capture_param_count) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_hermes_lit_direct(ty, root, has_captures, capture_exprs, capture_types, capture_param_count);
 }
 hermes::arena_offset_t lir_mirror_emit_deref(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& operand) {
     auto& arena = prog.type_pool.arena_or_init();
