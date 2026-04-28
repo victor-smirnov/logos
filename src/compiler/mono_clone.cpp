@@ -746,6 +746,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         }
     }
 
+    lir_mirror_emit_expr_node(out_, *result);
     return result;
 }
 
@@ -1055,6 +1056,7 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
     default: break;
     }
 
+    lir_mirror_emit_stmt_node(out_, ns);
     return ns;
 }
 
