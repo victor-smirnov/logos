@@ -115,8 +115,10 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         }
         case C::FieldRead: {
             lir_view::EFieldReadView v{eref};
-            result->kind = lir::EFieldRead{subst_child_expr(v.receiver()),
-                                           std::string(v.field())};
+            std::string field(v.field());
+            auto rcv = subst_child_expr(v.receiver());
+            result->mirror_offset_ = lir_mirror_emit_field_read(
+                out_, result->type, rcv, field);
             break;
         }
         case C::TupleIndex: {
@@ -129,8 +131,10 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         }
         case C::IndexRead: {
             lir_view::EIndexReadView v{eref};
-            result->kind = lir::EIndexRead{subst_child_expr(v.receiver()),
-                                           subst_child_expr(v.index())};
+            auto rcv = subst_child_expr(v.receiver());
+            auto idx = subst_child_expr(v.index());
+            result->mirror_offset_ = lir_mirror_emit_index_read(
+                out_, result->type, rcv, idx);
             break;
         }
         case C::Cast: {
@@ -284,15 +288,15 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 if      (op == "-") method_name = "neg";
                 else if (op == "!") method_name = "not_";
                 if (!method_name.empty()) {
-                    std::string cname = concrete_struct_name(vt);
-                    lir::ECall nc;
-                    nc.callee = cname + "__" + method_name;
-                    nc.args.push_back(std::move(new_op));
-                    result->kind = std::move(nc);
+                    std::string callee = concrete_struct_name(vt) + "__" + method_name;
+                    std::vector<lir::LExprPtr> args; args.push_back(std::move(new_op));
+                    result->mirror_offset_ = lir_mirror_emit_call(
+                        out_, result->type, callee, {}, args);
                     break;
                 }
             }
-            result->kind = lir::EUnary{op, std::move(new_op)};
+            result->mirror_offset_ = lir_mirror_emit_unary(
+                out_, result->type, op, new_op);
             break;
         }
         case C::BinOp: {
@@ -315,16 +319,17 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 else if (op == ">")  method_name = "gt";
                 else if (op == ">=") method_name = "ge";
                 if (!method_name.empty()) {
-                    std::string cname = concrete_struct_name(lt);
-                    lir::ECall nc;
-                    nc.callee = cname + "__" + method_name;
-                    nc.args.push_back(std::move(new_lhs));
-                    nc.args.push_back(std::move(new_rhs));
-                    result->kind = std::move(nc);
+                    std::string callee = concrete_struct_name(lt) + "__" + method_name;
+                    std::vector<lir::LExprPtr> args;
+                    args.push_back(std::move(new_lhs));
+                    args.push_back(std::move(new_rhs));
+                    result->mirror_offset_ = lir_mirror_emit_call(
+                        out_, result->type, callee, {}, args);
                     break;
                 }
             }
-            result->kind = lir::EBinOp{op, std::move(new_lhs), std::move(new_rhs)};
+            result->mirror_offset_ = lir_mirror_emit_bin_op(
+                out_, result->type, op, new_lhs, new_rhs);
             break;
         }
         case C::AddrOfTemp: {
@@ -337,57 +342,61 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         }
         case C::EnumLit: {
             lir_view::EEnumLitView v{eref};
-            lir::EEnumLit ne;
-            ne.enum_name = std::string(v.enum_name());
-            ne.variant   = std::string(v.variant());
-            ne.disc      = v.disc();
+            std::string enum_name(v.enum_name());
+            std::string variant(v.variant());
+            int64_t disc = v.disc();
             TypeRef rt(result->type);
             if (rt && rt.kind() == LogosType::Kind::Enum &&
                 !rt.type_args().empty()) {
                 std::string cname = std::string(rt.enum_name());
                 for (auto a : rt.type_args()) { cname += "__"; cname += mangle_type(a); }
-                ne.enum_name = std::move(cname);
+                enum_name = std::move(cname);
                 record_needed_enum(result->type);
             }
-            result->kind = std::move(ne);
+            result->mirror_offset_ = lir_mirror_emit_enum_lit(
+                out_, result->type, enum_name, variant, disc);
             break;
         }
         case C::EnumLitData: {
             lir_view::EEnumLitDataView v{eref};
-            lir::EEnumLitData ne;
-            ne.variant = std::string(v.variant());
-            ne.disc    = v.disc();
+            std::string variant(v.variant());
+            int64_t disc = v.disc();
+            std::string enum_name;
             TypeRef rt(result->type);
             if (rt && rt.kind() == LogosType::Kind::Enum &&
                 !rt.type_args().empty()) {
                 std::string cname = std::string(rt.enum_name());
                 for (auto a : rt.type_args()) { cname += "__"; cname += mangle_type(a); }
-                ne.enum_name = std::move(cname);
+                enum_name = std::move(cname);
                 record_needed_enum(result->type);
             } else {
-                ne.enum_name = std::string(v.enum_name());
+                enum_name = std::string(v.enum_name());
             }
+            std::vector<lir::LExprPtr> payload;
             v.each_payload([&](lir_view::ExprRef er) {
-                ne.payload.push_back(subst_child_expr(er));
+                payload.push_back(subst_child_expr(er));
             });
-            result->kind = std::move(ne);
+            result->mirror_offset_ = lir_mirror_emit_enum_lit_data(
+                out_, result->type, enum_name, variant, disc, payload);
             break;
         }
         case C::StructLit: {
             lir_view::EStructLitView v{eref};
-            lir::EStructLit ns;
+            std::string name;
             TypeRef rt2(result->type);
             if (rt2 && (rt2.kind() == LogosType::Kind::Struct ||
                         rt2.kind() == LogosType::Kind::ZonedStruct) &&
                 !rt2.type_args().empty())
-                ns.name = concrete_struct_name(result->type);
+                name = concrete_struct_name(result->type);
             else
-                ns.name = std::string(v.name());
+                name = std::string(v.name());
+            std::vector<std::pair<std::string, lir::LExprPtr>> fields;
             v.each_field([&](std::string_view fname, lir_view::ExprRef er) {
-                ns.fields.push_back({std::string(fname), subst_child_expr(er)});
+                fields.push_back({std::string(fname), subst_child_expr(er)});
             });
             record_needed_struct(result->type);
-            result->kind = std::move(ns);
+            result->mirror_offset_ = lir_mirror_emit_struct_lit(
+                out_, result->type, name, fields);
             break;
         }
         case C::New: {
@@ -596,7 +605,8 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 if (!rewritten_as_struct_method)
                     nc.callee = mangle(nc.callee, nc.type_args);
             }
-            result->kind = std::move(nc);
+            result->mirror_offset_ = lir_mirror_emit_call(
+                out_, result->type, nc.callee, nc.type_args, nc.args);
             break;
         }
         case C::MethodCall: {
@@ -666,22 +676,19 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         nc.type_args.push_back(subst_type(ta, s));
                     if (!nc.type_args.empty())
                         nc.callee = mangle(tmpl_key, nc.type_args);
-                    result->kind = std::move(nc);
+                    result->mirror_offset_ = lir_mirror_emit_call(
+                        out_, result->type, nc.callee, nc.type_args, nc.args);
                     break;
                 }
                 // Fallback: keep as method call
-                lir::EMethodCall nm;
-                nm.receiver = std::move(new_recv);
-                nm.method = method;
-                nm.resolved_symbol = resolved_symbol;
-                nm.vtable_index = vtable_index;
-                nm.resolved_type = resolved_type;
-                nm.tag_system = tag_system;
-                nm.tag_trait  = tag_trait;
+                std::vector<lir::LExprPtr> mc_args;
                 v.each_arg([&](lir_view::ExprRef ar) {
-                    nm.args.push_back(subst_child_expr(ar));
+                    mc_args.push_back(subst_child_expr(ar));
                 });
-                result->kind = std::move(nm);
+                result->mirror_offset_ = lir_mirror_emit_method_call(
+                    out_, result->type, new_recv, method, resolved_symbol,
+                    {}, mc_args, vtable_index, resolved_type,
+                    tag_system, tag_trait);
                 break;
             }
             // Non-trait-method-on-TypeVar path.
@@ -731,33 +738,35 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                     std::string mono_base = pick_mono_template_key();
                     if (auto* spec = find_best_spec(mono_base.empty() ? base_name : mono_base,
                                                     combined_args)) {
-                        lir::ECall nc;
-                        nc.callee = spec->name;
-                        nc.args.push_back(std::move(nm.receiver));
+                        std::vector<lir::LExprPtr> args;
+                        args.push_back(std::move(nm.receiver));
                         v.each_arg([&](lir_view::ExprRef ar) {
-                            nc.args.push_back(subst_child_expr(ar));
+                            args.push_back(subst_child_expr(ar));
                         });
-                        result->kind = std::move(nc);
+                        result->mirror_offset_ = lir_mirror_emit_call(
+                            out_, result->type, spec->name, {}, args);
                         rewritten = true;
                     } else if (!combined_args.empty() && !mono_base.empty()) {
-                        lir::ECall nc;
-                        nc.callee = mangle(mono_base, combined_args);
-                        nc.type_args = combined_args;
-                        nc.args.push_back(std::move(nm.receiver));
+                        std::string callee = mangle(mono_base, combined_args);
+                        std::vector<lir::LExprPtr> args;
+                        args.push_back(std::move(nm.receiver));
                         v.each_arg([&](lir_view::ExprRef ar) {
-                            nc.args.push_back(subst_child_expr(ar));
+                            args.push_back(subst_child_expr(ar));
                         });
-                        result->kind = std::move(nc);
+                        result->mirror_offset_ = lir_mirror_emit_call(
+                            out_, result->type, callee, combined_args, args);
                         rewritten = true;
                     }
                 }
             }
             if (!rewritten) {
-                nm.resolved_type = resolved_type;
                 v.each_arg([&](lir_view::ExprRef ar) {
                     nm.args.push_back(subst_child_expr(ar));
                 });
-                result->kind = std::move(nm);
+                result->mirror_offset_ = lir_mirror_emit_method_call(
+                    out_, result->type, nm.receiver, nm.method, nm.resolved_symbol,
+                    nm.type_args, nm.args, nm.vtable_index, resolved_type,
+                    nm.tag_system, nm.tag_trait);
             }
             break;
         }
