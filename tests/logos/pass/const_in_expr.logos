@@ -1,8 +1,8 @@
 package const_in_expr;
 // F12: constants used in expressions, loops
-const LIMIT: i32 = 10;
-const FACTOR: i32 = 7;
-const OFFSET: i32 = -28;
+let LIMIT: i32 = 10;
+let FACTOR: i32 = 7;
+let OFFSET: i32 = -28;
 
 unsafe fn main() -> i32 {
     let mut sum: i32 = 0;

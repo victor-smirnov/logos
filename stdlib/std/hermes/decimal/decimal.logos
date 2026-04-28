@@ -26,9 +26,9 @@ use std.hermes.typetag;
 use std.hermes.datatag;
 use std.lang.text;
 
-const DEC_BASE: u64 = 1000000000;
-const DECIMAL_MAX_LIMBS: u32 = 127;
-const DECIMAL_MAX_DIGITS: u32 = 1143;  // 127 limbs * 9 digits
+let DEC_BASE: u64 = 1000000000;
+let DECIMAL_MAX_LIMBS: u32 = 127;
+let DECIMAL_MAX_DIGITS: u32 = 1143;  // 127 limbs * 9 digits
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);

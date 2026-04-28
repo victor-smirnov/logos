@@ -25,7 +25,7 @@ use std.lang.option;
 use std.lang.result;
 use std.sys.fiber;
 
-const TEST_PORT: u16 = 48407 as u16;
+let TEST_PORT: u16 = 48407 as u16;
 
 // ── Handler ──────────────────────────────────────────────────────────────
 

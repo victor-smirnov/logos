@@ -50,7 +50,7 @@ extern fn malloc(size: i64) -> *mut u8;
 extern fn realloc(ptr: *mut u8, size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
 
-const MAX_CHECK_NODES: i64 = 10000000;  // 10M node limit
+let MAX_CHECK_NODES: i64 = 10000000;  // 10M node limit
 
 // ---------------------------------------------------------------------------
 // CheckError -- result of a failed structural check.

@@ -13,7 +13,7 @@ use std.lang.option;
 use std.lang.result;
 use std.sys.fiber;
 
-const TEST_PORT: u16 = 48319 as u16;
+let TEST_PORT: u16 = 48319 as u16;
 
 fn handler(req: &Request) -> Response {
     let mut resp: Response = Response::new(200 as i32);

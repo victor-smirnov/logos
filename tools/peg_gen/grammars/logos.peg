@@ -423,8 +423,8 @@
     annot_args <- annot_arg (COMMA annot_arg)* COMMA?
                => { ITEMS: $... }
 
-    // const NAME: type = expr;
-    const_def <- KW_CONST IDENT COLON type_ref ASSIGN expr SEMI
+    // let NAME: type = expr;  (module-level — compile-time evaluated, ADR 0003 §9)
+    const_def <- KW_LET IDENT COLON type_ref ASSIGN expr SEMI
               => { CODE: CONST_DEF, NAME: $2, TYPE: $4, VALUE: $6 }
 
     // static NAME: type = expr;  (module-level mutable static — same repr as const for now)

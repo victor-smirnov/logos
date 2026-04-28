@@ -1,8 +1,8 @@
 package const_multi;
 // Edge cases: multiple constants used together, const in array size, const expr
-const A: i32 = 10;
-const B: i32 = 20;
-const C: i32 = 12;
+let A: i32 = 10;
+let B: i32 = 20;
+let C: i32 = 12;
 
 fn compute(x: i32) -> i32 {
     return x + A;
