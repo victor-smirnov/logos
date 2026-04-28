@@ -595,8 +595,6 @@ struct LStmt {
     LStmt(LStmt&&) noexcept = default;
     LStmt& operator=(const LStmt&) = default;
     LStmt& operator=(LStmt&&) noexcept = default;
-    // B.6 Stage 3.5 step 7e transitional: `LStmt{line, SDrop{...}}` etc.
-    template <class K> LStmt(uint32_t line_, K&&) noexcept : line(line_) {}
 };
 
 // ── Block ─────────────────────────────────────────────────────────────────

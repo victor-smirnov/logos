@@ -1221,7 +1221,7 @@ std::optional<lir::LStmt> SemaChecker::make_drop_stmt(const std::string& name, c
     auto dfn = drop_fn_for(info.type);
     bool df  = has_droppable_fields(info.type);
     if (dfn.empty() && !df) return std::nullopt;
-    lir::LStmt s{node_line_, lir::SDrop{name, dfn, info.type, df}};
+    lir::LStmt s; s.line = node_line_;
     if (cur_prog_)
         s.mirror_offset_ = lir_mirror_emit_drop(*cur_prog_, node_line_, name, dfn, info.type, df);
     return s;
