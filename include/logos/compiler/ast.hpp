@@ -274,7 +274,6 @@ inline constexpr Key GUARD     {"GUARD",     35};            // guard condition 
 inline constexpr Key EXPR      {"EXPR",      36};            // expression-body match arm value
 inline constexpr Key NAMES     {"NAMES",     37};            // name list for tuple destructuring
 inline constexpr Key WHERE     {"WHERE",     38};            // where clause node
-inline constexpr Key IS_CONST  {"IS_CONST",  39};            // const fn marker
 inline constexpr Key IS_UNSAFE {"IS_UNSAFE", 42};            // unsafe fn marker
 inline constexpr Key IS_MOVE   {"IS_MOVE",   44};            // move closure marker
 inline constexpr Key IS_REF    {"IS_REF",    45};            // &self / &mut self param shorthand

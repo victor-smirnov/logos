@@ -1733,10 +1733,6 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
         AnyVal av = node.get(la::IS_PUB.code);
         info.is_pub = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
     }
-    if (node.has_key(la::IS_CONST)) {
-        AnyVal av = node.get(la::IS_CONST.code);
-        info.is_const = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
-    }
     if (node.has_key(la::IS_UNSAFE)) {
         AnyVal av = node.get(la::IS_UNSAFE.code);
         info.is_unsafe = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
@@ -1767,27 +1763,6 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
         return;
     }
 
-    auto store_const_body = [&]() {
-        if (!(info.is_const && node.has_key(la::BODY))) return;
-        ConstFnBody cfb;
-        cfb.body = map_of(node.get(la::BODY.code));
-        if (node.has_key(la::PARAMS)) {
-            auto params_av = node.get(la::PARAMS.code);
-            if (params_av.is_pointer()) {
-                auto params_node = map_of(params_av);
-                if (params_node.has_key(la::ITEMS)) {
-                    auto arr = arr_of(params_node.get(la::ITEMS.code));
-                    for (uint64_t i = 0; i < arr.size(); ++i) {
-                        auto p = map_of(arr.get(i));
-                        if (code_of(p) != la::PARAM) continue;
-                        cfb.param_names.push_back(std::string(str_of(p.get(la::NAME.code))));
-                    }
-                }
-            }
-        }
-        const_fn_bodies_[info.symbol_name] = std::move(cfb);
-    };
-
     if (!info.type_params.empty()) {
         info.symbol_name = function_symbol_name(base_name, info);
         auto& gen_overloads = generic_overloads_[base_name];
@@ -1800,7 +1775,6 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
                 return;
             }
         }
-        store_const_body();
         gen_overloads.push_back(info.symbol_name);
         generic_funcs_[info.symbol_name] = std::move(info);
         return;
@@ -1816,11 +1790,6 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
                 std::string renamed = function_symbol_name(base_name, old_info);
                 old_info.symbol_name = renamed;
                 funcs_[renamed] = std::move(old_info);
-                if (auto cfb = const_fn_bodies_.find(base_name); cfb != const_fn_bodies_.end()) {
-                    auto body = std::move(cfb->second);
-                    const_fn_bodies_.erase(cfb);
-                    const_fn_bodies_[renamed] = std::move(body);
-                }
                 overloads[0] = renamed;
             }
         }
@@ -1840,7 +1809,6 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
     }
 
     overloads.push_back(info.symbol_name);
-    store_const_body();
     funcs_[info.symbol_name] = std::move(info);
 }
 
