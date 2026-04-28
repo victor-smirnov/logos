@@ -755,6 +755,21 @@ int main(int argc, char** argv) {
                     is_hermes_blob = true;
                     break;
                 }
+                case RT::Hermes: {
+                    // Hermes-returning thunk wraps callee in __metacall_freeze, which
+                    // mallocs [u64 size][bytes] and returns ptr past prefix — same ABI
+                    // as HermesStatic from this side.
+                    auto blob_ptr = reinterpret_cast<const uint8_t* (*)()>(sym)();
+                    if (!blob_ptr) {
+                        std::fprintf(stderr, "logosc: metacall Hermes thunk returned null\n");
+                        return 1;
+                    }
+                    uint64_t size = 0;
+                    std::memcpy(&size, blob_ptr - 8, 8);
+                    blob_bytes.assign(reinterpret_cast<const char*>(blob_ptr), size);
+                    is_hermes_blob = true;
+                    break;
+                }
                 }
 
                 std::string lit_text;

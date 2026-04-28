@@ -6008,6 +6008,8 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
     auto rk = TypeRef(rt).kind();
     bool is_hermes_static =
         rk == LogosType::Kind::Struct && TypeRef(rt).struct_name() == "HermesStatic";
+    bool is_hermes =
+        rk == LogosType::Kind::Struct && TypeRef(rt).struct_name() == "Hermes";
     bool prim_ok =
         rk == LogosType::Kind::Bool ||
         rk == LogosType::Kind::I8   || rk == LogosType::Kind::I16 ||
@@ -6022,9 +6024,9 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
         // &str / Slice<u8>
         (rk == LogosType::Kind::Slice && TypeRef(rt).elem() &&
          TypeRef(rt).elem().kind() == LogosType::Kind::U8);
-    bool ok_ret = prim_ok || is_hermes_static;
+    bool ok_ret = prim_ok || is_hermes_static || is_hermes;
     if (rt && !ok_ret)
-        error("metacall: ret type must be primitive scalar or HermesStatic");
+        error("metacall: ret type must be primitive scalar, HermesStatic, or Hermes");
 
     // Record site for the eventual driver-side splice (M.1 Stage 2).
     if (cur_prog_ && rt && ok_ret) {
@@ -6054,7 +6056,9 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
         case LogosType::Kind::FloatLit: site.ret_tag = RT::F64; break;
         case LogosType::Kind::Slice: site.ret_tag = RT::Str; break;
         case LogosType::Kind::Struct:
-            site.ret_tag = is_hermes_static ? RT::HermesStatic : RT::I64;
+            site.ret_tag = is_hermes_static ? RT::HermesStatic
+                         : is_hermes        ? RT::Hermes
+                                            : RT::I64;
             break;
         default: site.ret_tag = RT::I64; break;
         }
@@ -6127,18 +6131,44 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
                 ret_text = type_str(rt);
             }
             std::string pkg = cur_package_.empty() ? "__metacall_thunks" : cur_package_;
-            // HermesStatic ret needs std.hermes.view in scope.
-            const char* extra_uses =
-                (site.ret_tag == lir::LProgram::MetacallSite::RetTag::HermesStatic)
-                ? "use std.hermes.view;\n"
-                : "";
-            site.thunk_source = std::format(
-                "package {};\n"
-                "{}"
-                "fn {}() -> {} {{ return {}; }}\n",
-                pkg, extra_uses, site.thunk_name, ret_text, call_text);
+            using RT2 = lir::LProgram::MetacallSite::RetTag;
+            if (site.ret_tag == RT2::Hermes) {
+                // Hermes ret: wrap in __metacall_freeze, which copies the
+                // live-zone bytes into a malloc'd [u64 size][bytes] buffer
+                // and returns a pointer past the size prefix. Driver reads
+                // *(ptr-8) for size and splices identically to HermesStatic.
+                // The temporary Hermes drops at end-of-thunk; the freeze
+                // helper has already copied bytes out.
+                site.thunk_source = std::format(
+                    "package {};\n"
+                    "use std.hermes.ctr;\n"
+                    "unsafe fn {}() -> *const u8 {{\n"
+                    "    let __h: Hermes = {};\n"
+                    "    return __metacall_freeze(&__h);\n"
+                    "}}\n",
+                    pkg, site.thunk_name, call_text);
+            } else {
+                // HermesStatic ret needs std.hermes.view in scope.
+                const char* extra_uses =
+                    (site.ret_tag == RT2::HermesStatic)
+                    ? "use std.hermes.view;\n"
+                    : "";
+                site.thunk_source = std::format(
+                    "package {};\n"
+                    "{}"
+                    "fn {}() -> {} {{ return {}; }}\n",
+                    pkg, extra_uses, site.thunk_name, ret_text, call_text);
+            }
         }
         cur_prog_->metacall_sites.push_back(std::move(site));
+
+        // Post-splice the AST node becomes HERMES_BLOB (typed HermesStatic).
+        // Override the lowered expr's type so sema sees the post-splice shape
+        // even when the callee returns Hermes (mutable) — auto-freeze copies
+        // bytes into a static blob, so user code consumes HermesStatic.
+        if (is_hermes && lowered) {
+            lowered->type = make_struct_type("HermesStatic");
+        }
     }
 
     // Pass-through: keeps the in-progress L-IR valid for borrow/type checks

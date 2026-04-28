@@ -62,6 +62,31 @@ unsafe fn cstr_len(s: *const u8) -> i64 {
 // POSIX write(2) — fd 1 = stdout.
 extern fn write(fd: i32, buf: *const u8, count: i64) -> i64;
 
+// libc malloc / memcpy — used by __metacall_freeze below.
+extern fn malloc(size: i64) -> *mut u8;
+extern fn memcpy(dst: *mut u8, src: *const u8, n: i64) -> *mut u8;
+
+// metacall(callee) where callee returns a mutable Hermes wraps the
+// callee in this shim. Since the meta-jit's arena dies with the JIT
+// session, we copy the live-zone bytes into a malloc'd buffer laid
+// out as [u64 size_le][bytes] (same shape as a HermesStatic global
+// in rodata) and return a pointer past the size prefix. The driver
+// reads *(ptr-8) for size and splices the bytes as HERMES_BLOB —
+// the splice path is identical to the HermesStatic case.
+//
+// h is a `&Hermes` so its drop runs in the caller (the thunk) after
+// we've already copied the bytes out; the leaked malloc buffer dies
+// with the meta-jit process state.
+pub unsafe fn __metacall_freeze(h: &Hermes) -> *const u8 {
+    let n: i64 = h.size() as i64;
+    let total: i64 = 8 + n;
+    let buf: *mut u8 = malloc(total);
+    *(buf as *mut u64) = n as u64;
+    let payload: *mut u8 = (buf as i64 + 8) as *mut u8;
+    memcpy(payload, h.base(), n);
+    return payload as *const u8;
+}
+
 // ---------------------------------------------------------------------------
 // Result / ParseError
 // ---------------------------------------------------------------------------

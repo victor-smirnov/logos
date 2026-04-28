@@ -922,7 +922,7 @@ struct LProgram {
         // failed (e.g. unsupported call shape) — driver skips such sites.
         std::string thunk_source;
         // Return-type discriminator for the driver (avoids re-deriving from L-IR).
-        enum class RetTag { Bool, I8, I16, I24, I32, I56, I64, U8, U16, U24, U32, U56, U64, F32, F64, Str, HermesStatic };
+        enum class RetTag { Bool, I8, I16, I24, I32, I56, I64, U8, U16, U24, U32, U56, U64, F32, F64, Str, HermesStatic, Hermes };
         RetTag      ret_tag = RetTag::I64;
     };
     std::vector<MetacallSite> metacall_sites;
