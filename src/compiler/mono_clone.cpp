@@ -121,7 +121,10 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         }
         case C::TupleIndex: {
             lir_view::ETupleIndexView v{eref};
-            result->kind = lir::ETupleIndex{subst_child_expr(v.receiver()), v.index()};
+            uint32_t idx = v.index();
+            auto rcv = subst_child_expr(v.receiver());
+            result->mirror_offset_ = lir_mirror_emit_tuple_index(
+                out_, result->type, rcv, idx);
             break;
         }
         case C::IndexRead: {
@@ -149,14 +152,18 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         }
         case C::SliceLit: {
             lir_view::ESliceLitView v{eref};
-            result->kind = lir::ESliceLit{subst_child_expr(v.base()),
-                                          subst_child_expr(v.len())};
+            auto base = subst_child_expr(v.base());
+            auto len  = subst_child_expr(v.len());
+            result->mirror_offset_ = lir_mirror_emit_slice_lit(
+                out_, result->type, base, len);
             break;
         }
         case C::SliceIndex: {
             lir_view::ESliceIndexView v{eref};
-            result->kind = lir::ESliceIndex{subst_child_expr(v.slice()),
-                                            subst_child_expr(v.index())};
+            auto slice = subst_child_expr(v.slice());
+            auto idx   = subst_child_expr(v.index());
+            result->mirror_offset_ = lir_mirror_emit_slice_index(
+                out_, result->type, slice, idx);
             break;
         }
         case C::SliceLen: {
@@ -312,7 +319,10 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         }
         case C::AddrOfTemp: {
             lir_view::EAddrOfTempView v{eref};
-            result->kind = lir::EAddrOfTemp{subst_child_expr(v.inner()), v.is_mut()};
+            bool is_mut = v.is_mut();
+            auto inner = subst_child_expr(v.inner());
+            result->mirror_offset_ = lir_mirror_emit_addr_of_temp(
+                out_, result->type, inner, is_mut);
             break;
         }
         case C::EnumLit: {

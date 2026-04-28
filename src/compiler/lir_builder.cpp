@@ -119,11 +119,13 @@ lir::LExprPtr LirBuilder::index_read(lir::LExprPtr receiver, lir::LExprPtr index
 }
 
 lir::LExprPtr LirBuilder::tuple_index(lir::LExprPtr receiver, uint32_t index, TypeRef ty) {
-    return make_expr(prog_, ty, lir::ETupleIndex{std::move(receiver), index});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_tuple_index(p, t, receiver, index); });
 }
 
 lir::LExprPtr LirBuilder::slice_index(lir::LExprPtr slice, lir::LExprPtr index, TypeRef ty) {
-    return make_expr(prog_, ty, lir::ESliceIndex{std::move(slice), std::move(index)});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_slice_index(p, t, slice, index); });
 }
 
 lir::LExprPtr LirBuilder::arr_lit(std::vector<lir::LExprPtr> elems, TypeRef ty) {
@@ -201,11 +203,13 @@ lir::LExprPtr LirBuilder::fn_ptr_call(lir::LExprPtr callee,
 }
 
 lir::LExprPtr LirBuilder::addr_of_temp(lir::LExprPtr inner, bool is_mut, TypeRef ty) {
-    return make_expr(prog_, ty, lir::EAddrOfTemp{std::move(inner), is_mut});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_addr_of_temp(p, t, inner, is_mut); });
 }
 
 lir::LExprPtr LirBuilder::slice_lit(lir::LExprPtr base, lir::LExprPtr len, TypeRef ty) {
-    return make_expr(prog_, ty, lir::ESliceLit{std::move(base), std::move(len)});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_slice_lit(p, t, base, len); });
 }
 
 lir::LExprPtr LirBuilder::slice_len(lir::LExprPtr slice, TypeRef ty) {
