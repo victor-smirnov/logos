@@ -1215,6 +1215,7 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
         if (overridden) continue;
         // Substitute struct type in params/ret as needed (already done by clone_fn).
         nd.methods.push_back(std::make_unique<lir::LFunction>(std::move(nm)));
+        lir_mirror_emit_function(out_, *out_.mirror_table, *nd.methods.back());
     }
     return nd;
 }
@@ -1651,6 +1652,7 @@ void Mono::instantiate_enum_templates() {
                 nm.name = inst_name;
                 done_.insert(inst_name);
                 out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(nm)));
+                lir_mirror_emit_function(out_, *out_.mirror_table, *out_.functions.back());
             }
             out_.enums.push_back(std::move(inst));
         }
