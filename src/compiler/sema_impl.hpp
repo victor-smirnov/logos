@@ -316,31 +316,30 @@ private:
 
     template<typename K>
     lir::HermesValPtr alloc_hv_emit(K&& k) {
-        auto* hv = lir::alloc_hermes_val(*cur_prog_, lir::HermesVal{std::forward<K>(k)});
         using KT = std::decay_t<K>;
         auto& p = *cur_prog_;
+        ::logos::hermes::arena_offset_t mo;
         if constexpr (std::is_same_v<KT, lir::HVNull>) {
-            hv->mirror_offset_ = lir_mirror_emit_hv_null(p);
+            mo = lir_mirror_emit_hv_null(p);
         } else if constexpr (std::is_same_v<KT, lir::HVBool>) {
-            hv->mirror_offset_ = lir_mirror_emit_hv_bool(p, std::get<lir::HVBool>(hv->kind).value);
+            mo = lir_mirror_emit_hv_bool(p, k.value);
         } else if constexpr (std::is_same_v<KT, lir::HVInt>) {
-            hv->mirror_offset_ = lir_mirror_emit_hv_int(p, std::get<lir::HVInt>(hv->kind).value);
+            mo = lir_mirror_emit_hv_int(p, k.value);
         } else if constexpr (std::is_same_v<KT, lir::HVFloat>) {
-            hv->mirror_offset_ = lir_mirror_emit_hv_float(p, std::get<lir::HVFloat>(hv->kind).value);
+            mo = lir_mirror_emit_hv_float(p, k.value);
         } else if constexpr (std::is_same_v<KT, lir::HVStr>) {
-            hv->mirror_offset_ = lir_mirror_emit_hv_str(p, std::get<lir::HVStr>(hv->kind).value);
+            mo = lir_mirror_emit_hv_str(p, k.value);
         } else if constexpr (std::is_same_v<KT, lir::HVMap>) {
-            auto& m = std::get<lir::HVMap>(hv->kind);
-            hv->mirror_offset_ = lir_mirror_emit_hv_map(p, m.entries, m.key_type);
+            mo = lir_mirror_emit_hv_map(p, k.entries, k.key_type);
         } else if constexpr (std::is_same_v<KT, lir::HVArray>) {
-            auto& a = std::get<lir::HVArray>(hv->kind);
-            hv->mirror_offset_ = lir_mirror_emit_hv_array(p, a.elements, a.elem_type);
+            mo = lir_mirror_emit_hv_array(p, k.elements, k.elem_type);
         } else if constexpr (std::is_same_v<KT, lir::HVCapture>) {
-            auto& c = std::get<lir::HVCapture>(hv->kind);
-            hv->mirror_offset_ = lir_mirror_emit_hv_capture(p, c.param_index, c.value_index);
+            mo = lir_mirror_emit_hv_capture(p, k.param_index, k.value_index);
         } else {
             static_assert(sizeof(K) == 0, "alloc_hv_emit: unknown HermesVal payload");
         }
+        auto* hv = lir::alloc_hermes_val(*cur_prog_, lir::HermesVal{std::forward<K>(k)});
+        hv->mirror_offset_ = mo;
         return hv;
     }
 

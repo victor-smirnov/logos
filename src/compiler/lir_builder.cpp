@@ -6,6 +6,7 @@
 
 #include <logos/compiler/lir_builder.hpp>
 #include <logos/compiler/lir_mirror.hpp>
+#include <logos/compiler/lir_view.hpp>
 
 namespace logos::compiler {
 
@@ -194,10 +195,23 @@ lir::LExprPtr LirBuilder::closure_to_fnptr(lir::LExpr* arg, TypeRef new_ty) {
 
 void LirBuilder::set_tuple_elem(lir::LExpr* tuple, size_t idx,
                                   lir::LExpr* new_value) {
-    auto* tl = std::get_if<lir::ETupleLit>(&tuple->kind);
-    if (!tl || idx >= tl->elems.size()) return;
-    tl->elems[idx] = new_value;
-    tuple->mirror_offset_ = lir_mirror_emit_tuple_lit(prog_, tuple->type, tl->elems);
+    if (!prog_.mirror_table || tuple->mirror_offset_ == hermes::arena_offset_t{}) return;
+    auto& arena = prog_.type_pool.arena_or_init();
+    lir_view::ExprRef tref(&arena, tuple->mirror_offset_);
+    if (tref.kind() != lir_schema::expr::Code::TupleLit) return;
+    lir_view::ETupleLitView v{tref};
+    if (idx >= v.count()) return;
+    std::vector<lir::LExprPtr> elems;
+    elems.reserve(v.count());
+    for (uint64_t i = 0; i < v.count(); ++i) {
+        if (i == idx) { elems.push_back(new_value); continue; }
+        auto er = v.elem(i);
+        auto it = prog_.mirror_table->expr_by_offset.find(er.offset().value());
+        elems.push_back(it != prog_.mirror_table->expr_by_offset.end()
+                          ? const_cast<lir::LExpr*>(it->second)
+                          : nullptr);
+    }
+    tuple->mirror_offset_ = lir_mirror_emit_tuple_lit(prog_, tuple->type, elems);
 }
 
 lir::LExprPtr LirBuilder::closure_call(lir::LExprPtr callee,
