@@ -183,11 +183,6 @@ struct HermesVal {
     HermesVal(HermesVal&&) noexcept = default;
     HermesVal& operator=(const HermesVal&) = default;
     HermesVal& operator=(HermesVal&&) noexcept = default;
-    // B.6 Stage 3.5 step 7e transitional swallow ctor: existing call sites
-    // construct HermesVal{HVInt{...}} etc.; payload is dead — only mirror_offset_ matters.
-    template <class T,
-              class = std::enable_if_t<!std::is_same_v<std::decay_t<T>, HermesVal>>>
-    HermesVal(T&&) noexcept {}
 };
 
 // A Hermes SDN literal (@{...}, @[...], @scalar) lowered to a tree.

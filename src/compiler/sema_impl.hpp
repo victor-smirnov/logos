@@ -331,7 +331,8 @@ private:
         } else {
             static_assert(sizeof(K) == 0, "alloc_hv_emit: unknown HermesVal payload");
         }
-        auto* hv = lir::alloc_hermes_val(*cur_prog_, lir::HermesVal{std::forward<K>(k)});
+        (void)k;  // payload consumed by per-kind dispatch above
+        auto* hv = lir::alloc_hermes_val(*cur_prog_);
         hv->mirror_offset_ = mo;
         return hv;
     }
