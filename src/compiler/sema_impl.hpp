@@ -1044,6 +1044,7 @@ private:
     lir::LExprPtr lower_enum_lit_data_from_static(
             hermes::TinyMapView node, std::string_view ename, std::string_view vname);
     lir::LExprPtr lower_static_call(hermes::TinyMapView node);
+    lir::LExprPtr lower_metacall   (hermes::TinyMapView node);
     lir::LExprPtr lower_if_expr(hermes::TinyMapView node);
     lir::LExprPtr lower_closure_expr(hermes::TinyMapView node);
 

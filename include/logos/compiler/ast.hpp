@@ -262,6 +262,7 @@ inline constexpr Code ANNOT_ARR            {"ANNOT_ARR",           194}; // anno
 inline constexpr Code META_BLOCK           {"META_BLOCK",          195}; // meta @{...} block; VALUE(7)=hermes_lit node
 inline constexpr Code GENOS_DEF            {"GENOS_DEF",           196}; // genos declaration; same structure as TRAIT_DEF
 inline constexpr Code BLOCK_STMT           {"BLOCK_STMT",          197}; // bare scoping block { stmts... }; BODY = block
+inline constexpr Code METACALL             {"METACALL",            198}; // metacall <call_expr>; VALUE = inner call AST
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  META            {"META",               16};   // meta @{...} block node on struct/trait/datatype declarations (reuses PATH_PARTS slot; these node types never co-exist)

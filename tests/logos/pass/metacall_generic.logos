@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: Apache-2.0
+// metacall over a generic fn instantiation: thunk synthesis + mono pick up
+// the standard `identity::<i64>` specialisation.
+package metacall_generic;
+
+fn identity<T>(x: T) -> T {
+    return x;
+}
+
+unsafe fn main() -> i32 {
+    let n: i64 = metacall identity::<i64>(42);
+    if n != 42 {
+        return 1;
+    }
+    return 42;
+}

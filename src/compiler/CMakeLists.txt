@@ -68,6 +68,7 @@ add_executable(logosc
     sema_expr.cpp
     sema_stmt.cpp
     sema_decl.cpp
+    ctfe.cpp
     ${LOGOS_PARSER_CPP}
 )
 

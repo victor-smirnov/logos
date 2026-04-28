@@ -3,6 +3,7 @@
 // Logos project — https://github.com/victor-smirnov/logos
 
 #include "sema_impl.hpp"
+#include "ctfe.hpp"
 
 #include <logos/hermes/type_registry.hpp>
 
@@ -371,6 +372,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::GENERIC_CALL: return lower_generic_call(expr);
     case la::METHOD_CALL:  return lower_method_call(expr);
     case la::STATIC_CALL:  return lower_static_call(expr);
+    case la::METACALL:     return lower_metacall(expr);
     case la::FIELD_READ:  return lower_field_read(expr);
     case la::STRUCT_LIT:  return lower_struct_lit(expr);
     case la::INDEX_READ:  return lower_index_read(expr);
@@ -5865,6 +5867,117 @@ lir::LExprPtr SemaChecker::lower_hermes_lit(TinyMapView node) {
     // Type: HermesStatic for static blobs; Hermes for captures (codegen handles both).
     auto result_type = lit.has_captures ? make_struct_type("Hermes") : make_struct_type("HermesStatic");
     return builder().hermes_lit_v(std::move(lit), result_type);
+}
+
+// ── metacall <call_expr> ─────────────────────────────────────────────────
+//
+// M.1 first slice: validate the metacall site (return type is primitive
+// scalar, every arg is a compile-time constant per CTFE) and lower the
+// inner call as if the `metacall` keyword were absent. The driver-side
+// JIT-thunk synthesis + AST splice (so the call vanishes at compile time)
+// is the next slice; this pass installs the syntax + diagnostics so user
+// code can be written against the final form.
+//
+// On bad input we emit a diag and fall through to error_expr() so sema
+// still produces a useful tree for downstream passes.
+lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
+    if (!node.has_key(la::VALUE)) {
+        error("metacall: missing inner call expression");
+        return error_expr();
+    }
+    auto inner = map_of(node.get(la::VALUE.code));
+    int32_t ic = code_of(inner);
+    if (ic != la::CALL && ic != la::GENERIC_CALL && ic != la::STATIC_CALL) {
+        error("metacall: expected a free-function or static-method call");
+        return error_expr();
+    }
+
+    // CTFE each arg of the inner call; missing => non-CT-constant diag.
+    // Note: CALL stores ARGS as a flat array directly; GENERIC_CALL/STATIC_CALL
+    // wrap it as a TinyMap with ITEMS=array (call_arg_list rule).
+    auto eval_args_array = [&](hermes::ArrayView args) {
+        for (uint64_t i = 0; i < args.size(); ++i) {
+            auto a = map_of(args.get(i));
+            auto r = ctfe::eval_expr(a, holder_);
+            if (!r) {
+                error(std::format("metacall: argument {} is not a compile-time constant ({})",
+                                  i + 1, r.error().msg));
+            }
+        }
+    };
+    if (inner.has_key(la::ARGS)) {
+        AnyVal args_av = inner.get(la::ARGS.code);
+        if (!args_av.is_null()) {
+            if (ic == la::CALL) {
+                eval_args_array(arr_of(args_av));
+            } else {
+                // GENERIC_CALL / STATIC_CALL: ARGS is { ITEMS: [...] }
+                auto args_map = map_of(args_av);
+                if (args_map.has_key(la::ITEMS))
+                    eval_args_array(arr_of(args_map.get(la::ITEMS.code)));
+            }
+        }
+    }
+
+    // Lower the inner call normally — type-checks, generic-resolves, queues
+    // monomorphisation. Whatever return type pops out drives the primitive
+    // check below.
+    auto lowered = lower_expr(inner);
+    auto rt = lowered ? lowered->type : nullptr;
+    auto rk = TypeRef(rt).kind();
+    bool prim_ok =
+        rk == LogosType::Kind::Bool ||
+        rk == LogosType::Kind::I8   || rk == LogosType::Kind::I16 ||
+        rk == LogosType::Kind::I24  || rk == LogosType::Kind::I32 ||
+        rk == LogosType::Kind::I56  || rk == LogosType::Kind::I64 ||
+        rk == LogosType::Kind::U8   || rk == LogosType::Kind::U16 ||
+        rk == LogosType::Kind::U24  || rk == LogosType::Kind::U32 ||
+        rk == LogosType::Kind::U56  || rk == LogosType::Kind::U64 ||
+        rk == LogosType::Kind::F32  || rk == LogosType::Kind::F64 ||
+        rk == LogosType::Kind::IntLit ||
+        rk == LogosType::Kind::FloatLit ||
+        // &str / Slice<u8>
+        (rk == LogosType::Kind::Slice && TypeRef(rt).elem() &&
+         TypeRef(rt).elem().kind() == LogosType::Kind::U8);
+    if (rt && !prim_ok)
+        error("metacall: ret type must be primitive scalar");
+
+    // Record site for the eventual driver-side splice (M.1 Stage 2).
+    if (cur_prog_) {
+        lir::LProgram::MetacallSite site;
+        site.ast_idx = cur_ast_idx_;
+        site.expr_offset = static_cast<uint32_t>(node.offset().value());
+        site.thunk_name = std::format("__metacall_thunk_{}",
+                                      cur_prog_->metacall_sites.size());
+        using RT = lir::LProgram::MetacallSite::RetTag;
+        switch (rk) {
+        case LogosType::Kind::Bool:  site.ret_tag = RT::Bool; break;
+        case LogosType::Kind::I8:    site.ret_tag = RT::I8; break;
+        case LogosType::Kind::I16:   site.ret_tag = RT::I16; break;
+        case LogosType::Kind::I24:   site.ret_tag = RT::I24; break;
+        case LogosType::Kind::I32:   site.ret_tag = RT::I32; break;
+        case LogosType::Kind::I56:   site.ret_tag = RT::I56; break;
+        case LogosType::Kind::U8:    site.ret_tag = RT::U8; break;
+        case LogosType::Kind::U16:   site.ret_tag = RT::U16; break;
+        case LogosType::Kind::U24:   site.ret_tag = RT::U24; break;
+        case LogosType::Kind::U32:   site.ret_tag = RT::U32; break;
+        case LogosType::Kind::U56:   site.ret_tag = RT::U56; break;
+        case LogosType::Kind::U64:   site.ret_tag = RT::U64; break;
+        case LogosType::Kind::F32:   site.ret_tag = RT::F32; break;
+        case LogosType::Kind::F64:   site.ret_tag = RT::F64; break;
+        case LogosType::Kind::IntLit:
+        case LogosType::Kind::I64:   site.ret_tag = RT::I64; break;
+        case LogosType::Kind::FloatLit: site.ret_tag = RT::F64; break;
+        case LogosType::Kind::Slice: site.ret_tag = RT::Str; break;
+        default: site.ret_tag = RT::I64; break;
+        }
+        cur_prog_->metacall_sites.push_back(std::move(site));
+    }
+
+    // Pass-through: until the JIT-thunk + splice path lands, the metacall
+    // site behaves like the underlying call at runtime. This keeps user
+    // programs runnable while the const-fold loop is being wired in.
+    return lowered;
 }
 
 } // namespace logos::compiler

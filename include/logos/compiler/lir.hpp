@@ -902,6 +902,21 @@ struct LProgram {
     };
     std::vector<MetaprogTarget> metaprog_targets;
 
+    // M.1: per-site record of `metacall <call_expr>` occurrences in the user
+    // entry-file AST. Sema synthesises a no-arg thunk fn (`__metacall_thunk_<idx>`)
+    // that wraps the literal-folded call; the driver looks up the thunk in the
+    // metaprog JIT, invokes it, and splices the resulting literal back into the
+    // AST node at `expr_offset` (overwriting CODE+VALUE in place via TOM::put).
+    struct MetacallSite {
+        size_t      ast_idx;       // index into asts[] (== entry_ast_idx for now)
+        uint32_t    expr_offset;   // arena offset of the METACALL TOM node
+        std::string thunk_name;    // mangled name of the synthesised thunk fn
+        // Return-type discriminator for the driver (avoids re-deriving from L-IR).
+        enum class RetTag { Bool, I8, I16, I24, I32, I56, I64, U8, U16, U24, U32, U56, U64, F32, F64, Str };
+        RetTag      ret_tag = RetTag::I64;
+    };
+    std::vector<MetacallSite> metacall_sites;
+
     // Symbol names present in binary archives on the search path.
     // mlir_gen skips functions whose mangled name is in this set (they're
     // already compiled and will be found by the linker in the .a).

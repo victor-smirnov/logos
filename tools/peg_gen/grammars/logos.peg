@@ -240,6 +240,7 @@
     META_BLOCK                  = 195   // meta @{...} block; VALUE=hermes_lit node
     GENOS_DEF                   = 196   // genos declaration (trait with is_genos=true)
     BLOCK_STMT                  = 197   // bare scoping block { stmts... }; BODY = block
+    METACALL                    = 198   // metacall <call_expr>; VALUE = inner call AST
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -250,6 +251,7 @@
     KW_EIDOS = "eidos"
     KW_GENOS    = "genos"
     KW_AUTO     = "auto"
+    KW_METACALL = "metacall"
     KW_META     = "meta"
     KW_STATIC   = "static"
     KW_RETURN   = "return"
@@ -1282,6 +1284,8 @@
                   / loop_expr        // loop { ... }  — as expression (break value)
                   / if_expr          // if cond { ... } else { ... }  — as expression
                   / match_stmt       // match expr { ... }  — as expression
+                  / KW_METACALL call_expr
+                                     => { CODE: METACALL, VALUE: $2 }
                   / call_expr        // IDENT(args) / Type::method(args) — before enum_lit/IDENT
                   / enum_lit         // IDENT::VARIANT     — after call_expr (no parens)
                   / RAW_STRING => { CODE: LIT_STR, VALUE: $1 }

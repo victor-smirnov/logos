@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: Apache-2.0
+// metacall whose arg is a CTFE arithmetic expression (1u64 + 2u64).
+// CTFE should accept the binop as a compile-time constant.
+package metacall_arith_args;
+
+fn double(x: u64) -> u64 {
+    return x + x;
+}
+
+unsafe fn main() -> i32 {
+    let n: u64 = metacall double(1u64 + 2u64);
+    if n != 6u64 {
+        return 1;
+    }
+    return 42;
+}

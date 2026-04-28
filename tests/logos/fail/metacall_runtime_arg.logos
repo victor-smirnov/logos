@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: Apache-2.0
+// metacall arg references a runtime variable: not a compile-time constant.
+package metacall_runtime_arg;
+
+fn add(a: i64, b: i64) -> i64 {
+    return a + b;
+}
+
+unsafe fn main() -> i32 {
+    let x: i64 = 7;
+    let n: i64 = metacall add(x, 3);
+    return 0;
+}

@@ -1,0 +1,17 @@
+// SPDX-License-Identifier: Apache-2.0
+// metacall returning a struct: M.1 only supports primitive scalar returns.
+package metacall_non_primitive;
+
+struct Pair {
+    a: i64,
+    b: i64,
+}
+
+fn make_pair() -> Pair {
+    return Pair { a: 1, b: 2 };
+}
+
+unsafe fn main() -> i32 {
+    let p: Pair = metacall make_pair();
+    return 0;
+}
