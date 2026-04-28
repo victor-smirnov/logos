@@ -129,11 +129,13 @@ lir::LExprPtr LirBuilder::slice_index(lir::LExprPtr slice, lir::LExprPtr index, 
 }
 
 lir::LExprPtr LirBuilder::arr_lit(std::vector<lir::LExprPtr> elems, TypeRef ty) {
-    return make_expr(prog_, ty, lir::EArrLit{std::move(elems)});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_arr_lit(p, t, elems); });
 }
 
 lir::LExprPtr LirBuilder::tuple_lit(std::vector<lir::LExprPtr> elems, TypeRef ty) {
-    return make_expr(prog_, ty, lir::ETupleLit{std::move(elems)});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_tuple_lit(p, t, elems); });
 }
 
 lir::LExprPtr LirBuilder::try_expr(lir::LExprPtr inner, int32_t ok_disc,
@@ -225,13 +227,17 @@ lir::LExprPtr LirBuilder::slice_ptr(lir::LExprPtr slice, TypeRef ty) {
 lir::LExprPtr LirBuilder::ptr_arith(lir::EPtrArith::Op op,
                                      lir::LExprPtr lhs, lir::LExprPtr rhs,
                                      TypeRef ty) {
-    return make_expr(prog_, ty, lir::EPtrArith{op, std::move(lhs), std::move(rhs)});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){
+            return lir_mirror_emit_ptr_arith(p, t, static_cast<uint8_t>(op), lhs, rhs);
+        });
 }
 
 lir::LExprPtr LirBuilder::ptr_diff(bool by_byte,
                                     lir::LExprPtr lhs, lir::LExprPtr rhs,
                                     TypeRef ty) {
-    return make_expr(prog_, ty, lir::EPtrDiff{by_byte, std::move(lhs), std::move(rhs)});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_ptr_diff(p, t, by_byte, lhs, rhs); });
 }
 
 lir::LExprPtr LirBuilder::enum_lit_data(std::string enum_name, std::string variant,
@@ -322,7 +328,11 @@ lir::LExprPtr LirBuilder::method_call_v(lir::EMethodCall mc, TypeRef ty) {
 }
 
 lir::LExprPtr LirBuilder::if_expr_v(lir::EIfExpr eif, TypeRef ty) {
-    return make_expr(prog_, ty, std::move(eif));
+    auto cond = std::move(eif.cond);
+    auto thn  = std::move(eif.then_val);
+    auto els  = std::move(eif.else_val);
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_if_expr(p, t, cond, thn, els); });
 }
 
 lir::LExprPtr LirBuilder::hermes_lit_v(lir::EHermesLit lit, TypeRef ty) {

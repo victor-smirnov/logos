@@ -178,25 +178,27 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         }
         case C::IfExpr: {
             lir_view::EIfExprView v{eref};
-            lir::EIfExpr ni;
-            ni.cond     = subst_child_expr(v.cond());
-            ni.then_val = subst_child_expr(v.then_val());
-            ni.else_val = subst_child_expr(v.else_val());
-            result->kind = std::move(ni);
+            auto cond = subst_child_expr(v.cond());
+            auto thn  = subst_child_expr(v.then_val());
+            auto els  = subst_child_expr(v.else_val());
+            result->mirror_offset_ = lir_mirror_emit_if_expr(
+                out_, result->type, cond, thn, els);
             break;
         }
         case C::TupleLit: {
-            lir::ETupleLit nt;
+            std::vector<lir::LExprPtr> elems;
             lir_view::ETupleLitView{eref}.each_elem(
-                [&](lir_view::ExprRef er) { nt.elems.push_back(subst_child_expr(er)); });
-            result->kind = std::move(nt);
+                [&](lir_view::ExprRef er) { elems.push_back(subst_child_expr(er)); });
+            result->mirror_offset_ = lir_mirror_emit_tuple_lit(
+                out_, result->type, elems);
             break;
         }
         case C::ArrLit: {
-            lir::EArrLit na;
+            std::vector<lir::LExprPtr> elems;
             lir_view::EArrLitView{eref}.each_elem(
-                [&](lir_view::ExprRef er) { na.elems.push_back(subst_child_expr(er)); });
-            result->kind = std::move(na);
+                [&](lir_view::ExprRef er) { elems.push_back(subst_child_expr(er)); });
+            result->mirror_offset_ = lir_mirror_emit_arr_lit(
+                out_, result->type, elems);
             break;
         }
         case C::ClosureCall: {
@@ -226,16 +228,20 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         }
         case C::PtrArith: {
             lir_view::EPtrArithView v{eref};
-            result->kind = lir::EPtrArith{lir::EPtrArith::Op(v.op_code()),
-                                          subst_child_expr(v.ptr()),
-                                          subst_child_expr(v.offset())};
+            uint8_t op = v.op_code();
+            auto ptr = subst_child_expr(v.ptr());
+            auto off = subst_child_expr(v.offset());
+            result->mirror_offset_ = lir_mirror_emit_ptr_arith(
+                out_, result->type, op, ptr, off);
             break;
         }
         case C::PtrDiff: {
             lir_view::EPtrDiffView v{eref};
-            result->kind = lir::EPtrDiff{v.by_byte(),
-                                         subst_child_expr(v.lhs()),
-                                         subst_child_expr(v.rhs())};
+            bool by_byte = v.by_byte();
+            auto lhs = subst_child_expr(v.lhs());
+            auto rhs = subst_child_expr(v.rhs());
+            result->mirror_offset_ = lir_mirror_emit_ptr_diff(
+                out_, result->type, by_byte, lhs, rhs);
             break;
         }
         case C::BlockExpr: {
