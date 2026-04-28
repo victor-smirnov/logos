@@ -159,12 +159,16 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                                             subst_child_expr(v.index())};
             break;
         }
-        case C::SliceLen:
-            result->kind = lir::ESliceLen{subst_child_expr(lir_view::ESliceLenView{eref}.slice())};
+        case C::SliceLen: {
+            auto sl = subst_child_expr(lir_view::ESliceLenView{eref}.slice());
+            result->mirror_offset_ = lir_mirror_emit_slice_len(out_, result->type, sl);
             break;
-        case C::SlicePtr:
-            result->kind = lir::ESlicePtr{subst_child_expr(lir_view::ESlicePtrView{eref}.slice())};
+        }
+        case C::SlicePtr: {
+            auto sl = subst_child_expr(lir_view::ESlicePtrView{eref}.slice());
+            result->mirror_offset_ = lir_mirror_emit_slice_ptr(out_, result->type, sl);
             break;
+        }
         case C::IfExpr: {
             lir_view::EIfExprView v{eref};
             lir::EIfExpr ni;

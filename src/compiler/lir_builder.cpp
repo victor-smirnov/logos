@@ -209,11 +209,13 @@ lir::LExprPtr LirBuilder::slice_lit(lir::LExprPtr base, lir::LExprPtr len, TypeR
 }
 
 lir::LExprPtr LirBuilder::slice_len(lir::LExprPtr slice, TypeRef ty) {
-    return make_expr(prog_, ty, lir::ESliceLen{std::move(slice)});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_slice_len(p, t, slice); });
 }
 
 lir::LExprPtr LirBuilder::slice_ptr(lir::LExprPtr slice, TypeRef ty) {
-    return make_expr(prog_, ty, lir::ESlicePtr{std::move(slice)});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_slice_ptr(p, t, slice); });
 }
 
 lir::LExprPtr LirBuilder::ptr_arith(lir::EPtrArith::Op op,
