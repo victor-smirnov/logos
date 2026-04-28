@@ -136,7 +136,10 @@ lir::LExprPtr LirBuilder::tuple_lit(std::vector<lir::LExprPtr> elems, TypeRef ty
 
 lir::LExprPtr LirBuilder::try_expr(lir::LExprPtr inner, int32_t ok_disc,
                                     int32_t err_disc, TypeRef ty) {
-    return make_expr(prog_, ty, lir::ETry{std::move(inner), ok_disc, err_disc});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){
+            return lir_mirror_emit_try(p, t, inner, ok_disc, err_disc);
+        });
 }
 
 lir::LExprPtr LirBuilder::call(std::string callee,

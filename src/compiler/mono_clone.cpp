@@ -140,11 +140,11 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         }
         case C::Try: {
             lir_view::ETryView v{eref};
-            lir::ETry nt;
-            nt.inner    = subst_child_expr(v.inner());
-            nt.ok_disc  = v.ok_disc();
-            nt.err_disc = v.err_disc();
-            result->kind = std::move(nt);
+            int32_t ok_disc  = v.ok_disc();
+            int32_t err_disc = v.err_disc();
+            auto inner = subst_child_expr(v.inner());
+            result->mirror_offset_ = lir_mirror_emit_try(
+                out_, result->type, inner, ok_disc, err_disc);
             break;
         }
         case C::SliceLit: {
