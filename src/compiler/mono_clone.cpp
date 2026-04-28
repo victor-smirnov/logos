@@ -516,16 +516,20 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 }
                 return out;
             };
-            lir::EHermesLit nl;
-            if (auto root_ref = v.root()) nl.root = clone_hv(root_ref);
-            nl.has_captures        = v.has_captures();
-            nl.capture_param_count = v.capture_param_count();
+            lir::HermesValPtr root = nullptr;
+            if (auto root_ref = v.root()) root = clone_hv(root_ref);
+            bool has_captures = v.has_captures();
+            uint32_t capture_param_count = v.capture_param_count();
+            std::vector<lir::LExprPtr> capture_exprs;
+            std::vector<TypeRef> capture_types;
             v.each_capture_expr([&](lir_view::ExprRef er) {
-                nl.capture_exprs.push_back(subst_child_expr(er));
+                capture_exprs.push_back(subst_child_expr(er));
             });
             v.each_capture_type(out_.type_pool.impl(),
-                [&](TypeRef ct) { nl.capture_types.push_back(subst_type(ct, s)); });
-            result->kind = std::move(nl);
+                [&](TypeRef ct) { capture_types.push_back(subst_type(ct, s)); });
+            result->mirror_offset_ = lir_mirror_emit_hermes_lit(
+                out_, result->type, root, has_captures,
+                capture_exprs, capture_types, capture_param_count);
             break;
         }
         case C::Call: {
