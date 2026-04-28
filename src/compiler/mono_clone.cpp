@@ -225,11 +225,12 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         }
         case C::FormatCall: {
             lir_view::EFormatCallView v{eref};
-            lir::EFormatCall nf;
-            nf.fmt       = subst_child_expr(v.fmt());
-            nf.arg_types = v.arg_types(out_.type_pool.impl());
-            v.each_arg([&](lir_view::ExprRef er) { nf.args.push_back(subst_child_expr(er)); });
-            result->kind = std::move(nf);
+            auto fmt = subst_child_expr(v.fmt());
+            auto arg_types = v.arg_types(out_.type_pool.impl());
+            std::vector<lir::LExprPtr> args;
+            v.each_arg([&](lir_view::ExprRef er) { args.push_back(subst_child_expr(er)); });
+            result->mirror_offset_ = lir_mirror_emit_format_call(
+                out_, result->type, fmt, args, arg_types);
             break;
         }
         case C::PtrArith: {
@@ -401,18 +402,19 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         }
         case C::New: {
             lir_view::ENewView v{eref};
-            lir::ENew nn;
-            nn.class_name = std::string(v.class_name());
+            std::string class_name(v.class_name());
+            std::vector<std::pair<std::string, lir::LExprPtr>> fields;
             v.each_field([&](std::string_view fname, lir_view::ExprRef er) {
-                nn.fields.push_back({std::string(fname), subst_child_expr(er)});
+                fields.push_back({std::string(fname), subst_child_expr(er)});
             });
-            result->kind = std::move(nn);
+            result->mirror_offset_ = lir_mirror_emit_new(
+                out_, result->type, class_name, fields);
             break;
         }
         case C::MatchExpr: {
             lir_view::EMatchExprView v{eref};
-            lir::EMatchExpr nm;
-            nm.scrut = subst_child_expr(v.scrut());
+            auto scrut = subst_child_expr(v.scrut());
+            std::vector<lir::EMatchArm> arms;
             PatSubstWalker pw([&](TypeRef t) { return subst_type(t, s); },
                               out_.type_pool.impl());
             v.each_arm([&](lir_view::EMatchArmRef arm) {
@@ -422,9 +424,10 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 if (auto gr = arm.guard(); gr)
                     na.guard = subst_child_expr(gr);
                 na.value = subst_child_expr(arm.value());
-                nm.arms.push_back(std::move(na));
+                arms.push_back(std::move(na));
             });
-            result->kind = std::move(nm);
+            result->mirror_offset_ = lir_mirror_emit_match_expr(
+                out_, result->type, scrut, arms);
             break;
         }
         case C::TypeCodeOf: {
@@ -798,7 +801,8 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             lir_view::EClosureBoxView v{eref};
             auto br = v.body();
             if (!br) {
-                result->kind = lir::EClosureBox{nullptr};
+                result->mirror_offset_ = lir_mirror_emit_closure_box(
+                    out_, result->type, nullptr);
                 break;
             }
             auto nc = lir::alloc_closure(out_);
@@ -819,7 +823,8 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 [&](std::string_view, TypeRef ct) {
                     nc->capture_types.push_back(subst_type(ct, s));
                 });
-            result->kind = lir::EClosureBox{std::move(nc)};
+            result->mirror_offset_ = lir_mirror_emit_closure_box(
+                out_, result->type, nc);
             break;
         }
         default:
