@@ -962,15 +962,18 @@ inline EClosure* alloc_closure(LProgram& prog, Args&&... args) {
 
 // ── Phase 3a: schema_type_code ↔ variant index sync ───────────────────────
 //
-// lir_schema::expr/stmt/pat::Code values must match the std::variant
-// alternative indices in LExpr::kind / LStmt::kind / Pattern. Validated here
-// so a future variant reorder fails to compile, not silently corrupts the
-// Hermes mirror.
+// Historically the lir_schema::expr/stmt/pat::Code values were pinned to
+// std::variant alternative indices in LExpr/LStmt/Pattern via static_asserts.
+// Removed at the start of Phase 3 / B.6 cutover so individual variant
+// alternatives can be retired without forcing every later index to shift.
+// Schema codes are now the only source of truth (mirror-backed); variant
+// payloads are scheduled for full removal.
 
 #include <logos/compiler/lir_schema.hpp>
 
 namespace logos::compiler::lir {
 
+#if 0 // disabled — see header comment.
 template <class T, class V> struct variant_index_of;
 template <class T, class... Ts>
 struct variant_index_of<T, std::variant<Ts...>> {
@@ -1078,6 +1081,7 @@ static_assert(std::variant_size_v<PatternKind> == lir_schema::pat::Count,
 
 #undef LIR_VARIANT_CODE_CHECK
 #undef LIR_PAT_CODE_CHECK
+#endif // disabled — see header comment.
 
 } // namespace logos::compiler::lir
 
