@@ -107,9 +107,12 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 out_, result->type, subst_type(t, s));
             break;
         }
-        case C::Deref:
-            result->kind = lir::EDeref{subst_child_expr(lir_view::EDerefView{eref}.operand())};
+        case C::Deref: {
+            auto op = subst_child_expr(lir_view::EDerefView{eref}.operand());
+            result->mirror_offset_ = lir_mirror_emit_deref(
+                out_, result->type, op);
             break;
+        }
         case C::FieldRead: {
             lir_view::EFieldReadView v{eref};
             result->kind = lir::EFieldRead{subst_child_expr(v.receiver()),

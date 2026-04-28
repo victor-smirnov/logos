@@ -102,7 +102,8 @@ lir::LExprPtr LirBuilder::unary(std::string op, lir::LExprPtr operand, TypeRef t
 }
 
 lir::LExprPtr LirBuilder::deref(lir::LExprPtr operand, TypeRef ty) {
-    return make_expr(prog_, ty, lir::EDeref{std::move(operand)});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_deref(p, t, operand); });
 }
 
 lir::LExprPtr LirBuilder::cast(lir::LExprPtr operand, TypeRef ty) {
