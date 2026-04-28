@@ -125,23 +125,20 @@ struct PatRefPat {
     bool                 is_mut;
 };
 
-// All Pat* alternatives are complete here; define the kind variant and the
-// Pattern wrapper. The implicit converting ctor lets `return PatInt{v};` and
-// `Pattern{std::move(some_pat_alt)}` keep working without churn.
-using PatternKind = std::variant<
-    PatVariant, PatInt, PatBool, PatWild, PatVariantData, PatOr, PatTuple,
-    PatRange, PatStruct, PatSlice, PatAt, PatRefBind, PatRefPat>;
-
+// B.6 Stage 3.5 step 7e: Pattern is a POD shell — payload lives in the LIR
+// mirror; pattern variant kinds are transient parameter packs, not stored.
 struct Pattern {
-    PatternKind kind;
     mutable hermes::arena_offset_t mirror_offset_{};
 
     Pattern() = default;
+    Pattern(const Pattern&) = default;
+    Pattern(Pattern&&) noexcept = default;
+    Pattern& operator=(const Pattern&) = default;
+    Pattern& operator=(Pattern&&) noexcept = default;
+    // Transitional swallow ctor: existing call sites construct Pattern{PatInt{...}}.
     template <class T,
-              class = std::enable_if_t<
-                  !std::is_same_v<std::decay_t<T>, Pattern> &&
-                  std::is_constructible_v<PatternKind, T&&>>>
-    Pattern(T&& v) : kind(std::forward<T>(v)) {}
+              class = std::enable_if_t<!std::is_same_v<std::decay_t<T>, Pattern>>>
+    Pattern(T&&) noexcept {}
 };
 
 struct LMatchArm {
