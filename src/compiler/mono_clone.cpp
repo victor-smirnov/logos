@@ -479,38 +479,58 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                     std::abort();
                 }
                 switch (vref.kind()) {
-                case hvc::Code::Null:    out->kind = lir::HVNull{}; break;
-                case hvc::Code::Bool:    out->kind = lir::HVBool{lir_view::HVBoolView{vref}.value()}; break;
-                case hvc::Code::Int:     out->kind = lir::HVInt{lir_view::HVIntView{vref}.value()}; break;
-                case hvc::Code::Float:   out->kind = lir::HVFloat{lir_view::HVFloatView{vref}.value()}; break;
-                case hvc::Code::Str:     out->kind = lir::HVStr{std::string(lir_view::HVStrView{vref}.value())}; break;
+                case hvc::Code::Null:
+                    out->mirror_offset_ = lir_mirror_emit_hv_null(out_);
+                    break;
+                case hvc::Code::Bool:
+                    out->mirror_offset_ = lir_mirror_emit_hv_bool(
+                        out_, lir_view::HVBoolView{vref}.value());
+                    break;
+                case hvc::Code::Int:
+                    out->mirror_offset_ = lir_mirror_emit_hv_int(
+                        out_, lir_view::HVIntView{vref}.value());
+                    break;
+                case hvc::Code::Float:
+                    out->mirror_offset_ = lir_mirror_emit_hv_float(
+                        out_, lir_view::HVFloatView{vref}.value());
+                    break;
+                case hvc::Code::Str: {
+                    std::string s(lir_view::HVStrView{vref}.value());
+                    out->mirror_offset_ = lir_mirror_emit_hv_str(out_, s);
+                    break;
+                }
                 case hvc::Code::Capture: {
                     lir_view::HVCaptureView cv{vref};
-                    out->kind = lir::HVCapture{cv.param_index(), cv.value_index()};
+                    out->mirror_offset_ = lir_mirror_emit_hv_capture(
+                        out_, cv.param_index(), cv.value_index());
                     break;
                 }
                 case hvc::Code::Map: {
                     lir_view::HVMapView mv{vref};
-                    lir::HVMap nm;
-                    nm.key_type = std::string(mv.key_type());
+                    std::string key_type(mv.key_type());
                     bool int_keys = mv.int_keyed();
+                    std::vector<lir::HVMapEntry> entries;
+                    entries.reserve(mv.size());
                     for (uint64_t i = 0; i < mv.size(); ++i) {
                         lir::HVMapEntry ent;
                         if (int_keys) ent.key = mv.int_key(i);
                         else          ent.key = std::string(mv.str_key(i));
                         ent.val = clone_hv(mv.value(i));
-                        nm.entries.push_back(std::move(ent));
+                        entries.push_back(std::move(ent));
                     }
-                    out->kind = std::move(nm);
+                    out->mirror_offset_ = lir_mirror_emit_hv_map(
+                        out_, entries, key_type);
                     break;
                 }
                 case hvc::Code::Array: {
                     lir_view::HVArrayView av{vref};
-                    lir::HVArray na;
-                    na.elem_type = std::string(av.elem_type());
+                    std::string elem_type(av.elem_type());
+                    std::vector<lir::HermesValPtr> elements;
+                    elements.reserve(av.size());
                     for (uint64_t i = 0; i < av.size(); ++i)
-                        na.elements.push_back(clone_hv(av.elem(i)));
-                    out->kind = std::move(na);
+                        elements.push_back(clone_hv(av.elem(i)));
+                    out->mirror_offset_ = lir_mirror_emit_hv_array(
+                        out_, elements, elem_type);
                     break;
                 }
                 }
