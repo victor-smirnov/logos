@@ -65,7 +65,7 @@ lir::HermesValPtr SemaChecker::eval_static_hermes_lit(TinyMapView node) {
                 map.entries.push_back(std::move(me));
             }
         }
-        return alloc_hv_emit(HermesVal{std::move(map)});
+        return alloc_hv_emit(std::move(map));
     }
     if (code == la::HERMES_ARRAY.code) {
         HVArray arr;
@@ -77,40 +77,40 @@ lir::HermesValPtr SemaChecker::eval_static_hermes_lit(TinyMapView node) {
                 arr.elements.push_back(std::move(elem));
             }
         }
-        return alloc_hv_emit(HermesVal{std::move(arr)});
+        return alloc_hv_emit(std::move(arr));
     }
     if (code == la::HERMES_STR.code) {
-        return alloc_hv_emit(HermesVal{HVStr{unquote_str(str_of(node.get(la::VALUE.code)))}});
+        return alloc_hv_emit(HVStr{unquote_str(str_of(node.get(la::VALUE.code)))});
     }
     if (code == la::HERMES_INT.code) {
         std::string s(str_of(node.get(la::VALUE.code)));
         int64_t v = s.empty() ? 0 : (int64_t)std::stoull(s, nullptr, 0);
-        return alloc_hv_emit(HermesVal{HVInt{v}});
+        return alloc_hv_emit(HVInt{v});
     }
     if (code == la::HERMES_NEG_INT.code) {
         std::string s(str_of(node.get(la::VALUE.code)));
         int64_t v = s.empty() ? 0 : -(int64_t)std::stoull(s, nullptr, 0);
-        return alloc_hv_emit(HermesVal{HVInt{v}});
+        return alloc_hv_emit(HVInt{v});
     }
     if (code == la::HERMES_FLOAT.code) {
         std::string s(str_of(node.get(la::VALUE.code)));
         double v = s.empty() ? 0.0 : std::stod(s);
-        return alloc_hv_emit(HermesVal{HVFloat{v}});
+        return alloc_hv_emit(HVFloat{v});
     }
     if (code == la::HERMES_BOOL.code) {
         auto av = node.get(la::VALUE.code);
         bool v = av.is_value() && av.as_value<uint8_t>() != 0;
-        return alloc_hv_emit(HermesVal{HVBool{v}});
+        return alloc_hv_emit(HVBool{v});
     }
     if (code == la::HERMES_NULL.code) {
-        return alloc_hv_emit(HermesVal{HVNull{}});
+        return alloc_hv_emit(HVNull{});
     }
     if (code == la::HERMES_CAP_IDENT.code || code == la::HERMES_CAP_EXPR.code) {
         // Captures not allowed in static meta @{} blocks.
         return nullptr;
     }
     // Unknown node type — treat as null.
-    return alloc_hv_emit(HermesVal{HVNull{}});
+    return alloc_hv_emit(HVNull{});
 }
 
 // Extract meta_val from an AST node (struct/datatype/trait) if it has a META key.

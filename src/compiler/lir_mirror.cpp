@@ -1438,111 +1438,27 @@ hermes::arena_offset_t LirMirrorEmitter::emit_closure(const EClosure& c) {
 // ──────────────────────────────────────────────────────────────────────────
 
 hermes::arena_offset_t LirMirrorEmitter::emit_hv(const HermesVal& v) {
-    bool backfill_only = false;
-    if (v.mirror_offset_ != hermes::arena_offset_t{}) {
-        if (auto it = table_.hermes_val.find(&v); it != table_.hermes_val.end()) {
-            return it->second;
-        }
-        table_.hermes_val[&v] = v.mirror_offset_;
-        table_.hermes_val_by_offset[v.mirror_offset_.value()] = &v;
-        backfill_only = true;
-    } else if (auto it = table_.hermes_val.find(&v); it != table_.hermes_val.end()) {
-        // Heap-address recycling: stale cache entry for a freed HermesVal.
-        // Invalidate and fall through to emit a fresh mirror.
+    // B.6 Stage 3.5 step 6: mirror_offset_ is field-as-truth. All HermesVal
+    // construction sites (sema alloc_hv_emit, mono clone_hv) eagerly emit
+    // and set mirror_offset_ via per-kind direct emitters; nested children
+    // are registered transitively. The bulk std::visit fallback is now
+    // unreachable.
+    LOGOS_ASSERT(v.mirror_offset_ != hermes::arena_offset_t{},
+                 "B6.S35.S6",
+                 "emit_hv: HermesVal reached without mirror_offset_ set "
+                 "(construction site missed direct-emit migration)");
+    if (auto it = table_.hermes_val.find(&v); it != table_.hermes_val.end()) {
+        if (it->second == v.mirror_offset_) return it->second;
         table_.hermes_val_by_offset.erase(uint32_t(it->second.value()));
-        table_.hermes_val.erase(it);
+        it->second = v.mirror_offset_;
+        table_.hermes_val_by_offset[v.mirror_offset_.value()] = &v;
+        return v.mirror_offset_;
     }
-
-    bool save_dry = dry_run_;
-    if (backfill_only) dry_run_ = true;
-
-    using namespace lir;
-    int32_t code = v.kind.index();
-    // HermesVal lives outside the formal expr/stmt/pat enum — give it its own
-    // synthetic category by piggybacking on lir_expr with an offset into the
-    // unused code range. (Phase 3a left no dedicated category for HV; OK for
-    // now since no readers consume mirrors yet.)
-    constexpr int32_t HV_BASE = 200;
-
-    hermes::arena_offset_t map_off;
-    std::visit([&](auto const& alt) {
-        using T = std::decay_t<decltype(alt)>;
-        if constexpr (std::is_same_v<T, HVNull>) {
-            map_off = make_map(hermes::schema::lir_expr(HV_BASE + 0));
-        } else if constexpr (std::is_same_v<T, HVBool>) {
-            map_off = make_map(hermes::schema::lir_expr(HV_BASE + 1));
-            put(map_off, hk::BOOL_VALUE, put_bool(alt.value));
-        } else if constexpr (std::is_same_v<T, HVInt>) {
-            map_off = make_map(hermes::schema::lir_expr(HV_BASE + 2));
-            put(map_off, hk::INT_VALUE, put_i64(alt.value));
-        } else if constexpr (std::is_same_v<T, HVFloat>) {
-            map_off = make_map(hermes::schema::lir_expr(HV_BASE + 3));
-            put(map_off, hk::FLOAT_VALUE, put_f64(alt.value));
-        } else if constexpr (std::is_same_v<T, HVStr>) {
-            map_off = make_map(hermes::schema::lir_expr(HV_BASE + 4));
-            put(map_off, hk::STR_VALUE, put_string(alt.value));
-        } else if constexpr (std::is_same_v<T, HVMap>) {
-            // Pre-emit values
-            std::vector<hermes::AnyVal> key_strs, key_ints, val_avs;
-            key_strs.reserve(alt.entries.size());
-            key_ints.reserve(alt.entries.size());
-            val_avs.reserve(alt.entries.size());
-            for (auto& e : alt.entries) {
-                if (std::holds_alternative<std::string>(e.key))
-                    key_strs.push_back(put_string(std::get<std::string>(e.key)));
-                else
-                    key_ints.push_back(put_i64(std::get<int64_t>(e.key)));
-                val_avs.push_back(hv_av(e.val));
-            }
-            hermes::AnyVal keys_av;
-            if (!key_strs.empty()) {
-                auto off = make_array(key_strs.size());
-                for (auto av : key_strs) array_push(off, av);
-                keys_av = hermes::AnyVal::from_offset(off);
-            } else if (!key_ints.empty()) {
-                auto off = make_array(key_ints.size());
-                for (auto av : key_ints) array_push(off, av);
-                keys_av = hermes::AnyVal::from_offset(off);
-            }
-            hermes::AnyVal vals_av;
-            if (!val_avs.empty()) {
-                auto off = make_array(val_avs.size());
-                for (auto av : val_avs) array_push(off, av);
-                vals_av = hermes::AnyVal::from_offset(off);
-            }
-            map_off = make_map(hermes::schema::lir_expr(HV_BASE + 5));
-            put(map_off, hk::MAP_KEYS,   keys_av);
-            put(map_off, hk::MAP_VALUES, vals_av);
-            if (!alt.key_type.empty())
-                put(map_off, hk::TYPE_NAME, put_string(alt.key_type));
-        } else if constexpr (std::is_same_v<T, HVArray>) {
-            std::vector<hermes::AnyVal> elems;
-            elems.reserve(alt.elements.size());
-            for (auto& e : alt.elements) elems.push_back(hv_av(e));
-            hermes::AnyVal arr_av;
-            if (!elems.empty()) {
-                auto off = make_array(elems.size());
-                for (auto av : elems) array_push(off, av);
-                arr_av = hermes::AnyVal::from_offset(off);
-            }
-            map_off = make_map(hermes::schema::lir_expr(HV_BASE + 6));
-            put(map_off, hk::ELEMS, arr_av);
-            if (!alt.elem_type.empty())
-                put(map_off, hk::TYPE_NAME, put_string(alt.elem_type));
-        } else if constexpr (std::is_same_v<T, HVCapture>) {
-            map_off = make_map(hermes::schema::lir_expr(HV_BASE + 7));
-            put(map_off, hk::PARAM_INDEX, put_u32(alt.param_index));
-            put(map_off, hk::VALUE_INDEX, put_u32(alt.value_index));
-        }
-    }, v.kind);
-    (void)code;
-    dry_run_ = save_dry;
-    if (backfill_only) return v.mirror_offset_;
-    v.mirror_offset_ = map_off;
-    table_.hermes_val[&v] = map_off;
-    table_.hermes_val_by_offset[map_off.value()] = &v;
-    return map_off;
+    table_.hermes_val[&v] = v.mirror_offset_;
+    table_.hermes_val_by_offset[v.mirror_offset_.value()] = &v;
+    return v.mirror_offset_;
 }
+
 
 // ──────────────────────────────────────────────────────────────────────────
 // Pattern mirror

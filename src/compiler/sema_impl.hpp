@@ -314,10 +314,33 @@ private:
         return s;
     }
 
-    template<typename... Args>
-    lir::HermesValPtr alloc_hv_emit(Args&&... args) {
-        auto* hv = lir::alloc_hermes_val(*cur_prog_, std::forward<Args>(args)...);
-        lir_mirror_emit_hv_node(*cur_prog_, *hv);
+    template<typename K>
+    lir::HermesValPtr alloc_hv_emit(K&& k) {
+        auto* hv = lir::alloc_hermes_val(*cur_prog_, lir::HermesVal{std::forward<K>(k)});
+        using KT = std::decay_t<K>;
+        auto& p = *cur_prog_;
+        if constexpr (std::is_same_v<KT, lir::HVNull>) {
+            hv->mirror_offset_ = lir_mirror_emit_hv_null(p);
+        } else if constexpr (std::is_same_v<KT, lir::HVBool>) {
+            hv->mirror_offset_ = lir_mirror_emit_hv_bool(p, std::get<lir::HVBool>(hv->kind).value);
+        } else if constexpr (std::is_same_v<KT, lir::HVInt>) {
+            hv->mirror_offset_ = lir_mirror_emit_hv_int(p, std::get<lir::HVInt>(hv->kind).value);
+        } else if constexpr (std::is_same_v<KT, lir::HVFloat>) {
+            hv->mirror_offset_ = lir_mirror_emit_hv_float(p, std::get<lir::HVFloat>(hv->kind).value);
+        } else if constexpr (std::is_same_v<KT, lir::HVStr>) {
+            hv->mirror_offset_ = lir_mirror_emit_hv_str(p, std::get<lir::HVStr>(hv->kind).value);
+        } else if constexpr (std::is_same_v<KT, lir::HVMap>) {
+            auto& m = std::get<lir::HVMap>(hv->kind);
+            hv->mirror_offset_ = lir_mirror_emit_hv_map(p, m.entries, m.key_type);
+        } else if constexpr (std::is_same_v<KT, lir::HVArray>) {
+            auto& a = std::get<lir::HVArray>(hv->kind);
+            hv->mirror_offset_ = lir_mirror_emit_hv_array(p, a.elements, a.elem_type);
+        } else if constexpr (std::is_same_v<KT, lir::HVCapture>) {
+            auto& c = std::get<lir::HVCapture>(hv->kind);
+            hv->mirror_offset_ = lir_mirror_emit_hv_capture(p, c.param_index, c.value_index);
+        } else {
+            static_assert(sizeof(K) == 0, "alloc_hv_emit: unknown HermesVal payload");
+        }
         return hv;
     }
 
