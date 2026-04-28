@@ -974,6 +974,12 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
     return builder().stmt_return(nullptr, node_line_);
 }
 
+lir::Pattern SemaChecker::make_pat_wild(std::string_view name) {
+    lir::Pattern p(lir::PatWild{std::string(name)});
+    p.mirror_offset_ = lir_mirror_emit_pat_wild(*cur_prog_, name);
+    return p;
+}
+
 lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, TypeRef scrut_type) {
     // build_pattern_impl now sets mirror_offset_ directly via per-kind direct
     // emitters; no bulk lir_mirror_emit_pat_node call needed here.
@@ -1198,7 +1204,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                 if (sc == la::PAT_WILD.code) {
                     auto nm = std::string(str_of(sub.get(la::NAME.code)));
                     pt.bindings.push_back(nm);
-                    pt.subs.push_back(lir::PatWild{nm});
+                    pt.subs.push_back(make_pat_wild(nm));
                 } else if (sc == la::PAT_INT.code || sc == la::PAT_NEG_INT.code ||
                            sc == la::PAT_BOOL.code) {
                     pt.bindings.push_back("_");
@@ -1206,7 +1212,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                 } else {
                     error("tuple pattern element: only _, name, integer, or bool literals are supported");
                     pt.bindings.push_back("_");
-                    pt.subs.push_back(lir::PatWild{"_"});
+                    pt.subs.push_back(make_pat_wild("_"));
                 }
             }
         }
@@ -1441,7 +1447,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                             if (found_rest)
                                 error("slice pattern: only one '..' allowed");
                             found_rest = true;
-                            psl.rest.push_back(lir::PatWild{"_"});
+                            psl.rest.push_back(make_pat_wild("_"));
                             continue;
                         }
                         auto sub = build_pattern(enode, elem_type);
@@ -2025,7 +2031,7 @@ lir::LStmt SemaChecker::lower_if(TinyMapView node) {
         lir::SMatch sm;
         sm.scrut = std::move(scrut);
         sm.arms.push_back({std::move(pat), std::move(then_body), std::nullopt});
-        sm.arms.push_back({lir::PatWild{"_"}, std::move(else_body), std::nullopt});
+        sm.arms.push_back({make_pat_wild("_"), std::move(else_body), std::nullopt});
         return make_stmt_emit(node_line_, std::move(sm));
     }
 
@@ -2093,7 +2099,7 @@ lir::LStmt SemaChecker::lower_while(TinyMapView node) {
         lir::SMatch sm;
         sm.scrut = std::move(scrut);
         sm.arms.push_back({std::move(pat), std::move(then_body), std::nullopt});
-        sm.arms.push_back({lir::PatWild{"_"}, std::move(else_body), std::nullopt});
+        sm.arms.push_back({make_pat_wild("_"), std::move(else_body), std::nullopt});
 
         auto loop_body = lir::alloc_block(*cur_prog_);
         loop_body->stmts.push_back(make_stmt_emit(node_line_, std::move(sm)));
@@ -2403,7 +2409,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         lir::SMatch sm;
         sm.scrut = make_next_call();
         sm.arms.push_back({lir::Pattern{std::move(some_pat)}, std::move(then_body), std::nullopt});
-        sm.arms.push_back({lir::PatWild{"_"}, std::move(else_body), std::nullopt});
+        sm.arms.push_back({make_pat_wild("_"), std::move(else_body), std::nullopt});
 
         auto loop_body = lir::alloc_block(*cur_prog_);
         loop_body->stmts.push_back(make_stmt_emit(node_line_, std::move(sm)));
@@ -3468,7 +3474,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             in_match_hermes_ctx_ = has_hermes_pat;
             lir::Pattern pat = arm.has_key(la::LHS)
                 ? build_pattern(map_of(arm.get(la::LHS.code)), scrut_type)
-                : lir::PatWild{"_"};
+                : make_pat_wild("_");
             in_match_hermes_ctx_ = false;
 
             // Build body block — push pattern bindings into scope
@@ -3731,7 +3737,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             in_match_hermes_ctx_ = has_hermes_pat;
             lir::Pattern pat = arm.has_key(la::LHS)
                 ? build_pattern(map_of(arm.get(la::LHS.code)), scrut_type)
-                : lir::PatWild{"_"};
+                : make_pat_wild("_");
             in_match_hermes_ctx_ = false;
 
             push_scope();
