@@ -935,197 +935,226 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
     switch (sref.kind()) {
     case SCode::Let: {
         lir_view::SLetView v{sref};
-        lir::SLet nl;
-        nl.name   = std::string(v.name());
-        nl.type   = subst_type(v.type(pool), s);
-        nl.is_mut = v.is_mut();
-        nl.value  = subst_child_expr(v.value());
-        ns.kind   = std::move(nl);
+        std::string name(v.name());
+        TypeRef ty = subst_type(v.type(pool), s);
+        bool is_mut = v.is_mut();
+        auto value = subst_child_expr(v.value());
+        ns.mirror_offset_ = lir_mirror_emit_let(
+            out_, ns.line, name, ty, value, is_mut);
         break;
     }
     case SCode::Assign: {
         lir_view::SAssignView v{sref};
-        ns.kind = lir::SAssign{std::string(v.name()), subst_child_expr(v.value())};
+        std::string name(v.name());
+        auto value = subst_child_expr(v.value());
+        ns.mirror_offset_ = lir_mirror_emit_assign(
+            out_, ns.line, name, value);
         break;
     }
     case SCode::Return: {
         auto val = lir_view::SReturnView{sref}.value();
-        ns.kind = lir::SReturn{val ? subst_child_expr(val) : nullptr};
+        auto value = val ? subst_child_expr(val) : nullptr;
+        ns.mirror_offset_ = lir_mirror_emit_return(
+            out_, ns.line, value);
         break;
     }
     case SCode::If: {
         lir_view::SIfView v{sref};
-        lir::SIf ni;
-        ni.cond  = subst_child_expr(v.cond());
-        ni.then_ = lir::alloc_block(out_, subst_child_block(v.then_block()));
-        lir_mirror_emit_block_node(out_, *ni.then_);
+        auto cond = subst_child_expr(v.cond());
+        auto* then_blk = lir::alloc_block(out_, subst_child_block(v.then_block()));
+        lir_mirror_emit_block_node(out_, *then_blk);
+        lir::LBlock* else_blk = nullptr;
         if (auto eb = v.else_block()) {
-            auto* elseb = lir::alloc_block(out_, subst_child_block(eb));
-            lir_mirror_emit_block_node(out_, *elseb);
-            ni.else_ = elseb;
+            else_blk = lir::alloc_block(out_, subst_child_block(eb));
+            lir_mirror_emit_block_node(out_, *else_blk);
         }
-        ns.kind = std::move(ni);
+        ns.mirror_offset_ = lir_mirror_emit_if_stmt(
+            out_, ns.line, cond, then_blk, else_blk);
         break;
     }
     case SCode::While: {
         lir_view::SWhileView v{sref};
-        lir::SWhile nw;
-        nw.cond  = subst_child_expr(v.cond());
-        nw.body  = lir::alloc_block(out_, subst_child_block(v.body()));
-        lir_mirror_emit_block_node(out_, *nw.body);
-        nw.label = std::string(v.label());
-        ns.kind  = std::move(nw);
+        auto cond = subst_child_expr(v.cond());
+        auto* body = lir::alloc_block(out_, subst_child_block(v.body()));
+        lir_mirror_emit_block_node(out_, *body);
+        std::string label(v.label());
+        ns.mirror_offset_ = lir_mirror_emit_while(
+            out_, ns.line, cond, body, label);
         break;
     }
     case SCode::For: {
         lir_view::SForView v{sref};
-        lir::SFor nf;
-        nf.var       = std::string(v.var());
-        nf.lo        = subst_child_expr(v.lo());
-        nf.hi        = subst_child_expr(v.hi());
-        nf.inclusive = v.inclusive();
-        nf.body      = lir::alloc_block(out_, subst_child_block(v.body()));
-        lir_mirror_emit_block_node(out_, *nf.body);
-        nf.label     = std::string(v.label());
-        ns.kind      = std::move(nf);
+        std::string var(v.var());
+        auto lo = subst_child_expr(v.lo());
+        auto hi = subst_child_expr(v.hi());
+        bool inclusive = v.inclusive();
+        auto* body = lir::alloc_block(out_, subst_child_block(v.body()));
+        lir_mirror_emit_block_node(out_, *body);
+        std::string label(v.label());
+        ns.mirror_offset_ = lir_mirror_emit_for(
+            out_, ns.line, var, lo, hi, inclusive, body, label);
         break;
     }
     case SCode::Loop: {
         lir_view::SLoopView v{sref};
-        lir::SLoop nl;
-        nl.body        = lir::alloc_block(out_, subst_child_block(v.body()));
-        lir_mirror_emit_block_node(out_, *nl.body);
-        nl.result_type = v.result_type(pool);
-        nl.break_slot  = std::string(v.break_slot());
-        nl.label       = std::string(v.label());
-        ns.kind        = std::move(nl);
+        auto* body = lir::alloc_block(out_, subst_child_block(v.body()));
+        lir_mirror_emit_block_node(out_, *body);
+        TypeRef result_type = v.result_type(pool);
+        std::string break_slot(v.break_slot());
+        std::string label(v.label());
+        ns.mirror_offset_ = lir_mirror_emit_loop(
+            out_, ns.line, body, label, break_slot, result_type);
         break;
     }
     case SCode::Block: {
         lir_view::SBlockView v{sref};
         auto* blk = lir::alloc_block(out_, subst_child_block(v.body()));
         lir_mirror_emit_block_node(out_, *blk);
-        ns.kind = lir::SBlock{blk};
+        ns.mirror_offset_ = lir_mirror_emit_block_stmt(
+            out_, ns.line, blk);
         break;
     }
     case SCode::Break: {
         lir_view::SBreakView v{sref};
-        lir::SBreak nb;
-        if (auto val = v.value()) nb.value = subst_child_expr(val);
-        nb.label = std::string(v.label());
-        ns.kind = std::move(nb);
+        lir::LExprPtr value = nullptr;
+        if (auto val = v.value()) value = subst_child_expr(val);
+        std::string label(v.label());
+        ns.mirror_offset_ = lir_mirror_emit_break(
+            out_, ns.line, value, label);
         break;
     }
     case SCode::Continue: {
-        ns.kind = lir::SContinue{std::string(lir_view::SContinueView{sref}.label())};
+        std::string label(lir_view::SContinueView{sref}.label());
+        ns.mirror_offset_ = lir_mirror_emit_continue(
+            out_, ns.line, label);
         break;
     }
     case SCode::FieldWrite: {
         lir_view::SFieldWriteView v{sref};
-        ns.kind = lir::SFieldWrite{std::string(v.receiver()),
-                                   std::string(v.field()),
-                                   subst_child_expr(v.value())};
+        std::string receiver(v.receiver());
+        std::string field(v.field());
+        auto value = subst_child_expr(v.value());
+        ns.mirror_offset_ = lir_mirror_emit_field_write(
+            out_, ns.line, receiver, field, value);
         break;
     }
     case SCode::ChainFieldWrite: {
         lir_view::SChainFieldWriteView v{sref};
-        ns.kind = lir::SChainFieldWrite{std::string(v.receiver()),
-                                        std::string(v.mid_field()),
-                                        std::string(v.field()),
-                                        subst_child_expr(v.value())};
+        std::string receiver(v.receiver());
+        std::string mid_field(v.mid_field());
+        std::string field(v.field());
+        auto value = subst_child_expr(v.value());
+        ns.mirror_offset_ = lir_mirror_emit_chain_field_write(
+            out_, ns.line, receiver, mid_field, field, value);
         break;
     }
     case SCode::DerefFieldWrite: {
         lir_view::SDerefFieldWriteView v{sref};
-        ns.kind = lir::SDerefFieldWrite{std::string(v.receiver()),
-                                        std::string(v.type_name()),
-                                        std::string(v.field()),
-                                        subst_child_expr(v.value())};
+        std::string receiver(v.receiver());
+        std::string type_name(v.type_name());
+        std::string field(v.field());
+        auto value = subst_child_expr(v.value());
+        ns.mirror_offset_ = lir_mirror_emit_deref_field_write(
+            out_, ns.line, receiver, type_name, field, value);
         break;
     }
     case SCode::IndexWrite: {
         lir_view::SIndexWriteView v{sref};
-        ns.kind = lir::SIndexWrite{std::string(v.arr()),
-                                   subst_child_expr(v.index()),
-                                   subst_child_expr(v.value())};
+        std::string arr(v.arr());
+        auto idx = subst_child_expr(v.index());
+        auto value = subst_child_expr(v.value());
+        ns.mirror_offset_ = lir_mirror_emit_index_write(
+            out_, ns.line, arr, idx, value);
         break;
     }
     case SCode::FieldIndexWrite: {
         lir_view::SFieldIndexWriteView v{sref};
-        ns.kind = lir::SFieldIndexWrite{std::string(v.receiver()),
-                                        std::string(v.field()),
-                                        subst_child_expr(v.index()),
-                                        subst_child_expr(v.value())};
+        std::string receiver(v.receiver());
+        std::string field(v.field());
+        auto idx = subst_child_expr(v.index());
+        auto value = subst_child_expr(v.value());
+        ns.mirror_offset_ = lir_mirror_emit_field_index_write(
+            out_, ns.line, receiver, field, idx, value);
         break;
     }
     case SCode::DerefWrite: {
         lir_view::SDerefWriteView v{sref};
-        ns.kind = lir::SDerefWrite{subst_child_expr(v.ptr()),
-                                   subst_child_expr(v.value())};
+        auto ptr = subst_child_expr(v.ptr());
+        auto value = subst_child_expr(v.value());
+        ns.mirror_offset_ = lir_mirror_emit_deref_write(
+            out_, ns.line, ptr, value);
         break;
     }
     case SCode::TupleWrite: {
         lir_view::STupleWriteView v{sref};
-        ns.kind = lir::STupleWrite{std::string(v.receiver()),
-                                   v.index(),
-                                   subst_child_expr(v.value()),
-                                   v.recv_type(pool)};
+        std::string receiver(v.receiver());
+        uint32_t index = v.index();
+        auto value = subst_child_expr(v.value());
+        TypeRef recv_type = v.recv_type(pool);
+        ns.mirror_offset_ = lir_mirror_emit_tuple_write(
+            out_, ns.line, receiver, index, value, recv_type);
         break;
     }
     case SCode::ExprStmt: {
-        ns.kind = lir::SExprStmt{
-            subst_child_expr(lir_view::SExprStmtView{sref}.expr())};
+        auto expr = subst_child_expr(lir_view::SExprStmtView{sref}.expr());
+        ns.mirror_offset_ = lir_mirror_emit_expr_stmt(
+            out_, ns.line, expr);
         break;
     }
     case SCode::Delete: {
-        ns.kind = lir::SDelete{
-            subst_child_expr(lir_view::SDeleteView{sref}.expr())};
+        auto expr = subst_child_expr(lir_view::SDeleteView{sref}.expr());
+        ns.mirror_offset_ = lir_mirror_emit_delete(
+            out_, ns.line, expr);
         break;
     }
     case SCode::Drop: {
         lir_view::SDropView v{sref};
-        ns.kind = lir::SDrop{std::string(v.var_name()),
-                             std::string(v.drop_fn()),
-                             subst_type(v.type(pool), s),
-                             v.drop_fields()};
+        std::string var_name(v.var_name());
+        std::string drop_fn(v.drop_fn());
+        TypeRef ty = subst_type(v.type(pool), s);
+        bool drop_fields = v.drop_fields();
+        ns.mirror_offset_ = lir_mirror_emit_drop(
+            out_, ns.line, var_name, drop_fn, ty, drop_fields);
         break;
     }
     case SCode::Match: {
         lir_view::SMatchView v{sref};
-        lir::SMatch nm;
-        nm.scrut = subst_child_expr(v.scrut());
+        auto scrut = subst_child_expr(v.scrut());
+        std::vector<lir::LMatchArm> arms;
         v.each_arm([&](lir_view::EMatchArmRef arm) {
             lir::LMatchArm na;
             if (auto pref = arm.pat()) na.pat = subst_pattern(pref, s);
             na.body = lir::alloc_block(out_, subst_child_block(arm.body()));
             lir_mirror_emit_block_node(out_, *na.body);
             if (auto g = arm.guard()) na.guard = subst_child_expr(g);
-            nm.arms.push_back(std::move(na));
+            arms.push_back(std::move(na));
         });
-        ns.kind = std::move(nm);
+        ns.mirror_offset_ = lir_mirror_emit_match_stmt(
+            out_, ns.line, scrut, arms);
         break;
     }
     case SCode::ForEach: {
         lir_view::SForEachView v{sref};
-        lir::SForEach nf;
-        nf.var       = std::string(v.var());
-        nf.iter      = subst_child_expr(v.iter());
-        nf.elem_type = subst_type(v.elem_type(pool), s);
-        nf.arr_size  = v.arr_size();
-        nf.is_slice  = v.is_slice();
-        nf.body      = lir::alloc_block(out_, subst_child_block(v.body()));
-        lir_mirror_emit_block_node(out_, *nf.body);
-        ns.kind      = std::move(nf);
+        std::string var(v.var());
+        auto iter = subst_child_expr(v.iter());
+        TypeRef elem_type = subst_type(v.elem_type(pool), s);
+        int64_t arr_size = v.arr_size();
+        bool is_slice = v.is_slice();
+        auto* body = lir::alloc_block(out_, subst_child_block(v.body()));
+        lir_mirror_emit_block_node(out_, *body);
+        ns.mirror_offset_ = lir_mirror_emit_for_each(
+            out_, ns.line, var, iter, elem_type, arr_size, is_slice, body);
         break;
     }
     case SCode::LetElse: {
         lir_view::SLetElseView v{sref};
-        lir::SLetElse sle;
-        if (auto pref = v.pat()) sle.pat = subst_pattern(pref, s);
-        sle.scrut      = subst_child_expr(v.scrut());
-        sle.else_block = lir::alloc_block(out_, subst_child_block(v.else_block()));
-        lir_mirror_emit_block_node(out_, *sle.else_block);
-        ns.kind        = std::move(sle);
+        lir::Pattern pat;
+        if (auto pref = v.pat()) pat = subst_pattern(pref, s);
+        auto scrut = subst_child_expr(v.scrut());
+        auto* else_block = lir::alloc_block(out_, subst_child_block(v.else_block()));
+        lir_mirror_emit_block_node(out_, *else_block);
+        ns.mirror_offset_ = lir_mirror_emit_let_else(
+            out_, ns.line, pat, scrut, else_block);
         break;
     }
     default: break;
