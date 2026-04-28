@@ -72,7 +72,9 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             result->kind = lir::ELitFloat{lir_view::ELitFloatView{eref}.value()};
             break;
         case C::LitBool:
-            result->kind = lir::ELitBool{lir_view::ELitBoolView{eref}.value()};
+            // Stage 2: variant-free direct mirror write.
+            result->mirror_offset_ = lir_mirror_emit_lit_bool(
+                out_, result->type, lir_view::ELitBoolView{eref}.value());
             break;
         case C::LitStr:
             result->kind = lir::ELitStr{std::string(lir_view::ELitStrView{eref}.value())};

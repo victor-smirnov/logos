@@ -77,6 +77,13 @@ void lir_mirror_emit_function(lir::LProgram& prog,
 // structs). Already-emitted nodes are deduplicated by the table caches.
 void lir_mirror_emit_into(lir::LProgram& prog, LirMirrorTable& table);
 
+// Stage 2 — direct mirror writers (no variant). Allocate a fresh mirror map
+// for a single expr kind directly from primitive args, without going through
+// LExpr::kind variant. Used by LirBuilder / mono_clone after Stage 2 retires
+// the variant alternative for that kind. Caller assigns the returned offset
+// to `LExpr::mirror_offset_`.
+hermes::arena_offset_t lir_mirror_emit_lit_bool(lir::LProgram& prog, TypeRef ty, bool v);
+
 // Cache-only walker for items moved wholesale from in_ → out_ during mono
 // (impl methods, const value exprs). These nodes carry mirror_offset_ from
 // sema's emit pass, but the fresh out_.mirror_table cache is empty for them.

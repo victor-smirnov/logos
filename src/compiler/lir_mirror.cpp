@@ -77,6 +77,17 @@ public:
     hermes::arena_offset_t emit_pat_public  (const Pattern& p)  { return emit_pat(p); }
     hermes::arena_offset_t emit_hv_public   (const HermesVal& v){ return emit_hv(v); }
 
+    // Stage 2 — variant-free direct mirror writers. Allocate a fresh map for
+    // a single expr kind without reading from a variant payload. Used by
+    // LirBuilder / mono_clone after Stage 2 retires the variant alternative
+    // for that kind.
+    hermes::arena_offset_t emit_lit_bool_direct(TypeRef ty, bool v) {
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::LitBool));
+        put(map_off, ek::LIT_BOOL, put_bool(v));
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+
 private:
     // ── primitive helpers ───────────────────────────────────────────────────
 
@@ -1263,6 +1274,12 @@ void lir_mirror_emit_into(lir::LProgram& prog, LirMirrorTable& table) {
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, table);
     em.run(prog);
+}
+
+hermes::arena_offset_t lir_mirror_emit_lit_bool(lir::LProgram& prog, TypeRef ty, bool v) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_lit_bool_direct(ty, v);
 }
 
 void lir_mirror_populate_moved(lir::LProgram& prog, LirMirrorTable& table) {

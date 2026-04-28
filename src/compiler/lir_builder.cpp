@@ -29,7 +29,14 @@ lir::LExprPtr LirBuilder::lit_int(int64_t v, TypeRef ty) {
 }
 
 lir::LExprPtr LirBuilder::lit_bool(bool v, TypeRef ty) {
-    return make_expr(prog_, ty, lir::ELitBool{v});
+    // Stage 2: variant-free path. Mirror is the truth; LExpr::kind stays at
+    // its default-constructed alternative (unread). emit_expr_node call
+    // back-fills the table cache via the mirror_offset_ != 0 branch.
+    auto* e = lir::alloc_expr(prog_);
+    e->type = ty;
+    e->mirror_offset_ = lir_mirror_emit_lit_bool(prog_, ty, v);
+    lir_mirror_emit_expr_node(prog_, *e);
+    return e;
 }
 
 lir::LExprPtr LirBuilder::var_ref(std::string name, TypeRef ty) {
