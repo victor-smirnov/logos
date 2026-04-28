@@ -2867,9 +2867,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EHermesLitView v, TypeRef ret_t
         auto arr_type  = mlir::LLVM::LLVMArrayType::get(i8, prefixed.size());
         auto blob_attr = builder_.getStringAttr(
             llvm::StringRef(reinterpret_cast<const char*>(prefixed.data()), prefixed.size()));
-        builder_.create<mlir::LLVM::GlobalOp>(
+        auto blob_global = builder_.create<mlir::LLVM::GlobalOp>(
             loc_, arr_type, /*isConstant=*/true, mlir::LLVM::Linkage::Internal,
             global_name, blob_attr);
+        // unnamed_addr enables LLVM's ConstantMerge to dedupe identical blobs
+        // and lets --gc-sections (with -fdata-sections) drop dead ones.
+        blob_global.setUnnamedAddr(mlir::LLVM::UnnamedAddr::Global);
 
         builder_.restoreInsertionPoint(save_pt);
 
@@ -2896,9 +2899,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EHermesLitView v, TypeRef ret_t
     auto arr_type = mlir::LLVM::LLVMArrayType::get(i8, blob.size());
     auto blob_attr = builder_.getStringAttr(
         llvm::StringRef(reinterpret_cast<const char*>(blob.data()), blob.size()));
-    builder_.create<mlir::LLVM::GlobalOp>(
+    auto cap_blob_global = builder_.create<mlir::LLVM::GlobalOp>(
         loc_, arr_type, /*isConstant=*/true, mlir::LLVM::Linkage::Internal,
         global_name, blob_attr);
+    cap_blob_global.setUnnamedAddr(mlir::LLVM::UnnamedAddr::Global);
 
     // ── Capture path ─────────────────────────────────────────────────────────
     // Emit slots table: array of u32 pairs [blob_off, value_idx, ...].
