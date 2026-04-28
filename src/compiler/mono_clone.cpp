@@ -1234,7 +1234,9 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
     default: break;
     }
 
-    lir_mirror_emit_stmt_node(out_, ns);
+    // ns is local; address registration happens later via
+    // lir_mirror_emit_function once the LStmt sits at a stable heap address.
+    // Children were registered by their own _node emit calls.
     return ns;
 }
 

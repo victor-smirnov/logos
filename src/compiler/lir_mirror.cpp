@@ -1573,220 +1573,28 @@ hermes::arena_offset_t LirMirrorEmitter::emit_pat(const Pattern& p) {
 // ──────────────────────────────────────────────────────────────────────────
 
 hermes::arena_offset_t LirMirrorEmitter::emit_stmt(const LStmt& s) {
-    bool backfill_only = false;
-    if (s.mirror_offset_ != hermes::arena_offset_t{}) {
-        if (auto it = table_.stmt.find(&s); it != table_.stmt.end()) {
-            return it->second;
-        }
-        table_.stmt[&s] = s.mirror_offset_;
-        table_.stmt_by_offset[s.mirror_offset_.value()] = &s;
-        backfill_only = true;
-    } else if (auto it = table_.stmt.find(&s); it != table_.stmt.end()) {
-        // Heap-address recycling: stale cache entry for a freed LStmt.
-        // Invalidate and fall through to emit a fresh mirror.
+    // B.6 Stage 3.5 step 5: mirror_offset_ is field-as-truth. All LStmt
+    // construction sites (sema make_stmt_emit, sema LirBuilder stmt_*,
+    // mono subst_stmt) eagerly emit and set mirror_offset_ via per-kind
+    // direct emitters; children (LExpr/LBlock) are registered transitively
+    // by those direct emitters' internal expr_av/block_av calls. The bulk
+    // std::visit fallback below is now unreachable.
+    LOGOS_ASSERT(s.mirror_offset_ != hermes::arena_offset_t{},
+                 "B6.S35.S5",
+                 "emit_stmt: LStmt reached without mirror_offset_ set "
+                 "(construction site missed direct-emit migration)");
+    if (auto it = table_.stmt.find(&s); it != table_.stmt.end()) {
+        if (it->second == s.mirror_offset_) return it->second;
         table_.stmt_by_offset.erase(it->second.value());
-        table_.stmt.erase(it);
+        it->second = s.mirror_offset_;
+        table_.stmt_by_offset[s.mirror_offset_.value()] = &s;
+        return s.mirror_offset_;
     }
-
-    bool save_dry = dry_run_;
-    if (backfill_only) dry_run_ = true;
-
-    using namespace lir;
-    hermes::arena_offset_t map_off;
-    std::visit([&](auto const& alt) {
-        using T = std::decay_t<decltype(alt)>;
-        if constexpr (std::is_same_v<T, SLet>) {
-            auto name_av = put_string(alt.name);
-            auto val_av  = expr_av(alt.value);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Let));
-            put(map_off, sk::NAME,   name_av);
-            put(map_off, sk::TYPE,   type_av(alt.type));
-            put(map_off, sk::VALUE,  val_av);
-            put(map_off, sk::IS_MUT, put_bool(alt.is_mut));
-        } else if constexpr (std::is_same_v<T, SAssign>) {
-            auto name_av = put_string(alt.name);
-            auto val_av  = expr_av(alt.value);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Assign));
-            put(map_off, sk::NAME,  name_av);
-            put(map_off, sk::VALUE, val_av);
-        } else if constexpr (std::is_same_v<T, SReturn>) {
-            auto val_av = expr_av(alt.value);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Return));
-            put(map_off, sk::VALUE, val_av);
-        } else if constexpr (std::is_same_v<T, SIf>) {
-            auto cond_av = expr_av(alt.cond);
-            auto then_av = block_av(alt.then_);
-            hermes::AnyVal else_av;
-            if (alt.else_.has_value()) else_av = block_av(*alt.else_);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::If));
-            put(map_off, sk::COND,       cond_av);
-            put(map_off, sk::THEN_BLOCK, then_av);
-            put(map_off, sk::ELSE_BLOCK, else_av);
-        } else if constexpr (std::is_same_v<T, SWhile>) {
-            auto cond_av = expr_av(alt.cond);
-            auto body_av = block_av(alt.body);
-            hermes::AnyVal label_av;
-            if (!alt.label.empty()) label_av = put_string(alt.label);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::While));
-            put(map_off, sk::COND,  cond_av);
-            put(map_off, sk::BODY,  body_av);
-            put(map_off, sk::LABEL, label_av);
-        } else if constexpr (std::is_same_v<T, SFor>) {
-            auto var_av  = put_string(alt.var);
-            auto lo_av   = expr_av(alt.lo);
-            auto hi_av   = expr_av(alt.hi);
-            auto body_av = block_av(alt.body);
-            hermes::AnyVal label_av;
-            if (!alt.label.empty()) label_av = put_string(alt.label);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::For));
-            put(map_off, sk::VAR,       var_av);
-            put(map_off, sk::LO,        lo_av);
-            put(map_off, sk::HI,        hi_av);
-            put(map_off, sk::INCLUSIVE, put_bool(alt.inclusive));
-            put(map_off, sk::BODY,      body_av);
-            put(map_off, sk::LABEL,     label_av);
-        } else if constexpr (std::is_same_v<T, SLoop>) {
-            auto body_av = block_av(alt.body);
-            hermes::AnyVal label_av, slot_av;
-            if (!alt.label.empty())      label_av = put_string(alt.label);
-            if (!alt.break_slot.empty()) slot_av  = put_string(alt.break_slot);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Loop));
-            put(map_off, sk::BODY,        body_av);
-            put(map_off, sk::LABEL,       label_av);
-            put(map_off, sk::BREAK_SLOT,  slot_av);
-            put(map_off, sk::RESULT_TYPE, type_av(alt.result_type));
-        } else if constexpr (std::is_same_v<T, SBreak>) {
-            auto val_av = expr_av(alt.value);
-            hermes::AnyVal label_av;
-            if (!alt.label.empty()) label_av = put_string(alt.label);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Break));
-            put(map_off, sk::VALUE, val_av);
-            put(map_off, sk::LABEL, label_av);
-        } else if constexpr (std::is_same_v<T, SContinue>) {
-            hermes::AnyVal label_av;
-            if (!alt.label.empty()) label_av = put_string(alt.label);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Continue));
-            put(map_off, sk::LABEL, label_av);
-        } else if constexpr (std::is_same_v<T, SBlock>) {
-            auto body_av = block_av(alt.body);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Block));
-            put(map_off, sk::BODY, body_av);
-        } else if constexpr (std::is_same_v<T, SFieldWrite>) {
-            auto recv_av  = put_string(alt.receiver);
-            auto field_av = put_string(alt.field);
-            auto val_av   = expr_av(alt.value);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::FieldWrite));
-            put(map_off, sk::RECEIVER, recv_av);
-            put(map_off, sk::FIELD,    field_av);
-            put(map_off, sk::VALUE,    val_av);
-        } else if constexpr (std::is_same_v<T, SIndexWrite>) {
-            auto arr_av  = put_string(alt.arr);
-            auto idx_av  = expr_av(alt.index);
-            auto val_av  = expr_av(alt.value);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::IndexWrite));
-            put(map_off, sk::NAME,  arr_av);
-            put(map_off, sk::INDEX, idx_av);
-            put(map_off, sk::VALUE, val_av);
-        } else if constexpr (std::is_same_v<T, SFieldIndexWrite>) {
-            auto recv_av  = put_string(alt.receiver);
-            auto field_av = put_string(alt.field);
-            auto idx_av   = expr_av(alt.index);
-            auto val_av   = expr_av(alt.value);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::FieldIndexWrite));
-            put(map_off, sk::RECEIVER, recv_av);
-            put(map_off, sk::FIELD,    field_av);
-            put(map_off, sk::INDEX,    idx_av);
-            put(map_off, sk::VALUE,    val_av);
-        } else if constexpr (std::is_same_v<T, SExprStmt>) {
-            auto expr_avv = expr_av(alt.expr);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::ExprStmt));
-            put(map_off, sk::EXPR, expr_avv);
-        } else if constexpr (std::is_same_v<T, SMatch>) {
-            auto scrut_av = expr_av(alt.scrut);
-            auto arms_av  = arm_array(alt.arms);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Match));
-            put(map_off, sk::SCRUT, scrut_av);
-            put(map_off, sk::ARMS,  arms_av);
-        } else if constexpr (std::is_same_v<T, SDelete>) {
-            auto expr_avv = expr_av(alt.expr);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Delete));
-            put(map_off, sk::EXPR, expr_avv);
-        } else if constexpr (std::is_same_v<T, SForEach>) {
-            auto var_av  = put_string(alt.var);
-            auto iter_av = expr_av(alt.iter);
-            auto body_av = block_av(alt.body);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::ForEach));
-            put(map_off, sk::VAR,       var_av);
-            put(map_off, sk::ITER,      iter_av);
-            put(map_off, sk::ELEM_TYPE, type_av(alt.elem_type));
-            put(map_off, sk::ARR_SIZE,  put_i64(alt.arr_size));
-            put(map_off, sk::IS_SLICE,  put_bool(alt.is_slice));
-            put(map_off, sk::BODY,      body_av);
-        } else if constexpr (std::is_same_v<T, SDerefWrite>) {
-            auto ptr_av = expr_av(alt.ptr);
-            auto val_av = expr_av(alt.value);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::DerefWrite));
-            put(map_off, sk::PTR,   ptr_av);
-            put(map_off, sk::VALUE, val_av);
-        } else if constexpr (std::is_same_v<T, SDrop>) {
-            auto var_av = put_string(alt.var_name);
-            hermes::AnyVal drop_av;
-            if (!alt.drop_fn.empty()) drop_av = put_string(alt.drop_fn);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Drop));
-            put(map_off, sk::NAME,         var_av);
-            put(map_off, sk::DROP_FN,      drop_av);
-            put(map_off, sk::TYPE,         type_av(alt.type));
-            put(map_off, sk::DROP_FIELDS,  put_bool(alt.drop_fields));
-        } else if constexpr (std::is_same_v<T, SDerefFieldWrite>) {
-            auto recv_av  = put_string(alt.receiver);
-            auto type_avv = put_string(alt.type_name);
-            auto field_av = put_string(alt.field);
-            auto val_av   = expr_av(alt.value);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::DerefFieldWrite));
-            put(map_off, sk::RECEIVER,   recv_av);
-            put(map_off, sk::TYPE_NAME,  type_avv);
-            put(map_off, sk::FIELD,      field_av);
-            put(map_off, sk::VALUE,      val_av);
-        } else if constexpr (std::is_same_v<T, STupleWrite>) {
-            auto recv_av = put_string(alt.receiver);
-            auto val_av  = expr_av(alt.value);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::TupleWrite));
-            put(map_off, sk::RECEIVER,        recv_av);
-            put(map_off, sk::TUPLE_INDEX_VAL, put_u32(alt.index));
-            put(map_off, sk::VALUE,           val_av);
-            put(map_off, sk::RECV_TYPE,       type_av(alt.recv_type));
-        } else if constexpr (std::is_same_v<T, SLetElse>) {
-            auto pat_off  = emit_pat(alt.pat);
-            auto scrut_av = expr_av(alt.scrut);
-            auto eb_av    = block_av(alt.else_block);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::LetElse));
-            put(map_off, sk::PAT,           hermes::AnyVal::from_offset(pat_off));
-            put(map_off, sk::SCRUT,         scrut_av);
-            put(map_off, sk::ELSE_DIVERGE,  eb_av);
-        } else if constexpr (std::is_same_v<T, SChainFieldWrite>) {
-            auto recv_av = put_string(alt.receiver);
-            auto mid_av  = put_string(alt.mid_field);
-            auto fld_av  = put_string(alt.field);
-            auto val_av  = expr_av(alt.value);
-            map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::ChainFieldWrite));
-            put(map_off, sk::RECEIVER,  recv_av);
-            put(map_off, sk::MID_FIELD, mid_av);
-            put(map_off, sk::FIELD,     fld_av);
-            put(map_off, sk::VALUE,     val_av);
-        }
-    }, s.kind);
-
-    if (s.line != 0)
-        put(map_off, sc::LINE, put_u32(s.line));
-
-    dry_run_ = save_dry;
-    if (backfill_only) return s.mirror_offset_;
-
-    s.mirror_offset_ = map_off;
-    table_.stmt[&s] = map_off;
-    table_.stmt_by_offset[map_off.value()] = &s;
-    return map_off;
+    table_.stmt[&s] = s.mirror_offset_;
+    table_.stmt_by_offset[s.mirror_offset_.value()] = &s;
+    return s.mirror_offset_;
 }
+
 
 // ──────────────────────────────────────────────────────────────────────────
 // LExpr mirror — biggest switch
