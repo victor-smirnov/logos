@@ -152,6 +152,19 @@ hermes::arena_offset_t lir_mirror_emit_tuple_write       (lir::LProgram& prog, u
 hermes::arena_offset_t lir_mirror_emit_let_else          (lir::LProgram& prog, uint32_t line, const lir::Pattern& pat, const lir::LExprPtr& scrut, const lir::LBlock* else_block);
 hermes::arena_offset_t lir_mirror_emit_chain_field_write (lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view mid_field, std::string_view field, const lir::LExprPtr& value);
 
+// Stage B.6 — HermesVal direct mirror writers. Allocate a fresh mirror map for
+// a single HV variant from primitive args, without reading HermesVal::kind.
+// Caller assigns the returned offset to HermesVal::mirror_offset_. Children
+// (HermesValPtr) must already carry their own mirror_offset_.
+hermes::arena_offset_t lir_mirror_emit_hv_null    (lir::LProgram& prog);
+hermes::arena_offset_t lir_mirror_emit_hv_bool    (lir::LProgram& prog, bool value);
+hermes::arena_offset_t lir_mirror_emit_hv_int     (lir::LProgram& prog, int64_t value);
+hermes::arena_offset_t lir_mirror_emit_hv_float   (lir::LProgram& prog, double value);
+hermes::arena_offset_t lir_mirror_emit_hv_str     (lir::LProgram& prog, std::string_view value);
+hermes::arena_offset_t lir_mirror_emit_hv_map     (lir::LProgram& prog, const std::vector<lir::HVMapEntry>& entries, std::string_view key_type);
+hermes::arena_offset_t lir_mirror_emit_hv_array   (lir::LProgram& prog, const std::vector<lir::HermesValPtr>& elements, std::string_view elem_type);
+hermes::arena_offset_t lir_mirror_emit_hv_capture (lir::LProgram& prog, uint32_t param_index, uint32_t value_index);
+
 // Update the TYPE field of an existing expr mirror in-place. Used by
 // LirBuilder::retype_expr so retyping doesn't need to re-walk the variant
 // (post-Stage-2 the variant is the wrong source of truth for retired kinds).

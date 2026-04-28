@@ -796,6 +796,97 @@ public:
         return map_off;
     }
 
+    // ── Stage B.6 — HermesVal direct mirror writers ─────────────────────────
+    // Each mirrors the corresponding branch of emit_hv's std::visit but
+    // allocates from primitive args, never reading HermesVal::kind. Children
+    // (HermesValPtr) must already have their own mirror_offset_; hv_av will
+    // back-fill the cache via the field-as-truth path.
+    static constexpr int32_t HV_BASE_DIRECT = 200;
+
+    hermes::arena_offset_t emit_hv_null_direct() {
+        return make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 0));
+    }
+    hermes::arena_offset_t emit_hv_bool_direct(bool value) {
+        auto map_off = make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 1));
+        put(map_off, hk::BOOL_VALUE, put_bool(value));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_hv_int_direct(int64_t value) {
+        auto map_off = make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 2));
+        put(map_off, hk::INT_VALUE, put_i64(value));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_hv_float_direct(double value) {
+        auto map_off = make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 3));
+        put(map_off, hk::FLOAT_VALUE, put_f64(value));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_hv_str_direct(std::string_view value) {
+        auto s_av = put_string(value);
+        auto map_off = make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 4));
+        put(map_off, hk::STR_VALUE, s_av);
+        return map_off;
+    }
+    hermes::arena_offset_t emit_hv_map_direct(const std::vector<lir::HVMapEntry>& entries,
+                                               std::string_view key_type) {
+        std::vector<hermes::AnyVal> key_strs, key_ints, val_avs;
+        key_strs.reserve(entries.size());
+        key_ints.reserve(entries.size());
+        val_avs.reserve(entries.size());
+        for (auto& e : entries) {
+            if (std::holds_alternative<std::string>(e.key))
+                key_strs.push_back(put_string(std::get<std::string>(e.key)));
+            else
+                key_ints.push_back(put_i64(std::get<int64_t>(e.key)));
+            val_avs.push_back(hv_av(e.val));
+        }
+        hermes::AnyVal keys_av;
+        if (!key_strs.empty()) {
+            auto off = make_array(key_strs.size());
+            for (auto av : key_strs) array_push(off, av);
+            keys_av = hermes::AnyVal::from_offset(off);
+        } else if (!key_ints.empty()) {
+            auto off = make_array(key_ints.size());
+            for (auto av : key_ints) array_push(off, av);
+            keys_av = hermes::AnyVal::from_offset(off);
+        }
+        hermes::AnyVal vals_av;
+        if (!val_avs.empty()) {
+            auto off = make_array(val_avs.size());
+            for (auto av : val_avs) array_push(off, av);
+            vals_av = hermes::AnyVal::from_offset(off);
+        }
+        auto map_off = make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 5));
+        put(map_off, hk::MAP_KEYS,   keys_av);
+        put(map_off, hk::MAP_VALUES, vals_av);
+        if (!key_type.empty())
+            put(map_off, hk::TYPE_NAME, put_string(key_type));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_hv_array_direct(const std::vector<lir::HermesValPtr>& elements,
+                                                 std::string_view elem_type) {
+        std::vector<hermes::AnyVal> elems;
+        elems.reserve(elements.size());
+        for (auto& e : elements) elems.push_back(hv_av(e));
+        hermes::AnyVal arr_av;
+        if (!elems.empty()) {
+            auto off = make_array(elems.size());
+            for (auto av : elems) array_push(off, av);
+            arr_av = hermes::AnyVal::from_offset(off);
+        }
+        auto map_off = make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 6));
+        put(map_off, hk::ELEMS, arr_av);
+        if (!elem_type.empty())
+            put(map_off, hk::TYPE_NAME, put_string(elem_type));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_hv_capture_direct(uint32_t param_index, uint32_t value_index) {
+        auto map_off = make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 7));
+        put(map_off, hk::PARAM_INDEX, put_u32(param_index));
+        put(map_off, hk::VALUE_INDEX, put_u32(value_index));
+        return map_off;
+    }
+
 private:
     // ── primitive helpers ───────────────────────────────────────────────────
 
@@ -2291,6 +2382,48 @@ hermes::arena_offset_t lir_mirror_emit_chain_field_write(lir::LProgram& prog, ui
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, *prog.mirror_table);
     return em.emit_chain_field_write_direct(line, receiver, mid_field, field, value);
+}
+
+// ── Stage B.6 — HermesVal direct mirror writers ──────────────────────────
+hermes::arena_offset_t lir_mirror_emit_hv_null(lir::LProgram& prog) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_hv_null_direct();
+}
+hermes::arena_offset_t lir_mirror_emit_hv_bool(lir::LProgram& prog, bool value) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_hv_bool_direct(value);
+}
+hermes::arena_offset_t lir_mirror_emit_hv_int(lir::LProgram& prog, int64_t value) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_hv_int_direct(value);
+}
+hermes::arena_offset_t lir_mirror_emit_hv_float(lir::LProgram& prog, double value) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_hv_float_direct(value);
+}
+hermes::arena_offset_t lir_mirror_emit_hv_str(lir::LProgram& prog, std::string_view value) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_hv_str_direct(value);
+}
+hermes::arena_offset_t lir_mirror_emit_hv_map(lir::LProgram& prog, const std::vector<lir::HVMapEntry>& entries, std::string_view key_type) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_hv_map_direct(entries, key_type);
+}
+hermes::arena_offset_t lir_mirror_emit_hv_array(lir::LProgram& prog, const std::vector<lir::HermesValPtr>& elements, std::string_view elem_type) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_hv_array_direct(elements, elem_type);
+}
+hermes::arena_offset_t lir_mirror_emit_hv_capture(lir::LProgram& prog, uint32_t param_index, uint32_t value_index) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_hv_capture_direct(param_index, value_index);
 }
 
 void lir_mirror_retype_expr(lir::LProgram& prog,
