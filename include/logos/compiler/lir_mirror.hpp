@@ -83,6 +83,22 @@ void lir_mirror_emit_into(lir::LProgram& prog, LirMirrorTable& table);
 // the variant alternative for that kind. Caller assigns the returned offset
 // to `LExpr::mirror_offset_`.
 hermes::arena_offset_t lir_mirror_emit_lit_bool(lir::LProgram& prog, TypeRef ty, bool v);
+hermes::arena_offset_t lir_mirror_emit_lit_int  (lir::LProgram& prog, TypeRef ty, int64_t v);
+hermes::arena_offset_t lir_mirror_emit_lit_float(lir::LProgram& prog, TypeRef ty, double v);
+hermes::arena_offset_t lir_mirror_emit_lit_str  (lir::LProgram& prog, TypeRef ty, std::string_view v);
+hermes::arena_offset_t lir_mirror_emit_var_ref  (lir::LProgram& prog, TypeRef ty, std::string_view name);
+hermes::arena_offset_t lir_mirror_emit_addr_of  (lir::LProgram& prog, TypeRef ty, std::string_view var_name);
+hermes::arena_offset_t lir_mirror_emit_pack_expand(lir::LProgram& prog, TypeRef ty, std::string_view var_name);
+hermes::arena_offset_t lir_mirror_emit_size_of      (lir::LProgram& prog, TypeRef ty, TypeRef elem);
+hermes::arena_offset_t lir_mirror_emit_type_code_of (lir::LProgram& prog, TypeRef ty, TypeRef elem);
+hermes::arena_offset_t lir_mirror_emit_reflect_of   (lir::LProgram& prog, TypeRef ty, TypeRef elem);
+
+// Update the TYPE field of an existing expr mirror in-place. Used by
+// LirBuilder::retype_expr so retyping doesn't need to re-walk the variant
+// (post-Stage-2 the variant is the wrong source of truth for retired kinds).
+void lir_mirror_retype_expr(lir::LProgram& prog,
+                            hermes::arena_offset_t expr_off,
+                            TypeRef new_ty);
 
 // Cache-only walker for items moved wholesale from in_ → out_ during mono
 // (impl methods, const value exprs). These nodes carry mirror_offset_ from

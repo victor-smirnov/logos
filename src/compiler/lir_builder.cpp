@@ -24,51 +24,69 @@ inline lir::LExprPtr make_expr(lir::LProgram& prog, TypeRef t, K&& k) {
 }
 } // anonymous
 
+// Stage 2 — variant-free leaf-kind paths. Mirror is the truth; LExpr::kind
+// stays at its default-constructed alternative (unread by view-based readers).
+// The emit_expr_node call back-fills the table cache via the mirror_offset_
+// != 0 branch.
+namespace {
+template <class EmitFn>
+inline lir::LExprPtr direct(lir::LProgram& prog, TypeRef ty, EmitFn&& emit) {
+    auto* e = lir::alloc_expr(prog);
+    e->type = ty;
+    e->mirror_offset_ = emit(prog, ty);
+    lir_mirror_emit_expr_node(prog, *e);
+    return e;
+}
+} // anonymous
+
 lir::LExprPtr LirBuilder::lit_int(int64_t v, TypeRef ty) {
-    return make_expr(prog_, ty, lir::ELitInt{v});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_lit_int(p, t, v); });
 }
 
 lir::LExprPtr LirBuilder::lit_bool(bool v, TypeRef ty) {
-    // Stage 2: variant-free path. Mirror is the truth; LExpr::kind stays at
-    // its default-constructed alternative (unread). emit_expr_node call
-    // back-fills the table cache via the mirror_offset_ != 0 branch.
-    auto* e = lir::alloc_expr(prog_);
-    e->type = ty;
-    e->mirror_offset_ = lir_mirror_emit_lit_bool(prog_, ty, v);
-    lir_mirror_emit_expr_node(prog_, *e);
-    return e;
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_lit_bool(p, t, v); });
 }
 
 lir::LExprPtr LirBuilder::var_ref(std::string name, TypeRef ty) {
-    return make_expr(prog_, ty, lir::EVarRef{std::move(name)});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_var_ref(p, t, name); });
 }
 
 lir::LExprPtr LirBuilder::lit_str(std::string v, TypeRef ty) {
-    return make_expr(prog_, ty, lir::ELitStr{std::move(v)});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_lit_str(p, t, v); });
 }
 
 lir::LExprPtr LirBuilder::lit_float(double v, TypeRef ty) {
-    return make_expr(prog_, ty, lir::ELitFloat{v});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_lit_float(p, t, v); });
 }
 
 lir::LExprPtr LirBuilder::addr_of(std::string var_name, TypeRef ty) {
-    return make_expr(prog_, ty, lir::EAddrOf{std::move(var_name)});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_addr_of(p, t, var_name); });
 }
 
 lir::LExprPtr LirBuilder::pack_expand(std::string var_name, TypeRef ty) {
-    return make_expr(prog_, ty, lir::EPackExpand{std::move(var_name)});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_pack_expand(p, t, var_name); });
 }
 
 lir::LExprPtr LirBuilder::size_of(TypeRef elem_type, TypeRef ty) {
-    return make_expr(prog_, ty, lir::ESizeOf{elem_type});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_size_of(p, t, elem_type); });
 }
 
 lir::LExprPtr LirBuilder::type_code_of(TypeRef elem_type, TypeRef ty) {
-    return make_expr(prog_, ty, lir::ETypeCodeOf{elem_type});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_type_code_of(p, t, elem_type); });
 }
 
 lir::LExprPtr LirBuilder::reflect_of(TypeRef elem_type, TypeRef ty) {
-    return make_expr(prog_, ty, lir::EReflectOf{elem_type});
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_reflect_of(p, t, elem_type); });
 }
 
 lir::LExprPtr LirBuilder::bin_op(std::string op,
@@ -231,8 +249,10 @@ lir::LExprPtr LirBuilder::hermes_cast(lir::LExprPtr operand, std::string build_f
 
 void LirBuilder::retype_expr(lir::LExpr* e, TypeRef new_ty) {
     e->type = new_ty;
-    e->mirror_offset_ = hermes::arena_offset_t{};
-    lir_mirror_emit_expr_node(prog_, *e);
+    // Stage 2: variant-free leaf kinds have e->kind at default (ELitInt{0}),
+    // so we can't reliably re-walk the variant. Update the TYPE field on the
+    // existing mirror in-place; mirror is the truth.
+    lir_mirror_retype_expr(prog_, e->mirror_offset_, new_ty);
 }
 
 lir::LStmt LirBuilder::stmt_expr(lir::LExprPtr expr, uint32_t line) {

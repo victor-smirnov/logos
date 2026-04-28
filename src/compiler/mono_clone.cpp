@@ -65,32 +65,46 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         };
         using C = lir_schema::expr::Code;
         switch (eref.kind()) {
+        // Stage 2: variant-free leaf-kind cases. Mirror emitted directly,
+        // result->kind stays at default (unread by view-based readers).
         case C::LitInt:
-            result->kind = lir::ELitInt{lir_view::ELitIntView{eref}.value()};
+            result->mirror_offset_ = lir_mirror_emit_lit_int(
+                out_, result->type, lir_view::ELitIntView{eref}.value());
             break;
         case C::LitFloat:
-            result->kind = lir::ELitFloat{lir_view::ELitFloatView{eref}.value()};
+            result->mirror_offset_ = lir_mirror_emit_lit_float(
+                out_, result->type, lir_view::ELitFloatView{eref}.value());
             break;
         case C::LitBool:
-            // Stage 2: variant-free direct mirror write.
             result->mirror_offset_ = lir_mirror_emit_lit_bool(
                 out_, result->type, lir_view::ELitBoolView{eref}.value());
             break;
-        case C::LitStr:
-            result->kind = lir::ELitStr{std::string(lir_view::ELitStrView{eref}.value())};
+        case C::LitStr: {
+            // Copy to std::string: lir_mirror_emit_* may grow the arena,
+            // which invalidates string_view pointers into it.
+            std::string v(lir_view::ELitStrView{eref}.value());
+            result->mirror_offset_ = lir_mirror_emit_lit_str(out_, result->type, v);
             break;
-        case C::VarRef:
-            result->kind = lir::EVarRef{std::string(lir_view::EVarRefView{eref}.name())};
+        }
+        case C::VarRef: {
+            std::string n(lir_view::EVarRefView{eref}.name());
+            result->mirror_offset_ = lir_mirror_emit_var_ref(out_, result->type, n);
             break;
-        case C::AddrOf:
-            result->kind = lir::EAddrOf{std::string(lir_view::EAddrOfView{eref}.var_name())};
+        }
+        case C::AddrOf: {
+            std::string n(lir_view::EAddrOfView{eref}.var_name());
+            result->mirror_offset_ = lir_mirror_emit_addr_of(out_, result->type, n);
             break;
-        case C::PackExpand:
-            result->kind = lir::EPackExpand{std::string(lir_view::EPackExpandView{eref}.var_name())};
+        }
+        case C::PackExpand: {
+            std::string n(lir_view::EPackExpandView{eref}.var_name());
+            result->mirror_offset_ = lir_mirror_emit_pack_expand(out_, result->type, n);
             break;
+        }
         case C::SizeOf: {
             auto t = lir_view::ESizeOfView{eref}.elem_type(out_.type_pool.impl());
-            result->kind = lir::ESizeOf{subst_type(t, s)};
+            result->mirror_offset_ = lir_mirror_emit_size_of(
+                out_, result->type, subst_type(t, s));
             break;
         }
         case C::Deref:
@@ -223,7 +237,8 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         case C::ReflectOf: {
             auto resolved = subst_type(
                 lir_view::EReflectOfView{eref}.type(out_.type_pool.impl()), s);
-            result->kind = lir::EReflectOf{resolved};
+            result->mirror_offset_ = lir_mirror_emit_reflect_of(
+                out_, result->type, resolved);
             if (resolved && TypeRef(resolved).kind() == LogosType::Kind::ZonedStruct &&
                 TypeRef(resolved).type_args().empty()) {
                 std::string pkg{TypeRef(resolved).pkg_name()};
@@ -387,7 +402,8 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             };
             walk(resolved);
             if (has_tv || !resolved) {
-                result->kind = lir::ETypeCodeOf{resolved};
+                result->mirror_offset_ = lir_mirror_emit_type_code_of(
+                    out_, result->type, resolved);
             } else {
                 uint64_t code = 0;
                 if (TypeRef(resolved).kind() == LogosType::Kind::Struct ||
@@ -408,7 +424,8 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                     uint64_t raw = type_hash_56bit(hash);
                     code = (raw < 128) ? (raw + 128) : raw;
                 }
-                result->kind = lir::ELitInt{(int64_t)code};
+                result->mirror_offset_ = lir_mirror_emit_lit_int(
+                    out_, result->type, (int64_t)code);
             }
             break;
         }

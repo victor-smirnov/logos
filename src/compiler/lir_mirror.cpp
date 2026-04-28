@@ -87,6 +87,64 @@ public:
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
+    hermes::arena_offset_t emit_lit_int_direct(TypeRef ty, int64_t v) {
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::LitInt));
+        put(map_off, ek::LIT_I64, put_i64(v));
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_lit_float_direct(TypeRef ty, double v) {
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::LitFloat));
+        put(map_off, ek::LIT_F64, put_f64(v));
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_lit_str_direct(TypeRef ty, std::string_view v) {
+        auto s_av = put_string(v);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::LitStr));
+        put(map_off, ek::LIT_STR, s_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_var_ref_direct(TypeRef ty, std::string_view name) {
+        auto n_av = put_string(name);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::VarRef));
+        put(map_off, ek::NAME, n_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_addr_of_direct(TypeRef ty, std::string_view var_name) {
+        auto n_av = put_string(var_name);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::AddrOf));
+        put(map_off, ek::NAME, n_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_pack_expand_direct(TypeRef ty, std::string_view var_name) {
+        auto n_av = put_string(var_name);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::PackExpand));
+        put(map_off, ek::NAME, n_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_size_of_direct(TypeRef ty, TypeRef elem) {
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::SizeOf));
+        put(map_off, ek::ELEM_TYPE, type_av(elem));
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_type_code_of_direct(TypeRef ty, TypeRef elem) {
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::TypeCodeOf));
+        put(map_off, ek::ELEM_TYPE, type_av(elem));
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+    hermes::arena_offset_t emit_reflect_of_direct(TypeRef ty, TypeRef elem) {
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::ReflectOf));
+        put(map_off, ek::ELEM_TYPE, type_av(elem));
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
 
 private:
     // ── primitive helpers ───────────────────────────────────────────────────
@@ -1280,6 +1338,66 @@ hermes::arena_offset_t lir_mirror_emit_lit_bool(lir::LProgram& prog, TypeRef ty,
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, *prog.mirror_table);
     return em.emit_lit_bool_direct(ty, v);
+}
+hermes::arena_offset_t lir_mirror_emit_lit_int(lir::LProgram& prog, TypeRef ty, int64_t v) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_lit_int_direct(ty, v);
+}
+hermes::arena_offset_t lir_mirror_emit_lit_float(lir::LProgram& prog, TypeRef ty, double v) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_lit_float_direct(ty, v);
+}
+hermes::arena_offset_t lir_mirror_emit_lit_str(lir::LProgram& prog, TypeRef ty, std::string_view v) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_lit_str_direct(ty, v);
+}
+hermes::arena_offset_t lir_mirror_emit_var_ref(lir::LProgram& prog, TypeRef ty, std::string_view name) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_var_ref_direct(ty, name);
+}
+hermes::arena_offset_t lir_mirror_emit_addr_of(lir::LProgram& prog, TypeRef ty, std::string_view var_name) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_addr_of_direct(ty, var_name);
+}
+hermes::arena_offset_t lir_mirror_emit_pack_expand(lir::LProgram& prog, TypeRef ty, std::string_view var_name) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pack_expand_direct(ty, var_name);
+}
+hermes::arena_offset_t lir_mirror_emit_size_of(lir::LProgram& prog, TypeRef ty, TypeRef elem) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_size_of_direct(ty, elem);
+}
+hermes::arena_offset_t lir_mirror_emit_type_code_of(lir::LProgram& prog, TypeRef ty, TypeRef elem) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_type_code_of_direct(ty, elem);
+}
+hermes::arena_offset_t lir_mirror_emit_reflect_of(lir::LProgram& prog, TypeRef ty, TypeRef elem) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_reflect_of_direct(ty, elem);
+}
+
+void lir_mirror_retype_expr(lir::LProgram& prog,
+                            hermes::arena_offset_t expr_off,
+                            TypeRef new_ty) {
+    if (expr_off == hermes::arena_offset_t{}) return;
+    auto& arena = prog.type_pool.arena_or_init();
+    auto* tom = reinterpret_cast<hermes::TinyObjectMap*>(
+        arena.head().data() + expr_off.value());
+    auto av = new_ty ? hermes::AnyVal::from_offset(new_ty.offset())
+                     : hermes::AnyVal{};
+    if (av.is_null()) return;
+    auto r = tom->put(lir_schema::expr_common::TYPE.code, av, arena);
+    LOGOS_ASSERT(r.has_value(), "LIR-MIRROR-006",
+        "retype_expr put failed");
 }
 
 void lir_mirror_populate_moved(lir::LProgram& prog, LirMirrorTable& table) {
