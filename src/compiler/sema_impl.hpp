@@ -261,6 +261,13 @@ private:
         return s;
     }
 
+    template<typename... Args>
+    lir::HermesValPtr alloc_hv_emit(Args&&... args) {
+        auto* hv = lir::alloc_hermes_val(*cur_prog_, std::forward<Args>(args)...);
+        lir_mirror_emit_hv_node(*cur_prog_, *hv);
+        return hv;
+    }
+
     // ── File / line tracking ─────────────────────────────────────
 
     const std::vector<std::string>* filenames_    = nullptr;

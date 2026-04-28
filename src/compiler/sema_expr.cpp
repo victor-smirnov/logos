@@ -5430,16 +5430,16 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
     if (c == la::HERMES_NEG_INT.code) {
         auto sv = str_of(node.get(la::VALUE.code));
         int64_t v = std::stoll(std::string(sv));
-        return lir::alloc_hermes_val(*cur_prog_, lir::HVInt{-v});
+        return alloc_hv_emit(lir::HVInt{-v});
     }
 
     if (c == la::HERMES_NULL.code)
-        return lir::alloc_hermes_val(*cur_prog_, lir::HVNull{});
+        return alloc_hv_emit(lir::HVNull{});
 
     if (c == la::HERMES_BOOL.code) {
         AnyVal av = node.get(la::VALUE.code);
         bool v = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
-        return lir::alloc_hermes_val(*cur_prog_, lir::HVBool{v});
+        return alloc_hv_emit(lir::HVBool{v});
     }
 
     if (c == la::HERMES_INT.code) {
@@ -5464,7 +5464,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
         else
             v = (int64_t)std::stoull(s, nullptr, 10);
         if (neg) v = -v;
-        return lir::alloc_hermes_val(*cur_prog_, lir::HVInt{v});
+        return alloc_hv_emit(lir::HVInt{v});
     }
 
     if (c == la::HERMES_FLOAT.code) {
@@ -5474,7 +5474,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
         if (s.size() > 3 && (s.substr(s.size()-3) == "f32" || s.substr(s.size()-3) == "f64"))
             s = s.substr(0, s.size()-3);
         double v = std::stod(s);
-        return lir::alloc_hermes_val(*cur_prog_, lir::HVFloat{v});
+        return alloc_hv_emit(lir::HVFloat{v});
     }
 
     if (c == la::HERMES_STR.code) {
@@ -5500,7 +5500,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                 out += s[i];
             }
         }
-        return lir::alloc_hermes_val(*cur_prog_, lir::HVStr{std::move(out)});
+        return alloc_hv_emit(lir::HVStr{std::move(out)});
     }
 
     if (c == la::HERMES_MAP.code) {
@@ -5543,7 +5543,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                 m.entries.push_back(std::move(e));
             }
         }
-        return lir::alloc_hermes_val(*cur_prog_, std::move(m));
+        return alloc_hv_emit(std::move(m));
     }
 
     if (c == la::HERMES_ARRAY.code) {
@@ -5557,7 +5557,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                 a.elements.push_back(std::move(hv));
             }
         }
-        return lir::alloc_hermes_val(*cur_prog_, std::move(a));
+        return alloc_hv_emit(std::move(a));
     }
 
     if (c == la::HERMES_TYPED_ARRAY.code) {
@@ -5613,7 +5613,6 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                 if (!hv) return nullptr;
                 // Bounds-check I32 elements at compile time.
                 if (type_name == "I32") {
-                    lir_mirror_emit_hv_node(*cur_prog_, *hv);
                     lir_view::HermesValRef hvref(cur_prog_->type_pool.arena(), hv->mirror_offset_);
                     if (hvref && hvref.kind() == lir_schema::hermes_val::Code::Int) {
                         int64_t hv_val = lir_view::HVIntView{hvref}.value();
@@ -5628,7 +5627,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                 a.elements.push_back(std::move(hv));
             }
         }
-        return lir::alloc_hermes_val(*cur_prog_, std::move(a));
+        return alloc_hv_emit(std::move(a));
     }
 
     if (c == la::HERMES_TYPED_MAP.code) {
@@ -5748,7 +5747,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                 m.entries.push_back(std::move(e));
             }
         }
-        return lir::alloc_hermes_val(*cur_prog_, std::move(m));
+        return alloc_hv_emit(std::move(m));
     }
 
     if (c == la::HERMES_CAP_IDENT.code || c == la::HERMES_CAP_EXPR.code) {
@@ -5812,7 +5811,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                 hermes_cap_ctx_->ident_dedup[name] = value_idx;
             }
             uint32_t param_idx = hermes_cap_ctx_->next_slot++;
-            return lir::alloc_hermes_val(*cur_prog_, lir::HVCapture{param_idx, value_idx});
+            return alloc_hv_emit(lir::HVCapture{param_idx, value_idx});
         } else {
             // HERMES_CAP_EXPR: ${expr} — always fresh (no dedup: may have side effects).
             auto expr_node = map_of(node.get(la::VALUE.code));
@@ -5831,7 +5830,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
             uint32_t param_idx = hermes_cap_ctx_->next_slot++;
             hermes_cap_ctx_->exprs.push_back(std::move(cap_expr));
             hermes_cap_ctx_->types.push_back(expr_type);
-            return lir::alloc_hermes_val(*cur_prog_, lir::HVCapture{param_idx, value_idx});
+            return alloc_hv_emit(lir::HVCapture{param_idx, value_idx});
         }
     }
 
