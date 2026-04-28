@@ -10,30 +10,27 @@
 namespace logos::compiler {
 
 namespace {
-// Stage 3g.1: every builder-constructed node is mirrored into the program's
-// Hermes zone immediately. The post-sema lir_mirror_emit_into pass and
-// mono's per-clone emit still run; both are now no-ops on builder-created
-// nodes (table cache hits).
-template <class K>
-inline lir::LExprPtr make_expr(lir::LProgram& prog, TypeRef t, K&& k) {
-    auto* e = lir::alloc_expr(prog);
-    e->type = t;
-    e->kind = std::forward<K>(k);
-    lir_mirror_emit_expr_node(prog, *e);
-    return e;
-}
-} // anonymous
-
-// Stage 2 — variant-free leaf-kind paths. Mirror is the truth; LExpr::kind
-// stays at its default-constructed alternative (unread by view-based readers).
-// The emit_expr_node call back-fills the table cache via the mirror_offset_
-// != 0 branch.
-namespace {
+// Stage 3.5 step 4: most LExpr is built via direct mirror emission. The
+// variant kind field stays default-constructed; mirror is the sole source
+// of truth.
 template <class EmitFn>
 inline lir::LExprPtr direct(lir::LProgram& prog, TypeRef ty, EmitFn&& emit) {
     auto* e = lir::alloc_expr(prog);
     e->type = ty;
     e->mirror_offset_ = emit(prog, ty);
+    lir_mirror_emit_expr_node(prog, *e);
+    return e;
+}
+
+// Variant-bearing path retained for nodes whose downstream code still
+// inspects LExpr::kind (closure_to_fnptr reads EClosureBox.inner via
+// std::get_if). Will be removed in step 7 once those readers go through
+// the mirror.
+template <class K>
+inline lir::LExprPtr make_expr(lir::LProgram& prog, TypeRef t, K&& k) {
+    auto* e = lir::alloc_expr(prog);
+    e->type = t;
+    e->kind = std::forward<K>(k);
     lir_mirror_emit_expr_node(prog, *e);
     return e;
 }
@@ -180,6 +177,7 @@ lir::LExprPtr LirBuilder::enum_lit(std::string enum_name, std::string variant,
 
 lir::LExprPtr LirBuilder::closure_box(lir::EClosure* inner,
                                        TypeRef ty) {
+    // Retains variant payload because closure_to_fnptr reads EClosureBox.inner.
     return make_expr(prog_, ty, lir::EClosureBox{inner});
 }
 
@@ -195,8 +193,7 @@ void LirBuilder::set_tuple_elem(lir::LExpr* tuple, size_t idx,
     auto* tl = std::get_if<lir::ETupleLit>(&tuple->kind);
     if (!tl || idx >= tl->elems.size()) return;
     tl->elems[idx] = new_value;
-    tuple->mirror_offset_ = hermes::arena_offset_t{};
-    lir_mirror_emit_expr_node(prog_, *tuple);
+    tuple->mirror_offset_ = lir_mirror_emit_tuple_lit(prog_, tuple->type, tl->elems);
 }
 
 lir::LExprPtr LirBuilder::closure_call(lir::LExprPtr callee,
@@ -368,7 +365,10 @@ lir::LExprPtr LirBuilder::hermes_lit_v(lir::EHermesLit lit, TypeRef ty) {
 }
 
 lir::LExprPtr LirBuilder::match_expr_v(lir::EMatchExpr me, TypeRef ty) {
-    return make_expr(prog_, ty, std::move(me));
+    auto scrut = me.scrut;
+    auto arms = std::move(me.arms);
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_match_expr(p, t, scrut, arms); });
 }
 
 } // namespace logos::compiler
