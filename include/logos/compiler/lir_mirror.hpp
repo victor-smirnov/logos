@@ -93,6 +93,28 @@ hermes::arena_offset_t lir_mirror_emit_size_of      (lir::LProgram& prog, TypeRe
 hermes::arena_offset_t lir_mirror_emit_type_code_of (lir::LProgram& prog, TypeRef ty, TypeRef elem);
 hermes::arena_offset_t lir_mirror_emit_reflect_of   (lir::LProgram& prog, TypeRef ty, TypeRef elem);
 
+// Stage 2 Group 1 — children-only expr kinds. Caller has already built each
+// child (with mirror_offset_ set). Helper recursively emit_av's children via
+// the cache-hit fast path.
+hermes::arena_offset_t lir_mirror_emit_deref        (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& operand);
+hermes::arena_offset_t lir_mirror_emit_cast         (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& operand, std::string_view hermes_build_fn);
+hermes::arena_offset_t lir_mirror_emit_try          (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& inner, int32_t ok_disc, int32_t err_disc);
+hermes::arena_offset_t lir_mirror_emit_slice_lit    (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& base, const lir::LExprPtr& len);
+hermes::arena_offset_t lir_mirror_emit_slice_index  (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& slice, const lir::LExprPtr& index);
+hermes::arena_offset_t lir_mirror_emit_slice_len    (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& slice);
+hermes::arena_offset_t lir_mirror_emit_slice_ptr    (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& slice);
+hermes::arena_offset_t lir_mirror_emit_addr_of_temp (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& inner, bool is_mut);
+hermes::arena_offset_t lir_mirror_emit_ptr_arith    (lir::LProgram& prog, TypeRef ty, uint8_t op, const lir::LExprPtr& ptr, const lir::LExprPtr& offset);
+hermes::arena_offset_t lir_mirror_emit_ptr_diff     (lir::LProgram& prog, TypeRef ty, bool by_byte, const lir::LExprPtr& lhs, const lir::LExprPtr& rhs);
+hermes::arena_offset_t lir_mirror_emit_if_expr      (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& cond, const lir::LExprPtr& then_val, const lir::LExprPtr& else_val);
+hermes::arena_offset_t lir_mirror_emit_tuple_lit    (lir::LProgram& prog, TypeRef ty, const std::vector<lir::LExprPtr>& elems);
+hermes::arena_offset_t lir_mirror_emit_tuple_index  (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& receiver, uint32_t index);
+hermes::arena_offset_t lir_mirror_emit_arr_lit      (lir::LProgram& prog, TypeRef ty, const std::vector<lir::LExprPtr>& elems);
+hermes::arena_offset_t lir_mirror_emit_block_expr   (lir::LProgram& prog, TypeRef ty, const lir::LBlock* block, const lir::LExprPtr& result);
+hermes::arena_offset_t lir_mirror_emit_closure_call (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& callee, const std::vector<lir::LExprPtr>& args);
+hermes::arena_offset_t lir_mirror_emit_fn_ptr_call  (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& callee, const std::vector<lir::LExprPtr>& args);
+hermes::arena_offset_t lir_mirror_emit_match_expr   (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& scrut, const std::vector<lir::EMatchArm>& arms);
+
 // Update the TYPE field of an existing expr mirror in-place. Used by
 // LirBuilder::retype_expr so retyping doesn't need to re-walk the variant
 // (post-Stage-2 the variant is the wrong source of truth for retired kinds).
