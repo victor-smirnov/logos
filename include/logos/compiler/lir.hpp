@@ -52,11 +52,11 @@ using LBlockPtr    = LBlock*;
 using LFunctionPtr = std::unique_ptr<LFunction>;
 
 // ── Patterns (for match arms) ─────────────────────────────────────────────
-
-struct PatVariant { std::string enum_name; std::string variant; int64_t disc; };
-struct PatInt     { int64_t value; };
-struct PatBool    { bool value; };
-struct PatWild    { std::string name; };   // _ or named wildcard (name may be "_")
+//
+// B.6 Stage 3.5 step 7e/7f: leaf payload structs (PatInt/PatBool/PatVariant/
+// PatWild/PatRange) were deleted — their data flows directly into the mirror
+// via lir_mirror_emit_pat_*. Compound payload structs below are scratchpad
+// types: sema_stmt fills their fields, then passes to lir_mirror_emit_pat_X.
 
 // Pattern with payload bindings: Option::Some(x) => { use x }
 struct PatVariantData {
@@ -71,9 +71,6 @@ struct PatVariantData {
 struct PatOr;
 // Tuple pattern: (a, b, c) — matches a tuple, binding each element.
 struct PatTuple;
-// Range pattern: lo..=hi inclusive integer range.
-// G4 note: lo/hi are int64_t; u64 values > INT64_MAX are unsupported (sema rejects via intlit_fits).
-struct PatRange { int64_t lo; int64_t hi; };
 // Struct pattern: Point { x: p, y } — binds/tests struct fields.
 struct PatStruct;
 // Slice pattern: [a, b] or [first, .., last].
@@ -135,10 +132,6 @@ struct Pattern {
     Pattern(Pattern&&) noexcept = default;
     Pattern& operator=(const Pattern&) = default;
     Pattern& operator=(Pattern&&) noexcept = default;
-    // Transitional swallow ctor: existing call sites construct Pattern{PatInt{...}}.
-    template <class T,
-              class = std::enable_if_t<!std::is_same_v<std::decay_t<T>, Pattern>>>
-    Pattern(T&&) noexcept {}
 };
 
 struct LMatchArm {
