@@ -17,12 +17,13 @@ using TypeSubstFn = std::function<TypeRef(TypeRef)>;
 namespace {
 class PatSubstWalker {
 public:
-    PatSubstWalker(TypeSubstFn st, const TypePoolImpl* pool) noexcept
-        : st_(std::move(st)), pool_(pool) {}
+    PatSubstWalker(TypeSubstFn st, const TypePoolImpl* pool, lir::LProgram* prog) noexcept
+        : st_(std::move(st)), pool_(pool), prog_(prog) {}
     lir::Pattern walk(lir_view::PatRef pref) const;
 private:
     TypeSubstFn         st_;
     const TypePoolImpl* pool_;
+    lir::LProgram*      prog_;
 };
 } // anonymous
 
@@ -34,7 +35,7 @@ lir::Pattern Mono::subst_pattern(const lir::Pattern& pat, const SubstMap& s) {
 
 lir::Pattern Mono::subst_pattern(lir_view::PatRef pref, const SubstMap& s) {
     PatSubstWalker w([&](TypeRef t) { return subst_type(t, s); },
-                     out_.type_pool.impl());
+                     out_.type_pool.impl(), &out_);
     return w.walk(pref);
 }
 
@@ -416,7 +417,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             auto scrut = subst_child_expr(v.scrut());
             std::vector<lir::EMatchArm> arms;
             PatSubstWalker pw([&](TypeRef t) { return subst_type(t, s); },
-                              out_.type_pool.impl());
+                              out_.type_pool.impl(), &out_);
             v.each_arm([&](lir_view::EMatchArmRef arm) {
                 lir::EMatchArm na;
                 if (auto pr = arm.pat(); pr) na.pat = pw.walk(pr);
@@ -848,18 +849,37 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
     switch (pref.kind()) {
     case pc::Code::Variant: {
         lir_view::PatVariantView v{pref};
-        return lir::PatVariant{std::string(v.enum_name()),
-                               std::string(v.variant()), v.disc()};
+        std::string en(v.enum_name());
+        std::string vn(v.variant());
+        int64_t disc = v.disc();
+        lir::Pattern p(lir::PatVariant{en, vn, disc});
+        p.mirror_offset_ = lir_mirror_emit_pat_variant(*prog_, en, vn, disc);
+        return p;
     }
-    case pc::Code::Int:
-        return lir::PatInt{lir_view::PatIntView{pref}.value()};
-    case pc::Code::Bool:
-        return lir::PatBool{lir_view::PatBoolView{pref}.value()};
-    case pc::Code::Wild:
-        return lir::PatWild{std::string(lir_view::PatWildView{pref}.name())};
+    case pc::Code::Int: {
+        int64_t v = lir_view::PatIntView{pref}.value();
+        lir::Pattern p(lir::PatInt{v});
+        p.mirror_offset_ = lir_mirror_emit_pat_int(*prog_, v);
+        return p;
+    }
+    case pc::Code::Bool: {
+        bool v = lir_view::PatBoolView{pref}.value();
+        lir::Pattern p(lir::PatBool{v});
+        p.mirror_offset_ = lir_mirror_emit_pat_bool(*prog_, v);
+        return p;
+    }
+    case pc::Code::Wild: {
+        std::string name(lir_view::PatWildView{pref}.name());
+        lir::Pattern p(lir::PatWild{name});
+        p.mirror_offset_ = lir_mirror_emit_pat_wild(*prog_, name);
+        return p;
+    }
     case pc::Code::Range: {
         lir_view::PatRangeView v{pref};
-        return lir::PatRange{v.lo(), v.hi()};
+        int64_t lo = v.lo(), hi = v.hi();
+        lir::Pattern p(lir::PatRange{lo, hi});
+        p.mirror_offset_ = lir_mirror_emit_pat_range(*prog_, lo, hi);
+        return p;
     }
     case pc::Code::VariantData: {
         lir_view::PatVariantDataView v{pref};
@@ -869,13 +889,20 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
         n.disc      = v.disc();
         v.each_binding([&](std::string_view s) { n.bindings.emplace_back(s); });
         v.each_binding_type(pool_, [&](TypeRef t) { n.binding_types.push_back(st_(t)); });
-        return n;
+        auto off = lir_mirror_emit_pat_variant_data(
+            *prog_, n.enum_name, n.variant, n.disc, n.bindings, n.binding_types);
+        lir::Pattern p(std::move(n));
+        p.mirror_offset_ = off;
+        return p;
     }
     case pc::Code::Or: {
         lir::PatOr n;
         lir_view::PatOrView{pref}.each_alt(
             [&](lir_view::PatRef alt) { n.alts.push_back(walk(alt)); });
-        return n;
+        auto off = lir_mirror_emit_pat_or(*prog_, n.alts);
+        lir::Pattern p(std::move(n));
+        p.mirror_offset_ = off;
+        return p;
     }
     case pc::Code::Tuple: {
         lir_view::PatTupleView v{pref};
@@ -883,7 +910,11 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
         v.each_binding([&](std::string_view s) { n.bindings.emplace_back(s); });
         v.each_binding_type(pool_, [&](TypeRef t) { n.binding_types.push_back(st_(t)); });
         v.each_sub([&](lir_view::PatRef sp) { n.subs.push_back(walk(sp)); });
-        return n;
+        auto off = lir_mirror_emit_pat_tuple(
+            *prog_, n.bindings, n.binding_types, n.subs);
+        lir::Pattern p(std::move(n));
+        p.mirror_offset_ = off;
+        return p;
     }
     case pc::Code::Struct: {
         lir_view::PatStructView v{pref};
@@ -896,15 +927,23 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
             if (auto sub = fbv.sub()) pfb.sub.push_back(walk(sub));
             n.fields.push_back(std::move(pfb));
         });
-        return n;
+        auto off = lir_mirror_emit_pat_struct(
+            *prog_, n.struct_name, n.fields, n.has_rest);
+        lir::Pattern p(std::move(n));
+        p.mirror_offset_ = off;
+        return p;
     }
     case pc::Code::Slice: {
         lir_view::PatSliceView v{pref};
         lir::PatSlice n;
-        v.each_prefix([&](lir_view::PatRef p) { n.prefix.push_back(walk(p)); });
+        v.each_prefix([&](lir_view::PatRef pp) { n.prefix.push_back(walk(pp)); });
         if (auto r = v.rest()) n.rest.push_back(walk(r));
-        v.each_suffix([&](lir_view::PatRef p) { n.suffix.push_back(walk(p)); });
-        return n;
+        v.each_suffix([&](lir_view::PatRef pp) { n.suffix.push_back(walk(pp)); });
+        auto off = lir_mirror_emit_pat_slice(
+            *prog_, n.prefix, n.rest, n.suffix);
+        lir::Pattern p(std::move(n));
+        p.mirror_offset_ = off;
+        return p;
     }
     case pc::Code::At: {
         lir_view::PatAtView v{pref};
@@ -912,7 +951,10 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
         n.name = std::string(v.name());
         n.type = st_(v.type(pool_));
         if (auto sub = v.sub()) n.sub.push_back(walk(sub));
-        return n;
+        auto off = lir_mirror_emit_pat_at(*prog_, n.name, n.sub, n.type);
+        lir::Pattern p(std::move(n));
+        p.mirror_offset_ = off;
+        return p;
     }
     case pc::Code::RefBind: {
         lir_view::PatRefBindView v{pref};
@@ -920,14 +962,21 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
         n.name      = std::string(v.name());
         n.is_mut    = v.is_mut();
         n.bind_type = st_(v.bind_type(pool_));
-        return n;
+        auto off = lir_mirror_emit_pat_ref_bind(
+            *prog_, n.name, n.is_mut, n.bind_type);
+        lir::Pattern p(std::move(n));
+        p.mirror_offset_ = off;
+        return p;
     }
     case pc::Code::RefPat: {
         lir_view::PatRefPatView v{pref};
         lir::PatRefPat n;
         n.is_mut = v.is_mut();
         if (auto inner = v.inner()) n.inner.push_back(walk(inner));
-        return n;
+        auto off = lir_mirror_emit_pat_ref_pat(*prog_, n.inner, n.is_mut);
+        lir::Pattern p(std::move(n));
+        p.mirror_offset_ = off;
+        return p;
     }
     }
     return lir::PatWild{};

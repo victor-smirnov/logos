@@ -1554,8 +1554,14 @@ hermes::arena_offset_t LirMirrorEmitter::emit_pat(const Pattern& p) {
     // moves invalidate &p; the table key is fragile, so the field on the
     // struct itself is authoritative.
     if (p.mirror_offset_ != hermes::arena_offset_t{}) {
-        if (auto it = table_.pat.find(&p); it != table_.pat.end())
-            return it->second;
+        if (auto it = table_.pat.find(&p); it != table_.pat.end()) {
+            if (it->second == p.mirror_offset_) return it->second;
+            // Stale cache entry from a recycled Pattern address whose
+            // previous incarnation pointed at a different arena offset.
+            // Honour mirror_offset_ (field-as-truth) and update the cache.
+            it->second = p.mirror_offset_;
+            return p.mirror_offset_;
+        }
         table_.pat[&p] = p.mirror_offset_;
         return p.mirror_offset_;
     }
