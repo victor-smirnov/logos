@@ -177,15 +177,19 @@ lir::LExprPtr LirBuilder::enum_lit(std::string enum_name, std::string variant,
 
 lir::LExprPtr LirBuilder::closure_box(lir::EClosure* inner,
                                        TypeRef ty) {
-    // Retains variant payload because closure_to_fnptr reads EClosureBox.inner.
-    return make_expr(prog_, ty, lir::EClosureBox{inner});
+    auto* e = direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_closure_box(p, t, inner); });
+    if (prog_.mirror_table) prog_.mirror_table->closure_box_inner[e] = inner;
+    return e;
 }
 
 lir::LExprPtr LirBuilder::closure_to_fnptr(lir::LExpr* arg, TypeRef new_ty) {
-    auto* box = std::get_if<lir::EClosureBox>(&arg->kind);
-    if (!box || !box->inner) return arg;
-    box->inner->as_fn_ptr = true;
-    return closure_box(box->inner, new_ty);
+    if (!prog_.mirror_table) return arg;
+    auto it = prog_.mirror_table->closure_box_inner.find(arg);
+    if (it == prog_.mirror_table->closure_box_inner.end() || !it->second) return arg;
+    auto* inner = it->second;
+    inner->as_fn_ptr = true;
+    return closure_box(inner, new_ty);
 }
 
 void LirBuilder::set_tuple_elem(lir::LExpr* tuple, size_t idx,

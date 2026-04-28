@@ -49,6 +49,11 @@ struct LirMirrorTable {
     std::unordered_map<uint32_t, const lir::LStmt*>      stmt_by_offset;
     std::unordered_map<uint32_t, const lir::HermesVal*>  hermes_val_by_offset;
 
+    // Step 7b: closure_box LExpr* → its EClosure*. Populated by
+    // LirBuilder::closure_box and read by closure_to_fnptr to retrieve
+    // the inner EClosure pointer without going through the variant.
+    std::unordered_map<const lir::LExpr*, lir::EClosure*> closure_box_inner;
+
     bool empty() const noexcept {
         return expr.empty() && stmt.empty() && block.empty() && pat.empty()
             && hermes_val.empty();
