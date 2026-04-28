@@ -12,8 +12,10 @@
 #include <chrono>
 #include "module_loader.hpp"
 #include <logos/compiler/borrow_check.hpp>
+#include <logos/compiler/ast.hpp>
 #include <logos/compiler/lir.hpp>
 #include <logos/compiler/mono.hpp>
+#include <logos/hermes/schema_codes.hpp>
 
 #include <logos/hermes/document.hpp>
 #include <logos/hermes/mem_holder.hpp>
@@ -228,7 +230,8 @@ extern "C" int32_t logos_emit_source(const char* src) {
 // when feeding metaprog-sized programs.
 static std::unique_ptr<logos::jit::Jit>
 build_jit_from_module(const llvm::Module& src_module, const char* who,
-                      bool with_process_symbols = false) {
+                      bool with_process_symbols = false,
+                      const std::vector<std::string>* archives = nullptr) {
     auto jit = std::make_unique<logos::jit::Jit>();
     if (!jit->init()) {
         std::fprintf(stderr, "%s: jit init: %s\n", who, jit->error_str().c_str());
@@ -238,6 +241,19 @@ build_jit_from_module(const llvm::Module& src_module, const char* who,
         std::fprintf(stderr, "%s: enable_process_symbols: %s\n", who,
                      jit->error_str().c_str());
         return nullptr;
+    }
+    // M.1 Stage 2 (Mode B): register linked .a archives so metacall callees
+    // whose body lives only in compiled form can be resolved by ORC.
+    // Registration is unconditional (cheap when unused); no Mode B test
+    // exercises this path yet — see ADR M.1 for the deferred coverage.
+    if (archives) {
+        for (const auto& p : *archives) {
+            if (!jit->add_static_archive(p)) {
+                std::fprintf(stderr, "%s: add_static_archive(%s): %s\n",
+                             who, p.c_str(), jit->error_str().c_str());
+                // Non-fatal — Mode A path may still resolve everything.
+            }
+        }
     }
     auto ctx = std::make_unique<llvm::LLVMContext>();
     std::string ir;
@@ -352,9 +368,23 @@ int main(int argc, char** argv) {
     }
     // Collect symbol tables from binary archives on the search path.
     // Shell glob + nm: avoids pulling in <filesystem> next to LLVM headers.
+    // M.1 Stage 2 (Mode B): also collect the archive paths themselves so the
+    // metaprog JIT can register them via StaticLibraryDefinitionGenerator.
+    std::vector<std::string> archive_paths;
     for (const auto& dir : search_paths) {
-        std::string cmd = "nm --defined-only -j " + dir + "/*.a 2>/dev/null";
-        FILE* pipe = ::popen(cmd.c_str(), "r");
+        std::string cmd = "ls " + dir + "/*.a 2>/dev/null";
+        if (FILE* lp = ::popen(cmd.c_str(), "r")) {
+            char path[1024];
+            while (std::fgets(path, sizeof(path), lp)) {
+                std::string_view sv(path);
+                while (!sv.empty() && (sv.back() == '\n' || sv.back() == '\r' || sv.back() == ' '))
+                    sv.remove_suffix(1);
+                if (!sv.empty()) archive_paths.emplace_back(sv);
+            }
+            ::pclose(lp);
+        }
+        std::string cmd2 = "nm --defined-only -j " + dir + "/*.a 2>/dev/null";
+        FILE* pipe = ::popen(cmd2.c_str(), "r");
         if (!pipe) continue;
         char line[512];
         while (std::fgets(line, sizeof(line), pipe)) {
@@ -405,6 +435,10 @@ int main(int argc, char** argv) {
         report(iter == 0 ? "sema+lower" : "sema+lower (re-run)");
 
         if (prog.metaprog_targets.empty()) break;
+        // Note: metacall_sites are not visible here — metaprog_mode skips
+        // entry-file fn bodies, so METACALL nodes inside fn bodies are not
+        // walked in this loop. Metacall handling runs in its own loop after
+        // the final non-metaprog sema pass below.
 
         if (trace) {
             std::fprintf(stderr, "[metaprog iter %d] %zu target(s):\n",
@@ -466,7 +500,8 @@ int main(int argc, char** argv) {
         // without per-symbol bindings. The compiler is the trust root
         // for hook code, so this is acceptable.
         auto meta_jit = build_jit_from_module(*meta_llvm, "logosc-metaprog",
-                                              /*with_process_symbols=*/true);
+                                              /*with_process_symbols=*/true,
+                                              &archive_paths);
         if (!meta_jit) return 1;
         report("metaprog jit");
 
@@ -548,6 +583,7 @@ int main(int argc, char** argv) {
                 std::fprintf(stderr, "error: %s\n", d.c_str());
             return 1;
         }
+
         if (!any_emitted) break;
 
         if (iter + 1 >= kMaxMetaprogIters) {
@@ -563,9 +599,188 @@ int main(int argc, char** argv) {
     // Phase 7 slice 17: final, non-metaprog sema pass. Discovery loop ran in
     // metaprog_mode which skips entry-file fn bodies; here we lower them
     // for real, now that all hook-synthesized items are present.
+    //
+    // M.1 Stage 2: this sema pass is also where metacall sites are first
+    // discovered (metaprog_mode skipped fn bodies, so METACALL was never
+    // visited in the loop above). Sites carry synthesised thunk source;
+    // we run a small inner loop here to compile + invoke + splice the
+    // thunks, then re-run sema until no METACALL remains.
     prog = logos::compiler::sema_lower(asts, filenames, from_binary);
     prog.print_diags(stderr);
     if (!prog.ok()) return 1;
+
+    {
+        // logos_emit_source requires g_any_emitted alive; the metaprog loop's
+        // local has gone out of scope by now, so wire up a fresh one for the
+        // metacall splice phase.
+        bool mc_any_emitted = false;
+        g_any_emitted = &mc_any_emitted;
+        constexpr int kMaxMetacallIters = 16;
+        for (int mi = 0; !prog.metacall_sites.empty(); ++mi) {
+            if (mi >= kMaxMetacallIters) {
+                std::fprintf(stderr,
+                    "logosc: metacall loop did not converge in %d iterations\n",
+                    kMaxMetacallIters);
+                return 1;
+            }
+            // Step 1: emit thunk sources for new sites (dedup via emit_seen).
+            bool emitted_any_thunk = false;
+            for (const auto& site : prog.metacall_sites) {
+                if (site.thunk_source.empty()) continue;
+                if (logos_emit_source(site.thunk_source.c_str()))
+                    emitted_any_thunk = true;
+            }
+            if (emitted_any_thunk) {
+                // Re-sema so the JIT module below picks up the new thunks.
+                prog = logos::compiler::sema_lower(asts, filenames, from_binary);
+                prog.print_diags(stderr);
+                if (!prog.ok()) return 1;
+            }
+
+            // Step 2: full pipeline through JIT for the metacall thunks.
+            auto mc_prog = logos::compiler::sema_lower(asts, filenames, from_binary);
+            if (!mc_prog.ok()) { mc_prog.print_diags(stderr); return 1; }
+            mc_prog = logos::compiler::reflection_emit(std::move(mc_prog));
+            mc_prog = logos::compiler::mono_pass(std::move(mc_prog));
+            if (!mc_prog.ok()) { mc_prog.print_diags(stderr); return 1; }
+            mc_prog = logos::compiler::borrow_check(std::move(mc_prog));
+            if (!mc_prog.ok()) { mc_prog.print_diags(stderr); return 1; }
+
+            mlir::MLIRContext mc_ctx;
+            mc_ctx.getOrLoadDialect<mlir::func::FuncDialect>();
+            mc_ctx.getOrLoadDialect<mlir::arith::ArithDialect>();
+            mc_ctx.getOrLoadDialect<mlir::scf::SCFDialect>();
+            mc_ctx.getOrLoadDialect<mlir::cf::ControlFlowDialect>();
+            mc_ctx.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
+            auto mc_mlir = logos::compiler::mlir_gen(mc_ctx, mc_prog);
+            if (!mc_mlir) { std::fprintf(stderr, "logosc: metacall MLIR gen failed\n"); return 1; }
+            mlir::PassManager mc_pm(&mc_ctx);
+            mc_pm.addPass(mlir::createSCFToControlFlowPass());
+            mc_pm.addPass(mlir::createConvertControlFlowToLLVMPass());
+            mc_pm.addPass(mlir::createArithToLLVMConversionPass());
+            mc_pm.addPass(mlir::createConvertFuncToLLVMPass());
+            mc_pm.addPass(mlir::createReconcileUnrealizedCastsPass());
+            if (mlir::failed(mc_pm.run(*mc_mlir))) {
+                std::fprintf(stderr, "logosc: metacall MLIR lowering failed\n"); return 1;
+            }
+            mlir::registerBuiltinDialectTranslation(mc_ctx);
+            mlir::registerLLVMDialectTranslation(mc_ctx);
+            llvm::LLVMContext mc_llvm_ctx;
+            auto mc_llvm = mlir::translateModuleToLLVMIR(*mc_mlir, mc_llvm_ctx);
+            if (!mc_llvm) { std::fprintf(stderr, "logosc: metacall LLVM IR translate failed\n"); return 1; }
+            mc_llvm->setTargetTriple(llvm::Triple(llvm::sys::getDefaultTargetTriple()));
+            llvm::InitializeNativeTarget();
+            llvm::InitializeNativeTargetAsmPrinter();
+            auto mc_jit = build_jit_from_module(*mc_llvm, "logosc-metacall",
+                                                /*with_process_symbols=*/true,
+                                                &archive_paths);
+            if (!mc_jit) return 1;
+
+            // Step 3: invoke each thunk and splice the result into the AST.
+            using RT = logos::compiler::lir::LProgram::MetacallSite::RetTag;
+            bool any_spliced = false;
+            for (const auto& site : prog.metacall_sites) {
+                if (site.thunk_source.empty()) continue;
+                if (site.ast_idx >= asts.size()) continue;
+                auto* sym = mc_jit->lookup(site.thunk_name);
+                if (!sym) {
+                    std::fprintf(stderr, "logosc: metacall thunk lookup '%s': %s\n",
+                                 site.thunk_name.c_str(), mc_jit->error_str().c_str());
+                    return 1;
+                }
+
+                int64_t  i_val = 0;
+                uint64_t u_val = 0;
+                double   f_val = 0.0;
+                bool     b_val = false;
+                std::string s_val;
+                bool is_float = false, is_bool = false, is_str = false, is_unsigned = false;
+                switch (site.ret_tag) {
+                case RT::Bool:  b_val = reinterpret_cast<bool   (*)()>(sym)(); is_bool = true; break;
+                case RT::I8:    i_val = reinterpret_cast<int8_t (*)()>(sym)(); break;
+                case RT::I16:   i_val = reinterpret_cast<int16_t(*)()>(sym)(); break;
+                case RT::I24:
+                case RT::I32:   i_val = reinterpret_cast<int32_t(*)()>(sym)(); break;
+                case RT::I56:
+                case RT::I64:   i_val = reinterpret_cast<int64_t(*)()>(sym)(); break;
+                case RT::U8:    u_val = reinterpret_cast<uint8_t (*)()>(sym)(); is_unsigned = true; break;
+                case RT::U16:   u_val = reinterpret_cast<uint16_t(*)()>(sym)(); is_unsigned = true; break;
+                case RT::U24:
+                case RT::U32:   u_val = reinterpret_cast<uint32_t(*)()>(sym)(); is_unsigned = true; break;
+                case RT::U56:
+                case RT::U64:   u_val = reinterpret_cast<uint64_t(*)()>(sym)(); is_unsigned = true; break;
+                case RT::F32:   f_val = reinterpret_cast<float (*)()>(sym)(); is_float = true; break;
+                case RT::F64:   f_val = reinterpret_cast<double(*)()>(sym)(); is_float = true; break;
+                case RT::Str: {
+                    struct StrFat { const char* p; uint64_t n; };
+                    auto sf = reinterpret_cast<StrFat(*)()>(sym)();
+                    s_val.assign(sf.p ? sf.p : "", sf.n);
+                    is_str = true; break;
+                }
+                }
+
+                std::string lit_text;
+                int32_t new_code = logos::compiler::ast::LIT_INT;
+                if (is_bool) { lit_text = b_val ? "true" : "false"; new_code = logos::compiler::ast::LIT_BOOL; }
+                else if (is_str) { lit_text = s_val; new_code = logos::compiler::ast::LIT_STR; }
+                else if (is_float) {
+                    char buf[64];
+                    std::snprintf(buf, sizeof(buf), "%.17g", f_val);
+                    lit_text = buf;
+                    if (lit_text.find('.') == std::string::npos
+                        && lit_text.find('e') == std::string::npos
+                        && lit_text.find('n') == std::string::npos
+                        && lit_text.find('i') == std::string::npos)
+                        lit_text += ".0";
+                    new_code = logos::compiler::ast::LIT_FLOAT;
+                }
+                else if (is_unsigned) { lit_text = std::to_string(u_val); }
+                else { lit_text = std::to_string(i_val); }
+
+                auto& doc = asts[site.ast_idx];
+                auto* h = doc.holder();
+                auto* base = h->base();
+                auto* tom = reinterpret_cast<logos::hermes::TinyObjectMap*>(base + site.expr_offset);
+
+                logos::hermes::AnyVal value_av;
+                if (is_bool) {
+                    value_av = logos::hermes::AnyVal::from_value<uint8_t>(b_val ? 1 : 0);
+                } else {
+                    auto str_exp = doc.make_string(lit_text);
+                    if (!str_exp) {
+                        std::fprintf(stderr, "logosc: metacall splice: make_string OOM\n");
+                        return 1;
+                    }
+                    value_av = str_exp->to_anyval();
+                    base = h->base();
+                    tom = reinterpret_cast<logos::hermes::TinyObjectMap*>(base + site.expr_offset);
+                }
+
+                if (auto r = tom->put(logos::compiler::ast::CODE.code,
+                                      logos::hermes::AnyVal::from_value<int32_t>(new_code),
+                                      h->arena()); !r) {
+                    std::fprintf(stderr, "logosc: metacall splice: CODE put failed\n");
+                    return 1;
+                }
+                base = h->base();
+                tom = reinterpret_cast<logos::hermes::TinyObjectMap*>(base + site.expr_offset);
+                tom->set_schema_type_code(
+                    logos::hermes::schema::ast(static_cast<int32_t>(new_code)));
+                if (auto r = tom->put(logos::compiler::ast::VALUE.code, value_av, h->arena()); !r) {
+                    std::fprintf(stderr, "logosc: metacall splice: VALUE put failed\n");
+                    return 1;
+                }
+                any_spliced = true;
+            }
+
+            // Step 4: re-run sema. Sites should disappear (METACALL→LIT_INT).
+            // Loop continues only if new sites somehow appeared.
+            (void)any_spliced;
+            prog = logos::compiler::sema_lower(asts, filenames, from_binary);
+            prog.print_diags(stderr);
+            if (!prog.ok()) return 1;
+        }
+    }
     report("sema+lower (final)");
 
     // Phase 7 slice 19: strip metaprog hook fns from the FINAL prog. Their

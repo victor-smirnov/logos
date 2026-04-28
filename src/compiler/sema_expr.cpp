@@ -5871,12 +5871,17 @@ lir::LExprPtr SemaChecker::lower_hermes_lit(TinyMapView node) {
 
 // ── metacall <call_expr> ─────────────────────────────────────────────────
 //
-// M.1 first slice: validate the metacall site (return type is primitive
-// scalar, every arg is a compile-time constant per CTFE) and lower the
-// inner call as if the `metacall` keyword were absent. The driver-side
-// JIT-thunk synthesis + AST splice (so the call vanishes at compile time)
-// is the next slice; this pass installs the syntax + diagnostics so user
-// code can be written against the final form.
+// M.1 stage 2: validate the metacall site (return type is primitive
+// scalar, every arg is a compile-time constant per CTFE), CTFE-evaluate
+// each arg into a literal, and synthesise a no-arg thunk source string
+// `fn __metacall_thunk_<idx>() -> T { return <callee>(<lit>, ...); }`.
+// The driver feeds the thunk through logos_emit_source so the metaprog
+// JIT compiles it; the driver then invokes the thunk and splices the
+// returned literal back into the entry-file AST node at site.expr_offset
+// (overwriting CODE+VALUE in place). The METACALL itself still lowers as
+// a runtime pass-through here so the in-progress L-IR remains valid for
+// the iteration's borrow/type checks; mlir_gen never sees this lowering
+// because the AST splice runs before the final sema pass.
 //
 // On bad input we emit a diag and fall through to error_expr() so sema
 // still produces a useful tree for downstream passes.
@@ -5895,6 +5900,65 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
     // CTFE each arg of the inner call; missing => non-CT-constant diag.
     // Note: CALL stores ARGS as a flat array directly; GENERIC_CALL/STATIC_CALL
     // wrap it as a TinyMap with ITEMS=array (call_arg_list rule).
+    // Stage 2: collect printable literal text for each arg so we can splice
+    // into the synthesised thunk body. Empty string means CTFE failed.
+    std::vector<std::string> arg_lits;
+    auto print_ctfe_lit = [](const ctfe::CtfeValue& v) -> std::string {
+        using K = LogosType::Kind;
+        if (v.kind == K::Bool) return v.b ? "true" : "false";
+        if (v.kind == K::Slice) {
+            std::string s = "\"";
+            for (char c : v.s) {
+                switch (c) {
+                case '\\': s += "\\\\"; break;
+                case '"':  s += "\\\""; break;
+                case '\n': s += "\\n"; break;
+                case '\r': s += "\\r"; break;
+                case '\t': s += "\\t"; break;
+                default:   s += c; break;
+                }
+            }
+            s += "\"";
+            return s;
+        }
+        // float kinds
+        if (v.kind == K::F32 || v.kind == K::F64 || v.kind == K::FloatLit) {
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "%.17g", v.f);
+            std::string s = buf;
+            // Need a decimal point so the parser sees LIT_FLOAT, not LIT_INT.
+            if (s.find('.') == std::string::npos && s.find('e') == std::string::npos
+                && s.find('n') == std::string::npos /* nan */ && s.find('i') == std::string::npos /* inf */) {
+                s += ".0";
+            }
+            if (v.kind == K::F32) s += "f32";
+            else if (v.kind == K::F64) s += "f64";
+            return s;
+        }
+        // integer kinds
+        std::string s;
+        bool sgn = (v.kind == K::I8 || v.kind == K::I16 || v.kind == K::I24 ||
+                    v.kind == K::I32 || v.kind == K::I56 || v.kind == K::I64 ||
+                    v.kind == K::I128 || v.kind == K::IntLit);
+        if (sgn) {
+            if (v.i < 0) { s = "(-"; s += std::to_string(-(v.i + 1)); s.back()++; s += ")"; }
+            else s = std::to_string(v.i);
+        } else {
+            s = std::to_string(v.u);
+        }
+        switch (v.kind) {
+        case K::I8:  s += "i8";  break;
+        case K::I16: s += "i16"; break;
+        case K::I32: s += "i32"; break;
+        case K::I64: s += "i64"; break;
+        case K::U8:  s += "u8";  break;
+        case K::U16: s += "u16"; break;
+        case K::U32: s += "u32"; break;
+        case K::U64: s += "u64"; break;
+        default: break;  // IntLit / I24 / U24 / I56 / U56 — leave unsuffixed
+        }
+        return s;
+    };
     auto eval_args_array = [&](hermes::ArrayView args) {
         for (uint64_t i = 0; i < args.size(); ++i) {
             auto a = map_of(args.get(i));
@@ -5902,6 +5966,9 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
             if (!r) {
                 error(std::format("metacall: argument {} is not a compile-time constant ({})",
                                   i + 1, r.error().msg));
+                arg_lits.emplace_back();  // marker: CTFE failed
+            } else {
+                arg_lits.push_back(print_ctfe_lit(*r));
             }
         }
     };
@@ -5943,7 +6010,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
         error("metacall: ret type must be primitive scalar");
 
     // Record site for the eventual driver-side splice (M.1 Stage 2).
-    if (cur_prog_) {
+    if (cur_prog_ && rt && prim_ok) {
         lir::LProgram::MetacallSite site;
         site.ast_idx = cur_ast_idx_;
         site.expr_offset = static_cast<uint32_t>(node.offset().value());
@@ -5971,12 +6038,87 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
         case LogosType::Kind::Slice: site.ret_tag = RT::Str; break;
         default: site.ret_tag = RT::I64; break;
         }
+
+        // Stage 2: synthesise the no-arg thunk source.
+        // Format the inner-call text from the AST shape + CTFE-printed args.
+        std::string call_text;
+        bool ok = true;
+        // Build turbofish suffix from TYPE_PARAMS.ITEMS, if any (GENERIC_CALL/
+        // STATIC_CALL). resolve_type → type_str gives us the canonical form.
+        auto build_turbofish = [&](TinyMapView n) -> std::string {
+            if (!n.has_key(la::TYPE_PARAMS)) return {};
+            auto tplist = map_of(n.get(la::TYPE_PARAMS.code));
+            if (!tplist.has_key(la::ITEMS)) return {};
+            auto items = arr_of(tplist.get(la::ITEMS.code));
+            if (items.size() == 0) return {};
+            std::string out = "::<";
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                if (i) out += ", ";
+                out += type_str(resolve_type(map_of(items.get(i))));
+            }
+            out += ">";
+            return out;
+        };
+        if (ic == la::CALL) {
+            call_text = std::string(str_of(inner.get(la::CALLEE.code)));
+        } else if (ic == la::GENERIC_CALL) {
+            call_text = std::string(str_of(inner.get(la::CALLEE.code)));
+            call_text += build_turbofish(inner);
+        } else if (ic == la::STATIC_CALL) {
+            call_text = std::string(str_of(inner.get(la::RECEIVER.code)));
+            call_text += "::";
+            std::string mname(str_of(inner.get(la::NAME.code)));
+            std::string tf = build_turbofish(inner);
+            if (tf.empty()) {
+                call_text += mname;
+            } else {
+                // For Type::method::<T>(...) the turbofish is on the method name
+                // (per parser), so we can place it after `mname` directly.
+                call_text += mname;
+                call_text += tf;
+            }
+        } else {
+            ok = false;
+        }
+        // Append (arg_lits...). One blank means CTFE failed earlier — we
+        // already emitted a diag, just skip thunk synthesis.
+        if (ok) {
+            call_text += "(";
+            for (size_t i = 0; i < arg_lits.size(); ++i) {
+                if (i) call_text += ", ";
+                if (arg_lits[i].empty()) { ok = false; break; }
+                call_text += arg_lits[i];
+            }
+            call_text += ")";
+        }
+        if (ok) {
+            // Print the return-type text. type_str on primitives gives the
+            // surface name (i64/u64/...); for &str / Slice<u8> we hand-roll.
+            std::string ret_text;
+            if (TypeRef(rt).kind() == LogosType::Kind::Slice
+                && TypeRef(rt).elem()
+                && TypeRef(rt).elem().kind() == LogosType::Kind::U8) {
+                ret_text = "&str";
+            } else if (TypeRef(rt).kind() == LogosType::Kind::IntLit) {
+                ret_text = "i64";
+            } else if (TypeRef(rt).kind() == LogosType::Kind::FloatLit) {
+                ret_text = "f64";
+            } else {
+                ret_text = type_str(rt);
+            }
+            std::string pkg = cur_package_.empty() ? "__metacall_thunks" : cur_package_;
+            site.thunk_source = std::format(
+                "package {};\n"
+                "fn {}() -> {} {{ return {}; }}\n",
+                pkg, site.thunk_name, ret_text, call_text);
+        }
         cur_prog_->metacall_sites.push_back(std::move(site));
     }
 
-    // Pass-through: until the JIT-thunk + splice path lands, the metacall
-    // site behaves like the underlying call at runtime. This keeps user
-    // programs runnable while the const-fold loop is being wired in.
+    // Pass-through: keeps the in-progress L-IR valid for borrow/type checks
+    // during sema iterations. The driver replaces the METACALL AST node with
+    // a literal before the FINAL non-metaprog sema pass, so this lowering
+    // never reaches mlir_gen.
     return lowered;
 }
 
