@@ -22,6 +22,10 @@
 #include <logos/hermes/mem_holder.hpp>
 #include <logos/hermes/type_ops.hpp>
 #include <logos/hermes/tiny_object_map.hpp>
+#include <logos/hermes/access.hpp>
+#include <logos/hermes/object_array.hpp>
+#include <logos/hermes/arena_string.hpp>
+#include <logos/compiler/ast.hpp>
 
 // MLIR
 #include <mlir/IR/MLIRContext.h>
@@ -249,6 +253,140 @@ extern "C" int32_t logos_emit_item_blob(const uint8_t* data, uint64_t size) {
     }
     g_asts->push_back(std::move(doc).get());
     g_filenames->emplace_back("<metaprog-blob>");
+    g_from_binary->push_back(false);
+    *g_any_emitted = true;
+    return 1;
+}
+
+// Slice 5a.1 of metaprog-quote: substitution variant of emit_item_blob.
+// Reads a `QuoteItemBlob` POD struct from `blob_ptr`, snapshots the
+// template into a fresh arena, walks the document's ITEMS array, and
+// for every item-TOM that carries a `NAME_VAR` placeholder (an integer
+// index, written by `lower_quote_item` in phase 3) replaces it with a
+// freshly-allocated NAME string drawn from `idents[idx]`. Then forwards
+// to the same `g_asts->push_back` path as `logos_emit_item_blob`.
+//
+// Layout of QuoteItemBlob (mirrors stdlib/std/compiler/metaprog/ast.logos):
+//   { template_ptr: *const u8, template_size: u64,
+//     idents_ptr: *const Ident, idents_count: u64 }
+// where Ident is { ptr: *const u8, len: u64 }. POD, no relative ptrs.
+extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
+    if (!g_any_emitted || !g_asts || !g_filenames || !g_from_binary
+        || !blob_ptr) return 0;
+
+    namespace la = logos::compiler::ast;
+    using logos::hermes::AnyVal;
+    using logos::hermes::ArenaString;
+    using logos::hermes::HermesAccess;
+    using logos::hermes::ObjectArray;
+    using logos::hermes::TinyObjectMap;
+    using logos::hermes::arena_offset_t;
+
+    struct IdentPod { const uint8_t* ptr; uint64_t len; };
+    struct BlobPod {
+        const uint8_t* template_ptr;
+        uint64_t template_size;
+        const IdentPod* idents_ptr;
+        uint64_t idents_count;
+    };
+    const auto* blob = reinterpret_cast<const BlobPod*>(blob_ptr);
+    if (!blob->template_ptr || blob->template_size == 0) return 0;
+
+    // Dedupe across iterations: hash template bytes plus each ident's
+    // bytes. Two calls that produce identical output converge in 2 iters.
+    static std::set<std::string> blob_seen;
+    std::string key(reinterpret_cast<const char*>(blob->template_ptr),
+                    blob->template_size);
+    for (uint64_t i = 0; i < blob->idents_count; ++i) {
+        const auto& id = blob->idents_ptr[i];
+        key.push_back('\x1f');  // unit-separator, can't appear in idents
+        if (id.ptr && id.len) {
+            key.append(reinterpret_cast<const char*>(id.ptr), id.len);
+        }
+    }
+    if (!blob_seen.insert(key).second) return 0;
+
+    auto doc_e = logos::hermes::from_bytes_copy(blob->template_ptr,
+                                                blob->template_size);
+    if (!doc_e) {
+        std::fprintf(stderr,
+            "logos_emit_item_blob_subst: from_bytes_copy failed\n");
+        blob_seen.erase(key);
+        return 0;
+    }
+    auto doc = std::move(doc_e).get();
+
+    // Substitute placeholders. Root is MODULE TOM with ITEMS array.
+    auto& arena = HermesAccess::arena(doc);
+    auto root_off = HermesAccess::root_offset(doc);
+    auto root_ptr = [&]() {
+        return reinterpret_cast<TinyObjectMap*>(
+            HermesAccess::base(doc) + root_off.value());
+    };
+    if (root_ptr()->has_key(la::ITEMS.code)) {
+        AnyVal items_av = root_ptr()->get(la::ITEMS.code,
+                                          HermesAccess::base(doc));
+        if (!items_av.is_null()) {
+            auto items_off = items_av.to_offset();
+            auto items_ptr = [&]() {
+                return reinterpret_cast<ObjectArray*>(
+                    HermesAccess::base(doc) + items_off.value());
+            };
+            uint64_t n = items_ptr()->size();
+            for (uint64_t i = 0; i < n; ++i) {
+                AnyVal it_av = items_ptr()->get(i, HermesAccess::base(doc));
+                if (it_av.is_null() || !it_av.is_pointer()) continue;
+                auto it_off = it_av.to_offset();
+                auto item_ptr = [&]() {
+                    return reinterpret_cast<TinyObjectMap*>(
+                        HermesAccess::base(doc) + it_off.value());
+                };
+                if (!item_ptr()->has_key(la::NAME_VAR.code)) continue;
+                AnyVal idx_av = item_ptr()->get(la::NAME_VAR.code,
+                                                HermesAccess::base(doc));
+                if (!idx_av.is_value()) {
+                    std::fprintf(stderr,
+                        "logos_emit_item_blob_subst: NAME_VAR not an int\n");
+                    blob_seen.erase(key);
+                    return 0;
+                }
+                int32_t idx = idx_av.as_value<int32_t>();
+                if (idx < 0 || static_cast<uint64_t>(idx) >= blob->idents_count) {
+                    std::fprintf(stderr,
+                        "logos_emit_item_blob_subst: ident idx %d out of range (count=%llu)\n",
+                        idx, (unsigned long long)blob->idents_count);
+                    blob_seen.erase(key);
+                    return 0;
+                }
+                const auto& id = blob->idents_ptr[idx];
+                if (!id.ptr || id.len == 0) {
+                    std::fprintf(stderr,
+                        "logos_emit_item_blob_subst: ident[%d] is empty\n", idx);
+                    blob_seen.erase(key);
+                    return 0;
+                }
+                auto str_e = ArenaString::create(arena,
+                    std::string_view(reinterpret_cast<const char*>(id.ptr),
+                                     id.len));
+                if (!str_e) {
+                    std::fprintf(stderr,
+                        "logos_emit_item_blob_subst: ArenaString alloc failed\n");
+                    blob_seen.erase(key);
+                    return 0;
+                }
+                uint32_t name_off = static_cast<uint32_t>(
+                    reinterpret_cast<uint8_t*>(str_e.get())
+                    - HermesAccess::base(doc));
+                // ArenaString::create may grow the arena; re-derive ptrs.
+                (void)item_ptr()->put(la::NAME.code,
+                    AnyVal::from_offset(arena_offset_t(name_off)), arena);
+                item_ptr()->remove(la::NAME_VAR.code, HermesAccess::base(doc));
+            }
+        }
+    }
+
+    g_asts->push_back(std::move(doc));
+    g_filenames->emplace_back("<metaprog-blob-subst>");
     g_from_binary->push_back(false);
     *g_any_emitted = true;
     return 1;
@@ -580,6 +718,12 @@ int main(int argc, char** argv) {
         if (!meta_jit->define_symbol("logos_emit_item_blob",
                                      reinterpret_cast<void*>(&logos_emit_item_blob))) {
             std::fprintf(stderr, "logosc: bind logos_emit_item_blob: %s\n",
+                         meta_jit->error_str().c_str());
+            return 1;
+        }
+        if (!meta_jit->define_symbol("logos_emit_item_blob_subst",
+                                     reinterpret_cast<void*>(&logos_emit_item_blob_subst))) {
+            std::fprintf(stderr, "logosc: bind logos_emit_item_blob_subst: %s\n",
                          meta_jit->error_str().c_str());
             return 1;
         }
