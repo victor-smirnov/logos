@@ -35,6 +35,44 @@ pub struct Item {
     pub raw: AnyVal,
 }
 
+// `Ident` — borrowed identifier bytes. Slice 5/6 of metaprog-quote:
+// produced by `Item::name()`/`OView::ast_node_ident()` and consumed
+// at `#name` antiquot positions inside `quote_item! { ... }`. The
+// pointer borrows from whatever arena owned the source string —
+// callers must not let that arena outlive the Ident's use.
+pub struct Ident {
+    pub ptr: *const u8,
+    pub len: u64,
+}
+
+// `QuoteItemBlob` — bundle returned by `quote_item! { ... }` post-
+// Slice 5a.1. `template_ptr/size` is the rodata Hermes blob with
+// `NAME_VAR` placeholders carrying integer indices; `idents_ptr/count`
+// is a runtime-collected array (one entry per `#name` site, in the
+// order they appear in the quote body). The host shim
+// `logos_emit_item_blob_subst` walks the template, substitutes each
+// placeholder with `idents[idx]`, and forwards to the regular
+// item-blob emit path.
+pub struct QuoteItemBlob {
+    pub template_ptr: *const u8,
+    pub template_size: u64,
+    pub idents_ptr: *const Ident,
+    pub idents_count: u64,
+}
+
+impl Item {
+    // Read the item's NAME field as an `Ident`. Works for STRUCT,
+    // ENUM, FN, etc.; for nodes without a NAME key the returned
+    // Ident has `ptr=null, len=0`. The Ident borrows from the AST
+    // arena owned by `view`.
+    pub fn name(self: &Item, view: &OView) -> Ident {
+        let av: AnyVal = self.raw;
+        let nm: AnyVal = view.tiny_map_get(av, 1 as u8);  // NAME = 1
+        let sv: StringView = view.get_str_view(nm);
+        return Ident { ptr: sv.ptr, len: sv.len };
+    }
+}
+
 // ── AST schema (mirrors include/logos/compiler/ast.hpp) ────────────
 //
 // AST keys (TinyObjectMap field discriminators) are inlined as u8

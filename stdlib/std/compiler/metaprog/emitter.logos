@@ -28,6 +28,12 @@ extern fn logos_emit_source(src: *const u8) -> i32;
 // from logos_metaprog_test_module_blob which parses an inline source.
 extern fn logos_emit_item_blob(data: *const u8, size: u64) -> i32;
 
+// Slice 5a.1: substitution variant. Reads QuoteItemBlob fields, copies
+// the template into a fresh arena, replaces `NAME_VAR=idx` placeholders
+// with NAME strings drawn from `idents[idx]`, then forwards to the
+// regular item-blob path.
+extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;
+
 // Test fixture for Slice 3. Parses `src` (NUL-terminated) and writes the
 // resulting Hermes arena's base+size into out-params. The blob keepalive
 // lives on the host side, valid through the rest of compilation.
