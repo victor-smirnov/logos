@@ -288,6 +288,11 @@
     KW_REF      = "ref"
     KW_NULL     = "null"
 
+    // Reserved (no grammar use yet) — kept for stackless-coroutine path on
+    // wasm32/64 where threads/context-switch aren't available.
+    KW_ASYNC    = "async"
+    KW_AWAIT    = "await"
+
     // Punctuation
     LBRACE      = "{"
     RBRACE      = "}"
