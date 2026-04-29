@@ -6,6 +6,12 @@
 #include "ctfe.hpp"
 
 #include <logos/hermes/type_registry.hpp>
+#include <logos/hermes/access.hpp>
+#include <logos/hermes/arena_string.hpp>
+#include <logos/hermes/clone.hpp>
+#include <logos/hermes/object_array.hpp>
+#include <logos/hermes/tiny_object_map.hpp>
+#include <logos/hermes/schema_codes.hpp>
 
 #include <algorithm>
 #include <cstdio>
@@ -393,6 +399,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::HERMES_BOOL:
     case la::HERMES_NULL:  return lower_hermes_lit(expr);
     case la::HERMES_BLOB:  return lower_hermes_blob(expr);
+    case la::QUOTE_ITEM:   return lower_quote_item(expr);
     // C1 bug fix: $-capture nodes must not appear as standalone expressions;
     // they are only valid inside hermes_val (within lower_hermes_val).
     case la::HERMES_CAP_IDENT:
@@ -5867,6 +5874,151 @@ lir::LExprPtr SemaChecker::lower_hermes_lit(TinyMapView node) {
     }
     // Type: HermesStatic for static blobs; Hermes for captures (codegen handles both).
     auto result_type = lit.has_captures ? make_struct_type("Hermes") : make_struct_type("HermesStatic");
+    return builder().hermes_lit_v(std::move(lit), result_type);
+}
+
+// QUOTE_ITEM — `quote_item! { item* }`. Sema builds a fresh Hermes
+// document representing a synthetic `package main; <items>;` module by
+// deep-cloning each parsed item AnyVal into the new arena, snapshots the
+// arena bytes, and emits an EHermesLit{static_blob=bytes} of type
+// HermesStatic. The resulting blob is shape-compatible with the byte
+// layout produced by `logos_metaprog_test_module_blob` (Slice 3), so a
+// hook can pass `(blob.ptr, blob.size())` straight to
+// `logos_emit_item_blob`.
+lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
+    using logos::hermes::HermesAccess;
+    using logos::hermes::ObjectArray;
+    using logos::hermes::ArenaString;
+    using logos::hermes::TinyObjectMap;
+    using logos::hermes::arena_offset_t;
+    using logos::hermes::make_doc;
+    using logos::hermes::clone;
+    using logos::hermes::copy_object_into;
+
+    if (!holder_) {
+        error("quote_item!: missing AST holder");
+        return error_expr();
+    }
+    const uint8_t* src_base = holder_->base();
+
+    // ITEMS is the parsed item array (may be empty for `quote_item! {}`).
+    ArrayView src_items;
+    if (node.has_key(la::ITEMS) && !node.get(la::ITEMS.code).is_null()) {
+        src_items = arr_of(node.get(la::ITEMS.code));
+    }
+
+    auto doc_e = make_doc(8192);
+    if (!doc_e) {
+        error("quote_item!: make_doc failed");
+        return error_expr();
+    }
+    auto doc = std::move(doc_e).get();
+    auto& dst_arena = HermesAccess::arena(doc);
+
+    // Build ITEMS array in dst, deep-copying each item AnyVal.
+    auto items_arr_e = ObjectArray::create(dst_arena,
+            std::max<uint64_t>(4, src_items.is_null() ? 0 : src_items.size()));
+    if (!items_arr_e) {
+        error("quote_item!: items array alloc failed");
+        return error_expr();
+    }
+    uint32_t items_off = static_cast<uint32_t>(
+        reinterpret_cast<uint8_t*>(items_arr_e.get()) - HermesAccess::base(doc));
+
+    if (!src_items.is_null()) {
+        for (uint64_t i = 0; i < src_items.size(); ++i) {
+            AnyVal it_av = src_items.get(i);
+            if (it_av.is_null()) continue;
+            // Item AnyVal is a pointer-into-src arena (TinyObjectMap).
+            const void* src_obj = src_base + it_av.to_offset().value();
+            auto cp_e = copy_object_into(src_obj, src_base, doc);
+            if (!cp_e) {
+                error("quote_item!: copy_object_into failed");
+                return error_expr();
+            }
+            void* dst_obj = cp_e.get();
+            uint32_t dst_off = static_cast<uint32_t>(
+                reinterpret_cast<uint8_t*>(dst_obj) - HermesAccess::base(doc));
+            // Rebase items_arr each push: the arena may have grown during
+            // copy_object_into and invalidated cached pointers.
+            auto* items_arr = reinterpret_cast<ObjectArray*>(
+                HermesAccess::base(doc) + items_off);
+            (void)items_arr->push_back(AnyVal::from_offset(arena_offset_t(dst_off)),
+                                       dst_arena);
+        }
+    }
+
+    // Empty PATH_PARTS and USES arrays. Snapshot offsets between
+    // allocations because the arena may rebase across grows.
+    auto paths_e = ObjectArray::create(dst_arena, 4);
+    if (!paths_e) {
+        error("quote_item!: aux array alloc failed");
+        return error_expr();
+    }
+    uint32_t paths_off = static_cast<uint32_t>(
+        reinterpret_cast<uint8_t*>(paths_e.get()) - HermesAccess::base(doc));
+
+    auto uses_e  = ObjectArray::create(dst_arena, 4);
+    if (!uses_e) {
+        error("quote_item!: aux array alloc failed");
+        return error_expr();
+    }
+    uint32_t uses_off = static_cast<uint32_t>(
+        reinterpret_cast<uint8_t*>(uses_e.get()) - HermesAccess::base(doc));
+
+    // NAME = "main".
+    auto name_e = ArenaString::create(dst_arena, std::string_view("main"));
+    if (!name_e) {
+        error("quote_item!: name alloc failed");
+        return error_expr();
+    }
+    uint32_t name_off = static_cast<uint32_t>(
+        reinterpret_cast<uint8_t*>(name_e.get()) - HermesAccess::base(doc));
+
+    // Root TinyObjectMap — fields: CODE, NAME, PATH_PARTS, USES, ITEMS, SRC_LINE.
+    auto root_e = HermesAccess::raw_tiny_map(doc, 8);
+    if (!root_e) {
+        error("quote_item!: root tom alloc failed");
+        return error_expr();
+    }
+    uint32_t root_off = static_cast<uint32_t>(
+        reinterpret_cast<uint8_t*>(root_e.get()) - HermesAccess::base(doc));
+    // root pointer must be re-derived after every put() since put can grow.
+    auto root = [&]() {
+        return reinterpret_cast<TinyObjectMap*>(HermesAccess::base(doc) + root_off);
+    };
+    (void)root()->put(la::CODE.code,
+                    AnyVal::from_value(static_cast<int32_t>(la::MODULE.code)),
+                    dst_arena);
+    (void)root()->put(la::NAME.code,
+                    AnyVal::from_offset(arena_offset_t(name_off)), dst_arena);
+    (void)root()->put(la::mod::PATH_PARTS.code,
+                    AnyVal::from_offset(arena_offset_t(paths_off)), dst_arena);
+    (void)root()->put(la::USES.code,
+                    AnyVal::from_offset(arena_offset_t(uses_off)), dst_arena);
+    (void)root()->put(la::ITEMS.code,
+                    AnyVal::from_offset(arena_offset_t(items_off)), dst_arena);
+    (void)root()->put(la::SRC_LINE.code,
+                    AnyVal::from_value<int32_t>(1), dst_arena);
+    root()->set_schema_type_code(
+        logos::hermes::schema::ast(static_cast<int32_t>(la::MODULE.code)));
+
+    HermesAccess::set_root_offset(doc, arena_offset_t(root_off));
+
+    // Compact + snapshot bytes.
+    auto packed_e = clone(doc);
+    if (!packed_e) {
+        error("quote_item!: clone failed");
+        return error_expr();
+    }
+    auto packed = std::move(packed_e).get();
+    auto& packed_arena = HermesAccess::arena(packed);
+    const uint8_t* data = packed_arena.head().data();
+    size_t used = packed_arena.total_used();
+
+    lir::EHermesLit lit;
+    lit.static_blob.assign(data, data + used);
+    auto result_type = make_struct_type("HermesStatic");
     return builder().hermes_lit_v(std::move(lit), result_type);
 }
 

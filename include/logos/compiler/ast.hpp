@@ -264,6 +264,7 @@ inline constexpr Code GENOS_DEF            {"GENOS_DEF",           196}; // geno
 inline constexpr Code BLOCK_STMT           {"BLOCK_STMT",          197}; // bare scoping block { stmts... }; BODY = block
 inline constexpr Code METACALL             {"METACALL",            198}; // metacall <call_expr>; VALUE = inner call AST
 inline constexpr Code HERMES_BLOB          {"HERMES_BLOB",         199}; // sema-internal: pre-serialised Hermes static blob (driver splice from metacall HermesStatic return); VALUE = raw blob bytes (Varchar)
+inline constexpr Code QUOTE_ITEM           {"QUOTE_ITEM",          200}; // Slice 4 of metaprog-quote: `quote_item! { item* }`. ITEMS = array of parsed item AST nodes; sema deep-clones them into a fresh module, serialises bytes, and rewrites the node into a HermesStatic literal whose &str value is the splice-ready blob.
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  META            {"META",               16};   // meta @{...} block node on struct/trait/datatype declarations (reuses PATH_PARTS slot; these node types never co-exist)

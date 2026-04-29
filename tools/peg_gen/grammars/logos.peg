@@ -242,12 +242,14 @@
     BLOCK_STMT                  = 197   // bare scoping block { stmts... }; BODY = block
     METACALL                    = 198   // metacall <call_expr>; VALUE = inner call AST
     TEMPLATE_DECL               = 199   // `template <decl>` — declaration-as-data; VALUE = wrapped item AST
+    QUOTE_ITEM                  = 200   // quote_item! { item* } — typed AST literal; ITEMS = array of item nodes
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
 %tokens {
     // Keywords (longest-match first within same length)
     KW_CONTINUE = "continue"
+    KW_QUOTE_ITEM = "quote_item"
     KW_TEMPLATE = "template"
     KW_PACKAGE  = "package"
     KW_EIDOS = "eidos"
@@ -1311,6 +1313,8 @@
                   / match_stmt       // match expr { ... }  — as expression
                   / KW_METACALL call_expr
                                      => { CODE: METACALL, VALUE: $2 }
+                  / quote_item_expr
+
                   / call_expr        // IDENT(args) / Type::method(args) — before enum_lit/IDENT
                   / enum_lit         // IDENT::VARIANT     — after call_expr (no parens)
                   / RAW_STRING => { CODE: LIT_STR, VALUE: $1 }
@@ -1463,6 +1467,15 @@
     // ── Parenthesised expression ──────────────────────────────────
     paren_expr <- LPAREN expr RPAREN
                => { CODE: PAREN_EXPR, VALUE: $2 }
+
+    // ── quote_item! { item* } — typed AST literal ─────────────────
+    // Slice 4 of metaprog-quote (~/.claude/plans/metaprog-quote.md):
+    // body parses as zero or more `item` declarations. Sema deep-clones
+    // those items into a fresh Hermes module, serialises bytes, and
+    // emits a HermesStatic literal — the expression value is the byte
+    // slice that Slice 3's logos_emit_item_blob consumes.
+    quote_item_expr <- KW_QUOTE_ITEM BANG LBRACE item* RBRACE
+                    => { CODE: QUOTE_ITEM, ITEMS: $4 }
 
     // ── Type parameter list: <T, U: Bound1 + Bound2> ─────────────
     // Also used for specialisation patterns: <i32>, <*T>, <[T; 4]>, etc.

@@ -1,0 +1,32 @@
+// Slice 4 of metaprog-quote (~/.claude/plans/metaprog-quote.md).
+//
+// `quote_item! { item* }` lowers in sema to a HermesStatic blob whose
+// bytes form a synthetic `package main; <items>;` Hermes module —
+// shape-compatible with the blobs produced by Slice 3's
+// logos_metaprog_test_module_blob fixture. The hook hands the blob to
+// logos_emit_item_blob and the host splices the items as a fresh
+// entry-ast. Main then uses the injected struct at runtime.
+
+package main;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+
+#[metaprog_handler("quote_inject")]
+fn quote_inject_hook(target_offset: u32) -> () {
+    let blob: HermesStatic = quote_item! {
+        struct QuotedFoo { x: i32 }
+    };
+    unsafe {
+        logos_emit_item_blob(blob.ptr, hermes_static_size(blob.ptr));
+    }
+    return;
+}
+
+#[quote_inject]
+struct Marker {}
+
+unsafe fn main() -> i32 {
+    let f: QuotedFoo = QuotedFoo { x: 42 };
+    return f.x;
+}

@@ -137,6 +137,8 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         for (size_t ai = 0; ai < asts.size(); ++ai) {
             bool is_bin = (from_binary_ && ai < from_binary_->size()) ? (*from_binary_)[ai] : false;
             if (is_bin) continue;
+            // Bind helpers (arr_of/map_of/code_of/str_of) to this ast's holder.
+            holder_ = asts[ai].holder();
             auto root = asts[ai].root_object().as_tiny_map();
             if (!root.has_key(la::ITEMS)) continue;
             auto items = arr_of(root.get(la::ITEMS.code));
