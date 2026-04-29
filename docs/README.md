@@ -24,7 +24,7 @@ Start here if you want to *work on* Logos itself.
 
 ## Project Status
 
-- [Roadmap](roadmap.md) — what is implemented, what is in progress, what is planned.
+- [Roadmap](roadmap.md) — strategic direction (MP1/MP2/MP3, build system pivot, self-hosting plan), current phase, and a snapshot of what is implemented, in progress, and planned.
 
 ## Essays
 

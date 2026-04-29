@@ -32,22 +32,17 @@ Without a body, this binds metadata to a generic instantiation. It is the chosen
 
 [src/compiler/reflection_emit.cpp](../../src/compiler/reflection_emit.cpp) is the compiler-side path that emits per-type metadata. The compile-time programming surface is being grown on top of this rather than as a separate facility.
 
-## Phase 2c.4e (In Progress)
+## Recent Refactor (Closed 2026-04-28)
 
-The current refactoring effort migrates the compiler's internals from raw `Type *` access to a `TypeRef` accessor abstraction, on a per-site basis. The ordering is:
+The compiler's L-IR (`LExpr`/`LStmt`/`Pattern`/`HermesVal`) was migrated to be **POD shells over a Hermes mirror**. Payload now lives in a Hermes document; `lir_view::ExprRef`/`StmtRef`/`PatRef`/`HermesValRef` is the typed accessor surface. See [ADR 0006](../adr/0006-lir-hermes-cutover.md) and the `feat_lir_b6_cutover.md` memory note.
 
-1. Small files first — done. Four files (33 of 255 sites) migrated.
-2. Larger files next — `sema_expr.cpp`, `sema_stmt.cpp`, `mlir_gen_*.cpp`, `mono_impl.hpp`. Not yet started.
-
-The recent commit history reflects this: `2c.4e.2c` switched `types_equal` to take `TypeRef`; `2c.4e.2d.0`–`2c.4e.2d.3` moved pointer-field reads to accessor calls in borrow_check, sema, mono_clone, and sema_impl.hpp.
-
-Why this matters for metaprogramming: the `TypeRef` accessor surface is the same surface a compile-time Logos program will eventually see. Stabilizing it inside the compiler is a prerequisite for exposing it to user metaprograms.
-
-The master plan for this work lives at `~/.claude/plans/snappy-knitting-kay.md` (out of tree).
+Why this matters for metaprogramming: the bytes *are* the IR. A metafunction that reads or builds compiler IR consumes the same Hermes layout that goes on the wire and on disk. The accessor surface (`lir_view`) is what user metaprograms will eventually see, stabilized inside the compiler first.
 
 ## What Is Planned
 
-- **Compile-time Logos programs.** Code that runs at compile time with access to a compiler API. Replaces the templating/macro layer of conventional systems languages. The first concrete users will be the standard library's container traits.
+The metaprogramming rollout is staged across three phases (MP1 / MP2 / MP3) tied to a strategic shift toward a Logos-native build system. See the [Roadmap](../roadmap.md#strategic-direction) for the full picture; the items below are the immediately-relevant pieces.
+
+- **Compile-time Logos programs (MP1).** Code that runs at compile time with access to a compiler API. Replaces the templating/macro layer of conventional systems languages. The first concrete users will be the standard library's container traits and Memoria-side derives. Includes the `template` keyword for declarations-as-data, `#[apply(metafn)]` at declaration sites, and typed `quote_*!` forms with `#expr` antiquotation.
 - **Vec<Class> over C++ type lists.** Once compile-time programs run, generic-over-shape utilities (serializers, hashers, equality) are written as ordinary loops over a `Vec<Class>` rather than as recursive type-list templates.
 - **Datalog/Rete on Logos.** A native Datalog engine in Logos itself, using Hermes as the fact base. Long-term, this is a candidate for the compiler's trait resolution and borrow analysis. It is also intentional dogfooding — the engine and the compiler exercise each other.
 - **Constraint solving via Z3.** Embedding Z3 cleanly behind a small solver layer is a near-term priority. Used for trait resolution, reward signals (for AI-generated code), and verification.
