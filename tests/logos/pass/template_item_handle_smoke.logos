@@ -1,0 +1,18 @@
+// Slice 2 smoke: `Item` from std.compiler.metaprog declares as a return
+// type and is constructible. No accessors yet — Slice 4's quote_item!
+// will be the first real producer; this just proves the type exists,
+// can flow through fn signatures, and can be returned/consumed.
+package template_item_handle_smoke;
+
+use std.compiler.metaprog;
+use std.hermes.anyval;
+
+fn make_item() -> Item {
+    return Item { raw: AnyVal::null_ptr() };
+}
+
+fn main() -> i32 {
+    let it: Item = make_item();
+    let _ = it;
+    return 0;
+}

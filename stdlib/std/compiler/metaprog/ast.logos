@@ -17,6 +17,24 @@ use std.hermes.anyval;
 use std.hermes.string;
 use std.lang.text;
 
+// ── AST handle types ──────────────────────────────────────────────
+//
+// Typed wrappers over AnyVal that distinguish AST node kinds at the
+// type level. Slice 2 of the metaprog quote epic
+// (~/.claude/plans/metaprog-quote.md): `quote_item! { ... }` returns
+// `Item`; later slices add `Expr`, `Stmt`, `Pat`, `Type`, `Ident` for
+// the remaining quote forms and `#name` anti-quotation.
+//
+// Holder/lifetime is intentionally NOT part of the type for the MVP:
+// quote literals lower to HermesStatic blobs (rodata), so `raw` points
+// into static memory and no retain count is needed. Once metafunctions
+// start mutating items or stashing them across iterations, Item can
+// grow a holder field without breaking the type identity.
+
+pub struct Item {
+    pub raw: AnyVal,
+}
+
 // ── AST schema (mirrors include/logos/compiler/ast.hpp) ────────────
 //
 // AST keys (TinyObjectMap field discriminators) are inlined as u8
