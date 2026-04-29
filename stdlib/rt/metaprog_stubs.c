@@ -33,6 +33,20 @@ int32_t logos_emit_source(const char* src) {
 }
 
 __attribute__((weak))
+int32_t logos_emit_item_blob(const uint8_t* data, uint64_t size) {
+    (void)data; (void)size;
+    metaprog_unavailable("logos_emit_item_blob");
+}
+
+__attribute__((weak))
+int32_t logos_metaprog_test_module_blob(const char* src, uint64_t src_len,
+                                        const uint8_t** out_data,
+                                        uint64_t* out_size) {
+    (void)src; (void)src_len; (void)out_data; (void)out_size;
+    metaprog_unavailable("logos_metaprog_test_module_blob");
+}
+
+__attribute__((weak))
 void logos_get_module_ast_oview(void** out_holder,
                                 uint64_t* out_root_offset,
                                 const uint8_t** out_zone_base) {

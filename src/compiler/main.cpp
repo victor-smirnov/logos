@@ -225,6 +225,64 @@ extern "C" int32_t logos_emit_source(const char* src) {
     return 1;
 }
 
+// Slice 3 of metaprog-quote (~/.claude/plans/metaprog-quote.md): item-level
+// splice via Hermes-bytes. The blob is a complete arena snapshot of a one-
+// module Hermes document (same shape as parser output). Host reconstructs
+// it via from_bytes_copy and pushes onto the asts vector — sema's next
+// iteration sees it like any other source file. Slice 4 will produce these
+// bytes from quote_item! literals; for now Slice 3 has a test fixture that
+// parses a string and hands its bytes back, just to exercise the seam.
+//
+// Dedup: hash (size, content) so a handler that always emits the same
+// blob converges in 2 iters (mirrors logos_emit_source's string dedup).
+extern "C" int32_t logos_emit_item_blob(const uint8_t* data, uint64_t size) {
+    if (!g_any_emitted || !g_asts || !g_filenames || !g_from_binary
+        || !data || size == 0) return 0;
+    static std::set<std::string> blob_seen;
+    std::string key(reinterpret_cast<const char*>(data), size);
+    if (!blob_seen.insert(key).second) return 0;
+    auto doc = logos::hermes::from_bytes_copy(data, size);
+    if (!doc) {
+        std::fprintf(stderr, "logos_emit_item_blob: from_bytes_copy failed\n");
+        blob_seen.erase(key);
+        return 0;
+    }
+    g_asts->push_back(std::move(doc).get());
+    g_filenames->emplace_back("<metaprog-blob>");
+    g_from_binary->push_back(false);
+    *g_any_emitted = true;
+    return 1;
+}
+
+// Slice 3 test fixture: parses an inline source string and exposes the
+// resulting Hermes arena bytes through out-params. The handler then calls
+// logos_emit_item_blob with those bytes. Goes away once Slice 4's
+// quote_item! lands and produces the same shape from in-Logos code.
+namespace {
+std::vector<logos::hermes::Hermes> g_test_blob_keepalive;
+}
+extern "C" int32_t logos_metaprog_test_module_blob(
+        const char* src, uint64_t src_len,
+        const uint8_t** out_data, uint64_t* out_size) {
+    if (!src || !out_data || !out_size) return 0;
+    *out_data = nullptr;
+    *out_size = 0;
+    std::string s(src, src_len);
+    logos::compiler::LogosParser parser(s);
+    auto ast = parser.parse_module();
+    if (ast.is_null() || !parser.at_eof()) {
+        std::fprintf(stderr,
+            "logos_metaprog_test_module_blob: parse failed near line %u\n",
+            parser.next_line());
+        return 0;
+    }
+    auto* h = ast.holder();
+    *out_data = h->base();
+    *out_size = static_cast<uint64_t>(h->arena().head().used);
+    g_test_blob_keepalive.push_back(std::move(ast));
+    return 1;
+}
+
 // Round-trip a stack-built LLVM module through textual IR into a fresh
 // heap-owned LLVMContext, then hand it to a new logos::jit::Jit. Returns
 // the fully initialized Jit or nullptr on failure (errors printed).
@@ -516,6 +574,18 @@ int main(int argc, char** argv) {
         if (!meta_jit->define_symbol("logos_emit_source",
                                      reinterpret_cast<void*>(&logos_emit_source))) {
             std::fprintf(stderr, "logosc: bind logos_emit_source: %s\n",
+                         meta_jit->error_str().c_str());
+            return 1;
+        }
+        if (!meta_jit->define_symbol("logos_emit_item_blob",
+                                     reinterpret_cast<void*>(&logos_emit_item_blob))) {
+            std::fprintf(stderr, "logosc: bind logos_emit_item_blob: %s\n",
+                         meta_jit->error_str().c_str());
+            return 1;
+        }
+        if (!meta_jit->define_symbol("logos_metaprog_test_module_blob",
+                                     reinterpret_cast<void*>(&logos_metaprog_test_module_blob))) {
+            std::fprintf(stderr, "logosc: bind logos_metaprog_test_module_blob: %s\n",
                          meta_jit->error_str().c_str());
             return 1;
         }

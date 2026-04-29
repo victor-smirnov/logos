@@ -1,0 +1,34 @@
+// Slice 3 of metaprog-quote (~/.claude/plans/metaprog-quote.md).
+//
+// Exercises the bytes path that Slice 4's `quote_item!` will use:
+// host-side test fixture parses an inline source string into a Hermes
+// document, the handler hands those bytes to `logos_emit_item_blob`,
+// host splices the blob in as a fresh entry-ast. Main then uses the
+// injected `InjectedFoo` / `InjectedBar` structs at runtime.
+
+package main;
+
+use std.compiler.metaprog;
+
+#[metaprog_handler("inject_pair")]
+fn inject_pair_hook(target_offset: u32) -> () {
+    let src: str = "package main; struct InjectedFoo { x: i32 } struct InjectedBar { y: i32 }";
+    let mut data: *const u8 = 0 as *const u8;
+    let mut size: u64 = 0 as u64;
+    unsafe {
+        logos_metaprog_test_module_blob(src.as_ptr(), src.len() as u64,
+            &mut data as *mut *const u8,
+            &mut size as *mut u64);
+        logos_emit_item_blob(data, size);
+    }
+    return;
+}
+
+#[inject_pair]
+struct Marker {}
+
+unsafe fn main() -> i32 {
+    let f: InjectedFoo = InjectedFoo { x: 7 };
+    let b: InjectedBar = InjectedBar { y: 11 };
+    return f.x + b.y;
+}
