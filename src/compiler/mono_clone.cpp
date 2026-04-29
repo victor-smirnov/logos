@@ -560,8 +560,24 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             lir_view::ECallView v{eref};
             lir::ECall nc;
             nc.callee = std::string(v.callee());
-            for (auto ta : v.type_args(out_.type_pool.impl()))
+            for (auto ta : v.type_args(out_.type_pool.impl())) {
+                if (ta && ta.kind() == LogosType::Kind::TypeVar) {
+                    auto pit = cur_packs_.find(std::string(ta.type_var_name()));
+                    if (pit != cur_packs_.end()) {
+                        for (auto pt : pit->second) nc.type_args.push_back(pt);
+                        continue;
+                    }
+                }
                 nc.type_args.push_back(subst_type(ta, s));
+            }
+            // sizeof...(T) intrinsic: sema lowered it to a magic call that
+            // carries the pack TypeVar in type_args[0]. After expansion above,
+            // nc.type_args holds the concrete pack types — emit their count.
+            if (nc.callee == "__sizeof_pack__") {
+                int64_t n = (int64_t)nc.type_args.size();
+                result->mirror_offset_ = lir_mirror_emit_lit_int(out_, result->type, n);
+                break;
+            }
             v.each_arg([&](lir_view::ExprRef ar) {
                 if (ar && ar.kind() == lir_schema::expr::Code::PackExpand) {
                     std::string pe_var_name(lir_view::EPackExpandView{ar}.var_name());
@@ -700,8 +716,16 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                     v.each_arg([&](lir_view::ExprRef ar) {
                         nc.args.push_back(subst_child_expr(ar));
                     });
-                    for (auto ta : v.type_args(out_.type_pool.impl()))
+                    for (auto ta : v.type_args(out_.type_pool.impl())) {
+                        if (ta && ta.kind() == LogosType::Kind::TypeVar) {
+                            auto pit = cur_packs_.find(std::string(ta.type_var_name()));
+                            if (pit != cur_packs_.end()) {
+                                for (auto pt : pit->second) nc.type_args.push_back(pt);
+                                continue;
+                            }
+                        }
                         nc.type_args.push_back(subst_type(ta, s));
+                    }
                     if (!nc.type_args.empty())
                         nc.callee = mangle(tmpl_key, nc.type_args);
                     result->mirror_offset_ = lir_mirror_emit_call(
@@ -724,8 +748,16 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             nm.receiver = std::move(new_recv);
             nm.method = method;
             nm.resolved_symbol = resolved_symbol;
-            for (auto ta : v.type_args(out_.type_pool.impl()))
+            for (auto ta : v.type_args(out_.type_pool.impl())) {
+                if (ta && ta.kind() == LogosType::Kind::TypeVar) {
+                    auto pit = cur_packs_.find(std::string(ta.type_var_name()));
+                    if (pit != cur_packs_.end()) {
+                        for (auto pt : pit->second) nm.type_args.push_back(pt);
+                        continue;
+                    }
+                }
                 nm.type_args.push_back(subst_type(ta, s));
+            }
             nm.vtable_index = vtable_index;
             nm.tag_system = tag_system;
             nm.tag_trait  = tag_trait;

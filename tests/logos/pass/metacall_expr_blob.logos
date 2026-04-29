@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: Apache-2.0
+// Slice 7 of metaprog-quote — derisk validator for position-aware HERMES_BLOB
+// lowering.
+//
+// The C++ host fixture `logos_test_make_bin_op_blob` hand-builds a Hermes
+// blob whose root TOM is `BINOP{LHS=LIT_INT(1), RHS=LIT_INT(2), OP="+"}`
+// with `schema_type_code = ast(BINOP)`. The metafunction returns it as
+// `ExprBlob` (HermesStatic-shaped marker); pass-1 sema sees the marker and
+// defers type-check on `let x: i64 = metacall ...`. The driver splices
+// the blob bytes; pass-2 sema's `lower_hermes_blob` reads root's
+// schema_type_code, recognises CAT_AST + BINOP, deserialises the root
+// TOM and recurses into `lower_expr` — which lowers the binop normally.
+// Net effect: `metacall build_expr()` evaluates to `1 + 2 = 3`.
+package metacall_expr_blob;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+
+extern fn logos_test_make_bin_op_blob() -> ExprBlob;
+
+fn build_expr() -> ExprBlob {
+    unsafe { return logos_test_make_bin_op_blob(); }
+}
+
+unsafe fn main() -> i32 {
+    let x: i64 = metacall build_expr();
+    return x as i32;
+}

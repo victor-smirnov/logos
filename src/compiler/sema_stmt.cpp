@@ -489,6 +489,19 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     hint_struct_type_ = saved_struct_hint;
 
     TypeRef var_type;
+    // Slice 7 of metaprog-quote: an ExprBlob-typed RHS marks a deferred
+    // metacall whose actual expr type is determined post-splice (pass-2
+    // sema reads the blob's root schema_type_code and recurses into
+    // lower_expr). Pass-1 here just adopts the annotation and skips the
+    // strict type-equality check; pass-2 will verify compatibility once
+    // the HERMES_BLOB has been lowered to a real expr.
+    bool rhs_is_expr_blob =
+        TypeRef(rhs_type).kind() == LogosType::Kind::Struct &&
+        TypeRef(rhs_type).struct_name() == "ExprBlob";
+    if (rhs_is_expr_blob && ann != nullptr) {
+        rhs_type = ann;
+        if (rhs) rhs->type = ann;
+    }
     if (ann != nullptr) {
         // impl Trait annotation: any concrete struct/class that was returned from an
         // impl-Trait-returning function is acceptable — treat the variable type as the
@@ -497,6 +510,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         if (!ann_is_impl &&
             TypeRef(ann).kind() != LogosType::Kind::Error &&
             TypeRef(rhs_type).kind() != LogosType::Kind::Error &&
+            !rhs_is_expr_blob &&
             !types_compatible(rhs_type, ann)) {
             // Non-capturing closure literal → fn(...) -> T coercion.
             if (try_coerce_closure_to_fnptr(rhs, ann)) {

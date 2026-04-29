@@ -25,6 +25,7 @@
 #include <logos/hermes/access.hpp>
 #include <logos/hermes/object_array.hpp>
 #include <logos/hermes/arena_string.hpp>
+#include <logos/hermes/clone.hpp>
 #include <logos/compiler/ast.hpp>
 
 // MLIR
@@ -392,6 +393,612 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
     return 1;
 }
 
+// Slice 5c+8 of metaprog-quote: substitution + repetition shim for
+// `quote_expr!`. lower_quote_expr packs a wrapper Hermes doc whose
+// root TOM has VALUE=expr_offset and ITEMS=placeholder-offsets array.
+// Each placeholder is a VAR_REF TOM with NAME_VAR holding an int idx
+// into the caller-supplied IdentSpan array. Spans are { ptr, count };
+// scalar Ident has count=1, cursor [Ident; M] has count=M.
+//
+// Steps:
+//   1. from_bytes_copy the template;
+//   2. recursive copy of the root expr into a builder doc, applying:
+//      - VAR_REF with NAME_VAR(int idx): substitute NAME (using
+//        idents[idx].ptr[0] for scalars; idents[idx].ptr[i] for the
+//        i-th iteration when inside a REPEAT_GROUP);
+//      - REPEAT_GROUP with OP=2 (`&&*`): expand body N times (N = the
+//        cursor count for any cursor `#x` inside body, all cursors
+//        share count) and combine via left-leaning BinOp("&&");
+//   3. set_root_offset to the rebuilt expr;
+//   4. clone (compacts);
+//   5. malloc'd HermesStatic-shaped buffer: [u64 size][bytes], return
+//      ptr+8 to match ExprBlob ABI.
+extern "C" const uint8_t* logos_quote_expr_subst(
+        const uint8_t* tpl, uint64_t tpl_size,
+        const void* idents_ptr, uint64_t idents_count) {
+    namespace la = logos::compiler::ast;
+    using logos::hermes::AnyVal;
+    using logos::hermes::ArenaString;
+    using logos::hermes::HermesAccess;
+    using logos::hermes::ObjectArray;
+    using logos::hermes::TinyObjectMap;
+    using logos::hermes::arena_offset_t;
+    using logos::hermes::clone;
+    using logos::hermes::make_doc;
+
+    if (!tpl || tpl_size == 0) return nullptr;
+
+    struct IdentPod { const uint8_t* ptr; uint64_t len; };
+    // SpanView reads from the Logos IdentSpan { ptr: *const Ident,
+    // count: u64 }. Inside, `ptr` always points at a pointer-array of
+    // Ident pointers (one slot for scalar, M slots for cursor) — see
+    // arr_lit_struct_ptr_layout note. So we step 8 bytes per element
+    // and deref to reach the inline IdentPod struct.
+    struct SpanView {
+        const IdentPod* const* slots;  // pointer to array of IdentPod*
+        uint64_t count;
+        uint64_t kind;                 // 0=ident, 1=expr_blob
+        const IdentPod* at(uint64_t i) const { return slots[i]; }
+    };
+    // `[IdentSpan; N]` itself lowers to `[ptr; N]` — read as array
+    // of pointers to the SpanRaw struct value.
+    struct SpanRaw { const void* ptr; uint64_t count; uint64_t kind; };
+    const auto* span_pp = reinterpret_cast<const SpanRaw* const*>(idents_ptr);
+    auto get_span = [&](uint64_t i) -> SpanView {
+        const SpanRaw* sr = span_pp[i];
+        return SpanView{
+            reinterpret_cast<const IdentPod* const*>(sr->ptr),
+            sr->count,
+            sr->kind,
+        };
+    };
+
+    auto src_e = logos::hermes::from_bytes_copy(tpl, tpl_size);
+    if (!src_e) {
+        std::fprintf(stderr,
+            "logos_quote_expr_subst: from_bytes_copy failed\n");
+        return nullptr;
+    }
+    auto src_doc = std::move(src_e).get();
+    const uint8_t* src_base = HermesAccess::base(src_doc);
+
+    auto wrapper_off = HermesAccess::root_offset(src_doc);
+    const auto* wrapper = reinterpret_cast<const TinyObjectMap*>(
+        src_base + wrapper_off.value());
+    if (!wrapper->has_key(la::VALUE.code)) {
+        std::fprintf(stderr,
+            "logos_quote_expr_subst: malformed wrapper TOM\n");
+        return nullptr;
+    }
+    AnyVal expr_av = wrapper->get(la::VALUE.code,
+                                  const_cast<uint8_t*>(src_base));
+    if (!expr_av.is_pointer()) {
+        std::fprintf(stderr,
+            "logos_quote_expr_subst: wrapper VALUE not pointer\n");
+        return nullptr;
+    }
+    uint32_t src_root_off =
+        static_cast<uint32_t>(expr_av.to_offset().value());
+
+    auto dst_e = make_doc(tpl_size + 256);
+    if (!dst_e) return nullptr;
+    auto dst_doc = std::move(dst_e).get();
+    auto& dst_arena = HermesAccess::arena(dst_doc);
+
+    // Cursor index when inside a REPEAT_GROUP iteration (-1 outside).
+    int64_t cursor_i = -1;
+
+    auto str_for_ident = [&](const IdentPod* idp) -> uint32_t {
+        if (!idp || !idp->ptr || idp->len == 0) return 0;
+        auto str_e = ArenaString::create(dst_arena,
+            std::string_view(reinterpret_cast<const char*>(idp->ptr),
+                             idp->len));
+        if (!str_e) return 0;
+        return static_cast<uint32_t>(
+            reinterpret_cast<uint8_t*>(str_e.get())
+            - HermesAccess::base(dst_doc));
+    };
+
+    // Forward decl.
+    std::function<uint32_t(uint32_t)> copy_expr;
+    // Forward decl: copy a src ObjectArray into a fresh dst ObjectArray,
+    // expanding REPEAT_GROUP elements with sep=0 (`*`) or sep=1 (`,*`)
+    // into N substituted siblings spliced inline.
+    std::function<uint32_t(uint32_t)> copy_array;
+
+    // Step 5c Option B: deep-copy any Hermes node tree (TOM + ObjectArray
+    // + ArenaString) from an arbitrary source base into dst_doc, with no
+    // antiquot substitution. Used to splice the body of a captured
+    // ExprBlob into the outer template at a `#name` placeholder.
+    std::function<uint32_t(const uint8_t*, uint32_t)> copy_node_raw;
+    copy_node_raw = [&](const uint8_t* sb, uint32_t off) -> uint32_t {
+        auto tag = logos::hermes::TypeTag::read_before(sb + off);
+        uint64_t tc = tag.type_code();
+        if (tc == 28) {
+            const auto* s = reinterpret_cast<const ArenaString*>(sb + off);
+            auto se = ArenaString::create(dst_arena, s->view());
+            if (!se) return 0;
+            return static_cast<uint32_t>(
+                reinterpret_cast<uint8_t*>(se.get())
+                - HermesAccess::base(dst_doc));
+        }
+        if (tc == 100) {
+            const auto* arr = reinterpret_cast<const ObjectArray*>(sb + off);
+            uint64_t n = arr->size();
+            auto dst_e = ObjectArray::create(dst_arena, std::max<uint64_t>(4, n));
+            if (!dst_e) return 0;
+            uint32_t dst_off = static_cast<uint32_t>(
+                reinterpret_cast<uint8_t*>(dst_e.get())
+                - HermesAccess::base(dst_doc));
+            auto dst_arr = [&]() {
+                return reinterpret_cast<ObjectArray*>(
+                    HermesAccess::base(dst_doc) + dst_off);
+            };
+            for (uint64_t i = 0; i < n; ++i) {
+                AnyVal el = const_cast<ObjectArray*>(arr)->get(
+                    i, const_cast<uint8_t*>(sb));
+                if (!el.is_pointer()) {
+                    (void)dst_arr()->push_back(el, dst_arena);
+                    continue;
+                }
+                uint32_t no = copy_node_raw(sb,
+                    static_cast<uint32_t>(el.to_offset().value()));
+                if (no == 0) return 0;
+                (void)dst_arr()->push_back(
+                    AnyVal::from_offset(arena_offset_t(no)),
+                    dst_arena);
+            }
+            return dst_off;
+        }
+        // TOM (tag 98 or untagged AST node).
+        const auto* tom = reinterpret_cast<const TinyObjectMap*>(sb + off);
+        uint8_t cap = tom->capacity();
+        if (cap < 4) cap = 4;
+        auto dst_e = HermesAccess::raw_tiny_map(dst_doc, cap);
+        if (!dst_e) return 0;
+        uint32_t dst_off = static_cast<uint32_t>(
+            reinterpret_cast<uint8_t*>(dst_e.get())
+            - HermesAccess::base(dst_doc));
+        auto dst_tom = [&]() {
+            return reinterpret_cast<TinyObjectMap*>(
+                HermesAccess::base(dst_doc) + dst_off);
+        };
+        if (tom->schema_type_code() != 0) {
+            dst_tom()->set_schema_type_code(tom->schema_type_code());
+        }
+        for (uint8_t k = 0; k < TinyObjectMap::MAX_KEYS; ++k) {
+            if (!tom->has_key(k)) continue;
+            AnyVal av = tom->get(k, const_cast<uint8_t*>(sb));
+            if (av.is_null() || !av.is_pointer()) {
+                (void)dst_tom()->put(k, av, dst_arena);
+                continue;
+            }
+            uint32_t no = copy_node_raw(sb,
+                static_cast<uint32_t>(av.to_offset().value()));
+            if (no == 0) return 0;
+            (void)dst_tom()->put(k,
+                AnyVal::from_offset(arena_offset_t(no)), dst_arena);
+        }
+        return dst_off;
+    };
+
+    // Inner ExprBlob docs deserialised at splice time must outlive the
+    // copy_node_raw recursion (their bytes back the src_base pointer).
+    std::vector<logos::hermes::Hermes> inner_blob_docs;
+
+    // Expand REPEAT_GROUP body into a left-leaning BinOp tree of "&&".
+    // For N==0 returns 0 (caller treats as null). For N==1 returns the
+    // single substituted body. For N>=2 builds (((b0 && b1) && b2)...).
+    auto expand_andand = [&](uint32_t body_off, uint64_t n) -> uint32_t {
+        if (n == 0) return 0;
+        cursor_i = 0;
+        uint32_t acc = copy_expr(body_off);
+        for (uint64_t i = 1; i < n; ++i) {
+            cursor_i = static_cast<int64_t>(i);
+            uint32_t rhs = copy_expr(body_off);
+            // Build BinOp { CODE: BINOP, OP: "&&", LHS: acc, RHS: rhs }.
+            auto bin_e = HermesAccess::raw_tiny_map(dst_doc, 4);
+            if (!bin_e) return 0;
+            uint32_t bin_off = static_cast<uint32_t>(
+                reinterpret_cast<uint8_t*>(bin_e.get())
+                - HermesAccess::base(dst_doc));
+            auto bin = [&]() {
+                return reinterpret_cast<TinyObjectMap*>(
+                    HermesAccess::base(dst_doc) + bin_off);
+            };
+            (void)bin()->put(la::CODE.code,
+                AnyVal::from_value<int32_t>(la::BINOP.code), dst_arena);
+            auto op_e = ArenaString::create(dst_arena, std::string_view("&&"));
+            if (!op_e) return 0;
+            uint32_t op_off = static_cast<uint32_t>(
+                reinterpret_cast<uint8_t*>(op_e.get())
+                - HermesAccess::base(dst_doc));
+            (void)bin()->put(la::OP.code,
+                AnyVal::from_offset(arena_offset_t(op_off)), dst_arena);
+            (void)bin()->put(la::LHS.code,
+                AnyVal::from_offset(arena_offset_t(acc)), dst_arena);
+            (void)bin()->put(la::RHS.code,
+                AnyVal::from_offset(arena_offset_t(rhs)), dst_arena);
+            bin()->set_schema_type_code(
+                logos::hermes::schema::ast(la::BINOP.code));
+            acc = bin_off;
+        }
+        cursor_i = -1;
+        return acc;
+    };
+
+    // Recursive copy: src_off (in src_doc) → fresh dst offset (in dst_doc),
+    // applying placeholder substitution and REPEAT_GROUP expansion.
+    copy_expr = [&](uint32_t src_off) -> uint32_t {
+        const auto* src_tom = reinterpret_cast<const TinyObjectMap*>(
+            src_base + src_off);
+        int32_t cd = 0;
+        if (src_tom->has_key(la::CODE.code)) {
+            AnyVal cav = src_tom->get(la::CODE.code,
+                                      const_cast<uint8_t*>(src_base));
+            if (!cav.is_null() && !cav.is_pointer())
+                cd = cav.as_value<int32_t>();
+        }
+
+        // REPEAT_GROUP: expand here. Caller is the expr edge in parent.
+        if (cd == la::REPEAT_GROUP.code) {
+            int32_t sep = 0;
+            if (src_tom->has_key(la::OP.code)) {
+                AnyVal sav = src_tom->get(la::OP.code,
+                                          const_cast<uint8_t*>(src_base));
+                if (!sav.is_null() && !sav.is_pointer())
+                    sep = sav.as_value<int32_t>();
+            }
+            if (sep != 2) {
+                std::fprintf(stderr,
+                    "logos_quote_expr_subst: REPEAT_GROUP sep %d not implemented\n",
+                    sep);
+                return 0;
+            }
+            AnyVal bav = src_tom->get(la::VALUE.code,
+                                      const_cast<uint8_t*>(src_base));
+            if (!bav.is_pointer()) return 0;
+            uint32_t body_off =
+                static_cast<uint32_t>(bav.to_offset().value());
+            // Determine cursor count by scanning body for any
+            // VAR_REF.NAME_VAR(int idx) where spans[idx].count > 1.
+            std::function<uint64_t(uint32_t)> find_count =
+                [&](uint32_t off) -> uint64_t {
+                const auto* tt = reinterpret_cast<const TinyObjectMap*>(
+                    src_base + off);
+                int32_t ccd = 0;
+                if (tt->has_key(la::CODE.code)) {
+                    AnyVal v = tt->get(la::CODE.code,
+                                       const_cast<uint8_t*>(src_base));
+                    if (!v.is_null() && !v.is_pointer())
+                        ccd = v.as_value<int32_t>();
+                }
+                if (ccd == la::VAR_REF.code
+                    && tt->has_key(la::NAME_VAR.code)) {
+                    AnyVal iv = tt->get(la::NAME_VAR.code,
+                                        const_cast<uint8_t*>(src_base));
+                    if (!iv.is_null() && !iv.is_pointer()) {
+                        int32_t idx = iv.as_value<int32_t>();
+                        if (idx >= 0
+                            && static_cast<uint64_t>(idx) < idents_count) {
+                            uint64_t c = get_span(idx).count;
+                            if (c > 1) return c;
+                        }
+                    }
+                }
+                // Recurse into structural keys (BINOP/UNARY/...) we know.
+                static const uint8_t keys[] = {
+                    la::LHS.code, la::RHS.code, la::VALUE.code,
+                    la::RECEIVER.code,
+                };
+                for (uint8_t k : keys) {
+                    if (!tt->has_key(k)) continue;
+                    AnyVal av = tt->get(k,
+                                        const_cast<uint8_t*>(src_base));
+                    if (av.is_null() || !av.is_pointer()) continue;
+                    uint64_t r = find_count(
+                        static_cast<uint32_t>(av.to_offset().value()));
+                    if (r > 0) return r;
+                }
+                return 0;
+            };
+            uint64_t n = find_count(body_off);
+            if (n == 0) {
+                std::fprintf(stderr,
+                    "logos_quote_expr_subst: REPEAT_GROUP cursor count is 0\n");
+                return 0;
+            }
+            return expand_andand(body_off, n);
+        }
+
+        // 5c Option B: ExprBlob splice. Detect VAR_REF placeholders whose
+        // span kind=1 BEFORE allocating a TOM — we replace the entire node
+        // with a deep copy of the blob's root expr. Cursor expansion of
+        // ExprBlob (e.g. `[ExprBlob; N]`) is not yet supported; the blob
+        // is always a scalar splice.
+        if (cd == la::VAR_REF.code && src_tom->has_key(la::NAME_VAR.code)) {
+            AnyVal iv0 = src_tom->get(la::NAME_VAR.code,
+                                      const_cast<uint8_t*>(src_base));
+            if (!iv0.is_null() && !iv0.is_pointer()) {
+                int32_t idx0 = iv0.as_value<int32_t>();
+                if (idx0 >= 0
+                    && static_cast<uint64_t>(idx0) < idents_count) {
+                    SpanView sp0 = get_span(idx0);
+                    if (sp0.kind == 1) {
+                        const uint8_t* blob_data =
+                            reinterpret_cast<const uint8_t*>(sp0.slots);
+                        if (!blob_data) {
+                            std::fprintf(stderr,
+                                "logos_quote_expr_subst: ExprBlob splice — null ptr\n");
+                            return 0;
+                        }
+                        uint64_t blob_size = 0;
+                        std::memcpy(&blob_size, blob_data - 8, 8);
+                        auto inner_e = logos::hermes::from_bytes_copy(
+                            blob_data, blob_size);
+                        if (!inner_e) {
+                            std::fprintf(stderr,
+                                "logos_quote_expr_subst: ExprBlob splice — from_bytes_copy failed\n");
+                            return 0;
+                        }
+                        inner_blob_docs.push_back(std::move(inner_e).get());
+                        auto& inner_doc = inner_blob_docs.back();
+                        const uint8_t* ib = HermesAccess::base(inner_doc);
+                        uint32_t inner_root = static_cast<uint32_t>(
+                            HermesAccess::root_offset(inner_doc).value());
+                        return copy_node_raw(ib, inner_root);
+                    }
+                }
+            }
+        }
+
+        // Allocate a fresh dst TOM for this node; copy keys.
+        uint8_t cap = src_tom->capacity();
+        if (cap < 4) cap = 4;
+        auto dst_e = HermesAccess::raw_tiny_map(dst_doc, cap);
+        if (!dst_e) return 0;
+        uint32_t dst_off = static_cast<uint32_t>(
+            reinterpret_cast<uint8_t*>(dst_e.get())
+            - HermesAccess::base(dst_doc));
+        auto dst_tom = [&]() {
+            return reinterpret_cast<TinyObjectMap*>(
+                HermesAccess::base(dst_doc) + dst_off);
+        };
+        if (src_tom->schema_type_code() != 0) {
+            dst_tom()->set_schema_type_code(src_tom->schema_type_code());
+        }
+
+        // VAR_REF with NAME_VAR(int idx) → emit NAME(string_from_ident).
+        if (cd == la::VAR_REF.code && src_tom->has_key(la::NAME_VAR.code)) {
+            AnyVal iv = src_tom->get(la::NAME_VAR.code,
+                                     const_cast<uint8_t*>(src_base));
+            if (iv.is_null() || iv.is_pointer()) {
+                std::fprintf(stderr,
+                    "logos_quote_expr_subst: NAME_VAR not int idx\n");
+                return 0;
+            }
+            int32_t idx = iv.as_value<int32_t>();
+            if (idx < 0
+                || static_cast<uint64_t>(idx) >= idents_count) {
+                std::fprintf(stderr,
+                    "logos_quote_expr_subst: ident idx %d out of range\n",
+                    idx);
+                return 0;
+            }
+            SpanView sp = get_span(idx);
+            uint64_t i = (sp.count == 1) ? 0
+                : (cursor_i >= 0 ? static_cast<uint64_t>(cursor_i) : 0);
+            if (i >= sp.count) return 0;
+            const IdentPod* idp = sp.at(i);
+            uint32_t name_off = str_for_ident(idp);
+            if (name_off == 0) return 0;
+            (void)dst_tom()->put(la::CODE.code,
+                AnyVal::from_value<int32_t>(la::VAR_REF.code), dst_arena);
+            (void)dst_tom()->put(la::NAME.code,
+                AnyVal::from_offset(arena_offset_t(name_off)), dst_arena);
+            // Copy SRC_LINE if present so error messages keep line info.
+            if (src_tom->has_key(la::SRC_LINE.code)) {
+                AnyVal lav = src_tom->get(la::SRC_LINE.code,
+                                          const_cast<uint8_t*>(src_base));
+                if (!lav.is_null() && !lav.is_pointer()) {
+                    (void)dst_tom()->put(la::SRC_LINE.code, lav, dst_arena);
+                }
+            }
+            return dst_off;
+        }
+
+        // Generic: copy each key. We dispatch by the child's TypeTag
+        // (written as the byte immediately preceding the object) so the
+        // shim handles arbitrary AST shapes uniformly:
+        //   - 28  (HermesString): deep-copy bytes via ArenaString::create
+        //   - 100 (ObjectArray):  copy_array (handles REPEAT_GROUP splice)
+        //   - else (98 TOM or untagged AST node): recurse copy_expr
+        for (uint8_t k = 0; k < TinyObjectMap::MAX_KEYS; ++k) {
+            if (!src_tom->has_key(k)) continue;
+            AnyVal av = src_tom->get(k, const_cast<uint8_t*>(src_base));
+            if (av.is_null()) {
+                (void)dst_tom()->put(k, av, dst_arena);
+                continue;
+            }
+            if (!av.is_pointer()) {
+                (void)dst_tom()->put(k, av, dst_arena);
+                continue;
+            }
+            uint32_t child_off =
+                static_cast<uint32_t>(av.to_offset().value());
+            auto tag = logos::hermes::TypeTag::read_before(
+                src_base + child_off);
+            uint64_t tc = tag.type_code();
+
+            if (tc == 28) {
+                const auto* s = reinterpret_cast<const ArenaString*>(
+                    src_base + child_off);
+                auto se = ArenaString::create(dst_arena, s->view());
+                if (!se) return 0;
+                uint32_t s_off = static_cast<uint32_t>(
+                    reinterpret_cast<uint8_t*>(se.get())
+                    - HermesAccess::base(dst_doc));
+                (void)dst_tom()->put(k,
+                    AnyVal::from_offset(arena_offset_t(s_off)), dst_arena);
+            } else if (tc == 100) {
+                uint32_t new_off = copy_array(child_off);
+                if (new_off == 0) return 0;
+                (void)dst_tom()->put(k,
+                    AnyVal::from_offset(arena_offset_t(new_off)), dst_arena);
+            } else {
+                uint32_t new_off = copy_expr(child_off);
+                if (new_off == 0) return 0;
+                (void)dst_tom()->put(k,
+                    AnyVal::from_offset(arena_offset_t(new_off)), dst_arena);
+            }
+        }
+        return dst_off;
+    };
+
+    // ObjectArray copy with REPEAT_GROUP splice. Elements that are
+    // REPEAT_GROUP TOMs with sep=0 (`*`) or sep=1 (`,*`) expand into N
+    // substituted bodies spliced inline as siblings; sep=2 (`&&*`) collapses
+    // to a single BinOp tree (handled by copy_expr).
+    copy_array = [&](uint32_t src_off) -> uint32_t {
+        const auto* src_arr = reinterpret_cast<const ObjectArray*>(
+            src_base + src_off);
+        uint64_t n_src = src_arr->size();
+        auto dst_e = ObjectArray::create(dst_arena, std::max<uint64_t>(4, n_src));
+        if (!dst_e) return 0;
+        uint32_t dst_off = static_cast<uint32_t>(
+            reinterpret_cast<uint8_t*>(dst_e.get())
+            - HermesAccess::base(dst_doc));
+        auto dst_arr = [&]() {
+            return reinterpret_cast<ObjectArray*>(
+                HermesAccess::base(dst_doc) + dst_off);
+        };
+        for (uint64_t i = 0; i < n_src; ++i) {
+            AnyVal el = const_cast<ObjectArray*>(src_arr)->get(
+                i, const_cast<uint8_t*>(src_base));
+            if (!el.is_pointer()) {
+                (void)dst_arr()->push_back(el, dst_arena);
+                continue;
+            }
+            uint32_t el_off =
+                static_cast<uint32_t>(el.to_offset().value());
+            const auto* el_tom = reinterpret_cast<const TinyObjectMap*>(
+                src_base + el_off);
+            int32_t el_cd = 0;
+            if (el_tom->has_key(la::CODE.code)) {
+                AnyVal cav = el_tom->get(la::CODE.code,
+                                         const_cast<uint8_t*>(src_base));
+                if (!cav.is_null() && !cav.is_pointer())
+                    el_cd = cav.as_value<int32_t>();
+            }
+            int32_t sep = -1;
+            if (el_cd == la::REPEAT_GROUP.code
+                && el_tom->has_key(la::OP.code)) {
+                AnyVal sav = el_tom->get(la::OP.code,
+                                         const_cast<uint8_t*>(src_base));
+                if (!sav.is_null() && !sav.is_pointer())
+                    sep = sav.as_value<int32_t>();
+            }
+            if (el_cd == la::REPEAT_GROUP.code
+                && (sep == 0 || sep == 1)) {
+                // Splice: expand body N times, push each as sibling element.
+                AnyVal bav = el_tom->get(la::VALUE.code,
+                                         const_cast<uint8_t*>(src_base));
+                if (!bav.is_pointer()) return 0;
+                uint32_t body_off =
+                    static_cast<uint32_t>(bav.to_offset().value());
+                // Reuse copy_expr's cursor-count logic by walking body once.
+                std::function<uint64_t(uint32_t)> find_n =
+                    [&](uint32_t off) -> uint64_t {
+                    const auto* tt = reinterpret_cast<const TinyObjectMap*>(
+                        src_base + off);
+                    int32_t ccd = 0;
+                    if (tt->has_key(la::CODE.code)) {
+                        AnyVal v = tt->get(la::CODE.code,
+                                           const_cast<uint8_t*>(src_base));
+                        if (!v.is_null() && !v.is_pointer())
+                            ccd = v.as_value<int32_t>();
+                    }
+                    if (ccd == la::VAR_REF.code
+                        && tt->has_key(la::NAME_VAR.code)) {
+                        AnyVal iv = tt->get(la::NAME_VAR.code,
+                                            const_cast<uint8_t*>(src_base));
+                        if (!iv.is_null() && !iv.is_pointer()) {
+                            int32_t idx = iv.as_value<int32_t>();
+                            if (idx >= 0
+                                && static_cast<uint64_t>(idx) < idents_count) {
+                                uint64_t c = get_span(idx).count;
+                                if (c > 1) return c;
+                            }
+                        }
+                    }
+                    static const uint8_t keys[] = {
+                        la::LHS.code, la::RHS.code, la::VALUE.code,
+                        la::RECEIVER.code, la::CALLEE.code,
+                    };
+                    for (uint8_t k2 : keys) {
+                        if (!tt->has_key(k2)) continue;
+                        AnyVal v2 = tt->get(k2,
+                                            const_cast<uint8_t*>(src_base));
+                        if (v2.is_null() || !v2.is_pointer()) continue;
+                        uint64_t r = find_n(
+                            static_cast<uint32_t>(v2.to_offset().value()));
+                        if (r > 0) return r;
+                    }
+                    return 0;
+                };
+                uint64_t n = find_n(body_off);
+                if (n == 0) {
+                    std::fprintf(stderr,
+                        "logos_quote_expr_subst: REPEAT_GROUP cursor count is 0\n");
+                    return 0;
+                }
+                int64_t saved = cursor_i;
+                for (uint64_t j = 0; j < n; ++j) {
+                    cursor_i = static_cast<int64_t>(j);
+                    uint32_t copy_off = copy_expr(body_off);
+                    if (copy_off == 0) {
+                        cursor_i = saved;
+                        return 0;
+                    }
+                    (void)dst_arr()->push_back(
+                        AnyVal::from_offset(arena_offset_t(copy_off)),
+                        dst_arena);
+                }
+                cursor_i = saved;
+            } else {
+                uint32_t copy_off = copy_expr(el_off);
+                if (copy_off == 0) return 0;
+                (void)dst_arr()->push_back(
+                    AnyVal::from_offset(arena_offset_t(copy_off)),
+                    dst_arena);
+            }
+        }
+        return dst_off;
+    };
+
+    uint32_t new_root = copy_expr(src_root_off);
+    if (new_root == 0) return nullptr;
+    HermesAccess::set_root_offset(dst_doc, arena_offset_t(new_root));
+
+    auto packed_e = clone(dst_doc);
+    if (!packed_e) {
+        std::fprintf(stderr,
+            "logos_quote_expr_subst: clone failed\n");
+        return nullptr;
+    }
+    auto packed = std::move(packed_e).get();
+    auto& packed_arena = HermesAccess::arena(packed);
+    const uint8_t* data = packed_arena.head().data();
+    size_t used = packed_arena.total_used();
+
+    uint8_t* buf = static_cast<uint8_t*>(std::malloc(8 + used));
+    if (!buf) return nullptr;
+    uint64_t sz = used;
+    std::memcpy(buf, &sz, 8);
+    std::memcpy(buf + 8, data, used);
+    return buf + 8;
+}
+
 // Slice 3 test fixture: parses an inline source string and exposes the
 // resulting Hermes arena bytes through out-params. The handler then calls
 // logos_emit_item_blob with those bytes. Goes away once Slice 4's
@@ -419,6 +1026,95 @@ extern "C" int32_t logos_metaprog_test_module_blob(
     *out_size = static_cast<uint64_t>(h->arena().head().used);
     g_test_blob_keepalive.push_back(std::move(ast));
     return 1;
+}
+
+// Slice 7 of metaprog-quote: hand-built BIN_OP{LIT_INT(1), "+", LIT_INT(2)}
+// blob fixture used to derisk position-aware HERMES_BLOB lowering before the
+// real `quote_expr! { ... }` grammar lands. ABI matches HermesStatic /
+// ExprBlob (returns ptr past an 8-byte size prefix). The buffer is leaked
+// intentionally — single-shot per metacall, lifetime is the compile run.
+extern "C" const uint8_t* logos_test_make_bin_op_blob() {
+    using logos::hermes::HermesAccess;
+    using logos::hermes::ArenaString;
+    using logos::hermes::AnyVal;
+    using logos::hermes::TinyObjectMap;
+    using logos::hermes::arena_offset_t;
+    using logos::hermes::clone;
+    namespace la = logos::compiler::ast;
+
+    auto doc_e = logos::hermes::make_doc(4096);
+    if (!doc_e) return nullptr;
+    auto doc = std::move(doc_e).get();
+    auto& arena = HermesAccess::arena(doc);
+
+    auto build_lit_int = [&](int64_t v) -> uint32_t {
+        auto tm_e = HermesAccess::raw_tiny_map(doc, 4);
+        if (!tm_e) return 0;
+        uint32_t tm_off = uint32_t(reinterpret_cast<uint8_t*>(tm_e.get())
+                                   - HermesAccess::base(doc));
+        auto str_e = ArenaString::create(arena, std::to_string(v));
+        if (!str_e) return 0;
+        uint32_t str_off = uint32_t(reinterpret_cast<uint8_t*>(str_e.get())
+                                    - HermesAccess::base(doc));
+        auto tm = [&]() {
+            return reinterpret_cast<TinyObjectMap*>(
+                HermesAccess::base(doc) + tm_off);
+        };
+        (void)tm()->put(la::CODE.code,
+                        AnyVal::from_value<int32_t>(la::LIT_INT.code), arena);
+        (void)tm()->put(la::VALUE.code,
+                        AnyVal::from_offset(arena_offset_t(str_off)), arena);
+        (void)tm()->put(la::SRC_LINE.code,
+                        AnyVal::from_value<int32_t>(1), arena);
+        tm()->set_schema_type_code(
+            logos::hermes::schema::ast(la::LIT_INT.code));
+        return tm_off;
+    };
+
+    uint32_t lhs_off = build_lit_int(1);
+    uint32_t rhs_off = build_lit_int(2);
+    if (!lhs_off || !rhs_off) return nullptr;
+
+    auto op_e = ArenaString::create(arena, std::string_view("+"));
+    if (!op_e) return nullptr;
+    uint32_t op_off = uint32_t(reinterpret_cast<uint8_t*>(op_e.get())
+                               - HermesAccess::base(doc));
+
+    auto root_e = HermesAccess::raw_tiny_map(doc, 8);
+    if (!root_e) return nullptr;
+    uint32_t root_off = uint32_t(reinterpret_cast<uint8_t*>(root_e.get())
+                                 - HermesAccess::base(doc));
+    auto root = [&]() {
+        return reinterpret_cast<TinyObjectMap*>(
+            HermesAccess::base(doc) + root_off);
+    };
+    (void)root()->put(la::CODE.code,
+                      AnyVal::from_value<int32_t>(la::BINOP.code), arena);
+    (void)root()->put(la::OP.code,
+                      AnyVal::from_offset(arena_offset_t(op_off)), arena);
+    (void)root()->put(la::LHS.code,
+                      AnyVal::from_offset(arena_offset_t(lhs_off)), arena);
+    (void)root()->put(la::RHS.code,
+                      AnyVal::from_offset(arena_offset_t(rhs_off)), arena);
+    (void)root()->put(la::SRC_LINE.code,
+                      AnyVal::from_value<int32_t>(1), arena);
+    root()->set_schema_type_code(
+        logos::hermes::schema::ast(la::BINOP.code));
+
+    HermesAccess::set_root_offset(doc, arena_offset_t(root_off));
+
+    auto packed_e = clone(doc);
+    if (!packed_e) return nullptr;
+    auto packed = std::move(packed_e).get();
+    auto& parena = HermesAccess::arena(packed);
+    const uint8_t* data = parena.head().data();
+    uint64_t used = parena.total_used();
+
+    auto* buf = static_cast<uint8_t*>(std::malloc(8 + used));
+    if (!buf) return nullptr;
+    std::memcpy(buf, &used, 8);
+    std::memcpy(buf + 8, data, used);
+    return buf + 8;
 }
 
 // Round-trip a stack-built LLVM module through textual IR into a fresh
@@ -733,6 +1429,18 @@ int main(int argc, char** argv) {
                          meta_jit->error_str().c_str());
             return 1;
         }
+        if (!meta_jit->define_symbol("logos_test_make_bin_op_blob",
+                                     reinterpret_cast<void*>(&logos_test_make_bin_op_blob))) {
+            std::fprintf(stderr, "logosc: bind logos_test_make_bin_op_blob: %s\n",
+                         meta_jit->error_str().c_str());
+            return 1;
+        }
+        if (!meta_jit->define_symbol("logos_quote_expr_subst",
+                                     reinterpret_cast<void*>(&logos_quote_expr_subst))) {
+            std::fprintf(stderr, "logosc: bind logos_quote_expr_subst: %s\n",
+                         meta_jit->error_str().c_str());
+            return 1;
+        }
         if (!meta_jit->define_symbol("logos_get_module_ast",
                                      reinterpret_cast<void*>(&logos_get_module_ast))) {
             std::fprintf(stderr, "logosc: bind logos_get_module_ast: %s\n",
@@ -912,6 +1620,22 @@ int main(int argc, char** argv) {
                                                 &archive_paths);
             if (!mc_jit) return 1;
 
+            // Slice 7 of metaprog-quote derisk: bind the hand-built BIN_OP
+            // blob fixture so `metacall_expr_blob.logos` can resolve the
+            // extern fn from the metacall JIT (separate from meta_jit).
+            if (!mc_jit->define_symbol("logos_test_make_bin_op_blob",
+                    reinterpret_cast<void*>(&logos_test_make_bin_op_blob))) {
+                std::fprintf(stderr, "logosc: bind logos_test_make_bin_op_blob (mc_jit): %s\n",
+                             mc_jit->error_str().c_str());
+                return 1;
+            }
+            if (!mc_jit->define_symbol("logos_quote_expr_subst",
+                    reinterpret_cast<void*>(&logos_quote_expr_subst))) {
+                std::fprintf(stderr, "logosc: bind logos_quote_expr_subst (mc_jit): %s\n",
+                             mc_jit->error_str().c_str());
+                return 1;
+            }
+
             // Step 3: invoke each thunk and splice the result into the AST.
             using RT = logos::compiler::lir::LProgram::MetacallSite::RetTag;
             bool any_spliced = false;
@@ -955,12 +1679,14 @@ int main(int argc, char** argv) {
                     s_val.assign(sf.p ? sf.p : "", sf.n);
                     is_str = true; break;
                 }
-                case RT::HermesStatic: {
+                case RT::HermesStatic:
+                case RT::ExprBlob: {
                     // HermesStatic = { ptr: *const u8 }, DataPlain ≤ 16B, returned in rax.
+                    // ExprBlob: identical ABI; nominal-only marker for AST-fragment payload.
                     // Layout in meta-jit rodata: [u64 size_le][bytes]; ptr points past the prefix.
                     auto blob_ptr = reinterpret_cast<const uint8_t* (*)()>(sym)();
                     if (!blob_ptr) {
-                        std::fprintf(stderr, "logosc: metacall HermesStatic thunk returned null\n");
+                        std::fprintf(stderr, "logosc: metacall HermesStatic/ExprBlob thunk returned null\n");
                         return 1;
                     }
                     uint64_t size = 0;

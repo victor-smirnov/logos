@@ -381,6 +381,14 @@ private:
 
     hermes::MemHolder* holder_ = nullptr;
 
+    // Slice 7 of metaprog-quote: lower_hermes_blob may build a Hermes doc
+    // from blob bytes (when the blob carries an AST fragment) and recurse
+    // into lower_expr while pointing holder_ at the new doc's holder.
+    // The Hermes objects must outlive the recursion AND any LIR mirror
+    // back-fill that runs later — keep them alive for the SemaChecker's
+    // lifetime by stashing here.
+    std::vector<hermes::Hermes> blob_docs_;
+
     int32_t code_of(hermes::TinyMapView node) noexcept {
         using namespace sema_detail;
         if (node.is_null()) return -1;
@@ -1028,6 +1036,7 @@ private:
     lir::LExprPtr lower_hermes_lit(hermes::TinyMapView node);
     lir::LExprPtr lower_hermes_blob(hermes::TinyMapView node);
     lir::LExprPtr lower_quote_item(hermes::TinyMapView node);
+    lir::LExprPtr lower_quote_expr(hermes::TinyMapView node);
 
     // Capture context: non-null while lowering a hermes literal that has $-captures.
     // lower_hermes_val populates it as it encounters HERMES_CAP_IDENT/EXPR nodes.

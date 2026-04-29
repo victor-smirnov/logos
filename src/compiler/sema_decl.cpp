@@ -194,22 +194,25 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     pop_type_params(node_tparams);
     pop_type_params(impl_type_params_);
 
-        // Prefer an exact non-generic declaration when one exists.
-        if (auto fit = find_func_by_base_and_signature(mangled, decl_param_types, fn.is_vararg))
-            fi_ptr = const_cast<SemaFuncInfo*>(fit);
-        else {
-            for (auto* cand : find_func_candidates(mangled)) {
-                if (!cand || cand->type_params.size() != node_tparams.size()) continue;
-                if (cand->param_types.size() != decl_param_types.size()) continue;
-                bool same = true;
-                for (size_t i = 0; i < decl_param_types.size(); ++i) {
-                    if (!cand->param_types[i] || !decl_param_types[i] ||
-                        !types_equal(cand->param_types[i], decl_param_types[i])) {
-                        same = false; break;
-                    }
+        // Match by (type_params arity, param signature). When this declaration
+        // has type params, a non-generic same-name overload must NOT win — both
+        // can have empty value-param lists (e.g. `fn f() -> u64` vs
+        // `fn f<T...>() -> u64`) and only the type-params arity disambiguates.
+        for (auto* cand : find_func_candidates(mangled)) {
+            if (!cand || cand->type_params.size() != node_tparams.size()) continue;
+            if (cand->param_types.size() != decl_param_types.size()) continue;
+            bool same = true;
+            for (size_t i = 0; i < decl_param_types.size(); ++i) {
+                if (!cand->param_types[i] || !decl_param_types[i] ||
+                    !types_equal(cand->param_types[i], decl_param_types[i])) {
+                    same = false; break;
                 }
-                if (same) { fi_ptr = const_cast<SemaFuncInfo*>(cand); break; }
             }
+            if (same) { fi_ptr = const_cast<SemaFuncInfo*>(cand); break; }
+        }
+        if (!fi_ptr) {
+            if (auto fit = find_func_by_base_and_signature(mangled, decl_param_types, fn.is_vararg))
+                fi_ptr = const_cast<SemaFuncInfo*>(fit);
         }
         // Relaxed method match for overloaded members: if only `self` disagrees
         // (e.g. Struct-vs-Datatype Self representation), still accept candidate

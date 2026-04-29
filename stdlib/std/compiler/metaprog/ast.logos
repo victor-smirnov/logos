@@ -62,6 +62,21 @@ pub struct QuoteItemBlob {
     pub idents_count: u64,
 }
 
+// `ExprBlob` — marker return type for metafunctions that produce an AST
+// expression fragment. ABI is identical to `HermesStatic` (single
+// `*const u8` past an 8-byte length prefix in rodata or malloc'd by
+// `__metacall_freeze`); the difference is purely nominal — sema's
+// `lower_metacall` recognises the marker and defers the call site's
+// type to the surrounding context (typically the `let` annotation),
+// because the actual expr type is determined post-splice by reading the
+// blob's root `schema_type_code` and recursing into `lower_expr`.
+//
+// Sibling markers (`StmtBlob`/`PatBlob`/`TyBlob`) follow when the other
+// quote forms land in Slice 7's grammar pass.
+pub struct ExprBlob {
+    pub ptr: *const u8,
+}
+
 impl Item {
     // Read the item's NAME field as an `Ident`. Works for STRUCT,
     // ENUM, FN, etc.; for nodes without a NAME key the returned
@@ -71,6 +86,42 @@ impl Item {
         let nm: AnyVal = view.tiny_map_get(self.raw, 1 as u8);  // NAME = 1
         let sv: StringView = view.get_str_view(nm);
         return Ident { ptr: sv.ptr, len: sv.len };
+    }
+
+    // Number of FIELDS entries on a STRUCT item (zero for empty structs
+    // or non-struct nodes). Slice 6 of metaprog-quote — minimum needed
+    // for `quote_item!`-based derive over plain structs.
+    pub fn field_count(self: &Item, view: &OView) -> u64 {
+        return view.ast_struct_field_count(self.raw);
+    }
+
+    // i-th FIELD_DEF as an `Item` handle. Caller stays within
+    // `field_count(view)`; out-of-range returns an Item wrapping a
+    // null AnyVal whose `name()` reports `ptr=null, len=0`.
+    pub fn field(self: &Item, view: &OView, idx: u64) -> Item {
+        return Item { raw: view.ast_struct_field(self.raw, idx) };
+    }
+}
+
+impl Ident {
+    // Byte-wise equality. Both sides must have non-null `ptr` for a
+    // meaningful comparison; an empty Ident (`ptr=null, len=0`) only
+    // matches another empty Ident.
+    pub fn eq(self: &Ident, other: &Ident) -> bool {
+        if self.len != other.len { return false; }
+        if self.len == (0 as u64) { return true; }
+        let mut i: u64 = 0 as u64;
+        while i < self.len {
+            unsafe {
+                let pa: *const u8 = (self.ptr as i64 + i as i64) as *const u8;
+                let pb: *const u8 = (other.ptr as i64 + i as i64) as *const u8;
+                let a: u8 = *pa;
+                let b: u8 = *pb;
+                if a != b { return false; }
+            }
+            i = i + (1 as u64);
+        }
+        return true;
     }
 }
 

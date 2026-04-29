@@ -163,6 +163,7 @@ inline constexpr Code DEREF_WRITE       {"DEREF_WRITE",       115}; // *ptr = va
 // Variadic generics
 inline constexpr Key IS_VARIADIC  {"IS_VARIADIC",  32};    // variadic type param / param flag
 inline constexpr Code PACK_EXPAND {"PACK_EXPAND", 117};    // args... pack expansion
+inline constexpr Code SIZEOF_PACK {"SIZEOF_PACK", 203};    // sizeof...(T) — pack length as u64
 
 // Dynamic dispatch
 inline constexpr Code IMPL_TYPE   {"IMPL_TYPE",   116};    // impl Trait type
@@ -265,6 +266,8 @@ inline constexpr Code BLOCK_STMT           {"BLOCK_STMT",          197}; // bare
 inline constexpr Code METACALL             {"METACALL",            198}; // metacall <call_expr>; VALUE = inner call AST
 inline constexpr Code HERMES_BLOB          {"HERMES_BLOB",         199}; // sema-internal: pre-serialised Hermes static blob (driver splice from metacall HermesStatic return); VALUE = raw blob bytes (Varchar)
 inline constexpr Code QUOTE_ITEM           {"QUOTE_ITEM",          200}; // Slice 4 of metaprog-quote: `quote_item! { item* }`. ITEMS = array of parsed item AST nodes; sema deep-clones them into a fresh module, serialises bytes, and rewrites the node into a HermesStatic literal whose &str value is the splice-ready blob.
+inline constexpr Code QUOTE_EXPR           {"QUOTE_EXPR",          201}; // Slice 7 of metaprog-quote: `quote_expr! { expr }`. VALUE = parsed expr AnyVal; sema deep-clones it as the root of a fresh Hermes doc, sets schema_type_code=ast(CODE), and emits an ExprBlob.
+inline constexpr Code REPEAT_GROUP         {"REPEAT_GROUP",        202}; // Slice 8 of metaprog-quote: `#(body)sep*` inside quote_*! body. VALUE = body expr; OP = separator (0=none, 1=`,`, 2=`&&`). Outside a quote_*! body the sema rejects it.
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  META            {"META",               16};   // meta @{...} block node on struct/trait/datatype declarations (reuses PATH_PARTS slot; these node types never co-exist)

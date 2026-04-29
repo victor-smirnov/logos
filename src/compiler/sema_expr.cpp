@@ -110,6 +110,24 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
         return builder().pack_expand(std::string(name), t);
     }
 
+    case la::SIZEOF_PACK: {
+        auto op = std::string(str_of(expr.get(la::OP.code)));
+        if (op != "sizeof") {
+            error(std::format("expected 'sizeof...(T)', got '{}...(T)'", op));
+            return error_expr();
+        }
+        auto name = std::string(str_of(expr.get(la::NAME.code)));
+        auto it = current_type_params_.find(name);
+        if (it == current_type_params_.end()) {
+            error(std::format("sizeof...({}): undefined type parameter", name));
+            return error_expr();
+        }
+        std::vector<TypeRef> tas;
+        tas.push_back(make_typevar(name));
+        return builder().call("__sizeof_pack__", std::move(tas), {},
+                              prim(LogosType::Kind::U64));
+    }
+
     case la::PAREN_EXPR:
         if (expr.has_key(la::VALUE))
             return lower_expr(map_of(expr.get(la::VALUE.code)));
@@ -400,6 +418,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::HERMES_NULL:  return lower_hermes_lit(expr);
     case la::HERMES_BLOB:  return lower_hermes_blob(expr);
     case la::QUOTE_ITEM:   return lower_quote_item(expr);
+    case la::QUOTE_EXPR:   return lower_quote_expr(expr);
     // C1 bug fix: $-capture nodes must not appear as standalone expressions;
     // they are only valid inside hermes_val (within lower_hermes_val).
     case la::HERMES_CAP_IDENT:
@@ -1342,7 +1361,11 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
     if (has_pack_expand) {
         // pass — mono expands
     } else if (has_variadic) {
-        size_t fixed_params = fi.param_types.size() - 1;
+        // `has_variadic` means the function has a variadic *type* parameter.
+        // It may or may not have a corresponding variadic *value* parameter:
+        //   fn f<T...>(args: T...)   — value pack present  → fixed_params = size()-1
+        //   fn f<T...>()             — type-only           → fixed_params = 0
+        size_t fixed_params = fi.param_types.empty() ? 0 : fi.param_types.size() - 1;
         if (n_args < fixed_params)
             error(std::format("call to '{}': expected at least {} args, got {}",
                   callee_diag, fixed_params, n_args));
@@ -6154,13 +6177,545 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
     return builder().block_expr(blk, std::move(qib_lit), qib_t);
 }
 
+// QUOTE_EXPR — `quote_expr! { expr }`. Slice 7 of metaprog-quote.
+//
+// Deep-copy the parsed expr AnyVal into a fresh Hermes doc as the root
+// TOM, set the root's schema_type_code from CODE so position-aware
+// lower_hermes_blob recurses into lower_expr at splice time, pack and
+// emit as ExprBlob (HermesStatic-shaped marker).
+//
+// Antiquot (Slice 5c, parity port from quote_item):
+//   `#name` inside the body parses as VAR_REF{NAME_VAR=name}. We walk
+//   the dst doc post-copy by AST CODE-dispatch, rewrite each
+//   NAME_VAR(string) → NAME_VAR(int placeholder_idx), and wrap the
+//   doc with `wrapper{VALUE=expr_off, ITEMS=placeholders_array}` (CODE
+//   absent so the runtime shim recognises it). The lowered LIR builds
+//   an Ident array from `#x` var refs and calls
+//   `logos_quote_expr_subst(template, idents, n)` which substitutes
+//   NAME_VAR(idx) → NAME(ident.name), re-roots to the inner expr, and
+//   returns a freshly-malloc'd HermesStatic-shaped ExprBlob ptr.
+lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
+    using logos::hermes::HermesAccess;
+    using logos::hermes::ObjectArray;
+    using logos::hermes::ArenaString;
+    using logos::hermes::TinyObjectMap;
+    using logos::hermes::arena_offset_t;
+    using logos::hermes::make_doc;
+    using logos::hermes::clone;
+    using logos::hermes::copy_object_into;
+
+    if (!holder_) {
+        error("quote_expr!: missing AST holder");
+        return error_expr();
+    }
+    if (!node.has_key(la::VALUE) || node.get(la::VALUE.code).is_null()) {
+        error("quote_expr!: missing body expression");
+        return error_expr();
+    }
+    AnyVal body_av = node.get(la::VALUE.code);
+    if (!body_av.is_pointer()) {
+        error("quote_expr!: body is not an object (parser bug?)");
+        return error_expr();
+    }
+    const uint8_t* src_base = holder_->base();
+    const auto* src_tom = reinterpret_cast<const TinyObjectMap*>(
+        src_base + body_av.to_offset().value());
+
+    // Read CODE from the source expr to set the root's schema_type_code.
+    int32_t code = 0;
+    if (src_tom->has_key(la::CODE.code)) {
+        AnyVal cav = src_tom->get(la::CODE.code,
+                                  const_cast<uint8_t*>(src_base));
+        if (!cav.is_null() && !cav.is_pointer()) {
+            code = cav.as_value<int32_t>();
+        }
+    }
+    if (code == 0) {
+        error("quote_expr!: body has no CODE field");
+        return error_expr();
+    }
+
+    auto doc_e = make_doc(4096);
+    if (!doc_e) {
+        error("quote_expr!: make_doc failed");
+        return error_expr();
+    }
+    auto doc = std::move(doc_e).get();
+    auto& dst_arena = HermesAccess::arena(doc);
+
+    auto cp_e = copy_object_into(src_tom, src_base, doc);
+    if (!cp_e) {
+        error("quote_expr!: copy_object_into failed");
+        return error_expr();
+    }
+    void* dst_obj = cp_e.get();
+    uint32_t root_off = static_cast<uint32_t>(
+        reinterpret_cast<uint8_t*>(dst_obj) - HermesAccess::base(doc));
+
+    {
+        auto* dst_root = reinterpret_cast<TinyObjectMap*>(
+            HermesAccess::base(doc) + root_off);
+        dst_root->set_schema_type_code(
+            logos::hermes::schema::ast(code));
+    }
+
+    // ── Antiquot + repetition scan: walk dst expr tree, rewrite
+    // NAME_VAR(string) → NAME_VAR(int idx). Inside REPEAT_GROUP
+    // the placeholder var must be array-typed (the cursor); outside,
+    // scalar Ident. Cursors within one repeat group must all have
+    // the same array length, which the shim trusts at runtime.
+    //
+    // Recursion bounded to AST CODEs we support here: VAR_REF, BINOP,
+    // UNARY, PAREN_EXPR, CAST, FIELD_READ, REPEAT_GROUP. CALL/METHOD_CALL/
+    // INDEX_READ/STRUCT_LIT recursion is a known follow-up.
+    struct ExprPlaceholder {
+        uint32_t dst_offset;
+        std::string var_name;
+        bool is_cursor;          // inside a REPEAT_GROUP body
+        bool is_expr_blob;       // var type is ExprBlob (5c Option B)
+        uint64_t cursor_count;   // 1 for scalar Ident, N for [Ident; N]
+    };
+    std::vector<ExprPlaceholder> placeholders;
+    TypeRef ident_t = make_struct_type("Ident");
+    auto is_ident_type = [](TypeRef t) {
+        return TypeRef(t).kind() == LogosType::Kind::Struct
+            && TypeRef(t).struct_name() == "Ident";
+    };
+    // Returns N>0 if `t` is a fixed-size array of Ident, else 0.
+    auto ident_array_len = [&](TypeRef t) -> uint64_t {
+        if (TypeRef(t).kind() != LogosType::Kind::Array) return 0;
+        TypeRef elem = TypeRef(t).elem();
+        if (!is_ident_type(elem)) return 0;
+        return static_cast<uint64_t>(TypeRef(t).arr_size());
+    };
+
+    int repeat_depth = 0;
+    // Per-group cursor count (validated for consistency within a group).
+    std::vector<uint64_t> repeat_stack_count;
+
+    std::function<bool(uint32_t)> walk = [&](uint32_t tom_off) -> bool {
+        auto* base = HermesAccess::base(doc);
+        auto* tom = reinterpret_cast<TinyObjectMap*>(base + tom_off);
+        int32_t cd = 0;
+        if (tom->has_key(la::CODE.code)) {
+            AnyVal cav = tom->get(la::CODE.code, base);
+            if (!cav.is_null() && !cav.is_pointer())
+                cd = cav.as_value<int32_t>();
+        }
+
+        auto recurse_key = [&](uint8_t key) -> bool {
+            auto* b = HermesAccess::base(doc);
+            auto* t = reinterpret_cast<TinyObjectMap*>(b + tom_off);
+            if (!t->has_key(key)) return true;
+            AnyVal av = t->get(key, b);
+            if (av.is_null() || !av.is_pointer()) return true;
+            return walk(static_cast<uint32_t>(av.to_offset().value()));
+        };
+
+        if (cd == la::VAR_REF.code) {
+            if (tom->has_key(la::NAME_VAR.code)) {
+                AnyVal nv = tom->get(la::NAME_VAR.code, base);
+                if (nv.is_null() || !nv.is_pointer()) {
+                    error("quote_expr!: NAME_VAR is not a string");
+                    return false;
+                }
+                const auto* nv_str = reinterpret_cast<const ArenaString*>(
+                    base + nv.to_offset().value());
+                std::string vname(nv_str->view());
+                TypeRef vt = lookup(vname);
+                if (!vt) {
+                    error("quote_expr!: `#" + vname
+                          + "` — variable not in scope");
+                    return false;
+                }
+                bool is_cursor = (repeat_depth > 0);
+                bool is_expr_blob = false;
+                uint64_t count = 0;
+                auto is_expr_blob_type = [](TypeRef t) {
+                    return TypeRef(t).kind() == LogosType::Kind::Struct
+                        && TypeRef(t).struct_name() == "ExprBlob";
+                };
+                if (is_cursor) {
+                    count = ident_array_len(vt);
+                    if (count == 0) {
+                        error("quote_expr!: `#" + vname
+                              + "` inside repeat — expected [Ident; N]");
+                        return false;
+                    }
+                    // Validate cursor count matches the enclosing group.
+                    if (repeat_stack_count.back() == 0) {
+                        repeat_stack_count.back() = count;
+                    } else if (repeat_stack_count.back() != count) {
+                        error("quote_expr!: `#" + vname
+                              + "` cursor length mismatches sibling cursor in same #(...)*");
+                        return false;
+                    }
+                } else if (is_expr_blob_type(vt)) {
+                    // 5c Option B: ExprBlob splice. Count is unused; the
+                    // shim reads the blob's size prefix at ptr-8.
+                    is_expr_blob = true;
+                    count = 0;
+                } else {
+                    if (!is_ident_type(vt)) {
+                        error("quote_expr!: `#" + vname
+                              + "` — expected Ident or ExprBlob");
+                        return false;
+                    }
+                    count = 1;
+                }
+                int32_t idx = static_cast<int32_t>(placeholders.size());
+                placeholders.push_back({tom_off, std::move(vname),
+                                        is_cursor, is_expr_blob, count});
+                auto* t2 = reinterpret_cast<TinyObjectMap*>(
+                    HermesAccess::base(doc) + tom_off);
+                (void)t2->put(la::NAME_VAR.code,
+                    AnyVal::from_value<int32_t>(idx), dst_arena);
+            }
+            return true;
+        }
+        if (cd == la::REPEAT_GROUP.code) {
+            // sep validation deferred to the shim — `&&*` works in any expr
+            // position; `*` / `,*` only inside a list-bearing parent (e.g.
+            // CALL.ARGS), but we don't know parent context here. Lowering
+            // just records the cursor count.
+            if (repeat_depth > 0) {
+                error("quote_expr!: nested `#(...)` repetition not supported");
+                return false;
+            }
+            ++repeat_depth;
+            repeat_stack_count.push_back(0);
+            bool ok = recurse_key(la::VALUE.code);
+            if (ok && repeat_stack_count.back() == 0) {
+                error("quote_expr!: `#(...)*` body has no cursor `#x` of "
+                      "type [Ident; N]");
+                ok = false;
+            }
+            repeat_stack_count.pop_back();
+            --repeat_depth;
+            return ok;
+        }
+        if (cd == la::BINOP.code) {
+            if (!recurse_key(la::LHS.code)) return false;
+            return recurse_key(la::RHS.code);
+        }
+        if (cd == la::PAREN_EXPR.code || cd == la::UNARY.code
+            || cd == la::CAST.code) {
+            return recurse_key(la::VALUE.code);
+        }
+        if (cd == la::FIELD_READ.code) {
+            return recurse_key(la::RECEIVER.code);
+        }
+        if (cd == la::CALL.code || cd == la::METHOD_CALL.code
+            || cd == la::STATIC_CALL.code) {
+            // CALLEE is a single expr (CALL only); RECEIVER for METHOD_CALL/
+            // STATIC_CALL is also a single expr. ARGS is an ObjectArray of
+            // expr offsets; iterate each element.
+            if (cd == la::CALL.code) {
+                if (!recurse_key(la::CALLEE.code)) return false;
+            } else {
+                if (!recurse_key(la::RECEIVER.code)) return false;
+            }
+            auto* b = HermesAccess::base(doc);
+            auto* t = reinterpret_cast<TinyObjectMap*>(b + tom_off);
+            if (t->has_key(la::ARGS.code)) {
+                AnyVal av = t->get(la::ARGS.code, b);
+                if (av.is_pointer()) {
+                    auto* arr = reinterpret_cast<ObjectArray*>(
+                        b + av.to_offset().value());
+                    for (uint64_t i = 0; i < arr->size(); ++i) {
+                        AnyVal el = arr->get(i, b);
+                        if (!el.is_pointer()) continue;
+                        if (!walk(static_cast<uint32_t>(
+                                el.to_offset().value()))) {
+                            return false;
+                        }
+                    }
+                }
+            }
+            return true;
+        }
+        return true;
+    };
+
+    if (!walk(root_off)) return error_expr();
+
+    uint64_t N = placeholders.size();
+
+    // Determine outer root for the packed bytes.
+    uint32_t outer_root_off = root_off;
+    if (N > 0) {
+        // Build placeholders array (ObjectArray of int32 AnyVals carrying
+        // dst-offsets of placeholder VAR_REF TOMs).
+        auto ph_arr_e = ObjectArray::create(dst_arena, std::max<uint64_t>(4, N));
+        if (!ph_arr_e) {
+            error("quote_expr!: placeholders array alloc failed");
+            return error_expr();
+        }
+        uint32_t ph_off = static_cast<uint32_t>(
+            reinterpret_cast<uint8_t*>(ph_arr_e.get())
+            - HermesAccess::base(doc));
+        // Store as pointer AnyVals (offsets into the same VAR_REF TOMs that
+        // live inside the expr tree). clone() dedupes via remember() so both
+        // the wrapper.ITEMS slot and the parent expr edge resolve to the
+        // single cloned VAR_REF — and crucially, clone *rewrites* the offset
+        // for us. Storing an int32 of the source offset would leave a stale
+        // value after clone.
+        for (auto& ph : placeholders) {
+            auto* arr = reinterpret_cast<ObjectArray*>(
+                HermesAccess::base(doc) + ph_off);
+            (void)arr->push_back(
+                AnyVal::from_offset(arena_offset_t(ph.dst_offset)),
+                dst_arena);
+        }
+
+        // Wrapper TOM. CODE absent (signals "wrapped" to the runtime shim).
+        auto wrapper_e = HermesAccess::raw_tiny_map(doc, 4);
+        if (!wrapper_e) {
+            error("quote_expr!: wrapper tom alloc failed");
+            return error_expr();
+        }
+        outer_root_off = static_cast<uint32_t>(
+            reinterpret_cast<uint8_t*>(wrapper_e.get())
+            - HermesAccess::base(doc));
+        auto wrapper = [&]() {
+            return reinterpret_cast<TinyObjectMap*>(
+                HermesAccess::base(doc) + outer_root_off);
+        };
+        (void)wrapper()->put(la::VALUE.code,
+                AnyVal::from_offset(arena_offset_t(root_off)), dst_arena);
+        (void)wrapper()->put(la::ITEMS.code,
+                AnyVal::from_offset(arena_offset_t(ph_off)), dst_arena);
+    }
+
+    HermesAccess::set_root_offset(doc, arena_offset_t(outer_root_off));
+
+    auto packed_e = clone(doc);
+    if (!packed_e) {
+        error("quote_expr!: clone failed");
+        return error_expr();
+    }
+    auto packed = std::move(packed_e).get();
+    auto& packed_arena = HermesAccess::arena(packed);
+    const uint8_t* data = packed_arena.head().data();
+    size_t used = packed_arena.total_used();
+
+    auto eb_t = make_struct_type("ExprBlob");
+
+    if (N == 0) {
+        // Simple path: no antiquot. Emit static rodata + ExprBlob{ptr}.
+        lir::EHermesLit lit;
+        lit.static_blob.assign(data, data + used);
+        return builder().hermes_lit_v(std::move(lit), eb_t);
+    }
+
+    // Antiquot path: build a block expression that
+    //   let __qet: HermesStatic = <static template bytes>;
+    //   let __qes_0: IdentSpan = IdentSpan { ptr: &v0_ptr, count: c0 };
+    //   ...
+    //   let __qei: [IdentSpan; N] = [__qes_0, __qes_1, ...];
+    //   ExprBlob { ptr: logos_quote_expr_subst(__qet.ptr, used,
+    //                                          &__qei[0], N) }
+    //
+    // Per-ident spans use IdentSpan { ptr: *const Ident, count: u64 }.
+    // For scalar Ident the ptr is `&v` (cast from &Ident to *const Ident),
+    // count=1. For cursor `[Ident; M]`, ptr is `&v[0]` (cast from
+    // *const [Ident; M] to *const Ident), count=M.
+    auto hs_t = make_struct_type("HermesStatic");
+    lir::EHermesLit lit;
+    lit.static_blob.assign(data, data + used);
+    auto template_lit = builder().hermes_lit_v(std::move(lit), hs_t);
+
+    push_scope();
+    auto* blk = lir::alloc_block(*cur_prog_);
+
+    std::string tname = "__qet_" + std::to_string(tmp_var_count_++);
+    define(tname, hs_t);
+    {
+        lir::SLet s;
+        s.name = tname; s.type = hs_t; s.is_mut = false;
+        s.value = std::move(template_lit);
+        blk->stmts.push_back(make_stmt_emit(node_line_, std::move(s)));
+    }
+
+    TypeRef u8_ptr_t        = make_ptr(false, u8_t());
+    TypeRef ident_ptr_t     = make_ptr(false, ident_t);
+    TypeRef u64_ty          = prim(LogosType::Kind::U64);
+    auto span_t             = make_struct_type("IdentSpan");
+    TypeRef span_ptr_t      = make_ptr(false, span_t);
+
+    // Both scalar Ident vars and `[Ident; M]` cursor vars are passed to
+    // the host shim as **pointer arrays** of Ident pointers (one pointer
+    // per element). Rationale: at MLIR, `[Struct; N]` is `[ptr; N]`
+    // (memory note arr_lit_struct_ptr_layout) — 8-byte slots holding
+    // per-element struct pointers. For a cursor var `xs: [Ident; M]`,
+    // `&xs[0]` already points at this pointer-array layout. For a scalar
+    // Ident var `v`, we materialise a 1-slot pointer array
+    // `let __qe_p_K: [*const Ident; 1] = [&v];` and take `&__qe_p_K[0]`.
+    // The shim reads `span.ptr` as `IdentPod* const *` for both cases.
+    auto arr_t = make_array(span_t, N);
+    std::vector<lir::LExprPtr> elems;
+    elems.reserve(N);
+    int span_tmp_idx = 0;
+    auto eb_struct_t = make_struct_type("ExprBlob");
+    for (auto& ph : placeholders) {
+        lir::LExprPtr ptr_v;
+        uint64_t kind = 0;
+        if (ph.is_expr_blob) {
+            // 5c Option B: read `<var>.ptr` (`*const u8`), cast to
+            // `*const Ident` for the IdentSpan.ptr field. The shim
+            // detects kind=1 and reads size from `ptr - 8`.
+            kind = 1;
+            auto v_ref = builder().var_ref(ph.var_name, eb_struct_t);
+            auto blob_ptr = builder().field_read(
+                std::move(v_ref), "ptr", u8_ptr_t);
+            ptr_v = builder().cast(std::move(blob_ptr), ident_ptr_t);
+        } else if (ph.is_cursor) {
+            auto arr_var_t = make_array(ident_t, ph.cursor_count);
+            auto arr_ptr_t = make_ptr(false, arr_var_t);
+            auto raw_addr  = builder().addr_of(ph.var_name, arr_ptr_t);
+            ptr_v          = builder().cast(std::move(raw_addr), ident_ptr_t);
+        } else {
+            // Materialise a 1-slot pointer array holding &v.
+            auto p_arr_t   = make_array(ident_ptr_t, 1);
+            auto p_ptr_t   = make_ptr(false, p_arr_t);
+            auto v_addr    = builder().addr_of(ph.var_name, ident_ptr_t);
+            std::vector<lir::LExprPtr> p_elems;
+            p_elems.push_back(std::move(v_addr));
+            auto p_arr_e   = builder().arr_lit(std::move(p_elems), p_arr_t);
+            std::string pname = "__qep_" + std::to_string(span_tmp_idx++)
+                + "_" + std::to_string(tmp_var_count_++);
+            define(pname, p_arr_t);
+            {
+                lir::SLet s;
+                s.name = pname; s.type = p_arr_t; s.is_mut = false;
+                s.value = std::move(p_arr_e);
+                blk->stmts.push_back(make_stmt_emit(node_line_, std::move(s)));
+            }
+            auto raw_addr  = builder().addr_of(pname, p_ptr_t);
+            ptr_v          = builder().cast(std::move(raw_addr), ident_ptr_t);
+        }
+        auto cnt_v = builder().lit_int(
+            static_cast<int64_t>(ph.cursor_count), u64_ty);
+        auto kind_v = builder().lit_int(
+            static_cast<int64_t>(kind), u64_ty);
+        std::vector<std::pair<std::string, lir::LExprPtr>> sf;
+        sf.emplace_back("ptr", std::move(ptr_v));
+        sf.emplace_back("count", std::move(cnt_v));
+        sf.emplace_back("kind", std::move(kind_v));
+        elems.push_back(builder().struct_lit(
+            "IdentSpan", std::move(sf), span_t));
+    }
+    auto arr_e = builder().arr_lit(std::move(elems), arr_t);
+    std::string aname = "__qei_" + std::to_string(tmp_var_count_++);
+    define(aname, arr_t);
+    {
+        lir::SLet s;
+        s.name = aname; s.type = arr_t; s.is_mut = false;
+        s.value = std::move(arr_e);
+        blk->stmts.push_back(make_stmt_emit(node_line_, std::move(s)));
+    }
+    auto arr_ptr_full_t = make_ptr(false, arr_t);
+    auto raw       = builder().addr_of(aname, arr_ptr_full_t);
+    auto idents_pp = builder().cast(std::move(raw), span_ptr_t);
+
+    auto t_ref  = builder().var_ref(tname, hs_t);
+    auto t_ptr  = builder().field_read(std::move(t_ref), "ptr", u8_ptr_t);
+    auto t_size = builder().lit_int(static_cast<int64_t>(used), u64_ty);
+    auto i_cnt  = builder().lit_int(static_cast<int64_t>(N), u64_ty);
+
+    // Synthesize an extern call: logos_quote_expr_subst(tpl, size, idents, n)
+    // → *const u8.
+    std::vector<lir::LExprPtr> call_args;
+    call_args.push_back(std::move(t_ptr));
+    call_args.push_back(std::move(t_size));
+    call_args.push_back(std::move(idents_pp));
+    call_args.push_back(std::move(i_cnt));
+    auto subst_call = builder().call(
+        "logos_quote_expr_subst",
+        {},
+        std::move(call_args),
+        u8_ptr_t);
+
+    // Wrap as ExprBlob { ptr: <subst_call> }.
+    std::vector<std::pair<std::string, lir::LExprPtr>> fields;
+    fields.emplace_back("ptr", std::move(subst_call));
+    auto eb_lit = builder().struct_lit("ExprBlob", std::move(fields), eb_t);
+
+    pop_scope();
+    return builder().block_expr(blk, std::move(eb_lit), eb_t);
+}
+
 // HERMES_BLOB — sema-internal node spliced by the metacall driver after
-// invoking a thunk whose return type is HermesStatic. VALUE is the raw
-// Hermes blob bytes (Varchar). We lower to EHermesLit{static_blob=bytes,
-// root=null, has_captures=false} with type=HermesStatic; mlir_gen takes
-// the static_blob fast-path and emits the bytes directly into rodata.
+// invoking a thunk whose return type is HermesStatic / Hermes / ExprBlob.
+// VALUE is the raw Hermes blob bytes (Varchar).
+//
+// Two paths:
+//
+// 1. Data blob (default): root TOM has no AST/LIR schema_type_code (or
+//    isn't an AST node). Lower to EHermesLit{static_blob=bytes,
+//    root=null, has_captures=false}, type=HermesStatic; mlir_gen emits
+//    the bytes directly into rodata.
+//
+// 2. AST-fragment blob (Slice 7 of metaprog-quote): root TOM's
+//    schema_type_code lives in the CAT_AST category. We deserialise
+//    the blob via from_bytes_copy (stashed in blob_docs_ to outlive
+//    the recursion), point holder_ at the new doc, and recurse into
+//    lower_expr/lower_stmt/lower_pat/_ty (Slice 7 implements expr
+//    only — the others slot in when their grammar lands).
+//
+// Dispatch happens here rather than in lower_metacall because the
+// blob's root code is the authoritative signal: a HermesStatic-typed
+// metafn might be returning data OR a fragment, and we can only know
+// after reading the bytes. Pass-1 metacall typing (`is_expr_blob`) is
+// a hint that lets `let X: T = metacall ...` defer type-check; pass-2
+// here actually completes the lowering with the right type.
 lir::LExprPtr SemaChecker::lower_hermes_blob(TinyMapView node) {
     auto bytes = str_of(node.get(la::VALUE.code));
+
+    // Peek at the root's schema_type_code without copying the whole blob
+    // unless we have to. Use from_bytes_copy: it owns its own arena and
+    // remains valid as long as we keep the resulting Hermes alive.
+    auto doc_e = logos::hermes::from_bytes_copy(
+        reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size());
+    if (doc_e) {
+        auto& doc = doc_e.get();
+        auto root_obj = doc.root_object();
+        if (!root_obj.tagged().is_null()) {
+            auto root_tm = root_obj.as_tiny_map();
+            if (!root_tm.is_null()) {
+                uint64_t stc = root_tm.ptr()->schema_type_code();
+                if (logos::hermes::schema::category_of(stc)
+                    == logos::hermes::schema::CAT_AST) {
+                    int32_t code = static_cast<int32_t>(
+                        logos::hermes::schema::variant_of(stc));
+                    // Slice 7 prototype: expression nodes only. Stmt/pat/ty
+                    // dispatchers slot in here once their grammar lands.
+                    if (code == la::BINOP.code || code == la::LIT_INT.code
+                        || code == la::LIT_BOOL.code || code == la::LIT_STR.code
+                        || code == la::VAR_REF.code || code == la::CALL.code
+                        || code == la::PAREN_EXPR.code || code == la::UNARY.code
+                        || code == la::FIELD_READ.code || code == la::METHOD_CALL.code
+                        || code == la::CAST.code || code == la::INDEX_READ.code
+                        || code == la::STRUCT_LIT.code) {
+                        // Stash the doc so its arena outlives sema (mirror
+                        // back-fill may read from it). holder_ is swapped
+                        // for the recursion only.
+                        blob_docs_.emplace_back(std::move(doc));
+                        auto* prev_holder = holder_;
+                        holder_ = blob_docs_.back().holder();
+                        auto root_tm2 =
+                            blob_docs_.back().root_object().as_tiny_map();
+                        TinyMapView root_view(root_tm2.offset(), holder_);
+                        auto lowered = lower_expr(root_view);
+                        holder_ = prev_holder;
+                        return lowered;
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback: opaque HermesStatic data blob.
     lir::EHermesLit lit;
     lit.static_blob.assign(bytes.data(), bytes.size());
     auto result_type = make_struct_type("HermesStatic");
@@ -6294,6 +6849,14 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
         rk == LogosType::Kind::Struct && TypeRef(rt).struct_name() == "HermesStatic";
     bool is_hermes =
         rk == LogosType::Kind::Struct && TypeRef(rt).struct_name() == "Hermes";
+    // Slice 7 of metaprog-quote: ExprBlob is a HermesStatic-shaped marker
+    // signalling that the metafunction returns an AST expression fragment.
+    // Driver splices identically (CODE→HERMES_BLOB, VALUE=bytes); pass-2
+    // sema reads the blob's root schema_type_code and recurses into
+    // lower_expr to recover the actual expr type. Pass-1 typing is deferred
+    // — `let X: T = metacall foo()` accepts any T over an ExprBlob RHS.
+    bool is_expr_blob =
+        rk == LogosType::Kind::Struct && TypeRef(rt).struct_name() == "ExprBlob";
     bool prim_ok =
         rk == LogosType::Kind::Bool ||
         rk == LogosType::Kind::I8   || rk == LogosType::Kind::I16 ||
@@ -6308,9 +6871,9 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
         // &str / Slice<u8>
         (rk == LogosType::Kind::Slice && TypeRef(rt).elem() &&
          TypeRef(rt).elem().kind() == LogosType::Kind::U8);
-    bool ok_ret = prim_ok || is_hermes_static || is_hermes;
+    bool ok_ret = prim_ok || is_hermes_static || is_hermes || is_expr_blob;
     if (rt && !ok_ret)
-        error("metacall: ret type must be primitive scalar, HermesStatic, or Hermes");
+        error("metacall: ret type must be primitive scalar, HermesStatic, Hermes, or ExprBlob");
 
     // Record site for the eventual driver-side splice (M.1 Stage 2).
     if (cur_prog_ && rt && ok_ret) {
@@ -6342,6 +6905,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
         case LogosType::Kind::Struct:
             site.ret_tag = is_hermes_static ? RT::HermesStatic
                          : is_hermes        ? RT::Hermes
+                         : is_expr_blob     ? RT::ExprBlob
                                             : RT::I64;
             break;
         default: site.ret_tag = RT::I64; break;
@@ -6433,9 +6997,12 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
                     pkg, site.thunk_name, call_text);
             } else {
                 // HermesStatic ret needs std.hermes.view in scope.
+                // ExprBlob ret needs std.compiler.metaprog in scope.
                 const char* extra_uses =
                     (site.ret_tag == RT2::HermesStatic)
                     ? "use std.hermes.view;\n"
+                    : (site.ret_tag == RT2::ExprBlob)
+                    ? "use std.compiler.metaprog;\nuse std.hermes.view;\n"
                     : "";
                 site.thunk_source = std::format(
                     "package {};\n"

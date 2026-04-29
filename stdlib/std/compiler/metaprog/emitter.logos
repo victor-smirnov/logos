@@ -34,6 +34,28 @@ extern fn logos_emit_item_blob(data: *const u8, size: u64) -> i32;
 // regular item-blob path.
 extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;
 
+// Slice 5c+8: substitution + repetition shim for `quote_expr!`.
+// `kind` discriminates the substitution mode:
+//   0 — Ident (scalar or [Ident; N] cursor). `ptr` is a *const Ident
+//       pointer-array (one slot for scalar, M slots for cursor); `count`
+//       is 1 or M. The shim substitutes NAME_VAR(idx) → NAME(string)
+//       and, inside REPEAT_GROUP bodies, iterates by cursor index.
+//   1 — ExprBlob splice (Step 5c Option B). `ptr` aliases the blob's
+//       data pointer (cast from *const u8 — past the 8-byte size
+//       prefix); `count` is unused (shim reads size from `ptr - 8`)
+//       and substitutes the blob's root expr in place of the
+//       placeholder VAR_REF.
+// Cursor (count > 1) is only meaningful for kind=0.
+pub struct IdentSpan {
+    pub ptr: *const Ident,
+    pub count: u64,
+    pub kind: u64,
+}
+
+extern fn logos_quote_expr_subst(tpl: *const u8, tpl_size: u64,
+                                 idents_ptr: *const IdentSpan,
+                                 idents_count: u64) -> *const u8;
+
 // Test fixture for Slice 3. Parses `src` (NUL-terminated) and writes the
 // resulting Hermes arena's base+size into out-params. The blob keepalive
 // lives on the host side, valid through the rest of compilation.

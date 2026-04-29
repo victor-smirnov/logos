@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: Apache-2.0
+// Slice 6 of metaprog-quote — typed Item/Ident accessors.
+//
+// `slice6_smoke_hook` fires pre-sema on `#[slice6_smoke] struct Trigger`,
+// reads the first field name via `target.field(view, 0).name(view)`, and
+// uses that Ident as the synthesised struct's name in a `quote_item!`
+// antiquot site. main then constructs the synthesised type to prove the
+// generated struct exists with the expected name.
+
+package main;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+
+#[metaprog_handler("slice6_smoke")]
+fn slice6_smoke_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+
+    let item: Item = Item { raw: AnyVal::from_offset(target_offset) };
+    if item.field_count(&view) == (0 as u64) { return; }
+
+    let f0: Item = item.field(&view, 0 as u64);
+    let id: Ident = f0.name(&view);
+
+    // Sanity-check Ident::eq while we're here: id must equal itself.
+    if !id.eq(&id) { return; }
+
+    let blob: QuoteItemBlob = quote_item! {
+        struct #id { v: i32 }
+    };
+    unsafe {
+        logos_emit_item_blob_subst(&blob);
+    }
+    return;
+}
+
+#[slice6_smoke]
+struct Trigger { foobar: i32, ignored: i32 }
+
+unsafe fn main() -> i32 {
+    let g: foobar = foobar { v: 7 };
+    return g.v;
+}

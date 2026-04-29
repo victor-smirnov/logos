@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: Apache-2.0
+// Slice 8 of metaprog-quote — `#(...),*` repetition in `quote_expr!`.
+//
+// `build_expr` builds a 3-element [Ident; 3] cursor over locals
+// `a`, `b`, `c` and returns `quote_expr! { add3(#(#xs),*) }`. The shim
+// expands ARGS by splicing the body 3 times with cursor[i] substitution
+// into the call's argument list:
+//   add3(a, b, c)
+// At main's scope, a=2, b=3, c=7 → add3 returns 12 → exit (12 - 5) = 7.
+package quote_expr_repeat_comma;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+
+fn add3(x: i32, y: i32, z: i32) -> i32 {
+    return x + y + z;
+}
+
+fn build_expr() -> ExprBlob {
+    let s_a: str = "a";
+    let s_b: str = "b";
+    let s_c: str = "c";
+    let xs: [Ident; 3] = [
+        Ident { ptr: s_a.as_ptr(), len: s_a.len() as u64 },
+        Ident { ptr: s_b.as_ptr(), len: s_b.len() as u64 },
+        Ident { ptr: s_c.as_ptr(), len: s_c.len() as u64 },
+    ];
+    return quote_expr! { add3(#(#xs),*) };
+}
+
+unsafe fn main() -> i32 {
+    let a: i32 = 2;
+    let b: i32 = 3;
+    let c: i32 = 7;
+    let r: i32 = metacall build_expr();
+    return r - 5;
+}

@@ -244,6 +244,9 @@
     METACALL                    = 198   // metacall <call_expr>; VALUE = inner call AST
     TEMPLATE_DECL               = 199   // `template <decl>` — declaration-as-data; VALUE = wrapped item AST
     QUOTE_ITEM                  = 200   // quote_item! { item* } — typed AST literal; ITEMS = array of item nodes
+    QUOTE_EXPR                  = 201   // quote_expr! { expr } — typed AST literal; VALUE = expr node (root carries schema_type_code)
+    REPEAT_GROUP                = 202   // #(body)sep* inside quote_*! body; VALUE=body expr, OP=sep code (0=none, 1=comma, 2=&&)
+    SIZEOF_PACK                 = 203   // sizeof...(T) — value-position expression yielding pack length as u64; NAME = pack ident
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -251,6 +254,7 @@
     // Keywords (longest-match first within same length)
     KW_CONTINUE = "continue"
     KW_QUOTE_ITEM = "quote_item"
+    KW_QUOTE_EXPR = "quote_expr"
     KW_TEMPLATE = "template"
     KW_PACKAGE  = "package"
     KW_EIDOS = "eidos"
@@ -893,6 +897,8 @@
     // so sema can skip them when resolving concrete type arguments.
     type_or_lt_arg <- LIFETIME
                    => { CODE: LIFETIME_PARAM, NAME: $1 }
+                    / IDENT DOTDOTDOT
+                   => { CODE: PACK_EXPAND, NAME: $1 }
                     / type_ref
 
     simple_type <- IDENT LT type_or_lt_arg (COMMA type_or_lt_arg)* GT_TYPE
@@ -1318,7 +1324,10 @@
                   / match_stmt       // match expr { ... }  — as expression
                   / KW_METACALL call_expr
                                      => { CODE: METACALL, VALUE: $2 }
+                  / IDENT DOTDOTDOT LPAREN IDENT RPAREN
+                                     => { CODE: SIZEOF_PACK, OP: $1, NAME: $4 }
                   / quote_item_expr
+                  / quote_expr_expr
 
                   / call_expr        // IDENT(args) / Type::method(args) — before enum_lit/IDENT
                   / enum_lit         // IDENT::VARIANT     — after call_expr (no parens)
@@ -1329,6 +1338,13 @@
                   / FLOAT    => { CODE: LIT_FLOAT, VALUE: $1 }
                   / INTEGER  => { CODE: LIT_INT,  VALUE: $1 }
                   / IDENT DOTDOTDOT => { CODE: PACK_EXPAND, NAME: $1 }
+                  / HASH LPAREN expr RPAREN AND STAR
+                        => { CODE: REPEAT_GROUP, VALUE: $3, OP: 2 }
+                  / HASH LPAREN expr RPAREN COMMA STAR
+                        => { CODE: REPEAT_GROUP, VALUE: $3, OP: 1 }
+                  / HASH LPAREN expr RPAREN STAR
+                        => { CODE: REPEAT_GROUP, VALUE: $3, OP: 0 }
+                  / HASH IDENT => { CODE: VAR_REF, NAME_VAR: $2 }
                   / IDENT    => { CODE: VAR_REF,  NAME: $1 }
 
     // ── Enum variant literal: Color::Red or Option::Some(42) ──────
@@ -1481,6 +1497,15 @@
     // slice that Slice 3's logos_emit_item_blob consumes.
     quote_item_expr <- KW_QUOTE_ITEM BANG LBRACE item* RBRACE
                     => { CODE: QUOTE_ITEM, ITEMS: $4 }
+
+    // ── quote_expr! { expr } — typed AST literal (Slice 7) ─────────
+    // Body is a single expression. Sema deep-clones the parsed expr
+    // AnyVal as the root TOM of a fresh Hermes doc, sets the root's
+    // schema_type_code from CODE so position-aware lower_hermes_blob
+    // can recurse into lower_expr at splice time, and emits an
+    // ExprBlob value. Splices via metacall, like ExprBlob returns.
+    quote_expr_expr <- KW_QUOTE_EXPR BANG LBRACE expr RBRACE
+                   => { CODE: QUOTE_EXPR, VALUE: $4 }
 
     // ── Type parameter list: <T, U: Bound1 + Bound2> ─────────────
     // Also used for specialisation patterns: <i32>, <*T>, <[T; 4]>, etc.

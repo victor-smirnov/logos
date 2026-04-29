@@ -75,3 +75,16 @@ void logos_metaprog_error_at(uint32_t target_offset, const char* msg) {
     (void)target_offset; (void)msg;
     metaprog_unavailable("logos_metaprog_error_at");
 }
+
+__attribute__((weak))
+const uint8_t* logos_test_make_bin_op_blob(void) {
+    metaprog_unavailable("logos_test_make_bin_op_blob");
+}
+
+__attribute__((weak))
+const uint8_t* logos_quote_expr_subst(const uint8_t* tpl, uint64_t tpl_size,
+                                      const void* idents_ptr,
+                                      uint64_t idents_count) {
+    (void)tpl; (void)tpl_size; (void)idents_ptr; (void)idents_count;
+    metaprog_unavailable("logos_quote_expr_subst");
+}

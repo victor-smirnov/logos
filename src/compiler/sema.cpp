@@ -2101,6 +2101,19 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         return pool_->alloc(std::move(t));
     }
 
+    if (tc == la::PACK_EXPAND) {
+        // T... in type-arg position — refer to a variadic type parameter
+        // currently in scope. Sema yields the TypeVar; mono expands it via
+        // cur_packs_ at call sites that iterate type_args.
+        auto name = std::string(str_of(node.get(la::NAME.code)));
+        auto it = current_type_params_.find(name);
+        if (it == current_type_params_.end()) {
+            error(std::format("pack expand: undefined type parameter '{}'", name));
+            return error_t();
+        }
+        return it->second;
+    }
+
     if (tc == la::TYPE_REF) {
         auto name = str_of(node.get(la::NAME.code));
         if (name == "Self") {

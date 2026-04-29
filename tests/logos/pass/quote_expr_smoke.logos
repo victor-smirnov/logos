@@ -1,0 +1,20 @@
+// SPDX-License-Identifier: Apache-2.0
+// Slice 7 of metaprog-quote — `quote_expr! { 1 + 2 }` produces an
+// ExprBlob whose root TOM is the BIN_OP TOM with schema_type_code
+// set to ast(BINOP). The metacall driver splices it; pass-2 sema's
+// position-aware lower_hermes_blob recognises CAT_AST + BINOP and
+// recurses into lower_expr, which lowers the binop normally.
+// Expected: `1 + 2 = 3`.
+package quote_expr_smoke;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+
+fn build_expr() -> ExprBlob {
+    return quote_expr! { 1 + 2 };
+}
+
+unsafe fn main() -> i32 {
+    let x: i64 = metacall build_expr();
+    return x as i32;
+}

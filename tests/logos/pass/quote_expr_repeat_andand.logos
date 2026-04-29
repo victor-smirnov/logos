@@ -1,0 +1,36 @@
+// SPDX-License-Identifier: Apache-2.0
+// Slice 8 of metaprog-quote — `#(...)&&*` repetition in `quote_expr!`.
+//
+// `build_expr` builds a 3-element [Ident; 3] cursor over locals
+// `a`, `b`, `c` and returns `quote_expr! { #(#xs)&&* }`. The shim
+// expands the body 3 times with cursor[i] substitution and chains
+// the results into a left-leaning BinOp("&&") tree:
+//   a && b && c
+// At main's scope, a=true b=true c=true → result=true → exit 7.
+package quote_expr_repeat_andand;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+
+fn build_expr() -> ExprBlob {
+    let s_a: str = "a";
+    let s_b: str = "b";
+    let s_c: str = "c";
+    let xs: [Ident; 3] = [
+        Ident { ptr: s_a.as_ptr(), len: s_a.len() as u64 },
+        Ident { ptr: s_b.as_ptr(), len: s_b.len() as u64 },
+        Ident { ptr: s_c.as_ptr(), len: s_c.len() as u64 },
+    ];
+    return quote_expr! { #(#xs)&&* };
+}
+
+unsafe fn main() -> i32 {
+    let a: bool = true;
+    let b: bool = true;
+    let c: bool = true;
+    let r: bool = metacall build_expr();
+    if r {
+        return 7;
+    }
+    return 1;
+}

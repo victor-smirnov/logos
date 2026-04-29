@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: Apache-2.0
+// Step 5c Option B of metaprog-quote — ExprBlob antiquot inside
+// `quote_expr!`. `build_inner` produces an `ExprBlob` carrying the
+// expression `41`; `build_outer` splices it into a larger expression
+// `#inner + 1`. The shim detects span kind=1 at the placeholder and
+// deep-copies the inner blob's root expr in place of the VAR_REF.
+//
+// At metacall time, build_outer's result is the spliced AST
+// `BinOp(LIT_INT(41), "+", LIT_INT(1))`. main reads it as 42, returns
+// 42 - 35 = 7.
+package quote_expr_subblob;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+
+fn build_inner() -> ExprBlob {
+    return quote_expr! { 41 };
+}
+
+fn build_outer() -> ExprBlob {
+    let inner: ExprBlob = build_inner();
+    return quote_expr! { #inner + 1 };
+}
+
+unsafe fn main() -> i32 {
+    let r: i32 = metacall build_outer();
+    return r - 35;
+}
