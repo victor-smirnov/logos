@@ -1,0 +1,17 @@
+// SPDX-License-Identifier: Apache-2.0
+// metacall — basic compile-time invocation of a Logos fn with literal args.
+// M.1 first slice: parser + sema only; runtime semantics still match a
+// regular call. Const-fold via JIT thunk lands in the next slice.
+package metacall_basic;
+
+fn add(a: i64, b: i64) -> i64 {
+    return a + b;
+}
+
+unsafe fn main() -> i32 {
+    let n: i64 = metacall add(2, 3);
+    if n != 5 {
+        return 1;
+    }
+    return 42;
+}

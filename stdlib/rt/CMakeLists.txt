@@ -3,8 +3,10 @@
 #
 # Contains arch-specific code that the Logos stdlib externs into:
 #   fiber_ctx.S      — x86-64 context switch, fiber entry trampoline,
-#                      per-thread scheduler/thread TLS pointers,
-#                      atomic load/store for SPSC.
+#                      per-thread scheduler/thread TLS pointers.
+#   atomic_ops.S     — atomic load/store/fetch-add/CAS (i32/i64).
+#                      Split out so this TU has zero TLS relocations,
+#                      letting ORC meta-jit load it via RuntimeDyld.
 #   thread_uring.c   — thin C wrappers for liburing static-inline helpers
 #                      (io_uring_prep_poll_add, cqe_seen, wait_cqe, etc.).
 #
@@ -15,7 +17,7 @@
 set(STDLIB_BIN_DIR ${CMAKE_BINARY_DIR}/stdlib_bin)
 file(MAKE_DIRECTORY ${STDLIB_BIN_DIR})
 
-add_library(logos_rt STATIC fiber_ctx.S thread_uring.c env.c metaprog_stubs.c)
+add_library(logos_rt STATIC fiber_ctx.S atomic_ops.S thread_uring.c env.c metaprog_stubs.c)
 target_include_directories(logos_rt PRIVATE /usr/include)
 set_target_properties(logos_rt PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY ${STDLIB_BIN_DIR}

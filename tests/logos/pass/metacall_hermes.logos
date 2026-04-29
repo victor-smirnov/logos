@@ -1,0 +1,23 @@
+package metacall_hermes;
+use std.hermes.ctr;
+use std.hermes.view;
+use std.hermes.anyval;
+
+unsafe fn build_cfg() -> Hermes {
+    let arr: [i32; 4] = [10, 20, 30, 40];
+    return @{"k": AnyVal::embed_i24(x) for x in arr};
+}
+
+unsafe fn main() -> i32 {
+    let cfg_meta: HermesStatic = metacall build_cfg();
+    let view_meta = cfg_meta.as_view();
+
+    let cfg_rt: Hermes = build_cfg();
+    let view_rt = cfg_rt.as_view();
+
+    if view_meta.size() == 0u64 { return 1; }
+    if view_rt.size() == 0u64 { return 2; }
+    if view_meta.size() != view_rt.size() { return 3; }
+
+    return 42;
+}

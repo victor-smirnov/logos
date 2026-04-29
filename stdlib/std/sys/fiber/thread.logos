@@ -43,10 +43,10 @@ extern fn poll(fds: *mut u8, nfds: i64, timeout: i32) -> i32;
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
-const SPSC_CAP:      i64 = 256;  // (fn, arg) slots per inbox ring
-const POLLIN:        i16 = 1;    // poll event mask
-const EFD_NONBLOCK:  i32 = 2048; // O_NONBLOCK for eventfd(2)
-const REACTOR_URING_ENTRIES: i32 = 256;
+let SPSC_CAP:      i64 = 256;  // (fn, arg) slots per inbox ring
+let POLLIN:        i16 = 1;    // poll event mask
+let EFD_NONBLOCK:  i32 = 2048; // O_NONBLOCK for eventfd(2)
+let REACTOR_URING_ENTRIES: i32 = 256;
 
 // ── SpscRing ──────────────────────────────────────────────────────────────
 

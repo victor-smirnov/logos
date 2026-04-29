@@ -1,6 +1,6 @@
 package g1_const_basic;
 
-const ANSWER: i32 = 42;
+let ANSWER: i32 = 42;
 
 fn main() -> i32 {
     return ANSWER;

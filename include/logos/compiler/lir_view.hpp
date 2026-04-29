@@ -977,6 +977,7 @@ struct EHermesLitView {
     }
     bool     has_captures()        const noexcept { return detail::read_bool(self, hl::HAS_CAPTURES.code); }
     uint32_t capture_param_count() const noexcept { return detail::read_u32(self, hl::CAPTURE_PARAM_COUNT.code); }
+    std::string_view static_blob() const noexcept { return detail::read_string(self, hl::STATIC_BLOB.code); }
     template <class F> void each_capture_expr(F&& f) const noexcept {
         detail::for_each_expr(self, hl::CAPTURE_EXPRS.code, std::forward<F>(f));
     }

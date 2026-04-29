@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Parser fail: top-level 'let' statement is not valid syntax.
-// The parser stops at 'let', so 'fn main' after it is never parsed.
+// Parser fail: bare identifier at item position is not valid syntax.
 // Verifies that logosc reports the stray token instead of silently emitting
 // an empty (or broken) object file.
 package stray_token;
@@ -9,7 +8,7 @@ fn helper() -> i32 {
     return 7;
 }
 
-let bad: i32 = 42;
+bad
 
 fn main() -> i32 {
     return helper();

@@ -561,7 +561,7 @@ private:
                           };
     struct SemaFuncInfo   { std::vector<TypeRef> param_types; TypeRef ret_type;
                             std::vector<TypeParam> type_params; bool is_vararg = false;
-                            bool is_pub = false; bool is_const = false; bool is_unsafe = false;
+                            bool is_pub = false; bool is_unsafe = false;
                             bool is_extern = false;
                             std::string base_name;
                             std::string signature_key;
@@ -640,9 +640,6 @@ private:
     logos::compiler::StrMap<SemaFuncInfo>     generic_funcs_;
     // base name -> generic overload symbols stored in generic_funcs_.
     logos::compiler::StrMap<std::vector<std::string>> generic_overloads_;
-    // const fn bodies: mangled_name → (body_block, param_names)
-    struct ConstFnBody { hermes::TinyMapView body; std::vector<std::string> param_names; };
-    logos::compiler::StrMap<ConstFnBody>      const_fn_bodies_;
     // Generic type alias entry: non-generic aliases have type_params empty.
     struct TypeAliasEntry {
         TypeRef         type;
@@ -1029,6 +1026,7 @@ private:
                                           TypeRef ctr_t,
                                           std::string_view context);
     lir::LExprPtr lower_hermes_lit(hermes::TinyMapView node);
+    lir::LExprPtr lower_hermes_blob(hermes::TinyMapView node);
 
     // Capture context: non-null while lowering a hermes literal that has $-captures.
     // lower_hermes_val populates it as it encounters HERMES_CAP_IDENT/EXPR nodes.
@@ -1047,6 +1045,7 @@ private:
     lir::LExprPtr lower_enum_lit_data_from_static(
             hermes::TinyMapView node, std::string_view ename, std::string_view vname);
     lir::LExprPtr lower_static_call(hermes::TinyMapView node);
+    lir::LExprPtr lower_metacall   (hermes::TinyMapView node);
     lir::LExprPtr lower_if_expr(hermes::TinyMapView node);
     lir::LExprPtr lower_closure_expr(hermes::TinyMapView node);
 
@@ -1129,10 +1128,6 @@ private:
     lir::LFunction lower_fn(hermes::TinyMapView node, std::string_view struct_ctx = {});
     lir::LStructDef lower_struct_def(hermes::TinyMapView node);
     lir::LEnumDef lower_enum_def(hermes::TinyMapView node);
-    using ConstEnv = logos::compiler::StrMap<int64_t>;
-    std::optional<int64_t> const_eval_expr(hermes::TinyMapView e, const ConstEnv& env);
-    std::optional<int64_t> const_eval_block(hermes::TinyMapView block, ConstEnv env);
-    lir::LExprPtr try_const_fold_call(hermes::TinyMapView call_node);
     lir::LConst lower_const_def(hermes::TinyMapView node);
     lir::LTypeAlias lower_type_alias_def(hermes::TinyMapView node);
     lir::LTraitDef lower_trait_def(hermes::TinyMapView node);

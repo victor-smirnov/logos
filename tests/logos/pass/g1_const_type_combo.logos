@@ -1,8 +1,8 @@
 package g1_const_type_combo;
 
 type Score = i32;
-const MAX_SCORE: Score = 100;
-const HALF: Score = 50;
+let MAX_SCORE: Score = 100;
+let HALF: Score = 50;
 
 fn clamp(val: Score) -> Score {
     if val > MAX_SCORE {

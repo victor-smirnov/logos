@@ -252,6 +252,7 @@ inline constexpr Key HAS_CAPTURES        {"HAS_CAPTURES",        2};   // u8
 inline constexpr Key CAPTURE_EXPRS       {"CAPTURE_EXPRS",       3};   // Array<RelPtr<LExpr>>
 inline constexpr Key CAPTURE_TYPES       {"CAPTURE_TYPES",       4};   // Array<RelPtr<LogosType>>
 inline constexpr Key CAPTURE_PARAM_COUNT {"CAPTURE_PARAM_COUNT", 5};   // u32
+inline constexpr Key STATIC_BLOB         {"STATIC_BLOB",         6};   // Varchar — pre-serialised Hermes blob (metacall HermesStatic splice). When non-empty: root/has_captures/etc are unused; codegen emits blob bytes directly into rodata with [u64 size][bytes] layout.
 } // namespace hermes_lit_keys
 
 // Keys for HermesVal mirror maps (HVNull / HVBool / HVInt / HVFloat / HVStr /

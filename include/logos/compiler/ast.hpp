@@ -262,6 +262,8 @@ inline constexpr Code ANNOT_ARR            {"ANNOT_ARR",           194}; // anno
 inline constexpr Code META_BLOCK           {"META_BLOCK",          195}; // meta @{...} block; VALUE(7)=hermes_lit node
 inline constexpr Code GENOS_DEF            {"GENOS_DEF",           196}; // genos declaration; same structure as TRAIT_DEF
 inline constexpr Code BLOCK_STMT           {"BLOCK_STMT",          197}; // bare scoping block { stmts... }; BODY = block
+inline constexpr Code METACALL             {"METACALL",            198}; // metacall <call_expr>; VALUE = inner call AST
+inline constexpr Code HERMES_BLOB          {"HERMES_BLOB",         199}; // sema-internal: pre-serialised Hermes static blob (driver splice from metacall HermesStatic return); VALUE = raw blob bytes (Varchar)
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  META            {"META",               16};   // meta @{...} block node on struct/trait/datatype declarations (reuses PATH_PARTS slot; these node types never co-exist)
@@ -274,7 +276,6 @@ inline constexpr Key GUARD     {"GUARD",     35};            // guard condition 
 inline constexpr Key EXPR      {"EXPR",      36};            // expression-body match arm value
 inline constexpr Key NAMES     {"NAMES",     37};            // name list for tuple destructuring
 inline constexpr Key WHERE     {"WHERE",     38};            // where clause node
-inline constexpr Key IS_CONST  {"IS_CONST",  39};            // const fn marker
 inline constexpr Key IS_UNSAFE {"IS_UNSAFE", 42};            // unsafe fn marker
 inline constexpr Key IS_MOVE   {"IS_MOVE",   44};            // move closure marker
 inline constexpr Key IS_REF    {"IS_REF",    45};            // &self / &mut self param shorthand

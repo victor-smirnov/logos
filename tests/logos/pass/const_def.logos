@@ -6,9 +6,9 @@
 
 package const_def;
 
-const FACTOR_A: i32 = 6;
-const FACTOR_B: i32 = 7;
-const ANSWER: i32 = 42;
+let FACTOR_A: i32 = 6;
+let FACTOR_B: i32 = 7;
+let ANSWER: i32 = 42;
 
 fn mul_consts() -> i32 {
     return FACTOR_A * FACTOR_B;

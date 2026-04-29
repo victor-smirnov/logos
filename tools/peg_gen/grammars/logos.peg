@@ -240,6 +240,7 @@
     META_BLOCK                  = 195   // meta @{...} block; VALUE=hermes_lit node
     GENOS_DEF                   = 196   // genos declaration (trait with is_genos=true)
     BLOCK_STMT                  = 197   // bare scoping block { stmts... }; BODY = block
+    METACALL                    = 198   // metacall <call_expr>; VALUE = inner call AST
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -250,6 +251,7 @@
     KW_EIDOS = "eidos"
     KW_GENOS    = "genos"
     KW_AUTO     = "auto"
+    KW_METACALL = "metacall"
     KW_META     = "meta"
     KW_STATIC   = "static"
     KW_RETURN   = "return"
@@ -423,8 +425,8 @@
     annot_args <- annot_arg (COMMA annot_arg)* COMMA?
                => { ITEMS: $... }
 
-    // const NAME: type = expr;
-    const_def <- KW_CONST IDENT COLON type_ref ASSIGN expr SEMI
+    // let NAME: type = expr;  (module-level — compile-time evaluated, ADR 0003 §9)
+    const_def <- KW_LET IDENT COLON type_ref ASSIGN expr SEMI
               => { CODE: CONST_DEF, NAME: $2, TYPE: $4, VALUE: $6 }
 
     // static NAME: type = expr;  (module-level mutable static — same repr as const for now)
@@ -736,11 +738,7 @@
                => { CODE: FN, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8, BODY: $9 }
 
     // ── Private function ─────────────────────────────────────────
-    fn_def <- KW_CONST KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
-           => { CODE: FN, IS_CONST: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, WHERE: $10, BODY: $11 }
-            / KW_CONST KW_FN IDENT type_param_list? LPAREN param_list? RPAREN where_clause? block
-           => { CODE: FN, IS_CONST: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8, BODY: $9 }
-            / KW_UNSAFE KW_FN IDENT  type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
+    fn_def <- KW_UNSAFE KW_FN IDENT  type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
            => { CODE: FN, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, WHERE: $10, BODY: $11 }
             / KW_UNSAFE KW_FN IDENT  type_param_list? LPAREN param_list? RPAREN where_clause? block
            => { CODE: FN, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8, BODY: $9 }
@@ -1286,6 +1284,8 @@
                   / loop_expr        // loop { ... }  — as expression (break value)
                   / if_expr          // if cond { ... } else { ... }  — as expression
                   / match_stmt       // match expr { ... }  — as expression
+                  / KW_METACALL call_expr
+                                     => { CODE: METACALL, VALUE: $2 }
                   / call_expr        // IDENT(args) / Type::method(args) — before enum_lit/IDENT
                   / enum_lit         // IDENT::VARIANT     — after call_expr (no parens)
                   / RAW_STRING => { CODE: LIT_STR, VALUE: $1 }

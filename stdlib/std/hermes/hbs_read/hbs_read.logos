@@ -31,10 +31,10 @@ extern fn free(ptr: *mut u8);
 // Limits
 // ---------------------------------------------------------------------------
 
-const HBS_MAX_NODES:      u32 = 16000000;
-const HBS_MAX_STRING_LEN: u32 = 64000000;
-const HBS_MAX_OBJECTS:    u32 = 1000000;
-const HBS_MAX_DEPTH:      u32 = 10000;
+let HBS_MAX_NODES:      u32 = 16000000;
+let HBS_MAX_STRING_LEN: u32 = 64000000;
+let HBS_MAX_OBJECTS:    u32 = 1000000;
+let HBS_MAX_DEPTH:      u32 = 10000;
 
 // ---------------------------------------------------------------------------
 // Error enum
@@ -58,11 +58,11 @@ pub enum HbsError {
 // Frame kinds
 // ---------------------------------------------------------------------------
 
-const FR_ARRAY:       u8 = 0;
-const FR_OBJMAP:      u8 = 1;
-const FR_TINYMAP:     u8 = 2;
-const FR_TYPED_VALUE: u8 = 5;
-const FR_MI32_VAL:    u8 = 6;
+let FR_ARRAY:       u8 = 0;
+let FR_OBJMAP:      u8 = 1;
+let FR_TINYMAP:     u8 = 2;
+let FR_TYPED_VALUE: u8 = 5;
+let FR_MI32_VAL:    u8 = 6;
 
 #[zoned] pub struct ReadFrame {
     pub kind:     u8,

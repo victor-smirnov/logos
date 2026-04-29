@@ -552,7 +552,8 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 [&](TypeRef ct) { capture_types.push_back(subst_type(ct, s)); });
             result->mirror_offset_ = lir_mirror_emit_hermes_lit(
                 out_, result->type, root, has_captures,
-                capture_exprs, capture_types, capture_param_count);
+                capture_exprs, capture_types, capture_param_count,
+                v.static_blob());
             break;
         }
         case C::Call: {

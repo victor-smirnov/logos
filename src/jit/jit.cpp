@@ -74,6 +74,20 @@ bool Jit::define_symbol(std::string_view name, void* addr) {
     return true;
 }
 
+bool Jit::add_static_archive(std::string_view path) {
+    if (!impl_->lljit) { last_err_ = "Jit::init not called"; return false; }
+    auto& jd = impl_->lljit->getMainJITDylib();
+    std::string p(path);
+    auto gen = llvm::orc::StaticLibraryDefinitionGenerator::Load(
+        impl_->lljit->getObjLinkingLayer(), p.c_str());
+    if (!gen) {
+        last_err_ = take_err(gen.takeError());
+        return false;
+    }
+    jd.addGenerator(std::move(*gen));
+    return true;
+}
+
 bool Jit::enable_process_symbols() {
     if (!impl_->lljit) { last_err_ = "Jit::init not called"; return false; }
     auto& jd = impl_->lljit->getMainJITDylib();

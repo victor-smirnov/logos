@@ -50,6 +50,13 @@ public:
     // that JIT untrusted code should leave it off.
     bool enable_process_symbols();
 
+    // M.1 Stage 2 (Mode B): register a static archive (`.a`) so undefined
+    // symbols in JIT'd modules resolve from the archive's compiled object
+    // members. Used by metacall to invoke callees whose body lives only in
+    // a linker-pulled binary. Path must be absolute or resolvable relative
+    // to cwd; ORC mmaps the archive lazily.
+    bool add_static_archive(std::string_view path);
+
     // Returns the JIT'd address of `name`, or nullptr on miss.
     void* lookup(std::string_view name);
 

@@ -30,8 +30,8 @@ extern fn munmap(addr: *mut u8, len: i64) -> i32;
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
-const STACK_SIZE:    i64 = 262144;  // 256 KiB usable stack per fiber
-const GUARD_SIZE:    i64 = 4096;    // 4 KiB guard page (catches overflow)
+let STACK_SIZE:    i64 = 262144;  // 256 KiB usable stack per fiber
+let GUARD_SIZE:    i64 = 4096;    // 4 KiB guard page (catches overflow)
 
 // Per-scheduler pool of retired stacks: when enabled via
 // sched_set_stack_pool_cap(), spawn() reuses stacks instead of mmap'ing
@@ -46,15 +46,15 @@ const GUARD_SIZE:    i64 = 4096;    // 4 KiB guard page (catches overflow)
 // Slot 0 is reserved for the fiber reactor's CQE result.
 // pub const not yet supported end-to-end (grammar/sema/import);
 // FLS_SLOTS is effectively internal to the fiber package.
-const FLS_SLOTS: i64 = 8;
+let FLS_SLOTS: i64 = 8;
 pub fn fls_slots() -> i64 { return FLS_SLOTS; }
 pub fn fls_key_cqe_result() -> i64 { return 0 as i64; }
 
-const PROT_NONE:     i32 = 0;
-const PROT_READ:     i32 = 1;
-const PROT_WRITE:    i32 = 2;
-const MAP_PRIVATE:   i32 = 2;
-const MAP_ANONYMOUS: i32 = 32;     // Linux MAP_ANONYMOUS = 0x20
+let PROT_NONE:     i32 = 0;
+let PROT_READ:     i32 = 1;
+let PROT_WRITE:    i32 = 2;
+let MAP_PRIVATE:   i32 = 2;
+let MAP_ANONYMOUS: i32 = 32;     // Linux MAP_ANONYMOUS = 0x20
 
 // ── FiberCtx ───────────────────────────────────────────────────────────────
 //

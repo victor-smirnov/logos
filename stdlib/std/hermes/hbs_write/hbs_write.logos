@@ -43,11 +43,11 @@ extern fn free(ptr: *mut u8);
 // Work item kinds for the write stack
 // ---------------------------------------------------------------------------
 
-const WK_VAL:      u8 = 0;   // write the AnyVal stored in obj_off (as raw)
-const WK_ARR_IDX:  u8 = 1;   // write arr element at idx
-const WK_MAP_SLOT: u8 = 2;   // write ObjectMap slot from idx..cap
-const WK_TMAP_IDX: u8 = 3;   // write TinyObjectMap entry idx
-const WK_MI32_IDX: u8 = 4;   // write Map<i32, AnyVal> entry idx
+let WK_VAL:      u8 = 0;   // write the AnyVal stored in obj_off (as raw)
+let WK_ARR_IDX:  u8 = 1;   // write arr element at idx
+let WK_MAP_SLOT: u8 = 2;   // write ObjectMap slot from idx..cap
+let WK_TMAP_IDX: u8 = 3;   // write TinyObjectMap entry idx
+let WK_MI32_IDX: u8 = 4;   // write Map<i32, AnyVal> entry idx
 
 #[zoned] pub struct WriteItem {
     pub kind:    u8,

@@ -16,9 +16,9 @@ use std.lang.cmp;
 use std.lang.option;
 use std.lang.iter;
 
-const SLOT_EMPTY:     u8 = 0 as u8;
-const SLOT_OCCUPIED:  u8 = 1 as u8;
-const SLOT_TOMBSTONE: u8 = 2 as u8;
+let SLOT_EMPTY:     u8 = 0 as u8;
+let SLOT_OCCUPIED:  u8 = 1 as u8;
+let SLOT_TOMBSTONE: u8 = 2 as u8;
 
 struct Entry<K, V> {
     key: K,

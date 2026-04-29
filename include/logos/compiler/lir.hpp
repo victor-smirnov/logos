@@ -197,6 +197,11 @@ struct EHermesLit {
     std::vector<LExprPtr>                    capture_exprs;   // one per unique value
     std::vector<TypeRef>                     capture_types;   // one per unique value
     uint32_t                                 capture_param_count = 0; // total slots
+    // M.x: pre-serialised Hermes blob (metacall HermesStatic splice). When
+    // non-empty, codegen emits these bytes directly into rodata as
+    // [u64 size][bytes] and returns HermesStatic{ptr=global+8}. `root` and
+    // capture-related fields are ignored on this path.
+    std::string                              static_blob;
 };
 
 // ── Expression node payloads ──────────────────────────────────────────────
@@ -901,6 +906,26 @@ struct LProgram {
         std::string trigger;
     };
     std::vector<MetaprogTarget> metaprog_targets;
+
+    // M.1: per-site record of `metacall <call_expr>` occurrences in the user
+    // entry-file AST. Sema synthesises a no-arg thunk fn (`__metacall_thunk_<idx>`)
+    // that wraps the literal-folded call; the driver looks up the thunk in the
+    // metaprog JIT, invokes it, and splices the resulting literal back into the
+    // AST node at `expr_offset` (overwriting CODE+VALUE in place via TOM::put).
+    struct MetacallSite {
+        size_t      ast_idx;       // index into asts[] (== entry_ast_idx for now)
+        uint32_t    expr_offset;   // arena offset of the METACALL TOM node
+        std::string thunk_name;    // mangled name of the synthesised thunk fn
+        // Stage 2: synthesised thunk source. Driver feeds it through
+        // logos_emit_source so the metaprog JIT compiles a no-arg fn that
+        // returns the const-folded callee result. Empty if thunk synthesis
+        // failed (e.g. unsupported call shape) — driver skips such sites.
+        std::string thunk_source;
+        // Return-type discriminator for the driver (avoids re-deriving from L-IR).
+        enum class RetTag { Bool, I8, I16, I24, I32, I56, I64, U8, U16, U24, U32, U56, U64, F32, F64, Str, HermesStatic, Hermes };
+        RetTag      ret_tag = RetTag::I64;
+    };
+    std::vector<MetacallSite> metacall_sites;
 
     // Symbol names present in binary archives on the search path.
     // mlir_gen skips functions whose mangled name is in this set (they're
