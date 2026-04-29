@@ -241,12 +241,14 @@
     GENOS_DEF                   = 196   // genos declaration (trait with is_genos=true)
     BLOCK_STMT                  = 197   // bare scoping block { stmts... }; BODY = block
     METACALL                    = 198   // metacall <call_expr>; VALUE = inner call AST
+    TEMPLATE_DECL               = 199   // `template <decl>` — declaration-as-data; VALUE = wrapped item AST
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
 %tokens {
     // Keywords (longest-match first within same length)
     KW_CONTINUE = "continue"
+    KW_TEMPLATE = "template"
     KW_PACKAGE  = "package"
     KW_EIDOS = "eidos"
     KW_GENOS    = "genos"
@@ -382,7 +384,25 @@
     path_dot_ident <- DOT IDENT
                    => { NAME: $2 }
 
-    item <- annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_inst / struct_inst / pub_struct_def / struct_def / pub_genos_def / genos_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
+    item <- template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_inst / struct_inst / pub_struct_def / struct_def / pub_genos_def / genos_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
+
+    // ── Template declaration ─────────────────────────────────────
+    // `template <item>` marks the wrapped declaration as data, not a real
+    // binding. INNER carries the unmodified item AST (struct/enum/impl/fn/
+    // trait), to be consumed by metafunctions via apply / metacall.
+    // Slice 1 — only syntax + AST node; sema skips templates entirely
+    // (their inner names never get registered, so referencing them as
+    // types yields the standard "unknown type" diagnostic).
+    template_decl <- KW_TEMPLATE template_inner
+                  => { CODE: TEMPLATE_DECL, VALUE: $2 }
+
+    template_inner <- pub_struct_def / struct_def
+                    / pub_enum_def / enum_def
+                    / pub_datatype_def / datatype_def
+                    / pub_trait_def / trait_def
+                    / pub_genos_def / genos_def
+                    / impl_block
+                    / pub_fn_def / fn_def
 
     // ── Annotations ──────────────────────────────────────────────
     // #[name(arg1, arg2)]      — annotation with identifier arguments

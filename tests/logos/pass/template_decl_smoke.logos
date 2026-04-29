@@ -1,0 +1,23 @@
+// Slice 1: `template <decl>` parses and is silently dropped by sema.
+// Template name does not bind a real type — using it elsewhere would be
+// a normal "unknown type" error (see fail/template_decl_not_a_type).
+package template_decl_smoke;
+
+template struct Foo {
+    x: i32,
+    y: i32,
+}
+
+template enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+template fn placeholder(x: i32) -> i32 {
+    return x;
+}
+
+fn main() -> i32 {
+    return 0;
+}

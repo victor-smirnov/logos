@@ -1,0 +1,15 @@
+// Slice 1: template name does not bind a type. Trying to use `Foo` as a
+// parameter type must fail (templates are data, not real declarations).
+package template_decl_not_a_type;
+
+template struct Foo {
+    x: i32,
+}
+
+fn use_foo(f: Foo) -> i32 {
+    return 0;
+}
+
+fn main() -> i32 {
+    return 0;
+}

@@ -112,9 +112,9 @@ impl Emitter {
         self.buf.push_u64(n);
     }
 
-    // ── string-template substitution ──────────────────────────────────────
+    // ── string-tmpl substitution ──────────────────────────────────────
     //
-    // tpl1/tpl2/tpl3 scan `template` and replace `$<ident>` occurrences
+    // tpl1/tpl2/tpl3 scan `tmpl` and replace `$<ident>` occurrences
     // whose ident matches one of the supplied keys with the corresponding
     // value bytes. Rules:
     //   * `$$`     → literal `$`
@@ -125,32 +125,32 @@ impl Emitter {
     // ident chars: [A-Za-z_][A-Za-z0-9_]*. Values are StringView so they can
     // come from AST nodes directly (`view.ast_node_name(item)`); use
     // view_of_str() to bind a literal str.
-    pub fn tpl1(&mut self, template: str, k1: str, v1: StringView) {
+    pub fn tpl1(&mut self, tmpl: str, k1: str, v1: StringView) {
         unsafe {
-            tpl_render_into(&mut self.buf, template,
+            tpl_render_into(&mut self.buf, tmpl,
                 k1, v1,
                 str_empty(), view_empty(),
                 str_empty(), view_empty());
         }
     }
 
-    pub fn tpl2(&mut self, template: str,
+    pub fn tpl2(&mut self, tmpl: str,
                 k1: str, v1: StringView,
                 k2: str, v2: StringView) {
         unsafe {
-            tpl_render_into(&mut self.buf, template,
+            tpl_render_into(&mut self.buf, tmpl,
                 k1, v1,
                 k2, v2,
                 str_empty(), view_empty());
         }
     }
 
-    pub fn tpl3(&mut self, template: str,
+    pub fn tpl3(&mut self, tmpl: str,
                 k1: str, v1: StringView,
                 k2: str, v2: StringView,
                 k3: str, v3: StringView) {
         unsafe {
-            tpl_render_into(&mut self.buf, template,
+            tpl_render_into(&mut self.buf, tmpl,
                 k1, v1,
                 k2, v2,
                 k3, v3);
@@ -211,14 +211,14 @@ unsafe fn match_key(p: *const u8, n: i64, k: str, v: StringView,
     return true;
 }
 
-// Internal: render `template` into `out`, substituting up to three
+// Internal: render `tmpl` into `out`, substituting up to three
 // (key, value) bindings. Empty keys (k.len() == 0) are skipped.
-unsafe fn tpl_render_into(out: &mut String, template: str,
+unsafe fn tpl_render_into(out: &mut String, tmpl: str,
                           k1: str, v1: StringView,
                           k2: str, v2: StringView,
                           k3: str, v3: StringView) {
-    let p: *const u8 = template.as_ptr();
-    let len: i64 = template.len();
+    let p: *const u8 = tmpl.as_ptr();
+    let len: i64 = tmpl.len();
     let dollar: u8 = 36u8;   // '$'
     let mut i: i64 = 0;
     while i < len {
