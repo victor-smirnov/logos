@@ -1,0 +1,33 @@
+// Slice 5a.1 of metaprog-quote: `#name` antiquot in `quote_item!`.
+//
+// Hook builds an `Ident` from a local byte string and uses it inside
+// `quote_item! { struct #id { ... } }`. Sema rewrites the parsed
+// NAME_VAR string ("id") into a placeholder index 0; the host shim
+// `logos_emit_item_blob_subst` substitutes ident[0] at splice time.
+// `main` then uses the synthesised struct under the substituted name.
+
+package main;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+
+#[metaprog_handler("antiquot_inject")]
+fn antiquot_inject_hook(target_offset: u32) -> () {
+    let s: str = "Synthesised";
+    let id: Ident = Ident { ptr: s.as_ptr(), len: s.len() as u64 };
+    let blob: QuoteItemBlob = quote_item! {
+        struct #id { x: i32 }
+    };
+    unsafe {
+        logos_emit_item_blob_subst(&blob);
+    }
+    return;
+}
+
+#[antiquot_inject]
+struct Marker {}
+
+unsafe fn main() -> i32 {
+    let v: Synthesised = Synthesised { x: 7 };
+    return v.x;
+}

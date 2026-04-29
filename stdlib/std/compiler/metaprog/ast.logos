@@ -47,16 +47,18 @@ pub struct Ident {
 
 // `QuoteItemBlob` — bundle returned by `quote_item! { ... }` post-
 // Slice 5a.1. `template_ptr/size` is the rodata Hermes blob with
-// `NAME_VAR` placeholders carrying integer indices; `idents_ptr/count`
-// is a runtime-collected array (one entry per `#name` site, in the
-// order they appear in the quote body). The host shim
-// `logos_emit_item_blob_subst` walks the template, substitutes each
-// placeholder with `idents[idx]`, and forwards to the regular
-// item-blob emit path.
+// `NAME_VAR` placeholders carrying integer indices; `idents_ptr` is
+// a runtime-collected array of pointers to per-site `Ident` values
+// (one entry per `#name` site, in the order they appear in the quote
+// body). Pointer-of-pointer because Logos arrays-of-struct aren't
+// laid out inline at MLIR level; an array of `*const Ident` is the
+// portable representation. The host shim `logos_emit_item_blob_subst`
+// walks the template, substitutes each placeholder with `*idents[idx]`,
+// and forwards to the regular item-blob emit path.
 pub struct QuoteItemBlob {
     pub template_ptr: *const u8,
     pub template_size: u64,
-    pub idents_ptr: *const Ident,
+    pub idents_ptr: *const *const Ident,
     pub idents_count: u64,
 }
 

@@ -286,7 +286,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
     struct BlobPod {
         const uint8_t* template_ptr;
         uint64_t template_size;
-        const IdentPod* idents_ptr;
+        const IdentPod* const* idents_ptr;  // array of pointers to Ident
         uint64_t idents_count;
     };
     const auto* blob = reinterpret_cast<const BlobPod*>(blob_ptr);
@@ -298,10 +298,10 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
     std::string key(reinterpret_cast<const char*>(blob->template_ptr),
                     blob->template_size);
     for (uint64_t i = 0; i < blob->idents_count; ++i) {
-        const auto& id = blob->idents_ptr[i];
+        const auto* idp = blob->idents_ptr[i];
         key.push_back('\x1f');  // unit-separator, can't appear in idents
-        if (id.ptr && id.len) {
-            key.append(reinterpret_cast<const char*>(id.ptr), id.len);
+        if (idp && idp->ptr && idp->len) {
+            key.append(reinterpret_cast<const char*>(idp->ptr), idp->len);
         }
     }
     if (!blob_seen.insert(key).second) return 0;
@@ -358,16 +358,16 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                     blob_seen.erase(key);
                     return 0;
                 }
-                const auto& id = blob->idents_ptr[idx];
-                if (!id.ptr || id.len == 0) {
+                const auto* idp = blob->idents_ptr[idx];
+                if (!idp || !idp->ptr || idp->len == 0) {
                     std::fprintf(stderr,
                         "logos_emit_item_blob_subst: ident[%d] is empty\n", idx);
                     blob_seen.erase(key);
                     return 0;
                 }
                 auto str_e = ArenaString::create(arena,
-                    std::string_view(reinterpret_cast<const char*>(id.ptr),
-                                     id.len));
+                    std::string_view(reinterpret_cast<const char*>(idp->ptr),
+                                     idp->len));
                 if (!str_e) {
                     std::fprintf(stderr,
                         "logos_emit_item_blob_subst: ArenaString alloc failed\n");

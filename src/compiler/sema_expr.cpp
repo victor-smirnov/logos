@@ -5877,14 +5877,22 @@ lir::LExprPtr SemaChecker::lower_hermes_lit(TinyMapView node) {
     return builder().hermes_lit_v(std::move(lit), result_type);
 }
 
-// QUOTE_ITEM — `quote_item! { item* }`. Sema builds a fresh Hermes
-// document representing a synthetic `package main; <items>;` module by
-// deep-cloning each parsed item AnyVal into the new arena, snapshots the
-// arena bytes, and emits an EHermesLit{static_blob=bytes} of type
-// HermesStatic. The resulting blob is shape-compatible with the byte
-// layout produced by `logos_metaprog_test_module_blob` (Slice 3), so a
-// hook can pass `(blob.ptr, blob.size())` straight to
-// `logos_emit_item_blob`.
+// QUOTE_ITEM — `quote_item! { item* }`. Slice 5a.1 of metaprog-quote.
+//
+// Sema builds a fresh Hermes document representing a synthetic
+// `package main; <items>;` module by deep-cloning each parsed item
+// AnyVal into the new arena. For items that carry a `#name` antiquot
+// at the struct-name position (Slice 5a.0 grammar: `NAME_VAR` field
+// holding the var-name string), the dst-side TOM has its `NAME_VAR`
+// rewritten to a u32 placeholder index — the host shim
+// `logos_emit_item_blob_subst` substitutes the actual name from the
+// caller-supplied idents-array at splice time.
+//
+// The result is a `QuoteItemBlob` struct value:
+//   { template_ptr, template_size, idents_ptr, idents_count }
+// constructed via a block expression that allocates a stack-local
+// `[Ident; N]` array populated from the antiquot var refs. For a quote
+// without `#name` placeholders, idents_count is 0 and idents_ptr is null.
 lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
     using logos::hermes::HermesAccess;
     using logos::hermes::ObjectArray;
@@ -5907,6 +5915,43 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
         src_items = arr_of(node.get(la::ITEMS.code));
     }
 
+    // ── Pre-scan: collect placeholders, type-check `#name` vars ──────
+    struct Placeholder { uint64_t item_idx; std::string var_name; };
+    std::vector<Placeholder> placeholders;
+    TypeRef ident_t = make_struct_type("Ident");
+    auto is_ident_type = [](TypeRef t) {
+        return TypeRef(t).kind() == LogosType::Kind::Struct
+            && TypeRef(t).struct_name() == "Ident";
+    };
+    if (!src_items.is_null()) {
+        for (uint64_t i = 0; i < src_items.size(); ++i) {
+            AnyVal it_av = src_items.get(i);
+            if (it_av.is_null()) continue;
+            const auto* tom = reinterpret_cast<const TinyObjectMap*>(
+                src_base + it_av.to_offset().value());
+            if (!tom->has_key(la::NAME_VAR.code)) continue;
+            AnyVal nv_av = tom->get(la::NAME_VAR.code,
+                                    const_cast<uint8_t*>(src_base));
+            if (nv_av.is_null() || !nv_av.is_pointer()) {
+                error("quote_item!: NAME_VAR is not a string offset (parser bug?)");
+                return error_expr();
+            }
+            const auto* nv_str = reinterpret_cast<const ArenaString*>(
+                src_base + nv_av.to_offset().value());
+            std::string vname(nv_str->view());
+            TypeRef vt = lookup(vname);
+            if (!vt) {
+                error("quote_item!: `#" + vname + "` — variable not in scope");
+                return error_expr();
+            }
+            if (!is_ident_type(vt)) {
+                error("quote_item!: `#" + vname + "` — expected Ident");
+                return error_expr();
+            }
+            placeholders.push_back({i, std::move(vname)});
+        }
+    }
+
     auto doc_e = make_doc(8192);
     if (!doc_e) {
         error("quote_item!: make_doc failed");
@@ -5926,21 +5971,14 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
         reinterpret_cast<uint8_t*>(items_arr_e.get()) - HermesAccess::base(doc));
 
     if (!src_items.is_null()) {
-        // Slice 5a.0: detect `#ident` antiquot at struct name position
-        // (NAME_VAR field set by the antiquot grammar branch). Real
-        // substitution lands in 5a.1; for now reject cleanly.
-        for (uint64_t i = 0; i < src_items.size(); ++i) {
-            AnyVal it_av = src_items.get(i);
-            if (it_av.is_null()) continue;
-            const void* src_obj = src_base + it_av.to_offset().value();
-            const auto* tom =
-                reinterpret_cast<const logos::hermes::TinyObjectMap*>(src_obj);
-            if (tom->has_key(la::NAME_VAR.code)) {
-                error("quote_item!: `#ident` antiquot not yet implemented "
-                      "(slice 5a.1) — use a literal name for now");
-                return error_expr();
+        // Helper: find the placeholder index for source item i (or -1).
+        auto find_ph = [&](uint64_t i) -> int32_t {
+            for (size_t k = 0; k < placeholders.size(); ++k) {
+                if (placeholders[k].item_idx == i)
+                    return static_cast<int32_t>(k);
             }
-        }
+            return -1;
+        };
         for (uint64_t i = 0; i < src_items.size(); ++i) {
             AnyVal it_av = src_items.get(i);
             if (it_av.is_null()) continue;
@@ -5954,8 +5992,17 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
             void* dst_obj = cp_e.get();
             uint32_t dst_off = static_cast<uint32_t>(
                 reinterpret_cast<uint8_t*>(dst_obj) - HermesAccess::base(doc));
-            // Rebase items_arr each push: the arena may have grown during
-            // copy_object_into and invalidated cached pointers.
+
+            // For placeholder items, rewrite NAME_VAR(string) → NAME_VAR(int idx).
+            int32_t ph_idx = find_ph(i);
+            if (ph_idx >= 0) {
+                auto* dst_tom = reinterpret_cast<TinyObjectMap*>(
+                    HermesAccess::base(doc) + dst_off);
+                (void)dst_tom->put(la::NAME_VAR.code,
+                    AnyVal::from_value<int32_t>(ph_idx), dst_arena);
+            }
+            // Rebase items_arr each push: the arena may have grown and
+            // invalidated cached pointers.
             auto* items_arr = reinterpret_cast<ObjectArray*>(
                 HermesAccess::base(doc) + items_off);
             (void)items_arr->push_back(AnyVal::from_offset(arena_offset_t(dst_off)),
@@ -6033,8 +6080,78 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
 
     lir::EHermesLit lit;
     lit.static_blob.assign(data, data + used);
-    auto result_type = make_struct_type("HermesStatic");
-    return builder().hermes_lit_v(std::move(lit), result_type);
+    auto hs_t = make_struct_type("HermesStatic");
+    auto template_lit = builder().hermes_lit_v(std::move(lit), hs_t);
+
+    // ── Build block expr returning QuoteItemBlob ──────────────────────
+    //   let __qib_t_N: HermesStatic = <template_lit>;
+    //   [if N>0] let __qib_i_N: [Ident; N] = [<#name var_refs>];
+    //   QuoteItemBlob { template_ptr: __qib_t.ptr, template_size: used,
+    //                   idents_ptr: &__qib_i as *const Ident (or null),
+    //                   idents_count: N }
+    push_scope();
+    auto* blk = lir::alloc_block(*cur_prog_);
+
+    std::string tname = "__qib_t_" + std::to_string(tmp_var_count_++);
+    define(tname, hs_t);
+    {
+        lir::SLet s;
+        s.name = tname; s.type = hs_t; s.is_mut = false;
+        s.value = std::move(template_lit);
+        blk->stmts.push_back(make_stmt_emit(node_line_, std::move(s)));
+    }
+
+    TypeRef u8_ptr_t       = make_ptr(false, u8_t());
+    TypeRef ident_ptr_t    = make_ptr(false, ident_t);
+    TypeRef ident_ptr_ptr_t = make_ptr(false, ident_ptr_t);
+    TypeRef u64_ty         = prim(LogosType::Kind::U64);
+
+    lir::LExprPtr idents_ptr_e;
+    uint64_t N = placeholders.size();
+    if (N > 0) {
+        // Build `[*const Ident; N] = [&v0, &v1, ...]`.  Arrays-of-struct
+        // aren't laid out inline at MLIR level (Struct→ptr_type), so we
+        // store pointers to per-site Ident locals instead — the host shim
+        // dereferences each entry before substituting.
+        auto arr_t = make_array(ident_ptr_t, N);
+        std::vector<lir::LExprPtr> elems;
+        elems.reserve(N);
+        for (auto& ph : placeholders) {
+            elems.push_back(builder().addr_of(ph.var_name, ident_ptr_t));
+        }
+        auto arr_e = builder().arr_lit(std::move(elems), arr_t);
+        std::string aname = "__qib_i_" + std::to_string(tmp_var_count_++);
+        define(aname, arr_t);
+        {
+            lir::SLet s;
+            s.name = aname; s.type = arr_t; s.is_mut = false;
+            s.value = std::move(arr_e);
+            blk->stmts.push_back(make_stmt_emit(node_line_, std::move(s)));
+        }
+        auto arr_ptr_t = make_ptr(false, arr_t);
+        auto raw = builder().addr_of(aname, arr_ptr_t);
+        idents_ptr_e = builder().cast(std::move(raw), ident_ptr_ptr_t);
+    } else {
+        idents_ptr_e = builder().cast(builder().lit_int(0, intlit_t()),
+                                      ident_ptr_ptr_t);
+    }
+
+    auto t_ref  = builder().var_ref(tname, hs_t);
+    auto t_ptr  = builder().field_read(std::move(t_ref), "ptr", u8_ptr_t);
+    auto t_size = builder().lit_int(static_cast<int64_t>(used), u64_ty);
+    auto i_cnt  = builder().lit_int(static_cast<int64_t>(N), u64_ty);
+
+    auto qib_t = make_struct_type("QuoteItemBlob");
+    std::vector<std::pair<std::string, lir::LExprPtr>> fields;
+    fields.emplace_back("template_ptr",  std::move(t_ptr));
+    fields.emplace_back("template_size", std::move(t_size));
+    fields.emplace_back("idents_ptr",    std::move(idents_ptr_e));
+    fields.emplace_back("idents_count",  std::move(i_cnt));
+    auto qib_lit = builder().struct_lit("QuoteItemBlob",
+                                        std::move(fields), qib_t);
+
+    pop_scope();
+    return builder().block_expr(blk, std::move(qib_lit), qib_t);
 }
 
 // HERMES_BLOB — sema-internal node spliced by the metacall driver after
