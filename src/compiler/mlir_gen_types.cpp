@@ -129,6 +129,18 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
         // Datatype fields are embedded by value (not by pointer).
         // Regular Struct fields with a registered llvm_type are also inline.
         TypeRef fv{f.type};
+        // AnyVal is lowered as a scalar i32 everywhere — including as a
+        // struct field. Otherwise the inline-embed branch below would
+        // store a wrapped !llvm.struct<"AnyVal", (i32)>, and field-loads
+        // would yield the struct value, mismatching arg-passing ABI.
+        if ((fv.kind() == LogosType::Kind::ZonedStruct ||
+             fv.kind() == LogosType::Kind::Struct) &&
+            type_str(fv) == "AnyVal") {
+            ft = logos_to_mlir(f.type);
+            info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {}});
+            field_types.push_back(ft);
+            continue;
+        }
         if (fv.kind() == LogosType::Kind::ZonedStruct ||
             fv.kind() == LogosType::Kind::Struct) {
             auto cname = concrete_struct_name(f.type);

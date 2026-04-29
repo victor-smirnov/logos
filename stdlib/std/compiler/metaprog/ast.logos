@@ -68,8 +68,7 @@ impl Item {
     // Ident has `ptr=null, len=0`. The Ident borrows from the AST
     // arena owned by `view`.
     pub fn name(self: &Item, view: &OView) -> Ident {
-        let av: AnyVal = self.raw;
-        let nm: AnyVal = view.tiny_map_get(av, 1 as u8);  // NAME = 1
+        let nm: AnyVal = view.tiny_map_get(self.raw, 1 as u8);  // NAME = 1
         let sv: StringView = view.get_str_view(nm);
         return Ident { ptr: sv.ptr, len: sv.len };
     }
