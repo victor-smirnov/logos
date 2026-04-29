@@ -71,6 +71,7 @@
     LO_NEG         = 49
     HI_NEG         = 50
     KEY            = 51    // map key in HERMES_ENTRY
+    NAME_VAR       = 38    // antiquot var name for `#ident` placeholder inside quote_*! body (reuses WHERE slot — STRUCT/ENUM/FN never have a where_clause AND a NAME_VAR simultaneously: NAME_VAR exists only inside quote_*! bodies, where where_clause is parsed separately)
     META           = 16    // meta @{...} block on struct/datatype/trait declarations (slot 16; reuses PATH_PARTS slot, mutually exclusive node types)
     // ── Group: mod ────────────────────────────────────────────────────────
     // Fields scoped to MODULE and USE nodes.  Slot numbers in a group reuse
@@ -721,10 +722,14 @@
     struct_inst <- KW_STRUCT type_ref SEMI
                 => { CODE: STRUCT, TYPE: $2 }
 
-    pub_struct_def <- KW_PUB KW_STRUCT IDENT type_param_list? LBRACE field_def* method_def* meta_block? RBRACE
+    pub_struct_def <- KW_PUB KW_STRUCT HASH IDENT type_param_list? LBRACE field_def* method_def* meta_block? RBRACE
+                   => { CODE: STRUCT, IS_PUB: 1, NAME_VAR: $4, TYPE_PARAMS: $5, FIELDS: $7, ITEMS: $8, META: $9 }
+                    / KW_PUB KW_STRUCT IDENT type_param_list? LBRACE field_def* method_def* meta_block? RBRACE
                    => { CODE: STRUCT, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, FIELDS: $6, ITEMS: $7, META: $8 }
 
-    struct_def <- KW_STRUCT IDENT type_param_list? LBRACE field_def* method_def* meta_block? RBRACE
+    struct_def <- KW_STRUCT HASH IDENT type_param_list? LBRACE field_def* method_def* meta_block? RBRACE
+               => { CODE: STRUCT, NAME_VAR: $3, TYPE_PARAMS: $4, FIELDS: $6, ITEMS: $7, META: $8 }
+                / KW_STRUCT IDENT type_param_list? LBRACE field_def* method_def* meta_block? RBRACE
                => { CODE: STRUCT, NAME: $2, TYPE_PARAMS: $3, FIELDS: $5, ITEMS: $6, META: $7 }
 
     // meta @{...} block: attaches a static Hermes literal as metadata to any type declaration.

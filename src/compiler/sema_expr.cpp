@@ -5926,6 +5926,21 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
         reinterpret_cast<uint8_t*>(items_arr_e.get()) - HermesAccess::base(doc));
 
     if (!src_items.is_null()) {
+        // Slice 5a.0: detect `#ident` antiquot at struct name position
+        // (NAME_VAR field set by the antiquot grammar branch). Real
+        // substitution lands in 5a.1; for now reject cleanly.
+        for (uint64_t i = 0; i < src_items.size(); ++i) {
+            AnyVal it_av = src_items.get(i);
+            if (it_av.is_null()) continue;
+            const void* src_obj = src_base + it_av.to_offset().value();
+            const auto* tom =
+                reinterpret_cast<const logos::hermes::TinyObjectMap*>(src_obj);
+            if (tom->has_key(la::NAME_VAR.code)) {
+                error("quote_item!: `#ident` antiquot not yet implemented "
+                      "(slice 5a.1) — use a literal name for now");
+                return error_expr();
+            }
+        }
         for (uint64_t i = 0; i < src_items.size(); ++i) {
             AnyVal it_av = src_items.get(i);
             if (it_av.is_null()) continue;

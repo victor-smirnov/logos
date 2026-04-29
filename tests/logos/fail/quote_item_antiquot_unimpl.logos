@@ -1,0 +1,23 @@
+// Slice 5a.0 of metaprog-quote: grammar accepts `#ident` at struct
+// name position inside `quote_item! { ... }`, but sema rejects the
+// antiquot until 5a.1 lands the substitution machinery.
+
+package main;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+
+#[metaprog_handler("quote_inject")]
+fn quote_inject_hook(target_offset: u32) -> () {
+    let blob: HermesStatic = quote_item! {
+        struct #name { x: i32 }
+    };
+    return;
+}
+
+#[quote_inject]
+struct Marker {}
+
+unsafe fn main() -> i32 {
+    return 0;
+}

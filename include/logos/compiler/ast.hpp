@@ -286,6 +286,7 @@ inline constexpr Key SUPERS    {"SUPERS",    48};            // supertrait bound
 inline constexpr Key LO_NEG    {"LO_NEG",    49};            // lo bound is negative (PAT_RANGE)
 inline constexpr Key HI_NEG    {"HI_NEG",    50};            // hi bound is negative (PAT_RANGE)
 inline constexpr Key KEY       {"KEY",       51};            // map key in HERMES_ENTRY (string or int token)
+inline constexpr Key NAME_VAR  {"NAME_VAR",  38};            // antiquot var name for `#ident` placeholder inside quote_*! body (reuses WHERE slot)
 // VARIANT_DEF reuses LO_NEG (49) as "discriminant is negative" flag.
 // PAT_HERMES_INT reuses LO_NEG (49) as "integer is negative" flag — same semantics.
 // HERMES_ENTRY reuses LO_NEG (49) as "negation flag" (hermes entries never have LO_NEG).
