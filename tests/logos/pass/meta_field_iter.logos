@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: Apache-2.0
+// field_count_of::<T>() + field_types_of/field_names_of indexed iteration.
+
+package meta_field_iter_probe;
+
+use std.compiler.metaprog;
+
+pub struct Empty {}
+pub struct OneField { pub x: i32, }
+pub struct Triple { pub a: i32, pub b: i64, pub c: bool, }
+
+unsafe fn main() -> i32 {
+    let n0: i64 = field_count_of::<Empty>();
+    if n0 != (0 as i64) { return 71; }
+
+    let n1: i64 = field_count_of::<OneField>();
+    if n1 != (1 as i64) { return 72; }
+
+    let n3: i64 = field_count_of::<Triple>();
+    if n3 != (3 as i64) { return 73; }
+
+    // Non-struct T → 0.
+    let np: i64 = field_count_of::<i32>();
+    if np != (0 as i64) { return 74; }
+
+    // Walk Triple's fields, sum sizes — should be size_of::<i32>+size_of::<i64>+size_of::<bool> = 4+8+1 = 13.
+    let n: i64 = field_count_of::<Triple>();
+    let ts = field_types_of::<Triple>();
+    let mut total: i64 = 0;
+    let mut i: i64 = 0;
+    while i < n {
+        total = total + ts[i].size;
+        i = i + (1 as i64);
+    }
+    if total != (13 as i64) { return 75; }
+
+    // Names: middle field is "b".
+    let names = field_names_of::<Triple>();
+    let l1 = names[1].len();
+    if l1 != 1 { return 76; }
+    let c0 = names[1][0];
+    if c0 != (98 as u8) { return 77; }  // 'b' = 98
+
+    return 0;
+}

@@ -1588,6 +1588,28 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                               std::move(targs), {}, arr_placeholder);
     }
 
+    // field_count_of::<T>() — number of declared fields of struct T (0 for
+    // non-struct or unknown-struct T). Emits `__field_count_of__` magic
+    // call; mono substitutes to lit_int by looking up the struct template.
+    if (callee == "field_count_of") {
+        TypeRef elem = nullptr;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                if (items.size() == 1)
+                    elem = resolve_type(map_of(items.get(0)));
+            }
+        }
+        if (!elem) {
+            error("field_count_of::<T>() requires exactly one type argument");
+            return error_expr();
+        }
+        std::vector<TypeRef> targs; targs.push_back(elem);
+        return builder().call("__field_count_of__",
+                              std::move(targs), {}, prim(LogosType::Kind::I64));
+    }
+
     // field_types_of::<T>() / field_names_of::<T>() — extract a struct
     // type's field types as `[Type; N]` and names as `[&[u8]; N]`.
     // Non-struct T → empty arrays. Same magic-call shape as args_of; mono

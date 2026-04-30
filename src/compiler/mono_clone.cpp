@@ -643,6 +643,30 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                     bool_of(tk == K::Bool || floating || integer); break;
                 }
             }
+            // field_count_of::<T>() — emit lit_int N for struct T (0 for
+            // non-struct or unknown-struct T). Same template lookup as the
+            // field_*_of intrinsics below.
+            if (nc.callee == "__field_count_of__") {
+                int64_t n = 0;
+                if (!nc.type_args.empty()) {
+                    TypeRef T = nc.type_args[0];
+                    if (T && (T.kind() == LogosType::Kind::Struct ||
+                              T.kind() == LogosType::Kind::ZonedStruct)) {
+                        std::string base{T.struct_name()};
+                        for (auto& sd : in_.structs)
+                            if (sd.name == base) {
+                                n = (int64_t)sd.fields.size(); break;
+                            }
+                    }
+                }
+                LirBuilder b(out_);
+                LogosTypeBuilder i64_b; i64_b.kind = LogosType::Kind::I64;
+                TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
+                auto lit = b.lit_int(n, i64_t);
+                result->type = i64_t;
+                result->mirror_offset_ = lit->mirror_offset_;
+                break;
+            }
             // field_names_of::<T>() — emit [&[u8]; N] of struct field names.
             // For non-struct or unknown-struct T → empty array.
             if (nc.callee == "__field_names_of__") {
