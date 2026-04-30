@@ -797,6 +797,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 f.emplace_back("kind", b.lit_int((int64_t)ti.kind(), u32_t));
                 f.emplace_back("name", b.lit_str(type_str(ti), slice_u8_t));
                 f.emplace_back("size", b.size_of(ti, i64_t));
+                f.emplace_back("align", b.align_of(ti, i64_t));
                 {
                     uint64_t uid = type_hash_64bit(type_hash_23(type_str(ti)));
                     uid_to_type_[uid] = ti;
@@ -904,6 +905,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 f.emplace_back("kind", b.lit_int((int64_t)ti.kind(), u32_t));
                 f.emplace_back("name", b.lit_str(type_str(ti), slice_u8_t));
                 f.emplace_back("size", b.size_of(ti, i64_t));
+                f.emplace_back("align", b.align_of(ti, i64_t));
                 f.emplace_back("uid",  b.lit_int((int64_t)uid, u64_t));
                 auto sl = b.struct_lit("Type", std::move(f), type_t);
                 result->type = type_t;
@@ -1057,6 +1059,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 f.emplace_back("kind", b.lit_int((int64_t)inst_t.kind(), u32_t));
                 f.emplace_back("name", b.lit_str(type_str(inst_t), slice_u8_t));
                 f.emplace_back("size", b.size_of(inst_t, i64_t));
+                f.emplace_back("align", b.align_of(inst_t, i64_t));
                 f.emplace_back("uid",  b.lit_int((int64_t)uid, u64_t));
                 auto sl = b.struct_lit("Type", std::move(f), type_t);
                 result->type = type_t;
@@ -1207,6 +1210,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 f.emplace_back("kind", b.lit_int((int64_t)inst_t.kind(), u32_t));
                 f.emplace_back("name", b.lit_str(type_str(inst_t), slice_u8_t));
                 f.emplace_back("size", b.size_of(inst_t, i64_t));
+                f.emplace_back("align", b.align_of(inst_t, i64_t));
                 f.emplace_back("uid",  b.lit_int((int64_t)uid, u64_t));
                 auto sl = b.struct_lit("Type", std::move(f), type_t);
                 result->type = type_t;
@@ -1355,6 +1359,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 f.emplace_back("kind", b.lit_int((int64_t)inst_t.kind(), u32_t));
                 f.emplace_back("name", b.lit_str(type_str(inst_t), slice_u8_t));
                 f.emplace_back("size", b.size_of(inst_t, i64_t));
+                f.emplace_back("align", b.align_of(inst_t, i64_t));
                 f.emplace_back("uid",  b.lit_int((int64_t)uid, u64_t));
                 auto sl = b.struct_lit("Type", std::move(f), type_t);
                 result->type = type_t;
@@ -1428,6 +1433,8 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                                     b.lit_str(type_str(pty), slice_u8_t));
                                 f.emplace_back("size",
                                     b.size_of(pty, i64_t));
+                                f.emplace_back("align",
+                                    b.align_of(pty, i64_t));
                                 f.emplace_back("uid",
                                     b.lit_int((int64_t)uid, u64_t));
                                 elems.push_back(
@@ -1591,6 +1598,8 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         b.lit_str(type_str(ti), slice_u8_t));
                     f.emplace_back("size",
                         b.size_of(ti, i64_t));
+                    f.emplace_back("align",
+                        b.align_of(ti, i64_t));
                     {
                         uint64_t uid = type_hash_64bit(type_hash_23(type_str(ti)));
                         uid_to_type_[uid] = ti;

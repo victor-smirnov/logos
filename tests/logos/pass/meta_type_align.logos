@@ -1,0 +1,32 @@
+// SPDX-License-Identifier: Apache-2.0
+// `t.align` field on Type — byte alignment via mono's align_of LIR leaf.
+
+package meta_type_align_probe;
+
+use std.compiler.metaprog;
+
+pub struct Aligned8 { pub a: i64, pub b: i32, }
+pub struct Aligned1 { pub x: u8, pub y: u8, pub z: u8, }
+
+unsafe fn main() -> i32 {
+    let ti32 = type_of::<i32>();
+    if ti32.align != (4 as i64) { return 1; }
+
+    let ti64 = type_of::<i64>();
+    if ti64.align != (8 as i64) { return 2; }
+
+    let tu8 = type_of::<u8>();
+    if tu8.align != (1 as i64) { return 3; }
+
+    let tbool = type_of::<bool>();
+    if tbool.align != (1 as i64) { return 4; }
+
+    // Cross-check: t.align matches the keyword align_of::<T>().
+    let t8 = type_of::<Aligned8>();
+    if t8.align != align_of::<Aligned8>() { return 5; }
+
+    let t1 = type_of::<Aligned1>();
+    if t1.align != align_of::<Aligned1>() { return 6; }
+
+    return 0;
+}

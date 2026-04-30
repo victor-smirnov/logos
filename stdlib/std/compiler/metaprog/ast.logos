@@ -54,6 +54,9 @@ pub struct Type {
     // Byte size of T, computed at mono via the existing `size_of` LIR leaf
     // (codegen-folded to LLVM data layout). 0 for zero-sized types.
     pub size: i64,
+    // Byte alignment of T, computed at mono via the `align_of` LIR leaf
+    // (codegen-folded to LLVM data layout).
+    pub align: i64,
     // TypeUID — first 8 bytes of SHA-256(canonical(T)) as u64. Stable
     // identity for `quote_ty!` antiquot reification: mono reads this at
     // antiquot sites and looks up the source TypeRef. Same byte source
