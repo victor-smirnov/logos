@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// args_count_of::<T>() — generic arg arity, companion to args_of/field_count_of.
+
+package meta_args_count_probe;
+
+use std.compiler.metaprog;
+
+pub struct Pair<A, B> { pub a: A, pub b: B, }
+pub struct Triple<A, B, C> { pub a: A, pub b: B, pub c: C, }
+pub struct Plain { pub x: i32, }
+
+unsafe fn main() -> i32 {
+    if args_count_of::<Pair<i32, bool>>()       != (2 as i64) { return 71; }
+    if args_count_of::<Triple<i32, bool, u8>>() != (3 as i64) { return 72; }
+    if args_count_of::<Plain>()                 != (0 as i64) { return 73; }
+    if args_count_of::<i32>()                   != (0 as i64) { return 74; }
+    return 0;
+}

@@ -1589,6 +1589,28 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                               std::move(targs), {}, arr_placeholder);
     }
 
+    // args_count_of::<T>() — number of generic type arguments of T (0 if
+    // T has none, e.g. a primitive or a non-generic struct). Same shape as
+    // field_count_of; mono returns lit_int(T.type_args().size()).
+    if (callee == "args_count_of") {
+        TypeRef elem = nullptr;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                if (items.size() == 1)
+                    elem = resolve_type(map_of(items.get(0)));
+            }
+        }
+        if (!elem) {
+            error("args_count_of::<T>() requires exactly one type argument");
+            return error_expr();
+        }
+        std::vector<TypeRef> targs; targs.push_back(elem);
+        return builder().call("__args_count_of__",
+                              std::move(targs), {}, prim(LogosType::Kind::I64));
+    }
+
     // field_count_of::<T>() — number of declared fields of struct T (0 for
     // non-struct or unknown-struct T). Emits `__field_count_of__` magic
     // call; mono substitutes to lit_int by looking up the struct template.
