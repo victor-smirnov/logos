@@ -1,0 +1,58 @@
+// SPDX-License-Identifier: Apache-2.0
+// Step 5 of the typelevel-metaprog taxonomy — Template producer via
+// `OView::find_template_decl`. Inside the metaprog handler we look up
+// the AST decl of `Foo` by name, wrap it in a `Template`, and check
+// that `Template::name()` reads back as "Foo" and that
+// `type_param_count()` reports 1 (the `T` parameter on `Foo<T>`).
+// Reports the result by emitting a marker struct via `quote_item!` —
+// `main` constructs that struct to confirm the handler ran.
+
+package main;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+use std.hermes.anyval;
+
+#[metaprog_handler("template_of_probe")]
+fn template_of_probe_hook(_target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+
+    let raw: AnyVal = view.find_template_decl("Foo");
+    if raw.raw == 0 { return; }
+
+    let tpl: Template = Template { raw: raw };
+
+    // name() must read back as "Foo" (3 bytes).
+    let nm: Ident = tpl.name(&view);
+    if nm.len != (3 as u64) { return; }
+    unsafe {
+        if *((nm.ptr as i64 + 0) as *const u8) != (70 as u8) { return; }   // 'F'
+        if *((nm.ptr as i64 + 1) as *const u8) != (111 as u8) { return; }  // 'o'
+        if *((nm.ptr as i64 + 2) as *const u8) != (111 as u8) { return; }  // 'o'
+    }
+
+    // Foo carries one type parameter T → arity 1.
+    if tpl.type_param_count(&view) != (1 as u64) { return; }
+
+    // Synthesise a marker struct so main can prove the handler fired
+    // *and* the lookup succeeded.
+    let blob: QuoteItemBlob = quote_item! {
+        struct template_of_marker { v: i32 }
+    };
+    unsafe {
+        logos_emit_item_blob_subst(&blob);
+    }
+    return;
+}
+
+#[template_of_probe]
+struct Foo<T> { x: T }
+
+unsafe fn main() -> i32 {
+    // If the handler fired and the lookup worked, `template_of_marker`
+    // exists and the program type-checks; the value of `v` is the
+    // exit code path.
+    let g: template_of_marker = template_of_marker { v: 0 };
+    return g.v;
+}

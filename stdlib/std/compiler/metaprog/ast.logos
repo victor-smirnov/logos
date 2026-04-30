@@ -353,6 +353,42 @@ impl OView {
         return self.array_len(inner);
     }
 
+    // Walk the user-root MODULE's ITEMS array and return the first
+    // declaration node (struct/enum/fn/trait/impl) whose NAME matches
+    // `name` byte-for-byte. Returns a null AnyVal when no item
+    // matches. Step 5 of the typelevel-metaprog taxonomy: this is the
+    // primary producer for `Template` handles — users wrap the result
+    // in `Template { raw: ... }` and feed it to `Template::name()` /
+    // `type_param_*()`. (A typed `template_of::<X>()` form that
+    // resolves T at sema time and bakes the offset is a future
+    // sweetener, but the producer story is closed by this lookup.)
+    pub fn find_template_decl(self: &OView, name: &[u8]) -> AnyVal {
+        let root: AnyVal = self.root();
+        let items: AnyVal = self.tiny_map_get(root, 2 as u8);  // ITEMS
+        if items.raw == 0 { return AnyVal::null_ptr(); }
+        let n: u64 = self.array_len(items);
+        let nlen: i64 = name.len();
+        let mut i: u64 = 0 as u64;
+        while i < n {
+            let item: AnyVal = self.array_get(items, i);
+            let nm: StringView = self.ast_node_name(item);
+            if nm.len == (nlen as u64) {
+                let mut j: i64 = 0;
+                let mut eq: bool = true;
+                while j < nlen {
+                    unsafe {
+                        let a: u8 = *((nm.ptr as i64 + j) as *const u8);
+                        if a != name[j] { eq = false; }
+                    }
+                    j = j + (1 as i64);
+                }
+                if eq { return item; }
+            }
+            i = i + (1 as u64);
+        }
+        return AnyVal::null_ptr();
+    }
+
     // Append the user-root MODULE's dotted package name to `buf`.
     // For `package main;` writes `main`; for `package std.lang.text;`
     // writes `std.lang.text`. Reads NAME(1) (first identifier) plus
