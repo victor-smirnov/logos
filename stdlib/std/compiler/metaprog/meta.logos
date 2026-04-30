@@ -98,20 +98,27 @@ pub fn head<T...>() -> Type {
     return arr[0];
 }
 
-// `fold_to_type<T...>(init, f) -> Type` — left fold over a pack to a
-// `Type` — is intentionally absent. Two compiler blockers:
-//   1. `let mut acc: Type = init; acc = f(acc, arr[i])` (struct
-//      by-value rebind) is broken: post-assignment field reads
-//      return uninitialised stack bytes. Affects every Logos
-//      struct, not just `Type` — orthogonal compiler fix.
-//   2. The sibling producers `transform<T...> -> [Type; N]` and
-//      `filter<T...> -> [Type; N']` need const generics for the
-//      result length — also pending.
-// Until (1) is fixed, B-side fold expressivity is reachable via
-// index-shaped variants (`argmax_by` / `argmin_by` / `find_index`):
-// the i64-accumulator path works, and the caller indexes the
-// `[Type; N]` themselves. Closures returning Type-by-index are the
-// stable shape for now.
+// Left fold over the pack: starting from `init`, apply
+// `f(acc, T_i)` for each pack member in declaration order. Returns
+// the final accumulated `Type`. Useful for "build a type by reducing
+// over a pack" style metafunctions — e.g. picking a wider numeric
+// kind, or combining tag bits.
+//
+// Sibling producers `transform<T...> -> [Type; N]` and
+// `filter<T...> -> [Type; N']` would return Type-arrays whose length
+// depends on the input pack (or its filter result); those need const
+// generics for the result-length parameter and remain pending.
+pub fn fold_to_type<T...>(init: Type, f: fn(Type, Type) -> Type) -> Type {
+    let arr = type_refs_of::<T...>();
+    let n: i64 = sizeof...(T) as i64;
+    let mut acc: Type = init;
+    let mut i: i64 = 0;
+    while i < n {
+        acc = f(acc, arr[i]);
+        i = i + (1 as i64);
+    }
+    return acc;
+}
 
 // ── Kind predicates (over the `t.kind` tag) ────────────────────────────
 //

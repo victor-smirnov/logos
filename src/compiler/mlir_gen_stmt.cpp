@@ -489,6 +489,27 @@ void MLIRGenImpl::gen_assign(lir_view::SAssignView v) {
         builder_.create<mlir::LLVM::StoreOp>(loc_, val, it->second);
         return;
     }
+    // Whole-struct rebind (`acc = src`): the slot is the struct alloca itself,
+    // and `val` from gen_expr is a pointer to the source struct. A plain
+    // StoreOp would overwrite the first 8 bytes of the slot with the pointer
+    // value, leaving the rest uninitialised. Memcpy the struct payload like
+    // the array-element-write / deref-write paths below.
+    TypeRef val_t = val_le ? val_le->type : nullptr;
+    if (val_t && (TypeRef(val_t).kind() == LogosType::Kind::Struct ||
+                  TypeRef(val_t).kind() == LogosType::Kind::ZonedStruct) &&
+        val.getType() == ptr_type()) {
+        auto cname = concrete_struct_name(val_t);
+        auto sit = struct_types_.find(cname);
+        if (sit != struct_types_.end()) {
+            auto dl = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
+            auto bytes = (int64_t)dl.getTypeSize(sit->second.llvm_type);
+            auto sz = builder_.create<mlir::LLVM::ConstantOp>(
+                loc_, builder_.getI64Type(),
+                builder_.getI64IntegerAttr(bytes));
+            builder_.create<mlir::LLVM::MemcpyOp>(loc_, it->second, val, sz, /*isVolatile=*/false);
+            return;
+        }
+    }
     auto et = var_elem_types_.find(name);
     if (et != var_elem_types_.end())
         val = coerce_int(val, et->second);

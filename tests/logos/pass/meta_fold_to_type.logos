@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: Apache-2.0
+// `fold_to_type<T...>(init, f)` — left fold over a type pack returning
+// a Type. Step 4 of the taxonomy ladder, in the producer-shape we can
+// express today (Type-array producers are blocked on const generics).
+
+package meta_fold_to_type_probe;
+
+use std.compiler.metaprog;
+
+// Pick the wider of two numeric Types by `size`.
+fn wider(a: Type, b: Type) -> Type {
+    if b.size > a.size { return b; }
+    return a;
+}
+
+// Always pick the right-hand operand — folds to the last pack element.
+fn pick_right(_a: Type, b: Type) -> Type { return b; }
+
+unsafe fn main() -> i32 {
+    // Widest of {i32 (4), i64 (8), u8 (1)} starting from u8 → i64.
+    let w = fold_to_type::<i32, i64, u8>(type_of::<u8>(), wider);
+    if w.kind != (2 as u32) { return 1; }   // i64 = kind 2
+
+    // Last-element fold — should pick u8.
+    let last = fold_to_type::<i32, i64, u8>(type_of::<bool>(), pick_right);
+    if last.kind != (6 as u32) { return 2; }  // u8 = kind 6
+
+    // Singleton pack — init is overwritten with the only member.
+    let single = fold_to_type::<u8>(type_of::<bool>(), pick_right);
+    if single.kind != (6 as u32) { return 3; }  // u8 = kind 6
+
+    return 0;
+}
