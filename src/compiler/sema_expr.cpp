@@ -1854,6 +1854,47 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                               std::move(targs), {}, arr_placeholder);
     }
 
+    // variant_count_of::<E>() / variant_names_of::<E>() /
+    // variant_payload_counts_of::<E>() / variant_payload_types_flat_of::<E>()
+    // — enum-side decompose intrinsics. For non-enum or unknown E, all
+    // return 0 / empty arrays.
+    if (callee == "variant_count_of" ||
+        callee == "variant_names_of" ||
+        callee == "variant_payload_counts_of" ||
+        callee == "variant_payload_types_flat_of") {
+        TypeRef elem = nullptr;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                if (items.size() == 1)
+                    elem = resolve_type(map_of(items.get(0)));
+            }
+        }
+        if (!elem) {
+            error(std::format("{}::<E>() requires exactly one type argument", callee));
+            return error_expr();
+        }
+        std::vector<TypeRef> targs; targs.push_back(elem);
+        if (callee == "variant_count_of") {
+            return builder().call("__variant_count_of__",
+                                  std::move(targs), {}, prim(LogosType::Kind::I64));
+        }
+        TypeRef arr_elem_t;
+        if (callee == "variant_names_of")           arr_elem_t = make_slice_type(u8_t());
+        else if (callee == "variant_payload_counts_of") arr_elem_t = prim(LogosType::Kind::I64);
+        else                                         arr_elem_t = make_struct_type("Type");
+        LogosTypeBuilder arr_b; arr_b.kind = LogosType::Kind::Array;
+        arr_b.elem = arr_elem_t;
+        arr_b.arr_size = 0;
+        TypeRef arr_placeholder = pool_->alloc(std::move(arr_b));
+        const char* magic =
+            callee == "variant_names_of"           ? "__variant_names_of__" :
+            callee == "variant_payload_counts_of"  ? "__variant_payload_counts_of__" :
+                                                     "__variant_payload_types_flat_of__";
+        return builder().call(magic, std::move(targs), {}, arr_placeholder);
+    }
+
     // type_refs_of::<T...>() — slice 2 of typelevel metaprog. Returns
     // [Type; N] populated with one Type{kind,name} value per pack member.
     // Mono substitutes after pack expansion (same TypeVar-in-type_args trick

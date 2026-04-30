@@ -1211,6 +1211,90 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 result->mirror_offset_ = sl->mirror_offset_;
                 break;
             }
+            // variant_count_of::<E>() / variant_names_of::<E>() /
+            // variant_payload_counts_of::<E>() /
+            // variant_payload_types_flat_of::<E>() — enum decompose. All
+            // four take E in nc.type_args[0]; non-enum or unknown E yields
+            // 0 / empty arrays.
+            if (nc.callee == "__variant_count_of__" ||
+                nc.callee == "__variant_names_of__" ||
+                nc.callee == "__variant_payload_counts_of__" ||
+                nc.callee == "__variant_payload_types_flat_of__") {
+                const lir::LEnumDef* edef = nullptr;
+                if (!nc.type_args.empty()) {
+                    TypeRef E = nc.type_args[0];
+                    if (E && E.kind() == LogosType::Kind::Enum) {
+                        std::string base{E.enum_name()};
+                        for (auto& ed : in_.enums)
+                            if (ed.name == base) { edef = &ed; break; }
+                    }
+                }
+                LirBuilder b(out_);
+                if (nc.callee == "__variant_count_of__") {
+                    int64_t n = edef ? (int64_t)edef->variants.size() : 0;
+                    LogosTypeBuilder i64_b; i64_b.kind = LogosType::Kind::I64;
+                    TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
+                    auto lit = b.lit_int(n, i64_t);
+                    result->type = i64_t;
+                    result->mirror_offset_ = lit->mirror_offset_;
+                    break;
+                }
+                TypeRef elem_t = result->type ? result->type.elem() : nullptr;
+                std::vector<lir::LExprPtr> elems;
+                if (nc.callee == "__variant_names_of__") {
+                    if (edef)
+                        for (auto& vr : edef->variants)
+                            elems.push_back(b.lit_str(vr.name, elem_t));
+                } else if (nc.callee == "__variant_payload_counts_of__") {
+                    if (edef)
+                        for (auto& vr : edef->variants)
+                            elems.push_back(b.lit_int(
+                                (int64_t)vr.payload_types.size(), elem_t));
+                } else { // __variant_payload_types_flat_of__
+                    if (edef) {
+                        LogosTypeBuilder u32_b; u32_b.kind = LogosType::Kind::U32;
+                        TypeRef u32_t = out_.type_pool.alloc(std::move(u32_b));
+                        LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;
+                        TypeRef u8_pt = out_.type_pool.alloc(std::move(u8_b));
+                        LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
+                        sl_b.elem = u8_pt;
+                        TypeRef slice_u8_t = out_.type_pool.alloc(std::move(sl_b));
+                        LogosTypeBuilder i64_b; i64_b.kind = LogosType::Kind::I64;
+                        TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
+                        LogosTypeBuilder u64_b; u64_b.kind = LogosType::Kind::U64;
+                        TypeRef u64_t = out_.type_pool.alloc(std::move(u64_b));
+                        for (auto& vr : edef->variants) {
+                            for (auto& pt : vr.payload_types) {
+                                TypeRef pty = subst_type(pt, s);
+                                if (!pty) pty = pt;
+                                uint64_t uid = type_hash_64bit(
+                                    type_hash_23(type_str(pty)));
+                                uid_to_type_[uid] = pty;
+                                std::vector<std::pair<std::string,
+                                    lir::LExprPtr>> f;
+                                f.emplace_back("kind",
+                                    b.lit_int((int64_t)pty.kind(), u32_t));
+                                f.emplace_back("name",
+                                    b.lit_str(type_str(pty), slice_u8_t));
+                                f.emplace_back("size",
+                                    b.size_of(pty, i64_t));
+                                f.emplace_back("uid",
+                                    b.lit_int((int64_t)uid, u64_t));
+                                elems.push_back(
+                                    b.struct_lit("Type", std::move(f), elem_t));
+                            }
+                        }
+                    }
+                }
+                LogosTypeBuilder ab; ab.kind = LogosType::Kind::Array;
+                ab.elem = elem_t;
+                ab.arr_size = (int64_t)elems.size();
+                TypeRef new_arr_t = out_.type_pool.alloc(std::move(ab));
+                result->type = new_arr_t;
+                result->mirror_offset_ =
+                    lir_mirror_emit_arr_lit(out_, new_arr_t, elems);
+                break;
+            }
             // tuple_count_of::<T>() — emit lit_int N for tuple T, 0 otherwise.
             if (nc.callee == "__tuple_count_of__") {
                 int64_t n = 0;

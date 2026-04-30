@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: Apache-2.0
+// Enum decompose intrinsics: variant_count_of, variant_names_of,
+// variant_payload_counts_of, variant_payload_types_flat_of.
+
+package meta_variant_intrinsics_probe;
+
+use std.compiler.metaprog;
+
+pub enum Empty { }
+pub enum Color { Red, Green, Blue, }
+pub enum Mixed { Tag, Pair(i32, bool), Triple(u8, u8, i64), }
+
+unsafe fn main() -> i32 {
+    let n0: i64 = variant_count_of::<Empty>();
+    if n0 != (0 as i64) { return 1; }
+
+    let n3: i64 = variant_count_of::<Color>();
+    if n3 != (3 as i64) { return 2; }
+
+    // Non-enum E → 0.
+    let np: i64 = variant_count_of::<i32>();
+    if np != (0 as i64) { return 3; }
+
+    let names = variant_names_of::<Color>();
+    let l0 = names[0].len();
+    if l0 != 3 { return 4; }
+    if names[0][0] != (82 as u8) { return 5; }   // 'R'
+    if names[2][0] != (66 as u8) { return 6; }   // 'B'
+
+    let counts = variant_payload_counts_of::<Mixed>();
+    if counts[0] != (0 as i64) { return 7; }
+    if counts[1] != (2 as i64) { return 8; }
+    if counts[2] != (3 as i64) { return 9; }
+
+    // Total payload Type entries = 0+2+3 = 5.
+    let pts = variant_payload_types_flat_of::<Mixed>();
+    // First two belong to Pair: i32, bool.
+    let direct_i32 = type_of::<i32>();
+    let direct_bool = type_of::<bool>();
+    let direct_u8 = type_of::<u8>();
+    let direct_i64 = type_of::<i64>();
+    if pts[0].uid != direct_i32.uid { return 10; }
+    if pts[1].uid != direct_bool.uid { return 11; }
+    if pts[2].uid != direct_u8.uid { return 12; }
+    if pts[3].uid != direct_u8.uid { return 13; }
+    if pts[4].uid != direct_i64.uid { return 14; }
+
+    return 0;
+}
