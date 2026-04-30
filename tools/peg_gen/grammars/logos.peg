@@ -807,7 +807,12 @@
     impl_type <- KW_IMPL IDENT
               => { CODE: IMPL_TYPE, NAME: $2 }
 
-    type_ref <- typeof_type / hermes_arr_type / hermes_map_type / ptr_type / arr_type / slice_type / tagged_type / dyn_type / ref_type / impl_type / unit_type / closure_type / fn_ptr_type / tuple_type / assoc_type_ref / simple_type
+    type_ref <- antiquot_type / typeof_type / hermes_arr_type / hermes_map_type / ptr_type / arr_type / slice_type / tagged_type / dyn_type / ref_type / impl_type / unit_type / closure_type / fn_ptr_type / tuple_type / assoc_type_ref / simple_type
+
+    // $ident — antiquot in a type position, valid only inside `quote_ty! { ... }`.
+    // sema's lower_quote_ty consumes these; resolve_type errors out elsewhere.
+    antiquot_type <- DOLLAR IDENT
+                  => { CODE: ANTIQUOT_TYPE, NAME: $2 }
 
     // typeof(expr) — compile-time type of expression; expr is not evaluated
     typeof_type <- KW_TYPEOF LPAREN expr RPAREN

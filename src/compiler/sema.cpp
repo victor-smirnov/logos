@@ -1718,6 +1718,13 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
 TypeRef SemaChecker::resolve_type(TinyMapView node) {
     int32_t tc = code_of(node);
 
+    if (tc == la::ANTIQUOT_TYPE) {
+        std::string nm;
+        if (node.has_key(la::NAME)) nm = std::string(str_of(node.get(la::NAME.code)));
+        error("`$" + nm + "` antiquotation is only valid inside `quote_ty! { ... }`");
+        return error_t();
+    }
+
     if (tc == la::TYPEOF_TYPE) {
         // typeof(expr) — lower the inner expression purely for type inference.
         // Expression is not evaluated at runtime; only its sema-computed type

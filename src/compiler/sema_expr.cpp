@@ -6550,6 +6550,90 @@ lir::LExprPtr SemaChecker::lower_quote_ty(TinyMapView node) {
     }
     auto inner = map_of(node.get(la::TYPE.code));
     auto inner_code = code_of(inner);
+    auto type_t_h = make_struct_type("Type");
+    auto make_arg_producer = [&](TinyMapView item) -> lir::LExprPtr {
+        auto ic = code_of(item);
+        if (ic == la::ANTIQUOT_TYPE.code) {
+            auto vname = std::string(str_of(item.get(la::NAME.code)));
+            return builder().var_ref(vname, type_t_h);
+        }
+        TypeRef arg_t = resolve_type(item);
+        if (!arg_t) return nullptr;
+        auto kind_call = builder().call("__type_kind_of__",
+                                        std::vector<TypeRef>{arg_t}, {},
+                                        prim(LogosType::Kind::U32));
+        auto name_call = builder().call("__type_name_of__",
+                                        std::vector<TypeRef>{arg_t}, {},
+                                        make_slice_type(u8_t()));
+        auto size_e    = builder().size_of(arg_t, prim(LogosType::Kind::I64));
+        auto uid_call  = builder().call("__type_uid_of__",
+                                        std::vector<TypeRef>{arg_t}, {},
+                                        prim(LogosType::Kind::U64));
+        std::vector<std::pair<std::string, lir::LExprPtr>> f;
+        f.emplace_back("kind", std::move(kind_call));
+        f.emplace_back("name", std::move(name_call));
+        f.emplace_back("size", std::move(size_e));
+        f.emplace_back("uid",  std::move(uid_call));
+        return builder().struct_lit("Type", std::move(f), type_t_h);
+    };
+    // Tuple antiquot: `quote_ty! { ($t1, $t2, ...) }` — lower to
+    // __tuple_type_apply__([elem_producers]). Mixed literal/antiquot OK.
+    if (inner_code == la::TUPLE_TYPE.code && inner.has_key(la::ITEMS)) {
+        auto items = arr_of(inner.get(la::ITEMS.code));
+        bool has_antiquot = false;
+        for (uint64_t i = 0; i < items.size(); ++i) {
+            if (code_of(map_of(items.get(i))) == la::ANTIQUOT_TYPE.code) {
+                has_antiquot = true; break;
+            }
+        }
+        if (has_antiquot) {
+            std::vector<lir::LExprPtr> elems;
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                auto p = make_arg_producer(map_of(items.get(i)));
+                if (!p) {
+                    error("quote_ty!: failed to lower tuple element in antiquot form");
+                    return error_expr();
+                }
+                elems.push_back(std::move(p));
+            }
+            LogosTypeBuilder ab; ab.kind = LogosType::Kind::Array;
+            ab.elem = type_t_h; ab.arr_size = elems.size();
+            TypeRef arr_t = pool_->alloc(std::move(ab));
+            auto arr = builder().arr_lit(std::move(elems), arr_t);
+            std::vector<lir::LExprPtr> rargs;
+            rargs.push_back(std::move(arr));
+            return builder().call("__tuple_type_apply__", {}, std::move(rargs), type_t_h);
+        }
+    }
+    // Array antiquot: `quote_ty! { [$t; N] }` — lower to
+    // __array_type_apply__(elem_producer, N). Size stays a literal int.
+    if (inner_code == la::ARR_TYPE.code && inner.has_key(la::TYPE)) {
+        auto et = map_of(inner.get(la::TYPE.code));
+        if (code_of(et) == la::ANTIQUOT_TYPE.code) {
+            auto p = make_arg_producer(et);
+            if (!p) {
+                error("quote_ty!: failed to lower array elem in antiquot form");
+                return error_expr();
+            }
+            int64_t sz = 0;
+            if (inner.has_key(la::SIZE)) {
+                auto sv = str_of(inner.get(la::SIZE.code));
+                bool is_lit = !sv.empty() && std::isdigit((unsigned char)sv[0]);
+                if (!is_lit) {
+                    error("quote_ty!: array antiquot requires literal integer size");
+                    return error_expr();
+                }
+                for (char c : sv) {
+                    if (c >= '0' && c <= '9') sz = sz * 10 + (c - '0');
+                    else break;
+                }
+            }
+            std::vector<lir::LExprPtr> rargs;
+            rargs.push_back(std::move(p));
+            rargs.push_back(builder().lit_int(sz, prim(LogosType::Kind::I64)));
+            return builder().call("__array_type_apply__", {}, std::move(rargs), type_t_h);
+        }
+    }
     // Antiquot path — only triggered when the inner form is a generic
     // instantiation (Foo<args...>) with at least one $ident arg. Other
     // composite shapes (slices/refs/tuples with antiquots inside) aren't
