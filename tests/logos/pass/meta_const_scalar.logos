@@ -1,0 +1,20 @@
+// SPDX-License-Identifier: Apache-2.0
+// Const-generic scalar value-use: `<const N: T>` referenced in expression
+// position. Sema emits a synthetic `__const_param:N` VarRef of the underlying
+// numeric type; mono lowers to lit_int via the substitution map.
+
+package meta_const_scalar;
+
+fn get_n<const N: i64>() -> i64 { return N; }
+fn double_n<const N: i64>() -> i64 { return N + N; }
+fn n_squared<const N: i64>() -> i64 { return N * N; }
+fn n_minus_one<const N: i64>() -> i64 { return N - (1 as i64); }
+
+fn main() -> i32 {
+    if get_n::<42>() != (42 as i64) { return 1; }
+    if get_n::<100>() != (100 as i64) { return 2; }
+    if double_n::<21>() != (42 as i64) { return 3; }
+    if n_squared::<7>() != (49 as i64) { return 4; }
+    if n_minus_one::<10>() != (9 as i64) { return 5; }
+    return 0;
+}

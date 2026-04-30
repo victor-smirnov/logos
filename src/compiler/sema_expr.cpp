@@ -79,6 +79,18 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
         auto name = str_of(expr.get(la::NAME.code));
         auto t = lookup(name);
         if (!t) {
+            // Const-generic value-use: `<const N: T>` param referenced in
+            // expression position. Emit a VarRef of the underlying numeric
+            // type with magic-prefixed name "__const_param:N"; mono detects
+            // the prefix and lowers to lit_int via the substitution map.
+            auto it = current_type_params_.find(std::string(name));
+            if (it != current_type_params_.end() &&
+                TypeRef(it->second).kind() == LogosType::Kind::ConstVar) {
+                TypeRef under = TypeRef(it->second).pointee();
+                if (!under) under = prim(LogosType::Kind::I64);
+                return builder().var_ref(
+                    std::string("__const_param:") + std::string(name), under);
+            }
             // Check if it's a function name — allow coercion to fn(T)->R type.
             auto cands = find_func_candidates(name);
             if (cands.size() == 1) {

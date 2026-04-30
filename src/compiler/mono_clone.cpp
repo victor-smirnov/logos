@@ -88,6 +88,20 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         }
         case C::VarRef: {
             std::string n(lir_view::EVarRefView{eref}.name());
+            // Const-generic value-use: sema emits "__const_param:N" for a
+            // `<const N: T>` param referenced in expression position. Lower
+            // to lit_int by looking up N in the substitution map.
+            constexpr std::string_view CP_PFX = "__const_param:";
+            if (n.compare(0, CP_PFX.size(), CP_PFX) == 0) {
+                std::string pname = n.substr(CP_PFX.size());
+                auto sit = s.find(pname);
+                if (sit != s.end() && sit->second && sit->second.const_val()) {
+                    int64_t v = *sit->second.const_val();
+                    result->mirror_offset_ = lir_mirror_emit_lit_int(
+                        out_, result->type, v);
+                    break;
+                }
+            }
             result->mirror_offset_ = lir_mirror_emit_var_ref(out_, result->type, n);
             break;
         }
