@@ -26,5 +26,17 @@ unsafe fn main() -> i32 {
     let direct3 = type_of::<Trio<i32, bool, u8>>();
     if t3.uid != direct3.uid { return 14; }
 
+    // let-bound array, let-bound elements: tracing VarRef back to its
+    // initializer at mono time.
+    let ti  = type_of::<i32>();
+    let tb  = type_of::<bool>();
+    let xs: [Type; 2] = [ti, tb];
+    let t4  = type_apply("Pair", xs);
+    if t4.uid != direct.uid { return 15; }
+
+    // Round-trip via reify_type on a let-bound Type.
+    let r = reify_type(ti);
+    if r.uid != ti.uid { return 16; }
+
     return 0;
 }

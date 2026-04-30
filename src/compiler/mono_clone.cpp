@@ -827,6 +827,17 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         "mono.__reify_type__: missing argument\n");
                     std::abort();
                 }
+                // Follow VarRef back through `let` bindings recorded by
+                // subst_stmt's Let case. Cap the chain to avoid pathological
+                // self-referencing input.
+                for (int hops = 0; hops < 8 &&
+                     arg_ref &&
+                     arg_ref.kind() == lir_schema::expr::Code::VarRef; ++hops) {
+                    std::string vn(lir_view::EVarRefView{arg_ref}.name());
+                    auto it = type_let_inits_.find(vn);
+                    if (it == type_let_inits_.end()) break;
+                    arg_ref = it->second;
+                }
                 if (arg_ref.kind() == lir_schema::expr::Code::Call) {
                     lir_view::ECallView cv{arg_ref};
                     auto cn = cv.callee();
@@ -931,6 +942,16 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 if (tmpl_name.size() >= 2 &&
                     tmpl_name.front() == '"' && tmpl_name.back() == '"')
                     tmpl_name = tmpl_name.substr(1, tmpl_name.size() - 2);
+                // Follow VarRef → let-init for the args array too, so
+                // `let xs = [...]; type_apply(name, xs)` works.
+                for (int hops = 0; hops < 8 &&
+                     arr_ref &&
+                     arr_ref.kind() == lir_schema::expr::Code::VarRef; ++hops) {
+                    std::string vn(lir_view::EVarRefView{arr_ref}.name());
+                    auto it = type_let_inits_.find(vn);
+                    if (it == type_let_inits_.end()) break;
+                    arr_ref = it->second;
+                }
                 if (!arr_ref ||
                     arr_ref.kind() != lir_schema::expr::Code::ArrLit) {
                     std::fprintf(stderr,
@@ -939,9 +960,17 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 }
                 // Recover a TypeRef from a producer ExprRef — same shapes the
                 // __reify_type__ intercept handles. Returns null on
-                // unsupported shape.
+                // unsupported shape. Follows VarRef → let-init at top.
                 auto recover = [&](lir_view::ExprRef er) -> TypeRef {
                     if (!er) return {};
+                    for (int hops = 0; hops < 8 &&
+                         er &&
+                         er.kind() == lir_schema::expr::Code::VarRef; ++hops) {
+                        std::string vn(lir_view::EVarRefView{er}.name());
+                        auto it = type_let_inits_.find(vn);
+                        if (it == type_let_inits_.end()) break;
+                        er = it->second;
+                    }
                     if (er.kind() == lir_schema::expr::Code::Call) {
                         lir_view::ECallView cv{er};
                         auto cn = cv.callee();
@@ -1662,7 +1691,9 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
         std::string name(v.name());
         TypeRef ty = subst_type(v.type(pool), s);
         bool is_mut = v.is_mut();
-        auto value = subst_child_expr(v.value());
+        auto rhs = v.value();
+        if (rhs) type_let_inits_[name] = rhs;
+        auto value = subst_child_expr(rhs);
         ns.mirror_offset_ = lir_mirror_emit_let(
             out_, ns.line, name, ty, value, is_mut);
         break;

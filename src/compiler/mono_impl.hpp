@@ -127,6 +127,12 @@ private:
     // recover the source TypeRef from this map.
     std::unordered_map<uint64_t, TypeRef> uid_to_type_;
 
+    // var name → unsubstituted RHS ExprRef of its `let` binding. Lets
+    // __reify_type__/__type_apply__ trace a Type-typed VarRef back to the
+    // producer expression at compile time. Populated by subst_stmt's Let
+    // case; current MVP keeps a flat map (no scope/shadow handling).
+    std::unordered_map<std::string, lir_view::ExprRef> type_let_inits_;
+
     struct WorkItem {
         std::string                mangled;
         const lir::LFunction*      tmpl;
