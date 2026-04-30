@@ -916,6 +916,8 @@
                    => { CODE: ANTIQUOT_PACK, NAME: $2 }
                     / DOLLAR IDENT
                    => { CODE: ANTIQUOT_TYPE, NAME: $2 }
+                    / INTEGER
+                   => { CODE: LIT_INT, VALUE: $1 }
                     / type_ref
 
     simple_type <- IDENT LT type_or_lt_arg (COMMA type_or_lt_arg)* GT_TYPE
@@ -1551,6 +1553,8 @@
     type_param <- lifetime_param
                 / ptr_type
                 / arr_type
+                / KW_CONST IDENT DOTDOTDOT COLON type_ref
+               => { CODE: CONST_PARAM, NAME: $2, IS_VARIADIC: true, TYPE: $5 }
                 / KW_CONST IDENT COLON type_ref
                => { CODE: CONST_PARAM, NAME: $2, TYPE: $4 }
                 / IDENT DOTDOTDOT COLON trait_bound (PLUS trait_bound)*

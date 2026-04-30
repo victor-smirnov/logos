@@ -197,6 +197,17 @@ private:
             return "arr" + std::to_string(tr.arr_size()) + "_" + mangle_type(tr.elem());
         case LogosType::Kind::Struct:
             return concrete_struct_name(tr);
+        case LogosType::Kind::IntLit:
+        case LogosType::Kind::ConstVar:
+            // Const-generic args (scalar or pack element) carry their value in
+            // const_val. Mangle as `cN_<v>` (negatives as `cN_n<v>`) so distinct
+            // values yield distinct symbol names.
+            if (tr.const_val()) {
+                int64_t v = *tr.const_val();
+                if (v < 0) return "cN_n" + std::to_string(-v);
+                return "cN_" + std::to_string(v);
+            }
+            return type_str(tr);
         default:
             return type_str(tr);
         }

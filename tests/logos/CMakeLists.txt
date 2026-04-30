@@ -103,6 +103,7 @@ set(LOGOS_INTEGRATION_TESTS
     meta_template_of_smoke
     meta_transform
     meta_filter
+    meta_const_pack
     meta_sizeof_pack_arg
     pub_reexport
     bst

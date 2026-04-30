@@ -567,7 +567,10 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             lir::ECall nc;
             nc.callee = std::string(v.callee());
             for (auto ta : v.type_args(out_.type_pool.impl())) {
-                if (ta && ta.kind() == LogosType::Kind::TypeVar) {
+                // Pack-key may be encoded as TypeVar (type pack) or ConstVar
+                // (const pack); both store the pack name in `type_var_name`.
+                if (ta && (ta.kind() == LogosType::Kind::TypeVar ||
+                           ta.kind() == LogosType::Kind::ConstVar)) {
                     auto pit = cur_packs_.find(std::string(ta.type_var_name()));
                     if (pit != cur_packs_.end()) {
                         for (auto pt : pit->second) nc.type_args.push_back(pt);
@@ -1790,15 +1793,30 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 if (ar && ar.kind() == lir_schema::expr::Code::PackExpand) {
                     std::string pe_var_name(lir_view::EPackExpandView{ar}.var_name());
                     std::string pack_name;
+                    bool is_const_pack = false;
                     TypeRef at = ar.type(out_.type_pool.impl());
-                    if (at && at.kind() == LogosType::Kind::TypeVar)
+                    if (at && (at.kind() == LogosType::Kind::TypeVar ||
+                               at.kind() == LogosType::Kind::ConstVar)) {
                         pack_name = std::string(at.type_var_name());
+                        is_const_pack = (at.kind() == LogosType::Kind::ConstVar);
+                    }
                     auto pit = cur_packs_.find(pack_name);
                     if (pit != cur_packs_.end()) {
                         for (size_t pi = 0; pi < pit->second.size(); ++pi) {
-                            nc.args.push_back(LirBuilder(out_).var_ref(
-                                make_pack_arg_name(pe_var_name, pi),
-                                pit->second[pi]));
+                            // Const-pack element: emit literal int with the
+                            // param's underlying numeric type. Type-pack
+                            // element: emit per-element var_ref synthesized
+                            // by clone_fn into the callee's signature.
+                            if (is_const_pack && pit->second[pi].const_val()) {
+                                TypeRef et = pit->second[pi].pointee();
+                                if (!et) et = pit->second[pi];
+                                nc.args.push_back(LirBuilder(out_).lit_int(
+                                    *pit->second[pi].const_val(), et));
+                            } else {
+                                nc.args.push_back(LirBuilder(out_).var_ref(
+                                    make_pack_arg_name(pe_var_name, pi),
+                                    pit->second[pi]));
+                            }
                         }
                         if (templates_.count(nc.callee)) {
                             for (auto pt : pit->second)

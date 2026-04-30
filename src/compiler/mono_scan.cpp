@@ -390,8 +390,21 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
     if (has_variadic) {
         auto& vtp = tmpl->type_params.back();
         std::vector<TypeRef> pack_types;
-        for (size_t i = non_variadic_count; i < type_args.size(); ++i)
-            pack_types.push_back(type_args[i]);
+        for (size_t i = non_variadic_count; i < type_args.size(); ++i) {
+            // Const-pack: wrap each scalar as a ConstVar carrying the param's
+            // numeric type in `pointee` so PACK_EXPAND in mono_clone has the
+            // info to emit a typed `lit_int(N, i64)` expression.
+            if (vtp.is_const && type_args[i] && type_args[i].const_val()) {
+                LogosTypeBuilder cv;
+                cv.kind = LogosType::Kind::ConstVar;
+                cv.type_var_name = vtp.name;
+                cv.pointee = vtp.const_type;
+                cv.const_val = *type_args[i].const_val();
+                pack_types.push_back(out_.type_pool.alloc(std::move(cv)));
+            } else {
+                pack_types.push_back(type_args[i]);
+            }
+        }
         packs[vtp.name] = std::move(pack_types);
     }
     worklist_.push_back({mangled_callee, tmpl, std::move(subst), std::move(packs), depth_ + 1});

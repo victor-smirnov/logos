@@ -1340,6 +1340,10 @@ std::vector<TypeParam> SemaChecker::read_type_params_from(TinyMapView node, int3
             tp.name = std::string(str_of(tpnode.get(la::NAME.code)));
             tp.is_const = true;
             tp.const_type = resolve_type(map_of(tpnode.get(la::TYPE.code)));
+            if (tpnode.has_key(la::IS_VARIADIC)) {
+                AnyVal av = tpnode.get(la::IS_VARIADIC.code);
+                tp.is_variadic = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+            }
             result.push_back(std::move(tp));
             continue;
         }
@@ -1412,6 +1416,10 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
             tp.name = std::string(str_of(tpnode.get(la::NAME.code)));
             tp.is_const = true;
             tp.const_type = resolve_type(map_of(tpnode.get(la::TYPE.code)));
+            if (tpnode.has_key(la::IS_VARIADIC)) {
+                AnyVal av = tpnode.get(la::IS_VARIADIC.code);
+                tp.is_variadic = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+            }
             result.push_back(std::move(tp));
             continue;
         }

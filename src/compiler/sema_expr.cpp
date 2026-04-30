@@ -101,8 +101,20 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
 
     case la::PACK_EXPAND: {
         auto name = str_of(expr.get(la::NAME.code));
-        // Type is the variadic TypeVar — mono will expand this
+        // Type is the variadic TypeVar (or ConstVar for const-packs) — mono
+        // will expand to per-element var_refs (type pack) or int literals
+        // (const pack) at call-site monomorphization.
         auto t = lookup(name);
+        if (!t) {
+            // Const-pack expansion: `N...` where N is a `<const N: i64...>`
+            // type parameter. Pack name lives in current_type_params_, not
+            // in the value scope. Fetch its ConstVar so mono PACK_EXPAND
+            // sees the right pack key + can detect the const-pack via kind.
+            auto it = current_type_params_.find(std::string(name));
+            if (it != current_type_params_.end() &&
+                TypeRef(it->second).kind() == LogosType::Kind::ConstVar)
+                t = it->second;
+        }
         if (!t) {
             error(std::format("pack expand: undefined variable '{}'", name));
             return error_expr();

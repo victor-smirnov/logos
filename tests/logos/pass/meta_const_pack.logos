@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: Apache-2.0
+// Const-variadic generics: `<const N...: i64>` packs scalar literals at the
+// call site (`f::<10, 20, 30>()`) and exposes them via `sizeof...(N)` and
+// pack-expansion `N...` in function-argument position. Each pack element is
+// a ConstVar TypeRef carrying the literal value; mono lowers `N...` to
+// per-element `lit_int` expressions.
+
+package meta_const_pack_probe;
+
+fn add2(a: i64, b: i64) -> i64 { return a + b; }
+fn add3(a: i64, b: i64, c: i64) -> i64 { return a + b + c; }
+fn add4(a: i64, b: i64, c: i64, d: i64) -> i64 { return a + b + c + d; }
+
+// `N...` expands at the call site of `add{N}` into the literal arguments.
+fn sum2<const N...: i64>() -> i64 { return add2(N...); }
+fn sum3<const N...: i64>() -> i64 { return add3(N...); }
+fn sum4<const N...: i64>() -> i64 { return add4(N...); }
+
+// `sizeof...(N)` returns the pack length as u64 — works the same way for
+// const-packs as it does for type-packs.
+fn pack_size<const N...: i64>() -> i64 { return sizeof...(N) as i64; }
+
+fn main() -> i32 {
+    // Pack expansion in function-call position.
+    if sum2::<10, 20>() != (30 as i64) { return 1; }
+    if sum3::<1, 2, 3>() != (6 as i64) { return 2; }
+    if sum4::<100, 200, 300, 400>() != (1000 as i64) { return 3; }
+
+    // sizeof...(N) over a const-pack.
+    if pack_size::<5, 6, 7, 8>() != (4 as i64) { return 4; }
+    if pack_size::<42>() != (1 as i64) { return 5; }
+
+    return 0;
+}
