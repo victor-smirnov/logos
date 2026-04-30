@@ -48,7 +48,30 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
     case LogosType::Kind::Ref:    return ptr_type();  // &T — same layout as *const T
     case LogosType::Kind::MutRef: return ptr_type();  // &mut T — same layout as *mut T
     case LogosType::Kind::Array: {
-        auto elem = logos_to_mlir(tv.elem());
+        // For struct-typed elements, inline the LLVM struct aggregate as the
+        // slot type (sizeof(Struct) per slot) instead of the bare pointer
+        // type — otherwise array slots are undersized and storing each
+        // element would overlap into the next slot, plus pointers into a
+        // local slot would dangle once the function returns. Mirrors the
+        // inline-embed path in `register_struct` for struct-of-struct.
+        TypeRef elem_tv = tv.elem();
+        if (elem_tv && (elem_tv.kind() == LogosType::Kind::Struct ||
+                        elem_tv.kind() == LogosType::Kind::ZonedStruct) &&
+            type_str(elem_tv) != "AnyVal") {
+            auto cname = concrete_struct_name(elem_tv);
+            auto sit   = struct_types_.find(cname);
+            if (sit == struct_types_.end()) {
+                auto def_it = all_struct_defs_.find(cname);
+                if (def_it != all_struct_defs_.end()) {
+                    register_struct(*def_it->second);
+                    sit = struct_types_.find(cname);
+                }
+            }
+            if (sit != struct_types_.end())
+                return mlir::LLVM::LLVMArrayType::get(
+                    sit->second.llvm_type, tv.arr_size());
+        }
+        auto elem = logos_to_mlir(elem_tv);
         if (!elem) return nullptr;
         return mlir::LLVM::LLVMArrayType::get(elem, tv.arr_size());
     }

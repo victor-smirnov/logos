@@ -430,24 +430,22 @@ extern "C" const uint8_t* logos_quote_expr_subst(
 
     struct IdentPod { const uint8_t* ptr; uint64_t len; };
     // SpanView reads from the Logos IdentSpan { ptr: *const Ident,
-    // count: u64 }. Inside, `ptr` always points at a pointer-array of
-    // Ident pointers (one slot for scalar, M slots for cursor) — see
-    // arr_lit_struct_ptr_layout note. So we step 8 bytes per element
-    // and deref to reach the inline IdentPod struct.
+    // count: u64, kind: u64 }. Inside, `ptr` points at an inline
+    // IdentPod array (1 slot for scalar, M slots for cursor). We step
+    // sizeof(IdentPod) per element.
     struct SpanView {
-        const IdentPod* const* slots;  // pointer to array of IdentPod*
+        const IdentPod* slots;         // inline array of IdentPods
         uint64_t count;
         uint64_t kind;                 // 0=ident, 1=expr_blob
-        const IdentPod* at(uint64_t i) const { return slots[i]; }
+        const IdentPod* at(uint64_t i) const { return &slots[i]; }
     };
-    // `[IdentSpan; N]` itself lowers to `[ptr; N]` — read as array
-    // of pointers to the SpanRaw struct value.
+    // `[IdentSpan; N]` lays out inline as `[N x %IdentSpan]`.
     struct SpanRaw { const void* ptr; uint64_t count; uint64_t kind; };
-    const auto* span_pp = reinterpret_cast<const SpanRaw* const*>(idents_ptr);
+    const auto* span_arr = reinterpret_cast<const SpanRaw*>(idents_ptr);
     auto get_span = [&](uint64_t i) -> SpanView {
-        const SpanRaw* sr = span_pp[i];
+        const SpanRaw* sr = &span_arr[i];
         return SpanView{
-            reinterpret_cast<const IdentPod* const*>(sr->ptr),
+            reinterpret_cast<const IdentPod*>(sr->ptr),
             sr->count,
             sr->kind,
         };

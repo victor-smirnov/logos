@@ -1307,6 +1307,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIndexReadView v, TypeRef type)
     llvm::SmallVector<mlir::LLVM::GEPArg> indices{idx};
     auto gep = builder_.create<mlir::LLVM::GEPOp>(
         loc_, ptr_type(), elem_type, arr_ptr, indices);
+    // Inline struct slot: array element IS the struct (sizeof(Struct) per
+    // slot). Downstream code consumes structs by pointer, so return the
+    // slot address rather than loading the aggregate.
+    if (elem_type && mlir::isa<mlir::LLVM::LLVMStructType>(elem_type))
+        return gep;
     return builder_.create<mlir::LLVM::LoadOp>(loc_, elem_type, gep);
 }
 
@@ -1320,9 +1325,16 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EStructLitView v, TypeRef) {
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EArrLitView v, TypeRef type) {
     mlir::Type elem_type = builder_.getI32Type();
-    if (type && TypeRef(type).elem()) {
-        auto et = logos_to_mlir(TypeRef(type).elem());
-        if (et) elem_type = et;
+    if (type) {
+        // Derive slot type from the whole-array conversion so struct elements
+        // get inline LLVM struct slots (sizeof(Struct) per slot).
+        if (auto arr_t = mlir::dyn_cast_or_null<mlir::LLVM::LLVMArrayType>(
+                logos_to_mlir(type))) {
+            elem_type = arr_t.getElementType();
+        } else if (TypeRef(type).elem()) {
+            auto et = logos_to_mlir(TypeRef(type).elem());
+            if (et) elem_type = et;
+        }
     }
     return gen_arr_lit(v, elem_type);
 }

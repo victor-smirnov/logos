@@ -210,7 +210,14 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
     // ── Array literal ─────────────────────────────────────────
     if (val_code == lir_schema::expr::Code::ArrLit) {
         lir_view::EArrLitView lit{expr_ref_of(*s.value)};
-        auto elem_type = logos_to_mlir(TypeRef(s.type).elem());
+        // Use the array's slot type (from logos_to_mlir on the whole array)
+        // so struct elements get inline LLVM struct slots, not pointers.
+        mlir::Type elem_type;
+        if (auto arr_t = mlir::dyn_cast_or_null<mlir::LLVM::LLVMArrayType>(
+                logos_to_mlir(s.type)))
+            elem_type = arr_t.getElementType();
+        else
+            elem_type = logos_to_mlir(TypeRef(s.type).elem());
         if (!elem_type) elem_type = builder_.getI32Type();
         auto alloca = gen_arr_lit(lit, elem_type);
         if (!alloca) return;
@@ -441,7 +448,13 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
     // (!llvm.array<N x i32>). Setting var_elem_types_ to the array type causes
     // nested indexing like `row[j]` to generate GEPs with the wrong elem_type.
     if (TypeRef st(s.type); st && st.kind() == LogosType::Kind::Array && st.elem()) {
-        auto elem_mlir = logos_to_mlir(st.elem());
+        // Use the inline slot type (struct elements lay out as inline
+        // aggregates, not pointers) — derive via the whole-array lowering.
+        mlir::Type elem_mlir;
+        if (auto arr_t = mlir::dyn_cast_or_null<mlir::LLVM::LLVMArrayType>(var_type))
+            elem_mlir = arr_t.getElementType();
+        else
+            elem_mlir = logos_to_mlir(st.elem());
         if (!elem_mlir) elem_mlir = builder_.getI32Type();
         var_elem_types_[s.name] = elem_mlir;
         var_subscript_[s.name]  = elem_mlir;
@@ -1014,21 +1027,28 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
     builder_.setInsertionPointToStart(body_block);
     // Load arr[i]: GEP to element, then load.
     mlir::Value i_cur = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), i_alloca);
-    llvm::SmallVector<mlir::LLVM::GEPArg> arr_idx{i_cur};
-    auto elem_ptr = builder_.create<mlir::LLVM::GEPOp>(
-        loc_, ptr_type(), elem_mlir, arr_alloca, arr_idx);
 
     bool is_struct_elem = s.elem_type &&
         TypeRef(s.elem_type).kind() == LogosType::Kind::Struct;
 
     if (is_struct_elem) {
-        // Struct elements are stored as pointers in the array ([N x ptr]).
-        // Load the pointer — it IS the struct pointer, matching the struct convention
-        // (scope_ holds a direct struct pointer for struct variables).
-        auto struct_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), elem_ptr);
-        scope_[s.var] = struct_ptr;
-        var_struct_[s.var] = concrete_struct_name(s.elem_type);
+        // Struct elements are now stored inline as `[N x %struct_type]`.
+        // GEP via [0, i] using the array slot type so stride = sizeof(struct);
+        // the resulting pointer IS the struct pointer.
+        auto cname = concrete_struct_name(s.elem_type);
+        auto sit = struct_types_.find(cname);
+        if (sit == struct_types_.end()) return;
+        auto slot_type = sit->second.llvm_type;
+        auto arr_type  = mlir::LLVM::LLVMArrayType::get(slot_type, s.arr_size);
+        llvm::SmallVector<mlir::LLVM::GEPArg> arr_idx{int32_t(0), i_cur};
+        auto elem_ptr = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), arr_type, arr_alloca, arr_idx);
+        scope_[s.var] = elem_ptr;
+        var_struct_[s.var] = cname;
     } else {
+        llvm::SmallVector<mlir::LLVM::GEPArg> arr_idx{i_cur};
+        auto elem_ptr = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), elem_mlir, arr_alloca, arr_idx);
         // Scalar: alloca + store so the body can read (and mutate) via scope_.
         auto elem_alloca = create_entry_alloca(elem_mlir);
         auto elem_val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, elem_ptr);

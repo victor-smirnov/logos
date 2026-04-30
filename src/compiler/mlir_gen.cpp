@@ -471,13 +471,35 @@ mlir::Value MLIRGenImpl::gen_arr_lit(lir_view::EArrLitView v, mlir::Type elem_ty
     uint64_t n = v.count();
     auto arr_type = mlir::LLVM::LLVMArrayType::get(elem_type, n);
     auto alloca   = create_entry_alloca(arr_type);
-    bool elem_is_array = elem_type && mlir::isa<mlir::LLVM::LLVMArrayType>(elem_type);
+    bool elem_is_array  = elem_type && mlir::isa<mlir::LLVM::LLVMArrayType>(elem_type);
+    bool elem_is_struct = elem_type && mlir::isa<mlir::LLVM::LLVMStructType>(elem_type);
     for (uint64_t i = 0; i < n; ++i) {
-        llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(i)};
+        llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(i)};
         auto gep = builder_.create<mlir::LLVM::GEPOp>(
-            loc_, ptr_type(), elem_type, alloca, idx);
+            loc_, ptr_type(), arr_type, alloca, idx);
         auto er = v.elem(i);
         auto* le = lexpr_of(er); if (!le) return nullptr;
+        if (elem_is_struct) {
+            // Element is an inline LLVM struct slot. gen_expr may return
+            // either a pointer to the source struct (alloca/struct_lit) or
+            // the struct value itself (function return). Either way, write
+            // sizeof(struct) bytes into the slot so the *value* lives in
+            // the array — this is what makes returning [Struct;N] safe.
+            auto src = gen_expr(*le);
+            if (!src) return nullptr;
+            if (src.getType() == ptr_type()) {
+                auto dl = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
+                auto bytes = (int64_t)dl.getTypeSize(elem_type);
+                auto sz = builder_.create<mlir::LLVM::ConstantOp>(
+                    loc_, builder_.getI64Type(),
+                    builder_.getI64IntegerAttr(bytes));
+                builder_.create<mlir::LLVM::MemcpyOp>(
+                    loc_, gep, src, sz, /*isVolatile=*/false);
+            } else {
+                builder_.create<mlir::LLVM::StoreOp>(loc_, src, gep);
+            }
+            continue;
+        }
         if (elem_is_array) {
             auto inner_ptr = gen_expr(*le);
             if (!inner_ptr) return nullptr;

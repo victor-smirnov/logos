@@ -7293,14 +7293,13 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
     TypeRef span_ptr_t      = make_ptr(false, span_t);
 
     // Both scalar Ident vars and `[Ident; M]` cursor vars are passed to
-    // the host shim as **pointer arrays** of Ident pointers (one pointer
-    // per element). Rationale: at MLIR, `[Struct; N]` is `[ptr; N]`
-    // (memory note arr_lit_struct_ptr_layout) — 8-byte slots holding
-    // per-element struct pointers. For a cursor var `xs: [Ident; M]`,
-    // `&xs[0]` already points at this pointer-array layout. For a scalar
-    // Ident var `v`, we materialise a 1-slot pointer array
-    // `let __qe_p_K: [*const Ident; 1] = [&v];` and take `&__qe_p_K[0]`.
-    // The shim reads `span.ptr` as `IdentPod* const *` for both cases.
+    // the host shim as **inline IdentPod arrays** (sizeof(Ident)=16 bytes
+    // per slot). At MLIR, `[Struct; N]` lays out as `[N x %struct_type]`
+    // inline (16-byte stride for Ident). For a cursor var `xs: [Ident; M]`,
+    // `&xs[0]` already points at the inline array. For a scalar Ident
+    // var `v`, we materialise a 1-slot inline array
+    // `let __qe_p_K: [Ident; 1] = [v];` and take `&__qe_p_K[0]`.
+    // The shim reads `span.ptr` as `IdentPod*` and steps by `sizeof(IdentPod)`.
     auto arr_t = make_array(span_t, N);
     std::vector<lir::LExprPtr> elems;
     elems.reserve(N);
@@ -7324,12 +7323,12 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             auto raw_addr  = builder().addr_of(ph.var_name, arr_ptr_t);
             ptr_v          = builder().cast(std::move(raw_addr), ident_ptr_t);
         } else {
-            // Materialise a 1-slot pointer array holding &v.
-            auto p_arr_t   = make_array(ident_ptr_t, 1);
+            // Materialise a 1-slot inline Ident array holding a copy of v.
+            auto p_arr_t   = make_array(ident_t, 1);
             auto p_ptr_t   = make_ptr(false, p_arr_t);
-            auto v_addr    = builder().addr_of(ph.var_name, ident_ptr_t);
+            auto v_ref     = builder().var_ref(ph.var_name, ident_t);
             std::vector<lir::LExprPtr> p_elems;
-            p_elems.push_back(std::move(v_addr));
+            p_elems.push_back(std::move(v_ref));
             auto p_arr_e   = builder().arr_lit(std::move(p_elems), p_arr_t);
             std::string pname = "__qep_" + std::to_string(span_tmp_idx++)
                 + "_" + std::to_string(tmp_var_count_++);
