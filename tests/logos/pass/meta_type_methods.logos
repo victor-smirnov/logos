@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: Apache-2.0
+// Type-method ergonomics: t.is_struct() / t.is_integer() / etc.
+
+package meta_type_methods_probe;
+
+use std.compiler.metaprog;
+
+pub struct Box { pub x: i32, }
+
+unsafe fn main() -> i32 {
+    let ti: Type = type_of::<i32>();
+    if !ti.is_integer() { return 71; }
+    if  ti.is_struct()  { return 72; }
+    if  ti.is_float()   { return 73; }
+    if !ti.is_primitive() { return 74; }
+
+    let tb: Type = type_of::<Box>();
+    if !tb.is_struct() { return 75; }
+    if  tb.is_integer() { return 76; }
+    if  tb.is_primitive() { return 77; }
+
+    let tf: Type = type_of::<f64>();
+    if !tf.is_float() { return 78; }
+    if  tf.is_integer() { return 79; }
+    if !tf.is_primitive() { return 80; }
+
+    let tbool: Type = type_of::<bool>();
+    if !tbool.is_bool() { return 81; }
+    if !tbool.is_primitive() { return 82; }
+    if  tbool.is_integer() { return 83; }
+
+    return 0;
+}

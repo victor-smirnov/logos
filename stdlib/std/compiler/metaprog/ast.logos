@@ -56,6 +56,53 @@ pub struct Type {
     pub size: i64,
 }
 
+// Kind-tag predicates as methods. Mirror `LogosType::Kind` numeric
+// values (see include/logos/compiler/sema.hpp). Pure reads off
+// `self.kind` — same logic as the free `is_*` functions in
+// std::meta, but available with method-call ergonomics so user
+// code can write `t.is_struct()` instead of `is_struct(t)`.
+impl Type {
+    pub fn is_void(&self) -> bool { return self.kind == (0 as u32); }
+    pub fn is_bool(&self) -> bool { return self.kind == (5 as u32); }
+
+    pub fn is_integer(&self) -> bool {
+        let k: u32 = self.kind;
+        return k == (1 as u32)  || k == (2 as u32)  || k == (6 as u32)
+            || k == (7 as u32)  || k == (8 as u32)  || k == (9 as u32)
+            || k == (10 as u32) || k == (11 as u32)
+            || k == (12 as u32) || k == (13 as u32)
+            || k == (14 as u32) || k == (15 as u32)
+            || k == (16 as u32) || k == (17 as u32);
+    }
+
+    pub fn is_float(&self) -> bool {
+        return self.kind == (3 as u32) || self.kind == (4 as u32);
+    }
+
+    pub fn is_primitive(&self) -> bool {
+        let k: u32 = self.kind;
+        return k == (1 as u32)  || k == (2 as u32)  || k == (3 as u32)
+            || k == (4 as u32)  || k == (5 as u32)  || k == (6 as u32)
+            || k == (7 as u32)  || k == (8 as u32)  || k == (9 as u32)
+            || k == (10 as u32) || k == (11 as u32)
+            || k == (12 as u32) || k == (13 as u32)
+            || k == (14 as u32) || k == (15 as u32)
+            || k == (16 as u32) || k == (17 as u32);
+    }
+
+    pub fn is_struct(&self) -> bool {
+        return self.kind == (22 as u32) || self.kind == (23 as u32);
+    }
+
+    pub fn is_enum(&self)    -> bool { return self.kind == (24 as u32); }
+    pub fn is_array(&self)   -> bool { return self.kind == (21 as u32); }
+
+    pub fn is_pointer(&self) -> bool {
+        let k: u32 = self.kind;
+        return k == (18 as u32) || k == (19 as u32) || k == (20 as u32);
+    }
+}
+
 // `TypeList<T...>` — A-layer pack-carrier (zero-sized).  Slice 2 of the
 // typelevel-metaprog epic.  The pack lives only at the type level; the
 // runtime bridge to a value-level pack of `Type` handles is via the
