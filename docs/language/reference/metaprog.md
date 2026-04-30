@@ -54,34 +54,36 @@ quote_ty!   { Vec<i32> }
 
 ### Antiquotation
 
-Inside a `quote_*!` body, `$ident` and `${expr}` splice runtime values:
+Inside a `quote_*!` body, `#name` (Rust `quote!` convention) splices a value bound in the surrounding metafunction:
 
 ```logos
-fn make_getter(name: &str, ty: Ty) -> Item {
-    quote_item! {
-        fn $name(&self) -> $ty { self.$name }
-    }
+fn make_marker(id: Ident) -> QuoteItemBlob {
+    quote_item! { struct #id { x: i32 } }
 }
 ```
 
-`$name` substitutes a captured value of the right typelevel handle (`Item`, `Ty`, `Expr`, `Ident`, etc.). `${expr}` allows a compile-time expression in the splice slot.
+`quote_ty!` additionally accepts `$ident` and `$ts...` for pack-splicing — `$` is reused from Hermes-capture syntax and is a quote_ty-only spelling.
 
-Hygiene is *hybrid*: definition-site names are fully qualified at quote time (so a `quote_item!` body can refer to `std.io::Write` without the caller importing it); call-site names introduced by the caller go through a name-collision check at the splice point. See [memory: feat_metaprog_quote](../../README.md).
+### Status (2026-04-30)
+
+Implementation is partial; what works today, by form:
+
+- **`quote_item!`** — body parses; only `#id` for the **struct name** position is recognised as antiquot (slice 5a.1). `#field` in field positions, `#expr` in method bodies, repeats — not implemented.
+- **`quote_expr!`** — `#x` antiquot, `#(...)*`, `#(...),*`, `#(...)&&*` repeats all work.
+- **`quote_ty!`** — `$ident` antiquot, pack-splice `$ts...`, antiquot inside tuple / array type positions.
+- **`quote_stmt!`, `quote_pat!`, `quote_ident!`** — not implemented.
+
+Hygiene is currently bare: identifiers inside `quote_*!` resolve in the same scope as the surrounding metafunction. Hybrid hygiene (literal-internal names get a fresh scope, antiquoted names resolve at the splice site) is planned (slice 10).
 
 ## Repeat Groups
 
 ```logos
-quote_item! {
-    impl Display for Tup {
-        fn fmt(&self, w: &mut Writer) -> Result<(), io::Error> {
-            #(write!(w, "{}", self.$names);)*
-            Ok(())
-        }
-    }
-}
+quote_expr! { #(self.#fields == other.#fields)&&* }
 ```
 
-`#(... pat ...)<sep>*` repeats the body once per element of any pack referenced inside (here `$names: Pack<Ident>`). Separators are `,`, `;`, `&` — see the grammar at [logos.peg:1363](../../../tools/peg_gen/grammars/logos.peg#L1363).
+`#(...)*`, `#(...),*`, `#(...)&&*` repeat the body once per element of the cursor pack referenced inside, joined by no separator / `,` / `&&`. Multiple cursors zip by length.
+
+**Status:** repeats work in `quote_expr!` (see tests `quote_expr_repeat_comma`, `quote_expr_repeat_andand`). Repeats in `quote_item!` are **not yet implemented** — the canonical `#(self.#fields == other.#fields)&&*`-style derive that walks a struct's fields cannot be written through `quote_item!` today.
 
 ## `template`
 
@@ -90,7 +92,24 @@ template struct Pair<A, B> { fst: A, snd: B }
 template fn map<F>(...) { ... }
 ```
 
-`template <decl>` marks the declaration as **AST data, not a binding**. Sema skips templates entirely — their inner names are never registered. Metafunctions consume them via `template_of::<X>()`, `apply(template, args)`, and `metacall`. Use `template` for code patterns that the metafunction layer expands into real items.
+`template <decl>` marks the declaration as **AST data, not a binding**. Sema skips templates entirely — their inner names are never registered.
+
+### Conceptual model
+
+Templates are a **syntactic-level** code generator (orthogonal to generics): they take template parameters (names, types, packs, consts) and produce a declaration. The result can be a concrete item, **or another generic**, which then participates in monomorphisation as usual. Template parameters and the output's generic parameters are independent axes — a template can be parameterised over a `Name` and produce `struct #Name<A, B> { ... }`, where `A`, `B` are the generic parameters of the output, not of the template.
+
+Inside a template body (planned grammar): `#X` references a template parameter; bare `X` is an ordinary in-scope name. Triggers (planned): `apply_template<Tpl, args...>() -> Item` and `#[apply(args...)]` on the declaration.
+
+### Status (2026-04-30)
+
+Almost nothing of the above runs today:
+
+- The body of a `template <decl>` is parsed, then **silently dropped** by sema. It is not persisted, not consultable, not expandable.
+- `template_of::<X>()` returns a `Template` handle with `name()` and `type_param_count()` accessors only.
+- There is no `apply_template`, no `#[apply(...)]`, no `apply()` method, no `#X` placeholder grammar, no repeats inside the body.
+- For now, code generation goes through `#[metaprog_handler("...")]` hooks that build a `quote_item!` blob programmatically and call `logos_emit_item_blob_subst`.
+
+End-to-end template body expansion is tracked in the planning notes `metaprog-quote-slice5.md` (quote infrastructure) and `template-body-expansion.md` (template-side triggers).
 
 ## Sema-Side Intrinsics
 

@@ -212,7 +212,19 @@ template struct Pair<A, B> { fst: A, snd: B }
 template fn map<F>(...) { ... }
 ```
 
-`template` marks the wrapped declaration as **data, not a binding** — a Hermes AST node that metafunctions consume via `apply` / `metacall` / `template_of::<X>()`. Sema skips templates entirely; their inner names are not registered, so referencing them as ordinary types yields the standard "unknown type" diagnostic. See [Metaprogramming](metaprog.md).
+`template` marks the wrapped declaration as **data, not a binding** — a Hermes AST node that metafunctions consume via `template_of::<X>()`. Sema skips templates entirely; their inner names are not registered, so referencing them as ordinary types yields the standard "unknown type" diagnostic.
+
+### Conceptual model (most of which is not yet implemented)
+
+Templates are a **syntactic-level** code generator, distinct from generics:
+
+- A template takes *template parameters* (names, types, packs, consts) and produces a declaration — a struct, an enum, a function, an impl block, or **another generic** struct/fn. The output is an ordinary item that lives in the module like any other.
+- Generics are *type-level*: monomorphisation substitutes type / const arguments into a fixed shape. A template, by contrast, generates the shape itself (it can produce N field declarations from a `T...` pack, for example, which monomorphisation cannot).
+- Template parameters need not equal the generic parameters of the output. A template parameterised over a `Name` can produce `struct #Name<A, B> { ... }` — the resulting `Name<A, B>` is then used through ordinary monomorphisation.
+- Inside a template body, `#X` references a template parameter (placeholder); bare `X` is an ordinary in-scope name (e.g. an output-level generic parameter).
+- Triggers: planned forms are `apply_template<Tpl, args...>() -> Item` (library metafunction) and `#[apply(args...)]` on the template declaration. There is intentionally no implicit type-use trigger — `Foo<i32, u64>` where `Foo` is a template would be ambiguous about whether the args are template-args or output's generic-args.
+
+**Current status (2026-04-30):** essentially nothing of the above is implemented end-to-end. `template <decl>` parses and is silently dropped; `template_of::<X>()` returns a handle with `name()` / `type_param_count()` accessors; the body is not persisted, no placeholders are recognised, no `apply` mechanism exists. See the [Metaprogramming](metaprog.md) page for what does run today, and `metaprog-quote-slice5.md` / `template-body-expansion.md` (planning notes) for the slice-by-slice path forward.
 
 ## Attributes (`#[...]`)
 
