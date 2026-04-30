@@ -63,6 +63,41 @@ pub fn name_eq(a: &[u8], b: &[u8]) -> bool {
     return true;
 }
 
+// ── A-side typelist ops (length / head) ────────────────────────────────
+//
+// Free-fn wrappers exposing `length` / `head` directly over a `<T...>`
+// pack — the taxonomy calls these "A-layer" (structural) ops, in
+// contrast to the B-layer `count_if`/`all`/`any`/etc above which take a
+// runtime `[Type; N]` and a closure. Both layers coexist in the
+// Hana/MP11 design.
+//
+// Implementation: these wrap the B-side primitives `sizeof...(T)` and
+// `type_refs_of::<T...>()[0]` rather than the `typelist_*::<L>` keyword
+// intrinsics — pack-`T...` substitution into a nested generic position
+// (e.g. `typelist_len::<TypeList<T...>>()` inside a generic wrapper)
+// doesn't fully expand at the moment; the wrapper would see a 1-arg
+// TypeList. Closing that gap is a separate compiler fix; until then
+// these direct-pack wrappers are the stable A-side surface.
+//
+// `nth` is intentionally not wrapped: the keyword form
+// `typelist_nth::<L>(i)` requires `i` to be a *literal* int (a wrapper
+// parameter becomes a VarRef). `tail` is also not wrapped: its
+// return type `[Type; N-1]` is retyped at the call site by mono and
+// a free-fn signature would freeze it to a fixed-size placeholder.
+// Use the keyword forms directly for those.
+
+// Pack length (compile-time constant; folds to a `lit_int`).
+pub fn length<T...>() -> i64 {
+    return sizeof...(T) as i64;
+}
+
+// First pack element. Calling on an empty pack hits the array
+// out-of-range path of the B-side intrinsic.
+pub fn head<T...>() -> Type {
+    let arr = type_refs_of::<T...>();
+    return arr[0];
+}
+
 // ── Kind predicates (over the `t.kind` tag) ────────────────────────────
 //
 // Kind tag values mirror `LogosType::Kind` from

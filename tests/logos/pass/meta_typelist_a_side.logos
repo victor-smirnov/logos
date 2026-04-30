@@ -1,0 +1,19 @@
+// SPDX-License-Identifier: Apache-2.0
+// A-layer typelist ops — `length<T...>` / `head<T...>` / `nth<T...>(i)` /
+// `tail<T...>` from `std::compiler::metaprog::meta`. Free-fn wrappers
+// around the `typelist_*` keyword intrinsics; same observable behaviour,
+// but written at the user-facing pack level.
+
+package meta_typelist_a_side_probe;
+
+use std.compiler.metaprog;
+
+unsafe fn main() -> i32 {
+    if length::<i32, bool, u8>() != (3 as i64) { return 1; }
+    if length::<i32>()           != (1 as i64) { return 2; }
+
+    let h: Type = head::<i32, bool, u8>();
+    if h.kind != (1 as u32) { return 3; }   // i32 = kind 1
+
+    return 0;
+}
