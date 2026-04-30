@@ -6799,6 +6799,36 @@ lir::LExprPtr SemaChecker::lower_quote_ty(TinyMapView node) {
             return builder().call("__array_type_apply__", {}, std::move(rargs), type_t_h);
         }
     }
+    // Pack-splice form: `quote_ty! { Foo<$ts...> }` — the sole type-arg is
+    // an ANTIQUOT_PACK referring to a runtime Array<Type>. Lower directly to
+    // `__type_apply__("Foo", ts_var)`; mono recovers element types by
+    // chasing the VarRef to the array's producer (typically an ArrLit from
+    // `type_refs_of::<U...>()` or a let-init). Mixed packs (`Foo<$t, $ts...>`)
+    // are not yet supported — they'd need runtime concat.
+    if (inner_code == la::GENERIC_INST.code && inner.has_key(la::ITEMS)) {
+        auto items_pk = arr_of(inner.get(la::ITEMS.code));
+        if (items_pk.size() == 1 &&
+            code_of(map_of(items_pk.get(0))) == la::ANTIQUOT_PACK.code) {
+            auto pk_node = map_of(items_pk.get(0));
+            auto vname = std::string(str_of(pk_node.get(la::NAME.code)));
+            auto name = std::string(str_of(inner.get(la::NAME.code)));
+            auto type_t = make_struct_type("Type");
+            LogosTypeBuilder ab; ab.kind = LogosType::Kind::Array;
+            ab.elem = type_t; ab.arr_size = 0;
+            TypeRef arr_t = pool_->alloc(std::move(ab));
+            auto var = builder().var_ref(vname, arr_t);
+            std::vector<lir::LExprPtr> rargs;
+            rargs.push_back(builder().lit_str(name, make_slice_type(u8_t())));
+            rargs.push_back(std::move(var));
+            return builder().call("__type_apply__", {}, std::move(rargs), type_t);
+        }
+        for (uint64_t i = 0; i < items_pk.size(); ++i) {
+            if (code_of(map_of(items_pk.get(i))) == la::ANTIQUOT_PACK.code) {
+                error("quote_ty!: mixed pack-splice with other args not yet supported");
+                return error_expr();
+            }
+        }
+    }
     // Antiquot path — only triggered when the inner form is a generic
     // instantiation (Foo<args...>) with at least one $ident arg. Other
     // composite shapes (slices/refs/tuples with antiquots inside) aren't

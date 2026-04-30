@@ -1036,6 +1036,94 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                     if (it == type_let_inits_.end()) break;
                     arr_ref = it->second;
                 }
+                // Pack-splice fast path: if the args producer is a Type-array
+                // intrinsic (`type_refs_of` / `args_of` / `field_types_of` /
+                // `tuple_elems_of` / `typelist_tail`), pull element TypeRefs
+                // directly from its type_args/struct-template instead of
+                // requiring an ArrLit shape (mono folds these later).
+                if (arr_ref &&
+                    arr_ref.kind() == lir_schema::expr::Code::Call) {
+                    lir_view::ECallView cv2{arr_ref};
+                    auto cn2 = cv2.callee();
+                    auto fold_pack = [&](std::vector<TypeRef>& out) -> bool {
+                        auto tas = cv2.type_args(out_.type_pool.impl());
+                        if (cn2 == "__type_refs_of__") {
+                            // type-args ARE the pack (multiple args, one per member).
+                            for (auto a : tas) out.push_back(subst_type(a, s));
+                            return true;
+                        }
+                        if (cn2 == "__args_of__") {
+                            if (tas.empty()) return false;
+                            TypeRef T = subst_type(tas[0], s);
+                            for (auto a : T.type_args()) out.push_back(a);
+                            return true;
+                        }
+                        if (cn2 == "__typelist_tail__") {
+                            if (tas.empty()) return false;
+                            TypeRef T = subst_type(tas[0], s);
+                            auto pack = T.type_args();
+                            for (size_t i = 1; i < pack.size(); ++i)
+                                out.push_back(pack[i]);
+                            return true;
+                        }
+                        if (cn2 == "__tuple_elems_of__") {
+                            if (tas.empty()) return false;
+                            TypeRef T = subst_type(tas[0], s);
+                            if (T && T.kind() == LogosType::Kind::Tuple)
+                                for (auto a : T.tuple_elems())
+                                    out.push_back(a);
+                            return true;
+                        }
+                        return false;
+                    };
+                    std::vector<TypeRef> direct;
+                    if (fold_pack(direct)) {
+                        LogosTypeBuilder sb;
+                        sb.kind = LogosType::Kind::Struct;
+                        sb.struct_name = tmpl_name;
+                        sb.type_args = direct;
+                        TypeRef inst_t = out_.type_pool.alloc(std::move(sb));
+                        collect_type_for_structs(inst_t);
+                        uint64_t uid = type_hash_64bit(
+                            type_hash_23(type_str(inst_t)));
+                        uid_to_type_[uid] = inst_t;
+                        TypeRef type_t = result->type;
+                        LirBuilder b(out_);
+                        LogosTypeBuilder u32_b; u32_b.kind = LogosType::Kind::U32;
+                        TypeRef u32_t = out_.type_pool.alloc(std::move(u32_b));
+                        LogosTypeBuilder u8_b;  u8_b.kind  = LogosType::Kind::U8;
+                        TypeRef u8_t  = out_.type_pool.alloc(std::move(u8_b));
+                        LogosTypeBuilder slu8_b;
+                        slu8_b.kind = LogosType::Kind::Slice;
+                        slu8_b.elem = u8_t;
+                        TypeRef slice_u8_t =
+                            out_.type_pool.alloc(std::move(slu8_b));
+                        LogosTypeBuilder i64_b; i64_b.kind = LogosType::Kind::I64;
+                        TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
+                        LogosTypeBuilder u64_b; u64_b.kind = LogosType::Kind::U64;
+                        TypeRef u64_t = out_.type_pool.alloc(std::move(u64_b));
+                        auto kind_e = b.lit_int(
+                            (int64_t)inst_t.kind(), u32_t);
+                        auto name_e = b.lit_str(
+                            type_str(inst_t), slice_u8_t);
+                        auto size_e = b.size_of(inst_t, i64_t);
+                        auto align_e = b.align_of(inst_t, i64_t);
+                        auto uid_e  = b.lit_int(
+                            (int64_t)(uint64_t)uid, u64_t);
+                        std::vector<std::pair<std::string,
+                            lir::LExprPtr>> f;
+                        f.emplace_back("kind", std::move(kind_e));
+                        f.emplace_back("name", std::move(name_e));
+                        f.emplace_back("size", std::move(size_e));
+                        f.emplace_back("align", std::move(align_e));
+                        f.emplace_back("uid",  std::move(uid_e));
+                        auto sl = b.struct_lit("Type",
+                                               std::move(f), type_t);
+                        result->type = type_t;
+                        result->mirror_offset_ = sl->mirror_offset_;
+                        break;
+                    }
+                }
                 if (!arr_ref ||
                     arr_ref.kind() != lir_schema::expr::Code::ArrLit) {
                     std::fprintf(stderr,

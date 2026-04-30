@@ -1725,6 +1725,12 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         error("`$" + nm + "` antiquotation is only valid inside `quote_ty! { ... }`");
         return error_t();
     }
+    if (tc == la::ANTIQUOT_PACK) {
+        std::string nm;
+        if (node.has_key(la::NAME)) nm = std::string(str_of(node.get(la::NAME.code)));
+        error("`$" + nm + "...` pack-splice is only valid inside `quote_ty! { ... }`");
+        return error_t();
+    }
 
     if (tc == la::TYPEOF_TYPE) {
         // typeof(expr) — lower the inner expression purely for type inference.

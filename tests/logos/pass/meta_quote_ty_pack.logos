@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: Apache-2.0
+// `quote_ty! { Foo<$ts...> }` — pack-splice antiquot. ts is a runtime
+// `Array<Type>` (typically from `type_refs_of::<U...>()`); sema lowers
+// to `__type_apply__("Foo", ts)` and mono recovers element types by
+// chasing the VarRef to the array's producer.
+
+package meta_quote_ty_pack_probe;
+
+use std.compiler.metaprog;
+
+pub struct Pair<A, B> { pub a: A, pub b: B, }
+pub struct Triple<A, B, C> { pub a: A, pub b: B, pub c: C, }
+
+unsafe fn pair_via_pack<A, B>() -> Type {
+    let ts = type_refs_of::<A, B>();
+    return quote_ty! { Pair<$ts...> };
+}
+
+unsafe fn triple_via_pack<A, B, C>() -> Type {
+    let ts = type_refs_of::<A, B, C>();
+    return quote_ty! { Triple<$ts...> };
+}
+
+unsafe fn main() -> i32 {
+    let p = pair_via_pack::<i32, bool>();
+    let direct_p = type_of::<Pair<i32, bool>>();
+    if p.uid != direct_p.uid { return 1; }
+
+    let t = triple_via_pack::<i32, bool, u8>();
+    let direct_t = type_of::<Triple<i32, bool, u8>>();
+    if t.uid != direct_t.uid { return 2; }
+
+    return 0;
+}

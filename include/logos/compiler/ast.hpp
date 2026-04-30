@@ -166,6 +166,7 @@ inline constexpr Code PACK_EXPAND {"PACK_EXPAND", 117};    // args... pack expan
 inline constexpr Code SIZEOF_PACK {"SIZEOF_PACK", 203};    // sizeof...(T) — pack length as u64
 inline constexpr Code QUOTE_TY    {"QUOTE_TY",    204};    // Slice 1 of quote_ty epic: `quote_ty! { type }`. TYPE = inner type AST; sema lowers to a Type{kind,name,size} struct literal.
 inline constexpr Code ANTIQUOT_TYPE {"ANTIQUOT_TYPE", 205};  // `$ident` in a type position inside `quote_ty! { ... }`. NAME = identifier of a Type-valued binding; sema lowers `quote_ty! { Foo<$t> }` to `type_apply("Foo", [t])`.
+inline constexpr Code ANTIQUOT_PACK {"ANTIQUOT_PACK", 206};  // `$ident...` in a type-arg list inside `quote_ty! { ... }`. NAME = identifier of an Array<Type>-valued binding; sema lowers `quote_ty! { Foo<$ts...> }` to `type_apply("Foo", ts)`.
 
 // Dynamic dispatch
 inline constexpr Code IMPL_TYPE   {"IMPL_TYPE",   116};    // impl Trait type

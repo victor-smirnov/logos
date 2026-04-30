@@ -249,6 +249,7 @@
     SIZEOF_PACK                 = 203   // sizeof...(T) — value-position expression yielding pack length as u64; NAME = pack ident
     QUOTE_TY                    = 204   // quote_ty! { type } — typed Type literal; TYPE = inner type AST
     ANTIQUOT_TYPE               = 205   // $ident in a type position; NAME = ident of a Type-valued binding (only legal inside quote_ty!)
+    ANTIQUOT_PACK               = 206   // $ident... in a type-arg list; NAME = ident of an Array<Type> binding (only legal inside quote_ty!)
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -907,6 +908,8 @@
                    => { CODE: LIFETIME_PARAM, NAME: $1 }
                     / IDENT DOTDOTDOT
                    => { CODE: PACK_EXPAND, NAME: $1 }
+                    / DOLLAR IDENT DOTDOTDOT
+                   => { CODE: ANTIQUOT_PACK, NAME: $2 }
                     / DOLLAR IDENT
                    => { CODE: ANTIQUOT_TYPE, NAME: $2 }
                     / type_ref
