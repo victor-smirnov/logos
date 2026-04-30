@@ -6,7 +6,6 @@ This page collects forward-looking notes from the rest of the reference. Items h
 
 - **UTF-8 source** — identifiers and comments are ASCII-only outside string literals. UTF-8 string contents already work; UTF-8 source is a planned extension. ([Lexical → Source Encoding](lexical.md#source-encoding))
 - **Char and byte literals** — `'a'`, `b"..."` are not lexed. Single-byte values are written as integer literals.
-- **Raw strings with embedded quotes** — `r#"..."#` is not on the near-term roadmap.
 
 ## Types
 

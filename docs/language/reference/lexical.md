@@ -88,12 +88,13 @@ FLOAT   = [-]?[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9][0-9_]*)?(f32|f64)?
 Two forms:
 
 ```
-STRING     = "([^"\\] | \\.)*"        — escape-aware
-RAW_STRING = r"[^"]*"                  — no escapes
+STRING     = "([^"\\] | \\.)*"               — escape-aware
+RAW_STRING = r"[^"]*"  |  r#"…"#  |  r##"…"##  |  …   — no escapes
 ```
 
 - `"hello\n"` — escape-aware. `\\` consumes the next byte literally; standard escapes (`\n`, `\t`, `\r`, `\\`, `\"`, `\0`) are recognised by the runtime.
-- `r"…"` — raw form, no escape processing. Contents end at the first closing `"`. There is **no** raw-string with embedded quotes (no `r#"…"#` form).
+- `r"…"` — raw form, no escape processing. Contents end at the first closing `"`.
+- `r#"…"#`, `r##"…"##`, … — hash-fenced raw strings; the body ends at the matching `"` followed by the same number of `#`s, so the body may itself contain `"` (or `"#`, etc.). The grammar file shows only the unfenced regex; the hand-rolled lexer accepts any number of leading/trailing `#`s.
 
 There is no character literal (`'a'`) and no byte-string literal (`b"…"`). Single-byte values are written as integer literals.
 
@@ -132,4 +133,3 @@ The following are not tokens but parse-level constructs flagged here so they don
 
 - UTF-8 in identifiers and comments. Tracked via the language quirks list.
 - Character and byte-string literals — pending.
-- Raw strings with embedded quotes (`r#"…"#`) — not planned in the near term.
