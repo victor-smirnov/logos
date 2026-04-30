@@ -11,7 +11,9 @@ Logos is a compiled, statically-typed systems programming language with its own 
 
 ## Relationship to Rust
 
-The current Logos syntax and resource model are borrowed from Rust, and Rust experience transfers directly: ownership, borrowing, traits, and generics will feel familiar. This is a starting point, not a goal — Logos is built in a different paradigm (AI-first ergonomics, code/data unified through Hermes, compile-time programming as ordinary Logos code, green fibers without async coloring). Logos and Rust are expected to diverge syntactically and paradigmatically over the medium term.
+The Rust-like surface was effectively chosen by the model. The original plan was a much simpler, IR-adjacent syntax with no expressions — explicit, verbose, optimised for small and mid-sized models. In practice the language also has to be pleasant for humans to read and write, and Rust turned out to sit in a sweet spot: expressive, low-level, a good DSL host, and — importantly — models generate it more reliably than most alternatives. Since Logos is built for models first, leaning into a syntax they already handle well is the pragmatic choice.
+
+Logos inherits surface syntax, affine types, generics, and the ownership/borrowing model from Rust, but it is *not* Rust: not source-compatible, not aiming at portability in either direction, and willing to diverge wherever AI-first ergonomics, Hermes-based code/data unification, compile-time programming as ordinary Logos code, or green-fiber concurrency without async coloring point elsewhere. Substantial divergence is expected in the near future.
 
 ## Design Direction
 
