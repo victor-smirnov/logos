@@ -66,10 +66,12 @@ Logos does not currently borrow concrete features from Haskell or Idris. What it
 | Generics | Monomorphic, with traits | More structured, no SFINAE | Type-checked, not duck-typed |
 | Concurrency | Stackful green fibers (planned: FSM lowering) | Has reactor + fibers built in | Comparable model, different runtime |
 | Macros / metaprog | Compile-time programs in Logos itself | Replaces templates/macros | Not comparable |
-| Async coloring | None — implicit suspend points | N/A | None |
+| Async coloring | None by default — implicit suspend via fibers; `async` retained only for targets like `wasm32` | N/A | None |
 | Build | CMake + VCPKG (today); module binaries (planned) | Standard C++ stack | Comparable |
 
-Logos deliberately does **not** adopt several Rust features: there is no module system in the Rust sense, no async/`.await` coloring, and no procedural macros. Each of these is intended to be replaced by Logos-native mechanisms (packages, fibers, compile-time programs).
+Logos deliberately does **not** adopt several Rust features: there is no module system in the Rust sense, no procedural macros, and the default concurrency model is not async/`.await`. Packages and compile-time programs replace the first two outright; stackful green fibers replace `.await` as the default.
+
+`async`/`.await` is *kept* as a targeted mechanism for platforms where concurrency cannot reasonably be provided at the system level — most notably `wasm32` running inside a browser, where the host gives the program no threads, no fibers, and no preemption to work with. There the colored model is the price of admission. Outside those targets, `async` is expected to see limited use: code colouring scales poorly, it propagates through every caller, and it interacts badly with the rest of the language. Fibers are the default exactly because that scaling story matters more than per-target convenience.
 
 ## Status
 
