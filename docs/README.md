@@ -13,6 +13,7 @@ Start here if you want to *use* Logos.
 - [Generics and Traits](language/generics-traits.md) — generic functions, trait impls, monomorphization.
 - [Comprehensions](language/comprehensions.md) — list/map comprehensions, plain and Hermes forms.
 - [Hermes in Logos](language/hermes.md) — Hermes as a first-class part of the language: literals, capture, view types.
+- [Language Reference](language/reference/README.md) — normative reference organised by surface form (lexical / types / items / expressions / statements / patterns) plus cross-cutting topics.
 
 ## Internals
 

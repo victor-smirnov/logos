@@ -70,6 +70,7 @@ The documentation lives in [docs/](docs/README.md) and is split into two tracks:
 - [Generics and Traits](docs/language/generics-traits.md) — generic functions, trait impls.
 - [Comprehensions](docs/language/comprehensions.md) — list/map comprehensions over plain values and Hermes.
 - [Hermes in Logos](docs/language/hermes.md) — literals, capture, view types.
+- [Language Reference](docs/language/reference/README.md) — normative reference (lexical, types, items, expressions, statements, patterns, plus cross-cutting topics).
 
 **For contributors**
 
