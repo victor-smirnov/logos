@@ -1496,13 +1496,18 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         return builder().lit_int(v ? 1LL : 0LL, prim(LogosType::Kind::Bool));
     };
 
+    // Type-trait predicates lower to magic calls so mono can evaluate them
+    // *after* substitution — inside generic bodies, T is a TypeVar at sema.
+    // Pre-mono folding at sema would freeze the answer to "TypeVar" semantics
+    // (almost always false), defeating the point.
     if (callee == "is_same") {
         auto ts = collect_type_args();
         if (ts.size() != 2 || !ts[0] || !ts[1]) {
             error("is_same::<T1,T2>() requires exactly two type arguments");
             return error_expr();
         }
-        return bool_lit(types_equal(ts[0], ts[1]));
+        return builder().call("__is_same__", std::move(ts), {},
+                              prim(LogosType::Kind::Bool));
     }
     if (callee == "is_ptr" || callee == "is_ref" || callee == "is_mut_ref" ||
         callee == "is_struct" || callee == "is_zoned" || callee == "is_enum" ||
@@ -1514,41 +1519,9 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             error(std::string(callee) + "::<T>() requires exactly one type argument");
             return error_expr();
         }
-        TypeRef t = ts[0];
-        using K = LogosType::Kind;
-        K tk = TypeRef(t).kind();
-        bool r = false;
-        if      (callee == "is_ptr")       r = (tk == K::Ptr);
-        else if (callee == "is_ref")       r = (tk == K::Ref);
-        else if (callee == "is_mut_ref")   r = (tk == K::MutRef);
-        else if (callee == "is_struct")    r = (tk == K::Struct);
-        else if (callee == "is_zoned")  r = (tk == K::ZonedStruct);
-        else if (callee == "is_enum")      r = (tk == K::Enum);
-        else if (callee == "is_tuple")     r = (tk == K::Tuple);
-        else if (callee == "is_slice")     r = (tk == K::Slice);
-        else if (callee == "is_array")     r = (tk == K::Array);
-        else if (callee == "is_bool")      r = (tk == K::Bool);
-        else if (callee == "is_float")     r = (tk == K::F32 || tk == K::F64);
-        else if (callee == "is_signed")    r = (tk == K::I8 || tk == K::I16 || tk == K::I24 ||
-                                                tk == K::I32 || tk == K::I56 || tk == K::I64 ||
-                                                tk == K::I128);
-        else if (callee == "is_unsigned")  r = (tk == K::U8 || tk == K::U16 || tk == K::U24 ||
-                                                tk == K::U32 || tk == K::U56 || tk == K::U64 ||
-                                                tk == K::U128);
-        else if (callee == "is_integer")   r = (tk == K::I8 || tk == K::I16 || tk == K::I24 ||
-                                                tk == K::I32 || tk == K::I56 || tk == K::I64 ||
-                                                tk == K::I128 ||
-                                                tk == K::U8 || tk == K::U16 || tk == K::U24 ||
-                                                tk == K::U32 || tk == K::U56 || tk == K::U64 ||
-                                                tk == K::U128);
-        else if (callee == "is_primitive") r = (tk == K::Bool || tk == K::F32 || tk == K::F64 ||
-                                                tk == K::I8 || tk == K::I16 || tk == K::I24 ||
-                                                tk == K::I32 || tk == K::I56 || tk == K::I64 ||
-                                                tk == K::I128 ||
-                                                tk == K::U8 || tk == K::U16 || tk == K::U24 ||
-                                                tk == K::U32 || tk == K::U56 || tk == K::U64 ||
-                                                tk == K::U128);
-        return bool_lit(r);
+        return builder().call("__" + std::string(callee) + "__",
+                              std::move(ts), {},
+                              prim(LogosType::Kind::Bool));
     }
 
     // type_of::<T>() — compiler builtin, returns Type { kind: u32 }.

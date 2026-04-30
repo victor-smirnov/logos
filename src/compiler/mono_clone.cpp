@@ -595,6 +595,54 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 result->mirror_offset_ = lir_mirror_emit_lit_str(out_, result->type, s);
                 break;
             }
+            // Type-trait predicates: mono evaluates after substitution. Each
+            // returns a lit_bool of the answer for the concrete substituted T.
+            {
+                using K = LogosType::Kind;
+                auto bool_of = [&](bool r) {
+                    result->mirror_offset_ =
+                        lir_mirror_emit_lit_bool(out_, result->type, r);
+                };
+                if (nc.callee == "__is_same__") {
+                    bool r = (nc.type_args.size() == 2 &&
+                              nc.type_args[0] == nc.type_args[1]);
+                    bool_of(r); break;
+                }
+                K tk = (nc.type_args.empty() || !nc.type_args[0])
+                       ? K::Error : nc.type_args[0].kind();
+                bool integer = (tk == K::I8  || tk == K::I16 || tk == K::I24 ||
+                                tk == K::I32 || tk == K::I56 || tk == K::I64 ||
+                                tk == K::I128 ||
+                                tk == K::U8  || tk == K::U16 || tk == K::U24 ||
+                                tk == K::U32 || tk == K::U56 || tk == K::U64 ||
+                                tk == K::U128);
+                bool floating = (tk == K::F32 || tk == K::F64);
+                if      (nc.callee == "__is_ptr__")       { bool_of(tk == K::Ptr); break; }
+                else if (nc.callee == "__is_ref__")       { bool_of(tk == K::Ref); break; }
+                else if (nc.callee == "__is_mut_ref__")   { bool_of(tk == K::MutRef); break; }
+                else if (nc.callee == "__is_struct__")    { bool_of(tk == K::Struct); break; }
+                else if (nc.callee == "__is_zoned__")     { bool_of(tk == K::ZonedStruct); break; }
+                else if (nc.callee == "__is_enum__")      { bool_of(tk == K::Enum); break; }
+                else if (nc.callee == "__is_tuple__")     { bool_of(tk == K::Tuple); break; }
+                else if (nc.callee == "__is_slice__")     { bool_of(tk == K::Slice); break; }
+                else if (nc.callee == "__is_array__")     { bool_of(tk == K::Array); break; }
+                else if (nc.callee == "__is_bool__")      { bool_of(tk == K::Bool); break; }
+                else if (nc.callee == "__is_float__")     { bool_of(floating); break; }
+                else if (nc.callee == "__is_integer__")   { bool_of(integer); break; }
+                else if (nc.callee == "__is_signed__") {
+                    bool_of(tk == K::I8 || tk == K::I16 || tk == K::I24 ||
+                            tk == K::I32 || tk == K::I56 || tk == K::I64 ||
+                            tk == K::I128); break;
+                }
+                else if (nc.callee == "__is_unsigned__") {
+                    bool_of(tk == K::U8 || tk == K::U16 || tk == K::U24 ||
+                            tk == K::U32 || tk == K::U56 || tk == K::U64 ||
+                            tk == K::U128); break;
+                }
+                else if (nc.callee == "__is_primitive__") {
+                    bool_of(tk == K::Bool || floating || integer); break;
+                }
+            }
             // field_names_of::<T>() — emit [&[u8]; N] of struct field names.
             // For non-struct or unknown-struct T → empty array.
             if (nc.callee == "__field_names_of__") {
