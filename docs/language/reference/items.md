@@ -1,0 +1,233 @@
+# Items
+
+Items are top-level declarations: anything that may appear directly under a `package` (i.e. at file scope) or inside an `impl` block. The grammar rule is `item` ([logos.peg:398](../../../tools/peg_gen/grammars/logos.peg#L398)).
+
+A file always starts with a `package` declaration, optionally followed by `use` declarations, then any number of items.
+
+```logos
+package my.lib;
+
+use std.io;
+use std.collections;
+
+// items go here
+```
+
+## Visibility
+
+`pub` makes the item visible across packages. The `pub` keyword precedes the item kind (`pub fn`, `pub struct`, `pub use`, etc.). Items without `pub` are package-private. Field-level visibility on struct fields uses `pub`; absent → package-private.
+
+There is no finer-grained visibility (no `pub(crate)`, `pub(super)` etc.).
+
+## `use`
+
+```
+use std.io;
+use std.collections.HashMap;
+pub use foo.Bar;       // re-export
+```
+
+A `use` brings names from another package into scope. The path is dotted (`a.b.c`), not slash-separated. `pub use` re-exports the imported name from the current package.
+
+## `const` / module-level `let`
+
+```logos
+let MAX: i32 = 1024;
+```
+
+Module-level constants are introduced with `let NAME: type = expr;` — the right-hand side is compile-time evaluated. There is no `const` keyword for value bindings; `const` is reserved for `<const N: T>` generic parameters and for `*const T` pointers.
+
+> See [memory: pub const not supported end-to-end](roadmap.md#items) — `pub` on module-level `let` is not yet wired through the import system.
+
+## `type` aliases
+
+```logos
+type Bytes = &[u8];
+pub type Pair<A, B> = (A, B);
+```
+
+A `type` alias introduces a new name for an existing type. Aliases may be generic (`type Pair<A, B> = ...`).
+
+## `fn`
+
+```logos
+fn add(a: i32, b: i32) -> i32 { a + b }
+pub fn parse<T>(input: &[u8]) -> Result<T, ParseError> where T: FromBytes { ... }
+unsafe fn raw_load(p: *const u8) -> u8 { *p }
+fn new<T>() -> Self { ... }              // `new` is allowed as a free-fn / method name
+```
+
+Components, in order:
+
+1. Optional `pub`, `unsafe`.
+2. `fn` keyword.
+3. Name (`IDENT` or `new`).
+4. Optional generic parameter list `<...>`.
+5. Parameter list `(...)`.
+6. Optional return type `-> T`. Absent → returns `()`.
+7. Optional `where` clause.
+8. Body block `{ ... }`.
+
+Parameters are `name: type`, optionally with `&self` / `&mut self` shorthand inside `impl` blocks. A trailing parameter may be variadic (`xs: T...`) — see [Generics & Traits](generics-traits.md#variadic-parameters).
+
+### `extern fn`
+
+```logos
+extern fn write(fd: i32, buf: *const u8, len: usize) -> isize;
+extern fn printf(fmt: *const u8, ...) -> i32;     // C-style varargs
+```
+
+Declarations only — no body. Bound at link time. The `, ...` form marks a C-style variadic function (e.g. `printf`); regular Logos variadic generics use `<T...>` plus a `T...` parameter pack.
+
+## `struct`
+
+```logos
+struct Point { x: f64, y: f64 }
+
+pub struct Pair<A, B> {
+    pub fst: A,
+    pub snd: B,
+
+    fn swap(&self) -> Pair<B, A> { Pair { fst: self.snd, snd: self.fst } }
+    static fn new(a: A, b: B) -> Self { Pair { fst: a, snd: b } }
+}
+```
+
+A struct definition may contain fields and methods in the same block. Field-level `pub` controls per-field visibility.
+
+The grammar also accepts an alternative spelling with a leading `#` token (`struct #Name { ... }`) used by metaprogramming for AST templates — see [Metaprogramming](metaprog.md).
+
+### Methods
+
+Inside a struct (or `impl`) block, methods come in three flavours:
+
+- **`fn name(self: Self, ...) -> R`** — instance method. The first parameter explicitly names `self`. `&self` / `&mut self` is sugar for `self: &Self` / `self: &mut Self`.
+- **`static fn name(...)`** — associated function with no `self`. Called as `TypeName::name(...)`.
+- **`fn new(...) -> Self`** / `static fn new(...)` — `new` is allowed as a method name; conventionally a constructor.
+
+### Tuple structs and explicit instantiations
+
+```logos
+struct NewType(i32);              // tuple struct
+#[type_code=42] struct Array<i32>;   // explicit instantiation declaration (no body)
+```
+
+The body-less form (`struct Type;`) binds annotations to a generic instantiation — see [Attributes](attributes.md#type_code).
+
+## `enum`
+
+```logos
+enum Color { Red, Green, Blue }
+enum Maybe<T> { None, Some(T) }
+enum Wire : u32 { Open = 0, Closed = 1 }
+enum Many<T> { All(...T) }       // variadic-payload variant
+```
+
+Variants are listed comma-separated. A variant may have:
+
+- No payload: `Red`.
+- Tuple payload: `Some(T)`, `Pair(A, B)`.
+- A variadic payload `(...T)` — pulls in a parameter pack.
+- An explicit discriminant: `X = 5`, `Y = -3`.
+
+The optional `: type` after the enum name picks the backing integer type for C-style enums (i32 default).
+
+## `trait`
+
+```logos
+trait Display {
+    fn fmt(&self, out: &mut Writer) -> Result<(), io::Error>;
+}
+
+pub trait Iterator {
+    type Item;
+    fn next(&mut self) -> Option<Self::Item>;
+}
+
+pub auto trait Send {}
+pub unsafe trait Sync {}
+trait Ord: PartialOrd + Eq { ... }      // supertraits
+```
+
+A `trait` is a contract type. Items inside:
+
+- **Method declarations** with or without bodies (default methods).
+- **Associated types**: `type Item;` — required. May be generic (`type Item<U>;`).
+- **Associated constants**: `const MAX: usize;`.
+
+Modifiers:
+
+- **`auto`** — marker trait auto-implemented from field types (cf. `Send`, `Sync`).
+- **`unsafe`** — implementing the trait requires `unsafe impl`.
+
+The keyword `genos` is accepted as a synonym of `trait` (used in stdlib for the eidos/genos taxonomy); semantically identical for now.
+
+### Supertraits
+
+`trait Foo: Bar + Baz` — implementations of `Foo` must also implement `Bar` and `Baz`.
+
+## `impl`
+
+```logos
+impl Point { fn norm(&self) -> f64 { ... } }                    // standalone impl
+impl Display for Point { fn fmt(&self, ...) -> ... { ... } }    // trait impl
+impl<T> Stack<T> { fn push(&mut self, x: T) { ... } }            // generic standalone
+impl<T> Iterator for Stack<T> { ... }                            // generic trait impl
+unsafe impl<T> Send for Bag<T> { }                               // unsafe impl
+impl Container<i32> for Box<i32> { ... }                         // partial specialisation
+```
+
+Inside an `impl` block:
+
+- **Methods** — same shape as `fn` items, with `self`-parameter shorthand.
+- **`type Item = T;`** — associated-type implementations.
+- **`const MAX: usize = 64;`** — associated-constant implementations.
+
+Trait impls may be partially specialised: `impl Container<i32> for Box<i32>` is more specific than a generic blanket and the compiler dispatches accordingly.
+
+## `eidos` (datatype) declarations
+
+```logos
+eidos Decimal { coef: i128, scale: i8 }
+pub eidos Vec<T> { … }
+```
+
+`eidos` declarations introduce Hermes datatypes (C POD layout). Fields and a `meta @{...}` block are supported; method definitions live in separate `impl` blocks. The `#[zoned]` attribute on a regular `struct` is the more common spelling — `eidos` is reserved for the canonical declaration form. See [Hermes](hermes.md) and the project taxonomy notes.
+
+The body-less form (`eidos Type;`) binds annotations to a generic instantiation, same as `struct Type;`.
+
+## `genos` definitions and instantiations
+
+```logos
+pub genos Varchar { ... }                  // synonym for trait
+#[type_code=N] pub genos Array<i32>;       // explicit specialisation declaration
+```
+
+`genos` is the trait-side counterpart of `eidos`. The body-less form binds metadata (e.g. `type_code`) to a logical-family specialisation; implementing eidos inherit those annotations via their `impl` blocks.
+
+## `template <decl>`
+
+```logos
+template struct Pair<A, B> { fst: A, snd: B }
+template fn map<F>(...) { ... }
+```
+
+`template` marks the wrapped declaration as **data, not a binding** — a Hermes AST node that metafunctions consume via `apply` / `metacall` / `template_of::<X>()`. Sema skips templates entirely; their inner names are not registered, so referencing them as ordinary types yields the standard "unknown type" diagnostic. See [Metaprogramming](metaprog.md).
+
+## Attributes (`#[...]`)
+
+Attributes precede an item. Multiple attributes stack:
+
+```logos
+#[derive(Clone, Debug)]
+#[type_code=0x42]
+pub struct Foo { ... }
+```
+
+See [Attributes](attributes.md) for the full list and forms.
+
+## Roadmap
+
+- **Module-level `pub let`** — currently parses but `pub` is not honoured by import resolution.
+- **Tuple struct field access** — limited support; named structs work end-to-end.
+- **Visibility refinements** — `pub(crate)`-style scoping not on the roadmap; flat `pub` is intentional.
