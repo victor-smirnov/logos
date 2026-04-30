@@ -71,6 +71,7 @@
     LO_NEG         = 49
     HI_NEG         = 50
     KEY            = 51    // map key in HERMES_ENTRY
+    PATH           = 22    // sub-node carrying ITEMS=[str,...] for N-deep chain field write (reuses FIELDS slot — chain stmts never carry struct field defs)
     NAME_VAR       = 38    // antiquot var name for `#ident` placeholder inside quote_*! body (reuses WHERE slot — STRUCT/ENUM/FN never have a where_clause AND a NAME_VAR simultaneously: NAME_VAR exists only inside quote_*! bodies, where where_clause is parsed separately)
     META           = 16    // meta @{...} block on struct/datatype/trait declarations (slot 16; reuses PATH_PARTS slot, mutually exclusive node types)
     // ── Group: mod ────────────────────────────────────────────────────────
@@ -1204,17 +1205,24 @@
     field_write_stmt <- IDENT DOT IDENT ASSIGN expr SEMI
                      => { CODE: FIELD_WRITE, RECEIVER: $1, FIELD: $3, VALUE: $5 }
 
-    // a.b.c = val;  — chained field write (2 levels deep)
-    chain_field_write_stmt <- IDENT DOT IDENT DOT IDENT ASSIGN expr SEMI
-                           => { CODE: CHAIN_FIELD_WRITE, RECEIVER: $1, NAME: $3, FIELD: $5, VALUE: $7 }
+    // `.field` segment used by chained field writes; default-action returns the IDENT string.
+    chain_path_id <- DOT IDENT
+
+    // Path of two or more `.field` segments, packaged as a sub-node {ITEMS: [str, ...]}.
+    chain_field_path <- chain_path_id chain_path_id chain_path_id*
+                     => { ITEMS: $... }
+
+    // a.b.c = val;  — chained field write (2+ levels deep, N-ary)
+    chain_field_write_stmt <- IDENT chain_field_path ASSIGN expr SEMI
+                           => { CODE: CHAIN_FIELD_WRITE, RECEIVER: $1, PATH: $2, VALUE: $4 }
 
     // s.field op= expr;  — compound assign to struct field
     field_compound_assign_stmt <- IDENT DOT IDENT compound_assign_op expr SEMI
                                => { CODE: FIELD_COMPOUND_ASSIGN, RECEIVER: $1, FIELD: $3, OP: $4, VALUE: $5 }
 
-    // a.b.c op= val;  — chained field compound assign (2 levels deep)
-    chain_field_compound_assign_stmt <- IDENT DOT IDENT DOT IDENT compound_assign_op expr SEMI
-                                     => { CODE: CHAIN_FIELD_COMPOUND_ASSIGN, RECEIVER: $1, NAME: $3, FIELD: $5, OP: $6, VALUE: $7 }
+    // a.b.c op= val;  — chained field compound assign (2+ levels deep, N-ary)
+    chain_field_compound_assign_stmt <- IDENT chain_field_path compound_assign_op expr SEMI
+                                     => { CODE: CHAIN_FIELD_COMPOUND_ASSIGN, RECEIVER: $1, PATH: $2, OP: $3, VALUE: $4 }
 
     // arr[i] op= expr;  — compound assign to array index
     index_compound_assign_stmt <- IDENT LBRACKET expr RBRACKET compound_assign_op expr SEMI

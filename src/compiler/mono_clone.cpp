@@ -2437,9 +2437,11 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
         std::string receiver(v.receiver());
         std::string mid_field(v.mid_field());
         std::string field(v.field());
+        std::vector<std::string> extras;
+        v.each_extra([&](std::string_view s) { extras.emplace_back(s); });
         auto value = subst_child_expr(v.value());
         ns.mirror_offset_ = lir_mirror_emit_chain_field_write(
-            out_, ns.line, receiver, mid_field, field, value);
+            out_, ns.line, receiver, mid_field, extras, field, value);
         break;
     }
     case SCode::DerefFieldWrite: {

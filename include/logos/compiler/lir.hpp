@@ -539,13 +539,16 @@ struct SDerefFieldWrite {
     LExprPtr    value = nullptr;
 };
 
-// a.mid_field.field = value  — chained field write (2 levels deep)
-// Emitted as two GEPs: outer struct → mid field ptr → inner field ptr → store.
+// a.b.c.…z = value  — chained field write (2+ levels deep, N-ary).
+// Path order: receiver → mid_field → extras[0] → extras[1] → … → field.
+// `extras` is empty for the legacy depth-2 form (a.b.c).
+// Emitted as a chain of GEPs (auto-deref'ing pointer fields) terminating in a store.
 struct SChainFieldWrite {
-    std::string receiver;    // outer variable name
-    std::string mid_field;   // intermediate field name
-    std::string field;       // final field name
-    LExprPtr    value = nullptr;
+    std::string              receiver;    // outer variable name
+    std::string              mid_field;   // first intermediate field
+    std::vector<std::string> extras;      // additional intermediates between mid_field and field
+    std::string              field;       // final field name (write target)
+    LExprPtr                 value = nullptr;
 };
 
 struct SExprStmt  { LExprPtr expr = nullptr; };

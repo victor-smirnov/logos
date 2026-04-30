@@ -298,7 +298,7 @@ private:
             } else if constexpr (std::is_same_v<KT, lir::SLetElse>) {
                 s.mirror_offset_ = lir_mirror_emit_let_else(p, line, k.pat, k.scrut, k.else_block);
             } else if constexpr (std::is_same_v<KT, lir::SChainFieldWrite>) {
-                s.mirror_offset_ = lir_mirror_emit_chain_field_write(p, line, k.receiver, k.mid_field, k.field, k.value);
+                s.mirror_offset_ = lir_mirror_emit_chain_field_write(p, line, k.receiver, k.mid_field, k.extras, k.field, k.value);
             } else {
                 static_assert(sizeof(K) == 0, "make_stmt_emit: unknown stmt kind");
             }

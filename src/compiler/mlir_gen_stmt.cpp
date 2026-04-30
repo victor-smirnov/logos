@@ -1220,113 +1220,113 @@ void MLIRGenImpl::gen_chain_field_write(lir_view::SChainFieldWriteView v) {
     auto* val_le = lexpr_of(v.value());
     if (!val_le) return;
 
-    // a.mid_field.field = value
+    // Build the full path: [mid_field, extras..., field] (≥2 segments).
+    std::vector<std::string> path;
+    path.reserve(2 + v.extra_count());
+    path.push_back(mid_field);
+    v.each_extra([&](std::string_view s) { path.emplace_back(s); });
+    path.push_back(field);
+
     // Step 1: resolve outer struct ptr (same logic as gen_field_write).
-    mlir::Value outer_ptr;
-    std::string outer_type_name;
+    mlir::Value cur_ptr;
+    std::string cur_type_name;
 
     auto sit = var_struct_.find(receiver);
     auto cit = sit == var_struct_.end() ? var_class_.find(receiver) : var_class_.end();
     if (sit != var_struct_.end()) {
-        outer_ptr = get_struct_ptr(receiver);
-        outer_type_name = sit->second;
+        cur_ptr = get_struct_ptr(receiver);
+        cur_type_name = sit->second;
     } else if (cit != var_class_.end()) {
-        outer_ptr = get_struct_ptr(receiver);
-        outer_type_name = cit->second;
+        cur_ptr = get_struct_ptr(receiver);
+        cur_type_name = cit->second;
     } else {
         auto sc = scope_.find(receiver);
         if (sc != scope_.end()) {
             auto lpit = var_local_ptrs_.find(receiver);
             if (lpit != var_local_ptrs_.end()) {
                 for (auto& [sn, si] : struct_types_) {
-                    if (si.llvm_type == lpit->second) { outer_type_name = sn; break; }
+                    if (si.llvm_type == lpit->second) { cur_type_name = sn; break; }
                 }
             }
-            if (!outer_type_name.empty()) {
-                outer_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), sc->second);
+            if (!cur_type_name.empty()) {
+                cur_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), sc->second);
             }
         }
-        if (!outer_ptr || outer_type_name.empty()) {
+        if (!cur_ptr || cur_type_name.empty()) {
             std::fprintf(stderr, "mlir_gen: chain-field-write: '%s' is not a struct\n",
                          receiver.c_str());
             return;
         }
     }
 
-    // Step 2: GEP into mid_field — gives *mut MidType.
-    auto oit = struct_types_.find(outer_type_name);
-    if (oit == struct_types_.end()) {
-        std::fprintf(stderr, "mlir_gen: chain-field-write: unknown outer type '%s'\n",
-                     outer_type_name.c_str());
-        return;
-    }
-    auto mid_gep = gep_field(outer_ptr, oit->second, mid_field);
-    if (!mid_gep) return;
+    // Walk every segment except the final one, GEPing + auto-deref'ing.
+    // After the loop, cur_ptr points to the struct that contains the final
+    // field, and cur_type_name names that struct.
+    for (size_t i = 0; i + 1 < path.size(); ++i) {
+        auto cti = struct_types_.find(cur_type_name);
+        if (cti == struct_types_.end()) {
+            std::fprintf(stderr, "mlir_gen: chain-field-write: unknown type '%s'\n",
+                         cur_type_name.c_str());
+            return;
+        }
+        auto seg_gep = gep_field(cur_ptr, cti->second, path[i]);
+        if (!seg_gep) return;
 
-    // Determine mid struct type name.
-    // First try: look up the LIR field type from all_struct_defs_ and call
-    // concrete_struct_name on its pointee.  This handles the common case where
-    // the mid field is a *mut S pointer (opaque ptr in LLVM — LLVM type alone
-    // can't tell us which struct it points to).
-    std::string mid_type_name;
-    auto odi = all_struct_defs_.find(outer_type_name);
-    if (odi != all_struct_defs_.end()) {
-        for (auto& f : odi->second->fields) {
-            if (f.name == mid_field && f.type) {
-                TypeRef ft = f.type;
-                // field is *mut S → descend into pointee
-                if (TypeRef(ft).kind() == LogosType::Kind::Ptr && TypeRef(ft).pointee())
-                    ft = TypeRef(ft).pointee();
-                mid_type_name = concrete_struct_name(ft);
-                break;
+        // Resolve the next-step struct type name from LIR field type.
+        std::string next_type_name;
+        bool seg_is_ptr = false;
+        auto cdi = all_struct_defs_.find(cur_type_name);
+        if (cdi != all_struct_defs_.end()) {
+            for (auto& f : cdi->second->fields) {
+                if (f.name == path[i] && f.type) {
+                    TypeRef ft = f.type;
+                    if (TypeRef(ft).kind() == LogosType::Kind::Ptr && TypeRef(ft).pointee()) {
+                        ft = TypeRef(ft).pointee();
+                        seg_is_ptr = true;
+                    }
+                    next_type_name = concrete_struct_name(ft);
+                    break;
+                }
             }
         }
-    }
-    // Fallback: match by LLVM aggregate type (covers non-pointer embedded structs).
-    if (mid_type_name.empty()) {
-        mlir::Type mid_llvm_type;
-        for (auto& f : oit->second.fields) {
-            if (f.name == mid_field) { mid_llvm_type = f.type; break; }
-        }
-        if (mid_llvm_type) {
-            for (auto& [sn, si] : struct_types_) {
-                if (si.llvm_type == mid_llvm_type) { mid_type_name = sn; break; }
+        // Fallback: match by LLVM aggregate type (non-pointer embedded structs).
+        if (next_type_name.empty()) {
+            mlir::Type seg_llvm_type;
+            for (auto& f : cti->second.fields) {
+                if (f.name == path[i]) { seg_llvm_type = f.type; break; }
+            }
+            if (seg_llvm_type) {
+                for (auto& [sn, si] : struct_types_) {
+                    if (si.llvm_type == seg_llvm_type) { next_type_name = sn; break; }
+                }
             }
         }
-    }
-    if (mid_type_name.empty()) {
-        std::fprintf(stderr, "mlir_gen: chain-field-write: cannot resolve struct type for '%s.%s'\n",
-                     outer_type_name.c_str(), mid_field.c_str());
-        return;
+        if (next_type_name.empty()) {
+            std::fprintf(stderr, "mlir_gen: chain-field-write: cannot resolve struct type for '%s.%s'\n",
+                         cur_type_name.c_str(), path[i].c_str());
+            return;
+        }
+        // If the segment field is a pointer type, seg_gep is a slot holding
+        // the pointer — load once to descend.
+        cur_ptr = seg_is_ptr
+            ? (mlir::Value)builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), seg_gep)
+            : seg_gep;
+        cur_type_name = next_type_name;
     }
 
-    // Step 3: GEP into final field using mid_gep as base pointer.
-    // If the mid field is a pointer type (e.g. inner: *mut Inner<T>), mid_gep
-    // is a pointer TO that pointer slot.  Load once to obtain *mut Inner<T>
-    // before performing the final GEP.
-    mlir::Value mid_base = mid_gep;
-    if (odi != all_struct_defs_.end()) {
-        for (auto& f : odi->second->fields) {
-            if (f.name == mid_field && f.type &&
-                TypeRef(f.type).kind() == LogosType::Kind::Ptr) {
-                mid_base = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), mid_gep);
-                break;
-            }
-        }
-    }
-    auto mit = struct_types_.find(mid_type_name);
-    if (mit == struct_types_.end()) {
-        std::fprintf(stderr, "mlir_gen: chain-field-write: unknown mid type '%s'\n",
-                     mid_type_name.c_str());
+    // Final GEP into the destination field.
+    auto fti = struct_types_.find(cur_type_name);
+    if (fti == struct_types_.end()) {
+        std::fprintf(stderr, "mlir_gen: chain-field-write: unknown final type '%s'\n",
+                     cur_type_name.c_str());
         return;
     }
-    auto field_gep = gep_field(mid_base, mit->second, field);
+    auto field_gep = gep_field(cur_ptr, fti->second, field);
     if (!field_gep) return;
 
-    // Step 4: generate value and store.
     auto val = gen_expr(*val_le);
     if (!val) return;
-    for (auto& f : mit->second.fields) {
+    for (auto& f : fti->second.fields) {
         if (f.name == field) {
             if (mlir::isa<mlir::LLVM::LLVMStructType>(f.type) && val.getType() == ptr_type())
                 val = builder_.create<mlir::LLVM::LoadOp>(loc_, f.type, val);

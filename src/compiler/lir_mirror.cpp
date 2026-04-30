@@ -829,17 +829,21 @@ public:
     hermes::arena_offset_t emit_chain_field_write_direct(uint32_t line,
                                                           std::string_view receiver,
                                                           std::string_view mid_field,
+                                                          const std::vector<std::string>& extras,
                                                           std::string_view field,
                                                           const lir::LExprPtr& value) {
-        auto recv_av = put_string(receiver);
-        auto mid_av  = put_string(mid_field);
-        auto fld_av  = put_string(field);
-        auto val_av  = expr_av(value);
+        auto recv_av   = put_string(receiver);
+        auto mid_av    = put_string(mid_field);
+        auto extras_av = string_array(extras);
+        auto fld_av    = put_string(field);
+        auto val_av    = expr_av(value);
         auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::ChainFieldWrite));
-        put(map_off, sk::RECEIVER,  recv_av);
-        put(map_off, sk::MID_FIELD, mid_av);
-        put(map_off, sk::FIELD,     fld_av);
-        put(map_off, sk::VALUE,     val_av);
+        put(map_off, sk::RECEIVER,   recv_av);
+        put(map_off, sk::MID_FIELD,  mid_av);
+        if (!extras.empty())
+            put(map_off, sk::EXTRA_MIDS, extras_av);
+        put(map_off, sk::FIELD,      fld_av);
+        put(map_off, sk::VALUE,      val_av);
         put_line(map_off, line);
         return map_off;
     }
@@ -1941,10 +1945,10 @@ hermes::arena_offset_t lir_mirror_emit_let_else(lir::LProgram& prog, uint32_t li
     LirMirrorEmitter em(arena, *prog.mirror_table);
     return em.emit_let_else_direct(line, pat, scrut, else_block);
 }
-hermes::arena_offset_t lir_mirror_emit_chain_field_write(lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view mid_field, std::string_view field, const lir::LExprPtr& value) {
+hermes::arena_offset_t lir_mirror_emit_chain_field_write(lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view mid_field, const std::vector<std::string>& extras, std::string_view field, const lir::LExprPtr& value) {
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, *prog.mirror_table);
-    return em.emit_chain_field_write_direct(line, receiver, mid_field, field, value);
+    return em.emit_chain_field_write_direct(line, receiver, mid_field, extras, field, value);
 }
 
 // ── Stage B.6 — HermesVal direct mirror writers ──────────────────────────

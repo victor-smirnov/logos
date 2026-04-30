@@ -44,7 +44,7 @@ arr[i] *= 2;
 a.b.c -= delta;
 ```
 
-Assignment is statement-only: there is no `(x = y)` expression. Multi-level field paths beyond two levels (`a.b.c.d = ...`) are not supported by the grammar today — destructure into a local first.
+Assignment is statement-only: there is no `(x = y)` expression.
 
 ## `return`
 
@@ -172,5 +172,4 @@ A `metacall` at statement position splices items / statements from a metafunctio
 
 - **`yield`** — keyword reserved; coroutine-yield form planned alongside the stackful-fiber lowering ([memory: feat_coroutines_design](../../README.md)).
 - **`async` / `await`** — keywords reserved for the wasm32 stackless path; not on near-term roadmap for native targets.
-- **Multi-level field write** — `a.b.c.d = ...` (depth > 2) not yet parsed; destructure as a workaround.
 - **Tuple destructure with type annotation** — `let (a, b): (i32, i64) = ...` parses but type-checks via field-by-field inference; full destructure-with-types still rough.

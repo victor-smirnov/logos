@@ -2655,17 +2655,30 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
 
 // a.mid.field = val  — chained 2-level field write
 lir::LStmt SemaChecker::lower_chain_field_write(TinyMapView node) {
-    auto recv_name  = str_of(node.get(la::RECEIVER.code));
-    auto mid_name   = str_of(node.get(la::NAME.code));
-    auto field_name = str_of(node.get(la::FIELD.code));
+    auto recv_name = str_of(node.get(la::RECEIVER.code));
+    std::vector<std::string> path;
+    if (node.has_key(la::PATH)) {
+        auto path_map = map_of(node.get(la::PATH.code));
+        if (path_map.has_key(la::ITEMS)) {
+            auto arr = arr_of(path_map.get(la::ITEMS.code));
+            uint64_t n = arr.size();
+            path.reserve(n);
+            for (uint64_t i = 0; i < n; ++i)
+                path.emplace_back(str_of(arr.get(i)));
+        }
+    }
+    if (path.size() < 2) {
+        error("chain field write: path must have at least 2 segments");
+        return builder().stmt_expr(error_expr(), node_line_);
+    }
+    const std::string& mid_name   = path.front();
+    const std::string& field_name = path.back();
 
-    // Resolve outer type (handles *mut T transparently).
     auto outer_sname = struct_name_of(recv_name);
     if (outer_sname.empty()) {
         error(std::format("chain field write: '{}' is not a struct", recv_name));
         return builder().stmt_expr(error_expr(), node_line_);
     }
-    // Require mutable receiver.
     auto recv_type = lookup(recv_name);
     if (recv_type && TypeRef(recv_type).kind() == LogosType::Kind::Ref)
         error(std::format("chain field write '{}': receiver is &T (shared reference)", recv_name));
@@ -2674,62 +2687,91 @@ lir::LStmt SemaChecker::lower_chain_field_write(TinyMapView node) {
     if (recv_type && TypeRef(recv_type).kind() == LogosType::Kind::Ptr && !TypeRef(recv_type).mut_ptr())
         error(std::format("chain field write '{}': receiver is *const pointer", recv_name));
 
-    // Get mid-field type — use typed lookup so generic type args are substituted
-    // (e.g. Array<i32>.data resolves to RelPtr<i32>, not RelPtr<T>).
-    TypeRef outer_struct_t = recv_type;
-    if (outer_struct_t && TypeRef(outer_struct_t).kind() == LogosType::Kind::Ptr)
-        outer_struct_t = TypeRef(outer_struct_t).pointee();
-    else if (outer_struct_t && is_ref_like(TypeRef(outer_struct_t).kind()))
-        outer_struct_t = TypeRef(outer_struct_t).pointee();
-    TypeRef mid_ft = outer_struct_t
-        ? field_type_of_for_type(outer_struct_t, mid_name)
-        : field_type_of(std::string(outer_sname), mid_name);
-    if (!mid_ft) {
-        error(std::format("chain field write: struct '{}' has no field '{}'", outer_sname, mid_name));
-        return builder().stmt_expr(error_expr(), node_line_);
-    }
-    // Resolve through pointer if mid-field is itself a pointer type.
-    TypeRef mid_struct_t = mid_ft;
-    if (TypeRef(mid_struct_t).kind() == LogosType::Kind::Ptr) mid_struct_t = TypeRef(mid_struct_t).pointee();
-
-    auto mid_sname = mid_struct_t ? concrete_struct_name(mid_struct_t) : std::string{};
-    if (mid_sname.empty()) {
-        error(std::format("chain field write: '{}.{}' has no struct type", recv_name, mid_name));
-        return builder().stmt_expr(error_expr(), node_line_);
-    }
-
-    // Get final field type — again via typed lookup for generic substitution.
-    TypeRef ft = field_type_of_for_type(mid_struct_t, field_name);
-    if (!ft) {
-        error(std::format("chain field write: struct '{}' has no field '{}'", mid_sname, field_name));
-        return builder().stmt_expr(error_expr(), node_line_);
-    }
-
     if (!inside_unsafe_ && recv_type && TypeRef(recv_type).kind() == LogosType::Kind::Ptr)
         error("chain field write through raw pointer requires unsafe context");
+
+    // Walk: cur_struct_t starts at receiver's struct type (after deref/ref).
+    TypeRef cur_struct_t = recv_type;
+    if (cur_struct_t && TypeRef(cur_struct_t).kind() == LogosType::Kind::Ptr)
+        cur_struct_t = TypeRef(cur_struct_t).pointee();
+    else if (cur_struct_t && is_ref_like(TypeRef(cur_struct_t).kind()))
+        cur_struct_t = TypeRef(cur_struct_t).pointee();
+
+    TypeRef ft;  // type of final field
+    bool failed = false;
+    for (size_t i = 0; i < path.size(); ++i) {
+        auto cur_sname = cur_struct_t ? concrete_struct_name(cur_struct_t) : std::string(i == 0 ? outer_sname : "");
+        TypeRef seg_t = cur_struct_t
+            ? field_type_of_for_type(cur_struct_t, path[i])
+            : (cur_sname.empty() ? nullptr : field_type_of(cur_sname, path[i]));
+        if (!seg_t) {
+            error(std::format("chain field write: struct '{}' has no field '{}'",
+                  cur_sname.empty() ? std::string(outer_sname) : cur_sname, path[i]));
+            failed = true;
+            break;
+        }
+        if (i + 1 == path.size()) {
+            ft = seg_t;
+            break;
+        }
+        // Descend: if seg_t is a pointer, follow pointee; require it be a struct.
+        TypeRef next_struct_t = seg_t;
+        if (TypeRef(next_struct_t).kind() == LogosType::Kind::Ptr)
+            next_struct_t = TypeRef(next_struct_t).pointee();
+        if (!next_struct_t || concrete_struct_name(next_struct_t).empty()) {
+            error(std::format("chain field write: '{}.{}' has no struct type",
+                  recv_name, path[i]));
+            failed = true;
+            break;
+        }
+        cur_struct_t = next_struct_t;
+    }
+    if (failed)
+        return builder().stmt_expr(error_expr(), node_line_);
 
     lir::LExprPtr val = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code)))
         : error_expr();
-    if (TypeRef(ft).kind() != LogosType::Kind::Error && TypeRef(val->type).kind() != LogosType::Kind::Error
-        && !types_compatible(val->type, ft))
-        error(std::format("chain field write '{}.{}.{}': expected {}, got {}",
-              recv_name, mid_name, field_name, type_str(ft), type_str(val->type)));
+    if (TypeRef(ft).kind() != LogosType::Kind::Error
+        && TypeRef(val->type).kind() != LogosType::Kind::Error
+        && !types_compatible(val->type, ft)) {
+        std::string path_str(recv_name);
+        for (auto& seg : path) { path_str += '.'; path_str += seg; }
+        error(std::format("chain field write '{}': expected {}, got {}",
+              path_str, type_str(ft), type_str(val->type)));
+    }
 
     lir::SChainFieldWrite scfw;
     scfw.receiver  = std::string(recv_name);
-    scfw.mid_field = std::string(mid_name);
-    scfw.field     = std::string(field_name);
+    scfw.mid_field = mid_name;
+    scfw.extras.assign(path.begin() + 1, path.end() - 1);  // empty for depth-2
+    scfw.field     = field_name;
     scfw.value     = std::move(val);
     return make_stmt_emit(node_line_, std::move(scfw));
 }
 
-// a.mid.field op= val  →  a.mid.field = a.mid.field op val
+// a.b.c.…z op= val  →  a.b.c.…z = a.b.c.…z op val   (N-deep)
 lir::LStmt SemaChecker::lower_chain_field_compound_assign(TinyMapView node) {
-    auto recv_name  = str_of(node.get(la::RECEIVER.code));
-    auto mid_name   = str_of(node.get(la::NAME.code));
-    auto field_name = str_of(node.get(la::FIELD.code));
-    auto op_tok     = str_of(node.get(la::OP.code));
+    auto recv_name = str_of(node.get(la::RECEIVER.code));
+    std::vector<std::string> path;
+    if (node.has_key(la::PATH)) {
+        auto path_map = map_of(node.get(la::PATH.code));
+        if (path_map.has_key(la::ITEMS)) {
+            auto arr = arr_of(path_map.get(la::ITEMS.code));
+            uint64_t n = arr.size();
+            path.reserve(n);
+            for (uint64_t i = 0; i < n; ++i)
+                path.emplace_back(str_of(arr.get(i)));
+        }
+    }
+    if (path.size() < 2) {
+        error("chain field compound assign: path must have at least 2 segments");
+        return builder().stmt_expr(error_expr(), node_line_);
+    }
+    const std::string& mid_name   = path.front();
+    const std::string& field_name = path.back();
+
+    auto op_tok = str_of(node.get(la::OP.code));
     std::string base_op = (op_tok.size() >= 2 && op_tok.back() == '=')
         ? std::string(op_tok.substr(0, op_tok.size() - 1))
         : std::string(op_tok);
@@ -2742,47 +2784,60 @@ lir::LStmt SemaChecker::lower_chain_field_compound_assign(TinyMapView node) {
         error(std::format("chain field compound assign to immutable variable '{}'", recv_name));
     if (recv_type_for_cfca && TypeRef(recv_type_for_cfca).kind() == LogosType::Kind::Ptr && !TypeRef(recv_type_for_cfca).mut_ptr())
         error(std::format("chain field compound assign '{}': receiver is *const pointer", recv_name));
-    TypeRef outer_struct_t_cfca = recv_type_for_cfca;
-    if (outer_struct_t_cfca && TypeRef(outer_struct_t_cfca).kind() == LogosType::Kind::Ptr)
-        outer_struct_t_cfca = TypeRef(outer_struct_t_cfca).pointee();
-    else if (outer_struct_t_cfca && is_ref_like(TypeRef(outer_struct_t_cfca).kind()))
-        outer_struct_t_cfca = TypeRef(outer_struct_t_cfca).pointee();
-    TypeRef mid_ft = outer_struct_t_cfca
-        ? field_type_of_for_type(outer_struct_t_cfca, mid_name)
-        : (outer_sname.empty() ? nullptr : field_type_of(std::string(outer_sname), mid_name));
-    TypeRef mid_struct_t = mid_ft;
-    if (mid_struct_t && TypeRef(mid_struct_t).kind() == LogosType::Kind::Ptr)
-        mid_struct_t = TypeRef(mid_struct_t).pointee();
-    auto mid_sname = mid_struct_t ? concrete_struct_name(mid_struct_t) : std::string{};
-    TypeRef ft = mid_struct_t
-        ? field_type_of_for_type(mid_struct_t, field_name)
-        : (mid_sname.empty() ? nullptr : field_type_of(mid_sname, field_name));
 
-    if (!outer_sname.empty() && !ft)
-        error(std::format("chain field compound assign: could not resolve '{}.{}.{}'",
-              recv_name, mid_name, field_name));
+    // Walk types step-by-step; collect the type of each segment so we can
+    // build the matching read-side LIR (field_read chain).
+    TypeRef cur_struct_t = recv_type_for_cfca;
+    if (cur_struct_t && TypeRef(cur_struct_t).kind() == LogosType::Kind::Ptr)
+        cur_struct_t = TypeRef(cur_struct_t).pointee();
+    else if (cur_struct_t && is_ref_like(TypeRef(cur_struct_t).kind()))
+        cur_struct_t = TypeRef(cur_struct_t).pointee();
+
+    std::vector<TypeRef> seg_types;
+    seg_types.reserve(path.size());
+    for (size_t i = 0; i < path.size(); ++i) {
+        auto cur_sname = cur_struct_t ? concrete_struct_name(cur_struct_t) : std::string(i == 0 ? outer_sname : "");
+        TypeRef seg_t = cur_struct_t
+            ? field_type_of_for_type(cur_struct_t, path[i])
+            : (cur_sname.empty() ? nullptr : field_type_of(cur_sname, path[i]));
+        seg_types.push_back(seg_t);
+        if (!seg_t) {
+            if (!outer_sname.empty()) {
+                std::string path_str(recv_name);
+                for (auto& s : path) { path_str += '.'; path_str += s; }
+                error(std::format("chain field compound assign: could not resolve '{}'", path_str));
+            }
+            break;
+        }
+        if (i + 1 == path.size()) break;
+        TypeRef next_struct_t = seg_t;
+        if (TypeRef(next_struct_t).kind() == LogosType::Kind::Ptr)
+            next_struct_t = TypeRef(next_struct_t).pointee();
+        cur_struct_t = next_struct_t;
+    }
+    TypeRef ft = seg_types.empty() ? TypeRef{} : seg_types.back();
 
     // Lower RHS value.
     lir::LExprPtr rhs = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code)))
         : error_expr();
 
-    // Build read: recv.mid.field
-    auto recv_expr = builder().var_ref(std::string(recv_name), lookup(recv_name) ? lookup(recv_name) : error_t());
-    // mid read: recv.mid  (as EFieldRead)
-    TypeRef mid_read_t = mid_ft ? mid_ft : error_t();
-    auto mid_expr = builder().field_read(std::move(recv_expr), std::string(mid_name), mid_read_t);
-    // field read: (recv.mid).field  (as EFieldRead)
-    TypeRef ft2 = ft ? ft : error_t();
-    auto field_expr = builder().field_read(std::move(mid_expr), std::string(field_name), ft2);
+    // Build read chain: recv.path[0].path[1]…path[N-1]
+    auto cur_expr = builder().var_ref(std::string(recv_name),
+        lookup(recv_name) ? lookup(recv_name) : error_t());
+    for (size_t i = 0; i < path.size(); ++i) {
+        TypeRef step_t = (i < seg_types.size() && seg_types[i]) ? seg_types[i] : error_t();
+        cur_expr = builder().field_read(std::move(cur_expr), path[i], step_t);
+    }
 
-    // op(old, rhs)
-    lir::LExprPtr combined = builder().bin_op(base_op, std::move(field_expr), std::move(rhs), ft2);
+    TypeRef ft2 = ft ? ft : error_t();
+    lir::LExprPtr combined = builder().bin_op(base_op, std::move(cur_expr), std::move(rhs), ft2);
 
     lir::SChainFieldWrite scfw;
     scfw.receiver  = std::string(recv_name);
-    scfw.mid_field = std::string(mid_name);
-    scfw.field     = std::string(field_name);
+    scfw.mid_field = mid_name;
+    scfw.extras.assign(path.begin() + 1, path.end() - 1);
+    scfw.field     = field_name;
     scfw.value     = std::move(combined);
     return make_stmt_emit(node_line_, std::move(scfw));
 }

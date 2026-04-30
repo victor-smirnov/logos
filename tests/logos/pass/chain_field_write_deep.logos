@@ -1,0 +1,49 @@
+// 3- and 4-deep field write/read through pointer chains.
+package test;
+
+use std.mem;
+
+struct A { x: i32 }
+struct B { a: *mut A }
+struct C { b: *mut B }
+struct D { c: *mut C }
+
+fn main() -> i32 {
+    unsafe {
+        let pa: *mut A = alloc(sizeof::<A>()) as *mut A;
+        pa.x = 1;
+
+        let pb: *mut B = alloc(sizeof::<B>()) as *mut B;
+        pb.a = pa;
+
+        let pc: *mut C = alloc(sizeof::<C>()) as *mut C;
+        pc.b = pb;
+
+        let pd: *mut D = alloc(sizeof::<D>()) as *mut D;
+        pd.c = pc;
+
+        // 3-deep write
+        pc.b.a.x = 10;
+        if pa.x != 10 { return 1; }
+        if pc.b.a.x != 10 { return 2; }
+
+        // 4-deep write
+        pd.c.b.a.x = 99;
+        if pa.x != 99 { return 3; }
+        if pd.c.b.a.x != 99 { return 4; }
+
+        // 3-deep compound
+        pc.b.a.x = pc.b.a.x + 5;
+        if pa.x != 104 { return 5; }
+
+        // 4-deep compound
+        pd.c.b.a.x = pd.c.b.a.x - 4;
+        if pa.x != 100 { return 6; }
+
+        dealloc(pd as *mut u8);
+        dealloc(pc as *mut u8);
+        dealloc(pb as *mut u8);
+        dealloc(pa as *mut u8);
+    }
+    return 42;
+}

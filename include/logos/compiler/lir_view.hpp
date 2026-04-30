@@ -1280,6 +1280,25 @@ inline TypeRef stmt_type(const StmtRef& s, uint8_t key, const TypePoolImpl* pool
     return TypeRef(s.arena(), av.to_offset(), pool);
 }
 
+// Iterate a key-stored Array<Varchar> on a StmtRef.
+template <class F>
+inline void for_each_stmt_string(const StmtRef& s, uint8_t key, F&& f) noexcept {
+    auto av = s.mirror()->get(key, s.base());
+    if (av.is_null()) return;
+    uint64_t n = av.as_ptr<const hermes::ObjectArray>(s.base())->size();
+    for (uint64_t i = 0; i < n; ++i) {
+        auto el = av.as_ptr<const hermes::ObjectArray>(s.base())->get(i, s.base());
+        if (el.is_null()) { f(std::string_view{}); continue; }
+        f(el.as_ptr<const hermes::ArenaString>(s.base())->view());
+    }
+}
+
+inline uint64_t stmt_array_size(const StmtRef& s, uint8_t key) noexcept {
+    auto av = s.mirror()->get(key, s.base());
+    if (av.is_null()) return 0;
+    return av.as_ptr<const hermes::ObjectArray>(s.base())->size();
+}
+
 } // namespace detail
 
 struct SLetView {
@@ -1336,6 +1355,10 @@ struct SChainFieldWriteView {
     std::string_view mid_field() const noexcept { return detail::stmt_str(self, sk::MID_FIELD.code); }
     std::string_view field()     const noexcept { return detail::stmt_str(self, sk::FIELD.code); }
     ExprRef          value()     const noexcept { return detail::stmt_sub_expr(self, sk::VALUE.code); }
+    uint64_t         extra_count() const noexcept { return detail::stmt_array_size(self, sk::EXTRA_MIDS.code); }
+    template <class F> void each_extra(F&& f) const noexcept {
+        detail::for_each_stmt_string(self, sk::EXTRA_MIDS.code, std::forward<F>(f));
+    }
 };
 
 struct SDerefFieldWriteView {

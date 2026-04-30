@@ -31,7 +31,6 @@ This page collects forward-looking notes from the rest of the reference. Items h
 
 - **`yield`** — keyword reserved; coroutine-yield form planned alongside stackful-fiber lowering.
 - **`async` / `await`** — reserved for the wasm32 stackless-coroutine path; not on near-term native roadmap.
-- **Multi-level field write** — `a.b.c.d = ...` (depth > 2) not yet parsed; destructure to a local first.
 
 ## Patterns
 

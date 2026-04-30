@@ -345,6 +345,7 @@ inline constexpr Key INCLUSIVE         {"INCLUSIVE",       31};   // u8
 inline constexpr Key IS_SLICE          {"IS_SLICE",        32};   // u8
 inline constexpr Key DROP_FIELDS       {"DROP_FIELDS",     33};   // u8
 inline constexpr Key ARR_SIZE          {"ARR_SIZE",        34};   // i64
+inline constexpr Key EXTRA_MIDS        {"EXTRA_MIDS",      35};   // Array<Varchar> — middle segments (between MID_FIELD and FIELD) in N-deep ChainFieldWrite
 } // namespace stmt_keys
 
 // ── Pattern sparse keys ───────────────────────────────────────────────────

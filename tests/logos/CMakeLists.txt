@@ -219,7 +219,7 @@ function(logos_pass_extra_args BASE OUT_VAR)
     vec_full hashset_basic vecdeque_basic btreemap_basic
     atomic_basic mutex_basic
     box_basic rc_basic arc_basic bytes_basic box_dyn_trait_basic
-    chain_field_write
+    chain_field_write chain_field_write_deep
     meta_traits_basic
     utf8_basic
     time_basic
