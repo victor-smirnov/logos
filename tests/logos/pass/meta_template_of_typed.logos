@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: Apache-2.0
+// Typed-sugar form `template_of::<X>()` — sema-side intrinsic that
+// resolves X to a top-level item in the current AST and bakes the
+// node's arena offset into a `Template { raw: AnyVal { raw: <off> } }`
+// literal. Drops the runtime byte-compare walk that
+// `OView::find_template_decl` performs. Step 5 cosmetic from the
+// typelevel-metaprog taxonomy.
+
+package main;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+use std.hermes.anyval;
+
+#[metaprog_handler("template_of_typed_probe")]
+fn template_of_typed_hook(_target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+
+    // Typed sugar — no manual `find_template_decl` + wrap.
+    let tpl: Template = template_of::<Bar>();
+    if tpl.raw.raw == 0 { return; }
+
+    // name() must read back as "Bar".
+    let nm: Ident = tpl.name(&view);
+    if nm.len != (3 as u64) { return; }
+    unsafe {
+        if *((nm.ptr as i64 + 0) as *const u8) != (66 as u8) { return; }   // 'B'
+        if *((nm.ptr as i64 + 1) as *const u8) != (97 as u8) { return; }   // 'a'
+        if *((nm.ptr as i64 + 2) as *const u8) != (114 as u8) { return; }  // 'r'
+    }
+
+    // Bar<T, U> → arity 2.
+    if tpl.type_param_count(&view) != (2 as u64) { return; }
+
+    let blob: QuoteItemBlob = quote_item! {
+        struct template_of_typed_marker { v: i32 }
+    };
+    unsafe {
+        logos_emit_item_blob_subst(&blob);
+    }
+    return;
+}
+
+#[template_of_typed_probe]
+struct Bar<T, U> { x: T, y: U }
+
+unsafe fn main() -> i32 {
+    let g: template_of_typed_marker = template_of_typed_marker { v: 0 };
+    return g.v;
+}

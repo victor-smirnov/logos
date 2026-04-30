@@ -485,6 +485,11 @@ private:
     size_t metaprog_entry_ast_idx_  = static_cast<size_t>(-1);
     size_t cur_ast_idx_             = static_cast<size_t>(-1);
 
+    // Current AST root, set by lower_program at each iteration. Used by
+    // sema-side intrinsics (e.g. `template_of::<X>()`) that need to walk
+    // the user-root MODULE's ITEMS to bake an AST-node arena offset.
+    hermes::TinyMapView cur_root_;
+
     bool fn_is_metaprog_handler(std::string_view name) const {
         for (const auto& mh : metaprog_handlers_)
             if (mh.hook_fn == name) return true;

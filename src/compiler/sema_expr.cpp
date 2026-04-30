@@ -2013,6 +2013,65 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         return builder().struct_lit("Type", std::move(f), type_t);
     }
 
+    // template_of::<X>() — typed sugar over the OView::find_template_decl
+    // runtime walk. Resolves X at sema time, walks cur_root_.ITEMS to find
+    // the declaration node with NAME==X, and bakes its arena offset as a
+    // u32 literal inside `Template { raw: AnyVal { raw: <offset> } }`.
+    // Drops the runtime byte-compare scan; closes step 5 of the typelevel-
+    // metaprog taxonomy. Same-AST scope (matches find_template_decl).
+    if (callee == "template_of") {
+        std::string sname;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                if (items.size() == 1) {
+                    auto item = map_of(items.get(0));
+                    auto ic = code_of(item);
+                    if ((ic == la::TYPE_REF.code || ic == la::GENERIC_INST.code) &&
+                        item.has_key(la::NAME))
+                        sname = std::string(str_of(item.get(la::NAME.code)));
+                }
+            }
+        }
+        if (sname.empty()) {
+            error("template_of::<X>() requires a single bare item name");
+            return error_expr();
+        }
+        // Walk current AST root.ITEMS for a declaration whose NAME matches.
+        uint32_t found_offset = 0;
+        if (!cur_root_.is_null() && cur_root_.has_key(la::ITEMS)) {
+            auto items = arr_of(cur_root_.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                auto raw = items.get(i);
+                if (raw.is_null() || !raw.is_pointer()) continue;
+                auto item = map_of(raw);
+                if (!item.has_key(la::NAME)) continue;
+                if (str_of(item.get(la::NAME.code)) == sname) {
+                    found_offset = raw.raw();
+                    break;
+                }
+            }
+        }
+        if (found_offset == 0) {
+            error("template_of::<X>(): no top-level item named '" + sname +
+                  "' in this file");
+            return error_expr();
+        }
+        // Build inner AnyVal { raw: <u32 lit> }.
+        auto anyval_t = make_datatype_type("AnyVal", "std.hermes.anyval");
+        std::vector<std::pair<std::string, lir::LExprPtr>> av_f;
+        av_f.emplace_back("raw", builder().lit_int(
+            (int64_t)found_offset, prim(LogosType::Kind::U32)));
+        auto av_lit = builder().struct_lit("AnyVal", std::move(av_f), anyval_t);
+        // Wrap in Template { raw: AnyVal{...} }.
+        auto template_t = make_struct_type(
+            "Template", "std.compiler.metaprog.ast");
+        std::vector<std::pair<std::string, lir::LExprPtr>> tpl_f;
+        tpl_f.emplace_back("raw", std::move(av_lit));
+        return builder().struct_lit("Template", std::move(tpl_f), template_t);
+    }
+
     // variant_count_of::<E>() / variant_names_of::<E>() /
     // variant_payload_counts_of::<E>() / variant_payload_types_flat_of::<E>()
     // — enum-side decompose intrinsics. For non-enum or unknown E, all

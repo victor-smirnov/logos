@@ -2462,6 +2462,7 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
         file_ = (filenames_ && i < filenames_->size()) ? (*filenames_)[i] : std::string{};
         cur_from_binary_ = (from_binary_ && i < from_binary_->size()) ? (*from_binary_)[i] : false;
         auto root = asts[i].root_object().as_tiny_map();
+        cur_root_ = root;
         cur_package_ = read_package_name(root);
         // Rebuild import scope (same logic as in collect()) so find_*_by_name
         // works during lowering for cross-package type lookups.
