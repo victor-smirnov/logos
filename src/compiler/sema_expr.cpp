@@ -1585,6 +1585,34 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         return builder().struct_lit("Type", std::move(fields), type_t);
     }
 
+    // args_of::<T>() — extracts generic type arguments of T as `[Type; N]`.
+    // For non-generic T (no type_args), returns empty [Type; 0].
+    // Same magic-call pattern as type_refs_of but the pack comes from the
+    // single type's args at mono time, not from a parameter-pack expansion.
+    if (callee == "args_of") {
+        TypeRef elem = nullptr;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                if (items.size() == 1)
+                    elem = resolve_type(map_of(items.get(0)));
+            }
+        }
+        if (!elem) {
+            error("args_of::<T>() requires exactly one type argument");
+            return error_expr();
+        }
+        auto type_t = make_struct_type("Type");
+        LogosTypeBuilder arr_b; arr_b.kind = LogosType::Kind::Array;
+        arr_b.elem = type_t;
+        arr_b.arr_size = 0;  // mono retypes once T is concrete
+        TypeRef arr_placeholder = pool_->alloc(std::move(arr_b));
+        std::vector<TypeRef> targs; targs.push_back(elem);
+        return builder().call("__args_of__",
+                              std::move(targs), {}, arr_placeholder);
+    }
+
     // type_refs_of::<T...>() — slice 2 of typelevel metaprog. Returns
     // [Type; N] populated with one Type{kind,name} value per pack member.
     // Mono substitutes after pack expansion (same TypeVar-in-type_args trick
