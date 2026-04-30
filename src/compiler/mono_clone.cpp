@@ -2534,6 +2534,12 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
         TypeRef elem_type = subst_type(v.elem_type(pool), s);
         int64_t arr_size = v.arr_size();
         bool is_slice = v.is_slice();
+        // Symbolic-length iterables (e.g. `for x in arr` where arr has type
+        // `[T; sizeof...(P)]`) record arr_size==0 at sema; re-derive from the
+        // substituted iter type once the pack length is concrete.
+        if (arr_size == 0 && !is_slice && iter && iter->type &&
+            iter->type.kind() == LogosType::Kind::Array)
+            arr_size = (int64_t)iter->type.arr_size();
         auto* body = lir::alloc_block(out_, subst_child_block(v.body()));
         lir_mirror_emit_block_node(out_, *body);
         ns.mirror_offset_ = lir_mirror_emit_for_each(

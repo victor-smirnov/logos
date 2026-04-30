@@ -46,6 +46,15 @@ fn pack_fill_first<const N...: i64>() -> i64 {
     return arr[0];
 }
 
+// `for x in arr` over an `[T; sizeof...(P)]`-typed array. Sema records
+// arr_size=0 (symbolic); mono re-derives from the substituted iter type.
+fn pack_for_sum<const N...: i64>() -> i64 {
+    let arr: [i64; sizeof...(N)] = [N...];
+    let mut s: i64 = 0;
+    for x in arr { s = s + x; }
+    return s;
+}
+
 fn main() -> i32 {
     // Pack expansion in function-call position.
     if sum2::<10, 20>() != (30 as i64) { return 1; }
@@ -65,6 +74,11 @@ fn main() -> i32 {
     // [v; sizeof...(N)] fill-literal pack expansion.
     if pack_fill_sum3::<1, 2, 3>() != (126 as i64) { return 10; }
     if pack_fill_first::<99>() != (7 as i64) { return 11; }
+
+    // for-loop over [T; sizeof...(P)]-typed arrays.
+    if pack_for_sum::<10, 20, 30>() != (60 as i64) { return 12; }
+    if pack_for_sum::<1, 2, 3, 4, 5>() != (15 as i64) { return 13; }
+    if pack_for_sum::<42>() != (42 as i64) { return 14; }
 
     return 0;
 }
