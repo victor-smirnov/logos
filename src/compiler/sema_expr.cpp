@@ -4938,10 +4938,31 @@ lir::LExprPtr SemaChecker::coerce_to_hermes_anyval(
 lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {
     auto val_node = map_of(node.get(la::VALUE.code));
     auto fill_val = lower_expr(val_node);
+    TypeRef elem_type = fill_val->type;
+    // [v; sizeof...(P)] — symbolic length tied to a variadic pack. Emit a
+    // single-element arr_lit + arr_size_var; mono ArrLit clone repeats the
+    // element to match the pack's expanded length.
+    if (node.has_key(la::OP) && node.has_key(la::NAME)) {
+        auto op = std::string(str_of(node.get(la::OP.code)));
+        if (op != "sizeof") {
+            error(std::format("array fill literal: expected 'sizeof...(P)', got '{}...'", op));
+            return error_expr();
+        }
+        std::string pname(str_of(node.get(la::NAME.code)));
+        if (current_type_params_.find(pname) == current_type_params_.end())
+            error(std::format("array fill literal: undefined type parameter '{}'", pname));
+        LogosTypeBuilder ab; ab.kind = LogosType::Kind::Array;
+        ab.elem = elem_type;
+        ab.arr_size = 0;
+        ab.arr_size_var = std::string("__sizeof_pack:") + pname;
+        TypeRef arr_t = pool_->alloc(std::move(ab));
+        std::vector<lir::LExprPtr> elems;
+        elems.push_back(std::move(fill_val));
+        return builder().arr_lit(std::move(elems), arr_t);
+    }
     auto sv = str_of(node.get(la::SIZE.code));
     int64_t n = parse_int_literal(sv);
     if (n <= 0) error(std::format("array fill literal: size must be positive, got {}", n));
-    TypeRef elem_type = fill_val->type;
     // Keep IntLit unresolved so that struct-literal type inference (hint_struct_type_)
     // can widen the element to the correct concrete type (e.g. i64 for Vec<i64>).
     std::vector<lir::LExprPtr> elems;

@@ -33,6 +33,19 @@ fn pack_arr_sum3<const N...: i64>() -> i64 {
     return arr[0] + arr[1] + arr[2];
 }
 
+// `[v; sizeof...(N)]` array-fill where length is the pack's expanded count.
+// Sema emits a single-element arr_lit + symbolic arr_size_var; mono ArrLit
+// repeats the value to match the substituted concrete length.
+fn pack_fill_sum3<const N...: i64>() -> i64 {
+    let arr: [i64; sizeof...(N)] = [42; sizeof...(N)];
+    return arr[0] + arr[1] + arr[2];
+}
+
+fn pack_fill_first<const N...: i64>() -> i64 {
+    let arr: [i64; sizeof...(N)] = [7; sizeof...(N)];
+    return arr[0];
+}
+
 fn main() -> i32 {
     // Pack expansion in function-call position.
     if sum2::<10, 20>() != (30 as i64) { return 1; }
@@ -48,6 +61,10 @@ fn main() -> i32 {
     if pack_arr_first::<42, 99>() != (42 as i64) { return 7; }
     if pack_arr_sum3::<10, 20, 30>() != (60 as i64) { return 8; }
     if pack_arr_sum3::<1, 2, 3>() != (6 as i64) { return 9; }
+
+    // [v; sizeof...(N)] fill-literal pack expansion.
+    if pack_fill_sum3::<1, 2, 3>() != (126 as i64) { return 10; }
+    if pack_fill_first::<99>() != (7 as i64) { return 11; }
 
     return 0;
 }

@@ -219,8 +219,14 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         }
         case C::ArrLit: {
             std::vector<lir::LExprPtr> elems;
+            // Track the single source ref so we can re-substitute the value
+            // N times for `[v; sizeof...(P)]` fill-literals.
+            lir_view::ExprRef fill_src;
+            uint64_t src_count = 0;
             lir_view::EArrLitView{eref}.each_elem(
                 [&](lir_view::ExprRef er) {
+                    fill_src = er;
+                    ++src_count;
                     if (er && er.kind() == lir_schema::expr::Code::PackExpand) {
                         TypeRef at = er.type(out_.type_pool.impl());
                         std::string pack_name;
@@ -250,6 +256,17 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                     }
                     elems.push_back(subst_child_expr(er));
                 });
+            // [v; sizeof...(P)] fill: sema emits a single-element arr_lit
+            // whose type carries arr_size_var; subst_type promoted the array
+            // length to N. Repeat the value N times by re-substituting from
+            // the original source expr.
+            if (src_count == 1 && elems.size() == 1 &&
+                result->type && result->type.kind() == LogosType::Kind::Array &&
+                result->type.arr_size() > 1) {
+                uint64_t target = result->type.arr_size();
+                while (elems.size() < target)
+                    elems.push_back(subst_child_expr(fill_src));
+            }
             result->mirror_offset_ = lir_mirror_emit_arr_lit(
                 out_, result->type, elems);
             break;

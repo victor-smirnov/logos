@@ -1393,7 +1393,11 @@
                => { CODE: FIELD_SHORTHAND, NAME: $1 }
 
     // ── Array fill literal: [value; N] ───────────────────────────
-    arr_fill_lit <- LBRACKET expr SEMI INTEGER RBRACKET
+    // First alt: [v; sizeof...(P)] — size from variadic pack length,
+    // mirrors the form admitted by arr_type at the type level.
+    arr_fill_lit <- LBRACKET expr SEMI IDENT DOTDOTDOT LPAREN IDENT RPAREN RBRACKET
+                 => { CODE: ARR_FILL_LIT, VALUE: $2, OP: $4, NAME: $7 }
+                  / LBRACKET expr SEMI INTEGER RBRACKET
                  => { CODE: ARR_FILL_LIT, VALUE: $2, SIZE: $4 }
 
     // ── List comprehension: [expr for x in iter (if p)?] ─────────
