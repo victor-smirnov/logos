@@ -1585,6 +1585,29 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         return builder().struct_lit("Type", std::move(fields), type_t);
     }
 
+    // type_refs_of::<T...>() — slice 2 of typelevel metaprog. Returns
+    // [Type; N] populated with one Type{kind,name} value per pack member.
+    // Mono substitutes after pack expansion (same TypeVar-in-type_args trick
+    // as __sizeof_pack__ / __type_kind_of__).
+    if (callee == "type_refs_of") {
+        std::vector<TypeRef> targs;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                for (size_t i = 0; i < items.size(); ++i)
+                    targs.push_back(resolve_type(map_of(items.get(i))));
+            }
+        }
+        auto type_t = make_struct_type("Type");
+        LogosTypeBuilder arr_b; arr_b.kind = LogosType::Kind::Array;
+        arr_b.elem = type_t;
+        arr_b.arr_size = 0;  // mono retypes once pack count is known
+        TypeRef arr_placeholder = pool_->alloc(std::move(arr_b));
+        return builder().call("__type_refs_of__",
+                              std::move(targs), {}, arr_placeholder);
+    }
+
     // sizeof::<T>() — compiler builtin, returns i64 byte size of T.
     if (callee == "sizeof") {
         TypeRef elem = nullptr;

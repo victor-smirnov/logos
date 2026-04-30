@@ -595,6 +595,38 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 result->mirror_offset_ = lir_mirror_emit_lit_str(out_, result->type, s);
                 break;
             }
+            // type_refs_of::<T...>() intrinsic: sema lowered to magic call
+            // with the pack TypeVar(s) in type_args. After expansion above,
+            // nc.type_args is the concrete pack — emit a [Type; N] arr_lit
+            // of struct_lit{kind,name} children, one per concrete type.
+            if (nc.callee == "__type_refs_of__") {
+                TypeRef elem_t = result->type ? result->type.elem() : nullptr;
+                LogosTypeBuilder u32_b; u32_b.kind = LogosType::Kind::U32;
+                TypeRef u32_t = out_.type_pool.alloc(std::move(u32_b));
+                LogosTypeBuilder u8_b;  u8_b.kind  = LogosType::Kind::U8;
+                TypeRef u8_t  = out_.type_pool.alloc(std::move(u8_b));
+                LogosTypeBuilder sl_b;  sl_b.kind  = LogosType::Kind::Slice;
+                sl_b.elem = u8_t;
+                TypeRef slice_u8_t = out_.type_pool.alloc(std::move(sl_b));
+                LirBuilder b(out_);
+                std::vector<lir::LExprPtr> elems;
+                for (auto& ti : nc.type_args) {
+                    std::vector<std::pair<std::string, lir::LExprPtr>> f;
+                    f.emplace_back("kind",
+                        b.lit_int((int64_t)ti.kind(), u32_t));
+                    f.emplace_back("name",
+                        b.lit_str(type_str(ti), slice_u8_t));
+                    elems.push_back(b.struct_lit("Type", std::move(f), elem_t));
+                }
+                LogosTypeBuilder ab; ab.kind = LogosType::Kind::Array;
+                ab.elem = elem_t;
+                ab.arr_size = (int64_t)nc.type_args.size();
+                TypeRef new_arr_t = out_.type_pool.alloc(std::move(ab));
+                result->type = new_arr_t;
+                result->mirror_offset_ =
+                    lir_mirror_emit_arr_lit(out_, new_arr_t, elems);
+                break;
+            }
             v.each_arg([&](lir_view::ExprRef ar) {
                 if (ar && ar.kind() == lir_schema::expr::Code::PackExpand) {
                     std::string pe_var_name(lir_view::EPackExpandView{ar}.var_name());

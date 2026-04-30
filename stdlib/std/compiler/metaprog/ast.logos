@@ -53,6 +53,13 @@ pub struct Type {
     pub name: &[u8],
 }
 
+// `TypeList<T...>` — A-layer pack-carrier (zero-sized).  Slice 2 of the
+// typelevel-metaprog epic.  The pack lives only at the type level; the
+// runtime bridge to a value-level pack of `Type` handles is via the
+// `type_refs_of::<T...>() -> [Type; N]` intrinsic.  Future slices grow
+// `length/nth/head/tail/concat` as partial-spec'd generic functions.
+pub struct TypeList<T...> {}
+
 // `Ident` — borrowed identifier bytes. Slice 5/6 of metaprog-quote:
 // produced by `Item::name()`/`OView::ast_node_ident()` and consumed
 // at `#name` antiquot positions inside `quote_item! { ... }`. The
