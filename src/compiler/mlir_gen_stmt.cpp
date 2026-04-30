@@ -585,6 +585,10 @@ void MLIRGenImpl::gen_return(lir_view::SReturnView v) {
                 builder_.create<mlir::LLVM::StoreOp>(loc_, val, dp);
                 val = alloca;
             }
+        } else if (cur_ret_type_ && mlir::isa<mlir::LLVM::LLVMArrayType>(cur_ret_type_)) {
+            if (val.getType() == ptr_type()) {
+                val = builder_.create<mlir::LLVM::LoadOp>(loc_, cur_ret_type_, val);
+            }
         } else if (cur_ret_type_ && mlir::isa<mlir::LLVM::LLVMStructType>(cur_ret_type_)) {
             if (val.getType() == ptr_type()) {
                 // val is a pointer (to struct/enum alloca) — load the aggregate.

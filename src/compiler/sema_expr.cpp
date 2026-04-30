@@ -1391,6 +1391,19 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
     StrMap<TypeRef> subst;
     for (size_t i = 0; i < non_variadic_count && i < type_args.size(); ++i)
         subst[fi.type_params[i].name] = type_args[i];
+    // Variadic-pack length under the symbolic key "__sizeof_pack:P" so that
+    // a `[T; sizeof...(P)]` return-type annotation (lowered by the ARR_TYPE
+    // handler) resolves to a concrete size at sema-time type checking. The
+    // value carries `const_val` to satisfy the existing IntLit branch in
+    // subst_type_sema.
+    if (has_variadic) {
+        size_t pack_len = type_args.size() > non_variadic_count
+                        ? type_args.size() - non_variadic_count : 0;
+        LogosTypeBuilder cv; cv.kind = LogosType::Kind::IntLit;
+        cv.const_val = (int64_t)pack_len;
+        TypeRef pack_size_t = pool_->alloc(std::move(cv));
+        subst[std::string("__sizeof_pack:") + fi.type_params.back().name] = pack_size_t;
+    }
 
     // Validate trait bounds for all type params (including variadic pack elements)
     check_type_bounds(callee_diag, fi.type_params, type_args);
@@ -2035,6 +2048,16 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         LogosTypeBuilder arr_b; arr_b.kind = LogosType::Kind::Array;
         arr_b.elem = type_t;
         arr_b.arr_size = 0;  // mono retypes once pack count is known
+        // When the type-args reduce to a single TypeVar pack `<T...>`, tag
+        // the placeholder array with `arr_size_var = "__sizeof_pack:T"` so
+        // that any let-bound or return-statement type carrying this view
+        // through mono's `subst_type` lifts to `[Type; N]` automatically
+        // (alongside the call-site retyping at __type_refs_of__ in mono).
+        if (targs.size() == 1 && targs[0] &&
+            targs[0].kind() == LogosType::Kind::TypeVar) {
+            arr_b.arr_size_var =
+                std::string("__sizeof_pack:") + std::string(targs[0].type_var_name());
+        }
         TypeRef arr_placeholder = pool_->alloc(std::move(arr_b));
         return builder().call("__type_refs_of__",
                               std::move(targs), {}, arr_placeholder);

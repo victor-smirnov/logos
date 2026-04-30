@@ -101,6 +101,7 @@ set(LOGOS_INTEGRATION_TESTS
     meta_typelist_a_side
     meta_fold_to_type
     meta_template_of_smoke
+    meta_transform
     pub_reexport
     bst
     fibonacci

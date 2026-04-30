@@ -20,14 +20,27 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         uint64_t size = tv.arr_size();
         std::string symbolic = std::string(tv.arr_size_var());
         if (!symbolic.empty()) {
-            auto it = s.find(symbolic);
-            if (it != s.end()) {
-                TypeRef itv{it->second};
-                if (itv.const_val()) {
-                    size = (uint64_t)*itv.const_val();
-                    symbolic = ""; // Resolved to literal
-                } else if (itv.kind() == LogosType::Kind::ConstVar) {
-                    symbolic = std::string(itv.type_var_name()); // Still symbolic
+            // [T; sizeof...(P)] sema lowers to arr_size_var "__sizeof_pack:P".
+            // At mono, `cur_packs_` holds the concrete expansion of P — emit
+            // its length as the literal size.
+            constexpr std::string_view PFX = "__sizeof_pack:";
+            if (symbolic.compare(0, PFX.size(), PFX) == 0) {
+                std::string pname = symbolic.substr(PFX.size());
+                auto pit = cur_packs_.find(pname);
+                if (pit != cur_packs_.end()) {
+                    size = (uint64_t)pit->second.size();
+                    symbolic = "";
+                }
+            } else {
+                auto it = s.find(symbolic);
+                if (it != s.end()) {
+                    TypeRef itv{it->second};
+                    if (itv.const_val()) {
+                        size = (uint64_t)*itv.const_val();
+                        symbolic = ""; // Resolved to literal
+                    } else if (itv.kind() == LogosType::Kind::ConstVar) {
+                        symbolic = std::string(itv.type_var_name()); // Still symbolic
+                    }
                 }
             }
         }

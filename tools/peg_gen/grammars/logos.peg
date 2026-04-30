@@ -898,7 +898,11 @@
              => { CODE: PTR_TYPE, POINTEE: $3, MUTPTR: true }
 
     // [T; N] — fixed-size array type
-    arr_type <- LBRACKET type_ref SEMI (INTEGER / IDENT) RBRACKET
+    // First alt: [T; sizeof...(P)] — size from variadic pack length, lowered
+    // by sema to symbolic arr_size_var "__sizeof_pack:P" and resolved at mono.
+    arr_type <- LBRACKET type_ref SEMI IDENT DOTDOTDOT LPAREN IDENT RPAREN RBRACKET
+              => { CODE: ARR_TYPE, TYPE: $2, OP: $4, NAME: $7 }
+              / LBRACKET type_ref SEMI (INTEGER / IDENT) RBRACKET
               => { CODE: ARR_TYPE, TYPE: $2, SIZE: $4 }
 
     // type_or_lt_arg: a type argument that may be a lifetime annotation or a type.

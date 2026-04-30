@@ -1,0 +1,20 @@
+// SPDX-License-Identifier: Apache-2.0
+// Smoke-test for the `[T; sizeof...(P)]` admission in `arr_type`:
+// sema lowers the size to `arr_size_var = "__sizeof_pack:T"` and mono
+// substitutes the literal length once the pack expands. We avoid the
+// Type-array-of-pointers escape pattern by using a primitive element
+// type so the array travels by value.
+
+package main;
+
+// Param type carries `[i32; sizeof...(T)]` — sema must accept the syntax,
+// mono must rewrite the size to 3 once the call is monomorphised.
+fn first<T...>(xs: [i32; sizeof...(T)]) -> i32 {
+    return xs[0];
+}
+
+unsafe fn main() -> i32 {
+    let r: i32 = first::<i32, i64, u8>([42, 7, 9]);
+    if r != 42 { return 1; }
+    return 0;
+}

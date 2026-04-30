@@ -355,6 +355,14 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         put_sub(buf, impl, t.assoc_base);
         for (auto a : t.gat_args) put_sub(buf, impl, a);
         break;
+    case K::IntLit:
+        // const_val distinguishes IntLit instances — the type pool dedupes
+        // by UID, so without this two `{integer}` types with different
+        // const_val would collapse and lose the value (notably breaks the
+        // sizeof-pack array-size path which materialises IntLit(N) via
+        // pool->alloc to feed subst_type_sema).
+        put_u64(buf, uint64_t(t.const_val.value_or(0)));
+        break;
     default:
         break;  // primitives: kind tag alone identifies
     }
@@ -1874,6 +1882,24 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                      : error_t();
         uint64_t n = 0;
         std::string symbolic;
+        // [T; sizeof...(P)] — grammar's sizeof_pack alt encodes the pack form
+        // as OP="sizeof" + NAME=<pack-ident>. Lower to a symbolic arr_size_var
+        // "__sizeof_pack:P" that mono_subst resolves once P expands.
+        if (node.has_key(la::OP) && node.has_key(la::NAME)) {
+            auto op = std::string(str_of(node.get(la::OP.code)));
+            auto pn = std::string(str_of(node.get(la::NAME.code)));
+            if (op != "sizeof") {
+                error(std::format("expected 'sizeof...(T)' in array size, got '{}...(T)'", op));
+            } else {
+                auto it = current_type_params_.find(pn);
+                if (it == current_type_params_.end()) {
+                    error(std::format("[T; sizeof...({})]: undefined type parameter", pn));
+                } else {
+                    symbolic = std::string("__sizeof_pack:") + pn;
+                }
+            }
+            return make_array(elem, 0, symbolic);
+        }
         if (node.has_key(la::SIZE)) {
             auto av = node.get(la::SIZE.code);
             auto parse_array_size = [](std::string_view sv) -> uint64_t {
