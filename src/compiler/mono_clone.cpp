@@ -595,15 +595,72 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 result->mirror_offset_ = lir_mirror_emit_lit_str(out_, result->type, s);
                 break;
             }
+            // field_names_of::<T>() — emit [&[u8]; N] of struct field names.
+            // For non-struct or unknown-struct T → empty array.
+            if (nc.callee == "__field_names_of__") {
+                std::vector<std::string> field_names;
+                if (!nc.type_args.empty()) {
+                    TypeRef T = nc.type_args[0];
+                    if (T && (T.kind() == LogosType::Kind::Struct ||
+                              T.kind() == LogosType::Kind::ZonedStruct)) {
+                        std::string base{T.struct_name()};
+                        const lir::LStructDef* tmpl = nullptr;
+                        for (auto& sd : in_.structs)
+                            if (sd.name == base) { tmpl = &sd; break; }
+                        if (tmpl)
+                            for (auto& f : tmpl->fields)
+                                field_names.push_back(f.name);
+                    }
+                }
+                TypeRef elem_t = result->type ? result->type.elem() : nullptr;
+                LirBuilder b(out_);
+                std::vector<lir::LExprPtr> elems;
+                for (auto& nm : field_names)
+                    elems.push_back(b.lit_str(nm, elem_t));
+                LogosTypeBuilder ab; ab.kind = LogosType::Kind::Array;
+                ab.elem = elem_t;
+                ab.arr_size = (int64_t)field_names.size();
+                TypeRef new_arr_t = out_.type_pool.alloc(std::move(ab));
+                result->type = new_arr_t;
+                result->mirror_offset_ =
+                    lir_mirror_emit_arr_lit(out_, new_arr_t, elems);
+                break;
+            }
             // args_of::<T>() intrinsic — emits [Type; N] from the concrete
             // T's type_args() (empty array for non-generic T). Shares the
-            // child-build code below with __type_refs_of__.
-            if (nc.callee == "__args_of__" || nc.callee == "__type_refs_of__") {
+            // child-build code below with __type_refs_of__ and
+            // __field_types_of__ (the latter resolves field types via the
+            // struct template + a fresh SubstMap).
+            if (nc.callee == "__args_of__" ||
+                nc.callee == "__type_refs_of__" ||
+                nc.callee == "__field_types_of__") {
                 std::vector<TypeRef> elem_types;
                 if (nc.callee == "__args_of__") {
                     if (!nc.type_args.empty())
                         for (auto a : nc.type_args[0].type_args())
                             elem_types.push_back(a);
+                } else if (nc.callee == "__field_types_of__") {
+                    if (!nc.type_args.empty()) {
+                        TypeRef T = nc.type_args[0];
+                        if (T && (T.kind() == LogosType::Kind::Struct ||
+                                  T.kind() == LogosType::Kind::ZonedStruct)) {
+                            std::string base{T.struct_name()};
+                            const lir::LStructDef* tmpl = nullptr;
+                            for (auto& sd : in_.structs)
+                                if (sd.name == base) { tmpl = &sd; break; }
+                            if (tmpl) {
+                                SubstMap fsubst;
+                                for (size_t i = 0, j = 0;
+                                     i < tmpl->type_params.size(); ++i) {
+                                    if (j < T.type_args().size())
+                                        fsubst[tmpl->type_params[i].name] =
+                                            T.type_args()[j++];
+                                }
+                                for (auto& f : tmpl->fields)
+                                    elem_types.push_back(subst_type(f.type, fsubst));
+                            }
+                        }
+                    }
                 } else {
                     elem_types = nc.type_args;
                 }

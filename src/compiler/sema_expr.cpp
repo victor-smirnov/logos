@@ -1615,6 +1615,37 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                               std::move(targs), {}, arr_placeholder);
     }
 
+    // field_types_of::<T>() / field_names_of::<T>() — extract a struct
+    // type's field types as `[Type; N]` and names as `[&[u8]; N]`.
+    // Non-struct T → empty arrays. Same magic-call shape as args_of; mono
+    // looks up the struct template, builds a SubstMap from type_params →
+    // T.type_args(), and substitutes each field type.
+    if (callee == "field_types_of" || callee == "field_names_of") {
+        TypeRef elem = nullptr;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                if (items.size() == 1)
+                    elem = resolve_type(map_of(items.get(0)));
+            }
+        }
+        if (!elem) {
+            error(std::format("{}::<T>() requires exactly one type argument", callee));
+            return error_expr();
+        }
+        bool names = (callee == "field_names_of");
+        TypeRef arr_elem_t = names ? make_slice_type(u8_t())
+                                   : make_struct_type("Type");
+        LogosTypeBuilder arr_b; arr_b.kind = LogosType::Kind::Array;
+        arr_b.elem = arr_elem_t;
+        arr_b.arr_size = 0;  // mono retypes
+        TypeRef arr_placeholder = pool_->alloc(std::move(arr_b));
+        std::vector<TypeRef> targs; targs.push_back(elem);
+        return builder().call(names ? "__field_names_of__" : "__field_types_of__",
+                              std::move(targs), {}, arr_placeholder);
+    }
+
     // type_refs_of::<T...>() — slice 2 of typelevel metaprog. Returns
     // [Type; N] populated with one Type{kind,name} value per pack member.
     // Mono substitutes after pack expansion (same TypeVar-in-type_args trick
