@@ -22,6 +22,11 @@ Start here if you want to *work on* Logos itself.
 - [Compiler Architecture](internals/architecture.md) — the `logosc` pipeline from source to native code.
 - [Hermes Runtime](internals/hermes-runtime.md) — Datatype/Storage/View, zones, the type registry.
 - [Metaprogramming](internals/metaprog.md) — current state of compile-time programming and reflection.
+- [HRPC](internals/hrpc.md) — bidirectional Hermes-native RPC and transport layer (stub).
+
+## Target Compute Model
+
+- [LCM — Logos Compute Model](lcm/README.md) — the abstract substrate Logos targets: many small xPUs close to the data, message-passing over hardware-accelerated HRPC, x86_64/Linux as one target among many.
 
 ## Project Status
 
