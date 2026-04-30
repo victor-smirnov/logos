@@ -916,6 +916,8 @@
                    => { CODE: ANTIQUOT_PACK, NAME: $2 }
                     / DOLLAR IDENT
                    => { CODE: ANTIQUOT_TYPE, NAME: $2 }
+                    / MINUS INTEGER
+                   => { CODE: LIT_INT, VALUE: $2, LO_NEG: true }
                     / INTEGER
                    => { CODE: LIT_INT, VALUE: $1 }
                     / type_ref

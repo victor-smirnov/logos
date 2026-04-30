@@ -1880,7 +1880,13 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
     if (tc == la::LIT_INT) {
         auto sv = str_of(node.get(la::VALUE.code));
         LogosTypeBuilder t; t.kind = LogosType::Kind::IntLit;
-        t.const_val = parse_int_literal(sv);
+        int64_t v = parse_int_literal(sv);
+        if (node.has_key(la::LO_NEG)) {
+            AnyVal av = node.get(la::LO_NEG.code);
+            if (!av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0)
+                v = -v;
+        }
+        t.const_val = v;
         return pool_->alloc(std::move(t));
     }
 

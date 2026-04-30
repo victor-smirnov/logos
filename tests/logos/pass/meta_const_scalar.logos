@@ -16,5 +16,8 @@ fn main() -> i32 {
     if double_n::<21>() != (42 as i64) { return 3; }
     if n_squared::<7>() != (49 as i64) { return 4; }
     if n_minus_one::<10>() != (9 as i64) { return 5; }
+    // Negative literal type-args (grammar admits MINUS INTEGER → LIT_INT/LO_NEG).
+    if get_n::<-7>() != ((0 - 7) as i64) { return 6; }
+    if double_n::<-3>() != ((0 - 6) as i64) { return 7; }
     return 0;
 }

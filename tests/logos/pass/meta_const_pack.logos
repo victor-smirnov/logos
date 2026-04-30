@@ -80,5 +80,9 @@ fn main() -> i32 {
     if pack_for_sum::<1, 2, 3, 4, 5>() != (15 as i64) { return 13; }
     if pack_for_sum::<42>() != (42 as i64) { return 14; }
 
+    // Negative literal type-args.
+    if pack_for_sum::<-5, 10, -3>() != (2 as i64) { return 15; }
+    if pack_for_sum::<-1, -2, -3>() != ((0 - 6) as i64) { return 16; }
+
     return 0;
 }
