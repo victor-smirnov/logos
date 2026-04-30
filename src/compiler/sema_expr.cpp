@@ -1611,6 +1611,43 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                               std::move(targs), {}, prim(LogosType::Kind::I64));
     }
 
+    // has_trait::<T, Trait>() — bool: does concrete T implement Trait?
+    // Resolves at mono time against the same impl tables that drive method
+    // dispatch (concrete + recursive blanket lookup). The trait position is
+    // parsed as a type-arg but only its identifier is used; we read the AST
+    // NAME directly and pass it through as a string literal arg.
+    if (callee == "has_trait") {
+        TypeRef elem = nullptr;
+        std::string trait_name;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                if (items.size() == 2) {
+                    elem = resolve_type(map_of(items.get(0)));
+                    auto tnode = map_of(items.get(1));
+                    if (tnode.has_key(la::NAME))
+                        trait_name = std::string(str_of(tnode.get(la::NAME.code)));
+                }
+            }
+        }
+        if (!elem || trait_name.empty()) {
+            error("has_trait::<T, Trait>() requires two type arguments");
+            return error_expr();
+        }
+        std::vector<TypeRef> targs; targs.push_back(elem);
+        std::vector<lir::LExprPtr> rargs;
+        LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;
+        TypeRef u8_t = pool_->alloc(std::move(u8_b));
+        LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
+        sl_b.elem = u8_t;
+        TypeRef slice_u8_t = pool_->alloc(std::move(sl_b));
+        rargs.push_back(builder().lit_str(std::move(trait_name), slice_u8_t));
+        return builder().call("__has_trait__",
+                              std::move(targs), std::move(rargs),
+                              prim(LogosType::Kind::Bool));
+    }
+
     // tuple_count_of::<T>() — number of elements in tuple T (0 for non-tuple).
     if (callee == "tuple_count_of") {
         TypeRef elem = nullptr;

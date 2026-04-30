@@ -663,6 +663,59 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 result->mirror_offset_ = lit->mirror_offset_;
                 break;
             }
+            // has_trait::<T, Trait>() — bool. Recursive lookup against
+            // concrete_impls_ + blanket_impls_, same shape as the bound-check
+            // already used for blanket method emission.
+            if (nc.callee == "__has_trait__") {
+                bool answer = false;
+                std::string trait;
+                // Args are populated below the dispatch chain — read the trait
+                // name directly off the original expression's first lit_str arg.
+                v.each_arg([&](lir_view::ExprRef ar) {
+                    if (!trait.empty()) return;
+                    if (ar && ar.kind() == lir_schema::expr::Code::LitStr)
+                        trait = std::string(lir_view::ELitStrView{ar}.value());
+                });
+                if (!nc.type_args.empty() && !trait.empty()) {
+                    TypeRef T = nc.type_args[0];
+                    if (T) {
+                        std::string cname;
+                        if (T.kind() == LogosType::Kind::Struct ||
+                            T.kind() == LogosType::Kind::ZonedStruct)
+                            cname = concrete_struct_name(T);
+                        else if (T.kind() == LogosType::Kind::Enum)
+                            cname = std::string(T.enum_name());
+                        else
+                            cname = type_str(T);
+                        if (auto p = cname.find("$G"); p != std::string::npos)
+                            cname = cname.substr(0, p);
+                        std::function<bool(const std::string&,
+                                           const std::string&,
+                                           StrSet&)> has_impl;
+                        has_impl = [&](const std::string& tr,
+                                       const std::string& cn,
+                                       StrSet& seen) -> bool {
+                            std::string k = tr + "::" + cn;
+                            if (!seen.insert(k).second) return false;
+                            if (concrete_impls_.count(k)) return true;
+                            for (auto& bi : blanket_impls_) {
+                                if (bi.trait_name != tr) continue;
+                                if (bi.bound_trait.empty()) return true;
+                                if (has_impl(bi.bound_trait, cn, seen)) return true;
+                            }
+                            return false;
+                        };
+                        StrSet seen;
+                        answer = has_impl(trait, cname, seen);
+                    }
+                }
+                LogosTypeBuilder b_b; b_b.kind = LogosType::Kind::Bool;
+                TypeRef bool_t = out_.type_pool.alloc(std::move(b_b));
+                result->type = bool_t;
+                result->mirror_offset_ =
+                    lir_mirror_emit_lit_bool(out_, bool_t, answer);
+                break;
+            }
             // tuple_count_of::<T>() — emit lit_int N for tuple T, 0 otherwise.
             if (nc.callee == "__tuple_count_of__") {
                 int64_t n = 0;

@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: Apache-2.0
+// has_trait::<T, Trait>() — mono-time impl-table query.
+
+package meta_has_trait_probe;
+
+use std.lang.clone;
+
+pub struct Plain { pub x: i32, }
+pub struct Boxed { pub a: i32, pub b: i64, }
+
+impl Clone for Boxed {
+    fn clone(self: Boxed) -> Boxed {
+        return Boxed { a: self.a, b: self.b };
+    }
+}
+
+unsafe fn main() -> i32 {
+    // Primitives with explicit Clone impls in stdlib.
+    if !has_trait::<i32,  Clone>() { return 41; }
+    if !has_trait::<bool, Clone>() { return 42; }
+
+    // User struct with explicit impl in this TU.
+    if !has_trait::<Boxed, Clone>() { return 43; }
+
+    // User struct without impl.
+    if  has_trait::<Plain, Clone>() { return 44; }
+
+    return 0;
+}
