@@ -118,6 +118,51 @@ pub fn sum_by<T...>(proj: fn(Type) -> i64) -> i64 {
     return s;
 }
 
+// Generic fold over the pack with an i64 accumulator. Polymorphic-S
+// fold awaits closure-arg generics; i64 covers the common cases
+// (counts, sums, max, layout offsets) directly.
+pub fn fold_i64<T...>(init: i64, step: fn(i64, Type) -> i64) -> i64 {
+    let arr = type_refs_of::<T...>();
+    let n: i64 = sizeof...(T) as i64;
+    let mut acc: i64 = init;
+    let mut i: i64 = 0;
+    while i < n {
+        acc = step(acc, arr[i]);
+        i = i + (1 as i64);
+    }
+    return acc;
+}
+
+// Largest `proj(t)` over the pack (i64::MIN on empty pack).
+pub fn max_by<T...>(proj: fn(Type) -> i64) -> i64 {
+    let arr = type_refs_of::<T...>();
+    let n: i64 = sizeof...(T) as i64;
+    if n == (0 as i64) { return -9223372036854775808 as i64; }
+    let mut best: i64 = proj(arr[0]);
+    let mut i: i64 = 1;
+    while i < n {
+        let v: i64 = proj(arr[i]);
+        if v > best { best = v; }
+        i = i + (1 as i64);
+    }
+    return best;
+}
+
+// Smallest `proj(t)` over the pack (i64::MAX on empty pack).
+pub fn min_by<T...>(proj: fn(Type) -> i64) -> i64 {
+    let arr = type_refs_of::<T...>();
+    let n: i64 = sizeof...(T) as i64;
+    if n == (0 as i64) { return 9223372036854775807 as i64; }
+    let mut best: i64 = proj(arr[0]);
+    let mut i: i64 = 1;
+    while i < n {
+        let v: i64 = proj(arr[i]);
+        if v < best { best = v; }
+        i = i + (1 as i64);
+    }
+    return best;
+}
+
 // Index of the first pack member satisfying `pred`, or -1 if none.
 pub fn find_index<T...>(pred: fn(Type) -> bool) -> i64 {
     let arr = type_refs_of::<T...>();

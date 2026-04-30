@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: Apache-2.0
+// Exercises std::meta fold_i64 / max_by / min_by.
+
+package meta_fold_i64_probe;
+
+use std.compiler.metaprog;
+
+fn add_size(acc: i64, t: Type) -> i64 { return acc + t.size; }
+fn size_proj(t: Type) -> i64 { return t.size; }
+
+unsafe fn main() -> i32 {
+    // total size via fold_i64: i32(4)+i64(8)+u8(1)+bool(1) = 14
+    let total = fold_i64::<i32, i64, u8, bool>(0 as i64, add_size);
+    if total != (14 as i64) { return 71; }
+
+    // Same total via sum_by must agree.
+    let total2 = sum_by::<i32, i64, u8, bool>(size_proj);
+    if total != total2 { return 72; }
+
+    // max_by/min_by over sizes.
+    let lo = min_by::<i64, i32, u8, bool>(size_proj);
+    if lo != (1 as i64) { return 73; }
+    let hi = max_by::<i64, i32, u8, bool>(size_proj);
+    if hi != (8 as i64) { return 74; }
+
+    return 0;
+}
