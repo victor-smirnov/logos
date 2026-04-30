@@ -46,6 +46,11 @@ pub struct Item {
 // `quote_ty!`, `#[derive]`).
 pub struct Type {
     pub kind: u32,
+    // Canonical printable name produced by the compiler's `type_str`:
+    // primitives — "i32"/"bool"/etc; structs — "Foo" (no package prefix
+    // yet); generic instantiations — "Vec<i32>". Slice 1 surface; later
+    // slices will add structured access (`args`, `fields`, full path).
+    pub name: &[u8],
 }
 
 // `Ident` — borrowed identifier bytes. Slice 5/6 of metaprog-quote:

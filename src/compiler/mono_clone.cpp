@@ -587,6 +587,14 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 result->mirror_offset_ = lir_mirror_emit_lit_int(out_, result->type, k);
                 break;
             }
+            // type_of::<T>().name — magic intrinsic that mono replaces with
+            // a &[u8] literal of the canonical type_str(T) for concrete T.
+            if (nc.callee == "__type_name_of__") {
+                std::string s = nc.type_args.empty() ? std::string()
+                              : type_str(nc.type_args[0]);
+                result->mirror_offset_ = lir_mirror_emit_lit_str(out_, result->type, s);
+                break;
+            }
             v.each_arg([&](lir_view::ExprRef ar) {
                 if (ar && ar.kind() == lir_schema::expr::Code::PackExpand) {
                     std::string pe_var_name(lir_view::EPackExpandView{ar}.var_name());
