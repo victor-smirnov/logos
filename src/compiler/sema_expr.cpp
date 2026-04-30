@@ -852,6 +852,25 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         return builder().call("__reify_type__", {}, std::move(rargs), type_t);
     }
 
+    // apply(name: &[u8], args: [Type; N]) -> Type — instantiates a struct
+    // template by name with concrete TypeRefs recovered from each element's
+    // uid. Mono's __apply__ intercept walks the array literal, recovers each
+    // TypeRef using the same uid-source shapes reify_type handles, builds a
+    // TypeRef for `Name<T0,T1,...>`, and emits a fresh Type struct lit.
+    // First piece of MP5 (GenericType + apply); enables runtime type-level
+    // composition like `apply("Pair", [type_of::<i32>(), type_of::<bool>()])`.
+    if (callee == "type_apply") {
+        if (n_args != 2) {
+            error("type_apply(name: &[u8], args: [Type; N]) requires exactly 2 arguments");
+            return error_expr();
+        }
+        auto type_t = make_struct_type("Type");
+        std::vector<lir::LExprPtr> rargs;
+        rargs.push_back(std::move(arg_exprs[0]));
+        rargs.push_back(std::move(arg_exprs[1]));
+        return builder().call("__type_apply__", {}, std::move(rargs), type_t);
+    }
+
     // Bitwise intrinsics on u64 — map to LLVM intrinsics in codegen.
     //   popcount_u64(x: u64)        -> u32   (llvm.ctpop)
     //   leading_zeros_u64(x: u64)   -> u32   (llvm.ctlz,  is_zero_poison=false)

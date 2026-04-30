@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: Apache-2.0
+// type_apply(name, args: [Type; N]) -> Type — runtime composition of Types.
+// MP5 first piece: build Pair<i32, bool> from Type values.
+
+package meta_apply_probe;
+
+use std.compiler.metaprog;
+
+pub struct Pair<A, B> { pub a: A, pub b: B, }
+pub struct Trio<A, B, C> { pub a: A, pub b: B, pub c: C, }
+
+unsafe fn main() -> i32 {
+    let t = type_apply("Pair", [type_of::<i32>(), type_of::<bool>()]);
+
+    // kind matches the direct producer (Struct kind tag).
+    let direct = type_of::<Pair<i32, bool>>();
+    if t.kind != direct.kind { return 11; }
+    if t.uid != direct.uid { return 12; }
+
+    // Distinct ordering yields distinct uid
+    let t2 = type_apply("Pair", [type_of::<bool>(), type_of::<i32>()]);
+    if t.uid == t2.uid { return 13; }
+
+    // Three-arg template
+    let t3 = type_apply("Trio", [type_of::<i32>(), type_of::<bool>(), type_of::<u8>()]);
+    let direct3 = type_of::<Trio<i32, bool, u8>>();
+    if t3.uid != direct3.uid { return 14; }
+
+    return 0;
+}
