@@ -6538,13 +6538,79 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
 // QUOTE_TY — `quote_ty! { type }`. Slice 1 of the quote_ty epic.
 // MVP without antiquotation: parse the inner type expression, resolve
 // to a TypeRef, and emit the same Type{kind,name,size} struct literal
-// as `type_of::<T>()`. Future slices add `$t` runtime composition.
+// as `type_of::<T>()`. Antiquotation (Slice 2 / MP3 full): if the type
+// form is `Foo<...>` and any arg is `$ident` (ANTIQUOT_TYPE), lower the
+// whole expression to `__type_apply__("Foo", [arg0_expr, arg1_expr, ...])`,
+// where each non-antiquot arg becomes `type_of::<T>()` and each antiquot
+// becomes a VarRef to the named binding.
 lir::LExprPtr SemaChecker::lower_quote_ty(TinyMapView node) {
     if (!node.has_key(la::TYPE)) {
         error("quote_ty!: missing TYPE");
         return error_expr();
     }
-    TypeRef elem = resolve_type(map_of(node.get(la::TYPE.code)));
+    auto inner = map_of(node.get(la::TYPE.code));
+    auto inner_code = code_of(inner);
+    // Antiquot path — only triggered when the inner form is a generic
+    // instantiation (Foo<args...>) with at least one $ident arg. Other
+    // composite shapes (slices/refs/tuples with antiquots inside) aren't
+    // covered yet; sema rejects them so we don't silently mis-lower.
+    if (inner_code == la::GENERIC_INST.code && inner.has_key(la::ITEMS)) {
+        auto items = arr_of(inner.get(la::ITEMS.code));
+        bool has_antiquot = false;
+        for (uint64_t i = 0; i < items.size(); ++i) {
+            if (code_of(map_of(items.get(i))) == la::ANTIQUOT_TYPE.code) {
+                has_antiquot = true; break;
+            }
+        }
+        if (has_antiquot) {
+            auto name = std::string(str_of(inner.get(la::NAME.code)));
+            auto type_t = make_struct_type("Type");
+            std::vector<lir::LExprPtr> elems;
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                auto item = map_of(items.get(i));
+                auto ic = code_of(item);
+                if (ic == la::ANTIQUOT_TYPE.code) {
+                    auto vname = std::string(str_of(item.get(la::NAME.code)));
+                    elems.push_back(builder().var_ref(vname, type_t));
+                } else if (ic == la::LIFETIME_PARAM.code ||
+                           ic == la::PACK_EXPAND.code) {
+                    error("quote_ty! antiquot: lifetime / pack args not yet supported");
+                    return error_expr();
+                } else {
+                    TypeRef arg_t = resolve_type(item);
+                    if (!arg_t) {
+                        error("quote_ty!: failed to resolve type-arg in antiquot form");
+                        return error_expr();
+                    }
+                    auto kind_call = builder().call("__type_kind_of__",
+                                                    std::vector<TypeRef>{arg_t}, {},
+                                                    prim(LogosType::Kind::U32));
+                    auto name_call = builder().call("__type_name_of__",
+                                                    std::vector<TypeRef>{arg_t}, {},
+                                                    make_slice_type(u8_t()));
+                    auto size_e    = builder().size_of(arg_t, prim(LogosType::Kind::I64));
+                    auto uid_call  = builder().call("__type_uid_of__",
+                                                    std::vector<TypeRef>{arg_t}, {},
+                                                    prim(LogosType::Kind::U64));
+                    std::vector<std::pair<std::string, lir::LExprPtr>> f;
+                    f.emplace_back("kind", std::move(kind_call));
+                    f.emplace_back("name", std::move(name_call));
+                    f.emplace_back("size", std::move(size_e));
+                    f.emplace_back("uid",  std::move(uid_call));
+                    elems.push_back(builder().struct_lit("Type", std::move(f), type_t));
+                }
+            }
+            LogosTypeBuilder ab; ab.kind = LogosType::Kind::Array;
+            ab.elem = type_t; ab.arr_size = elems.size();
+            TypeRef arr_t = pool_->alloc(std::move(ab));
+            auto arr = builder().arr_lit(std::move(elems), arr_t);
+            std::vector<lir::LExprPtr> rargs;
+            rargs.push_back(builder().lit_str(name, make_slice_type(u8_t())));
+            rargs.push_back(std::move(arr));
+            return builder().call("__type_apply__", {}, std::move(rargs), type_t);
+        }
+    }
+    TypeRef elem = resolve_type(inner);
     if (!elem) {
         error("quote_ty!: failed to resolve inner type");
         return error_expr();

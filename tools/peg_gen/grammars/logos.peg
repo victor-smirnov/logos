@@ -248,6 +248,7 @@
     REPEAT_GROUP                = 202   // #(body)sep* inside quote_*! body; VALUE=body expr, OP=sep code (0=none, 1=comma, 2=&&)
     SIZEOF_PACK                 = 203   // sizeof...(T) — value-position expression yielding pack length as u64; NAME = pack ident
     QUOTE_TY                    = 204   // quote_ty! { type } — typed Type literal; TYPE = inner type AST
+    ANTIQUOT_TYPE               = 205   // $ident in a type position; NAME = ident of a Type-valued binding (only legal inside quote_ty!)
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -901,6 +902,8 @@
                    => { CODE: LIFETIME_PARAM, NAME: $1 }
                     / IDENT DOTDOTDOT
                    => { CODE: PACK_EXPAND, NAME: $1 }
+                    / DOLLAR IDENT
+                   => { CODE: ANTIQUOT_TYPE, NAME: $2 }
                     / type_ref
 
     simple_type <- IDENT LT type_or_lt_arg (COMMA type_or_lt_arg)* GT_TYPE

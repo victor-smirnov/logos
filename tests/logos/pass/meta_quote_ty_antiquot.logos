@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: Apache-2.0
+// `$ident` antiquot in quote_ty! { Foo<$t> } — MP3 full.
+// Lowers to type_apply("Foo", [args...]) where each $ident becomes a
+// VarRef and each non-antiquot arg becomes a type_of-style producer.
+
+package meta_quote_ty_antiquot_probe;
+
+use std.compiler.metaprog;
+
+pub struct Pair<A, B> { pub a: A, pub b: B, }
+pub struct Trio<A, B, C> { pub a: A, pub b: B, pub c: C, }
+
+unsafe fn main() -> i32 {
+    let ti = type_of::<i32>();
+    let tb = type_of::<bool>();
+
+    // Pure antiquot: both args spliced.
+    let p1 = quote_ty! { Pair<$ti, $tb> };
+    let direct = type_of::<Pair<i32, bool>>();
+    if p1.uid != direct.uid { return 1; }
+
+    // Mixed: first antiquot, second literal.
+    let p2 = quote_ty! { Pair<$ti, bool> };
+    if p2.uid != direct.uid { return 2; }
+
+    // Mixed: first literal, second antiquot.
+    let p3 = quote_ty! { Pair<i32, $tb> };
+    if p3.uid != direct.uid { return 3; }
+
+    // Three-arg with mixed positions.
+    let tu = type_of::<u8>();
+    let q = quote_ty! { Trio<$ti, bool, $tu> };
+    let direct3 = type_of::<Trio<i32, bool, u8>>();
+    if q.uid != direct3.uid { return 4; }
+
+    // No antiquots — falls back to original quote_ty! path.
+    let q2 = quote_ty! { Pair<i32, bool> };
+    if q2.uid != direct.uid { return 5; }
+
+    return 0;
+}
