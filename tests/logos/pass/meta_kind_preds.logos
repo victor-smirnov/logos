@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: Apache-2.0
+// Exercises std::meta kind-predicate helpers (is_integer / is_float_kind /
+// is_struct / ...) by feeding them into count_if over diverse packs.
+
+package meta_kind_preds_probe;
+
+use std.compiler.metaprog;
+
+pub struct Point { pub x: i32, pub y: i32, }
+pub struct Vec3  { pub x: f64, pub y: f64, pub z: f64, }
+
+unsafe fn main() -> i32 {
+    // <i32, i64, u8, bool, f32, Point, Vec3>
+    //   integers:  i32, i64, u8           = 3
+    //   floats:    f32                    = 1
+    //   bool:      bool                   = 1
+    //   structs:   Point, Vec3            = 2
+    //   primitives:                       = 5
+
+    let ints = count_if::<i32, i64, u8, bool, f32, Point, Vec3>(is_integer);
+    if ints != (3 as i64) { return 71; }
+
+    let flts = count_if::<i32, i64, u8, bool, f32, Point, Vec3>(is_float_kind);
+    if flts != (1 as i64) { return 72; }
+
+    let bls = count_if::<i32, i64, u8, bool, f32, Point, Vec3>(is_bool_kind);
+    if bls != (1 as i64) { return 73; }
+
+    let strs = count_if::<i32, i64, u8, bool, f32, Point, Vec3>(is_struct);
+    if strs != (2 as i64) { return 74; }
+
+    let prims = count_if::<i32, i64, u8, bool, f32, Point, Vec3>(is_primitive_kind);
+    if prims != (5 as i64) { return 75; }
+
+    if !all::<i32, u32, i64, u64>(is_integer) { return 76; }
+    if  any::<i32, bool, u8>(is_struct) { return 77; }
+
+    return 0;
+}

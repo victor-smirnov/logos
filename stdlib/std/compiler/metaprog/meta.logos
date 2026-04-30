@@ -13,6 +13,61 @@
 
 package std.compiler.metaprog;
 
+// ── Kind predicates (over the `t.kind` tag) ────────────────────────────
+//
+// Kind tag values mirror `LogosType::Kind` from
+// `include/logos/compiler/sema.hpp`:
+//   Void=0, I32=1, I64=2, F64=3, F32=4, Bool=5, U8=6,
+//   I8=7, I16=8, U16=9, U32=10, U64=11,
+//   I24=12, U24=13, I56=14, U56=15, I128=16, U128=17,
+//   Ptr=18, Ref=19, MutRef=20, Array=21,
+//   Struct=22, ZonedStruct=23, Enum=24, ...
+//
+// Exposing them as `fn(Type) -> bool` lets user code feed predicates into
+// any of the B-folds above without re-deriving magic numbers each time.
+
+pub fn is_void(t: Type) -> bool { return t.kind == (0 as u32); }
+
+pub fn is_bool_kind(t: Type) -> bool { return t.kind == (5 as u32); }
+
+pub fn is_integer(t: Type) -> bool {
+    let k: u32 = t.kind;
+    return k == (1 as u32)  || k == (2 as u32)  || k == (6 as u32)
+        || k == (7 as u32)  || k == (8 as u32)  || k == (9 as u32)
+        || k == (10 as u32) || k == (11 as u32)
+        || k == (12 as u32) || k == (13 as u32)
+        || k == (14 as u32) || k == (15 as u32)
+        || k == (16 as u32) || k == (17 as u32);
+}
+
+pub fn is_float_kind(t: Type) -> bool {
+    return t.kind == (3 as u32) || t.kind == (4 as u32);
+}
+
+pub fn is_primitive_kind(t: Type) -> bool {
+    let k: u32 = t.kind;
+    return k == (1 as u32)  || k == (2 as u32)  || k == (3 as u32)
+        || k == (4 as u32)  || k == (5 as u32)  || k == (6 as u32)
+        || k == (7 as u32)  || k == (8 as u32)  || k == (9 as u32)
+        || k == (10 as u32) || k == (11 as u32)
+        || k == (12 as u32) || k == (13 as u32)
+        || k == (14 as u32) || k == (15 as u32)
+        || k == (16 as u32) || k == (17 as u32);
+}
+
+pub fn is_struct(t: Type) -> bool {
+    return t.kind == (22 as u32) || t.kind == (23 as u32);
+}
+
+pub fn is_enum(t: Type) -> bool { return t.kind == (24 as u32); }
+
+pub fn is_pointer(t: Type) -> bool {
+    let k: u32 = t.kind;
+    return k == (18 as u32) || k == (19 as u32) || k == (20 as u32);
+}
+
+pub fn is_array(t: Type) -> bool { return t.kind == (21 as u32); }
+
 // Count pack members for which `pred` returns true.
 pub fn count_if<T...>(pred: fn(Type) -> bool) -> i64 {
     let arr = type_refs_of::<T...>();

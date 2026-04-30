@@ -5,13 +5,7 @@ package meta_pack_search_probe;
 
 use std.compiler.metaprog;
 
-fn is_struct_like(t: Type) -> bool {
-    // Struct=22 in LogosType::Kind — exposed via the dedicated `t.size > 1`
-    // heuristic isn't sufficient (Tiny is 4 bytes, same as i32). We compare
-    // against the kind tag directly. Concrete value comes from the
-    // include/logos/compiler/sema.hpp Kind enum.
-    return t.kind == (22 as u32) || t.kind == (23 as u32);
-}
+fn is_struct_like(t: Type) -> bool { return is_struct(t); }
 
 fn size_proj(t: Type) -> i64 { return t.size; }
 
