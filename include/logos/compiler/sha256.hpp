@@ -126,4 +126,17 @@ inline uint64_t type_hash_56bit(const std::array<uint8_t, 23>& hash) {
     return v;
 }
 
+// Extract first 8 bytes (64 bits) of type hash as uint64_t (big-endian).
+// Used as TypeUID — the runtime-visible identity carried by the
+// metaprog `Type` value-handle. Reverse lookup (uid → TypeRef) is
+// per-Program; antiquot reification reads this and recovers the
+// source TypeRef. Collision risk is 2^-64; link-time check parallels
+// the existing tag-dispatch design.
+inline uint64_t type_hash_64bit(const std::array<uint8_t, 23>& hash) {
+    uint64_t v = 0;
+    for (int i = 0; i < 8; ++i)
+        v = (v << 8) | hash[i];
+    return v;
+}
+
 } // namespace logos::compiler

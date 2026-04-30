@@ -30,5 +30,14 @@ unsafe fn main() -> i32 {
     if t[0].kind != (5 as u32) { return 88; } // bool
     if t[1].kind != (6 as u32) { return 89; } // u8
 
+    // uid — same bytes from any producer for the same type; distinct
+    // for distinct types; non-zero for ground types.
+    let i32_a: Type = type_of::<i32>();
+    let i32_b: Type = typelist_nth::<Pair<i32, bool>>(0);
+    let bool_x: Type = typelist_nth::<Pair<i32, bool>>(1);
+    if i32_a.uid != i32_b.uid { return 90; }
+    if i32_a.uid == bool_x.uid { return 91; }
+    if i32_a.uid == (0 as u64) { return 92; }
+
     return 0;
 }

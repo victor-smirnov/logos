@@ -601,6 +601,18 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 result->mirror_offset_ = lir_mirror_emit_lit_str(out_, result->type, s);
                 break;
             }
+            // type_of::<T>().uid — TypeUID = first 8 bytes of
+            // SHA-256(type_str(T)) as u64. Stable identity for
+            // quote_ty! reification (mono-time reverse lookup) and the
+            // shared byte source for Hermes schema_type_code / TagSystem.
+            if (nc.callee == "__type_uid_of__") {
+                uint64_t uid = 0;
+                if (!nc.type_args.empty() && nc.type_args[0])
+                    uid = type_hash_64bit(type_hash_23(type_str(nc.type_args[0])));
+                result->mirror_offset_ = lir_mirror_emit_lit_int(
+                    out_, result->type, (int64_t)uid);
+                break;
+            }
             // Type-trait predicates: mono evaluates after substitution. Each
             // returns a lit_bool of the answer for the concrete substituted T.
             {
@@ -776,11 +788,16 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 TypeRef slice_u8_t = out_.type_pool.alloc(std::move(sl_b));
                 LogosTypeBuilder i64_b; i64_b.kind = LogosType::Kind::I64;
                 TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
+                LogosTypeBuilder u64_b; u64_b.kind = LogosType::Kind::U64;
+                TypeRef u64_t = out_.type_pool.alloc(std::move(u64_b));
                 LirBuilder b(out_);
                 std::vector<std::pair<std::string, lir::LExprPtr>> f;
                 f.emplace_back("kind", b.lit_int((int64_t)ti.kind(), u32_t));
                 f.emplace_back("name", b.lit_str(type_str(ti), slice_u8_t));
                 f.emplace_back("size", b.size_of(ti, i64_t));
+                f.emplace_back("uid",  b.lit_int(
+                    (int64_t)type_hash_64bit(type_hash_23(type_str(ti))),
+                    u64_t));
                 auto sl = b.struct_lit("Type", std::move(f), type_t);
                 result->type = type_t;
                 result->mirror_offset_ = sl->mirror_offset_;
@@ -920,6 +937,8 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 TypeRef slice_u8_t = out_.type_pool.alloc(std::move(sl_b));
                 LogosTypeBuilder i64_b; i64_b.kind = LogosType::Kind::I64;
                 TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
+                LogosTypeBuilder u64_b; u64_b.kind = LogosType::Kind::U64;
+                TypeRef u64_t = out_.type_pool.alloc(std::move(u64_b));
                 LirBuilder b(out_);
                 std::vector<lir::LExprPtr> elems;
                 for (auto& ti : elem_types) {
@@ -930,6 +949,10 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         b.lit_str(type_str(ti), slice_u8_t));
                     f.emplace_back("size",
                         b.size_of(ti, i64_t));
+                    f.emplace_back("uid",
+                        b.lit_int(
+                            (int64_t)type_hash_64bit(type_hash_23(type_str(ti))),
+                            u64_t));
                     elems.push_back(b.struct_lit("Type", std::move(f), elem_t));
                 }
                 LogosTypeBuilder ab; ab.kind = LogosType::Kind::Array;

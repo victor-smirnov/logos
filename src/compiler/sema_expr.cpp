@@ -1553,11 +1553,16 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                                         std::move(nt_targs), {},
                                         make_slice_type(u8_t()));
         auto size_expr = builder().size_of(elem, prim(LogosType::Kind::I64));
+        std::vector<TypeRef> ut_targs; ut_targs.push_back(elem);
+        auto uid_call = builder().call("__type_uid_of__",
+                                       std::move(ut_targs), {},
+                                       prim(LogosType::Kind::U64));
         auto type_t = make_struct_type("Type");
         std::vector<std::pair<std::string, lir::LExprPtr>> fields;
         fields.emplace_back("kind", std::move(kind_call));
         fields.emplace_back("name", std::move(name_call));
         fields.emplace_back("size", std::move(size_expr));
+        fields.emplace_back("uid",  std::move(uid_call));
         return builder().struct_lit("Type", std::move(fields), type_t);
     }
 
@@ -6517,11 +6522,16 @@ lir::LExprPtr SemaChecker::lower_quote_ty(TinyMapView node) {
                                     std::move(nt_targs), {},
                                     make_slice_type(u8_t()));
     auto size_expr = builder().size_of(elem, prim(LogosType::Kind::I64));
+    std::vector<TypeRef> ut_targs; ut_targs.push_back(elem);
+    auto uid_call = builder().call("__type_uid_of__",
+                                   std::move(ut_targs), {},
+                                   prim(LogosType::Kind::U64));
     auto type_t = make_struct_type("Type");
     std::vector<std::pair<std::string, lir::LExprPtr>> fields;
     fields.emplace_back("kind", std::move(kind_call));
     fields.emplace_back("name", std::move(name_call));
     fields.emplace_back("size", std::move(size_expr));
+    fields.emplace_back("uid",  std::move(uid_call));
     return builder().struct_lit("Type", std::move(fields), type_t);
 }
 
