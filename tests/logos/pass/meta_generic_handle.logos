@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: Apache-2.0
+// generic_of::<X>() + apply_generic(g, [args]) — first-class GenericType
+// value-handle with programmatic application.
+
+package meta_generic_handle_probe;
+
+use std.compiler.metaprog;
+
+pub struct Pair<A, B> { pub a: A, pub b: B, }
+pub struct Trio<A, B, C> { pub a: A, pub b: B, pub c: C, }
+
+unsafe fn main() -> i32 {
+    let g = generic_of::<Pair>();
+    // kind == Kind::Generic == 37
+    if g.kind != (37 as u32) { return 1; }
+    // size carries arity (2 for Pair).
+    if g.size != (2 as i64) { return 2; }
+    // name is "Pair".
+    if g.name.len() != 4 { return 3; }
+    if g.name[0] != (80 as u8) { return 4; }   // 'P'
+    if g.name[3] != (114 as u8) { return 5; }  // 'r'
+
+    let ti = type_of::<i32>();
+    let tb = type_of::<bool>();
+    let t = apply_generic(g, [ti, tb]);
+    let direct = type_of::<Pair<i32, bool>>();
+    if t.uid != direct.uid { return 6; }
+
+    // Three-arg generic.
+    let g3 = generic_of::<Trio>();
+    if g3.size != (3 as i64) { return 7; }
+    let tu = type_of::<u8>();
+    let t3 = apply_generic(g3, [ti, tb, tu]);
+    let direct3 = type_of::<Trio<i32, bool, u8>>();
+    if t3.uid != direct3.uid { return 8; }
+
+    return 0;
+}

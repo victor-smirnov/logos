@@ -61,6 +61,7 @@ struct LogosType {
         ConstVar,                 // [NEW] symbolic constant parameter (Bug 13)
         FnPtr,                    // fn(T1, T2) -> R — bare function pointer (single ptr)
         TaggedPtr,                // &tagged<TS> Trait — thin tag-dispatched pointer (*const u8)
+        Generic,                  // unapplied generic constructor (value-handle only; no pool entry)
         Error                     // sentinel for ill-typed expressions
     };
 

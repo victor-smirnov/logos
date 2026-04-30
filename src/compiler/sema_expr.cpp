@@ -870,6 +870,17 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         rargs.push_back(std::move(arg_exprs[1]));
         return builder().call("__type_apply__", {}, std::move(rargs), type_t);
     }
+    if (callee == "apply_generic") {
+        if (n_args != 2) {
+            error("apply_generic(g: Type, args: [Type; N]) requires exactly 2 arguments");
+            return error_expr();
+        }
+        auto type_t = make_struct_type("Type");
+        std::vector<lir::LExprPtr> rargs;
+        rargs.push_back(std::move(arg_exprs[0]));
+        rargs.push_back(std::move(arg_exprs[1]));
+        return builder().call("__apply_generic__", {}, std::move(rargs), type_t);
+    }
 
     // Bitwise intrinsics on u64 — map to LLVM intrinsics in codegen.
     //   popcount_u64(x: u64)        -> u32   (llvm.ctpop)
@@ -1852,6 +1863,63 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         std::vector<TypeRef> targs; targs.push_back(elem);
         return builder().call(names ? "__field_names_of__" : "__field_types_of__",
                               std::move(targs), {}, arr_placeholder);
+    }
+
+    // generic_of::<X>() — returns a Type-shaped value-handle for the
+    // unapplied generic constructor X (struct or enum). kind=Generic,
+    // name=X, size=arity. UID = FNV-1a of "generic:X" (stable; mono mirrors
+    // it in __apply_generic__'s outputs of the same arity-error path).
+    if (callee == "generic_of") {
+        std::string sname;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                if (items.size() == 1) {
+                    auto item = map_of(items.get(0));
+                    auto ic = code_of(item);
+                    if ((ic == la::TYPE_REF.code || ic == la::GENERIC_INST.code) &&
+                        item.has_key(la::NAME))
+                        sname = std::string(str_of(item.get(la::NAME.code)));
+                }
+            }
+        }
+        if (sname.empty()) {
+            error("generic_of::<X>() requires a single bare struct/enum name");
+            return error_expr();
+        }
+        int64_t arity = -1;
+        if (cur_prog_) {
+            for (auto& sd : cur_prog_->structs)
+                if (sd.name == sname) { arity = (int64_t)sd.type_params.size(); break; }
+            if (arity < 0)
+                for (auto& ed : cur_prog_->enums)
+                    if (ed.name == sname) { arity = (int64_t)ed.type_params.size(); break; }
+        }
+        if (arity < 0) {
+            error("generic_of::<X>(): unknown struct/enum '" + sname + "'");
+            return error_expr();
+        }
+        uint64_t uid = 1469598103934665603ull; // FNV-1a basis
+        auto fnv_mix = [&](std::string_view sv) {
+            for (char c : sv) {
+                uid ^= (uint8_t)c;
+                uid *= 1099511628211ull;
+            }
+        };
+        fnv_mix("generic:");
+        fnv_mix(sname);
+        auto type_t = make_struct_type("Type");
+        std::vector<std::pair<std::string, lir::LExprPtr>> f;
+        f.emplace_back("kind", builder().lit_int(
+            (int64_t)LogosType::Kind::Generic, prim(LogosType::Kind::U32)));
+        f.emplace_back("name", builder().lit_str(
+            sname, make_slice_type(u8_t())));
+        f.emplace_back("size", builder().lit_int(
+            arity, prim(LogosType::Kind::I64)));
+        f.emplace_back("uid",  builder().lit_int(
+            (int64_t)uid, prim(LogosType::Kind::U64)));
+        return builder().struct_lit("Type", std::move(f), type_t);
     }
 
     // variant_count_of::<E>() / variant_names_of::<E>() /

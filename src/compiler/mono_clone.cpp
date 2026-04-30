@@ -1063,6 +1063,156 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 result->mirror_offset_ = sl->mirror_offset_;
                 break;
             }
+            // __apply_generic__(g: Type, args: [Type; N]) — instantiate
+            // generic constructor `g` (produced by generic_of) with `args`.
+            // Recovers the constructor name from g's StructLit "name" field
+            // (a LitStr), then routes through the same Struct allocation as
+            // __type_apply__.
+            if (nc.callee == "__apply_generic__") {
+                lir_view::ExprRef g_ref;
+                lir_view::ExprRef arr_ref;
+                size_t arg_idx = 0;
+                v.each_arg([&](lir_view::ExprRef ar) {
+                    if (arg_idx == 0) g_ref = ar;
+                    else if (arg_idx == 1) arr_ref = ar;
+                    ++arg_idx;
+                });
+                auto chase = [&](lir_view::ExprRef er) {
+                    for (int hops = 0; hops < 8 &&
+                         er &&
+                         er.kind() == lir_schema::expr::Code::VarRef; ++hops) {
+                        std::string vn(lir_view::EVarRefView{er}.name());
+                        auto it = type_let_inits_.find(vn);
+                        if (it == type_let_inits_.end()) break;
+                        er = it->second;
+                    }
+                    return er;
+                };
+                g_ref = chase(g_ref);
+                arr_ref = chase(arr_ref);
+                std::string tmpl_name;
+                if (g_ref && g_ref.kind() == lir_schema::expr::Code::StructLit) {
+                    lir_view::EStructLitView{g_ref}.each_field(
+                        [&](std::string_view fname,
+                            lir_view::ExprRef fer) {
+                            if (!tmpl_name.empty() || fname != "name") return;
+                            if (fer && fer.kind() ==
+                                      lir_schema::expr::Code::LitStr) {
+                                tmpl_name = std::string(
+                                    lir_view::ELitStrView{fer}.value());
+                                if (tmpl_name.size() >= 2 &&
+                                    tmpl_name.front() == '"' &&
+                                    tmpl_name.back() == '"')
+                                    tmpl_name = tmpl_name.substr(
+                                        1, tmpl_name.size() - 2);
+                            }
+                        });
+                }
+                if (tmpl_name.empty()) {
+                    std::fprintf(stderr,
+                        "mono.__apply_generic__: g must be a generic_of value\n");
+                    std::abort();
+                }
+                if (!arr_ref || arr_ref.kind() !=
+                        lir_schema::expr::Code::ArrLit) {
+                    std::fprintf(stderr,
+                        "mono.__apply_generic__: args must be an array literal\n");
+                    std::abort();
+                }
+                auto recover = [&](lir_view::ExprRef er) -> TypeRef {
+                    er = chase(er);
+                    if (!er) return {};
+                    if (er.kind() == lir_schema::expr::Code::Call) {
+                        lir_view::ECallView cv{er};
+                        auto cn = cv.callee();
+                        if (cn == "__typelist_nth__" ||
+                            cn == "__typelist_head__") {
+                            auto tas = cv.type_args(out_.type_pool.impl());
+                            if (tas.empty()) return {};
+                            TypeRef L = subst_type(tas[0], s);
+                            auto pack = L.type_args();
+                            int64_t idx = 0;
+                            if (cn == "__typelist_nth__") {
+                                bool got = false;
+                                cv.each_arg([&](lir_view::ExprRef ar2) {
+                                    if (got) return;
+                                    if (ar2 && ar2.kind() ==
+                                              lir_schema::expr::Code::LitInt) {
+                                        idx = lir_view::ELitIntView{ar2}.value();
+                                        got = true;
+                                    }
+                                });
+                            }
+                            if (idx < 0 || (size_t)idx >= pack.size())
+                                return {};
+                            return pack[idx];
+                        }
+                    }
+                    if (er.kind() == lir_schema::expr::Code::StructLit) {
+                        TypeRef found{};
+                        lir_view::EStructLitView{er}.each_field(
+                            [&](std::string_view fname,
+                                lir_view::ExprRef fer) {
+                                if (found || fname != "uid") return;
+                                if (fer && fer.kind() ==
+                                          lir_schema::expr::Code::Call) {
+                                    lir_view::ECallView cv{fer};
+                                    if (cv.callee() == "__type_uid_of__") {
+                                        auto tas = cv.type_args(
+                                            out_.type_pool.impl());
+                                        if (!tas.empty())
+                                            found = subst_type(tas[0], s);
+                                    }
+                                }
+                            });
+                        return found;
+                    }
+                    return {};
+                };
+                std::vector<TypeRef> targs;
+                lir_view::EArrLitView av{arr_ref};
+                uint64_t cnt = av.count();
+                for (uint64_t i = 0; i < cnt; ++i) {
+                    TypeRef ti = recover(av.elem(i));
+                    if (!ti) {
+                        std::fprintf(stderr,
+                            "mono.__apply_generic__: arg[%llu] not a "
+                            "Type producer\n", (unsigned long long)i);
+                        std::abort();
+                    }
+                    targs.push_back(ti);
+                }
+                LogosTypeBuilder sb;
+                sb.kind = LogosType::Kind::Struct;
+                sb.struct_name = tmpl_name;
+                sb.type_args = targs;
+                TypeRef inst_t = out_.type_pool.alloc(std::move(sb));
+                collect_type_for_structs(inst_t);
+                uint64_t uid = type_hash_64bit(type_hash_23(type_str(inst_t)));
+                uid_to_type_[uid] = inst_t;
+                TypeRef type_t = result->type;
+                LogosTypeBuilder u32_b; u32_b.kind = LogosType::Kind::U32;
+                TypeRef u32_t = out_.type_pool.alloc(std::move(u32_b));
+                LogosTypeBuilder u8_b;  u8_b.kind  = LogosType::Kind::U8;
+                TypeRef u8_t  = out_.type_pool.alloc(std::move(u8_b));
+                LogosTypeBuilder sl_b;  sl_b.kind  = LogosType::Kind::Slice;
+                sl_b.elem = u8_t;
+                TypeRef slice_u8_t = out_.type_pool.alloc(std::move(sl_b));
+                LogosTypeBuilder i64_b; i64_b.kind = LogosType::Kind::I64;
+                TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
+                LogosTypeBuilder u64_b; u64_b.kind = LogosType::Kind::U64;
+                TypeRef u64_t = out_.type_pool.alloc(std::move(u64_b));
+                LirBuilder b(out_);
+                std::vector<std::pair<std::string, lir::LExprPtr>> f;
+                f.emplace_back("kind", b.lit_int((int64_t)inst_t.kind(), u32_t));
+                f.emplace_back("name", b.lit_str(type_str(inst_t), slice_u8_t));
+                f.emplace_back("size", b.size_of(inst_t, i64_t));
+                f.emplace_back("uid",  b.lit_int((int64_t)uid, u64_t));
+                auto sl = b.struct_lit("Type", std::move(f), type_t);
+                result->type = type_t;
+                result->mirror_offset_ = sl->mirror_offset_;
+                break;
+            }
             // __tuple_type_apply__([Type; N]) and __array_type_apply__(Type, N) —
             // tuple/array sibling forms of __type_apply__, used by quote_ty!
             // antiquot lowering for `($t1, ...)` and `[$t; N]` shapes.
