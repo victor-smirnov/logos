@@ -1578,10 +1578,12 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         auto name_call = builder().call("__type_name_of__",
                                         std::move(nt_targs), {},
                                         make_slice_type(u8_t()));
+        auto size_expr = builder().size_of(elem, prim(LogosType::Kind::I64));
         auto type_t = make_struct_type("Type");
         std::vector<std::pair<std::string, lir::LExprPtr>> fields;
         fields.emplace_back("kind", std::move(kind_call));
         fields.emplace_back("name", std::move(name_call));
+        fields.emplace_back("size", std::move(size_expr));
         return builder().struct_lit("Type", std::move(fields), type_t);
     }
 

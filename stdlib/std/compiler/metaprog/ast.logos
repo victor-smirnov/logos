@@ -51,6 +51,9 @@ pub struct Type {
     // yet); generic instantiations — "Vec<i32>". Slice 1 surface; later
     // slices will add structured access (`args`, `fields`, full path).
     pub name: &[u8],
+    // Byte size of T, computed at mono via the existing `size_of` LIR leaf
+    // (codegen-folded to LLVM data layout). 0 for zero-sized types.
+    pub size: i64,
 }
 
 // `TypeList<T...>` — A-layer pack-carrier (zero-sized).  Slice 2 of the

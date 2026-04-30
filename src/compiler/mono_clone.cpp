@@ -615,6 +615,8 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 LogosTypeBuilder sl_b;  sl_b.kind  = LogosType::Kind::Slice;
                 sl_b.elem = u8_t;
                 TypeRef slice_u8_t = out_.type_pool.alloc(std::move(sl_b));
+                LogosTypeBuilder i64_b; i64_b.kind = LogosType::Kind::I64;
+                TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
                 LirBuilder b(out_);
                 std::vector<lir::LExprPtr> elems;
                 for (auto& ti : elem_types) {
@@ -623,6 +625,8 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         b.lit_int((int64_t)ti.kind(), u32_t));
                     f.emplace_back("name",
                         b.lit_str(type_str(ti), slice_u8_t));
+                    f.emplace_back("size",
+                        b.size_of(ti, i64_t));
                     elems.push_back(b.struct_lit("Type", std::move(f), elem_t));
                 }
                 LogosTypeBuilder ab; ab.kind = LogosType::Kind::Array;
