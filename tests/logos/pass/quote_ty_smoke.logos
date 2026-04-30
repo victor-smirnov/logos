@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: Apache-2.0
+// Slice 1 of quote_ty! epic — MVP no-antiquot form parses a type
+// expression and lowers to the same Type value as type_of::<T>().
+
+package quote_ty_smoke_probe;
+
+use std.compiler.metaprog;
+
+pub struct Box { pub x: i32, pub y: i32, }
+
+unsafe fn main() -> i32 {
+    let ti: Type = quote_ty! { i32 };
+    if !ti.is_integer() { return 71; }
+    if  ti.is_struct()  { return 72; }
+    if ti.size != (4 as i64) { return 73; }
+
+    let tb: Type = quote_ty! { Box };
+    if !tb.is_struct() { return 74; }
+    if tb.size != (8 as i64) { return 75; }
+
+    // Multi-token type expr inside the braces (slice).
+    let ts: Type = quote_ty! { &[u8] };
+    if ts.size <= (0 as i64) { return 76; }
+
+    // Equivalence with type_of::<T>().
+    let to: Type = type_of::<Box>();
+    if to.size != tb.size { return 77; }
+    if to.kind != tb.kind { return 78; }
+
+    return 0;
+}

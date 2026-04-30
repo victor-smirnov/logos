@@ -164,6 +164,7 @@ inline constexpr Code DEREF_WRITE       {"DEREF_WRITE",       115}; // *ptr = va
 inline constexpr Key IS_VARIADIC  {"IS_VARIADIC",  32};    // variadic type param / param flag
 inline constexpr Code PACK_EXPAND {"PACK_EXPAND", 117};    // args... pack expansion
 inline constexpr Code SIZEOF_PACK {"SIZEOF_PACK", 203};    // sizeof...(T) — pack length as u64
+inline constexpr Code QUOTE_TY    {"QUOTE_TY",    204};    // Slice 1 of quote_ty epic: `quote_ty! { type }`. TYPE = inner type AST; sema lowers to a Type{kind,name,size} struct literal.
 
 // Dynamic dispatch
 inline constexpr Code IMPL_TYPE   {"IMPL_TYPE",   116};    // impl Trait type

@@ -247,6 +247,7 @@
     QUOTE_EXPR                  = 201   // quote_expr! { expr } — typed AST literal; VALUE = expr node (root carries schema_type_code)
     REPEAT_GROUP                = 202   // #(body)sep* inside quote_*! body; VALUE=body expr, OP=sep code (0=none, 1=comma, 2=&&)
     SIZEOF_PACK                 = 203   // sizeof...(T) — value-position expression yielding pack length as u64; NAME = pack ident
+    QUOTE_TY                    = 204   // quote_ty! { type } — typed Type literal; TYPE = inner type AST
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -255,6 +256,7 @@
     KW_CONTINUE = "continue"
     KW_QUOTE_ITEM = "quote_item"
     KW_QUOTE_EXPR = "quote_expr"
+    KW_QUOTE_TY   = "quote_ty"
     KW_TEMPLATE = "template"
     KW_PACKAGE  = "package"
     KW_EIDOS = "eidos"
@@ -1328,6 +1330,7 @@
                                      => { CODE: SIZEOF_PACK, OP: $1, NAME: $4 }
                   / quote_item_expr
                   / quote_expr_expr
+                  / quote_ty_expr
 
                   / call_expr        // IDENT(args) / Type::method(args) — before enum_lit/IDENT
                   / enum_lit         // IDENT::VARIANT     — after call_expr (no parens)
@@ -1506,6 +1509,14 @@
     // ExprBlob value. Splices via metacall, like ExprBlob returns.
     quote_expr_expr <- KW_QUOTE_EXPR BANG LBRACE expr RBRACE
                    => { CODE: QUOTE_EXPR, VALUE: $4 }
+
+    // ── quote_ty! { type } — typed Type literal (Slice 1 of quote_ty epic) ──
+    // MVP: body is a single type expression; sema resolves it to a TypeRef
+    // and emits the same Type{kind, name, size} struct literal that
+    // type_of::<T>() produces. Future slices add `$t` antiquotation and
+    // pack-splice `$ts...` for runtime-composed type values.
+    quote_ty_expr <- KW_QUOTE_TY BANG LBRACE type_ref RBRACE
+                  => { CODE: QUOTE_TY, TYPE: $4 }
 
     // ── Type parameter list: <T, U: Bound1 + Bound2> ─────────────
     // Also used for specialisation patterns: <i32>, <*T>, <[T; 4]>, etc.

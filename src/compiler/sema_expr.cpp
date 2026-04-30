@@ -419,6 +419,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::HERMES_BLOB:  return lower_hermes_blob(expr);
     case la::QUOTE_ITEM:   return lower_quote_item(expr);
     case la::QUOTE_EXPR:   return lower_quote_expr(expr);
+    case la::QUOTE_TY:     return lower_quote_ty(expr);
     // C1 bug fix: $-capture nodes must not appear as standalone expressions;
     // they are only valid inside hermes_val (within lower_hermes_val).
     case la::HERMES_CAP_IDENT:
@@ -6307,6 +6308,37 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
 //   `logos_quote_expr_subst(template, idents, n)` which substitutes
 //   NAME_VAR(idx) → NAME(ident.name), re-roots to the inner expr, and
 //   returns a freshly-malloc'd HermesStatic-shaped ExprBlob ptr.
+// QUOTE_TY — `quote_ty! { type }`. Slice 1 of the quote_ty epic.
+// MVP without antiquotation: parse the inner type expression, resolve
+// to a TypeRef, and emit the same Type{kind,name,size} struct literal
+// as `type_of::<T>()`. Future slices add `$t` runtime composition.
+lir::LExprPtr SemaChecker::lower_quote_ty(TinyMapView node) {
+    if (!node.has_key(la::TYPE)) {
+        error("quote_ty!: missing TYPE");
+        return error_expr();
+    }
+    TypeRef elem = resolve_type(map_of(node.get(la::TYPE.code)));
+    if (!elem) {
+        error("quote_ty!: failed to resolve inner type");
+        return error_expr();
+    }
+    std::vector<TypeRef> kt_targs; kt_targs.push_back(elem);
+    auto kind_call = builder().call("__type_kind_of__",
+                                    std::move(kt_targs), {},
+                                    prim(LogosType::Kind::U32));
+    std::vector<TypeRef> nt_targs; nt_targs.push_back(elem);
+    auto name_call = builder().call("__type_name_of__",
+                                    std::move(nt_targs), {},
+                                    make_slice_type(u8_t()));
+    auto size_expr = builder().size_of(elem, prim(LogosType::Kind::I64));
+    auto type_t = make_struct_type("Type");
+    std::vector<std::pair<std::string, lir::LExprPtr>> fields;
+    fields.emplace_back("kind", std::move(kind_call));
+    fields.emplace_back("name", std::move(name_call));
+    fields.emplace_back("size", std::move(size_expr));
+    return builder().struct_lit("Type", std::move(fields), type_t);
+}
+
 lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
     using logos::hermes::HermesAccess;
     using logos::hermes::ObjectArray;
