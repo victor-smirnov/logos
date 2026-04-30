@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Smoke-test for the `[T; sizeof...(P)]` admission in `arr_type` — used
+// at parameter position. Sema lowers the size to
+// `arr_size_var = "__sizeof_pack:T"` and mono substitutes the literal
+// length once the call is monomorphised. Primitive elem keeps this
+// orthogonal to the inline-struct array layout.
+
+package main;
+
+fn first<T...>(xs: [i32; sizeof...(T)]) -> i32 {
+    return xs[0];
+}
+
+unsafe fn main() -> i32 {
+    let r: i32 = first::<i32, i64, u8>([42, 7, 9]);
+    if r != 42 { return 1; }
+    return 0;
+}

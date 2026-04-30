@@ -1,20 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
-// Smoke-test for the `[T; sizeof...(P)]` admission in `arr_type`:
-// sema lowers the size to `arr_size_var = "__sizeof_pack:T"` and mono
-// substitutes the literal length once the pack expands. We avoid the
-// Type-array-of-pointers escape pattern by using a primitive element
-// type so the array travels by value.
+// `transform<T...>(f) -> [Type; sizeof...(T)]` — map a value-level
+// fn(Type)->Type over a type pack. Pairs `arr_type`'s sizeof_pack
+// admission with the inline `[Struct; N]` layout flip — without either,
+// the producer either can't be written or returns dangling pointers.
 
-package main;
+package meta_transform_probe;
 
-// Param type carries `[i32; sizeof...(T)]` — sema must accept the syntax,
-// mono must rewrite the size to 3 once the call is monomorphised.
-fn first<T...>(xs: [i32; sizeof...(T)]) -> i32 {
-    return xs[0];
-}
+use std.compiler.metaprog;
+
+// Identity: result must mirror the input pack.
+fn id_ty(t: Type) -> Type { return t; }
+
+// Constant: collapse every element to the same Type.
+fn to_bool(_t: Type) -> Type { return type_of::<bool>(); }
 
 unsafe fn main() -> i32 {
-    let r: i32 = first::<i32, i64, u8>([42, 7, 9]);
-    if r != 42 { return 1; }
+    let xs: [Type; 3] = transform::<i32, i64, u8>(id_ty);
+    if xs[0].kind != (1 as u32) { return 1; }   // i32  = kind 1
+    if xs[1].kind != (2 as u32) { return 2; }   // i64  = kind 2
+    if xs[2].kind != (6 as u32) { return 3; }   // u8   = kind 6
+
+    let ys: [Type; 2] = transform::<i32, u8>(to_bool);
+    if ys[0].kind != (5 as u32) { return 4; }   // bool = kind 5
+    if ys[1].kind != (5 as u32) { return 5; }
+
+    // Singleton pack.
+    let z: [Type; 1] = transform::<i64>(id_ty);
+    if z[0].kind != (2 as u32) { return 6; }
+
     return 0;
 }

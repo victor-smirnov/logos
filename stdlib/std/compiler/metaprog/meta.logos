@@ -104,10 +104,25 @@ pub fn head<T...>() -> Type {
 // over a pack" style metafunctions — e.g. picking a wider numeric
 // kind, or combining tag bits.
 //
-// Sibling producers `transform<T...> -> [Type; N]` and
-// `filter<T...> -> [Type; N']` would return Type-arrays whose length
-// depends on the input pack (or its filter result); those need const
-// generics for the result-length parameter and remain pending.
+// Map `f` over the pack and return the resulting `[Type; sizeof...(T)]`
+// array. The result-length parameter rides on the `sizeof...(T)` size
+// form admitted by `arr_type` (see memory feat_arr_type_sizeof_pack_gap),
+// so each instantiation gets a concrete-length array. Pairs naturally
+// with `type_refs_of` and the per-pack-element folds below.
+pub fn transform<T...>(f: fn(Type) -> Type) -> [Type; sizeof...(T)] {
+    let mut arr: [Type; sizeof...(T)] = type_refs_of::<T...>();
+    let n: i64 = sizeof...(T) as i64;
+    let mut i: i64 = 0;
+    while i < n {
+        arr[i] = f(arr[i]);
+        i = i + (1 as i64);
+    }
+    return arr;
+}
+
+// `filter<T...>` would also return a Type-array but its length depends
+// on the predicate's runtime result; that needs const generics for the
+// result-length parameter and remains pending.
 pub fn fold_to_type<T...>(init: Type, f: fn(Type, Type) -> Type) -> Type {
     let arr = type_refs_of::<T...>();
     let n: i64 = sizeof...(T) as i64;
