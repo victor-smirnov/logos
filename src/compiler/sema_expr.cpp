@@ -1648,6 +1648,72 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                               prim(LogosType::Kind::Bool));
     }
 
+    // typelist_len::<L>() / typelist_head::<L>() / typelist_nth::<L>(i)
+    // / typelist_tail::<L>() — O(1) probes over `L`'s type-pack
+    // `L.type_args()` (typically `L = TypeList<T...>`, but works on any
+    // generic type). Mono substitutes after L is concrete.
+    //   len   → i64
+    //   head  → Type     (compile-error if pack is empty)
+    //   nth   → Type     (i must be a constant integer; out-of-range = error)
+    //   tail  → [Type;N-1]
+    if (callee == "typelist_len" || callee == "typelist_head" ||
+        callee == "typelist_nth" || callee == "typelist_tail") {
+        TypeRef elem = nullptr;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                if (items.size() == 1)
+                    elem = resolve_type(map_of(items.get(0)));
+            }
+        }
+        if (!elem) {
+            error(std::string(callee) + "::<L>() requires exactly one type argument");
+            return error_expr();
+        }
+        std::vector<TypeRef> targs; targs.push_back(elem);
+        if (callee == "typelist_len") {
+            return builder().call("__typelist_len__",
+                                  std::move(targs), {}, prim(LogosType::Kind::I64));
+        }
+        if (callee == "typelist_head") {
+            auto type_t = make_struct_type("Type");
+            return builder().call("__typelist_head__",
+                                  std::move(targs), {}, type_t);
+        }
+        if (callee == "typelist_nth") {
+            std::vector<lir::LExprPtr> rargs;
+            size_t n_args = 0;
+            if (node.has_key(la::ARGS)) {
+                AnyVal av = node.get(la::ARGS.code);
+                if (!av.is_null()) {
+                    auto args_list = map_of(av);
+                    if (args_list.has_key(la::ITEMS)) {
+                        auto items = arr_of(args_list.get(la::ITEMS.code));
+                        n_args = items.size();
+                        for (uint64_t i = 0; i < items.size(); ++i)
+                            rargs.push_back(lower_expr(map_of(items.get(i))));
+                    }
+                }
+            }
+            if (n_args != 1) {
+                error("typelist_nth::<L>(i) requires exactly one i64 index argument");
+                return error_expr();
+            }
+            auto type_t = make_struct_type("Type");
+            return builder().call("__typelist_nth__",
+                                  std::move(targs), std::move(rargs), type_t);
+        }
+        // typelist_tail
+        auto type_t = make_struct_type("Type");
+        LogosTypeBuilder arr_b; arr_b.kind = LogosType::Kind::Array;
+        arr_b.elem = type_t;
+        arr_b.arr_size = 0;  // mono retypes once L is concrete
+        TypeRef arr_placeholder = pool_->alloc(std::move(arr_b));
+        return builder().call("__typelist_tail__",
+                              std::move(targs), {}, arr_placeholder);
+    }
+
     // tuple_count_of::<T>() — number of elements in tuple T (0 for non-tuple).
     if (callee == "tuple_count_of") {
         TypeRef elem = nullptr;

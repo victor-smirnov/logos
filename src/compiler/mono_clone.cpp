@@ -716,6 +716,76 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                     lir_mirror_emit_lit_bool(out_, bool_t, answer);
                 break;
             }
+            // typelist_len::<L>() — emit lit_int(N) where N = L.type_args().
+            // O(1) probe; the typelevel-pack equivalent of args_count_of (the
+            // canonical use case is L = TypeList<T...>).
+            if (nc.callee == "__typelist_len__") {
+                int64_t n = 0;
+                if (!nc.type_args.empty())
+                    n = (int64_t)nc.type_args[0].type_args().size();
+                LirBuilder b(out_);
+                LogosTypeBuilder i64_b; i64_b.kind = LogosType::Kind::I64;
+                TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
+                auto lit = b.lit_int(n, i64_t);
+                result->type = i64_t;
+                result->mirror_offset_ = lit->mirror_offset_;
+                break;
+            }
+            // typelist_head::<L>() / typelist_nth::<L>(i) — emit a single
+            // `Type { kind, name, size }` struct lit for L's pack element.
+            // Empty pack / out-of-range index → fatal compile error.
+            if (nc.callee == "__typelist_head__" ||
+                nc.callee == "__typelist_nth__") {
+                if (nc.type_args.empty()) {
+                    std::fprintf(stderr,
+                        "mono.%s: missing type argument\n", nc.callee.c_str());
+                    std::abort();
+                }
+                auto pack = nc.type_args[0].type_args();
+                int64_t idx = 0;
+                if (nc.callee == "__typelist_nth__") {
+                    bool got = false;
+                    v.each_arg([&](lir_view::ExprRef ar) {
+                        if (got) return;
+                        if (ar && ar.kind() == lir_schema::expr::Code::LitInt) {
+                            idx = lir_view::ELitIntView{ar}.value();
+                            got = true;
+                        }
+                    });
+                    if (!got) {
+                        std::fprintf(stderr,
+                            "mono.__typelist_nth__: index must be a literal int\n");
+                        std::abort();
+                    }
+                }
+                if (idx < 0 || (size_t)idx >= pack.size()) {
+                    std::fprintf(stderr,
+                        "mono.%s: index %lld out of range (pack size %zu)\n",
+                        nc.callee.c_str(),
+                        (long long)idx, pack.size());
+                    std::abort();
+                }
+                TypeRef ti = pack[idx];
+                TypeRef type_t = result->type;  // sema set this to struct Type
+                LogosTypeBuilder u32_b; u32_b.kind = LogosType::Kind::U32;
+                TypeRef u32_t = out_.type_pool.alloc(std::move(u32_b));
+                LogosTypeBuilder u8_b;  u8_b.kind  = LogosType::Kind::U8;
+                TypeRef u8_t  = out_.type_pool.alloc(std::move(u8_b));
+                LogosTypeBuilder sl_b;  sl_b.kind  = LogosType::Kind::Slice;
+                sl_b.elem = u8_t;
+                TypeRef slice_u8_t = out_.type_pool.alloc(std::move(sl_b));
+                LogosTypeBuilder i64_b; i64_b.kind = LogosType::Kind::I64;
+                TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
+                LirBuilder b(out_);
+                std::vector<std::pair<std::string, lir::LExprPtr>> f;
+                f.emplace_back("kind", b.lit_int((int64_t)ti.kind(), u32_t));
+                f.emplace_back("name", b.lit_str(type_str(ti), slice_u8_t));
+                f.emplace_back("size", b.size_of(ti, i64_t));
+                auto sl = b.struct_lit("Type", std::move(f), type_t);
+                result->type = type_t;
+                result->mirror_offset_ = sl->mirror_offset_;
+                break;
+            }
             // tuple_count_of::<T>() — emit lit_int N for tuple T, 0 otherwise.
             if (nc.callee == "__tuple_count_of__") {
                 int64_t n = 0;
@@ -795,12 +865,19 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             if (nc.callee == "__args_of__" ||
                 nc.callee == "__type_refs_of__" ||
                 nc.callee == "__tuple_elems_of__" ||
+                nc.callee == "__typelist_tail__" ||
                 nc.callee == "__field_types_of__") {
                 std::vector<TypeRef> elem_types;
                 if (nc.callee == "__args_of__") {
                     if (!nc.type_args.empty())
                         for (auto a : nc.type_args[0].type_args())
                             elem_types.push_back(a);
+                } else if (nc.callee == "__typelist_tail__") {
+                    if (!nc.type_args.empty()) {
+                        auto pack = nc.type_args[0].type_args();
+                        for (size_t i = 1; i < pack.size(); ++i)
+                            elem_types.push_back(pack[i]);
+                    }
                 } else if (nc.callee == "__tuple_elems_of__") {
                     if (!nc.type_args.empty()) {
                         TypeRef T = nc.type_args[0];

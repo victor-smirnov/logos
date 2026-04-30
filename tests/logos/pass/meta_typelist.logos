@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: Apache-2.0
+// typelist_len/head/nth/tail — O(1) probes over `L.type_args()`.
+
+package meta_typelist_probe;
+
+use std.compiler.metaprog;
+
+pub struct Pair<A, B> { pub a: A, pub b: B, }
+pub struct Triple<A, B, C> { pub a: A, pub b: B, pub c: C, }
+
+unsafe fn main() -> i32 {
+    // length over a typelist-like generic and a non-generic.
+    if typelist_len::<Pair<i32, bool>>()       != (2 as i64) { return 81; }
+    if typelist_len::<Triple<i32, bool, u8>>() != (3 as i64) { return 82; }
+    if typelist_len::<i32>()                   != (0 as i64) { return 83; }
+
+    // head / nth — Type.kind
+    let h: Type = typelist_head::<Pair<i32, bool>>();
+    if h.kind != (1 as u32) { return 84; }   // i32 = kind 1
+
+    let n0: Type = typelist_nth::<Triple<i32, bool, u8>>(0);
+    let n1: Type = typelist_nth::<Triple<i32, bool, u8>>(1);
+    let n2: Type = typelist_nth::<Triple<i32, bool, u8>>(2);
+    if n0.kind != (1 as u32) { return 85; }  // i32
+    if n1.kind != (5 as u32) { return 86; }  // bool
+    if n2.kind != (6 as u32) { return 87; }  // u8
+
+    // tail — array of remaining Types
+    let t = typelist_tail::<Triple<i32, bool, u8>>();
+    if t[0].kind != (5 as u32) { return 88; } // bool
+    if t[1].kind != (6 as u32) { return 89; } // u8
+
+    return 0;
+}
