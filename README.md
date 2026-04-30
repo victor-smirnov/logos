@@ -7,7 +7,7 @@ Logos is a compiled, statically-typed systems programming language with its own 
 - A compiled language (`.logos`) with ownership/borrowing, traits, generics, monomorphization, and pattern matching.
 - A native compiler pipeline (`logosc`) covering parse, sema, borrow checking, monomorphization, MLIR generation, and LLVM lowering.
 - A standard library (`stdlib/`) including a first-class **Hermes** integration — a relocatable, schema-aware, tagged data substrate.
-- A large executable test suite (~660 passing tests, ~245 diagnostic tests) that gates merges.
+- A large executable test suite (~800 passing tests, ~165 diagnostic tests) that gates merges.
 
 ## Relationship to Rust
 
