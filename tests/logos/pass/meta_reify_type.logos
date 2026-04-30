@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: Apache-2.0
+// reify_type(t: Type) -> Type — mono-time uid → TypeRef round-trip.
+// MP2 plumbing for quote_ty! antiquot reification.
+
+package meta_reify_type_probe;
+
+use std.compiler.metaprog;
+
+pub struct Pair<A, B> { pub a: A, pub b: B, }
+
+unsafe fn main() -> i32 {
+    // Direct producer: type_of::<T>().
+    let r1 = reify_type(type_of::<i32>());
+    if r1.kind != (1 as u32) { return 91; }
+
+    let r2 = reify_type(type_of::<bool>());
+    if r2.kind != (5 as u32) { return 92; }
+
+    // Direct producer: typelist_nth — exercises the array-emit path.
+    let r3 = reify_type(typelist_nth::<Pair<i32, bool>>(1));
+    if r3.kind != (5 as u32) { return 93; }   // bool
+
+    // Round-trip preserves uid.
+    let t  = type_of::<i32>();
+    let r  = reify_type(type_of::<i32>());
+    if r.uid != t.uid { return 94; }
+
+    // Distinct types reify to distinct kinds.
+    let ri = reify_type(type_of::<i32>());
+    let rb = reify_type(type_of::<bool>());
+    if ri.uid == rb.uid { return 95; }
+
+    return 0;
+}

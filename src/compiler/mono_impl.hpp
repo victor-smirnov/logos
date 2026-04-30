@@ -121,6 +121,12 @@ private:
     // verify a concrete type satisfies the bound.
     StrSet concrete_impls_;
 
+    // Reverse uid → TypeRef table populated when a metaprog `Type` value
+    // is emitted. Drives `reify_type` and (later) `quote_ty!` antiquot
+    // reification: read the uid out of a const-folded `Type` struct lit,
+    // recover the source TypeRef from this map.
+    std::unordered_map<uint64_t, TypeRef> uid_to_type_;
+
     struct WorkItem {
         std::string                mangled;
         const lir::LFunction*      tmpl;

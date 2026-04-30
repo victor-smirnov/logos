@@ -835,6 +835,23 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         return builder().call_v(std::move(ec), str_t);
     }
 
+    // reify_type(t: Type) -> Type — mono-time round-trip via the
+    // uid → TypeRef reverse table. The arg must be a direct producer
+    // expression (struct lit, type_of/typelist_*/args_of/...). Mono's
+    // intercept substitutes the arg, walks to its `uid` field, looks
+    // up the source TypeRef, and emits a fresh `Type` struct lit for
+    // it. Building block for `quote_ty!` antiquot reification (MP3+).
+    if (callee == "reify_type") {
+        if (n_args != 1) {
+            error("reify_type(t: Type) requires exactly one argument");
+            return error_expr();
+        }
+        auto type_t = make_struct_type("Type");
+        std::vector<lir::LExprPtr> rargs;
+        rargs.push_back(std::move(arg_exprs[0]));
+        return builder().call("__reify_type__", {}, std::move(rargs), type_t);
+    }
+
     // Bitwise intrinsics on u64 — map to LLVM intrinsics in codegen.
     //   popcount_u64(x: u64)        -> u32   (llvm.ctpop)
     //   leading_zeros_u64(x: u64)   -> u32   (llvm.ctlz,  is_zero_poison=false)

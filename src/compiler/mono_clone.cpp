@@ -607,8 +607,10 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             // shared byte source for Hermes schema_type_code / TagSystem.
             if (nc.callee == "__type_uid_of__") {
                 uint64_t uid = 0;
-                if (!nc.type_args.empty() && nc.type_args[0])
+                if (!nc.type_args.empty() && nc.type_args[0]) {
                     uid = type_hash_64bit(type_hash_23(type_str(nc.type_args[0])));
+                    uid_to_type_[uid] = nc.type_args[0];
+                }
                 result->mirror_offset_ = lir_mirror_emit_lit_int(
                     out_, result->type, (int64_t)uid);
                 break;
@@ -795,9 +797,103 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 f.emplace_back("kind", b.lit_int((int64_t)ti.kind(), u32_t));
                 f.emplace_back("name", b.lit_str(type_str(ti), slice_u8_t));
                 f.emplace_back("size", b.size_of(ti, i64_t));
-                f.emplace_back("uid",  b.lit_int(
-                    (int64_t)type_hash_64bit(type_hash_23(type_str(ti))),
-                    u64_t));
+                {
+                    uint64_t uid = type_hash_64bit(type_hash_23(type_str(ti)));
+                    uid_to_type_[uid] = ti;
+                    f.emplace_back("uid", b.lit_int((int64_t)uid, u64_t));
+                }
+                auto sl = b.struct_lit("Type", std::move(f), type_t);
+                result->type = type_t;
+                result->mirror_offset_ = sl->mirror_offset_;
+                break;
+            }
+            // reify_type(t: Type) -> Type — recover source TypeRef from
+            // a direct producer expression and emit a fresh `Type`
+            // struct lit. MVP shapes (no let indirection):
+            //   1. struct_lit("Type", ...) where the "uid" field is
+            //      a `__type_uid_of__::<T>()` call (sema producers like
+            //      `type_of`, `quote_ty!`). Pull T from type_args, subst.
+            //   2. Call to a mono-emitting Type producer
+            //      (`__typelist_head__`, `__typelist_nth__`,
+            //      `__args_of__`...) — defer; flag as unsupported for now.
+            if (nc.callee == "__reify_type__") {
+                TypeRef ti{};
+                lir_view::ExprRef arg_ref;
+                v.each_arg([&](lir_view::ExprRef ar) {
+                    if (!arg_ref) arg_ref = ar;
+                });
+                if (!arg_ref) {
+                    std::fprintf(stderr,
+                        "mono.__reify_type__: missing argument\n");
+                    std::abort();
+                }
+                if (arg_ref.kind() == lir_schema::expr::Code::Call) {
+                    lir_view::ECallView cv{arg_ref};
+                    auto cn = cv.callee();
+                    if (cn == "__typelist_nth__" || cn == "__typelist_head__") {
+                        auto tas = cv.type_args(out_.type_pool.impl());
+                        if (!tas.empty()) {
+                            TypeRef L = subst_type(tas[0], s);
+                            auto pack = L.type_args();
+                            int64_t idx = 0;
+                            if (cn == "__typelist_nth__") {
+                                bool got = false;
+                                cv.each_arg([&](lir_view::ExprRef ar) {
+                                    if (got) return;
+                                    if (ar && ar.kind() ==
+                                              lir_schema::expr::Code::LitInt) {
+                                        idx = lir_view::ELitIntView{ar}.value();
+                                        got = true;
+                                    }
+                                });
+                            }
+                            if (idx >= 0 && (size_t)idx < pack.size())
+                                ti = pack[idx];
+                        }
+                    }
+                }
+                if (arg_ref.kind() == lir_schema::expr::Code::StructLit) {
+                    lir_view::EStructLitView{arg_ref}.each_field(
+                        [&](std::string_view fname, lir_view::ExprRef fer) {
+                            if (ti || fname != "uid") return;
+                            if (fer &&
+                                fer.kind() == lir_schema::expr::Code::Call) {
+                                lir_view::ECallView cv{fer};
+                                if (cv.callee() == "__type_uid_of__") {
+                                    auto tas = cv.type_args(out_.type_pool.impl());
+                                    if (tas.size() >= 1)
+                                        ti = subst_type(tas[0], s);
+                                }
+                            }
+                        });
+                }
+                if (!ti) {
+                    std::fprintf(stderr,
+                        "mono.__reify_type__: argument shape not yet "
+                        "supported (must be a direct sema producer like "
+                        "type_of::<T>() or quote_ty! { T })\n");
+                    std::abort();
+                }
+                uint64_t uid = type_hash_64bit(type_hash_23(type_str(ti)));
+                uid_to_type_[uid] = ti;
+                TypeRef type_t = result->type;
+                LogosTypeBuilder u32_b; u32_b.kind = LogosType::Kind::U32;
+                TypeRef u32_t = out_.type_pool.alloc(std::move(u32_b));
+                LogosTypeBuilder u8_b;  u8_b.kind  = LogosType::Kind::U8;
+                TypeRef u8_t  = out_.type_pool.alloc(std::move(u8_b));
+                LogosTypeBuilder sl_b;  sl_b.kind  = LogosType::Kind::Slice;
+                sl_b.elem = u8_t;
+                TypeRef slice_u8_t = out_.type_pool.alloc(std::move(sl_b));
+                LogosTypeBuilder i64_b; i64_b.kind = LogosType::Kind::I64;
+                TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
+                LogosTypeBuilder u64_b; u64_b.kind = LogosType::Kind::U64;
+                TypeRef u64_t = out_.type_pool.alloc(std::move(u64_b));
+                LirBuilder b(out_);
+                std::vector<std::pair<std::string, lir::LExprPtr>> f;
+                f.emplace_back("kind", b.lit_int((int64_t)ti.kind(), u32_t));
+                f.emplace_back("name", b.lit_str(type_str(ti), slice_u8_t));
+                f.emplace_back("size", b.size_of(ti, i64_t));
+                f.emplace_back("uid",  b.lit_int((int64_t)uid, u64_t));
                 auto sl = b.struct_lit("Type", std::move(f), type_t);
                 result->type = type_t;
                 result->mirror_offset_ = sl->mirror_offset_;
@@ -949,10 +1045,11 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         b.lit_str(type_str(ti), slice_u8_t));
                     f.emplace_back("size",
                         b.size_of(ti, i64_t));
-                    f.emplace_back("uid",
-                        b.lit_int(
-                            (int64_t)type_hash_64bit(type_hash_23(type_str(ti))),
-                            u64_t));
+                    {
+                        uint64_t uid = type_hash_64bit(type_hash_23(type_str(ti)));
+                        uid_to_type_[uid] = ti;
+                        f.emplace_back("uid", b.lit_int((int64_t)uid, u64_t));
+                    }
                     elems.push_back(b.struct_lit("Type", std::move(f), elem_t));
                 }
                 LogosTypeBuilder ab; ab.kind = LogosType::Kind::Array;
