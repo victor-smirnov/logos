@@ -113,6 +113,45 @@ impl Type {
     }
 }
 
+// `Template` — declaration-as-data handle. Wraps an item AST node that
+// carries type parameters (struct/enum/fn/trait/impl). Step 5 of the
+// typelevel-metaprog taxonomy: pairs with `Item` (untyped node) and
+// `GenericType` (value-handle for an unapplied constructor). The
+// `raw` field points at the underlying AST node — callers go through
+// `OView` accessors, identical to `Item`.
+//
+// For now Template is a typed wrapper; producers are the existing
+// `template <decl>` keyword (TEMPLATE_DECL node) plus future
+// `template_of::<X>()` intrinsics. Inspection methods delegate to
+// `OView::ast_type_param_*` and `ast_node_name`.
+pub struct Template {
+    pub raw: AnyVal,
+}
+
+impl Template {
+    pub fn name(self: &Template, view: &OView) -> Ident {
+        let nm: AnyVal = view.tiny_map_get(self.raw, 1 as u8);  // NAME = 1
+        let sv: StringView = view.get_str_view(nm);
+        return Ident { ptr: sv.ptr, len: sv.len };
+    }
+
+    pub fn type_param_count(self: &Template, view: &OView) -> u64 {
+        return view.ast_type_param_count(self.raw);
+    }
+
+    pub fn type_param_name(self: &Template, view: &OView, idx: u64) -> Ident {
+        let sv: StringView = view.ast_type_param_name(self.raw, idx);
+        return Ident { ptr: sv.ptr, len: sv.len };
+    }
+
+    // Body is the same AST node, viewed as an `Item`. Useful for
+    // calling Item-side accessors (field iteration, etc.) without
+    // re-wrapping. Kind discrimination lives at a later slice.
+    pub fn body(self: &Template) -> Item {
+        return Item { raw: self.raw };
+    }
+}
+
 // `TypeList<T...>` — A-layer pack-carrier (zero-sized).  Slice 2 of the
 // typelevel-metaprog epic.  The pack lives only at the type level; the
 // runtime bridge to a value-level pack of `Type` handles is via the

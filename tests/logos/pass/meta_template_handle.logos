@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: Apache-2.0
+// `Template` handle — declaration-as-data wrapper. Step 5 of the
+// typelevel-metaprog taxonomy. Smoke test: prove the type exists,
+// constructs from AnyVal, flows through fn signatures, can be
+// returned/consumed and stored as a field. Real producers (e.g.
+// `template_of::<X>()` intrinsic) land later.
+
+package meta_template_handle_smoke;
+
+use std.compiler.metaprog;
+use std.hermes.anyval;
+
+fn make_template() -> Template {
+    return Template { raw: AnyVal::null_ptr() };
+}
+
+fn body_of(t: Template) -> Item {
+    return t.body();
+}
+
+fn main() -> i32 {
+    let t: Template = make_template();
+    let it: Item = body_of(t);
+    let _ = it;
+    return 0;
+}
