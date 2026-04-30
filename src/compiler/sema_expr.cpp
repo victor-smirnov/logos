@@ -4318,6 +4318,23 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
         // else: leave as IntLit — mlir_gen will see the annotation type
     }
 
+    // Const-pack expansion: `[N...]` over a `<const N...: T>` pack. Build
+    // `[T; sizeof...(N)]` symbolic-length array; mono will replace the single
+    // PackExpand element with one lit_int per pack member.
+    if (elems.size() == 1 &&
+        expr_ref_of(*elems[0]).kind() == lir_schema::expr::Code::PackExpand &&
+        TypeRef(elem_type).kind() == LogosType::Kind::ConstVar) {
+        std::string pack_name(TypeRef(elem_type).type_var_name());
+        TypeRef under = TypeRef(elem_type).pointee();
+        if (!under) under = prim(LogosType::Kind::I64);
+        LogosTypeBuilder ab; ab.kind = LogosType::Kind::Array;
+        ab.elem = under;
+        ab.arr_size = 0;
+        ab.arr_size_var = std::string("__sizeof_pack:") + pack_name;
+        TypeRef arr_t = pool_->alloc(std::move(ab));
+        return builder().arr_lit(std::move(elems), arr_t);
+    }
+
     auto ty = make_array(elem_type, elems.size());
     return builder().arr_lit(std::move(elems), ty);
 }

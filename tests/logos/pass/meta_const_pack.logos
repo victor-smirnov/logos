@@ -20,6 +20,19 @@ fn sum4<const N...: i64>() -> i64 { return add4(N...); }
 // const-packs as it does for type-packs.
 fn pack_size<const N...: i64>() -> i64 { return sizeof...(N) as i64; }
 
+// `[N...]` array-literal expansion of a const-pack. Sema lowers to a
+// symbolic `[T; sizeof...(N)]` placeholder; mono replaces the single
+// PackExpand element with one lit_int per pack member.
+fn pack_arr_first<const N...: i64>() -> i64 {
+    let arr: [i64; sizeof...(N)] = [N...];
+    return arr[0];
+}
+
+fn pack_arr_sum3<const N...: i64>() -> i64 {
+    let arr: [i64; sizeof...(N)] = [N...];
+    return arr[0] + arr[1] + arr[2];
+}
+
 fn main() -> i32 {
     // Pack expansion in function-call position.
     if sum2::<10, 20>() != (30 as i64) { return 1; }
@@ -29,6 +42,12 @@ fn main() -> i32 {
     // sizeof...(N) over a const-pack.
     if pack_size::<5, 6, 7, 8>() != (4 as i64) { return 4; }
     if pack_size::<42>() != (1 as i64) { return 5; }
+
+    // [N...] array-literal pack expansion.
+    if pack_arr_first::<7>() != (7 as i64) { return 6; }
+    if pack_arr_first::<42, 99>() != (42 as i64) { return 7; }
+    if pack_arr_sum3::<10, 20, 30>() != (60 as i64) { return 8; }
+    if pack_arr_sum3::<1, 2, 3>() != (6 as i64) { return 9; }
 
     return 0;
 }

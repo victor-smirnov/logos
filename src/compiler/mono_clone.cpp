@@ -206,7 +206,36 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         case C::ArrLit: {
             std::vector<lir::LExprPtr> elems;
             lir_view::EArrLitView{eref}.each_elem(
-                [&](lir_view::ExprRef er) { elems.push_back(subst_child_expr(er)); });
+                [&](lir_view::ExprRef er) {
+                    if (er && er.kind() == lir_schema::expr::Code::PackExpand) {
+                        TypeRef at = er.type(out_.type_pool.impl());
+                        std::string pack_name;
+                        bool is_const_pack = false;
+                        if (at && (at.kind() == LogosType::Kind::TypeVar ||
+                                   at.kind() == LogosType::Kind::ConstVar)) {
+                            pack_name = std::string(at.type_var_name());
+                            is_const_pack = (at.kind() == LogosType::Kind::ConstVar);
+                        }
+                        auto pit = cur_packs_.find(pack_name);
+                        if (pit != cur_packs_.end()) {
+                            std::string pe_var_name(lir_view::EPackExpandView{er}.var_name());
+                            for (size_t pi = 0; pi < pit->second.size(); ++pi) {
+                                if (is_const_pack && pit->second[pi].const_val()) {
+                                    TypeRef et = pit->second[pi].pointee();
+                                    if (!et) et = pit->second[pi];
+                                    elems.push_back(LirBuilder(out_).lit_int(
+                                        *pit->second[pi].const_val(), et));
+                                } else {
+                                    elems.push_back(LirBuilder(out_).var_ref(
+                                        make_pack_arg_name(pe_var_name, pi),
+                                        pit->second[pi]));
+                                }
+                            }
+                            return;
+                        }
+                    }
+                    elems.push_back(subst_child_expr(er));
+                });
             result->mirror_offset_ = lir_mirror_emit_arr_lit(
                 out_, result->type, elems);
             break;
