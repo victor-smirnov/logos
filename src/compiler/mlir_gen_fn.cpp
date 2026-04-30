@@ -203,7 +203,22 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
         if (p.type) {
             TypeRef pv{p.type};
             if (is_ptr_kind(pv.kind()) && pv.pointee()) {
-                auto et = logos_to_mlir(pv.pointee());
+                // For ptr-to-struct, the subscript stride must be
+                // sizeof(struct), not sizeof(ptr) — `logos_to_mlir(Struct)`
+                // collapses to ptr_type, so look up the struct's full LLVM
+                // type directly. Params don't go through a local alloca
+                // slot, so we register only var_subscript_ (gen_index_*
+                // reads it directly off the SSA arg) — not var_local_ptrs_,
+                // which would trigger a spurious LoadOp.
+                TypeRef pe = pv.pointee();
+                mlir::Type et;
+                if (pe.kind() == LogosType::Kind::Struct ||
+                    pe.kind() == LogosType::Kind::ZonedStruct) {
+                    auto cname = concrete_struct_name(pe);
+                    auto sit = struct_types_.find(cname);
+                    if (sit != struct_types_.end()) et = sit->second.llvm_type;
+                }
+                if (!et) et = logos_to_mlir(pe);
                 if (et) var_subscript_[p.name] = et;
             }
         }

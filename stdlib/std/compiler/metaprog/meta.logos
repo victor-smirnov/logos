@@ -98,12 +98,6 @@ pub fn head<T...>() -> Type {
     return arr[0];
 }
 
-// Left fold over the pack: starting from `init`, apply
-// `f(acc, T_i)` for each pack member in declaration order. Returns
-// the final accumulated `Type`. Useful for "build a type by reducing
-// over a pack" style metafunctions — e.g. picking a wider numeric
-// kind, or combining tag bits.
-//
 // Map `f` over the pack and return the resulting `[Type; sizeof...(T)]`
 // array. The result-length parameter rides on the `sizeof...(T)` size
 // form admitted by `arr_type` (see memory feat_arr_type_sizeof_pack_gap),
@@ -120,9 +114,28 @@ pub fn transform<T...>(f: fn(Type) -> Type) -> [Type; sizeof...(T)] {
     return arr;
 }
 
-// `filter<T...>` would also return a Type-array but its length depends
-// on the predicate's runtime result; that needs const generics for the
-// result-length parameter and remains pending.
+// Filter the pack by `pred`. The result length depends on the predicate
+// and isn't expressible as a `sizeof...(T)`-keyed array type, so we use
+// the upper-bound + count form: caller pre-allocates `[Type; sizeof...(T)]`
+// (e.g. via `type_refs_of`), passes its first-element pointer, and gets
+// the count of accepted elements packed into the front. Slots past the
+// returned count are left as the original pack contents and should be
+// ignored by the caller.
+pub unsafe fn filter<T...>(pred: fn(Type) -> bool, out: *mut Type) -> i64 {
+    let src = type_refs_of::<T...>();
+    let n: i64 = sizeof...(T) as i64;
+    let mut k: i64 = 0;
+    let mut i: i64 = 0;
+    while i < n {
+        if pred(src[i]) {
+            unsafe { out[k] = src[i]; }
+            k = k + (1 as i64);
+        }
+        i = i + (1 as i64);
+    }
+    return k;
+}
+
 pub fn fold_to_type<T...>(init: Type, f: fn(Type, Type) -> Type) -> Type {
     let arr = type_refs_of::<T...>();
     let n: i64 = sizeof...(T) as i64;

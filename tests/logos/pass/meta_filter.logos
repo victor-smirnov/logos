@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: Apache-2.0
+// `filter<T...>(pred, out) -> i64` — runtime-length result, so we use the
+// upper-bound buffer + count form: caller pre-allocates [Type; sizeof...(T)],
+// passes &mut buf[0], gets the count of accepted elements packed at the
+// front. Slots past the returned count are unspecified.
+//
+// Exercises the ptr-to-struct param subscript-stride fix in mlir_gen_fn:
+// `out[k] = src[i]` writes 40-byte Type values through a *mut Type param.
+
+package meta_filter_probe;
+
+use std.compiler.metaprog;
+
+// Tiny helper to materialize the buffer at the call site — `let mut buf:
+// [Type; sizeof...(T)] = type_refs_of::<T...>()` doesn't typecheck because
+// mono only retypes intrinsic placeholders at sema-emitted positions, not
+// at user `let` ascriptions. Wrapping it in a fn whose return type uses
+// `sizeof...(T)` keeps both sides symbolic so mono retypes them together.
+fn type_arr<T...>() -> [Type; sizeof...(T)] {
+    return type_refs_of::<T...>();
+}
+
+unsafe fn main() -> i32 {
+    // Mixed pack: i32(1), bool(5), i64(2), u8(6). is_integer accepts i32/i64/u8.
+    let mut buf = type_arr::<i32, bool, i64, u8>();
+    let p: *mut Type = &mut buf[0] as *mut Type;
+    let count: i64 = filter::<i32, bool, i64, u8>(is_integer, p);
+    if count != (3 as i64) { return 1; }
+    if buf[0].kind != (1 as u32) { return 2; }   // i32
+    if buf[1].kind != (2 as u32) { return 3; }   // i64
+    if buf[2].kind != (6 as u32) { return 4; }   // u8
+
+    // All-pass: keeps order, count == sizeof...(T).
+    let mut buf2 = type_arr::<i32, i64>();
+    let q: *mut Type = &mut buf2[0] as *mut Type;
+    let c2: i64 = filter::<i32, i64>(is_integer, q);
+    if c2 != (2 as i64) { return 5; }
+    if buf2[0].kind != (1 as u32) { return 6; }
+    if buf2[1].kind != (2 as u32) { return 7; }
+
+    // All-reject: count == 0.
+    let mut buf3 = type_arr::<bool>();
+    let r: *mut Type = &mut buf3[0] as *mut Type;
+    let c3: i64 = filter::<bool>(is_integer, r);
+    if c3 != (0 as i64) { return 8; }
+
+    return 0;
+}
