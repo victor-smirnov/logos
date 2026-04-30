@@ -98,6 +98,21 @@ pub fn head<T...>() -> Type {
     return arr[0];
 }
 
+// `fold_to_type<T...>(init, f) -> Type` — left fold over a pack to a
+// `Type` — is intentionally absent. Two compiler blockers:
+//   1. `let mut acc: Type = init; acc = f(acc, arr[i])` (struct
+//      by-value rebind) is broken: post-assignment field reads
+//      return uninitialised stack bytes. Affects every Logos
+//      struct, not just `Type` — orthogonal compiler fix.
+//   2. The sibling producers `transform<T...> -> [Type; N]` and
+//      `filter<T...> -> [Type; N']` need const generics for the
+//      result length — also pending.
+// Until (1) is fixed, B-side fold expressivity is reachable via
+// index-shaped variants (`argmax_by` / `argmin_by` / `find_index`):
+// the i64-accumulator path works, and the caller indexes the
+// `[Type; N]` themselves. Closures returning Type-by-index are the
+// stable shape for now.
+
 // ── Kind predicates (over the `t.kind` tag) ────────────────────────────
 //
 // Kind tag values mirror `LogosType::Kind` from
