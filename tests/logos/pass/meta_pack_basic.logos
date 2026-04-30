@@ -1,0 +1,38 @@
+package meta_count_probe;
+
+use std.compiler.metaprog;
+
+fn is_prim_pred(t: Type) -> bool {
+    let k: u32 = t.kind;
+    return k == (1 as u32) || k == (2 as u32) || k == (3 as u32)
+        || k == (4 as u32) || k == (5 as u32) || k == (6 as u32)
+        || k == (7 as u32) || k == (8 as u32) || k == (9 as u32)
+        || k == (10 as u32) || k == (11 as u32);
+}
+
+fn always_true(t: Type) -> bool { return true; }
+fn always_false(t: Type) -> bool { return false; }
+
+fn size_proj(t: Type) -> i64 { return t.size; }
+
+pub struct Box { pub x: i32, }
+
+unsafe fn main() -> i32 {
+    let c = count_if::<i32, Box, bool, u64>(is_prim_pred);
+    if c != (3 as i64) { return 71; }
+
+    if !all::<i32, bool, u64>(is_prim_pred) { return 72; }
+    if  all::<i32, Box, u64>(is_prim_pred) { return 73; }
+
+    if !any::<Box, i32>(is_prim_pred) { return 74; }
+    if  any::<Box>(is_prim_pred) { return 75; }
+
+    if !all::<i32, bool>(always_true) { return 76; }
+    if  any::<i32, bool>(always_false) { return 77; }
+
+    let s = sum_by::<i32, i64, bool>(size_proj);
+    // i32=4 + i64=8 + bool=1 = 13
+    if s != (13 as i64) { return 78; }
+
+    return 0;
+}

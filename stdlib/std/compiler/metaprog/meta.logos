@@ -1,0 +1,64 @@
+// SPDX-License-Identifier: Apache-2.0
+// std.compiler.metaprog.meta — B-side metafunctions over runtime Type lists.
+//
+// Pure Logos library on top of the introspection intrinsics
+// (`type_refs_of::<T...>()`, `type_of::<T>()`). Each function takes a
+// pack `<T...>` and a `fn(Type) -> ?` predicate / mapper, materializes
+// the pack as `[Type; N]`, and folds via index-based iteration bounded
+// by `sizeof...(T)`.
+//
+// Generic-N iteration uses `sizeof...(T)` as the loop bound rather than
+// a `[Type; N]`-method `len()` (fixed-size arrays don't carry a runtime
+// length API; the bound is a compile-time constant per instantiation).
+
+package std.compiler.metaprog;
+
+// Count pack members for which `pred` returns true.
+pub fn count_if<T...>(pred: fn(Type) -> bool) -> i64 {
+    let arr = type_refs_of::<T...>();
+    let n: i64 = sizeof...(T) as i64;
+    let mut c: i64 = 0;
+    let mut i: i64 = 0;
+    while i < n {
+        if pred(arr[i]) { c = c + (1 as i64); }
+        i = i + (1 as i64);
+    }
+    return c;
+}
+
+// True iff every pack member satisfies `pred` (vacuously true on empty pack).
+pub fn all<T...>(pred: fn(Type) -> bool) -> bool {
+    let arr = type_refs_of::<T...>();
+    let n: i64 = sizeof...(T) as i64;
+    let mut i: i64 = 0;
+    while i < n {
+        if !pred(arr[i]) { return false; }
+        i = i + (1 as i64);
+    }
+    return true;
+}
+
+// True iff any pack member satisfies `pred` (false on empty pack).
+pub fn any<T...>(pred: fn(Type) -> bool) -> bool {
+    let arr = type_refs_of::<T...>();
+    let n: i64 = sizeof...(T) as i64;
+    let mut i: i64 = 0;
+    while i < n {
+        if pred(arr[i]) { return true; }
+        i = i + (1 as i64);
+    }
+    return false;
+}
+
+// Sum of `proj(t)` over the pack — handy for total size, alignment, etc.
+pub fn sum_by<T...>(proj: fn(Type) -> i64) -> i64 {
+    let arr = type_refs_of::<T...>();
+    let n: i64 = sizeof...(T) as i64;
+    let mut s: i64 = 0;
+    let mut i: i64 = 0;
+    while i < n {
+        s = s + proj(arr[i]);
+        i = i + (1 as i64);
+    }
+    return s;
+}
