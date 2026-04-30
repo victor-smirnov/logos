@@ -65,8 +65,9 @@ enum class Code : int32_t {
     PtrArith      = 38,
     PtrDiff       = 39,
     ReflectOf     = 40,
+    AlignOf       = 41,
 };
-inline constexpr int32_t Count = 41;
+inline constexpr int32_t Count = 42;
 } // namespace expr
 
 // ── LStmt variant codes ───────────────────────────────────────────────────

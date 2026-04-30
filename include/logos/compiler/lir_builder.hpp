@@ -36,6 +36,7 @@ public:
     lir::LExprPtr addr_of   (std::string var_name, TypeRef ty);
     lir::LExprPtr pack_expand(std::string var_name, TypeRef ty);
     lir::LExprPtr size_of   (TypeRef elem_type, TypeRef ty);
+    lir::LExprPtr align_of  (TypeRef elem_type, TypeRef ty);
     lir::LExprPtr type_code_of(TypeRef elem_type, TypeRef ty);
     lir::LExprPtr reflect_of(TypeRef elem_type, TypeRef ty);
 

@@ -95,6 +95,7 @@ hermes::arena_offset_t lir_mirror_emit_var_ref  (lir::LProgram& prog, TypeRef ty
 hermes::arena_offset_t lir_mirror_emit_addr_of  (lir::LProgram& prog, TypeRef ty, std::string_view var_name);
 hermes::arena_offset_t lir_mirror_emit_pack_expand(lir::LProgram& prog, TypeRef ty, std::string_view var_name);
 hermes::arena_offset_t lir_mirror_emit_size_of      (lir::LProgram& prog, TypeRef ty, TypeRef elem);
+hermes::arena_offset_t lir_mirror_emit_align_of     (lir::LProgram& prog, TypeRef ty, TypeRef elem);
 hermes::arena_offset_t lir_mirror_emit_type_code_of (lir::LProgram& prog, TypeRef ty, TypeRef elem);
 hermes::arena_offset_t lir_mirror_emit_reflect_of   (lir::LProgram& prog, TypeRef ty, TypeRef elem);
 

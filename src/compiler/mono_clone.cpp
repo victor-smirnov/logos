@@ -107,6 +107,12 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 out_, result->type, subst_type(t, s));
             break;
         }
+        case C::AlignOf: {
+            auto t = lir_view::EAlignOfView{eref}.elem_type(out_.type_pool.impl());
+            result->mirror_offset_ = lir_mirror_emit_align_of(
+                out_, result->type, subst_type(t, s));
+            break;
+        }
         case C::Deref: {
             auto op = subst_child_expr(lir_view::EDerefView{eref}.operand());
             result->mirror_offset_ = lir_mirror_emit_deref(

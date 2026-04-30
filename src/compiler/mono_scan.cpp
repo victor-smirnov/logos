@@ -283,6 +283,7 @@ void Mono::scan_expr(lir_view::ExprRef e) {
     case ECode::AddrOfTemp:
     case ECode::PackExpand:
     case ECode::SizeOf:
+    case ECode::AlignOf:
     case ECode::TypeCodeOf:
     case ECode::HermesLit:
     case ECode::PtrArith:

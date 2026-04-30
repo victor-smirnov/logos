@@ -1702,6 +1702,21 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         return builder().size_of(elem, prim(LogosType::Kind::I64));
     }
 
+    // align_of::<T>() — compiler builtin, returns i64 alignment of T.
+    if (callee == "align_of") {
+        TypeRef elem = nullptr;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                if (items.size() == 1)
+                    elem = resolve_type(map_of(items.get(0)));
+            }
+        }
+        if (!elem) error("align_of::<T>() requires exactly one type argument");
+        return builder().align_of(elem, prim(LogosType::Kind::I64));
+    }
+
     // type_code_of::<T>() — returns the Hermes type_code of a concrete datatype as u64.
     // For concrete (non-generic) datatypes: SHA-256 of "package::Name" truncated to 56 bits,
     // shifted to >= 128 if needed (codes 1-127 are reserved for inline AnyVal).

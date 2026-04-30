@@ -834,6 +834,13 @@ struct ESizeOfView {
     }
 };
 
+struct EAlignOfView {
+    ExprRef self;
+    TypeRef elem_type(const TypePoolImpl* pool) const noexcept {
+        return self.sub_type(ek::ELEM_TYPE.code, pool);
+    }
+};
+
 struct ETypeCodeOfView {
     ExprRef self;
     TypeRef elem_type(const TypePoolImpl* pool) const noexcept {

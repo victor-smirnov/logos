@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: Apache-2.0
+// align_of::<T>() — alignment of T in bytes.
+
+package meta_align_of_probe;
+
+pub struct Pair { pub a: i32, pub b: i64, }
+
+unsafe fn main() -> i32 {
+    if align_of::<i8>()   != (1 as i64) { return 81; }
+    if align_of::<i16>()  != (2 as i64) { return 82; }
+    if align_of::<i32>()  != (4 as i64) { return 83; }
+    if align_of::<i64>()  != (8 as i64) { return 84; }
+    if align_of::<bool>() != (1 as i64) { return 85; }
+    return 0;
+}

@@ -133,6 +133,12 @@ public:
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
+    hermes::arena_offset_t emit_align_of_direct(TypeRef ty, TypeRef elem) {
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::AlignOf));
+        put(map_off, ek::ELEM_TYPE, type_av(elem));
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
     hermes::arena_offset_t emit_type_code_of_direct(TypeRef ty, TypeRef elem) {
         auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::TypeCodeOf));
         put(map_off, ek::ELEM_TYPE, type_av(elem));
@@ -1651,6 +1657,11 @@ hermes::arena_offset_t lir_mirror_emit_size_of(lir::LProgram& prog, TypeRef ty, 
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, *prog.mirror_table);
     return em.emit_size_of_direct(ty, elem);
+}
+hermes::arena_offset_t lir_mirror_emit_align_of(lir::LProgram& prog, TypeRef ty, TypeRef elem) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_align_of_direct(ty, elem);
 }
 hermes::arena_offset_t lir_mirror_emit_type_code_of(lir::LProgram& prog, TypeRef ty, TypeRef elem) {
     auto& arena = prog.type_pool.arena_or_init();

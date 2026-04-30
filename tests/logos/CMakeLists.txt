@@ -83,6 +83,7 @@ set(LOGOS_INTEGRATION_TESTS
     meta_kind_name
     quote_ty_smoke
     meta_args_count
+    meta_align_of
     pub_reexport
     bst
     fibonacci

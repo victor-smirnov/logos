@@ -91,6 +91,7 @@ mlir::Value MLIRGenImpl::gen_expr(lir_view::ExprRef er) {
     case C::Try:        return gen_expr_kind(lir_view::ETryView{er},        ty);
     case C::MatchExpr:  return gen_expr_kind(lir_view::EMatchExprView{er},  ty);
     case C::SizeOf:     return gen_expr_kind(lir_view::ESizeOfView{er},     ty);
+    case C::AlignOf:    return gen_expr_kind(lir_view::EAlignOfView{er},    ty);
     case C::TypeCodeOf: return gen_expr_kind(lir_view::ETypeCodeOfView{er}, ty);
     case C::BlockExpr:  return gen_expr_kind(lir_view::EBlockExprView{er},  ty);
     case C::HermesLit:  return gen_expr_kind(lir_view::EHermesLitView{er},  ty);
@@ -2259,6 +2260,40 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESizeOfView v, TypeRef) {
         loc_, ptr_type(), elem_mlir, null_ptr, idx);
     return builder_.create<mlir::LLVM::PtrToIntOp>(
         loc_, builder_.getI64Type(), size_ptr);
+}
+
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAlignOfView v, TypeRef) {
+    TypeRef elem_type = v.elem_type(pool_impl());
+    int64_t align = 8;
+    if (elem_type) {
+        using K = LogosType::Kind;
+        switch (elem_type.kind()) {
+        case K::Bool: case K::I8:  case K::U8:                       align = 1; break;
+        case K::I16: case K::U16:                                    align = 2; break;
+        case K::I24: case K::U24:                                    align = 1; break;
+        case K::I32: case K::U32: case K::F32:                       align = 4; break;
+        case K::I56: case K::U56:                                    align = 1; break;
+        case K::I64: case K::U64: case K::F64:
+        case K::Ptr: case K::Ref: case K::MutRef:                    align = 8; break;
+        case K::I128: case K::U128:                                  align = 16; break;
+        default: {
+            mlir::Type elem_mlir = nullptr;
+            if (elem_type.kind() == K::Struct || elem_type.kind() == K::ZonedStruct) {
+                auto cname = concrete_struct_name(elem_type);
+                auto sit = struct_types_.find(cname);
+                if (sit != struct_types_.end()) elem_mlir = sit->second.llvm_type;
+            }
+            if (!elem_mlir) elem_mlir = logos_to_mlir(elem_type);
+            if (elem_mlir) {
+                auto dl = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
+                auto a = (int64_t)dl.getTypeABIAlignment(elem_mlir);
+                if (a > 0) align = a;
+            }
+            break;
+        }
+        }
+    }
+    return builder_.create<mlir::arith::ConstantIntOp>(loc_, align, 64);
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EPtrArithView v, TypeRef) {

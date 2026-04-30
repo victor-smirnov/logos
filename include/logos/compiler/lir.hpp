@@ -406,6 +406,11 @@ struct ESizeOf {
     TypeRef elem_type = nullptr;
 };
 
+// alignof::<T>() — alignment in bytes of type T, computed at compile time via GEP trick.
+struct EAlignOf {
+    TypeRef elem_type = nullptr;
+};
+
 // Raw-pointer arithmetic intrinsic methods:
 //   p.byte_add(n)         — byte_add: offset n bytes, result same pointer type
 //   p.byte_sub(n)         — byte_sub: offset -n bytes
