@@ -13,6 +13,22 @@
 
 package std.compiler.metaprog;
 
+// ── Byte-slice equality (used by name lookups) ─────────────────────────
+//
+// Stand-alone so callers don't pull a heavier dep just for "is this
+// field named X". Bound to the specific shape (`a == b` byte-wise).
+pub fn name_eq(a: &[u8], b: &[u8]) -> bool {
+    let na = a.len();
+    let nb = b.len();
+    if na != nb { return false; }
+    let mut i: i64 = 0;
+    while i < na {
+        if a[i] != b[i] { return false; }
+        i = i + (1 as i64);
+    }
+    return true;
+}
+
 // ── Kind predicates (over the `t.kind` tag) ────────────────────────────
 //
 // Kind tag values mirror `LogosType::Kind` from

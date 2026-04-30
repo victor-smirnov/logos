@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: Apache-2.0
+// Locate a struct field by name, then read its size from field_types_of.
+
+package meta_field_byname_probe;
+
+use std.compiler.metaprog;
+
+pub struct Record {
+    pub id:    i64,
+    pub flag:  bool,
+    pub count: u32,
+}
+
+unsafe fn main() -> i32 {
+    let n = field_count_of::<Record>();
+    let names = field_names_of::<Record>();
+    let types = field_types_of::<Record>();
+
+    // Find "count" by linear scan.
+    let target: &[u8] = "count";
+    let mut found: i64 = -1 as i64;
+    let mut i: i64 = 0;
+    while i < n {
+        if name_eq(names[i], target) { found = i; }
+        i = i + (1 as i64);
+    }
+
+    if found != (2 as i64) { return 71; }
+
+    // count is u32 → size 4
+    if types[found].size != (4 as i64) { return 72; }
+
+    // Negative case.
+    let bogus: &[u8] = "missing";
+    let mut hit = false;
+    let mut j: i64 = 0;
+    while j < n {
+        if name_eq(names[j], bogus) { hit = true; }
+        j = j + (1 as i64);
+    }
+    if hit { return 73; }
+
+    return 0;
+}
