@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: Apache-2.0
+// has_trait_of::<Trait>(t: Type) — Type-method form of has_trait.
+
+package meta_has_trait_of_probe;
+
+use std.lang.clone;
+use std.compiler.metaprog;
+
+pub struct Plain { pub x: i32, }
+pub struct Boxed { pub a: i32, pub b: i64, }
+
+impl Clone for Boxed {
+    fn clone(self: Boxed) -> Boxed {
+        return Boxed { a: self.a, b: self.b };
+    }
+}
+
+unsafe fn main() -> i32 {
+    let ti32   = type_of::<i32>();
+    let tbool  = type_of::<bool>();
+    let tboxed = type_of::<Boxed>();
+    let tplain = type_of::<Plain>();
+
+    if !has_trait_of::<Clone>(ti32)   { return 41; }
+    if !has_trait_of::<Clone>(tbool)  { return 42; }
+    if !has_trait_of::<Clone>(tboxed) { return 43; }
+    if  has_trait_of::<Clone>(tplain) { return 44; }
+
+    // Cross-check: must agree with the keyword form.
+    if has_trait_of::<Clone>(ti32) != has_trait::<i32, Clone>() { return 51; }
+    if has_trait_of::<Clone>(tplain) != has_trait::<Plain, Clone>() { return 52; }
+
+    return 0;
+}

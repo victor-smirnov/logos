@@ -730,6 +730,88 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                     lir_mirror_emit_lit_bool(out_, bool_t, answer);
                 break;
             }
+            // has_trait_of::<Trait>(t: Type) — Type-method form. Recovers
+            // concrete T from t's StructLit "uid" field (a __type_uid_of__
+            // call), then runs the same impl-table recursion as __has_trait__.
+            if (nc.callee == "__has_trait_of__") {
+                std::string trait;
+                lir_view::ExprRef t_ref;
+                size_t arg_idx = 0;
+                v.each_arg([&](lir_view::ExprRef ar) {
+                    if (arg_idx == 0 && ar &&
+                        ar.kind() == lir_schema::expr::Code::LitStr)
+                        trait = std::string(lir_view::ELitStrView{ar}.value());
+                    else if (arg_idx == 1) t_ref = ar;
+                    ++arg_idx;
+                });
+                auto chase = [&](lir_view::ExprRef er) {
+                    for (int hops = 0; hops < 8 &&
+                         er &&
+                         er.kind() == lir_schema::expr::Code::VarRef; ++hops) {
+                        std::string vn(lir_view::EVarRefView{er}.name());
+                        auto it = type_let_inits_.find(vn);
+                        if (it == type_let_inits_.end()) break;
+                        er = it->second;
+                    }
+                    return er;
+                };
+                t_ref = chase(t_ref);
+                TypeRef T{};
+                if (t_ref && t_ref.kind() == lir_schema::expr::Code::StructLit) {
+                    lir_view::EStructLitView{t_ref}.each_field(
+                        [&](std::string_view fname,
+                            lir_view::ExprRef fer) {
+                            if (T || fname != "uid") return;
+                            if (fer && fer.kind() ==
+                                      lir_schema::expr::Code::Call) {
+                                lir_view::ECallView cv{fer};
+                                if (cv.callee() == "__type_uid_of__") {
+                                    auto tas = cv.type_args(
+                                        out_.type_pool.impl());
+                                    if (!tas.empty())
+                                        T = subst_type(tas[0], s);
+                                }
+                            }
+                        });
+                }
+                bool answer = false;
+                if (T && !trait.empty()) {
+                    std::string cname;
+                    if (T.kind() == LogosType::Kind::Struct ||
+                        T.kind() == LogosType::Kind::ZonedStruct)
+                        cname = concrete_struct_name(T);
+                    else if (T.kind() == LogosType::Kind::Enum)
+                        cname = std::string(T.enum_name());
+                    else
+                        cname = type_str(T);
+                    if (auto p = cname.find("$G"); p != std::string::npos)
+                        cname = cname.substr(0, p);
+                    std::function<bool(const std::string&,
+                                       const std::string&,
+                                       StrSet&)> has_impl;
+                    has_impl = [&](const std::string& tr,
+                                   const std::string& cn,
+                                   StrSet& seen) -> bool {
+                        std::string k = tr + "::" + cn;
+                        if (!seen.insert(k).second) return false;
+                        if (concrete_impls_.count(k)) return true;
+                        for (auto& bi : blanket_impls_) {
+                            if (bi.trait_name != tr) continue;
+                            if (bi.bound_trait.empty()) return true;
+                            if (has_impl(bi.bound_trait, cn, seen)) return true;
+                        }
+                        return false;
+                    };
+                    StrSet seen;
+                    answer = has_impl(trait, cname, seen);
+                }
+                LogosTypeBuilder b_b; b_b.kind = LogosType::Kind::Bool;
+                TypeRef bool_t = out_.type_pool.alloc(std::move(b_b));
+                result->type = bool_t;
+                result->mirror_offset_ =
+                    lir_mirror_emit_lit_bool(out_, bool_t, answer);
+                break;
+            }
             // typelist_len::<L>() — emit lit_int(N) where N = L.type_args().
             // O(1) probe; the typelevel-pack equivalent of args_count_of (the
             // canonical use case is L = TypeList<T...>).

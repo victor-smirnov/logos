@@ -1702,6 +1702,56 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                               prim(LogosType::Kind::Bool));
     }
 
+    // has_trait_of::<Trait>(t: Type) -> bool — Type-method form of has_trait.
+    // Mono recovers concrete T from t's StructLit "uid" field (which is a
+    // __type_uid_of__ call carrying the type as a type-arg), then runs the
+    // same impl-table recursion as __has_trait__.
+    if (callee == "has_trait_of") {
+        std::string trait_name;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                if (items.size() == 1) {
+                    auto tnode = map_of(items.get(0));
+                    if (tnode.has_key(la::NAME))
+                        trait_name = std::string(str_of(tnode.get(la::NAME.code)));
+                }
+            }
+        }
+        if (trait_name.empty()) {
+            error("has_trait_of::<Trait>(t) requires one trait type argument");
+            return error_expr();
+        }
+        std::vector<lir::LExprPtr> rargs;
+        if (node.has_key(la::ARGS)) {
+            AnyVal av = node.get(la::ARGS.code);
+            if (!av.is_null()) {
+                auto args_list = map_of(av);
+                if (args_list.has_key(la::ITEMS)) {
+                    auto items = arr_of(args_list.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < items.size(); ++i)
+                        rargs.push_back(lower_expr(map_of(items.get(i))));
+                }
+            }
+        }
+        if (rargs.size() != 1) {
+            error("has_trait_of::<Trait>(t) requires exactly one Type argument");
+            return error_expr();
+        }
+        LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;
+        TypeRef u8_t = pool_->alloc(std::move(u8_b));
+        LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
+        sl_b.elem = u8_t;
+        TypeRef slice_u8_t = pool_->alloc(std::move(sl_b));
+        std::vector<lir::LExprPtr> all_args;
+        all_args.push_back(builder().lit_str(std::move(trait_name), slice_u8_t));
+        all_args.push_back(std::move(rargs[0]));
+        return builder().call("__has_trait_of__",
+                              {}, std::move(all_args),
+                              prim(LogosType::Kind::Bool));
+    }
+
     // typelist_len::<L>() / typelist_head::<L>() / typelist_nth::<L>(i)
     // / typelist_tail::<L>() — O(1) probes over `L`'s type-pack
     // `L.type_args()` (typically `L = TypeList<T...>`, but works on any
