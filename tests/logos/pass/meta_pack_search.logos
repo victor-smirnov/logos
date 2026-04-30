@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: Apache-2.0
+// Exercises std::meta search/argmin/argmax helpers over <T...>.
+
+package meta_pack_search_probe;
+
+use std.compiler.metaprog;
+
+fn is_struct_like(t: Type) -> bool {
+    // Struct=22 in LogosType::Kind — exposed via the dedicated `t.size > 1`
+    // heuristic isn't sufficient (Tiny is 4 bytes, same as i32). We compare
+    // against the kind tag directly. Concrete value comes from the
+    // include/logos/compiler/sema.hpp Kind enum.
+    return t.kind == (22 as u32) || t.kind == (23 as u32);
+}
+
+fn size_proj(t: Type) -> i64 { return t.size; }
+
+pub struct Wide { pub a: i64, pub b: i64, pub c: i64, }
+pub struct Tiny { pub x: i32, }
+
+unsafe fn main() -> i32 {
+    // find_index: first struct in <i32, bool, Tiny, u64> is at index 2.
+    let i0 = find_index::<i32, bool, Tiny, u64>(is_struct_like);
+    if i0 != (2 as i64) { return 71; }
+
+    // None of <i32, bool, u64> is a struct.
+    let i1 = find_index::<i32, bool, u64>(is_struct_like);
+    if i1 != (-1 as i64) { return 72; }
+
+    // argmax by size over <i32, Wide, bool, Tiny>: Wide (24 bytes) at 1.
+    let m = argmax_by::<i32, Wide, bool, Tiny>(size_proj);
+    if m != (1 as i64) { return 73; }
+
+    // argmin by size: bool (1 byte) at index 2.
+    let n = argmin_by::<i32, Wide, bool, Tiny>(size_proj);
+    if n != (2 as i64) { return 74; }
+
+    return 0;
+}

@@ -62,3 +62,49 @@ pub fn sum_by<T...>(proj: fn(Type) -> i64) -> i64 {
     }
     return s;
 }
+
+// Index of the first pack member satisfying `pred`, or -1 if none.
+pub fn find_index<T...>(pred: fn(Type) -> bool) -> i64 {
+    let arr = type_refs_of::<T...>();
+    let n: i64 = sizeof...(T) as i64;
+    let mut i: i64 = 0;
+    while i < n {
+        if pred(arr[i]) { return i; }
+        i = i + (1 as i64);
+    }
+    return -1 as i64;
+}
+
+// Index of the pack member maximising `proj`, or -1 on empty pack.
+// Ties resolve to the lowest index.
+pub fn argmax_by<T...>(proj: fn(Type) -> i64) -> i64 {
+    let arr = type_refs_of::<T...>();
+    let n: i64 = sizeof...(T) as i64;
+    if n == (0 as i64) { return -1 as i64; }
+    let mut best: i64 = 0;
+    let mut best_v: i64 = proj(arr[0]);
+    let mut i: i64 = 1;
+    while i < n {
+        let v: i64 = proj(arr[i]);
+        if v > best_v { best_v = v; best = i; }
+        i = i + (1 as i64);
+    }
+    return best;
+}
+
+// Index of the pack member minimising `proj`, or -1 on empty pack.
+// Ties resolve to the lowest index.
+pub fn argmin_by<T...>(proj: fn(Type) -> i64) -> i64 {
+    let arr = type_refs_of::<T...>();
+    let n: i64 = sizeof...(T) as i64;
+    if n == (0 as i64) { return -1 as i64; }
+    let mut best: i64 = 0;
+    let mut best_v: i64 = proj(arr[0]);
+    let mut i: i64 = 1;
+    while i < n {
+        let v: i64 = proj(arr[i]);
+        if v < best_v { best_v = v; best = i; }
+        i = i + (1 as i64);
+    }
+    return best;
+}
