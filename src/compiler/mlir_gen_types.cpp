@@ -129,6 +129,7 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
     }
     case LogosType::Kind::Error:     return nullptr;
     case LogosType::Kind::ImplTrait: return nullptr;
+    case LogosType::Kind::Generic:   return nullptr;  // value-side marker only
     }
     return nullptr;
 }
