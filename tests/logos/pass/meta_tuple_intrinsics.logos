@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: Apache-2.0
+// tuple_count_of / tuple_elems_of — anonymous-product type reflection.
+
+package meta_tuple_intrinsics_probe;
+
+use std.compiler.metaprog;
+
+unsafe fn main() -> i32 {
+    if tuple_count_of::<(i32, bool, u8)>() != (3 as i64) { return 91; }
+    if tuple_count_of::<(i64,)>()          != (1 as i64) { return 92; }
+    if tuple_count_of::<i32>()             != (0 as i64) { return 93; }
+
+    let n: i64 = tuple_count_of::<(i32, bool, u8)>();
+    let es = tuple_elems_of::<(i32, bool, u8)>();
+    if n != (3 as i64) { return 94; }
+
+    // Kind values per LogosType::Kind: I32=1, Bool=5, U8=6.
+    if es[0 as i64].kind != (1 as u32) { return 95; }
+    if es[1 as i64].kind != (5 as u32) { return 96; }
+    if es[2 as i64].kind != (6 as u32) { return 97; }
+
+    return 0;
+}

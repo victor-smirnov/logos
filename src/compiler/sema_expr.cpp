@@ -1611,6 +1611,52 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                               std::move(targs), {}, prim(LogosType::Kind::I64));
     }
 
+    // tuple_count_of::<T>() — number of elements in tuple T (0 for non-tuple).
+    if (callee == "tuple_count_of") {
+        TypeRef elem = nullptr;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                if (items.size() == 1)
+                    elem = resolve_type(map_of(items.get(0)));
+            }
+        }
+        if (!elem) {
+            error("tuple_count_of::<T>() requires exactly one type argument");
+            return error_expr();
+        }
+        std::vector<TypeRef> targs; targs.push_back(elem);
+        return builder().call("__tuple_count_of__",
+                              std::move(targs), {}, prim(LogosType::Kind::I64));
+    }
+
+    // tuple_elems_of::<T>() — element types of tuple T as `[Type; N]`.
+    // Empty array for non-tuple T.
+    if (callee == "tuple_elems_of") {
+        TypeRef elem = nullptr;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                if (items.size() == 1)
+                    elem = resolve_type(map_of(items.get(0)));
+            }
+        }
+        if (!elem) {
+            error("tuple_elems_of::<T>() requires exactly one type argument");
+            return error_expr();
+        }
+        auto type_t = make_struct_type("Type");
+        LogosTypeBuilder arr_b; arr_b.kind = LogosType::Kind::Array;
+        arr_b.elem = type_t;
+        arr_b.arr_size = 0;
+        TypeRef arr_placeholder = pool_->alloc(std::move(arr_b));
+        std::vector<TypeRef> targs; targs.push_back(elem);
+        return builder().call("__tuple_elems_of__",
+                              std::move(targs), {}, arr_placeholder);
+    }
+
     // field_count_of::<T>() — number of declared fields of struct T (0 for
     // non-struct or unknown-struct T). Emits `__field_count_of__` magic
     // call; mono substitutes to lit_int by looking up the struct template.

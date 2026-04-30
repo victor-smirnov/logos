@@ -663,6 +663,22 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 result->mirror_offset_ = lit->mirror_offset_;
                 break;
             }
+            // tuple_count_of::<T>() — emit lit_int N for tuple T, 0 otherwise.
+            if (nc.callee == "__tuple_count_of__") {
+                int64_t n = 0;
+                if (!nc.type_args.empty()) {
+                    TypeRef T = nc.type_args[0];
+                    if (T && T.kind() == LogosType::Kind::Tuple)
+                        n = (int64_t)T.tuple_elems().size();
+                }
+                LirBuilder b(out_);
+                LogosTypeBuilder i64_b; i64_b.kind = LogosType::Kind::I64;
+                TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
+                auto lit = b.lit_int(n, i64_t);
+                result->type = i64_t;
+                result->mirror_offset_ = lit->mirror_offset_;
+                break;
+            }
             // field_count_of::<T>() — emit lit_int N for struct T (0 for
             // non-struct or unknown-struct T). Same template lookup as the
             // field_*_of intrinsics below.
@@ -725,12 +741,20 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             // struct template + a fresh SubstMap).
             if (nc.callee == "__args_of__" ||
                 nc.callee == "__type_refs_of__" ||
+                nc.callee == "__tuple_elems_of__" ||
                 nc.callee == "__field_types_of__") {
                 std::vector<TypeRef> elem_types;
                 if (nc.callee == "__args_of__") {
                     if (!nc.type_args.empty())
                         for (auto a : nc.type_args[0].type_args())
                             elem_types.push_back(a);
+                } else if (nc.callee == "__tuple_elems_of__") {
+                    if (!nc.type_args.empty()) {
+                        TypeRef T = nc.type_args[0];
+                        if (T && T.kind() == LogosType::Kind::Tuple)
+                            for (auto a : T.tuple_elems())
+                                elem_types.push_back(a);
+                    }
                 } else if (nc.callee == "__field_types_of__") {
                     if (!nc.type_args.empty()) {
                         TypeRef T = nc.type_args[0];
