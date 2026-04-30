@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: Apache-2.0
+// Spot-check kind_name() for representative kinds.
+
+package meta_kind_name_probe;
+
+use std.compiler.metaprog;
+
+pub struct Box { pub x: i32, }
+
+unsafe fn main() -> i32 {
+    if !name_eq(kind_name(type_of::<i32>().kind),  "i32")    { return 71; }
+    if !name_eq(kind_name(type_of::<bool>().kind), "bool")   { return 72; }
+    if !name_eq(kind_name(type_of::<f64>().kind),  "f64")    { return 73; }
+    if !name_eq(kind_name(type_of::<u64>().kind),  "u64")    { return 74; }
+    if !name_eq(kind_name(type_of::<Box>().kind),  "Struct") { return 75; }
+
+    // Unknown tag → "?"
+    if !name_eq(kind_name(255 as u32), "?") { return 76; }
+
+    return 0;
+}

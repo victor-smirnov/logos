@@ -13,6 +13,40 @@
 
 package std.compiler.metaprog;
 
+// ── Kind tag → printable name ──────────────────────────────────────────
+//
+// Diagnostic aid for metaprograms: turn a `t.kind` tag into a short
+// printable string. Mirrors `LogosType::Kind` enum order from
+// `include/logos/compiler/sema.hpp`. Unknown tags → "?".
+pub fn kind_name(k: u32) -> &[u8] {
+    if k == (0 as u32)  { return "Void"; }
+    if k == (1 as u32)  { return "i32"; }
+    if k == (2 as u32)  { return "i64"; }
+    if k == (3 as u32)  { return "f64"; }
+    if k == (4 as u32)  { return "f32"; }
+    if k == (5 as u32)  { return "bool"; }
+    if k == (6 as u32)  { return "u8"; }
+    if k == (7 as u32)  { return "i8"; }
+    if k == (8 as u32)  { return "i16"; }
+    if k == (9 as u32)  { return "u16"; }
+    if k == (10 as u32) { return "u32"; }
+    if k == (11 as u32) { return "u64"; }
+    if k == (12 as u32) { return "i24"; }
+    if k == (13 as u32) { return "u24"; }
+    if k == (14 as u32) { return "i56"; }
+    if k == (15 as u32) { return "u56"; }
+    if k == (16 as u32) { return "i128"; }
+    if k == (17 as u32) { return "u128"; }
+    if k == (18 as u32) { return "Ptr"; }
+    if k == (19 as u32) { return "Ref"; }
+    if k == (20 as u32) { return "MutRef"; }
+    if k == (21 as u32) { return "Array"; }
+    if k == (22 as u32) { return "Struct"; }
+    if k == (23 as u32) { return "ZonedStruct"; }
+    if k == (24 as u32) { return "Enum"; }
+    return "?";
+}
+
 // ── Byte-slice equality (used by name lookups) ─────────────────────────
 //
 // Stand-alone so callers don't pull a heavier dep just for "is this
