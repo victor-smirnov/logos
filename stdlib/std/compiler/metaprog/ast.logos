@@ -35,6 +35,19 @@ pub struct Item {
     pub raw: AnyVal,
 }
 
+// `Type` — typelevel value-handle. Returned by the compiler builtin
+// `type_of::<T>()`. Carries a numeric `kind` mirroring
+// `LogosType::Kind` from the compiler (Void=0, I32=1, I64=2, F64=3,
+// F32=4, Bool=5, U8=6, ...). Slice 1 of the typelevel-metaprog epic
+// — just `kind`; later slices grow `name`, `args`, `fields`,
+// `has_trait`, `size_of`. Lives at runtime as a value (printable,
+// composable, comparable); reification back into a real type
+// position requires `metacall` + a reify-position (`type_alias`,
+// `quote_ty!`, `#[derive]`).
+pub struct Type {
+    pub kind: u32,
+}
+
 // `Ident` — borrowed identifier bytes. Slice 5/6 of metaprog-quote:
 // produced by `Item::name()`/`OView::ast_node_ident()` and consumed
 // at `#name` antiquot positions inside `quote_item! { ... }`. The

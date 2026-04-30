@@ -578,6 +578,15 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 result->mirror_offset_ = lir_mirror_emit_lit_int(out_, result->type, n);
                 break;
             }
+            // type_of::<T>() intrinsic: sema lowered to magic call with T in
+            // type_args[0]. After subst_type above, type_args[0] is the
+            // concrete monomorphized type — emit its kind as u32 literal.
+            if (nc.callee == "__type_kind_of__") {
+                int64_t k = nc.type_args.empty() ? 0
+                          : (int64_t)nc.type_args[0].kind();
+                result->mirror_offset_ = lir_mirror_emit_lit_int(out_, result->type, k);
+                break;
+            }
             v.each_arg([&](lir_view::ExprRef ar) {
                 if (ar && ar.kind() == lir_schema::expr::Code::PackExpand) {
                     std::string pe_var_name(lir_view::EPackExpandView{ar}.var_name());

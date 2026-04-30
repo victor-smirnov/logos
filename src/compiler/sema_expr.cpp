@@ -1551,6 +1551,35 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         return bool_lit(r);
     }
 
+    // type_of::<T>() — compiler builtin, returns Type { kind: u32 }.
+    // Slice 1 of typelevel metaprog. The kind is concretized at mono
+    // (works in generic bodies where T is a TypeVar) via the magic
+    // intrinsic __type_kind_of__::<T>(); mono replaces it with the
+    // u32 literal of the substituted T's LogosType::Kind.
+    if (callee == "type_of") {
+        TypeRef elem = nullptr;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                if (items.size() == 1)
+                    elem = resolve_type(map_of(items.get(0)));
+            }
+        }
+        if (!elem) {
+            error("type_of::<T>() requires exactly one type argument");
+            return error_expr();
+        }
+        std::vector<TypeRef> kt_targs; kt_targs.push_back(elem);
+        auto kind_call = builder().call("__type_kind_of__",
+                                        std::move(kt_targs), {},
+                                        prim(LogosType::Kind::U32));
+        auto type_t = make_struct_type("Type");
+        std::vector<std::pair<std::string, lir::LExprPtr>> fields;
+        fields.emplace_back("kind", std::move(kind_call));
+        return builder().struct_lit("Type", std::move(fields), type_t);
+    }
+
     // sizeof::<T>() — compiler builtin, returns i64 byte size of T.
     if (callee == "sizeof") {
         TypeRef elem = nullptr;
