@@ -2725,6 +2725,60 @@ lir::LFunction Mono::clone_fn(const lir::LFunction& fn, const SubstMap& s,
 
 // ── Struct monomorphization ───────────────────────────────────
 
+// L1.4: bound-gate, factored from clone_struct_def's method loop. Returns
+// false when any of method `m`'s impl_type_params bounds is unsatisfied
+// under substitution `s`.
+bool Mono::method_bound_ok(const lir::LFunction& m, const SubstMap& s) {
+    for (auto& itp : m.impl_type_params) {
+        if (itp.bounds.empty()) continue;
+        auto sit = s.find(itp.name);
+        if (sit == s.end()) continue;
+        TypeRef concrete = sit->second;
+        if (!concrete) continue;
+        std::string cname;
+        if (TypeRef(concrete).kind() == LogosType::Kind::Struct ||
+            TypeRef(concrete).kind() == LogosType::Kind::ZonedStruct)
+            cname = concrete_struct_name(concrete);
+        else if (TypeRef(concrete).kind() == LogosType::Kind::Enum)
+            cname = TypeRef(concrete).enum_name();
+        else
+            cname = type_str(concrete);
+        if (auto p = cname.find("$G"); p != std::string::npos)
+            cname = cname.substr(0, p);
+        std::function<bool(const std::string&, const std::string&, StrSet&)> has_impl;
+        has_impl = [&](const std::string& trait, const std::string& cn,
+                       StrSet& seen) -> bool {
+            std::string k = trait + "::" + cn;
+            if (!seen.insert(k).second) return false;
+            if (concrete_impls_.count(k)) return true;
+            for (auto& bi : blanket_impls_) {
+                if (bi.trait_name != trait) continue;
+                if (bi.bound_trait.empty() && bi.extra_bounds.empty()) return true;
+                bool all = !bi.bound_trait.empty()
+                    ? has_impl(bi.bound_trait, cn, seen) : true;
+                for (auto& eb : bi.extra_bounds)
+                    if (!has_impl(eb, cn, seen)) { all = false; break; }
+                if (all) return true;
+            }
+            return false;
+        };
+        for (auto& tb : itp.bounds) {
+            bool is_auto = false;
+            for (auto& td : out_.traits)
+                if (td.name == tb.trait_name) { is_auto = td.is_auto; break; }
+            if (is_auto) {
+                StrSet visited;
+                if (!is_auto_satisfied(concrete, tb.trait_name, visited))
+                    return false;
+                continue;
+            }
+            StrSet seen;
+            if (!has_impl(tb.trait_name, cname, seen)) return false;
+        }
+    }
+    return true;
+}
+
 // Clone a struct def with substitution; rename to new_name.
 // Method names are rewritten from "Base__method" to "new_name__method".
 lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
@@ -2752,73 +2806,13 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
             nd.fields.push_back({f.name, subst_type(f.type, s)});
         }
     }
+    // L1.4: in lazy mode, skip eager method cloning. drain_method_worklist
+    // will clone methods on demand (from L1.1 call-site hook, L1.2 dispatch
+    // pin, L1.3 is_root_pin). The bound gate runs there too.
+    if (lazy_methods_) return nd;
     for (auto& m_up : tmpl.methods) {
         auto& m = *m_up;
-        // Bound gate: if this method came from `impl<T: Bound> Trait for S<T>`,
-        // skip cloning when the concrete type substituted for T doesn't satisfy
-        // Bound.  Without this gate, methods get cloned with bodies that call
-        // functions (e.g. `T::clone_to`) that don't exist for unsupported Ts,
-        // producing dangling references at mlir-gen time.
-        bool bound_ok = true;
-        for (auto& itp : m.impl_type_params) {
-            if (itp.bounds.empty()) continue;
-            auto sit = s.find(itp.name);
-            if (sit == s.end()) continue;  // TypeVar not substituted — keep.
-            TypeRef concrete = sit->second;
-            if (!concrete) continue;
-            std::string cname;
-            if (TypeRef(concrete).kind() == LogosType::Kind::Struct ||
-                TypeRef(concrete).kind() == LogosType::Kind::ZonedStruct)
-                cname = concrete_struct_name(concrete);
-            else if (TypeRef(concrete).kind() == LogosType::Kind::Enum)
-                cname = TypeRef(concrete).enum_name();
-            else
-                cname = type_str(concrete);
-            // Strip instantiation suffix — impls are keyed on base name.
-            if (auto p = cname.find("$G"); p != std::string::npos)
-                cname = cname.substr(0, p);
-            // Recursive satisfaction: C impls T if a concrete impl exists,
-            // or if any blanket `impl<U: B> T for U` exists and C impls B.
-            // Cycle-guarded via `seen`.
-            std::function<bool(const std::string&, const std::string&,
-                               StrSet&)> has_impl;
-            has_impl = [&](const std::string& trait, const std::string& cn,
-                           StrSet& seen) -> bool {
-                std::string k = trait + "::" + cn;
-                if (!seen.insert(k).second) return false;
-                if (concrete_impls_.count(k)) return true;
-                for (auto& bi : blanket_impls_) {
-                    if (bi.trait_name != trait) continue;
-                    if (bi.bound_trait.empty() && bi.extra_bounds.empty()) return true;
-                    bool all = !bi.bound_trait.empty()
-                        ? has_impl(bi.bound_trait, cn, seen) : true;
-                    for (auto& eb : bi.extra_bounds)
-                        if (!has_impl(eb, cn, seen)) { all = false; break; }
-                    if (all) return true;
-                }
-                return false;
-            };
-            for (auto& tb : itp.bounds) {
-                // Auto traits (e.g. `Send`, `Sync`) are structurally satisfied —
-                // walk the concrete type and accept iff every component admits
-                // it.  Raw pointers are !Send/!Sync (Rust rule); types that
-                // wrap them must declare an explicit `unsafe impl`.
-                bool is_auto = false;
-                for (auto& td : out_.traits)
-                    if (td.name == tb.trait_name) { is_auto = td.is_auto; break; }
-                if (is_auto) {
-                    StrSet visited;
-                    if (!is_auto_satisfied(concrete, tb.trait_name, visited)) {
-                        bound_ok = false; break;
-                    }
-                    continue;
-                }
-                StrSet seen;
-                if (!has_impl(tb.trait_name, cname, seen)) { bound_ok = false; break; }
-            }
-            if (!bound_ok) break;
-        }
-        if (!bound_ok) continue;
+        if (!method_bound_ok(m, s)) continue;
         auto nm = clone_fn(m, s, packs);
         // Rename method: "OldBase__methodName" → "new_name__methodName".
         // If the template method name carries a generic suffix
@@ -3127,6 +3121,7 @@ void Mono::instantiate_struct_templates() {
                 }
             }
 
+            concrete_struct_types_[cname] = struct_t;
             auto inst = clone_struct_def(*tmpl, subst, packs, cname);
             // Mirror emit happens here — *after* clone, *before* scan_fn — because
             // only at this point are stmt/expr addresses stable. Two conditions:

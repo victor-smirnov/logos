@@ -83,6 +83,17 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     for (auto& sd : in_.structs) {
         if (!sd.type_params.empty())
             struct_templates_[sd.name] = &sd;  // stable: in_.structs not moved
+        // L1: build (base_struct, short_method_name) → template index for lazy
+        // method instantiation. Method fn-names are stored as `Base__method` in
+        // sema (lower_fn); strip the prefix so the lookup key is the short name
+        // ("bar") that subst_expr's MethodCall hook has at hand.
+        std::string prefix = sd.name + "__";
+        for (auto& m : sd.methods) {
+            std::string short_name = m->name.rfind(prefix, 0) == 0
+                ? m->name.substr(prefix.size())
+                : m->name;
+            struct_method_templates_[sd.name][short_name] = m.get();
+        }
     }
     // Move non-generic structs to output.
     for (auto& sd : in_.structs) {
@@ -262,6 +273,93 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
 
     // Instantiate all generic enums referenced by the output.
     instantiate_enum_templates();
+
+    // L1.3: `instantiate Foo<T>;` and `pub instantiate Foo<T>;` carry
+    // is_root_pin=true. In lazy mode, that means "treat every inherent + trait
+    // method of this instance as a worklist root" — the C++
+    // `template class Foo<int>;` analog. In eager mode it's a no-op (every
+    // method was already cloned).
+    if (lazy_methods_) {
+        for (auto& ia : out_.inst_annotations) {
+            if (!ia.is_root_pin) continue;
+            if (!ia.struct_type) continue;
+            auto kind = TypeRef(ia.struct_type).kind();
+            if (kind != LogosType::Kind::Struct &&
+                kind != LogosType::Kind::ZonedStruct)
+                continue;
+            std::string base{TypeRef(ia.struct_type).struct_name()};
+            auto sit = struct_method_templates_.find(base);
+            if (sit == struct_method_templates_.end()) continue;
+            std::string concrete = concrete_struct_name(ia.struct_type);
+            for (auto& [mname, _] : sit->second) {
+                pinned_method_roots_.insert(concrete + "__" + mname);
+                enqueue_method_inst(ia.struct_type, mname);
+            }
+        }
+    }
+
+    // L1.1: lazy-method drain fixpoint. No-op in eager mode (default) since
+    // method_worklist_ stays empty. When LOGOS_LAZY_METHODS=1, scan_fn enqueues
+    // method instances on the receiver's concrete struct; draining clones each
+    // method, scans its body, which may enqueue more functions or methods.
+    while (!method_worklist_.empty() || !worklist_.empty()) {
+        drain_method_worklist();
+        while (!worklist_.empty()) {
+            auto item = std::move(worklist_.back());
+            worklist_.pop_back();
+            depth_ = item.depth;
+            auto inst = instantiate_fn(*item.tmpl, item.mangled, item.subst, item.packs);
+            out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(inst)));
+            auto& fn_ref = *out_.functions.back();
+            lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
+            scan_fn(fn_ref);
+        }
+        depth_ = 0;
+    }
+
+    // L1.2: in lazy mode, pin every trait method on every concrete generic
+    // struct before emitting dispatch entries. Without this, the entry-emit
+    // loop below would skip methods that haven't been demanded by a direct
+    // call site, leaving dispatch tables pointing at unresolved symbols.
+    // No-op in eager mode (clone_struct_def already cloned every method).
+    if (lazy_methods_) {
+        for (auto& sd : out_.structs) {
+            if (sd.type_code == 0) continue;
+            std::string base = sd.name;
+            if (auto p = base.find("$G"); p != std::string::npos)
+                base = base.substr(0, p);
+            auto cit = concrete_struct_types_.find(sd.name);
+            if (cit == concrete_struct_types_.end()) continue;
+            for (auto& impl : out_.impls) {
+                if (impl.is_blanket) continue;
+                if (impl.trait_name.empty()) continue;
+                if (impl.target_type != base) continue;
+                for (auto& td : out_.traits) {
+                    if (td.name != impl.trait_name) continue;
+                    for (auto& tm : td.methods) {
+                        std::string sym = sd.name + "__" + tm.name;
+                        pinned_method_roots_.insert(sym);
+                        enqueue_method_inst(cit->second, tm.name);
+                    }
+                }
+            }
+        }
+        // Re-drain — methods may transitively pull in more functions/methods.
+        while (!method_worklist_.empty() || !worklist_.empty()) {
+            drain_method_worklist();
+            while (!worklist_.empty()) {
+                auto item = std::move(worklist_.back());
+                worklist_.pop_back();
+                depth_ = item.depth;
+                auto inst = instantiate_fn(*item.tmpl, item.mangled, item.subst, item.packs);
+                out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(inst)));
+                auto& fn_ref = *out_.functions.back();
+                lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
+                scan_fn(fn_ref);
+            }
+            depth_ = 0;
+        }
+    }
 
     // Emit dispatch entries for generic-trait-impls over generic structs
     // (`impl<T> Trait for GenericStruct<T>`).  Sema only emits dispatch

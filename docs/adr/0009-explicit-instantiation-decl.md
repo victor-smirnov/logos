@@ -105,8 +105,14 @@ their methods (verified via `nm` showing `Box$G1$i64__unused`,
 
 ## Status of related work
 
-- L1 (lazy method codegen + dispatch-as-root) — open arc; this ADR is
-  syntactic prerequisite.
+- L1 (lazy method codegen + dispatch-as-root) — **infrastructure landed
+  2026-05-01** (L1.0–L1.4): worklist, MethodCall hook, dispatch-pin pre-pass,
+  is_root_pin honoring, gated `clone_struct_def` (skips method clone in lazy
+  mode) with bound-gate factored into `Mono::method_bound_ok`. Default off
+  (`lazy_methods_=false`); opt-in via `LOGOS_LAZY_METHODS=1`. Eager: 984/984.
+  Lazy: ~30 integration tests fail with "MLIR generation failed" — the gap
+  surface for L1.5. Remaining: L1.5 (drop-glue + Hermes-blob pin audit +
+  free-fn-references), L1.6 (flip default).
 - ADR 0008 (assoc-eq bounds) — landed; orthogonal.
 - C++ `extern template`-equivalent for downstream skip-codegen — deferred
   until separate codegen lands.

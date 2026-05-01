@@ -13,6 +13,7 @@
 #include <logos/compiler/sema.hpp>
 #include <logos/compiler/str_map.hpp>
 
+#include <cstdlib>
 #include <format>
 #include <string>
 #include <unordered_map>
@@ -30,7 +31,10 @@ static inline std::string make_pack_arg_name(std::string_view base, size_t idx) 
 
 class Mono {
 public:
-    explicit Mono(int max_depth) : max_depth_(max_depth) {}
+    explicit Mono(int max_depth) : max_depth_(max_depth) {
+        if (const char* e = std::getenv("LOGOS_LAZY_METHODS"); e && e[0] && e[0] != '0')
+            lazy_methods_ = true;
+    }
 
     lir::LProgram run(lir::LProgram&& in, int max_depth);
 
@@ -147,6 +151,40 @@ private:
     };
     std::vector<WorkItem> worklist_;
 
+    // L1: lazy struct-method instantiation (default OFF — eager scheme is
+    // preserved by clone_struct_def; this infrastructure exists so callers
+    // can opt-in via `lazy_methods_`. The full flip is staged across L1.4-L1.6.)
+    //
+    // Index: base struct/enum name → method name → method template fn (lives
+    // in the input struct's sd.methods, heap-stable through unique_ptr).
+    StrMap<StrMap<const lir::LFunction*>> struct_method_templates_;
+
+    struct MethodWorkItem {
+        std::string concrete_struct;   // e.g. "Foo$G1$i32"
+        std::string base_struct;       // e.g. "Foo"
+        std::string method_name;       // e.g. "bar"
+        SubstMap    subst;             // T → i32 etc., from struct's type_args
+        PackMap     packs;
+        int         depth;
+    };
+    std::vector<MethodWorkItem> method_worklist_;
+    StrSet done_methods_;              // "ConcreteStruct__method" markers
+
+    // L1.2: concrete-struct-name → its TypeRef. Populated during
+    // instantiate_struct_templates so dispatch-emission can re-derive subst
+    // for trait-method root-pinning without re-parsing mangled names.
+    StrMap<TypeRef> concrete_struct_types_;
+
+    // Pinned method roots: "ConcreteStruct__method" set populated by
+    // L1.2 (trait dispatch entries) and L1.3 (is_root_pin annotations).
+    // In lazy mode any method in this set is force-instantiated even if
+    // no call site references it.
+    StrSet pinned_method_roots_;
+
+    // Default false → preserves eager method cloning. L1.6 will flip the
+    // default (or a flag/env var will gate it) once L1.4 audit is done.
+    bool lazy_methods_ = false;
+
     // ── Type substitution (large — defined in mono_subst.cpp) ────────────
     TypeRef subst_type(TypeRef tv, const SubstMap& s) noexcept;
 
@@ -252,6 +290,11 @@ private:
     // verification at instantiation time.
     bool is_auto_satisfied(TypeRef tv, std::string_view trait_name, StrSet& visited);
 
+    // L1.4: bound gate, factored out of clone_struct_def for re-use in
+    // drain_method_worklist. Returns false when method `m`'s impl_type_params
+    // bounds are not satisfied under substitution `s`.
+    bool method_bound_ok(const lir::LFunction& m, const SubstMap& s);
+
     // ── Struct/enum cloning (large — defined in mono_clone.cpp) ─────
     lir::LStructDef clone_struct_def(const lir::LStructDef& tmpl,
                                       const SubstMap& s,
@@ -334,6 +377,20 @@ private:
     // ── Enqueue / instantiate (defined in mono_scan.cpp) ─────────────────
     void enqueue_if_needed(const std::string& mangled_callee,
                            const std::vector<TypeRef>& type_args);
+
+    // L1: enqueue a single struct-method instance for lazy codegen. Looks up
+    // the method template via `struct_method_templates_`, builds a SubstMap
+    // from the concrete struct's type_args, and pushes a MethodWorkItem if
+    // the (concrete_struct, method) pair isn't already done. No-op when the
+    // method or struct is unknown or already pinned.
+    void enqueue_method_inst(TypeRef concrete_struct_t,
+                             const std::string& method_name);
+
+    // Drain method_worklist_: clone each pending method under its struct's
+    // substitution, rename to "<concrete>__<method>", append to the matching
+    // LStructDef in out_.structs (heap-stable through unique_ptr<LFunction>),
+    // mirror-emit, and scan for further calls.
+    void drain_method_worklist();
 
     lir::LFunction instantiate_fn(const lir::LFunction& tmpl,
                                    const std::string& mangled_name,

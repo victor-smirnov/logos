@@ -178,6 +178,18 @@ void Mono::scan_expr(lir_view::ExprRef e) {
         lir_view::EMethodCallView v{e};
         scan_expr(v.receiver());
         v.each_arg([&](lir_view::ExprRef a) { scan_expr(a); });
+        if (lazy_methods_) {
+            // L1.1: hook for lazy method instantiation. Default off; only fires
+            // when LOGOS_LAZY_METHODS=1. Resolve the receiver type to a concrete
+            // generic struct and enqueue this method's instance for codegen.
+            auto rt = v.receiver().type(out_.type_pool.impl());
+            while (rt && (TypeRef(rt).kind() == LogosType::Kind::Ptr ||
+                          TypeRef(rt).kind() == LogosType::Kind::Ref ||
+                          TypeRef(rt).kind() == LogosType::Kind::MutRef) &&
+                   TypeRef(rt).pointee())
+                rt = TypeRef(rt).pointee();
+            enqueue_method_inst(rt, std::string(v.method()));
+        }
         break;
     }
     case ECode::StructLit:
@@ -408,6 +420,96 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
         packs[vtp.name] = std::move(pack_types);
     }
     worklist_.push_back({mangled_callee, tmpl, std::move(subst), std::move(packs), depth_ + 1});
+}
+
+// ── L1: lazy method instantiation (infrastructure) ────────────────────────
+//
+// Default scheme is still eager: clone_struct_def clones every method during
+// struct instantiation, so this path is dead until lazy_methods_ is flipped
+// (L1.6). It exists now so call-site rewrites (L1.1), trait-dispatch pinning
+// (L1.2), and is_root_pin (L1.3) hooks have a stable target to enqueue into.
+
+void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
+                               const std::string& method_name) {
+    if (!concrete_struct_t) return;
+    auto kind = TypeRef(concrete_struct_t).kind();
+    if (kind != LogosType::Kind::Struct && kind != LogosType::Kind::ZonedStruct)
+        return;
+    std::string concrete = concrete_struct_name(concrete_struct_t);
+    std::string base{TypeRef(concrete_struct_t).struct_name()};
+    if (auto p = base.find("$G"); p != std::string::npos)
+        base = base.substr(0, p);
+
+    std::string key = concrete + "__" + method_name;
+    if (!done_methods_.insert(key).second) return;
+
+    auto sit = struct_method_templates_.find(base);
+    if (sit == struct_method_templates_.end()) return;
+    auto mit = sit->second.find(method_name);
+    if (mit == sit->second.end()) return;
+
+    // Build subst from the struct's type_args using the *struct template's*
+    // type_params (the method template inherits those names).
+    auto stt = struct_templates_.find(base);
+    if (stt == struct_templates_.end()) return;
+    const auto& tpars = stt->second->type_params;
+    auto type_args = TypeRef(concrete_struct_t).type_args();
+
+    SubstMap subst;
+    PackMap  packs;
+    for (size_t i = 0, j = 0; i < tpars.size(); ++i) {
+        if (tpars[i].is_variadic) {
+            std::vector<TypeRef> pack;
+            while (j < type_args.size()) pack.push_back(type_args[j++]);
+            packs[tpars[i].name] = std::move(pack);
+        } else if (j < type_args.size()) {
+            subst[tpars[i].name] = type_args[j++];
+        }
+    }
+
+    method_worklist_.push_back({concrete, base, method_name,
+                                std::move(subst), std::move(packs), depth_ + 1});
+}
+
+void Mono::drain_method_worklist() {
+    while (!method_worklist_.empty()) {
+        auto item = std::move(method_worklist_.back());
+        method_worklist_.pop_back();
+
+        auto sit = struct_method_templates_.find(item.base_struct);
+        if (sit == struct_method_templates_.end()) continue;
+        auto mit = sit->second.find(item.method_name);
+        if (mit == sit->second.end()) continue;
+        const lir::LFunction* tmpl = mit->second;
+
+        // Find the target struct in out_.structs (it must already exist —
+        // struct shells are emitted before any method enqueue can fire).
+        lir::LStructDef* target = nullptr;
+        for (auto& sd : out_.structs)
+            if (sd.name == item.concrete_struct) { target = &sd; break; }
+        if (!target) continue;
+
+        // Skip if a method with this name is already on the struct (e.g.
+        // eagerly cloned by the existing clone_struct_def path).
+        std::string dest_name = item.concrete_struct + "__" + item.method_name;
+        bool exists = false;
+        for (auto& m : target->methods)
+            if (m->name == dest_name) { exists = true; break; }
+        if (exists) continue;
+
+        if (!method_bound_ok(*tmpl, item.subst)) continue;
+
+        depth_ = item.depth;
+        auto cloned = clone_fn(*tmpl, item.subst, item.packs);
+        cloned.name = dest_name;
+        cloned.type_params.clear();
+
+        target->methods.push_back(std::make_unique<lir::LFunction>(std::move(cloned)));
+        auto& fn_ref = *target->methods.back();
+        lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
+        scan_fn(fn_ref);
+    }
+    depth_ = 0;
 }
 
 } // namespace logos::compiler
