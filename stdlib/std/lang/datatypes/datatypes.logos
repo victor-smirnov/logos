@@ -44,6 +44,9 @@ pub trait DynamicStorage: OwningStorage {
     fn storage_new()  -> Self;
     fn storage_push(s: *mut Self, v: Self::Elem);
     fn storage_clear(s: *mut Self);
+    fn storage_set(s: *mut Self, idx: u64, v: Self::Elem);
+    fn storage_insert_at(s: *mut Self, idx: u64, v: Self::Elem);
+    fn storage_remove_at(s: *mut Self, idx: u64);
 }
 
 pub trait BorrowedStorage: Storage {
@@ -89,6 +92,9 @@ pub trait Container: Datatype {
     fn store_len(s: *const Self::Store) -> u64;
     fn store_push(s: *mut Self::Store, v: Self::ViewInStore);
     fn store_get(s: *const Self::Store, idx: u64) -> Self::ViewInStore;
+    fn store_set(s: *mut Self::Store, idx: u64, v: Self::ViewInStore);
+    fn store_insert_at(s: *mut Self::Store, idx: u64, v: Self::ViewInStore);
+    fn store_remove_at(s: *mut Self::Store, idx: u64);
 }
 
 // ---------------------------------------------------------------------------
@@ -126,6 +132,30 @@ impl<DT: Container> Buffer<DT> {
         unsafe {
             let sp: *const DT::Store = &self.storage as *const DT::Store;
             return DT::store_get(sp, idx);
+        }
+    }
+
+    pub fn set(&mut self, idx: u64, v: DT::ViewInStore) {
+        unsafe {
+            let sp: *mut DT::Store =
+                (&self.storage as *const DT::Store) as *mut DT::Store;
+            DT::store_set(sp, idx, v);
+        }
+    }
+
+    pub fn insert_at(&mut self, idx: u64, v: DT::ViewInStore) {
+        unsafe {
+            let sp: *mut DT::Store =
+                (&self.storage as *const DT::Store) as *mut DT::Store;
+            DT::store_insert_at(sp, idx, v);
+        }
+    }
+
+    pub fn remove_at(&mut self, idx: u64) {
+        unsafe {
+            let sp: *mut DT::Store =
+                (&self.storage as *const DT::Store) as *mut DT::Store;
+            DT::store_remove_at(sp, idx);
         }
     }
 
@@ -246,6 +276,67 @@ impl<T> PrimVec<T> {
             }
         }
     }
+
+    // Overwrite the slot at `idx` with `v`.  Out-of-range is a programmer
+    // error and silently no-ops here (caller validates).
+    pub fn set(&mut self, idx: u64, v: T) {
+        unsafe {
+            if idx >= self.len { return; }
+            let stride: i64 = sizeof::<T>();
+            let slot: *mut T = (self.data as i64 + (idx as i64) * stride) as *mut T;
+            *slot = v;
+        }
+    }
+
+    // Insert `v` at `idx`, shifting the tail right by one slot.  `idx`
+    // may equal `len` (append at end).  Out-of-range silently no-ops.
+    pub fn insert_at(&mut self, idx: u64, v: T) {
+        unsafe {
+            if idx > self.len { return; }
+            let stride: i64 = sizeof::<T>();
+            // Grow if at capacity (same shape as push).
+            if self.len == self.cap {
+                let new_cap: u64 = if self.cap == 0u64 { 4u64 } else { self.cap * 2u64 };
+                let bytes: i64 = (new_cap as i64) * stride;
+                let new_buf: *mut u8 = if self.data == 0 as *mut T {
+                    alloc(bytes)
+                } else {
+                    realloc_buf(self.data as *mut u8, bytes)
+                };
+                if new_buf == 0 as *mut u8 { return; }
+                self.data = new_buf as *mut T;
+                self.cap  = new_cap;
+            }
+            // Shift slots [idx..len) right by one (high to low).
+            let mut i: u64 = self.len;
+            while i > idx {
+                let dst: *mut T = (self.data as i64 + (i as i64) * stride) as *mut T;
+                let src: *const T = (self.data as i64 + ((i - 1u64) as i64) * stride) as *const T;
+                *dst = *src;
+                i = i - 1u64;
+            }
+            let slot: *mut T = (self.data as i64 + (idx as i64) * stride) as *mut T;
+            *slot = v;
+            self.len = self.len + 1u64;
+        }
+    }
+
+    // Remove the element at `idx`, shifting the tail left by one slot.
+    // Capacity is preserved.  Out-of-range silently no-ops.
+    pub fn remove_at(&mut self, idx: u64) {
+        unsafe {
+            if idx >= self.len { return; }
+            let stride: i64 = sizeof::<T>();
+            let mut i: u64 = idx;
+            while i + 1u64 < self.len {
+                let dst: *mut T = (self.data as i64 + (i as i64) * stride) as *mut T;
+                let src: *const T = (self.data as i64 + ((i + 1u64) as i64) * stride) as *const T;
+                *dst = *src;
+                i = i + 1u64;
+            }
+            self.len = self.len - 1u64;
+        }
+    }
 }
 
 // PrimVec<T> plugs into the Storage hierarchy as a DynamicStorage<Elem=T>.
@@ -278,6 +369,15 @@ impl<T> DynamicStorage for PrimVec<T> {
     fn storage_clear(s: *mut PrimVec<T>) {
         unsafe { s.clear(); }
     }
+    fn storage_set(s: *mut PrimVec<T>, idx: u64, v: T) {
+        unsafe { s.set(idx, v); }
+    }
+    fn storage_insert_at(s: *mut PrimVec<T>, idx: u64, v: T) {
+        unsafe { s.insert_at(idx, v); }
+    }
+    fn storage_remove_at(s: *mut PrimVec<T>, idx: u64) {
+        unsafe { s.remove_at(idx); }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -298,6 +398,9 @@ impl<DT: Primitive> Container for DT {
     fn store_len(s: *const PrimVec<DT::Prim>) -> u64 { unsafe { return s.len; } }
     fn store_push(s: *mut PrimVec<DT::Prim>, v: DT::Prim) { unsafe { s.push(v); } }
     fn store_get(s: *const PrimVec<DT::Prim>, idx: u64) -> DT::Prim { unsafe { return s.get(idx); } }
+    fn store_set(s: *mut PrimVec<DT::Prim>, idx: u64, v: DT::Prim) { unsafe { s.set(idx, v); } }
+    fn store_insert_at(s: *mut PrimVec<DT::Prim>, idx: u64, v: DT::Prim) { unsafe { s.insert_at(idx, v); } }
+    fn store_remove_at(s: *mut PrimVec<DT::Prim>, idx: u64) { unsafe { s.remove_at(idx); } }
 }
 
 // ---------------------------------------------------------------------------
@@ -326,6 +429,15 @@ impl<DT: PodRef> Container for DT {
             return (s.data as i64 + (idx as i64) * stride) as *const DT;
         }
     }
+    fn store_set(s: *mut PrimVec<DT>, idx: u64, v: *const DT) {
+        unsafe { s.set(idx, *v); }
+    }
+    fn store_insert_at(s: *mut PrimVec<DT>, idx: u64, v: *const DT) {
+        unsafe { s.insert_at(idx, *v); }
+    }
+    fn store_remove_at(s: *mut PrimVec<DT>, idx: u64) {
+        unsafe { s.remove_at(idx); }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -353,6 +465,18 @@ pub trait ContainerOrd: Container {
 impl<DT: PodRef + Ord> ContainerOrd for DT {
     unsafe fn cmp_view_key(self: *const DT, stored: *const DT, query: *const DT) -> Ordering {
         return (&*stored).cmp(&*query);
+    }
+}
+
+// Primitive path: ViewInStore = DT::Prim (by value).  DT and DT::Prim are
+// byte-equivalent (Primitive POD wrapper contract), so we place the
+// stored Prim on the stack and reinterpret as *const DT to dispatch
+// through DT's existing `Ord` impl uniformly with the PodRef path.
+impl<DT: Primitive + Ord> ContainerOrd for DT {
+    unsafe fn cmp_view_key(self: *const DT, stored: DT::Prim, query: *const DT) -> Ordering {
+        let s: DT::Prim = stored;
+        let sp: *const DT = (&s) as *const DT::Prim as *const DT;
+        return (&*sp).cmp(&*query);
     }
 }
 

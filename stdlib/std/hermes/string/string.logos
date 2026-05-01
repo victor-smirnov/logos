@@ -342,6 +342,13 @@ impl DynamicStorage for HermesStringStorage {
         }
     }
 
+    // Random-access mutation isn't implementable on packed-SoA storage
+    // without rewriting the bytes tail.  Persistent collections that need
+    // this should pick a different Container; the methods are stubbed
+    // here so the trait stays whole.
+    fn storage_set(s: *mut HermesStringStorage, idx: u64, v: StringView) { }
+    fn storage_insert_at(s: *mut HermesStringStorage, idx: u64, v: StringView) { }
+    fn storage_remove_at(s: *mut HermesStringStorage, idx: u64) { }
 }
 
 impl Datatype for HermesString {
@@ -356,4 +363,7 @@ impl Container for HermesString {
     fn store_len(s: *const HermesStringStorage)           -> u64                 { unsafe { return HermesStringStorage::storage_len(s); } }
     fn store_push(s: *mut HermesStringStorage, v: StringView)                    { unsafe { HermesStringStorage::storage_push(s, v); } }
     fn store_get(s: *const HermesStringStorage, idx: u64) -> StringView          { unsafe { return HermesStringStorage::storage_get(s, idx); } }
+    fn store_set(s: *mut HermesStringStorage, idx: u64, v: StringView)           { unsafe { HermesStringStorage::storage_set(s, idx, v); } }
+    fn store_insert_at(s: *mut HermesStringStorage, idx: u64, v: StringView)     { unsafe { HermesStringStorage::storage_insert_at(s, idx, v); } }
+    fn store_remove_at(s: *mut HermesStringStorage, idx: u64)                    { unsafe { HermesStringStorage::storage_remove_at(s, idx); } }
 }
