@@ -32,8 +32,10 @@ static inline std::string make_pack_arg_name(std::string_view base, size_t idx) 
 class Mono {
 public:
     explicit Mono(int max_depth) : max_depth_(max_depth) {
-        if (const char* e = std::getenv("LOGOS_LAZY_METHODS"); e && e[0] && e[0] != '0')
-            lazy_methods_ = true;
+        // L1.6: lazy method codegen is the default. `LOGOS_LAZY_METHODS=0`
+        // restores eager mode for bisecting / regression isolation.
+        if (const char* e = std::getenv("LOGOS_LAZY_METHODS"); e && e[0] == '0')
+            lazy_methods_ = false;
     }
 
     lir::LProgram run(lir::LProgram&& in, int max_depth);
@@ -188,9 +190,9 @@ private:
     // no call site references it.
     StrSet pinned_method_roots_;
 
-    // Default false → preserves eager method cloning. L1.6 will flip the
-    // default (or a flag/env var will gate it) once L1.4 audit is done.
-    bool lazy_methods_ = false;
+    // L1.6: default true (lazy method cloning). `LOGOS_LAZY_METHODS=0`
+    // restores eager codegen — only used for bisecting regressions.
+    bool lazy_methods_ = true;
 
     // ── Type substitution (large — defined in mono_subst.cpp) ────────────
     TypeRef subst_type(TypeRef tv, const SubstMap& s) noexcept;
