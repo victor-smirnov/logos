@@ -56,6 +56,14 @@ fn main() -> i32 {
         let k3: *const UID256 = m.keys.get(3u64);
         if !(&*k3).eq(&d) { return 18; }
 
+        // node_find: hits return their index; miss returns -1.
+        if node_find::<UID256, UID256>(m, &a as *const UID256) != 0i64 { return 19; }
+        if node_find::<UID256, UID256>(m, &b as *const UID256) != 1i64 { return 20; }
+        if node_find::<UID256, UID256>(m, &c as *const UID256) != 2i64 { return 21; }
+        if node_find::<UID256, UID256>(m, &d as *const UID256) != 3i64 { return 22; }
+        let miss: UID256 = uid256_random();
+        if node_find::<UID256, UID256>(m, &miss as *const UID256) != -1i64 { return 23; }
+
         node_release::<UID256, UID256>(m);
         node_release::<UID256, UID256>(n);
     }

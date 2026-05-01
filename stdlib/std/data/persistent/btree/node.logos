@@ -87,3 +87,21 @@ pub fn node_leaf_insert<K: Container + Eq, V: Container>(node: *mut BTreeNode<K,
         node.n = node.n + 1u16;
     }
 }
+
+// Linear search for `key` among the leaf's keys; returns the index on hit,
+// -1 on miss.  v1 only: K must take the PodRef path (ViewInStore = *const K)
+// — the small-Primitive shape (ViewInStore = K::Prim) needs a different
+// comparison entry point and is left for a future overload.
+pub fn node_find<K: Container + Eq, V: Container>(node: *mut BTreeNode<K, V>, key: *const K) -> i64 {
+    unsafe {
+        let n: u64 = node.keys.len();
+        let mut i: u64 = 0u64;
+        while i < n {
+            let kv: K::ViewInStore = node.keys.get(i);
+            let kp: *const K = kv as *const K;
+            if (&*key).eq(&*kp) { return i as i64; }
+            i = i + 1u64;
+        }
+        return -1i64;
+    }
+}

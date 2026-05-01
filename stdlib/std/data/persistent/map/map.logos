@@ -1,0 +1,59 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.data.persistent.map
+//
+// PMap<K, V> — persistent map handle.  In Memoria terminology this is a
+// Container: a wrapper that *holds no memory of its own*; the data lives
+// in the Store (in v1: a single B+tree root reachable from the handle).
+//
+// v1 limitations (deliberate, design-level):
+//   - leaf-only (no internal nodes, no splits).
+//   - linear scan via node_find; no key ordering invariant yet.
+//   - no Store/Snapshot yet — PMap owns its root directly via ARC.
+//   - `insert` is upsert-by-replace at the leaf; on key hit the existing
+//     value is overwritten in place (no path-copy / no CoW snapshot yet).
+
+package std.data.persistent.map;
+
+use std.data.persistent.btree.node;
+use std.lang.cmp;
+use std.lang.datatypes;
+
+pub struct PMap<K: Container + Eq, V: Container> {
+    pub root: *mut BTreeNode<K, V>,
+}
+
+// Allocate a fresh, empty map (root = single empty leaf, rc=1).
+pub fn map_new<K: Container + Eq, V: Container>() -> PMap<K, V> {
+    return PMap::<K, V> { root: node_alloc::<K, V>() };
+}
+
+// Release the root; caller must not use the handle afterwards.
+pub fn map_drop<K: Container + Eq, V: Container>(m: *mut PMap<K, V>) {
+    unsafe { node_release::<K, V>(m.root); }
+}
+
+// Number of (key, val) pairs in the map.
+pub fn map_len<K: Container + Eq, V: Container>(m: *const PMap<K, V>) -> u64 {
+    unsafe {
+        let r: *mut BTreeNode<K, V> = m.root;
+        return r.keys.len();
+    }
+}
+
+// Lookup index of `key` in the leaf; -1 on miss.
+pub fn map_find<K: Container + Eq, V: Container>(m: *const PMap<K, V>, key: *const K) -> i64 {
+    unsafe {
+        let r: *mut BTreeNode<K, V> = m.root;
+        return node_find::<K, V>(r, key);
+    }
+}
+
+// True iff `key` is present.
+pub fn map_contains<K: Container + Eq, V: Container>(m: *const PMap<K, V>, key: *const K) -> bool {
+    return map_find::<K, V>(m, key) >= 0i64;
+}
+
+// Append (key, val).  v1: no dedup, no ordering — caller is responsible.
+pub fn map_insert_new<K: Container + Eq, V: Container>(m: *mut PMap<K, V>, key: K::ViewInStore, val: V::ViewInStore) {
+    unsafe { node_leaf_insert::<K, V>(m.root, key, val); }
+}
