@@ -1,0 +1,151 @@
+// std.data.persistent.map microbenchmark.
+//
+// Workload, per N in {1k, 10k, 100k}:
+//   1. insert N fresh xorshift-generated u64 keys (all upserts return false)
+//   2. get  N hits   (look up every inserted key)
+//   3. get  N misses (look up keys disjoint from the inserted set)
+//   4. remove N keys (in insertion order)
+//
+// Reports ns/op for each phase.  Uses Primitive u64 key path
+// (PMap<U64Key, U64Val>) so the bench measures B+tree work without
+// UID256 byte-compare overhead.
+package bench;
+
+use std.io;
+use std.time;
+use std.data.persistent.map;
+use std.lang.cmp;
+use std.lang.ord;
+use std.lang.datatypes;
+use std.lang.text;
+
+pub struct U64Key { pub x: u64 }
+impl Primitive for U64Key { type Prim = u64; }
+impl Ord for U64Key {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if self.x < other.x { return Ordering::Less; }
+        if self.x > other.x { return Ordering::Greater; }
+        return Ordering::Equal;
+    }
+}
+
+pub struct U64Val { pub x: u64 }
+impl Primitive for U64Val { type Prim = u64; }
+
+// xorshift64 — fast deterministic PRNG.  state must be non-zero.
+fn xs_next(state: *mut u64) -> u64 {
+    unsafe {
+        let mut x: u64 = *state;
+        x = x ^ (x << 13u64);
+        x = x ^ (x >> 7u64);
+        x = x ^ (x << 17u64);
+        *state = x;
+        return x;
+    }
+}
+
+fn report(phase: str, n: u64, ns: i64) {
+    let ns_per_op: i64 = ns / (n as i64);
+    let mut line: String = String::new();
+    line.push_str("  ");
+    line.push_str(phase);
+    line.push_str(": N=");
+    line.push_u64(n);
+    line.push_str("  total=");
+    line.push_i64(ns);
+    line.push_str("ns  ns/op=");
+    line.push_i64(ns_per_op);
+    println_string(&line);
+}
+
+fn run_size(n: u64) {
+    let mut hdr: String = String::new();
+    hdr.push_str("[N=");
+    hdr.push_u64(n);
+    hdr.push_str("]");
+    println_string(&hdr);
+
+    // Generate N distinct-ish u64 keys via xorshift.  We accept rare
+    // collisions; the resulting upsert hits will be lost in the noise.
+    let mut keys: PrimVec<u64> = PrimVec::<u64>::empty();
+    let mut st: u64 = 0x9E3779B97F4A7C15u64;
+    let mut i: u64 = 0u64;
+    while i < n {
+        keys.push(xs_next(&mut st as *mut u64));
+        i = i + 1u64;
+    }
+    // Generate N miss-keys from a disjoint state seed.  Probability of
+    // overlap with the inserted set is ~N/2^64 — negligible.
+    let mut miss: PrimVec<u64> = PrimVec::<u64>::empty();
+    let mut st2: u64 = 0xBF58476D1CE4E5B9u64;
+    i = 0u64;
+    while i < n {
+        miss.push(xs_next(&mut st2 as *mut u64));
+        i = i + 1u64;
+    }
+
+    let mut m: PMap<U64Key, U64Val> = map_new::<U64Key, U64Val>();
+
+    // ── insert ────────────────────────────────────────────────────
+    let t0: Instant = unsafe { instant_now() };
+    i = 0u64;
+    while i < n {
+        let k: u64 = keys.get(i);
+        let kk: U64Key = U64Key { x: k };
+        map_insert::<U64Key, U64Val>(&mut m, k, k, &kk as *const U64Key);
+        i = i + 1u64;
+    }
+    let t1: Instant = unsafe { instant_now() };
+    report("insert", n, t1.since(t0).as_nanos());
+
+    // ── get hit ───────────────────────────────────────────────────
+    let mut out: u64 = 0u64;
+    let t2: Instant = unsafe { instant_now() };
+    i = 0u64;
+    while i < n {
+        let k: u64 = keys.get(i);
+        let kk: U64Key = U64Key { x: k };
+        map_get::<U64Key, U64Val>(&m, &kk as *const U64Key, &mut out as *mut u64);
+        i = i + 1u64;
+    }
+    let t3: Instant = unsafe { instant_now() };
+    report("get-hit ", n, t3.since(t2).as_nanos());
+
+    // ── get miss ──────────────────────────────────────────────────
+    let t4: Instant = unsafe { instant_now() };
+    i = 0u64;
+    while i < n {
+        let k: u64 = miss.get(i);
+        let kk: U64Key = U64Key { x: k };
+        map_contains::<U64Key, U64Val>(&m, &kk as *const U64Key);
+        i = i + 1u64;
+    }
+    let t5: Instant = unsafe { instant_now() };
+    report("get-miss", n, t5.since(t4).as_nanos());
+
+    // ── remove ────────────────────────────────────────────────────
+    let t6: Instant = unsafe { instant_now() };
+    i = 0u64;
+    while i < n {
+        let k: u64 = keys.get(i);
+        let kk: U64Key = U64Key { x: k };
+        map_remove::<U64Key, U64Val>(&mut m, &kk as *const U64Key);
+        i = i + 1u64;
+    }
+    let t7: Instant = unsafe { instant_now() };
+    report("remove  ", n, t7.since(t6).as_nanos());
+
+    map_drop::<U64Key, U64Val>(&mut m);
+    keys.clear();
+    miss.clear();
+}
+
+fn main() -> i32 {
+    println("=== std.data.persistent.map microbench ===");
+    run_size(1000u64);
+    run_size(10000u64);
+    run_size(100000u64);
+    run_size(1000000u64);
+    run_size(10000000u64);
+    return 0;
+}

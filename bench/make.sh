@@ -32,3 +32,4 @@ build_one () {
 build_one http_hello.logos    http_hello
 build_one http_hello_mt.logos http_hello_mt
 build_one garden/origin.logos garden_origin
+build_one persistent_map_bench.logos persistent_map_bench
