@@ -1,0 +1,32 @@
+package copy_let_independence;
+// `let copy = orig` for `impl Copy` structs must produce an independent
+// slot, not alias the source. Mutating `copy` must NOT affect `orig`.
+// Regression for the codegen bug where gen_let aliased struct allocas.
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(s: str) { unsafe { printf(s.as_ptr()); } }
+
+trait Copy {}
+
+struct S { x: u64, y: u64, }
+impl Copy for S {}
+
+struct B { bytes: [u8; 4], }
+impl Copy for B {}
+
+unsafe fn main() -> i32 {
+    let orig: S = S { x: 10u64, y: 20u64 };
+    let mut copy: S = orig;
+    copy.x = 99u64;
+    if orig.x != 10u64 { pr("FAIL S\n"); return 1; }
+    if copy.x != 99u64 { pr("FAIL S2\n"); return 2; }
+
+    let bo: B = B { bytes: [10u8, 20u8, 30u8, 40u8] };
+    let mut bc: B = bo;
+    bc.bytes[0] = 99u8;
+    if bo.bytes[0] != 10u8 { pr("FAIL B\n"); return 3; }
+    if bc.bytes[0] != 99u8 { pr("FAIL B2\n"); return 4; }
+
+    pr("ok\n");
+    return 0;
+}

@@ -334,19 +334,33 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
                     TypeRef(s.type).kind() == LogosType::Kind::ZonedStruct)) {
         auto val = gen_expr(*s.value);
         if (!val) return;
+        auto sname = concrete_struct_name(s.type);
+        auto sit = struct_types_.find(sname);
         if (val.getType() != ptr_type()) {
             // By-value struct from function return — spill to alloca.
-            auto sname = concrete_struct_name(s.type);
-            auto sit = struct_types_.find(sname);
             if (sit != struct_types_.end()) {
                 auto alloca = create_entry_alloca(sit->second.llvm_type);
                 builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
                 val = alloca;
             }
+        } else if (sit != struct_types_.end()) {
+            // val is an existing struct pointer (e.g. `let copy = orig;`).
+            // Aliasing here is wrong for `impl Copy` types (mutation through
+            // copy would leak into orig). For move-only types the borrow
+            // checker forbids touching orig, so memcpy is at worst a small
+            // redundancy. Always allocate fresh + memcpy → independent slot.
+            auto dl = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
+            auto bytes = (int64_t)dl.getTypeSize(sit->second.llvm_type);
+            auto fresh = create_entry_alloca(sit->second.llvm_type);
+            auto sz = builder_.create<mlir::LLVM::ConstantOp>(
+                loc_, builder_.getI64Type(),
+                builder_.getI64IntegerAttr(bytes));
+            builder_.create<mlir::LLVM::MemcpyOp>(loc_, fresh, val, sz, /*isVolatile=*/false);
+            val = fresh;
         }
         scope_[s.name]    = val;
         let_vars_.insert(s.name);
-        var_struct_[s.name] = concrete_struct_name(s.type);
+        var_struct_[s.name] = sname;
         return;
     }
 

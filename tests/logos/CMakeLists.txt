@@ -206,6 +206,7 @@ function(logos_pass_extra_args BASE OUT_VAR)
         std_hashmap_basic std_hashmap_full std_hashmap_iter std_hashmap_multi_k
         iter_basic
         iter_adapters
+        copy_let_independence
         for_iter_range
         list_comp_basic
         map_comp_basic
