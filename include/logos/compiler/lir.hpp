@@ -837,6 +837,17 @@ struct LInstAnnotation {
     // Foo<T> directly (e.g. blob literals like @<I32>[...] produce type_code-tagged
     // objects at C++ level without instantiating the Logos struct).
     TypeRef  struct_type = nullptr;
+    // True when this annotation came from `instantiate Foo<T>;` (or pub form) —
+    // i.e. it's a *root pin* requesting all methods of the instance, not just a
+    // type_code binding. In the current eager mono scheme this is redundant
+    // (every demanded struct gets full method clone anyway); under L1's lazy
+    // collector it will additionally pin every inherent + trait method as a
+    // worklist root, giving the C++ `template class Foo<int>;` semantics.
+    bool     is_root_pin = false;
+    // True when declared with `pub instantiate ...`. Lib-site re-export marker
+    // for downstream packages once separate codegen lands; semantically a no-op
+    // until then.
+    bool     is_pub_reexport = false;
 };
 
 // One entry in a tag-based dispatch table.

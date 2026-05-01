@@ -2757,6 +2757,51 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             pending_annots.push_back(item);
             continue;
         }
+        if (c == la::INSTANTIATE_DECL) {
+            // `instantiate Foo<T>;` / `pub instantiate Foo<T>;` — pre-instantiation
+            // root pin (C++ `template class Foo<int>;` analog). Pushes an
+            // LInstAnnotation that mono picks up via the existing path: it demands
+            // struct instantiation, which in the current eager scheme clones every
+            // method. When lazy method codegen lands (L1), the annotation will also
+            // pin all methods as roots so the worklist transitively pulls everything
+            // they call. `pub` is stored for L3 lib-site re-export semantics; until
+            // separate codegen exists it's a marker.
+            if (!item.has_key(la::TYPE.code)) {
+                error("instantiate declaration missing type expression");
+                pending_annots.clear();
+                continue;
+            }
+            auto type_node = map_of(item.get(la::TYPE.code));
+            TypeRef resolved = resolve_type(type_node);
+            if (resolved && TypeRef(resolved).kind() != LogosType::Kind::Error) {
+                if (TypeRef(resolved).kind() != LogosType::Kind::Struct &&
+                    TypeRef(resolved).kind() != LogosType::Kind::ZonedStruct &&
+                    TypeRef(resolved).kind() != LogosType::Kind::Enum) {
+                    error("instantiate target must be a struct, datatype, or enum");
+                } else {
+                    lir::LInstAnnotation ia;
+                    ia.canonical_name = std::string(cur_package_) + "::" + type_str(resolved);
+                    if ((TypeRef(resolved).kind() == LogosType::Kind::Struct ||
+                         TypeRef(resolved).kind() == LogosType::Kind::ZonedStruct) &&
+                        !TypeRef(resolved).type_args().empty()) {
+                        ia.mangled_name = concrete_struct_name(resolved);
+                    } else if (TypeRef(resolved).kind() == LogosType::Kind::Struct ||
+                               TypeRef(resolved).kind() == LogosType::Kind::ZonedStruct) {
+                        ia.mangled_name = TypeRef(resolved).struct_name();
+                    } else {
+                        ia.mangled_name = TypeRef(resolved).enum_name();
+                    }
+                    ia.struct_type = resolved;
+                    ia.is_root_pin = true;
+                    ia.is_pub_reexport = item.has_key(la::IS_PUB) &&
+                                         item.get(la::IS_PUB.code).is_value() &&
+                                         item.get(la::IS_PUB.code).as_value<uint8_t>() != 0;
+                    prog.inst_annotations.push_back(std::move(ia));
+                }
+            }
+            pending_annots.clear();
+            continue;
+        }
         if      (c == la::STRUCT) {
             // Explicit struct instantiation: `#[type_code=N] struct Pair<i32>;`
             // Has TYPE key, no NAME key — delegate to same logic as DATATYPE inst.

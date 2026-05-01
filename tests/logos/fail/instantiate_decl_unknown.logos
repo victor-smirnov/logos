@@ -1,0 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
+// `instantiate` of an unknown type must error.
+
+package instantiate_decl_unknown;
+
+instantiate UnknownType<i64>;
+
+fn main() -> i32 { return 0i32; }

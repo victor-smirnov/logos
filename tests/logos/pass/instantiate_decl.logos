@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: Apache-2.0
+// `instantiate Foo<T>;` materialises the instance and all its methods even
+// when no Logos code references Foo<T>. Acts as a root pin for monomorphization
+// (C++ `template class Foo<int>;` analog).
+
+package instantiate_decl;
+
+struct Box<T> {
+    val: T,
+}
+
+impl<T> Box<T> {
+    fn make(v: T) -> Box<T> { return Box::<T> { val: v }; }
+    fn unused(&self) -> i32 { return 7i32; }
+}
+
+instantiate Box<i64>;
+pub instantiate Box<i32>;
+
+fn main() -> i32 {
+    let a: Box<i64> = Box::<i64>::make(40i64);
+    let b: Box<i32> = Box::<i32>::make(2i32);
+    return (a.val as i32) + b.val;
+}

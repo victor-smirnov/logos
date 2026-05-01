@@ -253,6 +253,7 @@
     ANTIQUOT_TYPE               = 205   // $ident in a type position; NAME = ident of a Type-valued binding (only legal inside quote_ty!)
     ANTIQUOT_PACK               = 206   // $ident... in a type-arg list; NAME = ident of an Array<Type> binding (only legal inside quote_ty!)
     ASSOC_EQ_BIND               = 207   // Name = Type clause inside trait bound `<...>`; NAME = assoc-type name; TYPE = rhs type AST
+    INSTANTIATE_DECL            = 208   // `instantiate Foo<T>;` — pre-instantiation root pin; TYPE = target type, IS_PUB? = lib-site re-export marker
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -264,6 +265,7 @@
     KW_QUOTE_TY   = "quote_ty"
     KW_TEMPLATE = "template"
     KW_PACKAGE  = "package"
+    KW_INSTANTIATE = "instantiate"
     KW_EIDOS = "eidos"
     KW_GENOS    = "genos"
     KW_AUTO     = "auto"
@@ -398,7 +400,20 @@
     path_dot_ident <- DOT IDENT
                    => { NAME: $2 }
 
-    item <- template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_inst / struct_inst / pub_struct_def / struct_def / pub_genos_def / genos_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
+    item <- template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / pub_struct_def / struct_def / pub_genos_def / genos_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
+
+    // ── Explicit instantiation (root-pin) ────────────────────────
+    // `instantiate Foo<T>;` materializes Foo<T> as a root for monomorphization
+    // (analog of C++ `template class Foo<int>;`). All inherent + trait methods
+    // become roots, and the worklist transitively pulls everything they call.
+    // `pub instantiate Foo<T>;` additionally marks the instance as part of the
+    // package's public API surface (lib-site re-export); semantically identical
+    // until separate codegen lands.
+    pub_instantiate_decl <- KW_PUB KW_INSTANTIATE type_ref SEMI
+                         => { CODE: INSTANTIATE_DECL, IS_PUB: 1, TYPE: $3 }
+
+    instantiate_decl <- KW_INSTANTIATE type_ref SEMI
+                     => { CODE: INSTANTIATE_DECL, TYPE: $2 }
 
     // ── Template declaration ─────────────────────────────────────
     // `template <item>` marks the wrapped declaration as data, not a real
