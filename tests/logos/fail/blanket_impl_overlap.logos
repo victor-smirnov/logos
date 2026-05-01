@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: Apache-2.0
+// Two distinct blanket impls of the same trait that both match a receiver
+// must be diagnosed instead of silently picking one.
+
+package blanket_impl_overlap;
+
+trait B1 {}
+trait B2 {}
+
+trait Run {
+    fn run(&self) -> i32;
+}
+
+impl<T: B1> Run for T {
+    fn run(&self) -> i32 { return 1i32; }
+}
+impl<T: B2> Run for T {
+    fn run(&self) -> i32 { return 2i32; }
+}
+
+struct Foo { x: i32 }
+impl B1 for Foo {}
+impl B2 for Foo {}
+
+fn main() -> i32 {
+    let f: Foo = Foo { x: 0i32 };
+    return f.run();
+}

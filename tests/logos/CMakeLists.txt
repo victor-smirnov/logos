@@ -169,6 +169,7 @@ set(LOGOS_INTEGRATION_TESTS
     fiber_thread_basic fiber_thread_future
     fiber_chan_basic fiber_latch_basic fls_tls_basic
     auto_trait_send_scalar auto_trait_send_struct auto_trait_unsafe_impl auto_trait_generic_propagation
+    blanket_impl_unbounded
     vec_full hashset_basic vecdeque_basic btreemap_basic
     atomic_basic mutex_basic
     box_basic rc_basic arc_basic bytes_basic box_dyn_trait_basic
@@ -250,7 +251,7 @@ endfunction()
 
 function(logos_fail_extra_args BASE OUT_VAR)
     set(FAIL_PUBLIB_USERS pub_call_private pub_private_field_access)
-    set(FAIL_HERMES_USERS hermes_capture_bad_type hermes_capture_typed_array hermes_as_array_bad_type hermes_as_array_not_slice hermes_as_array_elem_mismatch hermes_as_map_wrong_src hermes_comp_coerce_bad hermes_map_comp_guard_bad auto_trait_send_raw_ptr auto_trait_negative_impl auto_trait_bound_check_target)
+    set(FAIL_HERMES_USERS hermes_capture_bad_type hermes_capture_typed_array hermes_as_array_bad_type hermes_as_array_not_slice hermes_as_array_elem_mismatch hermes_as_map_wrong_src hermes_comp_coerce_bad hermes_map_comp_guard_bad auto_trait_send_raw_ptr auto_trait_negative_impl auto_trait_bound_check_target blanket_impl_overlap)
     set(FAIL_METAPROG_USERS)
     if (BASE IN_LIST FAIL_PUBLIB_USERS)
         set(_extra -I ${PUB_LIB} -I ${STDLIB_BIN_DIR} -L ${STDLIB_BIN_DIR})

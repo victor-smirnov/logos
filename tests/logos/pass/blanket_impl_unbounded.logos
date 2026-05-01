@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: Apache-2.0
+// Blanket impl with no bound: `impl<T> Trait for T {}` applies to every T.
+
+package blanket_impl_unbounded;
+
+trait Identity {
+    fn id(&self) -> i32;
+}
+
+impl<T> Identity for T {
+    fn id(&self) -> i32 { return 7i32; }
+}
+
+struct Foo { x: i32 }
+struct Bar { y: i32 }
+
+fn main() -> i32 {
+    let f: Foo = Foo { x: 0i32 };
+    let b: Bar = Bar { y: 0i32 };
+    return f.id() + b.id() + 28i32;
+}
