@@ -44,9 +44,28 @@ Traits may have default method bodies. Associated types are partially supported.
 
 ## Blanket vs. Concrete Impls
 
-A blanket impl applies to a parameterized form, e.g. `impl<V> Foo for Map<i64, V>`. A concrete impl applies to a single specialization, e.g. `impl Foo for Map<i64, String>`.
+Logos supports three impl shapes, listed by precedence (most specific wins):
 
-There is a known quirk: sibling concrete specializations can suppress each other's tag-dispatch registration in some configurations. The recommended pattern is to write a blanket impl over a parameter and let it apply, rather than enumerating concrete cases. (See `feat_map_concrete_impl_quirk` in the project memory.)
+1. **Concrete** — `impl Foo for Bar {}` — a single specialization.
+2. **Generic-target** — `impl<T> Foo for Wrap<T> {}` or `impl<V> Foo for Map<i64, V> {}` — a parameterized form.
+3. **Blanket** — `impl<T> Foo for T {}` or `impl<T: Bound> Foo for T {}` — applies to every type that satisfies the bound.
+
+The blanket form covers any `T` whose receiver type satisfies the listed bounds. Multiple bounds combine as `&`: `impl<T: A + B> Foo for T {}` only applies when `T: A` *and* `T: B`. An unbounded blanket `impl<T> Foo for T {}` applies to every type.
+
+A concrete or generic-target impl always shadows a blanket; the blanket is consulted only when direct method lookup on the receiver fails.
+
+If two distinct blanket impls of the same trait both apply to a receiver, the compiler diagnoses an overlap rather than picking arbitrarily. To resolve, either tighten one of the bounds so they no longer overlap, or write a concrete impl for the affected type.
+
+```logos
+trait Show { fn show(&self) -> i32; }
+
+impl<T> Show for T { fn show(&self) -> i32 { return 0i32; } }   // unbounded blanket
+impl Show for Foo { fn show(&self) -> i32 { return 1i32; } }    // concrete: wins for Foo
+```
+
+There is a known quirk: sibling concrete specializations of a generic-target impl can suppress each other's tag-dispatch registration in some configurations. The recommended pattern is to write a blanket impl over the parameter rather than enumerating concrete cases. (See `feat_map_concrete_impl_quirk` in the project memory.)
+
+`Array<T>` and `Map<K, V>` in the standard library use this pattern: blanket impls drive `clone`, equality, hash, etc., while element-side traits (`CloneElem`, `RelPtr`) constrain `T`.
 
 ## Overloading
 
