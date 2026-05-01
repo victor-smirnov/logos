@@ -2809,7 +2809,7 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
     // L1.4: in lazy mode, skip eager method cloning. drain_method_worklist
     // will clone methods on demand (from L1.1 call-site hook, L1.2 dispatch
     // pin, L1.3 is_root_pin). The bound gate runs there too.
-    if (lazy_methods_) return nd;
+    if (lazy_methods_ && !tmpl.type_params.empty()) return nd;
     for (auto& m_up : tmpl.methods) {
         auto& m = *m_up;
         if (!method_bound_ok(m, s)) continue;

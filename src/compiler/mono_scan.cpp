@@ -11,6 +11,8 @@
 
 #include "mono_impl.hpp"
 
+#include <cstdio>
+#include <cstdlib>
 #include <logos/compiler/lir_view.hpp>
 #include <logos/compiler/lir_mirror.hpp>
 
@@ -149,6 +151,23 @@ void Mono::scan_expr(lir_view::ExprRef e) {
         if (v.has_type_args()) {
             // Post-substitution generic call: callee is already mangled.
             enqueue_if_needed(std::string(v.callee()), v.type_args(out_.type_pool.impl()));
+        }
+        if (lazy_methods_) {
+            // L1.5: sema may lower `recv.method()` directly to ECall
+            // `<Concrete>__<method>` (e.g. desugared comprehensions, MethodCall→ECall
+            // rewrites in subst_expr). Recover the (concrete struct, method) pair
+            // and enqueue the method instance.
+            std::string callee{v.callee()};
+            if (auto sep = callee.find("__"); sep != std::string::npos) {
+                std::string concrete = callee.substr(0, sep);
+                std::string method   = callee.substr(sep + 2);
+                auto cit = concrete_struct_types_.find(concrete);
+                if (cit != concrete_struct_types_.end())
+                    enqueue_method_inst(cit->second, method);
+                else if (concrete.find("$G") != std::string::npos)
+                    deferred_method_enqueues_.emplace_back(std::move(concrete),
+                                                           std::move(method));
+            }
         }
         v.each_arg([&](lir_view::ExprRef a) { scan_expr(a); });
         break;
@@ -440,35 +459,49 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
     if (auto p = base.find("$G"); p != std::string::npos)
         base = base.substr(0, p);
 
-    std::string key = concrete + "__" + method_name;
-    if (!done_methods_.insert(key).second) return;
-
     auto sit = struct_method_templates_.find(base);
     if (sit == struct_method_templates_.end()) return;
-    auto mit = sit->second.find(method_name);
-    if (mit == sit->second.end()) return;
 
-    // Build subst from the struct's type_args using the *struct template's*
-    // type_params (the method template inherits those names).
+    // Method names may carry overload-disambiguation suffix `__g__<sig>`.
+    // Match every entry whose short-name equals `method_name` exactly, or
+    // begins with `method_name + "__g__"`. Each match enqueues separately
+    // (overloads keep their distinct signatures).
+    std::vector<std::pair<std::string, const lir::LFunction*>> matches;
+    for (auto& [sn, fp] : sit->second) {
+        if (sn == method_name ||
+            (sn.size() > method_name.size() + 5 &&
+             sn.compare(0, method_name.size(), method_name) == 0 &&
+             sn.compare(method_name.size(), 5, "__g__") == 0))
+            matches.emplace_back(sn, fp);
+    }
+    if (matches.empty()) return;
+
     auto stt = struct_templates_.find(base);
     if (stt == struct_templates_.end()) return;
     const auto& tpars = stt->second->type_params;
     auto type_args = TypeRef(concrete_struct_t).type_args();
 
-    SubstMap subst;
-    PackMap  packs;
-    for (size_t i = 0, j = 0; i < tpars.size(); ++i) {
-        if (tpars[i].is_variadic) {
-            std::vector<TypeRef> pack;
-            while (j < type_args.size()) pack.push_back(type_args[j++]);
-            packs[tpars[i].name] = std::move(pack);
-        } else if (j < type_args.size()) {
-            subst[tpars[i].name] = type_args[j++];
-        }
-    }
+    for (auto& [sn, fp] : matches) {
+        // Dedup key uses the short user-facing name so multiple overloads
+        // sharing it dedupe to one slot (matches eager rename semantics).
+        std::string key = concrete + "__" + method_name + "::" + sn;
+        if (!done_methods_.insert(key).second) continue;
 
-    method_worklist_.push_back({concrete, base, method_name,
-                                std::move(subst), std::move(packs), depth_ + 1});
+        SubstMap subst;
+        PackMap  packs;
+        for (size_t i = 0, j = 0; i < tpars.size(); ++i) {
+            if (tpars[i].is_variadic) {
+                std::vector<TypeRef> pack;
+                while (j < type_args.size()) pack.push_back(type_args[j++]);
+                packs[tpars[i].name] = std::move(pack);
+            } else if (j < type_args.size()) {
+                subst[tpars[i].name] = type_args[j++];
+            }
+        }
+
+        method_worklist_.push_back({concrete, base, method_name, fp,
+                                    std::move(subst), std::move(packs), depth_ + 1});
+    }
 }
 
 void Mono::drain_method_worklist() {
@@ -476,11 +509,7 @@ void Mono::drain_method_worklist() {
         auto item = std::move(method_worklist_.back());
         method_worklist_.pop_back();
 
-        auto sit = struct_method_templates_.find(item.base_struct);
-        if (sit == struct_method_templates_.end()) continue;
-        auto mit = sit->second.find(item.method_name);
-        if (mit == sit->second.end()) continue;
-        const lir::LFunction* tmpl = mit->second;
+        const lir::LFunction* tmpl = item.tmpl;
 
         // Find the target struct in out_.structs (it must already exist —
         // struct shells are emitted before any method enqueue can fire).
@@ -495,6 +524,14 @@ void Mono::drain_method_worklist() {
         bool exists = false;
         for (auto& m : target->methods)
             if (m->name == dest_name) { exists = true; break; }
+        if (exists) continue;
+        // Specialization: a non-generic `impl Foo<Concrete>` lowers to a
+        // free-fn under this exact mangled name. Don't clone the blanket
+        // body — the passthrough free-fn path emits the correct one.
+        for (auto& fn : in_.functions) {
+            if (!fn->type_params.empty()) continue;
+            if (fn->name == dest_name) { exists = true; break; }
+        }
         if (exists) continue;
 
         if (!method_bound_ok(*tmpl, item.subst)) continue;

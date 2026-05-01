@@ -160,12 +160,13 @@ private:
     StrMap<StrMap<const lir::LFunction*>> struct_method_templates_;
 
     struct MethodWorkItem {
-        std::string concrete_struct;   // e.g. "Foo$G1$i32"
-        std::string base_struct;       // e.g. "Foo"
-        std::string method_name;       // e.g. "bar"
-        SubstMap    subst;             // T → i32 etc., from struct's type_args
-        PackMap     packs;
-        int         depth;
+        std::string             concrete_struct; // e.g. "Foo$G1$i32"
+        std::string             base_struct;     // e.g. "Foo"
+        std::string             method_name;     // short name (e.g. "bar"), used as dest suffix
+        const lir::LFunction*   tmpl;            // resolved template (overload-aware)
+        SubstMap                subst;
+        PackMap                 packs;
+        int                     depth;
     };
     std::vector<MethodWorkItem> method_worklist_;
     StrSet done_methods_;              // "ConcreteStruct__method" markers
@@ -174,6 +175,12 @@ private:
     // instantiate_struct_templates so dispatch-emission can re-derive subst
     // for trait-method root-pinning without re-parsing mangled names.
     StrMap<TypeRef> concrete_struct_types_;
+
+    // L1.5: deferred method-instance enqueues from ECall hook. When the
+    // hook fires before the receiver struct has been instantiated, we park
+    // (concrete-cname, method-name) here; the L1.1 fixpoint resolves them
+    // after each instantiate_struct_templates pass.
+    std::vector<std::pair<std::string, std::string>> deferred_method_enqueues_;
 
     // Pinned method roots: "ConcreteStruct__method" set populated by
     // L1.2 (trait dispatch entries) and L1.3 (is_root_pin annotations).

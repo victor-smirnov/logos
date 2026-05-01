@@ -301,8 +301,11 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // L1.1: lazy-method drain fixpoint. No-op in eager mode (default) since
     // method_worklist_ stays empty. When LOGOS_LAZY_METHODS=1, scan_fn enqueues
     // method instances on the receiver's concrete struct; draining clones each
-    // method, scans its body, which may enqueue more functions or methods.
-    while (!method_worklist_.empty() || !worklist_.empty()) {
+    // method, scans its body, which may enqueue more functions or methods. A
+    // method body may also reference new generic struct types — re-run
+    // instantiate_struct_templates / _enums to drain those.
+    while (!method_worklist_.empty() || !worklist_.empty() ||
+           !needed_struct_insts_.empty()) {
         drain_method_worklist();
         while (!worklist_.empty()) {
             auto item = std::move(worklist_.back());
@@ -314,6 +317,20 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
             scan_fn(fn_ref);
         }
+        if (!needed_struct_insts_.empty()) instantiate_struct_templates();
+        instantiate_enum_templates();
+        // Resolve deferred method enqueues whose concrete struct now exists.
+        if (!deferred_method_enqueues_.empty()) {
+            std::vector<std::pair<std::string, std::string>> still;
+            for (auto& [cname, mname] : deferred_method_enqueues_) {
+                auto cit = concrete_struct_types_.find(cname);
+                if (cit != concrete_struct_types_.end())
+                    enqueue_method_inst(cit->second, mname);
+                else
+                    still.emplace_back(std::move(cname), std::move(mname));
+            }
+            deferred_method_enqueues_ = std::move(still);
+        }
         depth_ = 0;
     }
 
@@ -324,10 +341,10 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // No-op in eager mode (clone_struct_def already cloned every method).
     if (lazy_methods_) {
         for (auto& sd : out_.structs) {
-            if (sd.type_code == 0) continue;
             std::string base = sd.name;
-            if (auto p = base.find("$G"); p != std::string::npos)
-                base = base.substr(0, p);
+            auto p = base.find("$G");
+            if (p == std::string::npos) continue;  // not a generic instance
+            base = base.substr(0, p);
             auto cit = concrete_struct_types_.find(sd.name);
             if (cit == concrete_struct_types_.end()) continue;
             for (auto& impl : out_.impls) {
@@ -345,7 +362,8 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             }
         }
         // Re-drain — methods may transitively pull in more functions/methods.
-        while (!method_worklist_.empty() || !worklist_.empty()) {
+        while (!method_worklist_.empty() || !worklist_.empty() ||
+               !needed_struct_insts_.empty()) {
             drain_method_worklist();
             while (!worklist_.empty()) {
                 auto item = std::move(worklist_.back());
@@ -357,6 +375,8 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
                 scan_fn(fn_ref);
             }
+            if (!needed_struct_insts_.empty()) instantiate_struct_templates();
+            instantiate_enum_templates();
             depth_ = 0;
         }
     }
