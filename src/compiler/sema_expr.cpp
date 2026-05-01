@@ -3366,22 +3366,43 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         std::string base_sname(sname);
         if (auto d = base_sname.find('$'); d != std::string::npos)
             base_sname = base_sname.substr(0, d);
-        for (auto& bi : blanket_impls_) {
+        // Collect all viable blanket matches first so we can diagnose overlap
+        // when two distinct blanket impls would both apply to the same receiver.
+        std::vector<size_t> viable_blanket_idxs;
+        for (size_t bi_idx = 0; bi_idx < blanket_impls_.size(); ++bi_idx) {
+            auto& bi = blanket_impls_[bi_idx];
             if (bi.method_name != std::string(method_name)) continue;
-            // Receiver's concrete type must impl the bound trait, except for
-            // unbounded blanket (`impl<T> Trait for T {}`) which applies to any T.
             if (!bi.bound_trait.empty()) {
                 std::string key_full = bi.bound_trait + "::" + std::string(sname);
                 std::string key_base = bi.bound_trait + "::" + base_sname;
                 if (!impls_.count(key_full) && !impls_.count(key_base)) continue;
             }
-            // Multi-bound blanket: extras must also be satisfied by the receiver.
             bool extras_ok = true;
             for (auto& eb : bi.extra_bounds) {
                 if (!impls_.count(eb + "::" + std::string(sname)) &&
                     !impls_.count(eb + "::" + base_sname)) { extras_ok = false; break; }
             }
             if (!extras_ok) continue;
+            viable_blanket_idxs.push_back(bi_idx);
+        }
+        if (viable_blanket_idxs.size() >= 2) {
+            // Distinct blanket impls of the same trait both apply — overlap.
+            // (Multiple entries from one blanket with several methods are
+            // disambiguated by method_name; here all entries already passed
+            // the method_name filter, so they are *different* impls.)
+            std::string trait1 = blanket_impls_[viable_blanket_idxs[0]].trait_name;
+            std::string trait2 = blanket_impls_[viable_blanket_idxs[1]].trait_name;
+            std::string b1 = blanket_impls_[viable_blanket_idxs[0]].bound_trait;
+            std::string b2 = blanket_impls_[viable_blanket_idxs[1]].bound_trait;
+            if (b1.empty()) b1 = "<unbounded>";
+            if (b2.empty()) b2 = "<unbounded>";
+            error(std::format(
+                "method call: ambiguous blanket impl for '{}.{}': "
+                "both `impl<T: {}> {}` and `impl<T: {}> {}` apply",
+                sname, method_name, b1, trait1, b2, trait2));
+        }
+        for (size_t bi_idx : viable_blanket_idxs) {
+            auto& bi = blanket_impls_[bi_idx];
             std::vector<TypeRef> bi_arg_types;
             bi_arg_types.push_back(recv->type);
             for (auto& a : arg_exprs) bi_arg_types.push_back(a->type);
