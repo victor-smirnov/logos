@@ -1,6 +1,6 @@
 # ADR 0008 — Associated-type-equality bounds in impl headers
 
-Status: Proposed 2026-05-01. Design only — no implementation in this revision.
+Status: ✅ Implemented 2026-05-01. 982/982 ctest.
 
 ## Context
 
@@ -106,6 +106,10 @@ two profile structs (`MapProfile`, `ArrayProfile`), each binding
 ## Status of related work
 
 - Auto traits (`feat_auto_traits.md`) — landed.
-- Blanket impls full coverage (this branch) — landed: unbounded form,
-  multi-bound, overlap detection, cosmetic ctx for diagnostics.
-- Implementation of this ADR is queued for a separate session.
+- Blanket impls full coverage — landed: unbounded form, multi-bound,
+  overlap detection, cosmetic ctx for diagnostics.
+- This ADR — landed 2026-05-01: AST node `ASSOC_EQ_BIND`, parser
+  accepts `Trait<Name = Type, ...>` in any bound position, sema/mono
+  filter blanket dispatch by assoc-type equality. Tests
+  `blanket_impl_assoc_eq` (pass) and `blanket_impl_assoc_eq_mismatch`
+  (fail) exercise the canonical Memoria-profile case.

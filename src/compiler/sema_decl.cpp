@@ -682,8 +682,12 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 ib.is_blanket = true;
                 if (!tp.bounds.empty()) {
                     ib.bound_trait = tp.bounds[0].trait_name;
-                    for (size_t bi = 1; bi < tp.bounds.size(); ++bi)
+                    ib.primary_assoc_eqs = tp.bounds[0].assoc_eqs;
+                    for (size_t bi = 1; bi < tp.bounds.size(); ++bi) {
                         ib.extra_bounds.push_back(tp.bounds[bi].trait_name);
+                        ib.extra_assoc_eqs.emplace_back(
+                            tp.bounds[bi].trait_name, tp.bounds[bi].assoc_eqs);
+                    }
                 }
                 break;
             }

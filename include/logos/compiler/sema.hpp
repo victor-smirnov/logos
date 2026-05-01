@@ -242,6 +242,9 @@ struct LogosTypeBuilder {
 struct TraitBound {
     std::string                   trait_name;  // e.g. "Into", "Add"
     std::vector<TypeRef> type_args;   // e.g. Into<i32> -> [i32]
+    // Associated-type equality clauses: `Trait<Item = i32>` → [{ "Item", i32 }].
+    // Only populated when the bound includes `Name = Type` arguments.
+    std::vector<std::pair<std::string, TypeRef>> assoc_eqs;
 };
 
 // ── Type parameter ────────────────────────────────────────────────────────

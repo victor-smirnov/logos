@@ -66,6 +66,8 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             info.extra_bounds   = impl.extra_bounds;
             info.target_typevar = impl.target_type;
             info.assoc_types    = impl.assoc_types;
+            info.primary_assoc_eqs = impl.primary_assoc_eqs;
+            info.extra_assoc_eqs = impl.extra_assoc_eqs;
             blanket_impls_.push_back(std::move(info));
         } else {
             for (auto& [aname, atype] : impl.assoc_types) {
@@ -131,6 +133,19 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 candidates.push_back(impl.target_type);
             }
         }
+        // ADR 0008: helper to check Trait<Assoc = Type> equality clauses.
+        auto assoc_eqs_ok = [&](const std::string& trait,
+                                const std::string& concrete,
+                                const std::vector<std::pair<std::string, TypeRef>>& eqs) {
+            for (auto& [aname, expected] : eqs) {
+                if (!expected) continue;
+                std::string key = trait + "::" + concrete + "::" + aname;
+                auto it = assoc_impls_.find(key);
+                if (it == assoc_impls_.end()) return false;
+                if (!types_equal(it->second, expected)) return false;
+            }
+            return true;
+        };
         for (auto& concrete_ref : candidates) {
             const std::string& concrete = concrete_ref;
             // Multi-bound blanket: `impl<T: A + B + …> Trait for T` — only
@@ -145,6 +160,12 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 }
             }
             if (!all_extra_satisfied) continue;
+            // ADR 0008: assoc-type equality clauses must hold on every bound.
+            if (!assoc_eqs_ok(bi.bound_trait, concrete, bi.primary_assoc_eqs)) continue;
+            bool extra_eqs_ok = true;
+            for (auto& [trait, eqs] : bi.extra_assoc_eqs)
+                if (!assoc_eqs_ok(trait, concrete, eqs)) { extra_eqs_ok = false; break; }
+            if (!extra_eqs_ok) continue;
             // For each method of the blanket, clone template with T→concrete
             // and emit under `concrete__method`.
             for (auto& tfn_up : in_.functions) {

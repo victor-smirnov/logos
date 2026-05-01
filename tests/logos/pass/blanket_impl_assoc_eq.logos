@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: Apache-2.0
+// ADR 0008: blanket impl gated by associated-type equality.
+// `impl<P: Profile<Order = ByKey>> HasInsertKv for P` matches MapProfile
+// (Order = ByKey) but not ArrayProfile (Order = ByRank).
+
+package blanket_impl_assoc_eq;
+
+trait OrderKind {}
+struct ByKey {}
+struct ByRank {}
+impl OrderKind for ByKey {}
+impl OrderKind for ByRank {}
+
+trait Profile {
+    type Order: OrderKind;
+}
+
+trait HasInsertKv {
+    fn ikv(&self) -> i32;
+}
+
+impl<P: Profile<Order = ByKey>> HasInsertKv for P {
+    fn ikv(&self) -> i32 { return 17i32; }
+}
+
+struct MapProfile {}
+impl Profile for MapProfile { type Order = ByKey; }
+
+struct ArrayProfile {}
+impl Profile for ArrayProfile { type Order = ByRank; }
+
+fn main() -> i32 {
+    let m: MapProfile = MapProfile {};
+    return m.ikv();
+}

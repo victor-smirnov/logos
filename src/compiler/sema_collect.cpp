@@ -294,7 +294,15 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 bool all_extra = true;
                 for (auto& eb : bi.extra_bounds)
                     if (!bound_satisfied(eb)) { all_extra = false; break; }
-                if (all_extra) { via_blanket = true; break; }
+                if (!all_extra) continue;
+                // ADR 0008: assoc-type equality clauses must hold.
+                if (!assoc_eqs_satisfied(bi.bound_trait, concrete_str,
+                                          unwrapped_name, bi.primary_assoc_eqs)) continue;
+                bool extra_eqs_ok = true;
+                for (auto& [trait, eqs] : bi.extra_assoc_eqs)
+                    if (!assoc_eqs_satisfied(trait, concrete_str,
+                                              unwrapped_name, eqs)) { extra_eqs_ok = false; break; }
+                if (extra_eqs_ok) { via_blanket = true; break; }
             }
             if (via_blanket) continue;
             // Generic-struct impl: `impl<T: X> Trait for GenericStruct<T>`
@@ -578,18 +586,7 @@ void SemaChecker::collect_trait(TinyMapView node) {
                 if (code_of(b) != la::TRAIT_BOUND) continue;
                 TraitBound tb;
                 tb.trait_name = std::string(str_of(b.get(la::NAME.code)));
-                // Read type args if present: Into<i32> → type_args=[i32]
-                if (b.has_key(la::TYPE_PARAMS)) {
-                    auto tpav = b.get(la::TYPE_PARAMS.code);
-                    if (!tpav.is_null()) {
-                        auto tplist = map_of(tpav);
-                        if (tplist.has_key(la::ITEMS)) {
-                            auto items = arr_of(tplist.get(la::ITEMS.code));
-                            for (uint64_t j = 0; j < items.size(); ++j)
-                                tb.type_args.push_back(resolve_type(map_of(items.get(j))));
-                        }
-                    }
-                }
+                read_trait_bound_args(b, tb);
                 info.supertraits.push_back(std::move(tb));
             }
         }
@@ -875,14 +872,22 @@ void SemaChecker::collect_impl(TinyMapView node) {
     bool is_blanket = false;
     std::string blanket_bound_trait;
     std::vector<std::string> blanket_extra_bounds;
+    // ADR 0008: associated-type equality clauses parallel to the bound list.
+    std::vector<std::pair<std::string, TypeRef>> blanket_primary_assoc_eqs;
+    std::vector<std::pair<std::string,
+        std::vector<std::pair<std::string, TypeRef>>>> blanket_extra_assoc_eqs;
     if (!trait_name.empty()) {
         for (auto& tp : impl_tps) {
             if (tp.name == target) {
                 is_blanket = true;
                 if (!tp.bounds.empty()) {
                     blanket_bound_trait = tp.bounds[0].trait_name;
-                    for (size_t bi = 1; bi < tp.bounds.size(); ++bi)
+                    blanket_primary_assoc_eqs = tp.bounds[0].assoc_eqs;
+                    for (size_t bi = 1; bi < tp.bounds.size(); ++bi) {
                         blanket_extra_bounds.push_back(tp.bounds[bi].trait_name);
+                        blanket_extra_assoc_eqs.emplace_back(
+                            tp.bounds[bi].trait_name, tp.bounds[bi].assoc_eqs);
+                    }
                 }
                 break;
             }
@@ -948,10 +953,16 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         const_cast<SemaFuncInfo*>(it)->is_pub = true;
                 }
                 if (is_blanket) {
-                    blanket_impls_.push_back({
-                        trait_name, target, blanket_bound_trait,
-                        blanket_extra_bounds, mname, mangled
-                    });
+                    BlanketImpl bi_rec;
+                    bi_rec.trait_name = trait_name;
+                    bi_rec.target_typevar = target;
+                    bi_rec.bound_trait = blanket_bound_trait;
+                    bi_rec.extra_bounds = blanket_extra_bounds;
+                    bi_rec.method_name = mname;
+                    bi_rec.mangled_name = mangled;
+                    bi_rec.primary_assoc_eqs = blanket_primary_assoc_eqs;
+                    bi_rec.extra_assoc_eqs = blanket_extra_assoc_eqs;
+                    blanket_impls_.push_back(std::move(bi_rec));
                 }
             } else if (code_of(m) == la::ASSOC_TYPE_IMPL && !trait_name.empty()) {
                 auto aname = std::string(str_of(m.get(la::NAME.code)));

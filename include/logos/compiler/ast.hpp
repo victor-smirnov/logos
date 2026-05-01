@@ -167,6 +167,7 @@ inline constexpr Code SIZEOF_PACK {"SIZEOF_PACK", 203};    // sizeof...(T) — p
 inline constexpr Code QUOTE_TY    {"QUOTE_TY",    204};    // Slice 1 of quote_ty epic: `quote_ty! { type }`. TYPE = inner type AST; sema lowers to a Type{kind,name,size} struct literal.
 inline constexpr Code ANTIQUOT_TYPE {"ANTIQUOT_TYPE", 205};  // `$ident` in a type position inside `quote_ty! { ... }`. NAME = identifier of a Type-valued binding; sema lowers `quote_ty! { Foo<$t> }` to `type_apply("Foo", [t])`.
 inline constexpr Code ANTIQUOT_PACK {"ANTIQUOT_PACK", 206};  // `$ident...` in a type-arg list inside `quote_ty! { ... }`. NAME = identifier of an Array<Type>-valued binding; sema lowers `quote_ty! { Foo<$ts...> }` to `type_apply("Foo", ts)`.
+inline constexpr Code ASSOC_EQ_BIND {"ASSOC_EQ_BIND", 207};  // `Name = Type` clause inside a trait bound's `<...>` (ADR 0008). NAME = assoc-type name; TYPE = bound rhs type AST.
 
 // Dynamic dispatch
 inline constexpr Code IMPL_TYPE   {"IMPL_TYPE",   116};    // impl Trait type

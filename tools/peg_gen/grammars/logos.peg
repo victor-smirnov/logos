@@ -252,6 +252,7 @@
     QUOTE_TY                    = 204   // quote_ty! { type } — typed Type literal; TYPE = inner type AST
     ANTIQUOT_TYPE               = 205   // $ident in a type position; NAME = ident of a Type-valued binding (only legal inside quote_ty!)
     ANTIQUOT_PACK               = 206   // $ident... in a type-arg list; NAME = ident of an Array<Type> binding (only legal inside quote_ty!)
+    ASSOC_EQ_BIND               = 207   // Name = Type clause inside trait bound `<...>`; NAME = assoc-type name; TYPE = rhs type AST
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -1568,10 +1569,19 @@
     type_param_list <- LT type_param (COMMA type_param)* GT
                     => { ITEMS: $... }
 
-    trait_bound <- IDENT LT type_arg_list GT_TYPE
+    trait_bound <- IDENT LT bound_arg_list GT_TYPE
                 => { CODE: TRAIT_BOUND, NAME: $1, TYPE_PARAMS: $3 }
                  / IDENT
                 => { CODE: TRAIT_BOUND, NAME: $1 }
+
+    // Inside a trait bound's `<...>` either positional type args or
+    // associated-type equality clauses (Name = Type) may appear, mixed.
+    bound_arg_list <- bound_arg (COMMA bound_arg)*
+                   => { ITEMS: $... }
+
+    bound_arg <- IDENT ASSIGN type_ref
+              => { CODE: ASSOC_EQ_BIND, NAME: $1, TYPE: $3 }
+               / type_or_lt_arg
 
     // Lifetime parameter: 'a
     lifetime_param <- LIFETIME

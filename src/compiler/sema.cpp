@@ -1313,6 +1313,53 @@ std::vector<std::string> SemaChecker::read_lifetime_params(TinyMapView node) {
     return result;
 }
 
+bool SemaChecker::assoc_eqs_satisfied(
+    const std::string& trait_name,
+    const std::string& concrete_name,
+    const std::string& base_name,
+    const std::vector<std::pair<std::string, TypeRef>>& expected) {
+    if (expected.empty()) return true;
+    for (auto& [aname, expected_ty] : expected) {
+        if (!expected_ty) continue;
+        // Look up the impl's `type Assoc = X` for this trait+concrete.
+        // 1. Direct (concrete name).
+        std::string key = trait_name + "::" + concrete_name + "::" + aname;
+        auto it = assoc_type_impls_.find(key);
+        if (it == assoc_type_impls_.end() && !base_name.empty() && base_name != concrete_name) {
+            std::string bkey = trait_name + "::" + base_name + "::" + aname;
+            it = assoc_type_impls_.find(bkey);
+        }
+        if (it == assoc_type_impls_.end()) return false;
+        // No subst needed for the common case (non-generic profile binding to
+        // a concrete type). For generics we'd need to thread the impl-param
+        // subst, but profile-shaped use cases bind associated types to plain
+        // concrete types — defer the generic case to ADR follow-up if needed.
+        if (!types_equal(it->second.type, expected_ty)) return false;
+    }
+    return true;
+}
+
+void SemaChecker::read_trait_bound_args(TinyMapView bnode, TraitBound& tb) {
+    if (!bnode.has_key(la::TYPE_PARAMS)) return;
+    auto tpav = bnode.get(la::TYPE_PARAMS.code);
+    if (tpav.is_null()) return;
+    auto tamap = map_of(tpav);
+    if (!tamap.has_key(la::ITEMS)) return;
+    auto items = arr_of(tamap.get(la::ITEMS.code));
+    for (uint64_t i = 0; i < items.size(); ++i) {
+        auto item = map_of(items.get(i));
+        if (code_of(item) == la::ASSOC_EQ_BIND) {
+            std::string aname(str_of(item.get(la::NAME.code)));
+            TypeRef rhs = nullptr;
+            if (item.has_key(la::TYPE))
+                rhs = resolve_type(map_of(item.get(la::TYPE.code)));
+            tb.assoc_eqs.emplace_back(std::move(aname), rhs);
+        } else {
+            tb.type_args.push_back(resolve_type(item));
+        }
+    }
+}
+
 std::vector<TypeParam> SemaChecker::read_type_params_from(TinyMapView node, int32_t field_code) {
     std::vector<TypeParam> result;
     AnyVal tpav = node.get(field_code);
@@ -1361,19 +1408,7 @@ std::vector<TypeParam> SemaChecker::read_type_params_from(TinyMapView node, int3
                 if (code_of(bnode) == la::TRAIT_BOUND) {
                     TraitBound tb;
                     tb.trait_name = std::string(str_of(bnode.get(la::NAME.code)));
-                    // Parse type args: Trait<i32, T> -> [i32, T]
-                    if (bnode.has_key(la::TYPE_PARAMS)) {
-                        auto tpav2 = bnode.get(la::TYPE_PARAMS.code);
-                        if (!tpav2.is_null()) {
-                            auto tamap = map_of(tpav2);
-                            if (tamap.has_key(la::ITEMS)) {
-                                auto taitems = arr_of(tamap.get(la::ITEMS.code));
-                                for (uint64_t ti = 0; ti < taitems.size(); ++ti)
-                                    tb.type_args.push_back(
-                                        resolve_type(map_of(taitems.get(ti))));
-                            }
-                        }
-                    }
+                    read_trait_bound_args(bnode, tb);
                     tp.bounds.push_back(std::move(tb));
                 }
             }
@@ -1439,19 +1474,7 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
                 if (code_of(bnode) == la::TRAIT_BOUND) {
                     TraitBound tb;
                     tb.trait_name = std::string(str_of(bnode.get(la::NAME.code)));
-                    // Parse type args: Trait<i32, T> -> [i32, T]
-                    if (bnode.has_key(la::TYPE_PARAMS)) {
-                        auto tpav2 = bnode.get(la::TYPE_PARAMS.code);
-                        if (!tpav2.is_null()) {
-                            auto tamap = map_of(tpav2);
-                            if (tamap.has_key(la::ITEMS)) {
-                                auto taitems = arr_of(tamap.get(la::ITEMS.code));
-                                for (uint64_t ti = 0; ti < taitems.size(); ++ti)
-                                    tb.type_args.push_back(
-                                        resolve_type(map_of(taitems.get(ti))));
-                            }
-                        }
-                    }
+                    read_trait_bound_args(bnode, tb);
                     tp.bounds.push_back(std::move(tb));
                 }
             }
@@ -1492,6 +1515,7 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
                             if (code_of(bnode) == la::TRAIT_BOUND) {
                                 TraitBound tb;
                                 tb.trait_name = std::string(str_of(bnode.get(la::NAME.code)));
+                                read_trait_bound_args(bnode, tb);
                                 tp_ptr->bounds.push_back(std::move(tb));
                             }
                         }

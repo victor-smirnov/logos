@@ -794,6 +794,11 @@ struct LImplBlock {
                                             // for `impl<T: A + B + C> Trait for T`.
                                             // mono uses these to filter concrete
                                             // impls that don't satisfy every bound.
+    // ADR 0008: associated-type equality clauses on the primary/extra bounds.
+    // Parallel to bound_trait/extra_bounds.
+    std::vector<std::pair<std::string, TypeRef>> primary_assoc_eqs;
+    std::vector<std::pair<std::string,
+        std::vector<std::pair<std::string, TypeRef>>>> extra_assoc_eqs;
 
     // For generic-target impls: full target pattern (`Mutex<T>`) and impl-level
     // type params with their bounds.  Empty for non-generic impls and blanket

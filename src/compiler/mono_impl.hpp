@@ -114,6 +114,10 @@ private:
         std::vector<std::string> extra_bounds;    // bounds[1..] for AND-filter
         std::string target_typevar;
         StrMap<TypeRef> assoc_types;
+        // ADR 0008: assoc-type equality clauses on primary/extra bounds.
+        std::vector<std::pair<std::string, TypeRef>> primary_assoc_eqs;
+        std::vector<std::pair<std::string,
+            std::vector<std::pair<std::string, TypeRef>>>> extra_assoc_eqs;
     };
     std::vector<BlanketImplInfo> blanket_impls_;
 

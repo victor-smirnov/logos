@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: Apache-2.0
+// ADR 0008: profile whose associated Order != ByKey must not gain `ikv`.
+
+package blanket_impl_assoc_eq_mismatch;
+
+trait OrderKind {}
+struct ByKey {}
+struct ByRank {}
+impl OrderKind for ByKey {}
+impl OrderKind for ByRank {}
+
+trait Profile {
+    type Order: OrderKind;
+}
+
+trait HasInsertKv {
+    fn ikv(&self) -> i32;
+}
+
+impl<P: Profile<Order = ByKey>> HasInsertKv for P {
+    fn ikv(&self) -> i32 { return 17i32; }
+}
+
+struct ArrayProfile {}
+impl Profile for ArrayProfile { type Order = ByRank; }
+
+fn main() -> i32 {
+    let m: ArrayProfile = ArrayProfile {};
+    return m.ikv();
+}

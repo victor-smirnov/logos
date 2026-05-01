@@ -3376,6 +3376,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 std::string key_full = bi.bound_trait + "::" + std::string(sname);
                 std::string key_base = bi.bound_trait + "::" + base_sname;
                 if (!impls_.count(key_full) && !impls_.count(key_base)) continue;
+                // ADR 0008: assoc-type-equality clauses on the primary bound.
+                if (!assoc_eqs_satisfied(bi.bound_trait, std::string(sname),
+                                          base_sname, bi.primary_assoc_eqs)) continue;
             }
             bool extras_ok = true;
             for (auto& eb : bi.extra_bounds) {
@@ -3383,6 +3386,15 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     !impls_.count(eb + "::" + base_sname)) { extras_ok = false; break; }
             }
             if (!extras_ok) continue;
+            // Assoc-eqs on extra bounds, indexed by trait name.
+            bool extra_eqs_ok = true;
+            for (auto& [trait, eqs] : bi.extra_assoc_eqs) {
+                if (!assoc_eqs_satisfied(trait, std::string(sname),
+                                          base_sname, eqs)) {
+                    extra_eqs_ok = false; break;
+                }
+            }
+            if (!extra_eqs_ok) continue;
             viable_blanket_idxs.push_back(bi_idx);
         }
         if (viable_blanket_idxs.size() >= 2) {

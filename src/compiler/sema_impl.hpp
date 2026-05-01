@@ -705,6 +705,13 @@ private:
         std::vector<std::string> extra_bounds;  // bounds[1..] for AND-filter
         std::string method_name;                // e.g. "storage_new"
         std::string mangled_name;               // target_typevar + "__" + method_name
+        // ADR 0008: associated-type equality clauses on the primary bound and
+        // each extra bound, parallel to bound_trait/extra_bounds. Keyed by
+        // bound trait name so the dispatcher can re-find them.
+        // (bound_trait_name, [(assoc_name, expected_type)]) for primary + extras.
+        std::vector<std::pair<std::string, TypeRef>> primary_assoc_eqs;
+        std::vector<std::pair<std::string,
+            std::vector<std::pair<std::string, TypeRef>>>> extra_assoc_eqs;
     };
     std::vector<BlanketImpl> blanket_impls_;
 
@@ -838,6 +845,19 @@ private:
     std::vector<std::string> read_lifetime_params(hermes::TinyMapView node);
     std::vector<TypeParam> read_type_params_from(hermes::TinyMapView node, int32_t field_code);
     std::vector<TypeParam> read_type_params(hermes::TinyMapView node);
+    // Read type_args + assoc_eqs from a TRAIT_BOUND node's TYPE_PARAMS slot.
+    // ASSOC_EQ_BIND items go to assoc_eqs; everything else is resolved as a type.
+    void read_trait_bound_args(hermes::TinyMapView bnode, TraitBound& tb);
+
+    // ADR 0008: check that a `Trait<Assoc = Type>` clause holds for `concrete`.
+    // `concrete_name` is type_str(concrete); `base_name` is its struct base name
+    // (or empty if not a struct). Returns false if any expected_type does not
+    // match the impl's actual `type Assoc = ...` resolution after subst.
+    bool assoc_eqs_satisfied(
+        const std::string& trait_name,
+        const std::string& concrete_name,
+        const std::string& base_name,
+        const std::vector<std::pair<std::string, TypeRef>>& expected);
 
     // Save-and-restore stack so shadowing (e.g. trait<T> + method<T>) doesn't
     // wipe the outer binding on pop. Each push records the old value (if any)
