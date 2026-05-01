@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: Apache-2.0
+// Auto trait fail: `unsafe impl<T: Send> Send for Wrap<T> {}` is conditional —
+// querying `Wrap<*mut i32>: Send` must reject because `*mut i32` is !Send.
+
+package auto_trait_bound_check_target;
+
+use std.lang.marker;
+
+struct Wrap<T> {
+    inner: T,
+}
+
+unsafe impl<T: Send> Send for Wrap<T> {}
+
+fn need_send<T: Send>(val: T) -> i32 {
+    return 0i32;
+}
+
+unsafe fn main() -> i32 {
+    let p: *mut i32 = 0 as *mut i32;
+    let w: Wrap<*mut i32> = Wrap::<*mut i32> { inner: p };
+    return need_send::<Wrap<*mut i32>>(w);
+}

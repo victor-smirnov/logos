@@ -12,6 +12,113 @@
 
 namespace logos::compiler {
 
+// ── Auto-trait structural check (Rust-style) ──────────────────────────────────
+// Mirrors sema_auto_trait.cpp but works against mono's tables.  Used by the
+// bound gate in clone_struct_def so that `impl<T: Send> Foo<T>` only clones
+// methods when the substituted T actually satisfies Send/Sync.
+bool Mono::is_auto_satisfied(TypeRef tv, std::string_view trait_name, StrSet& visited) {
+    using Kind = LogosType::Kind;
+    if (!tv) return true;
+    if (tv.kind() == Kind::Error) return true;
+
+    auto cycle_key = type_str(tv) + "::" + std::string(trait_name);
+    if (!visited.insert(cycle_key).second) return true;
+
+    auto has_explicit = [&](const std::string& name) -> bool {
+        return concrete_impls_.count(std::string(trait_name) + "::" + name) > 0;
+    };
+
+    switch (tv.kind()) {
+    case Kind::Void:
+    case Kind::Bool:
+    case Kind::I8:  case Kind::I16:  case Kind::I32:  case Kind::I64:
+    case Kind::U8:  case Kind::U16:  case Kind::U32:  case Kind::U64:
+    case Kind::I24: case Kind::U24:  case Kind::I56:  case Kind::U56:
+    case Kind::I128: case Kind::U128:
+    case Kind::F32: case Kind::F64:
+    case Kind::IntLit: case Kind::FloatLit:
+    case Kind::FnPtr:
+        return true;
+
+    // Raw pointers: !Send/!Sync unless explicit unsafe impl (Rust rule).
+    case Kind::Ptr: {
+        std::string tstr = type_str(tv);
+        return has_explicit(tstr);
+    }
+
+    // &T  : Send iff T: Sync; Sync iff T: Sync.
+    case Kind::Ref:
+        return is_auto_satisfied(tv.pointee(), "Sync", visited);
+
+    // &mut T: Send iff T: Send; Sync iff T: Sync.
+    case Kind::MutRef:
+        return is_auto_satisfied(tv.pointee(),
+                                  trait_name == "Send" ? "Send" : "Sync",
+                                  visited);
+
+    case Kind::Array:
+        return tv.elem() ? is_auto_satisfied(tv.elem(), trait_name, visited) : true;
+    case Kind::Slice:
+        return tv.elem() ? is_auto_satisfied(tv.elem(), "Sync", visited) : true;
+
+    case Kind::Tuple:
+        for (auto e : tv.tuple_elems())
+            if (!is_auto_satisfied(e, trait_name, visited)) return false;
+        return true;
+
+    case Kind::Struct:
+    case Kind::ZonedStruct: {
+        std::string base{tv.struct_name()};
+        std::string cn = concrete_struct_name(tv);
+        // Match sema_auto_trait.cpp: try mangled, type_str, and unmangled base.
+        if (has_explicit(cn) || has_explicit(type_str(tv)) || has_explicit(base))
+            return true;
+        // Locate the struct definition. Look in out_ first (post-mono shape),
+        // then in_ (pre-mono templates).
+        const lir::LStructDef* sd = nullptr;
+        for (auto& s : out_.structs) if (s.name == cn) { sd = &s; break; }
+        if (!sd) for (auto& s : in_.structs) if (s.name == base) { sd = &s; break; }
+        if (!sd) return true;  // unknown — be lenient (matches sema)
+        // Build subst from struct's type-params to the concrete tv's type-args.
+        SubstMap subst;
+        if (!tv.type_args().empty() && !sd->type_params.empty()) {
+            size_t n = std::min(tv.type_args().size(), sd->type_params.size());
+            for (size_t j = 0; j < n; ++j)
+                subst[sd->type_params[j].name] = tv.type_args()[j];
+        }
+        for (auto& f : sd->fields) {
+            TypeRef ft = f.type;
+            if (ft && ft.kind() == Kind::TypeVar && !subst.empty()) {
+                auto it = subst.find(std::string(ft.type_var_name()));
+                if (it != subst.end()) ft = it->second;
+            }
+            if (!is_auto_satisfied(ft, trait_name, visited)) return false;
+        }
+        return true;
+    }
+
+    case Kind::Enum: {
+        std::string ename{tv.enum_name()};
+        if (has_explicit(ename) || has_explicit(type_str(tv))) return true;
+        const lir::LEnumDef* ed = nullptr;
+        for (auto& e : out_.enums) if (e.name == ename) { ed = &e; break; }
+        if (!ed) for (auto& e : in_.enums) if (e.name == ename) { ed = &e; break; }
+        if (!ed) return true;
+        for (auto& v : ed->variants)
+            for (auto pt : v.payload_types)
+                if (!is_auto_satisfied(pt, trait_name, visited)) return false;
+        return true;
+    }
+
+    // TypeVar: should be substituted before we get here; if not, conservative true.
+    case Kind::TypeVar:
+        return true;
+
+    default:
+        return false;
+    }
+}
+
 // Type-subst function used by the pattern walker.
 using TypeSubstFn = std::function<TypeRef(TypeRef)>;
 namespace {
@@ -2692,6 +2799,20 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
                 return false;
             };
             for (auto& tb : itp.bounds) {
+                // Auto traits (e.g. `Send`, `Sync`) are structurally satisfied —
+                // walk the concrete type and accept iff every component admits
+                // it.  Raw pointers are !Send/!Sync (Rust rule); types that
+                // wrap them must declare an explicit `unsafe impl`.
+                bool is_auto = false;
+                for (auto& td : out_.traits)
+                    if (td.name == tb.trait_name) { is_auto = td.is_auto; break; }
+                if (is_auto) {
+                    StrSet visited;
+                    if (!is_auto_satisfied(concrete, tb.trait_name, visited)) {
+                        bound_ok = false; break;
+                    }
+                    continue;
+                }
                 StrSet seen;
                 if (!has_impl(tb.trait_name, cname, seen)) { bound_ok = false; break; }
             }

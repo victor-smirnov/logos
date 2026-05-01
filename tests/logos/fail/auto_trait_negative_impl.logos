@@ -1,0 +1,20 @@
+// SPDX-License-Identifier: Apache-2.0
+// Auto trait fail: explicit negative impl `impl !Send for Foo {}` rejects
+// Foo: Send even though structurally Foo would satisfy.
+
+package auto_trait_negative_impl;
+
+use std.lang.marker;
+
+struct Foo { x: i32 }
+
+impl !Send for Foo {}
+
+fn need_send<T: Send>(val: T) -> i32 {
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let f: Foo = Foo { x: 0i32 };
+    return need_send::<Foo>(f);
+}

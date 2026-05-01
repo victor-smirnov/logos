@@ -626,6 +626,12 @@ private:
         std::string trait_name;
         std::string target_type;
         bool        is_unsafe = false;        // declared as `unsafe impl`
+        bool        is_negative = false;      // `impl !Trait for X {}`
+        // For generic-target impls like `unsafe impl<T: Send> Send for Mutex<T>`:
+        // full target pattern (TypeVars unsubstituted) + impl-level type params
+        // with bounds. Both empty for non-generic impls.
+        TypeRef                target_typeref = nullptr;
+        std::vector<TypeParam> impl_type_params;
     };
 
     // Type params in scope for the function/struct currently being processed.

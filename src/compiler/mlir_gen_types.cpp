@@ -5,6 +5,7 @@
 // mlir_gen_types.cpp — Type conversion, struct/enum/class registration.
 
 #include "mlir_gen_impl.hpp"
+#include "mono_impl.hpp"
 
 namespace logos::compiler {
 
@@ -341,15 +342,8 @@ const TaggedEnumInfo* MLIRGenImpl::resolve_tagged_enum(const std::string& name,
     // Must match the mangling used by mono's record_needed_enum:
     // struct/datatype args use concrete_struct_name(), others use type_str().
     if (type && TypeRef(type).kind() == LogosType::Kind::Enum && !TypeRef(type).type_args().empty()) {
-        auto mangle_arg = [](TypeRef a) -> std::string {
-            if (!a) return "null";
-            TypeRef av{a};
-            if (av.kind() == LogosType::Kind::Struct || av.kind() == LogosType::Kind::ZonedStruct)
-                return concrete_struct_name(a);
-            return type_str(a);
-        };
         std::string cname = std::string(TypeRef(type).enum_name());
-        for (auto a : TypeRef(type).type_args()) { cname += "__"; cname += mangle_arg(a); }
+        for (auto a : TypeRef(type).type_args()) { cname += "__"; cname += Mono::mangle_type(a); }
         tit = tagged_enums_.find(cname);
         if (tit != tagged_enums_.end()) return &tit->second;
     }

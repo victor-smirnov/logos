@@ -784,6 +784,7 @@ struct LImplBlock {
     // Associated type definitions: "Item" → i32
     StrMap<TypeRef> assoc_types;
     bool                     is_unsafe = false;  // declared as `unsafe impl`
+    bool                     is_negative = false; // `impl !Trait for X {}`
 
     // Blanket impl support: `impl<T: Bound> Trait for T` — target_type is a
     // type-parameter name; applies to every concrete type implementing Bound.
@@ -793,6 +794,12 @@ struct LImplBlock {
                                             // for `impl<T: A + B + C> Trait for T`.
                                             // mono uses these to filter concrete
                                             // impls that don't satisfy every bound.
+
+    // For generic-target impls: full target pattern (`Mutex<T>`) and impl-level
+    // type params with their bounds.  Empty for non-generic impls and blanket
+    // impls (those use bound_trait/extra_bounds above).
+    TypeRef                target_typeref = nullptr;
+    std::vector<TypeParam> impl_type_params;
 };
 
 struct LConst {

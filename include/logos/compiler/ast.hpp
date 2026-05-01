@@ -284,6 +284,7 @@ inline constexpr Key EXPR      {"EXPR",      36};            // expression-body 
 inline constexpr Key NAMES     {"NAMES",     37};            // name list for tuple destructuring
 inline constexpr Key WHERE     {"WHERE",     38};            // where clause node
 inline constexpr Key IS_UNSAFE {"IS_UNSAFE", 42};            // unsafe fn marker
+inline constexpr Key IS_NEGATIVE{"IS_NEGATIVE",43};          // negative impl marker (impl !Trait for X {})
 inline constexpr Key IS_MOVE   {"IS_MOVE",   44};            // move closure marker
 inline constexpr Key IS_REF    {"IS_REF",    45};            // &self / &mut self param shorthand
 inline constexpr Key BASE      {"BASE",      46};            // struct update base expression (..base)

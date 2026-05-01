@@ -693,6 +693,11 @@ void SemaChecker::collect_impl(TinyMapView node) {
         AnyVal av = node.get(la::IS_UNSAFE);
         impl_is_unsafe = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
     }
+    bool impl_is_negative = false;
+    if (node.has_key(la::IS_NEGATIVE)) {
+        AnyVal av = node.get(la::IS_NEGATIVE);
+        impl_is_negative = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+    }
     // Push impl's own type params: either from IMPL_TYPE_PARAMS (new generic trait impl
     // form: impl<T> Trait for Struct<T>) or from TYPE_PARAMS (standalone: impl<T> Pair<T>).
     std::vector<TypeParam> impl_tps;
@@ -731,6 +736,11 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         target_resolved = resolved;
                     }
                 }
+            } else {
+                // Generic-target impl like `impl<T: Send> Send for Mutex<T>` — capture
+                // the full pattern (Mutex<T> with TypeVar T) for honest bound-check
+                // at auto-trait satisfaction time. impl_tps already pushed into scope.
+                target_resolved = resolve_type(tnode);
             }
         } else {
             target = std::string(str_of(tnode.get(la::NAME.code)));
@@ -1165,12 +1175,17 @@ void SemaChecker::collect_impl(TinyMapView node) {
     if (!impl_tps.empty()) { pop_type_params(impl_tps); impl_type_params_.clear(); }
     // Register the impl mapping (only for trait impls)
     if (!trait_name.empty()) {
-        impls_[trait_name + "::" + target] = {trait_name, target, impl_is_unsafe};
+        SemaImplInfo info{trait_name, target, impl_is_unsafe, impl_is_negative,
+                          target_resolved, impl_tps};
+        impls_[trait_name + "::" + target] = info;
         // `str` is a built-in that resolves to Slice<u8>; type_str() produces
         // "&[u8]" for Slice<u8>, so trait-bound checks look for "Trait::&[u8]".
         // Register an alias entry so satisfaction checks find the impl.
-        if (target == "str")
-            impls_[trait_name + "::&[u8]"] = {trait_name, "&[u8]", impl_is_unsafe};
+        if (target == "str") {
+            SemaImplInfo alias{trait_name, "&[u8]", impl_is_unsafe, impl_is_negative,
+                               target_resolved, impl_tps};
+            impls_[trait_name + "::&[u8]"] = alias;
+        }
     }
 }
 

@@ -80,6 +80,12 @@ impl<T: Send> Mutex<T> {
     }
 }
 
+// Mutex<T> is Send+Sync iff T: Send (raw *mut u8 inside is OK because
+// pthread_mutex_t is internally synchronized).  Matches Rust's
+// `unsafe impl<T: Send> Send/Sync for Mutex<T>`.
+unsafe impl<T: Send> Send for Mutex<T> {}
+unsafe impl<T: Send> Sync for Mutex<T> {}
+
 // Destroy the pthread_mutex_t and free the raw block.
 pub unsafe fn mutex_destroy<T: Send>(m: *mut Mutex<T>) {
     pthread_mutex_destroy(m.raw);
@@ -142,6 +148,10 @@ impl<T: Send + Sync> RwLock<T> {
         pthread_rwlock_unlock(self.raw);
     }
 }
+
+// RwLock<T>: Send if T: Send; Sync if T: Send + Sync (matches Rust).
+unsafe impl<T: Send> Send for RwLock<T> {}
+unsafe impl<T: Send + Sync> Sync for RwLock<T> {}
 
 pub unsafe fn rwlock_destroy<T: Send + Sync>(rw: *mut RwLock<T>) {
     pthread_rwlock_destroy(rw.raw);

@@ -187,6 +187,7 @@ private:
     }
 
     // ── Mangling (static — inline) ────────────────────────────────────────
+public:
     static std::string mangle_type(TypeRef tr) {
         if (!tr) return "null";
         switch (tr.kind()) {
@@ -223,6 +224,7 @@ private:
         }
         return result;
     }
+private:
 
     // ── Expression/statement cloning (large — defined in mono_clone.cpp) ─
     lir::LExprPtr subst_expr(const lir::LExpr& e, const SubstMap& s,
@@ -239,6 +241,12 @@ private:
 
     lir::LFunction clone_fn(const lir::LFunction& fn, const SubstMap& s,
                              const PackMap& packs = {});
+
+    // Auto-trait structural check.  Mirrors sema_auto_trait.cpp::is_auto_trait_satisfied
+    // but operates on mono-side state (out_.structs/in_.structs, out_.enums, out_.traits,
+    // concrete_impls_).  Used by clone_struct_def's bound gate and (future) auto-trait
+    // verification at instantiation time.
+    bool is_auto_satisfied(TypeRef tv, std::string_view trait_name, StrSet& visited);
 
     // ── Struct/enum cloning (large — defined in mono_clone.cpp) ─────
     lir::LStructDef clone_struct_def(const lir::LStructDef& tmpl,

@@ -36,8 +36,54 @@ bool SemaChecker::is_auto_trait_satisfied(
     if (visited.count(cycle_key)) return true;
     visited.insert(cycle_key);
 
-    auto has_explicit = [&](const std::string& name) -> bool {
-        return impls_.count(std::string(trait_name) + "::" + name) > 0;
+    auto find_impl = [&](const std::string& name) -> const SemaImplInfo* {
+        auto it = impls_.find(std::string(trait_name) + "::" + name);
+        return it == impls_.end() ? nullptr : &it->second;
+    };
+    // Check explicit impl (positive or negative) for one of the candidate keys.
+    // Returns: 1 = positive (accept), 0 = no match, -1 = negative (reject).
+    auto check_impl_for_struct = [&](TypeRef ty) -> int {
+        std::string mangled = (ty.kind() == Kind::Struct || ty.kind() == Kind::ZonedStruct)
+                            ? concrete_struct_name(ty) : std::string{};
+        std::string base = (ty.kind() == Kind::Struct || ty.kind() == Kind::ZonedStruct)
+                         ? std::string(ty.struct_name())
+                         : (ty.kind() == Kind::Enum ? std::string(ty.enum_name()) : std::string{});
+        const SemaImplInfo* info = nullptr;
+        if (!mangled.empty()) info = find_impl(mangled);
+        if (!info) info = find_impl(type_str(ty));
+        if (!info && !base.empty()) info = find_impl(base);
+        if (!info) return 0;
+        if (info->is_negative) return -1;
+        // Positive impl. If it's a generic-target impl with type params, honour
+        // the bounds: each impl type param must satisfy its declared bounds
+        // when substituted with the corresponding query type arg.
+        if (!info->impl_type_params.empty() && info->target_typeref &&
+            !ty.type_args().empty()) {
+            // Build subst: pattern TypeVar name → query type arg.
+            StrMap<TypeRef> subst;
+            auto pattern_args = TypeRef(info->target_typeref).type_args();
+            size_t n = std::min(pattern_args.size(), ty.type_args().size());
+            for (size_t j = 0; j < n; ++j) {
+                if (pattern_args[j] && TypeRef(pattern_args[j]).kind() == Kind::TypeVar)
+                    subst[std::string(TypeRef(pattern_args[j]).type_var_name())]
+                        = ty.type_args()[j];
+            }
+            // For each impl type param, check each bound that names an auto trait.
+            for (auto& tp : info->impl_type_params) {
+                auto sit = subst.find(tp.name);
+                if (sit == subst.end()) continue;
+                for (auto& b : tp.bounds) {
+                    auto tit = traits_.find(b.trait_name);
+                    if (tit == traits_.end() || !tit->second.is_auto) continue;
+                    if (!is_auto_trait_satisfied(sit->second, b.trait_name, visited)) {
+                        if (last_offender_.field_name.empty())
+                            last_offender_ = {tp.name, sit->second};
+                        return -1;
+                    }
+                }
+            }
+        }
+        return 1;
     };
 
     switch (tv.kind()) {
@@ -56,7 +102,9 @@ bool SemaChecker::is_auto_trait_satisfied(
     // ── Raw pointer: hardcoded !Send / !Sync unless explicit unsafe impl ────
     case Kind::Ptr: {
         std::string tstr = type_str(tv);
-        return has_explicit(tstr);
+        auto* info = find_impl(tstr);
+        if (info) return !info->is_negative;
+        return false;
     }
 
     // ── Shared reference &T: Send iff T:Sync; Sync iff T:Sync ──────────────
@@ -83,8 +131,9 @@ bool SemaChecker::is_auto_trait_satisfied(
     // ── Struct / ZonedStruct: explicit impl OR all fields satisfied ─────────
     case Kind::Struct:
     case Kind::ZonedStruct: {
-        std::string base = concrete_struct_name(tv);
-        if (has_explicit(base) || has_explicit(type_str(tv))) return true;
+        int verdict = check_impl_for_struct(tv);
+        if (verdict == 1) return true;
+        if (verdict == -1) return false;
         auto* si = get_struct_si(tv);
         if (!si) {
             si = get_datatype_si(tv);
@@ -116,7 +165,9 @@ bool SemaChecker::is_auto_trait_satisfied(
 
     // ── Enum: explicit impl OR every variant payload satisfied ──────────────
     case Kind::Enum: {
-        if (has_explicit(std::string(tv.enum_name())) || has_explicit(type_str(tv))) return true;
+        int verdict = check_impl_for_struct(tv);
+        if (verdict == 1) return true;
+        if (verdict == -1) return false;
         auto* ei = get_enum_si(tv);
         if (!ei) return true; // unknown enum — be lenient
         for (auto& v : ei->variants) {

@@ -71,6 +71,7 @@
     LO_NEG         = 49
     HI_NEG         = 50
     KEY            = 51    // map key in HERMES_ENTRY
+    IS_NEGATIVE    = 43    // negative impl marker (impl !Trait for X {}); reuses INDEX slot — IMPL_BLOCK never has INDEX
     PATH           = 22    // sub-node carrying ITEMS=[str,...] for N-deep chain field write (reuses FIELDS slot — chain stmts never carry struct field defs)
     NAME_VAR       = 38    // antiquot var name for `#ident` placeholder inside quote_*! body (reuses WHERE slot — STRUCT/ENUM/FN never have a where_clause AND a NAME_VAR simultaneously: NAME_VAR exists only inside quote_*! bodies, where where_clause is parsed separately)
     META           = 16    // meta @{...} block on struct/datatype/trait declarations (slot 16; reuses PATH_PARTS slot, mutually exclusive node types)
@@ -463,7 +464,10 @@
                => { ITEMS: $... }
 
     // let NAME: type = expr;  (module-level — compile-time evaluated, ADR 0003 §9)
-    const_def <- KW_LET IDENT COLON type_ref ASSIGN expr SEMI
+    // `pub let` exports the constant from the package.
+    const_def <- KW_PUB KW_LET IDENT COLON type_ref ASSIGN expr SEMI
+              => { CODE: CONST_DEF, IS_PUB: 1, NAME: $3, TYPE: $5, VALUE: $7 }
+               / KW_LET IDENT COLON type_ref ASSIGN expr SEMI
               => { CODE: CONST_DEF, NAME: $2, TYPE: $4, VALUE: $6 }
 
     // static NAME: type = expr;  (module-level mutable static — same repr as const for now)
@@ -641,6 +645,15 @@
                => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, TYPE_PARAMS: $3, TYPE: $4, ITEMS: $... }
                 / KW_UNSAFE KW_IMPL simple_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, TYPE: $3, ITEMS: $... }
+                // Negative impls: `impl !Trait for Type {}` (empty body).
+                / KW_IMPL type_param_list BANG IDENT KW_FOR simple_type LBRACE RBRACE
+               => { CODE: IMPL_BLOCK, IS_NEGATIVE: 1, IMPL_TYPE_PARAMS: $2, NAME: $4, TYPE: $6 }
+                / KW_IMPL type_param_list BANG IDENT KW_FOR ptr_type LBRACE RBRACE
+               => { CODE: IMPL_BLOCK, IS_NEGATIVE: 1, IMPL_TYPE_PARAMS: $2, NAME: $4, TYPE: $6 }
+                / KW_IMPL BANG IDENT KW_FOR simple_type LBRACE RBRACE
+               => { CODE: IMPL_BLOCK, IS_NEGATIVE: 1, NAME: $3, TYPE: $5 }
+                / KW_IMPL BANG IDENT KW_FOR ptr_type LBRACE RBRACE
+               => { CODE: IMPL_BLOCK, IS_NEGATIVE: 1, NAME: $3, TYPE: $5 }
                 / KW_IMPL type_param_list IDENT LT type_arg_list GT_TYPE KW_FOR simple_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE_PARAMS: $5, TYPE: $8, ITEMS: $... }
                 / KW_IMPL type_param_list IDENT KW_FOR ptr_type LBRACE impl_item* RBRACE
