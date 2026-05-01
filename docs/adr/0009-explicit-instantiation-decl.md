@@ -105,14 +105,11 @@ their methods (verified via `nm` showing `Box$G1$i64__unused`,
 
 ## Status of related work
 
-- L1 (lazy method codegen + dispatch-as-root) — **L1.0–L1.5 landed
-  2026-05-01**: worklist, MethodCall hook, ECall hook with deferred
-  enqueues, dispatch-pin pre-pass, is_root_pin honoring, gated
-  `clone_struct_def` with bound-gate factored into `Mono::method_bound_ok`,
-  fixpoint over needed_struct_insts/method_worklist/deferred queues,
-  specialization carve-out in `drain_method_worklist`. Default still off
-  (`lazy_methods_=false`); opt-in via `LOGOS_LAZY_METHODS=1`. Both modes:
-  984/984. Remaining: L1.6 (flip default to lazy).
+- L1 (lazy method codegen + dispatch-as-root) — **complete 2026-05-01**
+  (L1.0–L1.6). Lazy is the default; `LOGOS_LAZY_METHODS=0` restores eager
+  for bisection. Both modes: 984/984. With lazy default, `instantiate
+  Foo<T>;` is the real C++ `template class Foo<int>;` analog — it pins
+  every inherent + trait method of the instance as a worklist root.
 - ADR 0008 (assoc-eq bounds) — landed; orthogonal.
 - C++ `extern template`-equivalent for downstream skip-codegen — deferred
   until separate codegen lands.
