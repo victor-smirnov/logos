@@ -58,15 +58,19 @@ Semantics (after L1 flip — lazy scheme):
   analog: take the type as a root, codegen all inherent + trait methods,
   then let the collector chase callees.
 
-`pub` semantics:
+`pub` semantics (working since 2026-05-01):
 
-- Until separate codegen lands, identical to bare `instantiate` —
-  `is_pub_reexport` is recorded but no behavior diverges.
-- Once `.a`-artefact-based separate codegen exists (Mode B in the metacall
-  plan), `pub instantiate` declares "this instance is part of the package's
-  public API and codegen'd here; downstream packages should not duplicate".
-  The downstream-side mechanism (linkonce_odr-equivalent) is out of scope
-  for this ADR.
+- `pub instantiate Foo<T>;` in upstream package → mono emits all methods
+  of `Foo<T>` into upstream's `.o`, archived in `libNAME.a`.
+- Downstream compilation with `-I/-L` pointing at upstream's
+  `stdlib_bin/`: `nm --defined-only` populates `prog.binary_symbols`,
+  and `mlir_gen.cpp::is_binary_skip` forward-declares matching functions
+  as private without emitting their bodies. The linker resolves the
+  declarations against upstream's archive at link time. No
+  linkonce_odr-equivalent is needed because each instance lives in
+  exactly one upstream `.o`.
+- Bare `instantiate` (without `pub`) still pre-instantiates locally but
+  does not advertise — its symbols stay strong-defined in the same TU.
 
 ## Implementation
 
@@ -100,8 +104,8 @@ their methods (verified via `nm` showing `Box$G1$i64__unused`,
 - Not a vehicle for `#[type_code=N]` binding. That stays on the existing
   `eidos Foo<T>;` / `struct Foo<T>;` no-body forms.
 - Does not affect free `fn` — those remain lazy via the existing worklist.
-- Does not enable cross-package pre-instantiation re-use yet (`pub` is a
-  marker for future separate codegen).
+- (resolved 2026-05-01) Cross-package pre-instantiation re-use now works
+  via `pub instantiate` + the existing `binary_symbols` skip path.
 
 ## Status of related work
 
