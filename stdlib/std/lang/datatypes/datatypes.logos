@@ -127,6 +127,17 @@ impl<DT: Container> Buffer<DT> {
             return DT::store_get(sp, idx);
         }
     }
+
+    // Pointer-receiver counterpart to `Drop::drop` — releases the backing
+    // storage without consuming the Buffer struct.  Required when a Buffer
+    // lives as a field inside a heap-allocated record that's deallocated
+    // through a raw pointer (e.g. an intrusive-RC node), since by-value
+    // Drop can't be invoked through `*mut`.  After this call the Buffer
+    // header's storage is in moved-from state; do not call again.
+    pub unsafe fn drop_in_place(self: *mut Buffer<DT>) {
+        let sp: *mut DT::Store = &mut self.storage as *mut DT::Store;
+        DT::drop_store(sp);
+    }
 }
 
 impl<DT: Container> Drop for Buffer<DT> {

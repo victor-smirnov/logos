@@ -1,0 +1,64 @@
+// Tests std.data.persistent.btree.node — alloc/retain/release/clone/insert.
+package test;
+
+use std.data.persistent.uid256;
+use std.data.persistent.btree.node;
+use std.lang.cmp;
+use std.lang.datatypes;
+
+fn main() -> i32 {
+    let a: UID256 = uid256_random();
+    let b: UID256 = uid256_random();
+    let c: UID256 = uid256_random();
+
+    unsafe {
+        let n: *mut BTreeNode<UID256, UID256> =
+            node_alloc::<UID256, UID256>();
+
+        if n.rc      != 1u64  { return 1; }
+        if n.n       != 0u16  { return 2; }
+        if !n.is_leaf         { return 3; }
+        if n.keys.len() != 0u64 { return 4; }
+        if n.vals.len() != 0u64 { return 5; }
+
+        // Insert three (key, val) pairs.
+        node_leaf_insert::<UID256, UID256>(n, &a as *const UID256, &a as *const UID256);
+        node_leaf_insert::<UID256, UID256>(n, &b as *const UID256, &b as *const UID256);
+        node_leaf_insert::<UID256, UID256>(n, &c as *const UID256, &c as *const UID256);
+
+        if n.n != 3u16          { return 6; }
+        if n.keys.len() != 3u64 { return 7; }
+        if n.vals.len() != 3u64 { return 8; }
+
+        // Retain → rc=2, release → rc=1, release → freed.
+        node_retain::<UID256, UID256>(n);
+        if n.rc != 2u64 { return 9; }
+        node_release::<UID256, UID256>(n);
+        if n.rc != 1u64 { return 10; }
+
+        // Path-copy: copy has rc=1 and same length; original unaffected.
+        let m: *mut BTreeNode<UID256, UID256> =
+            node_clone_for_cow::<UID256, UID256>(n);
+        if m.rc != 1u64           { return 11; }
+        if m.n  != 3u16           { return 12; }
+        if m.keys.len() != 3u64   { return 13; }
+        if n.rc != 1u64           { return 14; }
+
+        // Inserting into copy doesn't touch original.
+        let d: UID256 = uid256_random();
+        node_leaf_insert::<UID256, UID256>(m, &d as *const UID256, &d as *const UID256);
+        if m.n != 4u16 { return 15; }
+        if n.n != 3u16 { return 16; }
+
+        // Value round-trip via Buffer<UID256>::get on the copy.
+        let k0: *const UID256 = m.keys.get(0u64);
+        if !(&*k0).eq(&a) { return 17; }
+        let k3: *const UID256 = m.keys.get(3u64);
+        if !(&*k3).eq(&d) { return 18; }
+
+        node_release::<UID256, UID256>(m);
+        node_release::<UID256, UID256>(n);
+    }
+
+    return 42;
+}

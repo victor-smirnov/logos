@@ -1,0 +1,35 @@
+// Tests Buffer<UID256> via the PodRef blanket — push/get/len round-trip.
+package test;
+
+use std.data.persistent.uid256;
+use std.lang.cmp;
+use std.lang.datatypes;
+
+fn main() -> i32 {
+    let mut buf: Buffer<UID256> = Buffer::<UID256>::new();
+
+    let a: UID256 = uid256_random();
+    let b: UID256 = uid256_random();
+    let c: UID256 = uid256_random();
+
+    buf.push(&a as *const UID256);
+    buf.push(&b as *const UID256);
+    buf.push(&c as *const UID256);
+
+    if buf.len() != 3u64 { return 1; }
+
+    unsafe {
+        let pa: *const UID256 = buf.get(0u64);
+        let pb: *const UID256 = buf.get(1u64);
+        let pc: *const UID256 = buf.get(2u64);
+
+        if !(&*pa).eq(&a) { return 2; }
+        if !(&*pb).eq(&b) { return 3; }
+        if !(&*pc).eq(&c) { return 4; }
+
+        // Distinct entries should not be mutually equal (1 - 2^-256 prob).
+        if (&*pa).eq(&*pb) { return 5; }
+    }
+
+    return 42;
+}

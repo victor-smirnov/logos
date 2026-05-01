@@ -1,0 +1,89 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.data.persistent.btree.node
+//
+// BTreeNode<K, V> — leaf-only B+tree node for v1 of the persistent
+// collections package.  Intrusive non-atomic refcount in the header;
+// keys/values stored in nested `Buffer<DT>` (from std.lang.datatypes).
+//
+// v1 limitations (deliberate, design-level):
+//   - leaf-only (no internal nodes, no splits, no recursion).
+//   - linear scan in `node_get`; no key ordering invariant yet.
+
+package std.data.persistent.btree.node;
+
+use std.mem;
+use std.lang.cmp;
+use std.lang.datatypes;
+
+pub struct BTreeNode<K: Container + Eq, V: Container> {
+    pub rc:      u64,
+    pub n:       u16,
+    pub is_leaf: bool,
+    pub keys:    Buffer<K>,
+    pub vals:    Buffer<V>,
+}
+
+// Allocate a fresh leaf node with rc=1 and empty buffers.
+pub fn node_alloc<K: Container + Eq, V: Container>() -> *mut BTreeNode<K, V> {
+    let raw: *mut u8 = alloc(sizeof::<BTreeNode<K, V>>());
+    let node: *mut BTreeNode<K, V> = raw as *mut BTreeNode<K, V>;
+    unsafe {
+        node.rc      = 1u64;
+        node.n       = 0u16;
+        node.is_leaf = true;
+        node.keys    = Buffer::<K>::new();
+        node.vals    = Buffer::<V>::new();
+    }
+    return node;
+}
+
+// Increment the refcount.
+pub fn node_retain<K: Container + Eq, V: Container>(node: *mut BTreeNode<K, V>) {
+    unsafe { node.rc = node.rc + 1u64; }
+}
+
+// Decrement the refcount; free the buffers and the header when it reaches zero.
+pub fn node_release<K: Container + Eq, V: Container>(node: *mut BTreeNode<K, V>) {
+    unsafe {
+        node.rc = node.rc - 1u64;
+        if node.rc == 0u64 {
+            let kp: *mut Buffer<K> = &mut node.keys as *mut Buffer<K>;
+            let vp: *mut Buffer<V> = &mut node.vals as *mut Buffer<V>;
+            kp.drop_in_place();
+            vp.drop_in_place();
+            dealloc(node as *mut u8);
+        }
+    }
+}
+
+// Path-copy: allocate a fresh node, copy n/is_leaf, replay key/val pushes.
+// The returned node has rc=1; the original is unchanged.
+pub fn node_clone_for_cow<K: Container + Eq, V: Container>(orig: *mut BTreeNode<K, V>) -> *mut BTreeNode<K, V> {
+    unsafe {
+        let copy: *mut BTreeNode<K, V> = node_alloc::<K, V>();
+        copy.is_leaf = orig.is_leaf;
+        let mut i: u64 = 0u64;
+        while i < orig.keys.len() {
+            let kp: K::ViewInStore = orig.keys.get(i);
+            copy.keys.push(kp);
+            i = i + 1u64;
+        }
+        i = 0u64;
+        while i < orig.vals.len() {
+            let vp: V::ViewInStore = orig.vals.get(i);
+            copy.vals.push(vp);
+            i = i + 1u64;
+        }
+        copy.n = orig.n;
+        return copy;
+    }
+}
+
+// Append (key, val) to the leaf.  v1: no ordering, no full-check.
+pub fn node_leaf_insert<K: Container + Eq, V: Container>(node: *mut BTreeNode<K, V>, key: K::ViewInStore, val: V::ViewInStore) {
+    unsafe {
+        node.keys.push(key);
+        node.vals.push(val);
+        node.n = node.n + 1u16;
+    }
+}
