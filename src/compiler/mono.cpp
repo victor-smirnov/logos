@@ -63,6 +63,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             BlanketImplInfo info;
             info.trait_name     = impl.trait_name;
             info.bound_trait    = impl.bound_trait;
+            info.extra_bounds   = impl.extra_bounds;
             info.target_typevar = impl.target_type;
             info.assoc_types    = impl.assoc_types;
             blanket_impls_.push_back(std::move(info));
@@ -114,6 +115,18 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             if (impl.is_blanket) continue;
             if (impl.trait_name != bi.bound_trait) continue;
             const std::string& concrete = impl.target_type;
+            // Multi-bound blanket: `impl<T: A + B + …> Trait for T` — only
+            // instantiate for `concrete` types that satisfy *every* extra
+            // bound, not just the primary one. concrete_impls_ was indexed
+            // earlier from non-blanket impls (TraitName::TargetType keys).
+            bool all_extra_satisfied = true;
+            for (auto& eb : bi.extra_bounds) {
+                if (!concrete_impls_.count(eb + "::" + concrete)) {
+                    all_extra_satisfied = false;
+                    break;
+                }
+            }
+            if (!all_extra_satisfied) continue;
             // For each method of the blanket, clone template with T→concrete
             // and emit under `concrete__method`.
             for (auto& tfn_up : in_.functions) {

@@ -144,8 +144,13 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
             // and `concrete_base` satisfies Bound, use the blanket's assoc.
             for (auto& bi : blanket_impls_) {
                 if (bi.trait_name != tv.trait_name()) continue;
-                std::string bkey = bi.bound_trait + "::" + concrete_base;
-                if (!concrete_impls_.count(bkey)) continue;
+                if (!concrete_impls_.count(bi.bound_trait + "::" + concrete_base)) continue;
+                bool all_extra = true;
+                for (auto& eb : bi.extra_bounds)
+                    if (!concrete_impls_.count(eb + "::" + concrete_base)) {
+                        all_extra = false; break;
+                    }
+                if (!all_extra) continue;
                 auto bait = bi.assoc_types.find(std::string(tv.assoc_type_name()));
                 if (bait == bi.assoc_types.end()) continue;
                 SubstMap bsubst;

@@ -10,6 +10,7 @@
 package std.lang.datatypes;
 
 use std.lang.drop;
+use std.lang.ord;
 use std.mem;
 
 // ---------------------------------------------------------------------------
@@ -324,6 +325,34 @@ impl<DT: PodRef> Container for DT {
             let stride: i64 = sizeof::<DT>();
             return (s.data as i64 + (idx as i64) * stride) as *const DT;
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ContainerOrd — Container + 3-way comparison through ViewInStore.
+//
+// Ordered collections (B+tree-backed Map, Set) need to compare a stored
+// key (in `ViewInStore` shape) against a query key (passed as `*const Self`)
+// without exposing how the view relates to Self.  Each Container picks the
+// right adapter for its view shape; the blanket below covers the PodRef
+// path (ViewInStore = *const DT).  Primitive-path keys (ViewInStore =
+// DT::Prim by value) need a `*const DT → DT::Prim` load helper that lives
+// outside Container today; once that lands, a parallel Primitive blanket
+// becomes possible.
+//
+// `cmp_view_key` is declared as a self-method (with a `*const Self`
+// receiver dereferenced nowhere) instead of an associated fn — established
+// workaround for the assoc-fn-on-type-param mono gap.  Callers do
+// `let phantom: *const K = 0 as *const K; phantom.cmp_view_key(kv, key)`.
+// ---------------------------------------------------------------------------
+
+pub trait ContainerOrd: Container {
+    unsafe fn cmp_view_key(self: *const Self, stored: Self::ViewInStore, query: *const Self) -> Ordering;
+}
+
+impl<DT: PodRef + Ord> ContainerOrd for DT {
+    unsafe fn cmp_view_key(self: *const DT, stored: *const DT, query: *const DT) -> Ordering {
+        return (&*stored).cmp(&*query);
     }
 }
 

@@ -1664,6 +1664,40 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             subbed_gat_args.push_back(nga);
         }
 
+        // TypeVar-with-bound branch: `K::AssocType` where K is a still-typevar
+        // and K's bounds include some `BoundTrait` for which there exists a
+        // blanket `impl<DT: BoundTrait> Trait for DT { type AssocType = … }`.
+        // Reduce by substituting the blanket's target typevar with K (kept as
+        // a TypeVar). Closes abstraction-debt #6 — `K::ViewInStore` → `*const K`
+        // when K: PodRef in the surrounding generic scope.
+        if (!concrete && subbed_base &&
+            TypeRef(subbed_base).kind() == LogosType::Kind::TypeVar) {
+            std::string tvname = std::string(TypeRef(subbed_base).type_var_name());
+            auto bit = current_type_bounds_.find(tvname);
+            if (bit != current_type_bounds_.end()) {
+                // Build a flat set of bound trait names for this typevar.
+                StrSet tv_bound_set;
+                for (auto& tb : bit->second) tv_bound_set.insert(tb.trait_name);
+                for (auto& bi : blanket_impls_) {
+                    if (bi.trait_name != t.trait_name()) continue;
+                    if (!tv_bound_set.count(bi.bound_trait)) continue;
+                    bool all_extra = true;
+                    for (auto& eb : bi.extra_bounds)
+                        if (!tv_bound_set.count(eb)) { all_extra = false; break; }
+                    if (!all_extra) continue;
+                    std::string blanket_key = std::string(t.trait_name()) + "::$blanket$"
+                        + std::string(t.trait_name()) + "$" + bi.bound_trait
+                        + "$" + bi.target_typevar
+                        + "::" + std::string(t.assoc_type_name());
+                    auto bait = assoc_type_impls_.find(blanket_key);
+                    if (bait == assoc_type_impls_.end()) continue;
+                    SemaSubst bsubst;
+                    bsubst[bi.target_typevar] = subbed_base;
+                    return subst_type_sema(bait->second.type, bsubst);
+                }
+            }
+        }
+
         if (concrete) {
             std::string concrete_name = type_str(concrete);
             // Helper: build combined substitution (impl params + GAT params)
@@ -1698,14 +1732,18 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             // `type Assoc = …`.  Use it when `concrete` satisfies Bound.
             for (auto& bi : blanket_impls_) {
                 if (bi.trait_name != t.trait_name()) continue;
-                // Concrete type must implement the blanket's bound trait.
-                auto bkey = bi.bound_trait + "::" + concrete_name;
-                bool satisfied = impls_.count(bkey) > 0;
-                if (!satisfied && !base_name.empty() && base_name != concrete_name) {
-                    auto bkey2 = bi.bound_trait + "::" + base_name;
-                    satisfied = impls_.count(bkey2) > 0;
-                }
-                if (!satisfied) continue;
+                // Concrete type must implement every bound of the blanket.
+                auto bound_satisfied = [&](const std::string& bt) {
+                    if (impls_.count(bt + "::" + concrete_name)) return true;
+                    if (!base_name.empty() && base_name != concrete_name &&
+                        impls_.count(bt + "::" + base_name)) return true;
+                    return false;
+                };
+                if (!bound_satisfied(bi.bound_trait)) continue;
+                bool all_extra = true;
+                for (auto& eb : bi.extra_bounds)
+                    if (!bound_satisfied(eb)) { all_extra = false; break; }
+                if (!all_extra) continue;
                 std::string blanket_key = std::string(t.trait_name()) + "::$blanket$"
                     + std::string(t.trait_name()) + "$" + bi.bound_trait
                     + "$" + bi.target_typevar

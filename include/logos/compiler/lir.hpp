@@ -788,7 +788,11 @@ struct LImplBlock {
     // Blanket impl support: `impl<T: Bound> Trait for T` — target_type is a
     // type-parameter name; applies to every concrete type implementing Bound.
     bool        is_blanket   = false;
-    std::string bound_trait;    // name of the bound trait (only used when is_blanket)
+    std::string bound_trait;    // primary bound (first); used for mangling.
+    std::vector<std::string> extra_bounds;  // additional bounds beyond bounds[0]
+                                            // for `impl<T: A + B + C> Trait for T`.
+                                            // mono uses these to filter concrete
+                                            // impls that don't satisfy every bound.
 };
 
 struct LConst {

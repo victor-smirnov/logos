@@ -13,9 +13,10 @@ package std.data.persistent.btree.node;
 
 use std.mem;
 use std.lang.cmp;
+use std.lang.ord;
 use std.lang.datatypes;
 
-pub struct BTreeNode<K: Container + Eq, V: Container> {
+pub struct BTreeNode<K: Container + ContainerOrd, V: Container> {
     pub rc:      u64,
     pub n:       u16,
     pub is_leaf: bool,
@@ -24,7 +25,7 @@ pub struct BTreeNode<K: Container + Eq, V: Container> {
 }
 
 // Allocate a fresh leaf node with rc=1 and empty buffers.
-pub fn node_alloc<K: Container + Eq, V: Container>() -> *mut BTreeNode<K, V> {
+pub fn node_alloc<K: Container + ContainerOrd, V: Container>() -> *mut BTreeNode<K, V> {
     let raw: *mut u8 = alloc(sizeof::<BTreeNode<K, V>>());
     let node: *mut BTreeNode<K, V> = raw as *mut BTreeNode<K, V>;
     unsafe {
@@ -38,12 +39,12 @@ pub fn node_alloc<K: Container + Eq, V: Container>() -> *mut BTreeNode<K, V> {
 }
 
 // Increment the refcount.
-pub fn node_retain<K: Container + Eq, V: Container>(node: *mut BTreeNode<K, V>) {
+pub fn node_retain<K: Container + ContainerOrd, V: Container>(node: *mut BTreeNode<K, V>) {
     unsafe { node.rc = node.rc + 1u64; }
 }
 
 // Decrement the refcount; free the buffers and the header when it reaches zero.
-pub fn node_release<K: Container + Eq, V: Container>(node: *mut BTreeNode<K, V>) {
+pub fn node_release<K: Container + ContainerOrd, V: Container>(node: *mut BTreeNode<K, V>) {
     unsafe {
         node.rc = node.rc - 1u64;
         if node.rc == 0u64 {
@@ -58,7 +59,7 @@ pub fn node_release<K: Container + Eq, V: Container>(node: *mut BTreeNode<K, V>)
 
 // Path-copy: allocate a fresh node, copy n/is_leaf, replay key/val pushes.
 // The returned node has rc=1; the original is unchanged.
-pub fn node_clone_for_cow<K: Container + Eq, V: Container>(orig: *mut BTreeNode<K, V>) -> *mut BTreeNode<K, V> {
+pub fn node_clone_for_cow<K: Container + ContainerOrd, V: Container>(orig: *mut BTreeNode<K, V>) -> *mut BTreeNode<K, V> {
     unsafe {
         let copy: *mut BTreeNode<K, V> = node_alloc::<K, V>();
         copy.is_leaf = orig.is_leaf;
@@ -80,7 +81,7 @@ pub fn node_clone_for_cow<K: Container + Eq, V: Container>(orig: *mut BTreeNode<
 }
 
 // Append (key, val) to the leaf.  v1: no ordering, no full-check.
-pub fn node_leaf_insert<K: Container + Eq, V: Container>(node: *mut BTreeNode<K, V>, key: K::ViewInStore, val: V::ViewInStore) {
+pub fn node_leaf_insert<K: Container + ContainerOrd, V: Container>(node: *mut BTreeNode<K, V>, key: K::ViewInStore, val: V::ViewInStore) {
     unsafe {
         node.keys.push(key);
         node.vals.push(val);
@@ -89,17 +90,23 @@ pub fn node_leaf_insert<K: Container + Eq, V: Container>(node: *mut BTreeNode<K,
 }
 
 // Linear search for `key` among the leaf's keys; returns the index on hit,
-// -1 on miss.  v1 only: K must take the PodRef path (ViewInStore = *const K)
-// — the small-Primitive shape (ViewInStore = K::Prim) needs a different
-// comparison entry point and is left for a future overload.
-pub fn node_find<K: Container + Eq, V: Container>(node: *mut BTreeNode<K, V>, key: *const K) -> i64 {
+// -1 on miss.  Comparison goes through `ContainerOrd::cmp_view_key`, which
+// hides the ViewInStore shape behind the trait so this body is the same
+// for any future Primitive-path keys (once a Primitive ContainerOrd
+// blanket lands).  Phantom-self pattern is the workaround for the
+// assoc-fn-on-type-param mono gap (registry note in
+// project_persistent_abstraction_debt.md).
+pub fn node_find<K: Container + ContainerOrd, V: Container>(node: *mut BTreeNode<K, V>, key: *const K) -> i64 {
     unsafe {
         let n: u64 = node.keys.len();
         let mut i: u64 = 0u64;
+        let phantom: *const K = 0 as *const K;
         while i < n {
             let kv: K::ViewInStore = node.keys.get(i);
-            let kp: *const K = kv as *const K;
-            if (&*key).eq(&*kp) { return i as i64; }
+            match phantom.cmp_view_key(kv, key) {
+                Ordering::Equal => { return i as i64; }
+                _ => { }
+            }
             i = i + 1u64;
         }
         return -1i64;

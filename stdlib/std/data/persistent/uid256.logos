@@ -8,6 +8,7 @@ package std.data.persistent.uid256;
 
 use std.math.random;
 use std.lang.cmp;
+use std.lang.ord;
 use std.lang.hash;
 use std.lang.datatypes;
 
@@ -57,6 +58,22 @@ impl Eq for UID256 {
             }
             return true;
         }
+    }
+}
+
+// Total order over 32 bytes — big-endian byte compare so the ordering
+// matches the canonical UID256 wire form (most-significant byte first).
+impl Ord for UID256 {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let mut i: i64 = 0;
+        while i < 32 {
+            let a: u8 = self.bytes[i];
+            let b: u8 = other.bytes[i];
+            if a < b { return Ordering::Less; }
+            if a > b { return Ordering::Greater; }
+            i = i + 1;
+        }
+        return Ordering::Equal;
     }
 }
 

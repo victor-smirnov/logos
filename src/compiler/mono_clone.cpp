@@ -777,8 +777,12 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                             if (concrete_impls_.count(k)) return true;
                             for (auto& bi : blanket_impls_) {
                                 if (bi.trait_name != tr) continue;
-                                if (bi.bound_trait.empty()) return true;
-                                if (has_impl(bi.bound_trait, cn, seen)) return true;
+                                if (bi.bound_trait.empty() && bi.extra_bounds.empty()) return true;
+                                bool all = !bi.bound_trait.empty()
+                                    ? has_impl(bi.bound_trait, cn, seen) : true;
+                                for (auto& eb : bi.extra_bounds)
+                                    if (!has_impl(eb, cn, seen)) { all = false; break; }
+                                if (all) return true;
                             }
                             return false;
                         };
@@ -860,8 +864,12 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         if (concrete_impls_.count(k)) return true;
                         for (auto& bi : blanket_impls_) {
                             if (bi.trait_name != tr) continue;
-                            if (bi.bound_trait.empty()) return true;
-                            if (has_impl(bi.bound_trait, cn, seen)) return true;
+                            if (bi.bound_trait.empty() && bi.extra_bounds.empty()) return true;
+                            bool all = !bi.bound_trait.empty()
+                                ? has_impl(bi.bound_trait, cn, seen) : true;
+                            for (auto& eb : bi.extra_bounds)
+                                if (!has_impl(eb, cn, seen)) { all = false; break; }
+                            if (all) return true;
                         }
                         return false;
                     };
@@ -2674,8 +2682,12 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
                 if (concrete_impls_.count(k)) return true;
                 for (auto& bi : blanket_impls_) {
                     if (bi.trait_name != trait) continue;
-                    if (bi.bound_trait.empty()) return true;
-                    if (has_impl(bi.bound_trait, cn, seen)) return true;
+                    if (bi.bound_trait.empty() && bi.extra_bounds.empty()) return true;
+                    bool all = !bi.bound_trait.empty()
+                        ? has_impl(bi.bound_trait, cn, seen) : true;
+                    for (auto& eb : bi.extra_bounds)
+                        if (!has_impl(eb, cn, seen)) { all = false; break; }
+                    if (all) return true;
                 }
                 return false;
             };

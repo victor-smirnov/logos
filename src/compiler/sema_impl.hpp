@@ -693,11 +693,12 @@ private:
     // one blanket impl.  mangled_name is "T__method" — the generic function
     // lives in generic_funcs_ under this name.
     struct BlanketImpl {
-        std::string trait_name;       // e.g. "Datatype"
-        std::string target_typevar;   // e.g. "T"
-        std::string bound_trait;      // e.g. "Primitive"
-        std::string method_name;      // e.g. "storage_new"
-        std::string mangled_name;     // target_typevar + "__" + method_name
+        std::string trait_name;                 // e.g. "Datatype"
+        std::string target_typevar;             // e.g. "T"
+        std::string bound_trait;                // primary bound, e.g. "Primitive"
+        std::vector<std::string> extra_bounds;  // bounds[1..] for AND-filter
+        std::string method_name;                // e.g. "storage_new"
+        std::string mangled_name;               // target_typevar + "__" + method_name
     };
     std::vector<BlanketImpl> blanket_impls_;
 

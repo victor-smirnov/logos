@@ -282,11 +282,17 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             bool via_blanket = false;
             for (auto& bi : blanket_impls_) {
                 if (bi.trait_name != bound.trait_name) continue;
-                auto bkey1 = bi.bound_trait + "::" + concrete_str;
-                auto bkey2 = unwrapped_name.empty() ? "" : bi.bound_trait + "::" + unwrapped_name;
-                if (impls_.count(bkey1) || (!bkey2.empty() && impls_.count(bkey2))) {
-                    via_blanket = true; break;
-                }
+                auto bound_satisfied = [&](const std::string& bt) {
+                    if (impls_.count(bt + "::" + concrete_str)) return true;
+                    if (!unwrapped_name.empty() &&
+                        impls_.count(bt + "::" + unwrapped_name)) return true;
+                    return false;
+                };
+                if (!bound_satisfied(bi.bound_trait)) continue;
+                bool all_extra = true;
+                for (auto& eb : bi.extra_bounds)
+                    if (!bound_satisfied(eb)) { all_extra = false; break; }
+                if (all_extra) { via_blanket = true; break; }
             }
             if (via_blanket) continue;
             // Generic-struct impl: `impl<T: X> Trait for GenericStruct<T>`
@@ -856,12 +862,16 @@ void SemaChecker::collect_impl(TinyMapView node) {
     // sites on concrete types satisfying Bound, we instantiate the blanket.
     bool is_blanket = false;
     std::string blanket_bound_trait;
+    std::vector<std::string> blanket_extra_bounds;
     if (!trait_name.empty()) {
         for (auto& tp : impl_tps) {
             if (tp.name == target) {
                 is_blanket = true;
-                if (!tp.bounds.empty())
+                if (!tp.bounds.empty()) {
                     blanket_bound_trait = tp.bounds[0].trait_name;
+                    for (size_t bi = 1; bi < tp.bounds.size(); ++bi)
+                        blanket_extra_bounds.push_back(tp.bounds[bi].trait_name);
+                }
                 break;
             }
         }
@@ -927,7 +937,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 }
                 if (is_blanket) {
                     blanket_impls_.push_back({
-                        trait_name, target, blanket_bound_trait, mname, mangled
+                        trait_name, target, blanket_bound_trait,
+                        blanket_extra_bounds, mname, mangled
                     });
                 }
             } else if (code_of(m) == la::ASSOC_TYPE_IMPL && !trait_name.empty()) {
@@ -1852,9 +1863,24 @@ void SemaChecker::check_supertrait_impls() {
             // Bug 3: verify supertrait name is a known trait before checking impls.
             if (!traits_.count(super.trait_name)) continue;  // already reported above
             std::string super_key = super.trait_name + "::" + target;
-            if (!impls_.count(super_key))
-                error(std::format("impl {} for {}: missing impl {} for {} (required by supertrait)",
-                                  tname, target, super.trait_name, target));
+            if (impls_.count(super_key)) continue;
+            // Blanket-derived supertrait satisfaction: if a blanket
+            // `impl<T: BoundTrait> SuperTrait for T` exists and `target`
+            // implements `BoundTrait` (directly or via another blanket),
+            // then `target` transitively implements `SuperTrait`. Mirrors
+            // the blanket-aware lookup in check_type_bounds (line ~282).
+            bool via_blanket = false;
+            for (auto& bi : blanket_impls_) {
+                if (bi.trait_name != super.trait_name) continue;
+                if (!impls_.count(bi.bound_trait + "::" + target)) continue;
+                bool all_extra = true;
+                for (auto& eb : bi.extra_bounds)
+                    if (!impls_.count(eb + "::" + target)) { all_extra = false; break; }
+                if (all_extra) { via_blanket = true; break; }
+            }
+            if (via_blanket) continue;
+            error(std::format("impl {} for {}: missing impl {} for {} (required by supertrait)",
+                              tname, target, super.trait_name, target));
         }
     }
 }

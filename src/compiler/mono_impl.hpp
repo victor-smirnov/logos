@@ -110,7 +110,8 @@ private:
     // Entry: { trait, bound_trait, target_typevar, assoc_types_map }.
     struct BlanketImplInfo {
         std::string trait_name;
-        std::string bound_trait;
+        std::string bound_trait;                  // primary (first) bound
+        std::vector<std::string> extra_bounds;    // bounds[1..] for AND-filter
         std::string target_typevar;
         StrMap<TypeRef> assoc_types;
     };
