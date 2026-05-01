@@ -16,18 +16,14 @@ fn main() -> i32 {
     if map_len::<UID256, UID256>(&m) != 0u64 { return 1; }
     if map_contains::<UID256, UID256>(&m, &a as *const UID256) { return 2; }
 
-    map_insert_new::<UID256, UID256>(&mut m, &a as *const UID256, &a as *const UID256);
-    map_insert_new::<UID256, UID256>(&mut m, &b as *const UID256, &b as *const UID256);
-    map_insert_new::<UID256, UID256>(&mut m, &c as *const UID256, &c as *const UID256);
+    map_insert_new::<UID256, UID256>(&mut m, &a as *const UID256, &a as *const UID256, &a as *const UID256);
+    map_insert_new::<UID256, UID256>(&mut m, &b as *const UID256, &b as *const UID256, &b as *const UID256);
+    map_insert_new::<UID256, UID256>(&mut m, &c as *const UID256, &c as *const UID256, &c as *const UID256);
 
     if map_len::<UID256, UID256>(&m) != 3u64 { return 3; }
     if !map_contains::<UID256, UID256>(&m, &a as *const UID256) { return 4; }
     if !map_contains::<UID256, UID256>(&m, &b as *const UID256) { return 5; }
     if !map_contains::<UID256, UID256>(&m, &c as *const UID256) { return 6; }
-
-    if map_find::<UID256, UID256>(&m, &a as *const UID256) != 0i64 { return 7; }
-    if map_find::<UID256, UID256>(&m, &b as *const UID256) != 1i64 { return 8; }
-    if map_find::<UID256, UID256>(&m, &c as *const UID256) != 2i64 { return 9; }
 
     let miss: UID256 = uid256_random();
     if map_contains::<UID256, UID256>(&m, &miss as *const UID256) { return 10; }

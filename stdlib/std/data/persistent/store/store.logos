@@ -1,0 +1,216 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.data.persistent.store
+//
+// Store + Snapshot layer over std.data.persistent.map.
+//
+// The cross-thread Store API is a narrow trait `StoreOps` working in
+// type-erased space (raw root pointers + commit ids).  All typed
+// (K, V)-aware operations are free functions parameterized by
+// `S: StoreOps` — fully monomorphized, zero vtable.  Switching the
+// Store impl from locking to queue-based later changes only the trait
+// implementer; snapshot-side code is unaffected.
+//
+// Snapshot/MutSnapshot are deliberately Store-agnostic — they hold
+// only a root pointer + a DAG-side commit-id.  Single-threaded by
+// design (will get a !Sync auto-trait once Logos supports them).
+//
+// v1 scope: DAG = tree (parent edge per commit, no merge).  No DAG GC:
+// commits live until program exit.  Named refs deferred.
+
+package std.data.persistent.store;
+
+use std.data.persistent.btree.node;
+use std.data.persistent.map;
+use std.lang.cmp;
+use std.lang.ord;
+use std.lang.datatypes;
+use std.sync;
+
+// CommitId — opaque DAG index.  NO_COMMIT means "no commit".
+pub let NO_COMMIT: i64 = 0i64 - 1i64;
+
+// Type-erased DAG entry.  `root` is *mut BTreeNode<K, V> reinterpreted
+// as *mut u8; (K, V) are recovered from each typed call site.
+pub struct CommitEntry {
+    pub root:   *mut u8,
+    pub parent: i64,
+}
+
+// Single-threaded immutable view over a frozen tree.
+pub struct Snapshot<K: Container + ContainerOrd, V: Container> {
+    pub root:      *mut BTreeNode<K, V>,
+    pub commit_id: i64,
+}
+
+// Single-threaded mutable handle.  The handle owns 1 rc on `root`
+// until commit/rollback releases it.
+pub struct MutSnapshot<K: Container + ContainerOrd, V: Container> {
+    pub root:      *mut BTreeNode<K, V>,
+    pub parent_id: i64,
+}
+
+// ── StoreOps trait ───────────────────────────────────────────────────
+// Narrow cross-thread surface — all type-erased, no method-level
+// generics (which would defeat type inference under raw-pointer
+// dispatch).  v1 = LockingStore.
+
+pub trait StoreOps {
+    // Read commit's root pointer.  Does NOT retain.
+    unsafe fn get_root(self: *mut Self, id: i64) -> *mut u8;
+
+    // Push a new commit entry.  Caller has already arranged for the
+    // root to carry 1 rc (transferred to this entry).
+    unsafe fn register_commit(self: *mut Self, root: *mut u8, parent: i64) -> i64;
+
+    // Fork: new commit with the same root as `id`, parent = id.
+    // Bumps the root's rc to keep both timelines alive independently.
+    fn fork(self: *mut Self, id: i64) -> i64;
+
+    // Parent commit id, or NO_COMMIT if `id` is a root commit.
+    fn parent_of(self: *mut Self, id: i64) -> i64;
+}
+
+// ── LockingStore ─────────────────────────────────────────────────────
+// v1 impl: a real Mutex<i32> + inline dag.  The mutex protects the
+// commit-id allocator and the dag vector; the per-commit root pointer
+// itself is racy-by-design (rc-bump under lock keeps the pointee alive).
+
+pub struct LockingStore {
+    pub dag:  PrimVec<CommitEntry>,
+    pub lock: Mutex<i32>,
+}
+
+pub fn locking_store_new() -> LockingStore {
+    return LockingStore {
+        dag:  PrimVec::<CommitEntry>::empty(),
+        lock: mutex_new::<i32>(0i32),
+    };
+}
+
+// Type-erased: bump the rc field at offset 0 of a BTreeNode<K, V>.
+unsafe fn rc_bump(p: *mut u8) {
+    let rcp: *mut u64 = p as *mut u64;
+    *rcp = *rcp + 1u64;
+}
+
+impl StoreOps for LockingStore {
+    unsafe fn get_root(self: *mut LockingStore, id: i64) -> *mut u8 {
+        self.lock.lock();
+        let raw: *mut u8 = self.dag.get(id as u64).root;
+        self.lock.unlock();
+        return raw;
+    }
+
+    unsafe fn register_commit(self: *mut LockingStore, root: *mut u8, parent: i64) -> i64 {
+        self.lock.lock();
+        let id: i64 = self.dag.len as i64;
+        self.dag.push(CommitEntry { root: root, parent: parent });
+        self.lock.unlock();
+        return id;
+    }
+
+    fn fork(self: *mut LockingStore, id: i64) -> i64 {
+        unsafe {
+            self.lock.lock();
+            let raw: *mut u8 = self.dag.get(id as u64).root;
+            rc_bump(raw);
+            let new_id: i64 = self.dag.len as i64;
+            self.dag.push(CommitEntry { root: raw, parent: id });
+            self.lock.unlock();
+            return new_id;
+        }
+    }
+
+    fn parent_of(self: *mut LockingStore, id: i64) -> i64 {
+        unsafe {
+            self.lock.lock();
+            let p: i64 = self.dag.get(id as u64).parent;
+            self.lock.unlock();
+            return p;
+        }
+    }
+}
+
+// ── Typed Snapshot ops (free functions, S: StoreOps) ─────────────────
+// Single-threaded. Fully monomorphized per (K, V, S).
+
+pub fn store_begin<K: Container + ContainerOrd, V: Container, S: StoreOps>(s: *mut S, parent: i64) -> MutSnapshot<K, V> {
+    unsafe {
+        if parent == NO_COMMIT {
+            let r: *mut BTreeNode<K, V> = node_alloc::<K, V>();
+            return MutSnapshot::<K, V> { root: r, parent_id: parent };
+        }
+        let raw: *mut u8 = s.get_root(parent);
+        let r: *mut BTreeNode<K, V> = raw as *mut BTreeNode<K, V>;
+        node_retain::<K, V>(r);
+        return MutSnapshot::<K, V> { root: r, parent_id: parent };
+    }
+}
+
+pub fn store_commit<K: Container + ContainerOrd, V: Container, S: StoreOps>(s: *mut S, snap: MutSnapshot<K, V>) -> i64 {
+    unsafe { return s.register_commit(snap.root as *mut u8, snap.parent_id); }
+}
+
+pub fn store_rollback<K: Container + ContainerOrd, V: Container>(snap: MutSnapshot<K, V>) {
+    unsafe { node_release::<K, V>(snap.root); }
+}
+
+pub fn store_checkout<K: Container + ContainerOrd, V: Container, S: StoreOps>(s: *mut S, id: i64) -> Snapshot<K, V> {
+    unsafe {
+        let raw: *mut u8 = s.get_root(id);
+        let r: *mut BTreeNode<K, V> = raw as *mut BTreeNode<K, V>;
+        node_retain::<K, V>(r);
+        return Snapshot::<K, V> { root: r, commit_id: id };
+    }
+}
+
+pub fn store_close<K: Container + ContainerOrd, V: Container>(snap: Snapshot<K, V>) {
+    unsafe { node_release::<K, V>(snap.root); }
+}
+
+// ── Snapshot/MutSnapshot data ops ────────────────────────────────────
+// Thin wrappers reusing PMap's existing CoW path-copy logic via a
+// transient PMap handle (PMap and the snapshots share the same `root`
+// shape).  Any root mutation made by map_* is copied back.
+
+pub fn snapshot_len<K: Container + ContainerOrd, V: Container>(s: *const Snapshot<K, V>) -> u64 {
+    unsafe { return node_size_rec::<K, V>(s.root); }
+}
+
+pub fn snapshot_contains<K: Container + ContainerOrd, V: Container>(s: *const Snapshot<K, V>, key: *const K) -> bool {
+    unsafe { return node_contains_rec::<K, V>(s.root, key); }
+}
+
+pub fn snapshot_get<K: Container + ContainerOrd, V: Container>(s: *const Snapshot<K, V>, key: *const K, out: *mut V::ViewInStore) -> bool {
+    unsafe { return node_get_rec::<K, V>(s.root, key, out); }
+}
+
+pub fn mut_snapshot_len<K: Container + ContainerOrd, V: Container>(s: *const MutSnapshot<K, V>) -> u64 {
+    unsafe { return node_size_rec::<K, V>(s.root); }
+}
+
+pub fn mut_snapshot_contains<K: Container + ContainerOrd, V: Container>(s: *const MutSnapshot<K, V>, key: *const K) -> bool {
+    unsafe { return node_contains_rec::<K, V>(s.root, key); }
+}
+
+pub fn mut_snapshot_get<K: Container + ContainerOrd, V: Container>(s: *const MutSnapshot<K, V>, key: *const K, out: *mut V::ViewInStore) -> bool {
+    unsafe { return node_get_rec::<K, V>(s.root, key, out); }
+}
+
+pub fn mut_snapshot_insert<K: Container + ContainerOrd, V: Container>(s: *mut MutSnapshot<K, V>, key: K::ViewInStore, val: V::ViewInStore, qkey: *const K) -> bool {
+    unsafe {
+        let mut pm: PMap<K, V> = PMap::<K, V> { root: s.root };
+        let hit: bool = map_insert::<K, V>(&mut pm, key, val, qkey);
+        s.root = pm.root;
+        return hit;
+    }
+}
+
+pub fn mut_snapshot_remove<K: Container + ContainerOrd, V: Container>(s: *mut MutSnapshot<K, V>, key: *const K) -> bool {
+    unsafe {
+        let mut pm: PMap<K, V> = PMap::<K, V> { root: s.root };
+        let hit: bool = map_remove::<K, V>(&mut pm, key);
+        s.root = pm.root;
+        return hit;
+    }
+}

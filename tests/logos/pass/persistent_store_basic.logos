@@ -1,0 +1,109 @@
+// Tests std.data.persistent.store — LockingStore + Snapshot/MutSnapshot.
+// Exercises begin (empty + parent), commit, checkout, fork, and the
+// snapshot get/insert/remove helpers.  Verifies that a frozen commit
+// is observed unchanged after a child commit mutates further.
+package test;
+
+use std.data.persistent.store;
+use std.data.persistent.map;
+use std.data.persistent.btree.node;
+use std.lang.cmp;
+use std.lang.ord;
+use std.lang.datatypes;
+
+pub struct U64Key { pub x: u64 }
+impl Primitive for U64Key { type Prim = u64; }
+impl Ord for U64Key {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if self.x < other.x { return Ordering::Less; }
+        if self.x > other.x { return Ordering::Greater; }
+        return Ordering::Equal;
+    }
+}
+
+pub struct U64Val { pub x: u64 }
+impl Primitive for U64Val { type Prim = u64; }
+
+fn ki(v: u64) -> U64Key { return U64Key { x: v }; }
+
+fn main() -> i32 {
+    let mut s: LockingStore = locking_store_new();
+    let sp: *mut LockingStore = &mut s as *mut LockingStore;
+
+    // Open an empty mutable snapshot.
+    let mut m0: MutSnapshot<U64Key, U64Val> = store_begin::<U64Key, U64Val, LockingStore>(sp, NO_COMMIT);
+
+    let k1: U64Key = ki(10u64);
+    let k2: U64Key = ki(20u64);
+    let k3: U64Key = ki(30u64);
+    mut_snapshot_insert::<U64Key, U64Val>(&mut m0, 10u64, 100u64, &k1 as *const U64Key);
+    mut_snapshot_insert::<U64Key, U64Val>(&mut m0, 20u64, 200u64, &k2 as *const U64Key);
+    mut_snapshot_insert::<U64Key, U64Val>(&mut m0, 30u64, 300u64, &k3 as *const U64Key);
+    if mut_snapshot_len::<U64Key, U64Val>(&m0) != 3u64 { return 1; }
+
+    // Commit it.  c0 is the root commit (parent = NO_COMMIT).
+    let c0: i64 = store_commit::<U64Key, U64Val, LockingStore>(sp, m0);
+    unsafe { if sp.parent_of(c0) != NO_COMMIT { return 2; } }
+
+    // Checkout c0 as immutable; verify all keys present.
+    let snap0: Snapshot<U64Key, U64Val> = store_checkout::<U64Key, U64Val, LockingStore>(sp, c0);
+    if snapshot_len::<U64Key, U64Val>(&snap0) != 3u64 { return 3; }
+    let mut out: u64 = 0u64;
+    if !snapshot_get::<U64Key, U64Val>(&snap0, &k2 as *const U64Key, &mut out as *mut u64) { return 4; }
+    if out != 200u64 { return 5; }
+
+    // Begin a new mutable snapshot rooted at c0; mutate; commit as c1.
+    let mut m1: MutSnapshot<U64Key, U64Val> = store_begin::<U64Key, U64Val, LockingStore>(sp, c0);
+    let k4: U64Key = ki(40u64);
+    mut_snapshot_insert::<U64Key, U64Val>(&mut m1, 40u64, 400u64, &k4 as *const U64Key);
+    mut_snapshot_remove::<U64Key, U64Val>(&mut m1, &k1 as *const U64Key);
+    if mut_snapshot_len::<U64Key, U64Val>(&m1) != 3u64 { return 6; }
+    let c1: i64 = store_commit::<U64Key, U64Val, LockingStore>(sp, m1);
+    unsafe { if sp.parent_of(c1) != c0 { return 7; } }
+
+    // c0 must be unchanged.
+    if snapshot_len::<U64Key, U64Val>(&snap0) != 3u64 { return 8; }
+    if !snapshot_contains::<U64Key, U64Val>(&snap0, &k1 as *const U64Key) { return 9; }
+    if  snapshot_contains::<U64Key, U64Val>(&snap0, &k4 as *const U64Key) { return 10; }
+
+    // c1 has the new state.
+    let snap1: Snapshot<U64Key, U64Val> = store_checkout::<U64Key, U64Val, LockingStore>(sp, c1);
+    if snapshot_len::<U64Key, U64Val>(&snap1) != 3u64 { return 11; }
+    if  snapshot_contains::<U64Key, U64Val>(&snap1, &k1 as *const U64Key) { return 12; }
+    if !snapshot_contains::<U64Key, U64Val>(&snap1, &k4 as *const U64Key) { return 13; }
+    if !snapshot_get::<U64Key, U64Val>(&snap1, &k4 as *const U64Key, &mut out as *mut u64) { return 14; }
+    if out != 400u64 { return 15; }
+
+    // Fork c0 → c2.  Same content as c0, parent = c0, separate timeline.
+    let c2: i64 = unsafe { sp.fork(c0) };
+    unsafe { if sp.parent_of(c2) != c0 { return 16; } }
+    let snap2: Snapshot<U64Key, U64Val> = store_checkout::<U64Key, U64Val, LockingStore>(sp, c2);
+    if snapshot_len::<U64Key, U64Val>(&snap2) != 3u64 { return 17; }
+    if !snapshot_contains::<U64Key, U64Val>(&snap2, &k1 as *const U64Key) { return 18; }
+
+    // Mutate the fork: should not touch c0.
+    let mut m2: MutSnapshot<U64Key, U64Val> = store_begin::<U64Key, U64Val, LockingStore>(sp, c2);
+    let k5: U64Key = ki(50u64);
+    mut_snapshot_insert::<U64Key, U64Val>(&mut m2, 50u64, 500u64, &k5 as *const U64Key);
+    let c3: i64 = store_commit::<U64Key, U64Val, LockingStore>(sp, m2);
+    let snap3: Snapshot<U64Key, U64Val> = store_checkout::<U64Key, U64Val, LockingStore>(sp, c3);
+    if !snapshot_contains::<U64Key, U64Val>(&snap3, &k5 as *const U64Key) { return 19; }
+    if  snapshot_contains::<U64Key, U64Val>(&snap0, &k5 as *const U64Key) { return 20; }
+    if  snapshot_contains::<U64Key, U64Val>(&snap1, &k5 as *const U64Key) { return 21; }
+
+    // Rollback path: open mutable from c1, mutate, then rollback.
+    let mut m3: MutSnapshot<U64Key, U64Val> = store_begin::<U64Key, U64Val, LockingStore>(sp, c1);
+    let k6: U64Key = ki(60u64);
+    mut_snapshot_insert::<U64Key, U64Val>(&mut m3, 60u64, 600u64, &k6 as *const U64Key);
+    store_rollback::<U64Key, U64Val>(m3);
+    // c1 must still not contain k6 (rollback didn't alter the DAG).
+    let snap1b: Snapshot<U64Key, U64Val> = store_checkout::<U64Key, U64Val, LockingStore>(sp, c1);
+    if snapshot_contains::<U64Key, U64Val>(&snap1b, &k6 as *const U64Key) { return 22; }
+
+    store_close::<U64Key, U64Val>(snap0);
+    store_close::<U64Key, U64Val>(snap1);
+    store_close::<U64Key, U64Val>(snap1b);
+    store_close::<U64Key, U64Val>(snap2);
+    store_close::<U64Key, U64Val>(snap3);
+    return 42;
+}

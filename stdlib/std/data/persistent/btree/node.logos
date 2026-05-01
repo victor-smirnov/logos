@@ -1,13 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // Logos standard library — std.data.persistent.btree.node
 //
-// BTreeNode<K, V> — leaf-only B+tree node for v1 of the persistent
-// collections package.  Intrusive non-atomic refcount in the header;
-// keys/values stored in nested `Buffer<DT>` (from std.lang.datatypes).
+// BTreeNode<K, V> — B+tree node for the persistent collections package.
+// Intrusive non-atomic refcount in the header; keys/values stored in
+// nested `Buffer<DT>` (from std.lang.datatypes); child links stored in a
+// PrimVec of raw node pointers (used only on internal nodes).
+//
+// Invariants:
+//   - leaf: `keys` parallel to `vals` (one value per key); `children` empty.
+//   - internal: `keys.len()` separators, `children.len()` = keys.len() + 1.
+//     `keys[i]` = smallest key in the subtree rooted at `children[i+1]`.
+//   - all data lives in leaves; internals route via separators.
+//   - max keys per node: `node_max_keys()` (small constant for v1).
 //
 // v1 limitations (deliberate, design-level):
-//   - leaf-only (no internal nodes, no splits, no recursion).
-//   - linear scan in `node_get`; no key ordering invariant yet.
+//   - linear scan within a node (no binary search yet).
+//   - removal does not merge or redistribute; leaves can become empty.
+//     The tree's height never shrinks once it's grown past 1.
 
 package std.data.persistent.btree.node;
 
@@ -17,25 +26,38 @@ use std.lang.ord;
 use std.lang.datatypes;
 
 pub struct BTreeNode<K: Container + ContainerOrd, V: Container> {
-    pub rc:      u64,
-    pub n:       u16,
-    pub is_leaf: bool,
-    pub keys:    Buffer<K>,
-    pub vals:    Buffer<V>,
+    pub rc:       u64,
+    pub n:        u16,
+    pub is_leaf:  bool,
+    pub keys:     Buffer<K>,
+    pub vals:     Buffer<V>,
+    pub children: PrimVec<*mut BTreeNode<K, V>>,
 }
+
+// Maximum number of keys per node before a split is required.  Small for
+// v1 to make splits trigger in tests; tunable later.
+pub fn node_max_keys() -> u64 { return 4u64; }
 
 // Allocate a fresh leaf node with rc=1 and empty buffers.
 pub fn node_alloc<K: Container + ContainerOrd, V: Container>() -> *mut BTreeNode<K, V> {
     let raw: *mut u8 = alloc(sizeof::<BTreeNode<K, V>>());
     let node: *mut BTreeNode<K, V> = raw as *mut BTreeNode<K, V>;
     unsafe {
-        node.rc      = 1u64;
-        node.n       = 0u16;
-        node.is_leaf = true;
-        node.keys    = Buffer::<K>::new();
-        node.vals    = Buffer::<V>::new();
+        node.rc       = 1u64;
+        node.n        = 0u16;
+        node.is_leaf  = true;
+        node.keys     = Buffer::<K>::new();
+        node.vals     = Buffer::<V>::new();
+        node.children = PrimVec::<*mut BTreeNode<K, V>>::empty();
     }
     return node;
+}
+
+// Allocate a fresh internal node with rc=1, no keys, no children.
+pub fn node_alloc_internal<K: Container + ContainerOrd, V: Container>() -> *mut BTreeNode<K, V> {
+    let n: *mut BTreeNode<K, V> = node_alloc::<K, V>();
+    unsafe { n.is_leaf = false; }
+    return n;
 }
 
 // Increment the refcount.
@@ -43,11 +65,22 @@ pub fn node_retain<K: Container + ContainerOrd, V: Container>(node: *mut BTreeNo
     unsafe { node.rc = node.rc + 1u64; }
 }
 
-// Decrement the refcount; free the buffers and the header when it reaches zero.
+// Decrement the refcount; on zero, release children (for internal nodes),
+// drop the buffers, and free the header.
 pub fn node_release<K: Container + ContainerOrd, V: Container>(node: *mut BTreeNode<K, V>) {
     unsafe {
         node.rc = node.rc - 1u64;
         if node.rc == 0u64 {
+            if !node.is_leaf {
+                let nc: u64 = node.children.len;
+                let mut i: u64 = 0u64;
+                while i < nc {
+                    let c: *mut BTreeNode<K, V> = node.children.get(i);
+                    node_release::<K, V>(c);
+                    i = i + 1u64;
+                }
+                node.children.clear();
+            }
             let kp: *mut Buffer<K> = &mut node.keys as *mut Buffer<K>;
             let vp: *mut Buffer<V> = &mut node.vals as *mut Buffer<V>;
             kp.drop_in_place();
@@ -57,7 +90,8 @@ pub fn node_release<K: Container + ContainerOrd, V: Container>(node: *mut BTreeN
     }
 }
 
-// Path-copy: allocate a fresh node, copy n/is_leaf, replay key/val pushes.
+// Path-copy: allocate a fresh node, copy is_leaf, replay key/val pushes,
+// and (for internal nodes) re-share each child by retaining its rc.
 // The returned node has rc=1; the original is unchanged.
 pub fn node_clone_for_cow<K: Container + ContainerOrd, V: Container>(orig: *mut BTreeNode<K, V>) -> *mut BTreeNode<K, V> {
     unsafe {
@@ -69,33 +103,35 @@ pub fn node_clone_for_cow<K: Container + ContainerOrd, V: Container>(orig: *mut 
             copy.keys.push(kp);
             i = i + 1u64;
         }
-        i = 0u64;
-        while i < orig.vals.len() {
-            let vp: V::ViewInStore = orig.vals.get(i);
-            copy.vals.push(vp);
-            i = i + 1u64;
+        if orig.is_leaf {
+            i = 0u64;
+            while i < orig.vals.len() {
+                let vp: V::ViewInStore = orig.vals.get(i);
+                copy.vals.push(vp);
+                i = i + 1u64;
+            }
+        } else {
+            i = 0u64;
+            let nc: u64 = orig.children.len;
+            while i < nc {
+                let c: *mut BTreeNode<K, V> = orig.children.get(i);
+                node_retain::<K, V>(c);
+                copy.children.push(c);
+                i = i + 1u64;
+            }
         }
         copy.n = orig.n;
         return copy;
     }
 }
 
-// Append (key, val) to the leaf.  v1: no ordering, no full-check.
-pub fn node_leaf_insert<K: Container + ContainerOrd, V: Container>(node: *mut BTreeNode<K, V>, key: K::ViewInStore, val: V::ViewInStore) {
-    unsafe {
-        node.keys.push(key);
-        node.vals.push(val);
-        node.n = node.n + 1u16;
-    }
-}
+// ---------------------------------------------------------------------------
+// Search
+// ---------------------------------------------------------------------------
 
-// Linear search for `key` among the leaf's keys; returns the index on hit,
-// -1 on miss.  Comparison goes through `ContainerOrd::cmp_view_key`, which
-// hides the ViewInStore shape behind the trait so this body is the same
-// for any future Primitive-path keys (once a Primitive ContainerOrd
-// blanket lands).  Phantom-self pattern is the workaround for the
-// assoc-fn-on-type-param mono gap (registry note in
-// project_persistent_abstraction_debt.md).
+// Linear search for `key` within a single leaf; returns hit index or -1.
+// Comparison goes through `ContainerOrd::cmp_view_key` (phantom-self
+// pattern — see project_persistent_abstraction_debt.md).
 pub fn node_find<K: Container + ContainerOrd, V: Container>(node: *mut BTreeNode<K, V>, key: *const K) -> i64 {
     unsafe {
         let n: u64 = node.keys.len();
@@ -110,5 +146,290 @@ pub fn node_find<K: Container + ContainerOrd, V: Container>(node: *mut BTreeNode
             i = i + 1u64;
         }
         return -1i64;
+    }
+}
+
+// For an internal node: pick the child to descend into for query `key`.
+// Returns the smallest i such that key < keys[i]; if no such i, returns
+// keys.len() (descend rightmost child).
+fn node_descend_idx<K: Container + ContainerOrd, V: Container>(node: *mut BTreeNode<K, V>, key: *const K) -> u64 {
+    unsafe {
+        let n: u64 = node.keys.len();
+        let mut i: u64 = 0u64;
+        let phantom: *const K = 0 as *const K;
+        while i < n {
+            let kv: K::ViewInStore = node.keys.get(i);
+            match phantom.cmp_view_key(kv, key) {
+                Ordering::Greater => { return i; }
+                _ => { }
+            }
+            i = i + 1u64;
+        }
+        return n;
+    }
+}
+
+// Recursive contains: descend to the leaf and probe with `node_find`.
+pub fn node_contains_rec<K: Container + ContainerOrd, V: Container>(node: *mut BTreeNode<K, V>, key: *const K) -> bool {
+    unsafe {
+        if node.is_leaf {
+            return node_find::<K, V>(node, key) >= 0i64;
+        }
+        let idx: u64 = node_descend_idx::<K, V>(node, key);
+        let child: *mut BTreeNode<K, V> = node.children.get(idx);
+        return node_contains_rec::<K, V>(child, key);
+    }
+}
+
+// Recursive get: descend to the leaf and read the value if present.
+// Returns true on hit (and writes `*out`); false on miss.
+pub fn node_get_rec<K: Container + ContainerOrd, V: Container>(node: *mut BTreeNode<K, V>, key: *const K, out: *mut V::ViewInStore) -> bool {
+    unsafe {
+        if node.is_leaf {
+            let idx: i64 = node_find::<K, V>(node, key);
+            if idx < 0i64 { return false; }
+            *out = node.vals.get(idx as u64);
+            return true;
+        }
+        let i: u64 = node_descend_idx::<K, V>(node, key);
+        let child: *mut BTreeNode<K, V> = node.children.get(i);
+        return node_get_rec::<K, V>(child, key, out);
+    }
+}
+
+// Recursive size (whole-subtree count of leaf entries).  Used by map_len
+// in the multi-level case.
+pub fn node_size_rec<K: Container + ContainerOrd, V: Container>(node: *mut BTreeNode<K, V>) -> u64 {
+    unsafe {
+        if node.is_leaf { return node.keys.len(); }
+        let nc: u64 = node.children.len;
+        let mut i: u64 = 0u64;
+        let mut total: u64 = 0u64;
+        while i < nc {
+            let c: *mut BTreeNode<K, V> = node.children.get(i);
+            total = total + node_size_rec::<K, V>(c);
+            i = i + 1u64;
+        }
+        return total;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// In-place leaf primitives (no rc/path-copy bookkeeping; caller has
+// guaranteed unique ownership of `node`).
+// ---------------------------------------------------------------------------
+
+// Append (key, val) to a leaf.  v1: ordered insertion is the caller's
+// responsibility through `node_leaf_insert_ordered`.
+pub fn node_leaf_insert<K: Container + ContainerOrd, V: Container>(node: *mut BTreeNode<K, V>, key: K::ViewInStore, val: V::ViewInStore) {
+    unsafe {
+        node.keys.push(key);
+        node.vals.push(val);
+        node.n = node.n + 1u16;
+    }
+}
+
+// Replace the value slot at `idx` (in-place).
+pub fn node_replace_val<K: Container + ContainerOrd, V: Container>(node: *mut BTreeNode<K, V>, idx: u64, val: V::ViewInStore) {
+    unsafe { node.vals.set(idx, val); }
+}
+
+// Remove (key, val) at `idx`, shifting tails left.
+pub fn node_remove_at<K: Container + ContainerOrd, V: Container>(node: *mut BTreeNode<K, V>, idx: u64) {
+    unsafe {
+        node.keys.remove_at(idx);
+        node.vals.remove_at(idx);
+        node.n = node.n - 1u16;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Splits and recursive insert / remove (CoW).
+//
+// `InsertOutcome` carries the recursive insert result up the tree:
+//   - `hit`   = true  → existing key replaced; no structural change.
+//   - `split` = true  → child split; `right` is the new sibling, and the
+//                       caller must promote `right.keys.get(0)` as the
+//                       separator.  For internal-node splits the
+//                       separator is held at `right.keys[0]` and must be
+//                       removed by the caller after consuming.
+// ---------------------------------------------------------------------------
+
+pub struct InsertOutcome<K: Container + ContainerOrd, V: Container> {
+    pub hit:   bool,
+    pub split: bool,
+    pub right: *mut BTreeNode<K, V>,
+}
+
+// Smallest i such that keys[i] >= qkey.  Used to find the ordered insert
+// position in a leaf and the "key already present?" hit position.
+fn node_lower_bound<K: Container + ContainerOrd, V: Container>(node: *mut BTreeNode<K, V>, qkey: *const K) -> u64 {
+    unsafe {
+        let n: u64 = node.keys.len();
+        let mut i: u64 = 0u64;
+        let phantom: *const K = 0 as *const K;
+        while i < n {
+            let kv: K::ViewInStore = node.keys.get(i);
+            match phantom.cmp_view_key(kv, qkey) {
+                Ordering::Less => { i = i + 1u64; }
+                _ => { return i; }
+            }
+        }
+        return n;
+    }
+}
+
+// Split a full leaf in half.  The lower half stays in `node`; the upper
+// half goes to the new right sibling (returned, rc=1).  In B+tree
+// fashion, `right.keys.get(0)` is also the separator for the parent;
+// it stays in `right`.
+fn node_split_leaf<K: Container + ContainerOrd, V: Container>(node: *mut BTreeNode<K, V>) -> *mut BTreeNode<K, V> {
+    unsafe {
+        let cap: u64 = node.keys.len();
+        let mid: u64 = cap / 2u64;
+        let right: *mut BTreeNode<K, V> = node_alloc::<K, V>();
+        let mut i: u64 = mid;
+        while i < cap {
+            let kv: K::ViewInStore = node.keys.get(i);
+            let vv: V::ViewInStore = node.vals.get(i);
+            right.keys.push(kv);
+            right.vals.push(vv);
+            i = i + 1u64;
+        }
+        // Trim left from the tail.
+        while node.keys.len() > mid { node.keys.remove_at(node.keys.len() - 1u64); }
+        while node.vals.len() > mid { node.vals.remove_at(node.vals.len() - 1u64); }
+        node.n  = node.keys.len() as u16;
+        right.n = right.keys.len() as u16;
+        return right;
+    }
+}
+
+// Split a full internal node.  `keys[mid]` is the to-be-promoted
+// separator; `right` carries it at `right.keys[0]` for the caller to
+// consume and then remove.  After consume+remove, right's invariant
+// (n_keys + 1 == n_children) is restored.
+fn node_split_internal<K: Container + ContainerOrd, V: Container>(node: *mut BTreeNode<K, V>) -> *mut BTreeNode<K, V> {
+    unsafe {
+        let cap: u64 = node.keys.len();
+        let mid: u64 = cap / 2u64;
+        let right: *mut BTreeNode<K, V> = node_alloc_internal::<K, V>();
+        let mut i: u64 = mid;
+        while i < cap {
+            let kv: K::ViewInStore = node.keys.get(i);
+            right.keys.push(kv);
+            i = i + 1u64;
+        }
+        let nc: u64 = node.children.len;
+        let mut j: u64 = mid + 1u64;
+        while j < nc {
+            let c: *mut BTreeNode<K, V> = node.children.get(j);
+            right.children.push(c);
+            j = j + 1u64;
+        }
+        // Trim left: keep keys[0..mid-1], drop keys[mid..]; keep
+        // children[0..mid], drop children[mid+1..].  Removing the
+        // separator keys[mid] from left as well — it lives in `right`
+        // for the caller to consume.
+        while node.keys.len()    > mid             { node.keys.remove_at(node.keys.len() - 1u64); }
+        while node.children.len  > mid + 1u64      { node.children.remove_at(node.children.len - 1u64); }
+        node.n  = node.keys.len() as u16;
+        right.n = right.keys.len() as u16;
+        return right;
+    }
+}
+
+// Make `node.children[idx]` uniquely owned: if its rc > 1, clone and
+// swap.  Caller now has the live, mutable child pointer at that slot.
+fn node_make_child_unique<K: Container + ContainerOrd, V: Container>(node: *mut BTreeNode<K, V>, idx: u64) {
+    unsafe {
+        let c: *mut BTreeNode<K, V> = node.children.get(idx);
+        if c.rc > 1u64 {
+            let copy: *mut BTreeNode<K, V> = node_clone_for_cow::<K, V>(c);
+            node_release::<K, V>(c);
+            node.children.set(idx, copy);
+        }
+    }
+}
+
+// Recursive path-copy insert.  Caller guarantees `node` is uniquely
+// owned (rc == 1).  On entry, `node` may be leaf or internal; on a key
+// hit, the existing value is replaced and `hit` is set.  On a miss
+// the new pair is threaded down to the appropriate leaf; if any node
+// overflows, `split` propagates up with the new right sibling.
+pub fn node_insert_rec<K: Container + ContainerOrd, V: Container>(node: *mut BTreeNode<K, V>, key: K::ViewInStore, val: V::ViewInStore, qkey: *const K) -> InsertOutcome<K, V> {
+    unsafe {
+        let zero_node: *mut BTreeNode<K, V> = 0 as *mut BTreeNode<K, V>;
+        if node.is_leaf {
+            let pos: u64 = node_lower_bound::<K, V>(node, qkey);
+            // Hit?  Replace.
+            if pos < node.keys.len() {
+                let kv: K::ViewInStore = node.keys.get(pos);
+                let phantom: *const K = 0 as *const K;
+                match phantom.cmp_view_key(kv, qkey) {
+                    Ordering::Equal => {
+                        node.vals.set(pos, val);
+                        return InsertOutcome::<K, V> { hit: true, split: false, right: zero_node };
+                    }
+                    _ => { }
+                }
+            }
+            // Miss: ordered insert.
+            node.keys.insert_at(pos, key);
+            node.vals.insert_at(pos, val);
+            node.n = node.n + 1u16;
+            if node.keys.len() > node_max_keys() {
+                let right: *mut BTreeNode<K, V> = node_split_leaf::<K, V>(node);
+                return InsertOutcome::<K, V> { hit: false, split: true, right: right };
+            }
+            return InsertOutcome::<K, V> { hit: false, split: false, right: zero_node };
+        }
+        // Internal node: pick child and recurse with path-copy.
+        let i: u64 = node_descend_idx::<K, V>(node, qkey);
+        node_make_child_unique::<K, V>(node, i);
+        let child: *mut BTreeNode<K, V> = node.children.get(i);
+        let mut inner: InsertOutcome<K, V> = node_insert_rec::<K, V>(child, key, val, qkey);
+        if inner.hit {
+            return InsertOutcome::<K, V> { hit: true, split: false, right: zero_node };
+        }
+        if !inner.split {
+            return InsertOutcome::<K, V> { hit: false, split: false, right: zero_node };
+        }
+        // Child split: promote inner.right.keys[0] as separator and
+        // splice (sep, right) into this node at (i, i+1).
+        let inner_right: *mut BTreeNode<K, V> = inner.right;
+        let sep: K::ViewInStore = inner_right.keys.get(0u64);
+        node.keys.insert_at(i, sep);
+        node.children.insert_at(i + 1u64, inner_right);
+        if !inner_right.is_leaf {
+            // Internal split: separator was held at right.keys[0]; remove now.
+            inner_right.keys.remove_at(0u64);
+            inner_right.n = inner_right.keys.len() as u16;
+        }
+        node.n = node.n + 1u16;
+        if node.keys.len() > node_max_keys() {
+            let right2: *mut BTreeNode<K, V> = node_split_internal::<K, V>(node);
+            return InsertOutcome::<K, V> { hit: false, split: true, right: right2 };
+        }
+        return InsertOutcome::<K, V> { hit: false, split: false, right: zero_node };
+    }
+}
+
+// Recursive path-copy remove.  Caller guarantees `node` is uniquely
+// owned.  Returns true on hit, false on miss.  v1: no merge or
+// redistribute — leaves can become empty; the tree height never
+// shrinks once it has grown.
+pub fn node_remove_rec<K: Container + ContainerOrd, V: Container>(node: *mut BTreeNode<K, V>, key: *const K) -> bool {
+    unsafe {
+        if node.is_leaf {
+            let idx: i64 = node_find::<K, V>(node, key);
+            if idx < 0i64 { return false; }
+            node_remove_at::<K, V>(node, idx as u64);
+            return true;
+        }
+        let i: u64 = node_descend_idx::<K, V>(node, key);
+        node_make_child_unique::<K, V>(node, i);
+        let child: *mut BTreeNode<K, V> = node.children.get(i);
+        return node_remove_rec::<K, V>(child, key);
     }
 }
