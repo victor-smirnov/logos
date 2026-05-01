@@ -122,3 +122,7 @@ pub unsafe fn vec_contains<T: Eq>(v: *const Vec<T>, val: &T) -> bool {
 pub unsafe fn vec_free<T>(v: *mut Vec<T>) {
     dealloc(v.ptr as *mut u8);
 }
+
+// Cross-package skip-codegen probe: pre-instantiate Vec<i32> in this package.
+// Downstream users of Vec<i32> link against these symbols and skip body emission.
+pub instantiate Vec<i32>;

@@ -291,9 +291,18 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             auto sit = struct_method_templates_.find(base);
             if (sit == struct_method_templates_.end()) continue;
             std::string concrete = concrete_struct_name(ia.struct_type);
+            // Strip overload-disambiguation suffix `__g__<sig>` so the dest
+            // name matches what user call sites produce (and what eager-mode
+            // clone_struct_def emits). enqueue_method_inst's match loop picks
+            // up overloads via prefix-matching on the stripped name.
+            StrSet seen_short;
             for (auto& [mname, _] : sit->second) {
-                pinned_method_roots_.insert(concrete + "__" + mname);
-                enqueue_method_inst(ia.struct_type, mname);
+                std::string short_name = mname;
+                if (auto p = short_name.find("__g__"); p != std::string::npos)
+                    short_name.resize(p);
+                if (!seen_short.insert(short_name).second) continue;
+                pinned_method_roots_.insert(concrete + "__" + short_name);
+                enqueue_method_inst(ia.struct_type, short_name);
             }
         }
     }
