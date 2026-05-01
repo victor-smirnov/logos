@@ -3368,10 +3368,20 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             base_sname = base_sname.substr(0, d);
         for (auto& bi : blanket_impls_) {
             if (bi.method_name != std::string(method_name)) continue;
-            // Receiver's concrete type must impl the bound trait.
-            std::string key_full = bi.bound_trait + "::" + std::string(sname);
-            std::string key_base = bi.bound_trait + "::" + base_sname;
-            if (!impls_.count(key_full) && !impls_.count(key_base)) continue;
+            // Receiver's concrete type must impl the bound trait, except for
+            // unbounded blanket (`impl<T> Trait for T {}`) which applies to any T.
+            if (!bi.bound_trait.empty()) {
+                std::string key_full = bi.bound_trait + "::" + std::string(sname);
+                std::string key_base = bi.bound_trait + "::" + base_sname;
+                if (!impls_.count(key_full) && !impls_.count(key_base)) continue;
+            }
+            // Multi-bound blanket: extras must also be satisfied by the receiver.
+            bool extras_ok = true;
+            for (auto& eb : bi.extra_bounds) {
+                if (!impls_.count(eb + "::" + std::string(sname)) &&
+                    !impls_.count(eb + "::" + base_sname)) { extras_ok = false; break; }
+            }
+            if (!extras_ok) continue;
             std::vector<TypeRef> bi_arg_types;
             bi_arg_types.push_back(recv->type);
             for (auto& a : arg_exprs) bi_arg_types.push_back(a->type);

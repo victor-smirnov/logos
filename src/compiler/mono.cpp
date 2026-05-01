@@ -111,10 +111,28 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         std::string tmpl_prefix =
             "$blanket$" + bi.trait_name + "$" + bi.bound_trait
             + "$" + bi.target_typevar + "__";
-        for (auto& impl : out_.impls) {
-            if (impl.is_blanket) continue;
-            if (impl.trait_name != bi.bound_trait) continue;
-            const std::string& concrete = impl.target_type;
+        // Build the candidate concrete-type list. Bounded blanket
+        // (`impl<T: Bound> Trait for T`) instantiates only for types that
+        // satisfy `Bound`, found via the existing `Bound::Concrete` impls.
+        // Unbounded blanket (`impl<T> Trait for T {}`) has no such filter —
+        // instantiate for every non-generic struct/datatype/enum in the
+        // program. Primitives/refs are not included; if needed, a future
+        // pass should walk LIR for receiver types and lazily instantiate.
+        std::vector<std::string> candidates;
+        if (bi.bound_trait.empty()) {
+            for (auto& sd : out_.structs)
+                if (sd.type_params.empty()) candidates.push_back(sd.name);
+            for (auto& ed : out_.enums)
+                if (ed.type_params.empty()) candidates.push_back(ed.name);
+        } else {
+            for (auto& impl : out_.impls) {
+                if (impl.is_blanket) continue;
+                if (impl.trait_name != bi.bound_trait) continue;
+                candidates.push_back(impl.target_type);
+            }
+        }
+        for (auto& concrete_ref : candidates) {
+            const std::string& concrete = concrete_ref;
             // Multi-bound blanket: `impl<T: A + B + …> Trait for T` — only
             // instantiate for `concrete` types that satisfy *every* extra
             // bound, not just the primary one. concrete_impls_ was indexed
@@ -148,6 +166,16 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                         concrete_t = out_.type_pool.alloc(std::move(st));
                         break;
                     }
+                if (!concrete_t) {
+                    for (auto& ed : out_.enums)
+                        if (ed.name == concrete) {
+                            LogosTypeBuilder et;
+                            et.kind = LogosType::Kind::Enum;
+                            et.enum_name = concrete;
+                            concrete_t = out_.type_pool.alloc(std::move(et));
+                            break;
+                        }
+                }
                 if (!concrete_t) continue;
                 subst[bi.target_typevar] = concrete_t;
                 auto cloned = clone_fn(tfn, subst);

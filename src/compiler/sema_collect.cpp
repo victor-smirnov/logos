@@ -288,7 +288,9 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                         impls_.count(bt + "::" + unwrapped_name)) return true;
                     return false;
                 };
-                if (!bound_satisfied(bi.bound_trait)) continue;
+                // Unbounded blanket (`impl<T> Trait for T {}`) trivially satisfies
+                // every concrete type. Bounded blanket: primary + all extras must hold.
+                if (!bi.bound_trait.empty() && !bound_satisfied(bi.bound_trait)) continue;
                 bool all_extra = true;
                 for (auto& eb : bi.extra_bounds)
                     if (!bound_satisfied(eb)) { all_extra = false; break; }
