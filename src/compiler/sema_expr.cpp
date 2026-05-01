@@ -3964,9 +3964,20 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 TypeRef ft = nullptr;
                 for (auto& ef : effective->fields)
                     if (ef.name == fname) { ft = ef.type; break; }
-                bool ft_has_typevar = ft && (TypeRef(ft).kind() == LogosType::Kind::TypeVar ||
-                    (TypeRef(ft).kind() == LogosType::Kind::Array && TypeRef(ft).elem() &&
-                     TypeRef(ft).elem().kind() == LogosType::Kind::TypeVar));
+                // Recursively detect a typevar anywhere inside ft (e.g. `*mut Inner<K>`
+                // for generic field declared as `*mut Inner<K>` — sema doesn't substitute
+                // type params here, so any typevar means we can't compare ft to fval->type
+                // directly).  Mono will validate at the concrete instantiation.
+                std::function<bool(TypeRef)> has_tv = [&](TypeRef t) -> bool {
+                    if (!t) return false;
+                    using K = LogosType::Kind;
+                    if (t.kind() == K::TypeVar) return true;
+                    if (t.elem() && has_tv(t.elem())) return true;
+                    if (t.pointee() && has_tv(t.pointee())) return true;
+                    for (auto a : t.type_args()) if (has_tv(a)) return true;
+                    return false;
+                };
+                bool ft_has_typevar = ft && has_tv(ft);
                 if (ft && TypeRef(ft).kind() != LogosType::Kind::Error &&
                     TypeRef(fval->type).kind() != LogosType::Kind::Error &&
                     !ft_has_typevar &&
