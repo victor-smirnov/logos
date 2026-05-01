@@ -130,7 +130,26 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
         ? std::string(raw_name)
         : std::string(struct_ctx) + "__" + std::string(raw_name);
 
-    ctx_       = std::format("fn {}", mangled);
+    // Blanket impl methods are mangled "$blanket$Trait$Bound$T__method".
+    // Render diagnostics under a human-readable name so the synthetic prefix
+    // never leaks into user-visible errors.
+    auto pretty_ctx = [&]() -> std::string {
+        if (mangled.rfind("$blanket$", 0) != 0) return std::format("fn {}", mangled);
+        std::string rest = mangled.substr(9);
+        auto p1 = rest.find('$');
+        auto p2 = (p1 != std::string::npos) ? rest.find('$', p1 + 1) : std::string::npos;
+        auto p3 = (p2 != std::string::npos) ? rest.find("__", p2 + 1) : std::string::npos;
+        if (p1 == std::string::npos || p2 == std::string::npos || p3 == std::string::npos)
+            return std::format("fn {}", mangled);
+        std::string trait_n = rest.substr(0, p1);
+        std::string bound   = rest.substr(p1 + 1, p2 - p1 - 1);
+        std::string tvar    = rest.substr(p2 + 1, p3 - p2 - 1);
+        std::string method  = rest.substr(p3 + 2);
+        if (bound.empty())
+            return std::format("fn <impl<{}> {}>::{}", tvar, trait_n, method);
+        return std::format("fn <impl<{}: {}> {}>::{}", tvar, bound, trait_n, method);
+    };
+    ctx_       = pretty_ctx();
     node_line_ = get_line(node);
 
     // Some trait-default bodies and impl methods refer to `Self` in their
