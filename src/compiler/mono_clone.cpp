@@ -2751,6 +2751,11 @@ bool Mono::method_bound_ok(const lir::LFunction& m, const SubstMap& s) {
             cname = type_str(concrete);
         if (auto p = cname.find("$G"); p != std::string::npos)
             cname = cname.substr(0, p);
+        // `seen` prevents infinite recursion through cyclic blanket chains.
+        // It must NOT poison sibling blanket attempts: a failed first
+        // candidate shouldn't mark its sub-checks as "already failed" for
+        // the next candidate. Each blanket attempt therefore recurses with
+        // its own copy of `seen`, so siblings are independent.
         std::function<bool(const std::string&, const std::string&, StrSet&)> has_impl;
         has_impl = [&](const std::string& trait, const std::string& cn,
                        StrSet& seen) -> bool {
@@ -2760,10 +2765,11 @@ bool Mono::method_bound_ok(const lir::LFunction& m, const SubstMap& s) {
             for (auto& bi : blanket_impls_) {
                 if (bi.trait_name != trait) continue;
                 if (bi.bound_trait.empty() && bi.extra_bounds.empty()) return true;
+                StrSet attempt_seen = seen;
                 bool all = !bi.bound_trait.empty()
-                    ? has_impl(bi.bound_trait, cn, seen) : true;
+                    ? has_impl(bi.bound_trait, cn, attempt_seen) : true;
                 for (auto& eb : bi.extra_bounds)
-                    if (!has_impl(eb, cn, seen)) { all = false; break; }
+                    if (!has_impl(eb, cn, attempt_seen)) { all = false; break; }
                 if (all) return true;
             }
             return false;

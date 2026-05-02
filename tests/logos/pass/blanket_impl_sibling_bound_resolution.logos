@@ -1,0 +1,59 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// blanket_impl_sibling_bound_resolution.logos — regression for
+// method_bound_ok's `seen` set poisoning sibling blanket attempts.
+//
+// `ContainerOrd` has two blanket impls in std.lang.datatypes:
+//   impl<DT: PodRef    + Ord> ContainerOrd for DT { ... }   // (1)
+//   impl<DT: Primitive + Ord> ContainerOrd for DT { ... }   // (2)
+//
+// `U64Key` impls Primitive + Ord but NOT PodRef, so blanket (1) must
+// fail and blanket (2) must succeed.  Before the fix, has_impl()'s
+// `seen` set was shared across blanket attempts, so attempt (1)'s
+// recursion into `Ord::U64Key` poisoned attempt (2): `seen` already
+// contained `Ord::U64Key`, the second probe returned false, and
+// `View::get` was rejected by the bound gate — never cloned.
+//
+// This canary keeps a method whose bounds force the same shape: a
+// generic struct whose method has bounds K: Container + ContainerOrd
+// satisfied via the *second* blanket. The method is reached through
+// receiver-method-call dispatch, exercising the lazy-clone path
+// (drain_method_worklist → method_bound_ok).
+
+package blanket_impl_sibling_bound_resolution;
+
+use std.lang.cmp;
+use std.lang.ord;
+use std.lang.datatypes;
+
+pub struct U64Key { pub x: u64, }
+impl Primitive for U64Key { type Prim = u64; }
+impl Ord for U64Key {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if self.x < other.x { return Ordering::Less; }
+        if self.x > other.x { return Ordering::Greater; }
+        return Ordering::Equal;
+    }
+}
+
+pub struct U64Val { pub x: u64, }
+impl Primitive for U64Val { type Prim = u64; }
+
+pub struct Box<K: Container + ContainerOrd, V: Container> { pub seed: u64, }
+
+impl<K: Container + ContainerOrd, V: Container> Box<K, V> {
+    // out: *mut V::ViewInStore — associated-type out-ptr, the exact
+    // shape that surfaced the bug in PMapView::get.
+    pub fn write(&self, out: *mut V::ViewInStore) -> bool {
+        unsafe { *out = self.seed as V::ViewInStore; }
+        return true;
+    }
+}
+
+unsafe fn main() -> i32 {
+    let b: Box<U64Key, U64Val> = Box::<U64Key, U64Val> { seed: 200u64 };
+    let mut a: u64 = 0u64;
+    let _ = b.write(&mut a as *mut u64);
+    if a != 200u64 { return 10 + (a as i32); }
+    return 0;
+}
