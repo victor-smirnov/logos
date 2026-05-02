@@ -300,7 +300,127 @@ Concrete shape (proposed; details in a follow-up ADR):
 Once this is in place, everything in §2 and §4 stops being aspirational and
 becomes mechanical.
 
-## 6. Open questions
+## 6. Hermes as the home of type-collection algebra
+
+Once Type is a first-class Hermes value, the existing Hermes container
+machinery — `Array<T>`, `Map<K, V>`, SDN paths, schemas, captures, the SQL-
+shaped query work in `hermes_check` — all of it operates on collections of
+types without any new infrastructure. This is a much larger consequence
+than just "configurations live in Hermes". It is a **category shift in
+what type-level programming means**.
+
+### 6.1 Typelist algebra is ordinary container algebra
+
+Memoria/C++ relies on a typelist library — `boost::mp11`'s `mp_transform`,
+`mp_filter`, `mp_fold`, plus Memoria's own `MergeLists`, `Linearize`,
+`PackedListStructSizeType`, ... — to compute over typelists at the type
+level, with all the well-known costs (deep recursion, blown compile times,
+incomprehensible error messages, recursion-depth limits). The Rust
+equivalent (`frunk`, `typenum`) is a library, of the same shape, with the
+same costs.
+
+In Logos, with Type as a Hermes value:
+
+| C++/Rust typelist op | Logos form |
+|---|---|
+| `mp_transform<F, List>` | `array.map(\|t\| f(t))` |
+| `mp_filter<Pred, List>` | `array.filter(\|t\| pred(t))` |
+| `mp_fold<List, Init, Op>` | `array.fold(init, op)` |
+| `MergeLists<A, B, ...>` | `a.concat(b).concat(...)` |
+| `Linearize<NestedList>` | `array.flatten()` |
+| `mp_size<List>` | `array.len()` |
+| `mp_at<List, N>` | `array[n]` |
+| `mp_contains<List, T>` | `array.contains(t)` |
+
+There is no type-level recursion. There are no recursion-depth limits.
+Error messages are the ordinary Logos ones, attached to the metafunction
+source line, not to a 200-line trait-resolution chain. The whole "typelist
+metaprogramming" discipline that C++ and Rust ecosystems have built up
+**disappears as a category** — it becomes "use `Vec<Type>`".
+
+### 6.2 Heterogeneous records of types are just Hermes maps
+
+`BTTypes<Profile, Map<K, V>>` is, at heart, a record of typed slots:
+
+```text
+Profile         -> some profile type
+ContainerName   -> Map<K, V>
+LeafKeyStruct   -> packed codec selected from Key
+LeafValueStruct -> packed codec selected from Value
+StreamDescriptors -> a typelist of stream descriptors
+ContainerPartsList -> a typelist of part tags
+```
+
+In C++ this is a struct-template specialisation; access is `BTTypes::
+LeafKeyStruct`. In Logos with Hermes-as-config the same record is a Hermes
+map; access is `cfg["leaf_key_struct"]`. The values can be types, type-
+collections, scalars, or nested maps — all uniformly addressable.
+
+### 6.3 Type-keyed dispatch tables
+
+`MapKeyStructTF<Key>::Type` in Memoria is a TF (type function) — one
+specialisation per supported key type, returning the appropriate packed
+codec. The whole Memoria machinery is laced with such per-type lookup
+tables.
+
+In Logos: a Hermes `Map<Type, CodecCfg>` document. Lookup is `codecs[
+key_ty]`. New codecs are added by writing a Hermes entry. Components from
+plugin modules can extend the table; the registry is just a Hermes
+container that grows as more components are loaded.
+
+### 6.4 Type registries as compile-time databases
+
+`containers/containers_init.cpp` in Memoria registers every container's
+dispatchers at runtime. The legacy code does this because there is no
+compile-time mechanism to express "the set of all containers in this
+build" as a queryable structure.
+
+With Type as a Hermes value, you can have, at compile time:
+
+```logos
+const CONTAINER_REGISTRY: HermesStatic = @{
+    "containers": [
+        @{"target": <type:PMap<UID256, Hermes>>, "cfg": ${PMAP_UID_HERMES_CFG}},
+        @{"target": <type:PMap<i64, Hermes>>,    "cfg": ${PMAP_I64_HERMES_CFG}},
+        ...
+    ],
+    "by_uid": @{
+        <type:PMap<UID256, Hermes>>.uid(): 0,
+        ...
+    },
+};
+```
+
+— and metafunctions query it like an ordinary database. The user's note
+that "Hermes can hold a SQL-accessible database" is not hyperbole here:
+the existing `hermes_check` and typed-path machinery already provides
+schema-validated query access. A compile-time type registry **is** a small
+queryable database, with the language's normal query layer.
+
+This in turn is what Phase 2 (whole-program assembly) operates on: the
+"configuration of the whole program" = the union of all such registries
+populated by Phase 1.
+
+### 6.5 The category shift
+
+C++ TMP, Rust trait-system, Scala implicits — all three try to encode
+"compute over collections of types" using the type system itself. The
+result is a parallel programming language inside the host, with worse
+ergonomics in every dimension (debuggability, error messages, compile
+time, expressivity ceiling).
+
+Logos rejects the framing. Types are values. Collections of types are
+ordinary containers. Computation over them is ordinary code in the host
+language. The "type-level programming" sub-language disappears, and what
+replaces it is "you have data — Hermes documents containing types —
+manipulate it with normal Logos."
+
+The cost of this is the bridge in §5: Type must be a Hermes value, with
+encoding, equality, hash, stringify, clone. That is one feature. In return
+the entire typelist-metaprogramming sub-discipline is absorbed into the
+existing Hermes container layer.
+
+## 7. Open questions
 
 These are explicit gaps in the design, not just unwritten details.
 
@@ -339,7 +459,7 @@ These are explicit gaps in the design, not just unwritten details.
    what *is* the whole-program configuration? A list of all modules? A
    snapshot of IR? When is the assembly initiated? Open.
 
-## 7. Cross-references
+## 8. Cross-references
 
 - [legacy-memoria-container-assembly.md](legacy-memoria-container-assembly.md)
   — the C++ prior art that this generalisation responds to.
