@@ -347,6 +347,36 @@ void SemaChecker::check_pub_access(bool is_pub, const std::string& def_package,
         error(std::format("'{}' is private to package '{}'", item_name, def_package));
 }
 
+bool SemaChecker::sema_has_impl_recursive(const std::string& trait_name,
+                                          const std::string& concrete,
+                                          const std::string& concrete_alt,
+                                          logos::compiler::StrSet& seen) {
+    std::string k = trait_name + "::" + concrete;
+    if (!seen.insert(k).second) return false;
+    if (impls_.count(k)) return true;
+    if (!concrete_alt.empty()) {
+        std::string ka = trait_name + "::" + concrete_alt;
+        if (impls_.count(ka)) return true;
+    }
+    for (auto& bi : blanket_impls_) {
+        if (bi.trait_name != trait_name) continue;
+        if (bi.bound_trait.empty() && bi.extra_bounds.empty()) return true;
+        // Per-attempt copy: a failed candidate must not poison `seen`
+        // for the next sibling candidate.
+        logos::compiler::StrSet attempt = seen;
+        bool ok = bi.bound_trait.empty()
+            || sema_has_impl_recursive(bi.bound_trait, concrete, concrete_alt, attempt);
+        if (ok) {
+            for (auto& eb : bi.extra_bounds)
+                if (!sema_has_impl_recursive(eb, concrete, concrete_alt, attempt)) {
+                    ok = false; break;
+                }
+        }
+        if (ok) return true;
+    }
+    return false;
+}
+
 void SemaChecker::check_type_bounds(const std::string& target_name,
                            const std::vector<TypeParam>& type_params,
                            const std::vector<TypeRef>& args) {
@@ -410,10 +440,8 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             for (auto& bi : blanket_impls_) {
                 if (bi.trait_name != bound.trait_name) continue;
                 auto bound_satisfied = [&](const std::string& bt) {
-                    if (impls_.count(bt + "::" + concrete_str)) return true;
-                    if (!unwrapped_name.empty() &&
-                        impls_.count(bt + "::" + unwrapped_name)) return true;
-                    return false;
+                    logos::compiler::StrSet seen;
+                    return sema_has_impl_recursive(bt, concrete_str, unwrapped_name, seen);
                 };
                 // Unbounded blanket (`impl<T> Trait for T {}`) trivially satisfies
                 // every concrete type. Bounded blanket: primary + all extras must hold.
@@ -2027,10 +2055,14 @@ void SemaChecker::check_supertrait_impls() {
             bool via_blanket = false;
             for (auto& bi : blanket_impls_) {
                 if (bi.trait_name != super.trait_name) continue;
-                if (!impls_.count(bi.bound_trait + "::" + target)) continue;
+                logos::compiler::StrSet seen_pri;
+                if (!bi.bound_trait.empty() &&
+                    !sema_has_impl_recursive(bi.bound_trait, target, "", seen_pri)) continue;
                 bool all_extra = true;
-                for (auto& eb : bi.extra_bounds)
-                    if (!impls_.count(eb + "::" + target)) { all_extra = false; break; }
+                for (auto& eb : bi.extra_bounds) {
+                    logos::compiler::StrSet seen_eb;
+                    if (!sema_has_impl_recursive(eb, target, "", seen_eb)) { all_extra = false; break; }
+                }
                 if (all_extra) { via_blanket = true; break; }
             }
             if (via_blanket) continue;

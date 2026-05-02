@@ -954,6 +954,25 @@ private:
     void check_type_bounds(const std::string& target_name,
                            const std::vector<TypeParam>& type_params,
                            const std::vector<TypeRef>& args);
+
+    // Recursive trait-satisfaction: does `concrete` (or `concrete_alt`,
+    // an optional unwrapped alias) implement `trait_name`, directly via
+    // `impls_` or transitively via any chain of blanket impls?
+    //
+    // Walks blanket_impls_ for the trait and checks the bounds of each
+    // candidate recursively. `seen` prevents infinite recursion through
+    // cyclic blanket chains; each candidate gets its own copy of `seen`,
+    // so a failed first candidate does not poison sub-checks for the
+    // next candidate. Mirrors the now-fixed has_impl in
+    // mono_clone.cpp::method_bound_ok.
+    //
+    // Note: assoc-type-equality clauses (ADR 0008) are NOT validated by
+    // this helper — call sites that need them should keep their explicit
+    // assoc_eqs_satisfied checks alongside.
+    bool sema_has_impl_recursive(const std::string& trait_name,
+                                 const std::string& concrete,
+                                 const std::string& concrete_alt,
+                                 logos::compiler::StrSet& seen);
     void collect_module(hermes::TinyMapView mod, int phase);
     void collect_enum(hermes::TinyMapView node);
     void collect_type_alias(hermes::TinyMapView node);

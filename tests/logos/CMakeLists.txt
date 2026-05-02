@@ -234,7 +234,7 @@ function(logos_pass_extra_args BASE OUT_VAR)
     math_basic random_basic thread_basic bufio_basic bufio_generic_reader
     persistent_uid256_basic persistent_buffer_uid256 persistent_node_basic persistent_map_basic persistent_map_upsert persistent_map_cow persistent_map_split persistent_map_primitive_key persistent_set_basic persistent_store_basic persistent_store_basic
     signal_basic os_basic
-    blanket_impl_sibling_bound_resolution
+    blanket_impl_sibling_bound_resolution blanket_chain_two_hops
     hex_basic base64_basic url_basic url_parse_basic http_types_basic http_parse_basic http_parse_corpus http_golden_suite http_parse_stream http_serialize_stream http_service_basic http_serve_bounded http_keepalive http_workers_basic http_chunked_body_helper http_chunked http_chunked_reader http_framing_readers http_roundtrip json_basic log_basic args_basic crypto_basic testing_basic csv_basic datetime_basic regex_basic)
 
     if (BASE IN_LIST LOCAL_STDLIB_USERS)

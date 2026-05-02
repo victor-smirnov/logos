@@ -3375,17 +3375,18 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             auto& bi = blanket_impls_[bi_idx];
             if (bi.method_name != std::string(method_name)) continue;
             if (!bi.bound_trait.empty()) {
-                std::string key_full = bi.bound_trait + "::" + std::string(sname);
-                std::string key_base = bi.bound_trait + "::" + base_sname;
-                if (!impls_.count(key_full) && !impls_.count(key_base)) continue;
+                logos::compiler::StrSet seen_pri;
+                if (!sema_has_impl_recursive(bi.bound_trait, std::string(sname),
+                                             base_sname, seen_pri)) continue;
                 // ADR 0008: assoc-type-equality clauses on the primary bound.
                 if (!assoc_eqs_satisfied(bi.bound_trait, std::string(sname),
                                           base_sname, bi.primary_assoc_eqs)) continue;
             }
             bool extras_ok = true;
             for (auto& eb : bi.extra_bounds) {
-                if (!impls_.count(eb + "::" + std::string(sname)) &&
-                    !impls_.count(eb + "::" + base_sname)) { extras_ok = false; break; }
+                logos::compiler::StrSet seen_eb;
+                if (!sema_has_impl_recursive(eb, std::string(sname),
+                                             base_sname, seen_eb)) { extras_ok = false; break; }
             }
             if (!extras_ok) continue;
             // Assoc-eqs on extra bounds, indexed by trait name.

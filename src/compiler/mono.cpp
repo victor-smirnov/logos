@@ -138,11 +138,29 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             for (auto& ed : out_.enums)
                 if (ed.type_params.empty()) candidates.push_back(ed.name);
         } else {
+            // Direct concrete impls of bound_trait.
             for (auto& impl : out_.impls) {
                 if (impl.is_blanket) continue;
                 if (impl.trait_name != bi.bound_trait) continue;
                 candidates.push_back(impl.target_type);
             }
+            // Chain-satisfiers: types whose bound_trait impl is itself
+            // derived from a blanket (e.g. Foo blanket on Container, where
+            // K's Container is via the Primitive→Container blanket). Walk
+            // every concrete type and ask the recursive resolver.
+            StrSet already(candidates.begin(), candidates.end());
+            auto consider = [&](const std::string& cn) {
+                if (already.count(cn)) return;
+                StrSet seen;
+                if (mono_has_impl_recursive(bi.bound_trait, cn, seen)) {
+                    candidates.push_back(cn);
+                    already.insert(cn);
+                }
+            };
+            for (auto& sd : out_.structs)
+                if (sd.type_params.empty()) consider(sd.name);
+            for (auto& ed : out_.enums)
+                if (ed.type_params.empty()) consider(ed.name);
         }
         // ADR 0008: helper to check Trait<Assoc = Type> equality clauses.
         auto assoc_eqs_ok = [&](const std::string& trait,
@@ -165,7 +183,8 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             // earlier from non-blanket impls (TraitName::TargetType keys).
             bool all_extra_satisfied = true;
             for (auto& eb : bi.extra_bounds) {
-                if (!concrete_impls_.count(eb + "::" + concrete)) {
+                StrSet seen;
+                if (!mono_has_impl_recursive(eb, concrete, seen)) {
                     all_extra_satisfied = false;
                     break;
                 }

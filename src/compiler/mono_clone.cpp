@@ -2734,6 +2734,31 @@ lir::LFunction Mono::clone_fn(const lir::LFunction& fn, const SubstMap& s,
 // L1.4: bound-gate, factored from clone_struct_def's method loop. Returns
 // false when any of method `m`'s impl_type_params bounds is unsatisfied
 // under substitution `s`.
+bool Mono::mono_has_impl_recursive(const std::string& trait_name,
+                                   const std::string& concrete_name,
+                                   StrSet& seen) {
+    std::string k = trait_name + "::" + concrete_name;
+    if (!seen.insert(k).second) return false;
+    if (concrete_impls_.count(k)) return true;
+    for (auto& bi : blanket_impls_) {
+        if (bi.trait_name != trait_name) continue;
+        if (bi.bound_trait.empty() && bi.extra_bounds.empty()) return true;
+        // Per-attempt copy: a failed sibling must not poison sub-checks
+        // for the next candidate.
+        StrSet attempt = seen;
+        bool ok = bi.bound_trait.empty()
+            || mono_has_impl_recursive(bi.bound_trait, concrete_name, attempt);
+        if (ok) {
+            for (auto& eb : bi.extra_bounds)
+                if (!mono_has_impl_recursive(eb, concrete_name, attempt)) {
+                    ok = false; break;
+                }
+        }
+        if (ok) return true;
+    }
+    return false;
+}
+
 bool Mono::method_bound_ok(const lir::LFunction& m, const SubstMap& s) {
     for (auto& itp : m.impl_type_params) {
         if (itp.bounds.empty()) continue;
@@ -2751,28 +2776,12 @@ bool Mono::method_bound_ok(const lir::LFunction& m, const SubstMap& s) {
             cname = type_str(concrete);
         if (auto p = cname.find("$G"); p != std::string::npos)
             cname = cname.substr(0, p);
-        // `seen` prevents infinite recursion through cyclic blanket chains.
-        // It must NOT poison sibling blanket attempts: a failed first
-        // candidate shouldn't mark its sub-checks as "already failed" for
-        // the next candidate. Each blanket attempt therefore recurses with
-        // its own copy of `seen`, so siblings are independent.
-        std::function<bool(const std::string&, const std::string&, StrSet&)> has_impl;
-        has_impl = [&](const std::string& trait, const std::string& cn,
-                       StrSet& seen) -> bool {
-            std::string k = trait + "::" + cn;
-            if (!seen.insert(k).second) return false;
-            if (concrete_impls_.count(k)) return true;
-            for (auto& bi : blanket_impls_) {
-                if (bi.trait_name != trait) continue;
-                if (bi.bound_trait.empty() && bi.extra_bounds.empty()) return true;
-                StrSet attempt_seen = seen;
-                bool all = !bi.bound_trait.empty()
-                    ? has_impl(bi.bound_trait, cn, attempt_seen) : true;
-                for (auto& eb : bi.extra_bounds)
-                    if (!has_impl(eb, cn, attempt_seen)) { all = false; break; }
-                if (all) return true;
-            }
-            return false;
+        // Cycle-guard + per-attempt seen semantics live in
+        // mono_has_impl_recursive (factored for reuse at mono_subst.cpp's
+        // assoc-type fallback).
+        auto has_impl = [&](const std::string& trait, const std::string& cn) {
+            StrSet seen;
+            return mono_has_impl_recursive(trait, cn, seen);
         };
         for (auto& tb : itp.bounds) {
             bool is_auto = false;
@@ -2784,8 +2793,7 @@ bool Mono::method_bound_ok(const lir::LFunction& m, const SubstMap& s) {
                     return false;
                 continue;
             }
-            StrSet seen;
-            if (!has_impl(tb.trait_name, cname, seen)) return false;
+            if (!has_impl(tb.trait_name, cname)) return false;
         }
     }
     return true;

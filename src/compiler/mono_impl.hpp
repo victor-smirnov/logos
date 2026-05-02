@@ -333,6 +333,15 @@ private:
     // bounds are not satisfied under substitution `s`.
     bool method_bound_ok(const lir::LFunction& m, const SubstMap& s);
 
+    // Recursive trait-satisfaction at mono-time: does `concrete_name`
+    // implement `trait_name` directly via concrete_impls_, or transitively
+    // via any chain of blanket_impls_? Per-attempt copy of `seen` keeps
+    // sibling blanket candidates from poisoning each other (see
+    // method_bound_ok's local has_impl, factored here for reuse).
+    bool mono_has_impl_recursive(const std::string& trait_name,
+                                 const std::string& concrete_name,
+                                 StrSet& seen);
+
     // ── Struct/enum cloning (large — defined in mono_clone.cpp) ─────
     lir::LStructDef clone_struct_def(const lir::LStructDef& tmpl,
                                       const SubstMap& s,

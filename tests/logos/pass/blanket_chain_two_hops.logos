@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// blanket_chain_two_hops.logos — regression for trait-satisfaction
+// transitivity through chained blanket impls.
+//
+// Before the fix, both sema (check_type_bounds, supertrait check,
+// method-dispatch blanket fallback) and mono (eager blanket-method
+// instantiation, assoc-type substitution fallback) used a *flat*
+// `impls_.count(bound + "::" + concrete)` lookup per blanket
+// candidate. That works for ONE chain hop (e.g. `K: Primitive` →
+// `K: Container` via `impl<DT: Primitive> Container for DT`), but
+// silently fails when a SECOND hop is needed.
+//
+// Here:
+//   K impls Primitive directly.
+//   Container is reached via blanket impl<DT: Primitive> Container for DT.
+//   Foo is reached via   blanket impl<DT: Container> Foo for DT.
+//
+// `use_foo::<K>(...)` requires `K: Foo`. The bound check used to fail
+// because the flat resolver looked for `Container::K` in impls_,
+// didn't find it (Container is itself blanket-derived for K), and
+// rejected the chain. The fix factored a `*_has_impl_recursive` into
+// SemaChecker / Mono with per-attempt-`seen` semantics, so all five
+// blanket-traversal sites now follow chains correctly.
+
+package blanket_chain_two_hops;
+
+use std.lang.datatypes;
+
+pub trait Foo { fn foo_id(&self) -> i32; }
+impl<DT: Container> Foo for DT { fn foo_id(&self) -> i32 { return 42; } }
+
+pub struct K { pub x: i32, }
+impl Primitive for K { type Prim = i32; }
+
+fn use_foo<T: Foo>(t: *const T) -> i32 {
+    unsafe { return t.foo_id(); }
+}
+
+fn main() -> i32 {
+    let k: K = K { x: 5 };
+    let r: i32 = use_foo::<K>(&k as *const K);
+    if r != 42 { return 1; }
+    return 0;
+}
