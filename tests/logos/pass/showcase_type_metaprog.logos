@@ -1,0 +1,121 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// showcase_type_metaprog.logos — sampler of Logos's type-level
+// metaprog + embedded Hermes capabilities, circa slice 1G of the
+// component-metaprog bootstrap.
+//
+// Five flights, each independently checkable from the exit code:
+//
+//   F1 (10s)  type_of + Type kind predicates
+//   F2 (20s)  type-pack algorithms over <T...>: count_if / sum_by /
+//             fold_to_type
+//   F3 (30s)  generic_of + apply_generic ≡ direct instantiation
+//             (UID-equality)
+//   F4 (40s)  <type:T> Hermes literals inside an @{ } HermesStatic
+//             config
+//   F5 (50s)  type_from_anyval — reify Hermes Types and dispatch on
+//             kind (slice 1G end-to-end)
+//
+// Exit codes 1..9 inside each flight let a failing run point at the
+// specific check that broke. Success is exit 0.
+
+package showcase_type_metaprog;
+
+use std.compiler.metaprog;
+use std.hermes.ctr;
+use std.hermes.view;
+use std.hermes.anyval;
+
+// A user struct, just enough surface for kind/uid/template flights.
+pub struct Pair<A, B> { pub a: A, pub b: B, }
+// Plain (non-generic) struct — used in F4 because Hermes' `<type:T>`
+// parser doesn't yet handle nested `>` in generic instantiations.
+pub struct Point { pub x: i32, pub y: i32, }
+
+// Pick the wider of two integer Types — used by F2's fold.
+fn wider(a: Type, b: Type) -> Type {
+    if b.size > a.size { return b; }
+    return a;
+}
+
+unsafe fn main() -> i32 {
+
+    // ── F1. type_of as a value, kind predicates as methods ──────────
+    let ti  = type_of::<i32>();
+    let tf  = type_of::<f64>();
+    let tb  = type_of::<bool>();
+    let tps = type_of::<Pair<i32, bool>>();
+
+    if !ti.is_integer()  { return 11; }
+    if !tf.is_float()    { return 12; }
+    if !tb.is_bool()     { return 13; }
+    if !tps.is_struct()  { return 14; }
+    if ti.size  != 4     { return 15; }
+    if tf.size  != 8     { return 16; }
+    if ti.uid == (0 as u64) { return 17; }
+    // Distinct types have distinct UIDs.
+    if ti.uid == tf.uid  { return 18; }
+
+    // ── F2. type-pack algorithms ────────────────────────────────────
+    // <i32, i64, u8, u32, bool>: 4 integers, 1 bool; total scalar
+    // size 17 bytes; widest = i64.
+    let n_int: i64 = count_if::<i32, i64, u8, u32, bool>(is_integer);
+    if n_int != 4 { return 21; }
+
+    // Sum of sizes over the integer-only sub-pack: 4+8+1+4 = 17.
+    let total: i64 = sum_by::<i32, i64, u8, u32>(type_size);
+    if total != 17 { return 22; }
+
+    let widest: Type = fold_to_type::<i32, i64, u8, u32>(type_of::<u8>(), wider);
+    if !widest.is_integer() { return 23; }
+    if widest.size != 8     { return 24; }
+    if widest.uid != type_of::<i64>().uid { return 25; }
+
+    // ── F3. generic_of + apply_generic ────────────────────────────
+    let g_pair = generic_of::<Pair>();
+    if g_pair.kind != (37 as u32)   { return 31; }   // Kind::Generic
+    if g_pair.size != (2 as i64)    { return 32; }   // arity
+    let applied: Type = apply_generic(g_pair, [type_of::<i64>(), type_of::<bool>()]);
+    let direct:  Type = type_of::<Pair<i64, bool>>();
+    if applied.uid != direct.uid    { return 33; }   // structural identity
+
+    // ── F4. embed types as Hermes values ────────────────────────────
+    let cfg: HermesStatic = @{
+        "tag":   "type-registry-v0",
+        "kinds": [<type:i32>, <type:f64>, <type:bool>, <type:Point>],
+    };
+    let v = cfg.as_view();
+    let arr: AnyVal = v.map_get(v.root(), "kinds");
+    if arr.is_null() { return 41; }
+    let n: u64 = v.array_len(arr);
+    if n != (4 as u64) { return 42; }
+
+    // ── F5. reify each entry back to Type, dispatch on kind ─────────
+    let mut int_count:    i32 = 0;
+    let mut float_count:  i32 = 0;
+    let mut struct_count: i32 = 0;
+
+    let mut idx: i64 = 0;
+    while idx < (n as i64) {
+        let av: AnyVal = v.array_get(arr, idx as u64);
+        let t: Type = type_from_anyval(v.base(), av);
+        if t.is_integer() { int_count    = int_count    + 1; }
+        if t.is_float()   { float_count  = float_count  + 1; }
+        if t.is_struct()  { struct_count = struct_count + 1; }
+        // Every reified Type carries a non-zero UID — the byte-level
+        // identity that survives the @{ } → packed Hermes → view round
+        // trip. (Strict UID-equality with `type_of::<T>()` is deferred
+        // until canonicalisation between the two producers is unified.)
+        if t.uid == (0 as u64) { return 60 + (idx as i32); }
+        idx = idx + 1;
+    }
+
+    if int_count    != 1 { return 51; }
+    if float_count  != 1 { return 52; }
+    if struct_count != 1 { return 53; }
+
+    return 0;
+}
+
+// Helper projections passed to the type-pack algorithms.
+fn type_size(t: Type) -> i64 { return t.size; }
