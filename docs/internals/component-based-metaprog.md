@@ -268,37 +268,101 @@ This is a roughly 40% reduction in the size of the metaprog extension, with
 **higher** expressive power — configurations unify with the rest of the
 Hermes-as-fabric story.
 
-## 5. The enabling feature: Type as first-class Hermes value
+## 5. The bridge: Logos entities as first-class Hermes values
 
 For configurations to live in Hermes, the metaprog `Type` handle must be a
-Hermes value. Today it is not — `Type` lives in compiler-side data
-structures, while Hermes values are the universe of `AnyVal`-tagged
-documents. The bridge is the missing piece.
+Hermes value. But the right framing is broader: **any addressable Logos
+entity** should be embeddable as a Hermes value — not just types, and not
+just datatype-attributed types. Hermes becomes the universal
+identity / reflection substrate for the language.
+
+The set of "addressable entities" we want to be able to put in a Hermes
+document includes, at minimum:
+
+- **Types of every kind**, not only datatypes / `#[zoned]` structs:
+  primitives, structs, enums, traits, generic instantiations,
+  function-pointer types, reference types, raw-pointer types,
+  lifetime-parameterised types, fully-monomorphised internal types — the
+  whole universe `Type` ranges over.
+- **Generic templates** before instantiation (`Vec`, `PMap` as
+  un-applied templates; the corresponding metaprog `Template` handle).
+- **Functions and metafunctions** as values — including ordinary
+  functions, `metafn`-attributed metafunctions, trait methods, and
+  generic-function templates. This is what lets a Hermes registry hold
+  `Map<Function, ComponentMeta>` and dispatch through it.
+- **Items in general** — struct definitions, trait declarations, impl
+  blocks, attribute applications. The Phase-1 generative output is
+  `Vec<Item>`; storing those items in a Hermes registry lets later passes
+  walk them as data.
+- **Other embedded Hermes documents.** Hermes within Hermes: a registry
+  whose values are themselves `HermesStatic` documents, recursively. The
+  format already supports this; it just needs to be a routine pattern.
+- **Lifetimes / regions**, where they participate in identity (relevant
+  once Phase 2 borrow-style passes need to reason about them).
 
 Concrete shape (proposed; details in a follow-up ADR):
 
-1. **A new Hermes type-code for Type-handle.** Likely a hybrid encoding:
-   - Primitive / named types (`i64`, `Varchar`, `UID256`) — compact: type-code
-     plus the type's UID256 hash (we already mint these per type, see
-     [memory: feat_logos_type_hash]).
-   - Generic instantiations (`Foo<i64, Bar>`) — structural: a small Hermes
-     container with the head name plus a list of `Type` children. Recursive.
-2. **`<type:T>` syntax inside Hermes literals.** An `@-quoted` form for
-   embedding a type into a Hermes document. Lowering: the compiler resolves
-   `T` to a Logos type-handle and writes its Hermes form.
-3. **`HermesView::as_type() -> Type`** in the metaprog API. The inverse,
-   readable from any metafunction.
-4. **`HermesEqual` / `HermesHash` / `HermesStringify` / `HermesClone` /
-   `HermesRelease` for `Type`.** Through the existing tag-dispatch
-   registry. `Stringify` produces "Foo<i64, Bar>"; `Hash` is the UID256
-   equivalent; `Equal` is structural type comparison.
-5. **HermesStatic literals as values for the metaprog API.** Already mostly
-   true (the recent assoc-const HermesStatic identity fix is a step in this
-   direction); needs to be promoted to a stable contract: "Hermes is the
-   configuration language for the metaprogramming layer".
+1. **Hermes type-codes for each kind of Logos entity.** Hybrid encodings,
+   per kind:
+   - Primitive / named types: code + UID256 hash (we already mint type
+     hashes per type, see [memory: feat_logos_type_hash]).
+   - Generic instantiations / generic templates: structural — a small
+     Hermes container with head name + list of arguments / parameters.
+     Recursive.
+   - Functions / metafunctions: code + fully-qualified path + signature
+     hash. Function-pointer values that resolve at compile time also fit
+     here.
+   - Items: structural — Hermes mirror of the LIR shape (largely already
+     there for our existing `lir_view` / `LExpr` mirror infrastructure).
+   - Embedded Hermes documents: the existing nested-document mechanism;
+     just promote it to a routine, named pattern.
+2. **`<type:T>`, `<fn:path>`, `<template:T>`, `<item:expr>` syntax inside
+   Hermes literals.** A family of `@-quoted` forms, one per kind of
+   embeddable entity. Lowering: compiler resolves to the appropriate
+   handle, writes the Hermes form.
+3. **`HermesView::as_type() / as_fn() / as_template() / as_item()` etc.**
+   in the metaprog API — the inverse, readable from any metafunction.
+4. **Standard trait registry entries** — `HermesEqual`, `HermesHash`,
+   `HermesStringify`, `HermesClone`, `HermesRelease` for each new kind,
+   through the existing tag-dispatch registry.
+5. **HermesStatic literals as the canonical input to the metaprog API.**
+   Already mostly true (the recent assoc-const HermesStatic identity fix
+   is a step in this direction); needs to be promoted to a stable
+   contract: "Hermes is the language in which configurations,
+   registries, and cross-pass state for the metaprogramming layer are
+   written".
 
-Once this is in place, everything in §2 and §4 stops being aspirational and
-becomes mechanical.
+### 5.1 Hermes is Logos-specific by design
+
+A guiding principle that follows from this generalisation: **Hermes is a
+Logos-specific format, and we do not restrict it to a portable
+greatest-common-denominator subset**.
+
+Other platforms that consume Hermes (the inherited C++ Memoria, future
+non-Logos readers) will only understand the *cross-platform exchange
+subset* — primitives, strings, decimals, arrays, maps, plus the registered
+shared datatypes. Logos-specific value kinds (types, functions, templates,
+items) are opaque to those readers. That is an accepted trade-off.
+
+Inside Logos, we have full freedom to introduce language-specific value
+kinds in Hermes, because:
+
+- The whole metaprog stack lives inside the compiler, in a context where
+  these value kinds *are* meaningful and resolvable.
+- The Logos-side reader / writer for these kinds is the compiler itself,
+  which has direct access to the underlying handles.
+- Cross-platform interop is a constraint on **what gets serialised across
+  the boundary**, not on what Hermes is allowed to express in-language.
+  A Logos build can mark or strip Logos-specific values when producing a
+  document for external consumption.
+
+This rules out a class of design pressure that would otherwise be
+constant: "but how does C++ Memoria read this?". Answer: it does not, for
+the Logos-specific kinds, and that is fine.
+
+Once §5 is in place, everything in §2 and §4 stops being aspirational and
+becomes mechanical, and the consequences in §6 follow uniformly for **all**
+addressable Logos entities, not just types.
 
 ## 6. Hermes as the home of type-collection algebra
 
