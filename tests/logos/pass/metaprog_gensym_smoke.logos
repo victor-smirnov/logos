@@ -1,0 +1,23 @@
+// Hygiene gensym smoke. Same metafn invoked twice via `metacall`. The
+// emitted struct's name comes from `gensym("Helper")`; without gensym
+// both invocations would emit `struct Synth { ... }` and collide. With
+// gensym each call gets `Helper__hyg_<N>`, so both items splice cleanly.
+
+package main;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+
+fn emit_one() -> QuoteItemBlob {
+    let n: Ident = gensym("Helper");
+    return quote_item! {
+        struct #n { v: i32 }
+    };
+}
+
+metacall emit_one();
+metacall emit_one();
+
+unsafe fn main() -> i32 {
+    return 42;
+}

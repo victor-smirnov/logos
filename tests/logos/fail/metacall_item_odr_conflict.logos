@@ -1,0 +1,20 @@
+// MC2.5: body-different struct definitions emitted under the same name
+// from two metacalls must error (no silent merge).
+
+package main;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+
+fn emit_a() -> QuoteItemBlob {
+    return quote_item! { struct Synth { x: i32 } };
+}
+
+fn emit_b() -> QuoteItemBlob {
+    return quote_item! { struct Synth { y: i32 } };
+}
+
+metacall emit_a();
+metacall emit_b();
+
+unsafe fn main() -> i32 { return 0; }

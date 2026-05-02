@@ -3147,14 +3147,17 @@ void Mono::instantiate_struct_templates() {
             // Collect field types of new struct for further instantiation.
             for (auto& f : inst.fields) collect_type_for_structs(f.type);
             out_.structs.push_back(std::move(inst));
+            ++stats_.struct_instances;
         }
         depth_ = 0;
 
         // Drain any fn-worklist items added by struct-method scans above.
+        note_fn_worklist_size(worklist_.size());
         while (!worklist_.empty()) {
             auto item = std::move(worklist_.back());
             worklist_.pop_back();
             depth_ = item.depth;
+            note_depth(depth_);
             auto fn_inst = instantiate_fn(*item.tmpl, item.mangled, item.subst, item.packs);
             // Same two-step stabilization as the struct-method case above:
             // (a) instantiate_fn's recursive subst_block push_backs have ended
@@ -3164,6 +3167,8 @@ void Mono::instantiate_struct_templates() {
             auto& fn_ref = *out_.functions.back();
             lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
             scan_fn(fn_ref);
+            ++stats_.fn_instances;
+            note_fn_worklist_size(worklist_.size());
         }
         depth_ = 0;
     }
@@ -3277,6 +3282,7 @@ void Mono::instantiate_enum_templates() {
                 lir_mirror_emit_function(out_, *out_.mirror_table, *out_.functions.back());
             }
             out_.enums.push_back(std::move(inst));
+            ++stats_.enum_instances;
         }
     }
 }

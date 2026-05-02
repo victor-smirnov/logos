@@ -36,9 +36,38 @@ public:
         // restores eager mode for bisecting / regression isolation.
         if (const char* e = std::getenv("LOGOS_LAZY_METHODS"); e && e[0] == '0')
             lazy_methods_ = false;
+        if (const char* e = std::getenv("LOGOS_MONO_STATS"); e && e[0] != '0' && e[0] != '\0')
+            stats_enabled_ = true;
     }
 
     lir::LProgram run(lir::LProgram&& in, int max_depth);
+
+    // Cumulative counters for `LOGOS_MONO_STATS=1`. Dumped to stderr at the
+    // end of run(). Cheap (always-on increments); guard formatting/IO behind
+    // stats_enabled_ so production builds aren't taxed.
+    struct Stats {
+        uint64_t fn_clones        = 0;  // non-generic free fn copied to out_
+        uint64_t fn_instances     = 0;  // generic fn instance (worklist drain)
+        uint64_t method_instances = 0;  // lazy struct-method drain
+        uint64_t struct_instances = 0;  // generic struct instance
+        uint64_t enum_instances   = 0;  // generic enum instance
+        uint64_t dispatch_entries = 0;  // generic-trait dispatch entries
+        size_t   peak_fn_worklist     = 0;
+        size_t   peak_method_worklist = 0;
+        int      peak_depth           = 0;
+    };
+    Stats stats_;
+    bool  stats_enabled_ = false;
+
+    void note_fn_worklist_size(size_t n) {
+        if (n > stats_.peak_fn_worklist) stats_.peak_fn_worklist = n;
+    }
+    void note_method_worklist_size(size_t n) {
+        if (n > stats_.peak_method_worklist) stats_.peak_method_worklist = n;
+    }
+    void note_depth(int d) {
+        if (d > stats_.peak_depth) stats_.peak_depth = d;
+    }
 
 private:
     lir::LProgram  in_;

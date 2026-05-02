@@ -66,6 +66,7 @@ set(LOGOS_INTEGRATION_TESTS
     multi_derive_e2e
     quote_item_smoke
     quote_item_antiquot
+    quote_item_nested_antiquot
     metacall_expr_blob
     quote_expr_smoke
     quote_expr_antiquot
@@ -85,7 +86,6 @@ set(LOGOS_INTEGRATION_TESTS
     meta_args_count
     meta_align_of
     meta_tuple_intrinsics
-    derive_clone_e2e
     meta_has_trait
     meta_typelist
     meta_reify_type
@@ -215,9 +215,10 @@ function(logos_pass_extra_args BASE OUT_VAR)
         reflect_api
         reflect_annotated_auto)
     set(LOCAL_PUBLIB_USERS pub_cross_package pkg_multifile pub_reexport)
+    set(LOCAL_METAPROG_PUBLIB_USERS metacall_item_use_inherit)
     # Tests that use std.compiler.metaprog (excluded from binary stdlib;
     # metaprog_stubs in libstdlib_rt.a satisfies the link).
-    set(LOCAL_METAPROG_USERS derive_debug_e2e derive_debug_enum derive_debug_generic item_list_splice multi_derive_e2e quote_item_smoke quote_item_antiquot metacall_expr_blob quote_expr_smoke quote_expr_antiquot quote_expr_repeat_andand quote_expr_repeat_comma quote_expr_subblob slice6_field_accessors meta_pack_basic meta_pack_search meta_kind_preds meta_field_iter meta_fold_i64 meta_field_byname meta_type_methods meta_kind_name quote_ty_smoke meta_args_count meta_tuple_intrinsics derive_clone_e2e meta_has_trait meta_typelist meta_reify_type meta_apply meta_quote_ty_antiquot meta_quote_ty_tup_arr meta_variant_intrinsics meta_generic_handle meta_type_align meta_has_trait_of meta_quote_ty_pack meta_template_handle meta_typelist_a_side meta_fold_to_type meta_template_of_smoke meta_template_of_typed template_item_handle_smoke meta_transform meta_filter)
+    set(LOCAL_METAPROG_USERS derive_debug_e2e derive_debug_enum derive_debug_generic item_list_splice metacall_item_list metaprog_gensym_smoke metaprog_type_to_ast multi_derive_e2e quote_item_smoke quote_item_antiquot quote_item_nested_antiquot quote_item_exprblob_splice metacall_expr_blob metacall_item_smoke metacall_item_generic_smoke metacall_item_odr_dedup metacall_item_instantiate quote_expr_smoke quote_expr_antiquot quote_expr_repeat_andand quote_expr_repeat_comma quote_expr_repeat_slice quote_expr_subblob slice6_field_accessors meta_pack_basic meta_pack_search meta_kind_preds meta_field_iter meta_fold_i64 meta_field_byname meta_type_methods meta_kind_name quote_ty_smoke meta_args_count meta_tuple_intrinsics meta_has_trait meta_typelist meta_reify_type meta_apply meta_quote_ty_antiquot meta_quote_ty_tup_arr meta_variant_intrinsics meta_generic_handle meta_type_align meta_has_trait_of meta_quote_ty_pack meta_template_handle meta_typelist_a_side meta_fold_to_type meta_template_of_smoke meta_template_of_typed template_item_handle_smoke meta_transform meta_filter quote_struct_lit_cursor derive_clone_quote derive_clone_stdlib)
     set(LOCAL_HERMES_USERS datatype_zone_basic datatype_zone_ref datatype_zone_ergonomic datatype_own datatype_relptr anyval_basic hermes_containers hermes_string hermes_typetag hermes_objectmap hermes_document hermes_stringify hermes_ex_arena hermes_ex_containers hermes_parse hermes_round_trip hermes_stringbuf_grow hermes_anyval_methods hermes_ctr_traversal hermes_float_parse hermes_escape_strings hermes_builder hermes_registry_lookup hermes_traits_full hermes_traits_bugfix hermes_scalar hermes_decimal_methods hermes_decimal_limits_errors hermes_decimal_f64 hermes_compactify hermes_clone hermes_buffer_i64 hermes_buffer_string hermes_string_view_interop datatag_typecode tag_system_basic tag_dispatch_table data_plain_check tag_dispatch_call tag_dispatch_tier2 tag_dispatch_sibling_concrete hermes_zone_seal hermes_memholder_rc podref_buffer mem_holder_custom_destroyer array_i32_polymorphic hermes_parse_typed_containers hermes_typed_array_materialize hermes_typed_array_element_type_errors hermes_typed_datatype_values hermes_typed_datatype_values_errors hermes_typed_datatype_trait_coverage hermes_typed_datatype_params_overflow hermes_typed_datatype_empty_params_canonical hermes_typed_datatype_empty_params_small_zone hermes_typed_datatype_params_trailing_comma_errors hermes_typed_decimal_validation_pass hermes_typed_decimal_validation_errors hermes_typed_map_default_materialize hermes_typed_map_i32_materialize hermes_typed_map_key_type_errors hermes_typed_materialization_errors array_relptr_strings hermes_check hermes_import_export hermes_hbs dec_arithmetic dec_boundary dec_deep dec_edge_cases hermes_sdn_lit hermes_typed_arr_lit hermes_typed_map_lit hermes_typed_array_all_elems hermes_typed_map_all_keys hermes_typed_container_clone hermes_typed_container_equal hermes_capture_scalar hermes_capture_str hermes_capture_f64 hermes_param_roundtrip hermes_as_array hermes_as_map hermes_typed_array_variants hermes_as_array_variants hermes_as_map_variants hermes_ctr_view hermes_view_from_static hermes_typed_push hermes_list_comp_basic hermes_list_comp_edge hermes_map_comp_basic hermes_map_comp_multi hermes_comp_coerce hermes_match_scalar hermes_match_or hermes_match_str hermes_match_map hermes_match_arr hermes_match_nested hermes_match_bind hermes_match_rest hermes_match_typed hermes_match_or_struct array_i32_generic_api array_generic_push_grow hermes_typed_array_grow reflect_basic meta_struct meta_trait genos_reflect metacall_hermes_static metacall_hermes fiber_basic fiber_yield fiber_future fiber_thread_basic fiber_thread_future fiber_chan_basic fiber_latch_basic fls_tls_basic fiber_reactor_basic fiber_sleep_ms auto_trait_send_scalar auto_trait_send_struct auto_trait_unsafe_impl auto_trait_generic_propagation
     vec_full hashset_basic vecdeque_basic btreemap_basic
     atomic_basic mutex_basic
@@ -238,6 +239,8 @@ function(logos_pass_extra_args BASE OUT_VAR)
         set(_extra -I ${STDLIB_BIN_DIR} -L ${STDLIB_BIN_DIR})
     elseif (BASE IN_LIST LOCAL_METAPROG_USERS)
         set(_extra -I ${STDLIB} -I ${STDLIB_BIN_DIR} -L ${STDLIB_BIN_DIR})
+    elseif (BASE IN_LIST LOCAL_METAPROG_PUBLIB_USERS)
+        set(_extra -I ${STDLIB} -I ${PUB_LIB} -I ${STDLIB_BIN_DIR} -L ${STDLIB_BIN_DIR})
     elseif (BASE IN_LIST LOCAL_PUBLIB_USERS)
         set(_extra -I ${PUB_LIB} -I ${STDLIB_BIN_DIR} -L ${STDLIB_BIN_DIR})
     elseif (BASE IN_LIST LOCAL_HERMES_USERS)
@@ -252,7 +255,7 @@ endfunction()
 function(logos_fail_extra_args BASE OUT_VAR)
     set(FAIL_PUBLIB_USERS pub_call_private pub_private_field_access)
     set(FAIL_HERMES_USERS hermes_capture_bad_type hermes_capture_typed_array hermes_as_array_bad_type hermes_as_array_not_slice hermes_as_array_elem_mismatch hermes_as_map_wrong_src hermes_comp_coerce_bad hermes_map_comp_guard_bad auto_trait_send_raw_ptr auto_trait_negative_impl auto_trait_bound_check_target blanket_impl_overlap blanket_impl_assoc_eq_mismatch instantiate_decl_unknown)
-    set(FAIL_METAPROG_USERS)
+    set(FAIL_METAPROG_USERS metacall_item_odr_conflict)
     if (BASE IN_LIST FAIL_PUBLIB_USERS)
         set(_extra -I ${PUB_LIB} -I ${STDLIB_BIN_DIR} -L ${STDLIB_BIN_DIR})
     elseif (BASE IN_LIST FAIL_HERMES_USERS)
@@ -348,3 +351,47 @@ foreach(SUITE IN LISTS LOGOS_SUITE_ORDER)
         endif()
     endforeach()
 endforeach()
+
+# ── IR snapshot tests ─────────────────────────────────────────────────────────
+# Each .check file in ir/ is paired with a same-named .logos. The snapshot
+# runner pipes `logosc --emit-llvm` output through FileCheck against the
+# .check spec. Goal: catch monomorphization / codegen regressions on hot
+# paths without needing full golden IR diffs.
+
+find_program(FILECHECK_BIN
+    NAMES FileCheck FileCheck-19 FileCheck-18
+    PATHS /usr/lib/llvm-19/bin /usr/lib/llvm-18/bin
+    DOC "LLVM FileCheck for IR snapshot tests")
+
+if (FILECHECK_BIN)
+    set(IR_RUNNER ${CMAKE_CURRENT_SOURCE_DIR}/ir/run_ir_snapshot.sh)
+    file(GLOB IR_CHECK_FILES CONFIGURE_DEPENDS
+        ${CMAKE_CURRENT_SOURCE_DIR}/ir/*.check)
+    list(SORT IR_CHECK_FILES)
+
+    foreach(CHK_FILE IN LISTS IR_CHECK_FILES)
+        get_filename_component(BASE ${CHK_FILE} NAME_WE)
+        set(LOGOS_FILE ${CMAKE_CURRENT_SOURCE_DIR}/ir/${BASE}.logos)
+        if (NOT EXISTS ${LOGOS_FILE})
+            message(WARNING "ir snapshot: no .logos for ${CHK_FILE}, skipping")
+            continue()
+        endif()
+        set(_test_name "logos_07_ir_snapshot_${BASE}")
+        add_test(
+            NAME ${_test_name}
+            COMMAND ${IR_RUNNER}
+                    $<TARGET_FILE:logosc>
+                    ${FILECHECK_BIN}
+                    ${LOGOS_FILE}
+                    ${CHK_FILE}
+                    -I ${STDLIB}
+                    -I ${STDLIB_BIN_DIR}
+        )
+        set_tests_properties(${_test_name} PROPERTIES
+            TIMEOUT 30
+            LABELS  "logos;ir_snapshot;suite_ir"
+        )
+    endforeach()
+else()
+    message(STATUS "logos tests: FileCheck not found — skipping IR snapshot suite")
+endif()

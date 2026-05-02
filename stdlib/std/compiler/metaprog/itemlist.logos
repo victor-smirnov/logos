@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: Apache-2.0
+// std.compiler.metaprog.itemlist — multi-blob return type for metacalls.
+//
+// `ItemList` is a Vec-of-`QuoteItemBlob` used when a metafunction
+// emits more than one item. The metacall thunk synthesised by
+// `lower_metacall_item` walks `blobs[]` and forwards each entry to
+// `logos_emit_item_blob_subst`, then frees each idents_blob. Lives in
+// its own file so the (transitive) Vec import doesn't reach hosts that
+// only need QuoteItemBlob.
+//
+// Construction: `let mut out: ItemList = item_list_new();`
+// Append:        `unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(b); }`
+
+package std.compiler.metaprog;
+
+use std.collections.vec;
+
+pub struct ItemList {
+    pub blobs: Vec<QuoteItemBlob>,
+}
+
+pub fn item_list_new() -> ItemList {
+    return ItemList { blobs: vec_new::<QuoteItemBlob>() };
+}

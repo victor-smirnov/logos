@@ -19,6 +19,7 @@ package std.compiler.metaprog;
 
 use std.lang.text;
 use std.hermes.string;
+use std.collections.vec;
 
 extern fn logos_emit_source(src: *const u8) -> i32;
 
@@ -33,6 +34,34 @@ extern fn logos_emit_item_blob(data: *const u8, size: u64) -> i32;
 // with NAME strings drawn from `idents[idx]`, then forwards to the
 // regular item-blob path.
 extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;
+
+// QIB ident-blob lifecycle. `qib_pack_idents` snapshots the stack-local
+// `[*const Ident; N]` array into a single owned heap allocation that
+// travels with the QuoteItemBlob (so the QIB is safe to return through
+// Vec/struct without dangling stack pointers). `qib_free_idents` releases
+// that allocation; callers free after the QIB has been emitted/spliced.
+// Layout written by the host:
+//   [u64 N] [N × Ident{ptr,len}] [packed bytes...]
+// where each Ident.ptr points into the bytes section of the same blob.
+extern fn logos_qib_pack_idents(arr: *const *const Ident, n: u64) -> *const u8;
+extern fn logos_qib_free_idents(blob: *const u8);
+
+// Pack `[*const u8; N]` of ExprBlob.ptr values into an owned heap blob.
+// Each input pointer points past an 8-byte length prefix; pack_blobs
+// snapshots `*(p-8)` bytes so the QIB owns its blob lifetimes. Layout:
+//   [u64 N] [N × {offset:u64, size:u64}] [concatenated bodies]
+extern fn logos_qib_pack_blobs(arr: *const *const u8, n: u64) -> *const u8;
+extern fn logos_qib_free_blobs(blob: *const u8);
+
+// Pack `[*const Vec<Ident>; N]` into an owned heap blob. Each input is
+// a pointer to a Vec<Ident>; pack reads its `ptr` and `len` and
+// snapshots all idents (including their byte content). Layout:
+//   [u64 N_cursors]
+//   [N_cursors × {count: u64, pods_offset: u64}]
+//   [pods + ident bytes...]
+// Sites in the template are encoded as `NAME_VAR=int(idx | 0x40000000)`.
+extern fn logos_qib_pack_cursors(arr: *const *const Vec<Ident>, n: u64) -> *const u8;
+extern fn logos_qib_free_cursors(blob: *const u8);
 
 // Slice 5c+8: substitution + repetition shim for `quote_expr!`.
 // `kind` discriminates the substitution mode:

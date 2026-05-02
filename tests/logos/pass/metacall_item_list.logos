@@ -1,0 +1,36 @@
+// ItemList smoke: a metafn returns multiple QuoteItemBlobs via ItemList,
+// the metacall thunk walks the Vec and splices each into the program.
+
+package main;
+
+use std.compiler.metaprog;
+use std.collections.vec;
+use std.hermes.view;
+
+fn emit_pair() -> ItemList {
+    let mut out: ItemList = item_list_new();
+
+    let s_a: str = "First";
+    let id_a: Ident = Ident { ptr: s_a.as_ptr(), len: s_a.len() as u64 };
+    let b1: QuoteItemBlob = quote_item! {
+        struct #id_a { x: i32 }
+    };
+    unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(b1); }
+
+    let s_b: str = "Second";
+    let id_b: Ident = Ident { ptr: s_b.as_ptr(), len: s_b.len() as u64 };
+    let b2: QuoteItemBlob = quote_item! {
+        struct #id_b { y: i32 }
+    };
+    unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(b2); }
+
+    return out;
+}
+
+metacall emit_pair();
+
+unsafe fn main() -> i32 {
+    let a: First = First { x: 17 };
+    let b: Second = Second { y: 25 };
+    return a.x + b.y;
+}

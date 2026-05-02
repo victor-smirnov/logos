@@ -1,0 +1,84 @@
+// SPDX-License-Identifier: Apache-2.0
+// std.compiler.metaprog — derive(Clone) for plain and generic structs.
+//
+// Hook for `#[derive_clone]`. Emits
+//
+//   impl<T1, T2, ...> Clone for Name<T1, T2, ...> {
+//       fn clone(self: Name<T1, T2, ...>) -> Name<T1, T2, ...> {
+//           return Name { f: self.f.clone(), ... };
+//       }
+//   }
+//
+// (the generic params + instantiation segments collapse to nothing for
+// non-generic structs) via the typed metaprog stack: quote_item! +
+// quote_expr! + Vec<Ident> cursor antiquot + STRUCT_LIT/FIELD_INIT/
+// FIELD_READ + impl-level/type-arg HASH antiquots.
+
+package std.compiler.metaprog;
+
+use std.collections.vec;
+use std.hermes.view;
+use std.hermes.anyval;
+use std.hermes.string;
+use std.lang.clone;
+
+#[metaprog_handler("derive_clone")]
+fn derive_clone_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+
+    let item: AnyVal = AnyVal::from_offset(target_offset);
+    let nm_sv: StringView = view.ast_node_name(item);
+    if nm_sv.len == (0 as u64) { return; }
+    let nm: Ident = Ident { ptr: nm_sv.ptr, len: nm_sv.len };
+
+    let nf: u64 = view.ast_struct_field_count(item);
+    let mut fnames: Vec<Ident> = vec_new::<Ident>();
+    let mut i: u64 = 0 as u64;
+    while i < nf {
+        let fld: AnyVal = view.ast_struct_field(item, i);
+        let fsv: StringView = view.ast_field_name(fld);
+        unsafe {
+            (&mut fnames as *mut Vec<Ident>).push(
+                Ident { ptr: fsv.ptr, len: fsv.len });
+        }
+        i = i + (1 as u64);
+    }
+
+    let np: u64 = view.ast_type_param_count(item);
+    let mut tparams: Vec<Ident> = vec_new::<Ident>();
+    let mut k: u64 = 0 as u64;
+    while k < np {
+        let tp: StringView = view.ast_type_param_name(item, k);
+        unsafe {
+            (&mut tparams as *mut Vec<Ident>).push(
+                Ident { ptr: tp.ptr, len: tp.len });
+        }
+        k = k + (1 as u64);
+    }
+
+    let body: ExprBlob = quote_expr! {
+        #nm { #( #fnames: self.#fnames.clone() ),* }
+    };
+
+    if np == (0 as u64) {
+        let blob: QuoteItemBlob = quote_item! {
+            impl Clone for #(nm) {
+                fn clone(self: #(nm)) -> #(nm) {
+                    return #(body);
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&blob); }
+    } else {
+        let blob2: QuoteItemBlob = quote_item! {
+            impl<#( #tparams: Clone ),*> Clone for #nm<#( #tparams ),*> {
+                fn clone(self: #nm<#( #tparams ),*>) -> #nm<#( #tparams ),*> {
+                    return #(body);
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&blob2); }
+    }
+    return;
+}

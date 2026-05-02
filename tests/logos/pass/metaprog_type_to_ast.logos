@@ -1,0 +1,24 @@
+// (3a) Type→AST bridge smoke. A metafn that takes a Type via `type_of`,
+// extracts its canonical name as an Ident, and splices it into a
+// `quote_item!` at NAME position. Without this we'd have to hard-code
+// the type name as a string literal at the splice site.
+
+package main;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+
+fn emit_wrapper() -> QuoteItemBlob {
+    let t: Type = type_of::<i32>();
+    let payload: Ident = t.ident();
+    return quote_item! {
+        struct Wrap { v: #(payload) }
+    };
+}
+
+metacall emit_wrapper();
+
+unsafe fn main() -> i32 {
+    let w: Wrap = Wrap { v: 42 };
+    return w.v;
+}

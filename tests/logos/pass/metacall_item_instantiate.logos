@@ -1,0 +1,30 @@
+// MC2.4 base case: a metafunction can emit `instantiate Foo<T>;` inside its
+// QuoteItemBlob, and mono treats it as a root pin — even when no source code
+// directly references the generic instance. The trait method `weight()` must
+// resolve through dispatch, proving Box<i64> was instantiated.
+
+package main;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+
+trait BoxLike { fn weight(self: Self) -> i64; }
+
+struct Box<T> { v: T }
+
+impl BoxLike for Box<i64> {
+    fn weight(self: Box<i64>) -> i64 { return self.v; }
+}
+
+fn emit_inst() -> QuoteItemBlob {
+    return quote_item! {
+        instantiate Box<i64>;
+    };
+}
+
+metacall emit_inst();
+
+unsafe fn main() -> i32 {
+    let b: Box<i64> = Box::<i64> { v: 42i64 };
+    return b.weight() as i32;
+}

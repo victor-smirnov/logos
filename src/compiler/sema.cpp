@@ -2802,6 +2802,21 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             pending_annots.clear();
             continue;
         }
+        if (c == la::METACALL_ITEM) {
+            // MC1.1: synthesise a void thunk that calls the metafn and
+            // forwards the resulting QuoteItemBlob to logos_emit_item_blob_subst.
+            // Driver invokes the thunk and marks this node consumed.
+            lower_metacall_item(item, prog);
+            pending_annots.clear();
+            continue;
+        }
+        if (c == la::METACALL_ITEM_DONE) {
+            // Driver-set marker: this node has already been processed in
+            // a prior round (its thunk has run, items have been spliced).
+            // Silently skip.
+            pending_annots.clear();
+            continue;
+        }
         if      (c == la::STRUCT) {
             // Explicit struct instantiation: `#[type_code=N] struct Pair<i32>;`
             // Has TYPE key, no NAME key — delegate to same logic as DATATYPE inst.
@@ -3130,6 +3145,7 @@ lir::LProgram sema_lower(const std::vector<logos::hermes::Hermes>& asts,
                           SemaOptions opts) {
     SemaChecker checker;
     checker.set_metaprog_options(opts.metaprog_mode, opts.entry_ast_idx);
+    checker.set_metaprog_keep_fns(opts.metaprog_keep_fns);
     return checker.run(asts, filenames, from_binary);
 }
 

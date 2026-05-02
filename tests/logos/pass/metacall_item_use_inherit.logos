@@ -1,0 +1,24 @@
+// MC2.2: source-site name resolution at quote_item! lowering.
+// The metafn imports `mylib` and quotes a struct whose field type
+// `Point` is unqualified. The synth module inherits the metafn's
+// import scope, so re-sema resolves `Point` to `mylib.Point`.
+
+package main;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+use mylib;
+
+fn emit_for() -> QuoteItemBlob {
+    return quote_item! {
+        struct Wrap { p: Point }
+    };
+}
+
+metacall emit_for();
+
+unsafe fn main() -> i32 {
+    let p: Point = Point { x: 7, y: 35 };
+    let w: Wrap = Wrap { p: p };
+    return w.p.x + w.p.y;
+}

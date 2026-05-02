@@ -1,0 +1,34 @@
+// quote_expr! `#(#xs),*` cursor over `Vec<Ident>` (runtime-sized).
+// Mirrors quote_expr_repeat_comma but the cursor's length is unknown at
+// sema time — count comes from `xs.len`, ptr from `xs.ptr` at runtime.
+
+package quote_expr_repeat_slice;
+
+use std.compiler.metaprog;
+use std.collections.vec;
+use std.hermes.view;
+
+fn add3(x: i32, y: i32, z: i32) -> i32 {
+    return x + y + z;
+}
+
+fn build_expr() -> ExprBlob {
+    let s_a: str = "a";
+    let s_b: str = "b";
+    let s_c: str = "c";
+    let mut xs: Vec<Ident> = vec_new::<Ident>();
+    unsafe {
+        (&mut xs as *mut Vec<Ident>).push(Ident { ptr: s_a.as_ptr(), len: s_a.len() as u64 });
+        (&mut xs as *mut Vec<Ident>).push(Ident { ptr: s_b.as_ptr(), len: s_b.len() as u64 });
+        (&mut xs as *mut Vec<Ident>).push(Ident { ptr: s_c.as_ptr(), len: s_c.len() as u64 });
+    }
+    return quote_expr! { add3(#(#xs),*) };
+}
+
+unsafe fn main() -> i32 {
+    let a: i32 = 2;
+    let b: i32 = 3;
+    let c: i32 = 7;
+    let r: i32 = metacall build_expr();
+    return r - 5;
+}

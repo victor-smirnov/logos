@@ -1,0 +1,11 @@
+// IR snapshot: a Logos program with no generics, structs, or stdlib usage
+// should lower to a single `main` definition with arithmetic only — no
+// stray symbols pulled in from monomorphization.
+
+package main;
+
+unsafe fn main() -> i32 {
+    let a: i64 = 40i64;
+    let b: i64 = 2i64;
+    return (a + b) as i32;
+}

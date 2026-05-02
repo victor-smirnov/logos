@@ -1,0 +1,14 @@
+; FileCheck spec for struct_method_dispatch.logos.
+;
+; Asserts the inherent method `Pair::sum` lowers to a static free function
+; with `Struct__method` mangling and direct call (no vtable/indirect).
+
+; CHECK: %Pair = type { i64, i64 }
+; CHECK-LABEL: define i64 @Pair__sum(ptr
+; CHECK: getelementptr %Pair
+; CHECK: ret i64
+
+; CHECK-LABEL: define i32 @main()
+; CHECK: call i64 @Pair__sum(ptr
+
+; CHECK-NOT: load ptr, ptr {{.*}}__vtable

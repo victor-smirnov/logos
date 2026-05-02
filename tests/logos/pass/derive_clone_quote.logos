@@ -1,0 +1,62 @@
+// derive(Clone) via the new metaprog stack (quote_item! + quote_expr! + Vec<Ident>
+// cursor + STRUCT_LIT NAME_VAR antiquot + FIELD_READ NAME_VAR antiquot).
+//
+// Non-generic targets only; the generic-impl path is exercised by
+// derive_clone_stdlib via the std.compiler.metaprog hook.
+
+package main;
+
+use std.compiler.metaprog;
+use std.collections.vec;
+use std.hermes.view;
+use std.hermes.anyval;
+use std.hermes.string;
+use std.lang.clone;
+
+#[metaprog_handler("derive_clone_q")]
+fn derive_clone_q_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+
+    let item: AnyVal = AnyVal::from_offset(target_offset);
+    let nm_sv: StringView = view.ast_node_name(item);
+    if nm_sv.len == (0 as u64) { return; }
+    let nm: Ident = Ident { ptr: nm_sv.ptr, len: nm_sv.len };
+
+    let nf: u64 = view.ast_struct_field_count(item);
+    let mut fnames: Vec<Ident> = vec_new::<Ident>();
+    let mut i: u64 = 0 as u64;
+    while i < nf {
+        let fld: AnyVal = view.ast_struct_field(item, i);
+        let fsv: StringView = view.ast_field_name(fld);
+        unsafe {
+            (&mut fnames as *mut Vec<Ident>).push(
+                Ident { ptr: fsv.ptr, len: fsv.len });
+        }
+        i = i + (1 as u64);
+    }
+
+    let body: ExprBlob = quote_expr! {
+        #nm { #( #fnames: self.#fnames.clone() ),* }
+    };
+    let blob: QuoteItemBlob = quote_item! {
+        impl Clone for #(nm) {
+            fn clone(self: #(nm)) -> #(nm) {
+                return #(body);
+            }
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
+    return;
+}
+
+#[derive_clone_q]
+struct PairQ { a: i32, b: i64 }
+
+unsafe fn main() -> i32 {
+    let p: PairQ = PairQ { a: 7, b: 100 };
+    let q: PairQ = p.clone();
+    if q.a != 7 { return 11; }
+    if q.b != (100 as i64) { return 12; }
+    return 0;
+}

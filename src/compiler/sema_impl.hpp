@@ -78,6 +78,19 @@ public:
         metaprog_mode_ = mode;
         metaprog_entry_ast_idx_ = entry_ast_idx;
     }
+    void set_metaprog_keep_fns(std::vector<std::string> names) {
+        metaprog_keep_fns_ = std::move(names);
+    }
+    bool fn_is_metaprog_keep(std::string_view name) const {
+        // Strip overload-disambig suffix added by function_symbol_name:
+        // generics get "__g__<sig>", overloaded non-generics get "__f__<sig>".
+        // metacall_sites store the raw callee token, so compare against the base name.
+        std::string_view base = name;
+        if (auto p = base.find("__g__"); p != std::string_view::npos) base = base.substr(0, p);
+        else if (auto p = base.find("__f__"); p != std::string_view::npos) base = base.substr(0, p);
+        for (const auto& n : metaprog_keep_fns_) if (n == base) return true;
+        return false;
+    }
 
 private:
     // ── Type pool and primitives ─────────────────────────────────
@@ -483,6 +496,7 @@ private:
     // bodies don't reach result_.diags. Set via sema_lower's SemaOptions.
     bool   metaprog_mode_           = false;
     size_t metaprog_entry_ast_idx_  = static_cast<size_t>(-1);
+    std::vector<std::string> metaprog_keep_fns_;
     size_t cur_ast_idx_             = static_cast<size_t>(-1);
 
     // Current AST root, set by lower_program at each iteration. Used by
@@ -1089,6 +1103,12 @@ private:
             hermes::TinyMapView node, std::string_view ename, std::string_view vname);
     lir::LExprPtr lower_static_call(hermes::TinyMapView node);
     lir::LExprPtr lower_metacall   (hermes::TinyMapView node);
+    // Item-position metacall (MC1.1). Synthesises a void thunk that wraps
+    // the inner callee — `let __b = call(); logos_emit_item_blob_subst(&__b);`
+    // — and registers a MetacallSite with ret_tag = ItemBlob. Caller
+    // (sema.cpp item dispatch) supplies the AST offset of the METACALL_ITEM
+    // node so the driver can mark it consumed (CODE → METACALL_ITEM_DONE).
+    void          lower_metacall_item(hermes::TinyMapView node, lir::LProgram& prog);
     lir::LExprPtr lower_if_expr(hermes::TinyMapView node);
     lir::LExprPtr lower_closure_expr(hermes::TinyMapView node);
 

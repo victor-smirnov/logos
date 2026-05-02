@@ -1,0 +1,23 @@
+; FileCheck spec for closure_capture.logos.
+;
+; Asserts the closure-capture lowering invariants:
+;   1. apply() takes a fat pair { fn-ptr, env-ptr } as its first argument.
+;   2. main packs both into the pair and stores the captured `offset` into
+;      the environment struct.
+;   3. A synthetic `__closure_<n>` function is emitted with the closure body,
+;      reading the captured value from the env-ptr (not as a constant).
+
+; CHECK-LABEL: define i32 @apply(ptr
+; CHECK: getelementptr { ptr, ptr }
+; CHECK: call i32 {{.*}}(ptr {{.*}}, i32
+
+; CHECK-LABEL: define i32 @main()
+; CHECK: store i32 37, ptr
+; CHECK: store ptr @__closure_{{[0-9]+}}, ptr
+; CHECK: call i32 @apply(ptr
+
+; CHECK-LABEL: define private i32 @__closure_{{[0-9]+}}(ptr
+; CHECK: load i32, ptr
+; CHECK: add i32
+
+; CHECK-NOT: add i32 {{.*}}, 37

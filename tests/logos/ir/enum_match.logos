@@ -1,0 +1,17 @@
+// IR snapshot: enum match should lower to a discriminant-based switch.
+// Verifies the Color enum's discriminant lives in the struct, and that
+// match drives codegen via integer comparison/branching.
+
+package main;
+
+enum Color { Red, Green, Blue }
+
+unsafe fn main() -> i32 {
+    let c: Color = Color::Green;
+    let n: i32 = match c {
+        Color::Red   => 1i32,
+        Color::Green => 42i32,
+        Color::Blue  => 3i32,
+    };
+    return n;
+}

@@ -1,0 +1,23 @@
+// MC2.1 (variant A): generic metacall at item-position. The metafn
+// reads an introspection intrinsic on its type-arg T and emits a
+// struct whose shape depends on T. Validates that intrinsics work
+// inside JIT'd metacall callees.
+
+package main;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+
+fn emit_for<T>() -> QuoteItemBlob {
+    let _n: i64 = args_count_of::<T>();
+    return quote_item! {
+        struct SynthA { x: i32 }
+    };
+}
+
+metacall emit_for::<i32>();
+
+unsafe fn main() -> i32 {
+    let s: SynthA = SynthA { x: 42 };
+    return s.x;
+}

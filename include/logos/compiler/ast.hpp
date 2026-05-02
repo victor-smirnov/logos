@@ -169,6 +169,8 @@ inline constexpr Code ANTIQUOT_TYPE {"ANTIQUOT_TYPE", 205};  // `$ident` in a ty
 inline constexpr Code ANTIQUOT_PACK {"ANTIQUOT_PACK", 206};  // `$ident...` in a type-arg list inside `quote_ty! { ... }`. NAME = identifier of an Array<Type>-valued binding; sema lowers `quote_ty! { Foo<$ts...> }` to `type_apply("Foo", ts)`.
 inline constexpr Code ASSOC_EQ_BIND {"ASSOC_EQ_BIND", 207};  // `Name = Type` clause inside a trait bound's `<...>` (ADR 0008). NAME = assoc-type name; TYPE = bound rhs type AST.
 inline constexpr Code INSTANTIATE_DECL {"INSTANTIATE_DECL", 208};  // `instantiate Foo<T>;` / `pub instantiate Foo<T>;` — pre-instantiation root pin (C++ `template class Foo<int>;` analog). TYPE = target type AST; IS_PUB = lib-site re-export marker.
+inline constexpr Code METACALL_ITEM {"METACALL_ITEM", 209};  // `metacall <call_expr>;` at module-item position. VALUE = inner call AST. Driver runs the JIT'd callee returning QuoteItemBlob and splices its emitted items at top level via `logos_emit_item_blob_subst`; METACALL_ITEM node is then marked consumed.
+inline constexpr Code METACALL_ITEM_DONE {"METACALL_ITEM_DONE", 210};  // Set by the driver after a METACALL_ITEM has been invoked; sema item-dispatch silently skips. Never parsed.
 
 // Dynamic dispatch
 inline constexpr Code IMPL_TYPE   {"IMPL_TYPE",   116};    // impl Trait type

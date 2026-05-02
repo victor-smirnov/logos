@@ -1,0 +1,30 @@
+// ExprBlob splice in `quote_item!` body. Hook builds an `ExprBlob` via
+// `quote_expr!` and uses `#(expr)` at expression position inside the
+// item template. The host shim recognises NAME_VAR(neg idx) on a
+// VAR_REF placeholder and splices the blob's root expr in place.
+
+package main;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+
+#[metaprog_handler("exprblob_splice_inject")]
+fn exprblob_splice_inject_hook(target_offset: u32) -> () {
+    let s_fn: str = "compute_blob";
+    let id_fn: Ident = Ident { ptr: s_fn.as_ptr(), len: s_fn.len() as u64 };
+    let body_blob: ExprBlob = quote_expr! { 60i32 };
+    let blob: QuoteItemBlob = quote_item! {
+        fn #(id_fn)() -> i32 { return #(body_blob); }
+    };
+    unsafe {
+        logos_emit_item_blob_subst(&blob);
+    }
+    return;
+}
+
+#[exprblob_splice_inject]
+struct Marker {}
+
+unsafe fn main() -> i32 {
+    return compute_blob() - 53;
+}

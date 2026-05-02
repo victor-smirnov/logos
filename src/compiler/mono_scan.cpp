@@ -545,6 +545,8 @@ void Mono::drain_method_worklist() {
         auto& fn_ref = *target->methods.back();
         lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
         scan_fn(fn_ref);
+        ++stats_.method_instances;
+        note_method_worklist_size(method_worklist_.size());
     }
     depth_ = 0;
 }

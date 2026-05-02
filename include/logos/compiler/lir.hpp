@@ -957,8 +957,12 @@ struct LProgram {
         // failed (e.g. unsupported call shape) — driver skips such sites.
         std::string thunk_source;
         // Return-type discriminator for the driver (avoids re-deriving from L-IR).
-        enum class RetTag { Bool, I8, I16, I24, I32, I56, I64, U8, U16, U24, U32, U56, U64, F32, F64, Str, HermesStatic, Hermes, ExprBlob };
+        enum class RetTag { Bool, I8, I16, I24, I32, I56, I64, U8, U16, U24, U32, U56, U64, F32, F64, Str, HermesStatic, Hermes, ExprBlob, ItemBlob };
         RetTag      ret_tag = RetTag::I64;
+        // MC1.2: simple-name of the free-fn callee (no turbofish, no `Type::`
+        // prefix). Driver passes these as `metaprog_keep_fns` on re-sema so
+        // the callee body isn't stubbed out in metaprog_mode.
+        std::string callee_name;
     };
     std::vector<MetacallSite> metacall_sites;
 
@@ -1028,6 +1032,11 @@ namespace logos::compiler {
 struct SemaOptions {
     bool metaprog_mode = false;
     size_t entry_ast_idx = static_cast<size_t>(-1);
+    // MC1.2: in metaprog_mode, the bodies of non-handler entry-file fns are
+    // normally skipped. Names listed here are treated like handlers for the
+    // skip decision — their bodies ARE lowered. Driver populates this on the
+    // second pass with callees of item-position metacall sites.
+    std::vector<std::string> metaprog_keep_fns;
 };
 
 // Run semantic analysis and produce L-IR from all parsed module ASTs.

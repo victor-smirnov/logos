@@ -254,6 +254,8 @@
     ANTIQUOT_PACK               = 206   // $ident... in a type-arg list; NAME = ident of an Array<Type> binding (only legal inside quote_ty!)
     ASSOC_EQ_BIND               = 207   // Name = Type clause inside trait bound `<...>`; NAME = assoc-type name; TYPE = rhs type AST
     INSTANTIATE_DECL            = 208   // `instantiate Foo<T>;` — pre-instantiation root pin; TYPE = target type, IS_PUB? = lib-site re-export marker
+    METACALL_ITEM               = 209   // `metacall <call_expr>;` at module-item position; VALUE = inner call AST. Driver runs the JIT'd callee returning QuoteItemBlob and splices its emitted items via `logos_emit_item_blob_subst`; node is marked consumed after splice.
+    METACALL_ITEM_DONE          = 210   // Set by the driver after a METACALL_ITEM has been invoked; sema item-dispatch silently skips. Never parsed.
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -400,7 +402,15 @@
     path_dot_ident <- DOT IDENT
                    => { NAME: $2 }
 
-    item <- template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / pub_struct_def / struct_def / pub_genos_def / genos_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
+    item <- template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / metacall_item_decl / pub_struct_def / struct_def / pub_genos_def / genos_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
+
+    // ── Item-position metacall ───────────────────────────────────
+    // `metacall foo::<...>(...);` at module top level. The callee returns
+    // a `QuoteItemBlob` (typed AST item-blob); the driver runs the JIT'd
+    // thunk, which calls `logos_emit_item_blob_subst` to splice the items
+    // into the program. METACALL_ITEM node is marked consumed after splice.
+    metacall_item_decl <- KW_METACALL call_expr SEMI
+                       => { CODE: METACALL_ITEM, VALUE: $2 }
 
     // ── Explicit instantiation (root-pin) ────────────────────────
     // `instantiate Foo<T>;` materializes Foo<T> as a root for monomorphization
@@ -501,12 +511,20 @@
     // enum Color { Red, Green = 5, Blue }
     // enum Option<T> { Some(T), None }
     // enum Tags : u64 { X = 0xdead }          — explicit backing integer type
-    pub_enum_def <- KW_PUB KW_ENUM IDENT type_param_list? COLON type_ref LBRACE variant_list? RBRACE
+    pub_enum_def <- KW_PUB KW_ENUM HASH LPAREN expr RPAREN type_param_list? COLON type_ref LBRACE variant_list? RBRACE
+                 => { CODE: ENUM, IS_PUB: 1, NAME_VAR: $5, TYPE_PARAMS: $7, TYPE: $9, ITEMS: $11 }
+                  / KW_PUB KW_ENUM HASH LPAREN expr RPAREN type_param_list? LBRACE variant_list? RBRACE
+                 => { CODE: ENUM, IS_PUB: 1, NAME_VAR: $5, TYPE_PARAMS: $7, ITEMS: $9 }
+                  / KW_PUB KW_ENUM IDENT type_param_list? COLON type_ref LBRACE variant_list? RBRACE
                  => { CODE: ENUM, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, TYPE: $6, ITEMS: $8 }
                   / KW_PUB KW_ENUM IDENT type_param_list? LBRACE variant_list? RBRACE
                  => { CODE: ENUM, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, ITEMS: $6 }
 
-    enum_def <- KW_ENUM IDENT type_param_list? COLON type_ref LBRACE variant_list? RBRACE
+    enum_def <- KW_ENUM HASH LPAREN expr RPAREN type_param_list? COLON type_ref LBRACE variant_list? RBRACE
+             => { CODE: ENUM, NAME_VAR: $4, TYPE_PARAMS: $6, TYPE: $8, ITEMS: $10 }
+              / KW_ENUM HASH LPAREN expr RPAREN type_param_list? LBRACE variant_list? RBRACE
+             => { CODE: ENUM, NAME_VAR: $4, TYPE_PARAMS: $6, ITEMS: $8 }
+              / KW_ENUM IDENT type_param_list? COLON type_ref LBRACE variant_list? RBRACE
              => { CODE: ENUM, NAME: $2, TYPE_PARAMS: $3, TYPE: $5, ITEMS: $7 }
               / KW_ENUM IDENT type_param_list? LBRACE variant_list? RBRACE
              => { CODE: ENUM, NAME: $2, TYPE_PARAMS: $3, ITEMS: $5 }
@@ -760,12 +778,16 @@
     struct_inst <- KW_STRUCT type_ref SEMI
                 => { CODE: STRUCT, TYPE: $2 }
 
-    pub_struct_def <- KW_PUB KW_STRUCT HASH IDENT type_param_list? LBRACE field_def* method_def* meta_block? RBRACE
+    pub_struct_def <- KW_PUB KW_STRUCT HASH LPAREN expr RPAREN type_param_list? LBRACE field_def* method_def* meta_block? RBRACE
+                   => { CODE: STRUCT, IS_PUB: 1, NAME_VAR: $5, TYPE_PARAMS: $7, FIELDS: $9, ITEMS: $10, META: $11 }
+                    / KW_PUB KW_STRUCT HASH IDENT type_param_list? LBRACE field_def* method_def* meta_block? RBRACE
                    => { CODE: STRUCT, IS_PUB: 1, NAME_VAR: $4, TYPE_PARAMS: $5, FIELDS: $7, ITEMS: $8, META: $9 }
                     / KW_PUB KW_STRUCT IDENT type_param_list? LBRACE field_def* method_def* meta_block? RBRACE
                    => { CODE: STRUCT, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, FIELDS: $6, ITEMS: $7, META: $8 }
 
-    struct_def <- KW_STRUCT HASH IDENT type_param_list? LBRACE field_def* method_def* meta_block? RBRACE
+    struct_def <- KW_STRUCT HASH LPAREN expr RPAREN type_param_list? LBRACE field_def* method_def* meta_block? RBRACE
+               => { CODE: STRUCT, NAME_VAR: $4, TYPE_PARAMS: $6, FIELDS: $8, ITEMS: $9, META: $10 }
+                / KW_STRUCT HASH IDENT type_param_list? LBRACE field_def* method_def* meta_block? RBRACE
                => { CODE: STRUCT, NAME_VAR: $3, TYPE_PARAMS: $4, FIELDS: $6, ITEMS: $7, META: $8 }
                 / KW_STRUCT IDENT type_param_list? LBRACE field_def* method_def* meta_block? RBRACE
                => { CODE: STRUCT, NAME: $2, TYPE_PARAMS: $3, FIELDS: $5, ITEMS: $6, META: $7 }
@@ -798,7 +820,17 @@
                  => { CODE: WHERE_CLAUSE, ITEMS: $... }
 
     // ── Public function ──────────────────────────────────────────
-    pub_fn_def <- KW_PUB KW_UNSAFE KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
+    // Antiquot alts (NAME_VAR holds an expr-TOM; only valid inside quote_*! body —
+    // sema gates) come first; they omit where_clause? since NAME_VAR/WHERE share slot 38.
+    pub_fn_def <- KW_PUB KW_UNSAFE KW_FN HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
+               => { CODE: FN, IS_PUB: 1, IS_UNSAFE: 1, NAME_VAR: $6, TYPE_PARAMS: $8, PARAMS: $10, RET_TYPE: $13, BODY: $14 }
+                / KW_PUB KW_UNSAFE KW_FN HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN block
+               => { CODE: FN, IS_PUB: 1, IS_UNSAFE: 1, NAME_VAR: $6, TYPE_PARAMS: $8, PARAMS: $10, BODY: $12 }
+                / KW_PUB KW_FN HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
+               => { CODE: FN, IS_PUB: 1, NAME_VAR: $5, TYPE_PARAMS: $7, PARAMS: $9, RET_TYPE: $12, BODY: $13 }
+                / KW_PUB KW_FN HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN block
+               => { CODE: FN, IS_PUB: 1, NAME_VAR: $5, TYPE_PARAMS: $7, PARAMS: $9, BODY: $11 }
+                / KW_PUB KW_UNSAFE KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
                => { CODE: FN, IS_PUB: 1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, PARAMS: $7, RET_TYPE: $10, WHERE: $11, BODY: $12 }
                 / KW_PUB KW_UNSAFE KW_FN IDENT type_param_list? LPAREN param_list? RPAREN where_clause? block
                => { CODE: FN, IS_PUB: 1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, PARAMS: $7, WHERE: $9, BODY: $10 }
@@ -808,7 +840,15 @@
                => { CODE: FN, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8, BODY: $9 }
 
     // ── Private function ─────────────────────────────────────────
-    fn_def <- KW_UNSAFE KW_FN IDENT  type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
+    fn_def <- KW_UNSAFE KW_FN HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
+           => { CODE: FN, IS_UNSAFE: 1, NAME_VAR: $5, TYPE_PARAMS: $7, PARAMS: $9, RET_TYPE: $12, BODY: $13 }
+            / KW_UNSAFE KW_FN HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN block
+           => { CODE: FN, IS_UNSAFE: 1, NAME_VAR: $5, TYPE_PARAMS: $7, PARAMS: $9, BODY: $11 }
+            / KW_FN HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
+           => { CODE: FN, NAME_VAR: $4, TYPE_PARAMS: $6, PARAMS: $8, RET_TYPE: $11, BODY: $12 }
+            / KW_FN HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN block
+           => { CODE: FN, NAME_VAR: $4, TYPE_PARAMS: $6, PARAMS: $8, BODY: $10 }
+            / KW_UNSAFE KW_FN IDENT  type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
            => { CODE: FN, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, WHERE: $10, BODY: $11 }
             / KW_UNSAFE KW_FN IDENT  type_param_list? LPAREN param_list? RPAREN where_clause? block
            => { CODE: FN, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8, BODY: $9 }
@@ -938,7 +978,9 @@
     // type_or_lt_arg: a type argument that may be a lifetime annotation or a type.
     // Lifetimes (e.g. 'a) in generic type args are stored as LIFETIME_PARAM nodes
     // so sema can skip them when resolving concrete type arguments.
-    type_or_lt_arg <- LIFETIME
+    type_or_lt_arg <- HASH LPAREN type_or_lt_arg RPAREN COMMA STAR
+                   => { CODE: REPEAT_GROUP, VALUE: $3, OP: 1 }
+                    / LIFETIME
                    => { CODE: LIFETIME_PARAM, NAME: $1 }
                     / IDENT DOTDOTDOT
                    => { CODE: PACK_EXPAND, NAME: $1 }
@@ -952,7 +994,15 @@
                    => { CODE: LIT_INT, VALUE: $1 }
                     / type_ref
 
-    simple_type <- IDENT LT type_or_lt_arg (COMMA type_or_lt_arg)* GT_TYPE
+    simple_type <- HASH LPAREN expr RPAREN LT type_or_lt_arg (COMMA type_or_lt_arg)* GT_TYPE
+                => { CODE: GENERIC_INST, NAME_VAR: $3, ITEMS: $... }
+                 / HASH IDENT LT type_or_lt_arg (COMMA type_or_lt_arg)* GT_TYPE
+                => { CODE: GENERIC_INST, NAME_VAR: $2, ITEMS: $... }
+                 / HASH LPAREN expr RPAREN
+                => { CODE: TYPE_REF, NAME_VAR: $3 }
+                 / HASH IDENT
+                => { CODE: TYPE_REF, NAME_VAR: $2 }
+                 / IDENT LT type_or_lt_arg (COMMA type_or_lt_arg)* GT_TYPE
                 => { CODE: GENERIC_INST, NAME: $1, ITEMS: $... }
                  / IDENT
                 => { CODE: TYPE_REF, NAME: $1 }
@@ -1353,6 +1403,10 @@
                 => { CODE: METHOD_CALL, RECEIVER: $0, NAME: $2, ARGS: $... }
             / DOT INTEGER
                 => { CODE: TUPLE_INDEX, RECEIVER: $0, FIELD: $2 }
+            / DOT HASH LPAREN expr RPAREN
+                => { CODE: FIELD_READ, RECEIVER: $0, NAME_VAR: $4 }
+            / DOT HASH IDENT
+                => { CODE: FIELD_READ, RECEIVER: $0, NAME_VAR: $3 }
             / DOT IDENT
                 => { CODE: FIELD_READ, RECEIVER: $0, FIELD: $2 }
             / LBRACKET expr RBRACKET
@@ -1403,6 +1457,8 @@
                         => { CODE: REPEAT_GROUP, VALUE: $3, OP: 1 }
                   / HASH LPAREN expr RPAREN STAR
                         => { CODE: REPEAT_GROUP, VALUE: $3, OP: 0 }
+                  / HASH LPAREN expr RPAREN
+                        => { CODE: VAR_REF, NAME_VAR: $3 }
                   / HASH IDENT => { CODE: VAR_REF, NAME_VAR: $2 }
                   / IDENT    => { CODE: VAR_REF,  NAME: $1 }
 
@@ -1423,10 +1479,23 @@
                        / IDENT LBRACE DOTDOT expr RBRACE
                       => { CODE: STRUCT_LIT, NAME: $1, BASE: $4 }
 
-    struct_lit <- IDENT LBRACE (field_init (COMMA field_init)* COMMA?)? RBRACE
+    struct_lit <- HASH LPAREN expr RPAREN LBRACE (field_init (COMMA field_init)* COMMA?)? RBRACE
+               => { CODE: STRUCT_LIT, NAME_VAR: $3, ITEMS: $... }
+                / HASH IDENT LBRACE (field_init (COMMA field_init)* COMMA?)? RBRACE
+               => { CODE: STRUCT_LIT, NAME_VAR: $2, ITEMS: $... }
+                / IDENT LBRACE (field_init (COMMA field_init)* COMMA?)? RBRACE
                => { CODE: STRUCT_LIT, NAME: $1, ITEMS: $... }
 
-    field_init <- IDENT COLON expr
+    // Antiquot alts (only valid inside `quote_expr!` body — sema gates) come
+    // first; they enable `#(expr): expr` for a placeholder field name and
+    // `#(field_init),*` for cursor-expanded field-init lists in struct literals.
+    field_init <- HASH LPAREN field_init RPAREN COMMA STAR
+               => { CODE: REPEAT_GROUP, VALUE: $3, OP: 1 }
+              / HASH LPAREN expr RPAREN COLON expr
+               => { CODE: FIELD_INIT, NAME_VAR: $3, VALUE: $6 }
+              / HASH IDENT COLON expr
+               => { CODE: FIELD_INIT, NAME_VAR: $2, VALUE: $4 }
+              / IDENT COLON expr
                => { CODE: FIELD_INIT, NAME: $1, VALUE: $3 }
               / IDENT
                => { CODE: FIELD_SHORTHAND, NAME: $1 }
@@ -1602,7 +1671,9 @@
     lifetime_param <- LIFETIME
                    => { CODE: LIFETIME_PARAM, NAME: $1 }
 
-    type_param <- lifetime_param
+    type_param <- HASH LPAREN type_param RPAREN COMMA STAR
+               => { CODE: REPEAT_GROUP, VALUE: $3, OP: 1 }
+                / lifetime_param
                 / ptr_type
                 / arr_type
                 / KW_CONST IDENT DOTDOTDOT COLON type_ref
@@ -1613,6 +1684,10 @@
                => { CODE: TYPE_PARAM, NAME: $1, IS_VARIADIC: true, ITEMS: $... }
                 / IDENT DOTDOTDOT
                => { CODE: TYPE_PARAM, NAME: $1, IS_VARIADIC: true }
+                / HASH IDENT COLON trait_bound (PLUS trait_bound)*
+               => { CODE: TYPE_PARAM, NAME_VAR: $2, ITEMS: $... }
+                / HASH IDENT
+               => { CODE: TYPE_PARAM, NAME_VAR: $2 }
                 / IDENT COLON trait_bound (PLUS trait_bound)*
                => { CODE: TYPE_PARAM, NAME: $1, ITEMS: $... }
                 / IDENT

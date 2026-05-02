@@ -111,6 +111,21 @@ impl Type {
         let k: u32 = self.kind;
         return k == (18 as u32) || k == (19 as u32) || k == (20 as u32);
     }
+
+    // Borrow the canonical printable name as an `Ident` for use at
+    // `#(t.ident())` antiquot positions in `quote_*!`. Bytes live in
+    // the rodata strings interned by the compiler when materialising
+    // the Type literal — same lifetime as `self.name`. For primitive
+    // and bare-struct types the result is a syntactically valid
+    // identifier; for generic instantiations like "Vec<i32>" the bytes
+    // contain `<`/`>` and parsing as a NAME will fail (structural
+    // materialisation lands in a later slice).
+    pub fn ident(&self) -> Ident {
+        return Ident {
+            ptr: self.name.as_ptr(),
+            len: self.name.len() as u64,
+        };
+    }
 }
 
 // `Template` — declaration-as-data handle. Wraps an item AST node that
@@ -169,21 +184,57 @@ pub struct Ident {
     pub len: u64,
 }
 
+// Hygiene: `gensym(prefix)` returns a fresh `Ident` whose bytes are
+// `<prefix>__hyg_<N>` (counter is global to the compilation). The host
+// owns the byte storage; it lives until the compiler exits, which is
+// well past every metafn invocation. Use inside `quote_item!`/`quote_expr!`
+// to name local helpers/temps that must not collide across invocations.
+extern fn logos_metaprog_gensym(pref_ptr: *const u8, pref_len: u64,
+                                out_len: *mut u64) -> *const u8;
+
+pub fn gensym(prefix: str) -> Ident {
+    let mut len: u64 = 0u64;
+    let p: *const u8 = unsafe {
+        logos_metaprog_gensym(prefix.as_ptr(), prefix.len() as u64,
+                              &mut len as *mut u64)
+    };
+    return Ident { ptr: p, len: len };
+}
+
 // `QuoteItemBlob` — bundle returned by `quote_item! { ... }` post-
 // Slice 5a.1. `template_ptr/size` is the rodata Hermes blob with
-// `NAME_VAR` placeholders carrying integer indices; `idents_ptr` is
-// a runtime-collected array of pointers to per-site `Ident` values
-// (one entry per `#name` site, in the order they appear in the quote
-// body). Pointer-of-pointer because Logos arrays-of-struct aren't
-// laid out inline at MLIR level; an array of `*const Ident` is the
-// portable representation. The host shim `logos_emit_item_blob_subst`
-// walks the template, substitutes each placeholder with `*idents[idx]`,
-// and forwards to the regular item-blob emit path.
+// `NAME_VAR` placeholders carrying integer indices. `idents_blob` is a
+// single owned heap allocation packing all per-site `Ident` values
+// inline (so the QIB is safe to return through Vec/struct without
+// dangling stack pointers). Layout of `idents_blob`:
+//
+//   [u64 N] [N × Ident{ptr,len}] [packed ident bytes...]
+//
+// Each Ident.ptr points into this same blob's bytes section. `N == 0`
+// is encoded by setting `idents_blob` to null. The blob is allocated by
+// `qib_pack_idents` (sibling fn) and freed via `qib_free_idents`. The
+// host shim `logos_emit_item_blob_subst` reads N from the blob header
+// and walks the packed Ident array directly.
 pub struct QuoteItemBlob {
     pub template_ptr: *const u8,
     pub template_size: u64,
-    pub idents_ptr: *const *const Ident,
-    pub idents_count: u64,
+    pub idents_blob: *const u8,
+    // Packed ExprBlob splice payloads. Layout:
+    //   [u64 N] [N × {offset_into_blob: u64, size: u64}] [concatenated bodies]
+    // Each entry is the raw bytes of an `ExprBlob` returned by
+    // `quote_expr!`, copied so QIB owns its lifetime. Splice sites in the
+    // template are encoded as `NAME_VAR=int(-(idx+1))`; the host shim
+    // distinguishes from ident sites (positive idx) by sign.
+    pub blobs_blob: *const u8,
+    // Packed cursor (Vec<Ident>) payloads. Layout mirrors idents_blob but
+    // grouped per-cursor:
+    //   [u64 N_cursors]
+    //   [N_cursors × {u64 count, u64 byte_offset_to_pods}]
+    //   [pods + ident bytes...]
+    // Each pod is `{ptr,len}` like in idents_blob; ptr points into this
+    // same blob's bytes section. Cursor sites in the template are
+    // `NAME_VAR=int(idx | 0x40000000)`; idx selects the entry above.
+    pub cursors_blob: *const u8,
 }
 
 // `ExprBlob` — marker return type for metafunctions that produce an AST

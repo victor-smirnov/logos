@@ -1,0 +1,16 @@
+// IR snapshot: a non-generic struct method should lower as a free function
+// `<Struct>__<method>` taking the receiver by pointer. No vtable, no
+// indirect call.
+
+package main;
+
+struct Pair { x: i64, y: i64 }
+
+impl Pair {
+    fn sum(self: Pair) -> i64 { return self.x + self.y; }
+}
+
+unsafe fn main() -> i32 {
+    let p: Pair = Pair { x: 30i64, y: 12i64 };
+    return p.sum() as i32;
+}

@@ -9,6 +9,7 @@ package std.collections.vec;
 use std.mem;
 use std.lang.option;
 use std.lang.iter;
+use std.lang.cmp;
 
 pub struct Vec<T> {
     ptr: *mut T,

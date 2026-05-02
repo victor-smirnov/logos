@@ -239,19 +239,24 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         auto& fn_ref = *out_.functions.back();
         lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
         scan_fn(fn_ref);
+        ++stats_.fn_clones;
     }
 
     // Process function work-list.
+    note_fn_worklist_size(worklist_.size());
     while (!worklist_.empty()) {
         auto item = std::move(worklist_.back());
         worklist_.pop_back();
         // Set current depth for enqueue_if_needed during scan_fn
         depth_ = item.depth;
+        note_depth(depth_);
         auto inst = instantiate_fn(*item.tmpl, item.mangled, item.subst, item.packs);
         out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(inst)));
         auto& fn_ref = *out_.functions.back();
         lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
         scan_fn(fn_ref);
+        ++stats_.fn_instances;
+        note_fn_worklist_size(worklist_.size());
     }
     depth_ = 0;
 
@@ -439,6 +444,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                     de.impl_type_name = sd.name;
                     de.type_code      = sd.type_code;
                     out_.dispatch_entries.push_back(std::move(de));
+                    ++stats_.dispatch_entries;
                 }
             }
         }
@@ -454,6 +460,22 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // but need their fresh out_.mirror_table cache populated for downstream
     // offset → ptr reverse lookups (mlir_gen, borrow_check).
     lir_mirror_populate_moved(out_, *out_.mirror_table);
+
+    if (stats_enabled_) {
+        std::fprintf(stderr,
+            "[mono-stats] fn_clones=%llu fn_inst=%llu method_inst=%llu "
+            "struct_inst=%llu enum_inst=%llu dispatch=%llu "
+            "peak_fn_wl=%zu peak_method_wl=%zu peak_depth=%d\n",
+            (unsigned long long)stats_.fn_clones,
+            (unsigned long long)stats_.fn_instances,
+            (unsigned long long)stats_.method_instances,
+            (unsigned long long)stats_.struct_instances,
+            (unsigned long long)stats_.enum_instances,
+            (unsigned long long)stats_.dispatch_entries,
+            stats_.peak_fn_worklist,
+            stats_.peak_method_worklist,
+            stats_.peak_depth);
+    }
 
     return std::move(out_);
 }

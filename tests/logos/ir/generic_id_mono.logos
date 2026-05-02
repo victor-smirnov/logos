@@ -1,0 +1,12 @@
+// IR snapshot: generic free fn `id::<T>` monomorphizes to a single i64
+// instance with the `__g__T__i64` mangled suffix; main calls that symbol
+// directly. Validates the basic mono codegen contract.
+
+package main;
+
+fn id<T>(x: T) -> T { return x; }
+
+unsafe fn main() -> i32 {
+    let a: i64 = id::<i64>(42i64);
+    return a as i32;
+}

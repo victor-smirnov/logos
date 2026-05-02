@@ -1,0 +1,15 @@
+; FileCheck spec for generic_id_mono.logos.
+;
+; Asserts:
+;   1. main() exists and calls the mono'd `id__g__T__i64` symbol.
+;   2. The mono'd specialization exists with i64 sig (no TypeVar leak).
+;   3. There is no remaining generic template `id__g__T` (un-suffixed).
+
+; CHECK-LABEL: define i32 @main()
+; CHECK: call i64 @id__g__T__i64(i64 42)
+; CHECK: ret i32
+
+; CHECK-LABEL: define i64 @id__g__T__i64(i64
+; CHECK: ret i64
+
+; CHECK-NOT: define {{.*}} @id__g__T(

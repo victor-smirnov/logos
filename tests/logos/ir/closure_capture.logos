@@ -1,0 +1,15 @@
+// IR snapshot: a closure capturing a stack local must reference the captured
+// slot, not embed the captured value as a constant. The closure body lowers
+// as a synthetic function that takes an environment pointer.
+
+package main;
+
+fn apply(f: |i32| -> i32, x: i32) -> i32 {
+    return f(x);
+}
+
+unsafe fn main() -> i32 {
+    let offset: i32 = 37;
+    let add_offset = |x: i32| -> i32 { return x + offset; };
+    return apply(add_offset, 5);
+}

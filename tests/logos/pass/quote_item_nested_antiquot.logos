@@ -1,0 +1,33 @@
+// Phase 4 of quote-jinja-min-B: `#(expr)` antiquot form in a nested
+// type position. Sema must lower the inner `id` expr (Ident-typed) and
+// the splice runtime must recurse into the field-type TYPE_REF to
+// substitute the placeholder. Item-name uses `#name` shortcut to keep
+// both forms exercised.
+
+package main;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+
+#[metaprog_handler("nested_antiquot_inject")]
+fn nested_antiquot_inject_hook(target_offset: u32) -> () {
+    let s_struct: str = "Wrapper";
+    let s_field: str = "i64";
+    let id_struct: Ident = Ident { ptr: s_struct.as_ptr(), len: s_struct.len() as u64 };
+    let id_field: Ident = Ident { ptr: s_field.as_ptr(), len: s_field.len() as u64 };
+    let blob: QuoteItemBlob = quote_item! {
+        struct #id_struct { x: #(id_field) }
+    };
+    unsafe {
+        logos_emit_item_blob_subst(&blob);
+    }
+    return;
+}
+
+#[nested_antiquot_inject]
+struct Marker {}
+
+unsafe fn main() -> i32 {
+    let v: Wrapper = Wrapper { x: 9i64 };
+    return v.x as i32;
+}

@@ -88,3 +88,34 @@ const uint8_t* logos_quote_expr_subst(const uint8_t* tpl, uint64_t tpl_size,
     (void)tpl; (void)tpl_size; (void)idents_ptr; (void)idents_count;
     metaprog_unavailable("logos_quote_expr_subst");
 }
+
+__attribute__((weak))
+const uint8_t* logos_qib_pack_idents(const void* const* arr, uint64_t n) {
+    (void)arr; (void)n;
+    metaprog_unavailable("logos_qib_pack_idents");
+}
+
+__attribute__((weak))
+void logos_qib_free_idents(const uint8_t* blob) {
+    (void)blob;
+    metaprog_unavailable("logos_qib_free_idents");
+}
+
+__attribute__((weak))
+const uint8_t* logos_qib_pack_blobs(const uint8_t* const* arr, uint64_t n) {
+    (void)arr; (void)n;
+    metaprog_unavailable("logos_qib_pack_blobs");
+}
+
+__attribute__((weak))
+void logos_qib_free_blobs(const uint8_t* blob) {
+    (void)blob;
+    metaprog_unavailable("logos_qib_free_blobs");
+}
+
+__attribute__((weak))
+const uint8_t* logos_metaprog_gensym(const uint8_t* pref, uint64_t pref_len,
+                                     uint64_t* out_len) {
+    (void)pref; (void)pref_len; (void)out_len;
+    metaprog_unavailable("logos_metaprog_gensym");
+}

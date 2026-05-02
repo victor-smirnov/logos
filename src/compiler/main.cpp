@@ -19,6 +19,7 @@
 #include <logos/hermes/schema_codes.hpp>
 
 #include <logos/hermes/document.hpp>
+#include <logos/hermes/type_tag.hpp>
 #include <logos/hermes/mem_holder.hpp>
 #include <logos/hermes/type_ops.hpp>
 #include <logos/hermes/tiny_object_map.hpp>
@@ -26,6 +27,7 @@
 #include <logos/hermes/object_array.hpp>
 #include <logos/hermes/arena_string.hpp>
 #include <logos/hermes/clone.hpp>
+#include <logos/hermes/view.hpp>
 #include <logos/compiler/ast.hpp>
 
 // MLIR
@@ -268,9 +270,12 @@ extern "C" int32_t logos_emit_item_blob(const uint8_t* data, uint64_t size) {
 // to the same `g_asts->push_back` path as `logos_emit_item_blob`.
 //
 // Layout of QuoteItemBlob (mirrors stdlib/std/compiler/metaprog/ast.logos):
-//   { template_ptr: *const u8, template_size: u64,
-//     idents_ptr: *const Ident, idents_count: u64 }
-// where Ident is { ptr: *const u8, len: u64 }. POD, no relative ptrs.
+//   { template_ptr: *const u8, template_size: u64, idents_blob: *const u8 }
+// `idents_blob` is null or an owned heap allocation laid out as:
+//   [u64 N] [N × IdentPod{ptr,len}] [packed bytes...]
+// IdentPod.ptr is absolute and points into the same blob's byte section.
+// Built by `qib_pack_idents` in the metaprog stdlib; lifetime owned by
+// the calling thunk (freed via `qib_free_idents` after splice).
 extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
     if (!g_any_emitted || !g_asts || !g_filenames || !g_from_binary
         || !blob_ptr) return 0;
@@ -282,30 +287,80 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
     using logos::hermes::ObjectArray;
     using logos::hermes::TinyObjectMap;
     using logos::hermes::arena_offset_t;
+    using logos::hermes::copy_object_into;
 
     struct IdentPod { const uint8_t* ptr; uint64_t len; };
+    struct BlobEntry { uint64_t offset; uint64_t size; };
+    struct CursorHdr { uint64_t count; uint64_t pods_offset; };
     struct BlobPod {
         const uint8_t* template_ptr;
         uint64_t template_size;
-        const IdentPod* const* idents_ptr;  // array of pointers to Ident
-        uint64_t idents_count;
+        const uint8_t* idents_blob;
+        const uint8_t* blobs_blob;
+        const uint8_t* cursors_blob;
     };
     const auto* blob = reinterpret_cast<const BlobPod*>(blob_ptr);
     if (!blob->template_ptr || blob->template_size == 0) return 0;
 
+    uint64_t idents_count = 0;
+    const IdentPod* idents = nullptr;
+    if (blob->idents_blob) {
+        idents_count = *reinterpret_cast<const uint64_t*>(blob->idents_blob);
+        idents = reinterpret_cast<const IdentPod*>(blob->idents_blob + 8);
+    }
+    uint64_t blobs_count = 0;
+    const BlobEntry* blob_entries = nullptr;
+    if (blob->blobs_blob) {
+        blobs_count = *reinterpret_cast<const uint64_t*>(blob->blobs_blob);
+        blob_entries =
+            reinterpret_cast<const BlobEntry*>(blob->blobs_blob + 8);
+    }
+    uint64_t cursors_count = 0;
+    const CursorHdr* cursor_hdrs = nullptr;
+    const uint8_t* cursors_base = nullptr;
+    if (blob->cursors_blob) {
+        cursors_count = *reinterpret_cast<const uint64_t*>(blob->cursors_blob);
+        cursor_hdrs = reinterpret_cast<const CursorHdr*>(blob->cursors_blob + 8);
+        cursors_base = blob->cursors_blob;
+    }
+
     // Dedupe across iterations: hash template bytes plus each ident's
-    // bytes. Two calls that produce identical output converge in 2 iters.
+    // bytes plus each blob's body. Two calls that produce identical
+    // output converge in 2 iters.
     static std::set<std::string> blob_seen;
     std::string key(reinterpret_cast<const char*>(blob->template_ptr),
                     blob->template_size);
-    for (uint64_t i = 0; i < blob->idents_count; ++i) {
-        const auto* idp = blob->idents_ptr[i];
+    for (uint64_t i = 0; i < idents_count; ++i) {
+        const auto& idp = idents[i];
         key.push_back('\x1f');  // unit-separator, can't appear in idents
-        if (idp && idp->ptr && idp->len) {
-            key.append(reinterpret_cast<const char*>(idp->ptr), idp->len);
+        if (idp.ptr && idp.len) {
+            key.append(reinterpret_cast<const char*>(idp.ptr), idp.len);
         }
     }
-    if (!blob_seen.insert(key).second) return 0;
+    for (uint64_t i = 0; i < blobs_count; ++i) {
+        key.push_back('\x1e');
+        const auto& be = blob_entries[i];
+        if (be.size > 0) {
+            key.append(reinterpret_cast<const char*>(blob->blobs_blob + be.offset),
+                       be.size);
+        }
+    }
+    for (uint64_t i = 0; i < cursors_count; ++i) {
+        key.push_back('\x1d');
+        const auto& ch = cursor_hdrs[i];
+        const auto* pods = reinterpret_cast<const IdentPod*>(
+            cursors_base + ch.pods_offset);
+        for (uint64_t j = 0; j < ch.count; ++j) {
+            key.push_back('\x1c');
+            if (pods[j].ptr && pods[j].len > 0) {
+                key.append(reinterpret_cast<const char*>(pods[j].ptr),
+                           pods[j].len);
+            }
+        }
+    }
+    if (!blob_seen.insert(key).second) {
+        return 0;
+    }
 
     auto doc_e = logos::hermes::from_bytes_copy(blob->template_ptr,
                                                 blob->template_size);
@@ -324,6 +379,432 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         return reinterpret_cast<TinyObjectMap*>(
             HermesAccess::base(doc) + root_off.value());
     };
+    // Recursive walker: every TOM with NAME_VAR(int idx) gets the slot
+    // replaced by NAME(string) drawn from idents[idx]. Mirrors the dst
+    // walker in lower_quote_item, so placeholders at any nesting depth
+    // (struct field name, fn arg name, type ref name, …) are resolved.
+    namespace lh = logos::hermes;
+    bool subst_failed = false;
+
+    // Splice helper: if `child_off` is a TOM placeholder with NAME_VAR(neg
+    // idx), deep-copy the corresponding ExprBlob's root expr into `doc`
+    // and call `replace_in_parent(new_off)` to point the parent's slot at
+    // the spliced subtree. Returns true iff a splice was attempted (caller
+    // skips recursion). Sets `subst_failed` on any internal error.
+    auto try_blob_splice = [&](uint32_t child_off,
+                               std::function<void(uint32_t)> replace_in_parent)
+            -> bool {
+        if (blobs_count == 0) return false;
+        uint8_t* dbase = HermesAccess::base(doc);
+        auto* ctom = reinterpret_cast<TinyObjectMap*>(dbase + child_off);
+        if (!ctom->has_key(la::NAME_VAR.code)) return false;
+        AnyVal nv = ctom->get(la::NAME_VAR.code, dbase);
+        if (!nv.is_value()) return false;
+        int32_t enc = nv.as_value<int32_t>();
+        if (enc >= 0) return false;
+        uint64_t bidx = static_cast<uint64_t>(-enc - 1);
+        if (bidx >= blobs_count) {
+            std::fprintf(stderr,
+                "logos_emit_item_blob_subst: blob idx %llu out of range (count=%llu)\n",
+                (unsigned long long)bidx,
+                (unsigned long long)blobs_count);
+            subst_failed = true; return true;
+        }
+        const auto& be = blob_entries[bidx];
+        if (be.size == 0) {
+            std::fprintf(stderr,
+                "logos_emit_item_blob_subst: blob[%llu] empty\n",
+                (unsigned long long)bidx);
+            subst_failed = true; return true;
+        }
+        auto inner_e = logos::hermes::from_bytes_copy(
+            blob->blobs_blob + be.offset, be.size);
+        if (!inner_e) {
+            std::fprintf(stderr,
+                "logos_emit_item_blob_subst: blob[%llu] from_bytes_copy failed\n",
+                (unsigned long long)bidx);
+            subst_failed = true; return true;
+        }
+        auto inner_doc = std::move(inner_e).get();
+        const uint8_t* ib = HermesAccess::base(inner_doc);
+        auto inner_root_off = HermesAccess::root_offset(inner_doc).value();
+        const void* inner_root = ib + inner_root_off;
+        auto cp_e = copy_object_into(inner_root, ib, doc);
+        if (!cp_e) {
+            std::fprintf(stderr,
+                "logos_emit_item_blob_subst: copy_object_into failed\n");
+            subst_failed = true; return true;
+        }
+        void* dst_obj = cp_e.get();
+        uint32_t dst_off = static_cast<uint32_t>(
+            reinterpret_cast<uint8_t*>(dst_obj) - HermesAccess::base(doc));
+        replace_in_parent(dst_off);
+        return true;
+    };
+
+    // Cursor expansion (item-level REPEAT_GROUP): substitutes
+    // NAME_VAR(int with bit 30 set) → NAME(cursor_hdrs[idx].pods[iter])
+    // throughout a freshly cloned subtree. Cursor placeholders only —
+    // ident/blob placeholders in the body remain for the outer subst_walk.
+    std::function<void(uint32_t, uint64_t)> expand_cursor_in_subtree;
+    expand_cursor_in_subtree = [&](uint32_t off, uint64_t iter) {
+        uint8_t* dbase = HermesAccess::base(doc);
+        auto* tom = reinterpret_cast<TinyObjectMap*>(dbase + off);
+        if (tom->has_key(la::NAME_VAR.code)) {
+            AnyVal nv = tom->get(la::NAME_VAR.code, dbase);
+            if (nv.is_value()) {
+                int32_t enc = nv.as_value<int32_t>();
+                if (enc >= 0 && (enc & 0x400000) != 0) {
+                    int32_t cidx = enc & ~0x400000;
+                    if (static_cast<uint64_t>(cidx) < cursors_count) {
+                        const auto& ch = cursor_hdrs[cidx];
+                        if (iter < ch.count) {
+                            const auto* pods = reinterpret_cast<const IdentPod*>(
+                                cursors_base + ch.pods_offset);
+                            const auto& pod = pods[iter];
+                            auto str_e = ArenaString::create(arena,
+                                std::string_view(
+                                    reinterpret_cast<const char*>(pod.ptr),
+                                    pod.len));
+                            if (str_e) {
+                                uint32_t name_off = static_cast<uint32_t>(
+                                    reinterpret_cast<uint8_t*>(str_e.get())
+                                    - HermesAccess::base(doc));
+                                dbase = HermesAccess::base(doc);
+                                tom = reinterpret_cast<TinyObjectMap*>(dbase + off);
+                                (void)tom->put(la::NAME.code,
+                                    AnyVal::from_offset(arena_offset_t(name_off)),
+                                    arena);
+                                dbase = HermesAccess::base(doc);
+                                tom = reinterpret_cast<TinyObjectMap*>(dbase + off);
+                                tom->remove(la::NAME_VAR.code, dbase);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Snapshot children before recursion (puts may have rebased).
+        std::vector<std::pair<bool, uint32_t>> children;
+        dbase = HermesAccess::base(doc);
+        tom = reinterpret_cast<TinyObjectMap*>(dbase + off);
+        uint64_t bm = tom->bitmap();
+        for (uint8_t key = 0; key < TinyObjectMap::MAX_KEYS; ++key) {
+            if (!(bm & (1ULL << key))) continue;
+            if (key == la::NAME_VAR.code) continue;
+            AnyVal av = tom->get(key, dbase);
+            if (av.is_null() || !av.is_pointer()) continue;
+            uint32_t coff = static_cast<uint32_t>(av.to_offset().value());
+            const uint8_t* pointee = dbase + coff;
+            lh::TypeTag tag = lh::TypeTag::read_before(pointee);
+            if (tag.type_code() == lh::type_hash::TinyObjectMap)
+                children.push_back({false, coff});
+            else if (tag.type_code() == lh::type_hash::Array)
+                children.push_back({true, coff});
+        }
+        for (auto [is_arr, coff] : children) {
+            if (!is_arr) {
+                expand_cursor_in_subtree(coff, iter);
+                continue;
+            }
+            uint8_t* db2 = HermesAccess::base(doc);
+            const auto* arr = reinterpret_cast<const ObjectArray*>(db2 + coff);
+            std::vector<uint32_t> elem_offs;
+            for (uint64_t i = 0; i < arr->size(); ++i) {
+                AnyVal e = arr->get(i, db2);
+                if (e.is_null() || !e.is_pointer()) continue;
+                uint32_t eoff = static_cast<uint32_t>(e.to_offset().value());
+                const uint8_t* ep = db2 + eoff;
+                lh::TypeTag etag = lh::TypeTag::read_before(ep);
+                if (etag.type_code() == lh::type_hash::TinyObjectMap)
+                    elem_offs.push_back(eoff);
+            }
+            for (uint32_t eoff : elem_offs)
+                expand_cursor_in_subtree(eoff, iter);
+        }
+    };
+
+    // Find the cursor count to expand a REPEAT_GROUP body to. Walks the
+    // body looking for any cursor-encoded NAME_VAR; uses cursor_hdrs[idx].count.
+    // Errors if no cursor found (caller validated this at sema time).
+    std::function<uint64_t(uint32_t)> find_cursor_count_in_body;
+    find_cursor_count_in_body = [&](uint32_t off) -> uint64_t {
+        uint8_t* dbase = HermesAccess::base(doc);
+        auto* tom = reinterpret_cast<TinyObjectMap*>(dbase + off);
+        if (tom->has_key(la::NAME_VAR.code)) {
+            AnyVal nv = tom->get(la::NAME_VAR.code, dbase);
+            if (nv.is_value()) {
+                int32_t enc = nv.as_value<int32_t>();
+                if (enc >= 0 && (enc & 0x400000) != 0) {
+                    int32_t cidx = enc & ~0x400000;
+                    if (static_cast<uint64_t>(cidx) < cursors_count)
+                        return cursor_hdrs[cidx].count;
+                }
+            }
+        }
+        uint64_t bm = tom->bitmap();
+        for (uint8_t key = 0; key < TinyObjectMap::MAX_KEYS; ++key) {
+            if (!(bm & (1ULL << key))) continue;
+            if (key == la::NAME_VAR.code) continue;
+            AnyVal av = tom->get(key, dbase);
+            if (av.is_null() || !av.is_pointer()) continue;
+            uint32_t coff = static_cast<uint32_t>(av.to_offset().value());
+            const uint8_t* pointee = dbase + coff;
+            lh::TypeTag tag = lh::TypeTag::read_before(pointee);
+            if (tag.type_code() == lh::type_hash::TinyObjectMap) {
+                uint64_t n = find_cursor_count_in_body(coff);
+                if (n != static_cast<uint64_t>(-1)) return n;
+            } else if (tag.type_code() == lh::type_hash::Array) {
+                const auto* arr = reinterpret_cast<const ObjectArray*>(
+                    HermesAccess::base(doc) + coff);
+                for (uint64_t i = 0; i < arr->size(); ++i) {
+                    AnyVal e = arr->get(i, HermesAccess::base(doc));
+                    if (!e.is_pointer()) continue;
+                    uint32_t eoff = static_cast<uint32_t>(e.to_offset().value());
+                    const uint8_t* ep = HermesAccess::base(doc) + eoff;
+                    lh::TypeTag etag = lh::TypeTag::read_before(ep);
+                    if (etag.type_code() == lh::type_hash::TinyObjectMap) {
+                        uint64_t n = find_cursor_count_in_body(eoff);
+                        if (n != static_cast<uint64_t>(-1)) return n;
+                    }
+                }
+            }
+        }
+        return static_cast<uint64_t>(-1);
+    };
+
+    // Detects whether the array at `arr_off` contains any REPEAT_GROUP
+    // element with sep ∈ {0, 1}. If so, builds a new ObjectArray with each
+    // REPEAT_GROUP expanded N times (via deep-copy + cursor substitution)
+    // and returns the new array's offset; otherwise returns 0.
+    auto try_expand_array_repeats = [&](uint32_t arr_off) -> uint32_t {
+        uint8_t* dbase = HermesAccess::base(doc);
+        const auto* arr = reinterpret_cast<const ObjectArray*>(dbase + arr_off);
+        bool any_repeat = false;
+        uint64_t n_src = arr->size();
+        for (uint64_t i = 0; i < n_src; ++i) {
+            AnyVal e = arr->get(i, dbase);
+            if (!e.is_pointer()) continue;
+            uint32_t eoff = static_cast<uint32_t>(e.to_offset().value());
+            const auto* etom = reinterpret_cast<const TinyObjectMap*>(dbase + eoff);
+            int32_t cd = 0;
+            if (etom->has_key(la::CODE.code)) {
+                AnyVal cav = etom->get(la::CODE.code, dbase);
+                if (!cav.is_null() && !cav.is_pointer())
+                    cd = cav.as_value<int32_t>();
+            }
+            if (cd == la::REPEAT_GROUP.code) {
+                int32_t sep = -1;
+                if (etom->has_key(la::OP.code)) {
+                    AnyVal sav = etom->get(la::OP.code, dbase);
+                    if (!sav.is_null() && !sav.is_pointer())
+                        sep = sav.as_value<int32_t>();
+                }
+                if (sep == 0 || sep == 1) { any_repeat = true; break; }
+            }
+        }
+        if (!any_repeat) return 0;
+        // Snapshot all source element offsets.
+        struct SrcEl { bool is_rep; uint32_t off; uint64_t body_off; };
+        std::vector<SrcEl> src_els;
+        std::vector<AnyVal> src_nonptr;
+        for (uint64_t i = 0; i < n_src; ++i) {
+            AnyVal e = arr->get(i, dbase);
+            if (!e.is_pointer()) {
+                src_els.push_back({false, 0, 0});
+                src_nonptr.push_back(e);
+                continue;
+            }
+            src_nonptr.push_back(AnyVal{});
+            uint32_t eoff = static_cast<uint32_t>(e.to_offset().value());
+            const auto* etom = reinterpret_cast<const TinyObjectMap*>(dbase + eoff);
+            int32_t cd = 0;
+            if (etom->has_key(la::CODE.code)) {
+                AnyVal cav = etom->get(la::CODE.code, dbase);
+                if (!cav.is_null() && !cav.is_pointer())
+                    cd = cav.as_value<int32_t>();
+            }
+            if (cd == la::REPEAT_GROUP.code) {
+                AnyVal bav = etom->get(la::VALUE.code, dbase);
+                if (!bav.is_pointer()) {
+                    subst_failed = true;
+                    return 0;
+                }
+                src_els.push_back({true, 0,
+                    bav.to_offset().value()});
+            } else {
+                src_els.push_back({false, eoff, 0});
+            }
+        }
+        auto new_arr_e = ObjectArray::create(arena, std::max<uint64_t>(4, n_src));
+        if (!new_arr_e) { subst_failed = true; return 0; }
+        uint32_t new_arr_off = static_cast<uint32_t>(
+            reinterpret_cast<uint8_t*>(new_arr_e.get()) - HermesAccess::base(doc));
+        for (uint64_t i = 0; i < src_els.size(); ++i) {
+            auto* na = reinterpret_cast<ObjectArray*>(
+                HermesAccess::base(doc) + new_arr_off);
+            if (!src_els[i].is_rep) {
+                if (src_els[i].off == 0) {
+                    (void)na->push_back(src_nonptr[i], arena);
+                } else {
+                    (void)na->push_back(
+                        AnyVal::from_offset(arena_offset_t(src_els[i].off)),
+                        arena);
+                }
+                continue;
+            }
+            uint32_t body_off = static_cast<uint32_t>(src_els[i].body_off);
+            uint64_t n = find_cursor_count_in_body(body_off);
+            if (n == static_cast<uint64_t>(-1)) {
+                std::fprintf(stderr,
+                    "logos_emit_item_blob_subst: REPEAT_GROUP body has no cursor\n");
+                subst_failed = true; return 0;
+            }
+            for (uint64_t j = 0; j < n; ++j) {
+                const uint8_t* base = HermesAccess::base(doc);
+                const void* src_obj = base + body_off;
+                auto cp_e = copy_object_into(src_obj, base, doc);
+                if (!cp_e) { subst_failed = true; return 0; }
+                void* dst_obj = cp_e.get();
+                uint32_t copy_off = static_cast<uint32_t>(
+                    reinterpret_cast<uint8_t*>(dst_obj) - HermesAccess::base(doc));
+                expand_cursor_in_subtree(copy_off, j);
+                auto* na2 = reinterpret_cast<ObjectArray*>(
+                    HermesAccess::base(doc) + new_arr_off);
+                (void)na2->push_back(
+                    AnyVal::from_offset(arena_offset_t(copy_off)), arena);
+            }
+        }
+        return new_arr_off;
+    };
+
+    std::function<void(uint32_t)> subst_walk = [&](uint32_t off) {
+        if (subst_failed) return;
+        uint8_t* dbase = HermesAccess::base(doc);
+        auto* tom = reinterpret_cast<TinyObjectMap*>(dbase + off);
+        if (tom->has_key(la::NAME_VAR.code)) {
+            AnyVal idx_av = tom->get(la::NAME_VAR.code, dbase);
+            if (idx_av.is_value()) {
+                int32_t idx = idx_av.as_value<int32_t>();
+                if (idx < 0) {
+                    // Blob placeholder; expected to be spliced at parent
+                    // level. Reaching it directly means it sits at a
+                    // position where blob splice doesn't apply.
+                    std::fprintf(stderr,
+                        "logos_emit_item_blob_subst: stray blob placeholder (idx=%d)\n",
+                        idx);
+                    subst_failed = true; return;
+                }
+                if (static_cast<uint64_t>(idx) >= idents_count) {
+                    std::fprintf(stderr,
+                        "logos_emit_item_blob_subst: ident idx %d out of range (count=%llu)\n",
+                        idx, (unsigned long long)idents_count);
+                    subst_failed = true; return;
+                }
+                const auto& idp = idents[idx];
+                if (!idp.ptr || idp.len == 0) {
+                    std::fprintf(stderr,
+                        "logos_emit_item_blob_subst: ident[%d] is empty\n", idx);
+                    subst_failed = true; return;
+                }
+                auto str_e = ArenaString::create(arena,
+                    std::string_view(reinterpret_cast<const char*>(idp.ptr),
+                                     idp.len));
+                if (!str_e) {
+                    std::fprintf(stderr,
+                        "logos_emit_item_blob_subst: ArenaString alloc failed\n");
+                    subst_failed = true; return;
+                }
+                uint32_t name_off = static_cast<uint32_t>(
+                    reinterpret_cast<uint8_t*>(str_e.get())
+                    - HermesAccess::base(doc));
+                dbase = HermesAccess::base(doc);
+                tom = reinterpret_cast<TinyObjectMap*>(dbase + off);
+                (void)tom->put(la::NAME.code,
+                    AnyVal::from_offset(arena_offset_t(name_off)), arena);
+                dbase = HermesAccess::base(doc);
+                tom = reinterpret_cast<TinyObjectMap*>(dbase + off);
+                tom->remove(la::NAME_VAR.code, dbase);
+            }
+        }
+        // Snapshot children before recursion (puts above may have rebased).
+        // Track key for TOM children and elem-index for array children so
+        // blob splice can rewrite the parent's slot.
+        struct ChildRef { bool is_arr; uint8_t key; uint32_t coff; };
+        std::vector<ChildRef> children;
+        dbase = HermesAccess::base(doc);
+        tom = reinterpret_cast<TinyObjectMap*>(dbase + off);
+        uint64_t bm = tom->bitmap();
+        for (uint8_t key = 0; key < TinyObjectMap::MAX_KEYS; ++key) {
+            if (!(bm & (1ULL << key))) continue;
+            if (key == la::NAME_VAR.code) continue;
+            AnyVal av = tom->get(key, dbase);
+            if (av.is_null() || !av.is_pointer()) continue;
+            uint32_t coff = static_cast<uint32_t>(av.to_offset().value());
+            const uint8_t* pointee = dbase + coff;
+            lh::TypeTag tag = lh::TypeTag::read_before(pointee);
+            if (tag.type_code() == lh::type_hash::TinyObjectMap)
+                children.push_back({false, key, coff});
+            else if (tag.type_code() == lh::type_hash::Array)
+                children.push_back({true, key, coff});
+        }
+        for (auto& cref : children) {
+            if (subst_failed) return;
+            if (!cref.is_arr) {
+                uint8_t key = cref.key;
+                bool spliced = try_blob_splice(cref.coff,
+                    [&](uint32_t new_off) {
+                        uint8_t* db = HermesAccess::base(doc);
+                        auto* t = reinterpret_cast<TinyObjectMap*>(db + off);
+                        (void)t->put(key,
+                            AnyVal::from_offset(arena_offset_t(new_off)),
+                            arena);
+                    });
+                if (!spliced) subst_walk(cref.coff);
+                continue;
+            }
+            // Array child: pre-expand any REPEAT_GROUP elements (cursor
+            // splice), then iterate elements as placeholders / sub-trees.
+            uint32_t arr_off = cref.coff;
+            if (cursors_count > 0) {
+                uint32_t expanded = try_expand_array_repeats(arr_off);
+                if (subst_failed) return;
+                if (expanded != 0) {
+                    // Replace parent's slot with the new array.
+                    uint8_t* db = HermesAccess::base(doc);
+                    auto* t = reinterpret_cast<TinyObjectMap*>(db + off);
+                    (void)t->put(cref.key,
+                        AnyVal::from_offset(arena_offset_t(expanded)), arena);
+                    arr_off = expanded;
+                }
+            }
+            uint8_t* dbase2 = HermesAccess::base(doc);
+            const auto* arr =
+                reinterpret_cast<const ObjectArray*>(dbase2 + arr_off);
+            std::vector<std::pair<uint64_t, uint32_t>> elems;
+            for (uint64_t i = 0; i < arr->size(); ++i) {
+                AnyVal e = arr->get(i, dbase2);
+                if (e.is_null() || !e.is_pointer()) continue;
+                uint32_t eoff = static_cast<uint32_t>(e.to_offset().value());
+                const uint8_t* ep = dbase2 + eoff;
+                lh::TypeTag etag = lh::TypeTag::read_before(ep);
+                if (etag.type_code() == lh::type_hash::TinyObjectMap)
+                    elems.push_back({i, eoff});
+            }
+            for (auto [ei, eoff] : elems) {
+                if (subst_failed) return;
+                bool spliced = try_blob_splice(eoff,
+                    [&](uint32_t new_off) {
+                        uint8_t* db = HermesAccess::base(doc);
+                        auto* a = reinterpret_cast<ObjectArray*>(db + arr_off);
+                        a->set(ei,
+                               AnyVal::from_offset(arena_offset_t(new_off)),
+                               db);
+                    });
+                if (!spliced) subst_walk(eoff);
+            }
+        }
+    };
     if (root_ptr()->has_key(la::ITEMS.code)) {
         AnyVal items_av = root_ptr()->get(la::ITEMS.code,
                                           HermesAccess::base(doc));
@@ -337,51 +818,10 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
             for (uint64_t i = 0; i < n; ++i) {
                 AnyVal it_av = items_ptr()->get(i, HermesAccess::base(doc));
                 if (it_av.is_null() || !it_av.is_pointer()) continue;
-                auto it_off = it_av.to_offset();
-                auto item_ptr = [&]() {
-                    return reinterpret_cast<TinyObjectMap*>(
-                        HermesAccess::base(doc) + it_off.value());
-                };
-                if (!item_ptr()->has_key(la::NAME_VAR.code)) continue;
-                AnyVal idx_av = item_ptr()->get(la::NAME_VAR.code,
-                                                HermesAccess::base(doc));
-                if (!idx_av.is_value()) {
-                    std::fprintf(stderr,
-                        "logos_emit_item_blob_subst: NAME_VAR not an int\n");
-                    blob_seen.erase(key);
-                    return 0;
+                subst_walk(static_cast<uint32_t>(it_av.to_offset().value()));
+                if (subst_failed) {
+                    blob_seen.erase(key); return 0;
                 }
-                int32_t idx = idx_av.as_value<int32_t>();
-                if (idx < 0 || static_cast<uint64_t>(idx) >= blob->idents_count) {
-                    std::fprintf(stderr,
-                        "logos_emit_item_blob_subst: ident idx %d out of range (count=%llu)\n",
-                        idx, (unsigned long long)blob->idents_count);
-                    blob_seen.erase(key);
-                    return 0;
-                }
-                const auto* idp = blob->idents_ptr[idx];
-                if (!idp || !idp->ptr || idp->len == 0) {
-                    std::fprintf(stderr,
-                        "logos_emit_item_blob_subst: ident[%d] is empty\n", idx);
-                    blob_seen.erase(key);
-                    return 0;
-                }
-                auto str_e = ArenaString::create(arena,
-                    std::string_view(reinterpret_cast<const char*>(idp->ptr),
-                                     idp->len));
-                if (!str_e) {
-                    std::fprintf(stderr,
-                        "logos_emit_item_blob_subst: ArenaString alloc failed\n");
-                    blob_seen.erase(key);
-                    return 0;
-                }
-                uint32_t name_off = static_cast<uint32_t>(
-                    reinterpret_cast<uint8_t*>(str_e.get())
-                    - HermesAccess::base(doc));
-                // ArenaString::create may grow the arena; re-derive ptrs.
-                (void)item_ptr()->put(la::NAME.code,
-                    AnyVal::from_offset(arena_offset_t(name_off)), arena);
-                item_ptr()->remove(la::NAME_VAR.code, HermesAccess::base(doc));
             }
         }
     }
@@ -391,6 +831,175 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
     g_from_binary->push_back(false);
     *g_any_emitted = true;
     return 1;
+}
+
+// Pack a stack-local `[*const Ident; N]` (one entry per `#name` site
+// inside `quote_item!`) into a single owned heap allocation suitable for
+// storing in a QuoteItemBlob that will be returned/moved across stack
+// frames. Layout:
+//   [u64 N] [N × IdentPod{ptr,len}] [packed bytes...]
+// IdentPod.ptr is absolute and points into the same blob's byte section.
+// `logos_emit_item_blob_subst` reads this layout directly. Returns null
+// if alloc fails. Even N=0 returns a non-null 8-byte header so callers
+// can treat the field uniformly.
+extern "C" const uint8_t* logos_qib_pack_idents(
+        const void* const* arr, uint64_t n) {
+    struct IdentPod { const uint8_t* ptr; uint64_t len; };
+    uint64_t pod_bytes = 8 + n * sizeof(IdentPod);
+    uint64_t total_str = 0;
+    for (uint64_t i = 0; i < n; ++i) {
+        const auto* p = reinterpret_cast<const IdentPod*>(arr[i]);
+        if (p) total_str += p->len;
+    }
+    uint64_t total = pod_bytes + total_str;
+    auto* buf = static_cast<uint8_t*>(std::malloc(total));
+    if (!buf) return nullptr;
+    *reinterpret_cast<uint64_t*>(buf) = n;
+    auto* pods = reinterpret_cast<IdentPod*>(buf + 8);
+    uint64_t byte_off = pod_bytes;
+    for (uint64_t i = 0; i < n; ++i) {
+        const auto* p = reinterpret_cast<const IdentPod*>(arr[i]);
+        uint64_t l = (p ? p->len : 0);
+        pods[i].len = l;
+        pods[i].ptr = buf + byte_off;
+        if (p && l > 0) {
+            std::memcpy(buf + byte_off, p->ptr, l);
+            byte_off += l;
+        }
+    }
+    return buf;
+}
+
+extern "C" void logos_qib_free_idents(const uint8_t* blob) {
+    if (blob) std::free(const_cast<uint8_t*>(blob));
+}
+
+// Pack a stack-local `[*const u8; N]` (one entry per `#(expr)` ExprBlob site
+// inside `quote_item!`) into a single owned heap allocation. Each input
+// pointer is an `ExprBlob.ptr` value: it points past an 8-byte length
+// prefix into the Hermes bytes. We snapshot bytes (size = *(p-8)) so the
+// resulting blob owns its lifetime. Layout:
+//   [u64 N] [N × BlobEntry{offset:u64, size:u64}] [concatenated bodies]
+// `offset` is absolute-from-buffer-start; the splice shim reads
+// `(buf+offset, size)` directly. Even N=0 returns a non-null 8-byte header.
+extern "C" const uint8_t* logos_qib_pack_blobs(
+        const uint8_t* const* arr, uint64_t n) {
+    struct BlobEntry { uint64_t offset; uint64_t size; };
+    uint64_t hdr_bytes = 8 + n * sizeof(BlobEntry);
+    uint64_t total_body = 0;
+    std::vector<uint64_t> sizes(n, 0);
+    for (uint64_t i = 0; i < n; ++i) {
+        const uint8_t* p = arr[i];
+        if (p) {
+            uint64_t sz = 0;
+            std::memcpy(&sz, p - 8, 8);
+            sizes[i] = sz;
+            total_body += sz;
+        }
+    }
+    uint64_t total = hdr_bytes + total_body;
+    auto* buf = static_cast<uint8_t*>(std::malloc(total));
+    if (!buf) return nullptr;
+    *reinterpret_cast<uint64_t*>(buf) = n;
+    auto* entries = reinterpret_cast<BlobEntry*>(buf + 8);
+    uint64_t byte_off = hdr_bytes;
+    for (uint64_t i = 0; i < n; ++i) {
+        entries[i].offset = byte_off;
+        entries[i].size   = sizes[i];
+        if (arr[i] && sizes[i] > 0) {
+            std::memcpy(buf + byte_off, arr[i], sizes[i]);
+            byte_off += sizes[i];
+        }
+    }
+    return buf;
+}
+
+extern "C" void logos_qib_free_blobs(const uint8_t* blob) {
+    if (blob) std::free(const_cast<uint8_t*>(blob));
+}
+
+// Pack `[*const Vec<Ident>; N]` into an owned heap blob. Vec<Ident>
+// layout in Logos: { ptr: *const Ident, len: u64, cap: u64 } — we read
+// only ptr+len. Each Ident is { ptr: *const u8, len: u64 }; we snapshot
+// the bytes too so the QIB owns its lifetime. Layout:
+//   [u64 N_cursors]
+//   [N_cursors × {count: u64, pods_offset: u64}]
+//   [pods + ident bytes...]
+// `pods_offset` is absolute-from-buffer-start.
+extern "C" const uint8_t* logos_qib_pack_cursors(
+        const void* const* arr, uint64_t n) {
+    struct IdentPod  { const uint8_t* ptr; uint64_t len; };
+    struct CursorHdr { uint64_t count;     uint64_t pods_offset; };
+    struct VecPod    { const IdentPod* ptr; uint64_t len; uint64_t cap; };
+
+    uint64_t hdr_bytes = 8 + n * sizeof(CursorHdr);
+    // First pass: per-cursor count + sum of all ident bytes
+    std::vector<uint64_t> counts(n, 0);
+    uint64_t total_pods = 0;
+    uint64_t total_str  = 0;
+    for (uint64_t i = 0; i < n; ++i) {
+        const auto* v = reinterpret_cast<const VecPod*>(arr[i]);
+        if (!v) continue;
+        counts[i]   = v->len;
+        total_pods += v->len;
+        for (uint64_t j = 0; j < v->len; ++j) {
+            total_str += v->ptr[j].len;
+        }
+    }
+    uint64_t total = hdr_bytes
+                   + total_pods * sizeof(IdentPod)
+                   + total_str;
+    auto* buf = static_cast<uint8_t*>(std::malloc(total));
+    if (!buf) return nullptr;
+    *reinterpret_cast<uint64_t*>(buf) = n;
+    auto* hdrs = reinterpret_cast<CursorHdr*>(buf + 8);
+    uint64_t pod_off = hdr_bytes;
+    uint64_t str_off = hdr_bytes + total_pods * sizeof(IdentPod);
+    for (uint64_t i = 0; i < n; ++i) {
+        hdrs[i].count       = counts[i];
+        hdrs[i].pods_offset = pod_off;
+        const auto* v = reinterpret_cast<const VecPod*>(arr[i]);
+        if (!v) continue;
+        auto* pods = reinterpret_cast<IdentPod*>(buf + pod_off);
+        for (uint64_t j = 0; j < v->len; ++j) {
+            pods[j].len = v->ptr[j].len;
+            if (v->ptr[j].len > 0 && v->ptr[j].ptr) {
+                std::memcpy(buf + str_off, v->ptr[j].ptr, v->ptr[j].len);
+                pods[j].ptr = buf + str_off;
+                str_off += v->ptr[j].len;
+            } else {
+                pods[j].ptr = nullptr;
+            }
+        }
+        pod_off += v->len * sizeof(IdentPod);
+    }
+    return buf;
+}
+
+extern "C" void logos_qib_free_cursors(const uint8_t* blob) {
+    if (blob) std::free(const_cast<uint8_t*>(blob));
+}
+
+// Hygiene gensym: returns pointer to a fresh ident byte sequence
+// `<prefix>__hyg_<N>`, with `*out_len` set to its length. Bytes live
+// for the rest of the compilation (host owns them in a global vector
+// of unique_ptr<string> so addresses stay stable across pushes).
+// Counter is process-global; uniqueness across the whole compile.
+static std::vector<std::unique_ptr<std::string>> g_gensym_buf;
+static uint64_t                                  g_gensym_counter = 0;
+extern "C" const uint8_t* logos_metaprog_gensym(const uint8_t* pref,
+                                                uint64_t pref_len,
+                                                uint64_t* out_len) {
+    auto s = std::make_unique<std::string>();
+    s->reserve(pref_len + 16);
+    if (pref && pref_len > 0)
+        s->append(reinterpret_cast<const char*>(pref), pref_len);
+    s->append("__hyg_");
+    s->append(std::to_string(g_gensym_counter++));
+    *out_len = s->size();
+    const uint8_t* p = reinterpret_cast<const uint8_t*>(s->data());
+    g_gensym_buf.emplace_back(std::move(s));
+    return p;
 }
 
 // Slice 5c+8 of metaprog-quote: substitution + repetition shim for
@@ -503,6 +1112,57 @@ extern "C" const uint8_t* logos_quote_expr_subst(
     // expanding REPEAT_GROUP elements with sep=0 (`*`) or sep=1 (`,*`)
     // into N substituted siblings spliced inline.
     std::function<uint32_t(uint32_t)> copy_array;
+
+    // Generic cursor-count discovery: walk a body tree (TOM/ObjectArray/string)
+    // looking for any NAME_VAR(int idx) placeholder bound to a cursor span
+    // (count > 1 OR kind != 1 ExprBlob). Recurses through every TOM-typed key
+    // and every ObjectArray element. Stops at the first cursor it finds.
+    // Used by REPEAT_GROUP body to determine N before expansion.
+    std::function<uint64_t(uint32_t)> find_cursor_count;
+    find_cursor_count = [&](uint32_t off) -> uint64_t {
+        auto tag0 = logos::hermes::TypeTag::read_before(src_base + off);
+        uint64_t tc0 = tag0.type_code();
+        if (tc0 == 100) {
+            const auto* arr = reinterpret_cast<const ObjectArray*>(
+                src_base + off);
+            uint64_t n = arr->size();
+            for (uint64_t i = 0; i < n; ++i) {
+                AnyVal el = const_cast<ObjectArray*>(arr)->get(
+                    i, const_cast<uint8_t*>(src_base));
+                if (el.is_null() || !el.is_pointer()) continue;
+                uint64_t r = find_cursor_count(
+                    static_cast<uint32_t>(el.to_offset().value()));
+                if (r > 0) return r;
+            }
+            return 0;
+        }
+        if (tc0 == 28) return 0;
+        // Treat as TOM. Check for NAME_VAR(int idx) on this node.
+        const auto* tt = reinterpret_cast<const TinyObjectMap*>(
+            src_base + off);
+        if (tt->has_key(la::NAME_VAR.code)) {
+            AnyVal iv = tt->get(la::NAME_VAR.code,
+                                const_cast<uint8_t*>(src_base));
+            if (!iv.is_null() && !iv.is_pointer()) {
+                int32_t idx = iv.as_value<int32_t>();
+                if (idx >= 0
+                    && static_cast<uint64_t>(idx) < idents_count) {
+                    auto sp = get_span(idx);
+                    if (sp.kind != 1 && sp.count > 1) return sp.count;
+                }
+            }
+        }
+        // Recurse into every TOM-typed pointer key and every array key.
+        for (uint8_t k = 0; k < TinyObjectMap::MAX_KEYS; ++k) {
+            if (!tt->has_key(k)) continue;
+            AnyVal av = tt->get(k, const_cast<uint8_t*>(src_base));
+            if (av.is_null() || !av.is_pointer()) continue;
+            uint32_t coff = static_cast<uint32_t>(av.to_offset().value());
+            uint64_t r = find_cursor_count(coff);
+            if (r > 0) return r;
+        }
+        return 0;
+    };
 
     // Step 5c Option B: deep-copy any Hermes node tree (TOM + ObjectArray
     // + ArenaString) from an arbitrary source base into dst_doc, with no
@@ -658,49 +1318,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
             if (!bav.is_pointer()) return 0;
             uint32_t body_off =
                 static_cast<uint32_t>(bav.to_offset().value());
-            // Determine cursor count by scanning body for any
-            // VAR_REF.NAME_VAR(int idx) where spans[idx].count > 1.
-            std::function<uint64_t(uint32_t)> find_count =
-                [&](uint32_t off) -> uint64_t {
-                const auto* tt = reinterpret_cast<const TinyObjectMap*>(
-                    src_base + off);
-                int32_t ccd = 0;
-                if (tt->has_key(la::CODE.code)) {
-                    AnyVal v = tt->get(la::CODE.code,
-                                       const_cast<uint8_t*>(src_base));
-                    if (!v.is_null() && !v.is_pointer())
-                        ccd = v.as_value<int32_t>();
-                }
-                if (ccd == la::VAR_REF.code
-                    && tt->has_key(la::NAME_VAR.code)) {
-                    AnyVal iv = tt->get(la::NAME_VAR.code,
-                                        const_cast<uint8_t*>(src_base));
-                    if (!iv.is_null() && !iv.is_pointer()) {
-                        int32_t idx = iv.as_value<int32_t>();
-                        if (idx >= 0
-                            && static_cast<uint64_t>(idx) < idents_count) {
-                            uint64_t c = get_span(idx).count;
-                            if (c > 1) return c;
-                        }
-                    }
-                }
-                // Recurse into structural keys (BINOP/UNARY/...) we know.
-                static const uint8_t keys[] = {
-                    la::LHS.code, la::RHS.code, la::VALUE.code,
-                    la::RECEIVER.code,
-                };
-                for (uint8_t k : keys) {
-                    if (!tt->has_key(k)) continue;
-                    AnyVal av = tt->get(k,
-                                        const_cast<uint8_t*>(src_base));
-                    if (av.is_null() || !av.is_pointer()) continue;
-                    uint64_t r = find_count(
-                        static_cast<uint32_t>(av.to_offset().value()));
-                    if (r > 0) return r;
-                }
-                return 0;
-            };
-            uint64_t n = find_count(body_off);
+            uint64_t n = find_cursor_count(body_off);
             if (n == 0) {
                 std::fprintf(stderr,
                     "logos_quote_expr_subst: REPEAT_GROUP cursor count is 0\n");
@@ -814,6 +1432,33 @@ extern "C" const uint8_t* logos_quote_expr_subst(
         for (uint8_t k = 0; k < TinyObjectMap::MAX_KEYS; ++k) {
             if (!src_tom->has_key(k)) continue;
             AnyVal av = src_tom->get(k, const_cast<uint8_t*>(src_base));
+            // NAME_VAR(int idx) on any non-VAR_REF node (e.g. FIELD_INIT
+            // for `#(field):val` antiquot) → resolve and emit NAME(string).
+            // VAR_REF is short-circuited above; here we cover FIELD_INIT and
+            // any future node that adopts the same antiquot convention.
+            if (k == la::NAME_VAR.code && !av.is_null() && !av.is_pointer()) {
+                int32_t idx = av.as_value<int32_t>();
+                if (idx < 0
+                    || static_cast<uint64_t>(idx) >= idents_count) {
+                    std::fprintf(stderr,
+                        "logos_quote_expr_subst: NAME_VAR idx %d out of range\n",
+                        idx);
+                    return 0;
+                }
+                SpanView sp = get_span(idx);
+                uint64_t i = (sp.count == 1) ? 0
+                    : (cursor_i >= 0 ? static_cast<uint64_t>(cursor_i) : 0);
+                if (i >= sp.count) return 0;
+                uint32_t name_off = str_for_ident(sp.at(i));
+                if (name_off == 0) return 0;
+                // FIELD_READ stores its name in the FIELD key; everywhere else
+                // (VAR_REF, FIELD_INIT, …) it lives in NAME.
+                uint8_t out_key = (cd == la::FIELD_READ.code)
+                    ? la::FIELD.code : la::NAME.code;
+                (void)dst_tom()->put(out_key,
+                    AnyVal::from_offset(arena_offset_t(name_off)), dst_arena);
+                continue;
+            }
             if (av.is_null()) {
                 (void)dst_tom()->put(k, av, dst_arena);
                 continue;
@@ -904,47 +1549,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                 if (!bav.is_pointer()) return 0;
                 uint32_t body_off =
                     static_cast<uint32_t>(bav.to_offset().value());
-                // Reuse copy_expr's cursor-count logic by walking body once.
-                std::function<uint64_t(uint32_t)> find_n =
-                    [&](uint32_t off) -> uint64_t {
-                    const auto* tt = reinterpret_cast<const TinyObjectMap*>(
-                        src_base + off);
-                    int32_t ccd = 0;
-                    if (tt->has_key(la::CODE.code)) {
-                        AnyVal v = tt->get(la::CODE.code,
-                                           const_cast<uint8_t*>(src_base));
-                        if (!v.is_null() && !v.is_pointer())
-                            ccd = v.as_value<int32_t>();
-                    }
-                    if (ccd == la::VAR_REF.code
-                        && tt->has_key(la::NAME_VAR.code)) {
-                        AnyVal iv = tt->get(la::NAME_VAR.code,
-                                            const_cast<uint8_t*>(src_base));
-                        if (!iv.is_null() && !iv.is_pointer()) {
-                            int32_t idx = iv.as_value<int32_t>();
-                            if (idx >= 0
-                                && static_cast<uint64_t>(idx) < idents_count) {
-                                uint64_t c = get_span(idx).count;
-                                if (c > 1) return c;
-                            }
-                        }
-                    }
-                    static const uint8_t keys[] = {
-                        la::LHS.code, la::RHS.code, la::VALUE.code,
-                        la::RECEIVER.code, la::CALLEE.code,
-                    };
-                    for (uint8_t k2 : keys) {
-                        if (!tt->has_key(k2)) continue;
-                        AnyVal v2 = tt->get(k2,
-                                            const_cast<uint8_t*>(src_base));
-                        if (v2.is_null() || !v2.is_pointer()) continue;
-                        uint64_t r = find_n(
-                            static_cast<uint32_t>(v2.to_offset().value()));
-                        if (r > 0) return r;
-                    }
-                    return 0;
-                };
-                uint64_t n = find_n(body_off);
+                uint64_t n = find_cursor_count(body_off);
                 if (n == 0) {
                     std::fprintf(stderr,
                         "logos_quote_expr_subst: REPEAT_GROUP cursor count is 0\n");
@@ -1328,11 +1933,19 @@ int main(int argc, char** argv) {
         if (!prog.ok()) return 1;
         report(iter == 0 ? "sema+lower" : "sema+lower (re-run)");
 
-        if (prog.metaprog_targets.empty()) break;
-        // Note: metacall_sites are not visible here — metaprog_mode skips
-        // entry-file fn bodies, so METACALL nodes inside fn bodies are not
-        // walked in this loop. Metacall handling runs in its own loop after
-        // the final non-metaprog sema pass below.
+        // Stay in the loop if there are pre-sema metaprog hook targets, OR
+        // any item-position metacall sites still pending (ItemBlob ret tag,
+        // CODE not yet flipped to METACALL_ITEM_DONE). Expr-position metacall
+        // sites inside fn bodies are NOT visible here (metaprog_mode skips
+        // entry-file fn bodies); they're handled by the post-loop pass below.
+        bool has_pending_item_mc = false;
+        {
+            using RT = logos::compiler::lir::LProgram::MetacallSite::RetTag;
+            for (const auto& s : prog.metacall_sites) {
+                if (s.ret_tag == RT::ItemBlob) { has_pending_item_mc = true; break; }
+            }
+        }
+        if (prog.metaprog_targets.empty() && !has_pending_item_mc) break;
 
         if (trace) {
             std::fprintf(stderr, "[metaprog iter %d] %zu target(s):\n",
@@ -1353,6 +1966,39 @@ int main(int argc, char** argv) {
         // bodies were skipped) — mono/MLIR would otherwise see empty bodies.
         auto meta_prog = logos::compiler::sema_lower(asts, filenames, from_binary, meta_opts);
         if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
+        // MC1.2: stash item-position metacall sites — mono_pass below moves
+        // meta_prog and the resulting LProgram doesn't carry metacall_sites
+        // through (they're sema-pass artefacts).
+        std::vector<logos::compiler::lir::LProgram::MetacallSite>
+            meta_item_sites;
+        {
+            using RT = logos::compiler::lir::LProgram::MetacallSite::RetTag;
+            for (const auto& s : meta_prog.metacall_sites) {
+                if (s.ret_tag == RT::ItemBlob) meta_item_sites.push_back(s);
+            }
+        }
+        // Emit thunk sources up front so this iter's meta_jit picks them up.
+        // logos_emit_source requires g_any_emitted alive — wire a temp here;
+        // the loop's main `any_emitted` is set further below for hooks.
+        if (!meta_item_sites.empty()) {
+            bool tmp_emitted = false;
+            bool* prev_any = g_any_emitted;
+            g_any_emitted = &tmp_emitted;
+            for (const auto& s : meta_item_sites) {
+                if (!s.thunk_source.empty()) logos_emit_source(s.thunk_source.c_str());
+            }
+            g_any_emitted = prev_any;
+            // Add callee names to metaprog_keep_fns so re-sema lowers their
+            // bodies (otherwise the thunk's call into the user fn references
+            // an empty stub and MLIR-gen fails).
+            auto resema_opts = meta_opts;
+            for (const auto& s : meta_item_sites) {
+                if (!s.callee_name.empty())
+                    resema_opts.metaprog_keep_fns.push_back(s.callee_name);
+            }
+            meta_prog = logos::compiler::sema_lower(asts, filenames, from_binary, resema_opts);
+            if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
+        }
         meta_prog.functions.erase(
             std::remove_if(meta_prog.functions.begin(), meta_prog.functions.end(),
                 [](const auto& f) { return f->is_metaprog_stub; }),
@@ -1418,6 +2064,48 @@ int main(int argc, char** argv) {
         if (!meta_jit->define_symbol("logos_emit_item_blob_subst",
                                      reinterpret_cast<void*>(&logos_emit_item_blob_subst))) {
             std::fprintf(stderr, "logosc: bind logos_emit_item_blob_subst: %s\n",
+                         meta_jit->error_str().c_str());
+            return 1;
+        }
+        if (!meta_jit->define_symbol("logos_qib_pack_idents",
+                                     reinterpret_cast<void*>(&logos_qib_pack_idents))) {
+            std::fprintf(stderr, "logosc: bind logos_qib_pack_idents: %s\n",
+                         meta_jit->error_str().c_str());
+            return 1;
+        }
+        if (!meta_jit->define_symbol("logos_qib_free_idents",
+                                     reinterpret_cast<void*>(&logos_qib_free_idents))) {
+            std::fprintf(stderr, "logosc: bind logos_qib_free_idents: %s\n",
+                         meta_jit->error_str().c_str());
+            return 1;
+        }
+        if (!meta_jit->define_symbol("logos_qib_pack_blobs",
+                                     reinterpret_cast<void*>(&logos_qib_pack_blobs))) {
+            std::fprintf(stderr, "logosc: bind logos_qib_pack_blobs: %s\n",
+                         meta_jit->error_str().c_str());
+            return 1;
+        }
+        if (!meta_jit->define_symbol("logos_qib_free_blobs",
+                                     reinterpret_cast<void*>(&logos_qib_free_blobs))) {
+            std::fprintf(stderr, "logosc: bind logos_qib_free_blobs: %s\n",
+                         meta_jit->error_str().c_str());
+            return 1;
+        }
+        if (!meta_jit->define_symbol("logos_qib_pack_cursors",
+                                     reinterpret_cast<void*>(&logos_qib_pack_cursors))) {
+            std::fprintf(stderr, "logosc: bind logos_qib_pack_cursors: %s\n",
+                         meta_jit->error_str().c_str());
+            return 1;
+        }
+        if (!meta_jit->define_symbol("logos_qib_free_cursors",
+                                     reinterpret_cast<void*>(&logos_qib_free_cursors))) {
+            std::fprintf(stderr, "logosc: bind logos_qib_free_cursors: %s\n",
+                         meta_jit->error_str().c_str());
+            return 1;
+        }
+        if (!meta_jit->define_symbol("logos_metaprog_gensym",
+                                     reinterpret_cast<void*>(&logos_metaprog_gensym))) {
+            std::fprintf(stderr, "logosc: bind logos_metaprog_gensym: %s\n",
                          meta_jit->error_str().c_str());
             return 1;
         }
@@ -1506,6 +2194,39 @@ int main(int argc, char** argv) {
             for (const auto& d : hook_diags)
                 std::fprintf(stderr, "error: %s\n", d.c_str());
             return 1;
+        }
+
+        // MC1.2: item-position metacall handling, woven into the metaprog loop
+        // so synthesized items are visible to the final sema pass below.
+        // metaprog_mode sema dispatches METACALL_ITEM (it's a module item, not a
+        // fn body), so meta_prog.metacall_sites is populated. Two-step per iter:
+        //   - emit thunk_source for new sites (logos_emit_source dedups);
+        //     next iter will sema/JIT-compile the thunks.
+        //   - lookup each thunk in this iter's meta_jit; if found, invoke
+        //     (calls logos_emit_item_blob_subst → appends new AST + sets
+        //     *g_any_emitted=true) and mark the call site METACALL_ITEM_DONE.
+        {
+            for (const auto& site : meta_item_sites) {
+                if (site.thunk_source.empty()) continue;
+                if (site.ast_idx >= asts.size()) continue;
+                auto* sym = meta_jit->lookup(site.thunk_name);
+                if (!sym) continue;  // thunk compiled in next iter
+                reinterpret_cast<void (*)()>(sym)();
+                auto& doc = asts[site.ast_idx];
+                auto* h    = doc.holder();
+                auto* base = h->base();
+                auto* tom  = reinterpret_cast<logos::hermes::TinyObjectMap*>(
+                                base + site.expr_offset);
+                if (auto r = tom->put(
+                        logos::compiler::ast::CODE.code,
+                        logos::hermes::AnyVal::from_value<int32_t>(
+                            logos::compiler::ast::METACALL_ITEM_DONE.code),
+                        h->arena()); !r) {
+                    std::fprintf(stderr,
+                        "logosc: metacall item-splice (loop): CODE put failed\n");
+                    return 1;
+                }
+            }
         }
 
         if (!any_emitted) break;
@@ -1633,6 +2354,56 @@ int main(int argc, char** argv) {
                              mc_jit->error_str().c_str());
                 return 1;
             }
+            // MC1.2: item-position metacall thunks call this from inside
+            // their bodies — bind on the metacall JIT alongside meta_jit.
+            if (!mc_jit->define_symbol("logos_emit_item_blob_subst",
+                    reinterpret_cast<void*>(&logos_emit_item_blob_subst))) {
+                std::fprintf(stderr, "logosc: bind logos_emit_item_blob_subst (mc_jit): %s\n",
+                             mc_jit->error_str().c_str());
+                return 1;
+            }
+            if (!mc_jit->define_symbol("logos_qib_pack_idents",
+                    reinterpret_cast<void*>(&logos_qib_pack_idents))) {
+                std::fprintf(stderr, "logosc: bind logos_qib_pack_idents (mc_jit): %s\n",
+                             mc_jit->error_str().c_str());
+                return 1;
+            }
+            if (!mc_jit->define_symbol("logos_qib_free_idents",
+                    reinterpret_cast<void*>(&logos_qib_free_idents))) {
+                std::fprintf(stderr, "logosc: bind logos_qib_free_idents (mc_jit): %s\n",
+                             mc_jit->error_str().c_str());
+                return 1;
+            }
+            if (!mc_jit->define_symbol("logos_qib_pack_blobs",
+                    reinterpret_cast<void*>(&logos_qib_pack_blobs))) {
+                std::fprintf(stderr, "logosc: bind logos_qib_pack_blobs (mc_jit): %s\n",
+                             mc_jit->error_str().c_str());
+                return 1;
+            }
+            if (!mc_jit->define_symbol("logos_qib_free_blobs",
+                    reinterpret_cast<void*>(&logos_qib_free_blobs))) {
+                std::fprintf(stderr, "logosc: bind logos_qib_free_blobs (mc_jit): %s\n",
+                             mc_jit->error_str().c_str());
+                return 1;
+            }
+            if (!mc_jit->define_symbol("logos_qib_pack_cursors",
+                    reinterpret_cast<void*>(&logos_qib_pack_cursors))) {
+                std::fprintf(stderr, "logosc: bind logos_qib_pack_cursors (mc_jit): %s\n",
+                             mc_jit->error_str().c_str());
+                return 1;
+            }
+            if (!mc_jit->define_symbol("logos_qib_free_cursors",
+                    reinterpret_cast<void*>(&logos_qib_free_cursors))) {
+                std::fprintf(stderr, "logosc: bind logos_qib_free_cursors (mc_jit): %s\n",
+                             mc_jit->error_str().c_str());
+                return 1;
+            }
+            if (!mc_jit->define_symbol("logos_metaprog_gensym",
+                    reinterpret_cast<void*>(&logos_metaprog_gensym))) {
+                std::fprintf(stderr, "logosc: bind logos_metaprog_gensym (mc_jit): %s\n",
+                             mc_jit->error_str().c_str());
+                return 1;
+            }
 
             // Step 3: invoke each thunk and splice the result into the AST.
             using RT = logos::compiler::lir::LProgram::MetacallSite::RetTag;
@@ -1645,6 +2416,31 @@ int main(int argc, char** argv) {
                     std::fprintf(stderr, "logosc: metacall thunk lookup '%s': %s\n",
                                  site.thunk_name.c_str(), mc_jit->error_str().c_str());
                     return 1;
+                }
+
+                // MC1.2: item-position metacall. Thunk is `unsafe fn() -> ()`
+                // that internally calls `logos_emit_item_blob_subst(&blob)`,
+                // which appends a fresh AST to g_asts. After invoke, mark the
+                // METACALL_ITEM AST node consumed (CODE = METACALL_ITEM_DONE)
+                // so the next sema pass skips it.
+                if (site.ret_tag == RT::ItemBlob) {
+                    reinterpret_cast<void (*)()>(sym)();
+                    auto& doc = asts[site.ast_idx];
+                    auto* h   = doc.holder();
+                    auto* base = h->base();
+                    auto* tom = reinterpret_cast<logos::hermes::TinyObjectMap*>(
+                                    base + site.expr_offset);
+                    if (auto r = tom->put(
+                            logos::compiler::ast::CODE.code,
+                            logos::hermes::AnyVal::from_value<int32_t>(
+                                logos::compiler::ast::METACALL_ITEM_DONE.code),
+                            h->arena()); !r) {
+                        std::fprintf(stderr,
+                            "logosc: metacall item-splice: CODE put failed\n");
+                        return 1;
+                    }
+                    any_spliced = true;
+                    continue;
                 }
 
                 int64_t  i_val = 0;
@@ -1708,6 +2504,10 @@ int main(int argc, char** argv) {
                     is_hermes_blob = true;
                     break;
                 }
+                case RT::ItemBlob:
+                    // Handled above via early-continue; unreachable here.
+                    std::fprintf(stderr, "logosc: internal: ItemBlob fell through\n");
+                    return 1;
                 }
 
                 std::string lit_text;
@@ -1806,6 +2606,16 @@ int main(int argc, char** argv) {
     prog.print_diags(stderr);
     if (!prog.ok()) return 1;
     report("borrow");
+
+    // MC1.2: drop synthesised metacall thunks before final codegen — their
+    // bodies reference JIT-only host shims (logos_emit_item_blob_subst,
+    // logos_quote_expr_subst, …) which aren't defined in the user binary.
+    prog.functions.erase(
+        std::remove_if(prog.functions.begin(), prog.functions.end(),
+            [](const auto& f) {
+                return f && f->name.rfind("__metacall_thunk_", 0) == 0;
+            }),
+        prog.functions.end());
 
     // ── Step 3: L-IR → MLIR ─────────────────────────────────────
     mlir::MLIRContext mlir_ctx;
@@ -1956,6 +2766,31 @@ int main(int argc, char** argv) {
     report("codegen+write");
 
     std::fprintf(stderr, "logosc: wrote %s\n", output_path);
+
+    // LOGOS_TEXT_SIZE=1 — invoke `nm --print-size --size-sort --radix=d` on
+    // the freshly-written object, dump top symbols by .text size to stderr.
+    // Counterpart to LOGOS_MONO_STATS for measuring how monomorphization
+    // decisions translate into actual emitted code size.
+    if (const char* e = std::getenv("LOGOS_TEXT_SIZE"); e && e[0] != '0' && e[0] != '\0') {
+        size_t top = 20;
+        if (const char* n = std::getenv("LOGOS_TEXT_SIZE_TOP"))
+            if (size_t v = std::strtoul(n, nullptr, 10); v > 0) top = v;
+        // `nm --print-size --size-sort --radix=d <file>` lists symbols with
+        // non-zero size, ascending. Pipe through `tail -N` for top-N.
+        std::string cmd = "nm --print-size --size-sort --radix=d ";
+        cmd += output_path;
+        cmd += " 2>/dev/null | awk '$3 ~ /^[Tt]$/ {print}' | tail -";
+        cmd += std::to_string(top);
+        std::fprintf(stderr, "[text-size] top %zu .text symbols in %s by size:\n",
+                     top, output_path);
+        std::fflush(stderr);
+        std::system(cmd.c_str());
+        // Also dump total .text size via `size`.
+        std::string sz = "size --format=sysv ";
+        sz += output_path;
+        sz += " 2>/dev/null | awk '$1==\".text\" {printf \"[text-size] .text total=%s bytes\\n\", $2}'";
+        std::system(sz.c_str());
+    }
 
     // Measure destructor/dealloc time for large objects.
     {

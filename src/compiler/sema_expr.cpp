@@ -6,6 +6,7 @@
 #include "ctfe.hpp"
 
 #include <logos/hermes/type_registry.hpp>
+#include <logos/hermes/type_tag.hpp>
 #include <logos/hermes/access.hpp>
 #include <logos/hermes/arena_string.hpp>
 #include <logos/hermes/clone.hpp>
@@ -6640,40 +6641,161 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
         src_items = arr_of(node.get(la::ITEMS.code));
     }
 
-    // ── Pre-scan: collect placeholders, type-check `#name` vars ──────
-    struct Placeholder { uint64_t item_idx; std::string var_name; };
+    // ── Pre-scan: collect placeholders, type-check `#name` / `#(expr)` ──
+    //
+    // Walks every item subtree recursively (TOM bitmap iteration with
+    // TypeTag dispatch for pointee discrimination) and finds every TOM
+    // carrying `NAME_VAR`. Two source-side forms are accepted:
+    //   • String pointee: `#name` shortcut — the var is looked up in the
+    //     metafn's scope and must be of type Ident. Producer = `&name`.
+    //   • TOM pointee:    `#(expr)` full antiquot — the inner expr is
+    //     lowered now (against the metafn's scope) and must yield Ident.
+    //     Producer = bind to a fresh local, then `&local`.
+    // The walk order defines the placeholder index; the dst-walk below
+    // mirrors the same recursion to write int(idx) into matching slots.
+    struct Placeholder {
+        enum class Kind { String, Expr, ExprBlob, Cursor };
+        Kind         kind;
+        std::string  var_name;       // String / Cursor
+        lir::LExprPtr expr_producer; // Expr / ExprBlob — already lowered
+    };
     std::vector<Placeholder> placeholders;
     TypeRef ident_t = make_struct_type("Ident");
+    TypeRef expr_blob_t = make_struct_type("ExprBlob");
     auto is_ident_type = [](TypeRef t) {
         return TypeRef(t).kind() == LogosType::Kind::Struct
             && TypeRef(t).struct_name() == "Ident";
     };
+    auto is_expr_blob_type_qi = [](TypeRef t) {
+        return TypeRef(t).kind() == LogosType::Kind::Struct
+            && TypeRef(t).struct_name() == "ExprBlob";
+    };
+    auto is_vec_ident_qi = [&](TypeRef t) -> bool {
+        if (TypeRef(t).kind() != LogosType::Kind::Struct) return false;
+        if (TypeRef(t).struct_name() != "Vec") return false;
+        auto args = TypeRef(t).type_args();
+        if (args.size() != 1) return false;
+        return is_ident_type(args[0]);
+    };
+    int qi_repeat_depth = 0;
+    bool walk_failed = false;
+    namespace lh = logos::hermes;
+    std::set<uint32_t> visited_src;
+    std::function<void(uint32_t)> walk_src = [&](uint32_t off) {
+        if (walk_failed) return;
+        if (!visited_src.insert(off).second) return;
+        const auto* tom = reinterpret_cast<const TinyObjectMap*>(src_base + off);
+        // REPEAT_GROUP: bump qi_repeat_depth around the VALUE recursion so
+        // NAME_VAR-with-string-pointee inside it becomes a Cursor (Vec<Ident>)
+        // placeholder rather than a scalar Ident.
+        int32_t cd = 0;
+        if (tom->has_key(la::CODE.code)) {
+            AnyVal cav = tom->get(la::CODE.code,
+                                  const_cast<uint8_t*>(src_base));
+            if (!cav.is_null() && !cav.is_pointer())
+                cd = cav.as_value<int32_t>();
+        }
+        if (cd == la::REPEAT_GROUP.code) {
+            if (qi_repeat_depth > 0) {
+                error("quote_item!: nested `#(...)` repetition not supported");
+                walk_failed = true; return;
+            }
+            ++qi_repeat_depth;
+            if (tom->has_key(la::VALUE.code)) {
+                AnyVal vav = tom->get(la::VALUE.code,
+                                      const_cast<uint8_t*>(src_base));
+                if (vav.is_pointer())
+                    walk_src(static_cast<uint32_t>(vav.to_offset().value()));
+            }
+            --qi_repeat_depth;
+            return;
+        }
+        if (tom->has_key(la::NAME_VAR.code)) {
+            AnyVal nv = tom->get(la::NAME_VAR.code,
+                                 const_cast<uint8_t*>(src_base));
+            if (!nv.is_null() && nv.is_pointer()) {
+                const uint8_t* pointee = src_base + nv.to_offset().value();
+                lh::TypeTag tag = lh::TypeTag::read_before(pointee);
+                if (tag.type_code() == lh::type_hash::HermesString) {
+                    // Shortcut form: #name — lookup in scope.
+                    const auto* nv_str =
+                        reinterpret_cast<const ArenaString*>(pointee);
+                    std::string vname(nv_str->view());
+                    TypeRef vt = lookup(vname);
+                    if (!vt) {
+                        error("quote_item!: `#" + vname + "` — variable not in scope");
+                        walk_failed = true; return;
+                    }
+                    if (qi_repeat_depth > 0) {
+                        if (!is_vec_ident_qi(vt)) {
+                            error("quote_item!: `#" + vname
+                                + "` inside `#(...)*` — expected Vec<Ident>");
+                            walk_failed = true; return;
+                        }
+                        placeholders.push_back(
+                            {Placeholder::Kind::Cursor, std::move(vname), nullptr});
+                    } else {
+                        if (!is_ident_type(vt)) {
+                            error("quote_item!: `#" + vname + "` — expected Ident");
+                            walk_failed = true; return;
+                        }
+                        placeholders.push_back(
+                            {Placeholder::Kind::String, std::move(vname), nullptr});
+                    }
+                } else if (tag.type_code() == lh::type_hash::TinyObjectMap) {
+                    // Full form: #(expr) — lower inner expr against current scope.
+                    hermes::TinyMapView inner(nv.to_offset(), holder_);
+                    auto lowered = lower_expr(inner);
+                    if (!lowered) { walk_failed = true; return; }
+                    if (is_ident_type(lowered->type)) {
+                        placeholders.push_back(
+                            {Placeholder::Kind::Expr, "", std::move(lowered)});
+                    } else if (is_expr_blob_type_qi(lowered->type)) {
+                        placeholders.push_back(
+                            {Placeholder::Kind::ExprBlob, "", std::move(lowered)});
+                    } else {
+                        error("quote_item!: `#(expr)` — expected Ident or ExprBlob");
+                        walk_failed = true; return;
+                    }
+                } else {
+                    error("quote_item!: NAME_VAR has unexpected pointee kind");
+                    walk_failed = true; return;
+                }
+            }
+        }
+        // Recurse into all pointer-valued keys (skip NAME_VAR since its
+        // pointee is the placeholder content, not a child node).
+        uint64_t bm = tom->bitmap();
+        for (uint8_t key = 0; key < TinyObjectMap::MAX_KEYS; ++key) {
+            if (!(bm & (1ULL << key))) continue;
+            if (key == la::NAME_VAR.code) continue;
+            AnyVal av = tom->get(key, const_cast<uint8_t*>(src_base));
+            if (av.is_null() || !av.is_pointer()) continue;
+            const uint8_t* pointee = src_base + av.to_offset().value();
+            lh::TypeTag tag = lh::TypeTag::read_before(pointee);
+            if (tag.type_code() == lh::type_hash::TinyObjectMap) {
+                walk_src(static_cast<uint32_t>(av.to_offset().value()));
+            } else if (tag.type_code() == lh::type_hash::Array) {
+                const auto* arr =
+                    reinterpret_cast<const ObjectArray*>(pointee);
+                for (uint64_t i = 0; i < arr->size(); ++i) {
+                    AnyVal e = arr->get(i, const_cast<uint8_t*>(src_base));
+                    if (e.is_null() || !e.is_pointer()) continue;
+                    const uint8_t* ep = src_base + e.to_offset().value();
+                    lh::TypeTag etag = lh::TypeTag::read_before(ep);
+                    if (etag.type_code() == lh::type_hash::TinyObjectMap) {
+                        walk_src(static_cast<uint32_t>(e.to_offset().value()));
+                    }
+                }
+            }
+        }
+    };
     if (!src_items.is_null()) {
         for (uint64_t i = 0; i < src_items.size(); ++i) {
             AnyVal it_av = src_items.get(i);
-            if (it_av.is_null()) continue;
-            const auto* tom = reinterpret_cast<const TinyObjectMap*>(
-                src_base + it_av.to_offset().value());
-            if (!tom->has_key(la::NAME_VAR.code)) continue;
-            AnyVal nv_av = tom->get(la::NAME_VAR.code,
-                                    const_cast<uint8_t*>(src_base));
-            if (nv_av.is_null() || !nv_av.is_pointer()) {
-                error("quote_item!: NAME_VAR is not a string offset (parser bug?)");
-                return error_expr();
-            }
-            const auto* nv_str = reinterpret_cast<const ArenaString*>(
-                src_base + nv_av.to_offset().value());
-            std::string vname(nv_str->view());
-            TypeRef vt = lookup(vname);
-            if (!vt) {
-                error("quote_item!: `#" + vname + "` — variable not in scope");
-                return error_expr();
-            }
-            if (!is_ident_type(vt)) {
-                error("quote_item!: `#" + vname + "` — expected Ident");
-                return error_expr();
-            }
-            placeholders.push_back({i, std::move(vname)});
+            if (it_av.is_null() || !it_av.is_pointer()) continue;
+            walk_src(static_cast<uint32_t>(it_av.to_offset().value()));
+            if (walk_failed) return error_expr();
         }
     }
 
@@ -6696,18 +6818,110 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
         reinterpret_cast<uint8_t*>(items_arr_e.get()) - HermesAccess::base(doc));
 
     if (!src_items.is_null()) {
-        // Helper: find the placeholder index for source item i (or -1).
-        auto find_ph = [&](uint64_t i) -> int32_t {
-            for (size_t k = 0; k < placeholders.size(); ++k) {
-                if (placeholders[k].item_idx == i)
-                    return static_cast<int32_t>(k);
+        // Mirror walk_src on the dst arena: every NAME_VAR-bearing TOM
+        // whose pointee is string-or-TOM gets its slot rewritten to
+        // int(next_idx++). DFS order matches walk_src so indices line up
+        // with the producers we collected above.
+        size_t next_idx = 0;
+        size_t ident_idx = 0;
+        size_t blob_idx = 0;
+        size_t cursor_idx = 0;
+        int qi_repeat_depth_dst = 0;
+        std::set<uint32_t> visited_dst;
+        std::function<void(uint32_t)> walk_dst = [&](uint32_t off) {
+            if (!visited_dst.insert(off).second) return;
+            uint8_t* dbase = HermesAccess::base(doc);
+            auto* tom = reinterpret_cast<TinyObjectMap*>(dbase + off);
+            int32_t cd = 0;
+            if (tom->has_key(la::CODE.code)) {
+                AnyVal cav = tom->get(la::CODE.code, dbase);
+                if (!cav.is_null() && !cav.is_pointer())
+                    cd = cav.as_value<int32_t>();
             }
-            return -1;
+            if (cd == la::REPEAT_GROUP.code) {
+                ++qi_repeat_depth_dst;
+                if (tom->has_key(la::VALUE.code)) {
+                    AnyVal vav = tom->get(la::VALUE.code, dbase);
+                    if (vav.is_pointer())
+                        walk_dst(static_cast<uint32_t>(vav.to_offset().value()));
+                }
+                --qi_repeat_depth_dst;
+                return;
+            }
+            if (tom->has_key(la::NAME_VAR.code)) {
+                AnyVal nv = tom->get(la::NAME_VAR.code, dbase);
+                if (!nv.is_null() && nv.is_pointer()) {
+                    const uint8_t* pointee = dbase + nv.to_offset().value();
+                    lh::TypeTag tag = lh::TypeTag::read_before(pointee);
+                    if (tag.type_code() == lh::type_hash::HermesString
+                        || tag.type_code() == lh::type_hash::TinyObjectMap) {
+                        // Encode placeholder index by kind:
+                        //   ident sites  → positive idx (counts only idents)
+                        //   blob sites   → negative -(idx+1) (counts only blobs)
+                        //   cursor sites → positive idx | 0x400000
+                        int32_t encoded;
+                        Placeholder::Kind k = placeholders[next_idx].kind;
+                        if (k == Placeholder::Kind::ExprBlob) {
+                            encoded = -static_cast<int32_t>(blob_idx + 1);
+                            blob_idx++;
+                        } else if (k == Placeholder::Kind::Cursor) {
+                            encoded = static_cast<int32_t>(cursor_idx)
+                                    | 0x400000;
+                            cursor_idx++;
+                        } else {
+                            encoded = static_cast<int32_t>(ident_idx);
+                            ident_idx++;
+                        }
+                        next_idx++;
+                        (void)tom->put(la::NAME_VAR.code,
+                                       AnyVal::from_value<int32_t>(encoded),
+                                       dst_arena);
+                        dbase = HermesAccess::base(doc);
+                        tom = reinterpret_cast<TinyObjectMap*>(dbase + off);
+                    }
+                }
+            }
+            // Snapshot child offsets first so put() rebases don't bite us
+            // mid-iteration. Each entry is (is_array, offset).
+            std::vector<std::pair<bool, uint32_t>> children;
+            uint64_t bm = tom->bitmap();
+            for (uint8_t key = 0; key < TinyObjectMap::MAX_KEYS; ++key) {
+                if (!(bm & (1ULL << key))) continue;
+                if (key == la::NAME_VAR.code) continue;
+                AnyVal av = tom->get(key, dbase);
+                if (av.is_null() || !av.is_pointer()) continue;
+                uint32_t coff = static_cast<uint32_t>(av.to_offset().value());
+                const uint8_t* pointee = dbase + coff;
+                lh::TypeTag tag = lh::TypeTag::read_before(pointee);
+                if (tag.type_code() == lh::type_hash::TinyObjectMap)
+                    children.push_back({false, coff});
+                else if (tag.type_code() == lh::type_hash::Array)
+                    children.push_back({true, coff});
+            }
+            for (auto [is_arr, coff] : children) {
+                if (!is_arr) {
+                    walk_dst(coff);
+                    continue;
+                }
+                uint8_t* dbase2 = HermesAccess::base(doc);
+                const auto* arr =
+                    reinterpret_cast<const ObjectArray*>(dbase2 + coff);
+                std::vector<uint32_t> elem_offs;
+                for (uint64_t i = 0; i < arr->size(); ++i) {
+                    AnyVal e = arr->get(i, dbase2);
+                    if (e.is_null() || !e.is_pointer()) continue;
+                    uint32_t eoff = static_cast<uint32_t>(e.to_offset().value());
+                    const uint8_t* ep = dbase2 + eoff;
+                    lh::TypeTag etag = lh::TypeTag::read_before(ep);
+                    if (etag.type_code() == lh::type_hash::TinyObjectMap)
+                        elem_offs.push_back(eoff);
+                }
+                for (uint32_t eoff : elem_offs) walk_dst(eoff);
+            }
         };
         for (uint64_t i = 0; i < src_items.size(); ++i) {
             AnyVal it_av = src_items.get(i);
             if (it_av.is_null()) continue;
-            // Item AnyVal is a pointer-into-src arena (TinyObjectMap).
             const void* src_obj = src_base + it_av.to_offset().value();
             auto cp_e = copy_object_into(src_obj, src_base, doc);
             if (!cp_e) {
@@ -6717,21 +6931,17 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
             void* dst_obj = cp_e.get();
             uint32_t dst_off = static_cast<uint32_t>(
                 reinterpret_cast<uint8_t*>(dst_obj) - HermesAccess::base(doc));
-
-            // For placeholder items, rewrite NAME_VAR(string) → NAME_VAR(int idx).
-            int32_t ph_idx = find_ph(i);
-            if (ph_idx >= 0) {
-                auto* dst_tom = reinterpret_cast<TinyObjectMap*>(
-                    HermesAccess::base(doc) + dst_off);
-                (void)dst_tom->put(la::NAME_VAR.code,
-                    AnyVal::from_value<int32_t>(ph_idx), dst_arena);
-            }
-            // Rebase items_arr each push: the arena may have grown and
-            // invalidated cached pointers.
+            walk_dst(dst_off);
             auto* items_arr = reinterpret_cast<ObjectArray*>(
                 HermesAccess::base(doc) + items_off);
             (void)items_arr->push_back(AnyVal::from_offset(arena_offset_t(dst_off)),
                                        dst_arena);
+        }
+        if (next_idx != placeholders.size()) {
+            error("quote_item!: placeholder walk mismatch (src="
+                  + std::to_string(placeholders.size())
+                  + ", dst=" + std::to_string(next_idx) + ")");
+            return error_expr();
         }
     }
 
@@ -6752,6 +6962,50 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
     }
     uint32_t uses_off = static_cast<uint32_t>(
         reinterpret_cast<uint8_t*>(uses_e.get()) - HermesAccess::base(doc));
+
+    // MC2.2: source-site name resolution. Inherit the metafn's import scope
+    // into the synth module so unqualified names in quoted items resolve
+    // through the metafn's `use`-list. Build one USE per package as a
+    // single-NAME node (NAME = full dotted string, no PATH_PARTS); this
+    // matches what `build_import_scope` accepts.
+    {
+        std::vector<std::string> use_pkgs = cur_imports_.wildcard_packages;
+        if (!cur_package_.empty()) {
+            // Self-use so siblings of the metafn's package resolve unqualified.
+            if (std::find(use_pkgs.begin(), use_pkgs.end(), cur_package_)
+                    == use_pkgs.end())
+                use_pkgs.push_back(cur_package_);
+        }
+        for (const auto& pkg : use_pkgs) {
+            auto pname_e = ArenaString::create(dst_arena, std::string_view(pkg));
+            if (!pname_e) {
+                error("quote_item!: USE name alloc failed");
+                return error_expr();
+            }
+            uint32_t pname_off = static_cast<uint32_t>(
+                reinterpret_cast<uint8_t*>(pname_e.get()) - HermesAccess::base(doc));
+            auto use_tom_e = HermesAccess::raw_tiny_map(doc, 4);
+            if (!use_tom_e) {
+                error("quote_item!: USE tom alloc failed");
+                return error_expr();
+            }
+            uint32_t use_off = static_cast<uint32_t>(
+                reinterpret_cast<uint8_t*>(use_tom_e.get()) - HermesAccess::base(doc));
+            auto use_tom = [&]() {
+                return reinterpret_cast<TinyObjectMap*>(
+                    HermesAccess::base(doc) + use_off);
+            };
+            (void)use_tom()->put(la::CODE.code,
+                AnyVal::from_value(static_cast<int32_t>(la::USE.code)),
+                dst_arena);
+            (void)use_tom()->put(la::NAME.code,
+                AnyVal::from_offset(arena_offset_t(pname_off)), dst_arena);
+            auto* uses_arr = reinterpret_cast<ObjectArray*>(
+                HermesAccess::base(doc) + uses_off);
+            (void)uses_arr->push_back(
+                AnyVal::from_offset(arena_offset_t(use_off)), dst_arena);
+        }
+    }
 
     // NAME = "main".
     auto name_e = ArenaString::create(dst_arena, std::string_view("main"));
@@ -6826,23 +7080,49 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
         blk->stmts.push_back(make_stmt_emit(node_line_, std::move(s)));
     }
 
-    TypeRef u8_ptr_t       = make_ptr(false, u8_t());
-    TypeRef ident_ptr_t    = make_ptr(false, ident_t);
+    TypeRef u8_ptr_t        = make_ptr(false, u8_t());
+    TypeRef u8_ptr_ptr_t    = make_ptr(false, u8_ptr_t);
+    TypeRef ident_ptr_t     = make_ptr(false, ident_t);
     TypeRef ident_ptr_ptr_t = make_ptr(false, ident_ptr_t);
-    TypeRef u64_ty         = prim(LogosType::Kind::U64);
+    TypeRef u64_ty          = prim(LogosType::Kind::U64);
 
-    lir::LExprPtr idents_ptr_e;
-    uint64_t N = placeholders.size();
-    if (N > 0) {
-        // Build `[*const Ident; N] = [&v0, &v1, ...]`.  Arrays-of-struct
-        // aren't laid out inline at MLIR level (Struct→ptr_type), so we
-        // store pointers to per-site Ident locals instead — the host shim
-        // dereferences each entry before substituting.
-        auto arr_t = make_array(ident_ptr_t, N);
+    // Partition placeholders by kind so the LIR arrays match the dst-walk
+    // numbering: ident_i = i-th String/Expr placeholder in DFS order;
+    // blob_i = i-th ExprBlob placeholder in DFS order.
+    uint64_t N_idents = 0, N_blobs = 0, N_cursors = 0;
+    for (auto& ph : placeholders) {
+        if (ph.kind == Placeholder::Kind::ExprBlob)     N_blobs++;
+        else if (ph.kind == Placeholder::Kind::Cursor)  N_cursors++;
+        else                                            N_idents++;
+    }
+
+    auto null_u8_ptr = [&]() {
+        return builder().cast(builder().lit_int(0, intlit_t()), u8_ptr_t);
+    };
+
+    lir::LExprPtr idents_blob_e;
+    lir::LExprPtr blobs_blob_e;
+
+    if (N_idents > 0) {
+        // Build `[*const Ident; N_idents]` of `&local` for each ident site.
+        auto arr_t = make_array(ident_ptr_t, N_idents);
         std::vector<lir::LExprPtr> elems;
-        elems.reserve(N);
+        elems.reserve(N_idents);
         for (auto& ph : placeholders) {
-            elems.push_back(builder().addr_of(ph.var_name, ident_ptr_t));
+            if (ph.kind == Placeholder::Kind::Cursor
+                || ph.kind == Placeholder::Kind::ExprBlob) continue;
+            if (ph.kind == Placeholder::Kind::String) {
+                elems.push_back(builder().addr_of(ph.var_name, ident_ptr_t));
+            } else if (ph.kind == Placeholder::Kind::Expr) {
+                std::string ename =
+                    "__qib_aq_" + std::to_string(tmp_var_count_++);
+                define(ename, ident_t);
+                lir::SLet s;
+                s.name = ename; s.type = ident_t; s.is_mut = false;
+                s.value = std::move(ph.expr_producer);
+                blk->stmts.push_back(make_stmt_emit(node_line_, std::move(s)));
+                elems.push_back(builder().addr_of(ename, ident_ptr_t));
+            }
         }
         auto arr_e = builder().arr_lit(std::move(elems), arr_t);
         std::string aname = "__qib_i_" + std::to_string(tmp_var_count_++);
@@ -6854,24 +7134,138 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
             blk->stmts.push_back(make_stmt_emit(node_line_, std::move(s)));
         }
         auto arr_ptr_t = make_ptr(false, arr_t);
-        auto raw = builder().addr_of(aname, arr_ptr_t);
-        idents_ptr_e = builder().cast(std::move(raw), ident_ptr_ptr_t);
+        auto raw  = builder().addr_of(aname, arr_ptr_t);
+        auto cast = builder().cast(std::move(raw), ident_ptr_ptr_t);
+        std::vector<lir::LExprPtr> pack_args;
+        pack_args.push_back(std::move(cast));
+        pack_args.push_back(builder().lit_int(
+            static_cast<int64_t>(N_idents), u64_ty));
+        auto pack_call = builder().call(
+            "logos_qib_pack_idents", {}, std::move(pack_args), u8_ptr_t);
+        std::string bname = "__qib_b_" + std::to_string(tmp_var_count_++);
+        define(bname, u8_ptr_t);
+        {
+            lir::SLet s;
+            s.name = bname; s.type = u8_ptr_t; s.is_mut = false;
+            s.value = std::move(pack_call);
+            blk->stmts.push_back(make_stmt_emit(node_line_, std::move(s)));
+        }
+        idents_blob_e = builder().var_ref(bname, u8_ptr_t);
     } else {
-        idents_ptr_e = builder().cast(builder().lit_int(0, intlit_t()),
-                                      ident_ptr_ptr_t);
+        idents_blob_e = null_u8_ptr();
+    }
+
+    if (N_blobs > 0) {
+        // Build `[*const u8; N_blobs]` of `local.ptr` for each ExprBlob site.
+        // Bind each lowered ExprBlob expr to a local first so we can read
+        // its `.ptr` field (and so the local outlives the array).
+        auto arr_t = make_array(u8_ptr_t, N_blobs);
+        std::vector<lir::LExprPtr> elems;
+        elems.reserve(N_blobs);
+        for (auto& ph : placeholders) {
+            if (ph.kind != Placeholder::Kind::ExprBlob) continue;
+            std::string ename =
+                "__qib_blob_" + std::to_string(tmp_var_count_++);
+            define(ename, expr_blob_t);
+            lir::SLet s;
+            s.name = ename; s.type = expr_blob_t; s.is_mut = false;
+            s.value = std::move(ph.expr_producer);
+            blk->stmts.push_back(make_stmt_emit(node_line_, std::move(s)));
+            auto eref = builder().var_ref(ename, expr_blob_t);
+            auto eptr = builder().field_read(std::move(eref), "ptr", u8_ptr_t);
+            elems.push_back(std::move(eptr));
+        }
+        auto arr_e = builder().arr_lit(std::move(elems), arr_t);
+        std::string aname = "__qib_bs_" + std::to_string(tmp_var_count_++);
+        define(aname, arr_t);
+        {
+            lir::SLet s;
+            s.name = aname; s.type = arr_t; s.is_mut = false;
+            s.value = std::move(arr_e);
+            blk->stmts.push_back(make_stmt_emit(node_line_, std::move(s)));
+        }
+        auto arr_ptr_t = make_ptr(false, arr_t);
+        auto raw  = builder().addr_of(aname, arr_ptr_t);
+        auto cast = builder().cast(std::move(raw), u8_ptr_ptr_t);
+        std::vector<lir::LExprPtr> pack_args;
+        pack_args.push_back(std::move(cast));
+        pack_args.push_back(builder().lit_int(
+            static_cast<int64_t>(N_blobs), u64_ty));
+        auto pack_call = builder().call(
+            "logos_qib_pack_blobs", {}, std::move(pack_args), u8_ptr_t);
+        std::string bname = "__qib_bbs_" + std::to_string(tmp_var_count_++);
+        define(bname, u8_ptr_t);
+        {
+            lir::SLet s;
+            s.name = bname; s.type = u8_ptr_t; s.is_mut = false;
+            s.value = std::move(pack_call);
+            blk->stmts.push_back(make_stmt_emit(node_line_, std::move(s)));
+        }
+        blobs_blob_e = builder().var_ref(bname, u8_ptr_t);
+    } else {
+        blobs_blob_e = null_u8_ptr();
+    }
+
+    lir::LExprPtr cursors_blob_e;
+    if (N_cursors > 0) {
+        // Build `[*const Vec<Ident>; N_cursors]` of `&cursor_var` for each
+        // cursor placeholder (DFS order matches the dst encoding).
+        TypeRef vec_ident_t;
+        {
+            std::vector<TypeRef> args; args.push_back(ident_t);
+            vec_ident_t = make_generic_struct("Vec", std::move(args));
+        }
+        auto vec_ident_ptr_t = make_ptr(false, vec_ident_t);
+        auto vec_ident_ptr_ptr_t = make_ptr(false, vec_ident_ptr_t);
+        auto arr_t = make_array(vec_ident_ptr_t, N_cursors);
+        std::vector<lir::LExprPtr> elems;
+        elems.reserve(N_cursors);
+        for (auto& ph : placeholders) {
+            if (ph.kind != Placeholder::Kind::Cursor) continue;
+            elems.push_back(builder().addr_of(ph.var_name, vec_ident_ptr_t));
+        }
+        auto arr_e = builder().arr_lit(std::move(elems), arr_t);
+        std::string aname = "__qib_c_" + std::to_string(tmp_var_count_++);
+        define(aname, arr_t);
+        {
+            lir::SLet s;
+            s.name = aname; s.type = arr_t; s.is_mut = false;
+            s.value = std::move(arr_e);
+            blk->stmts.push_back(make_stmt_emit(node_line_, std::move(s)));
+        }
+        auto arr_ptr_t = make_ptr(false, arr_t);
+        auto raw  = builder().addr_of(aname, arr_ptr_t);
+        auto cast = builder().cast(std::move(raw), vec_ident_ptr_ptr_t);
+        std::vector<lir::LExprPtr> pack_args;
+        pack_args.push_back(std::move(cast));
+        pack_args.push_back(builder().lit_int(
+            static_cast<int64_t>(N_cursors), u64_ty));
+        auto pack_call = builder().call(
+            "logos_qib_pack_cursors", {}, std::move(pack_args), u8_ptr_t);
+        std::string bname = "__qib_cs_" + std::to_string(tmp_var_count_++);
+        define(bname, u8_ptr_t);
+        {
+            lir::SLet s;
+            s.name = bname; s.type = u8_ptr_t; s.is_mut = false;
+            s.value = std::move(pack_call);
+            blk->stmts.push_back(make_stmt_emit(node_line_, std::move(s)));
+        }
+        cursors_blob_e = builder().var_ref(bname, u8_ptr_t);
+    } else {
+        cursors_blob_e = null_u8_ptr();
     }
 
     auto t_ref  = builder().var_ref(tname, hs_t);
     auto t_ptr  = builder().field_read(std::move(t_ref), "ptr", u8_ptr_t);
     auto t_size = builder().lit_int(static_cast<int64_t>(used), u64_ty);
-    auto i_cnt  = builder().lit_int(static_cast<int64_t>(N), u64_ty);
 
     auto qib_t = make_struct_type("QuoteItemBlob");
     std::vector<std::pair<std::string, lir::LExprPtr>> fields;
     fields.emplace_back("template_ptr",  std::move(t_ptr));
     fields.emplace_back("template_size", std::move(t_size));
-    fields.emplace_back("idents_ptr",    std::move(idents_ptr_e));
-    fields.emplace_back("idents_count",  std::move(i_cnt));
+    fields.emplace_back("idents_blob",   std::move(idents_blob_e));
+    fields.emplace_back("blobs_blob",    std::move(blobs_blob_e));
+    fields.emplace_back("cursors_blob",  std::move(cursors_blob_e));
     auto qib_lit = builder().struct_lit("QuoteItemBlob",
                                         std::move(fields), qib_t);
 
@@ -7197,7 +7591,8 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
         std::string var_name;
         bool is_cursor;          // inside a REPEAT_GROUP body
         bool is_expr_blob;       // var type is ExprBlob (5c Option B)
-        uint64_t cursor_count;   // 1 for scalar Ident, N for [Ident; N]
+        bool is_vec_cursor;      // cursor backed by Vec<Ident> (dynamic count)
+        uint64_t cursor_count;   // 1 scalar, N for [Ident; N], 0 for Vec<Ident>
     };
     std::vector<ExprPlaceholder> placeholders;
     TypeRef ident_t = make_struct_type("Ident");
@@ -7212,10 +7607,87 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
         if (!is_ident_type(elem)) return 0;
         return static_cast<uint64_t>(TypeRef(t).arr_size());
     };
+    // Recognise Vec<Ident> as a dynamic-length cursor source.
+    auto is_vec_ident_type = [&](TypeRef t) -> bool {
+        if (TypeRef(t).kind() != LogosType::Kind::Struct) return false;
+        if (TypeRef(t).struct_name() != "Vec") return false;
+        auto args = TypeRef(t).type_args();
+        if (args.size() != 1) return false;
+        return is_ident_type(args[0]);
+    };
 
     int repeat_depth = 0;
     // Per-group cursor count (validated for consistency within a group).
     std::vector<uint64_t> repeat_stack_count;
+
+    // Register a NAME_VAR placeholder living in `holder_off`'s TOM under the
+    // NAME_VAR key. `ident_only` rejects ExprBlob (used for FIELD_INIT field
+    // names — only Idents make sense there).
+    auto register_name_var = [&](uint32_t holder_off, bool ident_only) -> bool {
+        auto* base = HermesAccess::base(doc);
+        auto* tom = reinterpret_cast<TinyObjectMap*>(base + holder_off);
+        if (!tom->has_key(la::NAME_VAR.code)) return true;
+        AnyVal nv = tom->get(la::NAME_VAR.code, base);
+        if (nv.is_null() || !nv.is_pointer()) {
+            error("quote_expr!: NAME_VAR is not a string");
+            return false;
+        }
+        const auto* nv_str = reinterpret_cast<const ArenaString*>(
+            base + nv.to_offset().value());
+        std::string vname(nv_str->view());
+        TypeRef vt = lookup(vname);
+        if (!vt) {
+            error("quote_expr!: `#" + vname + "` — variable not in scope");
+            return false;
+        }
+        bool is_cursor = (repeat_depth > 0);
+        bool is_expr_blob = false;
+        bool is_vec_cursor = false;
+        uint64_t count = 0;
+        auto is_expr_blob_type = [](TypeRef t) {
+            return TypeRef(t).kind() == LogosType::Kind::Struct
+                && TypeRef(t).struct_name() == "ExprBlob";
+        };
+        if (is_cursor) {
+            count = ident_array_len(vt);
+            if (count == 0 && is_vec_ident_type(vt)) {
+                is_vec_cursor = true;
+            } else if (count == 0) {
+                error("quote_expr!: `#" + vname
+                      + "` inside repeat — expected [Ident; N] or Vec<Ident>");
+                return false;
+            }
+            if (is_vec_cursor) {
+                repeat_stack_count.back() = static_cast<uint64_t>(-1);
+            } else if (repeat_stack_count.back() == 0) {
+                repeat_stack_count.back() = count;
+            } else if (repeat_stack_count.back() != static_cast<uint64_t>(-1)
+                       && repeat_stack_count.back() != count) {
+                error("quote_expr!: `#" + vname
+                      + "` cursor length mismatches sibling cursor in same #(...)*");
+                return false;
+            }
+        } else if (!ident_only && is_expr_blob_type(vt)) {
+            is_expr_blob = true;
+            count = 0;
+        } else {
+            if (!is_ident_type(vt)) {
+                error("quote_expr!: `#" + vname
+                      + (ident_only ? "` — expected Ident"
+                                    : "` — expected Ident or ExprBlob"));
+                return false;
+            }
+            count = 1;
+        }
+        int32_t idx = static_cast<int32_t>(placeholders.size());
+        placeholders.push_back({holder_off, std::move(vname),
+                                is_cursor, is_expr_blob, is_vec_cursor, count});
+        auto* t2 = reinterpret_cast<TinyObjectMap*>(
+            HermesAccess::base(doc) + holder_off);
+        (void)t2->put(la::NAME_VAR.code,
+            AnyVal::from_value<int32_t>(idx), dst_arena);
+        return true;
+    };
 
     std::function<bool(uint32_t)> walk = [&](uint32_t tom_off) -> bool {
         auto* base = HermesAccess::base(doc);
@@ -7237,65 +7709,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
         };
 
         if (cd == la::VAR_REF.code) {
-            if (tom->has_key(la::NAME_VAR.code)) {
-                AnyVal nv = tom->get(la::NAME_VAR.code, base);
-                if (nv.is_null() || !nv.is_pointer()) {
-                    error("quote_expr!: NAME_VAR is not a string");
-                    return false;
-                }
-                const auto* nv_str = reinterpret_cast<const ArenaString*>(
-                    base + nv.to_offset().value());
-                std::string vname(nv_str->view());
-                TypeRef vt = lookup(vname);
-                if (!vt) {
-                    error("quote_expr!: `#" + vname
-                          + "` — variable not in scope");
-                    return false;
-                }
-                bool is_cursor = (repeat_depth > 0);
-                bool is_expr_blob = false;
-                uint64_t count = 0;
-                auto is_expr_blob_type = [](TypeRef t) {
-                    return TypeRef(t).kind() == LogosType::Kind::Struct
-                        && TypeRef(t).struct_name() == "ExprBlob";
-                };
-                if (is_cursor) {
-                    count = ident_array_len(vt);
-                    if (count == 0) {
-                        error("quote_expr!: `#" + vname
-                              + "` inside repeat — expected [Ident; N]");
-                        return false;
-                    }
-                    // Validate cursor count matches the enclosing group.
-                    if (repeat_stack_count.back() == 0) {
-                        repeat_stack_count.back() = count;
-                    } else if (repeat_stack_count.back() != count) {
-                        error("quote_expr!: `#" + vname
-                              + "` cursor length mismatches sibling cursor in same #(...)*");
-                        return false;
-                    }
-                } else if (is_expr_blob_type(vt)) {
-                    // 5c Option B: ExprBlob splice. Count is unused; the
-                    // shim reads the blob's size prefix at ptr-8.
-                    is_expr_blob = true;
-                    count = 0;
-                } else {
-                    if (!is_ident_type(vt)) {
-                        error("quote_expr!: `#" + vname
-                              + "` — expected Ident or ExprBlob");
-                        return false;
-                    }
-                    count = 1;
-                }
-                int32_t idx = static_cast<int32_t>(placeholders.size());
-                placeholders.push_back({tom_off, std::move(vname),
-                                        is_cursor, is_expr_blob, count});
-                auto* t2 = reinterpret_cast<TinyObjectMap*>(
-                    HermesAccess::base(doc) + tom_off);
-                (void)t2->put(la::NAME_VAR.code,
-                    AnyVal::from_value<int32_t>(idx), dst_arena);
-            }
-            return true;
+            return register_name_var(tom_off, /*ident_only=*/false);
         }
         if (cd == la::REPEAT_GROUP.code) {
             // sep validation deferred to the shim — `&&*` works in any expr
@@ -7327,6 +7741,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             return recurse_key(la::VALUE.code);
         }
         if (cd == la::FIELD_READ.code) {
+            if (!register_name_var(tom_off, /*ident_only=*/true)) return false;
             return recurse_key(la::RECEIVER.code);
         }
         if (cd == la::CALL.code || cd == la::METHOD_CALL.code
@@ -7356,6 +7771,34 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
                     }
                 }
             }
+            return true;
+        }
+        if (cd == la::STRUCT_LIT.code) {
+            // Optional NAME_VAR antiquot for struct type name (e.g. `#Foo {…}`).
+            if (!register_name_var(tom_off, /*ident_only=*/true)) return false;
+            // Iterate ITEMS array; each element is FIELD_INIT, FIELD_SHORTHAND,
+            // or REPEAT_GROUP (cursor-expanded field-init list).
+            auto* b = HermesAccess::base(doc);
+            auto* t = reinterpret_cast<TinyObjectMap*>(b + tom_off);
+            if (!t->has_key(la::ITEMS.code)) return true;
+            AnyVal av = t->get(la::ITEMS.code, b);
+            if (!av.is_pointer()) return true;
+            auto* arr = reinterpret_cast<ObjectArray*>(
+                b + av.to_offset().value());
+            for (uint64_t i = 0; i < arr->size(); ++i) {
+                AnyVal el = arr->get(i, b);
+                if (!el.is_pointer()) continue;
+                if (!walk(static_cast<uint32_t>(el.to_offset().value())))
+                    return false;
+            }
+            return true;
+        }
+        if (cd == la::FIELD_INIT.code) {
+            // NAME_VAR (Ident-only antiquot for field name) + VALUE expr.
+            if (!register_name_var(tom_off, /*ident_only=*/true)) return false;
+            return recurse_key(la::VALUE.code);
+        }
+        if (cd == la::FIELD_SHORTHAND.code) {
             return true;
         }
         return true;
@@ -7492,6 +7935,19 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             auto blob_ptr = builder().field_read(
                 std::move(v_ref), "ptr", u8_ptr_t);
             ptr_v = builder().cast(std::move(blob_ptr), ident_ptr_t);
+        } else if (ph.is_cursor && ph.is_vec_cursor) {
+            // Dynamic cursor — read xs.ptr (cast *mut Ident → *const Ident)
+            // and xs.len (cast i64 → u64). Vec<Ident> shape verified at sema.
+            LogosTypeBuilder vb;
+            vb.kind = LogosType::Kind::Struct;
+            vb.struct_name = "Vec";
+            vb.type_args = {ident_t};
+            TypeRef vec_ident_t = pool_->alloc(std::move(vb));
+            auto v_ref       = builder().var_ref(ph.var_name, vec_ident_t);
+            TypeRef ident_mut_ptr_t = make_ptr(true, ident_t);
+            auto raw_ptr     = builder().field_read(
+                std::move(v_ref), "ptr", ident_mut_ptr_t);
+            ptr_v            = builder().cast(std::move(raw_ptr), ident_ptr_t);
         } else if (ph.is_cursor) {
             auto arr_var_t = make_array(ident_t, ph.cursor_count);
             auto arr_ptr_t = make_ptr(false, arr_var_t);
@@ -7517,8 +7973,22 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             auto raw_addr  = builder().addr_of(pname, p_ptr_t);
             ptr_v          = builder().cast(std::move(raw_addr), ident_ptr_t);
         }
-        auto cnt_v = builder().lit_int(
-            static_cast<int64_t>(ph.cursor_count), u64_ty);
+        lir::LExprPtr cnt_v;
+        if (ph.is_vec_cursor) {
+            // count = xs.len cast to u64
+            LogosTypeBuilder vb2;
+            vb2.kind = LogosType::Kind::Struct;
+            vb2.struct_name = "Vec";
+            vb2.type_args = {ident_t};
+            TypeRef vec_ident_t2 = pool_->alloc(std::move(vb2));
+            auto v_ref2 = builder().var_ref(ph.var_name, vec_ident_t2);
+            auto raw_len = builder().field_read(
+                std::move(v_ref2), "len", prim(LogosType::Kind::I64));
+            cnt_v = builder().cast(std::move(raw_len), u64_ty);
+        } else {
+            cnt_v = builder().lit_int(
+                static_cast<int64_t>(ph.cursor_count), u64_ty);
+        }
         auto kind_v = builder().lit_int(
             static_cast<int64_t>(kind), u64_ty);
         std::vector<std::pair<std::string, lir::LExprPtr>> sf;
@@ -7950,6 +8420,238 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
     // a literal before the FINAL non-metaprog sema pass, so this lowering
     // never reaches mlir_gen.
     return lowered;
+}
+
+// ── metacall <call_expr>; at item position ───────────────────────────────
+//
+// MC1.1: at module top-level, `metacall foo();` is required to return a
+// QuoteItemBlob (the typed AST item-blob produced by quote_item!). We
+// synthesise a void thunk `unsafe fn __metacall_thunk_K() -> () {
+//   let __b: QuoteItemBlob = <call>;
+//   logos_emit_item_blob_subst(&__b);
+//   return;
+// }` and register a MetacallSite with ret_tag=ItemBlob. The driver
+// invokes the void thunk (which itself appends a new doc to g_asts via
+// the host shim) and then overwrites the METACALL_ITEM node's CODE to
+// METACALL_ITEM_DONE so the next sema pass skips it.
+//
+// Errors are surfaced via diags; on failure no site is registered.
+void SemaChecker::lower_metacall_item(hermes::TinyMapView node,
+                                      lir::LProgram& prog) {
+    namespace la = logos::compiler::ast;
+    using namespace logos::hermes;
+    if (!node.has_key(la::VALUE)) {
+        error("metacall (item position): missing inner call expression");
+        return;
+    }
+    auto inner = map_of(node.get(la::VALUE.code));
+    int32_t ic = code_of(inner);
+    if (ic != la::CALL && ic != la::GENERIC_CALL && ic != la::STATIC_CALL) {
+        error("metacall (item position): expected a free-function or static-method call");
+        return;
+    }
+
+    // CTFE each arg to a printable literal (mirrors lower_metacall).
+    std::vector<std::string> arg_lits;
+    auto print_ctfe_lit = [](const ctfe::CtfeValue& v) -> std::string {
+        using K = LogosType::Kind;
+        if (v.kind == K::Bool) return v.b ? "true" : "false";
+        if (v.kind == K::Slice) {
+            std::string s = "\"";
+            for (char c : v.s) {
+                switch (c) {
+                case '\\': s += "\\\\"; break;
+                case '"':  s += "\\\""; break;
+                case '\n': s += "\\n"; break;
+                case '\r': s += "\\r"; break;
+                case '\t': s += "\\t"; break;
+                default:   s += c; break;
+                }
+            }
+            s += "\"";
+            return s;
+        }
+        if (v.kind == K::F32 || v.kind == K::F64 || v.kind == K::FloatLit) {
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "%.17g", v.f);
+            std::string s = buf;
+            if (s.find('.') == std::string::npos && s.find('e') == std::string::npos
+                && s.find('n') == std::string::npos && s.find('i') == std::string::npos)
+                s += ".0";
+            if (v.kind == K::F32) s += "f32";
+            else if (v.kind == K::F64) s += "f64";
+            return s;
+        }
+        std::string s;
+        bool sgn = (v.kind == K::I8 || v.kind == K::I16 || v.kind == K::I24 ||
+                    v.kind == K::I32 || v.kind == K::I56 || v.kind == K::I64 ||
+                    v.kind == K::I128 || v.kind == K::IntLit);
+        if (sgn) {
+            if (v.i < 0) { s = "(-"; s += std::to_string(-(v.i + 1)); s.back()++; s += ")"; }
+            else s = std::to_string(v.i);
+        } else {
+            s = std::to_string(v.u);
+        }
+        switch (v.kind) {
+        case K::I8:  s += "i8";  break;
+        case K::I16: s += "i16"; break;
+        case K::I32: s += "i32"; break;
+        case K::I64: s += "i64"; break;
+        case K::U8:  s += "u8";  break;
+        case K::U16: s += "u16"; break;
+        case K::U32: s += "u32"; break;
+        case K::U64: s += "u64"; break;
+        default: break;
+        }
+        return s;
+    };
+    auto eval_args_array = [&](ArrayView args) {
+        for (uint64_t i = 0; i < args.size(); ++i) {
+            auto a = map_of(args.get(i));
+            auto r = ctfe::eval_expr(a, holder_);
+            if (!r) {
+                error(std::format("metacall (item position): argument {} is not a compile-time constant ({})",
+                                  i + 1, r.error().msg));
+                arg_lits.emplace_back();
+            } else {
+                arg_lits.push_back(print_ctfe_lit(*r));
+            }
+        }
+    };
+    if (inner.has_key(la::ARGS)) {
+        AnyVal args_av = inner.get(la::ARGS.code);
+        if (!args_av.is_null()) {
+            if (ic == la::CALL) {
+                eval_args_array(arr_of(args_av));
+            } else {
+                auto args_map = map_of(args_av);
+                if (args_map.has_key(la::ITEMS))
+                    eval_args_array(arr_of(args_map.get(la::ITEMS.code)));
+            }
+        }
+    }
+
+    // Lower the inner call to type-check + queue mono. We discard the
+    // resulting LExpr; only the type matters here.
+    auto lowered = lower_expr(inner);
+    auto rt = lowered ? lowered->type : nullptr;
+    bool is_qib =
+        rt && TypeRef(rt).kind() == LogosType::Kind::Struct
+           && TypeRef(rt).struct_name() == "QuoteItemBlob";
+    bool is_item_list =
+        rt && TypeRef(rt).kind() == LogosType::Kind::Struct
+           && TypeRef(rt).struct_name() == "ItemList";
+    if (rt && !is_qib && !is_item_list) {
+        error("metacall (item position): callee must return QuoteItemBlob or ItemList");
+        return;
+    }
+    if (!rt) return;  // earlier diag already emitted
+
+    // Build call-text literal from AST shape + CTFE-printed args.
+    auto build_turbofish = [&](TinyMapView n) -> std::string {
+        if (!n.has_key(la::TYPE_PARAMS)) return {};
+        auto tplist = map_of(n.get(la::TYPE_PARAMS.code));
+        if (!tplist.has_key(la::ITEMS)) return {};
+        auto items = arr_of(tplist.get(la::ITEMS.code));
+        if (items.size() == 0) return {};
+        std::string out = "::<";
+        for (uint64_t i = 0; i < items.size(); ++i) {
+            if (i) out += ", ";
+            out += type_str(resolve_type(map_of(items.get(i))));
+        }
+        out += ">";
+        return out;
+    };
+    std::string call_text;
+    bool ok = true;
+    if (ic == la::CALL) {
+        call_text = std::string(str_of(inner.get(la::CALLEE.code)));
+    } else if (ic == la::GENERIC_CALL) {
+        call_text = std::string(str_of(inner.get(la::CALLEE.code)));
+        call_text += build_turbofish(inner);
+    } else if (ic == la::STATIC_CALL) {
+        call_text = std::string(str_of(inner.get(la::RECEIVER.code)));
+        call_text += "::";
+        call_text += std::string(str_of(inner.get(la::NAME.code)));
+        call_text += build_turbofish(inner);
+    } else {
+        ok = false;
+    }
+    if (ok) {
+        call_text += "(";
+        for (size_t i = 0; i < arg_lits.size(); ++i) {
+            if (i) call_text += ", ";
+            if (arg_lits[i].empty()) { ok = false; break; }
+            call_text += arg_lits[i];
+        }
+        call_text += ")";
+    }
+    if (!ok) return;
+
+    lir::LProgram::MetacallSite site;
+    site.ast_idx = cur_ast_idx_;
+    site.expr_offset = static_cast<uint32_t>(node.offset().value());
+    site.thunk_name = std::format("__metacall_thunk_{}",
+                                  prog.metacall_sites.size());
+    site.ret_tag = lir::LProgram::MetacallSite::RetTag::ItemBlob;
+    if (ic == la::CALL || ic == la::GENERIC_CALL) {
+        site.callee_name = std::string(str_of(inner.get(la::CALLEE.code)));
+    }
+    // STATIC_CALL: callee is a method on a type; no separate keep-name needed
+    // (the surrounding impl block isn't body-stubbed by metaprog_mode).
+
+    std::string pkg = cur_package_.empty() ? "__metacall_thunks" : cur_package_;
+    // The thunk takes the QuoteItemBlob value and forwards a pointer to
+    // it into the host shim. logos_emit_item_blob_subst is bound on the
+    // metacall JIT (see main.cpp), so the thunk resolves it as an
+    // ordinary extern fn during JIT compilation.
+    if (is_item_list) {
+        site.thunk_source = std::format(
+            "package {};\n"
+            "use std.compiler.metaprog;\n"
+            "use std.collections.vec;\n"
+            "use std.hermes.view;\n"
+            "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
+            "extern fn logos_qib_free_idents(blob: *const u8);\n"
+            "extern fn logos_qib_free_blobs(blob: *const u8);\n"
+            "extern fn logos_qib_free_cursors(blob: *const u8);\n"
+            "unsafe fn {}() -> () {{\n"
+            "    let mut __il: ItemList = {};\n"
+            "    let n: i64 = (&__il.blobs).length();\n"
+            "    let mut i: i64 = 0i64;\n"
+            "    while i < n {{\n"
+            "        let p: *const QuoteItemBlob = unsafe {{\n"
+            "            (&__il.blobs as *const Vec<QuoteItemBlob>).at_const(i)\n"
+            "        }};\n"
+            "        unsafe {{ logos_emit_item_blob_subst(p); }}\n"
+            "        unsafe {{ logos_qib_free_idents((*p).idents_blob); }}\n"
+            "        unsafe {{ logos_qib_free_blobs((*p).blobs_blob); }}\n"
+            "        unsafe {{ logos_qib_free_cursors((*p).cursors_blob); }}\n"
+            "        i = i + 1i64;\n"
+            "    }}\n"
+            "    return;\n"
+            "}}\n",
+            pkg, site.thunk_name, call_text);
+    } else {
+        site.thunk_source = std::format(
+            "package {};\n"
+            "use std.compiler.metaprog;\n"
+            "use std.hermes.view;\n"
+            "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
+            "extern fn logos_qib_free_idents(blob: *const u8);\n"
+            "extern fn logos_qib_free_blobs(blob: *const u8);\n"
+            "extern fn logos_qib_free_cursors(blob: *const u8);\n"
+            "unsafe fn {}() -> () {{\n"
+            "    let __b: QuoteItemBlob = {};\n"
+            "    unsafe {{ logos_emit_item_blob_subst(&__b); }}\n"
+            "    unsafe {{ logos_qib_free_idents(__b.idents_blob); }}\n"
+            "    unsafe {{ logos_qib_free_blobs(__b.blobs_blob); }}\n"
+            "    unsafe {{ logos_qib_free_cursors(__b.cursors_blob); }}\n"
+            "    return;\n"
+            "}}\n",
+            pkg, site.thunk_name, call_text);
+    }
+    prog.metacall_sites.push_back(std::move(site));
 }
 
 } // namespace logos::compiler

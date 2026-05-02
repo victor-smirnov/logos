@@ -1,0 +1,22 @@
+// MC1.0-1.3: item-position metacall. `metacall <call>;` at module-item
+// position runs the callee at compile time; its QuoteItemBlob return value
+// is spliced as a fresh AST module so subsequent items can reference the
+// synthesised types.
+
+package main;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+
+fn emit_synth() -> QuoteItemBlob {
+    return quote_item! {
+        struct Synth { x: i32 }
+    };
+}
+
+metacall emit_synth();
+
+unsafe fn main() -> i32 {
+    let s: Synth = Synth { x: 42 };
+    return s.x;
+}

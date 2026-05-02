@@ -1,0 +1,61 @@
+// STRUCT_LIT cursor field-init expansion + FIELD_READ field-name antiquot.
+//
+// Exercises the metaprog stack pieces needed by derive_clone:
+//   - `#(#fname: <expr>),*` inside a struct literal (FIELD_INIT.NAME_VAR
+//     placeholder + REPEAT_GROUP-as-field-init-list expansion)
+//   - `p.#fname` (FIELD_READ.NAME_VAR placeholder)
+// Both names come from `[Ident; N]` cursors fed into the same `quote_expr!`.
+
+package main;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+
+#[metaprog_handler("struct_lit_cursor_inject")]
+fn struct_lit_cursor_inject_hook(target_offset: u32) -> () {
+    let s_a: str = "a";
+    let s_b: str = "b";
+    let f_a: Ident = Ident { ptr: s_a.as_ptr(), len: s_a.len() as u64 };
+    let f_b: Ident = Ident { ptr: s_b.as_ptr(), len: s_b.len() as u64 };
+    let fnames: [Ident; 2] = [f_a, f_b];
+
+    let s_build: str = "build_pair";
+    let id_build: Ident = Ident { ptr: s_build.as_ptr(), len: s_build.len() as u64 };
+    let s_read: str = "read_a";
+    let id_read: Ident = Ident { ptr: s_read.as_ptr(), len: s_read.len() as u64 };
+
+    let body_build: ExprBlob = quote_expr! {
+        PairS { #( #fnames: 7i32 ),* }
+    };
+    let body_read: ExprBlob = quote_expr! { p.#f_a };
+
+    let b1: QuoteItemBlob = quote_item! {
+        fn #(id_build)() -> PairS { return #(body_build); }
+    };
+    let b2: QuoteItemBlob = quote_item! {
+        fn #(id_read)(p: PairS) -> i32 { return #(body_read); }
+    };
+    unsafe {
+        logos_emit_item_blob_subst(&b1);
+        logos_emit_item_blob_subst(&b2);
+    }
+    return;
+}
+
+#[struct_lit_cursor_inject]
+struct Marker {}
+
+struct PairS { a: i32, b: i32 }
+
+impl PairS {
+    fn sum(self: Self) -> i32 {
+        return self.a + self.b;
+    }
+}
+
+unsafe fn main() -> i32 {
+    let p: PairS = build_pair();
+    let s: i32 = p.sum();
+    let r: i32 = read_a(p);
+    return s + r;
+}
