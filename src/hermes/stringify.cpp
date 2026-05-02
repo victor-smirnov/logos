@@ -155,6 +155,14 @@ logos::expected<void> s_object_array(const uint8_t* o, StringifyCtx* c) noexcept
 
 logos::expected<void> s_tiny_map(const uint8_t* o, StringifyCtx* c) noexcept {
     auto* map = reinterpret_cast<const TinyObjectMap*>(o);
+    // Component-metaprog slice 1D: schema-aware dispatch. If the TOM declares
+    // a non-zero schema_type_code, route to that schema's stringify_tagged so
+    // schemas like type_hash::Type=107 can pick their own surface form
+    // ("<type:Foo>") instead of the generic "{k0: …, k1: …}" output.
+    if (uint64_t sc = map->schema_type_code()) {
+        if (auto* ops = find_type_ops(sc); ops && ops->stringify_tagged)
+            return ops->stringify_tagged(o, c);
+    }
     *c->out += '{';
     if (c->pretty) c->indent++;
     uint64_t bm  = map->bitmap();
@@ -357,6 +365,25 @@ const TypeOps k_typed_val_ops  = { type_hash::TypedValue, s_typed_value,nullptr,
 const TypeOps k_decimal_ops    = { type_hash::Decimal,    s_decimal,    nullptr,      nullptr, clone_impl::c_decimal };
 const TypeOps k_parameter_ops  = { type_hash::Parameter,  s_parameter,  nullptr,      nullptr, clone_impl::c_parameter };
 
+// Component-metaprog slice 1D: Logos Type schema (TinyObjectMap with
+// schema_type_code = 107). Dispatched from s_tiny_map via schema_type_code,
+// not via TypeTag — the underlying tag stays type_hash::TinyObjectMap so
+// clone/binary-codec keep working. Stringifies to "<type:NAME>" using the
+// name slot at TOM key 2 (matches the codegen layout in mlir_gen_expr.cpp).
+logos::expected<void> s_logos_type(const uint8_t* o, StringifyCtx* c) noexcept {
+    auto* map = reinterpret_cast<const TinyObjectMap*>(o);
+    *c->out += "<type:";
+    auto av = map->get(/*name*/ 2, c->base);
+    if (!av.is_null()) {
+        auto* s = av.as_ptr<const ArenaString>(c->base);
+        *c->out += s->view();
+    }
+    *c->out += '>';
+    return {};
+}
+
+const TypeOps k_logos_type_ops = { type_hash::Type, s_logos_type, nullptr, nullptr, nullptr };
+
 } // anonymous namespace
 
 // Link-time anchor: referenced from type_ops.cpp so that this TU (and its
@@ -386,6 +413,7 @@ HERMES_REGISTER_TYPE(k_obj_map_ops);
 HERMES_REGISTER_TYPE(k_datatype_ops);
 HERMES_REGISTER_TYPE(k_typed_val_ops);
 HERMES_REGISTER_TYPE(k_decimal_ops);
+HERMES_REGISTER_TYPE(k_logos_type_ops);
 HERMES_REGISTER_TYPE(k_parameter_ops);
 
 // ============================================================================
