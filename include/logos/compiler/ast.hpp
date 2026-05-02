@@ -275,6 +275,7 @@ inline constexpr Code HERMES_BLOB          {"HERMES_BLOB",         199}; // sema
 inline constexpr Code QUOTE_ITEM           {"QUOTE_ITEM",          200}; // Slice 4 of metaprog-quote: `quote_item! { item* }`. ITEMS = array of parsed item AST nodes; sema deep-clones them into a fresh module, serialises bytes, and rewrites the node into a HermesStatic literal whose &str value is the splice-ready blob.
 inline constexpr Code QUOTE_EXPR           {"QUOTE_EXPR",          201}; // Slice 7 of metaprog-quote: `quote_expr! { expr }`. VALUE = parsed expr AnyVal; sema deep-clones it as the root of a fresh Hermes doc, sets schema_type_code=ast(CODE), and emits an ExprBlob.
 inline constexpr Code REPEAT_GROUP         {"REPEAT_GROUP",        202}; // Slice 8 of metaprog-quote: `#(body)sep*` inside quote_*! body. VALUE = body expr; OP = separator (0=none, 1=`,`, 2=`&&`). Outside a quote_*! body the sema rejects it.
+inline constexpr Code HERMES_TYPE_LIT      {"HERMES_TYPE_LIT",     211}; // Component-metaprog slice 1: `<type:T>` inside @-literal. NAME(1) = bare type identifier (slice 1: IDENT only; generic insts deferred). Sema resolves to a Logos type, embeds it as a first-class Hermes Type value.
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  META            {"META",               16};   // meta @{...} block node on struct/trait/datatype declarations (reuses PATH_PARTS slot; these node types never co-exist)

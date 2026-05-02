@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// hermes_type_lit_parse.logos — component-metaprog slice 1 step A.
+// `<type:T>` parses inside @-literal; sema currently lowers it to a
+// placeholder string. Real Type-as-value embedding lands in step B.
+
+package hermes_type_lit_parse;
+
+use std.hermes.ctr;
+use std.hermes.view;
+
+pub unsafe fn main() -> i32 {
+    let _a = @{"key_ty": <type:i64>, "val_ty": <type:Varchar>};
+    let _b = @[<type:i64>, <type:bool>];
+    return 0;
+}

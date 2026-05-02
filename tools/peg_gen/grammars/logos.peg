@@ -256,6 +256,7 @@
     INSTANTIATE_DECL            = 208   // `instantiate Foo<T>;` — pre-instantiation root pin; TYPE = target type, IS_PUB? = lib-site re-export marker
     METACALL_ITEM               = 209   // `metacall <call_expr>;` at module-item position; VALUE = inner call AST. Driver runs the JIT'd callee returning QuoteItemBlob and splices its emitted items via `logos_emit_item_blob_subst`; node is marked consumed after splice.
     METACALL_ITEM_DONE          = 210   // Set by the driver after a METACALL_ITEM has been invoked; sema item-dispatch silently skips. Never parsed.
+    HERMES_TYPE_LIT             = 211   // Component-metaprog slice 1: `<type:T>` inside @-literal. NAME = bare type identifier (slice 1: IDENT only). Sema embeds it as a first-class Hermes Type value.
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -1573,7 +1574,9 @@
 
     // recursive: inner values don't need the @ prefix
     // $ident and ${expr} are runtime capture placeholders
-    hermes_val <- DOLLAR LBRACE expr RBRACE => { CODE: HERMES_CAP_EXPR, VALUE: $3 }
+    // <type:T> embeds a Logos Type as a first-class Hermes value (slice 1: IDENT only)
+    hermes_val <- LT KW_TYPE COLON IDENT GT => { CODE: HERMES_TYPE_LIT, NAME: $4 }
+               / DOLLAR LBRACE expr RBRACE => { CODE: HERMES_CAP_EXPR, VALUE: $3 }
                / DOLLAR IDENT              => { CODE: HERMES_CAP_IDENT, NAME: $2 }
                / hermes_map
                / hermes_array

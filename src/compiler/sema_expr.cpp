@@ -6171,6 +6171,17 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
 lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
     int32_t c = code_of(node);
 
+    if (c == la::HERMES_TYPE_LIT.code) {
+        // Component-metaprog slice 1, step A: parse-only stub.
+        // Real lowering (resolve type, emit HVType wire kind) lands in step B.
+        // For now embed the bare name as a string so existing pipeline keeps working.
+        auto sv = str_of(node.get(la::NAME.code));
+        std::string s = "<type:";
+        s.append(sv);
+        s.push_back('>');
+        return alloc_hv_emit(lir::HVStr{std::move(s)});
+    }
+
     if (c == la::HERMES_NEG_INT.code) {
         auto sv = str_of(node.get(la::VALUE.code));
         int64_t v = std::stoll(std::string(sv));
