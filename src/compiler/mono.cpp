@@ -163,6 +163,10 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 if (ed.type_params.empty()) consider(ed.name);
         }
         // ADR 0008: helper to check Trait<Assoc = Type> equality clauses.
+        // Falls back to blanket-derived assoc-types when `concrete` does
+        // not have a direct impl of `trait` but satisfies the bounds of
+        // a blanket of `trait` (which carries `type Assoc = X` definitions
+        // in blanket_impls_[…].assoc_types).
         auto assoc_eqs_ok = [&](const std::string& trait,
                                 const std::string& concrete,
                                 const std::vector<std::pair<std::string, TypeRef>>& eqs) {
@@ -170,8 +174,33 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 if (!expected) continue;
                 std::string key = trait + "::" + concrete + "::" + aname;
                 auto it = assoc_impls_.find(key);
-                if (it == assoc_impls_.end()) return false;
-                if (!types_equal(it->second, expected)) return false;
+                TypeRef found = nullptr;
+                if (it != assoc_impls_.end()) {
+                    found = it->second;
+                } else {
+                    // Blanket fallback: walk blankets of `trait`, find one
+                    // whose bounds `concrete` satisfies, look up `aname` in
+                    // its assoc_types.
+                    for (auto& bj : blanket_impls_) {
+                        if (bj.trait_name != trait) continue;
+                        StrSet seen_pri;
+                        bool ok = bj.bound_trait.empty()
+                            || mono_has_impl_recursive(bj.bound_trait, concrete, seen_pri);
+                        if (ok) {
+                            for (auto& eb : bj.extra_bounds) {
+                                StrSet seen_eb;
+                                if (!mono_has_impl_recursive(eb, concrete, seen_eb)) {
+                                    ok = false; break;
+                                }
+                            }
+                        }
+                        if (!ok) continue;
+                        auto bait = bj.assoc_types.find(aname);
+                        if (bait != bj.assoc_types.end()) { found = bait->second; break; }
+                    }
+                }
+                if (!found) return false;
+                if (!types_equal(found, expected)) return false;
             }
             return true;
         };

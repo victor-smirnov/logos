@@ -1332,6 +1332,32 @@ bool SemaChecker::assoc_eqs_satisfied(
             std::string bkey = trait_name + "::" + base_name + "::" + aname;
             it = assoc_type_impls_.find(bkey);
         }
+        // 2. Blanket-derived: collect_impl keys blanket-impl assoc-types under
+        // `Trait::$blanket$Trait$BoundTrait$Target::AssocName`. If `concrete`
+        // (or `base_name`) doesn't have a direct impl but satisfies the bounds
+        // of a blanket of `trait_name`, use that blanket's assoc-type definition.
+        if (it == assoc_type_impls_.end()) {
+            for (auto& bi : blanket_impls_) {
+                if (bi.trait_name != trait_name) continue;
+                logos::compiler::StrSet seen_pri;
+                bool ok = bi.bound_trait.empty()
+                    || sema_has_impl_recursive(bi.bound_trait, concrete_name, base_name, seen_pri);
+                if (ok) {
+                    for (auto& eb : bi.extra_bounds) {
+                        logos::compiler::StrSet seen_eb;
+                        if (!sema_has_impl_recursive(eb, concrete_name, base_name, seen_eb)) {
+                            ok = false; break;
+                        }
+                    }
+                }
+                if (!ok) continue;
+                std::string bkey = trait_name + "::$blanket$" + trait_name + "$"
+                                 + bi.bound_trait + "$" + bi.target_typevar
+                                 + "::" + aname;
+                auto bit = assoc_type_impls_.find(bkey);
+                if (bit != assoc_type_impls_.end()) { it = bit; break; }
+            }
+        }
         if (it == assoc_type_impls_.end()) return false;
         // No subst needed for the common case (non-generic profile binding to
         // a concrete type). For generics we'd need to thread the impl-param

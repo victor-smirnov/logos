@@ -1049,6 +1049,14 @@ void SemaChecker::collect_impl(TinyMapView node) {
         }
     }
 
+    // Snapshot blanket_impls_ size so we can detect after the items loop
+    // whether *any* per-method blanket entry got pushed. Blankets that
+    // declare only assoc-types (no fn methods) need a marker entry so
+    // trait-satisfaction queries can find them — without it,
+    // sema_has_impl_recursive would report the blanket trait as
+    // unsatisfied for any concrete that depends on it.
+    size_t blanket_size_before = blanket_impls_.size();
+
     // Register impl methods as free functions with mangled names: Target__method
     // Also collect associated type definitions.
     // Skip if already registered (e.g. class methods defined inline).
@@ -1188,6 +1196,23 @@ void SemaChecker::collect_impl(TinyMapView node) {
             }
         }
     }
+    // If this is a blanket impl with no fn methods (only assoc-types), the
+    // items loop didn't push anything to blanket_impls_. Push a marker
+    // entry now so trait-satisfaction queries (sema_has_impl_recursive,
+    // assoc_eqs_satisfied) can see it. method_name stays empty.
+    if (is_blanket && blanket_impls_.size() == blanket_size_before) {
+        BlanketImpl bi_rec;
+        bi_rec.trait_name = trait_name;
+        bi_rec.target_typevar = target;
+        bi_rec.bound_trait = blanket_bound_trait;
+        bi_rec.extra_bounds = blanket_extra_bounds;
+        // method_name / mangled_name intentionally empty — this is a
+        // satisfaction-only marker, not a method-dispatch entry.
+        bi_rec.primary_assoc_eqs = blanket_primary_assoc_eqs;
+        bi_rec.extra_assoc_eqs = blanket_extra_assoc_eqs;
+        blanket_impls_.push_back(std::move(bi_rec));
+    }
+
     // Check completeness: every required trait method must be in the impl.
     // Default methods are registered as Target__method if not overridden.
     // Blanket impls use a synthetic target in their registrations; apply the

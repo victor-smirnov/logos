@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// blanket_chain_assoc_eq.logos — regression for assoc-type-equality
+// satisfaction through chained blanket impls.
+//
+// Two compounding bugs needed fixing:
+//
+// 1. A blanket impl with NO fn methods (only `type Assoc = X`) was
+//    never registered in sema's blanket_impls_ — the per-method push
+//    loop skipped it. Trait-satisfaction queries
+//    (sema_has_impl_recursive) couldn't see that K satisfied A via
+//    the blanket. collect_impl now pushes a satisfaction-only marker
+//    entry (method_name="") for method-less blankets.
+//
+// 2. assoc_eqs_satisfied (sema) and the `assoc_eqs_ok` lambda (mono
+//    eager-instantiation) only looked up direct
+//    `Trait::Concrete::Assoc` keys. When the concrete's impl is
+//    blanket-derived, those keys don't exist; sema collects them
+//    under the synthetic `Trait::$blanket$Trait$Bound$Target::Assoc`,
+//    and mono carries the same definitions inside
+//    blanket_impls_[…].assoc_types. Both checks now fall back to the
+//    blanket-derived form when the direct key is missing.
+//
+// Wired together: `K: Primitive` (direct) ⇒ `K: A` via blanket ⇒
+// `K: Foo` via Foo's blanket gated by `<DT: A<Item = i32>>`. The
+// outer ADR-0008 assoc-eq check now correctly resolves K's
+// blanket-derived A::Item = i32 and accepts.
+
+package blanket_chain_assoc_eq;
+
+trait B {}
+trait A { type Item; }
+impl<DT: B> A for DT { type Item = i32; }
+
+trait Foo { fn foo(&self) -> i32; }
+impl<DT: A<Item = i32>> Foo for DT {
+    fn foo(&self) -> i32 { return 42; }
+}
+
+struct K {}
+impl B for K {}
+
+fn use_foo<T: Foo>(t: *const T) -> i32 { unsafe { return t.foo(); } }
+
+fn main() -> i32 {
+    let k: K = K {};
+    let r: i32 = use_foo::<K>(&k as *const K);
+    if r != 42 { return 1; }
+    return 0;
+}
