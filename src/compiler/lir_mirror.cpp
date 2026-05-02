@@ -938,6 +938,14 @@ public:
         put(map_off, hk::VALUE_INDEX, put_u32(value_index));
         return map_off;
     }
+    hermes::arena_offset_t emit_hv_type_direct(uint32_t kind, uint64_t uid, std::string_view name) {
+        auto name_av = put_string(name);
+        auto map_off = make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 8));
+        put(map_off, hk::STR_VALUE, name_av);
+        put(map_off, hk::TYPE_KIND, put_u32(kind));
+        put(map_off, hk::TYPE_UID,  put_u64(uid));
+        return map_off;
+    }
 
     // Stage B.6 — Pattern direct mirror writers. Mirror the per-kind branches
     // of emit_pat's std::visit but allocate from primitive args, never reading
@@ -1991,6 +1999,11 @@ hermes::arena_offset_t lir_mirror_emit_hv_capture(lir::LProgram& prog, uint32_t 
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, *prog.mirror_table);
     return em.emit_hv_capture_direct(param_index, value_index);
+}
+hermes::arena_offset_t lir_mirror_emit_hv_type(lir::LProgram& prog, uint32_t kind, uint64_t uid, std::string_view name) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_hv_type_direct(kind, uid, name);
 }
 
 // ── Stage B.6 — Pattern direct mirror writers ────────────────────────────

@@ -173,6 +173,7 @@ hermes::arena_offset_t lir_mirror_emit_hv_str     (lir::LProgram& prog, std::str
 hermes::arena_offset_t lir_mirror_emit_hv_map     (lir::LProgram& prog, const std::vector<lir::HVMapEntry>& entries, std::string_view key_type);
 hermes::arena_offset_t lir_mirror_emit_hv_array   (lir::LProgram& prog, const std::vector<lir::HermesValPtr>& elements, std::string_view elem_type);
 hermes::arena_offset_t lir_mirror_emit_hv_capture (lir::LProgram& prog, uint32_t param_index, uint32_t value_index);
+hermes::arena_offset_t lir_mirror_emit_hv_type    (lir::LProgram& prog, uint32_t kind, uint64_t uid, std::string_view name);
 
 // Stage B.6 — Pattern direct mirror writers. Allocate a fresh mirror map for a
 // single Pattern variant from primitive args, without reading Pattern::kind.

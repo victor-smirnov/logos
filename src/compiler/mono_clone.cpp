@@ -681,6 +681,12 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         out_, cv.param_index(), cv.value_index());
                     break;
                 }
+                case hvc::Code::Type: {
+                    lir_view::HVTypeView tv{vref};
+                    out->mirror_offset_ = lir_mirror_emit_hv_type(
+                        out_, tv.kind(), tv.uid(), std::string(tv.name()));
+                    break;
+                }
                 case hvc::Code::Map: {
                     lir_view::HVMapView mv{vref};
                     std::string key_type(mv.key_type());

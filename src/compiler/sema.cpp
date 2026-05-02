@@ -466,6 +466,9 @@ hermes::Arena& TypePool::arena_or_init() {
     if (!impl_) impl_ = TypePoolImpl::make();
     return impl_->arena();
 }
+LogosType::TypeUID TypePool::uid_of(TypeRef t) const noexcept {
+    return impl_ ? impl_->uid_of(t) : LogosType::TypeUID{};
+}
 
 TypeRef TypePool::alloc(LogosTypeBuilder t) {
     if (!impl_) impl_ = TypePoolImpl::make();

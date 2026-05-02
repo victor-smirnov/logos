@@ -118,6 +118,7 @@ enum class Code : int32_t {
     Map     = HV_BASE + 5,
     Array   = HV_BASE + 6,
     Capture = HV_BASE + 7,
+    Type    = HV_BASE + 8,
 };
 } // namespace hermes_val
 
@@ -270,6 +271,8 @@ inline constexpr Key TYPE_NAME         {"HV_TYPE_NAME",     6};   // Varchar (HV
 inline constexpr Key ELEMS             {"HV_ELEMS",         7};   // Array<RelPtr<HermesVal-mirror>>
 inline constexpr Key PARAM_INDEX       {"HV_PARAM_INDEX",   8};   // u32 (HVCapture)
 inline constexpr Key VALUE_INDEX       {"HV_VALUE_INDEX",   9};   // u32 (HVCapture)
+inline constexpr Key TYPE_KIND         {"HV_TYPE_KIND",    10};   // u32 (HVType.kind)
+inline constexpr Key TYPE_UID          {"HV_TYPE_UID",     11};   // u64 (HVType.uid — first 8 bytes of full UID)
 } // namespace hv_keys
 
 // Keys for the EClosure synthetic mirror map.

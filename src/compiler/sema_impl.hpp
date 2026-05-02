@@ -341,6 +341,8 @@ private:
             mo = lir_mirror_emit_hv_array(p, k.elements, k.elem_type);
         } else if constexpr (std::is_same_v<KT, lir::HVCapture>) {
             mo = lir_mirror_emit_hv_capture(p, k.param_index, k.value_index);
+        } else if constexpr (std::is_same_v<KT, lir::HVType>) {
+            mo = lir_mirror_emit_hv_type(p, k.kind, k.uid, k.name);
         } else {
             static_assert(sizeof(K) == 0, "alloc_hv_emit: unknown HermesVal payload");
         }

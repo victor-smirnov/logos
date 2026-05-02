@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <format>
 #include <functional>
 #include <map>
@@ -6172,14 +6173,20 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
     int32_t c = code_of(node);
 
     if (c == la::HERMES_TYPE_LIT.code) {
-        // Component-metaprog slice 1, step A: parse-only stub.
-        // Real lowering (resolve type, emit HVType wire kind) lands in step B.
-        // For now embed the bare name as a string so existing pipeline keeps working.
+        // Component-metaprog slice 1B: resolve the named type and embed it as
+        // a first-class HVType (kind, uid64, name). Codegen for HVType lands
+        // in slice 1C; until then the LIR placeholder writes 0 to the AnyVal.
         auto sv = str_of(node.get(la::NAME.code));
-        std::string s = "<type:";
-        s.append(sv);
-        s.push_back('>');
-        return alloc_hv_emit(lir::HVStr{std::move(s)});
+        std::string name(sv);
+        TypeRef t = try_resolve_as_known_type(name);
+        uint32_t kind = 0;
+        uint64_t uid64 = 0;
+        if (t) {
+            kind = static_cast<uint32_t>(t.kind());
+            auto uid = pool_->uid_of(t);
+            std::memcpy(&uid64, uid.bytes, sizeof(uid64));
+        }
+        return alloc_hv_emit(lir::HVType{kind, uid64, std::move(name)});
     }
 
     if (c == la::HERMES_NEG_INT.code) {

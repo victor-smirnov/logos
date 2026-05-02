@@ -313,6 +313,9 @@ public:
     // arena offset into a TypeRef (TypeRef stores pool* for trait/method
     // resolution; nullptr-pool TypeRefs work for kind/name accessors only).
     const TypePoolImpl* impl() const noexcept { return impl_.get(); }
+
+    // Component-metaprog slice 1B: public access to per-type 32-byte UID.
+    LogosType::TypeUID uid_of(TypeRef t) const noexcept;
 };
 
 // ── Diagnostics ────────────────────────────────────────────────────────────

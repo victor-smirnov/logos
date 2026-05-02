@@ -175,6 +175,14 @@ struct HVCapture {
     uint32_t value_index;   // which resolved value to use (deduplicated)
 };
 
+// Component-metaprog slice 1B: first-class Logos Type embedded in @-literal.
+// Lowers to a TinyObjectMap with schema_type_code = type_hash::Type (107) at codegen.
+struct HVType {
+    uint32_t    kind;
+    uint64_t    uid;   // first 8 bytes of full 32-byte type UID
+    std::string name;
+};
+
 struct HermesVal {
     mutable hermes::arena_offset_t mirror_offset_{};  // Stage 3g.2 back-pointer
 

@@ -80,6 +80,12 @@ inline int64_t read_i64(const RefBase& r, uint8_t key) noexcept {
     return *av.as_ptr<const int64_t>(r.base());
 }
 
+inline uint64_t read_u64(const RefBase& r, uint8_t key) noexcept {
+    auto av = r.mirror()->get(key, r.base());
+    if (av.is_null()) return 0;
+    return *av.as_ptr<const uint64_t>(r.base());
+}
+
 inline double read_f64(const RefBase& r, uint8_t key) noexcept {
     auto av = r.mirror()->get(key, r.base());
     if (av.is_null()) return 0.0;
@@ -905,6 +911,13 @@ struct HVCaptureView {
     HermesValRef self;
     uint32_t param_index() const noexcept { return detail::read_u32(self, hvk::PARAM_INDEX.code); }
     uint32_t value_index() const noexcept { return detail::read_u32(self, hvk::VALUE_INDEX.code); }
+};
+
+struct HVTypeView {
+    HermesValRef self;
+    uint32_t kind() const noexcept { return detail::read_u32(self, hvk::TYPE_KIND.code); }
+    uint64_t uid()  const noexcept { return detail::read_u64(self, hvk::TYPE_UID.code); }
+    std::string_view name() const noexcept { return detail::read_string(self, hvk::STR_VALUE.code); }
 };
 
 // HVMap entries are stored as two parallel arrays:

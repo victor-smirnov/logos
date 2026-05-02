@@ -2704,6 +2704,10 @@ static uint32_t build_hermes_val(lir_view::HermesValRef v,
     case HC::Capture:
         // Inline PARAM (tc=127): raw = (value_index << 8) | 0xFF.
         return (lir_view::HVCaptureView{v}.value_index() << 8u) | 0xFFu;
+    case HC::Type:
+        // Component-metaprog slice 1C lands real codegen (TinyObjectMap with
+        // schema_type_code = type_hash::Type=107). Slice 1B placeholder: 0.
+        return 0;
     }
     return 0;
 }
