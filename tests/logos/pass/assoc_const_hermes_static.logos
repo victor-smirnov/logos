@@ -1,0 +1,33 @@
+// HermesStatic associated constants: multiple accesses to the same const
+// must yield the same blob pointer (content-keyed rodata dedup), and
+// distinct impls must yield distinct blobs.
+package assoc_const_hermes_static;
+
+use std.hermes.view;
+
+trait Schema {
+    const SHAPE: HermesStatic;
+}
+
+struct Foo {}
+struct Bar {}
+
+impl Schema for Foo {
+    const SHAPE: HermesStatic = @{"x": 1, "y": [1, 2, 3, 4]};
+}
+impl Schema for Bar {
+    const SHAPE: HermesStatic = @"different";
+}
+
+unsafe fn main() -> i32 {
+    let a: HermesStatic = Foo::SHAPE;
+    let b: HermesStatic = Foo::SHAPE;
+    let c: HermesStatic = Bar::SHAPE;
+
+    if a.base() != b.base() { return 11; }
+    if a.size() != b.size() { return 12; }
+    if a.base() == c.base() { return 13; }
+    if a.size() == 0u64 { return 14; }
+    if c.size() == 0u64 { return 15; }
+    return 0;
+}

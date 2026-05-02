@@ -184,6 +184,14 @@ private:
     int str_counter_ = 0;
     int hermes_lit_counter_ = 0;
 
+    // Memoize EHermesLit codegen by content. Identical blob bytes resolve to
+    // the same rodata global so multiple accesses to the same const-value
+    // expression (e.g. an associated constant) preserve pointer identity at
+    // -O0, where LLVM's ConstantMerge is not running. Keyed by the final
+    // rodata bytes (size prefix included for the static path), value is the
+    // emitted global symbol name.
+    std::unordered_map<std::string, std::string> hermes_lit_global_cache_;
+
     // "Trait::Type" → mangled method names in vtable slot order
     std::unordered_map<std::string, std::vector<std::string>> dyn_vtable_methods_;
 

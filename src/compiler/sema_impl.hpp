@@ -699,6 +699,7 @@ private:
     struct AssocConstEntry {
         TypeRef  type;
         hermes::AnyVal    value_ast;  // AST expr node for the constant value
+        mutable lir::LExprPtr cached_value = nullptr;  // lowered once, reused at every access site
     };
     logos::compiler::StrMap<AssocConstEntry> assoc_const_impls_;
 

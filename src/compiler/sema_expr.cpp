@@ -5102,9 +5102,12 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
             std::string key = tname + "::" + cname_str + "::" + mname_str;
             auto cit = assoc_const_impls_.find(key);
             if (cit != assoc_const_impls_.end()) {
-                auto val = lower_expr(map_of(cit->second.value_ast));
-                if (cit->second.type) builder().retype_expr(val, cit->second.type);
-                return val;
+                if (!cit->second.cached_value) {
+                    auto val = lower_expr(map_of(cit->second.value_ast));
+                    if (cit->second.type) builder().retype_expr(val, cit->second.type);
+                    cit->second.cached_value = val;
+                }
+                return cit->second.cached_value;
             }
         }
         error(std::format("unknown enum '{}'", ename));
@@ -5137,9 +5140,12 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
             std::string key = tname + "::" + cname_str + "::" + mname_str;
             auto cit = assoc_const_impls_.find(key);
             if (cit != assoc_const_impls_.end()) {
-                auto val = lower_expr(map_of(cit->second.value_ast));
-                if (cit->second.type) builder().retype_expr(val, cit->second.type);
-                return val;
+                if (!cit->second.cached_value) {
+                    auto val = lower_expr(map_of(cit->second.value_ast));
+                    if (cit->second.type) builder().retype_expr(val, cit->second.type);
+                    cit->second.cached_value = val;
+                }
+                return cit->second.cached_value;
             }
         }
         error(std::format("unknown enum '{}'", ename));
@@ -5602,10 +5608,12 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
             std::string key = tname + "::" + cname_str + "::" + mname_str;
             auto cit = assoc_const_impls_.find(key);
             if (cit != assoc_const_impls_.end()) {
-                // Lower the constant value expression and return it directly.
-                auto val = lower_expr(map_of(cit->second.value_ast));
-                if (cit->second.type) builder().retype_expr(val, cit->second.type);
-                return val;
+                if (!cit->second.cached_value) {
+                    auto val = lower_expr(map_of(cit->second.value_ast));
+                    if (cit->second.type) builder().retype_expr(val, cit->second.type);
+                    cit->second.cached_value = val;
+                }
+                return cit->second.cached_value;
             }
         }
         // Generic static dispatch: DT::method() where DT is a type parameter with
