@@ -313,6 +313,74 @@ impl Ident {
 //   TYPE   = 3
 //   FIELDS = 22
 
+// ── `<type:T>` decode — free fn so HermesStatic / HermesView callers
+// don't need an OView. Counterpart to the C++ `ObjectView::as_type()`
+// (TypeView reader, slice 1E). The schema_type_code=107 contract is
+// shared with sema's `<type:T>` emitter (HVType / lir_mirror_emit_hv_
+// type → mlir_gen_expr → TOM keys 0=kind, 1=uid, 2=name).
+//
+// Returns a zero-filled `Type` if `val` doesn't point at a TinyObject
+// Map carrying schema_type_code=107 — callers can probe untrusted
+// input without branching first.
+
+pub fn type_from_anyval(base: *const u8, val: AnyVal) -> Type {
+    unsafe {
+        if !val.is_ptr() {
+            return Type { kind: 0 as u32, name: "", size: 0, align: 0, uid: 0 as u64 };
+        }
+        if val.is_null() {
+            return Type { kind: 0 as u32, name: "", size: 0, align: 0, uid: 0 as u64 };
+        }
+        let obj: *const u8 =
+            (base as i64 + val.as_offset() as i64) as *const u8;
+        let tag_hash: u64 = read_type_code(obj);
+        if tag_hash != hermes_tag_tiny_map() {
+            return Type { kind: 0 as u32, name: "", size: 0, align: 0, uid: 0 as u64 };
+        }
+        let tom: *const Map<Bitmap, AnyVal> =
+            obj as *const Map<Bitmap, AnyVal>;
+        if tom.schema_type_code != (107 as u64) {
+            return Type { kind: 0 as u32, name: "", size: 0, align: 0, uid: 0 as u64 };
+        }
+
+        let kind_av: AnyVal = tom.get(base, 0 as u8);
+        let uid_av:  AnyVal = tom.get(base, 1 as u8);
+        let name_av: AnyVal = tom.get(base, 2 as u8);
+
+        let mut kind: u32 = 0 as u32;
+        if !kind_av.is_null() && !kind_av.is_ptr() {
+            kind = kind_av.as_u24() as u32;
+        }
+
+        let mut uid: u64 = 0 as u64;
+        if !uid_av.is_null() && uid_av.is_ptr() {
+            let uobj: *const U64 =
+                (base as i64 + uid_av.as_offset() as i64) as *const U64;
+            uid = uobj.value();
+        }
+
+        if name_av.is_null() || !name_av.is_ptr() {
+            return Type { kind: kind, name: "", size: 0, align: 0, uid: uid };
+        }
+        let nobj: *const u8 =
+            (base as i64 + name_av.as_offset() as i64) as *const u8;
+        if read_type_code(nobj) != hermes_tag_string() {
+            return Type { kind: kind, name: "", size: 0, align: 0, uid: uid };
+        }
+        // Slice 1G note: we cannot populate `name` from user code yet —
+        // `&[u8]` struct fields are lowered as 8-byte pointers to a
+        // separate slice {ptr,len} aggregate (mlir_gen_types.cpp,
+        // logos_to_mlir Kind::Ref), and any slice we synthesise here has
+        // function-local stack storage that goes out of scope on return.
+        // Compiler-built Type literals work because the compiler emits
+        // the slice into rodata at lowering time. Bridging that for the
+        // user-construction path needs either a fat-ptr-inline ABI for
+        // `&[u8]` fields or a stable allocation for the slice storage —
+        // see abstraction-debt registry. For now leave name empty.
+        return Type { kind: kind, name: "", size: 0, align: 0, uid: uid };
+    }
+}
+
 // ── OView convenience methods ─────────────────────────────────────
 
 impl OView {
@@ -456,53 +524,7 @@ impl OView {
     //   1 → uid   (u64, zone-allocated U64 record)
     //   2 → name  (HermesString in zone, borrowed for the OView lifetime)
     pub fn as_type(self: &OView, val: AnyVal) -> Type {
-        unsafe {
-            if !val.is_ptr() {
-                return Type { kind: 0 as u32, name: "", size: 0, align: 0, uid: 0 as u64 };
-            }
-            if val.is_null() {
-                return Type { kind: 0 as u32, name: "", size: 0, align: 0, uid: 0 as u64 };
-            }
-            let base: *const u8 = self.base;
-            let obj: *const u8 =
-                (base as i64 + val.as_offset() as i64) as *const u8;
-            let tag_hash: u64 = read_type_code(obj);
-            if tag_hash != hermes_tag_tiny_map() {
-                return Type { kind: 0 as u32, name: "", size: 0, align: 0, uid: 0 as u64 };
-            }
-            let tom: *const Map<Bitmap, AnyVal> =
-                obj as *const Map<Bitmap, AnyVal>;
-            if tom.schema_type_code != (107 as u64) {
-                return Type { kind: 0 as u32, name: "", size: 0, align: 0, uid: 0 as u64 };
-            }
-
-            let kind_av: AnyVal = self.tiny_map_get(val, 0 as u8);
-            let uid_av:  AnyVal = self.tiny_map_get(val, 1 as u8);
-            let name_av: AnyVal = self.tiny_map_get(val, 2 as u8);
-
-            let mut kind: u32 = 0 as u32;
-            if !kind_av.is_null() && !kind_av.is_ptr() {
-                kind = kind_av.as_u24() as u32;
-            }
-
-            let mut uid: u64 = 0 as u64;
-            if !uid_av.is_null() && uid_av.is_ptr() {
-                let uobj: *const U64 =
-                    (base as i64 + uid_av.as_offset() as i64) as *const U64;
-                uid = uobj.value();
-            }
-
-            let sv: StringView = self.get_str_view(name_av);
-            let mut name_bytes: &[u8] = "";
-            if sv.len > (0 as u64) {
-                name_bytes = str_from_raw(sv.ptr, sv.len as i64);
-            }
-
-            return Type {
-                kind: kind, name: name_bytes,
-                size: 0, align: 0, uid: uid,
-            };
-        }
+        unsafe { return type_from_anyval(self.base, val); }
     }
 
     // Append the user-root MODULE's dotted package name to `buf`.

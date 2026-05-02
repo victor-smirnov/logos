@@ -1,0 +1,72 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// hermes_type_lit_roundtrip.logos — component-metaprog bootstrap slice 1G.
+//
+// End-to-end roundtrip: `<type:T>` lowered as a Hermes value (slice 1B–
+// 1D, schema_type_code=107 TinyObjectMap with kind/uid/name) reified
+// back into a metaprog `Type` struct via `type_from_anyval` (slice 1F).
+//
+// `<type:i32>` survives @{ } → HermesStatic → HermesView → root.map_get
+// → Type{ kind=1, uid != 0 }.
+//
+// Note on `name`: the TOM does carry the canonical "i32" string at key 2
+// (verified in this canary by hand-walking the TOM and decoding the
+// HermesString directly). Surfacing it as a `&[u8]` on the reified Type
+// is blocked on a logosc fat-ptr struct-field ABI bug — see the comment
+// inside `type_from_anyval`. Slice 1G covers kind+uid only; name will
+// land alongside the ABI fix.
+
+package hermes_type_lit_roundtrip;
+
+use std.compiler.metaprog;
+use std.hermes.ctr;
+use std.hermes.view;
+use std.hermes.anyval;
+use std.hermes.map;
+use std.hermes.typetag;
+use std.hermes.datatag;
+use std.hermes.string;
+
+unsafe fn main() -> i32 {
+    let cfg: HermesStatic = @{"t": <type:i32>};
+    let v = cfg.as_view();
+    let root: AnyVal = v.root();
+    let inner: AnyVal = v.map_get(root, "t");
+
+    if inner.is_null() { return 1; }
+    if !inner.is_ptr() { return 2; }
+
+    let t: Type = type_from_anyval(v.base(), inner);
+
+    // i32 → LogosType::Kind::I32 = 1 (cf. std.compiler.metaprog.kind_name).
+    if t.kind != (1 as u32) { return 3; }
+    if t.uid == (0 as u64)  { return 4; }
+
+    // Hand-walk the TOM to confirm key 2 carries an "i32" HermesString.
+    // (Surfacing this onto t.name itself is blocked on the fat-ptr field
+    // ABI bug — see type_from_anyval.)
+    unsafe {
+        let obj: *const u8 = (v.base() as i64 + inner.as_offset() as i64) as *const u8;
+        let tom: *const Map<Bitmap, AnyVal> = obj as *const Map<Bitmap, AnyVal>;
+        let nav: AnyVal = tom.get(v.base(), 2 as u8);
+        if nav.is_null() { return 60; }
+        if !nav.is_ptr() { return 61; }
+        let nobj: *const u8 = (v.base() as i64 + nav.as_offset() as i64) as *const u8;
+        let tc: u64 = read_type_code(nobj);
+        if tc != hermes_tag_string() { return 70 + (tc as i32); }
+        let hs: *const HermesString = nobj as *const HermesString;
+        if hs.len() != (3 as u64) { return 81; }
+        let manual: &[u8] = str_from_raw(hs.bytes(), hs.len() as i64);
+        if manual.len() != 3 { return 90; }
+        let mp: *const u8 = manual.as_ptr();
+        if *mp != 105 as u8 { return 91; }  // 'i'
+    }
+
+    // Empty-fallback path: a non-Type AnyVal returns kind=0.
+    let other: AnyVal = v.map_get(root, "missing");
+    let empty: Type = type_from_anyval(v.base(), other);
+    if empty.kind != (0 as u32) { return 9; }
+    if empty.uid != (0 as u64)  { return 10; }
+
+    return 0;
+}
