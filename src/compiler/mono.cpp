@@ -196,7 +196,39 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                         }
                         if (!ok) continue;
                         auto bait = bj.assoc_types.find(aname);
-                        if (bait != bj.assoc_types.end()) { found = bait->second; break; }
+                        if (bait == bj.assoc_types.end()) continue;
+                        // Substitute target_typevar → concrete struct type and
+                        // recursively resolve so blanket bodies that reference
+                        // the typevar (e.g. `type P = DT::Prim`) reduce to the
+                        // concrete type before equality compare.
+                        TypeRef concrete_t = nullptr;
+                        for (auto& sd : out_.structs)
+                            if (sd.name == concrete) {
+                                LogosTypeBuilder st;
+                                st.kind = sd.is_zoned ? LogosType::Kind::ZonedStruct
+                                                       : LogosType::Kind::Struct;
+                                st.struct_name = concrete;
+                                concrete_t = out_.type_pool.alloc(std::move(st));
+                                break;
+                            }
+                        if (!concrete_t) {
+                            for (auto& ed : out_.enums)
+                                if (ed.name == concrete) {
+                                    LogosTypeBuilder et;
+                                    et.kind = LogosType::Kind::Enum;
+                                    et.enum_name = concrete;
+                                    concrete_t = out_.type_pool.alloc(std::move(et));
+                                    break;
+                                }
+                        }
+                        if (concrete_t) {
+                            SubstMap bsubst;
+                            bsubst[bj.target_typevar] = concrete_t;
+                            found = subst_type(bait->second, bsubst);
+                        } else {
+                            found = bait->second;
+                        }
+                        break;
                     }
                 }
                 if (!found) return false;

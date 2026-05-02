@@ -1332,11 +1332,16 @@ bool SemaChecker::assoc_eqs_satisfied(
             std::string bkey = trait_name + "::" + base_name + "::" + aname;
             it = assoc_type_impls_.find(bkey);
         }
+        TypeRef found = (it != assoc_type_impls_.end()) ? it->second.type : nullptr;
         // 2. Blanket-derived: collect_impl keys blanket-impl assoc-types under
         // `Trait::$blanket$Trait$BoundTrait$Target::AssocName`. If `concrete`
-        // (or `base_name`) doesn't have a direct impl but satisfies the bounds
-        // of a blanket of `trait_name`, use that blanket's assoc-type definition.
-        if (it == assoc_type_impls_.end()) {
+        // doesn't have a direct impl but satisfies a blanket's bounds, use
+        // that blanket's assoc-type definition. The stored type may reference
+        // the blanket's target typevar (e.g. `type P = DT::Prim`); substitute
+        // target → concrete and recursively resolve via subst_type_sema so
+        // chains like `K: Primitive ⇒ K: HasPrim<P = K::Prim = i32>` reduce
+        // to a concrete type before the equality check.
+        if (!found) {
             for (auto& bi : blanket_impls_) {
                 if (bi.trait_name != trait_name) continue;
                 logos::compiler::StrSet seen_pri;
@@ -1355,15 +1360,22 @@ bool SemaChecker::assoc_eqs_satisfied(
                                  + bi.bound_trait + "$" + bi.target_typevar
                                  + "::" + aname;
                 auto bit = assoc_type_impls_.find(bkey);
-                if (bit != assoc_type_impls_.end()) { it = bit; break; }
+                if (bit == assoc_type_impls_.end()) continue;
+                TypeRef concrete_t = lookup_type_by_name(concrete_name);
+                if (!concrete_t && !base_name.empty() && base_name != concrete_name)
+                    concrete_t = lookup_type_by_name(base_name);
+                if (concrete_t) {
+                    SemaSubst bsubst;
+                    bsubst[bi.target_typevar] = concrete_t;
+                    found = subst_type_sema(bit->second.type, bsubst);
+                } else {
+                    found = bit->second.type;
+                }
+                break;
             }
         }
-        if (it == assoc_type_impls_.end()) return false;
-        // No subst needed for the common case (non-generic profile binding to
-        // a concrete type). For generics we'd need to thread the impl-param
-        // subst, but profile-shaped use cases bind associated types to plain
-        // concrete types — defer the generic case to ADR follow-up if needed.
-        if (!types_equal(it->second.type, expected_ty)) return false;
+        if (!found) return false;
+        if (!types_equal(found, expected_ty)) return false;
     }
     return true;
 }

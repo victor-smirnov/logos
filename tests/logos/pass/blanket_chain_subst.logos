@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// blanket_chain_subst.logos — regression for TypeRef substitution
+// through chained blanket assoc-type bodies.
+//
+// The previous chain-assoc-eq fix handled blanket bodies that bind
+// the assoc-type to a concrete (`type Item = i32;`). It still
+// silently rejected blanket bodies that reference the blanket's own
+// type-param, the common shape:
+//
+//     impl<DT: Primitive> HasPrim for DT { type P = DT::Prim; }
+//     impl<DT: HasPrim<P = i32>> Foo for DT { fn foo(...) ... }
+//     impl Primitive for K { type Prim = i32; }
+//
+// `K: Primitive` ⇒ `K: HasPrim` via blanket with `type P = K::Prim`,
+// which after assoc-type resolution is `i32` ⇒ `K: Foo` should
+// accept. The check stored `DT::Prim` literally, compared via
+// `types_equal` against `i32`, and rejected.
+//
+// Fix: in both `assoc_eqs_satisfied` (sema) and the `assoc_eqs_ok`
+// lambda in mono's eager-instantiation gate, after the blanket-key
+// lookup yields a TypeRef that may reference the blanket's
+// `target_typevar`, build a substitution
+// `target_typevar → concrete` and run it through subst_type_sema /
+// subst_type respectively. The subst pass already knows how to
+// resolve `K::Prim` to the concrete impl's `type Prim = i32`, so
+// the comparison reduces to `i32 == i32`.
+
+package blanket_chain_subst;
+
+use std.lang.datatypes;
+
+trait HasPrim { type P; }
+impl<DT: Primitive> HasPrim for DT { type P = DT::Prim; }
+
+trait Foo { fn foo(&self) -> i32; }
+impl<DT: HasPrim<P = i32>> Foo for DT {
+    fn foo(&self) -> i32 { return 99; }
+}
+
+struct K { pub x: i32, }
+impl Primitive for K { type Prim = i32; }
+
+fn use_foo<T: Foo>(t: *const T) -> i32 { unsafe { return t.foo(); } }
+
+fn main() -> i32 {
+    let k: K = K { x: 1 };
+    let r: i32 = use_foo::<K>(&k as *const K);
+    if r != 99 { return 1; }
+    return 0;
+}
