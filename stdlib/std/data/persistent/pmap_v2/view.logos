@@ -1,0 +1,59 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// std.data.persistent.pmap_v2.view — read-only base of the component-
+// organised PMap.
+//
+// `PMapView<K, V>` is the *base* in the read/update split: every Read part
+// is composed onto it. `PMapMut<K, V>` (sibling module `mutv`) embeds a
+// PMapView as its first field, so read methods are emitted exactly once
+// per <K, V> and accessed from update code as `m.view.<method>`. An
+// immutable snapshot returns a PMapView by value — its type carries no
+// update methods, so accidental mutation is impossible by construction.
+//
+// Pilot scope: thin wrapper over the existing single-arena B+tree
+// (`std.data.persistent.btree.node`). Storage/snapshot abstraction lands
+// in a later slice; for now the View just holds the tree root.
+
+package std.data.persistent.pmap_v2.view;
+
+use std.data.persistent.btree.node;
+use std.lang.cmp;
+use std.lang.ord;
+use std.lang.datatypes;
+
+// PMapView<K, V> — handle to a frozen B+tree root. Built by the assembler
+// from the Read parts of the Cfg's part list.
+pub struct PMapView<K: Container + ContainerOrd, V: Container> {
+    pub root: *mut BTreeNode<K, V>,
+}
+
+impl<K: Container + ContainerOrd, V: Container> PMapView<K, V> {
+    // Find part — Read.
+    pub fn contains(&self, key: *const K) -> bool {
+        unsafe { return node_contains_rec::<K, V>(self.root, key); }
+    }
+
+    pub fn get(&self, key: *const K, out: *mut V::ViewInStore) -> bool {
+        unsafe { return node_get_rec::<K, V>(self.root, key, out); }
+    }
+
+    // TreeStats part — Read.
+    pub fn len(&self) -> u64 {
+        unsafe { return node_size_rec::<K, V>(self.root); }
+    }
+}
+
+// Snapshot ctor: bumps the root's refcount and returns an independent
+// View pointing at the same frozen tree. Path-copy on the producing
+// Mut keeps this view's read of the data immutable for its lifetime.
+pub fn pmap_view_snapshot<K: Container + ContainerOrd, V: Container>(v: *const PMapView<K, V>) -> PMapView<K, V> {
+    unsafe {
+        let r: *mut BTreeNode<K, V> = v.root;
+        node_retain::<K, V>(r);
+        return PMapView::<K, V> { root: r };
+    }
+}
+
+pub fn pmap_view_drop<K: Container + ContainerOrd, V: Container>(v: *mut PMapView<K, V>) {
+    unsafe { node_release::<K, V>(v.root); }
+}

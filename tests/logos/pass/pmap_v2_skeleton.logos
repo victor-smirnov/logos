@@ -1,0 +1,125 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// pmap_v2_skeleton.logos — first end-to-end smoke of the component-
+// organised persistent map.
+//
+// Demonstrates the architecture, not yet the storage: PMap_v2 reuses
+// the existing single-arena B+tree (std.data.persistent.btree.node) for
+// the underlying CoW machinery, but wraps it in the new component
+// layout:
+//
+//   • Configuration is plain Hermes data (`@{ ... }`).
+//   • Assembler Phase 1 = `validate_pmap_cfg(cfg)` — schema check.
+//   • PMapView<K,V> is the *base* — read parts (`contains`/`get`/`len`)
+//     are emitted exactly once per <K,V>.
+//   • PMapMut<K,V> embeds PMapView as its first field; read code is
+//     reached via `pm.view.<method>` — no shim, no duplicate emission.
+//   • A snapshot is handed out as a `PMapView` by value; its type
+//     constructively lacks update methods.
+//
+// Update parts (Insert/Remove/RootMgmt) are not in this slice, so the
+// test populates the tree by directly calling the underlying
+// `node_insert_rec` (kept ≤4 keys to stay in a single leaf).
+
+package pmap_v2_skeleton;
+
+use std.data.persistent.pmap_v2.view;
+use std.data.persistent.pmap_v2.mutv;
+use std.data.persistent.btree.node;
+use std.lang.cmp;
+use std.lang.ord;
+use std.lang.datatypes;
+use std.compiler.metaprog;
+use std.hermes.ctr;
+use std.hermes.view;
+use std.hermes.anyval;
+
+// Assembler Phase 1: PMapCfg schema validation. Inlined here for the
+// pilot — once we have a packaging story for metaprog-using stdlib code,
+// it graduates to `std.data.persistent.pmap_v2.cfg`.
+//
+//   1: cfg root is not a TinyObjectMap
+//   2/3: "key" missing / not a Type
+//   4/5: "value" missing / not a Type
+//   6: "fanout" missing
+unsafe fn validate_pmap_cfg(cfg: HermesStatic) -> i32 {
+    let v = cfg.as_view();
+    let r: AnyVal = v.root();
+    if !r.is_ptr() { return 1; }
+    let k: AnyVal = v.map_get(r, "key");
+    if k.is_null() { return 2; }
+    let kt: Type = type_from_anyval(v.base(), k);
+    if kt.kind == (0 as u32) { return 3; }
+    let val: AnyVal = v.map_get(r, "value");
+    if val.is_null() { return 4; }
+    let vt: Type = type_from_anyval(v.base(), val);
+    if vt.kind == (0 as u32) { return 5; }
+    let fan: AnyVal = v.map_get(r, "fanout");
+    if fan.is_null() { return 6; }
+    return 0;
+}
+
+pub struct U64Key { pub x: u64, }
+impl Primitive for U64Key { type Prim = u64; }
+impl Ord for U64Key {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if self.x < other.x { return Ordering::Less; }
+        if self.x > other.x { return Ordering::Greater; }
+        return Ordering::Equal;
+    }
+}
+
+pub struct U64Val { pub x: u64, }
+impl Primitive for U64Val { type Prim = u64; }
+
+fn ki(v: u64) -> U64Key { return U64Key { x: v }; }
+
+unsafe fn main() -> i32 {
+    // ── Configuration as data ───────────────────────────────────────
+    let cfg: HermesStatic = @{
+        "key":    <type:U64Key>,
+        "value":  <type:U64Val>,
+        "fanout": 16,
+    };
+
+    // ── Assembler Phase 1: schema validation ────────────────────────
+    let rc: i32 = validate_pmap_cfg(cfg);
+    if rc != 0 { return 10 + rc; }   // 11..16 on schema failure
+
+    // ── Assembler Phase 2 (today: hand-written instantiation; future:
+    // metafn lowering from the cfg) ─────────────────────────────────
+    let mut pm: PMapMut<U64Key, U64Val> = pmap_mut_new::<U64Key, U64Val>();
+
+    // Populate three ordered keys directly via the underlying node API
+    // (≤ node_max_keys()=4 ⇒ stays in one leaf, no split / root grow).
+    let k1: U64Key = ki(10u64);
+    let k2: U64Key = ki(20u64);
+    let k3: U64Key = ki(30u64);
+    let _ : InsertOutcome<U64Key, U64Val> = node_insert_rec::<U64Key, U64Val>(pm.view.root, 10u64, 100u64, &k1 as *const U64Key);
+    let _ : InsertOutcome<U64Key, U64Val> = node_insert_rec::<U64Key, U64Val>(pm.view.root, 20u64, 200u64, &k2 as *const U64Key);
+    let _ : InsertOutcome<U64Key, U64Val> = node_insert_rec::<U64Key, U64Val>(pm.view.root, 30u64, 300u64, &k3 as *const U64Key);
+
+    // ── Read parts on the View (reached via pm.view) ────────────────
+    if pm.view.len() != 3u64 { return 21; }
+    if !pm.view.contains(&k1 as *const U64Key) { return 22; }
+    if !pm.view.contains(&k2 as *const U64Key) { return 23; }
+    if !pm.view.contains(&k3 as *const U64Key) { return 24; }
+    let miss: U64Key = ki(99u64);
+    if  pm.view.contains(&miss as *const U64Key) { return 25; }
+
+    let mut out: u64 = 0u64;
+    if !pm.view.get(&k2 as *const U64Key, &mut out as *mut u64) { return 26; }
+    if out != 200u64 { return 27; }
+
+    // ── Snapshot returns a bare PMapView — its type carries no update
+    // methods, so accidental mutation is impossible by construction. ─
+    let mut snap: PMapView<U64Key, U64Val> = pmap_mut_snapshot::<U64Key, U64Val>(&pm as *const PMapMut<U64Key, U64Val>);
+    if snap.len() != 3u64 { return 31; }
+    if !snap.contains(&k1 as *const U64Key) { return 32; }
+    if !snap.get(&k3 as *const U64Key, &mut out as *mut u64) { return 33; }
+    if out != 300u64 { return 34; }
+
+    pmap_view_drop::<U64Key, U64Val>(&mut snap as *mut PMapView<U64Key, U64Val>);
+    pmap_mut_drop::<U64Key, U64Val>(&mut pm as *mut PMapMut<U64Key, U64Val>);
+    return 0;
+}

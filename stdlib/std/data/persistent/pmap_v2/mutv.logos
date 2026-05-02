@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// std.data.persistent.pmap_v2.mutv — read+update sibling of PMapView.
+//
+// `PMapMut<K, V>` is the writable container. It embeds a `PMapView<K, V>`
+// as its first field, so every Read part lives on the View (compiled
+// once) and is reached from update code as `m.view.<method>` — direct
+// projection, no shim, no duplication.
+//
+// Update parts (Insert / Remove / RootMgmt / NodeAlloc / NodeWrite) land
+// here in subsequent slices. The skeleton currently provides only a
+// constructor, a destructor, and a snapshot operation — enough to
+// demonstrate the embedding and to feed the View's read parts in a smoke
+// test.
+
+package std.data.persistent.pmap_v2.mutv;
+
+use std.data.persistent.pmap_v2.view;
+use std.data.persistent.btree.node;
+use std.lang.cmp;
+use std.lang.ord;
+use std.lang.datatypes;
+
+// PMapMut<K, V> — writable handle. View first ⇒ projection is a plain
+// field read; update state will follow once we add Insert/Remove parts.
+pub struct PMapMut<K: Container + ContainerOrd, V: Container> {
+    pub view: PMapView<K, V>,
+}
+
+pub fn pmap_mut_new<K: Container + ContainerOrd, V: Container>() -> PMapMut<K, V> {
+    return PMapMut::<K, V> {
+        view: PMapView::<K, V> { root: node_alloc::<K, V>() },
+    };
+}
+
+pub fn pmap_mut_drop<K: Container + ContainerOrd, V: Container>(m: *mut PMapMut<K, V>) {
+    unsafe { node_release::<K, V>(m.view.root); }
+}
+
+// Hand out an independent immutable View sharing the current root. By
+// returning `PMapView<K, V>` (not `PMapMut`), we hand the caller a type
+// that *constructively* lacks update methods — the read/update split
+// enforced at the type level.
+pub fn pmap_mut_snapshot<K: Container + ContainerOrd, V: Container>(m: *const PMapMut<K, V>) -> PMapView<K, V> {
+    unsafe {
+        let r: *mut BTreeNode<K, V> = m.view.root;
+        node_retain::<K, V>(r);
+        return PMapView::<K, V> { root: r };
+    }
+}
