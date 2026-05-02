@@ -14,6 +14,7 @@
 #include <logos/hermes/named_code.hpp>
 #include <logos/hermes/arena_string.hpp>
 #include <logos/hermes/tiny_object_map.hpp>
+#include <logos/hermes/type_registry.hpp>
 #include <logos/hermes/object_array.hpp>
 #include <logos/hermes/object_map.hpp>
 #include <logos/hermes/compound_types.hpp>
@@ -198,6 +199,42 @@ public:
     std::string_view name() const noexcept { return ptr()->name_view(base()); }
 };
 
+// Component-metaprog slice 1E: non-owning view over a Logos-Type Hermes value.
+// A Logos Type is a TinyObjectMap whose schema_type_code = type_hash::Type=107
+// carrying:
+//   key 0 → kind  (u32, inline AnyVal)
+//   key 1 → uid   (u64, ptr-mode AnyVal)
+//   key 2 → name  (ArenaString, ptr-mode AnyVal)
+class TypeView : public ViewBase {
+public:
+    using ViewBase::ViewBase;
+
+    TinyObjectMap* ptr() const noexcept {
+        return reinterpret_cast<TinyObjectMap*>(base() + offset_.value());
+    }
+
+    bool valid() const noexcept {
+        return !is_null() && ptr()->schema_type_code() == type_hash::Type;
+    }
+
+    uint32_t kind() const noexcept {
+        auto av = ptr()->get(0, base());
+        return av.is_null() ? 0u : av.as_value<uint32_t>();
+    }
+
+    uint64_t uid() const noexcept {
+        auto av = ptr()->get(1, base());
+        if (av.is_null()) return 0;
+        return *av.as_ptr<const uint64_t>(base());
+    }
+
+    std::string_view name() const noexcept {
+        auto av = ptr()->get(2, base());
+        if (av.is_null()) return {};
+        return av.as_ptr<const ArenaString>(base())->view();
+    }
+};
+
 // ---------------------------------------------------------------------------
 // ObjectView: universal tagged value (non-owning).
 // Can hold embedded value (AnyVal value mode) or arena pointer.
@@ -222,6 +259,7 @@ public:
     StringView as_string() const noexcept { return {tagged_.to_offset(), holder_}; }
     DatatypeView as_datatype() const noexcept { return {tagged_.to_offset(), holder_}; }
     ParameterView as_parameter() const noexcept { return {tagged_.to_offset(), holder_}; }
+    TypeView as_type() const noexcept { return {tagged_.to_offset(), holder_}; }
 
     AnyVal tagged() const noexcept { return tagged_; }
     MemHolder* holder() const noexcept { return holder_; }
