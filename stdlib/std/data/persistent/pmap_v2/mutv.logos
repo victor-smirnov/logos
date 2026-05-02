@@ -48,3 +48,67 @@ pub fn pmap_mut_snapshot<K: Container + ContainerOrd, V: Container>(m: *const PM
         return PMapView::<K, V> { root: r };
     }
 }
+
+// CoW prep: if the root is shared (rc > 1), clone it into a unique copy
+// and swap; releases the old reference so refcounts stay balanced.
+// Internal helper for the Insert/Remove parts.
+fn pmap_mut_make_root_unique<K: Container + ContainerOrd, V: Container>(m: *mut PMapMut<K, V>) {
+    unsafe {
+        let r: *mut BTreeNode<K, V> = m.view.root;
+        if r.rc > 1u64 {
+            let copy: *mut BTreeNode<K, V> = node_clone_for_cow::<K, V>(r);
+            node_release::<K, V>(r);
+            m.view.root = copy;
+        }
+    }
+}
+
+// Tree grew by one level: build a new internal root from the previous
+// root + its split right sibling. Used when the recursive insert at the
+// root level returned a split.
+fn pmap_mut_grow_root<K: Container + ContainerOrd, V: Container>(m: *mut PMapMut<K, V>, right: *mut BTreeNode<K, V>) {
+    unsafe {
+        let new_root: *mut BTreeNode<K, V> = node_alloc_internal::<K, V>();
+        let sep: K::ViewInStore = right.keys.get(0u64);
+        new_root.keys.push(sep);
+        new_root.children.push(m.view.root);
+        new_root.children.push(right);
+        if !right.is_leaf {
+            // Internal split: separator was held at right.keys[0]; remove now.
+            right.keys.remove_at(0u64);
+            right.n = right.keys.len() as u16;
+        }
+        new_root.n = new_root.keys.len() as u16;
+        m.view.root = new_root;
+    }
+}
+
+// Insert part — Update.
+// Upsert: if `key` is already present, overwrite the existing value and
+// return true; otherwise insert (key, val) in order and return false.
+// Path-copies the descent path on mutation. `qkey` is the comparable
+// pointer view of `key` (matches map.logos's existing API).
+pub fn pmap_mut_insert<K: Container + ContainerOrd, V: Container>(m: *mut PMapMut<K, V>, key: K::ViewInStore, val: V::ViewInStore, qkey: *const K) -> bool {
+    unsafe {
+        pmap_mut_make_root_unique::<K, V>(m);
+        let outcome: InsertOutcome<K, V> = node_insert_rec::<K, V>(m.view.root, key, val, qkey);
+        if outcome.split {
+            pmap_mut_grow_root::<K, V>(m, outcome.right);
+        }
+        return outcome.hit;
+    }
+}
+
+// Remove part — Update.
+// Remove the entry with `key == *qkey`; returns true on hit, false on
+// miss. Path-copies the descent path on hit; miss leaves the tree
+// untouched. (Matches map.logos's removal semantics: no merge or
+// redistribute yet, so once the tree grows past one leaf its height
+// never shrinks; empty leaves are valid.)
+pub fn pmap_mut_remove<K: Container + ContainerOrd, V: Container>(m: *mut PMapMut<K, V>, qkey: *const K) -> bool {
+    unsafe {
+        if !node_contains_rec::<K, V>(m.view.root, qkey) { return false; }
+        pmap_mut_make_root_unique::<K, V>(m);
+        return node_remove_rec::<K, V>(m.view.root, qkey);
+    }
+}
