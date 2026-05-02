@@ -15,6 +15,8 @@ package std.compiler.metaprog;
 use std.hermes.view;
 use std.hermes.anyval;
 use std.hermes.string;
+use std.hermes.map;
+use std.hermes.scalar;
 use std.lang.text;
 
 // ── AST handle types ──────────────────────────────────────────────
@@ -438,6 +440,69 @@ impl OView {
             i = i + (1 as u64);
         }
         return AnyVal::null_ptr();
+    }
+
+    // Decode a `<type:T>` Hermes value (TinyObjectMap with
+    // schema_type_code=107) into a metaprog `Type` struct. `val` must
+    // point at the TOM (e.g. via `view.tiny_map_get(node, key)` or by
+    // walking the document root). Returns a zero-filled `Type` if `val`
+    // is null, not a pointer, not a TinyObjectMap, or carries a schema
+    // other than 107. Counterpart to the C++ `ObjectView::as_type()` —
+    // shares the schema_type_code=107 contract with sema's `<type:T>`
+    // emitter (HVType / lir_mirror_emit_hv_type → mlir_gen_expr).
+    //
+    // TOM key layout:
+    //   0 → kind  (u32, value-mode AnyVal)
+    //   1 → uid   (u64, zone-allocated U64 record)
+    //   2 → name  (HermesString in zone, borrowed for the OView lifetime)
+    pub fn as_type(self: &OView, val: AnyVal) -> Type {
+        unsafe {
+            if !val.is_ptr() {
+                return Type { kind: 0 as u32, name: "", size: 0, align: 0, uid: 0 as u64 };
+            }
+            if val.is_null() {
+                return Type { kind: 0 as u32, name: "", size: 0, align: 0, uid: 0 as u64 };
+            }
+            let base: *const u8 = self.base;
+            let obj: *const u8 =
+                (base as i64 + val.as_offset() as i64) as *const u8;
+            let tag_hash: u64 = read_type_code(obj);
+            if tag_hash != hermes_tag_tiny_map() {
+                return Type { kind: 0 as u32, name: "", size: 0, align: 0, uid: 0 as u64 };
+            }
+            let tom: *const Map<Bitmap, AnyVal> =
+                obj as *const Map<Bitmap, AnyVal>;
+            if tom.schema_type_code != (107 as u64) {
+                return Type { kind: 0 as u32, name: "", size: 0, align: 0, uid: 0 as u64 };
+            }
+
+            let kind_av: AnyVal = self.tiny_map_get(val, 0 as u8);
+            let uid_av:  AnyVal = self.tiny_map_get(val, 1 as u8);
+            let name_av: AnyVal = self.tiny_map_get(val, 2 as u8);
+
+            let mut kind: u32 = 0 as u32;
+            if !kind_av.is_null() && !kind_av.is_ptr() {
+                kind = kind_av.as_u24() as u32;
+            }
+
+            let mut uid: u64 = 0 as u64;
+            if !uid_av.is_null() && uid_av.is_ptr() {
+                let uobj: *const U64 =
+                    (base as i64 + uid_av.as_offset() as i64) as *const U64;
+                uid = uobj.value();
+            }
+
+            let sv: StringView = self.get_str_view(name_av);
+            let mut name_bytes: &[u8] = "";
+            if sv.len > (0 as u64) {
+                name_bytes = str_from_raw(sv.ptr, sv.len as i64);
+            }
+
+            return Type {
+                kind: kind, name: name_bytes,
+                size: 0, align: 0, uid: uid,
+            };
+        }
     }
 
     // Append the user-root MODULE's dotted package name to `buf`.
