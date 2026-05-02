@@ -8,6 +8,30 @@ Logos generics are *monomorphic*: every concrete instantiation is emitted as its
 
 The grammar entry is `type_param_list` ([logos.peg:1547](../../../tools/peg_gen/grammars/logos.peg#L1547)).
 
+## Capability baseline — roughly C++20
+
+Logos generics are, in expressive terms, **on par with C++20**: full variadic
+parameters (type packs and const packs — see below), full const generics over
+arbitrary scalar types (not just `usize`), trait bounds in the role of
+concepts, partial specialisation via blanket impls, and associated types /
+constants. The one C++20 feature not carried over is template-template
+parameters — their role is filled instead by the **metafunction system**
+(see [metaprog.md](metaprog.md)), which treats types as data and has no
+direct analogue in C++ TMP. Affine types and the borrow checker are a
+separate axis, taken from Rust.
+
+What this means in practice:
+
+- Memoria-class assembly (typelist algebra, fixed/variable selection,
+  per-stream packed-struct dispatching) is expressible without dropping into
+  metafunctions; anything that Memoria/C++ wires up through
+  `MergeLists` / `IfThenElse` at the type level can be written in Logos
+  using variadics + const generics + bounds.
+- Metafunctions are layered on top when the task requires **reflection**
+  ("does `T` implement `Clone`?", "what are its fields?") or **code
+  synthesis** (`quote_*!`) — precisely the work that C++ TMP performs at
+  enormous complexity cost and that Rust proc-macros cannot do at all.
+
 ## Type Parameters
 
 ```logos

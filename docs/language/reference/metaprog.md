@@ -154,15 +154,65 @@ The metaprog system is being designed in two phases:
 
 See [memory: feat_metaprog_phases](../../README.md) for the design sketch.
 
+## Query / Quote Asymmetry
+
+A load-bearing design choice: **the AST is not a user-facing data structure in
+either direction.**
+
+- **Analysis is via queries.** A metaprogram never receives an AST tree to
+  walk. It asks typed questions through `meta_*` intrinsics —
+  `meta_field_iter`, `meta_has_trait`, `meta_typelist`, `meta_kind_preds`,
+  `meta_variant_intrinsics`, `Type::ident()`, etc. — and gets back semantic
+  answers (types, traits, fields, kinds), not syntax nodes.
+
+- **Synthesis is via quotes.** A metaprogram never builds AST nodes by hand.
+  It produces code through typed quote forms (`quote_item!`, `quote_expr!`,
+  `quote_ty!`, `quote_struct_lit_*`) with `#(expr)` antiquotation and Hermes
+  blob splices. There is no public `make_expr_call(...)` / `make_field(...)`
+  builder surface.
+
+This applies to all tiers, including Tier 0 stdlib derives. The asymmetry is
+intentional: queries hide AST shape so the compiler can evolve it; quotes
+constrain synthesis to syntactically valid fragments by construction. A proc-
+macro author who is used to inspecting `syn::ItemStruct` and emitting
+`TokenStream` will not find an analogue in Logos — the answer to both halves
+is "go through the typed surface."
+
 ## Tier Split for Metafunctions
 
 Different consumers of the metaprog API target different tiers:
 
-- **Tier 0 — stdlib internal**: raw AST manipulation. Few consumers, careful review.
+- **Tier 0 — stdlib internal**: same query/quote split as external tiers, but with access to internal `meta_*` intrinsics that aren't yet stabilised. Few consumers, careful review.
 - **Tier 1 — external Datalog**: fact-base query over the program. Stable across compiler versions.
 - **Tier 2 — external fragment builder**: `parse_expr` / `parse_stmt` builder API. Highest level, most stable.
 
 External users should write in Tier 1 / Tier 2; Tier 0 is considered an unstable internal interface. See [memory: feat_metaprog_tiers](../../README.md).
+
+## vs Rust macros
+
+A snapshot of where Logos metaprogramming already diverges from Rust's
+`macro_rules!` / proc-macro split. Read as: column "Rust" is the baseline a
+reader is likely to know; column "Logos" is what we have today (not aspirational
+unless explicitly marked roadmap).
+
+| Aspect | Rust | Logos |
+| --- | --- | --- |
+| Host language | `macro_rules!` mini-DSL; proc-macros = separate crate (`proc_macro = true`) compiled before user code | metaprogram is a regular Logos function; `#[metaprog_handler]` / `metacall`, JIT-executed by the compiler |
+| Analysis / synthesis surface | both go through `TokenStream`: parse it with `syn`, emit with `quote!` | asymmetric — analysis via `meta_*` queries (semantic answers, not nodes); synthesis via `quote_*!` (no public AST-builder API) |
+| Input representation | `TokenStream` (lexical), parsed via `syn` | no raw AST exposed; metaprograms see typed query results and produce typed quote outputs |
+| Quote primitive | `quote!` macro produces tokens | `quote_item!` / `quote_expr!` / `quote_ty!` / `quote_struct_lit_*` produce typed nodes |
+| Antiquotation | `#var` / `#(... )*` over arbitrary token shapes | `#(expr)` single primitive, statically typed; struct-lit field, cursor, and method-receiver antiquots |
+| Repeat groups | `$( ... )*` driven by macro-pattern parse | `#(#xs),*` accepts `Vec<Ident>` — arity is a runtime value of the metaprogram (cursor + `cursors_blob`) |
+| Type reflection | none — proc-macro cannot ask "does `T: Clone`?", "what are its fields?" | first-class: `meta_field_iter`, `meta_has_trait`, `meta_typelist`, `meta_template_handle`, `meta_variant_intrinsics`, `meta_type_align`, `Type::ident()` |
+| Type → AST bridge | absent (token-level only) | `Type::ident()`, `quote_ty!` cursors, `meta_reify_type`, `apply` |
+| Splice format | `TokenStream` (macro-only) | Hermes blob — same format as runtime data, on-disk artefacts, and IR mirror |
+| Hygiene | automatic def-/call-site, limited manual control; `$crate` as escape hatch | automatic + explicit `gensym(prefix)` returning `Ident`; composes like normal code |
+| Cross-expansion dedup | rustc/LLVM ODR + ConstantMerge — opaque to the macro | metaprogram-visible: `quote_item!` walk-dedupe, content-keyed rodata in mlir-gen, `metacall_item_odr_dedup` |
+| Generics ↔ macros | independent systems; macros cannot observe instantiations | two-layer model: A = substitution generics, B = metafunctions over types-as-data; B observes A |
+| Whole-program passes | none from macros (proc-macro is per-item, lexical) | Phase 2 `Pass<Rewrites, Diagnostics>` — design landed, see roadmap |
+| Const-fold integration | const-eval and macro expansion are disjoint phases | `metacall` is a first-class producer for the folder (roadmap: stable lit-args today) |
+| Stdlib derives | proc-macro crates with `syn`/`quote` deps | plain Logos functions in `std.compiler.metaprog` (`derive_clone`, derive(Debug)) |
+| Tier split for external authors | one tier (proc-macro on tokens) | Tier 0 raw AST (internal), Tier 1 Datalog query, Tier 2 `parse_expr/stmt` fragments |
 
 ## Roadmap
 
