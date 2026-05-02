@@ -55,6 +55,7 @@ namespace type_hash {
     inline constexpr uint64_t Array         = 100; // heterogeneous AnyVal array
     inline constexpr uint64_t ObjectMap     = 101; // string-keyed map
     inline constexpr uint64_t Decimal       = 102; // fixed-precision decimal (inline limbs)
+    inline constexpr uint64_t Type          = 107; // Logos Type (component-metaprog slice 1): TinyObjectMap with schema_type_code=Type carrying {kind:u32, uid:u64, name:Varchar}.
     inline constexpr uint64_t Parameter     = 127; // query parameter ?name / @-literal capture slot
     inline constexpr uint64_t Datatype      = 1001; // type declaration (multi-byte wire tag)
 

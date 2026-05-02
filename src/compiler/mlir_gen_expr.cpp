@@ -15,6 +15,8 @@
 #include <logos/hermes/map.hpp>
 #include <logos/hermes/object_array.hpp>
 #include <logos/hermes/object_map.hpp>
+#include <logos/hermes/tiny_object_map.hpp>
+#include <logos/hermes/type_registry.hpp>
 #include <logos/hermes/typed_array.hpp>
 
 #include <cstring>
@@ -2704,10 +2706,37 @@ static uint32_t build_hermes_val(lir_view::HermesValRef v,
     case HC::Capture:
         // Inline PARAM (tc=127): raw = (value_index << 8) | 0xFF.
         return (lir_view::HVCaptureView{v}.value_index() << 8u) | 0xFFu;
-    case HC::Type:
-        // Component-metaprog slice 1C lands real codegen (TinyObjectMap with
-        // schema_type_code = type_hash::Type=107). Slice 1B placeholder: 0.
-        return 0;
+    case HC::Type: {
+        // Component-metaprog slice 1C: emit a TinyObjectMap whose
+        // schema_type_code = type_hash::Type=107 carrying:
+        //   key 0: kind (u32, inline AnyVal)
+        //   key 1: uid  (u64, ptr-mode AnyVal)
+        //   key 2: name (ArenaString ptr-mode AnyVal)
+        lir_view::HVTypeView tv{v};
+        auto& arena = HermesAccess::arena(doc);
+        auto* m = logos::hermes::TinyObjectMap::create(arena, /*cap=*/4).get();
+        m->set_schema_type_code(logos::hermes::type_hash::Type);
+        uint32_t m_off = static_cast<uint32_t>(
+            reinterpret_cast<uint8_t*>(m) - HermesAccess::base(doc));
+
+        AnyVal kind_av = AnyVal::from_value<uint32_t>(tv.kind());
+        AnyVal uid_av  = anyval_put<uint64_t>(arena, tv.uid()).get();
+        auto*  s       = ArenaString::create(arena, std::string(tv.name())).get();
+        AnyVal name_av = AnyVal::from_offset(arena_offset_t(static_cast<uint32_t>(
+            reinterpret_cast<uint8_t*>(s) - HermesAccess::base(doc))));
+
+        auto* cur = reinterpret_cast<logos::hermes::TinyObjectMap*>(
+            HermesAccess::base(doc) + m_off);
+        cur->put(0, kind_av, arena).get();
+        cur = reinterpret_cast<logos::hermes::TinyObjectMap*>(
+            HermesAccess::base(doc) + m_off);
+        cur->put(1, uid_av, arena).get();
+        cur = reinterpret_cast<logos::hermes::TinyObjectMap*>(
+            HermesAccess::base(doc) + m_off);
+        cur->put(2, name_av, arena).get();
+
+        return AnyVal::from_offset(arena_offset_t(m_off)).raw();
+    }
     }
     return 0;
 }
