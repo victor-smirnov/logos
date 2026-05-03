@@ -1,0 +1,107 @@
+// End-to-end validator of the container-directory dispatch mechanism that
+// std.data.persistent.pmap_v2.handle will use once rewritten.
+//
+// The chain under test:
+//   1. Store-level release-thunk registry — populated idempotently from a
+//      generic register_pmap_release::<CFG> that captures the address of
+//      the monomorphised node_release_c::<K,V,CFG> via GENERIC_REF.
+//   2. Two container roots allocated for two distinct CFGs (different K, V,
+//      fanout). Each root is a NodeBase whose offset-8 cfg_hash slot is
+//      populated from hstatic_hash_of::<CFG>() at alloc time.
+//   3. The "dir" is modelled here as a parallel pair of PrimVecs holding
+//      (ctr_id, root_ptr_as_u64) — handle.logos will swap this for a
+//      MutSnapshot<DirCfg>, but the dispatch contract is identical.
+//   4. Snap-drop equivalent: walk dir → read each root's cfg_hash via a
+//      *mut u64 cast at slot 1 → registry_lookup → fn-pointer call.
+//
+// Verifies that two CFGs with disjoint K/V types can coexist in the same
+// store, be released through type-erased dispatch, and that the registered
+// release fn-ptr is the right monomorphisation (each call frees the right
+// tree without K/V mismatch — confirmed by the absence of crashes on
+// repeated runs and the sanity of the rc/cfg_hash reads).
+package pmap_v2_container_directory_dispatch;
+
+use std.data.persistent.bt.node;
+use std.data.persistent.bt.cow;
+use std.data.persistent.store;
+use std.mem;
+use std.mem.arc;
+use std.lang.cmp;
+use std.lang.ord;
+use std.lang.datatypes;
+use std.hermes.view;
+use std.hermes.anyval;
+
+pub type CfgA = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 16 };
+pub type CfgB = @{ "key": <type:u32>, "value": <type:u32>, "fanout":  8 };
+
+// register_pmap_release_thunk — generic over CFG. Captures the address of
+// the per-CFG monomorphised node_release_c thunk via GENERIC_REF and
+// idempotently inserts (cfg_hash, fn-ptr) into the store's registry.
+unsafe fn register_pmap_release_thunk<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(s: *mut LockingStore) {
+    let h: u64 = hstatic_hash_of::<CFG>();
+    let fp: fn(*mut NodeBase<K, V, CFG>) -> () = node_release_c::<K, V, CFG>;
+    locking_store_register_release(s, h, fp as u64);
+}
+
+// Type-erased read of cfg_hash at slot 1 (offset 8) of any NodeBase root.
+unsafe fn read_cfg_hash(root: *mut u8) -> u64 {
+    let p: *mut u64 = (root as i64 + 8i64) as *mut u64;
+    return *p;
+}
+
+fn main() -> i32 {
+    // ── 1. Open store; register release thunks for two CFGs.
+    let mut ls: LockingStore = locking_store_new();
+    unsafe {
+        register_pmap_release_thunk::<u64, u64, CfgA>(&mut ls as *mut LockingStore);
+        register_pmap_release_thunk::<u32, u32, CfgB>(&mut ls as *mut LockingStore);
+    }
+
+    // Re-registering same CFG must be a no-op.
+    unsafe {
+        register_pmap_release_thunk::<u64, u64, CfgA>(&mut ls as *mut LockingStore);
+    }
+    if ls.release_hashes.len != 2u64 { return 1; }
+
+    // ── 2. Allocate two roots, one per CFG.
+    let r_a: *mut NodeBase<u64, u64, CfgA> = node_alloc_c::<u64, u64, CfgA>();
+    let r_b: *mut NodeBase<u32, u32, CfgB> = node_alloc_c::<u32, u32, CfgB>();
+
+    // Sanity: cfg_hash at slot 1 matches each CFG's hstatic_hash_of.
+    let h_a: u64 = hstatic_hash_of::<CfgA>();
+    let h_b: u64 = hstatic_hash_of::<CfgB>();
+    let h_a_read: u64 = unsafe { read_cfg_hash(r_a as *mut u8) };
+    let h_b_read: u64 = unsafe { read_cfg_hash(r_b as *mut u8) };
+    if h_a_read != h_a { return 2; }
+    if h_b_read != h_b { return 3; }
+    if h_a_read == h_b_read { return 4; }
+
+    // ── 3. Mock dir: parallel ctr_id / root_ptr_as_u64 vecs.
+    let mut dir_ctr_ids: PrimVec<u64> = PrimVec::<u64>::empty();
+    let mut dir_roots:   PrimVec<u64> = PrimVec::<u64>::empty();
+    dir_ctr_ids.push(101u64);  dir_roots.push(r_a as u64);
+    dir_ctr_ids.push(202u64);  dir_roots.push(r_b as u64);
+
+    // ── 4. Snap-drop equivalent — walk dir → cfg_hash slot 1 → registry
+    //      lookup → release dispatch. Each release fn frees the tree
+    //      under the right monomorphisation; absence of crashes confirms
+    //      the right thunk fired for each entry.
+    let n: u64 = dir_ctr_ids.len;
+    let mut i: u64 = 0u64;
+    while i < n {
+        let root_u64: u64 = dir_roots.get(i);
+        let root_p:   *mut u8 = root_u64 as *mut u8;
+        let h: u64 = unsafe { read_cfg_hash(root_p) };
+        let fp_u64: u64 = unsafe { locking_store_lookup_release(&mut ls as *mut LockingStore, h) };
+        if fp_u64 == 0u64 { return 5; }
+        // Cast back to fn(*mut u8) -> () — node_release_c accepts a typed
+        // *mut NodeBase<K,V,CFG> but the underlying ABI is just a single
+        // pointer, so the u8-typed dispatch signature is bit-compatible.
+        let release: fn(*mut u8) -> () = fp_u64 as fn(*mut u8) -> ();
+        release(root_p);
+        i = i + 1u64;
+    }
+
+    return 42;
+}
