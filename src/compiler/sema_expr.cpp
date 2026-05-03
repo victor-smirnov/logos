@@ -8574,6 +8574,86 @@ void SemaChecker::lower_metacall_item(hermes::TinyMapView node,
     }
     if (!rt) return;  // earlier diag already emitted
 
+    // Render a hermes_lit AST back to Logos source — needed when the
+    // type-arg is a HermesStatic literal (`Foo::<@{...}>`). type_str()
+    // renders HStaticLit as `@hs_<hex>` which doesn't parse; for the
+    // metacall thunk we must reconstruct the original `@{...}` source.
+    std::function<std::string(TinyMapView)> render_hstatic;
+    auto render_hstatic_val = [&](AnyVal av) -> std::string {
+        if (av.is_null()) return "null";
+        if (av.is_pointer()) return render_hstatic(map_of(av));
+        // Inline scalar — fallback to string-of (won't typically occur
+        // at this spot since the parser stores ints/floats/strs as
+        // string-typed VALUEs in their respective HERMES_* nodes).
+        return std::string(str_of(av));
+    };
+    render_hstatic = [&](TinyMapView n) -> std::string {
+        int32_t c = code_of(n);
+        if (c == la::HERMES_MAP.code) {
+            std::string s = "{";
+            if (n.has_key(la::ITEMS) && !n.get(la::ITEMS.code).is_null()) {
+                auto items = arr_of(n.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i) {
+                    if (i) s += ", ";
+                    auto e = map_of(items.get(i));
+                    if (e.has_key(la::KEY)) {
+                        // Parser stores string keys WITH the surrounding
+                        // quotes; integer keys come as unquoted digits.
+                        // Either way, str_of() yields the source-form text.
+                        s += std::string(str_of(e.get(la::KEY.code)));
+                    }
+                    s += ": ";
+                    if (e.has_key(la::VALUE))
+                        s += render_hstatic(map_of(e.get(la::VALUE.code)));
+                    else s += "null";
+                }
+            }
+            s += "}";
+            return s;
+        }
+        if (c == la::HERMES_ARRAY.code) {
+            std::string s = "[";
+            if (n.has_key(la::ITEMS) && !n.get(la::ITEMS.code).is_null()) {
+                auto items = arr_of(n.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i) {
+                    if (i) s += ", ";
+                    s += render_hstatic(map_of(items.get(i)));
+                }
+            }
+            s += "]";
+            return s;
+        }
+        if (c == la::HERMES_INT.code)
+            return n.has_key(la::VALUE) ? std::string(str_of(n.get(la::VALUE.code))) : "0";
+        if (c == la::HERMES_NEG_INT.code) {
+            std::string s = "-";
+            if (n.has_key(la::VALUE)) s += std::string(str_of(n.get(la::VALUE.code)));
+            else s += "0";
+            return s;
+        }
+        if (c == la::HERMES_FLOAT.code)
+            return n.has_key(la::VALUE) ? std::string(str_of(n.get(la::VALUE.code))) : "0.0";
+        if (c == la::HERMES_STR.code) {
+            // Parser stores string VALUE with surrounding quotes.
+            return n.has_key(la::VALUE)
+                ? std::string(str_of(n.get(la::VALUE.code)))
+                : std::string("\"\"");
+        }
+        if (c == la::HERMES_BOOL.code) {
+            if (!n.has_key(la::VALUE)) return "false";
+            auto av = n.get(la::VALUE.code);
+            return (av.is_value() && av.as_value<uint8_t>() != 0) ? "true" : "false";
+        }
+        if (c == la::HERMES_NULL.code) return "null";
+        if (c == la::HERMES_TYPE_LIT.code) {
+            std::string s = "<type:";
+            if (n.has_key(la::NAME)) s += std::string(str_of(n.get(la::NAME.code)));
+            s += ">";
+            return s;
+        }
+        return "null";
+    };
+
     // Build call-text literal from AST shape + CTFE-printed args.
     auto build_turbofish = [&](TinyMapView n) -> std::string {
         if (!n.has_key(la::TYPE_PARAMS)) return {};
@@ -8584,7 +8664,17 @@ void SemaChecker::lower_metacall_item(hermes::TinyMapView node,
         std::string out = "::<";
         for (uint64_t i = 0; i < items.size(); ++i) {
             if (i) out += ", ";
-            out += type_str(resolve_type(map_of(items.get(i))));
+            auto item_node = map_of(items.get(i));
+            int32_t ic2 = code_of(item_node);
+            // LIT_HSTATIC type-arg: re-render the @-literal as source so the
+            // thunk can reparse it. Going through type_str would emit
+            // `@hs_<hex>` which doesn't parse.
+            if (ic2 == la::LIT_HSTATIC.code && item_node.has_key(la::VALUE)) {
+                out += "@";
+                out += render_hstatic(map_of(item_node.get(la::VALUE.code)));
+            } else {
+                out += type_str(resolve_type(item_node));
+            }
         }
         out += ">";
         return out;

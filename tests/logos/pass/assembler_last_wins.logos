@@ -19,16 +19,10 @@
 //     `Type::method` antiquot gap — `#name` is admissible at
 //     type-arg position, but not before `::`.
 //
-// Caveats deferred to next slice:
-//   • Passing CFG as `metacall fn::<const CFG: HermesStatic>()` to
-//     parameterise the assembler-metafn doesn't propagate through
-//     metacall's JIT path yet. Cfg is hardcoded inside the metafn
-//     for now; threading the const-generic into metacall is the
-//     follow-up.
+// Caveats deferred:
 //   • Splicing impl-blocks (vs free fns) at item-position metacall
-//     also has a gap — Assembled::id wasn't visible from main when
-//     emitted as `impl Assembled { fn id() ... }`. Free-fn form
-//     spliced fine. Investigate alongside the metacall-cfg arc.
+//     has a gap — Assembled::id wasn't visible from main when emitted
+//     as `impl Assembled { fn id() ... }`. Free-fn form spliced fine.
 //   • Different method-sets per part (A has m1+m2, B has m2+m3 →
 //     assembled = union with overrides) requires introspection of
 //     each part's trait-impl method list. Not in this slice.
@@ -54,11 +48,9 @@ impl Greet for PartB { fn id() -> i64 { return 2i64; } }
 // dispatching through a type-arg position (which DOES accept #ident).
 fn dele_id<P: Greet>() -> i64 { return P::id(); }
 
-fn assemble_greeter() -> QuoteItemBlob {
+fn assemble_greeter<const CFG: HermesStatic>() -> QuoteItemBlob {
     unsafe {
-        // Hardcoded cfg until metacall<const CFG: HermesStatic> lands.
-        let cfg: HermesStatic = @{"parts": ["PartA", "PartB"]};
-        let v = cfg.as_view();
+        let v = CFG.as_view();
         let arr: AnyVal = v.map_get(v.root(), "parts");
         let n: u64 = v.array_len(arr);
         let last_idx: u64 = n - 1u64;
@@ -72,7 +64,7 @@ fn assemble_greeter() -> QuoteItemBlob {
     }
 }
 
-metacall assemble_greeter();
+metacall assemble_greeter::<@{"parts": ["PartA", "PartB"]}>();
 
 unsafe fn main() -> i32 {
     if assembled_id() != 2i64 { return 1; }
