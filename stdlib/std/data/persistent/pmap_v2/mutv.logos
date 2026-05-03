@@ -2,16 +2,16 @@
 // Copyright 2026 Victor Smirnov
 // std.data.persistent.pmap_v2.mutv — read+update sibling of PMapView.
 //
-// `PMapMut<K, V>` is the writable container. It embeds a `PMapView<K, V>`
-// as its first field, so every Read part lives on the View (compiled
-// once) and is reached from update code as `m.view.<method>` — direct
-// projection, no shim, no duplication.
+// `PMapMut<K, V, CFG>` is the writable container. It embeds a
+// `PMapView<K, V, CFG>` as its first field, so every Read part lives
+// on the View (compiled once per <K,V,CFG>) and is reached from
+// update code as `m.view.<method>` — direct projection, no shim, no
+// duplicate emission.
 //
-// Update parts (Insert / Remove / RootMgmt / NodeAlloc / NodeWrite) land
-// here in subsequent slices. The skeleton currently provides only a
-// constructor, a destructor, and a snapshot operation — enough to
-// demonstrate the embedding and to feed the View's read parts in a smoke
-// test.
+// CFG flows through verbatim — the update parts don't yet specialise
+// on cfg-derived constants (fanout is still the btree's hard-coded
+// 4), but two PMaps with different CFGs are distinct types
+// regardless, which is what the assembler arc rests on.
 
 package std.data.persistent.pmap_v2.mutv;
 
@@ -20,39 +20,31 @@ use std.data.persistent.btree.node;
 use std.lang.cmp;
 use std.lang.ord;
 use std.lang.datatypes;
+use std.hermes.view;
 
-// PMapMut<K, V> — writable handle. View first ⇒ projection is a plain
-// field read; update state will follow once we add Insert/Remove parts.
-pub struct PMapMut<K: Container + ContainerOrd, V: Container> {
-    pub view: PMapView<K, V>,
+pub struct PMapMut<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic> {
+    pub view: PMapView<K, V, CFG>,
 }
 
-pub fn pmap_mut_new<K: Container + ContainerOrd, V: Container>() -> PMapMut<K, V> {
-    return PMapMut::<K, V> {
-        view: PMapView::<K, V> { root: node_alloc::<K, V>() },
+pub fn pmap_mut_new<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>() -> PMapMut<K, V, CFG> {
+    return PMapMut::<K, V, CFG> {
+        view: PMapView::<K, V, CFG> { root: node_alloc::<K, V>() },
     };
 }
 
-pub fn pmap_mut_drop<K: Container + ContainerOrd, V: Container>(m: *mut PMapMut<K, V>) {
+pub fn pmap_mut_drop<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(m: *mut PMapMut<K, V, CFG>) {
     unsafe { node_release::<K, V>(m.view.root); }
 }
 
-// Hand out an independent immutable View sharing the current root. By
-// returning `PMapView<K, V>` (not `PMapMut`), we hand the caller a type
-// that *constructively* lacks update methods — the read/update split
-// enforced at the type level.
-pub fn pmap_mut_snapshot<K: Container + ContainerOrd, V: Container>(m: *const PMapMut<K, V>) -> PMapView<K, V> {
+pub fn pmap_mut_snapshot<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(m: *const PMapMut<K, V, CFG>) -> PMapView<K, V, CFG> {
     unsafe {
         let r: *mut BTreeNode<K, V> = m.view.root;
         node_retain::<K, V>(r);
-        return PMapView::<K, V> { root: r };
+        return PMapView::<K, V, CFG> { root: r };
     }
 }
 
-// CoW prep: if the root is shared (rc > 1), clone it into a unique copy
-// and swap; releases the old reference so refcounts stay balanced.
-// Internal helper for the Insert/Remove parts.
-fn pmap_mut_make_root_unique<K: Container + ContainerOrd, V: Container>(m: *mut PMapMut<K, V>) {
+fn pmap_mut_make_root_unique<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(m: *mut PMapMut<K, V, CFG>) {
     unsafe {
         let r: *mut BTreeNode<K, V> = m.view.root;
         if r.rc > 1u64 {
@@ -63,10 +55,7 @@ fn pmap_mut_make_root_unique<K: Container + ContainerOrd, V: Container>(m: *mut 
     }
 }
 
-// Tree grew by one level: build a new internal root from the previous
-// root + its split right sibling. Used when the recursive insert at the
-// root level returned a split.
-fn pmap_mut_grow_root<K: Container + ContainerOrd, V: Container>(m: *mut PMapMut<K, V>, right: *mut BTreeNode<K, V>) {
+fn pmap_mut_grow_root<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(m: *mut PMapMut<K, V, CFG>, right: *mut BTreeNode<K, V>) {
     unsafe {
         let new_root: *mut BTreeNode<K, V> = node_alloc_internal::<K, V>();
         let sep: K::ViewInStore = right.keys.get(0u64);
@@ -74,7 +63,6 @@ fn pmap_mut_grow_root<K: Container + ContainerOrd, V: Container>(m: *mut PMapMut
         new_root.children.push(m.view.root);
         new_root.children.push(right);
         if !right.is_leaf {
-            // Internal split: separator was held at right.keys[0]; remove now.
             right.keys.remove_at(0u64);
             right.n = right.keys.len() as u16;
         }
@@ -83,32 +71,21 @@ fn pmap_mut_grow_root<K: Container + ContainerOrd, V: Container>(m: *mut PMapMut
     }
 }
 
-// Insert part — Update.
-// Upsert: if `key` is already present, overwrite the existing value and
-// return true; otherwise insert (key, val) in order and return false.
-// Path-copies the descent path on mutation. `qkey` is the comparable
-// pointer view of `key` (matches map.logos's existing API).
-pub fn pmap_mut_insert<K: Container + ContainerOrd, V: Container>(m: *mut PMapMut<K, V>, key: K::ViewInStore, val: V::ViewInStore, qkey: *const K) -> bool {
+pub fn pmap_mut_insert<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(m: *mut PMapMut<K, V, CFG>, key: K::ViewInStore, val: V::ViewInStore, qkey: *const K) -> bool {
     unsafe {
-        pmap_mut_make_root_unique::<K, V>(m);
+        pmap_mut_make_root_unique::<K, V, CFG>(m);
         let outcome: InsertOutcome<K, V> = node_insert_rec::<K, V>(m.view.root, key, val, qkey);
         if outcome.split {
-            pmap_mut_grow_root::<K, V>(m, outcome.right);
+            pmap_mut_grow_root::<K, V, CFG>(m, outcome.right);
         }
         return outcome.hit;
     }
 }
 
-// Remove part — Update.
-// Remove the entry with `key == *qkey`; returns true on hit, false on
-// miss. Path-copies the descent path on hit; miss leaves the tree
-// untouched. (Matches map.logos's removal semantics: no merge or
-// redistribute yet, so once the tree grows past one leaf its height
-// never shrinks; empty leaves are valid.)
-pub fn pmap_mut_remove<K: Container + ContainerOrd, V: Container>(m: *mut PMapMut<K, V>, qkey: *const K) -> bool {
+pub fn pmap_mut_remove<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(m: *mut PMapMut<K, V, CFG>, qkey: *const K) -> bool {
     unsafe {
         if !node_contains_rec::<K, V>(m.view.root, qkey) { return false; }
-        pmap_mut_make_root_unique::<K, V>(m);
+        pmap_mut_make_root_unique::<K, V, CFG>(m);
         return node_remove_rec::<K, V>(m.view.root, qkey);
     }
 }

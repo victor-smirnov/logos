@@ -1,25 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// pmap_v2_skeleton.logos — first end-to-end smoke of the component-
-// organised persistent map.
+// pmap_v2_skeleton.logos — component-organised persistent map with
+// HermesStatic Configuration as a const-generic.
 //
 // Demonstrates the architecture, not yet the storage: PMap_v2 reuses
-// the existing single-arena B+tree (std.data.persistent.btree.node) for
-// the underlying CoW machinery, but wraps it in the new component
-// layout:
+// the existing single-arena B+tree (std.data.persistent.btree.node)
+// for the underlying CoW machinery, but wraps it in the new
+// component layout:
 //
-//   • Configuration is plain Hermes data (`@{ ... }`).
+//   • Configuration is a HermesStatic const-generic (`const CFG`).
+//     Two PMaps with different CFGs are *different types*, the
+//     bedrock for the constructive read/update split, override
+//     resolution, and diagnostic-driven assembly.
 //   • Assembler Phase 1 = `validate_pmap_cfg(cfg)` — schema check.
-//   • PMapView<K,V> is the *base* — read parts (`contains`/`get`/`len`)
-//     are emitted exactly once per <K,V>.
-//   • PMapMut<K,V> embeds PMapView as its first field; read code is
-//     reached via `pm.view.<method>` — no shim, no duplicate emission.
-//   • A snapshot is handed out as a `PMapView` by value; its type
+//   • PMapView<K,V,CFG> is the *base* — read parts emitted exactly
+//     once per <K,V,CFG>. `cfg_i64` reads scalar slots out of CFG
+//     at runtime via materialised rodata.
+//   • PMapMut<K,V,CFG> embeds PMapView as its first field; reads
+//     reached via `pm.view.<method>` — no shim, no duplicate
+//     emission.
+//   • Snapshot returns a bare PMapView<K,V,CFG>; its type
 //     constructively lacks update methods.
 //
-// Update parts (Insert/Remove/RootMgmt) are not in this slice, so the
-// test populates the tree by directly calling the underlying
-// `node_insert_rec` (kept ≤4 keys to stay in a single leaf).
+// `type` aliases keep call sites short — without them every
+// turbofish would have to repeat the whole CFG literal.
 
 package pmap_v2_skeleton;
 
@@ -34,14 +38,6 @@ use std.hermes.ctr;
 use std.hermes.view;
 use std.hermes.anyval;
 
-// Assembler Phase 1: PMapCfg schema validation. Inlined here for the
-// pilot — once we have a packaging story for metaprog-using stdlib code,
-// it graduates to `std.data.persistent.pmap_v2.cfg`.
-//
-//   1: cfg root is not a TinyObjectMap
-//   2/3: "key" missing / not a Type
-//   4/5: "value" missing / not a Type
-//   6: "fanout" missing
 unsafe fn validate_pmap_cfg(cfg: HermesStatic) -> i32 {
     let v = cfg.as_view();
     let r: AnyVal = v.root();
@@ -74,39 +70,76 @@ impl Primitive for U64Val { type Prim = u64; }
 
 fn ki(v: u64) -> U64Key { return U64Key { x: v }; }
 
+// Two configurations of the same K/V give two distinct types.
+// Linchpin of the assembler: MyMap16 ≠ MyMap32 at the type level.
+// (Bare `type Cfg = @{...};` would need hermes_lit accepted at
+// simple_type position; for now we inline the cfg into the alias.)
+pub type MyView16 = PMapView<U64Key, U64Val, @{
+    "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
+}>;
+pub type MyMap16 = PMapMut<U64Key, U64Val, @{
+    "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
+}>;
+pub type MyMap32 = PMapMut<U64Key, U64Val, @{
+    "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 32,
+}>;
+
 unsafe fn main() -> i32 {
-    // ── Configuration as data ───────────────────────────────────────
-    let cfg: HermesStatic = @{
-        "key":    <type:U64Key>,
-        "value":  <type:U64Val>,
-        "fanout": 16,
+    let cfg16: HermesStatic = @{
+        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
     };
+    let cfg32: HermesStatic = @{
+        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 32,
+    };
+    let rc1: i32 = validate_pmap_cfg(cfg16);
+    if rc1 != 0 { return 10 + rc1; }
+    let rc2: i32 = validate_pmap_cfg(cfg32);
+    if rc2 != 0 { return 20 + rc2; }
 
-    // ── Assembler Phase 1: schema validation ────────────────────────
-    let rc: i32 = validate_pmap_cfg(cfg);
-    if rc != 0 { return 10 + rc; }   // 11..16 on schema failure
+    // Two CFGs ⇒ two distinct types.
+    let t16: Type = type_of::<MyMap16>();
+    let t32: Type = type_of::<MyMap32>();
+    if t16.uid == 0 as u64 { return 30; }
+    if t16.uid == t32.uid  { return 31; }
+    let t16b: Type = type_of::<MyMap16>();
+    if t16.uid != t16b.uid { return 32; }
 
-    // ── Assembler Phase 2 (today: hand-written instantiation; future:
-    // metafn lowering from the cfg) ─────────────────────────────────
-    let mut pm: PMapMut<U64Key, U64Val> = pmap_mut_new::<U64Key, U64Val>();
+    let mut pm: MyMap16 = pmap_mut_new::<U64Key, U64Val, @{
+        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
+    }>();
+    let pmptr: *mut MyMap16 = &mut pm as *mut MyMap16;
 
-    // ── Insert update part ─────────────────────────────────────────
-    // Six ordered keys → forces a leaf split (node_max_keys()=4) and a
-    // root-grow, exercising the Insert + RootMgmt update paths.
+    // Runtime-extract the cfg's fanout from inside a Read part on the View.
+    let fan: i64 = pm.view.cfg_i64("fanout", -1i64);
+    if fan != 16i64 { return 40; }
+
+    // Insert path (six ordered keys → leaf split + root grow).
     let k1: U64Key = ki(10u64);
     let k2: U64Key = ki(20u64);
     let k3: U64Key = ki(30u64);
     let k4: U64Key = ki(40u64);
     let k5: U64Key = ki(50u64);
     let k6: U64Key = ki(60u64);
-    let _ = pmap_mut_insert::<U64Key, U64Val>(&mut pm as *mut PMapMut<U64Key, U64Val>, 10u64, 100u64, &k1 as *const U64Key);
-    let _ = pmap_mut_insert::<U64Key, U64Val>(&mut pm as *mut PMapMut<U64Key, U64Val>, 20u64, 200u64, &k2 as *const U64Key);
-    let _ = pmap_mut_insert::<U64Key, U64Val>(&mut pm as *mut PMapMut<U64Key, U64Val>, 30u64, 300u64, &k3 as *const U64Key);
-    let _ = pmap_mut_insert::<U64Key, U64Val>(&mut pm as *mut PMapMut<U64Key, U64Val>, 40u64, 400u64, &k4 as *const U64Key);
-    let _ = pmap_mut_insert::<U64Key, U64Val>(&mut pm as *mut PMapMut<U64Key, U64Val>, 50u64, 500u64, &k5 as *const U64Key);
-    let _ = pmap_mut_insert::<U64Key, U64Val>(&mut pm as *mut PMapMut<U64Key, U64Val>, 60u64, 600u64, &k6 as *const U64Key);
+    let _ = pmap_mut_insert::<U64Key, U64Val, @{
+        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
+    }>(pmptr, 10u64, 100u64, &k1 as *const U64Key);
+    let _ = pmap_mut_insert::<U64Key, U64Val, @{
+        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
+    }>(pmptr, 20u64, 200u64, &k2 as *const U64Key);
+    let _ = pmap_mut_insert::<U64Key, U64Val, @{
+        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
+    }>(pmptr, 30u64, 300u64, &k3 as *const U64Key);
+    let _ = pmap_mut_insert::<U64Key, U64Val, @{
+        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
+    }>(pmptr, 40u64, 400u64, &k4 as *const U64Key);
+    let _ = pmap_mut_insert::<U64Key, U64Val, @{
+        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
+    }>(pmptr, 50u64, 500u64, &k5 as *const U64Key);
+    let _ = pmap_mut_insert::<U64Key, U64Val, @{
+        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
+    }>(pmptr, 60u64, 600u64, &k6 as *const U64Key);
 
-    // ── Read parts on the View (reached via pm.view) ────────────────
+    // Read parts on the View.
     if pm.view.len() != 6u64 { return 21; }
     if !pm.view.contains(&k1 as *const U64Key) { return 22; }
     if !pm.view.contains(&k4 as *const U64Key) { return 23; }
@@ -118,38 +151,46 @@ unsafe fn main() -> i32 {
     if !pm.view.get(&k2 as *const U64Key, &mut out as *mut u64) { return 26; }
     if out != 200u64 { return 27; }
 
-    // Upsert hit: insert with an existing key returns true and overwrites.
-    if !pmap_mut_insert::<U64Key, U64Val>(&mut pm as *mut PMapMut<U64Key, U64Val>, 40u64, 4242u64, &k4 as *const U64Key) { return 28; }
+    // Upsert hit.
+    if !pmap_mut_insert::<U64Key, U64Val, @{
+        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
+    }>(pmptr, 40u64, 4242u64, &k4 as *const U64Key) { return 28; }
     if pm.view.len() != 6u64 { return 29; }
-    if !pm.view.get(&k4 as *const U64Key, &mut out as *mut u64) { return 30; }
-    if out != 4242u64 { return 31; }
+    if !pm.view.get(&k4 as *const U64Key, &mut out as *mut u64) { return 33; }
+    if out != 4242u64 { return 34; }
 
-    // ── Snapshot returns a bare PMapView — its type carries no update
-    // methods, so accidental mutation is impossible by construction.
-    // CoW: subsequent updates to `pm` must NOT change `snap`. ───────
-    let mut snap: PMapView<U64Key, U64Val> = pmap_mut_snapshot::<U64Key, U64Val>(&pm as *const PMapMut<U64Key, U64Val>);
+    // Snapshot returns bare MyView16 — its type carries no update methods.
+    let mut snap: MyView16 = pmap_mut_snapshot::<U64Key, U64Val, @{
+        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
+    }>(pmptr as *const MyMap16);
     if snap.len() != 6u64 { return 41; }
     if !snap.get(&k4 as *const U64Key, &mut out as *mut u64) { return 42; }
     if out != 4242u64 { return 43; }
 
-    // Mutate `pm` after the snapshot — Insert path-copies, snap is frozen.
-    let _ = pmap_mut_insert::<U64Key, U64Val>(&mut pm as *mut PMapMut<U64Key, U64Val>, 10u64, 9999u64, &k1 as *const U64Key);
+    // CoW: post-snapshot mutation doesn't perturb the snapshot.
+    let _ = pmap_mut_insert::<U64Key, U64Val, @{
+        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
+    }>(pmptr, 10u64, 9999u64, &k1 as *const U64Key);
     if !pm.view.get(&k1 as *const U64Key, &mut out as *mut u64) { return 44; }
     if out != 9999u64 { return 45; }
-    // Snapshot still observes the pre-mutation value.
     if !snap.get(&k1 as *const U64Key, &mut out as *mut u64) { return 46; }
     if out != 100u64 { return 47; }
 
-    // ── Remove update part ─────────────────────────────────────────
-    if !pmap_mut_remove::<U64Key, U64Val>(&mut pm as *mut PMapMut<U64Key, U64Val>, &k3 as *const U64Key) { return 51; }
+    // Remove on live handle leaves snapshot intact.
+    if !pmap_mut_remove::<U64Key, U64Val, @{
+        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
+    }>(pmptr, &k3 as *const U64Key) { return 51; }
     if pm.view.len() != 5u64 { return 52; }
     if  pm.view.contains(&k3 as *const U64Key) { return 53; }
-    // Snapshot still has k3.
     if !snap.contains(&k3 as *const U64Key) { return 54; }
     if !snap.get(&k3 as *const U64Key, &mut out as *mut u64) { return 55; }
     if out != 300u64 { return 56; }
 
-    pmap_view_drop::<U64Key, U64Val>(&mut snap as *mut PMapView<U64Key, U64Val>);
-    pmap_mut_drop::<U64Key, U64Val>(&mut pm as *mut PMapMut<U64Key, U64Val>);
+    pmap_view_drop::<U64Key, U64Val, @{
+        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
+    }>(&mut snap as *mut MyView16);
+    pmap_mut_drop::<U64Key, U64Val, @{
+        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
+    }>(pmptr);
     return 0;
 }
