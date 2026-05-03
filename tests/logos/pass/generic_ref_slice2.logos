@@ -1,0 +1,36 @@
+// Slice 2: GENERIC_REF where TARGS contain TypeVars from outer body.
+// `id::<T>` lives inside `get_id_ref<T>()` — the TypeVar T is substituted
+// to i32/u64 at each instantiation; mono_clone subst_expr rewrites the
+// EGenericRef into a VarRef of the mangled symbol.
+package generic_ref_slice2;
+
+fn id<T>(x: T) -> T { return x; }
+
+fn add_one<T>(x: T) -> T { return x + 1; }
+
+// Inside this generic body, `id::<T>` carries TypeVar(T) in its type_args.
+// Two distinct instantiations (i32, u64) verify the per-instantiation
+// substitution + mangle + enqueue path.
+fn get_id<T>() -> fn(T) -> T {
+    return id::<T>;
+}
+
+fn get_add_one<T>() -> fn(T) -> T {
+    return add_one::<T>;
+}
+
+fn main() -> i32 {
+    let f1: fn(i32) -> i32 = get_id::<i32>();
+    let r1: i32 = f1(7);
+    if r1 != 7 { return 1; }
+
+    let f2: fn(u64) -> u64 = get_id::<u64>();
+    let r2: u64 = f2(123u64);
+    if r2 != 123u64 { return 2; }
+
+    let g1: fn(i32) -> i32 = get_add_one::<i32>();
+    let r3: i32 = g1(41);
+    if r3 != 42 { return 3; }
+
+    return 42;
+}

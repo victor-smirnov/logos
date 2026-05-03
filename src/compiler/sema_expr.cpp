@@ -2566,53 +2566,13 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
 
 // ── GENERIC_REF — `IDENT::<TARGS>` as expression value (fn-pointer literal) ─
 //
-// Slice 1: TARGS must be concrete at the GENERIC_REF site. Generic-context
-// uses (TARGS containing TypeVars from outer fn body) deferred to slice 2 —
-// they need substitution into the side-table at clone-time and re-mangling.
-//
-// Lowering:
-//   1. Resolve callee + type_args.
-//   2. Find generic SemaFuncInfo, validate type-arg count + bounds.
-//   3. Substitute TARGS into param/ret types → build FnPtr type.
-//   4. Eagerly mangle: result_name = base + "__" + mangle_type(t1) + ...
-//      (must match what mono.cpp would produce so the symbol resolves).
-//   5. Push a request into cur_prog_->generic_refs.
-//   6. Emit a VarRef with the mangled name + FnPtr type.
-//
-// `mangle` and `mangle_type` are duplicated locally (small) instead of
-// reaching into mono_impl.hpp to keep the layering clean.
-namespace {
-std::string sema_mangle_type(TypeRef tr) {
-    if (!tr) return "null";
-    switch (TypeRef(tr).kind()) {
-    case LogosType::Kind::Ptr:
-        return (TypeRef(tr).mut_ptr() ? "pmut_" : "pcst_") + sema_mangle_type(TypeRef(tr).pointee());
-    case LogosType::Kind::Ref:    return "ref_"    + sema_mangle_type(TypeRef(tr).pointee());
-    case LogosType::Kind::MutRef: return "refmut_" + sema_mangle_type(TypeRef(tr).pointee());
-    case LogosType::Kind::Array:
-        return "arr" + std::to_string(TypeRef(tr).arr_size()) + "_" + sema_mangle_type(TypeRef(tr).elem());
-    case LogosType::Kind::Struct:
-    case LogosType::Kind::ZonedStruct:
-        return concrete_struct_name(tr);
-    case LogosType::Kind::IntLit:
-    case LogosType::Kind::ConstVar:
-        if (TypeRef(tr).const_val()) {
-            int64_t v = *TypeRef(tr).const_val();
-            if (v < 0) return "cN_n" + std::to_string(-v);
-            return "cN_" + std::to_string(v);
-        }
-        return type_str(tr);
-    default:
-        return type_str(tr);
-    }
-}
-std::string sema_mangle(const std::string& name, const std::vector<TypeRef>& targs) {
-    std::string r = name;
-    for (auto t : targs) { r += "__"; r += sema_mangle_type(t); }
-    return r;
-}
-} // namespace
-
+// Slice 2: TARGS may contain TypeVars from outer body. Sema cannot eagerly
+// mangle in that case — the mangled name depends on the concrete substitution
+// at instantiation time. So we emit a dedicated `EGenericRef` LIR node that
+// carries (base, type_args). Mono's subst_expr substitutes the TypeVars under
+// the current SubstMap, mangles via Mono::mangle, calls enqueue_if_needed,
+// and rewrites the node into a plain VarRef of FnPtr type. mlir-gen never
+// sees EGenericRef (asserts otherwise).
 lir::LExprPtr SemaChecker::lower_generic_ref(TinyMapView node) {
     auto callee = str_of(node.get(la::CALLEE.code));
 
@@ -2644,10 +2604,9 @@ lir::LExprPtr SemaChecker::lower_generic_ref(TinyMapView node) {
     }
     check_pub_access(fi_ptr->is_pub, fi_ptr->package, callee);
 
-    // Validate type-arg count (slice 1: no variadic packs)
     bool has_variadic = !fi_ptr->type_params.empty() && fi_ptr->type_params.back().is_variadic;
     if (has_variadic) {
-        error(std::format("generic-ref '{}': variadic type packs not supported (slice 1)",
+        error(std::format("generic-ref '{}': variadic type packs not supported",
                           std::string(callee)));
         return error_expr();
     }
@@ -2657,23 +2616,20 @@ lir::LExprPtr SemaChecker::lower_generic_ref(TinyMapView node) {
         return error_expr();
     }
 
-    // Slice 1 guard: TARGS must be concrete (no TypeVars from outer body).
-    for (auto t : type_args) {
-        if (TypeRef(t).kind() == LogosType::Kind::TypeVar) {
-            error(std::format(
-                "generic-ref '{}': TARGS containing TypeVars not yet supported (slice 1)",
-                std::string(callee)));
-            return error_expr();
-        }
-    }
-
-    // Build subst map and validate trait bounds.
+    // Build subst map; bounds check is best-effort (TypeVar TARGS defer the
+    // real check to mono via clone_struct_def's bound gate).
     StrMap<TypeRef> subst;
     for (size_t i = 0; i < type_args.size(); ++i)
         subst[fi_ptr->type_params[i].name] = type_args[i];
-    check_type_bounds(std::string(callee), fi_ptr->type_params, type_args);
+    bool any_typevar = false;
+    for (auto t : type_args)
+        if (TypeRef(t).kind() == LogosType::Kind::TypeVar) { any_typevar = true; break; }
+    if (!any_typevar)
+        check_type_bounds(std::string(callee), fi_ptr->type_params, type_args);
 
-    // Substitute fn signature → FnPtr type.
+    // Substitute fn signature → FnPtr type. Where TARGS contain TypeVars,
+    // closure_params / closure_ret will themselves carry TypeVars; mono's
+    // subst_expr rewrites both type and node together at instantiation.
     LogosTypeBuilder ft;
     ft.kind = LogosType::Kind::FnPtr;
     for (auto pt : fi_ptr->param_types)
@@ -2681,16 +2637,8 @@ lir::LExprPtr SemaChecker::lower_generic_ref(TinyMapView node) {
     ft.closure_ret = fi_ptr->ret_type ? subst_type_sema(fi_ptr->ret_type, subst) : void_t();
     auto fn_type = pool_->alloc(std::move(ft));
 
-    // Mangle and record the request.
     std::string base = fi_ptr->symbol_name.empty() ? std::string(callee) : fi_ptr->symbol_name;
-    std::string mangled = sema_mangle(base, type_args);
-
-    if (cur_prog_) {
-        cur_prog_->generic_refs.push_back(
-            lir::LProgram::GenericRefRequest{base, mangled, type_args});
-    }
-
-    return builder().var_ref(mangled, fn_type);
+    return builder().generic_ref(base, std::move(type_args), fn_type);
 }
 
 lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {

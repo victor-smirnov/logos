@@ -94,6 +94,16 @@ mlir::Value MLIRGenImpl::gen_expr(lir_view::ExprRef er) {
     case C::MatchExpr:  return gen_expr_kind(lir_view::EMatchExprView{er},  ty);
     case C::SizeOf:     return gen_expr_kind(lir_view::ESizeOfView{er},     ty);
     case C::AlignOf:    return gen_expr_kind(lir_view::EAlignOfView{er},    ty);
+    case C::GenericRef: {
+        // Slice 2 invariant: mono_clone subst_expr rewrites every GenericRef
+        // node into a VarRef of FnPtr type before mlir-gen runs. Reaching
+        // here means a generic body had an unresolved GenericRef — diagnose
+        // loudly rather than emit garbage.
+        std::fprintf(stderr, "mlir_gen: unresolved GenericRef '%.*s' — mono failed to substitute its type-args\n",
+                     (int)lir_view::EGenericRefView{er}.name().size(),
+                     lir_view::EGenericRefView{er}.name().data());
+        std::abort();
+    }
     case C::TypeCodeOf: return gen_expr_kind(lir_view::ETypeCodeOfView{er}, ty);
     case C::BlockExpr:  return gen_expr_kind(lir_view::EBlockExprView{er},  ty);
     case C::HermesLit:  return gen_expr_kind(lir_view::EHermesLitView{er},  ty);

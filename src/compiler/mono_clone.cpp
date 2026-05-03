@@ -264,6 +264,24 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 out_, result->type, subst_type(t, s));
             break;
         }
+        case C::GenericRef: {
+            // Slice 2: substitute TypeVars in type_args, mangle the symbol,
+            // enqueue the instantiation, and rewrite this node into a plain
+            // VarRef carrying the mangled name + the (already-substituted)
+            // FnPtr type. mlir-gen / borrow-check / scan never see GenericRef.
+            lir_view::EGenericRefView v{eref};
+            std::string base(v.name());
+            auto raw_args = v.type_args(out_.type_pool.impl());
+            std::vector<TypeRef> sargs;
+            sargs.reserve(raw_args.size());
+            for (auto t : raw_args) sargs.push_back(subst_type(t, s));
+            std::string mangled = mangle(base, sargs);
+            // Enqueue the instantiation if not already scheduled.
+            enqueue_if_needed(mangled, sargs);
+            result->mirror_offset_ = lir_mirror_emit_var_ref(
+                out_, result->type, mangled);
+            break;
+        }
         case C::Deref: {
             auto op = subst_child_expr(lir_view::EDerefView{eref}.operand());
             result->mirror_offset_ = lir_mirror_emit_deref(

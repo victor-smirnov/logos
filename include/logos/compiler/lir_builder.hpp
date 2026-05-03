@@ -37,6 +37,9 @@ public:
     lir::LExprPtr pack_expand(std::string var_name, TypeRef ty);
     lir::LExprPtr size_of   (TypeRef elem_type, TypeRef ty);
     lir::LExprPtr align_of  (TypeRef elem_type, TypeRef ty);
+    lir::LExprPtr generic_ref(std::string name,
+                              std::vector<TypeRef> type_args,
+                              TypeRef ty);
     lir::LExprPtr type_code_of(TypeRef elem_type, TypeRef ty);
     lir::LExprPtr reflect_of(TypeRef elem_type, TypeRef ty);
 

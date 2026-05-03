@@ -419,6 +419,17 @@ struct EAlignOf {
     TypeRef elem_type = nullptr;
 };
 
+// Generic-fn reference at expression position: `IDENT::<T1, T2, ...>` (no call).
+// Carries the pre-mangle base name + type-args (which may contain TypeVars in
+// generic-context uses). Mono's subst_expr substitutes the TypeVars under the
+// current SubstMap, mangles the symbol via mangle(name, subst_args), enqueues
+// the instantiation, and rewrites this node into a plain EVarRef whose name
+// is the mangled symbol and whose type is FnPtr. Never reaches mlir-gen.
+struct EGenericRef {
+    std::string          name;       // pre-mangle base
+    std::vector<TypeRef> type_args;  // may contain TypeVars at template-time
+};
+
 // Raw-pointer arithmetic intrinsic methods:
 //   p.byte_add(n)         — byte_add: offset n bytes, result same pointer type
 //   p.byte_sub(n)         — byte_sub: offset -n bytes
@@ -957,20 +968,6 @@ struct LProgram {
     // place of `__const_param:CFG` references inside generic bodies.
     // LExpr* points into expr_pool_; lifetimes match LProgram.
     std::unordered_map<uint64_t, LExpr*> hstatic_registry_;
-
-    // GENERIC_REF (slice 1): `IDENT::<TARGS>` at expression position. Sema
-    // resolves the generic fn, substitutes TARGS into its signature to build
-    // a FnPtr type, eagerly mangles the symbol via mangle(base, type_args),
-    // emits a VarRef of FnPtr type with the mangled name, and pushes a
-    // request here. Mono drains this list at scan-start and calls
-    // enqueue_if_needed(mangled, type_args) so the targeted symbol is
-    // monomorphised even though no Call site references it.
-    struct GenericRefRequest {
-        std::string base;       // pre-mangle callee (after symbol_name resolution)
-        std::string mangled;    // mangle(base, type_args) — what the VarRef carries
-        std::vector<TypeRef> type_args;
-    };
-    std::vector<GenericRefRequest> generic_refs;
 
     // M.1: per-site record of `metacall <call_expr>` occurrences in the user
     // entry-file AST. Sema synthesises a no-arg thunk fn (`__metacall_thunk_<idx>`)

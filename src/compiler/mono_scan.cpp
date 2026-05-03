@@ -315,6 +315,7 @@ void Mono::scan_expr(lir_view::ExprRef e) {
     case ECode::PackExpand:
     case ECode::SizeOf:
     case ECode::AlignOf:
+    case ECode::GenericRef:  // rewritten to VarRef during subst_expr; never reaches here
     case ECode::TypeCodeOf:
     case ECode::HermesLit:
     case ECode::PtrArith:

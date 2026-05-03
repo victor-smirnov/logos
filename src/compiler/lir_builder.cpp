@@ -70,6 +70,13 @@ lir::LExprPtr LirBuilder::align_of(TypeRef elem_type, TypeRef ty) {
         [&](auto& p, TypeRef t){ return lir_mirror_emit_align_of(p, t, elem_type); });
 }
 
+lir::LExprPtr LirBuilder::generic_ref(std::string name,
+                                       std::vector<TypeRef> type_args,
+                                       TypeRef ty) {
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_generic_ref(p, t, name, type_args); });
+}
+
 lir::LExprPtr LirBuilder::type_code_of(TypeRef elem_type, TypeRef ty) {
     return direct(prog_, ty,
         [&](auto& p, TypeRef t){ return lir_mirror_emit_type_code_of(p, t, elem_type); });

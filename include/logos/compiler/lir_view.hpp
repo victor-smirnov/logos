@@ -847,6 +847,26 @@ struct EAlignOfView {
     }
 };
 
+struct EGenericRefView {
+    ExprRef self;
+    std::string_view name() const noexcept {
+        return detail::read_string(self, ek::CALLEE.code);
+    }
+    std::vector<TypeRef> type_args(const TypePoolImpl* pool) const noexcept {
+        std::vector<TypeRef> out;
+        auto av = self.mirror()->get(ek::TYPE_ARGS.code, self.base());
+        if (av.is_null()) return out;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
+        out.reserve(arr->size());
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i, self.base());
+            if (el.is_null()) { out.emplace_back(); continue; }
+            out.emplace_back(self.arena(), el.to_offset(), pool);
+        }
+        return out;
+    }
+};
+
 struct ETypeCodeOfView {
     ExprRef self;
     TypeRef elem_type(const TypePoolImpl* pool) const noexcept {

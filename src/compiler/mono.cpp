@@ -343,18 +343,6 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         ++stats_.fn_clones;
     }
 
-    // GENERIC_REF (slice 1): drain the side-table populated by sema. Each
-    // entry is `(base, mangled, type_args)` produced by lower_generic_ref;
-    // mono enqueues an instantiation just like a generic-call site would.
-    // Runs after non-generic scan so any chained refs/calls discovered there
-    // are already in the worklist.
-    for (auto& gr : in_.generic_refs)
-        enqueue_if_needed(gr.mangled, gr.type_args);
-    // Mirror into out_ so cloned bodies that re-introduce these refs through
-    // subst (slice 2) can find them; for slice 1 this is mostly belt-and-
-    // braces (the VarRef name is fully baked at sema time).
-    out_.generic_refs = in_.generic_refs;
-
     // Process function work-list.
     note_fn_worklist_size(worklist_.size());
     while (!worklist_.empty()) {
