@@ -92,7 +92,7 @@ fn assemble_client<const ASMCFG: HermesStatic>() -> QuoteItemBlob {
 
         if have_read && have_write {
             return quote_item! {
-                pub struct RoClient { pub handle: PMapMut<#k_id, #v_id, #cfg_id>, }
+                pub struct RoClient { pub handle: PMapMut<#cfg_id>, }
                 impl RoClient {
                     pub fn contains(&self, key: *const #k_id) -> bool {
                         unsafe { return self.handle.view.contains(key); }
@@ -103,7 +103,7 @@ fn assemble_client<const ASMCFG: HermesStatic>() -> QuoteItemBlob {
                     pub fn insert(&mut self, key: u64, val: u64, qkey: *const #k_id) -> bool {
                         unsafe {
                             return pmap_mut_insert::<#k_id, #v_id, #cfg_id>(
-                                &mut self.handle as *mut PMapMut<#k_id, #v_id, #cfg_id>,
+                                &mut self.handle as *mut PMapMut<#cfg_id>,
                                 key, val, qkey);
                         }
                     }
@@ -112,7 +112,7 @@ fn assemble_client<const ASMCFG: HermesStatic>() -> QuoteItemBlob {
         }
         if have_read {
             return quote_item! {
-                pub struct RoClient { pub handle: PMapMut<#k_id, #v_id, #cfg_id>, }
+                pub struct RoClient { pub handle: PMapMut<#cfg_id>, }
                 impl RoClient {
                     pub fn contains(&self, key: *const #k_id) -> bool {
                         unsafe { return self.handle.view.contains(key); }
@@ -124,7 +124,7 @@ fn assemble_client<const ASMCFG: HermesStatic>() -> QuoteItemBlob {
             };
         }
         return quote_item! {
-            pub struct RoClient { pub handle: PMapMut<#k_id, #v_id, #cfg_id>, }
+            pub struct RoClient { pub handle: PMapMut<#cfg_id>, }
         };
     }
 }
@@ -137,13 +137,13 @@ metacall assemble_client::<@{
 }>();
 
 unsafe fn main() -> i32 {
-    let mut pm: PMapMut<U64Key, U64Val, Cfg16> = pmap_mut_new::<U64Key, U64Val, Cfg16>();
-    let pmptr: *mut PMapMut<U64Key, U64Val, Cfg16> = &mut pm as *mut PMapMut<U64Key, U64Val, Cfg16>;
+    let mut pm: PMapMut<Cfg16> = pmap_mut_new::<Cfg16>();
+    let pmptr: *mut PMapMut<Cfg16> = &mut pm as *mut PMapMut<Cfg16>;
 
     let k1: U64Key = U64Key { x: 10u64 };
     let k2: U64Key = U64Key { x: 20u64 };
-    let _ = pmap_mut_insert::<U64Key, U64Val, Cfg16>(pmptr, 10u64, 100u64, &k1 as *const U64Key);
-    let _ = pmap_mut_insert::<U64Key, U64Val, Cfg16>(pmptr, 20u64, 200u64, &k2 as *const U64Key);
+    let _ = pmap_mut_insert::<Cfg16>(pmptr, 10u64, 100u64, &k1 as *const U64Key);
+    let _ = pmap_mut_insert::<Cfg16>(pmptr, 20u64, 200u64, &k2 as *const U64Key);
 
     let client: RoClient = RoClient { handle: pm };
 
@@ -153,6 +153,6 @@ unsafe fn main() -> i32 {
     let miss: U64Key = U64Key { x: 99u64 };
     if  client.contains(&miss as *const U64Key) { return 4; }
 
-    pmap_mut_drop::<U64Key, U64Val, Cfg16>(&mut client.handle as *mut PMapMut<U64Key, U64Val, Cfg16>);
+    pmap_mut_drop::<Cfg16>(&mut client.handle as *mut PMapMut<Cfg16>);
     return 0;
 }

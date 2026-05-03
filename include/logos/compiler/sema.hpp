@@ -63,6 +63,7 @@ struct LogosType {
         TaggedPtr,                // &tagged<TS> Trait — thin tag-dispatched pointer (*const u8)
         Generic,                  // unapplied generic constructor (value-handle only; no pool entry)
         HStaticLit,               // HermesStatic literal at type-arg position (Foo::<@{...}>); identity = byte-hash over AST. const_val carries the low 64 bits. Inserted after Generic so existing kinds (Generic = 37) keep their numeric IDs.
+        CfgSlotType,              // <type:CFG.SLOT> — type at top-level slot of a HermesStatic-typed binding. Carries `type_var_name` = CFG ident, `assoc_type_name` = slot key (reused fields). Resolved by mono_subst when CFG is bound to a concrete HStaticLit.
         Error                     // sentinel for ill-typed expressions
     };
 

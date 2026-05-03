@@ -1,0 +1,111 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// pmap_v2_branch_leaf_asym.logos — Phase A asymmetry: branch and leaf
+// can have different max-keys read from CFG slots.
+//
+// Builds two pmaps with the same K/V but different fanout schemes:
+//   • CfgBig : branch=2, leaf=8 — small branches, big leaves.
+//   • CfgEqu : single fanout=4 (back-compat path) — both same.
+// Inserts 16 keys into each. The big-leaf one should yield FEWER
+// leaves overall than the symmetric one (long flat scans, short
+// path-copy chain).
+
+package main;
+
+use std.data.persistent.pmap_v2.view;
+use std.data.persistent.pmap_v2.mutv;
+use std.data.persistent.pmap_v2.btree;
+use std.data.persistent.pmap_v2.iter;
+use std.data.persistent.pmap_v2.cfg;
+use std.lang.cmp;
+use std.lang.ord;
+use std.lang.datatypes;
+use std.compiler.metaprog;
+use std.hermes.ctr;
+use std.hermes.view;
+use std.hermes.anyval;
+
+pub struct U64Key { pub x: u64, }
+impl Primitive for U64Key { type Prim = u64; }
+impl Ord for U64Key {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if self.x < other.x { return Ordering::Less; }
+        if self.x > other.x { return Ordering::Greater; }
+        return Ordering::Equal;
+    }
+}
+
+pub struct U64Val { pub x: u64, }
+impl Primitive for U64Val { type Prim = u64; }
+
+fn ki(v: u64) -> U64Key { return U64Key { x: v }; }
+
+// Asymmetric: tiny branches, big leaves. fanout slot is *also*
+// present so validate_pmap_cfg passes (it requires "fanout").
+pub type CfgAsym = @{
+    "key":           <type:U64Key>,
+    "value":         <type:U64Val>,
+    "fanout":        4,
+    "fanout_branch": 2,
+    "fanout_leaf":   8,
+};
+
+// Symmetric: single fanout=4, branch=leaf=4.
+pub type CfgEqu = @{
+    "key":    <type:U64Key>,
+    "value":  <type:U64Val>,
+    "fanout": 4,
+};
+
+unsafe fn count_leaves<const CFG: HermesStatic>(pm_view: *const PMapView<CFG>) -> u64 {
+    let mut it: LeafIter<<type:CFG.key>, <type:CFG.value>, CFG> = pmap_view_acquire_leaf_iter::<CFG>(pm_view);
+    let itp: *mut LeafIter<<type:CFG.key>, <type:CFG.value>, CFG> = &mut it as *mut LeafIter<<type:CFG.key>, <type:CFG.value>, CFG>;
+    let mut leaves: u64 = 0u64;
+    while leaf_iter_valid::<<type:CFG.key>, <type:CFG.value>, CFG>(itp as *const LeafIter<<type:CFG.key>, <type:CFG.value>, CFG>) {
+        leaves = leaves + 1u64;
+        leaf_iter_next_leaf::<<type:CFG.key>, <type:CFG.value>, CFG>(itp);
+    }
+    pmap_view_release_leaf_iter::<CFG>(itp);
+    return leaves;
+}
+
+unsafe fn fill_16<const CFG: HermesStatic>(pmptr: *mut PMapMut<CFG>) {
+    let mut i: u64 = 0u64;
+    while i < 16u64 {
+        let v: u64 = (i + 1u64) * 10u64;
+        let k: U64Key = ki(v);
+        let _ = pmap_mut_insert::<CFG>(pmptr, v, v * 7u64, &k as *const <type:CFG.key>);
+        i = i + 1u64;
+    }
+}
+
+unsafe fn main() -> i32 {
+    // Asymmetric tree.
+    let mut pa: PMapMut<CfgAsym> = pmap_mut_new::<CfgAsym>();
+    let pap: *mut PMapMut<CfgAsym> = &mut pa as *mut PMapMut<CfgAsym>;
+    fill_16::<CfgAsym>(pap);
+    if pa.view.len() != 16u64 { return 10; }
+    let leaves_a: u64 = count_leaves::<CfgAsym>(&pa.view as *const PMapView<CfgAsym>);
+
+    // Symmetric tree.
+    let mut pe: PMapMut<CfgEqu> = pmap_mut_new::<CfgEqu>();
+    let pep: *mut PMapMut<CfgEqu> = &mut pe as *mut PMapMut<CfgEqu>;
+    fill_16::<CfgEqu>(pep);
+    if pe.view.len() != 16u64 { return 20; }
+    let leaves_e: u64 = count_leaves::<CfgEqu>(&pe.view as *const PMapView<CfgEqu>);
+
+    // Asymmetric: leaf=8 ⇒ 16 keys / ~5 per leaf after splits ⇒ ≤4 leaves.
+    // Symmetric:  leaf=4 ⇒ ~3 keys per leaf after splits ⇒ ≥5 leaves.
+    if leaves_a >= leaves_e { return 30; }
+    if leaves_a == 0u64 { return 31; }
+
+    // Sanity round-trip on the asymmetric one.
+    let k90: U64Key = ki(90u64);
+    let mut out: u64 = 0u64;
+    if !pa.view.get(&k90 as *const U64Key, &mut out as *mut u64) { return 40; }
+    if out != 630u64 { return 41; }
+
+    pmap_mut_drop::<CfgAsym>(pap);
+    pmap_mut_drop::<CfgEqu>(pep);
+    return 0;
+}

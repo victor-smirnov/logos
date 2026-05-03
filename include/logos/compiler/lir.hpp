@@ -958,6 +958,20 @@ struct LProgram {
     // LExpr* points into expr_pool_; lifetimes match LProgram.
     std::unordered_map<uint64_t, LExpr*> hstatic_registry_;
 
+    // GENERIC_REF (slice 1): `IDENT::<TARGS>` at expression position. Sema
+    // resolves the generic fn, substitutes TARGS into its signature to build
+    // a FnPtr type, eagerly mangles the symbol via mangle(base, type_args),
+    // emits a VarRef of FnPtr type with the mangled name, and pushes a
+    // request here. Mono drains this list at scan-start and calls
+    // enqueue_if_needed(mangled, type_args) so the targeted symbol is
+    // monomorphised even though no Call site references it.
+    struct GenericRefRequest {
+        std::string base;       // pre-mangle callee (after symbol_name resolution)
+        std::string mangled;    // mangle(base, type_args) — what the VarRef carries
+        std::vector<TypeRef> type_args;
+    };
+    std::vector<GenericRefRequest> generic_refs;
+
     // M.1: per-site record of `metacall <call_expr>` occurrences in the user
     // entry-file AST. Sema synthesises a no-arg thunk fn (`__metacall_thunk_<idx>`)
     // that wraps the literal-folded call; the driver looks up the thunk in the

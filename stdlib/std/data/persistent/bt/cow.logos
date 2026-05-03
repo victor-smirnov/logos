@@ -1,0 +1,140 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// std.data.persistent.bt.cow — refcount + path-copy primitives.
+//
+// All public ops take `*mut NodeBase<K,V,CFG>` and dispatch on
+// is_leaf, casting to LeafNode / BranchNode for payload access. The
+// common header (rc, n, is_leaf) is read/written through the
+// NodeBase pointer directly — that field is at offset 0 of either
+// concrete struct.
+//
+// `node_alloc_c` returns a fresh empty Leaf (back-compat: PMap's
+// initial root is a leaf). `node_alloc_internal_c` returns a fresh
+// empty Branch. Both return `*mut NodeBase<...>` so callers can
+// store them uniformly.
+
+package std.data.persistent.bt.cow;
+
+use std.mem;
+use std.data.persistent.bt.node;
+use std.lang.cmp;
+use std.lang.ord;
+use std.lang.datatypes;
+use std.hermes.view;
+use std.hermes.anyval;
+
+pub fn node_alloc_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>() -> *mut NodeBase<K, V, CFG> {
+    let raw: *mut u8 = alloc(sizeof::<LeafNode<K, V, CFG>>());
+    let leaf: *mut LeafNode<K, V, CFG> = raw as *mut LeafNode<K, V, CFG>;
+    unsafe {
+        leaf.base.rc      = 1u64;
+        leaf.base.n       = 0u16;
+        leaf.base.is_leaf = true;
+        leaf.keys = Buffer::<K>::new();
+        leaf.vals = Buffer::<V>::new();
+    }
+    return leaf as *mut NodeBase<K, V, CFG>;
+}
+
+pub fn node_alloc_internal_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>() -> *mut NodeBase<K, V, CFG> {
+    let raw: *mut u8 = alloc(sizeof::<BranchNode<K, V, CFG>>());
+    let br: *mut BranchNode<K, V, CFG> = raw as *mut BranchNode<K, V, CFG>;
+    unsafe {
+        br.base.rc      = 1u64;
+        br.base.n       = 0u16;
+        br.base.is_leaf = false;
+        br.keys     = Buffer::<K>::new();
+        br.children = PrimVec::<*mut NodeBase<K, V, CFG>>::empty();
+    }
+    return br as *mut NodeBase<K, V, CFG>;
+}
+
+pub fn node_retain_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>) {
+    unsafe { node.rc = node.rc + 1u64; }
+}
+
+pub fn node_release_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>) {
+    unsafe {
+        node.rc = node.rc - 1u64;
+        if node.rc == 0u64 {
+            if node.is_leaf {
+                let leaf: *mut LeafNode<K, V, CFG> = node as *mut LeafNode<K, V, CFG>;
+                let kp: *mut Buffer<K> = &mut leaf.keys as *mut Buffer<K>;
+                let vp: *mut Buffer<V> = &mut leaf.vals as *mut Buffer<V>;
+                kp.drop_in_place();
+                vp.drop_in_place();
+                dealloc(leaf as *mut u8);
+            } else {
+                let br: *mut BranchNode<K, V, CFG> = node as *mut BranchNode<K, V, CFG>;
+                let nc: u64 = br.children.len;
+                let mut i: u64 = 0u64;
+                while i < nc {
+                    let c: *mut NodeBase<K, V, CFG> = br.children.get(i);
+                    node_release_c::<K, V, CFG>(c);
+                    i = i + 1u64;
+                }
+                br.children.clear();
+                let kp: *mut Buffer<K> = &mut br.keys as *mut Buffer<K>;
+                kp.drop_in_place();
+                dealloc(br as *mut u8);
+            }
+        }
+    }
+}
+
+pub fn node_clone_for_cow_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(orig: *mut NodeBase<K, V, CFG>) -> *mut NodeBase<K, V, CFG> {
+    unsafe {
+        if orig.is_leaf {
+            let src: *mut LeafNode<K, V, CFG> = orig as *mut LeafNode<K, V, CFG>;
+            let copy: *mut NodeBase<K, V, CFG> = node_alloc_c::<K, V, CFG>();
+            let dst: *mut LeafNode<K, V, CFG> = copy as *mut LeafNode<K, V, CFG>;
+            let mut i: u64 = 0u64;
+            while i < src.keys.len() {
+                let kp: K::ViewInStore = src.keys.get(i);
+                dst.keys.push(kp);
+                i = i + 1u64;
+            }
+            i = 0u64;
+            while i < src.vals.len() {
+                let vp: V::ViewInStore = src.vals.get(i);
+                dst.vals.push(vp);
+                i = i + 1u64;
+            }
+            copy.n = orig.n;
+            return copy;
+        }
+        let src: *mut BranchNode<K, V, CFG> = orig as *mut BranchNode<K, V, CFG>;
+        let copy: *mut NodeBase<K, V, CFG> = node_alloc_internal_c::<K, V, CFG>();
+        let dst: *mut BranchNode<K, V, CFG> = copy as *mut BranchNode<K, V, CFG>;
+        let mut i: u64 = 0u64;
+        while i < src.keys.len() {
+            let kp: K::ViewInStore = src.keys.get(i);
+            dst.keys.push(kp);
+            i = i + 1u64;
+        }
+        i = 0u64;
+        let nc: u64 = src.children.len;
+        while i < nc {
+            let c: *mut NodeBase<K, V, CFG> = src.children.get(i);
+            node_retain_c::<K, V, CFG>(c);
+            dst.children.push(c);
+            i = i + 1u64;
+        }
+        copy.n = orig.n;
+        return copy;
+    }
+}
+
+// Pre-write CoW step: ensure the child at `idx` of `parent_branch` is
+// uniquely owned before mutating it.
+pub fn node_make_child_unique_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>, idx: u64) {
+    unsafe {
+        let br: *mut BranchNode<K, V, CFG> = node as *mut BranchNode<K, V, CFG>;
+        let c: *mut NodeBase<K, V, CFG> = br.children.get(idx);
+        if c.rc > 1u64 {
+            let copy: *mut NodeBase<K, V, CFG> = node_clone_for_cow_c::<K, V, CFG>(c);
+            node_release_c::<K, V, CFG>(c);
+            br.children.set(idx, copy);
+        }
+    }
+}

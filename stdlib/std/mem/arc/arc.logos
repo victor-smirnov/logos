@@ -22,6 +22,7 @@ package std.mem.arc;
 use std.mem;
 use std.sync.atomic;
 use std.lang.marker;
+use std.lang.drop;
 
 // ── Internal heap block ───────────────────────────────────────────────────────
 
@@ -67,6 +68,7 @@ impl<T: Send + Sync> Arc<T> {
 
     // Atomically decrement; free the inner block when the count reaches zero.
     pub unsafe fn drop_arc(self: *mut Arc<T>) {
+        if self.inner == 0 as *mut ArcInner<T> { return; }
         // fetch_sub returns the OLD value; old == 1 means we went 1 → 0.
         let prev: i32 = (&mut self.inner.strong).fetch_sub(1);
         if prev == 1 {
@@ -75,3 +77,14 @@ impl<T: Send + Sync> Arc<T> {
         self.inner = 0 as *mut ArcInner<T>;
     }
 }
+
+// Auto-Drop. Mirrors Rc's contract: decrements + frees if last,
+// without calling T's destructor.
+//impl<T: Send + Sync> Drop for Arc<T> {
+//    fn drop(self: Arc<T>) {
+//        unsafe {
+//            let p: *mut Arc<T> = &self as *const Arc<T> as *mut Arc<T>;
+//            p.drop_arc();
+//        }
+//    }
+//}

@@ -1,0 +1,195 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+//
+// pmap_v2 showcase — three-level layered API:
+//
+//   Store          — Arc<LockingStore>, the DAG owner.
+//   Snap<CFG>      — Rc-wrapped writable snapshot. Has commit().
+//   RoSnap<CFG>    — Rc-wrapped frozen snapshot.
+//   PMap<'a,CFG>   — borrowed writable container view (insert/remove).
+//   RoPMap<'a,CFG> — borrowed read-only typed view (iter/contains).
+//   Iter<'a,CFG>   — leaf walker, lifetime-bound to the snapshot.
+//   LeafView<'a,CFG> — safe accessor over the iter's current leaf.
+//
+// commit lives on the snapshot — it's a versioned-tree-state op, not
+// a container op. The container view (PMap/RoPMap) borrows the
+// snapshot to issue typed data ops. CFG threads through both today;
+// type-erasing Snap is a future arc that needs a generic-fn-pointer-
+// as-value (`IDENT::<TARGS>` at expression position) — currently a
+// grammar gap.
+//
+// No `unsafe` keyword; Drop fires automatically on scope exit,
+// releasing held trees and refcounts.
+
+package pmap_v2_showcase;
+
+use std.data.persistent.pmap_v2.handle;
+use std.lang.cmp;
+use std.lang.ord;
+use std.lang.datatypes;
+use std.lang.text;
+use std.fmt;
+use std.io;
+
+pub type ShowCfg = @{
+    "key":           <type:u64>,
+    "value":         <type:u64>,
+    "fanout":        8,
+    "fanout_branch": 4,
+    "fanout_leaf":   16,
+};
+
+fn section(title: str) {
+    println("");
+    println("──");
+    println(title);
+}
+
+// PMap.insert wants a `*const Key` qkey arg — materialise it locally.
+fn pmap_insert<'a>(p: &mut PMapRef<'a, ShowCfg>, key: u64, val: u64) -> bool {
+    let k: u64 = key;
+    return p.insert(key, val, &k as *const u64);
+}
+
+fn main() -> i32 {
+    if validate_cfg(@{
+        "key": <type:u64>, "value": <type:u64>,
+        "fanout": 8, "fanout_branch": 4, "fanout_leaf": 16,
+    }) != 0 {
+        println("cfg validation failed");
+        return 1;
+    }
+
+    section("1. open Store");
+    let mut store: Store = store_open();
+    println("   store opened");
+
+    // ── 1st snapshot: NO_COMMIT → 1000 inserts → commit ──────────
+    section("2. begin Snap from NO_COMMIT, fill, commit");
+    let mut s1: Snap<ShowCfg> = snap_begin::<ShowCfg>(&mut store);
+    {
+        let mut p1: PMapRef<ShowCfg> = s1.pmap();
+        let mut i: u64 = 1u64;
+        while i <= 1000u64 {
+            let _ = pmap_insert(&mut p1, i, i * 7u64);
+            i = i + 1u64;
+        }
+        let line: String = format::<u64>("   size after inserts = {}", p1.len());
+        println_string(&line);
+    }
+    let c0: i64 = s1.commit();
+    let line_c0: String = format::<i64>("   commit id = {}", c0);
+    println_string(&line_c0);
+
+    // ── 2nd snapshot: fork c0 → 1000 more → commit ───────────────
+    section("3. fork Snap from c0, fill, commit");
+    let mut s2: Snap<ShowCfg> = snap_fork::<ShowCfg>(&mut store, c0);
+    {
+        let mut p2: PMapRef<ShowCfg> = s2.pmap();
+        let line_inh: String = format::<u64>("   inherited size = {}", p2.len());
+        println_string(&line_inh);
+        let mut i: u64 = 1001u64;
+        while i <= 2000u64 {
+            let _ = pmap_insert(&mut p2, i, i * 7u64);
+            i = i + 1u64;
+        }
+        let line: String = format::<u64>("   size after second batch = {}", p2.len());
+        println_string(&line);
+    }
+    let c1: i64 = s2.commit();
+    let line_c1: String = format::<i64>("   commit id = {}", c1);
+    println_string(&line_c1);
+
+    // ── Read c0 (1000 entries) ──────────────────────────────────
+    section("4. checkout c0 → iterate (expect 1000)");
+    let mut ro0: RoSnap<ShowCfg> = snap_checkout::<ShowCfg>(&mut store, c0);
+    let mut sum_k0: u64 = 0u64;
+    let mut sum_v0: u64 = 0u64;
+    let mut count0: u64 = 0u64;
+    let mut leaves0: u64 = 0u64;
+    {
+        let mut rp0: RoPMapRef<ShowCfg> = ro0.pmap();
+        let line_size: String = format::<u64>("   snapshot size = {}", rp0.len());
+        println_string(&line_size);
+        let mut it: Iter<ShowCfg> = rp0.iter();
+        let mut prev: u64 = 0u64;
+        while it.valid() {
+            leaves0 = leaves0 + 1u64;
+            let leaf: LeafView<ShowCfg> = it.leaf();
+            let n: u64 = leaf.len();
+            let mut j: u64 = 0u64;
+            while j < n {
+                let kv: u64 = leaf.key_at(j);
+                let vv: u64 = leaf.val_at(j);
+                if kv <= prev {
+                    println("   ORDER VIOLATION on c0");
+                    return 30;
+                }
+                prev = kv;
+                sum_k0 = sum_k0 + kv;
+                sum_v0 = sum_v0 + vv;
+                count0 = count0 + 1u64;
+                j = j + 1u64;
+            }
+            it.next();
+        }
+    }
+    let line_c0_l: String = format::<u64, u64>("   leaves visited = {} / count = {}", leaves0, count0);
+    let line_c0_s: String = format::<u64, u64>("   sum keys = {} / sum vals = {}", sum_k0, sum_v0);
+    println_string(&line_c0_l);
+    println_string(&line_c0_s);
+    if count0 != 1000u64 || sum_k0 != 500500u64 || sum_v0 != 3503500u64 {
+        println("   TOTALS MISMATCH on c0");
+        return 31;
+    }
+    println("   ✓ c0 totals match (Σ(1..1000) = 500500; ×7 = 3503500)");
+
+    // ── Read c1 (2000 entries) ──────────────────────────────────
+    section("5. checkout c1 → iterate (expect 2000)");
+    let mut ro1: RoSnap<ShowCfg> = snap_checkout::<ShowCfg>(&mut store, c1);
+    let mut sum_k1: u64 = 0u64;
+    let mut sum_v1: u64 = 0u64;
+    let mut count1: u64 = 0u64;
+    let mut leaves1: u64 = 0u64;
+    {
+        let mut rp1: RoPMapRef<ShowCfg> = ro1.pmap();
+        let line_size: String = format::<u64>("   snapshot size = {}", rp1.len());
+        println_string(&line_size);
+        let mut it: Iter<ShowCfg> = rp1.iter();
+        let mut prev: u64 = 0u64;
+        while it.valid() {
+            leaves1 = leaves1 + 1u64;
+            let leaf: LeafView<ShowCfg> = it.leaf();
+            let n: u64 = leaf.len();
+            let mut j: u64 = 0u64;
+            while j < n {
+                let kv: u64 = leaf.key_at(j);
+                let vv: u64 = leaf.val_at(j);
+                if kv <= prev {
+                    println("   ORDER VIOLATION on c1");
+                    return 40;
+                }
+                prev = kv;
+                sum_k1 = sum_k1 + kv;
+                sum_v1 = sum_v1 + vv;
+                count1 = count1 + 1u64;
+                j = j + 1u64;
+            }
+            it.next();
+        }
+    }
+    let line_c1_l: String = format::<u64, u64>("   leaves visited = {} / count = {}", leaves1, count1);
+    let line_c1_s: String = format::<u64, u64>("   sum keys = {} / sum vals = {}", sum_k1, sum_v1);
+    println_string(&line_c1_l);
+    println_string(&line_c1_s);
+    if count1 != 2000u64 || sum_k1 != 2001000u64 || sum_v1 != 14007000u64 {
+        println("   TOTALS MISMATCH on c1");
+        return 41;
+    }
+    println("   ✓ c1 totals match (Σ(1..2000) = 2001000; ×7 = 14007000)");
+
+    // Drop fires here in reverse-declaration order: ro1, ro0, s2, s1, store.
+    println("");
+    println("done.");
+    return 0;
+}

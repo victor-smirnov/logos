@@ -258,6 +258,8 @@
     METACALL_ITEM_DONE          = 210   // Set by the driver after a METACALL_ITEM has been invoked; sema item-dispatch silently skips. Never parsed.
     HERMES_TYPE_LIT             = 211   // Component-metaprog slice 1: `<type:T>` inside @-literal. NAME = bare type identifier (slice 1: IDENT only). Sema embeds it as a first-class Hermes Type value.
     LIT_HSTATIC                 = 212   // HermesStatic literal at type-arg position: Foo::<@{...}>. VALUE = nested hermes_lit AST. Sema lowers to ConstVar(HermesStatic, hash) with byte-hash identity.
+    CFG_SLOT_TYPE               = 213   // Type-position `<type:CFG.SLOT>`: extract the type stored at top-level slot SLOT of HermesStatic CFG (a const-generic param or type alias). NAME = CFG ident, KEY = slot ident. Mono resolves to the slot's `<type:T>` value when CFG becomes concrete.
+    GENERIC_REF                 = 214   // `IDENT::<TARGS>` at expression position; CALLEE = ident, TYPE_PARAMS = type_arg_list.
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -880,7 +882,21 @@
     impl_type <- KW_IMPL IDENT
               => { CODE: IMPL_TYPE, NAME: $2 }
 
-    type_ref <- antiquot_type / typeof_type / hermes_arr_type / hermes_map_type / ptr_type / arr_type / slice_type / tagged_type / dyn_type / ref_type / impl_type / unit_type / closure_type / fn_ptr_type / tuple_type / assoc_type_ref / hstatic_lit_type / simple_type
+    type_ref <- antiquot_type / typeof_type / cfg_slot_assoc_ref / cfg_slot_type / hermes_arr_type / hermes_map_type / ptr_type / arr_type / slice_type / tagged_type / dyn_type / ref_type / impl_type / unit_type / closure_type / fn_ptr_type / tuple_type / assoc_type_ref / hstatic_lit_type / simple_type
+
+    // <type:CFG.SLOT> — extract the type stored at top-level slot of a
+    // HermesStatic-typed type-level binding. Mono-time projection; the
+    // form needs both leading IDENT (CFG) and a DOT before the next
+    // IDENT (slot key) so it doesn't collide with the existing
+    // `<type:T>` form used inside `@{...}` literals. GT_TYPE on the
+    // tail lets `>>` close both this form and the enclosing generic.
+    cfg_slot_type <- LT KW_TYPE COLON IDENT DOT IDENT GT_TYPE
+                  => { CODE: CFG_SLOT_TYPE, NAME: $4, KEY: $6 }
+
+    // <type:CFG.SLOT>::AssocName — assoc type on a CfgSlotType base.
+    // Tried before bare cfg_slot_type so the `::Field` tail consumes.
+    cfg_slot_assoc_ref <- cfg_slot_type COLONCOLON IDENT
+                       => { CODE: ASSOC_TYPE_REF, RECEIVER: $1, FIELD: $3 }
 
     // hstatic_lit_type: bare `@{...}` at type position (e.g. `type Cfg = @{...};`).
     // Sema lowers via the same LIT_HSTATIC code as the type-arg form.
@@ -1003,15 +1019,15 @@
                    => { CODE: LIT_HSTATIC, VALUE: $1 }
                     / type_ref
 
-    simple_type <- HASH LPAREN expr RPAREN LT type_or_lt_arg (COMMA type_or_lt_arg)* GT_TYPE
+    simple_type <- HASH LPAREN expr RPAREN LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* GT_TYPE
                 => { CODE: GENERIC_INST, NAME_VAR: $3, ITEMS: $... }
-                 / HASH IDENT LT type_or_lt_arg (COMMA type_or_lt_arg)* GT_TYPE
+                 / HASH IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* GT_TYPE
                 => { CODE: GENERIC_INST, NAME_VAR: $2, ITEMS: $... }
                  / HASH LPAREN expr RPAREN
                 => { CODE: TYPE_REF, NAME_VAR: $3 }
                  / HASH IDENT
                 => { CODE: TYPE_REF, NAME_VAR: $2 }
-                 / IDENT LT type_or_lt_arg (COMMA type_or_lt_arg)* GT_TYPE
+                 / IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* GT_TYPE
                 => { CODE: GENERIC_INST, NAME: $1, ITEMS: $... }
                  / IDENT
                 => { CODE: TYPE_REF, NAME: $1 }
@@ -1408,7 +1424,9 @@
     // The ( ... )* uses $0 (fold accumulator) for RECEIVER so that
     // a.b.c and a.f().b are parsed correctly as left-associative chains.
     atom <- primary_expr
-            ( DOT IDENT LPAREN (expr (COMMA expr)*)? RPAREN
+            ( DOT IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE LPAREN call_arg_list? RPAREN
+                => { CODE: METHOD_CALL, RECEIVER: $0, NAME: $2, TYPE_PARAMS: $5, ARGS: $8 }
+            / DOT IDENT LPAREN (expr (COMMA expr)*)? RPAREN
                 => { CODE: METHOD_CALL, RECEIVER: $0, NAME: $2, ARGS: $... }
             / DOT INTEGER
                 => { CODE: TUPLE_INDEX, RECEIVER: $0, FIELD: $2 }
@@ -1452,6 +1470,8 @@
                   / quote_ty_expr
 
                   / call_expr        // IDENT(args) / Type::method(args) — before enum_lit/IDENT
+                  / IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE
+                                     => { CODE: GENERIC_REF, CALLEE: $1, TYPE_PARAMS: $4 }
                   / enum_lit         // IDENT::VARIANT     — after call_expr (no parens)
                   / RAW_STRING => { CODE: LIT_STR, VALUE: $1 }
                   / STRING   => { CODE: LIT_STR,  VALUE: $1 }
@@ -1479,7 +1499,7 @@
 
     // ── Struct literal: TypeName { field: expr, ... } ─────────────
     // Generic form: TypeName::<T, U> { field: expr, ... }
-    generic_struct_lit <- IDENT COLONCOLON LT type_arg_list GT_TYPE LBRACE (field_init (COMMA field_init)* COMMA?)? RBRACE
+    generic_struct_lit <- IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE LBRACE (field_init (COMMA field_init)* COMMA?)? RBRACE
                        => { CODE: STRUCT_LIT, NAME: $1, TYPE_PARAMS: $4, ITEMS: $... }
 
     // Struct update syntax: TypeName { field: val, ..base } or TypeName { ..base }
@@ -1714,11 +1734,11 @@
 
     // ── Free function call: fn(args) or fn::<T>(args) or Class::method(args) ─
     //                       or Class::<T>::method(args) — turbofish on the type.
-    call_expr <- IDENT COLONCOLON LT type_arg_list GT_TYPE COLONCOLON IDENT LPAREN call_arg_list? RPAREN
+    call_expr <- IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE COLONCOLON IDENT LPAREN call_arg_list? RPAREN
               => { CODE: STATIC_CALL, RECEIVER: $1, TYPE_PARAMS: $4, NAME: $7, ARGS: $9 }
-               / IDENT COLONCOLON LT type_arg_list GT_TYPE COLONCOLON KW_NEW LPAREN call_arg_list? RPAREN
+               / IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE COLONCOLON KW_NEW LPAREN call_arg_list? RPAREN
               => { CODE: STATIC_CALL, RECEIVER: $1, TYPE_PARAMS: $4, NAME: $7, ARGS: $9 }
-               / IDENT COLONCOLON LT type_arg_list GT_TYPE LPAREN call_arg_list? RPAREN
+               / IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE LPAREN call_arg_list? RPAREN
               => { CODE: GENERIC_CALL, CALLEE: $1, TYPE_PARAMS: $4, ARGS: $7 }
                / IDENT COLONCOLON IDENT  LPAREN call_arg_list? RPAREN
               => { CODE: STATIC_CALL, RECEIVER: $1, NAME: $3, ARGS: $5 }

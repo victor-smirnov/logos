@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
 // std.data.persistent.pmap_v2.mutv — read+update sibling of PMapView,
-// on top of the CFG-aware btree.
+// on top of the CFG-aware btree. `<const CFG: HermesStatic>`-only;
+// K/V threaded into bt internals via `<type:CFG.key>` / `<type:CFG.value>`.
 
 package std.data.persistent.pmap_v2.mutv;
 
@@ -12,70 +13,78 @@ use std.lang.ord;
 use std.lang.datatypes;
 use std.hermes.view;
 
-pub struct PMapMut<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic> {
-    pub view: PMapView<K, V, CFG>,
+pub struct PMapMut<const CFG: HermesStatic> {
+    pub view: PMapView<CFG>,
 }
 
-pub fn pmap_mut_new<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>() -> PMapMut<K, V, CFG> {
-    return PMapMut::<K, V, CFG> {
-        view: PMapView::<K, V, CFG> { root: node_alloc_c::<K, V, CFG>() },
+pub fn pmap_mut_new<const CFG: HermesStatic>() -> PMapMut<CFG> {
+    return PMapMut::<CFG> {
+        view: PMapView::<CFG> { root: node_alloc_c::<<type:CFG.key>, <type:CFG.value>, CFG>() },
     };
 }
 
-pub fn pmap_mut_drop<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(m: *mut PMapMut<K, V, CFG>) {
-    unsafe { node_release_c::<K, V, CFG>(m.view.root); }
+pub fn pmap_mut_drop<const CFG: HermesStatic>(m: *mut PMapMut<CFG>) {
+    unsafe { node_release_c::<<type:CFG.key>, <type:CFG.value>, CFG>(m.view.root); }
 }
 
-pub fn pmap_mut_snapshot<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(m: *const PMapMut<K, V, CFG>) -> PMapView<K, V, CFG> {
+pub fn pmap_mut_snapshot<const CFG: HermesStatic>(m: *const PMapMut<CFG>) -> PMapView<CFG> {
     unsafe {
-        let r: *mut BTreeNode<K, V, CFG> = m.view.root;
-        node_retain_c::<K, V, CFG>(r);
-        return PMapView::<K, V, CFG> { root: r };
+        let r: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> = m.view.root;
+        node_retain_c::<<type:CFG.key>, <type:CFG.value>, CFG>(r);
+        return PMapView::<CFG> { root: r };
     }
 }
 
-fn pmap_mut_make_root_unique<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(m: *mut PMapMut<K, V, CFG>) {
+fn pmap_mut_make_root_unique<const CFG: HermesStatic>(m: *mut PMapMut<CFG>) {
     unsafe {
-        let r: *mut BTreeNode<K, V, CFG> = m.view.root;
+        let r: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> = m.view.root;
         if r.rc > 1u64 {
-            let copy: *mut BTreeNode<K, V, CFG> = node_clone_for_cow_c::<K, V, CFG>(r);
-            node_release_c::<K, V, CFG>(r);
+            let copy: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> = node_clone_for_cow_c::<<type:CFG.key>, <type:CFG.value>, CFG>(r);
+            node_release_c::<<type:CFG.key>, <type:CFG.value>, CFG>(r);
             m.view.root = copy;
         }
     }
 }
 
-fn pmap_mut_grow_root<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(m: *mut PMapMut<K, V, CFG>, right: *mut BTreeNode<K, V, CFG>) {
+fn pmap_mut_grow_root<const CFG: HermesStatic>(m: *mut PMapMut<CFG>, right: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG>) {
     unsafe {
-        let new_root: *mut BTreeNode<K, V, CFG> = node_alloc_internal_c::<K, V, CFG>();
-        let sep: K::ViewInStore = right.keys.get(0u64);
+        let new_root_base: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> = node_alloc_internal_c::<<type:CFG.key>, <type:CFG.value>, CFG>();
+        let new_root: *mut BranchNode<<type:CFG.key>, <type:CFG.value>, CFG> = new_root_base as *mut BranchNode<<type:CFG.key>, <type:CFG.value>, CFG>;
+        let sep: <type:CFG.key>::ViewInStore = if right.is_leaf {
+            let rl: *mut LeafNode<<type:CFG.key>, <type:CFG.value>, CFG> = right as *mut LeafNode<<type:CFG.key>, <type:CFG.value>, CFG>;
+            rl.keys.get(0u64)
+        } else {
+            let rb: *mut BranchNode<<type:CFG.key>, <type:CFG.value>, CFG> = right as *mut BranchNode<<type:CFG.key>, <type:CFG.value>, CFG>;
+            rb.keys.get(0u64)
+        };
         new_root.keys.push(sep);
         new_root.children.push(m.view.root);
         new_root.children.push(right);
         if !right.is_leaf {
-            right.keys.remove_at(0u64);
-            right.n = right.keys.len() as u16;
+            let rb: *mut BranchNode<<type:CFG.key>, <type:CFG.value>, CFG> = right as *mut BranchNode<<type:CFG.key>, <type:CFG.value>, CFG>;
+            rb.keys.remove_at(0u64);
+            right.n = rb.keys.len() as u16;
         }
-        new_root.n = new_root.keys.len() as u16;
-        m.view.root = new_root;
+        new_root_base.n = new_root.keys.len() as u16;
+        m.view.root = new_root_base;
     }
 }
 
-pub fn pmap_mut_insert<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(m: *mut PMapMut<K, V, CFG>, key: K::ViewInStore, val: V::ViewInStore, qkey: *const K) -> bool {
+pub fn pmap_mut_insert<const CFG: HermesStatic>(m: *mut PMapMut<CFG>, key: <type:CFG.key>::ViewInStore, val: <type:CFG.value>::ViewInStore, qkey: *const <type:CFG.key>) -> bool {
     unsafe {
-        pmap_mut_make_root_unique::<K, V, CFG>(m);
-        let outcome: InsertOutcome<K, V, CFG> = node_insert_rec_c::<K, V, CFG>(m.view.root, key, val, qkey);
+        pmap_mut_make_root_unique::<CFG>(m);
+        let outcome: InsertOutcome<<type:CFG.key>, <type:CFG.value>, CFG> = node_insert_rec_c::<<type:CFG.key>, <type:CFG.value>, CFG>(m.view.root, key, val, qkey);
         if outcome.split {
-            pmap_mut_grow_root::<K, V, CFG>(m, outcome.right);
+            pmap_mut_grow_root::<CFG>(m, outcome.right);
         }
         return outcome.hit;
     }
 }
 
-pub fn pmap_mut_remove<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(m: *mut PMapMut<K, V, CFG>, qkey: *const K) -> bool {
+pub fn pmap_mut_remove<const CFG: HermesStatic>(m: *mut PMapMut<CFG>, qkey: *const <type:CFG.key>) -> bool {
     unsafe {
-        if !node_contains_rec_c::<K, V, CFG>(m.view.root, qkey) { return false; }
-        pmap_mut_make_root_unique::<K, V, CFG>(m);
-        return node_remove_rec_c::<K, V, CFG>(m.view.root, qkey);
+        if !node_contains_rec_c::<<type:CFG.key>, <type:CFG.value>, CFG>(m.view.root, qkey) { return false; }
+        pmap_mut_make_root_unique::<CFG>(m);
+        return node_remove_rec_c::<<type:CFG.key>, <type:CFG.value>, CFG>(m.view.root, qkey);
     }
 }

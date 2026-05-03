@@ -4,63 +4,82 @@
 // Rc<T> — single-thread reference-counted smart pointer.
 // NOT Send: Rc contains raw *mut pointers and uses a non-atomic counter.
 //
-// Layout: two heap allocations.
-//   val    — the T value itself (sizeof::<T>() bytes)
-//   strong — a single i32 reference count (4 bytes)
+// Single allocation: the strong counter and the T value live in one
+// heap block (`RcInner<T>` — like std::make_shared's control block).
+// Layout:
+//   strong: i32
+//   val:    T
 //
-// The two-pointer layout sidesteps generic-struct field-offset issues with
-// chain writes (`inner.field = ...` through a generic *mut pointer).
+// `Rc<T>` is a single fat pointer over `RcInner<T>`. Cloning and
+// dropping mutate the inner.strong counter; the last drop releases
+// the whole block in one dealloc.
 
 package std.mem.rc;
 
 use std.mem;
+use std.lang.drop;
+
+pub struct RcInner<T> {
+    pub strong: i32,
+    pub val:    T,
+}
 
 pub struct Rc<T> {
-    val:    *mut T,
-    strong: *mut i32,
+    inner: *mut RcInner<T>,
 }
 
 pub fn rc_new<T>(val: T) -> Rc<T> {
-    let vp: *mut T   = alloc(sizeof::<T>())  as *mut T;
-    let sp: *mut i32 = alloc(4 as i64)       as *mut i32;
+    let p: *mut RcInner<T> = alloc(sizeof::<RcInner<T>>()) as *mut RcInner<T>;
     unsafe {
-        vp[0] = val;
-        sp[0] = 1;
+        p.strong = 1;
+        p.val    = val;
     }
-    return Rc { val: vp, strong: sp };
+    return Rc { inner: p };
 }
 
 impl<T> Rc<T> {
     pub unsafe fn get(self: *mut Rc<T>) -> *const T {
-        return self.val as *const T;
+        return &self.inner.val as *const T;
     }
 
     pub unsafe fn get_mut(self: *mut Rc<T>) -> *mut T {
-        return self.val;
+        return &mut self.inner.val as *mut T;
     }
 
     pub unsafe fn strong_count(self: *mut Rc<T>) -> i32 {
-        return self.strong[0];
+        return self.inner.strong;
     }
 
     pub unsafe fn is_null(self: *mut Rc<T>) -> bool {
-        return self.val == 0 as *mut T;
+        return self.inner == 0 as *mut RcInner<T>;
     }
 
     // Increment strong count; return a second handle to the same data.
     pub unsafe fn clone_rc(self: *mut Rc<T>) -> Rc<T> {
-        self.strong[0] = self.strong[0] + 1;
-        return Rc { val: self.val, strong: self.strong };
+        self.inner.strong = self.inner.strong + 1;
+        return Rc { inner: self.inner };
     }
 
-    // Decrement strong count; free both allocations when it reaches zero.
+    // Decrement strong count; free the inner block when it reaches zero.
     pub unsafe fn drop_rc(self: *mut Rc<T>) {
-        self.strong[0] = self.strong[0] - 1;
-        if self.strong[0] == 0 {
-            dealloc(self.val    as *mut u8);
-            dealloc(self.strong as *mut u8);
+        if self.inner == 0 as *mut RcInner<T> { return; }
+        self.inner.strong = self.inner.strong - 1;
+        if self.inner.strong == 0 {
+            dealloc(self.inner as *mut u8);
         }
-        self.val    = 0 as *mut T;
-        self.strong = 0 as *mut i32;
+        self.inner = 0 as *mut RcInner<T>;
     }
 }
+
+// Auto-Drop. Compiler emits a call to `Rc__drop` whenever a Rc<T>
+// goes out of scope unmoved. Does NOT recursively run T's destructor;
+// callers that wrap Drop-needing T must release T's resources first
+// (e.g. before this drop fires) — see pmap_v2.handle's MutMap/RoMap.
+//impl<T> Drop for Rc<T> {
+//    fn drop(self: Rc<T>) {
+//        unsafe {
+//            let p: *mut Rc<T> = &self as *const Rc<T> as *mut Rc<T>;
+//            p.drop_rc();
+//        }
+//    }
+//}

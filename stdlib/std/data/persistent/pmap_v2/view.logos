@@ -2,6 +2,11 @@
 // Copyright 2026 Victor Smirnov
 // std.data.persistent.pmap_v2.view — read-only base of the component-
 // organised PMap, on top of the CFG-aware btree.
+//
+// `<const CFG: HermesStatic>` is the only generic parameter. K and V
+// are extracted from CFG via the compile-time `<type:CFG.key>` /
+// `<type:CFG.value>` projections, then threaded into the bt-layer
+// internals which still take the `<K, V, CFG>` triple.
 
 package std.data.persistent.pmap_v2.view;
 
@@ -12,21 +17,21 @@ use std.lang.datatypes;
 use std.hermes.view;
 use std.hermes.anyval;
 
-pub struct PMapView<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic> {
-    pub root: *mut BTreeNode<K, V, CFG>,
+pub struct PMapView<const CFG: HermesStatic> {
+    pub root: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG>,
 }
 
-impl<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic> PMapView<K, V, CFG> {
-    pub fn contains(&self, key: *const K) -> bool {
-        unsafe { return node_contains_rec_c::<K, V, CFG>(self.root, key); }
+impl<const CFG: HermesStatic> PMapView<CFG> {
+    pub fn contains(&self, key: *const <type:CFG.key>) -> bool {
+        unsafe { return node_contains_rec_c::<<type:CFG.key>, <type:CFG.value>, CFG>(self.root, key); }
     }
 
-    pub fn get(&self, key: *const K, out: *mut V::ViewInStore) -> bool {
-        unsafe { return node_get_rec_c::<K, V, CFG>(self.root, key, out); }
+    pub fn get(&self, key: *const <type:CFG.key>, out: *mut <type:CFG.value>::ViewInStore) -> bool {
+        unsafe { return node_get_rec_c::<<type:CFG.key>, <type:CFG.value>, CFG>(self.root, key, out); }
     }
 
     pub fn len(&self) -> u64 {
-        unsafe { return node_size_rec_c::<K, V, CFG>(self.root); }
+        unsafe { return node_size_rec_c::<<type:CFG.key>, <type:CFG.value>, CFG>(self.root); }
     }
 
     // Cfg-readback part — Read. Materialises CFG inline (per-instantiation
@@ -42,14 +47,14 @@ impl<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic> PMapVie
     }
 }
 
-pub fn pmap_view_snapshot<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(v: *const PMapView<K, V, CFG>) -> PMapView<K, V, CFG> {
+pub fn pmap_view_snapshot<const CFG: HermesStatic>(v: *const PMapView<CFG>) -> PMapView<CFG> {
     unsafe {
-        let r: *mut BTreeNode<K, V, CFG> = v.root;
-        node_retain_c::<K, V, CFG>(r);
-        return PMapView::<K, V, CFG> { root: r };
+        let r: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> = v.root;
+        node_retain_c::<<type:CFG.key>, <type:CFG.value>, CFG>(r);
+        return PMapView::<CFG> { root: r };
     }
 }
 
-pub fn pmap_view_drop<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(v: *mut PMapView<K, V, CFG>) {
-    unsafe { node_release_c::<K, V, CFG>(v.root); }
+pub fn pmap_view_drop<const CFG: HermesStatic>(v: *mut PMapView<CFG>) {
+    unsafe { node_release_c::<<type:CFG.key>, <type:CFG.value>, CFG>(v.root); }
 }

@@ -206,6 +206,23 @@ pub trait Primitive {
     type Prim;
 }
 
+// Reflexive impls for bare integer scalars + bool: Prim = self. Lets
+// users plug `u64`/`i32`/etc. directly into APIs that take `T:
+// Container` / `T: Container + ContainerOrd` (Buffer<T>, pmap_v2 K/V,
+// …) without an explicit POD-wrapper struct. The Container blanket
+// below picks them up automatically, and ContainerOrd follows from
+// each scalar's existing `Ord` impl. Floats are intentionally skipped
+// (NaN breaks total order).
+impl Primitive for u8   { type Prim = u8;   }
+impl Primitive for u16  { type Prim = u16;  }
+impl Primitive for u32  { type Prim = u32;  }
+impl Primitive for u64  { type Prim = u64;  }
+impl Primitive for i8   { type Prim = i8;   }
+impl Primitive for i16  { type Prim = i16;  }
+impl Primitive for i32  { type Prim = i32;  }
+impl Primitive for i64  { type Prim = i64;  }
+impl Primitive for bool { type Prim = bool; }
+
 // ---------------------------------------------------------------------------
 // PodRef — >16B POD, reference view
 //

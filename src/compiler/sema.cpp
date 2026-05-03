@@ -369,6 +369,13 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         // same TypeRef and collapse the configuration.
         put_u64(buf, uint64_t(t.const_val.value_or(0)));
         break;
+    case K::CfgSlotType:
+        // Identity = (cfg-typevar-name, slot-key). Reuses type_var_name +
+        // assoc_type_name as carrier fields; both must contribute or
+        // distinct slots collapse to one interned TypeRef.
+        put_str(buf, t.type_var_name);
+        put_str(buf, t.assoc_type_name);
+        break;
     default:
         break;  // primitives: kind tag alone identifies
     }
@@ -455,6 +462,9 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
                t.assoc_type_name == r.assoc_type_name() &&
                t.assoc_base == r.assoc_base() &&
                vec_ptr_eq(t.gat_args, r.gat_args());
+    case K::CfgSlotType:
+        return t.type_var_name == r.type_var_name() &&
+               t.assoc_type_name == r.assoc_type_name();
     default:
         return true;  // primitives — kind alone is identity
     }
@@ -1724,6 +1734,39 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         nt.closure_ret = new_ret;
         return pool_->alloc(std::move(nt));
     }
+    case LogosType::Kind::CfgSlotType: {
+        // Substitute the cfg-typevar binding; if it now resolves to a
+        // concrete HStaticLit, walk the registered LIR mirror to extract
+        // the slot's `<type:T>` value and return the resolved TypeRef.
+        std::string cfg_name(t.type_var_name());
+        std::string slot_key(t.assoc_type_name());
+        auto it = s.find(cfg_name);
+        if (it == s.end()) return t;
+        TypeRef cfg = TypeRef(it->second);
+        cfg = subst_type_sema(cfg, s, ls);
+        if (!cfg || TypeRef(cfg).kind() != LogosType::Kind::HStaticLit) return t;
+        if (!cur_prog_) return t;
+        uint64_t hash = (uint64_t)cfg.const_val().value_or(0);
+        auto rit = cur_prog_->hstatic_registry_.find(hash);
+        if (rit == cur_prog_->hstatic_registry_.end()) return t;
+        if (!rit->second || rit->second->mirror_offset_ == hermes::arena_offset_t{}) return t;
+        lir_view::ExprRef eref(cur_prog_->type_pool.arena(), rit->second->mirror_offset_);
+        if (eref.kind() != lir_schema::expr::Code::HermesLit) return t;
+        auto root = lir_view::EHermesLitView{eref}.root();
+        if (root.kind() != lir_schema::hermes_val::Code::Map) return t;
+        auto map = lir_view::HVMapView{root};
+        if (map.int_keyed()) return t;
+        for (uint64_t i = 0, n = map.size(); i < n; ++i) {
+            if (map.str_key(i) != slot_key) continue;
+            auto vref = map.value(i);
+            if (vref.kind() != lir_schema::hermes_val::Code::Type) break;
+            std::string tname(lir_view::HVTypeView{vref}.name());
+            if (auto resolved = const_cast<SemaChecker*>(this)->try_resolve_as_known_type(tname))
+                return resolved;
+            break;
+        }
+        return t;
+    }
     case LogosType::Kind::AssocType: {
         // Substitute the base type first.
         auto subbed_base = subst_type_sema(t.assoc_base(), s, ls);
@@ -1887,6 +1930,52 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         auto lex = lower_expr(expr_node);
         if (!lex || !lex->type) return error_t();
         return lex->type;
+    }
+
+    if (tc == la::CFG_SLOT_TYPE) {
+        // <type:CFG.SLOT> — extract a type from a HermesStatic-typed binding.
+        // Two cases:
+        //   • CFG is a const-generic type-param of the enclosing item.
+        //     Defer; mono_subst resolves once the param is bound.
+        //   • CFG is a type alias to an HStaticLit (`pub type Cfg = @{…};`).
+        //     Resolve eagerly by walking the registered LIR mirror.
+        auto cfg_name = std::string(str_of(node.get(la::NAME.code)));
+        auto slot_key = std::string(str_of(node.get(la::KEY.code)));
+        bool is_typeparam = current_type_params_.count(cfg_name) > 0;
+        if (!is_typeparam) {
+            TypeRef cfg_t = try_resolve_as_known_type(cfg_name);
+            if (cfg_t && TypeRef(cfg_t).kind() == LogosType::Kind::HStaticLit && cur_prog_) {
+                uint64_t hash = (uint64_t)cfg_t.const_val().value_or(0);
+                auto rit = cur_prog_->hstatic_registry_.find(hash);
+                if (rit != cur_prog_->hstatic_registry_.end() && rit->second &&
+                    rit->second->mirror_offset_ != hermes::arena_offset_t{}) {
+                    lir_view::ExprRef eref(cur_prog_->type_pool.arena(), rit->second->mirror_offset_);
+                    if (eref.kind() == lir_schema::expr::Code::HermesLit) {
+                        auto root = lir_view::EHermesLitView{eref}.root();
+                        if (root.kind() == lir_schema::hermes_val::Code::Map) {
+                            auto map = lir_view::HVMapView{root};
+                            if (!map.int_keyed()) {
+                                for (uint64_t i = 0, n = map.size(); i < n; ++i) {
+                                    if (map.str_key(i) != slot_key) continue;
+                                    auto vref = map.value(i);
+                                    if (vref.kind() == lir_schema::hermes_val::Code::Type) {
+                                        std::string tname(lir_view::HVTypeView{vref}.name());
+                                        if (auto resolved = try_resolve_as_known_type(tname))
+                                            return resolved;
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        LogosTypeBuilder t;
+        t.kind = LogosType::Kind::CfgSlotType;
+        t.type_var_name = cfg_name;       // CFG ident
+        t.assoc_type_name = slot_key;     // slot key
+        return pool_->alloc(std::move(t));
     }
 
     if (tc == la::PTR_TYPE) {
@@ -2126,6 +2215,18 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                             worklist.push_back(sup.trait_name);
                     }
                 }
+            }
+        } else if (TypeRef(base_type).kind() == LogosType::Kind::CfgSlotType) {
+            // CfgSlotType base — type isn't known until mono substitutes
+            // CFG. Resolve by assoc-name alone: pick the first trait that
+            // declares an assoc type with this name. Mono's subst_type
+            // for AssocType then resolves via concrete_impls_ /
+            // blanket_impls_ once the base becomes concrete.
+            for (auto& [tname, tinfo] : traits_) {
+                for (auto& at : tinfo.assoc_types) {
+                    if (at.name == assoc) { trait_for_assoc = tname; break; }
+                }
+                if (!trait_for_assoc.empty()) break;
             }
         } else if (TypeRef(base_type).kind() == LogosType::Kind::AssocType) {
             // T::A::B — search bounds of the associated type itself if we had them,

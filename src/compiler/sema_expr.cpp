@@ -420,6 +420,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
 
     case la::CALL:         return lower_call(expr);
     case la::GENERIC_CALL: return lower_generic_call(expr);
+    case la::GENERIC_REF:  return lower_generic_ref(expr);
     case la::METHOD_CALL:  return lower_method_call(expr);
     case la::STATIC_CALL:  return lower_static_call(expr);
     case la::METACALL:     return lower_metacall(expr);
@@ -2563,9 +2564,153 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         *fi_ptr, std::move(type_args), std::move(arg_exprs));
 }
 
+// ── GENERIC_REF — `IDENT::<TARGS>` as expression value (fn-pointer literal) ─
+//
+// Slice 1: TARGS must be concrete at the GENERIC_REF site. Generic-context
+// uses (TARGS containing TypeVars from outer fn body) deferred to slice 2 —
+// they need substitution into the side-table at clone-time and re-mangling.
+//
+// Lowering:
+//   1. Resolve callee + type_args.
+//   2. Find generic SemaFuncInfo, validate type-arg count + bounds.
+//   3. Substitute TARGS into param/ret types → build FnPtr type.
+//   4. Eagerly mangle: result_name = base + "__" + mangle_type(t1) + ...
+//      (must match what mono.cpp would produce so the symbol resolves).
+//   5. Push a request into cur_prog_->generic_refs.
+//   6. Emit a VarRef with the mangled name + FnPtr type.
+//
+// `mangle` and `mangle_type` are duplicated locally (small) instead of
+// reaching into mono_impl.hpp to keep the layering clean.
+namespace {
+std::string sema_mangle_type(TypeRef tr) {
+    if (!tr) return "null";
+    switch (TypeRef(tr).kind()) {
+    case LogosType::Kind::Ptr:
+        return (TypeRef(tr).mut_ptr() ? "pmut_" : "pcst_") + sema_mangle_type(TypeRef(tr).pointee());
+    case LogosType::Kind::Ref:    return "ref_"    + sema_mangle_type(TypeRef(tr).pointee());
+    case LogosType::Kind::MutRef: return "refmut_" + sema_mangle_type(TypeRef(tr).pointee());
+    case LogosType::Kind::Array:
+        return "arr" + std::to_string(TypeRef(tr).arr_size()) + "_" + sema_mangle_type(TypeRef(tr).elem());
+    case LogosType::Kind::Struct:
+    case LogosType::Kind::ZonedStruct:
+        return concrete_struct_name(tr);
+    case LogosType::Kind::IntLit:
+    case LogosType::Kind::ConstVar:
+        if (TypeRef(tr).const_val()) {
+            int64_t v = *TypeRef(tr).const_val();
+            if (v < 0) return "cN_n" + std::to_string(-v);
+            return "cN_" + std::to_string(v);
+        }
+        return type_str(tr);
+    default:
+        return type_str(tr);
+    }
+}
+std::string sema_mangle(const std::string& name, const std::vector<TypeRef>& targs) {
+    std::string r = name;
+    for (auto t : targs) { r += "__"; r += sema_mangle_type(t); }
+    return r;
+}
+} // namespace
+
+lir::LExprPtr SemaChecker::lower_generic_ref(TinyMapView node) {
+    auto callee = str_of(node.get(la::CALLEE.code));
+
+    // Resolve type args
+    std::vector<TypeRef> type_args;
+    if (node.has_key(la::TYPE_PARAMS)) {
+        AnyVal tpav = node.get(la::TYPE_PARAMS.code);
+        if (!tpav.is_null()) {
+            auto tplist = map_of(tpav);
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i)
+                    type_args.push_back(resolve_type(map_of(items.get(i))));
+            }
+        }
+    }
+
+    // Find generic fn (or single non-generic candidate as a degenerate case).
+    SemaFuncInfo* fi_ptr = nullptr;
+    {
+        auto git = find_generic_func(callee, type_args.size());
+        if (git) fi_ptr = const_cast<SemaFuncInfo*>(git);
+        else if (auto cands = find_func_candidates(callee); cands.size() == 1)
+            fi_ptr = const_cast<SemaFuncInfo*>(cands[0]);
+    }
+    if (!fi_ptr) {
+        error(std::format("undefined function in generic-ref '{}'", std::string(callee)));
+        return error_expr();
+    }
+    check_pub_access(fi_ptr->is_pub, fi_ptr->package, callee);
+
+    // Validate type-arg count (slice 1: no variadic packs)
+    bool has_variadic = !fi_ptr->type_params.empty() && fi_ptr->type_params.back().is_variadic;
+    if (has_variadic) {
+        error(std::format("generic-ref '{}': variadic type packs not supported (slice 1)",
+                          std::string(callee)));
+        return error_expr();
+    }
+    if (type_args.size() != fi_ptr->type_params.size()) {
+        error(std::format("generic-ref '{}': expected {} type arg(s), got {}",
+                          std::string(callee), fi_ptr->type_params.size(), type_args.size()));
+        return error_expr();
+    }
+
+    // Slice 1 guard: TARGS must be concrete (no TypeVars from outer body).
+    for (auto t : type_args) {
+        if (TypeRef(t).kind() == LogosType::Kind::TypeVar) {
+            error(std::format(
+                "generic-ref '{}': TARGS containing TypeVars not yet supported (slice 1)",
+                std::string(callee)));
+            return error_expr();
+        }
+    }
+
+    // Build subst map and validate trait bounds.
+    StrMap<TypeRef> subst;
+    for (size_t i = 0; i < type_args.size(); ++i)
+        subst[fi_ptr->type_params[i].name] = type_args[i];
+    check_type_bounds(std::string(callee), fi_ptr->type_params, type_args);
+
+    // Substitute fn signature → FnPtr type.
+    LogosTypeBuilder ft;
+    ft.kind = LogosType::Kind::FnPtr;
+    for (auto pt : fi_ptr->param_types)
+        ft.closure_params.push_back(subst_type_sema(pt, subst));
+    ft.closure_ret = fi_ptr->ret_type ? subst_type_sema(fi_ptr->ret_type, subst) : void_t();
+    auto fn_type = pool_->alloc(std::move(ft));
+
+    // Mangle and record the request.
+    std::string base = fi_ptr->symbol_name.empty() ? std::string(callee) : fi_ptr->symbol_name;
+    std::string mangled = sema_mangle(base, type_args);
+
+    if (cur_prog_) {
+        cur_prog_->generic_refs.push_back(
+            lir::LProgram::GenericRefRequest{base, mangled, type_args});
+    }
+
+    return builder().var_ref(mangled, fn_type);
+}
+
 lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     auto method_name = str_of(node.get(la::NAME.code));
     auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
+
+    // Optional explicit method-level turbofish: `recv.method::<T1, T2>(args)`.
+    // The turbofish-bearing METHOD_CALL alt wraps ARGS as { ITEMS: [...] }
+    // (same shape as GENERIC_CALL / STATIC_CALL); the legacy alt keeps ARGS
+    // as a flat array. user_type_args is non-empty iff the caller used
+    // turbofish; downstream type-param inference is bypassed in that case.
+    std::vector<TypeRef> user_type_args;
+    if (node.has_key(la::TYPE_PARAMS)) {
+        auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+        if (tplist.has_key(la::ITEMS)) {
+            auto items = arr_of(tplist.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < items.size(); ++i)
+                user_type_args.push_back(resolve_type(map_of(items.get(i))));
+        }
+    }
 
     // Slice / str built-in methods: .len(), .as_ptr()
     if (TypeRef(recv->type).kind() == LogosType::Kind::Slice) {
@@ -2873,20 +3018,25 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             } else {
                 SemaSubst self_subst;
                 self_subst["Self"] = recv_inner;
-                // Infer method-level type params (e.g. `fn hash<H: Hasher>`) from
-                // arg types so the compat check sees substituted param types.
+                // Method-level type params: explicit turbofish wins; otherwise
+                // infer from arg types.
                 if (!chosen_method->type_params.empty()) {
-                    StrMap<TypeRef> bindings(
-                        self_subst.begin(), self_subst.end());
-                    for (uint64_t i = 0; i < arg_exprs.size(); ++i) {
-                        if (i + 1 >= chosen_method->param_types.size()) break;
-                        auto pt0 = subst_type_sema(chosen_method->param_types[i + 1], self_subst);
-                        unify_types(pt0, arg_exprs[i]->type, bindings);
-                    }
-                    for (auto& tp : chosen_method->type_params) {
-                        auto it = bindings.find(tp.name);
-                        if (it != bindings.end() && it->second)
-                            self_subst[tp.name] = it->second;
+                    if (!user_type_args.empty()) {
+                        for (size_t i = 0; i < chosen_method->type_params.size() && i < user_type_args.size(); ++i)
+                            self_subst[chosen_method->type_params[i].name] = user_type_args[i];
+                    } else {
+                        StrMap<TypeRef> bindings(
+                            self_subst.begin(), self_subst.end());
+                        for (uint64_t i = 0; i < arg_exprs.size(); ++i) {
+                            if (i + 1 >= chosen_method->param_types.size()) break;
+                            auto pt0 = subst_type_sema(chosen_method->param_types[i + 1], self_subst);
+                            unify_types(pt0, arg_exprs[i]->type, bindings);
+                        }
+                        for (auto& tp : chosen_method->type_params) {
+                            auto it = bindings.find(tp.name);
+                            if (it != bindings.end() && it->second)
+                                self_subst[tp.name] = it->second;
+                        }
                     }
                 }
                 for (uint64_t i = 0; i < arg_exprs.size(); ++i) {
@@ -3027,11 +3177,23 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
 
     auto sname = struct_name_from_type(recv->type);
 
+    // ARGS shape: legacy alt has flat array, turbofish alt wraps as
+    // { ITEMS: [...] } (mirroring GENERIC_CALL / STATIC_CALL).
     std::vector<lir::LExprPtr> arg_exprs;
     if (node.has_key(la::ARGS)) {
-        auto args = arr_of(node.get(la::ARGS.code));
-        for (uint64_t i = 0; i < args.size(); ++i)
-            arg_exprs.push_back(lower_expr(map_of(args.get(i))));
+        auto args_av = node.get(la::ARGS.code);
+        if (!user_type_args.empty()) {
+            auto args_map = map_of(args_av);
+            if (args_map.has_key(la::ITEMS)) {
+                auto items = arr_of(args_map.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i)
+                    arg_exprs.push_back(lower_expr(map_of(items.get(i))));
+            }
+        } else {
+            auto args = arr_of(args_av);
+            for (uint64_t i = 0; i < args.size(); ++i)
+                arg_exprs.push_back(lower_expr(map_of(args.get(i))));
+        }
     }
 
     // For primitive types, non-generic enums, etc.: try TypeName__method
@@ -4018,6 +4180,11 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                     if (!t) return false;
                     using K = LogosType::Kind;
                     if (t.kind() == K::TypeVar) return true;
+                    // CfgSlotType / AssocType reference type-params indirectly
+                    // (cfg_name / assoc_base). Treat as "may resolve later" so
+                    // sema defers comparison to mono-time substitution.
+                    if (t.kind() == K::CfgSlotType) return true;
+                    if (t.kind() == K::AssocType) return true;
                     if (t.elem() && has_tv(t.elem())) return true;
                     if (t.pointee() && has_tv(t.pointee())) return true;
                     for (auto a : t.type_args()) if (has_tv(a)) return true;

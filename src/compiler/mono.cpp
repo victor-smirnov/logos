@@ -289,6 +289,26 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                             break;
                         }
                 }
+                if (!concrete_t) {
+                    // Scalar candidate (`impl Trait for u64` etc.) — build
+                    // the appropriate scalar LogosType directly.
+                    LogosType::Kind sk = LogosType::Kind::Error;
+                    if      (concrete == "u8")   sk = LogosType::Kind::U8;
+                    else if (concrete == "u16")  sk = LogosType::Kind::U16;
+                    else if (concrete == "u32")  sk = LogosType::Kind::U32;
+                    else if (concrete == "u64")  sk = LogosType::Kind::U64;
+                    else if (concrete == "i8")   sk = LogosType::Kind::I8;
+                    else if (concrete == "i16")  sk = LogosType::Kind::I16;
+                    else if (concrete == "i32")  sk = LogosType::Kind::I32;
+                    else if (concrete == "i64")  sk = LogosType::Kind::I64;
+                    else if (concrete == "f32")  sk = LogosType::Kind::F32;
+                    else if (concrete == "f64")  sk = LogosType::Kind::F64;
+                    else if (concrete == "bool") sk = LogosType::Kind::Bool;
+                    if (sk != LogosType::Kind::Error) {
+                        LogosTypeBuilder pt; pt.kind = sk;
+                        concrete_t = out_.type_pool.alloc(std::move(pt));
+                    }
+                }
                 if (!concrete_t) continue;
                 subst[bi.target_typevar] = concrete_t;
                 auto cloned = clone_fn(tfn, subst);
@@ -322,6 +342,18 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         scan_fn(fn_ref);
         ++stats_.fn_clones;
     }
+
+    // GENERIC_REF (slice 1): drain the side-table populated by sema. Each
+    // entry is `(base, mangled, type_args)` produced by lower_generic_ref;
+    // mono enqueues an instantiation just like a generic-call site would.
+    // Runs after non-generic scan so any chained refs/calls discovered there
+    // are already in the worklist.
+    for (auto& gr : in_.generic_refs)
+        enqueue_if_needed(gr.mangled, gr.type_args);
+    // Mirror into out_ so cloned bodies that re-introduce these refs through
+    // subst (slice 2) can find them; for slice 1 this is mostly belt-and-
+    // braces (the VarRef name is fully baked at sema time).
+    out_.generic_refs = in_.generic_refs;
 
     // Process function work-list.
     note_fn_worklist_size(worklist_.size());

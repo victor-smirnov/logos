@@ -1,0 +1,171 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// std.data.persistent.bt.mutate — write-side parts on the post Phase-A
+// node split. insert_rec / remove_rec take *mut NodeBase, dispatch on
+// is_leaf, cast to LeafNode / BranchNode for typed access. Splits
+// honour separate fanout limits (branch small, leaf large) read from
+// CFG via bt.descent. InsertOutcome.right is *mut NodeBase — the new
+// sibling has the same kind as the splitting node.
+//
+// Insert hook: replace-on-hit (PMap MAX semantics). PSet would
+// override this branch when materialised.
+
+package std.data.persistent.bt.mutate;
+
+use std.data.persistent.bt.node;
+use std.data.persistent.bt.cow;
+use std.data.persistent.bt.descent;
+use std.lang.cmp;
+use std.lang.ord;
+use std.lang.datatypes;
+use std.hermes.view;
+use std.hermes.anyval;
+
+pub struct InsertOutcome<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic> {
+    pub hit:   bool,
+    pub split: bool,
+    pub right: *mut NodeBase<K, V, CFG>,
+}
+
+fn node_split_leaf_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>) -> *mut NodeBase<K, V, CFG> {
+    unsafe {
+        let leaf: *mut LeafNode<K, V, CFG> = node as *mut LeafNode<K, V, CFG>;
+        let cap: u64 = leaf.keys.len();
+        let mid: u64 = cap / 2u64;
+        let right_base: *mut NodeBase<K, V, CFG> = node_alloc_c::<K, V, CFG>();
+        let right: *mut LeafNode<K, V, CFG> = right_base as *mut LeafNode<K, V, CFG>;
+        let mut i: u64 = mid;
+        while i < cap {
+            let kv: K::ViewInStore = leaf.keys.get(i);
+            let vv: V::ViewInStore = leaf.vals.get(i);
+            right.keys.push(kv);
+            right.vals.push(vv);
+            i = i + 1u64;
+        }
+        while leaf.keys.len() > mid { leaf.keys.remove_at(leaf.keys.len() - 1u64); }
+        while leaf.vals.len() > mid { leaf.vals.remove_at(leaf.vals.len() - 1u64); }
+        node.n        = leaf.keys.len() as u16;
+        right_base.n  = right.keys.len() as u16;
+        return right_base;
+    }
+}
+
+fn node_split_internal_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>) -> *mut NodeBase<K, V, CFG> {
+    unsafe {
+        let br: *mut BranchNode<K, V, CFG> = node as *mut BranchNode<K, V, CFG>;
+        let cap: u64 = br.keys.len();
+        let mid: u64 = cap / 2u64;
+        let right_base: *mut NodeBase<K, V, CFG> = node_alloc_internal_c::<K, V, CFG>();
+        let right: *mut BranchNode<K, V, CFG> = right_base as *mut BranchNode<K, V, CFG>;
+        let mut i: u64 = mid;
+        while i < cap {
+            let kv: K::ViewInStore = br.keys.get(i);
+            right.keys.push(kv);
+            i = i + 1u64;
+        }
+        let nc: u64 = br.children.len;
+        let mut j: u64 = mid + 1u64;
+        while j < nc {
+            let c: *mut NodeBase<K, V, CFG> = br.children.get(j);
+            right.children.push(c);
+            j = j + 1u64;
+        }
+        while br.keys.len()    > mid             { br.keys.remove_at(br.keys.len() - 1u64); }
+        while br.children.len  > mid + 1u64      { br.children.remove_at(br.children.len - 1u64); }
+        node.n       = br.keys.len() as u16;
+        right_base.n = right.keys.len() as u16;
+        return right_base;
+    }
+}
+
+pub fn node_insert_rec_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>, key: K::ViewInStore, val: V::ViewInStore, qkey: *const K) -> InsertOutcome<K, V, CFG> {
+    unsafe {
+        let zero_node: *mut NodeBase<K, V, CFG> = 0 as *mut NodeBase<K, V, CFG>;
+        if node.is_leaf {
+            let leaf: *mut LeafNode<K, V, CFG> = node as *mut LeafNode<K, V, CFG>;
+            let max_keys_l: u64 = node_max_keys_leaf_c::<CFG>();
+            let pos: u64 = node_lower_bound_c::<K, V, CFG>(node, qkey);
+            if pos < leaf.keys.len() {
+                let kv: K::ViewInStore = leaf.keys.get(pos);
+                let phantom: *const K = 0 as *const K;
+                match phantom.cmp_view_key(kv, qkey) {
+                    Ordering::Equal => {
+                        leaf.vals.set(pos, val);
+                        return InsertOutcome::<K, V, CFG> { hit: true, split: false, right: zero_node };
+                    }
+                    _ => { }
+                }
+            }
+            leaf.keys.insert_at(pos, key);
+            leaf.vals.insert_at(pos, val);
+            node.n = node.n + 1u16;
+            if leaf.keys.len() > max_keys_l {
+                let right: *mut NodeBase<K, V, CFG> = node_split_leaf_c::<K, V, CFG>(node);
+                return InsertOutcome::<K, V, CFG> { hit: false, split: true, right: right };
+            }
+            return InsertOutcome::<K, V, CFG> { hit: false, split: false, right: zero_node };
+        }
+        let br: *mut BranchNode<K, V, CFG> = node as *mut BranchNode<K, V, CFG>;
+        let max_keys_b: u64 = node_max_keys_branch_c::<CFG>();
+        let i: u64 = node_descend_idx_c::<K, V, CFG>(node, qkey);
+        node_make_child_unique_c::<K, V, CFG>(node, i);
+        let child: *mut NodeBase<K, V, CFG> = br.children.get(i);
+        let mut inner: InsertOutcome<K, V, CFG> = node_insert_rec_c::<K, V, CFG>(child, key, val, qkey);
+        if inner.hit {
+            return InsertOutcome::<K, V, CFG> { hit: true, split: false, right: zero_node };
+        }
+        if !inner.split {
+            return InsertOutcome::<K, V, CFG> { hit: false, split: false, right: zero_node };
+        }
+        let inner_right: *mut NodeBase<K, V, CFG> = inner.right;
+        // Pull the separator key from the right sibling. For a leaf
+        // the separator is right's first key (kept). For a branch the
+        // separator is right's first key (consumed — branches don't
+        // store the separator on themselves).
+        let sep: K::ViewInStore = if inner_right.is_leaf {
+            let irl: *mut LeafNode<K, V, CFG> = inner_right as *mut LeafNode<K, V, CFG>;
+            irl.keys.get(0u64)
+        } else {
+            let irb: *mut BranchNode<K, V, CFG> = inner_right as *mut BranchNode<K, V, CFG>;
+            irb.keys.get(0u64)
+        };
+        br.keys.insert_at(i, sep);
+        br.children.insert_at(i + 1u64, inner_right);
+        if !inner_right.is_leaf {
+            let irb: *mut BranchNode<K, V, CFG> = inner_right as *mut BranchNode<K, V, CFG>;
+            irb.keys.remove_at(0u64);
+            inner_right.n = irb.keys.len() as u16;
+        }
+        node.n = node.n + 1u16;
+        if br.keys.len() > max_keys_b {
+            let right2: *mut NodeBase<K, V, CFG> = node_split_internal_c::<K, V, CFG>(node);
+            return InsertOutcome::<K, V, CFG> { hit: false, split: true, right: right2 };
+        }
+        return InsertOutcome::<K, V, CFG> { hit: false, split: false, right: zero_node };
+    }
+}
+
+pub fn node_remove_at_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>, idx: u64) {
+    unsafe {
+        let leaf: *mut LeafNode<K, V, CFG> = node as *mut LeafNode<K, V, CFG>;
+        leaf.keys.remove_at(idx);
+        leaf.vals.remove_at(idx);
+        node.n = node.n - 1u16;
+    }
+}
+
+pub fn node_remove_rec_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>, key: *const K) -> bool {
+    unsafe {
+        if node.is_leaf {
+            let idx: i64 = node_find_c::<K, V, CFG>(node, key);
+            if idx < 0i64 { return false; }
+            node_remove_at_c::<K, V, CFG>(node, idx as u64);
+            return true;
+        }
+        let br: *mut BranchNode<K, V, CFG> = node as *mut BranchNode<K, V, CFG>;
+        let i: u64 = node_descend_idx_c::<K, V, CFG>(node, key);
+        node_make_child_unique_c::<K, V, CFG>(node, i);
+        let child: *mut NodeBase<K, V, CFG> = br.children.get(i);
+        return node_remove_rec_c::<K, V, CFG>(child, key);
+    }
+}

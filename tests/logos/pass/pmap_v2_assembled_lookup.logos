@@ -86,7 +86,7 @@ fn assemble_map<const ASMCFG: HermesStatic>() -> QuoteItemBlob {
         // antiquot — so we duplicate the impl block instead.
         if is_binary {
             return quote_item! {
-                pub struct #nm_id { pub handle: PMapMut<#k_id, #v_id, #cfg_id>, }
+                pub struct #nm_id { pub handle: PMapMut<#cfg_id>, }
                 impl #nm_id {
                     pub fn contains(&self, key: *const #k_id) -> bool {
                         unsafe {
@@ -107,7 +107,7 @@ fn assemble_map<const ASMCFG: HermesStatic>() -> QuoteItemBlob {
             };
         }
         return quote_item! {
-            pub struct #nm_id { pub handle: PMapMut<#k_id, #v_id, #cfg_id>, }
+            pub struct #nm_id { pub handle: PMapMut<#cfg_id>, }
             impl #nm_id {
                 pub fn contains(&self, key: *const #k_id) -> bool {
                     unsafe {
@@ -145,33 +145,33 @@ metacall assemble_map::<@{
     "lookup":    "binary",
 }>();
 
-unsafe fn populate_lin(pm: *mut PMapMut<U64Key, U64Val, CfgLin>) {
+unsafe fn populate_lin(pm: *mut PMapMut<CfgLin>) {
     let k1: U64Key = U64Key { x: 10u64 };
     let k2: U64Key = U64Key { x: 20u64 };
     let k3: U64Key = U64Key { x: 30u64 };
     let k4: U64Key = U64Key { x: 40u64 };
-    let _ = pmap_mut_insert::<U64Key, U64Val, CfgLin>(pm, 10u64, 100u64, &k1 as *const U64Key);
-    let _ = pmap_mut_insert::<U64Key, U64Val, CfgLin>(pm, 20u64, 200u64, &k2 as *const U64Key);
-    let _ = pmap_mut_insert::<U64Key, U64Val, CfgLin>(pm, 30u64, 300u64, &k3 as *const U64Key);
-    let _ = pmap_mut_insert::<U64Key, U64Val, CfgLin>(pm, 40u64, 400u64, &k4 as *const U64Key);
+    let _ = pmap_mut_insert::<CfgLin>(pm, 10u64, 100u64, &k1 as *const U64Key);
+    let _ = pmap_mut_insert::<CfgLin>(pm, 20u64, 200u64, &k2 as *const U64Key);
+    let _ = pmap_mut_insert::<CfgLin>(pm, 30u64, 300u64, &k3 as *const U64Key);
+    let _ = pmap_mut_insert::<CfgLin>(pm, 40u64, 400u64, &k4 as *const U64Key);
 }
 
-unsafe fn populate_bin(pm: *mut PMapMut<U64Key, U64Val, CfgBin>) {
+unsafe fn populate_bin(pm: *mut PMapMut<CfgBin>) {
     let k1: U64Key = U64Key { x: 10u64 };
     let k2: U64Key = U64Key { x: 20u64 };
     let k3: U64Key = U64Key { x: 30u64 };
     let k4: U64Key = U64Key { x: 40u64 };
-    let _ = pmap_mut_insert::<U64Key, U64Val, CfgBin>(pm, 10u64, 100u64, &k1 as *const U64Key);
-    let _ = pmap_mut_insert::<U64Key, U64Val, CfgBin>(pm, 20u64, 200u64, &k2 as *const U64Key);
-    let _ = pmap_mut_insert::<U64Key, U64Val, CfgBin>(pm, 30u64, 300u64, &k3 as *const U64Key);
-    let _ = pmap_mut_insert::<U64Key, U64Val, CfgBin>(pm, 40u64, 400u64, &k4 as *const U64Key);
+    let _ = pmap_mut_insert::<CfgBin>(pm, 10u64, 100u64, &k1 as *const U64Key);
+    let _ = pmap_mut_insert::<CfgBin>(pm, 20u64, 200u64, &k2 as *const U64Key);
+    let _ = pmap_mut_insert::<CfgBin>(pm, 30u64, 300u64, &k3 as *const U64Key);
+    let _ = pmap_mut_insert::<CfgBin>(pm, 40u64, 400u64, &k4 as *const U64Key);
 }
 
 unsafe fn main() -> i32 {
     // ── MapLin: linear-lookup AssembledMap ─────────────────────────
-    let mut pm_lin: PMapMut<U64Key, U64Val, CfgLin> =
-        pmap_mut_new::<U64Key, U64Val, CfgLin>();
-    populate_lin(&mut pm_lin as *mut PMapMut<U64Key, U64Val, CfgLin>);
+    let mut pm_lin: PMapMut<CfgLin> =
+        pmap_mut_new::<CfgLin>();
+    populate_lin(&mut pm_lin as *mut PMapMut<CfgLin>);
     let lin: MapLin = MapLin { handle: pm_lin };
 
     let probe: U64Key = U64Key { x: 30u64 };
@@ -184,9 +184,9 @@ unsafe fn main() -> i32 {
     if out != 300u64 { return 5; }
 
     // ── MapBin: binary-lookup AssembledMap ─────────────────────────
-    let mut pm_bin: PMapMut<U64Key, U64Val, CfgBin> =
-        pmap_mut_new::<U64Key, U64Val, CfgBin>();
-    populate_bin(&mut pm_bin as *mut PMapMut<U64Key, U64Val, CfgBin>);
+    let mut pm_bin: PMapMut<CfgBin> =
+        pmap_mut_new::<CfgBin>();
+    populate_bin(&mut pm_bin as *mut PMapMut<CfgBin>);
     let bin: MapBin = MapBin { handle: pm_bin };
 
     if bin.len() != 4u64 { return 6; }
@@ -195,7 +195,7 @@ unsafe fn main() -> i32 {
     if !bin.get(&probe as *const U64Key, &mut out as *mut u64) { return 9; }
     if out != 300u64 { return 10; }
 
-    pmap_mut_drop::<U64Key, U64Val, CfgLin>(&mut lin.handle as *mut PMapMut<U64Key, U64Val, CfgLin>);
-    pmap_mut_drop::<U64Key, U64Val, CfgBin>(&mut bin.handle as *mut PMapMut<U64Key, U64Val, CfgBin>);
+    pmap_mut_drop::<CfgLin>(&mut lin.handle as *mut PMapMut<CfgLin>);
+    pmap_mut_drop::<CfgBin>(&mut bin.handle as *mut PMapMut<CfgBin>);
     return 0;
 }

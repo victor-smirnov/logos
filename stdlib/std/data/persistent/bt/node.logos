@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// std.data.persistent.bt.node — node shapes for the general
+// componentized B+tree, post Phase-A split.
+//
+//   • NodeBase   — header shared by branch and leaf: rc + n + is_leaf.
+//                  Pointers between nodes (children slots, iter frame
+//                  stack, PMapView root) are `*mut NodeBase<K,V,CFG>`.
+//                  Header access through that pointer is direct
+//                  (rc/n/is_leaf are at offset 0 of either subtype
+//                  thanks to NodeBase being the FIRST field).
+//   • BranchNode — keys + children. Small fanout (CFG "fanout_branch"
+//                  or "fanout").
+//   • LeafNode   — keys + vals. Can be much larger (CFG "fanout_leaf"
+//                  or "fanout"). Big leaves give long flat scans
+//                  between iter frame transitions and amortise
+//                  descent.
+//
+// All three structs are generic over <K, V, CFG> so pointers carry
+// full type identity. Phantom-style use of K/V in NodeBase is
+// intentional — keeps `*mut NodeBase<K,V,CFG>` distinct per tree.
+//
+// `BTreeNode` is kept as a type alias for `NodeBase` so existing
+// callers using the unified-name form keep compiling.
+
+package std.data.persistent.bt.node;
+
+use std.lang.cmp;
+use std.lang.ord;
+use std.lang.datatypes;
+use std.hermes.view;
+use std.hermes.anyval;
+
+pub struct NodeBase<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic> {
+    pub rc:      u64,
+    pub n:       u16,
+    pub is_leaf: bool,
+}
+
+pub struct BranchNode<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic> {
+    pub base:     NodeBase<K, V, CFG>,
+    pub keys:     Buffer<K>,
+    pub children: PrimVec<*mut NodeBase<K, V, CFG>>,
+}
+
+pub struct LeafNode<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic> {
+    pub base: NodeBase<K, V, CFG>,
+    pub keys: Buffer<K>,
+    pub vals: Buffer<V>,
+}

@@ -1087,6 +1087,7 @@ private:
                                       std::vector<TypeRef> type_args,
                                       std::vector<lir::LExprPtr> arg_exprs);
     lir::LExprPtr lower_generic_call(hermes::TinyMapView node);
+    lir::LExprPtr lower_generic_ref(hermes::TinyMapView node);
     lir::LExprPtr lower_method_call(hermes::TinyMapView node);
     lir::LExprPtr lower_field_read(hermes::TinyMapView node);
     lir::LExprPtr lower_struct_lit(hermes::TinyMapView node);

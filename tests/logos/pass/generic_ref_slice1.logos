@@ -1,0 +1,26 @@
+// Slice 1: GENERIC_REF — `IDENT::<TARGS>` as expression value.
+// Concrete TARGS only (no TypeVars from outer body).
+package generic_ref_slice1;
+
+fn id_generic<T>(x: T) -> T { return x; }
+
+fn add_one_generic<T>(x: T) -> T { return x + 1; }
+
+fn main() -> i32 {
+    // Take a fn-pointer to monomorphised id_generic::<i32>.
+    let f: fn(i32) -> i32 = id_generic::<i32>;
+    let r1: i32 = f(7);
+    if r1 != 7 { return 1; }
+
+    // Different instantiation, same generic.
+    let g: fn(u64) -> u64 = id_generic::<u64>;
+    let r2: u64 = g(123u64);
+    if r2 != 123u64 { return 2; }
+
+    // Different generic.
+    let h: fn(i32) -> i32 = add_one_generic::<i32>;
+    let r3: i32 = h(41);
+    if r3 != 42 { return 3; }
+
+    return 42;
+}

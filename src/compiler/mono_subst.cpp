@@ -124,15 +124,32 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         // Resolve: recursively substitute the base, then look up TraitName::ConcreteType::AssocName
         auto subbed_base = subst_type(tv.assoc_base(), s);
         TypeRef sbv{subbed_base};
+        // Scalar kinds (u64/i32/bool/...) — concrete_base is the type's
+        // canonical name. Lets bare scalars resolve assoc types via the
+        // Primitive→Container blanket chain in stdlib.
+        bool scalar_base = false;
+        switch (sbv.kind()) {
+            case LogosType::Kind::Bool:
+            case LogosType::Kind::I8:  case LogosType::Kind::I16:
+            case LogosType::Kind::I32: case LogosType::Kind::I64:
+            case LogosType::Kind::U8:  case LogosType::Kind::U16:
+            case LogosType::Kind::U32: case LogosType::Kind::U64:
+            case LogosType::Kind::F32: case LogosType::Kind::F64:
+                scalar_base = true; break;
+            default: break;
+        }
         if (sbv.kind() == LogosType::Kind::Struct ||
             sbv.kind() == LogosType::Kind::ZonedStruct ||
-            sbv.kind() == LogosType::Kind::Enum) {
+            sbv.kind() == LogosType::Kind::Enum ||
+            scalar_base) {
             std::string concrete_base;
             if (sbv.kind() == LogosType::Kind::Struct ||
                 sbv.kind() == LogosType::Kind::ZonedStruct)
                 concrete_base = concrete_struct_name(subbed_base);
-            else
+            else if (sbv.kind() == LogosType::Kind::Enum)
                 concrete_base = std::string(sbv.enum_name());
+            else
+                concrete_base = type_str(subbed_base);
 
             std::string key = std::string(tv.trait_name()) + "::" + concrete_base + "::" + std::string(tv.assoc_type_name());
             auto ait = assoc_impls_.find(key);
@@ -166,6 +183,68 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
             LogosTypeBuilder nt = tv.to_builder();
             nt.assoc_base = subbed_base;
             return out_.type_pool.alloc(std::move(nt));
+        }
+        return tv;
+    }
+    case LogosType::Kind::CfgSlotType: {
+        // <type:CFG.SLOT> — extract the type stored at top-level slot SLOT
+        // of HermesStatic-bound CFG. CFG can be a const-generic param
+        // (resolves through `s`) or a type alias to an HStaticLit (already
+        // a concrete bound when type aliases are inlined). When CFG is not
+        // yet concrete, stay deferred.
+        std::string cfg_name = std::string(tv.type_var_name());
+        std::string slot_key = std::string(tv.assoc_type_name());
+        TypeRef cfg = nullptr;
+        auto sit = s.find(cfg_name);
+        if (sit != s.end()) cfg = sit->second;
+        if (cfg) cfg = subst_type(cfg, s);
+        if (!cfg || TypeRef(cfg).kind() != LogosType::Kind::HStaticLit) return tv;
+        uint64_t hash = (uint64_t)cfg.const_val().value_or(0);
+        auto rit = out_.hstatic_registry_.find(hash);
+        if (rit == out_.hstatic_registry_.end()) return tv;
+        if (!rit->second || rit->second->mirror_offset_ == hermes::arena_offset_t{}) return tv;
+        lir_view::ExprRef eref(out_.type_pool.arena(), rit->second->mirror_offset_);
+        if (eref.kind() != lir_schema::expr::Code::HermesLit) return tv;
+        auto root = lir_view::EHermesLitView{eref}.root();
+        if (root.kind() != lir_schema::hermes_val::Code::Map) return tv;
+        auto map = lir_view::HVMapView{root};
+        if (map.int_keyed()) return tv;
+        for (uint64_t i = 0, n = map.size(); i < n; ++i) {
+            if (map.str_key(i) != slot_key) continue;
+            auto vref = map.value(i);
+            if (vref.kind() != lir_schema::hermes_val::Code::Type) return tv;
+            std::string tname(lir_view::HVTypeView{vref}.name());
+            auto alloc_kind = [&](LogosType::Kind k) -> TypeRef {
+                LogosTypeBuilder b; b.kind = k;
+                return out_.type_pool.alloc(std::move(b));
+            };
+            if (tname == "u8")   return alloc_kind(LogosType::Kind::U8);
+            if (tname == "u16")  return alloc_kind(LogosType::Kind::U16);
+            if (tname == "u32")  return alloc_kind(LogosType::Kind::U32);
+            if (tname == "u64")  return alloc_kind(LogosType::Kind::U64);
+            if (tname == "i8")   return alloc_kind(LogosType::Kind::I8);
+            if (tname == "i16")  return alloc_kind(LogosType::Kind::I16);
+            if (tname == "i32")  return alloc_kind(LogosType::Kind::I32);
+            if (tname == "i64")  return alloc_kind(LogosType::Kind::I64);
+            if (tname == "f32")  return alloc_kind(LogosType::Kind::F32);
+            if (tname == "f64")  return alloc_kind(LogosType::Kind::F64);
+            if (tname == "bool") return alloc_kind(LogosType::Kind::Bool);
+            for (auto& sd : out_.structs)
+                if (sd.name == tname) {
+                    LogosTypeBuilder b;
+                    b.kind = sd.is_zoned ? LogosType::Kind::ZonedStruct
+                                         : LogosType::Kind::Struct;
+                    b.struct_name = tname;
+                    return out_.type_pool.alloc(std::move(b));
+                }
+            for (auto& ed : out_.enums)
+                if (ed.name == tname) {
+                    LogosTypeBuilder b;
+                    b.kind = LogosType::Kind::Enum;
+                    b.enum_name = tname;
+                    return out_.type_pool.alloc(std::move(b));
+                }
+            return tv;
         }
         return tv;
     }

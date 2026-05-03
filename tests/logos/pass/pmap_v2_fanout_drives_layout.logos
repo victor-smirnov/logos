@@ -34,34 +34,34 @@ impl Primitive for U64Val { type Prim = u64; }
 pub type CfgF2 = @{ "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 2 };
 pub type CfgF8 = @{ "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 8 };
 
-unsafe fn populate6<const CFG: HermesStatic>(pm: *mut PMapMut<U64Key, U64Val, CFG>) -> u64 {
+unsafe fn populate6<const CFG: HermesStatic>(pm: *mut PMapMut<CFG>) -> u64 {
     let k1: U64Key = U64Key { x: 10u64 };
     let k2: U64Key = U64Key { x: 20u64 };
     let k3: U64Key = U64Key { x: 30u64 };
     let k4: U64Key = U64Key { x: 40u64 };
     let k5: U64Key = U64Key { x: 50u64 };
     let k6: U64Key = U64Key { x: 60u64 };
-    let _ = pmap_mut_insert::<U64Key, U64Val, CFG>(pm, 10u64, 100u64, &k1 as *const U64Key);
-    let _ = pmap_mut_insert::<U64Key, U64Val, CFG>(pm, 20u64, 200u64, &k2 as *const U64Key);
-    let _ = pmap_mut_insert::<U64Key, U64Val, CFG>(pm, 30u64, 300u64, &k3 as *const U64Key);
-    let _ = pmap_mut_insert::<U64Key, U64Val, CFG>(pm, 40u64, 400u64, &k4 as *const U64Key);
-    let _ = pmap_mut_insert::<U64Key, U64Val, CFG>(pm, 50u64, 500u64, &k5 as *const U64Key);
-    let _ = pmap_mut_insert::<U64Key, U64Val, CFG>(pm, 60u64, 600u64, &k6 as *const U64Key);
+    let _ = pmap_mut_insert::<CFG>(pm, 10u64, 100u64, &k1 as *const <type:CFG.key>);
+    let _ = pmap_mut_insert::<CFG>(pm, 20u64, 200u64, &k2 as *const <type:CFG.key>);
+    let _ = pmap_mut_insert::<CFG>(pm, 30u64, 300u64, &k3 as *const <type:CFG.key>);
+    let _ = pmap_mut_insert::<CFG>(pm, 40u64, 400u64, &k4 as *const <type:CFG.key>);
+    let _ = pmap_mut_insert::<CFG>(pm, 50u64, 500u64, &k5 as *const <type:CFG.key>);
+    let _ = pmap_mut_insert::<CFG>(pm, 60u64, 600u64, &k6 as *const <type:CFG.key>);
     return pm.view.len();
 }
 
 unsafe fn main() -> i32 {
     // fanout=2 → splits at 3+ keys; six keys → root is internal (split).
-    let mut pm2: PMapMut<U64Key, U64Val, CfgF2> = pmap_mut_new::<U64Key, U64Val, CfgF2>();
-    let pm2p: *mut PMapMut<U64Key, U64Val, CfgF2> =
-        &mut pm2 as *mut PMapMut<U64Key, U64Val, CfgF2>;
+    let mut pm2: PMapMut<CfgF2> = pmap_mut_new::<CfgF2>();
+    let pm2p: *mut PMapMut<CfgF2> =
+        &mut pm2 as *mut PMapMut<CfgF2>;
     if populate6::<CfgF2>(pm2p) != 6u64 { return 1; }
     if pm2.view.root.is_leaf { return 2; }   // fanout=2: must have split
 
     // fanout=8 → six keys fit in one leaf; root is still a leaf.
-    let mut pm8: PMapMut<U64Key, U64Val, CfgF8> = pmap_mut_new::<U64Key, U64Val, CfgF8>();
-    let pm8p: *mut PMapMut<U64Key, U64Val, CfgF8> =
-        &mut pm8 as *mut PMapMut<U64Key, U64Val, CfgF8>;
+    let mut pm8: PMapMut<CfgF8> = pmap_mut_new::<CfgF8>();
+    let pm8p: *mut PMapMut<CfgF8> =
+        &mut pm8 as *mut PMapMut<CfgF8>;
     if populate6::<CfgF8>(pm8p) != 6u64 { return 3; }
     if !pm8.view.root.is_leaf { return 4; }   // fanout=8: still a single leaf
 
@@ -74,7 +74,7 @@ unsafe fn main() -> i32 {
     if !pm8.view.get(&probe as *const U64Key, &mut out8 as *mut u64) { return 7; }
     if out8 != 300u64 { return 8; }
 
-    pmap_mut_drop::<U64Key, U64Val, CfgF2>(pm2p);
-    pmap_mut_drop::<U64Key, U64Val, CfgF8>(pm8p);
+    pmap_mut_drop::<CfgF2>(pm2p);
+    pmap_mut_drop::<CfgF8>(pm8p);
     return 0;
 }

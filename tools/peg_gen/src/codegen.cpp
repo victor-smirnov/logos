@@ -458,6 +458,26 @@ private:
         return false;
     }
 
+    // Returns true if any item tree references the LT_TYPE pseudo-token.
+    static bool items_use_lt_type(const std::vector<Item>& items) {
+        for (const auto& item : items) {
+            if (item.kind == int32_t(ast::TOKEN_REF) && item.name == "LT_TYPE")
+                return true;
+            if (items_use_lt_type(item.sub_items)) return true;
+            for (const auto& sa : item.sub_alts)
+                if (items_use_lt_type(sa.seq)) return true;
+        }
+        return false;
+    }
+
+    // Returns true if any rule in the grammar references the LT_TYPE pseudo-token.
+    static bool grammar_uses_lt_type(const GrammarInfo& g) {
+        for (const auto& rule : g.rules)
+            for (const auto& alt : rule.alts)
+                if (items_use_lt_type(alt.seq)) return true;
+        return false;
+    }
+
     static bool action_has_array_capture(const Action& action) {
         for (const auto& f : action.fields)
             if (f.expr.kind == int32_t(ast::ARRAY_CAPTURE)) return true;
@@ -674,6 +694,8 @@ private:
             w.line("Token expect_token(TK kind, std::string_view what);");
             if (grammar_uses_gt_type(g_))
                 w.line("bool  try_token_gt(); // GT_TYPE pseudo-token: also splits SHR (>>) into two GTs");
+            if (grammar_uses_lt_type(g_))
+                w.line("bool  try_token_lt(); // LT_TYPE pseudo-token: also splits SHL (<<) into two LTs");
         }
 
         w.line();
@@ -805,6 +827,36 @@ private:
             w.line("    furthest_ = t;");
             w.line("next_token();");
             w.line("la_ = Token{TK::GT, t.text.substr(1, 1), t.line};");
+            w.line("have_la_ = true;");
+            w.line("return true;");
+            w.dedent();
+            w.line("}");
+            w.line("return false;");
+            w.dedent();
+            w.line("}");
+            w.line();
+        }
+
+        // LT_TYPE pseudo-token: accepts TK::LT or splits TK::SHL (<<) into LT + pushed-back LT.
+        // Mirror of try_token_gt; lets type-position contexts admit `<<` as
+        // two opening brackets (e.g. `Foo<<type:CFG.key>>`).
+        if (grammar_uses_lt_type(g_)) {
+            w.fmt("bool {0}::try_token_lt() {{", parser_class_);
+            w.indent();
+            w.line("Token t = peek_token();");
+            w.line("if (t.kind == TK::LT) {");
+            w.indent();
+            w.line("if (t.line > furthest_.line || (t.line == furthest_.line && t.text.data() >= furthest_.text.data()))");
+            w.line("    furthest_ = t;");
+            w.line("next_token(); return true;");
+            w.dedent();
+            w.line("}");
+            w.line("if (t.kind == TK::SHL) {");
+            w.indent();
+            w.line("if (t.line > furthest_.line || (t.line == furthest_.line && t.text.data() >= furthest_.text.data()))");
+            w.line("    furthest_ = t;");
+            w.line("next_token();");
+            w.line("la_ = Token{TK::LT, t.text.substr(1, 1), t.line};");
             w.line("have_la_ = true;");
             w.line("return true;");
             w.dedent();
@@ -1371,6 +1423,12 @@ private:
             // into two '>' tokens to allow nested generics like Foo<Bar<T>>.
             if (item.name == "GT_TYPE") {
                 w.fmt("if (!try_token_gt()) goto {};", fail_label);
+                w.fmt("[[maybe_unused]] AnyVal {} = AnyVal{{}};", cap);
+                break;
+            }
+            // LT_TYPE: mirror of GT_TYPE for opening brackets.
+            if (item.name == "LT_TYPE") {
+                w.fmt("if (!try_token_lt()) goto {};", fail_label);
                 w.fmt("[[maybe_unused]] AnyVal {} = AnyVal{{}};", cap);
                 break;
             }

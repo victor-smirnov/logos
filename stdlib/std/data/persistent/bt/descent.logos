@@ -1,0 +1,231 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// std.data.persistent.bt.descent — read-side navigation parts.
+//
+// Walkers take *mut NodeBase, branch on is_leaf, cast to LeafNode /
+// BranchNode for typed access. In-leaf find (linear / binary) and
+// branch lower-bound; recursive contains/get walkers (one pair per
+// leaf-search strategy); total-size; CFG fanout readers.
+//
+// Asymmetric capacity (post Phase A): branch and leaf can have
+// different max-keys read from CFG slots:
+//   • "fanout_branch" — branch max keys (defaults to "fanout").
+//   • "fanout_leaf"   — leaf   max keys (defaults to "fanout").
+//   • "fanout"        — single value, applied to both unless an
+//                       override is present.
+// All default to 4 if nothing is provided. Branch staying small
+// bounds path-copy cost; leaf can be larger for longer flat scans.
+
+package std.data.persistent.bt.descent;
+
+use std.data.persistent.bt.node;
+use std.lang.cmp;
+use std.lang.ord;
+use std.lang.datatypes;
+use std.hermes.view;
+use std.hermes.anyval;
+
+unsafe fn cfg_int_or<const CFG: HermesStatic>(key: str, dflt: u64) -> u64 {
+    let v = CFG.as_view();
+    let av: AnyVal = v.map_get(v.root(), key);
+    if av.is_null() { return dflt; }
+    if !av.is_int() { return dflt; }
+    return av.as_i64() as u64;
+}
+
+pub unsafe fn node_max_keys_branch_c<const CFG: HermesStatic>() -> u64 {
+    let fb: u64 = cfg_int_or::<CFG>("fanout_branch", 0u64);
+    if fb > 0u64 { return fb; }
+    let f: u64 = cfg_int_or::<CFG>("fanout", 0u64);
+    if f > 0u64 { return f; }
+    return 4u64;
+}
+
+pub unsafe fn node_max_keys_leaf_c<const CFG: HermesStatic>() -> u64 {
+    let fl: u64 = cfg_int_or::<CFG>("fanout_leaf", 0u64);
+    if fl > 0u64 { return fl; }
+    let f: u64 = cfg_int_or::<CFG>("fanout", 0u64);
+    if f > 0u64 { return f; }
+    return 4u64;
+}
+
+// Back-compat: single-fanout reader. New code should pick branch or leaf.
+pub unsafe fn node_max_keys_c<const CFG: HermesStatic>() -> u64 {
+    return node_max_keys_leaf_c::<CFG>();
+}
+
+// ── In-leaf find (linear) ────────────────────────────────────────
+pub fn node_find_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>, key: *const K) -> i64 {
+    unsafe {
+        let leaf: *mut LeafNode<K, V, CFG> = node as *mut LeafNode<K, V, CFG>;
+        let n: u64 = leaf.keys.len();
+        let mut i: u64 = 0u64;
+        let phantom: *const K = 0 as *const K;
+        while i < n {
+            let kv: K::ViewInStore = leaf.keys.get(i);
+            match phantom.cmp_view_key(kv, key) {
+                Ordering::Equal => { return i as i64; }
+                _ => { }
+            }
+            i = i + 1u64;
+        }
+        return -1i64;
+    }
+}
+
+// ── Branch descent index (linear) ────────────────────────────────
+pub fn node_descend_idx_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>, key: *const K) -> u64 {
+    unsafe {
+        let br: *mut BranchNode<K, V, CFG> = node as *mut BranchNode<K, V, CFG>;
+        let n: u64 = br.keys.len();
+        let mut i: u64 = 0u64;
+        let phantom: *const K = 0 as *const K;
+        while i < n {
+            let kv: K::ViewInStore = br.keys.get(i);
+            match phantom.cmp_view_key(kv, key) {
+                Ordering::Greater => { return i; }
+                _ => { }
+            }
+            i = i + 1u64;
+        }
+        return n;
+    }
+}
+
+// ── Lower-bound in a leaf ────────────────────────────────────────
+pub fn node_lower_bound_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>, qkey: *const K) -> u64 {
+    unsafe {
+        let leaf: *mut LeafNode<K, V, CFG> = node as *mut LeafNode<K, V, CFG>;
+        let n: u64 = leaf.keys.len();
+        let mut i: u64 = 0u64;
+        let phantom: *const K = 0 as *const K;
+        while i < n {
+            let kv: K::ViewInStore = leaf.keys.get(i);
+            match phantom.cmp_view_key(kv, qkey) {
+                Ordering::Less => { i = i + 1u64; }
+                _ => { return i; }
+            }
+        }
+        return n;
+    }
+}
+
+// ── Recursive walkers (linear leaf-search) ───────────────────────
+pub fn node_contains_rec_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>, key: *const K) -> bool {
+    unsafe {
+        if node.is_leaf {
+            return node_find_c::<K, V, CFG>(node, key) >= 0i64;
+        }
+        let br: *mut BranchNode<K, V, CFG> = node as *mut BranchNode<K, V, CFG>;
+        let idx: u64 = node_descend_idx_c::<K, V, CFG>(node, key);
+        let child: *mut NodeBase<K, V, CFG> = br.children.get(idx);
+        return node_contains_rec_c::<K, V, CFG>(child, key);
+    }
+}
+
+pub fn node_get_rec_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>, key: *const K, out: *mut V::ViewInStore) -> bool {
+    unsafe {
+        if node.is_leaf {
+            let leaf: *mut LeafNode<K, V, CFG> = node as *mut LeafNode<K, V, CFG>;
+            let idx: i64 = node_find_c::<K, V, CFG>(node, key);
+            if idx < 0i64 { return false; }
+            *out = leaf.vals.get(idx as u64);
+            return true;
+        }
+        let br: *mut BranchNode<K, V, CFG> = node as *mut BranchNode<K, V, CFG>;
+        let i: u64 = node_descend_idx_c::<K, V, CFG>(node, key);
+        let child: *mut NodeBase<K, V, CFG> = br.children.get(i);
+        return node_get_rec_c::<K, V, CFG>(child, key, out);
+    }
+}
+
+pub fn node_size_rec_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>) -> u64 {
+    unsafe {
+        if node.is_leaf {
+            let leaf: *mut LeafNode<K, V, CFG> = node as *mut LeafNode<K, V, CFG>;
+            return leaf.keys.len();
+        }
+        let br: *mut BranchNode<K, V, CFG> = node as *mut BranchNode<K, V, CFG>;
+        let nc: u64 = br.children.len;
+        let mut i: u64 = 0u64;
+        let mut total: u64 = 0u64;
+        while i < nc {
+            let c: *mut NodeBase<K, V, CFG> = br.children.get(i);
+            total = total + node_size_rec_c::<K, V, CFG>(c);
+            i = i + 1u64;
+        }
+        return total;
+    }
+}
+
+// ── In-leaf lower-bound (binary) ─────────────────────────────────
+// First index in the leaf whose key is >= qkey, or n if all keys are
+// strictly less. Same contract as `node_lower_bound_c` but binary.
+pub fn binary_lower_bound_in_leaf_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>, qkey: *const K) -> u64 {
+    unsafe {
+        let leaf: *mut LeafNode<K, V, CFG> = node as *mut LeafNode<K, V, CFG>;
+        let n: u64 = leaf.keys.len();
+        let mut lo: u64 = 0u64;
+        let mut hi: u64 = n;
+        let phantom: *const K = 0 as *const K;
+        while lo < hi {
+            let mid: u64 = (lo + hi) / 2u64;
+            let kv: K::ViewInStore = leaf.keys.get(mid);
+            match phantom.cmp_view_key(kv, qkey) {
+                Ordering::Less => { lo = mid + 1u64; }
+                _ => { hi = mid; }
+            }
+        }
+        return lo;
+    }
+}
+
+// ── In-leaf find (binary) + recursive walkers ────────────────────
+pub fn binary_find_in_leaf_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>, key: *const K) -> i64 {
+    unsafe {
+        let leaf: *mut LeafNode<K, V, CFG> = node as *mut LeafNode<K, V, CFG>;
+        let n: u64 = leaf.keys.len();
+        if n == 0u64 { return -1i64; }
+        let mut lo: i64 = 0i64;
+        let mut hi: i64 = (n as i64) - 1i64;
+        let phantom: *const K = 0 as *const K;
+        while lo <= hi {
+            let mid: i64 = (lo + hi) / 2i64;
+            let kv: K::ViewInStore = leaf.keys.get(mid as u64);
+            match phantom.cmp_view_key(kv, key) {
+                Ordering::Equal => { return mid; }
+                Ordering::Less => { lo = mid + 1i64; }
+                Ordering::Greater => { hi = mid - 1i64; }
+            }
+        }
+        return -1i64;
+    }
+}
+
+pub fn node_contains_rec_binary_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>, key: *const K) -> bool {
+    unsafe {
+        if node.is_leaf {
+            return binary_find_in_leaf_c::<K, V, CFG>(node, key) >= 0i64;
+        }
+        let br: *mut BranchNode<K, V, CFG> = node as *mut BranchNode<K, V, CFG>;
+        let idx: u64 = node_descend_idx_c::<K, V, CFG>(node, key);
+        let child: *mut NodeBase<K, V, CFG> = br.children.get(idx);
+        return node_contains_rec_binary_c::<K, V, CFG>(child, key);
+    }
+}
+
+pub fn node_get_rec_binary_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>, key: *const K, out: *mut V::ViewInStore) -> bool {
+    unsafe {
+        if node.is_leaf {
+            let leaf: *mut LeafNode<K, V, CFG> = node as *mut LeafNode<K, V, CFG>;
+            let idx: i64 = binary_find_in_leaf_c::<K, V, CFG>(node, key);
+            if idx < 0i64 { return false; }
+            *out = leaf.vals.get(idx as u64);
+            return true;
+        }
+        let br: *mut BranchNode<K, V, CFG> = node as *mut BranchNode<K, V, CFG>;
+        let i: u64 = node_descend_idx_c::<K, V, CFG>(node, key);
+        let child: *mut NodeBase<K, V, CFG> = br.children.get(i);
+        return node_get_rec_binary_c::<K, V, CFG>(child, key, out);
+    }
+}

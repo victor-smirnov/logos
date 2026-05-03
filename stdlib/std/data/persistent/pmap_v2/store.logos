@@ -3,16 +3,12 @@
 // std.data.persistent.pmap_v2.store — Store + Snapshot layer for the
 // CFG-parameterised pmap_v2.
 //
-// Mirrors std.data.persistent.store's design, but Snapshot and
-// MutSnapshot now carry the same `<K, V, const CFG: HermesStatic>`
-// triple as PMapView/PMapMut. That way two stores configured with
-// different CFGs are different types — same constructive guarantee
-// the rest of pmap_v2 already gives.
-//
+// `<const CFG: HermesStatic>` is the only generic parameter. K and V
+// are extracted from CFG via `<type:CFG.key>` / `<type:CFG.value>`.
 // LockingStore itself is type-erased (operates on `*mut u8` roots +
 // commit ids), so it's reused as-is from std.data.persistent.store.
-// Only the Snapshot/MutSnapshot wrappers + the typed store_* free fns
-// are new here.
+// Snapshot/MutSnapshot wrappers + the typed store_* free fns are new
+// here.
 //
 // v1 scope: same as the parent module — DAG = tree (parent edge per
 // commit, no merge); no DAG GC; named refs deferred. Adds CFG
@@ -32,113 +28,99 @@ use std.hermes.view;
 
 // Single-threaded immutable view over a frozen tree at a specific
 // commit. CFG carries the configuration the snapshot was taken at.
-pub struct Snapshot<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic> {
-    pub root:      *mut BTreeNode<K, V, CFG>,
+pub struct Snapshot<const CFG: HermesStatic> {
+    pub root:      *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG>,
     pub commit_id: i64,
 }
 
 // Single-threaded mutable handle. Owns 1 rc on `root` until
 // commit/rollback releases it.
-pub struct MutSnapshot<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic> {
-    pub root:      *mut BTreeNode<K, V, CFG>,
+pub struct MutSnapshot<const CFG: HermesStatic> {
+    pub root:      *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG>,
     pub parent_id: i64,
 }
 
-// Begin: take a checkout from `parent` (or build a fresh empty tree
-// if parent == NO_COMMIT), return a mutable handle.
-pub fn pmv2_store_begin<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic, S: StoreOps>(s: *mut S, parent: i64) -> MutSnapshot<K, V, CFG> {
+pub fn pmv2_store_begin<const CFG: HermesStatic, S: StoreOps>(s: *mut S, parent: i64) -> MutSnapshot<CFG> {
     unsafe {
         if parent == NO_COMMIT {
-            let r: *mut BTreeNode<K, V, CFG> = node_alloc_c::<K, V, CFG>();
-            return MutSnapshot::<K, V, CFG> { root: r, parent_id: parent };
+            let r: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> = node_alloc_c::<<type:CFG.key>, <type:CFG.value>, CFG>();
+            return MutSnapshot::<CFG> { root: r, parent_id: parent };
         }
         let raw: *mut u8 = s.get_root(parent);
-        let r: *mut BTreeNode<K, V, CFG> = raw as *mut BTreeNode<K, V, CFG>;
-        node_retain_c::<K, V, CFG>(r);
-        return MutSnapshot::<K, V, CFG> { root: r, parent_id: parent };
+        let r: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> = raw as *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG>;
+        node_retain_c::<<type:CFG.key>, <type:CFG.value>, CFG>(r);
+        return MutSnapshot::<CFG> { root: r, parent_id: parent };
     }
 }
 
-// Commit the mutable handle's current root as a new DAG entry whose
-// parent is `parent_id`. Returns the new commit id. The handle
-// transfers its 1 rc into the DAG entry.
-pub fn pmv2_store_commit<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic, S: StoreOps>(s: *mut S, snap: MutSnapshot<K, V, CFG>) -> i64 {
+pub fn pmv2_store_commit<const CFG: HermesStatic, S: StoreOps>(s: *mut S, snap: MutSnapshot<CFG>) -> i64 {
     unsafe { return s.register_commit(snap.root as *mut u8, snap.parent_id); }
 }
 
-// Rollback: drop the mutable handle without committing. Releases the
-// rc the handle owned.
-pub fn pmv2_store_rollback<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(snap: MutSnapshot<K, V, CFG>) {
-    unsafe { node_release_c::<K, V, CFG>(snap.root); }
+pub fn pmv2_store_rollback<const CFG: HermesStatic>(snap: MutSnapshot<CFG>) {
+    unsafe { node_release_c::<<type:CFG.key>, <type:CFG.value>, CFG>(snap.root); }
 }
 
-// Checkout: take an immutable Snapshot at the given commit id.
-// Bumps the rc so the snapshot keeps the tree alive even if the DAG
-// entry is later rebuilt.
-pub fn pmv2_store_checkout<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic, S: StoreOps>(s: *mut S, id: i64) -> Snapshot<K, V, CFG> {
+pub fn pmv2_store_checkout<const CFG: HermesStatic, S: StoreOps>(s: *mut S, id: i64) -> Snapshot<CFG> {
     unsafe {
         let raw: *mut u8 = s.get_root(id);
-        let r: *mut BTreeNode<K, V, CFG> = raw as *mut BTreeNode<K, V, CFG>;
-        node_retain_c::<K, V, CFG>(r);
-        return Snapshot::<K, V, CFG> { root: r, commit_id: id };
+        let r: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> = raw as *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG>;
+        node_retain_c::<<type:CFG.key>, <type:CFG.value>, CFG>(r);
+        return Snapshot::<CFG> { root: r, commit_id: id };
     }
 }
 
-// Close an immutable Snapshot — releases its rc.
-pub fn pmv2_store_close<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(snap: Snapshot<K, V, CFG>) {
-    unsafe { node_release_c::<K, V, CFG>(snap.root); }
+pub fn pmv2_store_close<const CFG: HermesStatic>(snap: Snapshot<CFG>) {
+    unsafe { node_release_c::<<type:CFG.key>, <type:CFG.value>, CFG>(snap.root); }
 }
 
-// ── Read parts on Snapshot (same shape as PMapView's read parts) ─
+// ── Read parts on Snapshot ───────────────────────────────────────
 
-pub fn pmv2_snapshot_len<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(s: *const Snapshot<K, V, CFG>) -> u64 {
-    unsafe { return node_size_rec_c::<K, V, CFG>(s.root); }
+pub fn pmv2_snapshot_len<const CFG: HermesStatic>(s: *const Snapshot<CFG>) -> u64 {
+    unsafe { return node_size_rec_c::<<type:CFG.key>, <type:CFG.value>, CFG>(s.root); }
 }
 
-pub fn pmv2_snapshot_contains<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(s: *const Snapshot<K, V, CFG>, key: *const K) -> bool {
-    unsafe { return node_contains_rec_c::<K, V, CFG>(s.root, key); }
+pub fn pmv2_snapshot_contains<const CFG: HermesStatic>(s: *const Snapshot<CFG>, key: *const <type:CFG.key>) -> bool {
+    unsafe { return node_contains_rec_c::<<type:CFG.key>, <type:CFG.value>, CFG>(s.root, key); }
 }
 
-pub fn pmv2_snapshot_get<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(s: *const Snapshot<K, V, CFG>, key: *const K, out: *mut V::ViewInStore) -> bool {
-    unsafe { return node_get_rec_c::<K, V, CFG>(s.root, key, out); }
+pub fn pmv2_snapshot_get<const CFG: HermesStatic>(s: *const Snapshot<CFG>, key: *const <type:CFG.key>, out: *mut <type:CFG.value>::ViewInStore) -> bool {
+    unsafe { return node_get_rec_c::<<type:CFG.key>, <type:CFG.value>, CFG>(s.root, key, out); }
 }
 
-// ── Read parts on MutSnapshot ───────────────────────────────────
+// ── Read parts on MutSnapshot ────────────────────────────────────
 
-pub fn pmv2_mut_snapshot_len<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(s: *const MutSnapshot<K, V, CFG>) -> u64 {
-    unsafe { return node_size_rec_c::<K, V, CFG>(s.root); }
+pub fn pmv2_mut_snapshot_len<const CFG: HermesStatic>(s: *const MutSnapshot<CFG>) -> u64 {
+    unsafe { return node_size_rec_c::<<type:CFG.key>, <type:CFG.value>, CFG>(s.root); }
 }
 
-pub fn pmv2_mut_snapshot_contains<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(s: *const MutSnapshot<K, V, CFG>, key: *const K) -> bool {
-    unsafe { return node_contains_rec_c::<K, V, CFG>(s.root, key); }
+pub fn pmv2_mut_snapshot_contains<const CFG: HermesStatic>(s: *const MutSnapshot<CFG>, key: *const <type:CFG.key>) -> bool {
+    unsafe { return node_contains_rec_c::<<type:CFG.key>, <type:CFG.value>, CFG>(s.root, key); }
 }
 
-pub fn pmv2_mut_snapshot_get<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(s: *const MutSnapshot<K, V, CFG>, key: *const K, out: *mut V::ViewInStore) -> bool {
-    unsafe { return node_get_rec_c::<K, V, CFG>(s.root, key, out); }
+pub fn pmv2_mut_snapshot_get<const CFG: HermesStatic>(s: *const MutSnapshot<CFG>, key: *const <type:CFG.key>, out: *mut <type:CFG.value>::ViewInStore) -> bool {
+    unsafe { return node_get_rec_c::<<type:CFG.key>, <type:CFG.value>, CFG>(s.root, key, out); }
 }
 
 // ── Update parts on MutSnapshot — route through pmap_v2's PMapMut ─
-// Briefly wraps the snapshot's root in a PMapMut to reuse the
-// existing CoW + path-copy + grow-root machinery, then writes the
-// possibly-updated root back.
 
-pub fn pmv2_mut_snapshot_insert<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(s: *mut MutSnapshot<K, V, CFG>, key: K::ViewInStore, val: V::ViewInStore, qkey: *const K) -> bool {
+pub fn pmv2_mut_snapshot_insert<const CFG: HermesStatic>(s: *mut MutSnapshot<CFG>, key: <type:CFG.key>::ViewInStore, val: <type:CFG.value>::ViewInStore, qkey: *const <type:CFG.key>) -> bool {
     unsafe {
-        let mut pm: PMapMut<K, V, CFG> = PMapMut::<K, V, CFG> {
-            view: PMapView::<K, V, CFG> { root: s.root },
+        let mut pm: PMapMut<CFG> = PMapMut::<CFG> {
+            view: PMapView::<CFG> { root: s.root },
         };
-        let hit: bool = pmap_mut_insert::<K, V, CFG>(&mut pm as *mut PMapMut<K, V, CFG>, key, val, qkey);
+        let hit: bool = pmap_mut_insert::<CFG>(&mut pm as *mut PMapMut<CFG>, key, val, qkey);
         s.root = pm.view.root;
         return hit;
     }
 }
 
-pub fn pmv2_mut_snapshot_remove<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(s: *mut MutSnapshot<K, V, CFG>, key: *const K) -> bool {
+pub fn pmv2_mut_snapshot_remove<const CFG: HermesStatic>(s: *mut MutSnapshot<CFG>, key: *const <type:CFG.key>) -> bool {
     unsafe {
-        let mut pm: PMapMut<K, V, CFG> = PMapMut::<K, V, CFG> {
-            view: PMapView::<K, V, CFG> { root: s.root },
+        let mut pm: PMapMut<CFG> = PMapMut::<CFG> {
+            view: PMapView::<CFG> { root: s.root },
         };
-        let hit: bool = pmap_mut_remove::<K, V, CFG>(&mut pm as *mut PMapMut<K, V, CFG>, key);
+        let hit: bool = pmap_mut_remove::<CFG>(&mut pm as *mut PMapMut<CFG>, key);
         s.root = pm.view.root;
         return hit;
     }

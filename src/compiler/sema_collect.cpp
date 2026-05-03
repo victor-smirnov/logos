@@ -397,6 +397,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
         if (cv.kind() == LogosType::Kind::Error) continue;
         if (cv.kind() == LogosType::Kind::TypeVar) continue; // defer until mono
         if (cv.kind() == LogosType::Kind::AssocType) continue; // deferred (bounds checked via trait decl)
+        if (cv.kind() == LogosType::Kind::CfgSlotType) continue; // deferred — concrete type known after CFG substitution
 
         std::string concrete_str = type_str(concrete);
         std::string unwrapped_name;
