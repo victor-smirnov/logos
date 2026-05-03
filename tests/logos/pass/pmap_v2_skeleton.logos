@@ -30,6 +30,7 @@ package pmap_v2_skeleton;
 use std.data.persistent.pmap_v2.view;
 use std.data.persistent.pmap_v2.mutv;
 use std.data.persistent.pmap_v2.btree;
+use std.data.persistent.pmap_v2.cfg;
 use std.lang.cmp;
 use std.lang.ord;
 use std.lang.datatypes;
@@ -37,23 +38,6 @@ use std.compiler.metaprog;
 use std.hermes.ctr;
 use std.hermes.view;
 use std.hermes.anyval;
-
-unsafe fn validate_pmap_cfg(cfg: HermesStatic) -> i32 {
-    let v = cfg.as_view();
-    let r: AnyVal = v.root();
-    if !r.is_ptr() { return 1; }
-    let k: AnyVal = v.map_get(r, "key");
-    if k.is_null() { return 2; }
-    let kt: Type = type_from_anyval(v.base(), k);
-    if kt.kind == (0 as u32) { return 3; }
-    let val: AnyVal = v.map_get(r, "value");
-    if val.is_null() { return 4; }
-    let vt: Type = type_from_anyval(v.base(), val);
-    if vt.kind == (0 as u32) { return 5; }
-    let fan: AnyVal = v.map_get(r, "fanout");
-    if fan.is_null() { return 6; }
-    return 0;
-}
 
 pub struct U64Key { pub x: u64, }
 impl Primitive for U64Key { type Prim = u64; }
