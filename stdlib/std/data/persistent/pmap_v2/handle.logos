@@ -385,7 +385,7 @@ pub fn multi_snap_begin<const STORE_CFG: HermesStatic>(store: &mut MultiStore<ST
 // container's. Inference doesn't round-trip both today, so explicit
 // turbofish is required (mirror of snap_begin::<CFG> in the single-
 // container API).
-pub fn multi_snap_create_pmap<const STORE_CFG: HermesStatic, const CFG: HermesStatic>(snap: &mut MultiSnap<STORE_CFG>, ctr_id: u64) -> ContainerRef<CFG> {
+pub fn multi_snap_create_pmap<const STORE_CFG: HermesStatic, const CFG: HermesStatic>(snap: &mut MultiSnap<STORE_CFG>, ctr_id: <type:STORE_CFG.ctr_id>) -> ContainerRef<CFG> {
     unsafe {
         let stp: *mut LockingStore = (&mut snap.arc as *mut Arc<LockingStore>).get() as *mut LockingStore;
         register_pmap_release_thunk_for::<<type:CFG.key>, <type:CFG.value>, CFG>(stp);
@@ -395,24 +395,27 @@ pub fn multi_snap_create_pmap<const STORE_CFG: HermesStatic, const CFG: HermesSt
 
         let dp:    *mut Rc<MutSnapshot<DirCfg>> = &mut snap.dir as *mut Rc<MutSnapshot<DirCfg>>;
         let dir_p: *mut MutSnapshot<DirCfg>     = dp.get_mut();
-        let key:   u64 = ctr_id;
+        // v1 dir is u64-keyed. Once DirCfg becomes derivable from STORE_CFG,
+        // the cast disappears and the dir's key type matches STORE_CFG.ctr_id
+        // directly.
+        let key:   u64 = ctr_id as u64;
         let val:   u64 = r as u64;
         let _ = pmv2_mut_snapshot_insert::<DirCfg>(dir_p, key, val, &key as *const u64);
 
         return ContainerRef::<CFG> {
             dir_rc: dp.clone_rc(),
-            ctr_id: ctr_id,
+            ctr_id: key,
             root:   r,
         };
     }
 }
 
-pub fn multi_snap_open_pmap<const STORE_CFG: HermesStatic, const CFG: HermesStatic>(snap: &mut MultiSnap<STORE_CFG>, ctr_id: u64) -> ContainerRef<CFG> {
+pub fn multi_snap_open_pmap<const STORE_CFG: HermesStatic, const CFG: HermesStatic>(snap: &mut MultiSnap<STORE_CFG>, ctr_id: <type:STORE_CFG.ctr_id>) -> ContainerRef<CFG> {
     unsafe {
         let dp:    *mut Rc<MutSnapshot<DirCfg>> = &mut snap.dir as *mut Rc<MutSnapshot<DirCfg>>;
         let dir_p: *mut MutSnapshot<DirCfg>     = dp.get_mut();
 
-        let key: u64 = ctr_id;
+        let key: u64 = ctr_id as u64;
         let mut out: u64 = 0u64;
         let hit: bool = pmv2_mut_snapshot_get::<DirCfg>(
             dir_p as *const MutSnapshot<DirCfg>,
@@ -421,7 +424,7 @@ pub fn multi_snap_open_pmap<const STORE_CFG: HermesStatic, const CFG: HermesStat
         if !hit {
             return ContainerRef::<CFG> {
                 dir_rc: dp.clone_rc(),
-                ctr_id: ctr_id,
+                ctr_id: key,
                 root:   0 as *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG>,
             };
         }
@@ -431,14 +434,14 @@ pub fn multi_snap_open_pmap<const STORE_CFG: HermesStatic, const CFG: HermesStat
         if *h_slot != hstatic_hash_of::<CFG>() {
             return ContainerRef::<CFG> {
                 dir_rc: dp.clone_rc(),
-                ctr_id: ctr_id,
+                ctr_id: key,
                 root:   0 as *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG>,
             };
         }
 
         return ContainerRef::<CFG> {
             dir_rc: dp.clone_rc(),
-            ctr_id: ctr_id,
+            ctr_id: key,
             root:   raw as *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG>,
         };
     }

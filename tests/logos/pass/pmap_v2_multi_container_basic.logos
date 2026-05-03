@@ -18,7 +18,11 @@ use std.lang.datatypes;
 use std.hermes.view;
 use std.hermes.anyval;
 
-pub type StoreCfg = @{ "name": "v1-default" };
+pub type StoreCfg = @{
+    "name":   "v1-default",
+    "ctr_id": <type:u64>,
+    "snp_id": <type:u64>,
+};
 pub type CfgA = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 8 };
 pub type CfgB = @{ "key": <type:u32>, "value": <type:u32>, "fanout": 8 };
 
