@@ -1,8 +1,10 @@
 // Multi-container API in pmap_v2 handle (v1 — explicit writeback, no commit).
 //
-// One MultiSnap hosts two ContainerRefs of distinct CFGs (different K, V,
-// fanout). Verifies create_pmap / open_pmap / insert / contains / len, and
-// MultiSnap.drop registry-dispatched release per container.
+// One MultiSnap<STORE_CFG> hosts two ContainerRefs of distinct container CFGs
+// (different K, V, fanout). STORE_CFG carries store-level schema (today opaque,
+// v2 will hold ctr_id type / dir fanout / dispatch policy). Verifies
+// create_pmap / open_pmap / insert / contains / len, and MultiSnap.drop
+// registry-dispatched release per container.
 //
 // v1 limit: users must call ContainerRef::writeback() before drop. Implicit
 // drop-time writeback is blocked by a Logos drop-semantics quirk — see
@@ -16,16 +18,17 @@ use std.lang.datatypes;
 use std.hermes.view;
 use std.hermes.anyval;
 
+pub type StoreCfg = @{ "name": "v1-default" };
 pub type CfgA = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 8 };
 pub type CfgB = @{ "key": <type:u32>, "value": <type:u32>, "fanout": 8 };
 
 fn main() -> i32 {
-    let mut store: MultiStore = multi_store_open();
-    let mut snap:  MultiSnap  = multi_snap_begin(&mut store);
+    let mut store: MultiStore<StoreCfg> = multi_store_open::<StoreCfg>();
+    let mut snap:  MultiSnap<StoreCfg>  = multi_snap_begin::<StoreCfg>(&mut store);
 
     {
-        let mut c_a: ContainerRef<CfgA> = multi_snap_create_pmap::<CfgA>(&mut snap, 101u64);
-        let mut c_b: ContainerRef<CfgB> = multi_snap_create_pmap::<CfgB>(&mut snap, 202u64);
+        let mut c_a: ContainerRef<CfgA> = multi_snap_create_pmap::<StoreCfg, CfgA>(&mut snap, 101u64);
+        let mut c_b: ContainerRef<CfgB> = multi_snap_create_pmap::<StoreCfg, CfgB>(&mut snap, 202u64);
 
         if !c_a.is_valid() { return 1; }
         if !c_b.is_valid() { return 2; }
@@ -58,13 +61,12 @@ fn main() -> i32 {
         let probe_b_miss: u32 = 99u32;
         if  c_b.contains(&probe_b_miss as *const u32) { return 8; }
 
-        // v1: explicit writeback before letting ContainerRefs drop.
         c_a.writeback();
         c_b.writeback();
     }
 
     {
-        let mut c_a2: ContainerRef<CfgA> = multi_snap_open_pmap::<CfgA>(&mut snap, 101u64);
+        let mut c_a2: ContainerRef<CfgA> = multi_snap_open_pmap::<StoreCfg, CfgA>(&mut snap, 101u64);
         if !c_a2.is_valid() { return 9; }
         if c_a2.len() != 50u64 { return 10; }
         let probe: u64 = 33u64;
@@ -73,12 +75,12 @@ fn main() -> i32 {
     }
 
     {
-        let c_mismatch: ContainerRef<CfgB> = multi_snap_open_pmap::<CfgB>(&mut snap, 101u64);
+        let c_mismatch: ContainerRef<CfgB> = multi_snap_open_pmap::<StoreCfg, CfgB>(&mut snap, 101u64);
         if c_mismatch.is_valid() { return 12; }
     }
 
     {
-        let c_nope: ContainerRef<CfgA> = multi_snap_open_pmap::<CfgA>(&mut snap, 999u64);
+        let c_nope: ContainerRef<CfgA> = multi_snap_open_pmap::<StoreCfg, CfgA>(&mut snap, 999u64);
         if c_nope.is_valid() { return 13; }
     }
 

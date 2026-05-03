@@ -326,9 +326,17 @@ pub fn validate_cfg(cfg: HermesStatic) -> i32 {
 // → fill → drop-cascade. commit/fork need careful design over how the
 // dir's tree carries container roots through the DAG and is deferred.
 
+// DirCfg is the fixed internal directory layout: ctr_id (u64) → root_ptr
+// (u64). It's a v1 detail — STORE_CFG today is a marker for future
+// store-level schema (custom ctr_id type, dir fanout, dispatch policy,
+// commit/fork tunables). When those land, DirCfg will be derived from
+// STORE_CFG slots (e.g. <type:STORE_CFG.ctr_id> for the key type).
 pub type DirCfg = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 16 };
 
-pub struct MultiStore {
+// MultiStore<STORE_CFG> — Arc-wrapped LockingStore plus a STORE_CFG
+// marker. STORE_CFG carries store-level schema (today: opaque, v2:
+// ctr_id type / dir fanout / commit policy / dispatch table format).
+pub struct MultiStore<const STORE_CFG: HermesStatic> {
     arc: Arc<LockingStore>,
 }
 
@@ -338,41 +346,46 @@ unsafe fn register_pmap_release_thunk_for<K: Container + ContainerOrd, V: Contai
     locking_store_register_release(s, h, fp as u64);
 }
 
-pub fn multi_store_open() -> MultiStore {
+pub fn multi_store_open<const STORE_CFG: HermesStatic>() -> MultiStore<STORE_CFG> {
     let s: LockingStore = locking_store_new();
-    return MultiStore { arc: arc_new::<LockingStore>(s) };
+    return MultiStore::<STORE_CFG> { arc: arc_new::<LockingStore>(s) };
 }
 
-impl MultiStore {
-    pub fn clone(&mut self) -> MultiStore {
+impl<const STORE_CFG: HermesStatic> MultiStore<STORE_CFG> {
+    pub fn clone(&mut self) -> MultiStore<STORE_CFG> {
         unsafe {
             let p: *mut Arc<LockingStore> = &mut self.arc as *mut Arc<LockingStore>;
-            return MultiStore { arc: p.clone_arc() };
+            return MultiStore::<STORE_CFG> { arc: p.clone_arc() };
         }
     }
 }
 
-pub struct MultiSnap {
+// MultiSnap<STORE_CFG> — directory snapshot keyed by the store-level
+// config. Carries STORE_CFG so future store-level tunables (commit
+// policy, dispatch flags) propagate into snap-level operations.
+pub struct MultiSnap<const STORE_CFG: HermesStatic> {
     dir: Rc<MutSnapshot<DirCfg>>,
     arc: Arc<LockingStore>,
 }
 
-pub fn multi_snap_begin(store: &mut MultiStore) -> MultiSnap {
+pub fn multi_snap_begin<const STORE_CFG: HermesStatic>(store: &mut MultiStore<STORE_CFG>) -> MultiSnap<STORE_CFG> {
     unsafe {
         let ap: *mut Arc<LockingStore> = &mut store.arc as *mut Arc<LockingStore>;
         let stp: *mut LockingStore = ap.get() as *mut LockingStore;
         let dir_inner: MutSnapshot<DirCfg> = pmv2_store_begin::<DirCfg, LockingStore>(stp, NO_COMMIT);
-        return MultiSnap {
+        return MultiSnap::<STORE_CFG> {
             dir: rc_new::<MutSnapshot<DirCfg>>(dir_inner),
             arc: ap.clone_arc(),
         };
     }
 }
 
-// Free-fn turbofish form (CFG-generic methods don't yet round-trip
-// const-generic inference; mirror snap_begin::<CFG> pattern from the
-// single-container API).
-pub fn multi_snap_create_pmap<const CFG: HermesStatic>(snap: &mut MultiSnap, ctr_id: u64) -> ContainerRef<CFG> {
+// Free-fn turbofish form: ::<STORE_CFG, CFG>(&mut snap, ctr_id).
+// Two const-generic args; STORE_CFG matches the snap's, CFG is the
+// container's. Inference doesn't round-trip both today, so explicit
+// turbofish is required (mirror of snap_begin::<CFG> in the single-
+// container API).
+pub fn multi_snap_create_pmap<const STORE_CFG: HermesStatic, const CFG: HermesStatic>(snap: &mut MultiSnap<STORE_CFG>, ctr_id: u64) -> ContainerRef<CFG> {
     unsafe {
         let stp: *mut LockingStore = (&mut snap.arc as *mut Arc<LockingStore>).get() as *mut LockingStore;
         register_pmap_release_thunk_for::<<type:CFG.key>, <type:CFG.value>, CFG>(stp);
@@ -394,7 +407,7 @@ pub fn multi_snap_create_pmap<const CFG: HermesStatic>(snap: &mut MultiSnap, ctr
     }
 }
 
-pub fn multi_snap_open_pmap<const CFG: HermesStatic>(snap: &mut MultiSnap, ctr_id: u64) -> ContainerRef<CFG> {
+pub fn multi_snap_open_pmap<const STORE_CFG: HermesStatic, const CFG: HermesStatic>(snap: &mut MultiSnap<STORE_CFG>, ctr_id: u64) -> ContainerRef<CFG> {
     unsafe {
         let dp:    *mut Rc<MutSnapshot<DirCfg>> = &mut snap.dir as *mut Rc<MutSnapshot<DirCfg>>;
         let dir_p: *mut MutSnapshot<DirCfg>     = dp.get_mut();
@@ -434,8 +447,8 @@ pub fn multi_snap_open_pmap<const CFG: HermesStatic>(snap: &mut MultiSnap, ctr_i
 // MultiSnap drop: walk dir → registry-dispatch release per container →
 // release the dir tree itself. v1 assumes a single live MultiSnap holding
 // the dir Rc; no strong_count gate (Rc auto-drop is a separate arc).
-impl Drop for MultiSnap {
-    fn drop(self: MultiSnap) {
+impl<const STORE_CFG: HermesStatic> Drop for MultiSnap<STORE_CFG> {
+    fn drop(self: MultiSnap<STORE_CFG>) {
         unsafe {
             let rp: *mut Rc<MutSnapshot<DirCfg>> = &self.dir as *const Rc<MutSnapshot<DirCfg>> as *mut Rc<MutSnapshot<DirCfg>>;
             if rp.is_null() { return; }
