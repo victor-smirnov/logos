@@ -1,0 +1,142 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// assembler_method_set.logos — second slice of the component-metaprog
+// assembler. Parts may have *different* method-sets; the assembler
+// computes the union with last-wins overrides, per-method.
+//
+// Architecture:
+//   • Each part declares its own method-set in the CFG, alongside its
+//     type. The cfg is now declarative — single source of truth for
+//     "who provides what". (No method-list introspection intrinsic
+//     needed; the user states it. If a part doesn't actually impl the
+//     declared trait, codegen fails with a normal trait-not-implemented
+//     diagnostic at the spliced site.)
+//
+//   • For each KNOWN method name (the assembler-metafn has a fixed
+//     repertoire — `id`, `name`, `count` here), walk the parts list
+//     in reverse and find the FIRST one declaring that method.
+//     That's the last-wins resolution.
+//
+//   • Emit one delegate call per resolved method into the assembled
+//     impl-block. Methods nobody provides remain absent from
+//     Assembled — using them would give a compile-error in main.
+//
+// CFG shape:
+//   @{ "parts": [
+//        { "type": "PartA", "methods": ["id", "name"] },
+//        { "type": "PartB", "methods": ["name", "count"] },
+//   ]}
+//
+// Resolution table for the test cfg:
+//   id    → PartA   (only A provides it)
+//   name  → PartB   (both provide; B is later → wins)
+//   count → PartB   (only B provides it)
+//
+// Result: Assembled::id() = 1 (PartA), Assembled::name() yields
+// "beta-b" len, Assembled::count() = 7 (PartB).
+
+package main;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+use std.hermes.anyval;
+use std.hermes.string;
+
+pub trait HasId    { fn id()    -> i64; }
+pub trait HasName  { fn name()  -> str; }
+pub trait HasCount { fn count() -> i64; }
+
+pub struct PartA {}
+impl HasId   for PartA { fn id()    -> i64 { return 1i64; } }
+impl HasName for PartA { fn name()  -> str { return "alpha-a"; } }
+
+pub struct PartB {}
+impl HasName  for PartB { fn name()  -> str { return "beta-b"; } }
+impl HasCount for PartB { fn count() -> i64 { return 7i64; } }
+
+fn dele_id<P:    HasId>()    -> i64 { return P::id(); }
+fn dele_name<P:  HasName>()  -> str { return P::name(); }
+fn dele_count<P: HasCount>() -> i64 { return P::count(); }
+
+fn assemble<const CFG: HermesStatic>() -> QuoteItemBlob {
+    unsafe {
+        let v = CFG.as_view();
+        let arr: AnyVal = v.map_get(v.root(), "parts");
+        let n: u64 = v.array_len(arr);
+
+        // Inlined pick: closures-over-HermesView aren't usable inside
+        // a metacall JIT because user-defined helper fns aren't in the
+        // JIT scope. So we open-code the (method-name → last part) walk
+        // three times. Repetitive but JIT-safe; a stdlib helper will
+        // fold the duplication once we package metaprog-from-stdlib.
+        let mut id_part:    Ident = Ident { ptr: 0 as *const u8, len: 0u64 };
+        let mut name_part:  Ident = Ident { ptr: 0 as *const u8, len: 0u64 };
+        let mut count_part: Ident = Ident { ptr: 0 as *const u8, len: 0u64 };
+        let mut i: i64 = (n as i64) - 1i64;
+        while i >= 0i64 {
+            let part: AnyVal = v.array_get(arr, i as u64);
+            let methods: AnyVal = v.map_get(part, "methods");
+            if !methods.is_null() {
+                let m: u64 = v.array_len(methods);
+                let pt: AnyVal = v.map_get(part, "type");
+                let pt_sv: StringView = v.get_str_view(pt);
+                let pt_id: Ident = Ident { ptr: pt_sv.ptr, len: pt_sv.len };
+                let mut j: u64 = 0u64;
+                while j < m {
+                    let mn: AnyVal = v.array_get(methods, j);
+                    let mn_sv: StringView = v.get_str_view(mn);
+                    // Reverse-walk + first-match = last-wins.
+                    if mn_sv.len == 2u64
+                        && *((mn_sv.ptr as i64 + 0i64) as *const u8) == 105u8
+                        && *((mn_sv.ptr as i64 + 1i64) as *const u8) == 100u8 {
+                        // "id"
+                        if id_part.len == 0u64 { id_part = pt_id; }
+                    }
+                    if mn_sv.len == 4u64
+                        && *((mn_sv.ptr as i64 + 0i64) as *const u8) == 110u8
+                        && *((mn_sv.ptr as i64 + 1i64) as *const u8) == 97u8
+                        && *((mn_sv.ptr as i64 + 2i64) as *const u8) == 109u8
+                        && *((mn_sv.ptr as i64 + 3i64) as *const u8) == 101u8 {
+                        // "name"
+                        if name_part.len == 0u64 { name_part = pt_id; }
+                    }
+                    if mn_sv.len == 5u64
+                        && *((mn_sv.ptr as i64 + 0i64) as *const u8) == 99u8
+                        && *((mn_sv.ptr as i64 + 1i64) as *const u8) == 111u8
+                        && *((mn_sv.ptr as i64 + 2i64) as *const u8) == 117u8
+                        && *((mn_sv.ptr as i64 + 3i64) as *const u8) == 110u8
+                        && *((mn_sv.ptr as i64 + 4i64) as *const u8) == 116u8 {
+                        // "count"
+                        if count_part.len == 0u64 { count_part = pt_id; }
+                    }
+                    j = j + 1u64;
+                }
+            }
+            i = i - 1i64;
+        }
+
+        return quote_item! {
+            pub struct Assembled {}
+            impl Assembled {
+                pub fn id()    -> i64 { return dele_id::<#id_part>(); }
+                pub fn name()  -> str { return dele_name::<#name_part>(); }
+                pub fn count() -> i64 { return dele_count::<#count_part>(); }
+            }
+        };
+    }
+}
+
+metacall assemble::<@{
+    "parts": [
+        { "type": "PartA", "methods": ["id", "name"] },
+        { "type": "PartB", "methods": ["name", "count"] },
+    ],
+}>();
+
+unsafe fn main() -> i32 {
+    if Assembled::id()    != 1i64 { return 1; }   // from PartA
+    if Assembled::count() != 7i64 { return 2; }   // from PartB
+    let nm: str = Assembled::name();              // last-wins: PartB → "beta-b"
+    if nm.len() != 6i64 { return 3; }
+    return 0;
+}
