@@ -1597,6 +1597,21 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         return builder().call("__is_same__", std::move(ts), {},
                               prim(LogosType::Kind::Bool));
     }
+
+    // hstatic_hash_of::<CFG>() — byte-hash identity of a HermesStatic value
+    // as u64. Mono folds after substitution: nc.type_args[0] is HStaticLit
+    // post-subst, with const_val carrying the hash. Inside a generic body
+    // CFG is still a const-generic param at sema time, so the call is
+    // deferred to mono via __hstatic_hash_of__ magic callee.
+    if (callee == "hstatic_hash_of") {
+        auto ts = collect_type_args();
+        if (ts.size() != 1 || !ts[0]) {
+            error("hstatic_hash_of::<CFG>() requires exactly one type argument");
+            return error_expr();
+        }
+        return builder().call("__hstatic_hash_of__", std::move(ts), {},
+                              prim(LogosType::Kind::U64));
+    }
     if (callee == "is_ptr" || callee == "is_ref" || callee == "is_mut_ref" ||
         callee == "is_struct" || callee == "is_zoned" || callee == "is_enum" ||
         callee == "is_tuple" || callee == "is_slice" || callee == "is_array" ||

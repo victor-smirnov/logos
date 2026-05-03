@@ -1,0 +1,102 @@
+// GENERIC_REF + hstatic_hash_of + per-Store-style registry dispatch.
+//
+// Models the ContainerRegistry shape that pmap_v2 handle.logos will use:
+//   • register::<CFG>() captures the address of a monomorphised release
+//     thunk via GENERIC_REF, alongside its CFG byte-hash via
+//     hstatic_hash_of::<CFG>().
+//   • A "registry" (pair of parallel PrimVecs) maps hash → fn-ptr.
+//   • lookup_release(hash) returns the fn-ptr; the caller invokes it.
+//
+// Verifies:
+//   - hstatic_hash_of returns CFG-distinct, deterministic u64.
+//   - Distinct CFGs register distinct fn-ptrs into the same registry slot
+//     space and dispatch correctly.
+//   - The release thunk (different per CFG) fires with the right argument
+//     marker.
+package generic_ref_registry_dispatch;
+
+use std.lang.datatypes;
+use std.hermes.view;
+use std.hermes.anyval;
+
+// ── Per-CFG release thunk. Mono produces one symbol per (K, V, CFG); for
+// the test we just embed a CFG-derived marker into a side-channel via the
+// hash, so the caller can verify which thunk ran.
+fn release_for<const CFG: HermesStatic>(p: *mut u64) -> () {
+    unsafe {
+        // Write the hash into the slot pointed to by p, so the test can
+        // confirm which monomorphisation ran.
+        *p = hstatic_hash_of::<CFG>();
+    }
+}
+
+// ── Registry: parallel PrimVecs (hashes, fn-ptrs as u64).
+pub struct Registry {
+    pub hashes:    PrimVec<u64>,
+    pub fn_ptrs:   PrimVec<u64>,
+}
+
+fn registry_new() -> Registry {
+    return Registry {
+        hashes:  PrimVec::<u64>::empty(),
+        fn_ptrs: PrimVec::<u64>::empty(),
+    };
+}
+
+fn registry_register<const CFG: HermesStatic>(r: &mut Registry) {
+    let h: u64 = hstatic_hash_of::<CFG>();
+    let fp: fn(*mut u64) -> () = release_for::<CFG>;
+    r.hashes.push(h);
+    // Cast fn-ptr to u64 for uniform storage.
+    r.fn_ptrs.push(fp as u64);
+}
+
+fn registry_lookup(r: &Registry, h: u64) -> u64 {
+    let n: u64 = r.hashes.len;
+    let mut i: u64 = 0u64;
+    loop {
+        if i >= n { break; }
+        if r.hashes.get(i) == h {
+            return r.fn_ptrs.get(i);
+        }
+        i = i + 1u64;
+    }
+    return 0u64;
+}
+
+fn main() -> i32 {
+    // (1) Hash determinism + distinctness.
+    let h_a: u64 = hstatic_hash_of::<@{ "tag": "alpha" }>();
+    let h_b: u64 = hstatic_hash_of::<@{ "tag": "beta"  }>();
+    let h_a2: u64 = hstatic_hash_of::<@{ "tag": "alpha" }>();
+    if h_a == 0u64 { return 1; }
+    if h_b == 0u64 { return 2; }
+    if h_a == h_b { return 3; }      // distinct CFGs → distinct hashes
+    if h_a != h_a2 { return 4; }     // same CFG → same hash (deterministic)
+
+    // (2) Registry: register two CFGs, then dispatch by hash.
+    let mut reg: Registry = registry_new();
+    registry_register::<@{ "tag": "alpha" }>(&mut reg);
+    registry_register::<@{ "tag": "beta"  }>(&mut reg);
+
+    // (3) Dispatch via hash → fn-ptr → call. Verify the right thunk runs
+    // by reading the marker it writes.
+    let mut slot: u64 = 0u64;
+    let fp_a_u64: u64 = registry_lookup(&reg, h_a);
+    if fp_a_u64 == 0u64 { return 5; }
+    let fp_a: fn(*mut u64) -> () = fp_a_u64 as fn(*mut u64) -> ();
+    fp_a(&mut slot as *mut u64);
+    if slot != h_a { return 6; }
+
+    let fp_b_u64: u64 = registry_lookup(&reg, h_b);
+    if fp_b_u64 == 0u64 { return 7; }
+    let fp_b: fn(*mut u64) -> () = fp_b_u64 as fn(*mut u64) -> ();
+    fp_b(&mut slot as *mut u64);
+    if slot != h_b { return 8; }
+
+    // (4) Lookup miss returns 0.
+    let miss: u64 = registry_lookup(&reg, 0xdeadbeefu64);
+    if miss != 0u64 { return 9; }
+
+    return 42;
+}

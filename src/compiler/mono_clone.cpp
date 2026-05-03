@@ -817,6 +817,16 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 result->mirror_offset_ = lir_mirror_emit_lit_int(out_, result->type, k);
                 break;
             }
+            // hstatic_hash_of::<CFG>() — byte-hash identity of CFG as u64.
+            // Post-subst, type_args[0] is HStaticLit kind whose const_val
+            // is the hash.
+            if (nc.callee == "__hstatic_hash_of__") {
+                int64_t v = (nc.type_args.empty() || !nc.type_args[0])
+                          ? 0
+                          : (int64_t)(uint64_t)nc.type_args[0].const_val().value_or(0);
+                result->mirror_offset_ = lir_mirror_emit_lit_int(out_, result->type, v);
+                break;
+            }
             // type_of::<T>().name — magic intrinsic that mono replaces with
             // a &[u8] literal of the canonical type_str(T) for concrete T.
             if (nc.callee == "__type_name_of__") {
