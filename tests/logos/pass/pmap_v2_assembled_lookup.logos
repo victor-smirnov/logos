@@ -1,0 +1,201 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// pmap_v2_assembled_lookup.logos — first btree component picked by
+// the assembler. Cfg's "lookup" slot selects the leaf-search
+// strategy ("linear" vs "binary"); the assembler emits an
+// `AssembledMap<K,V,CFG>` whose `contains`/`get` route through the
+// chosen variant.
+//
+// What this demonstrates:
+//   • btree exposes named search components — `node_contains_rec_c`
+//     (linear) and `node_contains_rec_binary_c` (binary). Same
+//     contract, swappable.
+//   • The assembler reads the cfg, picks one component per slot,
+//     splices an impl that delegates to it. The choice is baked
+//     into the emitted code — auditable, no runtime indirection.
+//   • Two cfgs differing only in "lookup" produce two distinct
+//     `AssembledMap` types, each with its own bound search strategy.
+//     A real container at scale would compose more parts the same
+//     way (RootMgmt, Compaction, Iterator, …).
+
+package main;
+
+use std.compiler.metaprog;
+use std.data.persistent.pmap_v2.btree;
+use std.data.persistent.pmap_v2.view;
+use std.data.persistent.pmap_v2.mutv;
+use std.lang.cmp;
+use std.lang.ord;
+use std.lang.datatypes;
+use std.hermes.view;
+use std.hermes.anyval;
+use std.hermes.string;
+
+pub struct U64Key { pub x: u64, }
+impl Primitive for U64Key { type Prim = u64; }
+impl Ord for U64Key {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if self.x < other.x { return Ordering::Less; }
+        if self.x > other.x { return Ordering::Greater; }
+        return Ordering::Equal;
+    }
+}
+pub struct U64Val { pub x: u64, }
+impl Primitive for U64Val { type Prim = u64; }
+
+pub type CfgLin = @{
+    "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 4, "lookup": "linear",
+};
+pub type CfgBin = @{
+    "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 4, "lookup": "binary",
+};
+
+fn assemble_map<const ASMCFG: HermesStatic>() -> QuoteItemBlob {
+    unsafe {
+        let v = ASMCFG.as_view();
+
+        // User type names from cfg.
+        let k_av:   AnyVal = v.map_get(v.root(), "key_name");
+        let k_sv:   StringView = v.get_str_view(k_av);
+        let k_id:   Ident = Ident { ptr: k_sv.ptr, len: k_sv.len };
+        let v_av:   AnyVal = v.map_get(v.root(), "val_name");
+        let v_sv:   StringView = v.get_str_view(v_av);
+        let v_id:   Ident = Ident { ptr: v_sv.ptr, len: v_sv.len };
+        let cfg_av: AnyVal = v.map_get(v.root(), "cfg_name");
+        let cfg_sv: StringView = v.get_str_view(cfg_av);
+        let cfg_id: Ident = Ident { ptr: cfg_sv.ptr, len: cfg_sv.len };
+
+        // Assembled type name (so two cfgs can produce two named types).
+        let nm_av:  AnyVal = v.map_get(v.root(), "asm_name");
+        let nm_sv:  StringView = v.get_str_view(nm_av);
+        let nm_id:  Ident = Ident { ptr: nm_sv.ptr, len: nm_sv.len };
+
+        // Pick the lookup component per cfg's "lookup" slot.
+        // "binary" = 6 bytes starting with 'b' (98); good enough vs "linear".
+        let lookup_av: AnyVal = v.map_get(v.root(), "lookup");
+        let lookup_sv: StringView = v.get_str_view(lookup_av);
+        let mut is_binary: bool = false;
+        if lookup_sv.len == 6u64 {
+            let p0: u8 = *((lookup_sv.ptr as i64 + 0i64) as *const u8);
+            if p0 == 98u8 { is_binary = true; }
+        }
+
+        // Branch the whole impl per cfg's "lookup" slot. The fn name
+        // (`node_contains_rec_c` vs `node_contains_rec_binary_c`)
+        // sits at call-position, where Logos' grammar doesn't accept
+        // antiquot — so we duplicate the impl block instead.
+        if is_binary {
+            return quote_item! {
+                pub struct #nm_id { pub handle: PMapMut<#k_id, #v_id, #cfg_id>, }
+                impl #nm_id {
+                    pub fn contains(&self, key: *const #k_id) -> bool {
+                        unsafe {
+                            return node_contains_rec_binary_c::<#k_id, #v_id, #cfg_id>(
+                                self.handle.view.root, key);
+                        }
+                    }
+                    pub fn get(&self, key: *const #k_id, out: *mut u64) -> bool {
+                        unsafe {
+                            return node_get_rec_binary_c::<#k_id, #v_id, #cfg_id>(
+                                self.handle.view.root, key, out);
+                        }
+                    }
+                    pub fn len(&self) -> u64 {
+                        unsafe { return self.handle.view.len(); }
+                    }
+                }
+            };
+        }
+        return quote_item! {
+            pub struct #nm_id { pub handle: PMapMut<#k_id, #v_id, #cfg_id>, }
+            impl #nm_id {
+                pub fn contains(&self, key: *const #k_id) -> bool {
+                    unsafe {
+                        return node_contains_rec_c::<#k_id, #v_id, #cfg_id>(
+                            self.handle.view.root, key);
+                    }
+                }
+                pub fn get(&self, key: *const #k_id, out: *mut u64) -> bool {
+                    unsafe {
+                        return node_get_rec_c::<#k_id, #v_id, #cfg_id>(
+                            self.handle.view.root, key, out);
+                    }
+                }
+                pub fn len(&self) -> u64 {
+                    unsafe { return self.handle.view.len(); }
+                }
+            }
+        };
+    }
+}
+
+metacall assemble_map::<@{
+    "key_name":  "U64Key",
+    "val_name":  "U64Val",
+    "cfg_name":  "CfgLin",
+    "asm_name":  "MapLin",
+    "lookup":    "linear",
+}>();
+
+metacall assemble_map::<@{
+    "key_name":  "U64Key",
+    "val_name":  "U64Val",
+    "cfg_name":  "CfgBin",
+    "asm_name":  "MapBin",
+    "lookup":    "binary",
+}>();
+
+unsafe fn populate_lin(pm: *mut PMapMut<U64Key, U64Val, CfgLin>) {
+    let k1: U64Key = U64Key { x: 10u64 };
+    let k2: U64Key = U64Key { x: 20u64 };
+    let k3: U64Key = U64Key { x: 30u64 };
+    let k4: U64Key = U64Key { x: 40u64 };
+    let _ = pmap_mut_insert::<U64Key, U64Val, CfgLin>(pm, 10u64, 100u64, &k1 as *const U64Key);
+    let _ = pmap_mut_insert::<U64Key, U64Val, CfgLin>(pm, 20u64, 200u64, &k2 as *const U64Key);
+    let _ = pmap_mut_insert::<U64Key, U64Val, CfgLin>(pm, 30u64, 300u64, &k3 as *const U64Key);
+    let _ = pmap_mut_insert::<U64Key, U64Val, CfgLin>(pm, 40u64, 400u64, &k4 as *const U64Key);
+}
+
+unsafe fn populate_bin(pm: *mut PMapMut<U64Key, U64Val, CfgBin>) {
+    let k1: U64Key = U64Key { x: 10u64 };
+    let k2: U64Key = U64Key { x: 20u64 };
+    let k3: U64Key = U64Key { x: 30u64 };
+    let k4: U64Key = U64Key { x: 40u64 };
+    let _ = pmap_mut_insert::<U64Key, U64Val, CfgBin>(pm, 10u64, 100u64, &k1 as *const U64Key);
+    let _ = pmap_mut_insert::<U64Key, U64Val, CfgBin>(pm, 20u64, 200u64, &k2 as *const U64Key);
+    let _ = pmap_mut_insert::<U64Key, U64Val, CfgBin>(pm, 30u64, 300u64, &k3 as *const U64Key);
+    let _ = pmap_mut_insert::<U64Key, U64Val, CfgBin>(pm, 40u64, 400u64, &k4 as *const U64Key);
+}
+
+unsafe fn main() -> i32 {
+    // ── MapLin: linear-lookup AssembledMap ─────────────────────────
+    let mut pm_lin: PMapMut<U64Key, U64Val, CfgLin> =
+        pmap_mut_new::<U64Key, U64Val, CfgLin>();
+    populate_lin(&mut pm_lin as *mut PMapMut<U64Key, U64Val, CfgLin>);
+    let lin: MapLin = MapLin { handle: pm_lin };
+
+    let probe: U64Key = U64Key { x: 30u64 };
+    let miss:  U64Key = U64Key { x: 99u64 };
+    if lin.len() != 4u64 { return 1; }
+    if !lin.contains(&probe as *const U64Key) { return 2; }
+    if  lin.contains(&miss  as *const U64Key) { return 3; }
+    let mut out: u64 = 0u64;
+    if !lin.get(&probe as *const U64Key, &mut out as *mut u64) { return 4; }
+    if out != 300u64 { return 5; }
+
+    // ── MapBin: binary-lookup AssembledMap ─────────────────────────
+    let mut pm_bin: PMapMut<U64Key, U64Val, CfgBin> =
+        pmap_mut_new::<U64Key, U64Val, CfgBin>();
+    populate_bin(&mut pm_bin as *mut PMapMut<U64Key, U64Val, CfgBin>);
+    let bin: MapBin = MapBin { handle: pm_bin };
+
+    if bin.len() != 4u64 { return 6; }
+    if !bin.contains(&probe as *const U64Key) { return 7; }
+    if  bin.contains(&miss  as *const U64Key) { return 8; }
+    if !bin.get(&probe as *const U64Key, &mut out as *mut u64) { return 9; }
+    if out != 300u64 { return 10; }
+
+    pmap_mut_drop::<U64Key, U64Val, CfgLin>(&mut lin.handle as *mut PMapMut<U64Key, U64Val, CfgLin>);
+    pmap_mut_drop::<U64Key, U64Val, CfgBin>(&mut bin.handle as *mut PMapMut<U64Key, U64Val, CfgBin>);
+    return 0;
+}

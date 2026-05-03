@@ -139,7 +139,7 @@ pub fn node_find_c<K: Container + ContainerOrd, V: Container, const CFG: HermesS
     }
 }
 
-fn node_descend_idx_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut BTreeNode<K, V, CFG>, key: *const K) -> u64 {
+pub fn node_descend_idx_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut BTreeNode<K, V, CFG>, key: *const K) -> u64 {
     unsafe {
         let n: u64 = node.keys.len();
         let mut i: u64 = 0u64;
@@ -195,6 +195,76 @@ pub fn node_size_rec_c<K: Container + ContainerOrd, V: Container, const CFG: Her
         return total;
     }
 }
+
+// ── Lookup parts (pluggable leaf-search strategy) ─────────────────
+// Both find variants run on a single leaf. The recursive contains/get
+// walkers below take the chosen leaf-finder as a callable through a
+// trait — but Logos doesn't currently support fn-as-arg for generic
+// dispatch, so we provide parallel `*_binary_c` walkers that swap
+// the leaf-search step. The assembler picks one based on cfg's
+// "lookup" slot ("linear" or "binary"); other walkers (insert/remove
+// internals) keep using linear because there the in-leaf search is
+// rarely the hot path and the savings don't justify duplicating the
+// whole insert recursion tree.
+
+// Binary search within a single leaf. Same contract as `node_find_c`:
+// returns the hit index, or -1 on miss.
+pub fn binary_find_in_leaf_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut BTreeNode<K, V, CFG>, key: *const K) -> i64 {
+    unsafe {
+        let n: u64 = node.keys.len();
+        if n == 0u64 { return -1i64; }
+        let mut lo: i64 = 0i64;
+        let mut hi: i64 = (n as i64) - 1i64;
+        let phantom: *const K = 0 as *const K;
+        while lo <= hi {
+            let mid: i64 = (lo + hi) / 2i64;
+            let kv: K::ViewInStore = node.keys.get(mid as u64);
+            match phantom.cmp_view_key(kv, key) {
+                Ordering::Equal => { return mid; }
+                Ordering::Less => { lo = mid + 1i64; }
+                Ordering::Greater => { hi = mid - 1i64; }
+            }
+        }
+        return -1i64;
+    }
+}
+
+// Binary-leaf-search variant of contains_rec.
+pub fn node_contains_rec_binary_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut BTreeNode<K, V, CFG>, key: *const K) -> bool {
+    unsafe {
+        if node.is_leaf {
+            return binary_find_in_leaf_c::<K, V, CFG>(node, key) >= 0i64;
+        }
+        let idx: u64 = node_descend_idx_c::<K, V, CFG>(node, key);
+        let child: *mut BTreeNode<K, V, CFG> = node.children.get(idx);
+        return node_contains_rec_binary_c::<K, V, CFG>(child, key);
+    }
+}
+
+// Binary-leaf-search variant of get_rec.
+pub fn node_get_rec_binary_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut BTreeNode<K, V, CFG>, key: *const K, out: *mut V::ViewInStore) -> bool {
+    unsafe {
+        if node.is_leaf {
+            let idx: i64 = binary_find_in_leaf_c::<K, V, CFG>(node, key);
+            if idx < 0i64 { return false; }
+            *out = node.vals.get(idx as u64);
+            return true;
+        }
+        let i: u64 = node_descend_idx_c::<K, V, CFG>(node, key);
+        let child: *mut BTreeNode<K, V, CFG> = node.children.get(i);
+        return node_get_rec_binary_c::<K, V, CFG>(child, key, out);
+    }
+}
+
+// Two named lookup walkers exposed for the assembler:
+//   • `node_contains_rec_c` / `node_get_rec_c`              — linear leaf search
+//   • `node_contains_rec_binary_c` / `node_get_rec_binary_c` — binary leaf search
+// The assembler picks one pair per cfg's "lookup" slot and emits a
+// container impl that calls the chosen walker directly. (We tried
+// trait-dispatch via `LookupPart<K,V,CFG>` for elegance but ran into
+// a `bound references const-generic` resolution gap; per-branch
+// quote_item! is robust and the architectural win — choice baked
+// into the spliced impl — is identical.)
 
 pub struct InsertOutcome<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic> {
     pub hit:   bool,
