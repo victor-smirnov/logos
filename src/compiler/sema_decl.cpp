@@ -389,8 +389,16 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     // symbols (impls, types) that don't exist yet — they will be synthesized
     // by handler hooks. Handlers themselves must be fully lowered so the JIT
     // can compile them.
+    //
+    // Impl methods (struct_ctx non-empty) are NEVER stubbed — their bodies
+    // are reachable from stdlib generic chains (e.g. Ord blanket → Container
+    // ::cmp_view_key → user's K::cmp), and stubbing them out would leave
+    // dangling call-site references in the metaprog mlir module. User-side
+    // impl methods don't reference yet-to-be-synthesized symbols anyway;
+    // they're concrete code that already exists in the source.
     bool skip_body = metaprog_mode_
                   && cur_ast_idx_ == metaprog_entry_ast_idx_
+                  && struct_ctx.empty()
                   && !fn_is_metaprog_handler(fn.name)
                   && !fn_is_metaprog_keep(fn.name);
     if (skip_body) fn.is_metaprog_stub = true;

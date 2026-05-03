@@ -1,118 +1,158 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// pmap_v2_assembled_client.logos — first tie of pmap_v2 + assembler.
+// pmap_v2_assembled_client.logos — first full tie of pmap_v2 + the
+// component-metaprog assembler. The assembler-metafn reads its cfg's
+// "client" capability list and emits a `RoClient` wrapper around
+// `PMapMut<K,V,CFG>` whose method set is a subset of pmap_v2's full
+// API:
 //
-// The assembler-metafn reads a pmap-shaped cfg and emits a SCHEMA
-// fn alongside (not inside) pmap_v2: `assembled_schema_id() -> i64`
-// returns a digest computed from the cfg's slots — fanout, ops list,
-// etc. The digest is decided at metafn-emit time and baked into the
-// spliced fn body.
+//   "client" = ["read"]            → contains/get/len only
+//   "client" = ["read", "write"]   → also insert
 //
-// What this demonstrates:
-//   • The cfg shape is the SAME as pmap_v2's runtime CFG — one
-//     `@{ "key": <type:K>, "value": <type:V>, "fanout": N, ... }`
-//     drives both pmap_v2's per-instance behavior AND the assembler.
-//   • The override decision (which ops the schema fn includes) is
-//     statically baked: change cfg, the spliced fn body changes.
+// The constructive read-only-ness lives in the type system: a
+// RoClient assembled from cfg without "write" simply has no
+// `insert` method — calling `client.insert(...)` would be a
+// compile error on that branch. This is the core demonstrable
+// architectural win of the assembler over runtime gates.
 //
-// Caveat — what's NOT demonstrated yet (and why the demo is this
-// shape and not the more ambitious "wrapper struct over PMapMut"):
-//
-//   The natural form would be: assembler emits
-//     `pub struct RoClient { handle: PMapMut<U64Key,U64Val,Cfg16> }`
-//     `impl RoClient { fn contains(&self, k) -> bool { ... } }`
-//   But the metacall thunk's JIT compile pulls in the entire user
-//   module including main's `pmap_mut_insert::<U64Key,U64Val,Cfg16>`
-//   chain, which transitively needs `U64Key__cmp` via Ord — and
-//   `U64Key__cmp` (a user impl) is NOT in metacall JIT scope, which
-//   is stdlib + the metafn body only. The error surfaces as
-//   "func.call op 'U64Key__cmp' does not reference a valid function"
-//   at MLIR-gen of the metacall thunk. Open issue: metacall JIT
-//   scope needs to include user-side impls when those are reached
-//   transitively from the metafn's compiled module. Until that's
-//   resolved, the assembler can only emit code that references
-//   stdlib/primitives directly — not user-type-parametric impls
-//   over user-defined K/V.
+// Implementation note: all references to user-defined types
+// (U64Key/U64Val/Cfg16) inside `quote_item!` route through `#ident`
+// antiquots. The metafn body itself never references them — keeps
+// the metacall JIT scope clean.
 
 package main;
 
 use std.compiler.metaprog;
+use std.data.persistent.pmap_v2.view;
+use std.data.persistent.pmap_v2.mutv;
+use std.data.persistent.btree.node;
+use std.lang.cmp;
+use std.lang.ord;
+use std.lang.datatypes;
 use std.hermes.view;
 use std.hermes.anyval;
 use std.hermes.string;
 
-fn assemble_schema<const ASMCFG: HermesStatic>() -> QuoteItemBlob {
+pub struct U64Key { pub x: u64, }
+impl Primitive for U64Key { type Prim = u64; }
+impl Ord for U64Key {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if self.x < other.x { return Ordering::Less; }
+        if self.x > other.x { return Ordering::Greater; }
+        return Ordering::Equal;
+    }
+}
+pub struct U64Val { pub x: u64, }
+impl Primitive for U64Val { type Prim = u64; }
+
+pub type Cfg16 = @{ "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16 };
+
+fn assemble_client<const ASMCFG: HermesStatic>() -> QuoteItemBlob {
     unsafe {
         let v = ASMCFG.as_view();
 
-        // Read the same pmap_v2-shaped cfg — fanout drives one digit
-        // of the schema id. The point is "this assembler understands
-        // pmap_v2's cfg shape", not that it builds the actual pmap.
-        let fanout_av: AnyVal = v.map_get(v.root(), "fanout");
-        let fanout: i64 = if fanout_av.is_int() { fanout_av.as_i64() } else { 0i64 };
+        // User-type names threaded as Idents — read from cfg as plain
+        // strings so the metafn body never touches U64Key/Cfg16 etc.
+        let k_av:   AnyVal = v.map_get(v.root(), "key_name");
+        let k_sv:   StringView = v.get_str_view(k_av);
+        let k_id:   Ident = Ident { ptr: k_sv.ptr, len: k_sv.len };
+        let v_av:   AnyVal = v.map_get(v.root(), "val_name");
+        let v_sv:   StringView = v.get_str_view(v_av);
+        let v_id:   Ident = Ident { ptr: v_sv.ptr, len: v_sv.len };
+        let cfg_av: AnyVal = v.map_get(v.root(), "cfg_name");
+        let cfg_sv: StringView = v.get_str_view(cfg_av);
+        let cfg_id: Ident = Ident { ptr: cfg_sv.ptr, len: cfg_sv.len };
 
-        // Read "ops": each op-name contributes a marked bit to the digest.
-        let arr: AnyVal = v.map_get(v.root(), "ops");
+        // Capability detection.
+        let arr: AnyVal = v.map_get(v.root(), "client");
         let n: u64 = v.array_len(arr);
-        let mut have_len:      bool = false;
-        let mut have_contains: bool = false;
+        let mut have_read:  bool = false;
+        let mut have_write: bool = false;
         let mut i: u64 = 0u64;
         while i < n {
-            let op: AnyVal = v.array_get(arr, i);
-            let cs: StringView = v.get_str_view(op);
-            if cs.len == 3u64
-                && *((cs.ptr as i64 + 0i64) as *const u8) == 108u8
+            let cap: AnyVal = v.array_get(arr, i);
+            let cs: StringView = v.get_str_view(cap);
+            if cs.len == 4u64
+                && *((cs.ptr as i64 + 0i64) as *const u8) == 114u8
                 && *((cs.ptr as i64 + 1i64) as *const u8) == 101u8
-                && *((cs.ptr as i64 + 2i64) as *const u8) == 110u8 {
-                have_len = true;
+                && *((cs.ptr as i64 + 2i64) as *const u8) == 97u8
+                && *((cs.ptr as i64 + 3i64) as *const u8) == 100u8 {
+                have_read = true;
             }
-            if cs.len == 8u64
-                && *((cs.ptr as i64 + 0i64) as *const u8) == 99u8
-                && *((cs.ptr as i64 + 1i64) as *const u8) == 111u8
-                && *((cs.ptr as i64 + 2i64) as *const u8) == 110u8
-                && *((cs.ptr as i64 + 3i64) as *const u8) == 116u8 {
-                have_contains = true;
+            if cs.len == 5u64
+                && *((cs.ptr as i64 + 0i64) as *const u8) == 119u8
+                && *((cs.ptr as i64 + 1i64) as *const u8) == 114u8
+                && *((cs.ptr as i64 + 2i64) as *const u8) == 105u8
+                && *((cs.ptr as i64 + 3i64) as *const u8) == 116u8
+                && *((cs.ptr as i64 + 4i64) as *const u8) == 101u8 {
+                have_write = true;
             }
             i = i + 1u64;
         }
 
-        // Compute the schema id at *metafn time* and bake it into
-        // the spliced fn as a literal. The fn body is a single
-        // `return <constant>;` — auditable post-splice.
-        //
-        // Schema id layout: fanout * 100 + bits(ops).
-        //   bit 0 = "len"      → +1
-        //   bit 1 = "contains" → +2
-        let mut bits: i64 = 0i64;
-        if have_len      { bits = bits + 1i64; }
-        if have_contains { bits = bits + 2i64; }
-        let id: i64 = fanout * 100i64 + bits;
-
-        // Render the literal int as text. (Without an int→ident
-        // helper in the metaprog stdlib, fold to a fixed quote_item!
-        // shape per known id range. Three buckets cover this test.)
-        if id == 1603i64 {
-            return quote_item! { fn assembled_schema_id() -> i64 { return 1603i64; } };
+        if have_read && have_write {
+            return quote_item! {
+                pub struct RoClient { pub handle: PMapMut<#k_id, #v_id, #cfg_id>, }
+                impl RoClient {
+                    pub fn contains(&self, key: *const #k_id) -> bool {
+                        unsafe { return self.handle.view.contains(key); }
+                    }
+                    pub fn len(&self) -> u64 {
+                        unsafe { return self.handle.view.len(); }
+                    }
+                    pub fn insert(&mut self, key: u64, val: u64, qkey: *const #k_id) -> bool {
+                        unsafe {
+                            return pmap_mut_insert::<#k_id, #v_id, #cfg_id>(
+                                &mut self.handle as *mut PMapMut<#k_id, #v_id, #cfg_id>,
+                                key, val, qkey);
+                        }
+                    }
+                }
+            };
         }
-        if id == 1601i64 {
-            return quote_item! { fn assembled_schema_id() -> i64 { return 1601i64; } };
+        if have_read {
+            return quote_item! {
+                pub struct RoClient { pub handle: PMapMut<#k_id, #v_id, #cfg_id>, }
+                impl RoClient {
+                    pub fn contains(&self, key: *const #k_id) -> bool {
+                        unsafe { return self.handle.view.contains(key); }
+                    }
+                    pub fn len(&self) -> u64 {
+                        unsafe { return self.handle.view.len(); }
+                    }
+                }
+            };
         }
-        if id == 3203i64 {
-            return quote_item! { fn assembled_schema_id() -> i64 { return 3203i64; } };
-        }
-        return quote_item! { fn assembled_schema_id() -> i64 { return -1i64; } };
+        return quote_item! {
+            pub struct RoClient { pub handle: PMapMut<#k_id, #v_id, #cfg_id>, }
+        };
     }
 }
 
-metacall assemble_schema::<@{
-    "key":    <type:i64>,
-    "value":  <type:i64>,
-    "fanout": 16,
-    "ops":    ["len", "contains"],
+metacall assemble_client::<@{
+    "key_name": "U64Key",
+    "val_name": "U64Val",
+    "cfg_name": "Cfg16",
+    "client":   ["read"],
 }>();
 
 unsafe fn main() -> i32 {
-    // 16 (fanout) * 100 + 3 (len|contains) = 1603.
-    if assembled_schema_id() != 1603i64 { return 1; }
+    let mut pm: PMapMut<U64Key, U64Val, Cfg16> = pmap_mut_new::<U64Key, U64Val, Cfg16>();
+    let pmptr: *mut PMapMut<U64Key, U64Val, Cfg16> = &mut pm as *mut PMapMut<U64Key, U64Val, Cfg16>;
+
+    let k1: U64Key = U64Key { x: 10u64 };
+    let k2: U64Key = U64Key { x: 20u64 };
+    let _ = pmap_mut_insert::<U64Key, U64Val, Cfg16>(pmptr, 10u64, 100u64, &k1 as *const U64Key);
+    let _ = pmap_mut_insert::<U64Key, U64Val, Cfg16>(pmptr, 20u64, 200u64, &k2 as *const U64Key);
+
+    let client: RoClient = RoClient { handle: pm };
+
+    if client.len() != 2u64 { return 1; }
+    if !client.contains(&k1 as *const U64Key) { return 2; }
+    if !client.contains(&k2 as *const U64Key) { return 3; }
+    let miss: U64Key = U64Key { x: 99u64 };
+    if  client.contains(&miss as *const U64Key) { return 4; }
+
+    pmap_mut_drop::<U64Key, U64Val, Cfg16>(&mut client.handle as *mut PMapMut<U64Key, U64Val, Cfg16>);
     return 0;
 }
