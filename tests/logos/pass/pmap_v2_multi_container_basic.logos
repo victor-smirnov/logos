@@ -1,0 +1,86 @@
+// Multi-container API in pmap_v2 handle (v1 — explicit writeback, no commit).
+//
+// One MultiSnap hosts two ContainerRefs of distinct CFGs (different K, V,
+// fanout). Verifies create_pmap / open_pmap / insert / contains / len, and
+// MultiSnap.drop registry-dispatched release per container.
+//
+// v1 limit: users must call ContainerRef::writeback() before drop. Implicit
+// drop-time writeback is blocked by a Logos drop-semantics quirk — see
+// handle.logos comment on ContainerRef::drop.
+package pmap_v2_multi_container_basic;
+
+use std.data.persistent.pmap_v2.handle;
+use std.lang.cmp;
+use std.lang.ord;
+use std.lang.datatypes;
+use std.hermes.view;
+use std.hermes.anyval;
+
+pub type CfgA = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 8 };
+pub type CfgB = @{ "key": <type:u32>, "value": <type:u32>, "fanout": 8 };
+
+fn main() -> i32 {
+    let mut store: MultiStore = multi_store_open();
+    let mut snap:  MultiSnap  = multi_snap_begin(&mut store);
+
+    {
+        let mut c_a: ContainerRef<CfgA> = multi_snap_create_pmap::<CfgA>(&mut snap, 101u64);
+        let mut c_b: ContainerRef<CfgB> = multi_snap_create_pmap::<CfgB>(&mut snap, 202u64);
+
+        if !c_a.is_valid() { return 1; }
+        if !c_b.is_valid() { return 2; }
+
+        let mut i: u64 = 1u64;
+        while i <= 50u64 {
+            let k: u64 = i;
+            let _ = c_a.insert(k, k * 7u64, &k as *const u64);
+            i = i + 1u64;
+        }
+
+        let mut j: u32 = 1u32;
+        while j <= 30u32 {
+            let kk: u32 = j;
+            let vv: u32 = j * 11u32;
+            let _ = c_b.insert(kk, vv, &kk as *const u32);
+            j = j + 1u32;
+        }
+
+        if c_a.len() != 50u64 { return 3; }
+        if c_b.len() != 30u64 { return 4; }
+
+        let probe_a: u64 = 25u64;
+        if !c_a.contains(&probe_a as *const u64) { return 5; }
+        let probe_a_miss: u64 = 99u64;
+        if  c_a.contains(&probe_a_miss as *const u64) { return 6; }
+
+        let probe_b: u32 = 17u32;
+        if !c_b.contains(&probe_b as *const u32) { return 7; }
+        let probe_b_miss: u32 = 99u32;
+        if  c_b.contains(&probe_b_miss as *const u32) { return 8; }
+
+        // v1: explicit writeback before letting ContainerRefs drop.
+        c_a.writeback();
+        c_b.writeback();
+    }
+
+    {
+        let mut c_a2: ContainerRef<CfgA> = multi_snap_open_pmap::<CfgA>(&mut snap, 101u64);
+        if !c_a2.is_valid() { return 9; }
+        if c_a2.len() != 50u64 { return 10; }
+        let probe: u64 = 33u64;
+        if !c_a2.contains(&probe as *const u64) { return 11; }
+        c_a2.writeback();
+    }
+
+    {
+        let c_mismatch: ContainerRef<CfgB> = multi_snap_open_pmap::<CfgB>(&mut snap, 101u64);
+        if c_mismatch.is_valid() { return 12; }
+    }
+
+    {
+        let c_nope: ContainerRef<CfgA> = multi_snap_open_pmap::<CfgA>(&mut snap, 999u64);
+        if c_nope.is_valid() { return 13; }
+    }
+
+    return 42;
+}

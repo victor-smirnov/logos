@@ -37,6 +37,8 @@ use std.data.persistent.pmap_v2.mutv;
 use std.data.persistent.pmap_v2.store;
 use std.data.persistent.pmap_v2.iter;
 use std.data.persistent.pmap_v2.cfg;
+use std.data.persistent.bt.node;
+use std.data.persistent.bt.cow;
 use std.data.persistent.store;
 use std.mem.arc;
 use std.mem.rc;
@@ -299,4 +301,283 @@ impl<'a, const CFG: HermesStatic> LeafView<'a, CFG> {
 
 pub fn validate_cfg(cfg: HermesStatic) -> i32 {
     unsafe { return validate_pmap_cfg(cfg); }
+}
+
+
+// ════════════════════════════════════════════════════════════════════
+// Multi-container API — container-directory dispatch (v1 — no commit).
+// ════════════════════════════════════════════════════════════════════
+//
+// MultiStore  — Arc<LockingStore>, holds the per-store release registry.
+// MultiSnap   — owns the directory MutSnapshot<DirCfg>; hosts containers.
+// ContainerRef<CFG> — handle to one container inside a MultiSnap. Holds
+//   an Rc clone of the dir snapshot (shared_ptr-style — keeps MultiSnap
+//   alive while any ContainerRef exists), the container's ctr_id, and
+//   a cached root pointer.
+//
+// Drop chain:
+//   • ContainerRef.drop — writeback cached root to dir.
+//   • MultiSnap.drop    — walk dir entries → read each root's cfg_hash
+//     at slot 1 → registry lookup → call release thunk. Then release the
+//     dir tree.
+//
+// v1 limit: NO commit / NO fork. The validator that proves the dispatch
+// chain works (pmap_v2_container_directory_dispatch test) covers create
+// → fill → drop-cascade. commit/fork need careful design over how the
+// dir's tree carries container roots through the DAG and is deferred.
+
+pub type DirCfg = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 16 };
+
+pub struct MultiStore {
+    arc: Arc<LockingStore>,
+}
+
+unsafe fn register_pmap_release_thunk_for<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(s: *mut LockingStore) {
+    let h: u64 = hstatic_hash_of::<CFG>();
+    let fp: fn(*mut NodeBase<K, V, CFG>) -> () = node_release_c::<K, V, CFG>;
+    locking_store_register_release(s, h, fp as u64);
+}
+
+pub fn multi_store_open() -> MultiStore {
+    let s: LockingStore = locking_store_new();
+    return MultiStore { arc: arc_new::<LockingStore>(s) };
+}
+
+impl MultiStore {
+    pub fn clone(&mut self) -> MultiStore {
+        unsafe {
+            let p: *mut Arc<LockingStore> = &mut self.arc as *mut Arc<LockingStore>;
+            return MultiStore { arc: p.clone_arc() };
+        }
+    }
+}
+
+pub struct MultiSnap {
+    dir: Rc<MutSnapshot<DirCfg>>,
+    arc: Arc<LockingStore>,
+}
+
+pub fn multi_snap_begin(store: &mut MultiStore) -> MultiSnap {
+    unsafe {
+        let ap: *mut Arc<LockingStore> = &mut store.arc as *mut Arc<LockingStore>;
+        let stp: *mut LockingStore = ap.get() as *mut LockingStore;
+        let dir_inner: MutSnapshot<DirCfg> = pmv2_store_begin::<DirCfg, LockingStore>(stp, NO_COMMIT);
+        return MultiSnap {
+            dir: rc_new::<MutSnapshot<DirCfg>>(dir_inner),
+            arc: ap.clone_arc(),
+        };
+    }
+}
+
+// Free-fn turbofish form (CFG-generic methods don't yet round-trip
+// const-generic inference; mirror snap_begin::<CFG> pattern from the
+// single-container API).
+pub fn multi_snap_create_pmap<const CFG: HermesStatic>(snap: &mut MultiSnap, ctr_id: u64) -> ContainerRef<CFG> {
+    unsafe {
+        let stp: *mut LockingStore = (&mut snap.arc as *mut Arc<LockingStore>).get() as *mut LockingStore;
+        register_pmap_release_thunk_for::<<type:CFG.key>, <type:CFG.value>, CFG>(stp);
+
+        let r: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> =
+            node_alloc_c::<<type:CFG.key>, <type:CFG.value>, CFG>();
+
+        let dp:    *mut Rc<MutSnapshot<DirCfg>> = &mut snap.dir as *mut Rc<MutSnapshot<DirCfg>>;
+        let dir_p: *mut MutSnapshot<DirCfg>     = dp.get_mut();
+        let key:   u64 = ctr_id;
+        let val:   u64 = r as u64;
+        let _ = pmv2_mut_snapshot_insert::<DirCfg>(dir_p, key, val, &key as *const u64);
+
+        return ContainerRef::<CFG> {
+            dir_rc: dp.clone_rc(),
+            ctr_id: ctr_id,
+            root:   r,
+        };
+    }
+}
+
+pub fn multi_snap_open_pmap<const CFG: HermesStatic>(snap: &mut MultiSnap, ctr_id: u64) -> ContainerRef<CFG> {
+    unsafe {
+        let dp:    *mut Rc<MutSnapshot<DirCfg>> = &mut snap.dir as *mut Rc<MutSnapshot<DirCfg>>;
+        let dir_p: *mut MutSnapshot<DirCfg>     = dp.get_mut();
+
+        let key: u64 = ctr_id;
+        let mut out: u64 = 0u64;
+        let hit: bool = pmv2_mut_snapshot_get::<DirCfg>(
+            dir_p as *const MutSnapshot<DirCfg>,
+            &key as *const u64,
+            &mut out as *mut u64);
+        if !hit {
+            return ContainerRef::<CFG> {
+                dir_rc: dp.clone_rc(),
+                ctr_id: ctr_id,
+                root:   0 as *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG>,
+            };
+        }
+
+        let raw: *mut u8 = out as *mut u8;
+        let h_slot: *mut u64 = (raw as i64 + 8i64) as *mut u64;
+        if *h_slot != hstatic_hash_of::<CFG>() {
+            return ContainerRef::<CFG> {
+                dir_rc: dp.clone_rc(),
+                ctr_id: ctr_id,
+                root:   0 as *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG>,
+            };
+        }
+
+        return ContainerRef::<CFG> {
+            dir_rc: dp.clone_rc(),
+            ctr_id: ctr_id,
+            root:   raw as *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG>,
+        };
+    }
+}
+
+// MultiSnap drop: walk dir → registry-dispatch release per container →
+// release the dir tree itself. v1 assumes a single live MultiSnap holding
+// the dir Rc; no strong_count gate (Rc auto-drop is a separate arc).
+impl Drop for MultiSnap {
+    fn drop(self: MultiSnap) {
+        unsafe {
+            let rp: *mut Rc<MutSnapshot<DirCfg>> = &self.dir as *const Rc<MutSnapshot<DirCfg>> as *mut Rc<MutSnapshot<DirCfg>>;
+            if rp.is_null() { return; }
+            let dir_p: *mut MutSnapshot<DirCfg> = rp.get_mut();
+            if dir_p.root == 0 as *mut NodeBase<u64, u64, DirCfg> { return; }
+
+            let stp: *mut LockingStore = (&self.arc as *const Arc<LockingStore> as *mut Arc<LockingStore>).get() as *mut LockingStore;
+
+            // Walk every (ctr_id, root_u64) entry in the dir via LeafIter.
+            let dir_view: PMapView<DirCfg> = PMapView::<DirCfg> { root: dir_p.root };
+            let mut it: LeafIter<u64, u64, DirCfg> =
+                pmap_view_acquire_leaf_iter::<DirCfg>(&dir_view as *const PMapView<DirCfg>);
+            while leaf_iter_valid::<u64, u64, DirCfg>(&it as *const LeafIter<u64, u64, DirCfg>) {
+                let leaf_p: *mut LeafNode<u64, u64, DirCfg> =
+                    leaf_iter_leaf::<u64, u64, DirCfg>(&it as *const LeafIter<u64, u64, DirCfg>);
+                let n: u64 = leaf_p.keys.len();
+                let mut j: u64 = 0u64;
+                while j < n {
+                    let root_u64: u64 = leaf_p.vals.get(j);
+                    let raw: *mut u8 = root_u64 as *mut u8;
+                    if raw != 0 as *mut u8 {
+                        let h_slot: *mut u64 = (raw as i64 + 8i64) as *mut u64;
+                        let h: u64 = *h_slot;
+                        let fp_u64: u64 = locking_store_lookup_release(stp, h);
+                        if fp_u64 != 0u64 {
+                            let release: fn(*mut u8) -> () = fp_u64 as fn(*mut u8) -> ();
+                            release(raw);
+                        }
+                    }
+                    j = j + 1u64;
+                }
+                leaf_iter_next_leaf::<u64, u64, DirCfg>(&mut it as *mut LeafIter<u64, u64, DirCfg>);
+            }
+
+            // Release the dir tree itself.
+            node_release_c::<u64, u64, DirCfg>(dir_p.root);
+            dir_p.root = 0 as *mut NodeBase<u64, u64, DirCfg>;
+        }
+    }
+}
+
+
+// ── ContainerRef<CFG> — handle to one container in a MultiSnap. ────
+
+pub struct ContainerRef<const CFG: HermesStatic> {
+    dir_rc: Rc<MutSnapshot<DirCfg>>,
+    ctr_id: u64,
+    root:   *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG>,
+}
+
+impl<const CFG: HermesStatic> ContainerRef<CFG> {
+    pub fn is_valid(&self) -> bool {
+        return self.root != 0 as *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG>;
+    }
+
+    pub fn len(&mut self) -> u64 {
+        unsafe {
+            if self.root == 0 as *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> { return 0u64; }
+            let dp:    *mut Rc<MutSnapshot<DirCfg>> = &mut self.dir_rc as *mut Rc<MutSnapshot<DirCfg>>;
+            let dir_p: *mut MutSnapshot<DirCfg>     = dp.get_mut();
+            // Build transient MutSnapshot<CFG>{root=cached, parent_id=dir.parent_id}.
+            let mut t: MutSnapshot<CFG> = MutSnapshot::<CFG> {
+                root:      self.root,
+                parent_id: dir_p.parent_id,
+            };
+            return pmv2_mut_snapshot_len::<CFG>(&t as *const MutSnapshot<CFG>);
+        }
+    }
+
+    pub fn contains(&mut self, qkey: *const <type:CFG.key>) -> bool {
+        unsafe {
+            if self.root == 0 as *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> { return false; }
+            let dp:    *mut Rc<MutSnapshot<DirCfg>> = &mut self.dir_rc as *mut Rc<MutSnapshot<DirCfg>>;
+            let dir_p: *mut MutSnapshot<DirCfg>     = dp.get_mut();
+            let mut t: MutSnapshot<CFG> = MutSnapshot::<CFG> {
+                root:      self.root,
+                parent_id: dir_p.parent_id,
+            };
+            return pmv2_mut_snapshot_contains::<CFG>(&t as *const MutSnapshot<CFG>, qkey);
+        }
+    }
+
+    pub fn insert(&mut self, key: <type:CFG.key>::ViewInStore, val: <type:CFG.value>::ViewInStore, qkey: *const <type:CFG.key>) -> bool {
+        unsafe {
+            if self.root == 0 as *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> { return false; }
+            let dp:    *mut Rc<MutSnapshot<DirCfg>> = &mut self.dir_rc as *mut Rc<MutSnapshot<DirCfg>>;
+            let dir_p: *mut MutSnapshot<DirCfg>     = dp.get_mut();
+            let mut t: MutSnapshot<CFG> = MutSnapshot::<CFG> {
+                root:      self.root,
+                parent_id: dir_p.parent_id,
+            };
+            let r: bool = pmv2_mut_snapshot_insert::<CFG>(&mut t as *mut MutSnapshot<CFG>, key, val, qkey);
+            // Adopt new (possibly CoW'd) root back into the cache.
+            self.root = t.root;
+            return r;
+        }
+    }
+
+    pub fn writeback(&mut self) {
+        unsafe {
+            if self.root == 0 as *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> { return; }
+            let dp:    *mut Rc<MutSnapshot<DirCfg>> = &mut self.dir_rc as *mut Rc<MutSnapshot<DirCfg>>;
+            if dp.is_null() { return; }
+            let dir_p: *mut MutSnapshot<DirCfg> = dp.get_mut();
+            let key:   u64 = self.ctr_id;
+            let val:   u64 = self.root as u64;
+            let _ = pmv2_mut_snapshot_insert::<DirCfg>(dir_p, key, val, &key as *const u64);
+        }
+    }
+
+    pub fn remove(&mut self, qkey: *const <type:CFG.key>) -> bool {
+        unsafe {
+            if self.root == 0 as *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> { return false; }
+            let dp:    *mut Rc<MutSnapshot<DirCfg>> = &mut self.dir_rc as *mut Rc<MutSnapshot<DirCfg>>;
+            let dir_p: *mut MutSnapshot<DirCfg>     = dp.get_mut();
+            let mut t: MutSnapshot<CFG> = MutSnapshot::<CFG> {
+                root:      self.root,
+                parent_id: dir_p.parent_id,
+            };
+            let r: bool = pmv2_mut_snapshot_remove::<CFG>(&mut t as *mut MutSnapshot<CFG>, qkey);
+            self.root = t.root;
+            return r;
+        }
+    }
+}
+
+// ContainerRef.drop — intentionally a no-op in v1.
+//
+// Logos drop semantics observe a stale `self` in `fn drop(self: T)` —
+// `&mut self` method writes to the live ContainerRef (mutating its
+// `root` cache through inserts/removes) don't propagate to the moved
+// `self` the Drop body sees. Investigated via addr-of-field reads;
+// same stale state. Workaround: users MUST call `.writeback()` before
+// letting a ContainerRef go out of scope so the directory holds the
+// latest cached root. MultiSnap.drop's registry dispatch then frees
+// the right tree per ctr_id.
+//
+// Without writeback, the dir holds the original (empty) root and
+// MultiSnap.drop releases that — the actual container tree leaks.
+// v2 fix is at compiler level (drop receiving a fresh field-snapshot
+// that reflects post-method state).
+impl<const CFG: HermesStatic> Drop for ContainerRef<CFG> {
+    fn drop(self: ContainerRef<CFG>) {
+    }
 }
