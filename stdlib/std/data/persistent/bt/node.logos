@@ -32,9 +32,16 @@ use std.hermes.view;
 use std.hermes.anyval;
 
 pub struct NodeBase<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic> {
-    pub rc:      u64,
-    pub n:       u16,
-    pub is_leaf: bool,
+    // cfg_hash carries the byte-hash identity of CFG, populated at alloc
+    // time. It's the universal "what kind of container is this node?"
+    // tag — store-level dispatch (e.g. ContainerRegistry release thunks
+    // in handle.logos) reads it through any *mut NodeBase<*,*,*> without
+    // knowing CFG statically. Future: schema dispatch, wrapper-pool
+    // keying, type-aware debug print all reuse this slot.
+    pub cfg_hash: u64,
+    pub rc:       u64,
+    pub n:        u16,
+    pub is_leaf:  bool,
 }
 
 pub struct BranchNode<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic> {

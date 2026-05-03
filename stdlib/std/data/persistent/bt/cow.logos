@@ -27,9 +27,10 @@ pub fn node_alloc_c<K: Container + ContainerOrd, V: Container, const CFG: Hermes
     let raw: *mut u8 = alloc(sizeof::<LeafNode<K, V, CFG>>());
     let leaf: *mut LeafNode<K, V, CFG> = raw as *mut LeafNode<K, V, CFG>;
     unsafe {
-        leaf.base.rc      = 1u64;
-        leaf.base.n       = 0u16;
-        leaf.base.is_leaf = true;
+        leaf.base.cfg_hash = hstatic_hash_of::<CFG>();
+        leaf.base.rc       = 1u64;
+        leaf.base.n        = 0u16;
+        leaf.base.is_leaf  = true;
         leaf.keys = Buffer::<K>::new();
         leaf.vals = Buffer::<V>::new();
     }
@@ -40,9 +41,10 @@ pub fn node_alloc_internal_c<K: Container + ContainerOrd, V: Container, const CF
     let raw: *mut u8 = alloc(sizeof::<BranchNode<K, V, CFG>>());
     let br: *mut BranchNode<K, V, CFG> = raw as *mut BranchNode<K, V, CFG>;
     unsafe {
-        br.base.rc      = 1u64;
-        br.base.n       = 0u16;
-        br.base.is_leaf = false;
+        br.base.cfg_hash = hstatic_hash_of::<CFG>();
+        br.base.rc       = 1u64;
+        br.base.n        = 0u16;
+        br.base.is_leaf  = false;
         br.keys     = Buffer::<K>::new();
         br.children = PrimVec::<*mut NodeBase<K, V, CFG>>::empty();
     }
