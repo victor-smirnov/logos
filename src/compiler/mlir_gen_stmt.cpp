@@ -1203,8 +1203,37 @@ void MLIRGenImpl::gen_deref_field_write(lir_view::SDerefFieldWriteView v) {
     }
     auto sit = struct_types_.find(type_name);
     if (sit == struct_types_.end()) {
-        std::fprintf(stderr, "mlir_gen: deref-field-write: unknown type '%s'\n", type_name.c_str());
-        return;
+        // Fallback: type_name from the LIR may carry an unsubstituted
+        // typevar (e.g. "Inner$G1$T") when sema lowered the stmt inside a
+        // generic body and mono didn't rewrite the precomputed string.
+        // Resolve the struct from the receiver's tracked local pointer
+        // type instead — by mlir-gen time, mono has produced the concrete
+        // struct, and var_local_ptrs_ holds the receiver's LLVM type.
+        std::string resolved_name;
+        auto lpit = var_local_ptrs_.find(receiver);
+        if (lpit != var_local_ptrs_.end()) {
+            for (auto& [sn, si] : struct_types_) {
+                if (si.llvm_type == lpit->second) { resolved_name = sn; break; }
+            }
+        }
+        if (resolved_name.empty()) {
+            auto vsi = var_struct_.find(receiver);
+            if (vsi != var_struct_.end()) resolved_name = vsi->second;
+        }
+        if (resolved_name.empty()) {
+            auto vci = var_class_.find(receiver);
+            if (vci != var_class_.end()) resolved_name = vci->second;
+        }
+        if (resolved_name.empty()) {
+            std::fprintf(stderr, "mlir_gen: deref-field-write: unknown type '%s'\n", type_name.c_str());
+            return;
+        }
+        sit = struct_types_.find(resolved_name);
+        if (sit == struct_types_.end()) {
+            std::fprintf(stderr, "mlir_gen: deref-field-write: unknown type '%s' (recv resolved to '%s' which has no entry)\n",
+                         type_name.c_str(), resolved_name.c_str());
+            return;
+        }
     }
     auto& info = sit->second;
     auto gep = gep_field(ptr, info, field);

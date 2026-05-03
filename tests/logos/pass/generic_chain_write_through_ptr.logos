@@ -1,0 +1,74 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// generic_chain_write_through_ptr.logos — regression for chain-writes
+// through `*mut Outer<T>` where the path crosses a nested generic
+// struct field.
+//
+// Previously, sema's lower_deref_field_write precomputed a `type_name`
+// string from the receiver's pointee, but inside a generic function
+// body the typevar was mangled literally (`Inner$G1$T`). Mono's
+// clone-stmt for DerefFieldWrite copied the precomputed string
+// verbatim — `T` survived into the cloned function bodies.
+// mlir-gen's struct lookup `struct_types_["Inner$G1$T"]` then missed
+// (the concrete entry is `Inner$G1$i64`), and the codegen warned
+// "deref-field-write: unknown type 'Inner$G1$T'". The runtime
+// behavior was sometimes accidentally correct (i64-shaped layouts
+// matched), but the offset would diverge whenever T's size
+// differed — which is the scenario `Rc<T>`'s "two heap allocations"
+// layout was specifically designed to sidestep
+// (std/mem/rc/rc.logos's "two-pointer layout sidesteps generic-struct
+// field-offset issues" comment).
+//
+// Fix: mlir_gen_stmt's gen_deref_field_write now falls back to the
+// receiver's tracked local pointer type (var_local_ptrs_ /
+// var_struct_ / var_class_) when struct_types_ misses on the stored
+// type_name. By that point mono has produced the concrete struct, so
+// the resolution always finds the right entry.
+//
+// This test exercises the exact buggy shape Rc<T>'s comment described:
+// a generic Rc<T> holding a *mut RcInner<T> with a `strong: i32`
+// header and a `val: T` payload. Chain writes via
+// `*mut Rc<T>` (`r.inner.strong = ...`) plus differently-sized T
+// (i64 vs i32) confirm offsets are computed per-instantiation.
+
+package generic_chain_write_through_ptr;
+
+use std.mem;
+
+pub struct RcInner<T> { pub strong: i32, pub val: T, }
+pub struct Rc<T> { pub inner: *mut RcInner<T>, }
+
+pub fn test_rc_new<T>(v: T) -> Rc<T> {
+    let p: *mut RcInner<T> = alloc(sizeof::<RcInner<T>>()) as *mut RcInner<T>;
+    unsafe { (*p).strong = 1; (*p).val = v; }
+    return Rc::<T> { inner: p };
+}
+
+pub fn test_rc_retain<T>(r: *mut Rc<T>) {
+    unsafe { r.inner.strong = r.inner.strong + 1; }
+}
+
+pub fn test_rc_count<T>(r: *const Rc<T>) -> i32 {
+    unsafe { return r.inner.strong; }
+}
+
+unsafe fn main() -> i32 {
+    let mut r: Rc<i64> = test_rc_new::<i64>(42i64);
+    if test_rc_count::<i64>(&r as *const Rc<i64>) != 1 { return 1; }
+    test_rc_retain::<i64>(&mut r as *mut Rc<i64>);
+    test_rc_retain::<i64>(&mut r as *mut Rc<i64>);
+    test_rc_retain::<i64>(&mut r as *mut Rc<i64>);
+    if test_rc_count::<i64>(&r as *const Rc<i64>) != 4 { return 2; }
+
+    let mut s: Rc<i32> = test_rc_new::<i32>(7i32);
+    if test_rc_count::<i32>(&s as *const Rc<i32>) != 1 { return 3; }
+    test_rc_retain::<i32>(&mut s as *mut Rc<i32>);
+    if test_rc_count::<i32>(&s as *const Rc<i32>) != 2 { return 4; }
+
+    // val payload reads correctly (size-dependent offset).
+    let vi64: i64 = (*r.inner).val;
+    if vi64 != 42 { return 5; }
+    let vi32: i32 = (*s.inner).val;
+    if vi32 != 7 { return 6; }
+    return 0;
+}
