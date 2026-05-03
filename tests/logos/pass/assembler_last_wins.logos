@@ -1,0 +1,80 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// assembler_last_wins.logos — first slice of the component-metaprog
+// assembler. Two parts (PartA, PartB) implement the Greet trait; the
+// assembler-metafn reads its cfg's "parts" list, picks the LAST one
+// (override-rule = "last wins"), and emits a delegate fn that
+// dispatches statically to that part's `id()`.
+//
+// Architecture demonstrated:
+//   • Configuration is plain Hermes data — `@{"parts": [...]}`.
+//   • Override resolution happens at code-emission time inside the
+//     metafn, not at runtime, not via CRTP. The metafn walks the
+//     parts list, picks one (last-wins for this slice), and produces
+//     the dispatch as static code.
+//   • The choice is auditable: change the cfg, the spliced fn body
+//     changes verbatim. Future slices can add other rules
+//     (first-wins, merge, custom override predicates).
+//   • Generic-delegate (`dele_id<P: Greet>`) sidesteps the
+//     `Type::method` antiquot gap — `#name` is admissible at
+//     type-arg position, but not before `::`.
+//
+// Caveats deferred to next slice:
+//   • Passing CFG as `metacall fn::<const CFG: HermesStatic>()` to
+//     parameterise the assembler-metafn doesn't propagate through
+//     metacall's JIT path yet. Cfg is hardcoded inside the metafn
+//     for now; threading the const-generic into metacall is the
+//     follow-up.
+//   • Splicing impl-blocks (vs free fns) at item-position metacall
+//     also has a gap — Assembled::id wasn't visible from main when
+//     emitted as `impl Assembled { fn id() ... }`. Free-fn form
+//     spliced fine. Investigate alongside the metacall-cfg arc.
+//   • Different method-sets per part (A has m1+m2, B has m2+m3 →
+//     assembled = union with overrides) requires introspection of
+//     each part's trait-impl method list. Not in this slice.
+
+package main;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+use std.hermes.anyval;
+use std.hermes.string;
+
+pub trait Greet {
+    fn id() -> i64;
+}
+
+pub struct PartA {}
+impl Greet for PartA { fn id() -> i64 { return 1i64; } }
+
+pub struct PartB {}
+impl Greet for PartB { fn id() -> i64 { return 2i64; } }
+
+// Generic delegate sidesteps the `Type::method` antiquot gap by
+// dispatching through a type-arg position (which DOES accept #ident).
+fn dele_id<P: Greet>() -> i64 { return P::id(); }
+
+fn assemble_greeter() -> QuoteItemBlob {
+    unsafe {
+        // Hardcoded cfg until metacall<const CFG: HermesStatic> lands.
+        let cfg: HermesStatic = @{"parts": ["PartA", "PartB"]};
+        let v = cfg.as_view();
+        let arr: AnyVal = v.map_get(v.root(), "parts");
+        let n: u64 = v.array_len(arr);
+        let last_idx: u64 = n - 1u64;
+        let last: AnyVal = v.array_get(arr, last_idx);
+        let name_sv: StringView = v.get_str_view(last);
+        let name: Ident = Ident { ptr: name_sv.ptr, len: name_sv.len };
+
+        return quote_item! {
+            fn assembled_id() -> i64 { return dele_id::<#name>(); }
+        };
+    }
+}
+
+metacall assemble_greeter();
+
+unsafe fn main() -> i32 {
+    if assembled_id() != 2i64 { return 1; }
+    return 0;
+}
