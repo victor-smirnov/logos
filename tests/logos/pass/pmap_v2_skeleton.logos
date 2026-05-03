@@ -29,7 +29,7 @@ package pmap_v2_skeleton;
 
 use std.data.persistent.pmap_v2.view;
 use std.data.persistent.pmap_v2.mutv;
-use std.data.persistent.btree.node;
+use std.data.persistent.pmap_v2.btree;
 use std.lang.cmp;
 use std.lang.ord;
 use std.lang.datatypes;

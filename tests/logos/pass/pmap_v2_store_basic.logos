@@ -18,7 +18,7 @@
 
 package std_data_persistent_pmap_v2_store_basic;
 
-use std.data.persistent.btree.node;
+use std.data.persistent.pmap_v2.btree;
 use std.data.persistent.pmap_v2.view;
 use std.data.persistent.pmap_v2.mutv;
 use std.data.persistent.pmap_v2.store;

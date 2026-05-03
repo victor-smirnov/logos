@@ -1,0 +1,353 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// std.data.persistent.pmap_v2.btree — CFG-aware B+tree node for pmap_v2.
+//
+// `BTreeNode<K, V, CFG>` is the canonical node shape used by pmap_v2.
+// CFG is a HermesStatic const-generic carrying the Configuration
+// (fanout, etc.). Two trees with different CFGs are different types,
+// and the per-CFG fanout is read from the literal at runtime via the
+// usual hstatic-as-const-generic materialisation — same blob,
+// auditable.
+//
+// Mirrors the legacy std.data.persistent.btree.node module structure;
+// only adds the CFG type-arg and a CFG-driven `node_max_keys`. All fn
+// names carry a `_c` suffix to coexist with the legacy module in
+// stdlib.
+
+package std.data.persistent.pmap_v2.btree;
+
+use std.mem;
+use std.lang.cmp;
+use std.lang.ord;
+use std.lang.datatypes;
+use std.hermes.view;
+use std.hermes.anyval;
+
+pub struct BTreeNode<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic> {
+    pub rc:       u64,
+    pub n:        u16,
+    pub is_leaf:  bool,
+    pub keys:     Buffer<K>,
+    pub vals:     Buffer<V>,
+    pub children: PrimVec<*mut BTreeNode<K, V, CFG>>,
+}
+
+// Maximum keys per node, read from CFG's "fanout" slot. Defaults to 4
+// if missing/non-int — matches legacy behavior so swapping doesn't
+// silently change layout.
+pub unsafe fn node_max_keys_c<const CFG: HermesStatic>() -> u64 {
+    let v = CFG.as_view();
+    let av: AnyVal = v.map_get(v.root(), "fanout");
+    if av.is_null() { return 4u64; }
+    if !av.is_int() { return 4u64; }
+    return av.as_i64() as u64;
+}
+
+pub fn node_alloc_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>() -> *mut BTreeNode<K, V, CFG> {
+    let raw: *mut u8 = alloc(sizeof::<BTreeNode<K, V, CFG>>());
+    let node: *mut BTreeNode<K, V, CFG> = raw as *mut BTreeNode<K, V, CFG>;
+    unsafe {
+        node.rc       = 1u64;
+        node.n        = 0u16;
+        node.is_leaf  = true;
+        node.keys     = Buffer::<K>::new();
+        node.vals     = Buffer::<V>::new();
+        node.children = PrimVec::<*mut BTreeNode<K, V, CFG>>::empty();
+    }
+    return node;
+}
+
+pub fn node_alloc_internal_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>() -> *mut BTreeNode<K, V, CFG> {
+    let n: *mut BTreeNode<K, V, CFG> = node_alloc_c::<K, V, CFG>();
+    unsafe { n.is_leaf = false; }
+    return n;
+}
+
+pub fn node_retain_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut BTreeNode<K, V, CFG>) {
+    unsafe { node.rc = node.rc + 1u64; }
+}
+
+pub fn node_release_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut BTreeNode<K, V, CFG>) {
+    unsafe {
+        node.rc = node.rc - 1u64;
+        if node.rc == 0u64 {
+            if !node.is_leaf {
+                let nc: u64 = node.children.len;
+                let mut i: u64 = 0u64;
+                while i < nc {
+                    let c: *mut BTreeNode<K, V, CFG> = node.children.get(i);
+                    node_release_c::<K, V, CFG>(c);
+                    i = i + 1u64;
+                }
+                node.children.clear();
+            }
+            let kp: *mut Buffer<K> = &mut node.keys as *mut Buffer<K>;
+            let vp: *mut Buffer<V> = &mut node.vals as *mut Buffer<V>;
+            kp.drop_in_place();
+            vp.drop_in_place();
+            dealloc(node as *mut u8);
+        }
+    }
+}
+
+pub fn node_clone_for_cow_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(orig: *mut BTreeNode<K, V, CFG>) -> *mut BTreeNode<K, V, CFG> {
+    unsafe {
+        let copy: *mut BTreeNode<K, V, CFG> = node_alloc_c::<K, V, CFG>();
+        copy.is_leaf = orig.is_leaf;
+        let mut i: u64 = 0u64;
+        while i < orig.keys.len() {
+            let kp: K::ViewInStore = orig.keys.get(i);
+            copy.keys.push(kp);
+            i = i + 1u64;
+        }
+        if orig.is_leaf {
+            i = 0u64;
+            while i < orig.vals.len() {
+                let vp: V::ViewInStore = orig.vals.get(i);
+                copy.vals.push(vp);
+                i = i + 1u64;
+            }
+        } else {
+            i = 0u64;
+            let nc: u64 = orig.children.len;
+            while i < nc {
+                let c: *mut BTreeNode<K, V, CFG> = orig.children.get(i);
+                node_retain_c::<K, V, CFG>(c);
+                copy.children.push(c);
+                i = i + 1u64;
+            }
+        }
+        copy.n = orig.n;
+        return copy;
+    }
+}
+
+pub fn node_find_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut BTreeNode<K, V, CFG>, key: *const K) -> i64 {
+    unsafe {
+        let n: u64 = node.keys.len();
+        let mut i: u64 = 0u64;
+        let phantom: *const K = 0 as *const K;
+        while i < n {
+            let kv: K::ViewInStore = node.keys.get(i);
+            match phantom.cmp_view_key(kv, key) {
+                Ordering::Equal => { return i as i64; }
+                _ => { }
+            }
+            i = i + 1u64;
+        }
+        return -1i64;
+    }
+}
+
+fn node_descend_idx_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut BTreeNode<K, V, CFG>, key: *const K) -> u64 {
+    unsafe {
+        let n: u64 = node.keys.len();
+        let mut i: u64 = 0u64;
+        let phantom: *const K = 0 as *const K;
+        while i < n {
+            let kv: K::ViewInStore = node.keys.get(i);
+            match phantom.cmp_view_key(kv, key) {
+                Ordering::Greater => { return i; }
+                _ => { }
+            }
+            i = i + 1u64;
+        }
+        return n;
+    }
+}
+
+pub fn node_contains_rec_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut BTreeNode<K, V, CFG>, key: *const K) -> bool {
+    unsafe {
+        if node.is_leaf {
+            return node_find_c::<K, V, CFG>(node, key) >= 0i64;
+        }
+        let idx: u64 = node_descend_idx_c::<K, V, CFG>(node, key);
+        let child: *mut BTreeNode<K, V, CFG> = node.children.get(idx);
+        return node_contains_rec_c::<K, V, CFG>(child, key);
+    }
+}
+
+pub fn node_get_rec_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut BTreeNode<K, V, CFG>, key: *const K, out: *mut V::ViewInStore) -> bool {
+    unsafe {
+        if node.is_leaf {
+            let idx: i64 = node_find_c::<K, V, CFG>(node, key);
+            if idx < 0i64 { return false; }
+            *out = node.vals.get(idx as u64);
+            return true;
+        }
+        let i: u64 = node_descend_idx_c::<K, V, CFG>(node, key);
+        let child: *mut BTreeNode<K, V, CFG> = node.children.get(i);
+        return node_get_rec_c::<K, V, CFG>(child, key, out);
+    }
+}
+
+pub fn node_size_rec_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut BTreeNode<K, V, CFG>) -> u64 {
+    unsafe {
+        if node.is_leaf { return node.keys.len(); }
+        let nc: u64 = node.children.len;
+        let mut i: u64 = 0u64;
+        let mut total: u64 = 0u64;
+        while i < nc {
+            let c: *mut BTreeNode<K, V, CFG> = node.children.get(i);
+            total = total + node_size_rec_c::<K, V, CFG>(c);
+            i = i + 1u64;
+        }
+        return total;
+    }
+}
+
+pub struct InsertOutcome<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic> {
+    pub hit:   bool,
+    pub split: bool,
+    pub right: *mut BTreeNode<K, V, CFG>,
+}
+
+fn node_lower_bound_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut BTreeNode<K, V, CFG>, qkey: *const K) -> u64 {
+    unsafe {
+        let n: u64 = node.keys.len();
+        let mut i: u64 = 0u64;
+        let phantom: *const K = 0 as *const K;
+        while i < n {
+            let kv: K::ViewInStore = node.keys.get(i);
+            match phantom.cmp_view_key(kv, qkey) {
+                Ordering::Less => { i = i + 1u64; }
+                _ => { return i; }
+            }
+        }
+        return n;
+    }
+}
+
+fn node_split_leaf_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut BTreeNode<K, V, CFG>) -> *mut BTreeNode<K, V, CFG> {
+    unsafe {
+        let cap: u64 = node.keys.len();
+        let mid: u64 = cap / 2u64;
+        let right: *mut BTreeNode<K, V, CFG> = node_alloc_c::<K, V, CFG>();
+        let mut i: u64 = mid;
+        while i < cap {
+            let kv: K::ViewInStore = node.keys.get(i);
+            let vv: V::ViewInStore = node.vals.get(i);
+            right.keys.push(kv);
+            right.vals.push(vv);
+            i = i + 1u64;
+        }
+        while node.keys.len() > mid { node.keys.remove_at(node.keys.len() - 1u64); }
+        while node.vals.len() > mid { node.vals.remove_at(node.vals.len() - 1u64); }
+        node.n  = node.keys.len() as u16;
+        right.n = right.keys.len() as u16;
+        return right;
+    }
+}
+
+fn node_split_internal_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut BTreeNode<K, V, CFG>) -> *mut BTreeNode<K, V, CFG> {
+    unsafe {
+        let cap: u64 = node.keys.len();
+        let mid: u64 = cap / 2u64;
+        let right: *mut BTreeNode<K, V, CFG> = node_alloc_internal_c::<K, V, CFG>();
+        let mut i: u64 = mid;
+        while i < cap {
+            let kv: K::ViewInStore = node.keys.get(i);
+            right.keys.push(kv);
+            i = i + 1u64;
+        }
+        let nc: u64 = node.children.len;
+        let mut j: u64 = mid + 1u64;
+        while j < nc {
+            let c: *mut BTreeNode<K, V, CFG> = node.children.get(j);
+            right.children.push(c);
+            j = j + 1u64;
+        }
+        while node.keys.len()    > mid             { node.keys.remove_at(node.keys.len() - 1u64); }
+        while node.children.len  > mid + 1u64      { node.children.remove_at(node.children.len - 1u64); }
+        node.n  = node.keys.len() as u16;
+        right.n = right.keys.len() as u16;
+        return right;
+    }
+}
+
+fn node_make_child_unique_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut BTreeNode<K, V, CFG>, idx: u64) {
+    unsafe {
+        let c: *mut BTreeNode<K, V, CFG> = node.children.get(idx);
+        if c.rc > 1u64 {
+            let copy: *mut BTreeNode<K, V, CFG> = node_clone_for_cow_c::<K, V, CFG>(c);
+            node_release_c::<K, V, CFG>(c);
+            node.children.set(idx, copy);
+        }
+    }
+}
+
+pub fn node_insert_rec_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut BTreeNode<K, V, CFG>, key: K::ViewInStore, val: V::ViewInStore, qkey: *const K) -> InsertOutcome<K, V, CFG> {
+    unsafe {
+        let zero_node: *mut BTreeNode<K, V, CFG> = 0 as *mut BTreeNode<K, V, CFG>;
+        let max_keys: u64 = node_max_keys_c::<CFG>();
+        if node.is_leaf {
+            let pos: u64 = node_lower_bound_c::<K, V, CFG>(node, qkey);
+            if pos < node.keys.len() {
+                let kv: K::ViewInStore = node.keys.get(pos);
+                let phantom: *const K = 0 as *const K;
+                match phantom.cmp_view_key(kv, qkey) {
+                    Ordering::Equal => {
+                        node.vals.set(pos, val);
+                        return InsertOutcome::<K, V, CFG> { hit: true, split: false, right: zero_node };
+                    }
+                    _ => { }
+                }
+            }
+            node.keys.insert_at(pos, key);
+            node.vals.insert_at(pos, val);
+            node.n = node.n + 1u16;
+            if node.keys.len() > max_keys {
+                let right: *mut BTreeNode<K, V, CFG> = node_split_leaf_c::<K, V, CFG>(node);
+                return InsertOutcome::<K, V, CFG> { hit: false, split: true, right: right };
+            }
+            return InsertOutcome::<K, V, CFG> { hit: false, split: false, right: zero_node };
+        }
+        let i: u64 = node_descend_idx_c::<K, V, CFG>(node, qkey);
+        node_make_child_unique_c::<K, V, CFG>(node, i);
+        let child: *mut BTreeNode<K, V, CFG> = node.children.get(i);
+        let mut inner: InsertOutcome<K, V, CFG> = node_insert_rec_c::<K, V, CFG>(child, key, val, qkey);
+        if inner.hit {
+            return InsertOutcome::<K, V, CFG> { hit: true, split: false, right: zero_node };
+        }
+        if !inner.split {
+            return InsertOutcome::<K, V, CFG> { hit: false, split: false, right: zero_node };
+        }
+        let inner_right: *mut BTreeNode<K, V, CFG> = inner.right;
+        let sep: K::ViewInStore = inner_right.keys.get(0u64);
+        node.keys.insert_at(i, sep);
+        node.children.insert_at(i + 1u64, inner_right);
+        if !inner_right.is_leaf {
+            inner_right.keys.remove_at(0u64);
+            inner_right.n = inner_right.keys.len() as u16;
+        }
+        node.n = node.n + 1u16;
+        if node.keys.len() > max_keys {
+            let right2: *mut BTreeNode<K, V, CFG> = node_split_internal_c::<K, V, CFG>(node);
+            return InsertOutcome::<K, V, CFG> { hit: false, split: true, right: right2 };
+        }
+        return InsertOutcome::<K, V, CFG> { hit: false, split: false, right: zero_node };
+    }
+}
+
+pub fn node_remove_at_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut BTreeNode<K, V, CFG>, idx: u64) {
+    unsafe {
+        node.keys.remove_at(idx);
+        node.vals.remove_at(idx);
+        node.n = node.n - 1u16;
+    }
+}
+
+pub fn node_remove_rec_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut BTreeNode<K, V, CFG>, key: *const K) -> bool {
+    unsafe {
+        if node.is_leaf {
+            let idx: i64 = node_find_c::<K, V, CFG>(node, key);
+            if idx < 0i64 { return false; }
+            node_remove_at_c::<K, V, CFG>(node, idx as u64);
+            return true;
+        }
+        let i: u64 = node_descend_idx_c::<K, V, CFG>(node, key);
+        node_make_child_unique_c::<K, V, CFG>(node, i);
+        let child: *mut BTreeNode<K, V, CFG> = node.children.get(i);
+        return node_remove_rec_c::<K, V, CFG>(child, key);
+    }
+}
