@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// hstatic_const_generic_uid.logos — first slice of hstatic-as-const-
+// generic. `Foo<const CFG: HermesStatic>` accepts `@{...}` literals
+// at turbofish position; the identity of the resulting type is a
+// byte-hash over the literal's AST (content only, position-free).
+//
+// This unblocks the component-metaprog assembler arc: now the
+// configuration carried by a Configuration becomes part of the type
+// name, so `PMapView<const CFG: HermesStatic>` compiled with two
+// different cfgs will produce distinct types — the bedrock of the
+// constructive read/update split, override resolution, and
+// diagnostic-driven assembly.
+//
+// Pieces wired together:
+//   • Grammar: hermes_lit accepted as type_or_lt_arg → LIT_HSTATIC.
+//   • LogosType::Kind::HStaticLit, identity = const_val (byte-hash).
+//   • Sema: schema-aware FNV-1a walk of the parsed hermes_lit AST,
+//     skipping SRC_LINE so identical content at different positions
+//     hashes the same.
+//   • TypeUID composition: HStaticLit kind adds const_val to the
+//     UID hash so the type-pool dedupes by hash, and types_equal
+//     reports the same type for identical literals.
+//   • mangle_type_for_name: HStaticLit prints as `hs_<hex64>`.
+
+package hstatic_const_generic_uid;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+
+pub struct Foo<const CFG: HermesStatic> { pub x: i32, }
+
+unsafe fn main() -> i32 {
+    let a: Type = type_of::<Foo<@{"k": 1}>>();
+    let b: Type = type_of::<Foo<@{"k": 1}>>();   // identical bytes → same uid
+    let c: Type = type_of::<Foo<@{"k": 2}>>();   // different value → different uid
+    let d: Type = type_of::<Foo<@{"k2": 1}>>();  // different key   → different uid
+
+    if a.uid == 0 as u64 { return 1; }
+    if a.uid != b.uid    { return 2; }
+    if a.uid == c.uid    { return 3; }
+    if a.uid == d.uid    { return 4; }
+    if c.uid == d.uid    { return 5; }
+
+    // Construct an instance and round-trip the field — proves codegen
+    // didn't reject the new kind on the construction path.
+    let f: Foo<@{"k": 1}> = Foo::<@{"k": 1}> { x: 7 };
+    if f.x != 7 { return 6; }
+
+    return 0;
+}

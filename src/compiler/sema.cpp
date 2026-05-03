@@ -363,6 +363,12 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         // pool->alloc to feed subst_type_sema).
         put_u64(buf, uint64_t(t.const_val.value_or(0)));
         break;
+    case K::HStaticLit:
+        // Identity = the byte-hash stashed in const_val. Without this,
+        // two distinct `Foo::<@{...}>` instantiations would dedupe to the
+        // same TypeRef and collapse the configuration.
+        put_u64(buf, uint64_t(t.const_val.value_or(0)));
+        break;
     default:
         break;  // primitives: kind tag alone identifies
     }
@@ -676,6 +682,15 @@ static std::string mangle_type_for_name(TypeRef t) {
         return "slice_" + mangle_type_for_name(TypeRef(t).elem());
     case LogosType::Kind::AssocType:
         return mangle_type_for_name(TypeRef(t).assoc_base()) + "::" + std::string(TypeRef(t).assoc_type_name());
+    case LogosType::Kind::HStaticLit: {
+        // hs_<hex64>: identity-stable suffix for HermesStatic value used as
+        // const-generic argument. Two `@{...}` literals with identical bytes
+        // hash to the same const_val and therefore the same suffix.
+        char buf[24];
+        std::snprintf(buf, sizeof(buf), "hs_%016llx",
+                      (unsigned long long)(uint64_t)(TypeRef(t).const_val().value_or(0)));
+        return std::string(buf);
+    }
     default:
         return type_str(t);  // primitives / TypeVar / Enum already valid identifiers
     }
@@ -925,6 +940,12 @@ std::string type_str(TypeRef t) {
     case LogosType::Kind::I128:   return "i128";
     case LogosType::Kind::U128:   return "u128";
     case LogosType::Kind::IntLit:   return "{integer}";
+    case LogosType::Kind::HStaticLit: {
+        char buf[24];
+        std::snprintf(buf, sizeof(buf), "@hs_%016llx",
+                      (unsigned long long)(uint64_t)(TypeRef(t).const_val().value_or(0)));
+        return std::string(buf);
+    }
     case LogosType::Kind::FloatLit: return "{float}";
     case LogosType::Kind::Ptr:
         return std::string(TypeRef(t).mut_ptr() ? "*mut " : "*const ") + type_str(TypeRef(t).pointee());
@@ -2393,6 +2414,75 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
             t.lifetime_args = std::move(lt_args);
             return pool_->alloc(std::move(t));
         }
+    }
+
+    if (tc == la::LIT_HSTATIC) {
+        // HermesStatic literal at type-arg position: Foo::<@{...}>.
+        // Identity = byte-hash over the AST (content only, position-free)
+        // so two identical `@{...}` instances at different sites produce
+        // the same TypeRef.
+        if (!node.has_key(la::VALUE)) {
+            error("HermesStatic type-arg: missing literal payload");
+            return error_t();
+        }
+        auto val_node = map_of(node.get(la::VALUE.code));
+        // FNV-1a 64-bit hash, schema-aware (content only, position-free).
+        // Walks the hermes_lit AST tree using each node CODE's known shape
+        // — distinguishes string-valued (HERMES_INT/STR/FLOAT) from
+        // map-valued (HERMES_ENTRY's VALUE) children, so identical content
+        // at different source positions hashes to the same value.
+        auto fnv_byte = [](uint64_t h, uint8_t b) {
+            return (h ^ b) * 0x100000001b3ULL;
+        };
+        auto fnv_u64 = [&](uint64_t h, uint64_t x) {
+            for (int i = 0; i < 8; ++i) { h = fnv_byte(h, (uint8_t)(x & 0xff)); x >>= 8; }
+            return h;
+        };
+        auto fnv_str = [&](uint64_t h, std::string_view s) {
+            h = fnv_u64(h, (uint64_t)s.size());
+            for (char c : s) h = fnv_byte(h, (uint8_t)c);
+            return h;
+        };
+        std::function<uint64_t(hermes::TinyMapView, uint64_t)> walk;
+        walk = [&](hermes::TinyMapView n, uint64_t h) -> uint64_t {
+            int32_t c = code_of(n);
+            h = fnv_u64(h, (uint64_t)(int64_t)c);
+            if (c == la::HERMES_MAP.code || c == la::HERMES_ARRAY.code) {
+                if (n.has_key(la::ITEMS) && !n.get(la::ITEMS.code).is_null()) {
+                    auto items = arr_of(n.get(la::ITEMS.code));
+                    h = fnv_u64(h, (uint64_t)items.size());
+                    for (uint64_t i = 0; i < items.size(); ++i)
+                        h = walk(map_of(items.get(i)), h);
+                }
+            } else if (c == la::HERMES_ENTRY.code) {
+                if (n.has_key(la::KEY))
+                    h = fnv_str(h, str_of(n.get(la::KEY.code)));
+                if (n.has_key(la::VALUE))
+                    h = walk(map_of(n.get(la::VALUE.code)), h);
+                if (n.has_key(la::LO_NEG)) {
+                    auto av = n.get(la::LO_NEG.code);
+                    if (av.is_value() && av.as_value<uint8_t>() != 0) h = fnv_byte(h, 1);
+                }
+            } else if (c == la::HERMES_INT.code || c == la::HERMES_NEG_INT.code ||
+                       c == la::HERMES_FLOAT.code || c == la::HERMES_STR.code) {
+                if (n.has_key(la::VALUE))
+                    h = fnv_str(h, str_of(n.get(la::VALUE.code)));
+            } else if (c == la::HERMES_BOOL.code) {
+                if (n.has_key(la::VALUE)) {
+                    auto av = n.get(la::VALUE.code);
+                    if (av.is_value() && av.as_value<uint8_t>() != 0) h = fnv_byte(h, 1);
+                }
+            } else if (c == la::HERMES_TYPE_LIT.code) {
+                if (n.has_key(la::NAME))
+                    h = fnv_str(h, str_of(n.get(la::NAME.code)));
+            }
+            // HERMES_NULL / unknown: code-only contribution (already mixed in).
+            return h;
+        };
+        uint64_t hash = walk(val_node, 0xcbf29ce484222325ULL);
+        LogosTypeBuilder t; t.kind = LogosType::Kind::HStaticLit;
+        t.const_val = (int64_t)hash;  // bit-pattern reuse; mangling reads it as u64
+        return pool_->alloc(std::move(t));
     }
 
     error(std::format("unexpected type node code {}", tc));

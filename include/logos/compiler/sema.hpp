@@ -62,6 +62,7 @@ struct LogosType {
         FnPtr,                    // fn(T1, T2) -> R — bare function pointer (single ptr)
         TaggedPtr,                // &tagged<TS> Trait — thin tag-dispatched pointer (*const u8)
         Generic,                  // unapplied generic constructor (value-handle only; no pool entry)
+        HStaticLit,               // HermesStatic literal at type-arg position (Foo::<@{...}>); identity = byte-hash over AST. const_val carries the low 64 bits. Inserted after Generic so existing kinds (Generic = 37) keep their numeric IDs.
         Error                     // sentinel for ill-typed expressions
     };
 
