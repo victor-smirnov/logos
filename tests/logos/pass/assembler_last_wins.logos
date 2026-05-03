@@ -20,9 +20,6 @@
 //     type-arg position, but not before `::`.
 //
 // Caveats deferred:
-//   • Splicing impl-blocks (vs free fns) at item-position metacall
-//     has a gap — Assembled::id wasn't visible from main when emitted
-//     as `impl Assembled { fn id() ... }`. Free-fn form spliced fine.
 //   • Different method-sets per part (A has m1+m2, B has m2+m3 →
 //     assembled = union with overrides) requires introspection of
 //     each part's trait-impl method list. Not in this slice.
@@ -58,8 +55,12 @@ fn assemble_greeter<const CFG: HermesStatic>() -> QuoteItemBlob {
         let name_sv: StringView = v.get_str_view(last);
         let name: Ident = Ident { ptr: name_sv.ptr, len: name_sv.len };
 
+        // Emit both the assembled struct AND its impl in one splice.
         return quote_item! {
-            fn assembled_id() -> i64 { return dele_id::<#name>(); }
+            pub struct Assembled {}
+            impl Assembled {
+                pub fn id() -> i64 { return dele_id::<#name>(); }
+            }
         };
     }
 }
@@ -67,6 +68,6 @@ fn assemble_greeter<const CFG: HermesStatic>() -> QuoteItemBlob {
 metacall assemble_greeter::<@{"parts": ["PartA", "PartB"]}>();
 
 unsafe fn main() -> i32 {
-    if assembled_id() != 2i64 { return 1; }
+    if Assembled::id() != 2i64 { return 1; }
     return 0;
 }
