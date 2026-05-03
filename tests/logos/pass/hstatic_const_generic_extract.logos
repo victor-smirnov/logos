@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// hstatic_const_generic_extract.logos — runtime extraction of a
+// HermesStatic const-generic from inside a generic body.
+//
+// Without this, hstatic-as-const-generic only carries type identity:
+// the cfg distinguishes types but you can't read its content. With
+// this slice the cfg behaves like a real compile-time constant —
+// the body uses `CFG` like an inlined `let cfg: HermesStatic = @{...};`.
+//
+// Pieces wired together (atop hstatic_const_generic_uid):
+//   • Sema, at LIT_HSTATIC resolution, also lowers the @-literal via
+//     lower_hermes_lit and registers the resulting LExpr* in
+//     LProgram::hstatic_registry_ keyed by hash. First-write-wins —
+//     identical literals share one registered LExpr.
+//   • Mono moves hstatic_registry_ alongside expr_pool_ so cloned
+//     bodies can splice the registered literal.
+//   • Mono's VarRef clone, on a `__const_param:NAME` reference whose
+//     SubstMap entry is HStaticLit(hash=H), looks up registry[H] and
+//     deep-clones that LExpr at the use site (subst_expr with empty
+//     subst). The cloned EHermesLit emits exactly like an inline
+//     `@{...}` would — the cfg is materialised in rodata.
+//
+// End-to-end check: read the field "k" from the cfg back as i64.
+// Two `@{"k": 7}` instantiations dedupe; `@{"k": 13}` materialises
+// distinctly.
+
+package hstatic_const_generic_extract;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+use std.hermes.anyval;
+
+unsafe fn read_k<const CFG: HermesStatic>() -> i64 {
+    let v = CFG.as_view();
+    let r: AnyVal = v.root();
+    if r.is_null() { return -1i64; }
+    let kv: AnyVal = v.map_get(r, "k");
+    if kv.is_null() { return -2i64; }
+    if !kv.is_int() { return -3i64; }
+    return kv.as_i64();
+}
+
+unsafe fn main() -> i32 {
+    let a: i64 = read_k::<@{"k": 7}>();
+    let b: i64 = read_k::<@{"k": 13}>();
+    let c: i64 = read_k::<@{"k": 7}>();   // identical to a → same instantiation
+    if a != 7  { return 1; }
+    if b != 13 { return 2; }
+    if c != 7  { return 3; }
+    if a != c  { return 4; }
+    return 0;
+}

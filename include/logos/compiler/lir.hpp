@@ -950,6 +950,14 @@ struct LProgram {
     };
     std::vector<MetaprogTarget> metaprog_targets;
 
+    // hstatic-as-const-generic: registry of HermesStatic literals encountered
+    // at type-arg position (`Foo::<@{...}>`), keyed by content-hash. Sema
+    // populates at LIT_HSTATIC resolution time; mono looks up by the
+    // HStaticLit's const_val (the same hash) to materialise the literal in
+    // place of `__const_param:CFG` references inside generic bodies.
+    // LExpr* points into expr_pool_; lifetimes match LProgram.
+    std::unordered_map<uint64_t, LExpr*> hstatic_registry_;
+
     // M.1: per-site record of `metacall <call_expr>` occurrences in the user
     // entry-file AST. Sema synthesises a no-arg thunk fn (`__metacall_thunk_<idx>`)
     // that wraps the literal-folded call; the driver looks up the thunk in the

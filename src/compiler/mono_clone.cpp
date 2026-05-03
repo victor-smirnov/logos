@@ -196,17 +196,47 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         case C::VarRef: {
             std::string n(lir_view::EVarRefView{eref}.name());
             // Const-generic value-use: sema emits "__const_param:N" for a
-            // `<const N: T>` param referenced in expression position. Lower
-            // to lit_int by looking up N in the substitution map.
+            // `<const N: T>` param referenced in expression position. Two
+            // lowerings depending on the param's kind:
+            //   IntLit / scalar  → lit_int with the substituted value.
+            //   HStaticLit       → splice in the registered HermesStatic
+            //                       literal (same EHermesLit shape as
+            //                       inline `let s: HermesStatic = @{...};`).
             constexpr std::string_view CP_PFX = "__const_param:";
             if (n.compare(0, CP_PFX.size(), CP_PFX) == 0) {
                 std::string pname = n.substr(CP_PFX.size());
                 auto sit = s.find(pname);
-                if (sit != s.end() && sit->second && sit->second.const_val()) {
-                    int64_t v = *sit->second.const_val();
-                    result->mirror_offset_ = lir_mirror_emit_lit_int(
-                        out_, result->type, v);
-                    break;
+                if (sit != s.end() && sit->second) {
+                    auto kind = TypeRef(sit->second).kind();
+                    if (kind == LogosType::Kind::HStaticLit) {
+                        uint64_t h = (uint64_t)sit->second.const_val().value_or(0);
+                        auto rit = out_.hstatic_registry_.find(h);
+                        if (rit == out_.hstatic_registry_.end()) {
+                            std::fprintf(stderr,
+                                "mono: __const_param:%s — HermesStatic registry "
+                                "miss for hash %016llx\n",
+                                pname.c_str(), (unsigned long long)h);
+                            // Fall through to var-ref emission so we don't crash.
+                        } else {
+                            // Deep-clone the registered literal at this site.
+                            // subst_expr returns a freshly-pooled LExpr in out_;
+                            // splice its mirror_offset_ + type into `result` so
+                            // the surrounding clone-loop sees a well-formed node.
+                            SubstMap empty;
+                            auto cloned = subst_expr(*rit->second, empty);
+                            if (cloned) {
+                                result->mirror_offset_ = cloned->mirror_offset_;
+                                result->type           = cloned->type;
+                                break;
+                            }
+                        }
+                    }
+                    if (sit->second.const_val()) {
+                        int64_t v = *sit->second.const_val();
+                        result->mirror_offset_ = lir_mirror_emit_lit_int(
+                            out_, result->type, v);
+                        break;
+                    }
                 }
             }
             result->mirror_offset_ = lir_mirror_emit_var_ref(out_, result->type, n);

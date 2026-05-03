@@ -2480,6 +2480,14 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
             return h;
         };
         uint64_t hash = walk(val_node, 0xcbf29ce484222325ULL);
+        // Register the lowered @-literal so mono can materialise it in
+        // place of `__const_param:CFG` references inside generic bodies.
+        // First-write-wins: identical hashes resolve to the same registered
+        // LExpr (content-only identity).
+        if (cur_prog_ && !cur_prog_->hstatic_registry_.count(hash)) {
+            auto lit = lower_hermes_lit(val_node);
+            if (lit) cur_prog_->hstatic_registry_[hash] = lit;
+        }
         LogosTypeBuilder t; t.kind = LogosType::Kind::HStaticLit;
         t.const_val = (int64_t)hash;  // bit-pattern reuse; mangling reads it as u64
         return pool_->alloc(std::move(t));
