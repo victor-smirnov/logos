@@ -880,7 +880,12 @@
     impl_type <- KW_IMPL IDENT
               => { CODE: IMPL_TYPE, NAME: $2 }
 
-    type_ref <- antiquot_type / typeof_type / hermes_arr_type / hermes_map_type / ptr_type / arr_type / slice_type / tagged_type / dyn_type / ref_type / impl_type / unit_type / closure_type / fn_ptr_type / tuple_type / assoc_type_ref / simple_type
+    type_ref <- antiquot_type / typeof_type / hermes_arr_type / hermes_map_type / ptr_type / arr_type / slice_type / tagged_type / dyn_type / ref_type / impl_type / unit_type / closure_type / fn_ptr_type / tuple_type / assoc_type_ref / hstatic_lit_type / simple_type
+
+    // hstatic_lit_type: bare `@{...}` at type position (e.g. `type Cfg = @{...};`).
+    // Sema lowers via the same LIT_HSTATIC code as the type-arg form.
+    hstatic_lit_type <- hermes_lit
+                     => { CODE: LIT_HSTATIC, VALUE: $1 }
 
     // $ident — antiquot in a type position, valid only inside `quote_ty! { ... }`.
     // sema's lower_quote_ty consumes these; resolve_type errors out elsewhere.

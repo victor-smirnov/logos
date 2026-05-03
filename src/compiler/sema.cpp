@@ -1036,6 +1036,13 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
 
     lir::LProgram prog;
     pool_ = &prog.type_pool;  // bind so all alloc()s share prog's arena
+    // Set cur_prog_ before `collect` so LIT_HSTATIC encountered inside
+    // type-alias rhs / supertrait bounds / etc. can register into
+    // prog.hstatic_registry_ during collection. Otherwise alias-routed
+    // HermesStatic const-args produce TypeRefs whose hash is in
+    // const_val but whose literal never lands in the registry, and
+    // mono later fails to materialise `__const_param:CFG`.
+    cur_prog_ = &prog;
 
     init_primitives();
     collect(asts);

@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// hstatic_const_generic_alias.logos — bare `type Cfg = @{...};`
+// alias whose rhs is a HermesStatic literal, used as a const-generic
+// argument elsewhere.
+//
+// Two pieces had to land for this:
+//   • Grammar: `hermes_lit` accepted at type_ref position via a new
+//     `hstatic_lit_type` production. Without it, `pub type Cfg = @{...};`
+//     failed with "syntax error near 'pub'" — type-alias rhs goes
+//     through `simple_type` which didn't include @-literals.
+//   • Sema: cur_prog_ is now bound *before* `collect`, so LIT_HSTATIC
+//     encountered inside collected type-alias rhs registers into
+//     prog.hstatic_registry_. Otherwise alias-routed HermesStatic
+//     const-args produced HStaticLit TypeRefs whose hash existed but
+//     whose literal never landed in the registry, and mono failed to
+//     materialise `__const_param:CFG` references inside the body.
+//
+// Coverage:
+//   • bare-alias type-identity matches inline form (`Foo<Cfg>` ≡
+//     `Foo<@{...}>`).
+//   • runtime extraction works through alias indirection.
+//   • two distinct cfgs ⇒ two distinct types via alias.
+
+package hstatic_const_generic_alias;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+use std.hermes.anyval;
+
+pub struct Foo<const CFG: HermesStatic> { pub x: i32, }
+
+pub type CfgA = @{"k": 17};
+pub type CfgB = @{"k": 99};
+
+pub type FooA = Foo<CfgA>;
+pub type FooB = Foo<CfgB>;
+
+unsafe fn read_k<const CFG: HermesStatic>() -> i64 {
+    let v = CFG.as_view();
+    let av: AnyVal = v.map_get(v.root(), "k");
+    if av.is_null() { return -1i64; }
+    return av.as_i64();
+}
+
+unsafe fn main() -> i32 {
+    // Bare-alias type identity ≡ inline-literal form.
+    let ta:  Type = type_of::<FooA>();
+    let ta2: Type = type_of::<Foo<CfgA>>();
+    let ta3: Type = type_of::<Foo<@{"k": 17}>>();
+    if ta.uid == 0 as u64 { return 1; }
+    if ta.uid != ta2.uid  { return 2; }
+    if ta.uid != ta3.uid  { return 3; }
+
+    // Two distinct cfgs ⇒ two distinct types via alias.
+    let tb: Type = type_of::<FooB>();
+    if ta.uid == tb.uid   { return 4; }
+
+    // Runtime extraction works through alias.
+    if read_k::<CfgA>() != 17 { return 5; }
+    if read_k::<CfgB>() != 99 { return 6; }
+    return 0;
+}

@@ -72,17 +72,20 @@ fn ki(v: u64) -> U64Key { return U64Key { x: v }; }
 
 // Two configurations of the same K/V give two distinct types.
 // Linchpin of the assembler: MyMap16 ≠ MyMap32 at the type level.
-// (Bare `type Cfg = @{...};` would need hermes_lit accepted at
-// simple_type position; for now we inline the cfg into the alias.)
-pub type MyView16 = PMapView<U64Key, U64Val, @{
-    "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
-}>;
-pub type MyMap16 = PMapMut<U64Key, U64Val, @{
-    "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
-}>;
-pub type MyMap32 = PMapMut<U64Key, U64Val, @{
-    "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 32,
-}>;
+pub type Cfg16 = @{
+    "key":    <type:U64Key>,
+    "value":  <type:U64Val>,
+    "fanout": 16,
+};
+pub type Cfg32 = @{
+    "key":    <type:U64Key>,
+    "value":  <type:U64Val>,
+    "fanout": 32,
+};
+
+pub type MyView16 = PMapView<U64Key, U64Val, Cfg16>;
+pub type MyMap16  = PMapMut <U64Key, U64Val, Cfg16>;
+pub type MyMap32  = PMapMut <U64Key, U64Val, Cfg32>;
 
 unsafe fn main() -> i32 {
     let cfg16: HermesStatic = @{
@@ -104,9 +107,7 @@ unsafe fn main() -> i32 {
     let t16b: Type = type_of::<MyMap16>();
     if t16.uid != t16b.uid { return 32; }
 
-    let mut pm: MyMap16 = pmap_mut_new::<U64Key, U64Val, @{
-        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
-    }>();
+    let mut pm: MyMap16 = pmap_mut_new::<U64Key, U64Val, Cfg16>();
     let pmptr: *mut MyMap16 = &mut pm as *mut MyMap16;
 
     // Runtime-extract the cfg's fanout from inside a Read part on the View.
@@ -120,24 +121,12 @@ unsafe fn main() -> i32 {
     let k4: U64Key = ki(40u64);
     let k5: U64Key = ki(50u64);
     let k6: U64Key = ki(60u64);
-    let _ = pmap_mut_insert::<U64Key, U64Val, @{
-        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
-    }>(pmptr, 10u64, 100u64, &k1 as *const U64Key);
-    let _ = pmap_mut_insert::<U64Key, U64Val, @{
-        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
-    }>(pmptr, 20u64, 200u64, &k2 as *const U64Key);
-    let _ = pmap_mut_insert::<U64Key, U64Val, @{
-        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
-    }>(pmptr, 30u64, 300u64, &k3 as *const U64Key);
-    let _ = pmap_mut_insert::<U64Key, U64Val, @{
-        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
-    }>(pmptr, 40u64, 400u64, &k4 as *const U64Key);
-    let _ = pmap_mut_insert::<U64Key, U64Val, @{
-        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
-    }>(pmptr, 50u64, 500u64, &k5 as *const U64Key);
-    let _ = pmap_mut_insert::<U64Key, U64Val, @{
-        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
-    }>(pmptr, 60u64, 600u64, &k6 as *const U64Key);
+    let _ = pmap_mut_insert::<U64Key, U64Val, Cfg16>(pmptr, 10u64, 100u64, &k1 as *const U64Key);
+    let _ = pmap_mut_insert::<U64Key, U64Val, Cfg16>(pmptr, 20u64, 200u64, &k2 as *const U64Key);
+    let _ = pmap_mut_insert::<U64Key, U64Val, Cfg16>(pmptr, 30u64, 300u64, &k3 as *const U64Key);
+    let _ = pmap_mut_insert::<U64Key, U64Val, Cfg16>(pmptr, 40u64, 400u64, &k4 as *const U64Key);
+    let _ = pmap_mut_insert::<U64Key, U64Val, Cfg16>(pmptr, 50u64, 500u64, &k5 as *const U64Key);
+    let _ = pmap_mut_insert::<U64Key, U64Val, Cfg16>(pmptr, 60u64, 600u64, &k6 as *const U64Key);
 
     // Read parts on the View.
     if pm.view.len() != 6u64 { return 21; }
@@ -152,45 +141,33 @@ unsafe fn main() -> i32 {
     if out != 200u64 { return 27; }
 
     // Upsert hit.
-    if !pmap_mut_insert::<U64Key, U64Val, @{
-        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
-    }>(pmptr, 40u64, 4242u64, &k4 as *const U64Key) { return 28; }
+    if !pmap_mut_insert::<U64Key, U64Val, Cfg16>(pmptr, 40u64, 4242u64, &k4 as *const U64Key) { return 28; }
     if pm.view.len() != 6u64 { return 29; }
     if !pm.view.get(&k4 as *const U64Key, &mut out as *mut u64) { return 33; }
     if out != 4242u64 { return 34; }
 
     // Snapshot returns bare MyView16 — its type carries no update methods.
-    let mut snap: MyView16 = pmap_mut_snapshot::<U64Key, U64Val, @{
-        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
-    }>(pmptr as *const MyMap16);
+    let mut snap: MyView16 = pmap_mut_snapshot::<U64Key, U64Val, Cfg16>(pmptr as *const MyMap16);
     if snap.len() != 6u64 { return 41; }
     if !snap.get(&k4 as *const U64Key, &mut out as *mut u64) { return 42; }
     if out != 4242u64 { return 43; }
 
     // CoW: post-snapshot mutation doesn't perturb the snapshot.
-    let _ = pmap_mut_insert::<U64Key, U64Val, @{
-        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
-    }>(pmptr, 10u64, 9999u64, &k1 as *const U64Key);
+    let _ = pmap_mut_insert::<U64Key, U64Val, Cfg16>(pmptr, 10u64, 9999u64, &k1 as *const U64Key);
     if !pm.view.get(&k1 as *const U64Key, &mut out as *mut u64) { return 44; }
     if out != 9999u64 { return 45; }
     if !snap.get(&k1 as *const U64Key, &mut out as *mut u64) { return 46; }
     if out != 100u64 { return 47; }
 
     // Remove on live handle leaves snapshot intact.
-    if !pmap_mut_remove::<U64Key, U64Val, @{
-        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
-    }>(pmptr, &k3 as *const U64Key) { return 51; }
+    if !pmap_mut_remove::<U64Key, U64Val, Cfg16>(pmptr, &k3 as *const U64Key) { return 51; }
     if pm.view.len() != 5u64 { return 52; }
     if  pm.view.contains(&k3 as *const U64Key) { return 53; }
     if !snap.contains(&k3 as *const U64Key) { return 54; }
     if !snap.get(&k3 as *const U64Key, &mut out as *mut u64) { return 55; }
     if out != 300u64 { return 56; }
 
-    pmap_view_drop::<U64Key, U64Val, @{
-        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
-    }>(&mut snap as *mut MyView16);
-    pmap_mut_drop::<U64Key, U64Val, @{
-        "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16,
-    }>(pmptr);
+    pmap_view_drop::<U64Key, U64Val, Cfg16>(&mut snap as *mut MyView16);
+    pmap_mut_drop::<U64Key, U64Val, Cfg16>(pmptr);
     return 0;
 }
