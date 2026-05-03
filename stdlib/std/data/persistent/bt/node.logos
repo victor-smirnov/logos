@@ -32,14 +32,17 @@ use std.hermes.view;
 use std.hermes.anyval;
 
 pub struct NodeBase<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic> {
-    // cfg_hash carries the byte-hash identity of CFG, populated at alloc
-    // time. It's the universal "what kind of container is this node?"
-    // tag — store-level dispatch (e.g. ContainerRegistry release thunks
-    // in handle.logos) reads it through any *mut NodeBase<*,*,*> without
-    // knowing CFG statically. Future: schema dispatch, wrapper-pool
-    // keying, type-aware debug print all reuse this slot.
-    pub cfg_hash: u64,
+    // rc MUST stay at offset 0 — store/store.logos::rc_bump treats any
+    // *mut u8 → *mut u64 cast as the rc slot for type-erased retain.
     pub rc:       u64,
+    // cfg_hash: byte-hash identity of CFG, populated at alloc time. It's
+    // the universal "what kind of container is this node?" tag —
+    // store-level dispatch (e.g. ContainerRegistry release thunks in
+    // handle.logos) reads it through any *mut NodeBase<*,*,*> by casting
+    // the root ptr to *mut u64 and indexing slot 1 (offset 8 bytes).
+    // Future reuse: schema dispatch, wrapper-pool keying, type-aware
+    // debug print all share this slot.
+    pub cfg_hash: u64,
     pub n:        u16,
     pub is_leaf:  bool,
 }
