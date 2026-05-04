@@ -38,7 +38,7 @@ warning [fn main]: empty array literal: element type unknown
 ### B-li-02: Closure without parameter type-annotation fails (no type inference)
 
 **Severity**: P2 design (incomplete feature)
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — closure type-inference is feature work, not a bug.
 **Repro**: `B19/` —
 ```logos
 fn main() -> i32 {

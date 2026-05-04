@@ -46,7 +46,7 @@ fn main() -> i32 { return 0; }
 ### B-ty-03: Too many type arguments silently accepted
 
 **Severity**: P0 (silent miscompile potential)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-M0.1 (check_type_arg_arity)
 **Repro**: `B06/` —
 ```logos
 struct Foo<A, B> { a: A, b: B }
@@ -75,7 +75,7 @@ fn helper(x: Foo<i32>) -> i32 { return 0; }
 ### B-ty-05: Type arguments on non-generic type silently accepted
 
 **Severity**: P0 (silent miscompile)
-**Status**: confirmed (2026-05-04)
+**Status**: deferred (attempted check_type_arg_arity tightening regressed 319 tests; needs proper phase-tracking — many legitimate prepass sites resolve types with args before type_params are populated)
 **Repro**: `B08/` —
 ```logos
 struct Foo { x: i32 }

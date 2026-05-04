@@ -102,7 +102,7 @@ fn main() -> i32 {
 ### B-st-06: `continue 'unknown_label` silently accepted
 
 **Severity**: P0 (silent miscompile potential)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-M0.5 (active_loop_labels_ stack; tests/logos/fail/continue_unknown_label)
 **Repro**: `B13/` —
 ```logos
 fn main() -> i32 {
