@@ -101,7 +101,7 @@ fn main() -> i32 { return 0; }
 ### B-it-07: `struct Empty;` parses but is unusable
 
 **Severity**: P2 design + P1 diagnostic
-**Status**: confirmed (2026-05-04)
+**Status**: fixed (sema struct_inst path emits "did you mean 'struct Empty { ... }'" when type expression resolves to error_t)
 **Repro**: `B02/` —
 ```logos
 struct Empty;
@@ -115,7 +115,7 @@ fn main() -> i32 { let _e = Empty {}; return 0; }
 ### B-it-08: Forward `pub struct Foo<T>;` then `pub struct Foo<T> { ... }` confuses sema
 
 **Severity**: P2 design
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — forward struct decl is feature work
 **Repro**: `B14/` —
 ```logos
 pub struct Foo<T>;
@@ -130,7 +130,7 @@ fn main() -> i32 { let f: Foo<i32> = Foo::<i32> { x: 5 }; return f.x; }
 ### B-it-09: `impl Trait for i32` parses + sema-OKs but method dispatch fails
 
 **Severity**: P2 design
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — impl Trait for primitives needs method-dispatch overhaul
 **Repro**: `B13/` —
 ```logos
 trait Doubled { fn doubled(self: *const Self) -> i32; }

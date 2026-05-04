@@ -2018,6 +2018,27 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         auto cfg_name = std::string(str_of(node.get(la::NAME.code)));
         bool is_typeparam = current_type_params_.count(cfg_name) > 0;
 
+        // B-ty-06: when CFG is a generic type-param, it must be a const-
+        // generic of HermesStatic kind for cfg_slot extraction to make
+        // sense.  Inspect current_type_params_[cfg_name] — for const params
+        // push_type_params stores a ConstVar whose pointee is const_type.
+        if (is_typeparam) {
+            auto it = current_type_params_.find(cfg_name);
+            if (it != current_type_params_.end()) {
+                TypeRef tv = it->second;
+                bool ok = TypeRef(tv).kind() == LogosType::Kind::ConstVar &&
+                          TypeRef(tv).pointee() &&
+                          TypeRef(TypeRef(tv).pointee()).kind() == LogosType::Kind::Struct &&
+                          TypeRef(TypeRef(tv).pointee()).struct_name() == "HermesStatic";
+                if (!ok) {
+                    error(std::format(
+                        "'<type:{0}.…>': type-param '{0}' must be declared "
+                        "as 'const {0}: HermesStatic' for cfg_slot extraction",
+                        cfg_name));
+                }
+            }
+        }
+
         // Read path steps from ITEMS array.
         struct Step {
             int kind;          // 0=field_str, 1=field_int, 2=array_idx

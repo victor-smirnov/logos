@@ -86,7 +86,7 @@ fn helper(
 ### B-fn-06: Tail-expression as return rejected
 
 **Severity**: P2 design (Rust-style ergonomics)
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — tail-expression-as-return is feature work
 **Repro**: `B09/` —
 ```logos
 fn helper() -> i32 { 42 }
@@ -99,7 +99,7 @@ fn helper() -> i32 { 42 }
 ### B-fn-07: Nested function definitions rejected
 
 **Severity**: P2 design (Rust analog absent)
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — nested fns are feature work (use closures)
 **Repro**: `B14/` —
 ```logos
 fn outer() -> i32 {
@@ -139,7 +139,7 @@ fn main() -> i32 { return _(); }
 ### B-fn-10: Self-receiver lowering: `self: *const T` outside `impl` block treated as plain ident
 
 **Severity**: P2 design (corner case)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed (lower_fn rejects `self` as param name when struct_ctx is empty)
 **Repro**: `B11/` —
 ```logos
 fn standalone(self: *const i32) -> i32 { unsafe { return *self; } }

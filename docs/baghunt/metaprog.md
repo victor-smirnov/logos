@@ -18,7 +18,7 @@
 ### B-mt-01: `metacall non_existent_fn();` diagnostic shows wrong fn context
 
 **Severity**: P1 diagnostic
-**Status**: confirmed (2026-05-04)
+**Status**: not-reproduced (verified 2026-05-04 — diagnostic now correctly shows `[fn main]`. Earlier sema work fixed the context propagation.)
 **Repro**: `B02/` —
 ```logos
 metacall non_existent_fn();

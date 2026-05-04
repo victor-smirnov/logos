@@ -74,7 +74,7 @@ fn main() -> i32 {
 ### B-li-04: Struct update `..base` must be last; if not last, cryptic syntax error
 
 **Severity**: P1 diagnostic
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — ..base-not-last needs grammar reorder + sema reshuffle
 **Repro**: `B22/` —
 ```logos
 struct Foo { x: i32, y: i32 }

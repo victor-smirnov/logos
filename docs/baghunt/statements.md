@@ -69,7 +69,7 @@ fn main() -> i32 {
 ### B-st-04: `*p += v` syntax error (compound assign on bare deref doesn't parse)
 
 **Severity**: P1 diagnostic / P2 incomplete
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — \*p += v needs grammar+sema work for compound deref-write
 **Repro**: `B06/` —
 ```logos
 fn main() -> i32 {
@@ -117,7 +117,7 @@ fn main() -> i32 {
 ### B-st-07: Unreachable wildcard arm not detected
 
 **Severity**: P2 design (lint-quality)
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — exhaustivity-based unreachable-arm needs Phase 5 fact-base
 **Repro**: `B20/` —
 ```logos
 enum E { A, B, C, }

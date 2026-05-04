@@ -272,6 +272,10 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
     // (closes B-it-01 P0 SEGFAULT in mlir_gen register_struct, B-it-02 latent).
     check_recursive_value_types();
 
+    // Catalog-sweep: validate trait bounds at definition site (closes
+    // B-gn-03 unknown trait, B-gn-04 bound arity).
+    check_trait_bounds_well_formed();
+
     // Phase 7 slice 12: scan top-level items in user (non-binary) asts
     // for annotations whose name matches a registered metaprog handler
     // trigger; record (ast_idx, offset, trigger) targets for the driver.

@@ -15,7 +15,7 @@
 ### B-ex-01: Compile-time integer overflow in literal arithmetic silently wraps
 
 **Severity**: P0 (silent miscompile)
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — awaits const-fold validation pass
 **Repro**: `B01/` —
 ```logos
 fn main() -> i32 {
@@ -32,7 +32,7 @@ fn main() -> i32 {
 ### B-ex-02: Division by zero literal silently accepted
 
 **Severity**: P0 (silent runtime crash)
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — awaits const-fold validation pass
 **Repro**: `B02/` —
 ```logos
 fn main() -> i32 { return 10 / 0; }
@@ -45,7 +45,7 @@ fn main() -> i32 { return 10 / 0; }
 ### B-ex-03: Shift by negative count silently accepted
 
 **Severity**: P0 (UB in LLVM)
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — awaits const-fold validation pass
 **Repro**: `B05/` —
 ```logos
 fn main() -> i32 { return 1 << -1; }
@@ -58,7 +58,7 @@ fn main() -> i32 { return 1 << -1; }
 ### B-ex-04: Unary minus on unsigned type silently accepted
 
 **Severity**: P0 (silent miscompile)
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — awaits const-fold validation pass
 **Repro**: `B08/` —
 ```logos
 fn main() -> i32 {
@@ -93,7 +93,7 @@ fn main() -> i32 {
 ### B-ex-06: Address-of integer literal silently accepted (lifetime issue)
 
 **Severity**: P1 (potentially dangling reference)
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — lifetime-extension policy undecided
 **Repro**: `B15/` —
 ```logos
 fn main() -> i32 {
@@ -125,7 +125,7 @@ fn main() -> i32 {
 ### B-ex-08: Comparison chain `a < b < c` produces cryptic syntax error
 
 **Severity**: P1 diagnostic
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — parser-error-recovery work
 **Repro**: `B06/` —
 ```logos
 fn main() -> i32 {
@@ -142,7 +142,7 @@ fn main() -> i32 {
 ### B-ex-09: Bitwise-vs-comparison precedence is C-style, not Rust-style
 
 **Severity**: P2 design (footgun)
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — precedence change is breaking
 **Repro**: `B19/` —
 ```logos
 fn main() -> i32 {

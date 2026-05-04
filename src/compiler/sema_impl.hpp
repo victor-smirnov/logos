@@ -641,6 +641,51 @@ private:
     // Phase 5 successor: Datalog
     //   cycle(t) :- by_value_field(t, t).
     //   cycle(t) :- by_value_field(t, u), cycle(u, t).
+    // Post-collect validation of trait bounds (Sprint catalog-sweep).
+    // Closes B-gn-03 (unknown trait in bound) and B-gn-04 (bound arity).
+    // Walks every recorded TypeParam.bounds across funcs/structs/enums/
+    // traits and emits errors at the *definition* site.
+    void check_trait_bounds_well_formed() {
+        auto check_bounds = [&](const std::vector<TypeParam>& tps,
+                                std::string_view ctx) {
+            for (auto& tp : tps) {
+                for (auto& b : tp.bounds) {
+                    auto [_pkg, ti] = find_trait_by_name(b.trait_name);
+                    if (!ti) {
+                        ctx_ = std::string(ctx);
+                        error(std::format(
+                            "trait bound '{}: {}': unknown trait",
+                            tp.name, b.trait_name));
+                        continue;
+                    }
+                    // Arity check (variadic last param absorbs trailing).
+                    auto& tps2 = ti->type_params;
+                    if (tps2.empty()) continue;  // no type params → no arity
+                    bool last_var = tps2.back().is_variadic;
+                    size_t got = b.type_args.size();
+                    bool ok;
+                    if (last_var) ok = got + 1 >= tps2.size();
+                    else          ok = got == tps2.size();
+                    if (!ok) {
+                        ctx_ = std::string(ctx);
+                        error(std::format(
+                            "trait bound '{}: {}': expected {} type arg(s), got {}",
+                            tp.name, b.trait_name,
+                            last_var ? tps2.size() - 1 : tps2.size(), got));
+                    }
+                }
+            }
+        };
+        for (auto& [_k, fi] : generic_funcs_) check_bounds(fi.type_params,
+            std::format("fn {}", fi.base_name));
+        for (auto& [_k, si] : structs_)      check_bounds(si.type_params,
+            std::format("struct {}", _k));
+        for (auto& [_k, ei] : enums_)        check_bounds(ei.type_params,
+            std::format("enum {}", _k));
+        for (auto& [_k, dt] : datatypes_)    check_bounds(dt.type_params,
+            std::format("datatype {}", _k));
+    }
+
     void check_recursive_value_types() {
         enum Color { White, Gray, Black };
         std::unordered_map<std::string, Color> sc;

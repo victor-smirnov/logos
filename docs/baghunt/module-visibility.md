@@ -16,7 +16,7 @@
 ### B-mv-01: Cross-pkg same-name fn → "duplicate function" instead of first-import-wins
 
 **Severity**: P2 design (inconsistency)
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — cross-pkg fn first-import-wins needs pkg-qualified fn registry
 **Repro**: `B01/` — pkg_a defines `pub fn shared() -> i32`, pkg_b defines `pub fn shared() -> i32`. `main` does `use pkg_a; use pkg_b; let v = shared();`.
 **Observed**: `error [fn shared]: duplicate function 'shared'` and compilation aborts.
 **Expected**: For consistency with structs (first-import-wins, see B-mv-08 / `feat_type_uid_pkg_skip_bug`), should resolve to pkg_a's `shared()` silently. OR produce an explicit "ambiguous reference" diagnostic — but NOT a "duplicate" error attached to the definition site. The function definitions are NOT duplicates; they're in different packages.
@@ -26,7 +26,7 @@
 ### B-mv-02: Cross-pkg same-name trait → wrong-trait resolution + confusing diagnostic
 
 **Severity**: P2 design + P1 diagnostic
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — cross-pkg trait first-import-wins, same root as B-mv-01
 **Repro**: `B02/` — pkg_a defines `pub trait Greet { fn hello(...); }`, pkg_b defines `pub trait Greet { fn bye(...); }`. `main` does `use pkg_a; use pkg_b; impl Greet for Foo { fn hello(...) {...} }`.
 **Observed**: `error: impl Greet for Foo: missing method 'bye'` — i.e. `find_trait_by_name` returns pkg_b's `Greet` (despite pkg_a being imported first), and the impl-validation expects pkg_b's method set.
 **Expected**: First-import-wins (pkg_a's `Greet`) OR explicit "ambiguous trait" diagnostic with both pkg paths shown.

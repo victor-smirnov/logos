@@ -1034,7 +1034,7 @@
               => { CODE: TUPLE_TYPE }
 
     // (T1, T2, ...) — tuple type (2+ elements); (T,) — single-element tuple
-    tuple_type <- LPAREN type_ref COMMA type_ref (COMMA type_ref)* RPAREN
+    tuple_type <- LPAREN type_ref COMMA type_ref (COMMA type_ref)* COMMA? RPAREN
                => { CODE: TUPLE_TYPE, ITEMS: $... }
                / LPAREN type_ref COMMA RPAREN
                => { CODE: TUPLE_TYPE, ITEMS: $... }

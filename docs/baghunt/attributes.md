@@ -86,7 +86,7 @@ struct Foo { x: i32 }   // tag_dispatch is for traits only
 ### B-at-06: `#[derive(NonExistentTrait)]` silently accepted
 
 **Severity**: P1 (silent miscompile potential)
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — no general derive() registry yet
 **Repro**: `B10/` —
 ```logos
 #[derive(NonExistentTrait)]
@@ -100,7 +100,7 @@ struct Foo { x: i32 }
 ### B-at-07: `#[type_code]` in reserved range (1-127) silently accepted
 
 **Severity**: P2 (spec violation)
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — reserved-range (1..128) used by stdlib primitives; needs user-package predicate
 **Repro**: `B13/` —
 ```logos
 #[type_code = 100]   // per docs: 1-127 reserved for system

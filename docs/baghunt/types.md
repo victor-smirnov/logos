@@ -89,7 +89,7 @@ fn helper(x: Foo<i32>) -> i32 { return 0; }
 ### B-ty-06: `cfg_slot_type` on non-HermesStatic type silently accepted
 
 **Severity**: P1 diagnostic
-**Status**: confirmed (2026-05-04)
+**Status**: fixed (cfg_slot resolution checks current_type_params_ kind; non-ConstVar/HermesStatic emits clear diagnostic)
 **Repro**: `B18/` —
 ```logos
 fn helper<T>(x: <type:T.field>) -> i32 { return 0; }
@@ -129,7 +129,7 @@ fn helper(f: || -> i32) -> i32 { return 0; }
 ### B-ty-09: Paren'd type `(i32)` rejected at let-position
 
 **Severity**: P2 design (consistency)
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — `(T)` paren-type tried via grammar+sema unwrap with PARENS marker; TinyMap schema doesn't persist slot 52 marker for TUPLE_TYPE so the unwrap path didn't fire. Needs schema-aware approach.
 **Repro**: `B25/` —
 ```logos
 fn main() -> i32 { let t: (i32) = 5; return t; }
@@ -142,7 +142,7 @@ fn main() -> i32 { let t: (i32) = 5; return t; }
 ### B-ty-10: Zero-sized array `[T; 0]` silently compiles
 
 **Severity**: P2 design (intentional?)
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — zero-size [T;0] is intentionally accepted
 **Repro**: `B05/` —
 ```logos
 fn helper(x: [i32; 0]) -> i32 { return 0; }

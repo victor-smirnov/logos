@@ -45,7 +45,7 @@ let h: HermesStatic = @{ "k": 1, "k": 2 };
 ### B-he-03: Integer key in Hermes map silently accepted
 
 **Severity**: P1 (per-spec violation)
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — integer Hermes keys are valid feature; bug is design
 **Repro**: `B14/` —
 ```logos
 let h: HermesStatic = @{ 42: 99 };  // int key, not string
@@ -71,7 +71,7 @@ let h: HermesStatic = @{ "k": 99999999999999999 };  // > i64 max
 ### B-he-05: `${capture}` in `HermesStatic` produces confusing diagnostic
 
 **Severity**: P1 diagnostic
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — diagnostic improvement needs flow-direction tracking
 **Repro**: `B05/` —
 ```logos
 fn main() -> i32 {
@@ -88,7 +88,7 @@ fn main() -> i32 {
 ### B-he-06: Nested-literal failure cascades to confusing error position
 
 **Severity**: P1 diagnostic (companion to B-he-01)
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — parser error-position improvement
 **Repro**: same as B-he-01 cases — error reports "near 'fn'" or "near ']'" pointing to an unrelated token.
 **Observed**: When nesting fails, the parse error lands far from the actual syntax issue, making it hard to locate.
 **Expected**: At minimum, the parser should point to the `@` of the inner literal as the failure site.

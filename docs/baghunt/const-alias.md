@@ -44,7 +44,7 @@ fn main() -> i32 { return X; }
 ### B-ca-03: Const initializer = function call silently accepted
 
 **Severity**: P2 design (Rust-style const-evaluability not enforced)
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — awaits const-fold engine
 **Repro**: `B03/` —
 ```logos
 fn compute() -> i32 { return 42; }
@@ -74,7 +74,7 @@ fn main() -> i32 { return X; }
 ### B-ca-05: Const array sema-OK but MLIR-gen says "undefined"
 
 **Severity**: P1 diagnostic / P2 incomplete
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — const arrays = rodata-globals feature
 **Repro**: `B12/` —
 ```logos
 pub const ARR: [i32; 3] = [1, 2, 3];
@@ -88,7 +88,7 @@ fn main() -> i32 { return ARR[0]; }
 ### B-ca-06: Misleading diagnostic for `<type:T>` in non-parametric const
 
 **Severity**: P1 diagnostic
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — cascading error needs richer error tracking
 **Repro**: `B14/` —
 ```logos
 pub const X: HermesStatic = @{ "key": <type:T> };

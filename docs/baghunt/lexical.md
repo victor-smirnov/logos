@@ -63,7 +63,7 @@ let x: u64 = 12345678901234567890u64;  // > u64 max for some values
 ### B-lx-05: Unterminated string literal — diagnostic spans rest of file
 
 **Severity**: P1 diagnostic
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — lexer error-bound improvement
 **Repro**: `B07/` —
 ```logos
 fn main() -> i32 {
@@ -79,7 +79,7 @@ fn main() -> i32 {
 ### B-lx-06: Nested block comments (`/* outer /* inner */ ... */`) don't work
 
 **Severity**: P2 design (vs Rust)
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — nested block comments need state-machine lexer
 **Repro**: `B08/` —
 ```logos
 /* outer /* inner */ still in comment */
@@ -93,7 +93,7 @@ fn main() -> i32 { return 0; }
 ### B-lx-07: Character literal `'A'` doesn't parse (lifetime collision)
 
 **Severity**: P2 design (lexer ambiguity)
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — char literal vs lifetime needs context-aware tokenisation
 **Repro**: `B10/` —
 ```logos
 fn main() -> i32 { let c: u8 = 'A'; return c as i32; }

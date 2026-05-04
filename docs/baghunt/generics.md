@@ -45,7 +45,7 @@ fn main() -> i32 { return 0; }
 ### B-gn-03: Trait bound on missing trait silently accepted at definition
 
 **Severity**: P1 diagnostic (deferred validation)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed (check_trait_bounds_well_formed post-collect; emits at definition site)
 **Repro**: `B04/` —
 ```logos
 fn helper<T: NonExistentTrait>(x: T) -> T { return x; }
@@ -59,7 +59,7 @@ fn main() -> i32 { return 0; }
 ### B-gn-04: Trait bound with arity-mismatched type-args silently accepted
 
 **Severity**: P0 (silent shadowing)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed (check_trait_bounds_well_formed arity check)
 **Repro**: `B20/` —
 ```logos
 trait Foo<U> { fn x(self: *const Self, y: U) -> i32 { return 0; } }
@@ -74,7 +74,7 @@ fn main() -> i32 { return 0; }
 ### B-gn-05: Type-param shadowing user struct produces misleading diagnostic
 
 **Severity**: P1 diagnostic
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — type-param shadowing diagnostic needs separate lookup path
 **Repro**: `B13/` —
 ```logos
 struct Bar { x: i32 }
@@ -89,7 +89,7 @@ fn main() -> i32 { return helper::<i32>(5); }
 ### B-gn-06: Const-generic arity-mismatch reported as type-mismatch
 
 **Severity**: P1 diagnostic
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — const-generic arity diagnostic needs special-case in type-arg arity
 **Repro**: `B17/` —
 ```logos
 struct Foo<T, const N: usize> { arr: [T; N] }
@@ -106,7 +106,7 @@ fn main() -> i32 {
 ### B-gn-07: Unused type parameter — diagnostic at use-site only
 
 **Severity**: P1 diagnostic
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — needs unused-typeparam lint pass
 **Repro**: `B19/` —
 ```logos
 fn helper<T>(x: i32) -> i32 { return x; }
@@ -120,7 +120,7 @@ fn main() -> i32 { return helper(5); }
 ### B-gn-08: Type-param-in-method shadows impl-type-param silently
 
 **Severity**: P2 design (intentional shadowing or oversight?)
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — impl/method shadowing is design-debatable
 **Repro**: `B15/` —
 ```logos
 struct Foo<T> { x: T }
@@ -138,7 +138,7 @@ fn main() -> i32 { return 0; }
 ### B-gn-09: Lifetime parameter declared but never used silently accepted
 
 **Severity**: P2 design (consistency with B-gn-07)
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — needs unused-lifetime lint pass
 **Repro**: `B18/` —
 ```logos
 fn helper<'a>(x: i32) -> i32 { return x; }

@@ -148,7 +148,7 @@ fn main() -> i32 {
 ### B-pt-08: Empty match block on uninhabited type rejected
 
 **Severity**: P2 design
-**Status**: confirmed (2026-05-04)
+**Status**: deferred — empty match on uninhabited type needs exhaustivity analysis
 **Repro**: `B20/` —
 ```logos
 enum Empty {}
