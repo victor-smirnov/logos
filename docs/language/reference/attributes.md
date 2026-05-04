@@ -80,6 +80,73 @@ On a `trait`, declares the tag-system that this trait dispatches through. Used t
 pub trait HermesStringify { ... }
 ```
 
+## `#[metaprog_handler("trigger_name")]`
+
+Marks a free function as a metaprog hook that fires when an item carrying the matching trigger annotation is collected. The compiler invokes the hook in its JIT, passing the AST offset of the triggering item; the hook builds and emits a `QuoteItemBlob` (or `Vec<QuoteItemBlob>`) via `logos_emit_item_blob_subst`.
+
+```logos
+#[metaprog_handler("derive_clone")]
+fn derive_clone_hook(target_offset: u32) -> () {
+    // walk the item at target_offset, build quote_item! { ... } blob, emit
+}
+
+// User side:
+#[derive_clone]
+pub struct Point { pub x: i32, pub y: i32 }
+```
+
+Constraints checked at sema time ([src/compiler/sema.cpp](../../../src/compiler/sema.cpp), `#[metaprog_handler]` validator):
+- Hook must be a free function (not a method or extern)
+- Hook must NOT be generic
+- Hook must take exactly one `target_offset: u32` parameter
+
+Triggers form an open-vocabulary user namespace. Any `#[name]` on an item is checked against registered hooks; a match fires the hook. The complete list of triggers is stdlib- and user-defined; see [stdlib/std/compiler/metaprog/](../../../stdlib/std/compiler/metaprog/) for built-in hooks (`derive_clone`, `derive_debug`, etc.).
+
+See [memory: feat_derive_clone_stdlib](../../../.claude/projects/-home-victor-devel-logos/memory/feat_derive_clone_stdlib.md), [feat_metacall_arch](../../../.claude/projects/-home-victor-devel-logos/memory/feat_metacall_arch.md).
+
+## User-defined trigger attributes
+
+The grammar's `annotation` rule is open: any `#[name]`, `#[name(args)]`, or `#[name = value]` parses successfully regardless of whether sema knows the name. There are two ways a user attribute becomes load-bearing:
+
+1. **As a `#[metaprog_handler]` trigger** (above) — the attribute fires a hook.
+2. **As an `#[annotation]`-marked struct** — the attribute parses into a typed value that metaprograms can read via reflection. (Sketch-status; reader side is partial.)
+
+Concrete user triggers in the codebase as of writing (non-exhaustive — derived from grep):
+
+| Trigger | Defined by | Effect |
+|---|---|---|
+| `#[derive_clone]` | stdlib | Generates `Clone` impl |
+| `#[derive_debug_e2e]`, `#[derive_debug_enum]`, `#[derive_debug_generic]` | stdlib | Generates `Debug` impl variants (test-suite hooks) |
+| `#[derive_clone_quote]` | stdlib | Quote-based `Clone` derivation |
+| `#[derive_dbg_md]`, `#[derive_size_md]` | tests | Demo derive hooks |
+| `#[antiquot_inject]`, `#[exprblob_splice_inject]`, `#[inject_pair]`, `#[nested_antiquot_inject]`, `#[quote_inject]`, `#[struct_lit_cursor_inject]` | tests | Quote/antiquot edge-case hooks |
+| `#[template_of_probe]`, `#[template_of_typed_probe]` | tests | Template intrinsic verification |
+| `#[slice]` | sema-recognised marker | (declares slice-friendly type — see Roadmap) |
+
+Unknown `#[name]` produces **no diagnostic** today (sema silently ignores). This is a known gap; see Roadmap.
+
+## Meta blocks (`meta @{...}`)
+
+Distinct from attributes but lexically nearby: a `meta @{...}` block can appear inside a `struct`, `eidos`, `genos`, or `trait` definition (grammar `meta_block`, [logos.peg:821](../../../tools/peg_gen/grammars/logos.peg#L821)):
+
+```logos
+pub struct Foo {
+    pub x: i32,
+    pub y: i32,
+    meta @{
+        "doc": "A 2D point",
+        "schema_version": 1,
+    }
+}
+```
+
+The Hermes-literal payload is evaluated at sema time via `eval_static_hermes_lit` ([src/compiler/sema_decl.cpp](../../../src/compiler/sema_decl.cpp)) and stored on the `LStructDef.meta_val` field. Metaprograms can read it via reflection on the type. Current uses:
+
+- Hermes type registry — `meta @{ "type_code": N, "name": "..." }` complement to `#[type_code]`.
+- User schema annotations — anything stdlib-internal that wants typed metadata on a definition.
+
+The meta block accepts the full Hermes-static literal grammar (no captures `${...}`, just static values). Multiple meta blocks per item are not supported — only the last wins.
+
 ## Roadmap
 
 The full attribute roster Logos plans to ship — many of these are *not yet* honoured by sema; check `src/compiler/sema*.cpp` before assuming an attribute does anything.
@@ -91,6 +158,8 @@ The full attribute roster Logos plans to ship — many of these are *not yet* ho
 | `#[derive(...)]` | active (limited list) | Auto-implement traits |
 | `#[annotation]` | sketch | User-defined annotation types |
 | `#[tag_dispatch(TS)]` | active | Bind trait to a tag system |
+| `#[metaprog_handler("name")]` | active | Register hook for `#[name]` trigger |
+| `meta @{...}` | active | Typed metadata payload on items |
 | `#[inline]`, `#[inline(always)]`, `#[inline(never)]` | planned | Codegen hints |
 | `#[cold]`, `#[hot]` | planned | Branch hints |
 | `#[test]` | planned | Testing framework |

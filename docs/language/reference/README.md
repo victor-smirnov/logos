@@ -19,6 +19,7 @@ The reference is fact-and-link — for design rationale see the per-feature note
 
 ### Cross-cutting
 
+- **[Modules & Visibility](modules.md)** — `package`, `use`, `pub use`, name resolution, multi-file packages, `logos.module` manifests.
 - **[Generics & Traits](generics-traits.md)** — type / lifetime / const parameters, variadic packs, traits, impls, trait objects, `where`.
 - **[Ownership](ownership.md)** — move vs Copy, borrows, lifetimes, mutability, `Drop`, raw pointers, view types.
 - **[Metaprogramming](metaprog.md)** — typelevel handles, `metacall`, quote forms, `template`, sema-side intrinsics.

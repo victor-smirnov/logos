@@ -123,6 +123,58 @@ Implementation by form:
 
 Hygiene: literal-internal names still resolve at the call site, but stdlib provides `gensym(prefix: str) -> Ident` (in `std.compiler.metaprog.ast`). It returns a fresh `<prefix>__hyg_<N>` `Ident` whose bytes are host-owned and bound on both JITs, resolving the ODR-conflict that would otherwise fire when a metaprog hook is invoked more than once. Full hybrid hygiene (literal-internal vs antiquoted name scopes) remains future work.
 
+### Antiquotation positions reference
+
+The antiquot syntax differs subtly between quote forms. The tables below enumerate which positions accept which spliced types.
+
+#### `quote_item!`
+
+| Position | Form | Spliced type | Status |
+|---|---|---|---|
+| Struct/enum/datatype name | `struct #(name) { ... }` | `Ident` | active |
+| Impl target type-name | `impl Trait for #(name) { ... }` | `Ident` | active |
+| Fn name | `fn #(name)(...) { ... }` | `Ident` | active |
+| Param type-name | `fn f(x: #(t)) { ... }` | `Ident` (bare named types only) | active |
+| Return type-name | `fn f() -> #(t) { ... }` | `Ident` | active |
+| Generic-arg position | `Vec<#name>` or `Foo<#name>` (bare `#name` accepted in `<...>`) | `Ident` | active |
+| Repeat over generic params | `<#( #tparams: Clone ),*>` | `Vec<Ident>` (or `[Ident; N]`) | active |
+| Fn body / `return` site | `fn f() -> i32 { #(body) }` | `ExprBlob` | active |
+| Stmt position inside body | `quote_item! { ... let x = #(e); ... }` | `ExprBlob` | active (via wrapping) |
+| Pattern position | (none) | — | not implemented |
+
+Cursor placeholders inside repeats encode their slot into AST `NAME_VAR` with the `0x400000` flag bit (fits in `AnyVal`'s 24-bit inline payload — see [feat_qi_cursor_encoding_24bit](../../../.claude/projects/-home-victor-devel-logos/memory/feat_qi_cursor_encoding_24bit.md)).
+
+#### `quote_expr!`
+
+| Position | Form | Spliced type | Status |
+|---|---|---|---|
+| Bare expression | `#x` | `ExprBlob`, `Ident`, scalar | active |
+| Struct lit field name + value | `Foo { #fname: <e> }` | `Ident` for fname | active |
+| Struct lit field-list (zipped) | `Foo { #(#fnames: e),* }` | `Vec<Ident>` for fnames | active |
+| Field-read receiver field-name | `recv.#fname` | `Ident` | active |
+| Method-call name | (no antiquot) | — | not implemented |
+| Repeat with separator | `#(...),*`, `#(...)&&*`, `#(...)*` | cursor-packs inside | active |
+
+#### `quote_ty!`
+
+| Position | Form | Spliced type | Status |
+|---|---|---|---|
+| Bare type position | `$ident` (note: `$` not `#`) | `Ident` of bare named type | active |
+| Pack-splice | `$ts...` | `TypeList` / `[Ident]` | active |
+| Tuple element | `($t1, $t2)` | per element | active |
+| Array element | `[$t; 4]` | element only | active |
+| Generic arg | `Foo<$t>` | `Ident` | active |
+| `#(expr)` at type position | `quote_ty! { #(type_of::<T>().ident()) }` | `Ident` via Type→AST bridge | active |
+
+`quote_ty!` reuses `$` from Hermes capture syntax to keep `#(...)` reserved for the typed bridge form. Pure antiquotation in `quote_ty!` is `$`-only.
+
+#### Not implemented
+
+- `quote_stmt!`, `quote_pat!`, `quote_ident!` — design-only, not parsed.
+- Method-call name antiquot in `quote_expr!`.
+- Pattern-position antiquot in `quote_item!` body.
+- Generic-instantiation Type→AST bridge — `Type::ident()` is bare-name-only; `Foo<i32>` shapes need a richer reflector.
+
 ## Repeat Groups
 
 ```logos

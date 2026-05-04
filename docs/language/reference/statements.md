@@ -25,26 +25,63 @@ A bare `let pat = expr;` with a refutable pattern is rejected — use `if let` o
 
 ## Assignment
 
-```logos
-x = expr;
-arr[i] = expr;
-*p = expr;
-s.field = expr;
-a.b.c = expr;             // up to 2 levels chain — see grammar
-s.field[i] = expr;
-x.0 = expr;               // tuple field write
+Logos has 12 distinct LHS shapes, each with a plain (`=`) and a compound (`+= -= *= /= %= &= |= ^= <<= >>=`) form. The grammar distinguishes them as separate productions because each requires its own borrow-check + emit path.
+
+### LHS shapes (grammar productions)
+
+| # | Production | Plain `=` example | Compound `+=` example |
+|---|---|---|---|
+| 1 | `assign_stmt` | `x = expr;` | (handled by `compound_assign_stmt`) |
+| 2 | `compound_assign_stmt` | — | `x += expr;` (bare ident only) |
+| 3 | `field_write_stmt` | `s.field = expr;` | — |
+| 4 | `field_compound_assign_stmt` | — | `s.field += expr;` |
+| 5 | `chain_field_write_stmt` | `a.b.c = expr;` | — |
+| 6 | `chain_field_compound_assign_stmt` | — | `a.b.c += expr;` |
+| 7 | `tuple_field_write_stmt` | `x.0 = expr;` | — |
+| 8 | `tuple_field_compound_assign_stmt` | — | `x.0 += expr;` |
+| 9 | `index_write_stmt` | `arr[i] = expr;` | — |
+| 10 | `index_compound_assign_stmt` | — | `arr[i] += expr;` |
+| 11 | `field_index_write_stmt` | `s.field[i] = expr;` | — |
+| 12 | `field_index_compound_assign_stmt` | — | `s.field[i] += expr;` |
+| 13 | `deref_write_stmt` | `*p = expr;` | — |
+| 14 | `deref_field_write_stmt` | `(*p).field = expr;` | — |
+| 15 | `deref_field_compound_assign_stmt` | — | `(*p).field += expr;` |
+
+The grammar productions live in [logos.peg](../../../tools/peg_gen/grammars/logos.peg) under `assign_stmt`, `compound_assign_op`, `compound_assign_stmt`, etc. The `compound_assign_op` production is shared:
+
+```peg
+compound_assign_op <- PLUSEQ / MINUSEQ / STAREQ / SLASHEQ / PERCENTEQ
+                    / AMPEQ / PIPEEQ / CARETEQ / SHLEQ / SHREQ
 ```
 
-Compound forms apply the operator before re-assigning:
+Semantics: `lhs op= rhs` desugars to `lhs = lhs op rhs` with the lhs evaluated **once** for the read AND the write. Sema produces a single LIR statement (e.g. `SCompoundAssign`) rather than separate read/write for compounds.
 
-```logos
-x += 1;        // also -= *= /= %= &= |= ^= <<= >>=
-s.count += 1;
-arr[i] *= 2;
-a.b.c -= delta;
-```
+### Coverage gaps and known asymmetries
 
-Assignment is statement-only: there is no `(x = y)` expression.
+Some LHS shapes have plain-write but no compound-write (or vice-versa) wired up. The compound permutations are an active source of bugs (the catalog in `docs/baghunt/statements.md` will enumerate). Concretely:
+
+- **Chain depth limit**: `chain_field_path` parses arbitrary depth, but lowering / borrow-check stop after 2 hops in older paths. Deep chains (`a.b.c.d.e = ...`) may parse but mis-lower in some receivers.
+- **Deref chain**: `(*p).field` is supported; `(**p).field` (double-deref before field) is not parsed as a write LHS.
+- **Index of method-call result**: `obj.method()[i] = expr;` does not parse; you must bind the result first.
+- **Compound on tuple-field of deref**: `(*p).0 += 1;` is not parsed. The grammar's tuple-compound-assign requires a bare ident receiver.
+
+Compound forms are wired up symmetrically with their plain counterparts where they exist, but the symmetry should be verified group-by-group during bug-hunt.
+
+### Operator semantics
+
+| Op | Read kind | Notes |
+|---|---|---|
+| `+=` `-=` `*=` `/=` `%=` | arithmetic | Integer-only when LHS is integer; float for floats; mixed coerces per [int_widening](../../../.claude/projects/-home-victor-devel-logos/memory/feat_int_widening.md). |
+| `&=` `|=` `^=` | bitwise | Integers + bool. No short-circuit. |
+| `<<=` `>>=` | shift | Shift count interpreted as unsigned; signed RHS rejected. Right-shift on signed is arithmetic; on unsigned is logical. |
+
+Overflow on `+=` etc. follows the same wrapping/abort rules as the binary operator (`+`, `-`, `*`); see [Expressions → Arithmetic](expressions.md#arithmetic).
+
+### Borrow-check + mutability
+
+Plain `=` and compound `op=` both require the LHS to resolve to a place expression that the borrow-checker considers writable: the receiver chain must originate at a `let mut` binding, a `&mut T` parameter, or a raw `*mut T`. Compound forms additionally require that the LHS be readable (no exclusivity violation between the implicit read and write — they're treated as one access).
+
+Assignment is **statement-only**: there is no `(x = y)` expression. To use the result of a write inside an expression, use a temporary `let`.
 
 ## `return`
 
