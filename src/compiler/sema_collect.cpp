@@ -1796,6 +1796,7 @@ lir::LStructDef SemaChecker::lower_spec_struct(TinyMapView node) {
 
     lir::LStructDef sd;
     sd.name = sname;
+    sd.pkg  = cur_package_;
     sd.is_specialization = true;
 
     // Parse spec type-param list: populate spec_patterns and TypeVar scope.

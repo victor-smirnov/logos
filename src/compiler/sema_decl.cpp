@@ -459,6 +459,7 @@ lir::LStructDef SemaChecker::lower_struct_def(TinyMapView node) {
     auto sname = std::string(str_of(node.get(la::NAME.code)));
     lir::LStructDef sd;
     sd.name               = sname;
+    sd.pkg                = cur_package_;
     sd.from_binary_module = cur_from_binary_;
     // Look up in structs_ or datatypes_ — never default-insert via operator[].
     // Use package-aware find helpers so cross-package lowering works.
@@ -502,6 +503,7 @@ lir::LEnumDef SemaChecker::lower_enum_def(TinyMapView node) {
     auto ename = std::string(str_of(node.get(la::NAME.code)));
     lir::LEnumDef ed;
     ed.name = ename;
+    ed.pkg  = cur_package_;
     auto [epkg_led, esi_led] = find_enum_by_name(ename);
     auto eit_led = esi_led ? enums_.find(sema_key(epkg_led, ename)) : enums_.end();
     if (eit_led == enums_.end()) eit_led = enums_.find(ename);

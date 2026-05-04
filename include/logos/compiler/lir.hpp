@@ -759,6 +759,7 @@ struct LVariant {
 
 struct LEnumDef {
     std::string              name;
+    std::string              pkg;            // package that declares this enum
     std::vector<TypeParam>   type_params;   // empty for non-generic enums
     std::vector<LVariant>    variants;
     TypeRef         backing_type = nullptr;  // null = default (i32)

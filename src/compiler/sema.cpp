@@ -320,10 +320,12 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         break;
     case K::Struct:
     case K::ZonedStruct:
+        put_str(buf, t.pkg_name);
         put_str(buf, t.struct_name);
         for (auto a : t.type_args) put_sub(buf, impl, a);
         break;
     case K::Enum:
+        put_str(buf, t.pkg_name);
         put_str(buf, t.enum_name);
         for (auto a : t.type_args) put_sub(buf, impl, a);
         break;

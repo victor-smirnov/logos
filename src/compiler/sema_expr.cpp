@@ -2129,14 +2129,13 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             return error_expr();
         }
         // Build inner AnyVal { raw: <u32 lit> }.
-        auto anyval_t = make_datatype_type("AnyVal", "std.hermes.anyval");
+        auto anyval_t = make_datatype_type("AnyVal");
         std::vector<std::pair<std::string, lir::LExprPtr>> av_f;
         av_f.emplace_back("raw", builder().lit_int(
             (int64_t)found_offset, prim(LogosType::Kind::U32)));
         auto av_lit = builder().struct_lit("AnyVal", std::move(av_f), anyval_t);
         // Wrap in Template { raw: AnyVal{...} }.
-        auto template_t = make_struct_type(
-            "Template", "std.compiler.metaprog.ast");
+        auto template_t = make_struct_type("Template");
         std::vector<std::pair<std::string, lir::LExprPtr>> tpl_f;
         tpl_f.emplace_back("raw", std::move(av_lit));
         return builder().struct_lit("Template", std::move(tpl_f), template_t);
@@ -4391,6 +4390,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
     ng_t.kind = slit_is_zoned
                 ? LogosType::Kind::ZonedStruct : LogosType::Kind::Struct;
     ng_t.struct_name   = std::string(sname);
+    if (auto rp = resolve_struct_pkg_(sname); !rp.empty()) ng_t.pkg_name = std::move(rp);
     ng_t.lifetime_args = std::move(ng_lt_args);
     TypeRef lit_result_type = pool_->alloc(std::move(ng_t));
     return builder().struct_lit(std::string(sname), std::move(fields), lit_result_type);
@@ -5392,6 +5392,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
         check_type_bounds(std::string(ename), einfo.type_params, type_args);
         LogosTypeBuilder et; et.kind = LogosType::Kind::Enum;
         et.enum_name = std::string(ename);
+        if (auto rp = resolve_enum_pkg_(ename); !rp.empty()) et.pkg_name = std::move(rp);
         et.type_args = std::move(type_args);
         result_type = pool_->alloc(std::move(et));
         // Resolve payload types with substitution
@@ -5560,6 +5561,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
         check_type_bounds(std::string(ename), einfo.type_params, type_args);
         LogosTypeBuilder et; et.kind = LogosType::Kind::Enum;
         et.enum_name = std::string(ename);
+        if (auto rp = resolve_enum_pkg_(ename); !rp.empty()) et.pkg_name = std::move(rp);
         et.type_args = std::move(type_args);
         result_type = pool_->alloc(std::move(et));
         for (size_t i = 0; i < resolved_payload_types.size(); ++i)

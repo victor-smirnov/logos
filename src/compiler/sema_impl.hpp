@@ -132,14 +132,32 @@ private:
         t.arr_size_var = std::string(symbolic);
         return pool_->alloc(std::move(t));
     }
+    // Resolve a struct/datatype/enum's home package by name. Used by the
+    // helpers below to auto-fill pkg_name when the caller doesn't supply it,
+    // so types built away from a find_*_by_name call site still hash with
+    // package identity in compute_type_uid.
+    std::string resolve_struct_pkg_(std::string_view name) {
+        auto [spkg, si] = find_struct_by_name(name);
+        if (si) return spkg;
+        auto [dpkg, di] = find_datatype_by_name(name);
+        if (di) return dpkg;
+        return {};
+    }
+    std::string resolve_enum_pkg_(std::string_view name) {
+        auto [epkg, ei] = find_enum_by_name(name);
+        if (ei) return epkg;
+        return {};
+    }
     TypeRef make_struct_type(std::string_view name, std::string_view pkg = {}) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Struct; t.struct_name = name;
         if (!pkg.empty()) t.pkg_name = std::string(pkg);
+        else if (auto rp = resolve_struct_pkg_(name); !rp.empty()) t.pkg_name = std::move(rp);
         return pool_->alloc(std::move(t));
     }
     TypeRef make_datatype_type(std::string_view name, std::string_view pkg = {}) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::ZonedStruct; t.struct_name = std::string(name);
         if (!pkg.empty()) t.pkg_name = std::string(pkg);
+        else if (auto rp = resolve_struct_pkg_(name); !rp.empty()) t.pkg_name = std::move(rp);
         return pool_->alloc(std::move(t));
     }
     TypeRef make_generic_datatype(std::string_view name,
@@ -151,6 +169,7 @@ private:
         t.type_args     = std::move(args);
         t.lifetime_args = std::move(lt_args);
         if (!pkg.empty()) t.pkg_name = std::string(pkg);
+        else if (auto rp = resolve_struct_pkg_(name); !rp.empty()) t.pkg_name = std::move(rp);
         return pool_->alloc(std::move(t));
     }
     TypeRef make_generic_struct(std::string_view name,
@@ -162,11 +181,13 @@ private:
         t.type_args     = std::move(args);
         t.lifetime_args = std::move(lt_args);
         if (!pkg.empty()) t.pkg_name = std::string(pkg);
+        else if (auto rp = resolve_struct_pkg_(name); !rp.empty()) t.pkg_name = std::move(rp);
         return pool_->alloc(std::move(t));
     }
     TypeRef make_enum_type(std::string_view name, std::string_view pkg = {}) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Enum; t.enum_name = name;
         if (!pkg.empty()) t.pkg_name = std::string(pkg);
+        else if (auto rp = resolve_enum_pkg_(name); !rp.empty()) t.pkg_name = std::move(rp);
         return pool_->alloc(std::move(t));
     }
     TypeRef make_tuple_type(std::vector<TypeRef> elems) {

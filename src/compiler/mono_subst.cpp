@@ -275,6 +275,7 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
                     b.kind = sd.is_zoned ? LogosType::Kind::ZonedStruct
                                          : LogosType::Kind::Struct;
                     b.struct_name = tname;
+                    b.pkg_name = sd.pkg;
                     return out_.type_pool.alloc(std::move(b));
                 }
             for (auto& ed : out_.enums)
@@ -282,6 +283,7 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
                     LogosTypeBuilder b;
                     b.kind = LogosType::Kind::Enum;
                     b.enum_name = tname;
+                    b.pkg_name = ed.pkg;
                     return out_.type_pool.alloc(std::move(b));
                 }
             return tv;
