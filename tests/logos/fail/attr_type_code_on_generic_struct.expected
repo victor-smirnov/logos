@@ -1,0 +1,1 @@
+attribute '#[type_code]' cannot be applied to generic struct 'Pair'

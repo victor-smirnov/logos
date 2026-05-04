@@ -209,6 +209,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                                 st.kind = sd.is_zoned ? LogosType::Kind::ZonedStruct
                                                        : LogosType::Kind::Struct;
                                 st.struct_name = concrete;
+                                st.pkg_name    = sd.pkg;
                                 concrete_t = out_.type_pool.alloc(std::move(st));
                                 break;
                             }
@@ -218,6 +219,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                                     LogosTypeBuilder et;
                                     et.kind = LogosType::Kind::Enum;
                                     et.enum_name = concrete;
+                                    et.pkg_name  = ed.pkg;
                                     concrete_t = out_.type_pool.alloc(std::move(et));
                                     break;
                                 }
@@ -276,6 +278,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                         st.kind = sd.is_zoned ? LogosType::Kind::ZonedStruct
                                                  : LogosType::Kind::Struct;
                         st.struct_name = concrete;
+                        st.pkg_name    = sd.pkg;
                         concrete_t = out_.type_pool.alloc(std::move(st));
                         break;
                     }
@@ -285,6 +288,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                             LogosTypeBuilder et;
                             et.kind = LogosType::Kind::Enum;
                             et.enum_name = concrete;
+                            et.pkg_name  = ed.pkg;
                             concrete_t = out_.type_pool.alloc(std::move(et));
                             break;
                         }

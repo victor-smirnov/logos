@@ -1,0 +1,4 @@
+package attr_type_code_on_generic_struct;
+#[type_code = 9999]
+struct Pair<T> { a: T, b: T }
+fn main() -> i32 { return 0; }

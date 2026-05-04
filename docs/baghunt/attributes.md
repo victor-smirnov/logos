@@ -17,7 +17,7 @@
 ### B-at-01: Unknown `#[unknown_attr]` silently accepted (known/documented)
 
 **Severity**: P1 design
-**Status**: confirmed-known (already documented in [attributes.md](../language/reference/attributes.md))
+**Status**: deferred-to-Phase-5 (cross-module trigger registry not closed at collect-time; whole-program fact-base needed before warning is reliable)
 **Repro**: `B01/` —
 ```logos
 #[unknown_attr]
@@ -30,7 +30,7 @@ struct Foo { x: i32 }
 ### B-at-02: `#[type_code]` on generic template silently accepted
 
 **Severity**: P1 (per-spec violation per docs)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-M0.3 (regression: tests/logos/fail/attr_type_code_on_generic_struct + existing template_genos_type_code)
 **Repro**: `B03/` —
 ```logos
 #[type_code = 42]
@@ -59,7 +59,7 @@ pub eidos Foo { x: i32 }
 ### B-at-04: `#[tag_dispatch]` on non-trait silently accepted
 
 **Severity**: P1 (per-spec violation)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-M0.3 (regression: tests/logos/fail/attr_tag_dispatch_on_struct)
 **Repro**: `B08/` —
 ```logos
 #[tag_dispatch(SomeSystem)]
@@ -73,7 +73,7 @@ struct Foo { x: i32 }   // tag_dispatch is for traits only
 ### B-at-05: `#[zoned]` on non-struct silently accepted
 
 **Severity**: P1 (per-spec violation)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-M0.3 (regression: tests/logos/fail/attr_zoned_on_enum)
 **Repro**: `B09/` —
 ```logos
 #[zoned] enum E { A, B, }   // zoned is for struct only
@@ -110,6 +110,7 @@ pub eidos Foo { x: i32 }
 **Expected**: Per [attributes.md](../language/reference/attributes.md): "Codes 1–127 are reserved for system use; user codes start at 128." Should warn or error.
 **Suspected root**: No range check on `#[type_code]` value.
 **Tags**: `oversight:simple`, `tech-debt:no-attribute-validation`
+**Deferred** to Phase 5: stdlib primitives legitimately use codes in [1..128]; a static range check here is noisy without a "user-package" predicate. The fact-base will attribute each `#[type_code]` to its package and warn only on user code.
 
 ### B-at-08: `#[deprecated]` no diagnostic at use-site (planned, not implemented)
 

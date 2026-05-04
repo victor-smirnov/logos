@@ -1,0 +1,4 @@
+package attr_zoned_on_enum;
+#[zoned]
+enum E { A, B }
+fn main() -> i32 { return 0; }

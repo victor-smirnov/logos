@@ -1,0 +1,4 @@
+package attr_tag_dispatch_on_struct;
+#[tag_dispatch(MySys)]
+struct S { x: i32 }
+fn main() -> i32 { return 0; }

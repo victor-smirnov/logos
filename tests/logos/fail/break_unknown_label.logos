@@ -1,0 +1,4 @@
+package break_unknown_label;
+fn main() -> i32 {
+    loop { break 'nonexistent; }
+}

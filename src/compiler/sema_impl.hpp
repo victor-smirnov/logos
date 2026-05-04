@@ -190,6 +190,18 @@ private:
         else if (auto rp = resolve_enum_pkg_(name); !rp.empty()) t.pkg_name = std::move(rp);
         return pool_->alloc(std::move(t));
     }
+    TypeRef make_generic_enum(std::string_view name,
+                               std::vector<TypeRef> args,
+                               std::vector<std::string> lt_args = {},
+                               std::string_view pkg = {}) {
+        LogosTypeBuilder t; t.kind = LogosType::Kind::Enum;
+        t.enum_name = std::string(name);
+        t.type_args = std::move(args);
+        t.lifetime_args = std::move(lt_args);
+        if (!pkg.empty()) t.pkg_name = std::string(pkg);
+        else if (auto rp = resolve_enum_pkg_(name); !rp.empty()) t.pkg_name = std::move(rp);
+        return pool_->alloc(std::move(t));
+    }
     TypeRef make_tuple_type(std::vector<TypeRef> elems) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Tuple;
         t.tuple_elems = std::move(elems);
@@ -544,6 +556,94 @@ private:
         }
         error("annotation value must be an integer literal or enum variant");
         return 0;
+    }
+
+    // ── Attribute spec registry (Meta-Sprint M0.3) ──────────────────────
+    // Closes B-at-01 (unknown attr), B-at-02 (#[type_code] on generic),
+    // B-at-04 (#[tag_dispatch] on non-trait), B-at-05 (#[zoned] on enum),
+    // B-at-07 (#[type_code] in reserved system range).
+    //
+    // Phase 5 successor: a single fact-base query "annotation X applied to
+    // target of kind Y where (X.targets ∌ Y)" replaces this in-tree pass.
+    enum class AttrTarget { Struct, Datatype, Enum, Trait, Fn, Const };
+
+    static const char* attr_target_name(AttrTarget t) {
+        switch (t) {
+            case AttrTarget::Struct:   return "struct";
+            case AttrTarget::Datatype: return "datatype";
+            case AttrTarget::Enum:     return "enum";
+            case AttrTarget::Trait:    return "trait";
+            case AttrTarget::Fn:       return "fn";
+            case AttrTarget::Const:    return "const";
+        }
+        return "?";
+    }
+
+    // Built-in compiler-recognised attributes.  Each entry: name → bitset of
+    // valid AttrTargets (1<<int(AttrTarget)).  Anything not here is treated
+    // as a user `#[annotation]` lookup (and warned if unresolved).
+    static unsigned attr_builtin_targets(std::string_view name) {
+        auto bit = [](AttrTarget t) { return 1u << unsigned(t); };
+        if (name == "type_code")
+            return bit(AttrTarget::Struct) | bit(AttrTarget::Datatype) |
+                   bit(AttrTarget::Enum)   | bit(AttrTarget::Trait);
+        if (name == "zoned")           return bit(AttrTarget::Struct);
+        if (name == "annotation")      return bit(AttrTarget::Struct) | bit(AttrTarget::Datatype);
+        if (name == "tag_dispatch")    return bit(AttrTarget::Trait);
+        if (name == "metaprog_handler")return bit(AttrTarget::Fn);
+        return 0u;  // not a builtin
+    }
+
+    // Validate `pending_annots` for an item of kind `target` named `target_name`.
+    // `has_type_params` controls B-at-02 (no `#[type_code]` on generic templates).
+    void check_annotations(AttrTarget target, std::string_view target_name,
+                           bool has_type_params,
+                           const std::vector<hermes::TinyMapView>& annots) {
+        using namespace sema_detail;
+        unsigned target_bit = 1u << unsigned(target);
+        for (auto& ann : annots) {
+            auto aname = std::string(str_of(ann.get(la::NAME.code)));
+            if (aname.empty()) continue;
+            unsigned tgts = attr_builtin_targets(aname);
+            if (tgts == 0) {
+                // Not a builtin.  Could be:
+                //   - a user `#[annotation]` datatype (resolved in apply_annots_to_*)
+                //   - a metaprog-handler trigger registered cross-module
+                //   - genuinely unknown (typo)
+                // Cross-module ordering means we cannot reliably warn here; the
+                // unknown-typo diagnostic (B-at-01) is deferred to a Phase 5
+                // whole-program fact-base query.
+                continue;
+            }
+            if ((tgts & target_bit) == 0) {
+                error(std::format("attribute '#[{}]' is not valid on {} '{}'",
+                                  aname, attr_target_name(target), target_name));
+                continue;
+            }
+            // Per-attribute extra checks:
+            if (aname == "type_code") {
+                if (has_type_params) {
+                    error(std::format("attribute '#[type_code]' cannot be applied to "
+                                      "generic {} '{}' (apply on each instantiation)",
+                                      attr_target_name(target), target_name));
+                }
+                // B-at-07 (reserved-range warning) is deferred: stdlib
+                // primitives legitimately use codes 1..128, so a static range
+                // check here would be noisy.  Phase 5 fact-base can attribute
+                // each #[type_code] to its package and warn only on user code.
+            }
+        }
+    }
+
+    // True iff the item AST node carries a non-empty TYPE_PARAMS list.
+    bool item_has_type_params(hermes::TinyMapView node) {
+        using namespace sema_detail;
+        if (!node.has_key(la::TYPE_PARAMS)) return false;
+        auto av = node.get(la::TYPE_PARAMS.code);
+        if (av.is_null()) return false;
+        auto tplist = map_of(av);
+        if (!tplist.has_key(la::ITEMS)) return false;
+        return arr_of(tplist.get(la::ITEMS.code)).size() > 0;
     }
 
     // ── Scope management ─────────────────────────────────────────
@@ -1106,6 +1206,11 @@ private:
     // ── Loop depth / return type ─────────────────────────────────
 
     int loop_depth_ = 0;
+    // Stack of currently-active labelled loops. Only non-empty labels are
+    // pushed. Used by `break 'label` / `continue 'label` to validate that
+    // the label is in scope (closes B-st-05 — break with bad label leaked
+    // to mlir-gen).
+    std::vector<std::string> active_loop_labels_;
     bool inside_unsafe_ = false;
     TypeRef ret_type_ = nullptr;
     TypeRef break_value_type_ = nullptr;  // type yielded by break <expr>

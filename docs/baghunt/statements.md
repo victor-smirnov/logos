@@ -87,7 +87,7 @@ fn main() -> i32 {
 ### B-st-05: `break 'unknown_label` leaks to MLIR-gen
 
 **Severity**: P1 diagnostic
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-M0.5 (regression: tests/logos/fail/break_unknown_label + continue_unknown_label)
 **Repro**: `B12/` —
 ```logos
 fn main() -> i32 {

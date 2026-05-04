@@ -1731,6 +1731,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         LogosTypeBuilder nt;
         nt.kind = LogosType::Kind::Enum;
         nt.enum_name = t.enum_name();
+        nt.pkg_name = t.pkg_name();  // preserve package qualification after substitution
         nt.type_args = std::move(new_args);
         nt.lifetime_args = std::move(new_lt_args);
         return pool_->alloc(std::move(nt));
@@ -2483,11 +2484,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         else if (elem_name == "F64") elem_t = prim(LogosType::Kind::F64);
         else elem_t = error_t();
         // Result type: struct LogosType with special name "HermesArr".
-        LogosTypeBuilder t{};
-        t.kind = LogosType::Kind::Struct;
-        t.struct_name = "HermesArr";
-        t.type_args.push_back(elem_t);
-        return pool_->alloc(std::move(t));
+        return make_generic_struct("HermesArr", {elem_t});
     }
     if (tc == la::HERMES_MAP_TYPE) {
         auto key_name = str_of(node.get(la::TYPE.code));
@@ -2511,22 +2508,14 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         else key_t = error_t();
         TypeRef val_t = nullptr;
         if (val_name == "AnyVal") {
-            LogosTypeBuilder vt{};
-            vt.kind = LogosType::Kind::Struct;
-            vt.struct_name = "AnyVal";
-            val_t = pool_->alloc(std::move(vt));
+            val_t = make_struct_type("AnyVal");
         } else {
             // C6-fix2: emit error for unsupported val type (previously silent error_t()).
             error(std::format("<{},{}>" "{{}} type: unsupported val type '{}'; "
                               "supported: AnyVal", key_name, val_name, val_name));
             return error_t();
         }
-        LogosTypeBuilder t{};
-        t.kind = LogosType::Kind::Struct;
-        t.struct_name = "HermesMap";
-        t.type_args.push_back(key_t);
-        t.type_args.push_back(val_t);
-        return pool_->alloc(std::move(t));
+        return make_generic_struct("HermesMap", {key_t, val_t});
     }
 
     if (tc == la::PACK_EXPAND) {
@@ -2687,37 +2676,20 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                 check_type_arg_arity(name, esi->type_params, args, "enum");
                 check_type_bounds(std::string(name), esi->type_params, args);
             }
-            LogosTypeBuilder t; t.kind = LogosType::Kind::Enum;
-            t.enum_name = std::string(name);
-            if (!epkg.empty()) t.pkg_name = epkg;
-            t.type_args = std::move(args);
-            t.lifetime_args = std::move(lt_args);
-            return pool_->alloc(std::move(t));
+            return make_generic_enum(name, std::move(args), std::move(lt_args), epkg);
         }
         if (is_dtype) {
             if (dsi) {
                 check_type_arg_arity(name, dsi->type_params, args, "datatype");
                 check_type_bounds(std::string(name), dsi->type_params, args);
             }
-            LogosTypeBuilder t; t.kind = LogosType::Kind::ZonedStruct;
-            t.struct_name = std::string(name);
-            if (!dpkg.empty()) t.pkg_name = dpkg;
-            t.type_args = std::move(args);
-            t.lifetime_args = std::move(lt_args);
-            return pool_->alloc(std::move(t));
+            return make_generic_datatype(name, std::move(args), std::move(lt_args), dpkg);
         }
         if (ssi) {
             check_type_arg_arity(name, ssi->type_params, args, "struct");
             check_type_bounds(std::string(name), ssi->type_params, args);
         }
-        {
-            LogosTypeBuilder t; t.kind = LogosType::Kind::Struct;
-            t.struct_name = std::string(name);
-            if (!spkg.empty()) t.pkg_name = spkg;
-            t.type_args = std::move(args);
-            t.lifetime_args = std::move(lt_args);
-            return pool_->alloc(std::move(t));
-        }
+        return make_generic_struct(name, std::move(args), std::move(lt_args), spkg);
     }
 
     if (tc == la::LIT_HSTATIC) {

@@ -202,6 +202,11 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
         std::string break_label;
         if (stmt.has_key(la::LABEL))
             break_label = std::string(str_of(stmt.get(la::LABEL.code)));
+        if (!break_label.empty() &&
+            std::find(active_loop_labels_.begin(), active_loop_labels_.end(),
+                      break_label) == active_loop_labels_.end()) {
+            error(std::format("'break {}': label not in scope", break_label));
+        }
         return builder().stmt_break(std::move(bval), std::move(break_label), node_line_);
     }
     if (c == la::CONTINUE) {
@@ -209,6 +214,11 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
         std::string cont_label;
         if (stmt.has_key(la::LABEL))
             cont_label = std::string(str_of(stmt.get(la::LABEL.code)));
+        if (!cont_label.empty() &&
+            std::find(active_loop_labels_.begin(), active_loop_labels_.end(),
+                      cont_label) == active_loop_labels_.end()) {
+            error(std::format("'continue {}': label not in scope", cont_label));
+        }
         return builder().stmt_continue(std::move(cont_label), node_line_);
     }
     if (c == la::DEREF_WRITE) {
@@ -2144,7 +2154,9 @@ lir::LStmt SemaChecker::lower_while(TinyMapView node) {
     auto body = lir::alloc_block(*cur_prog_);
     if (node.has_key(la::BODY)) {
         ++loop_depth_;
+        if (!my_label.empty()) active_loop_labels_.push_back(my_label);
         *body = lower_block(map_of(node.get(la::BODY.code)));
+        if (!my_label.empty()) active_loop_labels_.pop_back();
         --loop_depth_;
     }
     lir::SWhile sw;
@@ -2214,7 +2226,9 @@ lir::LStmt SemaChecker::lower_for(TinyMapView node) {
     auto body = lir::alloc_block(*cur_prog_);
     if (node.has_key(la::BODY)) {
         ++loop_depth_;
+        if (!my_label.empty()) active_loop_labels_.push_back(my_label);
         *body = lower_block(map_of(node.get(la::BODY.code)));
+        if (!my_label.empty()) active_loop_labels_.pop_back();
         --loop_depth_;
     }
     pop_scope();
@@ -2461,7 +2475,9 @@ lir::LStmt SemaChecker::lower_loop(TinyMapView node) {
     break_without_value_ = false;
     if (node.has_key(la::BODY)) {
         ++loop_depth_;
+        if (!my_label.empty()) active_loop_labels_.push_back(my_label);
         *body = lower_block(map_of(node.get(la::BODY.code)));
+        if (!my_label.empty()) active_loop_labels_.pop_back();
         --loop_depth_;
     }
     lir::SLoop sl;

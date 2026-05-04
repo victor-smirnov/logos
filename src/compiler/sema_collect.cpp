@@ -502,14 +502,22 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                 for (auto& ann : pending_annots)
                     if (str_of(ann.get(la::NAME.code)) == "zoned") { is_zoned = true; break; }
                 if (!item.has_key(la::NAME.code)) { /* struct_inst — skip collect */ }
-                else if (is_specialization_struct(item)) collect_struct_spec(item);
-                else if (is_zoned) {
-                    bool pending_is_annot_type = false;
-                    for (auto& ann : pending_annots) {
-                        if (str_of(ann.get(la::NAME.code)) == "annotation") { pending_is_annot_type = true; break; }
-                    }
-                    collect_datatype(item, pending_is_annot_type);
-                } else                              collect_struct(item);
+                else {
+                    auto sname = std::string(str_of(item.get(la::NAME.code)));
+                    bool htp = item_has_type_params(item);
+                    // STRUCT-syntax items: `#[zoned]` is the syntactic switch
+                    // that promotes to datatype, so the syntactic target is
+                    // always Struct here.
+                    check_annotations(AttrTarget::Struct, sname, htp, pending_annots);
+                    if (is_specialization_struct(item)) collect_struct_spec(item);
+                    else if (is_zoned) {
+                        bool pending_is_annot_type = false;
+                        for (auto& ann : pending_annots) {
+                            if (str_of(ann.get(la::NAME.code)) == "annotation") { pending_is_annot_type = true; break; }
+                        }
+                        collect_datatype(item, pending_is_annot_type);
+                    } else                              collect_struct(item);
+                }
             } else if (c == la::DATATYPE) {
                 // Skip explicit instantiation declarations (no FIELDS key, no NAME key).
                 // These only bind annotations to existing generic instantiations.
@@ -532,6 +540,8 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                     // #[annotation] on the SemaStructInfo so downstream passes
                     // can recognise user-annotation types.
                     auto dname = std::string(str_of(item.get(la::NAME.code)));
+                    check_annotations(AttrTarget::Datatype, dname,
+                                      item_has_type_params(item), pending_annots);
                     // Annotation-name uniqueness for "exclusive" attributes
                     // (closes B-at-03 — multiple #[type_code] silent before).
                     {
@@ -563,8 +573,20 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                     }
                 }
             }
-            else if (c == la::ENUM)                       collect_enum(item);
+            else if (c == la::ENUM) {
+                if (item.has_key(la::NAME.code)) {
+                    check_annotations(AttrTarget::Enum,
+                                      str_of(item.get(la::NAME.code)),
+                                      item_has_type_params(item), pending_annots);
+                }
+                collect_enum(item);
+            }
             else if (c == la::FN || c == la::EXTERN_FN)   {
+                if (item.has_key(la::NAME.code)) {
+                    check_annotations(AttrTarget::Fn,
+                                      str_of(item.get(la::NAME.code)),
+                                      item_has_type_params(item), pending_annots);
+                }
                 // Phase 7 slice 12: record `#[metaprog_handler("trigger")]`
                 // hooks. The annotation's first positional arg is the
                 // user-facing trigger name; the host driver scans user
@@ -604,7 +626,14 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                 }
                 collect_fn(item);
             }
-            else if (c == la::TRAIT_DEF || c == la::GENOS_DEF) collect_trait(item);
+            else if (c == la::TRAIT_DEF || c == la::GENOS_DEF) {
+                if (item.has_key(la::NAME.code)) {
+                    check_annotations(AttrTarget::Trait,
+                                      str_of(item.get(la::NAME.code)),
+                                      item_has_type_params(item), pending_annots);
+                }
+                collect_trait(item);
+            }
             else if (c == la::IMPL_BLOCK)                 collect_impl(item);
         } else {
             if      (c == la::TYPE_ALIAS)                 collect_type_alias(item);

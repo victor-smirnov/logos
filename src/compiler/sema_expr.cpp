@@ -217,12 +217,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                 }
                 // Result type: Hermes.
                 auto ctr_t = lookup_type_by_name("Hermes");
-                if (!ctr_t) {
-                    LogosTypeBuilder t{};
-                    t.kind = LogosType::Kind::Struct;
-                    t.struct_name = "Hermes";
-                    ctr_t = pool_->alloc(std::move(t));
-                }
+                if (!ctr_t) ctr_t = make_struct_type("Hermes");
                 return builder().hermes_cast(std::move(inner), std::move(build_fn), ctr_t);
             }
             // fix5: explicit guard — outer if allows HermesArr||HermesMap; must be HermesMap here.
@@ -280,12 +275,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                     return error_expr();
                 }
                 auto ctr_t = lookup_type_by_name("Hermes");
-                if (!ctr_t) {
-                    LogosTypeBuilder t{};
-                    t.kind = LogosType::Kind::Struct;
-                    t.struct_name = "Hermes";
-                    ctr_t = pool_->alloc(std::move(t));
-                }
+                if (!ctr_t) ctr_t = make_struct_type("Hermes");
                 return builder().hermes_cast(std::move(inner), std::move(map_fn), ctr_t);
             }
         }
@@ -2502,11 +2492,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             else if (v.name == "None") none_disc = v.value;
         }
         // Build Option<A> type
-        LogosTypeBuilder opt_type; opt_type.kind = LogosType::Kind::Enum;
-        opt_type.enum_name = "Option";
-        if (!opt_pkg.empty()) opt_type.pkg_name = opt_pkg;
-        opt_type.type_args = {A};
-        TypeRef result_type = pool_->alloc(std::move(opt_type));
+        TypeRef result_type = make_generic_enum("Option", {A}, {}, opt_pkg);
         // Build Datatype<A> type for the struct literal
         TypeRef a_type = A;  // already a Datatype type
         // Find the annotation instance on T
@@ -5390,11 +5376,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
             type_args.push_back(sit != subst.end() ? sit->second : error_t());
         }
         check_type_bounds(std::string(ename), einfo.type_params, type_args);
-        LogosTypeBuilder et; et.kind = LogosType::Kind::Enum;
-        et.enum_name = std::string(ename);
-        if (auto rp = resolve_enum_pkg_(ename); !rp.empty()) et.pkg_name = std::move(rp);
-        et.type_args = std::move(type_args);
-        result_type = pool_->alloc(std::move(et));
+        result_type = make_generic_enum(ename, std::move(type_args));
         // Resolve payload types with substitution
         for (size_t i = 0; i < resolved_payload_types.size(); ++i)
             resolved_payload_types[i] = subst_type_sema(resolved_payload_types[i], subst);
@@ -5559,11 +5541,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
             type_args.push_back(sit != subst.end() ? sit->second : error_t());
         }
         check_type_bounds(std::string(ename), einfo.type_params, type_args);
-        LogosTypeBuilder et; et.kind = LogosType::Kind::Enum;
-        et.enum_name = std::string(ename);
-        if (auto rp = resolve_enum_pkg_(ename); !rp.empty()) et.pkg_name = std::move(rp);
-        et.type_args = std::move(type_args);
-        result_type = pool_->alloc(std::move(et));
+        result_type = make_generic_enum(ename, std::move(type_args));
         for (size_t i = 0; i < resolved_payload_types.size(); ++i)
             resolved_payload_types[i] = subst_type_sema(resolved_payload_types[i], subst);
     }
@@ -8185,11 +8163,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
         } else if (ph.is_cursor && ph.is_vec_cursor) {
             // Dynamic cursor — read xs.ptr (cast *mut Ident → *const Ident)
             // and xs.len (cast i64 → u64). Vec<Ident> shape verified at sema.
-            LogosTypeBuilder vb;
-            vb.kind = LogosType::Kind::Struct;
-            vb.struct_name = "Vec";
-            vb.type_args = {ident_t};
-            TypeRef vec_ident_t = pool_->alloc(std::move(vb));
+            TypeRef vec_ident_t = make_generic_struct("Vec", {ident_t});
             auto v_ref       = builder().var_ref(ph.var_name, vec_ident_t);
             TypeRef ident_mut_ptr_t = make_ptr(true, ident_t);
             auto raw_ptr     = builder().field_read(
@@ -8223,11 +8197,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
         lir::LExprPtr cnt_v;
         if (ph.is_vec_cursor) {
             // count = xs.len cast to u64
-            LogosTypeBuilder vb2;
-            vb2.kind = LogosType::Kind::Struct;
-            vb2.struct_name = "Vec";
-            vb2.type_args = {ident_t};
-            TypeRef vec_ident_t2 = pool_->alloc(std::move(vb2));
+            TypeRef vec_ident_t2 = make_generic_struct("Vec", {ident_t});
             auto v_ref2 = builder().var_ref(ph.var_name, vec_ident_t2);
             auto raw_len = builder().field_read(
                 std::move(v_ref2), "len", prim(LogosType::Kind::I64));

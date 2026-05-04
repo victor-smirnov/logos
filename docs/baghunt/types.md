@@ -61,7 +61,7 @@ fn main() -> i32 { return 0; }
 ### B-ty-04: Too few type arguments leaks to MLIR-gen with cryptic error
 
 **Severity**: P1 diagnostic
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-M0.1 (closed by `check_type_arg_arity` in resolve_type)
 **Repro**: `B07/` —
 ```logos
 struct Foo<A, B> { a: A, b: B }

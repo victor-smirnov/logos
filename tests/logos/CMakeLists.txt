@@ -398,3 +398,15 @@ if (FILECHECK_BIN)
 else()
     message(STATUS "logos tests: FileCheck not found — skipping IR snapshot suite")
 endif()
+
+# Lint: inline `LogosTypeBuilder` Struct/Enum/ZonedStruct sites outside
+# sema_impl.hpp.  Closes the ad-hoc-typebuilder cluster (Meta-Sprint M0.4).
+add_test(
+    NAME logos_08_lint_inline_typebuilder
+    COMMAND ${CMAKE_SOURCE_DIR}/tools/check_typebuilder_lint.sh
+            ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(logos_08_lint_inline_typebuilder PROPERTIES
+    TIMEOUT 10
+    LABELS  "logos;lint;suite_lint"
+)

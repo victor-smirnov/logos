@@ -1,0 +1,4 @@
+package attr_metaprog_handler_on_struct;
+#[metaprog_handler("foo")]
+struct S { x: i32 }
+fn main() -> i32 { return 0; }

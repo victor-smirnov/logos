@@ -1,0 +1,6 @@
+package continue_unknown_label;
+fn main() -> i32 {
+    'outer: loop {
+        loop { continue 'inner; }
+    }
+}

@@ -51,7 +51,7 @@ fn main() -> i32 { return 0; }
 ### B-mt-03: `instantiate Foo<i32>;` with arity mismatch leaks to MLIR-gen
 
 **Severity**: P1 diagnostic
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-M0.1 (closed by `check_type_arg_arity` via resolve_type on the INSTANTIATE_DECL TYPE node)
 **Repro**: `B11/` —
 ```logos
 struct Foo<T, U> { x: T, y: U }

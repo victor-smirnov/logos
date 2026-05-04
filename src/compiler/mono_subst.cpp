@@ -95,6 +95,7 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         }
         LogosTypeBuilder nt; nt.kind = LogosType::Kind::Enum;
         nt.enum_name = std::string(tv.enum_name());
+        nt.pkg_name  = std::string(tv.pkg_name());  // preserve pkg through subst
         nt.type_args = std::move(new_args);
         TypeRef result = out_.type_pool.alloc(std::move(nt));
         record_needed_enum(result);
