@@ -1236,63 +1236,47 @@ private:
     }
 
     // Find struct by user-written name (searches cur_package_ then imports+reexports then unqualified)
-    std::pair<std::string, SemaStructInfo*> find_struct_by_name(std::string_view name) {
+    // Generic lookup: try cur_package_ → imported packages → bare key.
+    // `pub_access_check` flips on for kinds where SemaInfo carries `is_pub`
+    // and `package` (struct/datatype). Enum/trait don't enforce pub on
+    // lookup at present (see B-mv-02 family — same arc as cross-pkg
+    // resolution rework).
+    // Generic qualified lookup. PubCheck=true triggers check_pub_access on
+    // imported-pkg hits; the branch is `if constexpr` so SemaEnumInfo /
+    // SemaTraitInfo (no is_pub field) compile cleanly with PubCheck=false.
+    template <bool PubCheck, class Map>
+    auto lookup_qualified_(Map& m, std::string_view name)
+        -> std::pair<std::string, typename Map::mapped_type*>
+    {
         if (!cur_package_.empty()) {
-            auto it = structs_.find(sema_key(cur_package_, std::string(name)));
-            if (it != structs_.end()) return {cur_package_, &it->second};
+            auto it = m.find(sema_key(cur_package_, std::string(name)));
+            if (it != m.end()) return {cur_package_, &it->second};
         }
         for (auto& pkg : effective_import_pkgs()) {
-            auto it = structs_.find(sema_key(pkg, std::string(name)));
-            if (it != structs_.end()) {
-                check_pub_access(it->second.is_pub, it->second.package, name);
+            auto it = m.find(sema_key(pkg, std::string(name)));
+            if (it != m.end()) {
+                if constexpr (PubCheck) {
+                    check_pub_access(it->second.is_pub,
+                                     it->second.package, name);
+                }
                 return {pkg, &it->second};
             }
         }
-        auto it = structs_.find(std::string(name));
-        if (it != structs_.end()) return {"", &it->second};
+        auto it = m.find(std::string(name));
+        if (it != m.end()) return {"", &it->second};
         return {"", nullptr};
+    }
+    std::pair<std::string, SemaStructInfo*> find_struct_by_name(std::string_view name) {
+        return lookup_qualified_<true>(structs_, name);
     }
     std::pair<std::string, SemaStructInfo*> find_datatype_by_name(std::string_view name) {
-        if (!cur_package_.empty()) {
-            auto it = datatypes_.find(sema_key(cur_package_, std::string(name)));
-            if (it != datatypes_.end()) return {cur_package_, &it->second};
-        }
-        for (auto& pkg : effective_import_pkgs()) {
-            auto it = datatypes_.find(sema_key(pkg, std::string(name)));
-            if (it != datatypes_.end()) {
-                check_pub_access(it->second.is_pub, it->second.package, name);
-                return {pkg, &it->second};
-            }
-        }
-        auto it = datatypes_.find(std::string(name));
-        if (it != datatypes_.end()) return {"", &it->second};
-        return {"", nullptr};
+        return lookup_qualified_<true>(datatypes_, name);
     }
     std::pair<std::string, SemaEnumInfo*> find_enum_by_name(std::string_view name) {
-        if (!cur_package_.empty()) {
-            auto it = enums_.find(sema_key(cur_package_, std::string(name)));
-            if (it != enums_.end()) return {cur_package_, &it->second};
-        }
-        for (auto& pkg : effective_import_pkgs()) {
-            auto it = enums_.find(sema_key(pkg, std::string(name)));
-            if (it != enums_.end()) return {pkg, &it->second};
-        }
-        auto it = enums_.find(std::string(name));
-        if (it != enums_.end()) return {"", &it->second};
-        return {"", nullptr};
+        return lookup_qualified_<false>(enums_, name);
     }
     std::pair<std::string, SemaTraitInfo*> find_trait_by_name(std::string_view name) {
-        if (!cur_package_.empty()) {
-            auto it = traits_.find(sema_key(cur_package_, std::string(name)));
-            if (it != traits_.end()) return {cur_package_, &it->second};
-        }
-        for (auto& pkg : effective_import_pkgs()) {
-            auto it = traits_.find(sema_key(pkg, std::string(name)));
-            if (it != traits_.end()) return {pkg, &it->second};
-        }
-        auto it = traits_.find(std::string(name));
-        if (it != traits_.end()) return {"", &it->second};
-        return {"", nullptr};
+        return lookup_qualified_<false>(traits_, name);
     }
     bool has_struct(std::string_view name)   { return find_struct_by_name(name).second   != nullptr; }
     bool has_datatype(std::string_view name) { return find_datatype_by_name(name).second != nullptr; }
