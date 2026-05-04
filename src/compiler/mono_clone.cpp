@@ -3215,6 +3215,12 @@ void Mono::instantiate_struct_templates() {
 
             concrete_struct_types_[cname] = struct_t;
             auto inst = clone_struct_def(*tmpl, subst, packs, cname);
+            // The generic's home pkg owns the conceptual identity. A spec in a
+            // different pkg only contributes layout; the cloned inst should
+            // carry the generic's pkg so user-side TypeRefs (resolved against
+            // the generic decl) and mlir-side struct names agree.
+            if (auto git = struct_templates_.find(base); git != struct_templates_.end())
+                inst.pkg = git->second->pkg;
             // Mirror emit happens here — *after* clone, *before* scan_fn — because
             // only at this point are stmt/expr addresses stable. Two conditions:
             //   (a) all recursive subst_block push_backs are done, so the

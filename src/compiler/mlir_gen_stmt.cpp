@@ -203,7 +203,7 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
         if (!alloca) return;
         scope_[s.name] = alloca;
         let_vars_.insert(s.name);
-        var_struct_[s.name] = s.type ? concrete_struct_name(s.type) : std::string(lit.name());
+        var_struct_[s.name] = s.type ? mlir_struct_key(s.type) : std::string(lit.name());
         return;
     }
 
@@ -334,7 +334,7 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
                     TypeRef(s.type).kind() == LogosType::Kind::ZonedStruct)) {
         auto val = gen_expr(*s.value);
         if (!val) return;
-        auto sname = concrete_struct_name(s.type);
+        auto sname = mlir_struct_key(s.type);
         auto sit = struct_types_.find(sname);
         if (val.getType() != ptr_type()) {
             // By-value struct from function return — spill to alloca.
@@ -375,7 +375,7 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
         if (!val) return;
         scope_[s.name] = val;
         let_vars_.insert(s.name);
-        var_struct_[s.name] = concrete_struct_name(st.pointee());
+        var_struct_[s.name] = mlir_struct_key(st.pointee());
         return;
     }
 
@@ -430,7 +430,7 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
             scope_[s.name] = val;
         }
         let_vars_.insert(s.name);
-        var_struct_[s.name] = concrete_struct_name(st.pointee());
+        var_struct_[s.name] = mlir_struct_key(st.pointee());
         return;
     }
 
@@ -1049,7 +1049,7 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
         // Struct elements are now stored inline as `[N x %struct_type]`.
         // GEP via [0, i] using the array slot type so stride = sizeof(struct);
         // the resulting pointer IS the struct pointer.
-        auto cname = concrete_struct_name(s.elem_type);
+        auto cname = mlir_struct_key(s.elem_type);
         auto sit = struct_types_.find(cname);
         if (sit == struct_types_.end()) return;
         auto slot_type = sit->second.llvm_type;
@@ -1835,7 +1835,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                             // struct bytes instead of on a ptr-holding slot.
                             scope_[bindings[bi]] = fp;
                             let_vars_.insert(bindings[bi]);
-                            var_struct_[bindings[bi]] = concrete_struct_name(lt);
+                            var_struct_[bindings[bi]] = mlir_struct_key(lt);
                         } else {
                             mlir::Value bound_val;
                             if (is_inline_struct) {

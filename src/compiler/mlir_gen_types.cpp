@@ -140,11 +140,12 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
 // ---------------------------------------------------------------------------
 
 bool MLIRGenImpl::register_struct(const LStructDef& sd) {
-    if (struct_types_.count(sd.name)) return true;
+    std::string key = qualify_pkg(sd.pkg, sd.name);
+    if (struct_types_.count(key)) return true;
     auto struct_type = mlir::LLVM::LLVMStructType::getIdentified(
-        builder_.getContext(), sd.name);
+        builder_.getContext(), key);
     StructInfo info;
-    info.name      = sd.name;
+    info.name      = key;
     info.llvm_type = struct_type;
 
     std::vector<mlir::Type> field_types;
@@ -207,10 +208,14 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
         field_types.push_back(ft);
     }
     if (mlir::failed(struct_type.setBody(field_types, false))) {
-        std::fprintf(stderr, "mlir_gen: failed to set struct body for '%s'\n", sd.name.c_str());
+        std::fprintf(stderr, "mlir_gen: failed to set struct body for '%s'\n", key.c_str());
         return false;
     }
-    struct_types_[sd.name] = std::move(info);
+    struct_types_[key] = info;
+    // Back-compat alias under the bare name for paths that look up via
+    // concrete_struct_name (which doesn't carry pkg). First-registered wins.
+    if (!sd.pkg.empty() && !struct_types_.count(sd.name))
+        struct_types_[sd.name] = std::move(info);
     return true;
 }
 

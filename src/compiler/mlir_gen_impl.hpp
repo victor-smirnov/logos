@@ -328,6 +328,30 @@ private:
     }
 
     // ── Struct / enum / class registration ──────────────────────
+    // MLIR struct keys carry the package prefix so same-named structs in
+    // different packages don't alias at the LLVM struct-type level. The bare
+    // `concrete_struct_name(t)` is reused for method-symbol mangling (which
+    // is package-agnostic — see mono.cpp's "<Struct>__<method>" pattern) and
+    // as a back-compat alias key in struct_types_.
+    static std::string qualify_pkg(std::string_view pkg, std::string_view name) {
+        if (pkg.empty()) return std::string(name);
+        std::string r;
+        r.reserve(pkg.size() + 1 + name.size());
+        r.append(pkg); r.push_back('.'); r.append(name);
+        return r;
+    }
+    static std::string_view strip_struct_pkg(std::string_view qualified) {
+        // Inverse of qualify_pkg: split at the last '.'. Struct base names
+        // never contain '.' in their mangled form, so this is unambiguous.
+        auto p = qualified.rfind('.');
+        if (p == std::string_view::npos) return qualified;
+        return qualified.substr(p + 1);
+    }
+    std::string mlir_struct_key(TypeRef t) {
+        if (!t) return {};
+        auto base = concrete_struct_name(t);
+        return qualify_pkg(t.pkg_name(), base);
+    }
     bool register_struct(const LStructDef& sd);
     void register_tagged_enum(const LEnumDef& ed);
     uint64_t logos_abi_byte_size(TypeRef t,

@@ -34,8 +34,16 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
 
     // Pass 0: build struct lookup table so register_tagged_enum can compute
     // payload sizes from LogosType field trees (logos_abi_byte_size).
-    for (auto& sd : prog.structs)
-        all_struct_defs_[sd.name] = &sd;
+    for (auto& sd : prog.structs) {
+        std::string key = qualify_pkg(sd.pkg, sd.name);
+        all_struct_defs_[key] = &sd;
+        // Bare alias for legacy paths that haven't been threaded with pkg.
+        // First-registered wins on collision (matches the legacy global-
+        // namespace behavior; cross-pkg same-name structs surface via the
+        // qualified entry).
+        if (!sd.pkg.empty() && !all_struct_defs_.count(sd.name))
+            all_struct_defs_[sd.name] = &sd;
+    }
 
     // Pass 0.5: register enum types (needs all_struct_defs_ populated above).
     for (auto& ed : prog.enums) {
@@ -233,7 +241,7 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
                     TypeRef(recv.type).pointee() &&
                     (TypeRef(recv.type).pointee().kind() == LogosType::Kind::Struct ||
                      TypeRef(recv.type).pointee().kind() == LogosType::Kind::ZonedStruct)) {
-                    return {sc->second, concrete_struct_name(TypeRef(recv.type).pointee())};
+                    return {sc->second, mlir_struct_key(TypeRef(recv.type).pointee())};
                 }
                 // If the receiver type is unavailable, still treat it as a
                 // struct/datatype pointer using the recorded aggregate type.
@@ -255,7 +263,7 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
                      tv.kind() == LogosType::Kind::MutRef) && tv.pointee() &&
                     (tv.pointee().kind() == LogosType::Kind::Struct ||
                      tv.pointee().kind() == LogosType::Kind::ZonedStruct)) {
-                    return {sc->second, concrete_struct_name(tv.pointee())};
+                    return {sc->second, mlir_struct_key(tv.pointee())};
                 }
             }
             // If this binding is a pointer slot (alloca(ptr)), load the value
@@ -298,9 +306,9 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
                         if (lpit != var_local_ptrs_.end()) {
                             auto ptr_val = builder_.create<mlir::LLVM::LoadOp>(
                                 loc_, ptr_type(), sc->second);
-                            return {ptr_val, concrete_struct_name(inner)};
+                            return {ptr_val, mlir_struct_key(inner)};
                         }
-                        return {sc->second, concrete_struct_name(inner)};
+                        return {sc->second, mlir_struct_key(inner)};
                     }
                 }
             }
@@ -361,7 +369,7 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
         tv = TypeRef{t};
         if (tv.kind() == LogosType::Kind::Struct ||
             tv.kind() == LogosType::Kind::ZonedStruct)
-            return {ptr, concrete_struct_name(t)};
+            return {ptr, mlir_struct_key(t)};
     }
     std::fprintf(stderr, "mlir_gen: unsupported receiver kind for struct/class access\n");
     return {nullptr, {}};
@@ -387,9 +395,18 @@ mlir::Value MLIRGenImpl::gen_struct_lit(lir_view::EStructLitView v) {
         if (!raw) return nullptr;
         return coerce_numeric(raw, builder_.getI32Type());
     }
-    auto sit = struct_types_.find(name);
+    // Try the pkg-qualified key first (via the lit's TypeRef), fall back to bare.
+    std::string lookup_key;
+    if (TypeRef lt = v.self.type(pool_impl());
+        lt && (lt.kind() == LogosType::Kind::Struct ||
+               lt.kind() == LogosType::Kind::ZonedStruct))
+        lookup_key = mlir_struct_key(lt);
+    auto sit = (!lookup_key.empty() && struct_types_.count(lookup_key))
+        ? struct_types_.find(lookup_key)
+        : struct_types_.find(name);
     if (sit == struct_types_.end()) {
-        std::fprintf(stderr, "mlir_gen: unknown struct '%s'\n", name.c_str());
+        std::fprintf(stderr, "mlir_gen: unknown struct '%s' (qualified '%s')\n",
+                     name.c_str(), lookup_key.c_str());
         return nullptr;
     }
     auto& info  = sit->second;

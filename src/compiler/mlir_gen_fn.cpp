@@ -70,7 +70,7 @@ mlir::Type MLIRGenImpl::fn_call_ret_llvm_type(TypeRef ret_type) {
     }
     if (rv.kind() == LogosType::Kind::Struct ||
         rv.kind() == LogosType::Kind::ZonedStruct) {
-        auto cname = concrete_struct_name(ret_type);
+        auto cname = mlir_struct_key(ret_type);
         auto sit = struct_types_.find(cname);
         if (sit != struct_types_.end()) return sit->second.llvm_type;
         return ptr_type();
@@ -111,7 +111,7 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(const LFunction& fn) {
             if (rt) ret_types.push_back(rt);
         } else if (rv.kind() == LogosType::Kind::Struct ||
                    rv.kind() == LogosType::Kind::ZonedStruct) {
-            auto cname = concrete_struct_name(fn.ret_type);
+            auto cname = mlir_struct_key(fn.ret_type);
             auto sit = struct_types_.find(cname);
             if (sit != struct_types_.end())
                 ret_types.push_back(sit->second.llvm_type);
@@ -214,7 +214,7 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
                 mlir::Type et;
                 if (pe.kind() == LogosType::Kind::Struct ||
                     pe.kind() == LogosType::Kind::ZonedStruct) {
-                    auto cname = concrete_struct_name(pe);
+                    auto cname = mlir_struct_key(pe);
                     auto sit = struct_types_.find(cname);
                     if (sit != struct_types_.end()) et = sit->second.llvm_type;
                 }
@@ -229,11 +229,11 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
             std::string sname;
             if (pv.kind() == LogosType::Kind::Struct ||
                 pv.kind() == LogosType::Kind::ZonedStruct)
-                sname = concrete_struct_name(p.type);
+                sname = mlir_struct_key(p.type);
             else if (is_ptr_kind(pv.kind()) && pv.pointee() &&
                      (pv.pointee().kind() == LogosType::Kind::Struct ||
                       pv.pointee().kind() == LogosType::Kind::ZonedStruct))
-                sname = concrete_struct_name(pv.pointee());
+                sname = mlir_struct_key(pv.pointee());
             if (!sname.empty()) { var_struct_[p.name] = std::move(sname); continue; }
 
         }

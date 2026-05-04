@@ -1079,12 +1079,17 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
         return gen_dyn_dispatch(v, ret_logos_type);
     auto [ptr, tname] = gen_recv_struct(*recv_le);
     if (!ptr || tname.empty()) return nullptr;
-    if (tname == "AnyVal" && ptr.getType() != ptr_type()) {
+    if (strip_struct_pkg(tname) == "AnyVal" && ptr.getType() != ptr_type()) {
         auto slot = create_entry_alloca(builder_.getI32Type());
         builder_.create<mlir::LLVM::StoreOp>(loc_, coerce_numeric(ptr, builder_.getI32Type()), slot);
         ptr = slot;
     }
-    const std::string& defining = resolved_type.empty() ? tname : resolved_type;
+    // Method symbols are mangled by mono as "<bare-struct>__<method>", not
+    // pkg-qualified. tname (from gen_recv_struct/var_struct_) carries a
+    // qualified key like "pkg.Pair$G..." — strip the pkg prefix.
+    std::string defining = resolved_type.empty()
+                           ? std::string(strip_struct_pkg(tname))
+                           : resolved_type;
     auto mangled     = defining + "__" + method;
     auto callee_name = resolved_symbol.empty() ? mangled : resolved_symbol;
     auto parent_mod  = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
@@ -1742,7 +1747,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                              TypeRef(lt).kind() == LogosType::Kind::ZonedStruct)) {
                             scope_[bindings[bi]] = fp;
                             let_vars_.insert(bindings[bi]);
-                            var_struct_[bindings[bi]] = concrete_struct_name(lt);
+                            var_struct_[bindings[bi]] = mlir_struct_key(lt);
                             added.push_back(bindings[bi]);
                         } else {
                             mlir::Value bound_val;

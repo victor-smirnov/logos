@@ -3,9 +3,9 @@
 ; Asserts the inherent method `Pair::sum` lowers to a static free function
 ; with `Struct__method` mangling and direct call (no vtable/indirect).
 
-; CHECK: %Pair = type { i64, i64 }
+; CHECK: %main.Pair = type { i64, i64 }
 ; CHECK-LABEL: define i64 @Pair__sum(ptr
-; CHECK: getelementptr %Pair
+; CHECK: getelementptr %main.Pair
 ; CHECK: ret i64
 
 ; CHECK-LABEL: define i32 @main()
