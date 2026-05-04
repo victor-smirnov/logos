@@ -3309,6 +3309,21 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                 } else {
                     auto type_node = map_of(item.get(la::TYPE.code));
                     TypeRef resolved = resolve_type(type_node);
+                    // B-it-07: `struct Empty;` (no body, not a real instantiation)
+                    // resolves to error_t and silently drops.  When the type
+                    // expression is a bare ident with no type-args, surface
+                    // a clear diagnostic.
+                    if ((!resolved || TypeRef(resolved).kind() == LogosType::Kind::Error) &&
+                        type_node.has_key(la::NAME) &&
+                        !type_node.has_key(la::ITEMS)) {
+                        std::string nm(str_of(type_node.get(la::NAME.code)));
+                        error(std::format(
+                            "'struct {0};': '{0}' is not defined — "
+                            "did you mean 'struct {0} {{ ... }}' to declare a body?",
+                            nm));
+                        pending_annots.clear();
+                        continue;
+                    }
                     if (resolved && TypeRef(resolved).kind() != LogosType::Kind::Error) {
                         lir::LInstAnnotation ia;
                         ia.canonical_name = std::string(cur_package_) + "::" + type_str(resolved);

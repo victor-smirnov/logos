@@ -87,7 +87,7 @@ fn main() -> i32 { return 0; }
 ### B-it-06: Empty enum body compiles (no diagnostic)
 
 **Severity**: P2 design
-**Status**: confirmed (2026-05-04)
+**Status**: not-a-bug (intentional; stdlib uses empty enums as marker / never types — see meta_variant_intrinsics)
 **Repro**: `B05/` —
 ```logos
 enum Empty { }

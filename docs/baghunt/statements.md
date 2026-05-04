@@ -35,7 +35,7 @@ fn main() -> i32 {
 ### B-st-02: `let pat = expr;` with refutable pattern produces cryptic syntax error
 
 **Severity**: P1 diagnostic
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-Sprint4.2 (LET_PAT alt parses; lower_let_pat rejects refutable shapes with clear "use 'match' or 'let-else'" diagnostic)
 **Repro**: `B01/` —
 ```logos
 enum Opt { Some(i32), None, }

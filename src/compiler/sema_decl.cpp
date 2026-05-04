@@ -408,6 +408,14 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                     auto p = map_of(arr.get(i));
                     if (code_of(p) != la::PARAM) continue;
                     auto pname = str_of(p.get(la::NAME.code));
+                    // B-fn-10: reject `self` as a parameter name outside of
+                    // impl-block context.  Inside an impl, `self` (typically
+                    // first) is the magic receiver; outside, it's misleading.
+                    if (pname == "self" && struct_ctx.empty()) {
+                        error("parameter 'self' is reserved for impl-block "
+                              "method receivers; use a different name in a "
+                              "standalone function");
+                    }
                     auto ptype = (i < fi_ptr->param_types.size())
                         ? fi_ptr->param_types[i] : error_t();
                     bool p_variadic = false;
