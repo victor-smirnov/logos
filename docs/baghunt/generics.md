@@ -17,7 +17,7 @@
 ### B-gn-01: Duplicate type parameter `<T, T>` silently accepted
 
 **Severity**: P0 (silent shadowing)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-M0.1 (check_unique_names on type_params; tests/logos/fail/dup_type_param)
 **Repro**: `B02/` —
 ```logos
 struct Foo<T, T> { a: T, b: T }
@@ -31,7 +31,7 @@ fn main() -> i32 { return 0; }
 ### B-gn-02: Duplicate lifetime parameter `<'a, 'a>` silently accepted
 
 **Severity**: P0 (silent shadowing)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-M0.1 (check_unique_names on lifetime_params; tests/logos/fail/dup_lifetime_param)
 **Repro**: `B16/` —
 ```logos
 fn helper<'a, 'a>(x: &'a i32, y: &'a i32) -> i32 { return 0; }

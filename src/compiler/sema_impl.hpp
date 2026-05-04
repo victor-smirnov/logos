@@ -503,6 +503,8 @@ private:
         result_.diags.push_back({Diag::Level::Error, ctx_, std::move(msg), file_, node_line_});
     }
     void warn(std::string msg) {
+        // Dedup happens at Diags::print time (B-li-01) — multi-phase sema
+        // legitimately revisits the same source site.
         result_.diags.push_back({Diag::Level::Warning, ctx_, std::move(msg), file_, node_line_});
     }
 

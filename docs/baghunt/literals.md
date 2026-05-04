@@ -17,7 +17,7 @@
 ### B-li-01: Empty array literal `[]` emits warning 3 times
 
 **Severity**: P1 diagnostic (UX)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed (Diags::print process-static dedup by level/file/line/message)
 **Repro**: `B06/` —
 ```logos
 fn main() -> i32 {

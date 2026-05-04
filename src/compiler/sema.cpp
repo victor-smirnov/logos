@@ -2757,6 +2757,26 @@ TypeRef SemaChecker::resolve_hstatic_value(TinyMapView val_node) {
                 if (n.has_key(la::ITEMS) && !n.get(la::ITEMS.code).is_null()) {
                     auto items = arr_of(n.get(la::ITEMS.code));
                     h = fnv_u64(h, (uint64_t)items.size());
+                    // B-he-02: duplicate-key check at this layer (was only done
+                    // for `pub const … = @{...}` via eval_static_hermes_lit;
+                    // hstatic literals at type-arg position skipped through here
+                    // unchecked).
+                    if (c == la::HERMES_MAP.code) {
+                        logos::compiler::StrSet seen_keys;
+                        for (uint64_t i = 0; i < items.size(); ++i) {
+                            auto entry = map_of(items.get(i));
+                            if (code_of(entry) != la::HERMES_ENTRY.code) continue;
+                            if (!entry.has_key(la::KEY)) continue;
+                            auto raw = str_of(entry.get(la::KEY.code));
+                            std::string key(raw);
+                            if (key.size() >= 2 && key.front() == '"' && key.back() == '"')
+                                key = key.substr(1, key.size() - 2);
+                            if (key.empty()) continue;
+                            if (!seen_keys.insert(key).second) {
+                                error(std::format("duplicate key '{}' in Hermes map literal", key));
+                            }
+                        }
+                    }
                     for (uint64_t i = 0; i < items.size(); ++i)
                         h = walk(map_of(items.get(i)), h);
                 }
@@ -3232,6 +3252,15 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                     TypeRef(resolved).kind() != LogosType::Kind::ZonedStruct &&
                     TypeRef(resolved).kind() != LogosType::Kind::Enum) {
                     error("instantiate target must be a struct, datatype, or enum");
+                } else if (TypeRef(resolved).type_args().empty()) {
+                    // B-mt-02: `instantiate Foo;` on a non-generic type adds
+                    // no information.  Reject with a clear diagnostic.
+                    auto nm = (TypeRef(resolved).kind() == LogosType::Kind::Enum)
+                                ? std::string(TypeRef(resolved).enum_name())
+                                : std::string(TypeRef(resolved).struct_name());
+                    error(std::format("'instantiate {0};': '{0}' is not generic — "
+                                      "'instantiate' only applies to generic templates",
+                                      nm));
                 } else {
                     lir::LInstAnnotation ia;
                     ia.canonical_name = std::string(cur_package_) + "::" + type_str(resolved);

@@ -122,6 +122,21 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
                 }
             }
             if (dotted.empty()) continue;
+            // B-mv-10: warn on `use pkg;` repeated in the same module.
+            // Functional behaviour is unchanged (effective_import_pkgs already
+            // dedups), but copy-paste mistakes silently slipped through.
+            if (std::find(scope.wildcard_packages.begin(),
+                          scope.wildcard_packages.end(), dotted)
+                != scope.wildcard_packages.end()) {
+                warn(std::format("duplicate 'use {};' in module", dotted));
+            }
+            // B-mv-11: self-import — `use cur_package_;` is a no-op (own
+            // package symbols already resolve first).  Warn so users notice
+            // the redundancy.
+            if (!cur_package_.empty() && dotted == cur_package_) {
+                warn(std::format("'use {};': self-import has no effect "
+                                 "(own package is always in scope)", dotted));
+            }
             scope.wildcard_packages.push_back(dotted);
             // `pub use pkg;` — register as re-export from current package
             bool is_pub = use_node.has_key(la::IS_PUB) &&
@@ -650,6 +665,9 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
 void SemaChecker::collect_enum(TinyMapView node) {
     auto ename = std::string(str_of(node.get(la::NAME.code)));
     ctx_ = std::format("enum {}", ename);
+    // B-it-06 — empty enum bodies are intentionally legal as uninhabited /
+    // marker types (used by stdlib meta_variant_intrinsics, generic-anchor
+    // patterns, etc.). No diagnostic.
     SemaEnumInfo info;
     info.type_params = read_type_params(node);
     push_type_params(info.type_params);

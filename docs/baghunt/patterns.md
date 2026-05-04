@@ -15,7 +15,7 @@
 ### B-pt-01: Duplicate binding name in tuple pattern silently accepted
 
 **Severity**: P0 (silent miscompile)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-M0.1 (check_unique_names in lower_let_destruct; tests/logos/fail/dup_tuple_pat_binding)
 **Repro**: `B01/` —
 ```logos
 fn main() -> i32 {

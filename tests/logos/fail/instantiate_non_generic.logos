@@ -1,0 +1,4 @@
+package instantiate_non_generic;
+struct Foo { x: i32 }
+instantiate Foo;
+fn main() -> i32 { return 0; }

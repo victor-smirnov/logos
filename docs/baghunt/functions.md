@@ -30,7 +30,7 @@ fn main() -> i32 { helper(); return 0; }
 ### B-fn-02: Duplicate parameter names silently accepted
 
 **Severity**: P0 (silent miscompile potential)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-M0.1 (check_unique_names; tests/logos/fail/dup_fn_param)
 **Repro**: `B03/` —
 ```logos
 fn helper(x: i32, x: i64) -> i32 { return 0; }

@@ -106,7 +106,7 @@
 ### B-mv-10: Repeated `use <pkg>;` silently accepted (no warning)
 
 **Severity**: P2 design
-**Status**: confirmed (2026-05-04)
+**Status**: fixed (warn in build_import_scope on duplicate dotted-path within a module)
 **Repro**: `B09/` — `use lib; use lib; use lib;` (three times) followed by usage.
 **Observed**: Compiles cleanly without warnings.
 **Expected**: At minimum a warning: "duplicate `use lib;`". This is dead code that hints at copy-paste error or unclear import discipline.
@@ -116,7 +116,7 @@
 ### B-mv-11: Self-import (`use my_own_package;`) silently accepted
 
 **Severity**: P2 design
-**Status**: confirmed (2026-05-04)
+**Status**: fixed (warn in build_import_scope when dotted path matches cur_package_)
 **Repro**: `B14/` — `package main; use main; fn main() -> i32 { return 0; }`
 **Observed**: Compiles cleanly. Probably harmless because `cur_package_` is always tried first in `find_*_by_name`, but the redundancy is confusing.
 **Expected**: Warning: "self-import of own package has no effect".

@@ -32,7 +32,7 @@ let h: HermesStatic = @{ "k": @[1, 2] };       // map containing array
 ### B-he-02: Duplicate key in Hermes map silently accepted
 
 **Severity**: P0 (silent miscompile)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed (resolve_hstatic_value walker also checks dup keys; covers `pub const X: HermesStatic` path that bypassed the older eval_static_hermes_lit check)
 **Repro**: `B03/` —
 ```logos
 let h: HermesStatic = @{ "k": 1, "k": 2 };

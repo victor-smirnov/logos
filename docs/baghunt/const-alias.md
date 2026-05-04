@@ -59,7 +59,7 @@ fn main() -> i32 { return X; }
 ### B-ca-04: Duplicate const def silently accepted
 
 **Severity**: P0 (silent shadowing)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-M0.1 (collect_const dup check; tests/logos/fail/dup_const_def)
 **Repro**: `B06/` —
 ```logos
 pub const X: i32 = 1;

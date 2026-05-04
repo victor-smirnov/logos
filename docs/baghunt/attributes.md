@@ -44,7 +44,7 @@ struct Foo<T> { x: T }   // generic template — should reject
 ### B-at-03: Duplicate `#[type_code]` silently accepted
 
 **Severity**: P1 (silent shadowing)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-M0.1 (collect_module exclusive-attr dup check; tests/logos/fail/dup_type_code)
 **Repro**: `B04/` —
 ```logos
 #[type_code = 42]

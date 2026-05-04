@@ -15,6 +15,8 @@
 #include <memory>
 #include <vector>
 #include <optional>
+#include <set>
+#include <format>
 #include <string>
 #include <string_view>
 
@@ -343,7 +345,17 @@ struct SemaResult {
     }
 
     void print(std::FILE* fp = stderr) const noexcept {
+        // B-li-01: dedupe across all print calls in this process so the
+        // multi-phase sema driver doesn't emit the same warning 3×.  Errors
+        // are also deduped — repeating an error N times adds no signal.
+        // Keyed by (level, file, line, message); context is omitted because
+        // multi-phase reruns may produce different contexts for the same
+        // underlying issue.
+        static std::set<std::string> g_seen;
         for (auto& d : diags) {
+            std::string key = std::format("{}|{}|{}|{}",
+                int(d.level), d.file, d.line, d.message);
+            if (!g_seen.insert(std::move(key)).second) continue;
             const char* lev = (d.level == Diag::Level::Error) ? "error" : "warning";
             if (d.line > 0 && !d.file.empty())
                 std::fprintf(fp, "%s:%u: %s [%s]: %s\n",

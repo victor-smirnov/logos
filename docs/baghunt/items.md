@@ -44,7 +44,7 @@ fn main() -> i32 { return 0; }
 ### B-it-03: Duplicate field name in struct silently accepted
 
 **Severity**: P0 (silent miscompile potential)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-M0.1 (check_unique_names; tests/logos/fail/dup_struct_field)
 **Repro**: `B07/` —
 ```logos
 struct Foo { pub x: i32, pub x: i64, }
@@ -58,7 +58,7 @@ fn main() -> i32 { return 0; }
 ### B-it-04: Duplicate enum variant silently accepted
 
 **Severity**: P0 (silent miscompile potential)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-M0.1 (check_unique_names; tests/logos/fail/dup_enum_variant)
 **Repro**: `B08/` —
 ```logos
 enum E { A, A, }
@@ -72,7 +72,7 @@ fn main() -> i32 { return 0; }
 ### B-it-05: Duplicate trait definition silently accepted
 
 **Severity**: P0 (silent shadowing)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-M0.1 (collect_trait dup check; tests/logos/fail/dup_trait_def)
 **Repro**: `B17/` —
 ```logos
 trait Greet { fn hello(self: *const Self) -> i32 { return 1; } }
@@ -145,7 +145,7 @@ fn main() -> i32 { let x: i32 = 21; return x.doubled(); }
 ### B-it-10: Meta block with capture (`${...}`) silently accepted (should be rejected)
 
 **Severity**: P1 diagnostic
-**Status**: confirmed (2026-05-04)
+**Status**: fixed (eval_static_hermes_lit emits diagnostic for HERMES_CAP_*; tests/logos/fail/meta_block_with_capture)
 **Repro**: `B23/` —
 ```logos
 struct Foo { x: i32, meta @{ "schema": ${some_var}, } }

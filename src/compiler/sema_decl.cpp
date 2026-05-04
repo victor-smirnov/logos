@@ -119,7 +119,9 @@ lir::HermesValPtr SemaChecker::eval_static_hermes_lit(TinyMapView node) {
         return alloc_hv_emit(HVNull{});
     }
     if (code == la::HERMES_CAP_IDENT.code || code == la::HERMES_CAP_EXPR.code) {
-        // Captures not allowed in static meta @{} blocks.
+        // B-it-10: surface the rejection as a diagnostic instead of silently
+        // returning nullptr (which left the meta_val empty without error).
+        error("meta @{...} requires static values; '${...}' captures are not allowed");
         return nullptr;
     }
     // Unknown node type — treat as null.

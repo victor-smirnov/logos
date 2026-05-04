@@ -36,7 +36,7 @@ error [fn OView__decimal_limb]: metacall (item position): callee must return Quo
 ### B-mt-02: `instantiate Foo;` on non-generic struct silently accepted
 
 **Severity**: P1 (per-spec violation)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed (resolve_type empty-type-args check in INSTANTIATE_DECL; tests/logos/fail/instantiate_non_generic)
 **Repro**: `B03/` —
 ```logos
 struct Foo { x: i32 }
