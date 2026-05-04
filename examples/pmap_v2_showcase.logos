@@ -77,12 +77,12 @@ fn iterate_and_sum(p: &ContainerRef<ShowCfg>, expected: u64) -> i32 {
         }
         it.next();
     }
-    let line_l: String = format::<u64, u64>("   leaves visited = {} / count = {}", leaves, count);
-    let line_s: String = format::<u64, u64>("   sum keys = {} / sum vals = {}", sum_k, sum_v);
+    let line_l: String = format("   leaves visited = {} / count = {}", leaves, count);
+    let line_s: String = format("   sum keys = {} / sum vals = {}", sum_k, sum_v);
     println_string(&line_l);
     println_string(&line_s);
     if count != expected {
-        let line_e: String = format::<u64, u64>("   COUNT MISMATCH: got {}, expected {}", count, expected);
+        let line_e: String = format("   COUNT MISMATCH: got {}, expected {}", count, expected);
         println_string(&line_e);
         return 1;
     }
@@ -118,11 +118,11 @@ fn main() -> i32 {
             let _ = pmap_insert(&mut c1, i, i * 7u64);
             i = i + 1u64;
         }
-        let line: String = format::<u64>("   size after inserts = {}", c1.len());
+        let line: String = format("   size after inserts = {}", c1.len());
         println_string(&line);
     }
     let c0: i64 = s1.commit();
-    let line_c0: String = format::<i64>("   commit id = {}", c0);
+    let line_c0: String = format("   commit id = {}", c0);
     println_string(&line_c0);
 
     // ── s2: fork c0, fill 1001..=2000 in container 1, commit ──
@@ -130,18 +130,18 @@ fn main() -> i32 {
     let mut s2: Snap<StoreCfg> = snap_fork(&mut store, c0);
     {
         let mut c1: ContainerRef<ShowCfg> = open_pmap::<ShowCfg>(&mut s2, 1u64);
-        let line_inh: String = format::<u64>("   inherited size = {}", c1.len());
+        let line_inh: String = format("   inherited size = {}", c1.len());
         println_string(&line_inh);
         let mut i: u64 = 1001u64;
         while i <= 2000u64 {
             let _ = pmap_insert(&mut c1, i, i * 7u64);
             i = i + 1u64;
         }
-        let line: String = format::<u64>("   size after second batch = {}", c1.len());
+        let line: String = format("   size after second batch = {}", c1.len());
         println_string(&line);
     }
     let c1_id: i64 = s2.commit();
-    let line_c1: String = format::<i64>("   commit id = {}", c1_id);
+    let line_c1: String = format("   commit id = {}", c1_id);
     println_string(&line_c1);
 
     // ── checkout c0: container 1 has 1000 entries (parent preserved) ──
@@ -149,7 +149,7 @@ fn main() -> i32 {
     let mut sr0: Snap<StoreCfg> = snap_fork(&mut store, c0);
     {
         let mut c1: ContainerRef<ShowCfg> = open_pmap::<ShowCfg>(&mut sr0, 1u64);
-        let line_size: String = format::<u64>("   size = {}", c1.len());
+        let line_size: String = format("   size = {}", c1.len());
         println_string(&line_size);
         let rc: i32 = iterate_and_sum(&c1, 1000u64);
         if rc != 0 { return 30 + rc; }
