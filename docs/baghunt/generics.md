@@ -152,7 +152,7 @@ fn main() -> i32 { return helper(5); }
 ### B-gn-10: Trailing comma in type-param list rejected
 
 **Severity**: P2 design (continuation of trailing-comma cluster)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-Sprint6.1 (type_param_list trailing COMMA?; tests/logos/pass/trailing_comma_lists)
 **Repro**: `B03/` —
 ```logos
 struct Foo<T, U,> { a: T, b: U }

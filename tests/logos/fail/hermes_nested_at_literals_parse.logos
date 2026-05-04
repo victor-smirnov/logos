@@ -1,0 +1,13 @@
+// Regression for B-he-01: nested @{...} / @[...] inside other hermes
+// literals must parse.  We don't import stdlib here so HermesStatic
+// fails type resolution — but the test asserts that error appears, which
+// implicitly confirms the parser reached sema.  Pre-fix the grammar would
+// have emitted "syntax error near '}'" and never reached type lookup.
+package hermes_nested_at_literals_parse;
+
+pub const A: HermesStatic = @{ "k": @{} };
+pub const B: HermesStatic = @[@{}];
+pub const C: HermesStatic = @[@[1, 2]];
+pub const D: HermesStatic = @{ "k": @[1, 2] };
+
+fn main() -> i32 { return 0; }

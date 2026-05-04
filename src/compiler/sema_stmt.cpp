@@ -264,11 +264,33 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
 lir::LBlock SemaChecker::lower_block(TinyMapView block) {
     lir::LBlock result;
     push_scope();
+    bool warned_dead = false;  // Sprint 5.2: B-st-08 dead-code-after-terminator lint
     if (block.has_key(la::ITEMS)) {
         auto stmts = arr_of(block.get(la::ITEMS.code));
         for (uint64_t i = 0; i < stmts.size(); ++i) {
             auto s = map_of(stmts.get(i));
             if (s.is_null()) continue;
+            // Skip already-lowered drops/markers; the AST-level dead-code check
+            // looks at the pre-lowering AST shape.
+            if (!warned_dead) {
+                int32_t pc = code_of(s);
+                // Diagnose only when the previous lowered stmt was a hard
+                // terminator (Return/Break/Continue) — Panic doesn't have a
+                // dedicated AST code; skip those.
+                if (i > 0 && !result.stmts.empty()) {
+                    auto prev_ref = stmt_ref_of(result.stmts.back());
+                    if (prev_ref) {
+                        auto pk = prev_ref.kind();
+                        if ((pk == lir_schema::stmt::Code::Return ||
+                             pk == lir_schema::stmt::Code::Break  ||
+                             pk == lir_schema::stmt::Code::Continue)
+                            && pc != la::ANNOTATION) {
+                            warn("unreachable code after terminator");
+                            warned_dead = true;
+                        }
+                    }
+                }
+            }
             auto lowered = lower_stmt(s);
             // Insert drops before return/break/continue.
             // Return's value expression MUST be evaluated BEFORE the drops
@@ -3453,6 +3475,22 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
         scrut_type = scrut->type;
     } else { scrut = error_expr(); }
 
+    // Sprint 5.2: arm-after-catchall lint (closes B-pt-07).  The first
+    // unguarded `_` arm makes every subsequent arm unreachable.
+    if (node.has_key(la::ITEMS)) {
+        auto arms_l = arr_of(node.get(la::ITEMS.code));
+        bool seen_catchall = false;
+        for (uint64_t i = 0; i < arms_l.size(); ++i) {
+            auto arm = map_of(arms_l.get(i));
+            if (code_of(arm) != la::MATCH_ARM) continue;
+            if (seen_catchall) {
+                error("unreachable match arm: a previous '_' arm matches all values");
+                break;
+            }
+            if (is_catchall_pat(arm)) seen_catchall = true;
+        }
+    }
+
     // Detect Hermes scalar patterns; they require scrut to be an AnyVal
     // addressable in a variable.  We hoist scrut into a synthetic let so the
     // synthesized guards can take `&__hmatch_av` without re-evaluating scrut.
@@ -3728,6 +3766,21 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         scrut = lower_expr(map_of(node.get(la::VALUE.code)));
         scrut_type = scrut->type;
     } else { scrut = error_expr(); }
+
+    // Sprint 5.2: arm-after-catchall lint (closes B-pt-07, expr position).
+    if (node.has_key(la::ITEMS)) {
+        auto arms_l = arr_of(node.get(la::ITEMS.code));
+        bool seen_catchall = false;
+        for (uint64_t i = 0; i < arms_l.size(); ++i) {
+            auto arm = map_of(arms_l.get(i));
+            if (code_of(arm) != la::MATCH_ARM) continue;
+            if (seen_catchall) {
+                error("unreachable match arm: a previous '_' arm matches all values");
+                break;
+            }
+            if (is_catchall_pat(arm)) seen_catchall = true;
+        }
+    }
 
     // Hermes scalar pattern hoisting (symmetric to lower_match).
     auto is_hermes_pc = [](int32_t pc) {

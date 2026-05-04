@@ -885,7 +885,11 @@
             / KW_FN KW_NEW type_param_list? LPAREN param_list? RPAREN where_clause? block
            => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, WHERE: $7, BODY: $8 }
 
-    param_list <- param (COMMA param)*
+    // Trailing comma allowed except when followed by `...` (variadic
+    // marker in extern fns).  Negative lookahead avoids the ambiguity
+    // that would let param_list eat the comma intended for the
+    // `, ...` separator (closes B-fn-03).
+    param_list <- param (COMMA param)* (COMMA !DOTDOTDOT)?
               => { ITEMS: $... }
 
     param <- AMP KW_MUT IDENT
@@ -1053,15 +1057,15 @@
                    => { CODE: LIT_HSTATIC, VALUE: $1 }
                     / type_ref
 
-    simple_type <- HASH LPAREN expr RPAREN LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* GT_TYPE
+    simple_type <- HASH LPAREN expr RPAREN LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE
                 => { CODE: GENERIC_INST, NAME_VAR: $3, ITEMS: $... }
-                 / HASH IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* GT_TYPE
+                 / HASH IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE
                 => { CODE: GENERIC_INST, NAME_VAR: $2, ITEMS: $... }
                  / HASH LPAREN expr RPAREN
                 => { CODE: TYPE_REF, NAME_VAR: $3 }
                  / HASH IDENT
                 => { CODE: TYPE_REF, NAME_VAR: $2 }
-                 / IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* GT_TYPE
+                 / IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE
                 => { CODE: GENERIC_INST, NAME: $1, ITEMS: $... }
                  / IDENT
                 => { CODE: TYPE_REF, NAME: $1 }
@@ -1460,7 +1464,7 @@
     atom <- primary_expr
             ( DOT IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE LPAREN call_arg_list? RPAREN
                 => { CODE: METHOD_CALL, RECEIVER: $0, NAME: $2, TYPE_PARAMS: $5, ARGS: $8 }
-            / DOT IDENT LPAREN (expr (COMMA expr)*)? RPAREN
+            / DOT IDENT LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
                 => { CODE: METHOD_CALL, RECEIVER: $0, NAME: $2, ARGS: $... }
             / DOT INTEGER
                 => { CODE: TUPLE_INDEX, RECEIVER: $0, FIELD: $2 }
@@ -1526,7 +1530,7 @@
                   / IDENT    => { CODE: VAR_REF,  NAME: $1 }
 
     // ── Enum variant literal: Color::Red or Option::Some(42) ──────
-    enum_lit <- IDENT COLONCOLON IDENT LPAREN (expr (COMMA expr)*)? RPAREN
+    enum_lit <- IDENT COLONCOLON IDENT LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
              => { CODE: ENUM_LIT_DATA, NAME: $1, FIELD: $3, ARGS: $... }
               / IDENT COLONCOLON IDENT
              => { CODE: ENUM_LIT, NAME: $1, FIELD: $3 }
@@ -1634,7 +1638,8 @@
                  / INTEGER COLON hermes_val
                  => { CODE: HERMES_ENTRY, KEY: $1, VALUE: $3 }
 
-    // recursive: inner values don't need the @ prefix
+    // recursive: inner values don't need the @ prefix, but accept it too
+    // (closes B-he-01 — nested `@{...}` / `@[...]` inside another hermes literal).
     // $ident and ${expr} are runtime capture placeholders
     // <type:T> embeds a Logos Type as a first-class Hermes value (slice 1: IDENT only)
     hermes_val <- LT KW_TYPE COLON IDENT path_step path_step* GT
@@ -1642,6 +1647,9 @@
                / LT KW_TYPE COLON IDENT GT => { CODE: HERMES_TYPE_LIT, NAME: $4 }
                / DOLLAR LBRACE expr RBRACE => { CODE: HERMES_CAP_EXPR, VALUE: $3 }
                / DOLLAR IDENT              => { CODE: HERMES_CAP_IDENT, NAME: $2 }
+               / AT hermes_typed_array
+               / AT hermes_map
+               / AT hermes_array
                / hermes_map
                / hermes_array
                / RAW_STRING => { CODE: HERMES_STR, VALUE: $1 }
@@ -1717,7 +1725,7 @@
     // ── Type parameter list: <T, U: Bound1 + Bound2> ─────────────
     // Also used for specialisation patterns: <i32>, <*T>, <[T; 4]>, etc.
     // Detection (TypeVar vs concrete) is done in sema, not in the grammar.
-    type_param_list <- LT type_param (COMMA type_param)* GT
+    type_param_list <- LT type_param (COMMA type_param)* COMMA? GT
                     => { ITEMS: $... }
 
     trait_bound <- IDENT LT bound_arg_list GT_TYPE
@@ -1761,11 +1769,11 @@
                => { CODE: TYPE_PARAM, NAME: $1 }
 
     // ── Type argument list (for generic instantiation in types): Vec<i32> ─
-    type_arg_list <- type_or_lt_arg (COMMA type_or_lt_arg)*
+    type_arg_list <- type_or_lt_arg (COMMA type_or_lt_arg)* COMMA?
                   => { ITEMS: $... }
 
     // ── Value argument list (for call sites) ─────────────────────
-    call_arg_list <- expr (COMMA expr)*
+    call_arg_list <- expr (COMMA expr)* COMMA?
                   => { ITEMS: $... }
 
     // ── Free function call: fn(args) or fn::<T>(args) or Class::method(args) ─
@@ -1780,6 +1788,6 @@
               => { CODE: STATIC_CALL, RECEIVER: $1, NAME: $3, ARGS: $5 }
                / IDENT COLONCOLON KW_NEW LPAREN call_arg_list? RPAREN
               => { CODE: STATIC_CALL, RECEIVER: $1, NAME: $3, ARGS: $5 }
-               / IDENT LPAREN (expr (COMMA expr)*)? RPAREN
+               / IDENT LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
               => { CODE: CALL, CALLEE: $1, ARGS: $... }
 }

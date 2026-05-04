@@ -129,7 +129,7 @@ fn main() -> i32 {
 ### B-pt-07: Match arm AFTER catch-all leaks to MLIR-gen
 
 **Severity**: P1 diagnostic
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-Sprint5.2 (is_catchall_pat check in lower_match{,_expr}; tests/logos/fail/match_arm_after_catchall)
 **Repro**: `B19/` —
 ```logos
 fn main() -> i32 {

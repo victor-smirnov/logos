@@ -1,0 +1,14 @@
+// Regression for B-fn-03 / B-fn-04 / B-gn-10: trailing comma uniformly
+// accepted across param-list, type-param-list, and call-arg-list.
+package trailing_comma_lists;
+
+struct Foo<T, U,> { a: T, b: U }
+
+fn helper(a: i32, b: i32,) -> i32 {
+    return a + b;
+}
+
+fn main() -> i32 {
+    let f: Foo<i32, i32,> = Foo::<i32, i32,> { a: 1, b: 2 };
+    return helper(f.a, f.b,) - 3;
+}

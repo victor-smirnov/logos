@@ -735,6 +735,25 @@ private:
         }
     }
 
+    // True iff the pattern is an unconditional catch-all (`_` or bare
+    // identifier binding without a guard).  Used by reachability lint
+    // (Sprint 5.2 — closes B-pt-07: arm-after-catchall).
+    bool is_catchall_pat(hermes::TinyMapView arm) {
+        using namespace sema_detail;
+        if (arm.has_key(ast::GUARD)) return false;
+        if (!arm.has_key(ast::LHS)) return false;
+        auto p = map_of(arm.get(ast::LHS.code));
+        // Unwrap a single-alt PAT_OR
+        if (code_of(p) == ast::PAT_OR && p.has_key(ast::ITEMS)) {
+            auto arr = arr_of(p.get(ast::ITEMS.code));
+            if (arr.size() == 1) p = map_of(arr.get(0));
+            else return false;  // multiple alts: not unconditional unless all wild
+        }
+        if (code_of(p) != ast::PAT_WILD) return false;
+        if (!p.has_key(ast::NAME)) return true;       // anonymous `_`
+        return str_of(p.get(ast::NAME.code)) == "_";  // explicit `_`
+    }
+
     // True iff the item AST node carries a non-empty TYPE_PARAMS list.
     bool item_has_type_params(hermes::TinyMapView node) {
         using namespace sema_detail;

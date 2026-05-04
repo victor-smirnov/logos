@@ -16,7 +16,7 @@
 ### B-he-01: Nested `@{...}` / `@[...]` literals fail to parse
 
 **Severity**: P0 hard (major feature gap)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-Sprint4.1 (added AT-prefixed alts to hermes_val; tests/logos/fail/hermes_nested_at_literals_parse)
 **Repro**: `B17/`, `B19/`, `B20/` — all of these fail:
 ```logos
 let h: HermesStatic = @{ "k": @{} };           // map containing map

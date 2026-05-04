@@ -139,7 +139,7 @@ fn main() -> i32 {
 ### B-st-08: Dead code after `return` not warned
 
 **Severity**: P2 design (lint-quality)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-Sprint5.2 (warning in lower_block when stmt follows Return/Break/Continue)
 **Repro**: `B25/` —
 ```logos
 fn helper() -> i32 {

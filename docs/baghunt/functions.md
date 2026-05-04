@@ -43,7 +43,7 @@ fn helper(x: i32, x: i64) -> i32 { return 0; }
 ### B-fn-03: Trailing comma in param list rejected
 
 **Severity**: P2 design (ergonomics)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-Sprint6.1 (param_list `(COMMA !DOTDOTDOT)?`; tests/logos/pass/trailing_comma_lists)
 **Repro**: `B05/` —
 ```logos
 fn helper(a: i32, b: i32,) -> i32 { return a + b; }
@@ -56,7 +56,7 @@ fn helper(a: i32, b: i32,) -> i32 { return a + b; }
 ### B-fn-04: Trailing comma in CALL-site arg list rejected
 
 **Severity**: P2 design (ergonomics)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-Sprint6.1 (call_arg_list + bare-LPAREN call patterns)
 **Repro**: `B18/` —
 ```logos
 fn add(a: i32, b: i32) -> i32 { return a + b; }
@@ -129,7 +129,7 @@ fn main() -> i32 { return _(); }
 ### B-fn-09: Trailing-comma rejection inconsistent across forms
 
 **Severity**: P2 design (consistency gap, summary of B-fn-03/04)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-Sprint6.1 (B-fn-03/04/B-gn-10 all closed; type_arg_list + simple_type generic forms also accept trailing comma)
 **Repro**: B-fn-03 + B-fn-04
 **Observed**: Some lists accept trailing comma (variant_list, field list), some reject (param_list, call_arg_list).
 **Expected**: Pick one rule, apply uniformly to ALL list productions. Recommended: accept everywhere.
