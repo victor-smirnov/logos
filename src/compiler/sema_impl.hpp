@@ -1022,6 +1022,12 @@ private:
     TypeRef impl_ret_type_inferred_ = nullptr;
     TypeRef hint_enum_type_ = nullptr;
     TypeRef hint_struct_type_ = nullptr;
+    // Set by lower_let when the let binding has an explicit type annotation,
+    // so a generic-call rhs with insufficient turbofish can unify the fn's
+    // return type against the expected type and fill missing type-args.
+    // Closes the gap for `let x: Foo<T> = make_foo();` where T appears only
+    // in the return type.
+    TypeRef hint_call_return_type_ = nullptr;
 
     // ── Return reachability ───────────────────────────────────────
 

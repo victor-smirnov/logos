@@ -31,7 +31,7 @@ metacall emit_pmap_cfg_a();
 metacall emit_pmap_cfg_b();
 
 fn main() -> i32 {
-    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
+    let mut store: Store<StoreCfg> = store_open();
     let mut snap:  Snap<StoreCfg>  = snap_begin(&mut store);
 
     let mut c_a: ContainerRef<CfgA> = create_pmap::<CfgA>(&mut snap, 1u64);

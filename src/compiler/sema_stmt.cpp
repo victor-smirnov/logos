@@ -473,6 +473,9 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     if (ann && (TypeRef(ann).kind() == LogosType::Kind::Struct ||
                 TypeRef(ann).kind() == LogosType::Kind::ZonedStruct) && !TypeRef(ann).type_args().empty())
         hint_struct_type_ = ann;
+    auto saved_ret_hint = hint_call_return_type_;
+    if (ann && TypeRef(ann).kind() != LogosType::Kind::Error)
+        hint_call_return_type_ = ann;
 
     lir::LExprPtr rhs = nullptr;
     TypeRef rhs_type;
@@ -487,6 +490,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
 
     hint_enum_type_ = saved_hint;
     hint_struct_type_ = saved_struct_hint;
+    hint_call_return_type_ = saved_ret_hint;
 
     TypeRef var_type;
     // Slice 7 of metaprog-quote: an ExprBlob-typed RHS marks a deferred

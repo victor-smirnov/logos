@@ -8,7 +8,7 @@ pub type CfgA = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 8 };
 pub type CfgB = @{ "key": <type:u32>, "value": <type:u32>, "fanout": 8 };
 
 fn main() -> i32 {
-    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
+    let mut store: Store<StoreCfg> = store_open();
     let mut snap:  Snap<StoreCfg>  = snap_begin(&mut store);
     {
         let mut c_a: ContainerRef<CfgA> = create_pmap::<CfgA>(&mut snap, 101u64);

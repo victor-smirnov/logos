@@ -38,7 +38,7 @@ fn fill_b(c: &mut ContainerRef<CfgB>, lo: u32, hi: u32) {
 }
 
 fn main() -> i32 {
-    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
+    let mut store: Store<StoreCfg> = store_open();
 
     // ── s1: create + fill + commit ──
     let mut s1: Snap<StoreCfg> = snap_begin(&mut store);

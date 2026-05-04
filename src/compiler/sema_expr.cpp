@@ -1372,6 +1372,16 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
         unify_types(pt, arg_exprs[i]->type, bindings);
     }
 
+    // Return-type-driven inference: when the caller (lower_let) set a hint,
+    // unify the fn's return type against the expected type. Captures
+    // type-params that appear only in the return position (e.g. a no-arg
+    // factory `f<T>() -> Foo<T>`).
+    if (hint_call_return_type_ && fi.ret_type) {
+        auto rt = fi.ret_type;
+        if (!bindings.empty()) rt = subst_type_sema(rt, bindings);
+        unify_types(rt, hint_call_return_type_, bindings);
+    }
+
     // Build type_args: non-variadic params first
     out_type_args.clear();
     for (size_t i = 0; i < non_variadic_count; ++i) {
@@ -1425,13 +1435,22 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
             error(std::format("call to '{}': expected {} type arg(s), got {}",
                   callee_diag, fi.type_params.size(), type_args.size()));
         } else if (type_args.size() < fi.type_params.size()) {
-            // Pre-bind explicit head; infer the rest from arg types.
+            // Pre-bind explicit head; infer the rest from arg types and
+            // (if available) the let-binding's annotated type as the
+            // expected return type.
             StrMap<TypeRef> bindings;
             for (size_t i = 0; i < type_args.size(); ++i)
                 bindings[fi.type_params[i].name] = type_args[i];
             for (size_t i = 0; i < fi.param_types.size() && i < arg_exprs.size(); ++i) {
                 auto pt = subst_type_sema(fi.param_types[i], bindings);
                 unify_types(pt, arg_exprs[i]->type, bindings);
+            }
+            // Return-type-driven inference: when the let binding annotates a
+            // type, unify the fn's return type against it. Closes the
+            // arg-less generic-call case (e.g. `let s: Store<X> = open();`).
+            if (hint_call_return_type_ && fi.ret_type) {
+                auto rt = subst_type_sema(fi.ret_type, bindings);
+                unify_types(rt, hint_call_return_type_, bindings);
             }
             // Append inferred tail.
             for (size_t i = type_args.size(); i < fi.type_params.size(); ++i) {

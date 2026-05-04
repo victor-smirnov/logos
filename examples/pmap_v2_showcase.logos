@@ -105,7 +105,7 @@ fn main() -> i32 {
     }
 
     section("1. open Store<StoreCfg>");
-    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
+    let mut store: Store<StoreCfg> = store_open();
     println("   store opened");
 
     // ── s1: begin → create container 1 → fill 1000 → commit ────
