@@ -1,0 +1,5 @@
+package dup_type_code;
+#[type_code = 42]
+#[type_code = 100]
+pub eidos Foo { x: i32 }
+fn main() -> i32 { return 0; }

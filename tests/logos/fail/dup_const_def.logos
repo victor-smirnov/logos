@@ -1,0 +1,4 @@
+package dup_const_def;
+pub const X: i32 = 1;
+pub const X: i32 = 2;
+fn main() -> i32 { return X; }

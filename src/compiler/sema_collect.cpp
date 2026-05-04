@@ -532,6 +532,21 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                     // #[annotation] on the SemaStructInfo so downstream passes
                     // can recognise user-annotation types.
                     auto dname = std::string(str_of(item.get(la::NAME.code)));
+                    // Annotation-name uniqueness for "exclusive" attributes
+                    // (closes B-at-03 — multiple #[type_code] silent before).
+                    {
+                        logos::compiler::StrSet exclusive_seen;
+                        for (auto& ann : pending_annots) {
+                            std::string aname(str_of(ann.get(la::NAME.code)));
+                            // Add other exclusive attrs here as the registry grows.
+                            static const StrSet kExclusive = {"type_code", "annotation"};
+                            if (kExclusive.count(aname) &&
+                                !exclusive_seen.insert(aname).second) {
+                                error(std::format("duplicate #[{}] annotation on '{}'",
+                                                  aname, dname));
+                            }
+                        }
+                    }
                     for (auto& ann : pending_annots) {
                         auto aname = std::string(str_of(ann.get(la::NAME.code)));
                         if (aname == "type_code" && ann.has_key(la::VALUE)) {
@@ -695,7 +710,13 @@ void SemaChecker::collect_const(TinyMapView node) {
         // We just store an i32 as placeholder for now.
         t = i32_t();
     }
-    if (t) module_consts_[name] = t;
+    if (t) {
+        // Const-def uniqueness (closes B-ca-04)
+        if (module_consts_.count(name) || generic_consts_.count(name)) {
+            error(std::format("duplicate const '{}'", name));
+        }
+        module_consts_[name] = t;
+    }
 
     // `pub const X: HermesStatic = @{...};` semantically replaces the legacy
     // `pub type X = @{...};` form. The literal is a HermesStatic value, not
@@ -915,6 +936,12 @@ void SemaChecker::collect_trait(TinyMapView node) {
     pop_type_params(info.type_params);
     current_type_params_.erase("Self");
     current_trait_name_.clear();
+    // Trait-def uniqueness (closes B-it-05). Skip empty names — trait_inst
+    // forward-instantiation declarations reach this code path with no NAME
+    // field; those aren't duplicates of each other.
+    if (!tname.empty() && traits_.count(tname)) {
+        error(std::format("duplicate trait '{}'", tname));
+    }
     traits_[tname] = std::move(info);
 }
 

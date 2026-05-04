@@ -1,0 +1,4 @@
+package generic_too_many_args;
+struct Foo<A, B> { a: A, b: B }
+fn helper(x: Foo<i32, i64, bool>) -> i32 { return 0; }
+fn main() -> i32 { return 0; }

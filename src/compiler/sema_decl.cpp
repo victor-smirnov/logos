@@ -65,6 +65,19 @@ lir::HermesValPtr SemaChecker::eval_static_hermes_lit(TinyMapView node) {
                 map.entries.push_back(std::move(me));
             }
         }
+        // Hermes-map key uniqueness (closes B-he-02). Keys can be string or
+        // int; only string-key dup-check at this layer (int keys deferred,
+        // see B-he-03).
+        {
+            logos::compiler::StrSet seen_str_keys;
+            for (auto& me : map.entries) {
+                if (auto* s = std::get_if<std::string>(&me.key)) {
+                    if (!s->empty() && !seen_str_keys.insert(*s).second) {
+                        error(std::format("duplicate key '{}' in Hermes map literal", *s));
+                    }
+                }
+            }
+        }
         return alloc_hv_emit(std::move(map));
     }
     if (code == la::HERMES_ARRAY.code) {
@@ -311,6 +324,10 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     fn.name           = fi_ptr->symbol_name.empty() ? mangled : fi_ptr->symbol_name;
     fn.type_params    = fi_ptr->type_params;
     fn.lifetime_params = read_lifetime_params(node);
+    // Lifetime-param uniqueness on fn (closes B-gn-02)
+    check_unique_names(fn.lifetime_params,
+                       [](auto& lt) -> std::string_view { return lt; },
+                       "lifetime parameter", "fn " + mangled);
     // Robust associated type resolution: call subst_type_sema even if subst is empty
     // to simplify concrete AssocType nodes (e.g. i32::Item -> bool).
     fn.ret_type    = subst_type_sema(fi_ptr->ret_type, {});
@@ -343,6 +360,10 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
 
     // Put type params in scope for the duration of the function body
     push_type_params(fn.type_params);
+    // Type-param uniqueness on fn (B-gn-01 family)
+    check_unique_names(fn.type_params,
+                       [](auto& tp) -> std::string_view { return tp.name; },
+                       "type parameter", "fn " + mangled);
 
     scope_.clear();
     push_scope();
@@ -387,6 +408,10 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
             }
         }
     }
+    // Param-name uniqueness (closes B-fn-02)
+    check_unique_names(fn.params,
+                       [](auto& p) -> std::string_view { return p.name; },
+                       "parameter", "fn " + mangled);
 
     // unsafe fn body is implicitly an unsafe context
     bool was_unsafe = inside_unsafe_;
@@ -483,8 +508,20 @@ lir::LStructDef SemaChecker::lower_struct_def(TinyMapView node) {
     sd.type_params = sinfo->type_params;
     sd.lifetime_params = sinfo->lifetime_params;
     push_type_params(sd.type_params);
+    // Type-param uniqueness (closes B-gn-01)
+    check_unique_names(sd.type_params,
+                       [](auto& tp) -> std::string_view { return tp.name; },
+                       "type parameter", "struct " + sname);
+    // Lifetime-param uniqueness (closes B-gn-02)
+    check_unique_names(sd.lifetime_params,
+                       [](auto& lt) -> std::string_view { return lt; },
+                       "lifetime parameter", "struct " + sname);
     for (auto& f : sinfo->fields)
         sd.fields.push_back({std::string(f.name), f.type, f.is_variadic});
+    // Field-name uniqueness (closes B-it-03)
+    check_unique_names(sd.fields,
+                       [](auto& f) -> std::string_view { return f.name; },
+                       "field", "struct " + sname);
     if (node.has_key(la::ITEMS)) {
         auto methods = arr_of(node.get(la::ITEMS.code));
         for (uint64_t m = 0; m < methods.size(); ++m) {
@@ -514,8 +551,16 @@ lir::LEnumDef SemaChecker::lower_enum_def(TinyMapView node) {
     auto& einfo = eit_led->second;
     ed.type_params = einfo.type_params;
     ed.backing_type = einfo.backing_type;
+    // Type-param uniqueness on enum (B-gn-01 family)
+    check_unique_names(ed.type_params,
+                       [](auto& tp) -> std::string_view { return tp.name; },
+                       "type parameter", "enum " + ename);
     for (auto& v : einfo.variants)
         ed.variants.push_back({std::string(v.name), v.value, v.payload_types, v.is_variadic});
+    // Variant-name uniqueness (closes B-it-04)
+    check_unique_names(ed.variants,
+                       [](auto& v) -> std::string_view { return v.name; },
+                       "variant", "enum " + ename);
     return ed;
 }
 

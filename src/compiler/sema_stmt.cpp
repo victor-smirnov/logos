@@ -343,6 +343,10 @@ lir::LStmt SemaChecker::lower_let_destruct(TinyMapView node) {
         error(std::format("let (...) = ...: expected {} bindings, got {}",
               TypeRef(rhs_type).tuple_elems().size(), names.size()));
     }
+    // Tuple-pattern binding-name uniqueness (closes B-pt-01)
+    check_unique_names(names,
+                       [](auto& n) -> std::string_view { return n; },
+                       "binding", "let (...) destructure");
 
     // Build SBlock: let __destruct_N = rhs; let a = __destruct_N.0; ...
     std::string tmp = std::format("__destruct_{}", destruct_counter_++);

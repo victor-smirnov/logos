@@ -462,6 +462,58 @@ private:
         result_.diags.push_back({Diag::Level::Warning, ctx_, std::move(msg), file_, node_line_});
     }
 
+    // ── Centralized validation primitives (Meta-Sprint M0.1) ────────────
+    // See ~/.claude/projects/-home-victor-devel-logos/memory/cluster_index.md
+    // and antipat_list_no_dup_check.md / invariants.md (I-6, I-7).
+
+    // Emit "duplicate <kind> '<name>' in <container>" for any name that appears
+    // twice in the parallel-named-items list.  Empty names are skipped (anonymous
+    // bindings such as `_` are deliberately allowed to repeat).
+    template <class Items, class GetName>
+    void check_unique_names(const Items& items, GetName get_name,
+                            std::string_view kind_label,
+                            std::string_view container) {
+        logos::compiler::StrSet seen;
+        for (auto& item : items) {
+            std::string name(get_name(item));
+            if (name.empty() || name == "_") continue;
+            if (!seen.insert(name).second) {
+                error(std::format("duplicate {} '{}' in {}",
+                                  kind_label, name, container));
+            }
+        }
+    }
+
+    // Validate that a generic instantiation supplies exactly one type-arg per
+    // type parameter.  Variadic packs (`T...`) match ≥0 args at the trailing
+    // slot; otherwise arity must be exact.
+    //
+    // Defensive: when params is empty we *don't* error on extra args, because
+    // SemaStructInfo lookups during the prepass / forward-decl phase may
+    // legitimately see an empty type_params list before the real definition
+    // populates it. The spec/canonical lookups elsewhere will catch the
+    // genuine "type args on non-generic" case (B-ty-05). Phase 5 fact-base
+    // will replace this defensive carve-out with a proper graph query.
+    void check_type_arg_arity(std::string_view template_name,
+                              const std::vector<TypeParam>& params,
+                              const std::vector<TypeRef>& args,
+                              std::string_view context) {
+        if (params.empty()) return;  // see comment above
+        bool last_variadic = params.back().is_variadic;
+        if (last_variadic) {
+            // Variadic pack absorbs trailing args.  Need at least (params.size()-1) concrete args.
+            if (args.size() + 1 < params.size()) {
+                error(std::format("{} '{}': expected at least {} type arg(s), got {}",
+                                  context, template_name, params.size() - 1, args.size()));
+            }
+            return;
+        }
+        if (params.size() != args.size()) {
+            error(std::format("{} '{}': expected {} type arg(s), got {}",
+                              context, template_name, params.size(), args.size()));
+        }
+    }
+
     // Read the VALUE of an annotation as an integer.  Accepts two AST shapes:
     //   #[name = 123]           → VALUE: { CODE: LIT_INT, VALUE: "123" }
     //   #[name = Enum::Variant] → VALUE: { CODE: ENUM_LIT, NAME: "Enum", FIELD: "Variant" }

@@ -1,0 +1,6 @@
+package dup_tuple_pat_binding;
+fn main() -> i32 {
+    let t: (i32, i32) = (1, 2);
+    let (x, x) = t;
+    return x;
+}

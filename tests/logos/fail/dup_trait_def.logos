@@ -1,0 +1,4 @@
+package dup_trait_def;
+trait Greet { fn hello(self: *const Self) -> i32 { return 1; } }
+trait Greet { fn bye(self: *const Self) -> i32 { return 2; } }
+fn main() -> i32 { return 0; }

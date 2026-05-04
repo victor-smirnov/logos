@@ -1,0 +1,3 @@
+package dup_enum_variant;
+enum E { A, A }
+fn main() -> i32 { return 0; }

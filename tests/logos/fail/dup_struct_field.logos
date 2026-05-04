@@ -1,0 +1,3 @@
+package dup_struct_field;
+struct Foo { pub x: i32, pub x: i64 }
+fn main() -> i32 { return 0; }

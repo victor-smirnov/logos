@@ -2683,7 +2683,10 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
             }
         }
         if (is_enum) {
-            if (esi) check_type_bounds(std::string(name), esi->type_params, args);
+            if (esi) {
+                check_type_arg_arity(name, esi->type_params, args, "enum");
+                check_type_bounds(std::string(name), esi->type_params, args);
+            }
             LogosTypeBuilder t; t.kind = LogosType::Kind::Enum;
             t.enum_name = std::string(name);
             if (!epkg.empty()) t.pkg_name = epkg;
@@ -2692,7 +2695,10 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
             return pool_->alloc(std::move(t));
         }
         if (is_dtype) {
-            if (dsi) check_type_bounds(std::string(name), dsi->type_params, args);
+            if (dsi) {
+                check_type_arg_arity(name, dsi->type_params, args, "datatype");
+                check_type_bounds(std::string(name), dsi->type_params, args);
+            }
             LogosTypeBuilder t; t.kind = LogosType::Kind::ZonedStruct;
             t.struct_name = std::string(name);
             if (!dpkg.empty()) t.pkg_name = dpkg;
@@ -2700,7 +2706,10 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
             t.lifetime_args = std::move(lt_args);
             return pool_->alloc(std::move(t));
         }
-        if (ssi) check_type_bounds(std::string(name), ssi->type_params, args);
+        if (ssi) {
+            check_type_arg_arity(name, ssi->type_params, args, "struct");
+            check_type_bounds(std::string(name), ssi->type_params, args);
+        }
         {
             LogosTypeBuilder t; t.kind = LogosType::Kind::Struct;
             t.struct_name = std::string(name);
