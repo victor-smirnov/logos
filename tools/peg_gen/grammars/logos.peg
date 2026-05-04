@@ -884,14 +884,23 @@
 
     type_ref <- antiquot_type / typeof_type / cfg_slot_assoc_ref / cfg_slot_type / hermes_arr_type / hermes_map_type / ptr_type / arr_type / slice_type / tagged_type / dyn_type / ref_type / impl_type / unit_type / closure_type / fn_ptr_type / tuple_type / assoc_type_ref / hstatic_lit_type / simple_type
 
-    // <type:CFG.SLOT> — extract the type stored at top-level slot of a
+    // <type:CFG.path> — extract the type stored at the given path of a
     // HermesStatic-typed type-level binding. Mono-time projection; the
-    // form needs both leading IDENT (CFG) and a DOT before the next
-    // IDENT (slot key) so it doesn't collide with the existing
-    // `<type:T>` form used inside `@{...}` literals. GT_TYPE on the
-    // tail lets `>>` close both this form and the enclosing generic.
-    cfg_slot_type <- LT KW_TYPE COLON IDENT DOT IDENT GT_TYPE
-                  => { CODE: CFG_SLOT_TYPE, NAME: $4, KEY: $6 }
+    // form needs the leading IDENT (CFG) plus at least one path step.
+    // GT_TYPE on the tail lets `>>` close both this form and the
+    // enclosing generic.
+    //
+    // Path step kinds (OP discriminator):
+    //   OP=0  .IDENT                  — string-keyed map field
+    //   OP=1  .INTEGER                — integer-keyed map field
+    //   OP=2  .[INTEGER]              — array index (brackets disambig
+    //                                   array index from int-key map)
+    path_step <- DOT IDENT                       => { OP: 0, NAME: $2 }
+               / DOT INTEGER                     => { OP: 1, INDEX: $2 }
+               / DOT LBRACKET INTEGER RBRACKET   => { OP: 2, INDEX: $3 }
+
+    cfg_slot_type <- LT KW_TYPE COLON IDENT path_step path_step* GT_TYPE
+                  => { CODE: CFG_SLOT_TYPE, NAME: $4, ITEMS: $... }
 
     // <type:CFG.SLOT>::AssocName — assoc type on a CfgSlotType base.
     // Tried before bare cfg_slot_type so the `::Field` tail consumes.

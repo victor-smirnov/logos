@@ -187,13 +187,19 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         return tv;
     }
     case LogosType::Kind::CfgSlotType: {
-        // <type:CFG.SLOT> — extract the type stored at top-level slot SLOT
-        // of HermesStatic-bound CFG. CFG can be a const-generic param
+        // <type:CFG.path> — extract the type stored at the given path of
+        // HermesStatic-bound CFG. CFG can be a const-generic param
         // (resolves through `s`) or a type alias to an HStaticLit (already
         // a concrete bound when type aliases are inlined). When CFG is not
         // yet concrete, stay deferred.
+        //
+        // The path is encoded in `assoc_type_name` (one entry per step,
+        // each as `kind_byte + payload`, joined by 0x1F):
+        //   'F' + name   — string-keyed map field
+        //   'I' + intstr — integer-keyed map field
+        //   'A' + intstr — array index
         std::string cfg_name = std::string(tv.type_var_name());
-        std::string slot_key = std::string(tv.assoc_type_name());
+        std::string path_enc = std::string(tv.assoc_type_name());
         TypeRef cfg = nullptr;
         auto sit = s.find(cfg_name);
         if (sit != s.end()) cfg = sit->second;
@@ -205,15 +211,49 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         if (!rit->second || rit->second->mirror_offset_ == hermes::arena_offset_t{}) return tv;
         lir_view::ExprRef eref(out_.type_pool.arena(), rit->second->mirror_offset_);
         if (eref.kind() != lir_schema::expr::Code::HermesLit) return tv;
-        auto root = lir_view::EHermesLitView{eref}.root();
-        if (root.kind() != lir_schema::hermes_val::Code::Map) return tv;
-        auto map = lir_view::HVMapView{root};
-        if (map.int_keyed()) return tv;
-        for (uint64_t i = 0, n = map.size(); i < n; ++i) {
-            if (map.str_key(i) != slot_key) continue;
-            auto vref = map.value(i);
-            if (vref.kind() != lir_schema::hermes_val::Code::Type) return tv;
-            std::string tname(lir_view::HVTypeView{vref}.name());
+        // Decode path.
+        struct Step { char kind; std::string name; int64_t index; };
+        std::vector<Step> steps;
+        {
+            size_t p = 0;
+            while (p < path_enc.size()) {
+                Step st{};
+                st.kind = path_enc[p++];
+                size_t e = path_enc.find('\x1F', p);
+                if (e == std::string::npos) e = path_enc.size();
+                std::string payload = path_enc.substr(p, e - p);
+                if (st.kind == 'F') st.name = std::move(payload);
+                else st.index = std::stoll(payload);
+                steps.push_back(std::move(st));
+                p = e + 1;
+            }
+        }
+        // Walk path through the Hermes value.
+        lir_view::HermesValRef cur = lir_view::EHermesLitView{eref}.root();
+        for (auto& st : steps) {
+            using K = lir_schema::hermes_val::Code;
+            bool found = false;
+            if (st.kind == 'F' || st.kind == 'I') {
+                if (cur.kind() != K::Map) return tv;
+                auto map = lir_view::HVMapView{cur};
+                if (st.kind == 'F' && !map.int_keyed()) {
+                    for (uint64_t i = 0, n = map.size(); i < n; ++i)
+                        if (map.str_key(i) == st.name) { cur = map.value(i); found = true; break; }
+                } else if (st.kind == 'I' && map.int_keyed()) {
+                    for (uint64_t i = 0, n = map.size(); i < n; ++i)
+                        if (map.int_key(i) == st.index) { cur = map.value(i); found = true; break; }
+                }
+            } else if (st.kind == 'A') {
+                if (cur.kind() != K::Array) return tv;
+                auto arr = lir_view::HVArrayView{cur};
+                if ((uint64_t)st.index >= arr.size()) return tv;
+                cur = arr.elem((uint64_t)st.index);
+                found = true;
+            }
+            if (!found) return tv;
+        }
+        if (cur.kind() == lir_schema::hermes_val::Code::Type) {
+            std::string tname(lir_view::HVTypeView{cur}.name());
             auto alloc_kind = [&](LogosType::Kind k) -> TypeRef {
                 LogosTypeBuilder b; b.kind = k;
                 return out_.type_pool.alloc(std::move(b));

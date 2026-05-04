@@ -1,0 +1,47 @@
+// Universal path expressions: <type:CFG.path> with N steps.
+//   .IDENT   — string-keyed map field
+//   .[INT]   — array index
+//   .INT     — integer-keyed map field (per-key disambig with brackets)
+//
+// Both eager (top-level alias) and deferred (const-generic param substituted at
+// instantiation) resolution paths walk the path identically.
+package path_expr_multi_step;
+
+use std.hermes.view; use std.hermes.anyval;
+
+pub type Cfg = @{
+    "outer": { "inner": <type:u64> },
+    "list":  [ <type:i32>, <type:u32>, <type:f64> ]
+};
+
+pub type Inner = <type:Cfg.outer.inner>;
+pub type Elem0 = <type:Cfg.list.[0]>;
+pub type Elem1 = <type:Cfg.list.[1]>;
+pub type Elem2 = <type:Cfg.list.[2]>;
+
+fn id_u64(x: u64) -> u64 { return x; }
+fn id_i32(x: i32) -> i32 { return x; }
+fn id_u32(x: u32) -> u32 { return x; }
+fn id_f64(x: f64) -> f64 { return x; }
+
+// Deferred path through const-generic param.
+fn read_inner<const CFG: HermesStatic>(x: <type:CFG.outer.inner>) -> <type:CFG.outer.inner> {
+    return x;
+}
+
+fn main() -> i32 {
+    let a: Inner = 7u64;
+    let b: Elem0 = 33i32;
+    let c: Elem1 = 11u32;
+    let d: Elem2 = 1.5f64;
+    let _: u64 = id_u64(a);
+    let _: i32 = id_i32(b);
+    let _: u32 = id_u32(c);
+    let _: f64 = id_f64(d);
+
+    // Deferred resolution: pass concrete CFG via turbofish.
+    let r: u64 = read_inner::<Cfg>(99u64);
+    let _: u64 = id_u64(r);
+
+    return 42;
+}

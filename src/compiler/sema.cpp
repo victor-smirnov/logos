@@ -1770,10 +1770,10 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
     }
     case LogosType::Kind::CfgSlotType: {
         // Substitute the cfg-typevar binding; if it now resolves to a
-        // concrete HStaticLit, walk the registered LIR mirror to extract
-        // the slot's `<type:T>` value and return the resolved TypeRef.
+        // concrete HStaticLit, walk the registered LIR mirror via the
+        // encoded path (assoc_type_name) and return the resolved TypeRef.
         std::string cfg_name(t.type_var_name());
-        std::string slot_key(t.assoc_type_name());
+        std::string path_enc(t.assoc_type_name());
         auto it = s.find(cfg_name);
         if (it == s.end()) return t;
         TypeRef cfg = TypeRef(it->second);
@@ -1786,18 +1786,50 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         if (!rit->second || rit->second->mirror_offset_ == hermes::arena_offset_t{}) return t;
         lir_view::ExprRef eref(cur_prog_->type_pool.arena(), rit->second->mirror_offset_);
         if (eref.kind() != lir_schema::expr::Code::HermesLit) return t;
-        auto root = lir_view::EHermesLitView{eref}.root();
-        if (root.kind() != lir_schema::hermes_val::Code::Map) return t;
-        auto map = lir_view::HVMapView{root};
-        if (map.int_keyed()) return t;
-        for (uint64_t i = 0, n = map.size(); i < n; ++i) {
-            if (map.str_key(i) != slot_key) continue;
-            auto vref = map.value(i);
-            if (vref.kind() != lir_schema::hermes_val::Code::Type) break;
-            std::string tname(lir_view::HVTypeView{vref}.name());
+        // Decode path.
+        struct Step { char kind; std::string name; int64_t index; };
+        std::vector<Step> steps;
+        {
+            size_t p = 0;
+            while (p < path_enc.size()) {
+                Step st{};
+                st.kind = path_enc[p++];
+                size_t e = path_enc.find('\x1F', p);
+                if (e == std::string::npos) e = path_enc.size();
+                std::string payload = path_enc.substr(p, e - p);
+                if (st.kind == 'F') st.name = std::move(payload);
+                else st.index = std::stoll(payload);
+                steps.push_back(std::move(st));
+                p = e + 1;
+            }
+        }
+        lir_view::HermesValRef cur = lir_view::EHermesLitView{eref}.root();
+        for (auto& st : steps) {
+            using K = lir_schema::hermes_val::Code;
+            bool found = false;
+            if (st.kind == 'F' || st.kind == 'I') {
+                if (cur.kind() != K::Map) return t;
+                auto map = lir_view::HVMapView{cur};
+                if (st.kind == 'F' && !map.int_keyed()) {
+                    for (uint64_t i = 0, n = map.size(); i < n; ++i)
+                        if (map.str_key(i) == st.name) { cur = map.value(i); found = true; break; }
+                } else if (st.kind == 'I' && map.int_keyed()) {
+                    for (uint64_t i = 0, n = map.size(); i < n; ++i)
+                        if (map.int_key(i) == st.index) { cur = map.value(i); found = true; break; }
+                }
+            } else if (st.kind == 'A') {
+                if (cur.kind() != K::Array) return t;
+                auto arr = lir_view::HVArrayView{cur};
+                if ((uint64_t)st.index >= arr.size()) return t;
+                cur = arr.elem((uint64_t)st.index);
+                found = true;
+            }
+            if (!found) return t;
+        }
+        if (cur.kind() == lir_schema::hermes_val::Code::Type) {
+            std::string tname(lir_view::HVTypeView{cur}.name());
             if (auto resolved = const_cast<SemaChecker*>(this)->try_resolve_as_known_type(tname))
                 return resolved;
-            break;
         }
         return t;
     }
@@ -1967,16 +1999,73 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
     }
 
     if (tc == la::CFG_SLOT_TYPE) {
-        // <type:CFG.SLOT> — extract a type from a HermesStatic-typed binding.
-        // Two cases:
+        // <type:CFG.path> — extract a type from a HermesStatic-typed binding
+        // through an arbitrary path of field/index steps. Each step is an
+        // AST item with OP discriminator (0=field_str, 1=field_int,
+        // 2=array_idx). Two resolution paths:
         //   • CFG is a const-generic type-param of the enclosing item.
         //     Defer; mono_subst resolves once the param is bound.
         //   • CFG is a type alias to an HStaticLit (`pub type Cfg = @{…};`).
         //     Resolve eagerly by walking the registered LIR mirror.
+        //
+        // The path is encoded into assoc_type_name (string-typed slot we
+        // already reuse on CfgSlotType) using a delimited form:
+        //   "F<name>\x1F" | "I<int>\x1F" | "A<int>\x1F"  (one per step)
+        // Decoded by mono_subst at concretisation time.
         auto cfg_name = std::string(str_of(node.get(la::NAME.code)));
-        auto slot_key = std::string(str_of(node.get(la::KEY.code)));
         bool is_typeparam = current_type_params_.count(cfg_name) > 0;
+
+        // Read path steps from ITEMS array.
+        struct Step {
+            int kind;          // 0=field_str, 1=field_int, 2=array_idx
+            std::string name;  // for kind=0
+            int64_t  index;    // for kind=1, 2
+        };
+        std::vector<Step> steps;
+        if (node.has_key(la::ITEMS)) {
+            auto items_av = node.get(la::ITEMS.code);
+            if (!items_av.is_null()) {
+                auto items = arr_of(items_av);
+                for (uint64_t i = 0; i < items.size(); ++i) {
+                    auto step_node = map_of(items.get(i));
+                    Step s{};
+                    if (step_node.has_key(la::OP)) {
+                        auto opv = step_node.get(la::OP.code);
+                        if (opv.is_value() && !opv.is_pointer())
+                            s.kind = (int)opv.as_value<int32_t>();
+                    }
+                    if (s.kind == 0) {
+                        s.name = std::string(str_of(step_node.get(la::NAME.code)));
+                    } else {
+                        // INTEGER token comes through as a string (peg lexer).
+                        if (step_node.has_key(la::INDEX)) {
+                            auto sv = str_of(step_node.get(la::INDEX.code));
+                            s.index = parse_int_literal(sv);
+                        }
+                    }
+                    steps.push_back(std::move(s));
+                }
+            }
+        }
+        if (steps.empty()) {
+            error("<type:CFG.path>: empty path");
+            return error_t();
+        }
+
+        // Encode path for deferred resolution.
+        auto encode = [&] {
+            std::string r;
+            for (auto& s : steps) {
+                if (s.kind == 0) { r += 'F'; r += s.name; }
+                else if (s.kind == 1) { r += 'I'; r += std::to_string(s.index); }
+                else { r += 'A'; r += std::to_string(s.index); }
+                r += '\x1F';
+            }
+            return r;
+        };
+
         if (!is_typeparam) {
+            // Eager resolution against an HStaticLit alias.
             TypeRef cfg_t = try_resolve_as_known_type(cfg_name);
             if (cfg_t && TypeRef(cfg_t).kind() == LogosType::Kind::HStaticLit && cur_prog_) {
                 uint64_t hash = (uint64_t)cfg_t.const_val().value_or(0);
@@ -1985,21 +2074,38 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                     rit->second->mirror_offset_ != hermes::arena_offset_t{}) {
                     lir_view::ExprRef eref(cur_prog_->type_pool.arena(), rit->second->mirror_offset_);
                     if (eref.kind() == lir_schema::expr::Code::HermesLit) {
-                        auto root = lir_view::EHermesLitView{eref}.root();
-                        if (root.kind() == lir_schema::hermes_val::Code::Map) {
-                            auto map = lir_view::HVMapView{root};
-                            if (!map.int_keyed()) {
-                                for (uint64_t i = 0, n = map.size(); i < n; ++i) {
-                                    if (map.str_key(i) != slot_key) continue;
-                                    auto vref = map.value(i);
-                                    if (vref.kind() == lir_schema::hermes_val::Code::Type) {
-                                        std::string tname(lir_view::HVTypeView{vref}.name());
-                                        if (auto resolved = try_resolve_as_known_type(tname))
-                                            return resolved;
-                                    }
-                                    break;
+                        // Walk path through the Hermes value.
+                        lir_view::HermesValRef cur = lir_view::EHermesLitView{eref}.root();
+                        bool ok = true;
+                        for (auto& s : steps) {
+                            using K = lir_schema::hermes_val::Code;
+                            if (s.kind == 0 || s.kind == 1) {
+                                if (cur.kind() != K::Map) { ok = false; break; }
+                                auto map = lir_view::HVMapView{cur};
+                                bool found = false;
+                                if (s.kind == 0 && !map.int_keyed()) {
+                                    for (uint64_t i = 0, n = map.size(); i < n; ++i)
+                                        if (map.str_key(i) == s.name) {
+                                            cur = map.value(i); found = true; break;
+                                        }
+                                } else if (s.kind == 1 && map.int_keyed()) {
+                                    for (uint64_t i = 0, n = map.size(); i < n; ++i)
+                                        if (map.int_key(i) == s.index) {
+                                            cur = map.value(i); found = true; break;
+                                        }
                                 }
+                                if (!found) { ok = false; break; }
+                            } else { // s.kind == 2 — array
+                                if (cur.kind() != K::Array) { ok = false; break; }
+                                auto arr = lir_view::HVArrayView{cur};
+                                if ((uint64_t)s.index >= arr.size()) { ok = false; break; }
+                                cur = arr.elem((uint64_t)s.index);
                             }
+                        }
+                        if (ok && cur.kind() == lir_schema::hermes_val::Code::Type) {
+                            std::string tname(lir_view::HVTypeView{cur}.name());
+                            if (auto resolved = try_resolve_as_known_type(tname))
+                                return resolved;
                         }
                     }
                 }
@@ -2008,7 +2114,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         LogosTypeBuilder t;
         t.kind = LogosType::Kind::CfgSlotType;
         t.type_var_name = cfg_name;       // CFG ident
-        t.assoc_type_name = slot_key;     // slot key
+        t.assoc_type_name = encode();     // encoded path
         return pool_->alloc(std::move(t));
     }
 
