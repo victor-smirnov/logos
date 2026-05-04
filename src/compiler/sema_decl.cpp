@@ -602,6 +602,24 @@ lir::LConst SemaChecker::lower_const_def(TinyMapView node) {
     lc.type = (cit != module_consts_.end()) ? cit->second : error_t();
     if (node.has_key(la::VALUE)) {
         lc.value = lower_expr(map_of(node.get(la::VALUE.code)));
+        // B-ca-02: typecheck initializer against declared const type at sema
+        // so the diagnostic surfaces here rather than at MLIR-verifier time.
+        if (lc.type && lc.value && lc.value->type &&
+            TypeRef(lc.type).kind() != LogosType::Kind::Error &&
+            TypeRef(lc.value->type).kind() != LogosType::Kind::Error &&
+            !types_compatible(lc.value->type, lc.type)) {
+            // HermesStatic special-case: literal evaluates to HStaticLit,
+            // which is treated as compatible with HermesStatic at higher level.
+            bool hs_ok = TypeRef(lc.type).kind() == LogosType::Kind::Struct &&
+                         TypeRef(lc.type).struct_name() == "HermesStatic" &&
+                         TypeRef(lc.value->type).kind() == LogosType::Kind::HStaticLit;
+            if (!hs_ok) {
+                auto [es, gs] = type_str_pair(lc.type, lc.value->type);
+                error(std::format(
+                    "const '{}': initializer type mismatch — expected {}, got {}",
+                    name, es, gs));
+            }
+        }
     } else {
         lc.value = error_expr();
     }

@@ -30,7 +30,7 @@ fn main() -> i32 { return X; }
 ### B-ca-02: Const initializer type-mismatch surfaces at MLIR-verifier instead of sema
 
 **Severity**: P1 diagnostic
-**Status**: confirmed (2026-05-04)
+**Status**: fixed (lower_const_def types_compatible check + HermesStatic special-case)
 **Repro**: `B02/` —
 ```logos
 pub const X: i32 = "hello";

@@ -16,7 +16,7 @@
 ### B-fn-01: `fn helper() { return; }` (no `-> T`) parses despite grammar requiring ARROW
 
 **Severity**: P2 design (grammar/parser drift)
-**Status**: confirmed (2026-05-04)
+**Status**: not-a-bug (verified 2026-05-04) — fn_def has explicit no-ARROW alts at logos.peg:889/892 producing implicit `-> ()`. Catalog claim about "grammar requiring ARROW" was wrong.
 **Repro**: `B01/` —
 ```logos
 fn helper() { return; }

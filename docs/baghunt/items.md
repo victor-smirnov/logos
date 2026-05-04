@@ -159,7 +159,7 @@ fn main() -> i32 { return 0; }
 ### B-it-11: Extern fn without varargs accepted despite grammar requiring `, ...`
 
 **Severity**: P2 design (grammar/parser mismatch)
-**Status**: confirmed (2026-05-04)
+**Status**: not-a-bug (verified 2026-05-04) — extern_fn_def has 3 alts at logos.peg:841-846 covering varargs, with-return-type, and without-return-type forms. Catalog read only the first alt.
 **Repro**: `B24/` —
 ```logos
 extern fn strlen(s: *const u8) -> i64;
