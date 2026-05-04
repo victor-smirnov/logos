@@ -89,7 +89,29 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SExprStmtView v)   { if (auto* le = le
 void MLIRGenImpl::gen_stmt_kind(lir_view::SMatchView v)      { gen_match(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SDeleteView v)     { gen_delete(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SForEachView v)    { gen_for_each(v); }
-void MLIRGenImpl::gen_stmt_kind(lir_view::SBlockView v)      { gen_block(v.body()); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SBlockView v)      {
+    // Sprint 3.1: restore shadowed SSA-name mappings on inner-block exit
+    // (closes B-st-01 — return-after-shadow read inner alloca instead of
+    // outer).  We snapshot only the *previous values* of pre-existing
+    // names, then after the block, write those values back.  New names
+    // introduced inside (e.g. let-destruct's `a`/`b`) survive — sema
+    // legitimately uses inner SBlocks to scope tuple-destruct temporaries.
+    auto saved_scope            = scope_;
+    auto saved_local_ptrs       = var_local_ptrs_;
+    auto saved_tuple            = var_tuple_;
+    auto saved_tagged_enum      = var_tagged_enum_;
+    auto saved_tagged_enum_ptr  = var_tagged_enum_ptr_;
+    auto saved_dyn_trait        = var_dyn_trait_;
+    auto saved_struct           = var_struct_;
+    gen_block(v.body());
+    for (auto& [k, val] : saved_scope)            scope_[k]            = val;
+    for (auto& [k, val] : saved_local_ptrs)       var_local_ptrs_[k]   = val;
+    for (auto& k : saved_tuple)                   var_tuple_.insert(k);
+    for (auto& k : saved_tagged_enum)             var_tagged_enum_.insert(k);
+    for (auto& k : saved_tagged_enum_ptr)         var_tagged_enum_ptr_.insert(k);
+    for (auto& [k, val] : saved_dyn_trait)        var_dyn_trait_[k]    = val;
+    for (auto& [k, val] : saved_struct)           var_struct_[k]       = val;
+}
 
 void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
     std::string var_name(v.var_name());

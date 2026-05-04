@@ -75,7 +75,7 @@ fn main() -> i32 {
 ### B-ex-05: Cast `int as struct` silently accepted
 
 **Severity**: P0 (silent miscompile / UB)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-Sprint3.4 (scalar→aggregate cast rejected; tests/logos/fail/cast_int_to_struct)
 **Repro**: `B13/` —
 ```logos
 struct Foo { x: i32 }
@@ -109,7 +109,7 @@ fn main() -> i32 {
 ### B-ex-07: Integer literal overflow silently saturated/parsed (known)
 
 **Severity**: P0 (silent miscompile)
-**Status**: confirmed-known — see [feedback_literal_saturation](../../../.claude/projects/-home-victor-devel-logos/memory/feedback_literal_saturation.md)
+**Status**: fixed-in-Sprint2.3 (parse_int_literal_overflows + suffix-bound check; tests/logos/fail/literal_overflow_u64 + literal_suffix_overflow_u8)
 **Repro**: `B17/` —
 ```logos
 fn main() -> i32 {

@@ -46,8 +46,43 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
             error(std::format("malformed integer literal '{}'", sv));
             return error_expr();
         }
+        // Sprint 2.3: reject silently-saturating literals (B-ex-07, B-he-04, B-lx-04).
+        if (parse_int_literal_overflows(sv)) {
+            error(std::format("integer literal '{}' is out of range", sv));
+            return error_expr();
+        }
         int64_t v = parse_int_literal(sv);
         auto suf = int_suffix_kind(sv);
+        // If the literal carries an explicit suffix, also bound-check against
+        // the suffix-implied type's range.  Without a suffix the literal stays
+        // IntLit and the destination-type coercion handles range later.
+        if (suf != LogosType::Kind::Error) {
+            // Source-text sign matters for bound checking (the int64_t bit
+            // pattern wraps for unsigned literals at 2^63 and above).
+            bool src_negative = !sv.empty() && sv[0] == '-';
+            uint64_t mag = src_negative ? (uint64_t)(-(int64_t)((uint64_t)v))
+                                        : (uint64_t)v;
+            uint64_t max_mag = 0; bool signed_t = false;
+            switch (suf) {
+                case LogosType::Kind::I8:  max_mag = src_negative ? 128ull       : 127ull;        signed_t = true; break;
+                case LogosType::Kind::I16: max_mag = src_negative ? 32768ull     : 32767ull;      signed_t = true; break;
+                case LogosType::Kind::I32: max_mag = src_negative ? 2147483648ull: 2147483647ull; signed_t = true; break;
+                case LogosType::Kind::I64: max_mag = src_negative ? (uint64_t)INT64_MAX + 1 : (uint64_t)INT64_MAX; signed_t = true; break;
+                case LogosType::Kind::U8:  max_mag = 255ull;                 break;
+                case LogosType::Kind::U16: max_mag = 65535ull;               break;
+                case LogosType::Kind::U32: max_mag = 4294967295ull;          break;
+                case LogosType::Kind::U64: max_mag = UINT64_MAX;             break;
+                default: max_mag = UINT64_MAX;  // I24/I56/U24/U56/I128 — skip strict check
+            }
+            if (!signed_t && src_negative) {
+                error(std::format("integer literal '{}': negative value with unsigned suffix", sv));
+                return error_expr();
+            }
+            if (mag > max_mag && max_mag != UINT64_MAX) {
+                error(std::format("integer literal '{}' is out of range for its suffix type", sv));
+                return error_expr();
+            }
+        }
         TypeRef t = (suf != LogosType::Kind::Error) ? prim(suf) : intlit_t();
         return builder().lit_int(v, t);
     }
@@ -323,6 +358,21 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
             if (src_agg && tgt_scalar && !src_is_cstyle_enum)
                 error(std::format("cannot cast '{}' to '{}'",
                       type_str(inner->type), type_str(target)));
+            // Sprint 3.4: also forbid scalar/pointer → aggregate (closes B-ex-05).
+            // Casting to a struct/enum/tuple/array reinterprets unrelated bits;
+            // there is no well-defined operation here.
+            bool tgt_agg = TypeRef(target).kind() == LogosType::Kind::Struct ||
+                           TypeRef(target).kind() == LogosType::Kind::ZonedStruct ||
+                           TypeRef(target).kind() == LogosType::Kind::Array  ||
+                           TypeRef(target).kind() == LogosType::Kind::Tuple  ||
+                           TypeRef(target).kind() == LogosType::Kind::Enum;
+            // Allow ZonedStruct/Struct → ZonedStruct/Struct only when the
+            // qualified names match (e.g. AnyVal cross-pkg); already handled
+            // by other paths.  Otherwise reject scalar/ptr → aggregate.
+            if (tgt_agg && !src_agg) {
+                error(std::format("cannot cast '{}' to '{}': non-primitive cast target",
+                      type_str(inner->type), type_str(target)));
+            }
             // str (Slice<u8>) -> *mut u8 is unsound: str points to rodata.
             TypeRef innt2(inner->type);
             bool src_is_str = innt2.kind() == LogosType::Kind::Slice &&
@@ -4332,6 +4382,21 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
     if (node.has_key(la::BASE)) {
         auto base_node = map_of(node.get(la::BASE.code));
         auto base_expr = lower_expr(base_node);
+        // Sprint 3.4: enforce that `..base` carries the same struct type as
+        // the constructor (closes B-li-03 — Foo+..bar silently spread foreign
+        // bytes into Bar).
+        if (base_expr->type) {
+            TypeRef bt = base_expr->type;
+            auto bk = bt.kind();
+            bool ok = (bk == LogosType::Kind::Struct || bk == LogosType::Kind::ZonedStruct)
+                      && bt.struct_name() == std::string_view(sname);
+            if (!ok) {
+                error(std::format(
+                    "struct literal '{}': '..base' must have type '{}' (got '{}')",
+                    sname, sname,
+                    (bk == LogosType::Kind::Error) ? "?" : type_str(bt)));
+            }
+        }
         // Determine base variable name for EVarRef (simple case)
         std::string base_var;
         {

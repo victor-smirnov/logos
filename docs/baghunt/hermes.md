@@ -58,7 +58,7 @@ let h: HermesStatic = @{ 42: 99 };  // int key, not string
 ### B-he-04: Huge integer literal in Hermes value silently saturates
 
 **Severity**: P0 (silent miscompile)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-Sprint2.3 (LIT_INT overflow check covers Hermes-value literals too)
 **Repro**: `B13/` —
 ```logos
 let h: HermesStatic = @{ "k": 99999999999999999 };  // > i64 max

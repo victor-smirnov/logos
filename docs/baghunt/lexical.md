@@ -51,7 +51,7 @@ fn main() -> i32 { return 0; }
 ### B-lx-04: u64 literal overflow silently saturates (known)
 
 **Severity**: P0 (silent miscompile, known)
-**Status**: confirmed-known per [feedback_literal_saturation](../../../.claude/projects/-home-victor-devel-logos/memory/feedback_literal_saturation.md)
+**Status**: fixed-in-Sprint2.3 (same overflow check covers all literals)
 **Repro**: `B04/` (also B-ex-07, B-he-04)
 ```logos
 let x: u64 = 12345678901234567890u64;  // > u64 max for some values

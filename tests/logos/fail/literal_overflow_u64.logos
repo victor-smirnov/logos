@@ -1,0 +1,5 @@
+package literal_overflow_u64;
+fn main() -> i32 {
+    let x: u64 = 99999999999999999999u64;
+    return 0;
+}

@@ -55,7 +55,7 @@ fn main() -> i32 {
 ### B-li-03: Struct update `..base` with mismatched base type silently accepted
 
 **Severity**: P0 (silent miscompile / type confusion)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-Sprint3.4 (base-type check in lower_struct_lit; tests/logos/fail/struct_update_mismatched_base)
 **Repro**: `B24/` —
 ```logos
 struct Foo { x: i32, y: i32 }

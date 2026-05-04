@@ -1,0 +1,6 @@
+package let_else_non_diverging;
+enum Opt { Some(i32), None, }
+fn main() -> i32 {
+    let Opt::Some(x) = Opt::Some(5) else { let _ = 0; };
+    return x;
+}

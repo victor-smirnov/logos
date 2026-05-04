@@ -1,0 +1,9 @@
+package block_shadow_does_not_leak;
+fn main() -> i32 {
+    let x: i32 = 5;
+    {
+        let x: i32 = 10;
+        let _ = x;
+    }
+    return x;
+}

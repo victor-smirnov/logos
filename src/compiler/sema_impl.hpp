@@ -1693,6 +1693,40 @@ inline bool intlit_fits(int64_t v, LogosType::Kind k) noexcept {
     }
 }
 
+// True if the literal's magnitude exceeds the representable range for i64
+// (or u64 in the unsigned case). Used by LIT_INT lowering to reject
+// silently-truncating literals (closes B-ex-07, B-he-04, B-lx-04).
+//
+// Strategy: accumulate via __builtin_*_overflow.  If a literal carries an
+// explicit type-suffix (`123u8`), the per-type bound check is layered on
+// top of this raw overflow check at the call site.
+inline bool parse_int_literal_overflows(std::string_view sv) noexcept {
+    bool negative = !sv.empty() && sv[0] == '-';
+    if (negative) sv = sv.substr(1);
+    int base = 10;
+    if (sv.size() >= 2 && sv[0] == '0') {
+        if (sv[1] == 'x' || sv[1] == 'X') { base = 16; sv = sv.substr(2); }
+        else if (sv[1] == 'b' || sv[1] == 'B') { base = 2;  sv = sv.substr(2); }
+        else if (sv[1] == 'o' || sv[1] == 'O') { base = 8;  sv = sv.substr(2); }
+    }
+    uint64_t result = 0;
+    for (char c : sv) {
+        if (c == '_') continue;
+        int d = -1;
+        if (c >= '0' && c <= '9') d = c - '0';
+        else if (c >= 'a' && c <= 'f') d = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') d = c - 'A' + 10;
+        if (d < 0 || d >= base) break;  // suffix start (e.g. 'u', 'i', 'f')
+        if (__builtin_mul_overflow(result, (uint64_t)base, &result)) return true;
+        if (__builtin_add_overflow(result, (uint64_t)d, &result)) return true;
+    }
+    if (negative) {
+        // -(2^63) = INT64_MIN is representable; anything past that overflows i64.
+        if (result > (uint64_t)INT64_MAX + 1) return true;
+    }
+    return false;
+}
+
 inline int64_t parse_int_literal(std::string_view sv) noexcept {
     bool negative = !sv.empty() && sv[0] == '-';
     if (negative) sv = sv.substr(1);

@@ -1,0 +1,7 @@
+package cast_int_to_struct;
+struct Foo { x: i32 }
+fn main() -> i32 {
+    let i: i32 = 5;
+    let f = i as Foo;
+    return 0;
+}

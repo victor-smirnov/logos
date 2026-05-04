@@ -1,0 +1,8 @@
+package struct_update_mismatched_base;
+struct Foo { x: i32, y: i32 }
+struct Bar { x: i32, y: i32 }
+fn main() -> i32 {
+    let foo = Foo { x: 1, y: 2 };
+    let bar = Bar { x: 5, ..foo };
+    return 0;
+}

@@ -419,11 +419,16 @@ lir::LStmt SemaChecker::lower_let_else(TinyMapView node) {
     }
     lir::Pattern pat = build_pattern(pat_node, scrut_type);
 
-    // 3. Lower else block in nested scope (diverging)
+    // 3. Lower else block in nested scope (must diverge — closes B-st-03).
     push_scope();
     lir::LBlock else_blk;
     if (node.has_key(la::BODY)) {
-        else_blk = lower_block(map_of(node.get(la::BODY.code)));
+        auto body_node = map_of(node.get(la::BODY.code));
+        if (!block_always_diverts(body_node)) {
+            error("'let-else' else-block must diverge "
+                  "(end in 'return', 'break', 'continue', 'panic', or 'loop {}')");
+        }
+        else_blk = lower_block(body_node);
     }
     pop_scope();
 

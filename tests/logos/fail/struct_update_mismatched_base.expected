@@ -1,0 +1,1 @@
+struct literal 'Bar': '..base' must have type 'Bar' (got 'Foo')

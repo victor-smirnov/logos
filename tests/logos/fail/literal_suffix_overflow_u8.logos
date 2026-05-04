@@ -1,0 +1,5 @@
+package literal_suffix_overflow_u8;
+fn main() -> i32 {
+    let x: u8 = 256u8;
+    return 0;
+}

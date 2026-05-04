@@ -15,7 +15,7 @@
 ### B-st-01: Block-scoped shadow LEAKS out of inner block
 
 **Severity**: P0 hard (silent miscompile)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-Sprint3 (mlir_gen SBlock snapshot/restore of var maps; tests/logos/pass/block_shadow_does_not_leak)
 **Repro**: `B17/` —
 ```logos
 fn main() -> i32 {
@@ -52,7 +52,7 @@ fn main() -> i32 {
 ### B-st-03: `let-else` with non-diverging body silently accepted
 
 **Severity**: P0 (silent miscompile)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-Sprint3 (block_always_diverts check in lower_let_else; tests/logos/fail/let_else_non_diverging)
 **Repro**: `B02/` —
 ```logos
 enum Opt { Some(i32), None, }
