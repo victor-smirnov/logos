@@ -23,6 +23,32 @@ Metafunctions manipulate compile-time values of these types:
 
 These live in `std.compiler.metaprog.*` modules. They are ordinary structs whose `raw` field is an `AnyVal`; the compiler bakes the resolved value at sema time, so metafunctions can inspect them at JIT time without the compiler being involved at runtime.
 
+## HermesStatic Constants
+
+`HermesStatic` is the compile-time value-class for Hermes literals — `@{...}` and `@[...]`. It is a *value*, not a type; type-position uses (`Foo<CFG>`) consume it via `const CFG: HermesStatic` const-generics. Identity is the FNV-1a hash of the parsed AST: same content at different positions → same identity, different content → different type.
+
+```logos
+// Non-generic — registers as a name; const-fold sites read its slots.
+pub const StoreCfg: HermesStatic = @{
+    "name":   "main",
+    "ctr_id": <type:u64>,
+    "snp_id": <type:u64>,
+};
+
+// Parametric — one recipe, distinct byte-hash identity per instantiation.
+pub const PMapCfg<K, V>: HermesStatic = @{
+    "key":    <type:K>,
+    "value":  <type:V>,
+    "fanout": 8,
+};
+```
+
+`<type:T>` embeds `T`'s identity into the literal at sema; the parametric form re-resolves the AST under each instantiation's type-param scope, so `PMapCfg<u64, u64>` and `PMapCfg<u32, u32>` hash differently and dispatch as separate types end-to-end. Use sites pass it as a const-generic argument: `create_pmap::<PMapCfg<u64, u64>>(...)`.
+
+`@{...}` parses only at *value* position. Earlier sketches accepted `pub type Cfg = @{...};` directly at type position — that form is gone (a value is not a type). The non-generic `pub const` form covers the same ergonomic need; the parametric form covers what `pub type` couldn't express.
+
+See [memory: feat_hstatic_const_generic](../../README.md), [memory: feat_parametric_hstatic](../../README.md).
+
 ## `metacall`
 
 ```logos
@@ -82,7 +108,7 @@ In `quote_item!` the canonical antiquot form is `#(name)` for name / type-name p
 
 `quote_ty!` additionally accepts `$ident` and `$ts...` for pack-splicing — `$` is reused from Hermes-capture syntax and is a quote_ty-only spelling.
 
-### Status (2026-05-02)
+### Status (2026-05-04)
 
 Implementation by form:
 
