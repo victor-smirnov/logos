@@ -2666,14 +2666,30 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
 
     if (tc == la::LIT_HSTATIC) {
         // HermesStatic literal at type-arg position: Foo::<@{...}>.
-        // Identity = byte-hash over the AST (content only, position-free)
-        // so two identical `@{...}` instances at different sites produce
-        // the same TypeRef.
         if (!node.has_key(la::VALUE)) {
             error("HermesStatic type-arg: missing literal payload");
             return error_t();
         }
-        auto val_node = map_of(node.get(la::VALUE.code));
+        return resolve_hstatic_value(map_of(node.get(la::VALUE.code)));
+    }
+    // Bare hermes-lit codes also reach resolve_type when `pub const X:
+    // HermesStatic = @{...}` is being recognised in collect_const — there
+    // the value-AST is the unwrapped hermes_lit, not LIT_HSTATIC.
+    if (tc == la::HERMES_MAP.code || tc == la::HERMES_ARRAY.code ||
+        tc == la::HERMES_STR.code || tc == la::HERMES_INT.code ||
+        tc == la::HERMES_NEG_INT.code || tc == la::HERMES_FLOAT.code ||
+        tc == la::HERMES_BOOL.code || tc == la::HERMES_NULL.code) {
+        return resolve_hstatic_value(node);
+    }
+
+    error(std::format("unexpected type node code {}", tc));
+    return error_t();
+}
+
+TypeRef SemaChecker::resolve_hstatic_value(TinyMapView val_node) {
+    // Identity = byte-hash over the AST (content only, position-free) so two
+    // identical `@{...}` instances at different sites produce the same TypeRef.
+    {
         // FNV-1a 64-bit hash, schema-aware (content only, position-free).
         // Walks the hermes_lit AST tree using each node CODE's known shape
         // — distinguishes string-valued (HERMES_INT/STR/FLOAT) from
@@ -2740,9 +2756,6 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         t.const_val = (int64_t)hash;  // bit-pattern reuse; mangling reads it as u64
         return pool_->alloc(std::move(t));
     }
-
-    error(std::format("unexpected type node code {}", tc));
-    return error_t();
 }
 
 // ── Lowering helpers ─────────────────────────────────────────────────────────

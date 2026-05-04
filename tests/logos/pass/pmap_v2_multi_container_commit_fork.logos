@@ -11,13 +11,13 @@ use std.data.persistent.store;
 use std.lang.cmp; use std.lang.ord; use std.lang.datatypes;
 use std.hermes.view; use std.hermes.anyval;
 
-pub type StoreCfg = @{
+pub const StoreCfg: HermesStatic = @{
     "name":   "v1-default",
     "ctr_id": <type:u64>,
     "snp_id": <type:u64>,
 };
-pub type CfgA = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 8 };
-pub type CfgB = @{ "key": <type:u32>, "value": <type:u32>, "fanout": 8 };
+pub const CfgA: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 8 };
+pub const CfgB: HermesStatic = @{ "key": <type:u32>, "value": <type:u32>, "fanout": 8 };
 
 fn fill_a(c: &mut ContainerRef<CfgA>, lo: u64, hi: u64) {
     let mut i: u64 = lo;

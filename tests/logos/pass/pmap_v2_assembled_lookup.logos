@@ -43,10 +43,10 @@ impl Ord for U64Key {
 pub struct U64Val { pub x: u64, }
 impl Primitive for U64Val { type Prim = u64; }
 
-pub type CfgLin = @{
+pub const CfgLin: HermesStatic = @{
     "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 4, "lookup": "linear",
 };
-pub type CfgBin = @{
+pub const CfgBin: HermesStatic = @{
     "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 4, "lookup": "binary",
 };
 

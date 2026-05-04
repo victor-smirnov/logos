@@ -30,8 +30,8 @@ use std.hermes.anyval;
 
 pub struct Foo<const CFG: HermesStatic> { pub x: i32, }
 
-pub type CfgA = @{"k": 17};
-pub type CfgB = @{"k": 99};
+pub const CfgA: HermesStatic = @{"k": 17};
+pub const CfgB: HermesStatic = @{"k": 99};
 
 pub type FooA = Foo<CfgA>;
 pub type FooB = Foo<CfgB>;

@@ -32,8 +32,8 @@ use std.lang.datatypes;
 use std.hermes.view;
 use std.hermes.anyval;
 
-pub type CfgA = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 16 };
-pub type CfgB = @{ "key": <type:u32>, "value": <type:u32>, "fanout":  8 };
+pub const CfgA: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 16 };
+pub const CfgB: HermesStatic = @{ "key": <type:u32>, "value": <type:u32>, "fanout":  8 };
 
 // register_pmap_release_thunk — generic over CFG. Captures the address of
 // the per-CFG monomorphised node_release_c thunk via GENERIC_REF and

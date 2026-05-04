@@ -42,7 +42,7 @@ fn ki(v: u64) -> U64Key { return U64Key { x: v }; }
 
 // Asymmetric: tiny branches, big leaves. fanout slot is *also*
 // present so validate_pmap_cfg passes (it requires "fanout").
-pub type CfgAsym = @{
+pub const CfgAsym: HermesStatic = @{
     "key":           <type:U64Key>,
     "value":         <type:U64Val>,
     "fanout":        4,
@@ -51,7 +51,7 @@ pub type CfgAsym = @{
 };
 
 // Symmetric: single fanout=4, branch=leaf=4.
-pub type CfgEqu = @{
+pub const CfgEqu: HermesStatic = @{
     "key":    <type:U64Key>,
     "value":  <type:U64Val>,
     "fanout": 4,

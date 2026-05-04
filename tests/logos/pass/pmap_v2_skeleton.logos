@@ -56,12 +56,12 @@ fn ki(v: u64) -> U64Key { return U64Key { x: v }; }
 
 // Two configurations of the same K/V give two distinct types.
 // Linchpin of the assembler: MyMap16 ≠ MyMap32 at the type level.
-pub type Cfg16 = @{
+pub const Cfg16: HermesStatic = @{
     "key":    <type:U64Key>,
     "value":  <type:U64Val>,
     "fanout": 16,
 };
-pub type Cfg32 = @{
+pub const Cfg32: HermesStatic = @{
     "key":    <type:U64Key>,
     "value":  <type:U64Val>,
     "fanout": 32,

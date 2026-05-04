@@ -493,9 +493,29 @@
     annot_args <- annot_arg (COMMA annot_arg)* COMMA?
                => { ITEMS: $... }
 
-    // let NAME: type = expr;  (module-level — compile-time evaluated, ADR 0003 §9)
-    // `pub let` exports the constant from the package.
-    const_def <- KW_PUB KW_LET IDENT COLON type_ref ASSIGN expr SEMI
+    // Module-level constants. Two surface forms, same AST:
+    //
+    //   pub let X: T = expr;            — simple non-generic constant (legacy)
+    //   pub const X: T = expr;          — same shape, alternate keyword
+    //   pub const X<T1,T2>: T = expr;   — generic compile-time factory.
+    //                                     RHS is templated; substitution at
+    //                                     each use site materialises a
+    //                                     fresh value. Common case: HermesStatic
+    //                                     literal parameterised by type args
+    //                                     (`pub const PMap<K,V>: HermesStatic =
+    //                                     @{"key": <type:K>, "value": <type:V>};`).
+    //
+    // `pub let` stays non-generic; `pub const` admits an optional type-param
+    // list. Both produce CONST_DEF nodes; sema reads TYPE_PARAMS when present.
+    const_def <- KW_PUB KW_CONST IDENT type_param_list COLON type_ref ASSIGN expr SEMI
+              => { CODE: CONST_DEF, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, TYPE: $6, VALUE: $8 }
+               / KW_PUB KW_CONST IDENT COLON type_ref ASSIGN expr SEMI
+              => { CODE: CONST_DEF, IS_PUB: 1, NAME: $3, TYPE: $5, VALUE: $7 }
+               / KW_CONST IDENT type_param_list COLON type_ref ASSIGN expr SEMI
+              => { CODE: CONST_DEF, NAME: $2, TYPE_PARAMS: $3, TYPE: $5, VALUE: $7 }
+               / KW_CONST IDENT COLON type_ref ASSIGN expr SEMI
+              => { CODE: CONST_DEF, NAME: $2, TYPE: $4, VALUE: $6 }
+               / KW_PUB KW_LET IDENT COLON type_ref ASSIGN expr SEMI
               => { CODE: CONST_DEF, IS_PUB: 1, NAME: $3, TYPE: $5, VALUE: $7 }
                / KW_LET IDENT COLON type_ref ASSIGN expr SEMI
               => { CODE: CONST_DEF, NAME: $2, TYPE: $4, VALUE: $6 }
@@ -882,7 +902,12 @@
     impl_type <- KW_IMPL IDENT
               => { CODE: IMPL_TYPE, NAME: $2 }
 
-    type_ref <- antiquot_type / typeof_type / cfg_slot_assoc_ref / cfg_slot_type / hermes_arr_type / hermes_map_type / ptr_type / arr_type / slice_type / tagged_type / dyn_type / ref_type / impl_type / unit_type / closure_type / fn_ptr_type / tuple_type / assoc_type_ref / hstatic_lit_type / simple_type
+    // hstatic_lit_type intentionally absent: `@{...}` is a HermesStatic *value*,
+    // not a type. At type-arg position (`Foo<@{...}>`) it goes through
+    // type_or_lt_arg's hermes_lit alt; at top-level naming, use
+    // `pub const X: HermesStatic = @{...};` instead of legacy
+    // `pub type X = @{...};` (the latter no longer parses).
+    type_ref <- antiquot_type / typeof_type / cfg_slot_assoc_ref / cfg_slot_type / hermes_arr_type / hermes_map_type / ptr_type / arr_type / slice_type / tagged_type / dyn_type / ref_type / impl_type / unit_type / closure_type / fn_ptr_type / tuple_type / assoc_type_ref / simple_type
 
     // <type:CFG.path> — extract the type stored at the given path of a
     // HermesStatic-typed type-level binding. Mono-time projection; the

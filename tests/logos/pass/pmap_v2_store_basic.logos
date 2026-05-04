@@ -40,7 +40,7 @@ impl Ord for U64Key {
 pub struct U64Val { pub x: u64, }
 impl Primitive for U64Val { type Prim = u64; }
 
-pub type MyCfg = @{ "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16 };
+pub const MyCfg: HermesStatic = @{ "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 16 };
 
 unsafe fn main() -> i32 {
     let mut st: LockingStore = locking_store_new();

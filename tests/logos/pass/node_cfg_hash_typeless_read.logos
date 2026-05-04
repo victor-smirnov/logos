@@ -15,8 +15,8 @@ use std.lang.datatypes;
 use std.hermes.view;
 use std.hermes.anyval;
 
-pub type CfgA = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 16 };
-pub type CfgB = @{ "key": <type:u32>, "value": <type:u32>, "fanout":  8 };
+pub const CfgA: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 16 };
+pub const CfgB: HermesStatic = @{ "key": <type:u32>, "value": <type:u32>, "fanout":  8 };
 
 fn read_cfg_hash(root: *mut u8) -> u64 {
     unsafe {

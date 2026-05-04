@@ -25,13 +25,13 @@ use std.io;
 use std.hermes.view;
 use std.hermes.anyval;
 
-pub type StoreCfg = @{
+pub const StoreCfg: HermesStatic = @{
     "name":   "showcase",
     "ctr_id": <type:u64>,
     "snp_id": <type:u64>,
 };
 
-pub type ShowCfg = @{
+pub const ShowCfg: HermesStatic = @{
     "key":           <type:u64>,
     "value":         <type:u64>,
     "fanout":        8,

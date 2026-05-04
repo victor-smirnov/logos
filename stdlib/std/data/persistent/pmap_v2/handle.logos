@@ -54,7 +54,7 @@ unsafe impl Sync for LockingStore {}
 // (u64). v1 hardcoded; future v2 derives from STORE_CFG slots once
 // parametric HermesStatic literals land (literal whose byte-hash identity
 // changes per outer instantiation).
-pub type DirCfg = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 16 };
+pub const DirCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 16 };
 
 
 // ── Store<STORE_CFG> — Arc<LockingStore> + STORE_CFG schema. ────

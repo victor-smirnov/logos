@@ -696,6 +696,68 @@ void SemaChecker::collect_const(TinyMapView node) {
         t = i32_t();
     }
     if (t) module_consts_[name] = t;
+
+    // `pub const X: HermesStatic = @{...};` semantically replaces the legacy
+    // `pub type X = @{...};` form. The literal is a HermesStatic value, not
+    // a type — but at type-arg positions it functions as a const-generic
+    // value with byte-hash identity. Register X as a type alias to that
+    // HStaticLit so call-site lookups resolve uniformly with legacy aliases
+    // until that path is fully migrated. Generic constants
+    // (`pub const X<T1, T2>: HermesStatic = @{… <type:T1> …}`) are recorded
+    // separately in generic_consts_ and instantiated per use-site.
+    if (node.has_key(la::VALUE) && t &&
+        TypeRef(t).kind() == LogosType::Kind::Struct &&
+        TypeRef(t).struct_name() == "HermesStatic") {
+        auto val_av = node.get(la::VALUE.code);
+        if (val_av.is_pointer()) {
+            auto val_node = map_of(val_av);
+            auto vc = code_of(val_node);
+            // hermes_lit produces LIT_HSTATIC at expression position when
+            // the literal flows through a type-arg slot; here the value-AST
+            // IS the hermes literal (HERMES_MAP / HERMES_ARRAY / scalar).
+            // resolve_type's hstatic-lit handling expects a LIT_HSTATIC
+            // wrapper. The legacy path went through hstatic_lit_type which
+            // emitted LIT_HSTATIC; const_def's value is the bare hermes_lit
+            // node, so we synthesise a LIT_HSTATIC view by resolving via
+            // the LIT_HSTATIC/HERMES_* code path directly.
+            //
+            // Easiest: detect bare hermes_lit AST codes and route them
+            // through the existing LIT_HSTATIC handler in resolve_type by
+            // synthesising the same shape.
+            (void)vc;
+            // Attempt resolve: if VALUE node has LIT_HSTATIC code already,
+            // resolve_type accepts it. Otherwise, the value is a primary
+            // hermes_lit AST and we need to detect that here.
+            //
+            // Generic case: defer to per-use-site instantiation.
+            bool has_type_params = false;
+            if (node.has_key(la::TYPE_PARAMS)) {
+                AnyVal tpav = node.get(la::TYPE_PARAMS.code);
+                if (!tpav.is_null()) {
+                    auto tplist = map_of(tpav);
+                    if (tplist.has_key(la::ITEMS)) {
+                        auto items = arr_of(tplist.get(la::ITEMS.code));
+                        has_type_params = items.size() > 0;
+                    }
+                }
+            }
+            if (!has_type_params) {
+                // Non-generic: bind X as a type alias to the resolved
+                // HStaticLit. Wrap value in a LIT_HSTATIC-shaped node by
+                // calling the existing resolver path.
+                TypeRef hs = resolve_type(val_node);
+                if (hs && TypeRef(hs).kind() == LogosType::Kind::HStaticLit) {
+                    TypeAliasEntry ent{};
+                    ent.type = hs;
+                    type_aliases_[name] = std::move(ent);
+                }
+            }
+            // Generic case path is added in a follow-up: would push
+            // type_params into generic_consts_ + save value_offset, then
+            // resolve_type GENERIC_INST X<args> re-runs the value resolver
+            // with current_type_params_ bound to the args.
+        }
+    }
 }
 
 void SemaChecker::collect_trait(TinyMapView node) {

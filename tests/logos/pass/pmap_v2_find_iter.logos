@@ -42,7 +42,7 @@ impl Primitive for U64Val { type Prim = u64; }
 
 fn ki(v: u64) -> U64Key { return U64Key { x: v }; }
 
-pub type Cfg4 = @{
+pub const Cfg4: HermesStatic = @{
     "key":    <type:U64Key>,
     "value":  <type:U64Val>,
     "fanout": 4,

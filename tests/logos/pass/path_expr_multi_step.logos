@@ -9,7 +9,7 @@ package path_expr_multi_step;
 
 use std.hermes.view; use std.hermes.anyval;
 
-pub type Cfg = @{
+pub const Cfg: HermesStatic = @{
     "outer": { "inner": <type:u64> },
     "list":  [ <type:i32>, <type:u32>, <type:f64> ]
 };

@@ -1,4 +1,4 @@
-// metacall as type-factory for container CFG: emit a `pub type CfgA = @{...}`
+// metacall as type-factory for container CFG: emit a `pub const CfgA: HermesStatic = @{...}`
 // item via quote_item!, with the body computed from caller-provided pieces.
 // Subsequent items reference CfgA as a normal type alias.
 package main;
@@ -9,20 +9,20 @@ use std.hermes.anyval;
 use std.data.persistent.pmap_v2.handle;
 use std.lang.cmp; use std.lang.ord; use std.lang.datatypes;
 
-pub type StoreCfg = @{ "name": "factory", "ctr_id": <type:u64>, "snp_id": <type:u64> };
+pub const StoreCfg: HermesStatic = @{ "name": "factory", "ctr_id": <type:u64>, "snp_id": <type:u64> };
 
-// Type factory: emits `pub type CfgA = @{...};` item.
+// Type factory: emits `pub const CfgA: HermesStatic = @{...};` item.
 // In a richer factory the callee composes StoreCfg-derived defaults +
 // container-specific bits via quote_ty! antiquot — for v1 we hardcode.
 fn emit_pmap_cfg_a() -> QuoteItemBlob {
     return quote_item! {
-        pub type CfgA = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 8 };
+        pub const CfgA: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 8 };
     };
 }
 
 fn emit_pmap_cfg_b() -> QuoteItemBlob {
     return quote_item! {
-        pub type CfgB = @{ "key": <type:u32>, "value": <type:u32>, "fanout": 8 };
+        pub const CfgB: HermesStatic = @{ "key": <type:u32>, "value": <type:u32>, "fanout": 8 };
     };
 }
 

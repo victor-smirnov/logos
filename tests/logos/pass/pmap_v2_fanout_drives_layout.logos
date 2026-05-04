@@ -31,8 +31,8 @@ impl Ord for U64Key {
 pub struct U64Val { pub x: u64, }
 impl Primitive for U64Val { type Prim = u64; }
 
-pub type CfgF2 = @{ "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 2 };
-pub type CfgF8 = @{ "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 8 };
+pub const CfgF2: HermesStatic = @{ "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 2 };
+pub const CfgF8: HermesStatic = @{ "key": <type:U64Key>, "value": <type:U64Val>, "fanout": 8 };
 
 unsafe fn populate6<const CFG: HermesStatic>(pm: *mut PMapMut<CFG>) -> u64 {
     let k1: U64Key = U64Key { x: 10u64 };
