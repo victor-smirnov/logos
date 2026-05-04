@@ -1,0 +1,54 @@
+// metacall as type-factory for container CFG: emit a `pub type CfgA = @{...}`
+// item via quote_item!, with the body computed from caller-provided pieces.
+// Subsequent items reference CfgA as a normal type alias.
+package main;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+use std.hermes.anyval;
+use std.data.persistent.pmap_v2.handle;
+use std.lang.cmp; use std.lang.ord; use std.lang.datatypes;
+
+pub type StoreCfg = @{ "name": "factory", "ctr_id": <type:u64>, "snp_id": <type:u64> };
+
+// Type factory: emits `pub type CfgA = @{...};` item.
+// In a richer factory the callee composes StoreCfg-derived defaults +
+// container-specific bits via quote_ty! antiquot — for v1 we hardcode.
+fn emit_pmap_cfg_a() -> QuoteItemBlob {
+    return quote_item! {
+        pub type CfgA = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 8 };
+    };
+}
+
+fn emit_pmap_cfg_b() -> QuoteItemBlob {
+    return quote_item! {
+        pub type CfgB = @{ "key": <type:u32>, "value": <type:u32>, "fanout": 8 };
+    };
+}
+
+// Splice both type aliases into the module.
+metacall emit_pmap_cfg_a();
+metacall emit_pmap_cfg_b();
+
+fn main() -> i32 {
+    let mut store: MultiStore<StoreCfg> = multi_store_open::<StoreCfg>();
+    let mut snap:  MultiSnap<StoreCfg>  = multi_snap_begin::<StoreCfg>(&mut store);
+
+    let mut c_a: ContainerRef<CfgA> = multi_snap_create_pmap::<StoreCfg, CfgA>(&mut snap, 1u64);
+    let mut c_b: ContainerRef<CfgB> = multi_snap_create_pmap::<StoreCfg, CfgB>(&mut snap, 2u64);
+
+    if !c_a.is_valid() { return 1; }
+    if !c_b.is_valid() { return 2; }
+
+    let k_a: u64 = 7u64;
+    let _ = c_a.insert(k_a, 49u64, &k_a as *const u64);
+    let k_b: u32 = 11u32;
+    let _ = c_b.insert(k_b, 121u32, &k_b as *const u32);
+
+    if c_a.len() != 1u64 { return 3; }
+    if c_b.len() != 1u64 { return 4; }
+
+    c_a.writeback();
+    c_b.writeback();
+    return 42;
+}
