@@ -31,9 +31,12 @@ pub const StoreCfg: HermesStatic = @{
     "snp_id": <type:u64>,
 };
 
-pub const ShowCfg: HermesStatic = @{
-    "key":           <type:u64>,
-    "value":         <type:u64>,
+// Parametric HermesStatic factory — one recipe, one byte-hash identity
+// per instantiation. `PMapCfg<u64, u64>` and `PMapCfg<u32, u32>` would
+// dispatch as distinct container types end-to-end.
+pub const PMapCfg<K, V>: HermesStatic = @{
+    "key":           <type:K>,
+    "value":         <type:V>,
     "fanout":        8,
     "fanout_branch": 4,
     "fanout_leaf":   16,
@@ -45,21 +48,21 @@ fn section(title: str) {
     println(title);
 }
 
-fn pmap_insert(p: &mut ContainerRef<ShowCfg>, key: u64, val: u64) -> bool {
+fn pmap_insert(p: &mut ContainerRef<PMapCfg<u64, u64>>, key: u64, val: u64) -> bool {
     let k: u64 = key;
     return p.insert(key, val, &k as *const u64);
 }
 
-fn iterate_and_sum(p: &ContainerRef<ShowCfg>, expected: u64) -> i32 {
+fn iterate_and_sum(p: &ContainerRef<PMapCfg<u64, u64>>, expected: u64) -> i32 {
     let mut sum_k:  u64 = 0u64;
     let mut sum_v:  u64 = 0u64;
     let mut count:  u64 = 0u64;
     let mut leaves: u64 = 0u64;
     let mut prev:   u64 = 0u64;
-    let mut it: Iter<ShowCfg> = p.iter();
+    let mut it: Iter<PMapCfg<u64, u64>> = p.iter();
     while it.valid() {
         leaves = leaves + 1u64;
-        let leaf: LeafView<ShowCfg> = it.leaf();
+        let leaf: LeafView<PMapCfg<u64, u64>> = it.leaf();
         let n: u64 = leaf.len();
         let mut j: u64 = 0u64;
         while j < n {
@@ -112,7 +115,7 @@ fn main() -> i32 {
     section("2. begin Snap, create_pmap(1), fill 1..=1000, commit");
     let mut s1: Snap<StoreCfg> = snap_begin(&mut store);
     {
-        let mut c1: ContainerRef<ShowCfg> = create_pmap::<ShowCfg>(&mut s1, 1u64);
+        let mut c1: ContainerRef<PMapCfg<u64, u64>> = create_pmap::<PMapCfg<u64, u64>>(&mut s1, 1u64);
         let mut i: u64 = 1u64;
         while i <= 1000u64 {
             let _ = pmap_insert(&mut c1, i, i * 7u64);
@@ -129,7 +132,7 @@ fn main() -> i32 {
     section("3. fork from c0, fill 1001..=2000 in container 1, commit");
     let mut s2: Snap<StoreCfg> = snap_fork(&mut store, c0);
     {
-        let mut c1: ContainerRef<ShowCfg> = open_pmap::<ShowCfg>(&mut s2, 1u64);
+        let mut c1: ContainerRef<PMapCfg<u64, u64>> = open_pmap::<PMapCfg<u64, u64>>(&mut s2, 1u64);
         let line_inh: String = format("   inherited size = {}", c1.len());
         println_string(&line_inh);
         let mut i: u64 = 1001u64;
@@ -148,7 +151,7 @@ fn main() -> i32 {
     section("4. fork(c0) → iterate container 1 (expect 1000)");
     let mut sr0: Snap<StoreCfg> = snap_fork(&mut store, c0);
     {
-        let mut c1: ContainerRef<ShowCfg> = open_pmap::<ShowCfg>(&mut sr0, 1u64);
+        let mut c1: ContainerRef<PMapCfg<u64, u64>> = open_pmap::<PMapCfg<u64, u64>>(&mut sr0, 1u64);
         let line_size: String = format("   size = {}", c1.len());
         println_string(&line_size);
         let rc: i32 = iterate_and_sum(&c1, 1000u64);
@@ -160,7 +163,7 @@ fn main() -> i32 {
     section("5. fork(c1) → iterate container 1 (expect 2000)");
     let mut sr1: Snap<StoreCfg> = snap_fork(&mut store, c1_id);
     {
-        let mut c1: ContainerRef<ShowCfg> = open_pmap::<ShowCfg>(&mut sr1, 1u64);
+        let mut c1: ContainerRef<PMapCfg<u64, u64>> = open_pmap::<PMapCfg<u64, u64>>(&mut sr1, 1u64);
         let rc: i32 = iterate_and_sum(&c1, 2000u64);
         if rc != 0 { return 40 + rc; }
         println("   ✓ c1 totals match (Σ(1..2000) = 2001000; ×7 = 14007000)");
