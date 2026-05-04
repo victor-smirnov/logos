@@ -32,7 +32,7 @@ fn main() -> i32 {
 ### B-pt-02: Struct pattern in `let pat = expr;` not supported (only in match)
 
 **Severity**: P2 design
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-Sprint4.2 (LET_PAT alt + lower_let_pat for struct patterns; tests/logos/pass/let_struct_pattern). Variant/tuple-via-pat_single forms still rejected — refutable, deferred to match infrastructure.
 **Repro**: `B03/` and `B04/` —
 ```logos
 struct Foo { x: i32, y: i32 }
@@ -50,7 +50,7 @@ fn main() -> i32 {
 ### B-pt-03: Byte-string literal pattern (`b"..."`) syntax error
 
 **Severity**: P2 design (incomplete feature)
-**Status**: confirmed (2026-05-04)
+**Status**: parses-in-Sprint4.2 (added BYTE_STRING token + PAT_BYTES alt; sema diagnostic until codegen lands). Test: tests/logos/fail/byte_string_pattern.
 **Repro**: `B07/` —
 ```logos
 fn main() -> i32 {
@@ -70,7 +70,7 @@ fn main() -> i32 {
 ### B-pt-04: Nested pattern in enum variant payload syntax error
 
 **Severity**: P2 design (incomplete feature)
-**Status**: confirmed (2026-05-04)
+**Status**: parses-in-Sprint4.2 (pat_variant_args uses pat_single; sema diagnostic until match-lowering supports nested guards). Test: tests/logos/fail/nested_variant_pattern.
 **Repro**: `B08/` —
 ```logos
 struct Pair { a: i32, b: i32 }
@@ -91,7 +91,7 @@ fn main() -> i32 {
 ### B-pt-05: Slice pattern with `..rest` syntax error
 
 **Severity**: P2 design (incomplete feature)
-**Status**: confirmed (2026-05-04)
+**Status**: not-a-parse-bug (verified 2026-05-04) — slice patterns parse in match arms; the catalog repro fails because `&arr[..]` slice-expression syntax isn't supported, not because of the pattern. Codegen rejects suffix-after-rest with "not supported for dynamic slices". Deferred — needs slice-expression + dynamic-slice-pattern codegen.
 **Repro**: `B12/` —
 ```logos
 fn main() -> i32 {
@@ -110,7 +110,7 @@ fn main() -> i32 {
 ### B-pt-06: Float literal in pattern syntax error
 
 **Severity**: P2 design
-**Status**: confirmed (2026-05-04)
+**Status**: parses-in-Sprint4.2 (FLOAT alt in pat_single_base; sema rejects with "IEEE equality semantics undecided"). Test: tests/logos/fail/float_pattern.
 **Repro**: `B16/` —
 ```logos
 fn main() -> i32 {

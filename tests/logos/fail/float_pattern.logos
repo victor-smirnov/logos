@@ -1,0 +1,8 @@
+package float_pattern;
+fn main() -> i32 {
+    let x: f64 = 3.14;
+    match x {
+        3.14 => { return 1; }
+        _    => { return 0; }
+    }
+}

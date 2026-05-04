@@ -260,6 +260,9 @@
     LIT_HSTATIC                 = 212   // HermesStatic literal at type-arg position: Foo::<@{...}>. VALUE = nested hermes_lit AST. Sema lowers to ConstVar(HermesStatic, hash) with byte-hash identity.
     CFG_SLOT_TYPE               = 213   // Type-position `<type:CFG.SLOT>`: extract the type stored at top-level slot SLOT of HermesStatic CFG (a const-generic param or type alias). NAME = CFG ident, KEY = slot ident. Mono resolves to the slot's `<type:T>` value when CFG becomes concrete.
     GENERIC_REF                 = 214   // `IDENT::<TARGS>` at expression position; CALLEE = ident, TYPE_PARAMS = type_arg_list.
+    PAT_FLOAT                   = 215   // float-literal pattern (Sprint 4.2 — B-pt-06; rejected at sema, but parses cleanly).
+    PAT_BYTES                   = 216   // byte-string-literal pattern (B-pt-03; reserved, lexer support pending).
+    LET_PAT                     = 217   // `let <pattern> = expr;` — irrefutable destructure beyond simple ident/tuple. Sema checks refutability and lowers via match.
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -373,6 +376,7 @@
 
     // Literals & identifiers
     RAW_STRING  = /r"[^"]*"/
+    BYTE_STRING = /b"([^"\\]|\\.)*"/
     STRING      = /"([^"\\]|\\.)*"/
     FLOAT       = /[-]?[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9][0-9_]*)?(f32|f64)?/
     INTEGER     = /[-]?(0x[0-9a-fA-F_]+|0b[01_]+|0o[0-7_]+|[0-9][0-9_]*)(i8|i16|i24|i32|i56|i64|i128|u8|u16|u24|u32|u56|u64|u128|usize|isize)?/
@@ -1180,6 +1184,12 @@
     pat_binding_list <- pat_binding (COMMA pat_binding)*
                      => { ITEMS: $... }
 
+    // Variant-payload pattern args: full nested patterns (closes B-pt-04).
+    // Distinct from pat_binding_list because LET_DESTRUCT positions are
+    // bindings, not refutable matches.
+    pat_variant_args <- pat_single (COMMA pat_single)* COMMA?
+                     => { ITEMS: $... }
+
     pattern <- pat_single (PIPE pat_single)*
             => { CODE: PAT_OR, ITEMS: $... }
 
@@ -1239,10 +1249,15 @@
         / pat_single_base
 
     pat_single_base
+        // Unit pattern `()` (Sprint 4.2 — needed when generalising
+        // pat_variant_args to pat_single, since `Result::Ok(())` previously
+        // relied on pat_binding's LPAREN RPAREN alt).
+        <- LPAREN RPAREN
+        => { CODE: PAT_UNIT }
         // Hermes scalar patterns: @null / @true / @false / @42 / @-42
         // Must precede other alternatives that could also consume AT via PAT_AT
         // (PAT_AT is `IDENT AT pat_single`, different leading token, so no conflict).
-        <- AT KW_NULL
+        / AT KW_NULL
         => { CODE: PAT_HERMES_NULL }
         / AT KW_TRUE
         => { CODE: PAT_HERMES_BOOL, VALUE: true }
@@ -1268,7 +1283,7 @@
         => { CODE: PAT_HERMES_ARR, ITEMS: $3 }
         / AT LBRACKET RBRACKET
         => { CODE: PAT_HERMES_ARR }
-        / IDENT COLONCOLON IDENT LPAREN pat_binding_list? RPAREN
+        / IDENT COLONCOLON IDENT LPAREN pat_variant_args? RPAREN
         => { CODE: PAT_VARIANT_DATA, NAME: $1, FIELD: $3, ARGS: $5 }
         / IDENT COLONCOLON IDENT
         => { CODE: PAT_VARIANT, NAME: $1, FIELD: $3 }
@@ -1295,6 +1310,15 @@
         => { CODE: PAT_NEG_INT, VALUE: $2 }
         / INTEGER
         => { CODE: PAT_INT, VALUE: $1 }
+        // Float literal pattern (closes B-pt-06).  Sema rejects with a
+        // diagnostic — IEEE equality semantics are deliberately not committed
+        // to until the language has a defined story (Rust deprecated this).
+        / FLOAT
+        => { CODE: PAT_FLOAT, VALUE: $1 }
+        // Byte-string literal pattern (closes B-pt-03 — parses; sema
+        // rejects until codegen for &[u8] equality matching lands).
+        / BYTE_STRING
+        => { CODE: PAT_BYTES, VALUE: $1 }
         / KW_TRUE
         => { CODE: PAT_BOOL, VALUE: true }
         / KW_FALSE
@@ -1322,6 +1346,13 @@
              => { CODE: LET, NAME: $2, TYPE: $4, VALUE: $6 }
               / KW_LET IDENT ASSIGN expr SEMI
              => { CODE: LET, NAME: $2, VALUE: $4 }
+              // B-pt-02: irrefutable destructure with full pattern
+              // (struct, enum-variant, tuple-pattern with non-IDENT subs).
+              // Tried last because the IDENT-prefixed alts above cover the
+              // common path; this picks up forms the simpler alts reject.
+              // Refutability is checked at sema time.
+              / KW_LET pat_single ASSIGN expr SEMI
+             => { CODE: LET_PAT, PAT: $2, VALUE: $4 }
 
     while_stmt <- KW_WHILE KW_LET pattern ASSIGN expr block
                => { CODE: WHILE, PAT: $3, VALUE: $5, BODY: $6 }

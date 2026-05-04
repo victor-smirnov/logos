@@ -1467,6 +1467,7 @@ private:
     lir::LStmt lower_stmt(hermes::TinyMapView stmt);
     lir::LBlock lower_block(hermes::TinyMapView block);
     lir::LStmt lower_let_destruct(hermes::TinyMapView node);
+    lir::LStmt lower_let_pat(hermes::TinyMapView node);
     lir::LStmt lower_let(hermes::TinyMapView node);
     lir::LStmt lower_let_else(hermes::TinyMapView node);
     lir::LStmt lower_compound_assign(hermes::TinyMapView node);

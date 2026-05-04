@@ -1205,6 +1205,25 @@ private:
                 w.dedent();
                 w.line("}");
             }
+            // PREFIXED STRING (e.g. BYTE_STRING `b"..."`): single-letter
+            // prefix followed by `"..."` with the same escape rules as
+            // STRING. Detect by pattern shape `<letter>"...".
+            else if (pat.size() >= 4 && std::isalpha(static_cast<unsigned char>(pat[0])) &&
+                     pat[1] == '"' && pat[0] != 'r') {
+                char prefix = pat[0];
+                w.fmt("// {} = /{}/", t.name, pat);
+                w.fmt("if (c == '{}' && pos_+1 < source_.size() && source_[pos_+1] == '\"') {{", prefix);
+                w.indent();
+                w.line("pos_ += 2;");
+                w.line(R"(while (pos_ < source_.size() && source_[pos_] != '"') {)");
+                w.line(R"(    if (source_[pos_] == '\\') ++pos_;)");
+                w.line("    ++pos_;");
+                w.line("}");
+                w.line("if (pos_ < source_.size()) ++pos_;");
+                w.fmt("return {{TK::{}, source_.substr(start, pos_ - start), start_line_}};", safe_tok_name(t.name));
+                w.dedent();
+                w.line("}");
+            }
             // STRING: \"([^\"\\\\]|\\\\.)*\"
             else if (pat.find('"') != std::string::npos) {
                 w.fmt("// {} = /{}/", t.name, pat);

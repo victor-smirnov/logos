@@ -1,0 +1,10 @@
+// Sprint 4.2 / B-pt-02: irrefutable struct destructure in `let`.
+package let_struct_pattern;
+
+struct Foo { x: i32, y: i32 }
+
+fn main() -> i32 {
+    let f: Foo = Foo { x: 10, y: 20 };
+    let Foo { x, y } = f;
+    return y - x - 10;
+}

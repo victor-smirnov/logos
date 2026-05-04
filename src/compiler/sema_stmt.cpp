@@ -135,6 +135,7 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
     if (c == la::LET)          return lower_let(stmt);
     if (c == la::LET_ELSE)     return lower_let_else(stmt);
     if (c == la::LET_DESTRUCT) return lower_let_destruct(stmt);
+    if (c == la::LET_PAT)      return lower_let_pat(stmt);
     if (c == la::ASSIGN)          return lower_assign(stmt);
     if (c == la::COMPOUND_ASSIGN) return lower_compound_assign(stmt);
     if (c == la::RETURN)       return lower_return(stmt);
@@ -410,6 +411,104 @@ lir::LStmt SemaChecker::lower_let_destruct(TinyMapView node) {
         blk->stmts.push_back(make_stmt_emit(node_line_, std::move(elem_let)));
     }
 
+    lir::SBlock sb;
+    sb.body = std::move(blk);
+    return make_stmt_emit(node_line_, std::move(sb));
+}
+
+// Sprint 4.2 — B-pt-02: irrefutable struct destructure in `let`.
+//   let Foo { x, y } = expr;          →  let __dst = expr; let x = __dst.x; let y = __dst.y;
+//   let Foo { x: a, y: b } = expr;    same with rebinding
+// Other pattern shapes (variant, tuple-via-pat_single, slice, …) are
+// rejected with a clear diagnostic — they're refutable or need full
+// match lowering, which we layer on top of this basic destructure path
+// in a later sprint.
+lir::LStmt SemaChecker::lower_let_pat(TinyMapView node) {
+    lir::LExprPtr rhs = node.has_key(la::VALUE)
+        ? lower_expr(map_of(node.get(la::VALUE.code)))
+        : error_expr();
+    TypeRef rhs_type = rhs->type;
+    if (!node.has_key(la::PAT)) {
+        error("internal: LET_PAT missing PAT");
+        return builder().stmt_expr(std::move(rhs), node_line_);
+    }
+    auto pat_av = node.get(la::PAT.code);
+    if (pat_av.is_null() || !pat_av.is_pointer()) {
+        error("internal: LET_PAT PAT not a node");
+        return builder().stmt_expr(std::move(rhs), node_line_);
+    }
+    auto pat_node = map_of(pat_av);
+    int32_t pc = code_of(pat_node);
+    if (pc != la::PAT_STRUCT) {
+        error("'let <pattern> = expr;' currently supports struct patterns only "
+              "(other shapes are refutable; use 'match' or 'let-else')");
+        return builder().stmt_expr(std::move(rhs), node_line_);
+    }
+    if (TypeRef(rhs_type).kind() != LogosType::Kind::Struct &&
+        TypeRef(rhs_type).kind() != LogosType::Kind::ZonedStruct) {
+        error(std::format("let <struct-pat> = expr: rhs must be a struct, got '{}'",
+              type_str(rhs_type)));
+        return builder().stmt_expr(std::move(rhs), node_line_);
+    }
+    auto sname = std::string(str_of(pat_node.get(la::NAME.code)));
+    if (sname != std::string_view(TypeRef(rhs_type).struct_name())) {
+        error(std::format("let pattern: struct '{}' does not match rhs type '{}'",
+              sname, type_str(rhs_type)));
+        return builder().stmt_expr(std::move(rhs), node_line_);
+    }
+    auto blk = lir::alloc_block(*cur_prog_);
+    std::string tmp = std::format("__dst_{}", destruct_counter_++);
+    define(tmp, rhs_type);
+    {
+        lir::SLet sl;
+        sl.name = tmp; sl.type = rhs_type; sl.is_mut = false;
+        sl.value = std::move(rhs);
+        blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+    }
+    if (pat_node.has_key(la::ITEMS)) {
+        auto items_av = pat_node.get(la::ITEMS.code);
+        if (!items_av.is_pointer()) goto post_fields;
+        auto fitems = map_of(items_av);
+        if (!fitems.has_key(la::ITEMS)) goto post_fields;
+        auto fields = arr_of(fitems.get(la::ITEMS.code));
+        std::vector<std::string> seen;
+        for (uint64_t i = 0; i < fields.size(); ++i) {
+            auto fav = fields.get(i);
+            if (!fav.is_pointer()) continue;
+            auto fnode = map_of(fav);
+            int32_t fc = code_of(fnode);
+            if (fc == la::PAT_REST) continue;  // `..` rest in struct pat — skip
+            if (fc != la::PAT_FIELD) continue;
+            auto fname = std::string(str_of(fnode.get(la::NAME.code)));
+            std::string bind_name = fname;
+            // Rebound: `Foo { x: alias, ... }` — VALUE carries an inner pattern.
+            if (fnode.has_key(la::VALUE)) {
+                auto sub = map_of(fnode.get(la::VALUE.code));
+                if (code_of(sub) == la::PAT_WILD && sub.has_key(la::NAME)) {
+                    bind_name = std::string(str_of(sub.get(la::NAME.code)));
+                } else if (code_of(sub) != la::PAT_WILD) {
+                    error(std::format(
+                        "let struct-pattern field '{}': nested patterns not yet "
+                        "supported; bind to a name", fname));
+                    continue;
+                }
+            }
+            seen.push_back(fname);
+            auto ft = field_type_of(std::string(TypeRef(rhs_type).struct_name()), fname);
+            if (!ft) {
+                error(std::format("struct '{}': unknown field '{}'", sname, fname));
+                continue;
+            }
+            define(bind_name, ft);
+            auto recv = builder().var_ref(tmp, rhs_type);
+            auto fr   = builder().field_read(std::move(recv), fname, ft);
+            lir::SLet sl;
+            sl.name = bind_name; sl.type = ft; sl.is_mut = false;
+            sl.value = std::move(fr);
+            blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+        }
+    }
+    post_fields:
     lir::SBlock sb;
     sb.body = std::move(blk);
     return make_stmt_emit(node_line_, std::move(sb));
@@ -1097,7 +1196,22 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                     auto bitems = arr_of(blist.get(la::ITEMS.code));
                     for (uint64_t j = 0; j < bitems.size(); ++j) {
                         auto bnode = map_of(bitems.get(j));
-                        if (!bnode.has_key(la::NAME)) continue;  // () unit — no binding
+                        // B-pt-04: variant-payload args now parse as full
+                        // patterns, but only PAT_WILD bindings (or PAT_UNIT
+                        // skip) are codegen'd today.  Anything else (struct,
+                        // tuple, nested variant, …) emits a diagnostic
+                        // until the match-lowering supports nested guards.
+                        int32_t bc = code_of(bnode);
+                        if (bc == la::PAT_UNIT) continue;  // () unit — no binding
+                        if (bc != la::PAT_WILD) {
+                            error(std::format(
+                                "pattern {}::{}: nested patterns inside enum-variant "
+                                "payloads are not yet supported; bind to a name and "
+                                "match in the body",
+                                pename, pvname));
+                            continue;
+                        }
+                        if (!bnode.has_key(la::NAME)) continue;
                         bindings.push_back(std::string(str_of(bnode.get(la::NAME.code))));
                     }
                 }
@@ -1126,6 +1240,24 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             *cur_prog_, pename, pvname, disc, bindings, binding_types);
         lir::Pattern p_;
         p_.mirror_offset_ = mo;
+        return p_;
+    }
+    if (pc == la::PAT_FLOAT) {
+        // B-pt-06: parse but reject — IEEE-equality patterns need a
+        // language-level decision before we wire them through codegen.
+        error("float-literal patterns are not yet supported "
+              "(IEEE equality semantics undecided)");
+        lir::Pattern p_;
+        p_.mirror_offset_ = lir_mirror_emit_pat_wild(*cur_prog_, "_");
+        return p_;
+    }
+    if (pc == la::PAT_BYTES) {
+        // B-pt-03: parses now; codegen for `match &[u8] { b"..." => ... }`
+        // (length+memcmp lowering) is a future slice.
+        error("byte-string patterns are not yet supported in codegen "
+              "(parse only — the form now reaches sema cleanly)");
+        lir::Pattern p_;
+        p_.mirror_offset_ = lir_mirror_emit_pat_wild(*cur_prog_, "_");
         return p_;
     }
     if (pc == la::PAT_INT || pc == la::PAT_NEG_INT) {
