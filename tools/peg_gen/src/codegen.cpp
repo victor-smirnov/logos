@@ -738,6 +738,7 @@ private:
         w.line("#include <logos/verification/assert.hpp>");
         w.line("#include <charconv>");
         w.line("#include <cctype>");
+        w.line("#include <cstdio>");
         w.line();
         w.fmt("namespace {} {{", g_.cxx_namespace);
         w.line();
@@ -1264,8 +1265,17 @@ private:
             w.indent();
             w.line("doc_ = logos::hermes::make_doc(524288).get();");
             w.fmt("AnyVal root = rule_{}();", e);
-            w.fmt("LOGOS_ASSERT(!root.is_null(), \"{}-PARSE-001\", \"parse_{}: expected {}\");",
-                  to_upper(g_.name), e, e);
+            // Recovery instead of assertion (Meta-Sprint M0.2): parse failure
+            // returns an empty Hermes doc; the caller's ast.is_null() check
+            // takes the error path. Closes B-mv-05/06/07/08 and B-lx-01/02.
+            w.line("if (root.is_null()) {");
+            w.indent();
+            w.fmt("std::fprintf(stderr, \"parse error in {}: expected {} (near line %u)\\n\",",
+                  e, e);
+            w.line("             next_line());");
+            w.line("return logos::hermes::Hermes{};  // null doc; caller handles error");
+            w.dedent();
+            w.line("}");
             w.line("logos::hermes::HermesAccess::set_root_offset(doc_, root.to_offset());");
             w.line("return std::move(doc_);");
             w.dedent();
