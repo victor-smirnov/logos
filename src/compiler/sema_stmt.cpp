@@ -641,7 +641,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     // the HERMES_BLOB has been lowered to a real expr.
     bool rhs_is_expr_blob =
         TypeRef(rhs_type).kind() == LogosType::Kind::Struct &&
-        TypeRef(rhs_type).struct_name() == "ExprBlob";
+        is_exprblob(rhs_type);
     if (rhs_is_expr_blob && ann != nullptr) {
         rhs_type = ann;
         if (rhs) rhs->type = ann;
@@ -2663,7 +2663,7 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
     {
         TypeRef recv_type = lookup(recv_name);
         if (recv_type && TypeRef(recv_type).kind() == LogosType::Kind::Struct &&
-            TypeRef(recv_type).struct_name() == "DataRef" &&
+            is_dataref(recv_type) &&
             TypeRef(recv_type).type_args().size() == 1) {
             TypeRef T = TypeRef(recv_type).type_args()[0];
             if (T && TypeRef(T).kind() == LogosType::Kind::ZonedStruct) {

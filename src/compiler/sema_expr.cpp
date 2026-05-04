@@ -273,7 +273,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                 }
                 // Helper: check AnyVal val type.
                 bool val_is_anyval = TypeRef(val_t).kind() == LogosType::Kind::Struct &&
-                                     TypeRef(val_t).struct_name() == "AnyVal";
+                                     is_anyval(val_t);
                 std::string map_fn;
                 struct MapVariant { LogosType::Kind key_kind; const char* slice_name; const char* fn_name; };
                 static const MapVariant map_variants[] = {
@@ -3903,7 +3903,7 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
     // Intercept before normal struct field lookup so that DataRef<T>.x works without
     // an explicit let pw = p.ptr() intermediate step.
     if (recv_base_t && TypeRef(recv_base_t).kind() == LogosType::Kind::Struct &&
-        TypeRef(recv_base_t).struct_name() == "DataRef" &&
+        is_dataref(recv_base_t) &&
         TypeRef(recv_base_t).type_args().size() == 1) {
         TypeRef T = TypeRef(recv_base_t).type_args()[0];
         if (T && TypeRef(T).kind() == LogosType::Kind::ZonedStruct) {
@@ -5239,7 +5239,7 @@ lir::LExprPtr SemaChecker::coerce_to_hermes_anyval(
     // AnyVal passthrough (datatype or struct form).
     if ((TypeRef(t).kind() == LogosType::Kind::Struct
          || TypeRef(t).kind() == LogosType::Kind::ZonedStruct)
-        && TypeRef(t).struct_name() == "AnyVal") {
+        && is_anyval(t)) {
         return val;
     }
 
@@ -6813,8 +6813,8 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                     return true;
                 // AnyVal passes through; StringView captures as varchar — C5.
                 case K::Struct:
-                    return TypeRef(t).struct_name() == "AnyVal" ||
-                           TypeRef(t).struct_name() == "StringView";
+                    return is_anyval(t) ||
+                           is_string_view(t);
                 // *const u8 / *mut u8 captured as C-string varchar — C5.
                 case K::Ptr:
                     return TypeRef(t).pointee() && TypeRef(t).pointee().kind() == K::U8;
@@ -6971,11 +6971,11 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
     TypeRef expr_blob_t = make_struct_type("ExprBlob");
     auto is_ident_type = [](TypeRef t) {
         return TypeRef(t).kind() == LogosType::Kind::Struct
-            && TypeRef(t).struct_name() == "Ident";
+            && is_ident(t);
     };
     auto is_expr_blob_type_qi = [](TypeRef t) {
         return TypeRef(t).kind() == LogosType::Kind::Struct
-            && TypeRef(t).struct_name() == "ExprBlob";
+            && is_exprblob(t);
     };
     auto is_vec_ident_qi = [&](TypeRef t) -> bool {
         if (TypeRef(t).kind() != LogosType::Kind::Struct) return false;
@@ -7905,7 +7905,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
     TypeRef ident_t = make_struct_type("Ident");
     auto is_ident_type = [](TypeRef t) {
         return TypeRef(t).kind() == LogosType::Kind::Struct
-            && TypeRef(t).struct_name() == "Ident";
+            && is_ident(t);
     };
     // Returns N>0 if `t` is a fixed-size array of Ident, else 0.
     auto ident_array_len = [&](TypeRef t) -> uint64_t {
@@ -7953,7 +7953,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
         uint64_t count = 0;
         auto is_expr_blob_type = [](TypeRef t) {
             return TypeRef(t).kind() == LogosType::Kind::Struct
-                && TypeRef(t).struct_name() == "ExprBlob";
+                && is_exprblob(t);
         };
         if (is_cursor) {
             count = ident_array_len(vt);
@@ -8537,10 +8537,8 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
     auto lowered = lower_expr(inner);
     auto rt = lowered ? lowered->type : nullptr;
     auto rk = TypeRef(rt).kind();
-    bool is_hermes_static =
-        rk == LogosType::Kind::Struct && TypeRef(rt).struct_name() == "HermesStatic";
-    bool is_hermes =
-        rk == LogosType::Kind::Struct && TypeRef(rt).struct_name() == "Hermes";
+    bool rt_is_hermes_static = is_hermes_static(rt);
+    bool rt_is_hermes        = is_hermes(rt);
     // Slice 7 of metaprog-quote: ExprBlob is a HermesStatic-shaped marker
     // signalling that the metafunction returns an AST expression fragment.
     // Driver splices identically (CODE→HERMES_BLOB, VALUE=bytes); pass-2
@@ -8548,7 +8546,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
     // lower_expr to recover the actual expr type. Pass-1 typing is deferred
     // — `let X: T = metacall foo()` accepts any T over an ExprBlob RHS.
     bool is_expr_blob =
-        rk == LogosType::Kind::Struct && TypeRef(rt).struct_name() == "ExprBlob";
+        rk == LogosType::Kind::Struct && is_exprblob(rt);
     bool prim_ok =
         rk == LogosType::Kind::Bool ||
         rk == LogosType::Kind::I8   || rk == LogosType::Kind::I16 ||
@@ -8563,7 +8561,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
         // &str / Slice<u8>
         (rk == LogosType::Kind::Slice && TypeRef(rt).elem() &&
          TypeRef(rt).elem().kind() == LogosType::Kind::U8);
-    bool ok_ret = prim_ok || is_hermes_static || is_hermes || is_expr_blob;
+    bool ok_ret = prim_ok || rt_is_hermes_static || rt_is_hermes || is_expr_blob;
     if (rt && !ok_ret)
         error("metacall: ret type must be primitive scalar, HermesStatic, Hermes, or ExprBlob");
 
@@ -8595,8 +8593,8 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
         case LogosType::Kind::FloatLit: site.ret_tag = RT::F64; break;
         case LogosType::Kind::Slice: site.ret_tag = RT::Str; break;
         case LogosType::Kind::Struct:
-            site.ret_tag = is_hermes_static ? RT::HermesStatic
-                         : is_hermes        ? RT::Hermes
+            site.ret_tag = rt_is_hermes_static ? RT::HermesStatic
+                         : rt_is_hermes        ? RT::Hermes
                          : is_expr_blob     ? RT::ExprBlob
                                             : RT::I64;
             break;
@@ -8709,7 +8707,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
         // Override the lowered expr's type so sema sees the post-splice shape
         // even when the callee returns Hermes (mutable) — auto-freeze copies
         // bytes into a static blob, so user code consumes HermesStatic.
-        if (is_hermes && lowered) {
+        if (rt_is_hermes && lowered) {
             lowered->type = make_struct_type("HermesStatic");
         }
     }
@@ -8836,11 +8834,9 @@ void SemaChecker::lower_metacall_item(hermes::TinyMapView node,
     auto rt = lowered ? lowered->type : nullptr;
     bool is_qib =
         rt && TypeRef(rt).kind() == LogosType::Kind::Struct
-           && TypeRef(rt).struct_name() == "QuoteItemBlob";
-    bool is_item_list =
-        rt && TypeRef(rt).kind() == LogosType::Kind::Struct
-           && TypeRef(rt).struct_name() == "ItemList";
-    if (rt && !is_qib && !is_item_list) {
+           && is_quote_item_blob(rt);
+    bool rt_is_item_list = is_item_list(rt);
+    if (rt && !is_qib && !rt_is_item_list) {
         error("metacall (item position): callee must return QuoteItemBlob or ItemList");
         return;
     }
@@ -8994,7 +8990,7 @@ void SemaChecker::lower_metacall_item(hermes::TinyMapView node,
     // it into the host shim. logos_emit_item_blob_subst is bound on the
     // metacall JIT (see main.cpp), so the thunk resolves it as an
     // ordinary extern fn during JIT compilation.
-    if (is_item_list) {
+    if (rt_is_item_list) {
         site.thunk_source = std::format(
             "package {};\n"
             "use std.compiler.metaprog;\n"

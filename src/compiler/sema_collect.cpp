@@ -822,7 +822,7 @@ void SemaChecker::collect_const(TinyMapView node) {
     // separately in generic_consts_ and instantiated per use-site.
     if (node.has_key(la::VALUE) && t &&
         TypeRef(t).kind() == LogosType::Kind::Struct &&
-        TypeRef(t).struct_name() == "HermesStatic") {
+        is_hermes_static(t)) {
         auto val_av = node.get(la::VALUE.code);
         if (val_av.is_pointer()) {
             auto val_node = map_of(val_av);

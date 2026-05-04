@@ -499,6 +499,34 @@ private:
     std::string ctx_;
     int         closure_counter_ = 0;
 
+    // ── Stdlib-intrinsic type predicates (catalog-cleanup Step 5) ──────
+    // Replaces ad-hoc `t.struct_name() == "X"` patterns scattered across
+    // sema.  Centralising helps when the stdlib renames a type or when
+    // pkg-qualification gets stricter (today these checks are pkg-blind,
+    // matching any struct with the bare name; that's intentional for
+    // stdlib intrinsics that have a single canonical type).
+    static bool is_named_struct(TypeRef t, std::string_view name) {
+        if (!t) return false;
+        auto k = TypeRef(t).kind();
+        return (k == LogosType::Kind::Struct ||
+                k == LogosType::Kind::ZonedStruct) &&
+               TypeRef(t).struct_name() == name;
+    }
+    static bool is_named_enum(TypeRef t, std::string_view name) {
+        if (!t) return false;
+        return TypeRef(t).kind() == LogosType::Kind::Enum &&
+               TypeRef(t).enum_name() == name;
+    }
+    static bool is_anyval(TypeRef t)         { return is_named_struct(t, "AnyVal"); }
+    static bool is_hermes_static(TypeRef t)  { return is_named_struct(t, "HermesStatic"); }
+    static bool is_hermes(TypeRef t)         { return is_named_struct(t, "Hermes"); }
+    static bool is_string_view(TypeRef t)    { return is_named_struct(t, "StringView"); }
+    static bool is_ident(TypeRef t)          { return is_named_struct(t, "Ident"); }
+    static bool is_exprblob(TypeRef t)       { return is_named_struct(t, "ExprBlob"); }
+    static bool is_dataref(TypeRef t)        { return is_named_struct(t, "DataRef"); }
+    static bool is_quote_item_blob(TypeRef t){ return is_named_struct(t, "QuoteItemBlob"); }
+    static bool is_item_list(TypeRef t)      { return is_named_struct(t, "ItemList"); }
+
     // Sema goes through 3 phases:
     //   Init     — primitives populated, no user ASTs touched
     //   Collect  — collect_module phase 1+2; struct/enum/fn declarations

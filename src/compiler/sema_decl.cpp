@@ -619,7 +619,7 @@ lir::LConst SemaChecker::lower_const_def(TinyMapView node) {
             // HermesStatic special-case: literal evaluates to HStaticLit,
             // which is treated as compatible with HermesStatic at higher level.
             bool hs_ok = TypeRef(lc.type).kind() == LogosType::Kind::Struct &&
-                         TypeRef(lc.type).struct_name() == "HermesStatic" &&
+                         is_hermes_static(lc.type) &&
                          TypeRef(lc.value->type).kind() == LogosType::Kind::HStaticLit;
             if (!hs_ok) {
                 auto [es, gs] = type_str_pair(lc.type, lc.value->type);
