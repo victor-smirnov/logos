@@ -380,6 +380,68 @@ pub fn multi_snap_begin<const STORE_CFG: HermesStatic>(store: &mut MultiStore<ST
     }
 }
 
+// multi_snap_fork — fork from parent commit. The dir tree is rc-bumped via
+// pmv2_store_begin's parent path. Container roots referenced from dir leaves
+// are also rc-bumped so a future mutation in either parent or fork triggers
+// CoW (preserving the other's view). This walk is type-erased — rc is at
+// offset 0 of NodeBase regardless of the container's (K, V, CFG).
+pub fn multi_snap_fork<const STORE_CFG: HermesStatic>(store: &mut MultiStore<STORE_CFG>, parent: i64) -> MultiSnap<STORE_CFG> {
+    unsafe {
+        let ap: *mut Arc<LockingStore> = &mut store.arc as *mut Arc<LockingStore>;
+        let stp: *mut LockingStore = ap.get() as *mut LockingStore;
+        let dir_inner: MutSnapshot<DirCfg> = pmv2_store_begin::<DirCfg, LockingStore>(stp, parent);
+
+        // Rc-bump every container root referenced in dir leaves.
+        if dir_inner.root != 0 as *mut NodeBase<u64, u64, DirCfg> {
+            let dir_view: PMapView<DirCfg> = PMapView::<DirCfg> { root: dir_inner.root };
+            let mut it: LeafIter<u64, u64, DirCfg> =
+                pmap_view_acquire_leaf_iter::<DirCfg>(&dir_view as *const PMapView<DirCfg>);
+            while leaf_iter_valid::<u64, u64, DirCfg>(&it as *const LeafIter<u64, u64, DirCfg>) {
+                let leaf_p: *mut LeafNode<u64, u64, DirCfg> =
+                    leaf_iter_leaf::<u64, u64, DirCfg>(&it as *const LeafIter<u64, u64, DirCfg>);
+                let n: u64 = leaf_p.keys.len();
+                let mut j: u64 = 0u64;
+                while j < n {
+                    let root_u64: u64 = leaf_p.vals.get(j);
+                    if root_u64 != 0u64 {
+                        let rcp: *mut u64 = root_u64 as *mut u64;  // rc at offset 0
+                        *rcp = *rcp + 1u64;
+                    }
+                    j = j + 1u64;
+                }
+                leaf_iter_next_leaf::<u64, u64, DirCfg>(&mut it as *mut LeafIter<u64, u64, DirCfg>);
+            }
+        }
+
+        return MultiSnap::<STORE_CFG> {
+            dir: rc_new::<MutSnapshot<DirCfg>>(dir_inner),
+            arc: ap.clone_arc(),
+        };
+    }
+}
+
+impl<const STORE_CFG: HermesStatic> MultiSnap<STORE_CFG> {
+    // commit — finalise this snap as a new DAG entry and return its commit
+    // id. Transfers the dir tree's rc to the DAG; container roots stay
+    // alive transitively through dir's leaves. Zeroes local dir.root so
+    // MultiSnap.drop skips the release walk.
+    //
+    // Caveat: ContainerRefs created from this snap must have already
+    // written back via Drop before commit fires (or the dir won't have the
+    // latest container roots). In practice, call .commit() after the inner
+    // scope holding ContainerRefs has ended.
+    pub fn commit(&mut self) -> i64 {
+        unsafe {
+            let rp: *mut Rc<MutSnapshot<DirCfg>> = &mut self.dir as *mut Rc<MutSnapshot<DirCfg>>;
+            let dir_p: *mut MutSnapshot<DirCfg> = rp.get_mut();
+            let stp: *mut LockingStore = (&mut self.arc as *mut Arc<LockingStore>).get() as *mut LockingStore;
+            let id: i64 = stp.register_commit(dir_p.root as *mut u8, dir_p.parent_id);
+            dir_p.root = 0 as *mut NodeBase<u64, u64, DirCfg>;
+            return id;
+        }
+    }
+}
+
 // Free-fn turbofish form: ::<STORE_CFG, CFG>(&mut snap, ctr_id).
 // Two const-generic args; STORE_CFG matches the snap's, CFG is the
 // container's. Inference doesn't round-trip both today, so explicit
