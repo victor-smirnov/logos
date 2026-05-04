@@ -1293,9 +1293,17 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
     else if (actual.kind() == LogosType::Kind::FloatLit)
         actual_norm = TypeRef(prim(LogosType::Kind::F64));
 
-    if (formal.kind() == LogosType::Kind::TypeVar) {
-        if (formal.type_var_name() == "Self") return;  // skip implicit Self
-        if (!bindings.count(formal.type_var_name()))
+    if (formal.kind() == LogosType::Kind::TypeVar ||
+        formal.kind() == LogosType::Kind::ConstVar) {
+        // Const-generic params (e.g. `<const CFG: HermesStatic>`) appear at
+        // type-arg position as ConstVar with the same type_var_name slot.
+        // Bind from the actual's HStaticLit / scalar value just like for
+        // type-generics — finish_generic_call's subst map already accepts
+        // both kinds. Without this case, any fn taking
+        // `&mut Snap<STORE_CFG>` falls back to "could not infer type
+        // arguments" and the caller has to pass STORE_CFG in turbofish.
+        if (formal.type_var_name() == "Self") return;
+        if (!bindings.count(std::string(formal.type_var_name())))
             bindings[std::string(formal.type_var_name())] = actual_norm;
         return;
     }
@@ -1402,15 +1410,40 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
     bool has_variadic = !fi.type_params.empty() && fi.type_params.back().is_variadic;
     size_t non_variadic_count = fi.type_params.size() - (has_variadic ? 1 : 0);
 
-    // Validate type arg count
+    // Validate type arg count. Partial turbofish is allowed: if the user
+    // provided fewer than expected, run inference on the missing tail
+    // (params [K..N]) using the actual arg types — so leading params can
+    // be supplied explicitly and trailing ones inferred. Common case for
+    // multi-arg generic fns where one type-param (e.g. CFG) is in the
+    // return type and the other (e.g. STORE_CFG) is in an arg type.
     if (!fi.type_params.empty()) {
         if (has_variadic) {
                 if (type_args.size() < non_variadic_count)
                     error(std::format("call to '{}': expected at least {} type arg(s), got {}",
                       callee_diag, non_variadic_count, type_args.size()));
-        } else if (type_args.size() != fi.type_params.size()) {
+        } else if (type_args.size() > fi.type_params.size()) {
             error(std::format("call to '{}': expected {} type arg(s), got {}",
                   callee_diag, fi.type_params.size(), type_args.size()));
+        } else if (type_args.size() < fi.type_params.size()) {
+            // Pre-bind explicit head; infer the rest from arg types.
+            StrMap<TypeRef> bindings;
+            for (size_t i = 0; i < type_args.size(); ++i)
+                bindings[fi.type_params[i].name] = type_args[i];
+            for (size_t i = 0; i < fi.param_types.size() && i < arg_exprs.size(); ++i) {
+                auto pt = subst_type_sema(fi.param_types[i], bindings);
+                unify_types(pt, arg_exprs[i]->type, bindings);
+            }
+            // Append inferred tail.
+            for (size_t i = type_args.size(); i < fi.type_params.size(); ++i) {
+                auto it = bindings.find(fi.type_params[i].name);
+                if (it == bindings.end()) {
+                    error(std::format("call to '{}': could not infer type arg '{}' "
+                          "from arguments — supply via turbofish",
+                          callee_diag, fi.type_params[i].name));
+                    return error_expr();
+                }
+                type_args.push_back(it->second);
+            }
         }
     }
 

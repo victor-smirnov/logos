@@ -162,7 +162,7 @@ impl<const STORE_CFG: HermesStatic> Snap<STORE_CFG> {
 // create_pmap::<STORE_CFG, CFG>(&mut snap, ctr_id) — register the per-CFG
 // release thunk (idempotent), allocate a fresh empty leaf, dir.insert
 // (ctr_id → root_u64), return ContainerRef holding a dir Rc clone.
-pub fn create_pmap<const STORE_CFG: HermesStatic, const CFG: HermesStatic>(snap: &mut Snap<STORE_CFG>, ctr_id: <type:STORE_CFG.ctr_id>) -> ContainerRef<CFG> {
+pub fn create_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(snap: &mut Snap<STORE_CFG>, ctr_id: <type:STORE_CFG.ctr_id>) -> ContainerRef<CFG> {
     unsafe {
         let stp: *mut LockingStore = (&mut snap.arc as *mut Arc<LockingStore>).get() as *mut LockingStore;
         register_release_thunk::<<type:CFG.key>, <type:CFG.value>, CFG>(stp);
@@ -187,7 +187,7 @@ pub fn create_pmap<const STORE_CFG: HermesStatic, const CFG: HermesStatic>(snap:
 // open_pmap::<STORE_CFG, CFG>(&mut snap, ctr_id) — dir lookup + cfg_hash
 // validation (defensive type check via slot-1 read on the root). Returns
 // invalid (root=null) on miss or cfg-mismatch.
-pub fn open_pmap<const STORE_CFG: HermesStatic, const CFG: HermesStatic>(snap: &mut Snap<STORE_CFG>, ctr_id: <type:STORE_CFG.ctr_id>) -> ContainerRef<CFG> {
+pub fn open_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(snap: &mut Snap<STORE_CFG>, ctr_id: <type:STORE_CFG.ctr_id>) -> ContainerRef<CFG> {
     unsafe {
         let dp:    *mut Rc<MutSnapshot<DirCfg>> = &mut snap.dir as *mut Rc<MutSnapshot<DirCfg>>;
         let dir_p: *mut MutSnapshot<DirCfg>     = dp.get_mut();

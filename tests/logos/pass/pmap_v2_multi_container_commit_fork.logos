@@ -41,10 +41,10 @@ fn main() -> i32 {
     let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
 
     // ── s1: create + fill + commit ──
-    let mut s1: Snap<StoreCfg> = snap_begin::<StoreCfg>(&mut store);
+    let mut s1: Snap<StoreCfg> = snap_begin(&mut store);
     {
-        let mut c_a: ContainerRef<CfgA> = create_pmap::<StoreCfg, CfgA>(&mut s1, 101u64);
-        let mut c_b: ContainerRef<CfgB> = create_pmap::<StoreCfg, CfgB>(&mut s1, 202u64);
+        let mut c_a: ContainerRef<CfgA> = create_pmap::<CfgA>(&mut s1, 101u64);
+        let mut c_b: ContainerRef<CfgB> = create_pmap::<CfgB>(&mut s1, 202u64);
         fill_a(&mut c_a, 1u64, 50u64);
         fill_b(&mut c_b, 1u32, 30u32);
         if c_a.len() != 50u64 { return 1; }
@@ -54,9 +54,9 @@ fn main() -> i32 {
     if c0 < 0i64 { return 3; }
 
     // ── s2: fork from c0, add more to ctr 101, commit ──
-    let mut s2: Snap<StoreCfg> = snap_fork::<StoreCfg>(&mut store, c0);
+    let mut s2: Snap<StoreCfg> = snap_fork(&mut store, c0);
     {
-        let mut c_a: ContainerRef<CfgA> = open_pmap::<StoreCfg, CfgA>(&mut s2, 101u64);
+        let mut c_a: ContainerRef<CfgA> = open_pmap::<CfgA>(&mut s2, 101u64);
         if !c_a.is_valid() { return 4; }
         if c_a.len() != 50u64 { return 5; }     // inherited
         fill_a(&mut c_a, 51u64, 100u64);
@@ -67,9 +67,9 @@ fn main() -> i32 {
     if c1 == c0 { return 8; }
 
     // ── checkout c0: ctr 101 unchanged at 50 ──
-    let mut s_c0: Snap<StoreCfg> = snap_fork::<StoreCfg>(&mut store, c0);
+    let mut s_c0: Snap<StoreCfg> = snap_fork(&mut store, c0);
     {
-        let mut c_a: ContainerRef<CfgA> = open_pmap::<StoreCfg, CfgA>(&mut s_c0, 101u64);
+        let mut c_a: ContainerRef<CfgA> = open_pmap::<CfgA>(&mut s_c0, 101u64);
         if !c_a.is_valid() { return 10; }
         if c_a.len() != 50u64 { return 11; }
         let probe: u64 = 25u64;
@@ -77,21 +77,21 @@ fn main() -> i32 {
         let probe_high: u64 = 75u64;
         if  c_a.contains(&probe_high as *const u64) { return 13; }   // not in c0
 
-        let mut c_b: ContainerRef<CfgB> = open_pmap::<StoreCfg, CfgB>(&mut s_c0, 202u64);
+        let mut c_b: ContainerRef<CfgB> = open_pmap::<CfgB>(&mut s_c0, 202u64);
         if !c_b.is_valid() { return 14; }
         if c_b.len() != 30u64 { return 15; }
     }
 
     // ── checkout c1: ctr 101 has 100, ctr 202 still has 30 ──
-    let mut s_c1: Snap<StoreCfg> = snap_fork::<StoreCfg>(&mut store, c1);
+    let mut s_c1: Snap<StoreCfg> = snap_fork(&mut store, c1);
     {
-        let mut c_a: ContainerRef<CfgA> = open_pmap::<StoreCfg, CfgA>(&mut s_c1, 101u64);
+        let mut c_a: ContainerRef<CfgA> = open_pmap::<CfgA>(&mut s_c1, 101u64);
         if !c_a.is_valid() { return 20; }
         if c_a.len() != 100u64 { return 21; }
         let probe_high: u64 = 75u64;
         if !c_a.contains(&probe_high as *const u64) { return 22; }
 
-        let mut c_b: ContainerRef<CfgB> = open_pmap::<StoreCfg, CfgB>(&mut s_c1, 202u64);
+        let mut c_b: ContainerRef<CfgB> = open_pmap::<CfgB>(&mut s_c1, 202u64);
         if !c_b.is_valid() { return 23; }
         if c_b.len() != 30u64 { return 24; }
     }

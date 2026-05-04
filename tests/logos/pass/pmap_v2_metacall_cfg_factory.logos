@@ -32,10 +32,10 @@ metacall emit_pmap_cfg_b();
 
 fn main() -> i32 {
     let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
-    let mut snap:  Snap<StoreCfg>  = snap_begin::<StoreCfg>(&mut store);
+    let mut snap:  Snap<StoreCfg>  = snap_begin(&mut store);
 
-    let mut c_a: ContainerRef<CfgA> = create_pmap::<StoreCfg, CfgA>(&mut snap, 1u64);
-    let mut c_b: ContainerRef<CfgB> = create_pmap::<StoreCfg, CfgB>(&mut snap, 2u64);
+    let mut c_a: ContainerRef<CfgA> = create_pmap::<CfgA>(&mut snap, 1u64);
+    let mut c_b: ContainerRef<CfgB> = create_pmap::<CfgB>(&mut snap, 2u64);
 
     if !c_a.is_valid() { return 1; }
     if !c_b.is_valid() { return 2; }

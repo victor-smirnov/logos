@@ -110,9 +110,9 @@ fn main() -> i32 {
 
     // ── s1: begin → create container 1 → fill 1000 → commit ────
     section("2. begin Snap, create_pmap(1), fill 1..=1000, commit");
-    let mut s1: Snap<StoreCfg> = snap_begin::<StoreCfg>(&mut store);
+    let mut s1: Snap<StoreCfg> = snap_begin(&mut store);
     {
-        let mut c1: ContainerRef<ShowCfg> = create_pmap::<StoreCfg, ShowCfg>(&mut s1, 1u64);
+        let mut c1: ContainerRef<ShowCfg> = create_pmap::<ShowCfg>(&mut s1, 1u64);
         let mut i: u64 = 1u64;
         while i <= 1000u64 {
             let _ = pmap_insert(&mut c1, i, i * 7u64);
@@ -127,9 +127,9 @@ fn main() -> i32 {
 
     // ── s2: fork c0, fill 1001..=2000 in container 1, commit ──
     section("3. fork from c0, fill 1001..=2000 in container 1, commit");
-    let mut s2: Snap<StoreCfg> = snap_fork::<StoreCfg>(&mut store, c0);
+    let mut s2: Snap<StoreCfg> = snap_fork(&mut store, c0);
     {
-        let mut c1: ContainerRef<ShowCfg> = open_pmap::<StoreCfg, ShowCfg>(&mut s2, 1u64);
+        let mut c1: ContainerRef<ShowCfg> = open_pmap::<ShowCfg>(&mut s2, 1u64);
         let line_inh: String = format::<u64>("   inherited size = {}", c1.len());
         println_string(&line_inh);
         let mut i: u64 = 1001u64;
@@ -146,9 +146,9 @@ fn main() -> i32 {
 
     // ── checkout c0: container 1 has 1000 entries (parent preserved) ──
     section("4. fork(c0) → iterate container 1 (expect 1000)");
-    let mut sr0: Snap<StoreCfg> = snap_fork::<StoreCfg>(&mut store, c0);
+    let mut sr0: Snap<StoreCfg> = snap_fork(&mut store, c0);
     {
-        let mut c1: ContainerRef<ShowCfg> = open_pmap::<StoreCfg, ShowCfg>(&mut sr0, 1u64);
+        let mut c1: ContainerRef<ShowCfg> = open_pmap::<ShowCfg>(&mut sr0, 1u64);
         let line_size: String = format::<u64>("   size = {}", c1.len());
         println_string(&line_size);
         let rc: i32 = iterate_and_sum(&c1, 1000u64);
@@ -158,9 +158,9 @@ fn main() -> i32 {
 
     // ── checkout c1: container 1 has 2000 entries ──
     section("5. fork(c1) → iterate container 1 (expect 2000)");
-    let mut sr1: Snap<StoreCfg> = snap_fork::<StoreCfg>(&mut store, c1_id);
+    let mut sr1: Snap<StoreCfg> = snap_fork(&mut store, c1_id);
     {
-        let mut c1: ContainerRef<ShowCfg> = open_pmap::<StoreCfg, ShowCfg>(&mut sr1, 1u64);
+        let mut c1: ContainerRef<ShowCfg> = open_pmap::<ShowCfg>(&mut sr1, 1u64);
         let rc: i32 = iterate_and_sum(&c1, 2000u64);
         if rc != 0 { return 40 + rc; }
         println("   ✓ c1 totals match (Σ(1..2000) = 2001000; ×7 = 14007000)");
