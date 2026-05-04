@@ -16,7 +16,7 @@
 ### B-lx-01: Empty source file → ASSERTION CRASH
 
 **Severity**: P0 hard (compiler crash)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-M0.2 (loader emits "cannot read" + parser error-recovery; clean exit 1)
 **Repro**: `B14/` — empty `main.logos`.
 **Observed**: `[LOGOS ASSERTION FAILURE] Requirement: LOGOS-PARSE-001`.
 **Expected**: Clean syntax error: "expected `package` declaration".
@@ -26,7 +26,7 @@
 ### B-lx-02: UTF-8 BOM at file start → ASSERTION CRASH
 
 **Severity**: P0 hard (compiler crash)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-M0.2 (parser error recovery; "parse error in module" + exit 1)
 **Repro**: `B15/` — file starts with `0xEF 0xBB 0xBF` (UTF-8 BOM) followed by `package main; fn main() -> i32 { return 0; }`.
 **Observed**: `[LOGOS ASSERTION FAILURE] Requirement: LOGOS-PARSE-001`.
 **Expected**: Either silently skip the BOM (most lexers do) or reject with "unexpected byte sequence at start of file".

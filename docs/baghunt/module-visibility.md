@@ -36,7 +36,7 @@
 ### B-mv-03: `use <missing-pkg>;` produces diagnostic but compilation continues
 
 **Severity**: P1 diagnostic
-**Status**: confirmed (2026-05-04)
+**Status**: deferred (attempted fatal-on-error in main; broke tests that rely on the loader being lenient when binary stdlib provides the symbols. Needs binary-index-aware package resolution before the stderr message can promote to a hard error.)
 **Repro**: `B07/` — `package main; use does_not_exist; fn main() -> i32 { return 0; }`
 **Observed**: `module_loader: cannot find package 'does_not_exist'` printed to stderr, but `logosc: wrote /tmp/B07.o` follows. Exit code is **0** despite the error.
 **Expected**: Hard error, non-zero exit, no `.o` written.
@@ -46,7 +46,7 @@
 ### B-mv-04: `pub use <missing-pkg>;` same as B-mv-03
 
 **Severity**: P1 diagnostic
-**Status**: confirmed (2026-05-04)
+**Status**: deferred (same root as B-mv-03)
 **Repro**: `B17/` — `pub use does_not_exist;` at item position.
 **Observed**: Same as B-mv-03 — message + clean exit + `.o` written.
 **Expected**: Hard error.
@@ -56,7 +56,7 @@
 ### B-mv-05: Keyword as package name → ASSERTION CRASH
 
 **Severity**: P0 hard (compiler crash)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-M0.2 (parser error recovery; clean "parse error in module" + exit 1)
 **Repro**: `B11/` — `package fn; fn main() -> i32 { return 0; }`
 **Observed**: `[LOGOS ASSERTION FAILURE] Requirement: LOGOS-PARSE-001`. Compiler aborts. No clean syntax error.
 **Expected**: Clean syntax error: "package name cannot be a reserved keyword" or just "expected IDENT, got KW_FN".
@@ -66,7 +66,7 @@
 ### B-mv-06: Missing `package` decl → ASSERTION CRASH
 
 **Severity**: P0 hard (compiler crash)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-M0.2 (parser error recovery; clean "parse error in module" + exit 1)
 **Repro**: `B13/` — file with just `fn main() -> i32 { return 0; }` (no `package` line).
 **Observed**: `[LOGOS ASSERTION FAILURE] Requirement: LOGOS-PARSE-001`.
 **Expected**: Clean syntax error: "expected `package` declaration".
@@ -76,7 +76,7 @@
 ### B-mv-07: Trailing dot in package path → ASSERTION CRASH
 
 **Severity**: P0 hard (compiler crash)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-M0.2 (parser error recovery; clean "parse error in module" + exit 1)
 **Repro**: `B15/` — `package main.; fn main() -> i32 { return 0; }`
 **Observed**: `[LOGOS ASSERTION FAILURE] Requirement: LOGOS-PARSE-001`.
 **Expected**: Clean syntax error: "expected IDENT after '.'".
@@ -86,7 +86,7 @@
 ### B-mv-08: Empty package path → ASSERTION CRASH
 
 **Severity**: P0 hard (compiler crash)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-M0.2 (parser error recovery; clean "parse error in module" + exit 1)
 **Repro**: `B20/` — `package ; fn main() -> i32 { return 0; }`
 **Observed**: `[LOGOS ASSERTION FAILURE] Requirement: LOGOS-PARSE-001`.
 **Expected**: Clean syntax error: "expected package name after `package`".

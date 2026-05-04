@@ -30,6 +30,7 @@ namespace logos::compiler {
 
 namespace la = logos::compiler::ast;
 namespace fs = std::filesystem;
+
 using hermes::TinyMapView;
 using hermes::ArrayView;
 using hermes::StringView;

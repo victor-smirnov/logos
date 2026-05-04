@@ -1853,6 +1853,11 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "logosc: no modules loaded\n");
         return 1;
     }
+    // B-mv-03: ideally we'd make missing-package fatal, but several
+    // tests rely on the loader being tolerant when the binary stdlib
+    // archive provides the symbols even if the source-side package
+    // index doesn't.  Deferred — needs binary-index-aware package
+    // resolution before the loader stderr can be promoted to error.
 
     // Collect ASTs and source paths.
     std::vector<logos::hermes::Hermes> asts;
