@@ -31,11 +31,11 @@ metacall emit_pmap_cfg_a();
 metacall emit_pmap_cfg_b();
 
 fn main() -> i32 {
-    let mut store: MultiStore<StoreCfg> = multi_store_open::<StoreCfg>();
-    let mut snap:  MultiSnap<StoreCfg>  = multi_snap_begin::<StoreCfg>(&mut store);
+    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
+    let mut snap:  Snap<StoreCfg>  = snap_begin::<StoreCfg>(&mut store);
 
-    let mut c_a: ContainerRef<CfgA> = multi_snap_create_pmap::<StoreCfg, CfgA>(&mut snap, 1u64);
-    let mut c_b: ContainerRef<CfgB> = multi_snap_create_pmap::<StoreCfg, CfgB>(&mut snap, 2u64);
+    let mut c_a: ContainerRef<CfgA> = create_pmap::<StoreCfg, CfgA>(&mut snap, 1u64);
+    let mut c_b: ContainerRef<CfgB> = create_pmap::<StoreCfg, CfgB>(&mut snap, 2u64);
 
     if !c_a.is_valid() { return 1; }
     if !c_b.is_valid() { return 2; }
@@ -48,7 +48,5 @@ fn main() -> i32 {
     if c_a.len() != 1u64 { return 3; }
     if c_b.len() != 1u64 { return 4; }
 
-    c_a.writeback();
-    c_b.writeback();
     return 42;
 }

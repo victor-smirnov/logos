@@ -8,11 +8,11 @@ pub type CfgA = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 8 };
 pub type CfgB = @{ "key": <type:u32>, "value": <type:u32>, "fanout": 8 };
 
 fn main() -> i32 {
-    let mut store: MultiStore<StoreCfg> = multi_store_open::<StoreCfg>();
-    let mut snap:  MultiSnap<StoreCfg>  = multi_snap_begin::<StoreCfg>(&mut store);
+    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
+    let mut snap:  Snap<StoreCfg>  = snap_begin::<StoreCfg>(&mut store);
     {
-        let mut c_a: ContainerRef<CfgA> = multi_snap_create_pmap::<StoreCfg, CfgA>(&mut snap, 101u64);
-        let mut c_b: ContainerRef<CfgB> = multi_snap_create_pmap::<StoreCfg, CfgB>(&mut snap, 202u64);
+        let mut c_a: ContainerRef<CfgA> = create_pmap::<StoreCfg, CfgA>(&mut snap, 101u64);
+        let mut c_b: ContainerRef<CfgB> = create_pmap::<StoreCfg, CfgB>(&mut snap, 202u64);
 
         if !c_a.is_valid() { return 1; }
         if !c_b.is_valid() { return 2; }
@@ -37,18 +37,18 @@ fn main() -> i32 {
     }
 
     {
-        let mut c_a2: ContainerRef<CfgA> = multi_snap_open_pmap::<StoreCfg, CfgA>(&mut snap, 101u64);
+        let mut c_a2: ContainerRef<CfgA> = open_pmap::<StoreCfg, CfgA>(&mut snap, 101u64);
         if !c_a2.is_valid() { return 9; }
         if c_a2.len() != 50u64 { return 10; }
     }
 
     {
-        let c_mismatch: ContainerRef<CfgB> = multi_snap_open_pmap::<StoreCfg, CfgB>(&mut snap, 101u64);
+        let c_mismatch: ContainerRef<CfgB> = open_pmap::<StoreCfg, CfgB>(&mut snap, 101u64);
         if c_mismatch.is_valid() { return 12; }
     }
 
     {
-        let c_nope: ContainerRef<CfgA> = multi_snap_open_pmap::<StoreCfg, CfgA>(&mut snap, 999u64);
+        let c_nope: ContainerRef<CfgA> = open_pmap::<StoreCfg, CfgA>(&mut snap, 999u64);
         if c_nope.is_valid() { return 13; }
     }
 

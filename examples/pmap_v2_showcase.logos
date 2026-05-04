@@ -1,25 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
 //
-// pmap_v2 showcase — three-level layered API:
+// pmap_v2 showcase — container-directory architecture.
 //
-//   Store          — Arc<LockingStore>, the DAG owner.
-//   Snap<CFG>      — Rc-wrapped writable snapshot. Has commit().
-//   RoSnap<CFG>    — Rc-wrapped frozen snapshot.
-//   PMap<'a,CFG>   — borrowed writable container view (insert/remove).
-//   RoPMap<'a,CFG> — borrowed read-only typed view (iter/contains).
-//   Iter<'a,CFG>   — leaf walker, lifetime-bound to the snapshot.
-//   LeafView<'a,CFG> — safe accessor over the iter's current leaf.
+//   Store<STORE_CFG>     — Arc<LockingStore>; per-store release registry.
+//   Snap<STORE_CFG>      — directory MutSnapshot. Hosts containers,
+//                          dispatches commit/fork.
+//   ContainerRef<CFG>    — handle to one container in a Snap.
+//   Iter<CFG> / LeafView<CFG> — leaf walker over a container.
 //
-// commit lives on the snapshot — it's a versioned-tree-state op, not
-// a container op. The container view (PMap/RoPMap) borrows the
-// snapshot to issue typed data ops. CFG threads through both today;
-// type-erasing Snap is a future arc that needs a generic-fn-pointer-
-// as-value (`IDENT::<TARGS>` at expression position) — currently a
-// grammar gap.
-//
-// No `unsafe` keyword; Drop fires automatically on scope exit,
-// releasing held trees and refcounts.
+// Drop fires automatically on scope exit (no explicit close/writeback).
+// commit transfers the dir tree to the DAG; fork inherits and rc-bumps
+// container roots so per-fork mutations CoW-clone cleanly.
 
 package pmap_v2_showcase;
 
@@ -30,6 +22,14 @@ use std.lang.datatypes;
 use std.lang.text;
 use std.fmt;
 use std.io;
+use std.hermes.view;
+use std.hermes.anyval;
+
+pub type StoreCfg = @{
+    "name":   "showcase",
+    "ctr_id": <type:u64>,
+    "snp_id": <type:u64>,
+};
 
 pub type ShowCfg = @{
     "key":           <type:u64>,
@@ -45,10 +45,54 @@ fn section(title: str) {
     println(title);
 }
 
-// PMap.insert wants a `*const Key` qkey arg — materialise it locally.
-fn pmap_insert<'a>(p: &mut PMapRef<'a, ShowCfg>, key: u64, val: u64) -> bool {
+fn pmap_insert(p: &mut ContainerRef<ShowCfg>, key: u64, val: u64) -> bool {
     let k: u64 = key;
     return p.insert(key, val, &k as *const u64);
+}
+
+fn iterate_and_sum(p: &ContainerRef<ShowCfg>, expected: u64) -> i32 {
+    let mut sum_k:  u64 = 0u64;
+    let mut sum_v:  u64 = 0u64;
+    let mut count:  u64 = 0u64;
+    let mut leaves: u64 = 0u64;
+    let mut prev:   u64 = 0u64;
+    let mut it: Iter<ShowCfg> = p.iter();
+    while it.valid() {
+        leaves = leaves + 1u64;
+        let leaf: LeafView<ShowCfg> = it.leaf();
+        let n: u64 = leaf.len();
+        let mut j: u64 = 0u64;
+        while j < n {
+            let kv: u64 = leaf.key_at(j);
+            let vv: u64 = leaf.val_at(j);
+            if kv <= prev {
+                println("   ORDER VIOLATION");
+                return 99;
+            }
+            prev = kv;
+            sum_k = sum_k + kv;
+            sum_v = sum_v + vv;
+            count = count + 1u64;
+            j = j + 1u64;
+        }
+        it.next();
+    }
+    let line_l: String = format::<u64, u64>("   leaves visited = {} / count = {}", leaves, count);
+    let line_s: String = format::<u64, u64>("   sum keys = {} / sum vals = {}", sum_k, sum_v);
+    println_string(&line_l);
+    println_string(&line_s);
+    if count != expected {
+        let line_e: String = format::<u64, u64>("   COUNT MISMATCH: got {}, expected {}", count, expected);
+        println_string(&line_e);
+        return 1;
+    }
+    let exp_sum_k: u64 = (expected * (expected + 1u64)) / 2u64;
+    let exp_sum_v: u64 = exp_sum_k * 7u64;
+    if sum_k != exp_sum_k || sum_v != exp_sum_v {
+        println("   TOTALS MISMATCH");
+        return 2;
+    }
+    return 0;
 }
 
 fn main() -> i32 {
@@ -60,135 +104,68 @@ fn main() -> i32 {
         return 1;
     }
 
-    section("1. open Store");
-    let mut store: Store = store_open();
+    section("1. open Store<StoreCfg>");
+    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
     println("   store opened");
 
-    // ── 1st snapshot: NO_COMMIT → 1000 inserts → commit ──────────
-    section("2. begin Snap from NO_COMMIT, fill, commit");
-    let mut s1: Snap<ShowCfg> = snap_begin::<ShowCfg>(&mut store);
+    // ── s1: begin → create container 1 → fill 1000 → commit ────
+    section("2. begin Snap, create_pmap(1), fill 1..=1000, commit");
+    let mut s1: Snap<StoreCfg> = snap_begin::<StoreCfg>(&mut store);
     {
-        let mut p1: PMapRef<ShowCfg> = s1.pmap();
+        let mut c1: ContainerRef<ShowCfg> = create_pmap::<StoreCfg, ShowCfg>(&mut s1, 1u64);
         let mut i: u64 = 1u64;
         while i <= 1000u64 {
-            let _ = pmap_insert(&mut p1, i, i * 7u64);
+            let _ = pmap_insert(&mut c1, i, i * 7u64);
             i = i + 1u64;
         }
-        let line: String = format::<u64>("   size after inserts = {}", p1.len());
+        let line: String = format::<u64>("   size after inserts = {}", c1.len());
         println_string(&line);
     }
     let c0: i64 = s1.commit();
     let line_c0: String = format::<i64>("   commit id = {}", c0);
     println_string(&line_c0);
 
-    // ── 2nd snapshot: fork c0 → 1000 more → commit ───────────────
-    section("3. fork Snap from c0, fill, commit");
-    let mut s2: Snap<ShowCfg> = snap_fork::<ShowCfg>(&mut store, c0);
+    // ── s2: fork c0, fill 1001..=2000 in container 1, commit ──
+    section("3. fork from c0, fill 1001..=2000 in container 1, commit");
+    let mut s2: Snap<StoreCfg> = snap_fork::<StoreCfg>(&mut store, c0);
     {
-        let mut p2: PMapRef<ShowCfg> = s2.pmap();
-        let line_inh: String = format::<u64>("   inherited size = {}", p2.len());
+        let mut c1: ContainerRef<ShowCfg> = open_pmap::<StoreCfg, ShowCfg>(&mut s2, 1u64);
+        let line_inh: String = format::<u64>("   inherited size = {}", c1.len());
         println_string(&line_inh);
         let mut i: u64 = 1001u64;
         while i <= 2000u64 {
-            let _ = pmap_insert(&mut p2, i, i * 7u64);
+            let _ = pmap_insert(&mut c1, i, i * 7u64);
             i = i + 1u64;
         }
-        let line: String = format::<u64>("   size after second batch = {}", p2.len());
+        let line: String = format::<u64>("   size after second batch = {}", c1.len());
         println_string(&line);
     }
-    let c1: i64 = s2.commit();
-    let line_c1: String = format::<i64>("   commit id = {}", c1);
+    let c1_id: i64 = s2.commit();
+    let line_c1: String = format::<i64>("   commit id = {}", c1_id);
     println_string(&line_c1);
 
-    // ── Read c0 (1000 entries) ──────────────────────────────────
-    section("4. checkout c0 → iterate (expect 1000)");
-    let mut ro0: RoSnap<ShowCfg> = snap_checkout::<ShowCfg>(&mut store, c0);
-    let mut sum_k0: u64 = 0u64;
-    let mut sum_v0: u64 = 0u64;
-    let mut count0: u64 = 0u64;
-    let mut leaves0: u64 = 0u64;
+    // ── checkout c0: container 1 has 1000 entries (parent preserved) ──
+    section("4. fork(c0) → iterate container 1 (expect 1000)");
+    let mut sr0: Snap<StoreCfg> = snap_fork::<StoreCfg>(&mut store, c0);
     {
-        let mut rp0: RoPMapRef<ShowCfg> = ro0.pmap();
-        let line_size: String = format::<u64>("   snapshot size = {}", rp0.len());
+        let mut c1: ContainerRef<ShowCfg> = open_pmap::<StoreCfg, ShowCfg>(&mut sr0, 1u64);
+        let line_size: String = format::<u64>("   size = {}", c1.len());
         println_string(&line_size);
-        let mut it: Iter<ShowCfg> = rp0.iter();
-        let mut prev: u64 = 0u64;
-        while it.valid() {
-            leaves0 = leaves0 + 1u64;
-            let leaf: LeafView<ShowCfg> = it.leaf();
-            let n: u64 = leaf.len();
-            let mut j: u64 = 0u64;
-            while j < n {
-                let kv: u64 = leaf.key_at(j);
-                let vv: u64 = leaf.val_at(j);
-                if kv <= prev {
-                    println("   ORDER VIOLATION on c0");
-                    return 30;
-                }
-                prev = kv;
-                sum_k0 = sum_k0 + kv;
-                sum_v0 = sum_v0 + vv;
-                count0 = count0 + 1u64;
-                j = j + 1u64;
-            }
-            it.next();
-        }
+        let rc: i32 = iterate_and_sum(&c1, 1000u64);
+        if rc != 0 { return 30 + rc; }
+        println("   ✓ c0 totals match (Σ(1..1000) = 500500; ×7 = 3503500)");
     }
-    let line_c0_l: String = format::<u64, u64>("   leaves visited = {} / count = {}", leaves0, count0);
-    let line_c0_s: String = format::<u64, u64>("   sum keys = {} / sum vals = {}", sum_k0, sum_v0);
-    println_string(&line_c0_l);
-    println_string(&line_c0_s);
-    if count0 != 1000u64 || sum_k0 != 500500u64 || sum_v0 != 3503500u64 {
-        println("   TOTALS MISMATCH on c0");
-        return 31;
-    }
-    println("   ✓ c0 totals match (Σ(1..1000) = 500500; ×7 = 3503500)");
 
-    // ── Read c1 (2000 entries) ──────────────────────────────────
-    section("5. checkout c1 → iterate (expect 2000)");
-    let mut ro1: RoSnap<ShowCfg> = snap_checkout::<ShowCfg>(&mut store, c1);
-    let mut sum_k1: u64 = 0u64;
-    let mut sum_v1: u64 = 0u64;
-    let mut count1: u64 = 0u64;
-    let mut leaves1: u64 = 0u64;
+    // ── checkout c1: container 1 has 2000 entries ──
+    section("5. fork(c1) → iterate container 1 (expect 2000)");
+    let mut sr1: Snap<StoreCfg> = snap_fork::<StoreCfg>(&mut store, c1_id);
     {
-        let mut rp1: RoPMapRef<ShowCfg> = ro1.pmap();
-        let line_size: String = format::<u64>("   snapshot size = {}", rp1.len());
-        println_string(&line_size);
-        let mut it: Iter<ShowCfg> = rp1.iter();
-        let mut prev: u64 = 0u64;
-        while it.valid() {
-            leaves1 = leaves1 + 1u64;
-            let leaf: LeafView<ShowCfg> = it.leaf();
-            let n: u64 = leaf.len();
-            let mut j: u64 = 0u64;
-            while j < n {
-                let kv: u64 = leaf.key_at(j);
-                let vv: u64 = leaf.val_at(j);
-                if kv <= prev {
-                    println("   ORDER VIOLATION on c1");
-                    return 40;
-                }
-                prev = kv;
-                sum_k1 = sum_k1 + kv;
-                sum_v1 = sum_v1 + vv;
-                count1 = count1 + 1u64;
-                j = j + 1u64;
-            }
-            it.next();
-        }
+        let mut c1: ContainerRef<ShowCfg> = open_pmap::<StoreCfg, ShowCfg>(&mut sr1, 1u64);
+        let rc: i32 = iterate_and_sum(&c1, 2000u64);
+        if rc != 0 { return 40 + rc; }
+        println("   ✓ c1 totals match (Σ(1..2000) = 2001000; ×7 = 14007000)");
     }
-    let line_c1_l: String = format::<u64, u64>("   leaves visited = {} / count = {}", leaves1, count1);
-    let line_c1_s: String = format::<u64, u64>("   sum keys = {} / sum vals = {}", sum_k1, sum_v1);
-    println_string(&line_c1_l);
-    println_string(&line_c1_s);
-    if count1 != 2000u64 || sum_k1 != 2001000u64 || sum_v1 != 14007000u64 {
-        println("   TOTALS MISMATCH on c1");
-        return 41;
-    }
-    println("   ✓ c1 totals match (Σ(1..2000) = 2001000; ×7 = 14007000)");
 
-    // Drop fires here in reverse-declaration order: ro1, ro0, s2, s1, store.
     println("");
     println("done.");
     return 0;
