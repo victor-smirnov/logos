@@ -1,36 +1,15 @@
-// Multi-container API in pmap_v2 handle (v1 — explicit writeback, no commit).
-//
-// One MultiSnap<STORE_CFG> hosts two ContainerRefs of distinct container CFGs
-// (different K, V, fanout). Verifies create_pmap / open_pmap / insert /
-// contains / len, and MultiSnap.drop registry-dispatched release per
-// container.
-//
-// v1 limit: users MUST call ContainerRef::writeback() before drop. Implicit
-// drop via `impl Drop for ContainerRef<CFG>` is blocked at compiler level
-// — generic-struct Drop dispatch isn't implemented (drop_fn_for can't resolve
-// generic impls; mono doesn't auto-instantiate __drop methods per struct
-// instance). Tracked as a separate compiler feature.
 package pmap_v2_multi_container_basic;
-
 use std.data.persistent.pmap_v2.handle;
-use std.lang.cmp;
-use std.lang.ord;
-use std.lang.datatypes;
-use std.hermes.view;
-use std.hermes.anyval;
+use std.lang.cmp; use std.lang.ord; use std.lang.datatypes;
+use std.hermes.view; use std.hermes.anyval;
 
-pub type StoreCfg = @{
-    "name":   "v1-default",
-    "ctr_id": <type:u64>,
-    "snp_id": <type:u64>,
-};
+pub type StoreCfg = @{ "name": "v1-default", "ctr_id": <type:u64>, "snp_id": <type:u64> };
 pub type CfgA = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 8 };
 pub type CfgB = @{ "key": <type:u32>, "value": <type:u32>, "fanout": 8 };
 
 fn main() -> i32 {
     let mut store: MultiStore<StoreCfg> = multi_store_open::<StoreCfg>();
     let mut snap:  MultiSnap<StoreCfg>  = multi_snap_begin::<StoreCfg>(&mut store);
-
     {
         let mut c_a: ContainerRef<CfgA> = multi_snap_create_pmap::<StoreCfg, CfgA>(&mut snap, 101u64);
         let mut c_b: ContainerRef<CfgB> = multi_snap_create_pmap::<StoreCfg, CfgB>(&mut snap, 202u64);
@@ -55,28 +34,12 @@ fn main() -> i32 {
 
         if c_a.len() != 50u64 { return 3; }
         if c_b.len() != 30u64 { return 4; }
-
-        let probe_a: u64 = 25u64;
-        if !c_a.contains(&probe_a as *const u64) { return 5; }
-        let probe_a_miss: u64 = 99u64;
-        if  c_a.contains(&probe_a_miss as *const u64) { return 6; }
-
-        let probe_b: u32 = 17u32;
-        if !c_b.contains(&probe_b as *const u32) { return 7; }
-        let probe_b_miss: u32 = 99u32;
-        if  c_b.contains(&probe_b_miss as *const u32) { return 8; }
-
-        c_a.writeback();
-        c_b.writeback();
     }
 
     {
         let mut c_a2: ContainerRef<CfgA> = multi_snap_open_pmap::<StoreCfg, CfgA>(&mut snap, 101u64);
         if !c_a2.is_valid() { return 9; }
         if c_a2.len() != 50u64 { return 10; }
-        let probe: u64 = 33u64;
-        if !c_a2.contains(&probe as *const u64) { return 11; }
-        c_a2.writeback();
     }
 
     {

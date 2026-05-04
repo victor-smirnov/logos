@@ -2688,6 +2688,19 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
         std::string drop_fn(v.drop_fn());
         TypeRef ty = subst_type(v.type(pool), s);
         bool drop_fields = v.drop_fields();
+        // Re-mangle drop_fn for the substituted concrete struct type. Sema's
+        // drop_fn_for returns the template name (e.g. "Foo__drop") for
+        // generic struct instances because types_equal can't match
+        // Foo<TypeVar> against Foo<concrete>. clone_struct_def emits the
+        // monomorphised Drop fn under "<concrete_struct_name>__drop"
+        // (e.g. "Foo$G1$i64__drop"); rewrite the call here to point there.
+        if (!drop_fn.empty() && ty &&
+            (TypeRef(ty).kind() == LogosType::Kind::Struct ||
+             TypeRef(ty).kind() == LogosType::Kind::ZonedStruct) &&
+            !TypeRef(ty).type_args().empty()) {
+            auto cname = concrete_struct_name(ty);
+            if (!cname.empty()) drop_fn = cname + "__drop";
+        }
         ns.mirror_offset_ = lir_mirror_emit_drop(
             out_, ns.line, var_name, drop_fn, ty, drop_fields);
         break;

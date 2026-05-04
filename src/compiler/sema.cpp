@@ -1248,15 +1248,23 @@ std::string SemaChecker::drop_fn_for(TypeRef t) const {
         if (pt && types_equal(pt, t))
             return cand->symbol_name.empty() ? mangled : cand->symbol_name;
     }
-    // Note: a generic-base-name fallback (matching `Wrap__drop` from
-    // `impl<T> Drop for Wrap<T>` to a concrete `Wrap<i64>`) was tried; it
-    // makes drop_fn resolution succeed but the dispatch crashes because
-    // mono doesn't currently auto-instantiate the generic Drop method for
-    // each struct instance, and the symbol-mangling path between sema and
-    // mlir-gen doesn't produce a callable monomorphised drop. The full fix
-    // is a feature: generic-struct Drop instantiation, tracked separately.
-    // Until then, generic structs need an explicit `.close()` / `.writeback()`
-    // method users call before scope exit.
+    // Generic Drop impl: `impl<T> Drop for Foo<T>` registers Foo__drop with
+    // param Foo<TypeVar>. Strict types_equal can't match a concrete
+    // Foo<i64>. Fall back to a base-name match — any one-param candidate
+    // whose param is a struct of the same base name accepts the concrete
+    // after monomorphisation. mono_clone's SDrop case re-mangles the
+    // returned template name to <concrete_struct_name>__drop at clone time,
+    // matching the symbol clone_struct_def emits when instantiating the
+    // struct's methods.
+    for (auto* cand : find_func_candidates(mangled)) {
+        if (!cand || cand->param_types.size() != 1) continue;
+        auto pt = cand->param_types[0];
+        if (!pt) continue;
+        auto pk = TypeRef(pt).kind();
+        if (pk != LogosType::Kind::Struct && pk != LogosType::Kind::ZonedStruct) continue;
+        if (TypeRef(pt).struct_name() == TypeRef(t).struct_name())
+            return cand->symbol_name.empty() ? mangled : cand->symbol_name;
+    }
     return {};
 }
 
@@ -1280,6 +1288,23 @@ std::optional<lir::LStmt> SemaChecker::make_drop_stmt(const std::string& name, c
     auto dfn = drop_fn_for(info.type);
     bool df  = has_droppable_fields(info.type);
     if (dfn.empty() && !df) return std::nullopt;
+    // Suppress auto-drop of the `self` param of a Drop fn — calling drop
+    // on `self` from inside its own drop body is infinite recursion.
+    // Detected via name match: when the resolved drop_fn equals the
+    // currently-being-lowered fn's mangled name. Mono will re-mangle the
+    // call site to the concrete instance, but the SAME identity match
+    // holds because both sides see the same template name at sema time.
+    if (!dfn.empty() && !current_fn_mangled_.empty()) {
+        // Both names may carry an overload-disambig "__g__..." suffix —
+        // strip from each before compare so the self-recursion check
+        // catches the template-vs-template equivalence.
+        auto strip_g = [](std::string s) {
+            auto p = s.find("__g__");
+            if (p != std::string::npos) s.resize(p);
+            return s;
+        };
+        if (strip_g(dfn) == strip_g(current_fn_mangled_)) return std::nullopt;
+    }
     lir::LStmt s; s.line = node_line_;
     if (cur_prog_)
         s.mirror_offset_ = lir_mirror_emit_drop(*cur_prog_, node_line_, name, dfn, info.type, df);

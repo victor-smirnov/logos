@@ -151,6 +151,14 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     };
     ctx_       = pretty_ctx();
     node_line_ = get_line(node);
+    // Track current fn name so make_drop_stmt can avoid emitting a Drop
+    // for the `self` param of a Drop fn (would be infinite self-recursion).
+    struct CurFnGuard {
+        std::string& slot; std::string prev;
+        CurFnGuard(std::string& s, std::string n) : slot(s), prev(s) { slot = std::move(n); }
+        ~CurFnGuard() { slot = std::move(prev); }
+    };
+    CurFnGuard _cfn_guard(current_fn_mangled_, mangled);
 
     // Some trait-default bodies and impl methods refer to `Self` in their
     // parameter types.  Keep a concrete Self binding alive for the duration

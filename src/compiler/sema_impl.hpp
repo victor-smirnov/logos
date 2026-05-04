@@ -656,6 +656,10 @@ private:
     // Set by collect_impl/lower_impl_block for `impl<T>` blocks so that
     // collect_fn/lower_fn include the impl-level type params in the function.
     std::vector<TypeParam> impl_type_params_;
+    // Mangled name of the currently-being-lowered fn. Used by make_drop_stmt
+    // to skip auto-drop on the `self` parameter of a Drop fn (would be
+    // infinite self-recursion).
+    std::string current_fn_mangled_;
 
     // Re-export graph: pkg_reexports_["a.b"] = ["x.y", "z"] means `pub use x.y; pub use z;`
     // is declared in package a.b. Used by find_* helpers for transitive import resolution.
