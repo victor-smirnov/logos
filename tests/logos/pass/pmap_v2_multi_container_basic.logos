@@ -1,14 +1,15 @@
 // Multi-container API in pmap_v2 handle (v1 — explicit writeback, no commit).
 //
 // One MultiSnap<STORE_CFG> hosts two ContainerRefs of distinct container CFGs
-// (different K, V, fanout). STORE_CFG carries store-level schema (today opaque,
-// v2 will hold ctr_id type / dir fanout / dispatch policy). Verifies
-// create_pmap / open_pmap / insert / contains / len, and MultiSnap.drop
-// registry-dispatched release per container.
+// (different K, V, fanout). Verifies create_pmap / open_pmap / insert /
+// contains / len, and MultiSnap.drop registry-dispatched release per
+// container.
 //
-// v1 limit: users must call ContainerRef::writeback() before drop. Implicit
-// drop-time writeback is blocked by a Logos drop-semantics quirk — see
-// handle.logos comment on ContainerRef::drop.
+// v1 limit: users MUST call ContainerRef::writeback() before drop. Implicit
+// drop via `impl Drop for ContainerRef<CFG>` is blocked at compiler level
+// — generic-struct Drop dispatch isn't implemented (drop_fn_for can't resolve
+// generic impls; mono doesn't auto-instantiate __drop methods per struct
+// instance). Tracked as a separate compiler feature.
 package pmap_v2_multi_container_basic;
 
 use std.data.persistent.pmap_v2.handle;

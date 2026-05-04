@@ -1248,6 +1248,15 @@ std::string SemaChecker::drop_fn_for(TypeRef t) const {
         if (pt && types_equal(pt, t))
             return cand->symbol_name.empty() ? mangled : cand->symbol_name;
     }
+    // Note: a generic-base-name fallback (matching `Wrap__drop` from
+    // `impl<T> Drop for Wrap<T>` to a concrete `Wrap<i64>`) was tried; it
+    // makes drop_fn resolution succeed but the dispatch crashes because
+    // mono doesn't currently auto-instantiate the generic Drop method for
+    // each struct instance, and the symbol-mangling path between sema and
+    // mlir-gen doesn't produce a callable monomorphised drop. The full fix
+    // is a feature: generic-struct Drop instantiation, tracked separately.
+    // Until then, generic structs need an explicit `.close()` / `.writeback()`
+    // method users call before scope exit.
     return {};
 }
 

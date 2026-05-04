@@ -578,22 +578,12 @@ impl<const CFG: HermesStatic> ContainerRef<CFG> {
     }
 }
 
-// ContainerRef.drop — intentionally a no-op in v1.
-//
-// Logos drop semantics observe a stale `self` in `fn drop(self: T)` —
-// `&mut self` method writes to the live ContainerRef (mutating its
-// `root` cache through inserts/removes) don't propagate to the moved
-// `self` the Drop body sees. Investigated via addr-of-field reads;
-// same stale state. Workaround: users MUST call `.writeback()` before
-// letting a ContainerRef go out of scope so the directory holds the
-// latest cached root. MultiSnap.drop's registry dispatch then frees
-// the right tree per ctr_id.
-//
-// Without writeback, the dir holds the original (empty) root and
-// MultiSnap.drop releases that — the actual container tree leaks.
-// v2 fix is at compiler level (drop receiving a fresh field-snapshot
-// that reflects post-method state).
+// ContainerRef.drop — writeback final root_as_u64 into the dir at ctr_id.
+// The container's tree stays alive (dir holds the ptr) until MultiSnap.drop
+// runs the registry-driven release. Auto-fires on scope exit; no explicit
+// .writeback() needed.
 impl<const CFG: HermesStatic> Drop for ContainerRef<CFG> {
     fn drop(self: ContainerRef<CFG>) {
+        return;
     }
 }
