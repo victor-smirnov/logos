@@ -6320,6 +6320,36 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
         return alloc_hv_emit(lir::HVType{kind, uid64, std::move(name)});
     }
 
+    if (c == la::CFG_SLOT_TYPE.code) {
+        // <type:CFG.path> at hermes-value position. For now, eager
+        // resolution only — CFG must resolve to a top-level alias whose
+        // HermesStatic mirror is already registered. Const-generic-param
+        // CFGs would require parametric HermesStatic literals (literal
+        // identity changing per outer instantiation), which is a larger
+        // infrastructure piece tracked separately.
+        auto cfg_t = resolve_type(node);  // walks the path eagerly
+        TypeRef t = cfg_t;
+        if (t && TypeRef(t).kind() == LogosType::Kind::CfgSlotType) {
+            // Deferred: CFG was a const-generic param. Emit placeholder;
+            // mlir-gen will see the unresolved kind and downstream paths
+            // will fail with a clearer diagnostic than parse error.
+            error("<type:CFG.path> inside @{...} requires CFG to be a "
+                  "concrete top-level alias today (const-generic param "
+                  "needs parametric Hermes literals — deferred)");
+            return alloc_hv_emit(lir::HVType{0, 0, std::string("<unresolved>")});
+        }
+        uint32_t kind = 0;
+        uint64_t uid64 = 0;
+        std::string name;
+        if (t) {
+            kind = static_cast<uint32_t>(t.kind());
+            auto uid = pool_->uid_of(t);
+            std::memcpy(&uid64, uid.bytes, sizeof(uid64));
+            name = type_str(t);
+        }
+        return alloc_hv_emit(lir::HVType{kind, uid64, std::move(name)});
+    }
+
     if (c == la::HERMES_NEG_INT.code) {
         auto sv = str_of(node.get(la::VALUE.code));
         int64_t v = std::stoll(std::string(sv));

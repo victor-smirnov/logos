@@ -1612,7 +1612,9 @@
     // recursive: inner values don't need the @ prefix
     // $ident and ${expr} are runtime capture placeholders
     // <type:T> embeds a Logos Type as a first-class Hermes value (slice 1: IDENT only)
-    hermes_val <- LT KW_TYPE COLON IDENT GT => { CODE: HERMES_TYPE_LIT, NAME: $4 }
+    hermes_val <- LT KW_TYPE COLON IDENT path_step path_step* GT
+               => { CODE: CFG_SLOT_TYPE, NAME: $4, ITEMS: $... }
+               / LT KW_TYPE COLON IDENT GT => { CODE: HERMES_TYPE_LIT, NAME: $4 }
                / DOLLAR LBRACE expr RBRACE => { CODE: HERMES_CAP_EXPR, VALUE: $3 }
                / DOLLAR IDENT              => { CODE: HERMES_CAP_IDENT, NAME: $2 }
                / hermes_map
