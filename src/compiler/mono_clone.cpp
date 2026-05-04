@@ -1323,6 +1323,8 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         LogosTypeBuilder sb;
                         sb.kind = LogosType::Kind::Struct;
                         sb.struct_name = tmpl_name;
+                        for (auto& s : out_.structs)
+                            if (s.name == tmpl_name) { sb.pkg_name = s.pkg; break; }
                         sb.type_args = direct;
                         TypeRef inst_t = out_.type_pool.alloc(std::move(sb));
                         collect_type_for_structs(inst_t);
@@ -1449,6 +1451,11 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 LogosTypeBuilder sb;
                 sb.kind = LogosType::Kind::Struct;
                 sb.struct_name = tmpl_name;
+                // M0.4 follow-up: thread pkg from the template definition
+                // so metacall-instantiated specs share UID/registry keys
+                // with the rest of the pipeline.
+                for (auto& s : out_.structs)
+                    if (s.name == tmpl_name) { sb.pkg_name = s.pkg; break; }
                 sb.type_args = targs;
                 TypeRef inst_t = out_.type_pool.alloc(std::move(sb));
                 collect_type_for_structs(inst_t);
@@ -1600,6 +1607,11 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 LogosTypeBuilder sb;
                 sb.kind = LogosType::Kind::Struct;
                 sb.struct_name = tmpl_name;
+                // M0.4 follow-up: thread pkg from the template definition
+                // so metacall-instantiated specs share UID/registry keys
+                // with the rest of the pipeline.
+                for (auto& s : out_.structs)
+                    if (s.name == tmpl_name) { sb.pkg_name = s.pkg; break; }
                 sb.type_args = targs;
                 TypeRef inst_t = out_.type_pool.alloc(std::move(sb));
                 collect_type_for_structs(inst_t);

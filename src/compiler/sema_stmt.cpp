@@ -863,8 +863,9 @@ lir::LStmt SemaChecker::lower_compound_assign(TinyMapView node) {
     if (TypeRef(var_type).kind() != LogosType::Kind::Error &&
         TypeRef(rhs->type).kind() != LogosType::Kind::Error &&
         !types_compatible(rhs->type, var_type)) {
+        auto [es, gs] = type_str_pair(var_type, rhs->type);
         error(std::format("compound assignment to '{}': type mismatch — expected {}, got {}",
-              name, type_str(var_type), type_str(rhs->type)));
+              name, es, gs));
     }
     // Synthesize the binop LIR node
     auto binop = builder().bin_op(base_op, std::move(lhs_ref), std::move(rhs), var_type);
@@ -890,8 +891,9 @@ lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
     if (TypeRef(var_type).kind() != LogosType::Kind::Error &&
         TypeRef(rhs->type).kind() != LogosType::Kind::Error &&
         !types_compatible(rhs->type, var_type)) {
+        auto [es, gs] = type_str_pair(var_type, rhs->type);
         error(std::format("assignment to '{}': type mismatch — expected {}, got {}",
-              name, type_str(var_type), type_str(rhs->type)));
+              name, es, gs));
     }
     // Implicit safe integer widening on assignment.
     if (var_type && is_integer_kind(TypeRef(var_type).kind()) && is_integer_kind(TypeRef(rhs->type).kind()) &&
@@ -2678,9 +2680,11 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
                         ? lower_expr(map_of(node.get(la::VALUE.code)))
                         : error_expr();
                     if (TypeRef(val->type).kind() != LogosType::Kind::Error &&
-                        !types_compatible(val->type, ft))
+                        !types_compatible(val->type, ft)) {
+                        auto [es, gs] = type_str_pair(ft, val->type);
                         error(std::format("field write '{}.{}': expected {}, got {}",
-                              recv_name, field_name, type_str(ft), type_str(val->type)));
+                              recv_name, field_name, es, gs));
+                    }
                     // Synthesize: let __dr_tmp = p.mut_ptr();
                     TypeRef mut_ptr_T = make_ptr(true, T);
                     std::string tmp = "__dr_tmp_" + std::string(recv_name);
@@ -2761,8 +2765,9 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
     if (ft && TypeRef(ft).kind() != LogosType::Kind::Error &&
         TypeRef(val->type).kind() != LogosType::Kind::Error &&
         !types_compatible(val->type, ft)) {
+        auto [es, gs] = type_str_pair(ft, val->type);
         error(std::format("field write '{}.{}': expected {}, got {}",
-              recv_name, field_name, type_str(ft), type_str(val->type)));
+              recv_name, field_name, es, gs));
     }
     if (ft && TypeRef(ft).kind() != LogosType::Kind::Error &&
         TypeRef(val->type).kind() == LogosType::Kind::IntLit)
