@@ -6357,8 +6357,11 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
 
     if (c == la::HERMES_TYPE_LIT.code) {
         // Component-metaprog slice 1B: resolve the named type and embed it as
-        // a first-class HVType (kind, uid64, name). Codegen for HVType lands
-        // in slice 1C; until then the LIR placeholder writes 0 to the AnyVal.
+        // a first-class HVType (kind, uid64, name). When NAME is a type-param
+        // bound in the current scope (generic-const instantiation in flight),
+        // emit the canonical name of the substituted concrete type so
+        // downstream slot extraction (`<type:CFG.key>`) reads e.g. "u64"
+        // instead of the template's "K".
         auto sv = str_of(node.get(la::NAME.code));
         std::string name(sv);
         TypeRef t = try_resolve_as_known_type(name);
@@ -6368,6 +6371,9 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
             kind = static_cast<uint32_t>(t.kind());
             auto uid = pool_->uid_of(t);
             std::memcpy(&uid64, uid.bytes, sizeof(uid64));
+            // If the name was a type-param in scope, substitute it.
+            if (current_type_params_.count(name))
+                name = type_str(t);
         }
         return alloc_hv_emit(lir::HVType{kind, uid64, std::move(name)});
     }

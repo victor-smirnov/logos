@@ -691,24 +691,19 @@ private:
     logos::compiler::StrMap<TypeAliasEntry> type_aliases_;
     logos::compiler::StrMap<TypeRef> module_consts_;
     // Generic compile-time consts: `pub const X<T1, T2, …>: HermesStatic =
-    // @{ … <type:T1> … };`. Holds the templated value-AST offset; at each
-    // use-site `X<concrete1, concrete2>` sema pushes the type-args into
-    // current_type_params_ and re-lowers the value-AST under that scope,
-    // producing a fresh concrete HermesStatic literal whose byte-hash
-    // identity becomes the substituted value.
+    // @{ … <type:T1> … };`. Stores the templated value-AST node + type-params
+    // declaration. At each use-site `X<concrete1, concrete2>` sema pushes the
+    // type-args into current_type_params_ and re-resolves the value-AST under
+    // that scope — slot lookups (`<type:T1>` HERMES_TYPE_LIT) hit the bound
+    // type, and the FNV hash of the AST walk substitutes the TypeVar name
+    // for the concrete type's str representation, yielding a fresh
+    // per-instantiation HStaticLit identity.
     struct GenericConstEntry {
-        std::vector<TypeParam> type_params;
-        TypeRef                value_type;     // declared RHS type (e.g. HermesStatic)
-        uint32_t               value_offset;   // arena offset of the RHS expr AST
-        std::string            package;        // declaring package (for visibility)
-        bool                   is_pub = false;
+        std::vector<TypeParam>  type_params;
+        hermes::TinyMapView     value_node;   // AST of the RHS hermes_lit
+        hermes::MemHolder*      holder = nullptr;  // module-of-decl holder
     };
     logos::compiler::StrMap<GenericConstEntry> generic_consts_;
-    // For non-generic consts whose value is a HermesStatic literal, save the
-    // value-AST offset so lookup_type_by_name can materialise it as a real
-    // HStaticLit TypeRef on demand. Maps (hash -> offset) is implicit through
-    // module_consts_; this side-table keeps the AST offset for promotion.
-    logos::compiler::StrMap<uint32_t> module_const_value_offsets_;
     logos::compiler::StrMap<SemaTraitInfo>    traits_;
     // "TraitName::TypeName" → impl info
     logos::compiler::StrMap<SemaImplInfo>     impls_;

@@ -751,11 +751,28 @@ void SemaChecker::collect_const(TinyMapView node) {
                     ent.type = hs;
                     type_aliases_[name] = std::move(ent);
                 }
+            } else {
+                // Generic: parse type_params, save the val_node for per-use-
+                // site instantiation. resolve_type's GENERIC_INST handler
+                // looks up here.
+                std::vector<TypeParam> tps;
+                AnyVal tpav = node.get(la::TYPE_PARAMS.code);
+                auto tplist = map_of(tpav);
+                if (tplist.has_key(la::ITEMS)) {
+                    auto items = arr_of(tplist.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < items.size(); ++i) {
+                        auto tp_node = map_of(items.get(i));
+                        TypeParam tp;
+                        tp.name = std::string(str_of(tp_node.get(la::NAME.code)));
+                        tps.push_back(std::move(tp));
+                    }
+                }
+                GenericConstEntry ent;
+                ent.type_params = std::move(tps);
+                ent.value_node = val_node;
+                ent.holder = holder_;
+                generic_consts_[name] = std::move(ent);
             }
-            // Generic case path is added in a follow-up: would push
-            // type_params into generic_consts_ + save value_offset, then
-            // resolve_type GENERIC_INST X<args> re-runs the value resolver
-            // with current_type_params_ bound to the args.
         }
     }
 }
@@ -1652,6 +1669,14 @@ void SemaChecker::collect_struct(TinyMapView node) {
 }
 
 TypeRef SemaChecker::try_resolve_as_known_type(std::string_view name) {
+    // Type-params bound in current scope (generic-const instantiation, generic
+    // fn body, generic struct method) win over global lookups. Ensures that
+    // `<type:K>` inside `pub const PMap<K, V>: HermesStatic = @{...}` resolves
+    // to the substituted concrete type at each use site.
+    {
+        auto it = current_type_params_.find(std::string(name));
+        if (it != current_type_params_.end() && it->second) return it->second;
+    }
     if (name == "i32")  return prim(LogosType::Kind::I32);
     if (name == "i64")  return prim(LogosType::Kind::I64);
     if (name == "f64")  return prim(LogosType::Kind::F64);

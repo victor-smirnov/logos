@@ -2562,6 +2562,51 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
     if (tc == la::GENERIC_INST) {
         auto name = str_of(node.get(la::NAME.code));
 
+        // Generic compile-time const: `pub const X<T1, T2>: HermesStatic =
+        // @{...};`. Push type-args into current_type_params_ and re-resolve
+        // the saved value-AST under that scope. resolve_hstatic_value walks
+        // the AST and substitutes TypeVar HERMES_TYPE_LIT names through
+        // current_type_params_, producing a fresh per-instantiation
+        // HStaticLit identity.
+        {
+            auto git = generic_consts_.find(std::string(name));
+            if (git != generic_consts_.end()) {
+                std::vector<TypeRef> args;
+                if (node.has_key(la::ITEMS)) {
+                    auto items = arr_of(node.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < items.size(); ++i)
+                        args.push_back(resolve_type(map_of(items.get(i))));
+                }
+                if (args.size() != git->second.type_params.size()) {
+                    error(std::format("generic const '{}' expects {} type argument(s), got {}",
+                                      name, git->second.type_params.size(), args.size()));
+                    return error_t();
+                }
+                // Save + push type-param bindings.
+                StrMap<TypeRef> saved_params;
+                for (size_t i = 0; i < args.size(); ++i) {
+                    const std::string& pname = git->second.type_params[i].name;
+                    auto it = current_type_params_.find(pname);
+                    if (it != current_type_params_.end()) saved_params[pname] = it->second;
+                    current_type_params_[pname] = args[i];
+                }
+                // Switch holder_ to the const decl's holder so arr_of/map_of
+                // resolve offsets against the correct base. Restored after.
+                auto* saved_holder = holder_;
+                if (git->second.holder) holder_ = git->second.holder;
+                TypeRef result = resolve_hstatic_value(git->second.value_node);
+                holder_ = saved_holder;
+                // Restore type-params.
+                for (size_t i = 0; i < args.size(); ++i) {
+                    const std::string& pname = git->second.type_params[i].name;
+                    auto sit = saved_params.find(pname);
+                    if (sit != saved_params.end()) current_type_params_[pname] = sit->second;
+                    else current_type_params_.erase(pname);
+                }
+                return result;
+            }
+        }
+
         // Generic type alias: type Foo<T> = Bar<T>;  →  Foo<i32> resolves to Bar<i32>
         {
             auto ait = type_aliases_.find(std::string(name));
@@ -2737,8 +2782,20 @@ TypeRef SemaChecker::resolve_hstatic_value(TinyMapView val_node) {
                     if (av.is_value() && av.as_value<uint8_t>() != 0) h = fnv_byte(h, 1);
                 }
             } else if (c == la::HERMES_TYPE_LIT.code) {
-                if (n.has_key(la::NAME))
-                    h = fnv_str(h, str_of(n.get(la::NAME.code)));
+                if (n.has_key(la::NAME)) {
+                    auto nm = str_of(n.get(la::NAME.code));
+                    // If the name is a type-param bound in current scope
+                    // (generic const instantiation in flight), hash the
+                    // resolved type's canonical name so two distinct
+                    // bindings of the same template yield distinct
+                    // HStaticLit identities.
+                    auto pit = current_type_params_.find(std::string(nm));
+                    if (pit != current_type_params_.end() && pit->second) {
+                        h = fnv_str(h, type_str(pit->second));
+                    } else {
+                        h = fnv_str(h, nm);
+                    }
+                }
             }
             // HERMES_NULL / unknown: code-only contribution (already mixed in).
             return h;
