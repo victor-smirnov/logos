@@ -499,6 +499,19 @@ private:
     std::string ctx_;
     int         closure_counter_ = 0;
 
+    // Sema goes through 3 phases:
+    //   Init     — primitives populated, no user ASTs touched
+    //   Collect  — collect_module phase 1+2; struct/enum/fn declarations
+    //              registered. type_params_ may be incomplete during
+    //              forward-decl prepass.
+    //   Lower    — lower_module_items; full type-info available.
+    // Validation that requires fully-populated type-params (e.g. detecting
+    // type-args on a non-generic) must check phase_ == Lower.  Earlier
+    // checks would wrongly fire on prepass forward-references where
+    // type_params haven't been read yet.
+    enum class SemaPhase { Init, Collect, Lower };
+    SemaPhase phase_ = SemaPhase::Init;
+
     void error(std::string msg) {
         result_.diags.push_back({Diag::Level::Error, ctx_, std::move(msg), file_, node_line_});
     }
@@ -544,7 +557,18 @@ private:
                               const std::vector<TypeParam>& params,
                               const std::vector<TypeRef>& args,
                               std::string_view context) {
-        if (params.empty()) return;  // see comment above
+        if (params.empty()) {
+            // B-ty-05: non-generic target receiving type-args.  Only error
+            // in Lower phase; in Collect phase forward-decl/prepass lookups
+            // may legitimately see empty type_params before the real def
+            // populates them.
+            if (phase_ == SemaPhase::Lower && !args.empty()) {
+                error(std::format(
+                    "{} '{}': not generic — cannot accept {} type arg(s)",
+                    context, template_name, args.size()));
+            }
+            return;
+        }
         bool last_variadic = params.back().is_variadic;
         if (last_variadic) {
             // Variadic pack absorbs trailing args.  Need at least (params.size()-1) concrete args.

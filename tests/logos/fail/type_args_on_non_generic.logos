@@ -1,0 +1,4 @@
+package type_args_on_non_generic;
+struct Foo { x: i32 }
+fn helper(x: Foo<i32>) -> i32 { return 0; }
+fn main() -> i32 { return 0; }

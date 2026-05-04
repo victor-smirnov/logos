@@ -1057,6 +1057,7 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     cur_prog_ = &prog;
 
     init_primitives();
+    phase_ = SemaPhase::Collect;
     collect(asts);
 
     if (!result_.ok()) {
@@ -1064,6 +1065,7 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
         return prog;
     }
 
+    phase_ = SemaPhase::Lower;
     lower_program(asts, prog);
 
     // Enforce the "one eidos per (genos, tag-system)" invariant at compile

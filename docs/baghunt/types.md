@@ -75,7 +75,7 @@ fn helper(x: Foo<i32>) -> i32 { return 0; }
 ### B-ty-05: Type arguments on non-generic type silently accepted
 
 **Severity**: P0 (silent miscompile)
-**Status**: deferred (attempted check_type_arg_arity tightening regressed 319 tests; needs proper phase-tracking — many legitimate prepass sites resolve types with args before type_params are populated)
+**Status**: fixed (SemaPhase enum + check_type_arg_arity guards Lower phase only; prepass forward-decl tolerance preserved)
 **Repro**: `B08/` —
 ```logos
 struct Foo { x: i32 }
