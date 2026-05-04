@@ -1,0 +1,3 @@
+package self_referential_const;
+pub const X: i32 = X + 1;
+fn main() -> i32 { return X; }

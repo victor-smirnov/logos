@@ -1,0 +1,3 @@
+package recursive_struct_by_value;
+struct Node { x: i32, child: Node, }
+fn main() -> i32 { return 0; }

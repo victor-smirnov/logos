@@ -253,6 +253,10 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
     }
     cur_package_ = {};
 
+    // Sprint 1.2: detect recursive by-value cycles in struct/enum graph
+    // (closes B-it-01 P0 SEGFAULT in mlir_gen register_struct, B-it-02 latent).
+    check_recursive_value_types();
+
     // Phase 7 slice 12: scan top-level items in user (non-binary) asts
     // for annotations whose name matches a registered metaprog handler
     // trigger; record (ast_idx, offset, trigger) targets for the driver.
@@ -745,6 +749,45 @@ void SemaChecker::collect_const(TinyMapView node) {
             error(std::format("duplicate const '{}'", name));
         }
         module_consts_[name] = t;
+    }
+
+    // Sprint 1.2: detect self-referential const initializer (closes
+    // B-ca-01 P0 SEGFAULT — sema would substitute X for X recursively).
+    // Conservative shallow check: catches the direct cycle `const X = X`
+    // and the common arithmetic shape `const X = X + N`.  Deeper structural
+    // walks (through hermes literals, blocks, calls) require a robust
+    // AST-walker that respects schema; deferred to Phase 5 fact-base.
+    if (node.has_key(la::VALUE)) {
+        auto val_av = node.get(la::VALUE.code);
+        if (val_av.is_pointer()) {
+            auto refs_self_shallow = [&](TinyMapView v) -> bool {
+                int32_t vc = code_of(v);
+                if (vc == la::VAR_REF) {
+                    return str_of(v.get(la::NAME.code)) == name;
+                }
+                if (vc == la::BINOP || vc == la::UNARY) {
+                    if (v.has_key(la::LHS)) {
+                        auto la_av = v.get(la::LHS.code);
+                        if (la_av.is_pointer() &&
+                            code_of(map_of(la_av)) == la::VAR_REF &&
+                            str_of(map_of(la_av).get(la::NAME.code)) == name)
+                            return true;
+                    }
+                    if (v.has_key(la::RHS)) {
+                        auto ra_av = v.get(la::RHS.code);
+                        if (ra_av.is_pointer() &&
+                            code_of(map_of(ra_av)) == la::VAR_REF &&
+                            str_of(map_of(ra_av).get(la::NAME.code)) == name)
+                            return true;
+                    }
+                }
+                return false;
+            };
+            if (refs_self_shallow(map_of(val_av))) {
+                error(std::format("const '{}' references itself in initializer",
+                                  name));
+            }
+        }
     }
 
     // `pub const X: HermesStatic = @{...};` semantically replaces the legacy

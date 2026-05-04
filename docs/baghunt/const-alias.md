@@ -16,7 +16,7 @@
 ### B-ca-01: Self-referential const → SEGFAULT
 
 **Severity**: P0 hard (compiler crash)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-Sprint1 (shallow self-ref check in collect_const; tests/logos/fail/self_referential_const). Note: deep walks through hermes literals deferred to Phase 5.
 **Repro**: `B11/` —
 ```logos
 pub const X: i32 = X + 1;

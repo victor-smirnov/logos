@@ -596,6 +596,106 @@ private:
 
     // Validate `pending_annots` for an item of kind `target` named `target_name`.
     // `has_type_params` controls B-at-02 (no `#[type_code]` on generic templates).
+    // ── Recursive by-value cycle detection (Meta-Sprint Sprint 1.2) ──────
+    // Closes B-it-01 (recursive struct → SEGFAULT in mlir_gen register_struct)
+    // and B-it-02 (recursive enum, latent — silent compile).
+    //
+    // Walks structs_/enums_ following only by-value field/payload edges
+    // (Struct, ZonedStruct, Enum). Pointer/Ref/MutRef break the cycle
+    // since they lower to a fixed-size pointer.
+    //
+    // Phase 5 successor: Datalog
+    //   cycle(t) :- by_value_field(t, t).
+    //   cycle(t) :- by_value_field(t, u), cycle(u, t).
+    void check_recursive_value_types() {
+        enum Color { White, Gray, Black };
+        std::unordered_map<std::string, Color> sc;
+        std::unordered_map<std::string, Color> ec;
+        for (auto& [k, _] : structs_) sc[k] = White;
+        for (auto& [k, _] : enums_)   ec[k] = White;
+
+        // Resolve a TypeRef edge to its registry key (struct or enum) so we
+        // can look up by name, falling back from pkg-qualified to bare.
+        auto find_struct_key = [&](TypeRef t) -> std::string {
+            std::string q = sema_key(TypeRef(t).pkg_name(), TypeRef(t).struct_name());
+            if (structs_.count(q)) return q;
+            std::string b(TypeRef(t).struct_name());
+            return structs_.count(b) ? b : std::string{};
+        };
+        auto find_enum_key = [&](TypeRef t) -> std::string {
+            std::string q = sema_key(TypeRef(t).pkg_name(), TypeRef(t).enum_name());
+            if (enums_.count(q)) return q;
+            std::string b(TypeRef(t).enum_name());
+            return enums_.count(b) ? b : std::string{};
+        };
+
+        std::function<bool(const std::string&)> visit_struct;
+        std::function<bool(const std::string&)> visit_enum;
+        std::function<bool(TypeRef)> walk;
+        walk = [&](TypeRef t) -> bool {
+            if (!t) return false;
+            auto k = TypeRef(t).kind();
+            if (k == LogosType::Kind::Struct ||
+                k == LogosType::Kind::ZonedStruct) {
+                auto sk = find_struct_key(t);
+                return !sk.empty() && visit_struct(sk);
+            }
+            if (k == LogosType::Kind::Enum) {
+                auto ek = find_enum_key(t);
+                return !ek.empty() && visit_enum(ek);
+            }
+            if (k == LogosType::Kind::Tuple) {
+                for (auto e : TypeRef(t).tuple_elems())
+                    if (walk(e)) return true;
+            }
+            return false;
+        };
+        visit_struct = [&](const std::string& key) -> bool {
+            auto& col = sc[key];
+            if (col == Black) return false;
+            if (col == Gray) {
+                // Bare name from key (strip pkg::)
+                auto pos = key.rfind("::");
+                std::string nm = pos == std::string::npos ? key : key.substr(pos + 2);
+                error(std::format("infinite-size type '{}' (cannot contain "
+                                  "itself by value); use a pointer or '&{}'",
+                                  nm, nm));
+                col = Black;
+                return true;
+            }
+            col = Gray;
+            auto& sd = structs_[key];
+            for (auto& f : sd.fields) {
+                if (walk(f.type)) { col = Black; return true; }
+            }
+            col = Black;
+            return false;
+        };
+        visit_enum = [&](const std::string& key) -> bool {
+            auto& col = ec[key];
+            if (col == Black) return false;
+            if (col == Gray) {
+                auto pos = key.rfind("::");
+                std::string nm = pos == std::string::npos ? key : key.substr(pos + 2);
+                error(std::format("infinite-size enum '{}' (variant payload "
+                                  "contains itself by value); box the payload "
+                                  "with '*const {}'", nm, nm));
+                col = Black;
+                return true;
+            }
+            col = Gray;
+            auto& ed = enums_[key];
+            for (auto& v : ed.variants) {
+                for (auto& pt : v.payload_types)
+                    if (walk(pt)) { col = Black; return true; }
+            }
+            col = Black;
+            return false;
+        };
+        for (auto& [k, _] : structs_) if (sc[k] == White) visit_struct(k);
+        for (auto& [k, _] : enums_)   if (ec[k] == White) visit_enum(k);
+    }
+
     void check_annotations(AttrTarget target, std::string_view target_name,
                            bool has_type_params,
                            const std::vector<hermes::TinyMapView>& annots) {

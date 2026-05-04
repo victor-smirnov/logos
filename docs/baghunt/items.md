@@ -16,7 +16,7 @@
 ### B-it-01: Recursive by-value struct → SEGFAULT
 
 **Severity**: P0 hard (compiler crash)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-Sprint1 (sema cycle-check via check_recursive_value_types; tests/logos/fail/recursive_struct_by_value)
 **Repro**: `B03/` —
 ```logos
 struct Node { x: i32, child: Node, }
@@ -30,7 +30,7 @@ fn main() -> i32 { return 0; }
 ### B-it-02: Recursive by-value enum compiles silently (no instantiation forces codegen yet)
 
 **Severity**: P0.5 (latent — will crash on use)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-Sprint1 (same check_recursive_value_types pass; tests/logos/fail/recursive_enum_by_value)
 **Repro**: `B15/` —
 ```logos
 enum List { Nil, Cons(i32, List), }

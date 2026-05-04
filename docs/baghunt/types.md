@@ -17,7 +17,7 @@
 ### B-ty-01: Empty tuple type `()` → SEGFAULT
 
 **Severity**: P0 hard (compiler crash)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-Sprint1 (param-position rejected with diagnostic; tests/logos/fail/unit_param_type)
 **Repro**: `B02/` —
 ```logos
 fn helper(x: ()) -> () { return; }
@@ -31,7 +31,7 @@ EOF```
 ### B-ty-02: `impl Trait` at parameter position → SEGFAULT
 
 **Severity**: P0 hard (compiler crash)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-Sprint1 (param-position rejected with diagnostic; tests/logos/fail/impl_trait_param)
 **Repro**: `B19/` —
 ```logos
 trait Foo { fn x(self: *const Self) -> i32 { return 0; } }

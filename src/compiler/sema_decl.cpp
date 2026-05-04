@@ -216,8 +216,29 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                     for (uint64_t i = 0; i < arr.size(); ++i) {
                         auto p = map_of(arr.get(i));
                         if (code_of(p) != la::PARAM) continue;
-                        if (p.has_key(la::TYPE))
-                            decl_param_types.push_back(resolve_type(map_of(p.get(la::TYPE.code))));
+                        if (p.has_key(la::TYPE)) {
+                            TypeRef pt = resolve_type(map_of(p.get(la::TYPE.code)));
+                            std::string pname = p.has_key(la::NAME)
+                                ? std::string(str_of(p.get(la::NAME.code)))
+                                : "_";
+                            if (pt && TypeRef(pt).kind() == LogosType::Kind::Void) {
+                                error(std::format(
+                                    "parameter '{}' has unit type '()'; "
+                                    "unit-typed parameters carry no information",
+                                    pname));
+                                pt = error_t();
+                            } else if (pt && TypeRef(pt).kind() == LogosType::Kind::ImplTrait) {
+                                error(std::format(
+                                    "parameter '{}': 'impl Trait' is not yet "
+                                    "supported at parameter position; use "
+                                    "an explicit generic 'fn f<T: {}>(x: T)' "
+                                    "or '&dyn {}'",
+                                    pname, TypeRef(pt).struct_name(),
+                                    TypeRef(pt).struct_name()));
+                                pt = error_t();
+                            }
+                            decl_param_types.push_back(pt);
+                        }
                         else {
                             auto self_t = current_type_params_.count("Self")
                                 ? current_type_params_.at("Self") : error_t();
