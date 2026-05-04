@@ -1,0 +1,7 @@
+// Sprint 6.2 / B-ty-08: `|| -> R` zero-arg closure type parses
+// despite lexer collapse of `||` to OR.
+package zero_arg_closure_type;
+
+fn invoke(f: || -> i32) -> i32 { return 0; }
+
+fn main() -> i32 { return 0; }

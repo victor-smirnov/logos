@@ -103,7 +103,7 @@ fn main() -> i32 { return 0; }
 ### B-ty-07: `&&mut T` syntax error (lexer collapse `&&`)
 
 **Severity**: P2 design (lexer ambiguity)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-Sprint6.2 (DOUBLE_REF_TYPE / DOUBLE_REF_MUT_TYPE alts; tests/logos/pass/double_ref_type)
 **Repro**: `B15/` —
 ```logos
 fn helper(p: &&mut i32) -> i32 { return 0; }
@@ -116,7 +116,7 @@ fn helper(p: &&mut i32) -> i32 { return 0; }
 ### B-ty-08: `||` closure-with-no-args syntax error (lexer collapse `||`)
 
 **Severity**: P2 design (lexer ambiguity)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-Sprint6.2 (closure_type accepts OR ARROW; tests/logos/pass/zero_arg_closure_type)
 **Repro**: `B29/` —
 ```logos
 fn helper(f: || -> i32) -> i32 { return 0; }

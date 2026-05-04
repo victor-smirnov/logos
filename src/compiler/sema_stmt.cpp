@@ -660,8 +660,9 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
             if (try_coerce_closure_to_fnptr(rhs, ann)) {
                 rhs_type = rhs->type;
             } else {
+                auto [es, gs] = type_str_pair(ann, rhs_type);
                 error(std::format("let '{}': type mismatch — expected {}, got {}",
-                      name, type_str(ann), type_str(rhs_type)));
+                      name, es, gs));
             }
         }
         // Implicit safe integer widening: u32 → i64, i32 → i64, u8 → u32, ...
@@ -999,8 +1000,9 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
             } else if (ret_type_ && TypeRef(ret_type_).kind() != LogosType::Kind::Error &&
                 TypeRef(val->type).kind() != LogosType::Kind::Error &&
                 !compat(val->type, ret_type_)) {
+                auto [es, gs] = type_str_pair(ret_type_, val->type);
                 error(std::format("return type mismatch — expected {}, got {}",
-                      type_str(ret_type_), type_str(val->type)));
+                      es, gs));
             }
             // Retype float literal to concrete return type.
             if (ret_type_ && TypeRef(val->type).kind() == LogosType::Kind::FloatLit &&

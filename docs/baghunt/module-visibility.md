@@ -96,7 +96,7 @@
 ### B-mv-09: Ambiguous type annotation across packages → confusing diagnostic
 
 **Severity**: P1 diagnostic
-**Status**: confirmed (2026-05-04)
+**Status**: improved-in-Sprint6.3 (type_str_pair auto-qualifies same-bare-name types in let / return diagnostics; other mismatch sites still bare — bundle remaining call sites in a follow-up)
 **Repro**: `B18/` — pkg_a and pkg_b both define `pub struct Pt`. `main` imports both, then `let pb: Pt = make_b();`. The annotation `Pt` resolves to pkg_a's (first-import-wins), but `make_b()` returns pkg_b::Pt.
 **Observed**: `error [fn main]: let 'pb': type mismatch — expected Pt, got Pt`. Both sides display as bare `Pt` — useless for the user trying to debug.
 **Expected**: Diagnostic should show the package qualification: `expected pkg_a.Pt, got pkg_b.Pt` (or similar).

@@ -2151,6 +2151,20 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         return make_ref(true, inner, std::move(lt));
     }
 
+    // Sprint 6.2 / B-ty-07: `&&T` and `&&mut T` — lexer collapses `&&`.
+    if (tc == la::DOUBLE_REF_TYPE) {
+        auto inner = node.has_key(la::POINTEE)
+                      ? resolve_type(map_of(node.get(la::POINTEE.code)))
+                      : error_t();
+        return make_ref(false, make_ref(false, inner));
+    }
+    if (tc == la::DOUBLE_REF_MUT_TYPE) {
+        auto inner = node.has_key(la::POINTEE)
+                      ? resolve_type(map_of(node.get(la::POINTEE.code)))
+                      : error_t();
+        return make_ref(false, make_ref(true, inner));
+    }
+
     if (tc == la::SLICE_TYPE) {
         auto elem = node.has_key(la::TYPE)
             ? resolve_type(map_of(node.get(la::TYPE.code)))

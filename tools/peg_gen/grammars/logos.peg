@@ -263,6 +263,8 @@
     PAT_FLOAT                   = 215   // float-literal pattern (Sprint 4.2 — B-pt-06; rejected at sema, but parses cleanly).
     PAT_BYTES                   = 216   // byte-string-literal pattern (B-pt-03; reserved, lexer support pending).
     LET_PAT                     = 217   // `let <pattern> = expr;` — irrefutable destructure beyond simple ident/tuple. Sema checks refutability and lowers via match.
+    DOUBLE_REF_TYPE             = 218   // `&&T` (Sprint 6.2 — B-ty-07; resolved by sema as nested REF_TYPE).
+    DOUBLE_REF_MUT_TYPE         = 219   // `&&mut T` (B-ty-07; resolved as REF_TYPE wrapping MUT_REF_TYPE).
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -999,6 +1001,13 @@
              => { CODE: REF_TYPE, POINTEE: $3, LIFETIME: $2 }
               / AMP ref_pointee
              => { CODE: REF_TYPE, POINTEE: $2 }
+              // B-ty-07: `&&[mut] T` lexer-greedy collision — `AMPAMP` would
+              // otherwise be tokenised as logical-AND.  Sema unwraps to
+              // `& & T` / `& &mut T`.
+              / AND KW_MUT ref_pointee
+             => { CODE: DOUBLE_REF_MUT_TYPE, POINTEE: $3 }
+              / AND ref_pointee
+             => { CODE: DOUBLE_REF_TYPE, POINTEE: $2 }
 
     // Pointee types for & and &mut: simple types plus tuple and array composites.
     ref_pointee <- arr_type / tuple_type / unit_type / simple_type
@@ -1008,6 +1017,9 @@
                       => { ITEMS: $... }
     closure_type <- PIPE closure_type_args PIPE ARROW type_ref
                  => { CODE: CLOSURE_TYPE, PARAMS: $2, RET_TYPE: $5 }
+                 // B-ty-08: zero-arg form `|| -> R` (lexer collapses `||`).
+                 / OR ARROW type_ref
+                 => { CODE: CLOSURE_TYPE, RET_TYPE: $3 }
 
     // fn(T1, T2) -> R — bare function pointer type
     fn_ptr_type_args <- type_ref (COMMA type_ref)*

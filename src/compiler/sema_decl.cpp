@@ -139,6 +139,12 @@ lir::HermesValPtr SemaChecker::extract_meta_val(TinyMapView node) {
 
 lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) {
     auto raw_name = str_of(node.get(la::NAME.code));
+    // Sprint 6.3 — B-fn-08: reserve `_` for ignored-binding semantics.
+    // Allowing `fn _()` would let `_(...)` be a valid call expression and
+    // collide with future ignored-binding patterns.
+    if (raw_name == "_") {
+        error("'_' is reserved for ignored bindings; pick a different fn name");
+    }
     std::string mangled = struct_ctx.empty()
         ? std::string(raw_name)
         : std::string(struct_ctx) + "__" + std::string(raw_name);

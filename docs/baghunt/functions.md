@@ -115,7 +115,7 @@ fn outer() -> i32 {
 ### B-fn-08: Underscore as function name accepted
 
 **Severity**: P2 design (debatable)
-**Status**: confirmed (2026-05-04)
+**Status**: fixed-in-Sprint6.3 (rejected in lower_fn; tests/logos/fail/fn_named_underscore)
 **Repro**: `B20/` —
 ```logos
 fn _() -> i32 { return 7; }

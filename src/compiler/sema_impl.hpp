@@ -47,6 +47,38 @@ namespace logos::compiler {
 // Defined in sema.cpp (non-inline, single definition):
 bool types_equal(TypeRef a, TypeRef b) noexcept;
 std::string type_str(TypeRef t);
+
+// Diagnostic helper: when two types have the same bare struct/enum name but
+// different packages (B-mv-02 / B-mv-09), prepend `pkg.` so the user can see
+// which is which.  For all other cases (different bare names, no pkg, etc.)
+// falls back to plain type_str.  Returns {expected_str, got_str}.
+inline std::pair<std::string, std::string>
+type_str_pair(TypeRef expected, TypeRef got) {
+    if (!expected || !got) return {type_str(expected), type_str(got)};
+    auto need_qual = [&](TypeRef a, TypeRef b) -> bool {
+        auto ka = TypeRef(a).kind();
+        auto kb = TypeRef(b).kind();
+        if (ka != kb) return false;
+        if (ka == LogosType::Kind::Struct || ka == LogosType::Kind::ZonedStruct) {
+            return TypeRef(a).struct_name() == TypeRef(b).struct_name() &&
+                   TypeRef(a).pkg_name()    != TypeRef(b).pkg_name();
+        }
+        if (ka == LogosType::Kind::Enum) {
+            return TypeRef(a).enum_name() == TypeRef(b).enum_name() &&
+                   TypeRef(a).pkg_name()  != TypeRef(b).pkg_name();
+        }
+        return false;
+    };
+    if (!need_qual(expected, got)) return {type_str(expected), type_str(got)};
+    auto qualify = [](TypeRef t) {
+        std::string r;
+        auto pkg = TypeRef(t).pkg_name();
+        if (!pkg.empty()) { r.append(pkg); r += '.'; }
+        r += type_str(t);
+        return r;
+    };
+    return {qualify(expected), qualify(got)};
+}
 std::string concrete_struct_name(TypeRef t);
 bool types_compatible(TypeRef from, TypeRef to) noexcept;
 
