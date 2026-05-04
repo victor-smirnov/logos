@@ -1,6 +1,6 @@
 // GENERIC_REF + hstatic_hash_of + per-Store-style registry dispatch.
 //
-// Models the ContainerRegistry shape that pmap_v2 handle.logos will use:
+// Models the ContainerRegistry shape that pmap handle.logos will use:
 //   • register::<CFG>() captures the address of a monomorphised release
 //     thunk via GENERIC_REF, alongside its CFG byte-hash via
 //     hstatic_hash_of::<CFG>().

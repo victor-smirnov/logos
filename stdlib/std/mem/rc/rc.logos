@@ -74,7 +74,7 @@ impl<T> Rc<T> {
 // Auto-Drop. Compiler emits a call to `Rc__drop` whenever a Rc<T>
 // goes out of scope unmoved. Does NOT recursively run T's destructor;
 // callers that wrap Drop-needing T must release T's resources first
-// (e.g. before this drop fires) — see pmap_v2.handle's MutMap/RoMap.
+// (e.g. before this drop fires) — see pmap.handle's MutMap/RoMap.
 //impl<T> Drop for Rc<T> {
 //    fn drop(self: Rc<T>) {
 //        unsafe {

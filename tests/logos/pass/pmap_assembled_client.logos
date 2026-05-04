@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// pmap_v2_assembled_client.logos — first full tie of pmap_v2 + the
+// pmap_assembled_client.logos — first full tie of pmap + the
 // component-metaprog assembler. The assembler-metafn reads its cfg's
 // "client" capability list and emits a `RoClient` wrapper around
-// `PMapMut<K,V,CFG>` whose method set is a subset of pmap_v2's full
+// `PMapMut<K,V,CFG>` whose method set is a subset of pmap's full
 // API:
 //
 //   "client" = ["read"]            → contains/get/len only
@@ -23,9 +23,9 @@
 package main;
 
 use std.compiler.metaprog;
-use std.data.persistent.pmap_v2.view;
-use std.data.persistent.pmap_v2.mutv;
-use std.data.persistent.pmap_v2.btree;
+use std.data.persistent.view;
+use std.data.persistent.mutv;
+use std.data.persistent.btree;
 use std.lang.cmp;
 use std.lang.ord;
 use std.lang.datatypes;

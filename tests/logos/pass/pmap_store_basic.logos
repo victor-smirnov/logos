@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// pmap_v2_store_basic.logos — end-to-end Store + Snapshot flow on
-// the CFG-parameterised pmap_v2.
+// pmap_store_basic.logos — end-to-end Store + Snapshot flow on
+// the CFG-parameterised pmap.
 //
 // Cycle exercised:
 //   1. Open LockingStore (DAG owner, type-erased).
@@ -16,12 +16,12 @@
 // CFG threads through every type and free fn — `MyCfg` literal lives
 // in the `Snapshot<K,V,CFG>` and `MutSnapshot<K,V,CFG>` type names.
 
-package std_data_persistent_pmap_v2_store_basic;
+package std_data_persistent_pmap_store_basic;
 
-use std.data.persistent.pmap_v2.btree;
-use std.data.persistent.pmap_v2.view;
-use std.data.persistent.pmap_v2.mutv;
-use std.data.persistent.pmap_v2.store;
+use std.data.persistent.btree;
+use std.data.persistent.view;
+use std.data.persistent.mutv;
+use std.data.persistent.store;
 use std.data.persistent.store;
 use std.lang.cmp;
 use std.lang.ord;
@@ -48,64 +48,64 @@ unsafe fn main() -> i32 {
 
     // ── Commit c0: empty → three entries ────────────────────────────
     let mut snap0: MutSnapshot<MyCfg> =
-        pmv2_store_begin::<MyCfg, LockingStore>(stp, NO_COMMIT);
+        store_begin::<MyCfg, LockingStore>(stp, NO_COMMIT);
     let snap0p: *mut MutSnapshot<MyCfg> =
         &mut snap0 as *mut MutSnapshot<MyCfg>;
     let k1: U64Key = U64Key { x: 10u64 };
     let k2: U64Key = U64Key { x: 20u64 };
     let k3: U64Key = U64Key { x: 30u64 };
-    let _ = pmv2_mut_snapshot_insert::<MyCfg>(snap0p, 10u64, 100u64, &k1 as *const U64Key);
-    let _ = pmv2_mut_snapshot_insert::<MyCfg>(snap0p, 20u64, 200u64, &k2 as *const U64Key);
-    let _ = pmv2_mut_snapshot_insert::<MyCfg>(snap0p, 30u64, 300u64, &k3 as *const U64Key);
-    if pmv2_mut_snapshot_len::<MyCfg>(snap0p as *const MutSnapshot<MyCfg>) != 3u64 { return 1; }
-    let c0: i64 = pmv2_store_commit::<MyCfg, LockingStore>(stp, snap0);
+    let _ = mut_snapshot_insert::<MyCfg>(snap0p, 10u64, 100u64, &k1 as *const U64Key);
+    let _ = mut_snapshot_insert::<MyCfg>(snap0p, 20u64, 200u64, &k2 as *const U64Key);
+    let _ = mut_snapshot_insert::<MyCfg>(snap0p, 30u64, 300u64, &k3 as *const U64Key);
+    if mut_snapshot_len::<MyCfg>(snap0p as *const MutSnapshot<MyCfg>) != 3u64 { return 1; }
+    let c0: i64 = store_commit::<MyCfg, LockingStore>(stp, snap0);
 
     // ── Commit c1: fork from c0, overwrite k2 with new value ────────
     let mut snap1: MutSnapshot<MyCfg> =
-        pmv2_store_begin::<MyCfg, LockingStore>(stp, c0);
+        store_begin::<MyCfg, LockingStore>(stp, c0);
     let snap1p: *mut MutSnapshot<MyCfg> =
         &mut snap1 as *mut MutSnapshot<MyCfg>;
-    let _ = pmv2_mut_snapshot_insert::<MyCfg>(snap1p, 20u64, 9999u64, &k2 as *const U64Key);
-    let c1: i64 = pmv2_store_commit::<MyCfg, LockingStore>(stp, snap1);
+    let _ = mut_snapshot_insert::<MyCfg>(snap1p, 20u64, 9999u64, &k2 as *const U64Key);
+    let c1: i64 = store_commit::<MyCfg, LockingStore>(stp, snap1);
 
     // ── Checkout c0: must show original values ──────────────────────
     let snap0_ro: Snapshot<MyCfg> =
-        pmv2_store_checkout::<MyCfg, LockingStore>(stp, c0);
+        store_checkout::<MyCfg, LockingStore>(stp, c0);
     let snap0_rop: *const Snapshot<MyCfg> =
         &snap0_ro as *const Snapshot<MyCfg>;
-    if pmv2_snapshot_len::<MyCfg>(snap0_rop) != 3u64 { return 2; }
+    if snapshot_len::<MyCfg>(snap0_rop) != 3u64 { return 2; }
     let mut out: u64 = 0u64;
-    if !pmv2_snapshot_get::<MyCfg>(snap0_rop, &k2 as *const U64Key, &mut out as *mut u64) { return 3; }
+    if !snapshot_get::<MyCfg>(snap0_rop, &k2 as *const U64Key, &mut out as *mut u64) { return 3; }
     if out != 200u64 { return 4; }
 
     // ── Checkout c1: must show post-mutation value ──────────────────
     let snap1_ro: Snapshot<MyCfg> =
-        pmv2_store_checkout::<MyCfg, LockingStore>(stp, c1);
+        store_checkout::<MyCfg, LockingStore>(stp, c1);
     let snap1_rop: *const Snapshot<MyCfg> =
         &snap1_ro as *const Snapshot<MyCfg>;
-    if pmv2_snapshot_len::<MyCfg>(snap1_rop) != 3u64 { return 5; }
-    if !pmv2_snapshot_get::<MyCfg>(snap1_rop, &k2 as *const U64Key, &mut out as *mut u64) { return 6; }
+    if snapshot_len::<MyCfg>(snap1_rop) != 3u64 { return 5; }
+    if !snapshot_get::<MyCfg>(snap1_rop, &k2 as *const U64Key, &mut out as *mut u64) { return 6; }
     if out != 9999u64 { return 7; }
 
     // ── Begin → remove → rollback. DAG unchanged; c1 still has k2 ──
     let mut snap2: MutSnapshot<MyCfg> =
-        pmv2_store_begin::<MyCfg, LockingStore>(stp, c1);
+        store_begin::<MyCfg, LockingStore>(stp, c1);
     let snap2p: *mut MutSnapshot<MyCfg> =
         &mut snap2 as *mut MutSnapshot<MyCfg>;
-    if !pmv2_mut_snapshot_remove::<MyCfg>(snap2p, &k2 as *const U64Key) { return 8; }
-    if pmv2_mut_snapshot_len::<MyCfg>(snap2p as *const MutSnapshot<MyCfg>) != 2u64 { return 9; }
-    pmv2_store_rollback::<MyCfg>(snap2);
+    if !mut_snapshot_remove::<MyCfg>(snap2p, &k2 as *const U64Key) { return 8; }
+    if mut_snapshot_len::<MyCfg>(snap2p as *const MutSnapshot<MyCfg>) != 2u64 { return 9; }
+    store_rollback::<MyCfg>(snap2);
 
     // c1 still intact after rollback.
     let snap1b: Snapshot<MyCfg> =
-        pmv2_store_checkout::<MyCfg, LockingStore>(stp, c1);
+        store_checkout::<MyCfg, LockingStore>(stp, c1);
     let snap1bp: *const Snapshot<MyCfg> =
         &snap1b as *const Snapshot<MyCfg>;
-    if pmv2_snapshot_len::<MyCfg>(snap1bp) != 3u64 { return 10; }
-    if !pmv2_snapshot_contains::<MyCfg>(snap1bp, &k2 as *const U64Key) { return 11; }
+    if snapshot_len::<MyCfg>(snap1bp) != 3u64 { return 10; }
+    if !snapshot_contains::<MyCfg>(snap1bp, &k2 as *const U64Key) { return 11; }
 
-    pmv2_store_close::<MyCfg>(snap0_ro);
-    pmv2_store_close::<MyCfg>(snap1_ro);
-    pmv2_store_close::<MyCfg>(snap1b);
+    store_close::<MyCfg>(snap0_ro);
+    store_close::<MyCfg>(snap1_ro);
+    store_close::<MyCfg>(snap1b);
     return 0;
 }

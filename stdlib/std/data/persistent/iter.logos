@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// std.data.persistent.pmap_v2.iter — façade over std.data.persistent
+// std.data.persistent.iter — façade over std.data.persistent
 // .bt.iter, plus PMapView-taking wrappers for the acquire / release /
 // find primitives. `<const CFG: HermesStatic>`-only surface; K/V are
 // extracted from CFG and threaded into the bt-layer fns.
 
-package std.data.persistent.pmap_v2.iter;
+package std.data.persistent.iter;
 
 pub use std.data.persistent.bt.iter;
 
 use std.data.persistent.bt.node;
 use std.data.persistent.bt.iter;
-use std.data.persistent.pmap_v2.view;
+use std.data.persistent.view;
 use std.lang.cmp;
 use std.lang.ord;
 use std.lang.datatypes;

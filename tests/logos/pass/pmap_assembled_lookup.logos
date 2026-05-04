@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// pmap_v2_assembled_lookup.logos — first btree component picked by
+// pmap_assembled_lookup.logos — first btree component picked by
 // the assembler. Cfg's "lookup" slot selects the leaf-search
 // strategy ("linear" vs "binary"); the assembler emits an
 // `AssembledMap<K,V,CFG>` whose `contains`/`get` route through the
@@ -21,9 +21,9 @@
 package main;
 
 use std.compiler.metaprog;
-use std.data.persistent.pmap_v2.btree;
-use std.data.persistent.pmap_v2.view;
-use std.data.persistent.pmap_v2.mutv;
+use std.data.persistent.btree;
+use std.data.persistent.view;
+use std.data.persistent.mutv;
 use std.lang.cmp;
 use std.lang.ord;
 use std.lang.datatypes;

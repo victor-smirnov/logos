@@ -1,6 +1,6 @@
 // Microslice: GENERIC_REF in registry-shape pattern.
 //
-// Verifies the ingredients needed for ContainerRegistry / pmap_v2 container
+// Verifies the ingredients needed for ContainerRegistry / pmap container
 // directory dispatch:
 //   1. Distinct GENERIC_REF instantiations produce distinct fn-pointers
 //      with distinct behaviour at runtime.

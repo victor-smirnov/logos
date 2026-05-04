@@ -1,5 +1,5 @@
 // End-to-end validator of the container-directory dispatch mechanism that
-// std.data.persistent.pmap_v2.handle will use once rewritten.
+// std.data.persistent.handle will use once rewritten.
 //
 // The chain under test:
 //   1. Store-level release-thunk registry — populated idempotently from a
@@ -19,7 +19,7 @@
 // release fn-ptr is the right monomorphisation (each call frees the right
 // tree without K/V mismatch — confirmed by the absence of crashes on
 // repeated runs and the sanity of the rc/cfg_hash reads).
-package pmap_v2_container_directory_dispatch;
+package pmap_container_directory_dispatch;
 
 use std.data.persistent.bt.node;
 use std.data.persistent.bt.cow;

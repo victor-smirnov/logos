@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// pmap_v2_skeleton.logos — component-organised persistent map with
+// pmap_skeleton.logos — component-organised persistent map with
 // HermesStatic Configuration as a const-generic.
 //
 // Demonstrates the architecture, not yet the storage: PMap_v2 reuses
@@ -25,12 +25,12 @@
 // `type` aliases keep call sites short — without them every
 // turbofish would have to repeat the whole CFG literal.
 
-package pmap_v2_skeleton;
+package pmap_skeleton;
 
-use std.data.persistent.pmap_v2.view;
-use std.data.persistent.pmap_v2.mutv;
-use std.data.persistent.pmap_v2.btree;
-use std.data.persistent.pmap_v2.cfg;
+use std.data.persistent.view;
+use std.data.persistent.mutv;
+use std.data.persistent.btree;
+use std.data.persistent.cfg;
 use std.lang.cmp;
 use std.lang.ord;
 use std.lang.datatypes;

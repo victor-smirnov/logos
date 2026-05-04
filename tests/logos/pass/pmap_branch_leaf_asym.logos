@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// pmap_v2_branch_leaf_asym.logos — Phase A asymmetry: branch and leaf
+// pmap_branch_leaf_asym.logos — Phase A asymmetry: branch and leaf
 // can have different max-keys read from CFG slots.
 //
 // Builds two pmaps with the same K/V but different fanout schemes:
@@ -12,11 +12,11 @@
 
 package main;
 
-use std.data.persistent.pmap_v2.view;
-use std.data.persistent.pmap_v2.mutv;
-use std.data.persistent.pmap_v2.btree;
-use std.data.persistent.pmap_v2.iter;
-use std.data.persistent.pmap_v2.cfg;
+use std.data.persistent.view;
+use std.data.persistent.mutv;
+use std.data.persistent.btree;
+use std.data.persistent.iter;
+use std.data.persistent.cfg;
 use std.lang.cmp;
 use std.lang.ord;
 use std.lang.datatypes;

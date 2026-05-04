@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// pmap_v2_point_ops_full.logos — end-to-end coverage of the
+// pmap_point_ops_full.logos — end-to-end coverage of the
 // componentized PMap v2 surface after the bt/ split:
 //
 //   • PMap construction via PMapMut on a CFG=4-fanout map.
@@ -12,11 +12,11 @@
 
 package main;
 
-use std.data.persistent.pmap_v2.view;
-use std.data.persistent.pmap_v2.mutv;
-use std.data.persistent.pmap_v2.btree;
-use std.data.persistent.pmap_v2.iter;
-use std.data.persistent.pmap_v2.cfg;
+use std.data.persistent.view;
+use std.data.persistent.mutv;
+use std.data.persistent.btree;
+use std.data.persistent.iter;
+use std.data.persistent.cfg;
 use std.lang.cmp;
 use std.lang.ord;
 use std.lang.datatypes;
@@ -89,7 +89,7 @@ unsafe fn main() -> i32 {
     // Re-insert k30 so we have 12 again for iter/snapshot tests.
     let _ = pmap_mut_insert::<Cfg4>(pmptr, 30u64, 210u64, &k30 as *const U64Key);
 
-    // Snapshot via pmap_v2.view's snapshot helper.
+    // Snapshot via pmap.view's snapshot helper.
     let mut snap: MyView = pmap_mut_snapshot::<Cfg4>(pmptr as *const MyMap);
     if snap.len() != 12u64 { return 30; }
     // Mutate live → snapshot must not move.

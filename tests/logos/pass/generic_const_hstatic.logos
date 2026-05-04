@@ -8,11 +8,11 @@
 //
 // Two distinct instantiations — `PMapCfg<u64, u64>` and `PMapCfg<u32, u32>` —
 // produce two distinct HStaticLit identities (different byte hashes), each
-// usable as a const-generic argument. The container directory in pmap_v2
+// usable as a const-generic argument. The container directory in pmap
 // dispatches them as separate types end-to-end.
 package generic_const_hstatic;
 
-use std.data.persistent.pmap_v2.handle;
+use std.data.persistent.handle;
 use std.lang.cmp; use std.lang.ord; use std.lang.datatypes;
 use std.hermes.view; use std.hermes.anyval;
 

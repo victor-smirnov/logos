@@ -7,7 +7,7 @@ A reference for the legacy C++ Memoria container codebase at
    BT / BT_SS / BT_FL, Branch/Leaf node, SO, NDT, Shuttle, Iterator, Batch
    update, CoW) actually mean *as used in this codebase*.
 2. **Bridge** — map each concept onto the current
-   `stdlib/std/data/persistent/pmap_v2/` ("mini-memoria") and call out the
+   `stdlib/std/data/persistent/` ("mini-memoria") and call out the
    extension hooks that pmap_v2 needs to keep open if it is ever to grow into
    the full prototype framework.
 
@@ -902,7 +902,7 @@ defining a part with `MEMORIA_V1_CONTAINER_PART_BEGIN(my::Name)`.
 ## 14. Bridge to mini-memoria (`pmap_v2`)
 
 This section is the actionable one. For each big-Memoria concept, what it
-maps to in the current `stdlib/std/data/persistent/pmap_v2/`, and what
+maps to in the current `stdlib/std/data/persistent/`, and what
 extension hook pmap_v2 should keep open if it is ever to grow.
 
 Reminder from §0a: mini-memoria deliberately differs from big Memoria on

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// std.data.persistent.pmap_v2.cfg — Phase 1 of the assembler:
+// std.data.persistent.cfg — Phase 1 of the assembler:
 // schema validation for the PMap configuration HermesStatic.
 //
 // Walks the cfg, asserts each required slot is present and shaped
@@ -16,7 +16,7 @@
 //   6: missing "fanout" slot
 //   7: "fanout" not an integer
 
-package std.data.persistent.pmap_v2.cfg;
+package std.data.persistent.cfg;
 
 use std.hermes.view;
 use std.hermes.anyval;

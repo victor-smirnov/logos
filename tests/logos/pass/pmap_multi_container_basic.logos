@@ -1,5 +1,5 @@
-package pmap_v2_multi_container_basic;
-use std.data.persistent.pmap_v2.handle;
+package pmap_multi_container_basic;
+use std.data.persistent.handle;
 use std.lang.cmp; use std.lang.ord; use std.lang.datatypes;
 use std.hermes.view; use std.hermes.anyval;
 

@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// std.data.persistent.pmap_v2.mutv — read+update sibling of PMapView,
+// std.data.persistent.mutv — read+update sibling of PMapView,
 // on top of the CFG-aware btree. `<const CFG: HermesStatic>`-only;
 // K/V threaded into bt internals via `<type:CFG.key>` / `<type:CFG.value>`.
 
-package std.data.persistent.pmap_v2.mutv;
+package std.data.persistent.mutv;
 
-use std.data.persistent.pmap_v2.view;
-use std.data.persistent.pmap_v2.btree;
+use std.data.persistent.view;
+use std.data.persistent.btree;
 use std.lang.cmp;
 use std.lang.ord;
 use std.lang.datatypes;

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// std.data.persistent.pmap_v2.btree — façade over the general bt
-// layer. PMap clients keep `use std.data.persistent.pmap_v2.btree;`
+// std.data.persistent.btree — façade over the general bt
+// layer. PMap clients keep `use std.data.persistent.btree;`
 // and get BTreeNode, the cow / descent / mutate ops, and InsertOutcome
 // through these re-exports.
 
-package std.data.persistent.pmap_v2.btree;
+package std.data.persistent.btree;
 
 pub use std.data.persistent.bt.node;
 pub use std.data.persistent.bt.cow;

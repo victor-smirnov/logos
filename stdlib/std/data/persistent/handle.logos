@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// std.data.persistent.pmap_v2.handle — safe wrappers, container-directory
+// std.data.persistent.handle — safe wrappers, container-directory
 // architecture.
 //
 //   Store<STORE_CFG>     — Arc<LockingStore>; per-store release registry +
@@ -26,17 +26,16 @@
 //                          (commit zeroes dir.root so post-commit drop
 //                          skips the release walk — DAG owns the trees.)
 
-package std.data.persistent.pmap_v2.handle;
+package std.data.persistent.handle;
 
-use std.data.persistent.pmap_v2.btree;
-use std.data.persistent.pmap_v2.view;
-use std.data.persistent.pmap_v2.mutv;
-use std.data.persistent.pmap_v2.store;
-use std.data.persistent.pmap_v2.iter;
-use std.data.persistent.pmap_v2.cfg;
+use std.data.persistent.btree;
+use std.data.persistent.view;
+use std.data.persistent.mutv;
+use std.data.persistent.store;
+use std.data.persistent.iter;
+use std.data.persistent.cfg;
 use std.data.persistent.bt.node;
 use std.data.persistent.bt.cow;
-use std.data.persistent.store;
 use std.mem.arc;
 use std.mem.rc;
 use std.lang.cmp;
@@ -96,7 +95,7 @@ pub fn snap_begin<const STORE_CFG: HermesStatic>(store: &mut Store<STORE_CFG>) -
     unsafe {
         let ap: *mut Arc<LockingStore> = &mut store.arc as *mut Arc<LockingStore>;
         let stp: *mut LockingStore = ap.get() as *mut LockingStore;
-        let dir_inner: MutSnapshot<DirCfg> = pmv2_store_begin::<DirCfg, LockingStore>(stp, NO_COMMIT);
+        let dir_inner: MutSnapshot<DirCfg> = store_begin::<DirCfg, LockingStore>(stp, NO_COMMIT);
         return Snap::<STORE_CFG> {
             dir: rc_new::<MutSnapshot<DirCfg>>(dir_inner),
             arc: ap.clone_arc(),
@@ -105,7 +104,7 @@ pub fn snap_begin<const STORE_CFG: HermesStatic>(store: &mut Store<STORE_CFG>) -
 }
 
 // snap_fork — fork from parent commit. The dir tree is rc-bumped via
-// pmv2_store_begin's parent path. Container roots referenced from dir
+// store_begin's parent path. Container roots referenced from dir
 // leaves are also rc-bumped so a future mutation in either parent or
 // fork CoW-clones cleanly. Type-erased rc-bump (rc at offset 0 of
 // NodeBase, regardless of the container's K/V/CFG).
@@ -113,7 +112,7 @@ pub fn snap_fork<const STORE_CFG: HermesStatic>(store: &mut Store<STORE_CFG>, pa
     unsafe {
         let ap: *mut Arc<LockingStore> = &mut store.arc as *mut Arc<LockingStore>;
         let stp: *mut LockingStore = ap.get() as *mut LockingStore;
-        let dir_inner: MutSnapshot<DirCfg> = pmv2_store_begin::<DirCfg, LockingStore>(stp, parent);
+        let dir_inner: MutSnapshot<DirCfg> = store_begin::<DirCfg, LockingStore>(stp, parent);
 
         if dir_inner.root != 0 as *mut NodeBase<u64, u64, DirCfg> {
             let dir_view: PMapView<DirCfg> = PMapView::<DirCfg> { root: dir_inner.root };
@@ -174,7 +173,7 @@ pub fn create_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(snap:
         let dir_p: *mut MutSnapshot<DirCfg>     = dp.get_mut();
         let key:   u64 = ctr_id as u64;
         let val:   u64 = r as u64;
-        let _ = pmv2_mut_snapshot_insert::<DirCfg>(dir_p, key, val, &key as *const u64);
+        let _ = mut_snapshot_insert::<DirCfg>(dir_p, key, val, &key as *const u64);
 
         return ContainerRef::<CFG> {
             dir_rc: dp.clone_rc(),
@@ -194,7 +193,7 @@ pub fn open_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(snap: &
 
         let key: u64 = ctr_id as u64;
         let mut out: u64 = 0u64;
-        let hit: bool = pmv2_mut_snapshot_get::<DirCfg>(
+        let hit: bool = mut_snapshot_get::<DirCfg>(
             dir_p as *const MutSnapshot<DirCfg>,
             &key as *const u64,
             &mut out as *mut u64);
@@ -291,7 +290,7 @@ impl<const CFG: HermesStatic> ContainerRef<CFG> {
                 root:      self.root,
                 parent_id: dir_p.parent_id,
             };
-            return pmv2_mut_snapshot_len::<CFG>(&t as *const MutSnapshot<CFG>);
+            return mut_snapshot_len::<CFG>(&t as *const MutSnapshot<CFG>);
         }
     }
 
@@ -304,7 +303,7 @@ impl<const CFG: HermesStatic> ContainerRef<CFG> {
                 root:      self.root,
                 parent_id: dir_p.parent_id,
             };
-            return pmv2_mut_snapshot_contains::<CFG>(&t as *const MutSnapshot<CFG>, qkey);
+            return mut_snapshot_contains::<CFG>(&t as *const MutSnapshot<CFG>, qkey);
         }
     }
 
@@ -317,7 +316,7 @@ impl<const CFG: HermesStatic> ContainerRef<CFG> {
                 root:      self.root,
                 parent_id: dir_p.parent_id,
             };
-            let r: bool = pmv2_mut_snapshot_insert::<CFG>(&mut t as *mut MutSnapshot<CFG>, key, val, qkey);
+            let r: bool = mut_snapshot_insert::<CFG>(&mut t as *mut MutSnapshot<CFG>, key, val, qkey);
             self.root = t.root;
             return r;
         }
@@ -332,7 +331,7 @@ impl<const CFG: HermesStatic> ContainerRef<CFG> {
                 root:      self.root,
                 parent_id: dir_p.parent_id,
             };
-            let r: bool = pmv2_mut_snapshot_remove::<CFG>(&mut t as *mut MutSnapshot<CFG>, qkey);
+            let r: bool = mut_snapshot_remove::<CFG>(&mut t as *mut MutSnapshot<CFG>, qkey);
             self.root = t.root;
             return r;
         }
@@ -360,7 +359,7 @@ impl<const CFG: HermesStatic> Drop for ContainerRef<CFG> {
             let dir_p: *mut MutSnapshot<DirCfg> = dp.get_mut();
             let key:   u64 = self.ctr_id;
             let val:   u64 = self.root as u64;
-            let _ = pmv2_mut_snapshot_insert::<DirCfg>(dir_p, key, val, &key as *const u64);
+            let _ = mut_snapshot_insert::<DirCfg>(dir_p, key, val, &key as *const u64);
         }
     }
 }

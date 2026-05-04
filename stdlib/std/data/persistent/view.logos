@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// std.data.persistent.pmap_v2.view — read-only base of the component-
+// std.data.persistent.view — read-only base of the component-
 // organised PMap, on top of the CFG-aware btree.
 //
 // `<const CFG: HermesStatic>` is the only generic parameter. K and V
@@ -8,9 +8,9 @@
 // `<type:CFG.value>` projections, then threaded into the bt-layer
 // internals which still take the `<K, V, CFG>` triple.
 
-package std.data.persistent.pmap_v2.view;
+package std.data.persistent.view;
 
-use std.data.persistent.pmap_v2.btree;
+use std.data.persistent.btree;
 use std.lang.cmp;
 use std.lang.ord;
 use std.lang.datatypes;

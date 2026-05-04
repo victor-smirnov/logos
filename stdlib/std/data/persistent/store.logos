@@ -1,0 +1,264 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.data.persistent.store
+//
+// Cross-thread Store API: a narrow type-erased trait `StoreOps` over
+// raw root pointers + commit ids. All typed (K, V)-aware operations
+// live in the consumer (e.g. `std.data.persistent.pmap.store`) and are
+// fully monomorphised — switching the Store impl from locking to
+// queue-based later changes only the trait implementer.
+//
+// v1 scope: DAG = tree (parent edge per commit, no merge). No DAG GC:
+// commits live until program exit. Named refs deferred.
+
+package std.data.persistent.store;
+
+use std.lang.cmp;
+use std.lang.ord;
+use std.lang.datatypes;
+use std.sync;
+use std.data.persistent.btree;
+use std.data.persistent.view;
+use std.data.persistent.mutv;
+use std.hermes.view;
+
+// CommitId — opaque DAG index. NO_COMMIT means "no commit".
+pub let NO_COMMIT: i64 = 0i64 - 1i64;
+
+// Type-erased DAG entry. `root` is reinterpreted at each typed callsite.
+pub struct CommitEntry {
+    pub root:   *mut u8,
+    pub parent: i64,
+}
+
+// ── StoreOps trait ───────────────────────────────────────────────────
+// Narrow cross-thread surface — all type-erased, no method-level
+// generics (which would defeat type inference under raw-pointer
+// dispatch).  v1 = LockingStore.
+
+pub trait StoreOps {
+    // Read commit's root pointer.  Does NOT retain.
+    unsafe fn get_root(self: *mut Self, id: i64) -> *mut u8;
+
+    // Push a new commit entry.  Caller has already arranged for the
+    // root to carry 1 rc (transferred to this entry).
+    unsafe fn register_commit(self: *mut Self, root: *mut u8, parent: i64) -> i64;
+
+    // Fork: new commit with the same root as `id`, parent = id.
+    // Bumps the root's rc to keep both timelines alive independently.
+    fn fork(self: *mut Self, id: i64) -> i64;
+
+    // Parent commit id, or NO_COMMIT if `id` is a root commit.
+    fn parent_of(self: *mut Self, id: i64) -> i64;
+}
+
+// ── LockingStore ─────────────────────────────────────────────────────
+// v1 impl: a real Mutex<i32> + inline dag.  The mutex protects the
+// commit-id allocator and the dag vector; the per-commit root pointer
+// itself is racy-by-design (rc-bump under lock keeps the pointee alive).
+
+pub struct LockingStore {
+    pub dag:  PrimVec<CommitEntry>,
+    pub lock: Mutex<i32>,
+    // Container release registry — `cfg_hash → fn(*mut u8)` thunks. Each
+    // pmap container's `register_pmap_release_thunk::<CFG>` (in handle.logos)
+    // populates this idempotently on first create_pmap/open_pmap. Snap.drop
+    // walks dir entries, reads each root's cfg_hash via slot 1, and dispatches
+    // the registered release thunk by hash. Parallel PrimVecs (linear scan —
+    // N small per-store).
+    pub release_hashes:  PrimVec<u64>,
+    pub release_fn_ptrs: PrimVec<u64>,
+}
+
+pub fn locking_store_new() -> LockingStore {
+    return LockingStore {
+        dag:             PrimVec::<CommitEntry>::empty(),
+        lock:            mutex_new::<i32>(0i32),
+        release_hashes:  PrimVec::<u64>::empty(),
+        release_fn_ptrs: PrimVec::<u64>::empty(),
+    };
+}
+
+// Idempotently register a release thunk for cfg_hash. Called from
+// `register_pmap_release_thunk::<CFG>` on each create/open. Linear scan
+// for "already registered" is fine — N = distinct CFG count, tiny.
+pub unsafe fn locking_store_register_release(s: *mut LockingStore, cfg_hash: u64, fp_u64: u64) {
+    s.lock.lock();
+    let n: u64 = s.release_hashes.len;
+    let mut i: u64 = 0u64;
+    while i < n {
+        if s.release_hashes.get(i) == cfg_hash {
+            s.lock.unlock();
+            return;
+        }
+        i = i + 1u64;
+    }
+    s.release_hashes.push(cfg_hash);
+    s.release_fn_ptrs.push(fp_u64);
+    s.lock.unlock();
+}
+
+// Lookup release fn-ptr (as u64). Returns 0 on miss; caller asserts.
+pub unsafe fn locking_store_lookup_release(s: *mut LockingStore, cfg_hash: u64) -> u64 {
+    s.lock.lock();
+    let n: u64 = s.release_hashes.len;
+    let mut i: u64 = 0u64;
+    while i < n {
+        if s.release_hashes.get(i) == cfg_hash {
+            let fp: u64 = s.release_fn_ptrs.get(i);
+            s.lock.unlock();
+            return fp;
+        }
+        i = i + 1u64;
+    }
+    s.lock.unlock();
+    return 0u64;
+}
+
+// Type-erased: bump the rc field at offset 0 of a refcounted root.
+unsafe fn rc_bump(p: *mut u8) {
+    let rcp: *mut u64 = p as *mut u64;
+    *rcp = *rcp + 1u64;
+}
+
+impl StoreOps for LockingStore {
+    unsafe fn get_root(self: *mut LockingStore, id: i64) -> *mut u8 {
+        self.lock.lock();
+        let raw: *mut u8 = self.dag.get(id as u64).root;
+        self.lock.unlock();
+        return raw;
+    }
+
+    unsafe fn register_commit(self: *mut LockingStore, root: *mut u8, parent: i64) -> i64 {
+        self.lock.lock();
+        let id: i64 = self.dag.len as i64;
+        self.dag.push(CommitEntry { root: root, parent: parent });
+        self.lock.unlock();
+        return id;
+    }
+
+    fn fork(self: *mut LockingStore, id: i64) -> i64 {
+        unsafe {
+            self.lock.lock();
+            let raw: *mut u8 = self.dag.get(id as u64).root;
+            rc_bump(raw);
+            let new_id: i64 = self.dag.len as i64;
+            self.dag.push(CommitEntry { root: raw, parent: id });
+            self.lock.unlock();
+            return new_id;
+        }
+    }
+
+    fn parent_of(self: *mut LockingStore, id: i64) -> i64 {
+        unsafe {
+            self.lock.lock();
+            let p: i64 = self.dag.get(id as u64).parent;
+            self.lock.unlock();
+            return p;
+        }
+    }
+}
+
+// ── Typed Snapshot ops (CFG-parameterised) ───────────────────────────
+// Const-generic CFG carries the (K, V, fanout, …) configuration; K and
+// V are extracted via `<type:CFG.key>` / `<type:CFG.value>`. The
+// LockingStore backing is type-erased — see StoreOps above.
+
+// Single-threaded immutable view over a frozen tree at a specific
+// commit. CFG carries the configuration the snapshot was taken at.
+pub struct Snapshot<const CFG: HermesStatic> {
+    pub root:      *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG>,
+    pub commit_id: i64,
+}
+
+// Single-threaded mutable handle. Owns 1 rc on `root` until
+// commit/rollback releases it.
+pub struct MutSnapshot<const CFG: HermesStatic> {
+    pub root:      *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG>,
+    pub parent_id: i64,
+}
+
+pub fn store_begin<const CFG: HermesStatic, S: StoreOps>(s: *mut S, parent: i64) -> MutSnapshot<CFG> {
+    unsafe {
+        if parent == NO_COMMIT {
+            let r: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> = node_alloc_c::<<type:CFG.key>, <type:CFG.value>, CFG>();
+            return MutSnapshot::<CFG> { root: r, parent_id: parent };
+        }
+        let raw: *mut u8 = s.get_root(parent);
+        let r: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> = raw as *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG>;
+        node_retain_c::<<type:CFG.key>, <type:CFG.value>, CFG>(r);
+        return MutSnapshot::<CFG> { root: r, parent_id: parent };
+    }
+}
+
+pub fn store_commit<const CFG: HermesStatic, S: StoreOps>(s: *mut S, snap: MutSnapshot<CFG>) -> i64 {
+    unsafe { return s.register_commit(snap.root as *mut u8, snap.parent_id); }
+}
+
+pub fn store_rollback<const CFG: HermesStatic>(snap: MutSnapshot<CFG>) {
+    unsafe { node_release_c::<<type:CFG.key>, <type:CFG.value>, CFG>(snap.root); }
+}
+
+pub fn store_checkout<const CFG: HermesStatic, S: StoreOps>(s: *mut S, id: i64) -> Snapshot<CFG> {
+    unsafe {
+        let raw: *mut u8 = s.get_root(id);
+        let r: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> = raw as *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG>;
+        node_retain_c::<<type:CFG.key>, <type:CFG.value>, CFG>(r);
+        return Snapshot::<CFG> { root: r, commit_id: id };
+    }
+}
+
+pub fn store_close<const CFG: HermesStatic>(snap: Snapshot<CFG>) {
+    unsafe { node_release_c::<<type:CFG.key>, <type:CFG.value>, CFG>(snap.root); }
+}
+
+// ── Read parts on Snapshot ───────────────────────────────────────
+
+pub fn snapshot_len<const CFG: HermesStatic>(s: *const Snapshot<CFG>) -> u64 {
+    unsafe { return node_size_rec_c::<<type:CFG.key>, <type:CFG.value>, CFG>(s.root); }
+}
+
+pub fn snapshot_contains<const CFG: HermesStatic>(s: *const Snapshot<CFG>, key: *const <type:CFG.key>) -> bool {
+    unsafe { return node_contains_rec_c::<<type:CFG.key>, <type:CFG.value>, CFG>(s.root, key); }
+}
+
+pub fn snapshot_get<const CFG: HermesStatic>(s: *const Snapshot<CFG>, key: *const <type:CFG.key>, out: *mut <type:CFG.value>::ViewInStore) -> bool {
+    unsafe { return node_get_rec_c::<<type:CFG.key>, <type:CFG.value>, CFG>(s.root, key, out); }
+}
+
+// ── Read parts on MutSnapshot ────────────────────────────────────
+
+pub fn mut_snapshot_len<const CFG: HermesStatic>(s: *const MutSnapshot<CFG>) -> u64 {
+    unsafe { return node_size_rec_c::<<type:CFG.key>, <type:CFG.value>, CFG>(s.root); }
+}
+
+pub fn mut_snapshot_contains<const CFG: HermesStatic>(s: *const MutSnapshot<CFG>, key: *const <type:CFG.key>) -> bool {
+    unsafe { return node_contains_rec_c::<<type:CFG.key>, <type:CFG.value>, CFG>(s.root, key); }
+}
+
+pub fn mut_snapshot_get<const CFG: HermesStatic>(s: *const MutSnapshot<CFG>, key: *const <type:CFG.key>, out: *mut <type:CFG.value>::ViewInStore) -> bool {
+    unsafe { return node_get_rec_c::<<type:CFG.key>, <type:CFG.value>, CFG>(s.root, key, out); }
+}
+
+// ── Update parts on MutSnapshot — route through pmap's PMapMut ───
+
+pub fn mut_snapshot_insert<const CFG: HermesStatic>(s: *mut MutSnapshot<CFG>, key: <type:CFG.key>::ViewInStore, val: <type:CFG.value>::ViewInStore, qkey: *const <type:CFG.key>) -> bool {
+    unsafe {
+        let mut pm: PMapMut<CFG> = PMapMut::<CFG> {
+            view: PMapView::<CFG> { root: s.root },
+        };
+        let hit: bool = pmap_mut_insert::<CFG>(&mut pm as *mut PMapMut<CFG>, key, val, qkey);
+        s.root = pm.view.root;
+        return hit;
+    }
+}
+
+pub fn mut_snapshot_remove<const CFG: HermesStatic>(s: *mut MutSnapshot<CFG>, key: *const <type:CFG.key>) -> bool {
+    unsafe {
+        let mut pm: PMapMut<CFG> = PMapMut::<CFG> {
+            view: PMapView::<CFG> { root: s.root },
+        };
+        let hit: bool = pmap_mut_remove::<CFG>(&mut pm as *mut PMapMut<CFG>, key);
+        s.root = pm.view.root;
+        return hit;
+    }
+}

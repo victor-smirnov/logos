@@ -6,7 +6,7 @@ package main;
 use std.compiler.metaprog;
 use std.hermes.view;
 use std.hermes.anyval;
-use std.data.persistent.pmap_v2.handle;
+use std.data.persistent.handle;
 use std.lang.cmp; use std.lang.ord; use std.lang.datatypes;
 
 pub const StoreCfg: HermesStatic = @{ "name": "factory", "ctr_id": <type:u64>, "snp_id": <type:u64> };

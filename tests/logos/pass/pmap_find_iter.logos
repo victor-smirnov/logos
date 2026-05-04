@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// pmap_v2_find_iter.logos — search returning (iter, pos, hit).
+// pmap_find_iter.logos — search returning (iter, pos, hit).
 //
 // `pmap_view_find` is the canonical entry-point: lower-bound walk
 // from the root, returning a positioned LeafIter, the in-leaf slot,
@@ -14,11 +14,11 @@
 
 package main;
 
-use std.data.persistent.pmap_v2.view;
-use std.data.persistent.pmap_v2.mutv;
-use std.data.persistent.pmap_v2.btree;
-use std.data.persistent.pmap_v2.iter;
-use std.data.persistent.pmap_v2.cfg;
+use std.data.persistent.view;
+use std.data.persistent.mutv;
+use std.data.persistent.btree;
+use std.data.persistent.iter;
+use std.data.persistent.cfg;
 use std.lang.cmp;
 use std.lang.ord;
 use std.lang.datatypes;

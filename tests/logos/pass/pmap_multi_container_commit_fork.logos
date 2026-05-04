@@ -4,9 +4,9 @@
 //   • Reopen c0: ctr 101 should still have 50 keys (parent preserved)
 //   • Reopen c1: ctr 101 should have 100 keys
 //   • Both snapshots' ctr 202 should still have 30 keys
-package pmap_v2_multi_container_commit_fork;
+package pmap_multi_container_commit_fork;
 
-use std.data.persistent.pmap_v2.handle;
+use std.data.persistent.handle;
 use std.data.persistent.store;
 use std.lang.cmp; use std.lang.ord; use std.lang.datatypes;
 use std.hermes.view; use std.hermes.anyval;

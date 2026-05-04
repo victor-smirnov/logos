@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
 //
-// pmap_v2 showcase — container-directory architecture.
+// pmap showcase — container-directory architecture.
 //
 //   Store<STORE_CFG>     — Arc<LockingStore>; per-store release registry.
 //   Snap<STORE_CFG>      — directory MutSnapshot. Hosts containers,
@@ -13,9 +13,9 @@
 // commit transfers the dir tree to the DAG; fork inherits and rc-bumps
 // container roots so per-fork mutations CoW-clone cleanly.
 
-package pmap_v2_showcase;
+package pmap_showcase;
 
-use std.data.persistent.pmap_v2.handle;
+use std.data.persistent.handle;
 use std.lang.cmp;
 use std.lang.ord;
 use std.lang.datatypes;

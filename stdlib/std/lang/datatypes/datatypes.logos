@@ -208,7 +208,7 @@ pub trait Primitive {
 
 // Reflexive impls for bare integer scalars + bool: Prim = self. Lets
 // users plug `u64`/`i32`/etc. directly into APIs that take `T:
-// Container` / `T: Container + ContainerOrd` (Buffer<T>, pmap_v2 K/V,
+// Container` / `T: Container + ContainerOrd` (Buffer<T>, pmap K/V,
 // …) without an explicit POD-wrapper struct. The Container blanket
 // below picks them up automatically, and ContainerOrd follows from
 // each scalar's existing `Ord` impl. Floats are intentionally skipped
