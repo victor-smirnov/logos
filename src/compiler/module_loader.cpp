@@ -390,13 +390,32 @@ static PackageIndex build_package_index(const std::vector<std::string>& search_p
 std::vector<ParsedModule> load_modules(
     const std::string& root_path,
     const std::vector<std::string>& search_paths,
-    bool* out_had_error) noexcept
+    bool* out_had_error,
+    const std::vector<std::string>& extra_archive_files) noexcept
 {
     const bool trace = std::getenv("LOGOS_TRACE_PHASES") != nullptr;
     bool had_error = false;
 
     PackageIndex index = build_package_index(search_paths);
     auto binary_index  = build_binary_index(search_paths);
+
+    // Fold explicit `-l FILE` archives into the binary index. Each file
+    // contributes its packages exactly like a *.a found in a search dir.
+    for (const auto& f : extra_archive_files) {
+        std::error_code ec;
+        if (!fs::exists(f, ec) || !fs::is_regular_file(f, ec)) {
+            std::fprintf(stderr, "module_loader: -l '%s' is not a file\n", f.c_str());
+            had_error = true;
+            continue;
+        }
+        auto archive = fs::weakly_canonical(f, ec).string();
+        auto member  = ar_read_member(archive, ".hermes0");
+        if (member.empty()) continue;
+        auto pkgs = hermes0_packages(member);
+        for (auto& pkg : pkgs) {
+            if (!binary_index.count(pkg)) binary_index[pkg] = archive;
+        }
+    }
 
     if (trace) {
         size_t total_files = 0;

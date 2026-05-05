@@ -1796,14 +1796,18 @@ int main(int argc, char** argv) {
     bool jit_run   = false;                      // --jit: compile and run main() in-process
     const char* emit_module_manifest = nullptr;  // --emit-module <manifest>
     std::vector<std::string> search_paths;
-    // Subset of search_paths populated only from explicit -L / --libs
-    // (and -l targets). Used to scope `binary_symbols` collection: only
-    // user-explicit module-library paths feed the body-skip set, so
-    // bare-name fns in the system stdlib never shadow user-source
-    // definitions in projects that don't opt in to stdlib's pre-baked
-    // bodies. The system module path is still resolved into search_paths
-    // for module discovery — only the symbol-skip side is restricted.
+    // Subset of search_paths populated only from explicit -L / --libs.
+    // Used to scope `binary_symbols` collection: only user-explicit
+    // module-library paths feed the body-skip set, so bare-name fns in
+    // the system stdlib never shadow user-source definitions in projects
+    // that don't opt in to stdlib's pre-baked bodies. The system module
+    // path is still resolved into search_paths for module discovery —
+    // only the symbol-skip side is restricted.
     std::vector<std::string> explicit_lib_paths;
+    // Single-archive flags `-l FILE` / `--lib FILE`. These also feed
+    // body-skip (user-explicit linkage intent) and are passed to the
+    // module loader as additional binary modules.
+    std::vector<std::string> explicit_lib_files;
     int opt_level = 0;
     bool no_system = false;
     bool print_system_libdir = false;
@@ -1856,6 +1860,9 @@ int main(int argc, char** argv) {
             search_paths.push_back(argv[i+1]);
             explicit_lib_paths.push_back(argv[i+1]);
             ++i;
+        }
+        else if ((arg == "-l" || arg == "--lib") && i + 1 < argc) {
+            explicit_lib_files.push_back(argv[++i]);
         }
         else if (arg == "--no-system") { no_system = true; }
         else if (arg == "--print-system-libdir") { print_system_libdir = true; }
@@ -1910,7 +1917,7 @@ int main(int argc, char** argv) {
     };
     // ── Step 1-2: Load and parse all modules ────────────────────
     bool loader_had_error = false;
-    auto modules = logos::compiler::load_modules(input_path, search_paths, &loader_had_error);
+    auto modules = logos::compiler::load_modules(input_path, search_paths, &loader_had_error, explicit_lib_files);
     report("load+parse");
     if (modules.empty()) {
         std::fprintf(stderr, "logosc: no modules loaded\n");
@@ -1938,8 +1945,9 @@ int main(int argc, char** argv) {
     // M.1 Stage 2 (Mode B): also collect the archive paths themselves so the
     // metaprog JIT can register them via StaticLibraryDefinitionGenerator.
     std::vector<std::string> archive_paths;
-    // archive_paths spans every search dir (incl. system) so the metacall
-    // ORC JIT can resolve stdlib symbols at compile time.
+    // archive_paths spans every search dir (incl. system) plus -l files so
+    // the metacall ORC JIT can resolve every available symbol at compile
+    // time.
     for (const auto& dir : search_paths) {
         std::string cmd = "ls " + dir + "/*.a 2>/dev/null";
         if (FILE* lp = ::popen(cmd.c_str(), "r")) {
@@ -1953,27 +1961,33 @@ int main(int argc, char** argv) {
             ::pclose(lp);
         }
     }
-    // binary_symbols is restricted to user-explicit -L paths. mlir_gen
+    for (const auto& f : explicit_lib_files) archive_paths.push_back(f);
+
+    // binary_symbols: only collected from user-explicit -L / -l. mlir_gen
     // consults this set to skip body emission for fns whose pre-baked
-    // implementation is already in a user-pulled archive — the user's
-    // intent is to link against that archive, so emitting again would
-    // produce multi-def errors. The system stdlib is intentionally OUT:
-    // user-source bodies (e.g. a local `fn alloc`) win at link time via
-    // standard lazy-archive resolution.
-    for (const auto& dir : explicit_lib_paths) {
-        std::string cmd = "nm --defined-only -j " + dir + "/*.a 2>/dev/null";
+    // implementation is already in an archive the user explicitly pulled
+    // in — emitting again would multiply-define. The system stdlib is
+    // intentionally OUT: a project that doesn't opt in to stdlib's
+    // pre-baked bodies stays free to define `fn alloc`, `fn str_len`,
+    // etc. The lazy-archive linker picks user's `.o` over the archive's
+    // same-named member.
+    auto collect_syms = [&](const std::string& cmd) {
         FILE* pipe = ::popen(cmd.c_str(), "r");
-        if (!pipe) continue;
+        if (!pipe) return;
         char line[512];
         while (std::fgets(line, sizeof(line), pipe)) {
             std::string_view sv(line);
             while (!sv.empty() && (sv.back() == '\n' || sv.back() == '\r' || sv.back() == ' '))
                 sv.remove_suffix(1);
-            if (!sv.empty() && sv.front() != '/') // skip archive member headers like "/path/foo.o:"
+            if (!sv.empty() && sv.front() != '/')
                 binary_symbols.emplace(sv);
         }
         ::pclose(pipe);
-    }
+    };
+    for (const auto& dir : explicit_lib_paths)
+        collect_syms("nm --defined-only -j " + dir + "/*.a 2>/dev/null");
+    for (const auto& f : explicit_lib_files)
+        collect_syms("nm --defined-only -j " + f + " 2>/dev/null");
     if (trace)
         std::fprintf(stderr, "[trace] binary_symbols: %zu from %zu archive(s)\n",
                      binary_symbols.size(), binary_archives_seen.size());

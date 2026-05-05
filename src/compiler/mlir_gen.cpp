@@ -82,6 +82,14 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     // sharing a bare name with a stdlib symbol (`fn alloc(...)`) must be
     // emitted; the user's `.o` definition wins at link time and the
     // archive's same-named member is left out (lazy archive linking).
+    // Body-skip: a fn whose name is in `prog.binary_symbols`. The
+    // population side (main.cpp) restricts that set to user-explicit
+    // -L / -l archives so the system stdlib does NOT silently shadow a
+    // user-source bare-name fn (`fn alloc`) in projects that don't opt
+    // in to stdlib's pre-baked bodies. Generic instantiations from
+    // binary-module templates are NOT in the archive and must be
+    // compiled, so we use binary_symbols rather than the
+    // from_binary_module flag (mono erases the flag during clone).
     auto is_binary_skip = [&prog](const lir::LFunction& fn) -> bool {
         if (fn.is_extern || prog.binary_symbols.empty()) return false;
         return prog.binary_symbols.count(fn.name) > 0;
