@@ -1,0 +1,16 @@
+// `impl Trait for <primitive>` with method dispatch via dot-call.
+// Both `&self` (ref) and `self: *const Self` (raw pointer) styles work;
+// receiver is auto-addr'd to match the method's first-param type.
+package impl_trait_for_primitive;
+
+trait DoubledRef { fn doubled_ref(&self) -> i32; }
+impl DoubledRef for i32 { fn doubled_ref(&self) -> i32 { return *self * 2; } }
+
+trait DoubledPtr { fn doubled_ptr(self: *const Self) -> i32; }
+impl DoubledPtr for i32 { fn doubled_ptr(self: *const i32) -> i32 { unsafe { return (*self) * 2; } } }
+
+fn main() -> i32 {
+    let x: i32 = 7;
+    return x.doubled_ref() + x.doubled_ptr();
+    // 14 + 14 = 28
+}

@@ -130,7 +130,7 @@ fn main() -> i32 { let f: Foo<i32> = Foo::<i32> { x: 5 }; return f.x; }
 ### B-it-09: `impl Trait for i32` parses + sema-OKs but method dispatch fails
 
 **Severity**: P2 design
-**Status**: deferred — impl Trait for primitives needs method-dispatch overhaul on i32/etc.
+**Status**: fixed — primitive method dispatch in `lower_method_call` already tried `&T` and `&mut T` receiver auto-ref; extended to also try `*const T` and `*mut T` so `impl Trait for i32` declared with `self: *const Self` is reachable from dot-call. Symmetric auto-addr-of-temp at the call site lifts the value receiver to `*const T`/`*mut T` when the method expects it. Lock-in: pass test `impl_trait_for_primitive` covers both `&self` and `self: *const Self` styles.
 **Repro**: `B13/` —
 ```logos
 trait Doubled { fn doubled(self: *const Self) -> i32; }

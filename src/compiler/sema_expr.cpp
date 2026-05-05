@@ -3415,6 +3415,19 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 if (auto pfit = find_func_by_base_and_signature(mangled_prim, types_mut, false))
                     fi_ptr = pfit;
             }
+            // B-it-09: also try *const T / *mut T receiver — `impl Trait for i32`
+            // declared with `self: *const Self` is otherwise unreachable from
+            // dot-call.
+            if (!fi_ptr) {
+                auto types_cptr = types; types_cptr[0] = make_ptr(false, recv->type);
+                if (auto pfit = find_func_by_base_and_signature(mangled_prim, types_cptr, false))
+                    fi_ptr = pfit;
+            }
+            if (!fi_ptr) {
+                auto types_mptr = types; types_mptr[0] = make_ptr(true, recv->type);
+                if (auto pfit = find_func_by_base_and_signature(mangled_prim, types_mptr, false))
+                    fi_ptr = pfit;
+            }
             if (!fi_ptr) {
                 if (auto pfit = find_generic_func(mangled_prim)) {
                     fi_ptr = pfit;
@@ -3475,6 +3488,15 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
                     auto __ty_recv = make_ref(is_mut, recv->type);
 
+                    auto addr = builder().addr_of_temp(std::move(recv), is_mut, __ty_recv);
+                    recv = std::move(addr);
+                }
+                // B-it-09: also auto-addr when method expects *const Self / *mut Self.
+                else if (formal0 && TypeRef(formal0).kind() == LogosType::Kind::Ptr && recv->type &&
+                         TypeRef(recv->type).kind() != LogosType::Kind::Ptr &&
+                         !is_ref_like(TypeRef(recv->type).kind())) {
+                    bool is_mut = TypeRef(formal0).mut_ptr();
+                    auto __ty_recv = make_ptr(is_mut, recv->type);
                     auto addr = builder().addr_of_temp(std::move(recv), is_mut, __ty_recv);
                     recv = std::move(addr);
                 }
