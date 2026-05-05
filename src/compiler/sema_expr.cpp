@@ -8627,20 +8627,27 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
             // Data-tagged pointees (strings, decimals, etc.) — never
             // contain a metacall AST; ignore.
         };
-        if (inner.has_key(la::ARGS)) {
-            auto av = inner.get(la::ARGS.code);
-            if (av.is_pointer()) {
-                if (ic == la::CALL) {
-                    auto arr = arr_of(av);
-                    for (uint64_t i = 0; i < arr.size(); ++i) push_av(arr.get(i));
-                } else {
-                    auto m = map_of(av);
-                    if (m.has_key(la::ITEMS)) {
-                        auto arr = arr_of(m.get(la::ITEMS.code));
+        if (ic_is_call) {
+            // Call form: walk only the arg list — the callee identifier
+            // itself can't be a metacall.
+            if (inner.has_key(la::ARGS)) {
+                auto av = inner.get(la::ARGS.code);
+                if (av.is_pointer()) {
+                    if (ic == la::CALL) {
+                        auto arr = arr_of(av);
                         for (uint64_t i = 0; i < arr.size(); ++i) push_av(arr.get(i));
+                    } else {
+                        auto m = map_of(av);
+                        if (m.has_key(la::ITEMS)) {
+                            auto arr = arr_of(m.get(la::ITEMS.code));
+                            for (uint64_t i = 0; i < arr.size(); ++i) push_av(arr.get(i));
+                        }
                     }
                 }
             }
+        } else {
+            // Block / expr forms: walk the inner subtree from the root.
+            stack.push_back(inner);
         }
         bool nested_found = false;
         // Bound walk depth to keep AST traversal cheap; metacall args are
@@ -8677,6 +8684,131 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
             try_push(la::ITEMS);
         }
         if (nested_found) return error_expr();
+    }
+
+    // ── Capture detection (block + expr forms) ────────────────────────
+    //
+    // Per the language rule: a `metacall { ... }` block (or `metacall
+    // (<expr>)`) may use anything that's legal inside a function except
+    // captures of runtime variables from the enclosing scope. The block's
+    // own LET/FOR bindings are fine; module-level consts and top-level fns
+    // are fine; references to the surrounding fn's locals are not (they
+    // don't exist at compile time when the JIT thunk runs).
+    //
+    // Conservative approximation: collect names introduced anywhere inside
+    // the inner subtree (LET/FOR/FOR_EACH NAME plus PAT_WILD/PAT_FIELD
+    // bindings inside MATCH arms), then walk for VAR_REFs and reject any
+    // name that's not (a) defined inside, (b) a module-level const, or
+    // (c) a known fn (concrete or generic). False negatives possible for
+    // out-of-scope LET refs but the JIT compile catches those.
+    if (!ic_is_call) {
+        using hermes::TagDescriptor;
+        using hermes::TypeTag;
+        const uint8_t* base_ = holder_->base();
+        std::set<std::string> defined_inside;
+
+        std::function<void(TinyMapView)> collect_defs = [&](TinyMapView n) {
+            if (n.is_null()) return;
+            int32_t nc = code_of(n);
+            if (nc <= 0) return;
+            auto record_name = [&](const auto& k) {
+                if (n.has_key(k)) {
+                    auto sv = str_of(n.get(k.code));
+                    if (!sv.empty()) defined_inside.insert(std::string(sv));
+                }
+            };
+            if (nc == la::LET || nc == la::FOR || nc == la::FOR_EACH) {
+                record_name(la::NAME);
+            } else if (nc == la::PAT_WILD) {
+                record_name(la::NAME);
+            } else if (nc == la::PAT_FIELD) {
+                // `Foo { x: bind }` introduces `bind` (when VALUE present);
+                // `Foo { x }` shorthand introduces `x` directly.
+                if (n.has_key(la::VALUE))
+                    collect_defs(map_of(n.get(la::VALUE.code)));
+                else
+                    record_name(la::NAME);
+            }
+            // Recurse into children. Same shape-key list as the
+            // nested-metacall walker.
+            auto desc = [&](AnyVal av) {
+                if (!av.is_pointer()) return;
+                const uint8_t* obj = base_ + av.to_offset().value();
+                auto d = TypeTag::read_before(obj).descriptor();
+                if (d == TagDescriptor::Map) {
+                    collect_defs(map_of(av));
+                } else if (d == TagDescriptor::Array) {
+                    auto arr = arr_of(av);
+                    for (uint64_t i = 0; i < arr.size(); ++i) {
+                        auto e = arr.get(i);
+                        if (e.is_pointer()) {
+                            const uint8_t* obj2 = base_ + e.to_offset().value();
+                            auto d2 = TypeTag::read_before(obj2).descriptor();
+                            if (d2 == TagDescriptor::Map) collect_defs(map_of(e));
+                        }
+                    }
+                }
+            };
+            for (const auto& k : {la::LHS, la::RHS, la::VALUE, la::RECEIVER,
+                                  la::THEN, la::ELSE, la::COND, la::BODY,
+                                  la::GUARD, la::EXPR, la::BASE, la::ARGS,
+                                  la::ITEMS, la::ITER, la::PAT}) {
+                if (n.has_key(k)) desc(n.get(k.code));
+            }
+        };
+        collect_defs(inner);
+
+        bool has_capture = false;
+        std::function<void(TinyMapView)> check_uses = [&](TinyMapView n) {
+            if (n.is_null() || has_capture) return;
+            int32_t nc = code_of(n);
+            if (nc <= 0) return;
+            if (nc == la::VAR_REF) {
+                auto sv = str_of(n.get(la::NAME.code));
+                std::string name(sv);
+                bool is_ok = defined_inside.count(name) > 0
+                          || module_consts_.contains(name)
+                          || funcs_.contains(name)
+                          || generic_funcs_.contains(name);
+                if (!is_ok) {
+                    error(std::format(
+                        "metacall: cannot capture runtime variable '{}' from "
+                        "enclosing scope; metacall runs at compile time and "
+                        "has no access to surrounding locals (use a "
+                        "module-level `pub const` or pass the value via a "
+                        "metacall arg)", name));
+                    has_capture = true;
+                    return;
+                }
+            }
+            // Recurse via Hermes tags.
+            auto desc = [&](AnyVal av) {
+                if (!av.is_pointer() || has_capture) return;
+                const uint8_t* obj = base_ + av.to_offset().value();
+                auto d = TypeTag::read_before(obj).descriptor();
+                if (d == TagDescriptor::Map) {
+                    check_uses(map_of(av));
+                } else if (d == TagDescriptor::Array) {
+                    auto arr = arr_of(av);
+                    for (uint64_t i = 0; i < arr.size() && !has_capture; ++i) {
+                        auto e = arr.get(i);
+                        if (e.is_pointer()) {
+                            const uint8_t* obj2 = base_ + e.to_offset().value();
+                            auto d2 = TypeTag::read_before(obj2).descriptor();
+                            if (d2 == TagDescriptor::Map) check_uses(map_of(e));
+                        }
+                    }
+                }
+            };
+            for (const auto& k : {la::LHS, la::RHS, la::VALUE, la::RECEIVER,
+                                  la::THEN, la::ELSE, la::COND, la::BODY,
+                                  la::GUARD, la::EXPR, la::BASE, la::ARGS,
+                                  la::ITEMS, la::ITER, la::PAT}) {
+                if (n.has_key(k)) desc(n.get(k.code));
+            }
+        };
+        check_uses(inner);
+        if (has_capture) return error_expr();
     }
 
     // CTFE each arg of the inner call; missing => non-CT-constant diag.
