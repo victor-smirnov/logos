@@ -125,7 +125,7 @@ fn main() -> i32 {
 ### B-ex-08: Comparison chain `a < b < c` produces cryptic syntax error
 
 **Severity**: P1 diagnostic
-**Status**: deferred — parser-error-recovery work
+**Status**: deferred — chained-comparison parser-error-recovery work
 **Repro**: `B06/` —
 ```logos
 fn main() -> i32 {

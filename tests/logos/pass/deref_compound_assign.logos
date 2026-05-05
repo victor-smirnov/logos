@@ -1,0 +1,9 @@
+// B-st-04: `*p op= val` — compound assign through bare deref.
+package deref_compound_assign;
+
+fn main() -> i32 {
+    let mut x: i32 = 5;
+    let p: *mut i32 = &mut x as *mut i32;
+    unsafe { *p += 10; }
+    return x - 15;
+}

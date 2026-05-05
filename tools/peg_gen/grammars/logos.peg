@@ -265,6 +265,7 @@
     LET_PAT                     = 217   // `let <pattern> = expr;` — irrefutable destructure beyond simple ident/tuple. Sema checks refutability and lowers via match.
     DOUBLE_REF_TYPE             = 218   // `&&T` (Sprint 6.2 — B-ty-07; resolved by sema as nested REF_TYPE).
     DOUBLE_REF_MUT_TYPE         = 219   // `&&mut T` (B-ty-07; resolved as REF_TYPE wrapping MUT_REF_TYPE).
+    DEREF_COMPOUND              = 220   // `*p op= val;` — compound assign through bare deref (B-st-04). Sema lowers to deref_write of *p = *p OP val.
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -1436,6 +1437,10 @@
     // *ptr = val;  — dereference write
     deref_write_stmt <- STAR unary_expr ASSIGN expr SEMI
                      => { CODE: DEREF_WRITE, NAME: $2, VALUE: $4 }
+                      // B-st-04: `*p += v` — compound assign through bare deref.
+                      // Lowers to `*p = *p + v` at sema.
+                      / STAR unary_expr compound_assign_op expr SEMI
+                     => { CODE: DEREF_COMPOUND, NAME: $2, OP: $3, VALUE: $4 }
 
     if_expr <- KW_IF KW_LET pattern ASSIGN expr block KW_ELSE (if_expr / block)
             => { CODE: IF, PAT: $3, VALUE: $5, THEN: $6, ELSE: $8 }

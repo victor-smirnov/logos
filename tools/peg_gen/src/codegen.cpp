@@ -1215,11 +1215,13 @@ private:
                 w.fmt("if (c == '{}' && pos_+1 < source_.size() && source_[pos_+1] == '\"') {{", prefix);
                 w.indent();
                 w.line("pos_ += 2;");
-                w.line(R"(while (pos_ < source_.size() && source_[pos_] != '"') {)");
-                w.line(R"(    if (source_[pos_] == '\\') ++pos_;)");
+                // B-lx-05: bound the unterminated-string scan to a single
+                // line so the diagnostic doesn't span the rest of the file.
+                w.line(R"(while (pos_ < source_.size() && source_[pos_] != '"' && source_[pos_] != '\n') {)");
+                w.line(R"(    if (source_[pos_] == '\\' && pos_+1 < source_.size() && source_[pos_+1] != '\n') ++pos_;)");
                 w.line("    ++pos_;");
                 w.line("}");
-                w.line("if (pos_ < source_.size()) ++pos_;");
+                w.line(R"(if (pos_ < source_.size() && source_[pos_] == '"') ++pos_;)");
                 w.fmt("return {{TK::{}, source_.substr(start, pos_ - start), start_line_}};", safe_tok_name(t.name));
                 w.dedent();
                 w.line("}");
@@ -1230,11 +1232,13 @@ private:
                 w.line(R"(if (c == '"') {)");
                 w.indent();
                 w.line("++pos_;");
-                w.line(R"(while (pos_ < source_.size() && source_[pos_] != '"') {)");
-                w.line(R"(    if (source_[pos_] == '\\') ++pos_;)");
+                // B-lx-05: bound the unterminated-string scan to a single
+                // line so the diagnostic doesn't span the rest of the file.
+                w.line(R"(while (pos_ < source_.size() && source_[pos_] != '"' && source_[pos_] != '\n') {)");
+                w.line(R"(    if (source_[pos_] == '\\' && pos_+1 < source_.size() && source_[pos_+1] != '\n') ++pos_;)");
                 w.line("    ++pos_;");
                 w.line("}");
-                w.line("if (pos_ < source_.size()) ++pos_;");
+                w.line(R"(if (pos_ < source_.size() && source_[pos_] == '"') ++pos_;)");
                 w.fmt("return {{TK::{}, source_.substr(start, pos_ - start), start_line_}};", safe_tok_name(t.name));
                 w.dedent();
                 w.line("}");

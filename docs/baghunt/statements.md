@@ -69,7 +69,7 @@ fn main() -> i32 {
 ### B-st-04: `*p += v` syntax error (compound assign on bare deref doesn't parse)
 
 **Severity**: P1 diagnostic / P2 incomplete
-**Status**: deferred — \*p += v needs grammar+sema work for compound deref-write
+**Status**: fixed (DEREF_COMPOUND grammar alt + sema desugar to *p = *p OP val; tests/logos/pass/deref_compound_assign)
 **Repro**: `B06/` —
 ```logos
 fn main() -> i32 {

@@ -63,7 +63,7 @@ let x: u64 = 12345678901234567890u64;  // > u64 max for some values
 ### B-lx-05: Unterminated string literal — diagnostic spans rest of file
 
 **Severity**: P1 diagnostic
-**Status**: deferred — lexer error-bound improvement
+**Status**: fixed (string lexer bounds unterminated literal to one line; clean "syntax error near \'\"unterminated;\'" diagnostic)
 **Repro**: `B07/` —
 ```logos
 fn main() -> i32 {

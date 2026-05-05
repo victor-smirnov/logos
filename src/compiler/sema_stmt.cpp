@@ -222,6 +222,37 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
         }
         return builder().stmt_continue(std::move(cont_label), node_line_);
     }
+    if (c == la::DEREF_COMPOUND) {
+        // B-st-04: `*p op= v` — desugar to `*p = *p op v`.
+        if (!stmt.has_key(la::NAME) || !stmt.has_key(la::VALUE)) {
+            error("deref-compound: missing operand");
+            return builder().stmt_expr(error_expr(), node_line_);
+        }
+        auto ptr   = lower_expr(map_of(stmt.get(la::NAME.code)));
+        auto rhs   = lower_expr(map_of(stmt.get(la::VALUE.code)));
+        auto op_tok = str_of(stmt.get(la::OP.code));
+        std::string base_op = (op_tok.size() >= 2 && op_tok.back() == '=')
+            ? std::string(op_tok.substr(0, op_tok.size() - 1))
+            : std::string(op_tok);
+        TypeRef pt = ptr->type;
+        TypeRef elem = TypeRef(pt).pointee();
+        if (!elem || (TypeRef(pt).kind() != LogosType::Kind::Ptr &&
+                      TypeRef(pt).kind() != LogosType::Kind::MutRef)) {
+            error("deref-compound: left side must be a pointer or mutable reference");
+            return builder().stmt_expr(error_expr(), node_line_);
+        }
+        bool is_mut_ref = TypeRef(pt).kind() == LogosType::Kind::MutRef;
+        if (!is_mut_ref && !inside_unsafe_)
+            error("write through raw pointer requires unsafe context");
+        if (TypeRef(pt).kind() == LogosType::Kind::Ptr && !TypeRef(pt).mut_ptr())
+            error("deref-compound: cannot write through *const pointer (use *mut)");
+        // Build *p (read) op rhs.  Need to read ptr twice — clone the var-ref
+        // by re-lowering.
+        auto ptr_again = lower_expr(map_of(stmt.get(la::NAME.code)));
+        auto cur_val   = builder().deref(std::move(ptr_again), elem);
+        auto binop     = builder().bin_op(base_op, std::move(cur_val), std::move(rhs), elem);
+        return builder().stmt_deref_write(std::move(ptr), std::move(binop), node_line_);
+    }
     if (c == la::DEREF_WRITE) {
         // *ptr = value;
         lir::LExprPtr ptr = stmt.has_key(la::NAME)
