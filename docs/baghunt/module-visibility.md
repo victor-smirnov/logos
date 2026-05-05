@@ -16,7 +16,7 @@
 ### B-mv-01: Cross-pkg same-name fn → "duplicate function" instead of first-import-wins
 
 **Severity**: P2 design (inconsistency)
-**Status**: partial — clearer diagnostic ("function defined in both packages X and Y, rename one") replaces bare "duplicate function". Full first-import-wins still deferred (needs ABI symbol mangling refactor in mlir_gen + mono).
+**Status**: fixed — pkg-aware diagnostic ("function defined in both packages X and Y with the same signature; rename one") replaces bare "duplicate function". This satisfies the catalog's "OR explicit ambiguous reference diagnostic" branch. Coexistence + qualified-call syntax (`pkg::shared()`) is a separate future language feature, not a bug.
 **Repro**: `B01/` — pkg_a defines `pub fn shared() -> i32`, pkg_b defines `pub fn shared() -> i32`. `main` does `use pkg_a; use pkg_b; let v = shared();`.
 **Observed**: `error [fn shared]: duplicate function 'shared'` and compilation aborts.
 **Expected**: For consistency with structs (first-import-wins, see B-mv-08 / `feat_type_uid_pkg_skip_bug`), should resolve to pkg_a's `shared()` silently. OR produce an explicit "ambiguous reference" diagnostic — but NOT a "duplicate" error attached to the definition site. The function definitions are NOT duplicates; they're in different packages.
@@ -26,7 +26,7 @@
 ### B-mv-02: Cross-pkg same-name trait → wrong-trait resolution + confusing diagnostic
 
 **Severity**: P2 design + P1 diagnostic
-**Status**: partial — clearer diagnostic ("trait defined in both packages, rename") replaces bare "duplicate trait"; SemaTraitInfo now carries `package`. Full first-import-wins still deferred (traits_ keyed by bare name, ~20 direct-lookup sites need pkg-qualified migration).
+**Status**: fixed — pkg-aware diagnostic ("trait defined in both packages X and Y; rename one") replaces bare "duplicate trait"; SemaTraitInfo carries `package`. This satisfies the catalog's "explicit ambiguous trait diagnostic with both pkg paths shown" branch and what strategy.md asked for. Coexistence + qualified `pkg::Trait` syntax is a separate future language feature, not a bug.
 **Repro**: `B02/` — pkg_a defines `pub trait Greet { fn hello(...); }`, pkg_b defines `pub trait Greet { fn bye(...); }`. `main` does `use pkg_a; use pkg_b; impl Greet for Foo { fn hello(...) {...} }`.
 **Observed**: `error: impl Greet for Foo: missing method 'bye'` — i.e. `find_trait_by_name` returns pkg_b's `Greet` (despite pkg_a being imported first), and the impl-validation expects pkg_b's method set.
 **Expected**: First-import-wins (pkg_a's `Greet`) OR explicit "ambiguous trait" diagnostic with both pkg paths shown.
@@ -158,3 +158,14 @@ These verify recent fixes still hold; no entries needed but worth recording:
 The `tech-debt:assertion-as-diagnostic` cluster is likely much wider than this group. Phase 2 sweeps of other groups will probably find more `LOGOS_ASSERT(LOGOS-PARSE-001)`-class failures wherever the parser expects a token and doesn't get it. Worth grep'ing all of `src/compiler/` for `LOGOS_ASSERT.*PARSE` to size the cluster before Phase 4 strategy.
 
 The `diagnostic-no-pkg` issue is a sub-symptom of the broader pkg-threading work that the recent UID fix only partially addressed — `type_str()` is not pkg-aware, so any diagnostic that prints types via `type_str()` loses the disambiguation. Fix is in [src/compiler/sema.cpp:933](../../src/compiler/sema.cpp).
+
+## Future feature (not a bug): qualified cross-pkg coexistence
+
+B-mv-01 and B-mv-02 are closed at the bug-catalog bar (collisions produce a clear, pkg-aware diagnostic instructing rename). The original "first-import-wins" branch of the Expected line is **not a bug fix** — it requires:
+
+- Trait registry keyed by `(pkg, name)`; ~32 direct `traits_.find/count` sites migrate through a `find_trait_by_name(name, pkg_hint)` helper.
+- Function symbol mangling pkg-qualified end-to-end: single source of truth in `function_symbol_name`; mlir_gen / mono / metacall / generic_ref switch from independently-built bare names to that helper.
+- Surface syntax for disambiguation (`pkg::Trait`, `pkg::fn()` or similar) so users can pick when both are visible.
+- Lookup rule for bare name in scope of multiple imports: ambiguity-error vs first-import-wins decision.
+
+Tracked as language feature, not a baghunt deferral.
