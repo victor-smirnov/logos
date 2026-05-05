@@ -119,16 +119,16 @@ Confirmed working (H12). Trailing-comma-cluster: contrast with B-fn-03/04/05 (re
 
 ## Tag summary
 
-| Tag | Count | Bugs |
-|---|---|---|
-| `oversight:simple` | 4 | B-he-01, B-he-02, B-he-03, B-he-04 |
-| `tech-debt:nested-form-untested` | 1 | B-he-01 |
-| `tech-debt:missing-uniqueness-check` | 1 | B-he-02 |
-| `tech-debt:no-key-type-validation` | 1 | B-he-03 |
-| `tech-debt:literal-saturation-no-error` | 1 | B-he-04 |
-| `tech-debt:diagnostic-imprecise` | 1 | B-he-05 |
-| `tech-debt:misleading-diagnostic` | 1 | B-he-06 |
-| `tech-debt:parser-no-recovery` | 1 | B-he-06 |
+| Tag | Open | Fixed | N/A | Total | Bugs |
+|---|---|---|---|---|---|
+| `oversight:simple` | 0 | 3 | 1 | 4 | B-he-01, B-he-02, B-he-03, B-he-04 |
+| `tech-debt:diagnostic-imprecise` | 0 | 1 | 0 | 1 | B-he-05 |
+| `tech-debt:literal-saturation-no-error` | 0 | 1 | 0 | 1 | B-he-04 |
+| `tech-debt:misleading-diagnostic` | 0 | 1 | 0 | 1 | B-he-06 |
+| `tech-debt:missing-uniqueness-check` | 0 | 1 | 0 | 1 | B-he-02 |
+| `tech-debt:nested-form-untested` | 0 | 1 | 0 | 1 | B-he-01 |
+| `tech-debt:no-key-type-validation` | 0 | 0 | 1 | 1 | B-he-03 |
+| `tech-debt:parser-no-recovery` | 0 | 1 | 0 | 1 | B-he-06 |
 
 **Cluster preview**:
 - **B-he-01 (nested literals)** is the standout P0 — major feature gap that all existing tests happen to avoid. Should be high-priority architectural fix.

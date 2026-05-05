@@ -129,12 +129,12 @@ fn main() -> i32 { return old(); }   // no warning here
 
 ## Tag summary
 
-| Tag | Count | Bugs |
-|---|---|---|
-| `oversight:simple` | 7 | B-at-01..07 |
-| `tech-debt:no-attribute-validation` | 6 | B-at-01, B-at-02, B-at-04, B-at-05, B-at-06, B-at-07 |
-| `tech-debt:missing-uniqueness-check` | 1 | B-at-03 |
-| `design:incomplete` | 1 | B-at-08 |
+| Tag | Open | Fixed | Total | Bugs |
+|---|---|---|---|---|
+| `oversight:simple` | 0 | 7 | 7 | B-at-01, B-at-02, B-at-03, B-at-04, B-at-05, B-at-06, B-at-07 |
+| `tech-debt:no-attribute-validation` | 0 | 6 | 6 | B-at-01, B-at-02, B-at-04, B-at-05, B-at-06, B-at-07 |
+| `design:incomplete` | 1 | 0 | 1 | B-at-08 |
+| `tech-debt:missing-uniqueness-check` | 0 | 1 | 1 | B-at-03 |
 
 **Cluster preview**:
 - **`tech-debt:no-attribute-validation`** is the dominant cluster (6 bugs). The architectural fix is a per-attribute spec table: `name → (allowed_targets, value_type, range_check, dup_policy)`. One pass + one table closes most of these.

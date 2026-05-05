@@ -154,16 +154,16 @@ fn helper(x: [i32; 0]) -> i32 { return 0; }
 
 ## Tag summary
 
-| Tag | Count | Bugs |
-|---|---|---|
-| `oversight:simple` | 5 | B-ty-01, B-ty-02, B-ty-03, B-ty-05, B-ty-06 |
-| `tech-debt:missing-arity-check` | 3 | B-ty-03, B-ty-04, B-ty-05 |
-| `tech-debt:missing-position-check` | 1 | B-ty-02 |
-| `tech-debt:missing-bound-check` | 1 | B-ty-06 |
-| `tech-debt:lexer-greedy-collision` | 2 | B-ty-07, B-ty-08 |
-| `tech-debt:diagnostic-from-codegen` | 1 | B-ty-04 |
-| `tech-debt:grammar-inconsistency` | 1 | B-ty-09 |
-| `design:incomplete` | 4 | B-ty-07, B-ty-08, B-ty-09, B-ty-10 |
+| Tag | Open | Fixed | N/A | Total | Bugs |
+|---|---|---|---|---|---|
+| `oversight:simple` | 0 | 5 | 0 | 5 | B-ty-01, B-ty-02, B-ty-03, B-ty-05, B-ty-06 |
+| `design:incomplete` | 0 | 3 | 1 | 4 | B-ty-07, B-ty-08, B-ty-09, B-ty-10 |
+| `tech-debt:missing-arity-check` | 0 | 3 | 0 | 3 | B-ty-03, B-ty-04, B-ty-05 |
+| `tech-debt:lexer-greedy-collision` | 0 | 2 | 0 | 2 | B-ty-07, B-ty-08 |
+| `tech-debt:diagnostic-from-codegen` | 0 | 1 | 0 | 1 | B-ty-04 |
+| `tech-debt:grammar-inconsistency` | 0 | 1 | 0 | 1 | B-ty-09 |
+| `tech-debt:missing-bound-check` | 0 | 1 | 0 | 1 | B-ty-06 |
+| `tech-debt:missing-position-check` | 0 | 1 | 0 | 1 | B-ty-02 |
 
 **Cluster preview**:
 - **missing-arity-check** (3 bugs) — generic-instantiation type-arg count not validated. Single-helper fix at the `args.size() vs type_params.size()` check site catches all three (too-many, too-few, non-generic-takes-args).

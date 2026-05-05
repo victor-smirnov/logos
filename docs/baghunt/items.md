@@ -172,16 +172,16 @@ fn main() -> i32 { return 0; }
 
 ## Tag summary
 
-| Tag | Count | Bugs |
-|---|---|---|
-| `oversight:simple` | 6 | B-it-01, B-it-02, B-it-03, B-it-04, B-it-05, B-it-10 |
-| `tech-debt:missing-cycle-guard` | 2 | B-it-01, B-it-02 |
-| `tech-debt:missing-uniqueness-check` | 2 | B-it-03, B-it-04 |
-| `design:incomplete` | 6 | B-it-05, B-it-06, B-it-07, B-it-08, B-it-09, B-it-11 |
-| `tech-debt:overloaded-syntax` | 2 | B-it-07, B-it-08 |
-| `tech-debt:hardcoded-special-case` | 1 | B-it-09 |
-| `tech-debt:silent-nullptr-on-error` | 1 | B-it-10 |
-| `tech-debt:grammar-doc-drift` | 1 | B-it-11 |
+| Tag | Open | Fixed | N/A | Total | Bugs |
+|---|---|---|---|---|---|
+| `design:incomplete` | 0 | 4 | 2 | 6 | B-it-05, B-it-06, B-it-07, B-it-08, B-it-09, B-it-11 |
+| `oversight:simple` | 0 | 6 | 0 | 6 | B-it-01, B-it-02, B-it-03, B-it-04, B-it-05, B-it-10 |
+| `tech-debt:missing-cycle-guard` | 0 | 2 | 0 | 2 | B-it-01, B-it-02 |
+| `tech-debt:missing-uniqueness-check` | 0 | 2 | 0 | 2 | B-it-03, B-it-04 |
+| `tech-debt:overloaded-syntax` | 0 | 2 | 0 | 2 | B-it-07, B-it-08 |
+| `tech-debt:grammar-doc-drift` | 0 | 0 | 1 | 1 | B-it-11 |
+| `tech-debt:hardcoded-special-case` | 0 | 1 | 0 | 1 | B-it-09 |
+| `tech-debt:silent-nullptr-on-error` | 0 | 1 | 0 | 1 | B-it-10 |
 
 **Cluster preview**:
 - **Missing-cycle-guard** (B-it-01/02) — recursive type-defs blow up at type-resolution. One architectural fix: visited-set in `register_struct`/`register_tagged_enum` recursion + sema check.

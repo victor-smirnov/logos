@@ -101,16 +101,16 @@ fn main() -> i32 { return 0; }
 
 ## Tag summary
 
-| Tag | Count | Bugs |
-|---|---|---|
-| `oversight:simple` | 4 | B-ca-01, B-ca-02, B-ca-04, B-ca-06 |
-| `tech-debt:missing-cycle-guard` | 1 | B-ca-01 |
-| `tech-debt:missing-uniqueness-check` | 1 | B-ca-04 |
-| `tech-debt:type-check-deferred-to-codegen` | 1 | B-ca-02 |
-| `tech-debt:silent-feature-gap` | 1 | B-ca-05 |
-| `tech-debt:cascading-error-misleading` | 1 | B-ca-06 |
-| `tech-debt:const-eval-policy-undefined` | 1 | B-ca-03 |
-| `design:incomplete` | 2 | B-ca-03, B-ca-05 |
+| Tag | Open | Fixed | Total | Bugs |
+|---|---|---|---|---|
+| `oversight:simple` | 0 | 4 | 4 | B-ca-01, B-ca-02, B-ca-04, B-ca-06 |
+| `design:incomplete` | 0 | 2 | 2 | B-ca-03, B-ca-05 |
+| `tech-debt:cascading-error-misleading` | 0 | 1 | 1 | B-ca-06 |
+| `tech-debt:const-eval-policy-undefined` | 0 | 1 | 1 | B-ca-03 |
+| `tech-debt:missing-cycle-guard` | 0 | 1 | 1 | B-ca-01 |
+| `tech-debt:missing-uniqueness-check` | 0 | 1 | 1 | B-ca-04 |
+| `tech-debt:silent-feature-gap` | 0 | 1 | 1 | B-ca-05 |
+| `tech-debt:type-check-deferred-to-codegen` | 0 | 1 | 1 | B-ca-02 |
 
 **Cluster preview**:
 - **missing-cycle-guard** (continuation from items): B-ca-01 (self-ref const) joins B-it-01 (recursive struct), B-it-02 (recursive enum). Pattern: any name-resolution path needs a "currently being resolved" set.

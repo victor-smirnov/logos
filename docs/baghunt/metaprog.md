@@ -110,16 +110,16 @@ All run at compile time via a synthesised JIT thunk and splice the result back a
 
 ## Tag summary
 
-| Tag | Count | Bugs |
-|---|---|---|
-| `oversight:simple` | 2 | B-mt-02, B-mt-04 |
-| `tech-debt:no-validation` | 1 | B-mt-02 |
-| `tech-debt:misleading-diagnostic` | 1 | B-mt-01 |
-| `tech-debt:wrong-error-context` | 1 | B-mt-01 |
-| `tech-debt:missing-arity-check` | 1 | B-mt-03 |
-| `tech-debt:diagnostic-from-codegen` | 1 | B-mt-03 |
-| `tech-debt:no-attribute-validation` | 1 | B-mt-04 |
-| `design:incomplete` | 2 | B-mt-05, B-mt-06 |
+| Tag | Open | Fixed | N/A | Total | Bugs |
+|---|---|---|---|---|---|
+| `design:incomplete` | 1 | 1 | 0 | 2 | B-mt-05, B-mt-06 |
+| `oversight:simple` | 1 | 1 | 0 | 2 | B-mt-02, B-mt-04 |
+| `tech-debt:diagnostic-from-codegen` | 0 | 1 | 0 | 1 | B-mt-03 |
+| `tech-debt:misleading-diagnostic` | 0 | 0 | 1 | 1 | B-mt-01 |
+| `tech-debt:missing-arity-check` | 0 | 1 | 0 | 1 | B-mt-03 |
+| `tech-debt:no-attribute-validation` | 1 | 0 | 0 | 1 | B-mt-04 |
+| `tech-debt:no-validation` | 0 | 1 | 0 | 1 | B-mt-02 |
+| `tech-debt:wrong-error-context` | 0 | 0 | 1 | 1 | B-mt-01 |
 
 **Cluster preview**:
 - B-mt-03 joins `missing-arity-check` cluster (now 5 bugs).

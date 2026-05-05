@@ -172,19 +172,19 @@ fn main() -> i32 { for x in 5 { let _ = x; } return 0; }
 
 ## Tag summary
 
-| Tag | Count | Bugs |
-|---|---|---|
-| `oversight:simple` | 5 | B-st-01, B-st-03, B-st-04, B-st-05, B-st-06 |
-| `tech-debt:scope-stack-incorrect` | 1 | B-st-01 |
-| `tech-debt:divergence-not-checked` | 1 | B-st-03 |
-| `tech-debt:assignment-matrix-incomplete` | 1 | B-st-04 |
-| `tech-debt:label-not-validated` | 1 | B-st-06 |
-| `tech-debt:diagnostic-from-codegen` | 1 | B-st-05 |
-| `tech-debt:misleading-diagnostic` | 1 | B-st-02 |
-| `tech-debt:parser-no-recovery` | 1 | B-st-02 |
-| `tech-debt:no-reachability-lint` | 2 | B-st-07, B-st-08 |
-| `tech-debt:diagnostic-help-missing` | 1 | B-st-10 |
-| `design:incomplete` | 3 | B-st-07, B-st-08, B-st-10 |
+| Tag | Open | Fixed | Total | Bugs |
+|---|---|---|---|---|
+| `oversight:simple` | 0 | 5 | 5 | B-st-01, B-st-03, B-st-04, B-st-05, B-st-06 |
+| `design:incomplete` | 1 | 2 | 3 | B-st-07, B-st-08, B-st-10 |
+| `tech-debt:no-reachability-lint` | 0 | 2 | 2 | B-st-07, B-st-08 |
+| `tech-debt:assignment-matrix-incomplete` | 0 | 1 | 1 | B-st-04 |
+| `tech-debt:diagnostic-from-codegen` | 0 | 1 | 1 | B-st-05 |
+| `tech-debt:diagnostic-help-missing` | 1 | 0 | 1 | B-st-10 |
+| `tech-debt:divergence-not-checked` | 0 | 1 | 1 | B-st-03 |
+| `tech-debt:label-not-validated` | 0 | 1 | 1 | B-st-06 |
+| `tech-debt:misleading-diagnostic` | 0 | 1 | 1 | B-st-02 |
+| `tech-debt:parser-no-recovery` | 0 | 1 | 1 | B-st-02 |
+| `tech-debt:scope-stack-incorrect` | 0 | 1 | 1 | B-st-01 |
 
 **Cluster preview**:
 - **B-st-01 (scope-stack-incorrect)** is potentially the most-impactful bug found so far — silent miscompile in everyday code. Tracking this carefully; needs a single fix in sema's block-scoping push/pop.

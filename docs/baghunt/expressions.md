@@ -170,18 +170,18 @@ fn main() -> i32 {
 
 ## Tag summary
 
-| Tag | Count | Bugs |
-|---|---|---|
-| `oversight:simple` | 6 | B-ex-01, B-ex-02, B-ex-03, B-ex-04, B-ex-05, B-ex-07 |
-| `tech-debt:no-const-fold-validation` | 2 | B-ex-02, B-ex-03 |
-| `tech-debt:no-overflow-check` | 1 | B-ex-01 |
-| `tech-debt:no-signedness-check-for-unary` | 1 | B-ex-04 |
-| `tech-debt:no-cast-validation` | 1 | B-ex-05 |
-| `tech-debt:address-of-temporary` | 1 | B-ex-06 |
-| `tech-debt:literal-saturation-no-error` | 1 | B-ex-07 |
-| `tech-debt:misleading-diagnostic` | 1 | B-ex-08 |
-| `tech-debt:precedence-c-style` | 1 | B-ex-09 |
-| `design:incomplete` | 2 | B-ex-06, B-ex-09 |
+| Tag | Open | Fixed | N/A | Total | Bugs |
+|---|---|---|---|---|---|
+| `oversight:simple` | 0 | 6 | 0 | 6 | B-ex-01, B-ex-02, B-ex-03, B-ex-04, B-ex-05, B-ex-07 |
+| `design:incomplete` | 0 | 1 | 1 | 2 | B-ex-06, B-ex-09 |
+| `tech-debt:no-const-fold-validation` | 0 | 2 | 0 | 2 | B-ex-02, B-ex-03 |
+| `tech-debt:address-of-temporary` | 0 | 1 | 0 | 1 | B-ex-06 |
+| `tech-debt:literal-saturation-no-error` | 0 | 1 | 0 | 1 | B-ex-07 |
+| `tech-debt:misleading-diagnostic` | 0 | 1 | 0 | 1 | B-ex-08 |
+| `tech-debt:no-cast-validation` | 0 | 1 | 0 | 1 | B-ex-05 |
+| `tech-debt:no-overflow-check` | 0 | 1 | 0 | 1 | B-ex-01 |
+| `tech-debt:no-signedness-check-for-unary` | 0 | 1 | 0 | 1 | B-ex-04 |
+| `tech-debt:precedence-c-style` | 0 | 0 | 1 | 1 | B-ex-09 |
 
 **Cluster preview**:
 - **Const-fold validation** super-cluster (4 bugs: B-ex-01/02/03/07) — single architectural fix in const-fold engine to validate ranges + zero divisors + signedness.

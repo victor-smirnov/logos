@@ -100,13 +100,13 @@ The dup-detection pattern exists in struct-lit lowering but is missing in struct
 
 ## Tag summary
 
-| Tag | Count | Bugs |
-|---|---|---|
-| `oversight:simple` | 2 | B-li-01, B-li-03 |
-| `tech-debt:duplicated-diagnostic` | 1 | B-li-01 |
-| `tech-debt:no-spread-type-check` | 1 | B-li-03 |
-| `tech-debt:misleading-diagnostic` | 1 | B-li-04 |
-| `design:incomplete` | 1 | B-li-02 |
+| Tag | Open | Fixed | N/A | Total | Bugs |
+|---|---|---|---|---|---|
+| `oversight:simple` | 0 | 2 | 0 | 2 | B-li-01, B-li-03 |
+| `design:incomplete` | 0 | 0 | 1 | 1 | B-li-02 |
+| `tech-debt:duplicated-diagnostic` | 0 | 1 | 0 | 1 | B-li-01 |
+| `tech-debt:misleading-diagnostic` | 0 | 1 | 0 | 1 | B-li-04 |
+| `tech-debt:no-spread-type-check` | 0 | 1 | 0 | 1 | B-li-03 |
 
 ## Regression-confirmed (NOT bugs)
 

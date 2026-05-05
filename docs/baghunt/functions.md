@@ -152,15 +152,15 @@ fn main() -> i32 { let x: i32 = 5; return standalone(&x as *const i32); }
 
 ## Tag summary
 
-| Tag | Count | Bugs |
-|---|---|---|
-| `oversight:simple` | 3 | B-fn-02, B-fn-03, B-fn-04 |
-| `design:incomplete` | 7 | B-fn-03, B-fn-04, B-fn-05, B-fn-06, B-fn-07, B-fn-08, B-fn-09, B-fn-10 |
-| `tech-debt:missing-uniqueness-check` | 1 | B-fn-02 |
-| `tech-debt:grammar-doc-drift` | 1 | B-fn-01 |
-| `tech-debt:grammar-inconsistency` | 1 | B-fn-09 |
-| `tech-debt:reserved-name` | 1 | B-fn-08 |
-| `tech-debt:context-free-name` | 1 | B-fn-10 |
+| Tag | Open | Fixed | N/A | Total | Bugs |
+|---|---|---|---|---|---|
+| `design:incomplete` | 1 | 6 | 1 | 8 | B-fn-03, B-fn-04, B-fn-05, B-fn-06, B-fn-07, B-fn-08, B-fn-09, B-fn-10 |
+| `oversight:simple` | 1 | 3 | 0 | 4 | B-fn-02, B-fn-03, B-fn-04, B-fn-05 |
+| `tech-debt:context-free-name` | 0 | 1 | 0 | 1 | B-fn-10 |
+| `tech-debt:grammar-doc-drift` | 0 | 0 | 1 | 1 | B-fn-01 |
+| `tech-debt:grammar-inconsistency` | 0 | 1 | 0 | 1 | B-fn-09 |
+| `tech-debt:missing-uniqueness-check` | 0 | 1 | 0 | 1 | B-fn-02 |
+| `tech-debt:reserved-name` | 0 | 1 | 0 | 1 | B-fn-08 |
 
 **Cluster preview**:
 - **Trailing-comma cluster** (B-fn-03/04/05/09) — single architectural fix: standardize `(COMMA T)* COMMA?` across all list productions in [logos.peg](../../tools/peg_gen/grammars/logos.peg).

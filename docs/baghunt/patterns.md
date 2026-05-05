@@ -179,17 +179,17 @@ fn todo() -> Empty { return todo(); }
 
 ## Tag summary
 
-| Tag | Count | Bugs |
-|---|---|---|
-| `oversight:simple` | 1 | B-pt-01 |
-| `tech-debt:missing-uniqueness-check` | 1 | B-pt-01 |
-| `tech-debt:asymmetric-pattern-positions` | 1 | B-pt-02 |
-| `tech-debt:no-nested-patterns` | 1 | B-pt-04 |
-| `tech-debt:slice-pat-not-wired` | 1 | B-pt-05 |
-| `tech-debt:no-reachability-lint` | 1 | B-pt-07 |
-| `tech-debt:diagnostic-from-codegen` | 1 | B-pt-07 |
-| `tech-debt:grammar-too-strict` | 1 | B-pt-08 |
-| `design:incomplete` | 6 | B-pt-02, B-pt-03, B-pt-04, B-pt-05, B-pt-06, B-pt-08 |
+| Tag | Open | Fixed | N/A | Total | Bugs |
+|---|---|---|---|---|---|
+| `design:incomplete` | 0 | 2 | 4 | 6 | B-pt-02, B-pt-03, B-pt-04, B-pt-05, B-pt-06, B-pt-08 |
+| `oversight:simple` | 0 | 1 | 0 | 1 | B-pt-01 |
+| `tech-debt:asymmetric-pattern-positions` | 0 | 1 | 0 | 1 | B-pt-02 |
+| `tech-debt:diagnostic-from-codegen` | 0 | 1 | 0 | 1 | B-pt-07 |
+| `tech-debt:grammar-too-strict` | 0 | 1 | 0 | 1 | B-pt-08 |
+| `tech-debt:missing-uniqueness-check` | 0 | 1 | 0 | 1 | B-pt-01 |
+| `tech-debt:no-nested-patterns` | 0 | 0 | 1 | 1 | B-pt-04 |
+| `tech-debt:no-reachability-lint` | 0 | 1 | 0 | 1 | B-pt-07 |
+| `tech-debt:slice-pat-not-wired` | 0 | 0 | 1 | 1 | B-pt-05 |
 
 **Cluster preview**:
 - **Pattern surface coverage gaps** (B-pt-02..06, 08) — pattern grammar is incomplete in several positions. Many "this should work" forms parsed by Rust don't parse here. Architectural fix: a pass through the pattern grammar to standardize what's allowed where.

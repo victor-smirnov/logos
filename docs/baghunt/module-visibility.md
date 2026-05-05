@@ -125,14 +125,14 @@
 
 ## Tag summary
 
-| Tag | Count | Bugs |
-|---|---|---|
-| `tech-debt:assertion-as-diagnostic` | 4 | B-mv-05, B-mv-06, B-mv-07, B-mv-08 |
-| `oversight:simple` | 8 | B-mv-03, B-mv-04, B-mv-05, B-mv-06, B-mv-07, B-mv-08, B-mv-10, B-mv-11 |
-| `tech-debt:diagnostic-not-fatal` | 2 | B-mv-03, B-mv-04 |
-| `tech-debt:diagnostic-no-pkg` | 2 | B-mv-02, B-mv-09 |
-| `tech-debt:bare-name-lookup` | 2 | B-mv-01, B-mv-02 |
-| `design:incomplete` | 4 | B-mv-01, B-mv-02, B-mv-09, B-mv-10 |
+| Tag | Open | Fixed | Total | Bugs |
+|---|---|---|---|---|
+| `oversight:simple` | 0 | 8 | 8 | B-mv-03, B-mv-04, B-mv-05, B-mv-06, B-mv-07, B-mv-08, B-mv-10, B-mv-11 |
+| `design:incomplete` | 0 | 4 | 4 | B-mv-01, B-mv-02, B-mv-09, B-mv-10 |
+| `tech-debt:assertion-as-diagnostic` | 0 | 4 | 4 | B-mv-05, B-mv-06, B-mv-07, B-mv-08 |
+| `tech-debt:bare-name-lookup` | 0 | 2 | 2 | B-mv-01, B-mv-02 |
+| `tech-debt:diagnostic-no-pkg` | 0 | 2 | 2 | B-mv-02, B-mv-09 |
+| `tech-debt:diagnostic-not-fatal` | 0 | 2 | 2 | B-mv-03, B-mv-04 |
 
 **Cluster preview**:
 - **Parser-asserts-on-missing-token** is a tight cluster (B-mv-05/06/07/08) — root is one or two `LOGOS_ASSERT(LOGOS-PARSE-001)` sites that should become error productions with recovery. Single architectural fix removes 4 P0 crashes.

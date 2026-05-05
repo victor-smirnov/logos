@@ -105,15 +105,15 @@ fn main() -> i32 { let c: u8 = 'A'; return c as i32; }
 
 ## Tag summary
 
-| Tag | Count | Bugs |
-|---|---|---|
-| `oversight:simple` | 2 | B-lx-01, B-lx-02 |
-| `tech-debt:assertion-as-diagnostic` | 2 | B-lx-01, B-lx-02 |
-| `tech-debt:misleading-diagnostic` | 1 | B-lx-03 |
-| `tech-debt:literal-saturation-no-error` | 1 | B-lx-04 |
-| `tech-debt:diagnostic-imprecise` | 1 | B-lx-05 |
-| `tech-debt:lexer-greedy-collision` | 1 | B-lx-07 |
-| `design:incomplete` | 3 | B-lx-03, B-lx-06, B-lx-07 |
+| Tag | Open | Fixed | Total | Bugs |
+|---|---|---|---|---|
+| `design:incomplete` | 1 | 2 | 3 | B-lx-03, B-lx-06, B-lx-07 |
+| `oversight:simple` | 0 | 2 | 2 | B-lx-01, B-lx-02 |
+| `tech-debt:assertion-as-diagnostic` | 0 | 2 | 2 | B-lx-01, B-lx-02 |
+| `tech-debt:diagnostic-imprecise` | 0 | 1 | 1 | B-lx-05 |
+| `tech-debt:lexer-greedy-collision` | 0 | 1 | 1 | B-lx-07 |
+| `tech-debt:literal-saturation-no-error` | 0 | 1 | 1 | B-lx-04 |
+| `tech-debt:misleading-diagnostic` | 1 | 0 | 1 | B-lx-03 |
 
 **Cluster updates after Lexical**:
 - `tech-debt:assertion-as-diagnostic` now at **6 bugs** (B-mv-05/06/07/08, B-lx-01, B-lx-02). Strongest cluster — single architectural fix in parser error-recovery closes all 6 P0 crashes.

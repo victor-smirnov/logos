@@ -196,17 +196,23 @@ Plus a single validation pass that checks every annotation against the registry.
 
 ## Distribution by tag (top categories)
 
-```
-oversight:simple              ~38 bugs   (just missed cases — low-hanging fruit)
-design:incomplete             ~28 bugs   (intentional gaps, roadmap items)
-tech-debt:missing-uniqueness  ~10 bugs   (Cluster 2)
-tech-debt:misleading-diagnostic ~7 bugs  (cross-cutting)
-tech-debt:no-attribute-validation ~5+    (Cluster 3)
-tech-debt:assertion-as-diagnostic ~6 P0  (Cluster 1)
-tech-debt:missing-arity-check ~5 bugs    (Cluster 4)
-tech-debt:diagnostic-from-codegen ~4    (Cluster 5)
-tech-debt:missing-cycle-guard ~3-5      (Cluster 6)
-```
+Counts as of 2026-05-06 (regenerated via [/tmp/regen_tags.py](/tmp/regen_tags.py) from per-catalog tables; columns: open / fixed / N/A — N/A = not-a-bug or not-reproduced after re-verification).
+
+| Tag | Open | Fixed | N/A | Total | Note |
+|---|---|---|---|---|---|
+| `oversight:simple` | 2 | 58 | 1 | 61 | low-hanging fruit; mostly closed |
+| `design:incomplete` | 5 | 30 | 10 | 45 | intentional gaps, roadmap items |
+| `tech-debt:missing-uniqueness-check` | 0 | 9 | 0 | 9 | Cluster 2 — closed |
+| `tech-debt:no-attribute-validation` | 1 | 6 | 0 | 7 | Cluster 3 |
+| `tech-debt:misleading-diagnostic` | 2 | 4 | 1 | 7 | cross-cutting |
+| `tech-debt:assertion-as-diagnostic` | 0 | 6 | 0 | 6 | Cluster 1 — closed |
+| `tech-debt:missing-arity-check` | 0 | 5 | 0 | 5 | Cluster 4 — closed |
+| `tech-debt:diagnostic-from-codegen` | 0 | 4 | 0 | 4 | Cluster 5 — closed |
+| `tech-debt:missing-cycle-guard` | 0 | 3 | 0 | 3 | Cluster 6 — closed |
+
+**Global totals**: 15 open + 95 fixed + 13 N/A = 123 entries across 14 catalogs.
+
+The `design:incomplete` cluster is now the dominant **open** category — these are surface-incompleteness gaps (a feature works in position X but not in Y, an attribute lacks a related form, etc.) that are individually small but tedious to enumerate. Phase 5 fact-base / linter work will surface most of them automatically.
 
 The `oversight:simple` tag is large because most P0 silent miscompiles are "we just didn't add the check". They're not deep architectural problems — once identified, the fixes are small. The architectural value comes from clusters: identifying the *family* of missing checks (uniqueness, arity, cycle, etc.) and adding them all at once.
 

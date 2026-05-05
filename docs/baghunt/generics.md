@@ -164,18 +164,18 @@ struct Foo<T, U,> { a: T, b: U }
 
 ## Tag summary
 
-| Tag | Count | Bugs |
-|---|---|---|
-| `oversight:simple` | 5 | B-gn-01, B-gn-02, B-gn-03, B-gn-07, B-gn-10 |
-| `tech-debt:missing-uniqueness-check` | 2 | B-gn-01, B-gn-02 |
-| `tech-debt:lazy-validation` | 1 | B-gn-03 |
-| `tech-debt:missing-arity-check` | 1 | B-gn-04 |
-| `tech-debt:misleading-diagnostic` | 1 | B-gn-05 |
-| `tech-debt:name-collision-cascade` | 1 | B-gn-05 |
-| `tech-debt:diagnostic-imprecise` | 1 | B-gn-06 |
-| `tech-debt:silent-shadowing` | 1 | B-gn-08 |
-| `tech-debt:grammar-inconsistency` | 1 | B-gn-10 |
-| `design:incomplete` | 3 | B-gn-07, B-gn-08, B-gn-09 |
+| Tag | Open | Fixed | Total | Bugs |
+|---|---|---|---|---|
+| `oversight:simple` | 0 | 5 | 5 | B-gn-01, B-gn-02, B-gn-03, B-gn-07, B-gn-10 |
+| `design:incomplete` | 0 | 3 | 3 | B-gn-07, B-gn-08, B-gn-09 |
+| `tech-debt:missing-uniqueness-check` | 0 | 2 | 2 | B-gn-01, B-gn-02 |
+| `tech-debt:diagnostic-imprecise` | 0 | 1 | 1 | B-gn-06 |
+| `tech-debt:grammar-inconsistency` | 0 | 1 | 1 | B-gn-10 |
+| `tech-debt:lazy-validation` | 0 | 1 | 1 | B-gn-03 |
+| `tech-debt:misleading-diagnostic` | 1 | 0 | 1 | B-gn-05 |
+| `tech-debt:missing-arity-check` | 0 | 1 | 1 | B-gn-04 |
+| `tech-debt:name-collision-cascade` | 1 | 0 | 1 | B-gn-05 |
+| `tech-debt:silent-shadowing` | 0 | 1 | 1 | B-gn-08 |
 
 **Cluster preview (cumulative across groups 1-7)**:
 - **missing-uniqueness-check** now at **8 bugs** (fields, variants, traits, params, consts, type-params, lifetime-params). The single architectural fix unblocks the most.
