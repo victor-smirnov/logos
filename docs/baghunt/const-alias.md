@@ -74,7 +74,7 @@ fn main() -> i32 { return X; }
 ### B-ca-05: Const array sema-OK but MLIR-gen says "undefined"
 
 **Severity**: P1 diagnostic / P2 incomplete
-**Status**: deferred — const arrays = rodata-globals feature
+**Status**: fixed (rejected branch of the OR) — sema now rejects `pub const ARR: [T; N] = ...` and `pub const T: (T1, T2) = ...` with "const arrays/tuples are not yet supported (would need rodata-global lowering)" pointing the user at `let`-in-fn or HermesStatic alternatives, instead of letting mlir-gen die with "undefined ARR" downstream. Real rodata-global lowering stays as a feature; the diagnostic gap is closed. Lock-in: fail test `const_array_unsupported`.
 **Repro**: `B12/` —
 ```logos
 pub const ARR: [i32; 3] = [1, 2, 3];

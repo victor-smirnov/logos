@@ -617,6 +617,20 @@ lir::LConst SemaChecker::lower_const_def(TinyMapView node) {
     lc.name = name;
     auto cit = module_consts_.find(name);
     lc.type = (cit != module_consts_.end()) ? cit->second : error_t();
+    // B-ca-05: const arrays / tuples are not yet supported (would need a
+    // rodata-globals lowering path; today mlir-gen errors with "undefined".
+    // Reject at sema with a clear message so the user gets the right
+    // pointer instead of a downstream codegen error.
+    if (lc.type) {
+        auto ck = TypeRef(lc.type).kind();
+        if (ck == LogosType::Kind::Array || ck == LogosType::Kind::Tuple) {
+            error(std::format(
+                "const '{}': const arrays/tuples are not yet supported "
+                "(would need rodata-global lowering — feature, not bug). "
+                "Move the value into a `let` inside a fn, or use HermesStatic.",
+                name));
+        }
+    }
     // For generic consts, push the const's type-params so any `<type:T>`
     // inside the value AST resolves to the param TypeVar (not an unbound
     // name).  The actual concrete instantiations happen per use-site via
