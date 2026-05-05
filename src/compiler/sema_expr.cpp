@@ -756,6 +756,43 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                 if (*v == 0)
                     error(std::format("operator '{}': division by literal zero", op));
         }
+        // B-ex-01: tiny const-fold for arithmetic on integer literals so
+        // `2147483647 + 1` (typo of INT_MAX boundary) is caught at sema
+        // instead of silently wrapping. Only fires when both operands are
+        // IntLit AND we can recover their values; falls through to the
+        // normal runtime BinOp otherwise.
+        if (TypeRef(lt).kind() == LogosType::Kind::IntLit &&
+            TypeRef(rt).kind() == LogosType::Kind::IntLit) {
+            auto lv = get_intlit_value(lhs);
+            auto rv = get_intlit_value(rhs);
+            if (lv && rv) {
+                int64_t result_v = 0;
+                bool ovf = false;
+                bool foldable = true;
+                if      (op == "+") ovf = __builtin_add_overflow(*lv, *rv, &result_v);
+                else if (op == "-") ovf = __builtin_sub_overflow(*lv, *rv, &result_v);
+                else if (op == "*") ovf = __builtin_mul_overflow(*lv, *rv, &result_v);
+                else if (op == "/" && *rv != 0) result_v = *lv / *rv;
+                else if (op == "%" && *rv != 0) result_v = *lv % *rv;
+                else foldable = false;  // div/mod by 0 — separate error path
+                if (ovf) {
+                    error(std::format(
+                        "literal arithmetic '{} {} {}' overflows i64; "
+                        "the result wraps silently at runtime — split or "
+                        "annotate operand types explicitly",
+                        *lv, op, *rv));
+                    return error_expr();
+                }
+                if (foldable) {
+                    // Replace the BinOp with the folded literal so downstream
+                    // intlit_fits checks (e.g. the let-coercion site) catch
+                    // per-type range violations like
+                    // `let y: i32 = 2147483647 + 1` (folds to 2147483648,
+                    // doesn't fit in i32).
+                    return builder().lit_int(result_v, intlit_t());
+                }
+            }
+        }
         bool both_int = is_integer_kind(TypeRef(lt).kind()) && is_integer_kind(TypeRef(rt).kind());
         if (!both_int) {
             bool compat = types_compatible(lt, rt) || types_compatible(rt, lt);

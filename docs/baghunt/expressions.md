@@ -15,7 +15,12 @@
 ### B-ex-01: Compile-time integer overflow in literal arithmetic silently wraps
 
 **Severity**: P0 (silent miscompile)
-**Status**: deferred — awaits const-fold validation pass
+**Status**: fixed (literal-only branch) — `lower_binop` for `+`/`-`/`*`/`/`/`%` now const-folds when both operands are IntLit and their values are recoverable. Two checks layered on the fold:
+
+1. If the fold itself overflows i64 (e.g. `9223372036854775807 + 1`), emit "literal arithmetic 'A op B' overflows i64".
+2. Otherwise replace the BinOp with a LitInt of the folded value, so the existing per-destination-type `intlit_fits` check at the let-coercion / fn-arg / return site catches per-type overflows like `let y: i32 = 2147483647 + 1` (folds to 2147483648, doesn't fit in i32).
+
+The non-literal case (`let x: i32 = INT_MAX; let y: i32 = x + 1`) still wraps silently — that needs runtime overflow checks (LLVM `*.with.overflow` intrinsics or trap-on-overflow codegen mode). Tracked separately. Lock-in: fail tests `lit_arith_i32_overflow` and `lit_arith_i64_overflow`.
 **Repro**: `B01/` —
 ```logos
 fn main() -> i32 {

@@ -1,0 +1,7 @@
+// B-ex-01: literal arithmetic that overflows the destination integer
+// type must be caught at sema (folded result + intlit_fits).
+package lit_arith_i32_overflow;
+fn main() -> i32 {
+    let y: i32 = 2147483647 + 1;  // INT_MAX + 1 = 2^31, no longer fits i32
+    return y;
+}

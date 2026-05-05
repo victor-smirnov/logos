@@ -1,0 +1,7 @@
+// B-ex-01: literal arithmetic that overflows i64 itself must error
+// at the fold site (can't even represent the value).
+package lit_arith_i64_overflow;
+fn main() -> i32 {
+    let y: i64 = 9223372036854775807 + 1;
+    return y as i32;
+}
