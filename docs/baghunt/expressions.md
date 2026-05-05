@@ -32,7 +32,7 @@ fn main() -> i32 {
 ### B-ex-02: Division by zero literal silently accepted
 
 **Severity**: P0 (silent runtime crash)
-**Status**: deferred — awaits const-fold validation pass
+**Status**: fixed — `lower_binop` rejects `/` and `%` when the RHS is `IntLit` with value 0. Lock-in: fail test `div_by_zero_lit`.
 **Repro**: `B02/` —
 ```logos
 fn main() -> i32 { return 10 / 0; }
@@ -45,7 +45,7 @@ fn main() -> i32 { return 10 / 0; }
 ### B-ex-03: Shift by negative count silently accepted
 
 **Severity**: P0 (UB in LLVM)
-**Status**: deferred — awaits const-fold validation pass
+**Status**: fixed — `lower_binop` rejects `<<` / `>>` when the RHS is `IntLit` < 0. Lock-in: fail test `shift_negative_lit`. Non-literal negative counts (e.g. via runtime variable) still slip through; that's the const-fold-engine job and remains deferred.
 **Repro**: `B05/` —
 ```logos
 fn main() -> i32 { return 1 << -1; }
@@ -58,7 +58,7 @@ fn main() -> i32 { return 1 << -1; }
 ### B-ex-04: Unary minus on unsigned type silently accepted
 
 **Severity**: P0 (silent miscompile)
-**Status**: deferred — awaits const-fold validation pass
+**Status**: fixed — `lower_unary` rejects `-x` when operand kind is U8/U16/U24/U32/U56/U64/U128, with a hint to cast to a signed type explicitly. Lock-in: fail test `neg_unsigned`.
 **Repro**: `B08/` —
 ```logos
 fn main() -> i32 {

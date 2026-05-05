@@ -1,0 +1,7 @@
+// B-ex-04: unary minus on an unsigned-typed operand must be a sema error.
+package neg_unsigned;
+fn main() -> i32 {
+    let x: u32 = 5;
+    let y: u32 = -x;
+    return y as i32;
+}

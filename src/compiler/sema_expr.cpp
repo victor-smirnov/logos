@@ -707,6 +707,13 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             error(std::format("operator '{}': left must be numeric, got {}", op, type_str(lt)));
         if (!is_numeric(rt))
             error(std::format("operator '{}': right must be numeric, got {}", op, type_str(rt)));
+        // B-ex-02: division/remainder by literal zero is a guaranteed
+        // runtime SIGFPE. Detect at sema when the divisor is a literal.
+        if ((op == "/" || op == "%") && TypeRef(rt).kind() == LogosType::Kind::IntLit) {
+            if (auto v = get_intlit_value(rhs))
+                if (*v == 0)
+                    error(std::format("operator '{}': division by literal zero", op));
+        }
         bool both_int = is_integer_kind(TypeRef(lt).kind()) && is_integer_kind(TypeRef(rt).kind());
         if (!both_int) {
             bool compat = types_compatible(lt, rt) || types_compatible(rt, lt);
@@ -741,6 +748,13 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             error(std::format("operator '{}': left must be integer, got {}", op, type_str(lt)));
         if (!is_integer_kind(TypeRef(rt).kind()) && TypeRef(rt).kind() != LogosType::Kind::IntLit)
             error(std::format("operator '{}': right must be integer, got {}", op, type_str(rt)));
+        // B-ex-03: shift by negative-literal count is LLVM UB. Detect at sema.
+        if ((op == "<<" || op == ">>") && TypeRef(rt).kind() == LogosType::Kind::IntLit) {
+            if (auto v = get_intlit_value(rhs))
+                if (*v < 0)
+                    error(std::format("operator '{}': shift count must be non-negative (got {})",
+                          op, *v));
+        }
         result_type = unify_int(lt, rt);
         // Check IntLit operand fits in the concrete type of the other operand.
         if (TypeRef(lt).kind() == LogosType::Kind::IntLit && TypeRef(rt).kind() != LogosType::Kind::IntLit)
@@ -815,6 +829,18 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
     if (op == "-") {
         if (!is_numeric(vt))
             error(std::format("unary '-': operand must be numeric, got {}", type_str(vt)));
+        // B-ex-04: unary minus on an unsigned type wraps silently. Reject —
+        // the user must cast to a signed type explicitly if that's intended.
+        auto vk = TypeRef(vt).kind();
+        if (vk == LogosType::Kind::U8  || vk == LogosType::Kind::U16 ||
+            vk == LogosType::Kind::U24 || vk == LogosType::Kind::U32 ||
+            vk == LogosType::Kind::U56 || vk == LogosType::Kind::U64 ||
+            vk == LogosType::Kind::U128) {
+            error(std::format(
+                "unary '-': operand has unsigned type {}; negation would wrap silently — "
+                "cast to a signed type first (e.g. `-(x as i64)`)",
+                type_str(vt)));
+        }
         result_type = vt;
     } else if (op == "!") {
         if (TypeRef(vt).kind() == LogosType::Kind::Bool) {

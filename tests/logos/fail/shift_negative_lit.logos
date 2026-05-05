@@ -1,0 +1,3 @@
+// B-ex-03: shift by negative literal count must be a sema error.
+package shift_negative_lit;
+fn main() -> i32 { return 1 << -1; }
