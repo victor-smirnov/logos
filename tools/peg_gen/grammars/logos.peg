@@ -1589,8 +1589,12 @@
                        => { CODE: STRUCT_LIT, NAME: $1, TYPE_PARAMS: $4, ITEMS: $... }
 
     // Struct update syntax: TypeName { field: val, ..base } or TypeName { ..base }
+    // or TypeName { ..base, field: val } (B-li-04; field-order doesn't change
+    // semantics — explicit fields always override base).
     struct_update_lit <- IDENT LBRACE field_init (COMMA field_init)* COMMA DOTDOT expr RBRACE
                       => { CODE: STRUCT_LIT, NAME: $1, ITEMS: $..., BASE: $7 }
+                       / IDENT LBRACE DOTDOT expr COMMA field_init (COMMA field_init)* COMMA? RBRACE
+                      => { CODE: STRUCT_LIT, NAME: $1, BASE: $4, ITEMS: $... }
                        / IDENT LBRACE DOTDOT expr RBRACE
                       => { CODE: STRUCT_LIT, NAME: $1, BASE: $4 }
 

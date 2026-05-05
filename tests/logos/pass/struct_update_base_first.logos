@@ -1,0 +1,15 @@
+// B-li-04: `..base` may appear before fields in struct update literal.
+// Field overrides always win; textual order is irrelevant.
+package struct_update_base_first;
+
+struct Foo { x: i32, y: i32, z: i32 }
+
+fn main() -> i32 {
+    let base = Foo { x: 1, y: 2, z: 3 };
+    let a = Foo { ..base, z: 5 };          // ..base first
+    let b = Foo { x: 10, ..base };         // fields first
+    let c = Foo { ..base, x: 7, z: 8 };    // ..base first, multiple overrides
+    return a.x + a.z + b.x + b.z + c.x + c.y + c.z;
+    // a: x=1,y=2,z=5 ; b: x=10,y=2,z=3 ; c: x=7,y=2,z=8
+    // 1 + 5 + 10 + 3 + 7 + 2 + 8 = 36
+}

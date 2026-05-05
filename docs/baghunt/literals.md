@@ -74,7 +74,7 @@ fn main() -> i32 {
 ### B-li-04: Struct update `..base` must be last; if not last, cryptic syntax error
 
 **Severity**: P1 diagnostic
-**Status**: deferred — `..base` not-last needs grammar reorder + sema reshuffle
+**Status**: fixed — chose the "accept" branch of the OR. Grammar got a third `struct_update_lit` alt (`IDENT LBRACE DOTDOT expr COMMA field_init …`) that emits the same STRUCT_LIT shape with BASE + ITEMS, so `..base` may appear before fields. Lock-in: pass test `struct_update_base_first`. Field-order is semantically irrelevant; explicit fields override base regardless.
 **Repro**: `B22/` —
 ```logos
 struct Foo { x: i32, y: i32 }
