@@ -96,6 +96,18 @@ fn make() -> StmtBlob {
 **Expected**: Per [metaprog.md](../language/reference/metaprog.md): "`quote_stmt!`, `quote_pat!`, `quote_ident!` — not implemented." Syntax error is correct; could provide a helpful message ("not yet implemented").
 **Tags**: `design:incomplete`
 
+### B-mt-06: `metacall` only accepted bare-call form (no `metacall (<expr>)` / `metacall { ... }`)
+
+**Severity**: P2 design (incomplete surface)
+**Status**: fixed (2026-05-06) — three forms now parse and lower:
+- Call: `metacall foo(args)` (existing)
+- Paren-expr: `metacall (a + b * cube(3))`
+- Block: `metacall { let x = ...; while ...; tail_expr }`
+
+All run at compile time via a synthesised JIT thunk and splice the result back as a literal. Block / paren-expr forms reject (a) captures of enclosing-fn locals (no compile-time access to surrounding state) and (b) nested `metacall` (one-shot lift). Implementation: AST→Logos source pretty-printer in `src/compiler/sema_render.cpp`; capture detection + branching in `lower_metacall`. Lock-in: 5 pass tests (`metacall_paren_expr`, `metacall_block_simple`/`_let`/`_loop`/`_uses_const`) + 3 fail tests (`metacall_block_capture`, `metacall_paren_capture`, `metacall_block_nested`). See [memory: feat_metacall_block_expr](../../../.claude/projects/-home-victor-devel-logos/memory/feat_metacall_block_expr.md).
+**Repro (pre-fix)**: `metacall (1 + 2);` and `metacall { 42 };` both gave `syntax error near 'metacall'`.
+**Tags**: `design:incomplete`
+
 ## Tag summary
 
 | Tag | Count | Bugs |
@@ -107,7 +119,7 @@ fn make() -> StmtBlob {
 | `tech-debt:missing-arity-check` | 1 | B-mt-03 |
 | `tech-debt:diagnostic-from-codegen` | 1 | B-mt-03 |
 | `tech-debt:no-attribute-validation` | 1 | B-mt-04 |
-| `design:incomplete` | 1 | B-mt-05 |
+| `design:incomplete` | 2 | B-mt-05, B-mt-06 |
 
 **Cluster preview**:
 - B-mt-03 joins `missing-arity-check` cluster (now 5 bugs).

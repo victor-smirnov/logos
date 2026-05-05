@@ -200,7 +200,9 @@ Postfix `?` short-circuits to the enclosing function's `Result` / `Option` type.
 ### Metaprogramming forms
 
 ```logos
-metacall expand_filter::<T...>()      // splice items from a metafn at expr position
+metacall expand_filter::<T...>()      // call form — splice fn return at compile time
+metacall (a + b * cube(3))             // paren-expr form — arbitrary expression
+metacall { let s = compute(); s + 1 }  // block form — full Logos statements
 sizeof...(P)                           // length of a variadic pack
 quote_item! { fn helper() { ... } }    // typed AST literal — items
 quote_expr! { x + y }                  // typed AST literal — expression
@@ -209,7 +211,7 @@ type_of::<T>()                         // sema-side: resolve T to a Type value
 template_of::<X>()                     // sema-side: bind to AST node of X
 ```
 
-`metacall` evaluates the callee at compile-time and splices the result. Quote forms produce typed AST literals consumed by metafunctions. `type_of` / `template_of` are sema-side intrinsics that bake compile-time results into the IR. See [Metaprogramming](metaprog.md).
+`metacall` evaluates the bracketed code at compile time and splices the result as a literal. Three forms — call, paren-expr, block — share a single mechanism (synthesised JIT thunk → invoke → splice). Block / paren-expr cannot capture enclosing-fn locals or contain a nested `metacall`. Quote forms produce typed AST literals consumed by metafunctions. `type_of` / `template_of` are sema-side intrinsics that bake compile-time results into the IR. See [Metaprogramming](metaprog.md#metacall).
 
 ### Macro-style repeat groups
 

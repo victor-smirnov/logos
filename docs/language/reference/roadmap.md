@@ -55,7 +55,7 @@ This page collects forward-looking notes from the rest of the reference. Items h
 ## Metaprogramming
 
 - **Phase 2 transformative passes** — design-only.
-- **`metacall` captures** — accessing locals from surrounding scope at expression position not yet implemented.
+- **`metacall` captures** — surrounding-fn locals are explicitly out of scope (compile-time evaluation) and rejected by sema. Hoist to `pub const` or pass as a metacall arg.
 - **`std::meta` module** — formal API surface; currently scattered across `std.compiler.metaprog.*`.
 - **Constant-folding through `metacall`** — folder will treat `metacall` as a first-class producer; today only literal-args flows fold reliably. ([memory: feat_const_fold_metacall](../../README.md))
 - **Hygiene strengthening** — gensym for opaque names planned.
