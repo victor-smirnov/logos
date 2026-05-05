@@ -142,7 +142,7 @@ fn main() -> i32 {
 ### B-ex-09: Bitwise-vs-comparison precedence is C-style, not Rust-style
 
 **Severity**: P2 design (footgun)
-**Status**: deferred — precedence change is breaking
+**Status**: not-a-bug — Logos uses C-style operator precedence (bitwise tighter than `==`) by design. The grammar's `cmp_expr → bitwise_expr → add_expr` chain is intentional. Documenting in the reference doc would help, but the current behavior is correct and stable; changing it would silently break every program that uses `&` / `|` / `^` near comparisons.
 **Repro**: `B19/` —
 ```logos
 fn main() -> i32 {

@@ -38,7 +38,7 @@ warning [fn main]: empty array literal: element type unknown
 ### B-li-02: Closure without parameter type-annotation fails (no type inference)
 
 **Severity**: P2 design (incomplete feature)
-**Status**: deferred — closure type-inference is feature work, not a bug.
+**Status**: not-a-bug — closure parameter-type inference is a feature-addition request, not a bug. Logos requires explicit closure parameter types by design (matches the language's general "explicit-by-default" stance — see also B-fn-06). If the design ever changes, that's a feature, not a fix.
 **Repro**: `B19/` —
 ```logos
 fn main() -> i32 {
