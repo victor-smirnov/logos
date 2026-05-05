@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: Apache-2.0
+// metacall (<expr>) — arbitrary expression at compile time.
+package metacall_paren_expr;
+
+pub const A: i32 = 4;
+pub const B: i32 = 7;
+
+fn cube(x: i32) -> i32 { return x * x * x; }
+
+fn main() -> i32 {
+    // (4 + 7 * 27) = 4 + 189 = 193 → returned as exit code
+    let r: i32 = metacall (A + B * cube(3));
+    return r - 151;  // 193 - 151 = 42
+}

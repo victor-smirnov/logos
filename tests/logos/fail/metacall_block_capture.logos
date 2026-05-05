@@ -1,0 +1,8 @@
+// metacall { ... } may not capture runtime locals from enclosing scope.
+package metacall_block_capture;
+
+fn main() -> i32 {
+    let r: i32 = 10;
+    let v: i32 = metacall { r + 1 };
+    return v;
+}

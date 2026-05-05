@@ -1,0 +1,17 @@
+// SPDX-License-Identifier: Apache-2.0
+// metacall { ... } reading a module-level pub const + calling fns.
+package metacall_block_uses_const;
+
+pub const BASE: i32 = 30;
+
+fn add_two(x: i32) -> i32 { return x + 2; }
+fn add_ten(x: i32) -> i32 { return x + 10; }
+
+fn main() -> i32 {
+    let r: i32 = metacall {
+        let a: i32 = add_two(BASE);
+        let b: i32 = add_ten(a);
+        b - 0
+    };
+    return r;
+}

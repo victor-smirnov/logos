@@ -1,0 +1,17 @@
+// SPDX-License-Identifier: Apache-2.0
+// metacall { ...while loop... } — control flow inside compile-time block.
+package metacall_block_loop;
+
+fn main() -> i32 {
+    // Sum 0..10 = 45 at compile time, return 45 - 3 = 42
+    let r: i32 = metacall {
+        let mut sum: i32 = 0;
+        let mut i: i32 = 0;
+        while i < 10 {
+            sum = sum + i;
+            i = i + 1;
+        }
+        sum
+    };
+    return r - 3;
+}

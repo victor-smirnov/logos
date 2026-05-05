@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: Apache-2.0
+// metacall { let x = ...; tail } — block with internal LET binding.
+package metacall_block_let;
+
+fn double_it(x: i32) -> i32 { return x * 2; }
+
+fn main() -> i32 {
+    let r: i32 = metacall {
+        let x: i32 = double_it(20);
+        x + 2
+    };
+    return r;
+}

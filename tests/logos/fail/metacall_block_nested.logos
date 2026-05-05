@@ -1,0 +1,12 @@
+// Nested metacall inside a metacall block is rejected.
+package metacall_block_nested;
+
+fn foo() -> i32 { return 5; }
+
+fn main() -> i32 {
+    let r: i32 = metacall {
+        let x: i32 = metacall foo();
+        x + 1
+    };
+    return r;
+}
