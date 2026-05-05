@@ -25,19 +25,24 @@ function(logos_add_example NAME)
     set(OBJ ${CMAKE_CURRENT_BINARY_DIR}/${NAME}.o)
     set(BIN ${CMAKE_CURRENT_BINARY_DIR}/${NAME})
 
-    # logosc finds the system stdlib (incl. metaprog AST blobs) via its
-    # baked-in argv[0]-relative path; no -I / -L needed for stdlib.
-    # The native runtime archives (fiber switch, liburing wrappers) sit
-    # alongside liblstdlib.a in the same dir and link via the rt + uring
-    # static libs.
+    # logosc auto-discovers the system stdlib (liblstdlib.a) via its
+    # baked-in argv[0]-relative path. METAPROG examples additionally need
+    # source access to std.compiler.metaprog (excluded from liblstdlib.a
+    # because its bodies reference host-only externs); they get -I source.
+    # Native runtime archives (fiber switch, liburing wrappers) sit
+    # alongside liblstdlib.a and feed the link line.
     set(_compile_deps logosc ${SRC} ${HERMES_STDLIB} stdlib_binary stdlib_uring logos_rt)
+    set(_compile_extra)
+    if (EX_METAPROG)
+        set(_compile_extra -I ${STDLIB})
+    endif()
     set(_link_archives
         ${LOGOS_BUILD_LIB_DIR}/liblstdlib_rt.a
         ${LOGOS_BUILD_LIB_DIR}/liblstdlib_uring.a)
 
     add_custom_command(
         OUTPUT ${OBJ}
-        COMMAND $<TARGET_FILE:logosc> ${SRC} -o ${OBJ}
+        COMMAND $<TARGET_FILE:logosc> ${SRC} ${_compile_extra} -o ${OBJ}
         DEPENDS ${_compile_deps}
         COMMENT "logosc: ${NAME}.logos"
     )
