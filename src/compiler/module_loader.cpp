@@ -440,18 +440,21 @@ std::vector<ParsedModule> load_modules(
             auto nxt_line = parser.next_line();
             std::string_view err_text;
             uint32_t         err_line;
+            uint32_t         err_col;
             if (fur_line > nxt_line && !parser.furthest_text().empty()) {
                 err_text = parser.furthest_text();
                 err_line = fur_line;
+                err_col  = parser.furthest_column();
             } else {
                 err_text = parser.next_text();
                 err_line = nxt_line;
+                err_col  = parser.next_column();
             }
             std::fprintf(stderr,
-                "error [%s]: syntax error near '%.*s' at line %u\n",
+                "error [%s]: syntax error near '%.*s' at line %u col %u\n",
                 canonical.c_str(),
                 static_cast<int>(err_text.size()), err_text.data(),
-                err_line);
+                err_line, err_col);
             return {};
         }
         auto uses = extract_uses(ast);

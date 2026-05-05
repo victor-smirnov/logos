@@ -656,6 +656,25 @@ private:
             w.line("// use this for error reporting instead of next_text()/next_line().");
             w.line("uint32_t         furthest_line() const { return furthest_.line ? furthest_.line : 1; }");
             w.line("std::string_view furthest_text() const { return furthest_.text; }");
+            // 1-based column of furthest_ within source_. Walks back from
+            // the token's text pointer to the prior newline. Returns 0 if
+            // the token isn't in source_ (defensive — shouldn't happen).
+            w.line("uint32_t furthest_column() const {");
+            w.line("    if (furthest_.text.data() < source_.data() ||");
+            w.line("        furthest_.text.data() > source_.data() + source_.size()) return 0;");
+            w.line("    size_t off = furthest_.text.data() - source_.data();");
+            w.line("    size_t i = off; while (i > 0 && source_[i - 1] != '\\n') --i;");
+            w.line("    return static_cast<uint32_t>(off - i + 1);");
+            w.line("}");
+            // Same for `next_text()` (the unconsumed peek).
+            w.line("uint32_t next_column() {");
+            w.line("    auto t = peek_token();");
+            w.line("    if (t.text.data() < source_.data() ||");
+            w.line("        t.text.data() > source_.data() + source_.size()) return 0;");
+            w.line("    size_t off = t.text.data() - source_.data();");
+            w.line("    size_t i = off; while (i > 0 && source_[i - 1] != '\\n') --i;");
+            w.line("    return static_cast<uint32_t>(off - i + 1);");
+            w.line("}");
             w.line();
         }
 

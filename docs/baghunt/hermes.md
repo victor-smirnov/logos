@@ -88,7 +88,7 @@ fn main() -> i32 {
 ### B-he-06: Nested-literal failure cascades to confusing error position
 
 **Severity**: P1 diagnostic (companion to B-he-01)
-**Status**: deferred — parser error-position improvement
+**Status**: fixed — added column tracking to the parse-error report. peg_gen now emits `furthest_column()` / `next_column()` accessors that walk back from the token's text pointer to the prior newline, and `module_loader`'s "syntax error" output appends `col M`. The PEG furthest-token tracking already pointed at the right offset; only the human-readable line+column was missing. Errors like "near '1' at line 3 col 37" now pinpoint the offending token even when multiple identical tokens share a line. The B-he-01 fix (Sprint 4.1) had already closed the cascading-to-`fn`/`]` symptom; this patch closes the residual "where on the line" gap.
 **Repro**: same as B-he-01 cases — error reports "near 'fn'" or "near ']'" pointing to an unrelated token.
 **Observed**: When nesting fails, the parse error lands far from the actual syntax issue, making it hard to locate.
 **Expected**: At minimum, the parser should point to the `@` of the inner literal as the failure site.
