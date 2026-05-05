@@ -98,7 +98,7 @@ fn main() -> i32 {
 ### B-ex-06: Address-of integer literal silently accepted (lifetime issue)
 
 **Severity**: P1 (potentially dangling reference)
-**Status**: deferred — lifetime-extension policy undecided
+**Status**: fixed — `lower_let` rejects when the RHS is `&<scalar literal>` (UNARY `&` over LIT_INT/LIT_BOOL/LIT_FLOAT/LIT_CHAR). Diagnoses: bind the literal to a separate `let` first (`let v = 5; let p = &v;`) or pass `&<literal>` directly as a fn argument (where the temporary's lifetime extends across the call). Argument-position `&<literal>` (`m.get(&10)`) is untouched — the temp survives the call cleanly. Full lifetime-extension policy (Rust-style temp scoping rules) stays as future work; this closes the silent-dangling-borrow case at the let-binding entry point. Lock-in: fail test `let_borrow_literal` (rejected), pass test `borrow_literal_arg` (arg-position still works, plus the bind-then-borrow alternative).
 **Repro**: `B15/` —
 ```logos
 fn main() -> i32 {

@@ -1,0 +1,21 @@
+// B-ex-06: `&<literal>` in argument position is fine — the temporary's
+// lifetime extends across the call, which completes before the
+// enclosing statement ends. Only `let p = &<literal>;` (binding past
+// the temp's lifetime) is rejected.
+package borrow_literal_arg;
+
+fn read_i32(p: &i32) -> i32 { return *p; }
+fn read_bool(b: &bool) -> i32 { if *b { return 1; } return 0; }
+
+fn main() -> i32 {
+    // Direct &<lit> args — temp lives across the call.
+    let a: i32 = read_i32(&7);
+    let b: i32 = read_bool(&true);
+
+    // Bind-then-borrow is the alternative for storing a reference.
+    let v: i32 = 11;
+    let p: &i32 = &v;
+
+    return a + b + *p;
+    // 7 + 1 + 11 = 19
+}

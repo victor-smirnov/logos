@@ -667,6 +667,34 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     if (ann && TypeRef(ann).kind() != LogosType::Kind::Error)
         hint_call_return_type_ = ann;
 
+    // B-ex-06: `let p = &<scalar literal>;` borrows an unnamed temporary
+    // whose lifetime ends at the enclosing expression — `p` would dangle
+    // immediately. Reject. The user must bind the literal to a `let` first
+    // (or pass `&literal` directly as a fn argument, where the temp's
+    // lifetime extends across the call). Strings/byte-strings are static
+    // rodata and stay allowed.
+    if (node.has_key(la::VALUE)) {
+        auto val_node = map_of(node.get(la::VALUE.code));
+        if (code_of(val_node) == la::UNARY && val_node.has_key(la::OP) &&
+            val_node.has_key(la::VALUE)) {
+            auto op_sv = str_of(val_node.get(la::OP.code));
+            if (op_sv == "&") {
+                auto inner = map_of(val_node.get(la::VALUE.code));
+                int32_t inner_c = code_of(inner);
+                if (inner_c == la::LIT_INT  || inner_c == la::LIT_BOOL ||
+                    inner_c == la::LIT_FLOAT || inner_c == la::LIT_CHAR) {
+                    error(std::format(
+                        "let '{}': '&<literal>' borrows an unnamed temporary "
+                        "whose lifetime ends at the enclosing expression — "
+                        "bind the literal to a separate `let` first "
+                        "(`let v = <lit>; let {} = &v;`) or pass "
+                        "`&<literal>` directly as a fn argument",
+                        std::string(name), std::string(name)));
+                }
+            }
+        }
+    }
+
     lir::LExprPtr rhs = nullptr;
     TypeRef rhs_type;
     if (node.has_key(la::VALUE)) {
