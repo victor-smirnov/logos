@@ -690,6 +690,16 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
             // Non-capturing closure literal → fn(...) -> T coercion.
             if (try_coerce_closure_to_fnptr(rhs, ann)) {
                 rhs_type = rhs->type;
+            } else if (is_hermes_static(ann) && is_hermes(rhs_type)) {
+                // B-he-05: HermesStatic ← Hermes mismatch is almost always
+                // caused by `${capture}` or other runtime-only constructs in
+                // the @-literal. Emit a capture-specific hint.
+                error(std::format(
+                    "let '{}': @-literal evaluated to runtime Hermes (likely "
+                    "due to `${{capture}}` or other runtime-only construct); "
+                    "HermesStatic does not permit captures — drop them, or "
+                    "annotate `{}: Hermes` instead",
+                    name, name));
             } else {
                 auto [es, gs] = type_str_pair(ann, rhs_type);
                 error(std::format("let '{}': type mismatch — expected {}, got {}",

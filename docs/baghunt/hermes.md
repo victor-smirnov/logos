@@ -71,7 +71,7 @@ let h: HermesStatic = @{ "k": 99999999999999999 };  // > i64 max
 ### B-he-05: `${capture}` in `HermesStatic` produces confusing diagnostic
 
 **Severity**: P1 diagnostic
-**Status**: deferred — diagnostic improvement needs flow-direction tracking
+**Status**: fixed — `let` mismatch site detects `HermesStatic ← Hermes` and emits a capture-specific hint instead of generic type mismatch.
 **Repro**: `B05/` —
 ```logos
 fn main() -> i32 {
