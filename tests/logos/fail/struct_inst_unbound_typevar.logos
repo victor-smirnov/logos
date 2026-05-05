@@ -1,0 +1,9 @@
+// B-it-08: `pub struct Foo<T>;` at item scope (T unbound) was producing
+// the misleading diagnostic "unknown type 'T'". Now produces a specific
+// message pointing at the right fix (write the body directly).
+package struct_inst_unbound_typevar;
+
+pub struct Foo<T>;
+pub struct Foo<T> { pub x: T }
+
+fn main() -> i32 { return 0; }

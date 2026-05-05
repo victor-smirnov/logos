@@ -115,7 +115,7 @@ fn main() -> i32 { let _e = Empty {}; return 0; }
 ### B-it-08: Forward `pub struct Foo<T>;` then `pub struct Foo<T> { ... }` confuses sema
 
 **Severity**: P2 design
-**Status**: deferred — forward struct-decl semantics ambiguous (template-with-typevars vs instantiation hint); proper forward-decl is feature work
+**Status**: fixed — chose the "reject explicitly" branch of the OR. Sema's STRUCT-without-NAME path now pre-checks the type expression: if it's `GENERIC_INST` whose args contain a `TYPE_REF` whose NAME is neither a known type nor a type-param in scope, emit a specific "explicit instantiation requires concrete type arguments; write the body directly" diagnostic instead of the misleading "unknown type 'T'". Forward-declaration as a feature stays out of scope. Lock-in: fail test `struct_inst_unbound_typevar`.
 **Repro**: `B14/` —
 ```logos
 pub struct Foo<T>;

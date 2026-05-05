@@ -3337,6 +3337,36 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                     error("struct instantiation declaration missing type expression");
                 } else {
                     auto type_node = map_of(item.get(la::TYPE.code));
+                    // B-it-08: `pub struct Foo<T>;` (forward-decl-style with bare
+                    // type-vars at item scope) hits resolve_type with T unbound,
+                    // which produces a misleading "unknown type 'T'" diagnostic.
+                    // Detect the shape and surface a specific message.
+                    if (code_of(type_node) == la::GENERIC_INST && type_node.has_key(la::ITEMS)) {
+                        auto args = arr_of(type_node.get(la::ITEMS.code));
+                        bool has_unbound_var = false;
+                        for (uint64_t ai = 0; ai < args.size(); ++ai) {
+                            auto a = map_of(args.get(ai));
+                            if (code_of(a) == la::TYPE_REF && a.has_key(la::NAME)) {
+                                std::string an(str_of(a.get(la::NAME.code)));
+                                if (!try_resolve_as_known_type(an) &&
+                                    current_type_params_.count(an) == 0) {
+                                    has_unbound_var = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (has_unbound_var) {
+                            std::string nm(str_of(type_node.get(la::NAME.code)));
+                            error(std::format(
+                                "'struct {0}<...>;': explicit instantiation requires "
+                                "concrete type arguments. For a generic struct "
+                                "definition write the body directly: "
+                                "`pub struct {0}<...> {{ ... }}` (B-it-08).",
+                                nm));
+                            pending_annots.clear();
+                            continue;
+                        }
+                    }
                     TypeRef resolved = resolve_type(type_node);
                     // B-it-07: `struct Empty;` (no body, not a real instantiation)
                     // resolves to error_t and silently drops.  When the type
