@@ -1,0 +1,16 @@
+// usize / isize are distinct pointer-sized integer types (Rust-style).
+// Conversion to/from fixed-width ints requires explicit `as`.
+package usize_isize_distinct;
+
+fn double_us(x: usize) -> usize { return x * 2usize; }
+fn double_is(x: isize) -> isize { return x * 2isize; }
+
+fn main() -> i32 {
+    let a: usize = 7usize;
+    let b: usize = double_us(a);            // 14
+    let c: isize = 0isize - 3isize;         // -3
+    let d: isize = double_is(c);            // -6
+    let n: i64 = b as i64;                  // explicit cast needed
+    let m: i64 = d as i64;
+    return (n + 0 - m) as i32;              // 14 - (-6) = 20
+}

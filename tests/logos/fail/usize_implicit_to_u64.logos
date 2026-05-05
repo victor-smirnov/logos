@@ -1,0 +1,8 @@
+// usize must NOT implicitly convert to u64 — explicit `as` required.
+package usize_implicit_to_u64;
+
+fn main() -> i32 {
+    let a: usize = 5usize;
+    let b: u64 = a;
+    return b as i32;
+}

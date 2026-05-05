@@ -143,8 +143,24 @@ private:
     TypeRef i32_t()     { return prim(LogosType::Kind::I32); }
     TypeRef bool_t()    { return prim(LogosType::Kind::Bool); }
     TypeRef u8_t()      { return prim(LogosType::Kind::U8); }
+    TypeRef usize_t()   { return prim(LogosType::Kind::Usize); }
+    TypeRef isize_t()   { return prim(LogosType::Kind::Isize); }
     TypeRef intlit_t()  { return prim(LogosType::Kind::IntLit); }
     TypeRef error_t()   { return prim(LogosType::Kind::Error); }
+
+    // Single point of truth for the target's pointer size. Logos ships
+    // 64-bit only today; if we ever target 32-bit, change this constant
+    // and every Usize/Isize-sensitive site downstream will pick it up via
+    // `target_pointer_bits()` rather than hardcoded U64/I64.
+    static constexpr int target_pointer_bits() { return 64; }
+    LogosType::Kind usize_underlying() const {
+        return target_pointer_bits() == 32 ? LogosType::Kind::U32
+                                            : LogosType::Kind::U64;
+    }
+    LogosType::Kind isize_underlying() const {
+        return target_pointer_bits() == 32 ? LogosType::Kind::I32
+                                            : LogosType::Kind::I64;
+    }
 
     TypeRef make_ptr(bool mut, TypeRef pointee) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Ptr;
@@ -1822,10 +1838,9 @@ inline bool is_integer_kind(LogosType::Kind k) noexcept {
            k == LogosType::Kind::I16   || k == LogosType::Kind::U16 ||
            k == LogosType::Kind::U32   || k == LogosType::Kind::U64 ||
            k == LogosType::Kind::I24   || k == LogosType::Kind::U24 ||
-           k == LogosType::Kind::I24   || k == LogosType::Kind::U56 ||
-           k == LogosType::Kind::I56   || k == LogosType::Kind::U24 ||
            k == LogosType::Kind::I56   || k == LogosType::Kind::U56 ||
            k == LogosType::Kind::I128  || k == LogosType::Kind::U128 ||
+           k == LogosType::Kind::Usize || k == LogosType::Kind::Isize ||
            k == LogosType::Kind::IntLit || k == LogosType::Kind::Enum;
 }
 
@@ -1834,6 +1849,8 @@ inline bool is_integer_kind(LogosType::Kind k) noexcept {
 inline std::pair<unsigned, bool> int_rank(LogosType::Kind k) noexcept {
     using K = LogosType::Kind;
     switch (k) {
+    case K::Usize: return {static_cast<unsigned>(g_target_pointer_bits), false};
+    case K::Isize: return {static_cast<unsigned>(g_target_pointer_bits), true};
     case K::I8:   return {8, true};
     case K::U8:   return {8, false};
     case K::I16:  return {16, true};
@@ -1859,6 +1876,12 @@ inline std::pair<unsigned, bool> int_rank(LogosType::Kind k) noexcept {
 //   unsigned → signed   : to_width > from_width (need one extra bit)
 //   signed   → unsigned : never (loses negative values)
 inline bool can_widen_int(LogosType::Kind from, LogosType::Kind to) noexcept {
+    // Usize/Isize are distinct types — no implicit conversion to/from
+    // fixed-width integers (matches Rust). User must `as` explicitly.
+    using K = LogosType::Kind;
+    bool from_psize = (from == K::Usize || from == K::Isize);
+    bool to_psize   = (to   == K::Usize || to   == K::Isize);
+    if (from_psize != to_psize) return false;
     auto [fw, fs] = int_rank(from);
     auto [tw, ts] = int_rank(to);
     if (fw == 0 || tw == 0) return false;
@@ -1928,6 +1951,14 @@ inline bool intlit_fits(int64_t v, LogosType::Kind k) noexcept {
     case LogosType::Kind::U56:  return v >= 0 && (uint64_t)v <= ((UINT64_C(1) << 56) - 1);
     case LogosType::Kind::I128: return true; // all int64_t values fit in i128
     case LogosType::Kind::U128: return v >= 0; // non-negative int64_t values fit
+    case LogosType::Kind::Usize:
+        return g_target_pointer_bits == 64
+            ? (v >= 0)
+            : (v >= 0 && (uint64_t)v <= (uint64_t)UINT32_MAX);
+    case LogosType::Kind::Isize:
+        return g_target_pointer_bits == 64
+            ? true
+            : (v >= (int64_t)INT32_MIN && v <= (int64_t)INT32_MAX);
     default: return true; // i64, u64: all int64_t values fit
     }
 }
@@ -2142,8 +2173,8 @@ inline LogosType::Kind int_suffix_kind(std::string_view sv) noexcept {
     if (suf == "u56")   return LogosType::Kind::U56;
     if (suf == "u64")   return LogosType::Kind::U64;
     if (suf == "u128")  return LogosType::Kind::U128;
-    if (suf == "usize") return LogosType::Kind::U64;  // treat usize as u64
-    if (suf == "isize") return LogosType::Kind::I64;  // treat isize as i64
+    if (suf == "usize") return LogosType::Kind::Usize;
+    if (suf == "isize") return LogosType::Kind::Isize;
     return LogosType::Kind::Error;
 }
 

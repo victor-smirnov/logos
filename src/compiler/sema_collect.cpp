@@ -1833,6 +1833,8 @@ TypeRef SemaChecker::try_resolve_as_known_type(std::string_view name) {
     if (name == "u56")  return prim(LogosType::Kind::U56);
     if (name == "i128") return prim(LogosType::Kind::I128);
     if (name == "u128") return prim(LogosType::Kind::U128);
+    if (name == "usize") return prim(LogosType::Kind::Usize);
+    if (name == "isize") return prim(LogosType::Kind::Isize);
     if (name == "void") return prim(LogosType::Kind::Void);
     auto ait = type_aliases_.find(std::string(name));
     // Non-generic aliases only: generic aliases are resolved at use sites in resolve_type.

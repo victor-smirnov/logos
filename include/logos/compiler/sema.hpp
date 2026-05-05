@@ -37,6 +37,12 @@ namespace logos::compiler {
 // data and no instances. It survives only as a namespace-class holding the
 // Kind enum and the TypeUID nested datatype. All readers use TypeRef
 // (a fat pointer over the Hermes mirror); all writers use LogosTypeBuilder.
+// Target pointer width (bits). Single source of truth for usize/isize size
+// and any other pointer-sized lowering. Logos ships 64-bit only today; flip
+// this constant to retarget. Lives in this header so both sema and mlir-gen
+// can read it directly.
+inline constexpr int g_target_pointer_bits = 64;
+
 struct LogosType {
     enum class Kind {
         Void,                     // no return value
@@ -66,6 +72,8 @@ struct LogosType {
         Generic,                  // unapplied generic constructor (value-handle only; no pool entry)
         HStaticLit,               // HermesStatic literal at type-arg position (Foo::<@{...}>); identity = byte-hash over AST. const_val carries the low 64 bits. Inserted after Generic so existing kinds (Generic = 37) keep their numeric IDs.
         CfgSlotType,              // <type:CFG.SLOT> — type at top-level slot of a HermesStatic-typed binding. Carries `type_var_name` = CFG ident, `assoc_type_name` = slot key (reused fields). Resolved by mono_subst when CFG is bound to a concrete HStaticLit.
+        Usize,                    // pointer-sized unsigned int (u32 on 32-bit, u64 on 64-bit). Distinct from u32/u64 — explicit `as` to/from fixed-width.
+        Isize,                    // pointer-sized signed int. Distinct from i32/i64.
         Error                     // sentinel for ill-typed expressions
     };
 

@@ -37,6 +37,8 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
     case LogosType::Kind::U64:    return builder_.getIntegerType(64);
     case LogosType::Kind::I128:   return builder_.getIntegerType(128);
     case LogosType::Kind::U128:   return builder_.getIntegerType(128);
+    case LogosType::Kind::Usize:  return builder_.getIntegerType(::logos::compiler::g_target_pointer_bits);
+    case LogosType::Kind::Isize:  return builder_.getIntegerType(::logos::compiler::g_target_pointer_bits);
     case LogosType::Kind::IntLit:   return builder_.getI32Type();
     case LogosType::Kind::FloatLit: return builder_.getF64Type();
     case LogosType::Kind::Enum: {

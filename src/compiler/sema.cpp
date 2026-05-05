@@ -951,6 +951,8 @@ std::string type_str(TypeRef t) {
     case LogosType::Kind::U64:    return "u64";
     case LogosType::Kind::I128:   return "i128";
     case LogosType::Kind::U128:   return "u128";
+    case LogosType::Kind::Usize:  return "usize";
+    case LogosType::Kind::Isize:  return "isize";
     case LogosType::Kind::IntLit:   return "{integer}";
     case LogosType::Kind::HStaticLit: {
         char buf[24];
@@ -1168,6 +1170,8 @@ void SemaChecker::init_primitives() {
     ap(LogosType::Kind::U56);
     ap(LogosType::Kind::I128);
     ap(LogosType::Kind::U128);
+    ap(LogosType::Kind::Usize);
+    ap(LogosType::Kind::Isize);
     ap(LogosType::Kind::IntLit);
     ap(LogosType::Kind::FloatLit);
     ap(LogosType::Kind::Error);
@@ -1191,8 +1195,8 @@ TypeRef SemaChecker::lookup_type_by_name(std::string_view name) {
     if (name == "u56")  return prim(LogosType::Kind::U56);
     if (name == "i128") return prim(LogosType::Kind::I128);
     if (name == "u128") return prim(LogosType::Kind::U128);
-    if (name == "usize") return prim(LogosType::Kind::U64);  // usize = u64
-    if (name == "isize") return prim(LogosType::Kind::I64);  // isize = i64
+    if (name == "usize") return prim(LogosType::Kind::Usize);
+    if (name == "isize") return prim(LogosType::Kind::Isize);
     if (name == "void") return prim(LogosType::Kind::Void);
     if (name == "str")  return make_slice_type(u8_t());
     auto tvit = current_type_params_.find(std::string(name));
