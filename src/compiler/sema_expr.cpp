@@ -8590,10 +8590,10 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
     }
     auto inner = map_of(node.get(la::VALUE.code));
     int32_t ic = code_of(inner);
-    if (ic != la::CALL && ic != la::GENERIC_CALL && ic != la::STATIC_CALL) {
-        error("metacall: expected a free-function or static-method call");
-        return error_expr();
-    }
+    bool ic_is_call  = (ic == la::CALL || ic == la::GENERIC_CALL || ic == la::STATIC_CALL);
+    bool ic_is_block = (ic == la::BLOCK);
+    // Forms accepted: `metacall <call>`, `metacall (<expr>)`, `metacall { ... }`.
+    // Anything else is rejected by the parser; this guard is a belt-and-braces.
     // Reject nested metacall: `metacall foo(metacall bar(...))`.  metacall
     // is a one-shot lift to compile-time; nesting another metacall inside
     // the arg list has no semantics — the inner one would need to produce
@@ -8754,7 +8754,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
             }
         }
     };
-    if (inner.has_key(la::ARGS)) {
+    if (ic_is_call && inner.has_key(la::ARGS)) {
         AnyVal args_av = inner.get(la::ARGS.code);
         if (!args_av.is_null()) {
             if (ic == la::CALL) {
@@ -8768,10 +8768,56 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
         }
     }
 
-    // Lower the inner call normally — type-checks, generic-resolves, queues
-    // monomorphisation. Whatever return type pops out drives the primitive
-    // check below.
-    auto lowered = lower_expr(inner);
+    // Lower the inner expr/block — type-checks, generic-resolves, queues
+    // monomorphisation. For block form: lower stmts in a fresh scope, take
+    // type from the trailing TAIL_EXPR. Whatever return type pops out drives
+    // the primitive check below.
+    lir::LExprPtr lowered;
+    if (ic_is_block) {
+        push_scope();
+        TypeRef block_ty;
+        if (inner.has_key(la::ITEMS)) {
+            auto items = arr_of(inner.get(la::ITEMS.code));
+            uint64_t n = items.size();
+            for (uint64_t i = 0; i < n; ++i) {
+                auto s = map_of(items.get(i));
+                int32_t sc = code_of(s);
+                if (sc == la::TAIL_EXPR && i + 1 == n) {
+                    auto le = lower_expr(map_of(s.get(la::VALUE.code)));
+                    if (le) block_ty = TypeRef(le->type);
+                } else {
+                    lower_stmt(s);
+                }
+            }
+        }
+        pop_scope();
+        if (!block_ty) {
+            error("metacall block: must end with a tail expression "
+                  "(no trailing semicolon) so the metacall has a value");
+            return error_expr();
+        }
+        // Pass-through cannot reference vars from inside the block (they're
+        // out of scope in the surrounding fn). Stand in with a typed-zero
+        // literal of the block's type — the AST gets replaced by a real
+        // literal at splice time, so this LIR is throwaway but must be
+        // syntactically valid for the meta-JIT's mlir-gen of the surrounding
+        // fn (the user fn is internalized + DCE'd, but mlir-gen runs first).
+        auto bk = block_ty.kind();
+        if (bk == LogosType::Kind::Bool) {
+            lowered = builder().lit_bool(false, block_ty);
+        } else if (bk == LogosType::Kind::F32 || bk == LogosType::Kind::F64
+                || bk == LogosType::Kind::FloatLit) {
+            lowered = builder().lit_float(0.0, block_ty);
+        } else if (bk == LogosType::Kind::Slice && block_ty.elem()
+                && block_ty.elem().kind() == LogosType::Kind::U8) {
+            lowered = builder().lit_str("", block_ty);
+        } else {
+            // All integer kinds (and IntLit) accept lit_int.
+            lowered = builder().lit_int(0, block_ty);
+        }
+    } else {
+        lowered = lower_expr(inner);
+    }
     auto rt = lowered ? lowered->type : nullptr;
     auto rk = TypeRef(rt).kind();
     bool rt_is_hermes_static = is_hermes_static(rt);
@@ -8876,12 +8922,18 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
                 call_text += mname;
                 call_text += tf;
             }
+        } else if (ic_is_block) {
+            // Block form: render the entire block; it becomes the function body.
+            call_text = render_block_src(inner);
         } else {
-            ok = false;
+            // Arbitrary expression form: render and wrap in `return <e>;`.
+            call_text = render_expr_src(inner);
         }
-        // Append (arg_lits...). One blank means CTFE failed earlier — we
+        // Append (arg_lits...) for CALL forms only. CTFE-of-args doesn't
+        // apply to block/expr forms (their evaluation is purely the JIT
+        // thunk's job). One blank arg means CTFE failed earlier — we
         // already emitted a diag, just skip thunk synthesis.
-        if (ok) {
+        if (ok && ic_is_call) {
             call_text += "(";
             for (size_t i = 0; i < arg_lits.size(); ++i) {
                 if (i) call_text += ", ";
@@ -8914,14 +8966,23 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
                 // *(ptr-8) for size and splices identically to HermesStatic.
                 // The temporary Hermes drops at end-of-thunk; the freeze
                 // helper has already copied bytes out.
-                site.thunk_source = std::format(
-                    "package {};\n"
-                    "use std.hermes.ctr;\n"
-                    "unsafe fn {}() -> *const u8 {{\n"
-                    "    let __h: Hermes = {};\n"
-                    "    return __metacall_freeze(&__h);\n"
-                    "}}\n",
-                    pkg, site.thunk_name, call_text);
+                // Hermes ret is supported only for the call form — the
+                // freeze helper expects a single Hermes-typed expression.
+                if (!ic_is_call) {
+                    error("metacall: Hermes return type currently supported "
+                          "only on the call form (`metacall foo()`)");
+                    ok = false;
+                }
+                if (ok) {
+                    site.thunk_source = std::format(
+                        "package {};\n"
+                        "use std.hermes.ctr;\n"
+                        "unsafe fn {}() -> *const u8 {{\n"
+                        "    let __h: Hermes = {};\n"
+                        "    return __metacall_freeze(&__h);\n"
+                        "}}\n",
+                        pkg, site.thunk_name, call_text);
+                }
             } else {
                 // HermesStatic ret needs std.hermes.view in scope.
                 // ExprBlob ret needs std.compiler.metaprog in scope.
@@ -8931,11 +8992,18 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
                     : (site.ret_tag == RT2::ExprBlob)
                     ? "use std.compiler.metaprog;\nuse std.hermes.view;\n"
                     : "";
+                // Body shape:
+                //   call/expr forms → `{ return <text>; }`
+                //   block form      → `<rendered block>` (already braced;
+                //                      its tail expr is the implicit return).
+                std::string body = ic_is_block
+                    ? call_text
+                    : std::format("{{ return {}; }}", call_text);
                 site.thunk_source = std::format(
                     "package {};\n"
                     "{}"
-                    "fn {}() -> {} {{ return {}; }}\n",
-                    pkg, extra_uses, site.thunk_name, ret_text, call_text);
+                    "fn {}() -> {} {}\n",
+                    pkg, extra_uses, site.thunk_name, ret_text, body);
             }
         }
         cur_prog_->metacall_sites.push_back(std::move(site));

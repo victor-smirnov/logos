@@ -1572,6 +1572,10 @@
                   / loop_expr        // loop { ... }  — as expression (break value)
                   / if_expr          // if cond { ... } else { ... }  — as expression
                   / match_stmt       // match expr { ... }  — as expression
+                  / KW_METACALL block
+                                     => { CODE: METACALL, VALUE: $2 }
+                  / KW_METACALL LPAREN expr RPAREN
+                                     => { CODE: METACALL, VALUE: $3 }
                   / KW_METACALL call_expr
                                      => { CODE: METACALL, VALUE: $2 }
                   / IDENT DOTDOTDOT LPAREN IDENT RPAREN
