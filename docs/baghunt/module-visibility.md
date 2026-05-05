@@ -16,7 +16,7 @@
 ### B-mv-01: Cross-pkg same-name fn → "duplicate function" instead of first-import-wins
 
 **Severity**: P2 design (inconsistency)
-**Status**: deferred — pkg-qualified fn registry rework needed (sibling of B-mv-02)
+**Status**: partial — clearer diagnostic ("function defined in both packages X and Y, rename one") replaces bare "duplicate function". Full first-import-wins still deferred (needs ABI symbol mangling refactor in mlir_gen + mono).
 **Repro**: `B01/` — pkg_a defines `pub fn shared() -> i32`, pkg_b defines `pub fn shared() -> i32`. `main` does `use pkg_a; use pkg_b; let v = shared();`.
 **Observed**: `error [fn shared]: duplicate function 'shared'` and compilation aborts.
 **Expected**: For consistency with structs (first-import-wins, see B-mv-08 / `feat_type_uid_pkg_skip_bug`), should resolve to pkg_a's `shared()` silently. OR produce an explicit "ambiguous reference" diagnostic — but NOT a "duplicate" error attached to the definition site. The function definitions are NOT duplicates; they're in different packages.
@@ -26,7 +26,7 @@
 ### B-mv-02: Cross-pkg same-name trait → wrong-trait resolution + confusing diagnostic
 
 **Severity**: P2 design + P1 diagnostic
-**Status**: deferred — pkg-qualified trait registry rework needed (cross-pkg first-import-wins semantics)
+**Status**: partial — clearer diagnostic ("trait defined in both packages, rename") replaces bare "duplicate trait"; SemaTraitInfo now carries `package`. Full first-import-wins still deferred (traits_ keyed by bare name, ~20 direct-lookup sites need pkg-qualified migration).
 **Repro**: `B02/` — pkg_a defines `pub trait Greet { fn hello(...); }`, pkg_b defines `pub trait Greet { fn bye(...); }`. `main` does `use pkg_a; use pkg_b; impl Greet for Foo { fn hello(...) {...} }`.
 **Observed**: `error: impl Greet for Foo: missing method 'bye'` — i.e. `find_trait_by_name` returns pkg_b's `Greet` (despite pkg_a being imported first), and the impl-validation expects pkg_b's method set.
 **Expected**: First-import-wins (pkg_a's `Greet`) OR explicit "ambiguous trait" diagnostic with both pkg paths shown.

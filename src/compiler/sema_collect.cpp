@@ -1038,8 +1038,22 @@ void SemaChecker::collect_trait(TinyMapView node) {
     // forward-instantiation declarations reach this code path with no NAME
     // field; those aren't duplicates of each other.
     if (!tname.empty() && traits_.count(tname)) {
-        error(std::format("duplicate trait '{}'", tname));
+        auto& existing = traits_[tname];
+        // B-mv-02: cross-pkg same-name traits hit this path because traits_
+        // is keyed by bare name (legacy).  Make the diagnostic explicit.
+        std::string existing_pkg = existing.package;
+        if (existing_pkg != cur_package_ &&
+            !existing_pkg.empty() && !cur_package_.empty()) {
+            error(std::format(
+                "trait '{}' defined in both packages '{}' and '{}' — "
+                "cross-package same-name traits clobber each other in "
+                "the legacy trait registry (B-mv-02); rename one of them",
+                tname, existing_pkg, cur_package_));
+        } else {
+            error(std::format("duplicate trait '{}'", tname));
+        }
     }
+    info.package = cur_package_;  // record so future cross-pkg dup diag can show pkg
     traits_[tname] = std::move(info);
 }
 
@@ -2222,7 +2236,17 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
             if (it != generic_funcs_.end() && it->second.signature_key == info.signature_key) {
                 if (code_of(node) == la::EXTERN_FN && it->second.is_extern)
                     return;
-                error(std::format("duplicate function '{}'", base_name));
+                if (it->second.package != info.package &&
+                    !it->second.package.empty() && !info.package.empty()) {
+                    error(std::format(
+                        "function '{}' defined in both packages '{}' and "
+                        "'{}' with the same signature — cross-package "
+                        "same-name fns are not yet supported (B-mv-01); "
+                        "rename one of them",
+                        base_name, it->second.package, info.package));
+                } else {
+                    error(std::format("duplicate function '{}'", base_name));
+                }
                 return;
             }
         }
@@ -2254,7 +2278,17 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
         if (fit->second.signature_key == info.signature_key) {
             if (code_of(node) == la::EXTERN_FN && fit->second.is_extern)
                 return;
-            error(std::format("duplicate function '{}'", base_name));
+            if (fit->second.package != info.package &&
+                !fit->second.package.empty() && !info.package.empty()) {
+                error(std::format(
+                    "function '{}' defined in both packages '{}' and "
+                    "'{}' with the same signature — cross-package "
+                    "same-name fns are not yet supported (B-mv-01); "
+                    "rename one of them",
+                    base_name, fit->second.package, info.package));
+            } else {
+                error(std::format("duplicate function '{}'", base_name));
+            }
             return;
         }
     }

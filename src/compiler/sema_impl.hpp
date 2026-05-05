@@ -1128,6 +1128,7 @@ private:
     };
     struct SemaTraitInfo {
         std::string name;
+        std::string package;                  // pkg this trait was declared in (for B-mv-02 diag)
         std::vector<TypeParam> type_params;  // e.g. trait Into<T> has T
         std::vector<SemaTraitMethodInfo> methods;
         std::vector<SemaAssocTypeInfo>   assoc_types;
