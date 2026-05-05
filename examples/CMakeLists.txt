@@ -13,9 +13,10 @@ set(STDLIB_BIN_DIR ${LOGOS_BUILD_LIB_DIR})
 # Rebuild when any Hermes stdlib file changes.
 file(GLOB HERMES_STDLIB CONFIGURE_DEPENDS ${STDLIB}/hermes/*.logos)
 
-# `metaprog` examples additionally pull in std.compiler.metaprog and link
-# against libstdlib_rt.a, which carries weak stubs for the host-only
-# metaprog externs (logos_emit_source, logos_get_module_ast_oview, …).
+# `metaprog` examples additionally link against liblstdlib_rt.a (asm /
+# weak metaprog stubs) since some of those symbols are referenced from
+# the user-level code path (fiber switch, etc.).  The system module
+# library is auto-discovered by logosc and linked transparently below.
 function(logos_add_example NAME)
     set(_options METAPROG)
     cmake_parse_arguments(EX "${_options}" "" "" ${ARGN})
@@ -24,26 +25,27 @@ function(logos_add_example NAME)
     set(OBJ ${CMAKE_CURRENT_BINARY_DIR}/${NAME}.o)
     set(BIN ${CMAKE_CURRENT_BINARY_DIR}/${NAME})
 
-    set(_compile_extra)
-    set(_link_extra)
-    set(_compile_deps logosc ${SRC} ${HERMES_STDLIB})
-    if (EX_METAPROG)
-        set(_compile_extra -L ${STDLIB_BIN_DIR})
-        set(_link_extra ${STDLIB_BIN_DIR}/liblstdlib_rt.a)
-        list(APPEND _compile_deps stdlib_binary)
-    endif()
+    # logosc finds the system stdlib (incl. metaprog AST blobs) via its
+    # baked-in argv[0]-relative path; no -I / -L needed for stdlib.
+    # The native runtime archives (fiber switch, liburing wrappers) sit
+    # alongside liblstdlib.a in the same dir and link via the rt + uring
+    # static libs.
+    set(_compile_deps logosc ${SRC} ${HERMES_STDLIB} stdlib_binary stdlib_uring logos_rt)
+    set(_link_archives
+        ${LOGOS_BUILD_LIB_DIR}/liblstdlib_rt.a
+        ${LOGOS_BUILD_LIB_DIR}/liblstdlib_uring.a)
 
     add_custom_command(
         OUTPUT ${OBJ}
-        COMMAND $<TARGET_FILE:logosc> ${SRC} -I ${STDLIB} ${_compile_extra} -o ${OBJ}
+        COMMAND $<TARGET_FILE:logosc> ${SRC} -o ${OBJ}
         DEPENDS ${_compile_deps}
         COMMENT "logosc: ${NAME}.logos"
     )
 
     add_custom_command(
         OUTPUT ${BIN}
-        COMMAND ${CMAKE_CXX_COMPILER} ${OBJ} ${_link_extra} -o ${BIN}
-        DEPENDS ${OBJ} ${_link_extra}
+        COMMAND ${CMAKE_CXX_COMPILER} ${OBJ} ${_link_archives} -lpthread -lm -o ${BIN}
+        DEPENDS ${OBJ} ${_link_archives}
         COMMENT "link: ${NAME}"
     )
 
