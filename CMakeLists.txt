@@ -72,3 +72,24 @@ add_subdirectory(stdlib/rt)
 
 # Tests
 add_subdirectory(tests/logos)
+
+# ── Install rules ────────────────────────────────────────────────────────
+#
+# `cmake --install <build> --prefix <P>` produces a relocatable layout:
+#
+#   <P>/bin/logosc                       — compiler binary
+#   <P>/lib/logos/liblstdlib.a           — compiled stdlib (.o + .hermes0)
+#   <P>/lib/logos/liblstdlib_rt.a        — native runtime support
+#   <P>/lib/logos/liblstdlib_uring.a     — liburing wrappers
+#
+# The compiler resolves its system module library via a suffix baked at
+# build time (LOGOS_LIB_RELDIR), realpath'd off /proc/self/exe — the
+# same suffix works for the build tree and the install tree, so no
+# absolute path is hard-coded into the binary.
+install(TARGETS logosc
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(FILES
+    ${LOGOS_BUILD_LIB_DIR}/liblstdlib.a
+    ${LOGOS_BUILD_LIB_DIR}/liblstdlib_rt.a
+    ${LOGOS_BUILD_LIB_DIR}/liblstdlib_uring.a
+    DESTINATION ${LOGOS_LIB_RELDIR})
