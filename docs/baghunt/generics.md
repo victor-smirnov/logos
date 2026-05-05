@@ -120,7 +120,7 @@ fn main() -> i32 { return helper(5); }
 ### B-gn-08: Type-param-in-method shadows impl-type-param silently
 
 **Severity**: P2 design (intentional shadowing or oversight?)
-**Status**: deferred — root cause confirmed via tracing: `is_specialization_fn` treats `fn helper<T>` inside `impl<T> Foo<T>` as a *specialization* (because T resolves via `try_resolve_as_known_type` to the impl's pushed T), so `collect_fn` returns early and goes through `lower_spec_fn` instead. That's actually a deliberate-but-undocumented "method specialization on impl-T" path. A warning at the collect-time entry won't fire; the diagnostic must live in `lower_spec_fn` (where the implicit specialization happens) and only when the user clearly didn't intend specialization. Non-trivial to disambiguate; left as-is.
+**Status**: fixed — the warning lives at the `is_specialization_fn` early-return inside `collect_fn` (where `impl_type_params_` is still populated; `lower_spec_fn` runs later in a different scope). When the method has a bare-IDENT type-param whose name appears in `impl_type_params_`, sema warns: "method's '{T}' shadows the impl-block's '{T}'; the method is silently treated as a specialisation on the impl's '{T}'. Rename one if that wasn't intended." The implicit-specialisation behaviour itself is preserved; the warning surfaces the footgun without breaking any existing pattern.
 **Repro**: `B15/` —
 ```logos
 struct Foo<T> { x: T }

@@ -2142,7 +2142,43 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
 
     // Specialisations are validated and lowered inline by lower_spec_fn;
     // skip collection-phase registration entirely.
-    if (is_specialization_fn(node)) return;
+    if (is_specialization_fn(node)) {
+        // B-gn-08: warn when a method's bare-IDENT type-param happens to
+        // match an impl-block-level type-param. is_specialization_fn returns
+        // true here because try_resolve_as_known_type sees the impl's pushed
+        // T — but the user almost certainly meant a fresh method-level T,
+        // not an "implicit specialisation" on the impl's T. Diagnose at the
+        // collect site (impl_type_params_ is still populated; lower_spec_fn
+        // runs later in a different scope and can't see them).
+        if (!impl_type_params_.empty() && node.has_key(la::TYPE_PARAMS)) {
+            AnyVal tpav = node.get(la::TYPE_PARAMS.code);
+            if (!tpav.is_null()) {
+                auto tplist = map_of(tpav);
+                if (tplist.has_key(la::ITEMS)) {
+                    auto items = arr_of(tplist.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < items.size(); ++i) {
+                        auto tpnode = map_of(items.get(i));
+                        if (code_of(tpnode) != la::TYPE_PARAM) continue;
+                        if (tpnode.has_key(la::ITEMS)) continue;  // bounded → not a spec leg
+                        auto tpname = std::string(str_of(tpnode.get(la::NAME.code)));
+                        for (auto& itp : impl_type_params_) {
+                            if (itp.name == tpname) {
+                                warn(std::format(
+                                    "type parameter '{}' on method '{}' "
+                                    "shadows the impl-block's '{}'; the method "
+                                    "is silently treated as a specialisation "
+                                    "on the impl's '{}'. Rename one if that "
+                                    "wasn't intended.",
+                                    tpname, base_name, itp.name, itp.name));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return;
+    }
 
     SemaFuncInfo info;
     info.type_params = read_type_params(node);
