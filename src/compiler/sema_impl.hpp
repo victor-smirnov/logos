@@ -756,6 +756,15 @@ private:
                         tp.name, fi.base_name));
                 }
             }
+            // B-gn-09: same lint for declared lifetime parameters.
+            for (auto& lt : fi.lifetime_params) {
+                if (lt_uses.count(lt) == 0) {
+                    warn(std::format(
+                        "lifetime parameter '{}' is unused in fn '{}'; "
+                        "consider removing it",
+                        lt, fi.base_name));
+                }
+            }
         }
     }
 
@@ -1089,6 +1098,7 @@ private:
                           };
     struct SemaFuncInfo   { std::vector<TypeRef> param_types; TypeRef ret_type;
                             std::vector<TypeParam> type_params; bool is_vararg = false;
+                            std::vector<std::string> lifetime_params;  // for B-gn-09 lint
                             bool is_pub = false; bool is_unsafe = false;
                             bool is_extern = false;
                             std::string base_name;

@@ -138,7 +138,7 @@ fn main() -> i32 { return 0; }
 ### B-gn-09: Lifetime parameter declared but never used silently accepted
 
 **Severity**: P2 design (consistency with B-gn-07)
-**Status**: deferred — needs unused-lifetime lint pass
+**Status**: fixed — `check_unused_generics_in_funcs` extended with the lifetime branch (SemaFuncInfo carries `lifetime_params`; same use-collection via `collect_type_var_uses`).
 **Repro**: `B18/` —
 ```logos
 fn helper<'a>(x: i32) -> i32 { return x; }

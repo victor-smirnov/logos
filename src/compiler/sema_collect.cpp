@@ -2138,6 +2138,7 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
 
     SemaFuncInfo info;
     info.type_params = read_type_params(node);
+    info.lifetime_params = read_lifetime_params(node);
     info.base_name = base_name;
     info.source_file = file_;
     info.package = cur_package_;
