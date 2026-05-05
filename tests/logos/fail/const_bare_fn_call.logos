@@ -1,0 +1,11 @@
+// B-ca-03: a bare fn call as `pub const` initializer must be rejected
+// — otherwise it would silently inline at every read site instead of
+// being a compile-time constant. `metacall <fn>(...)` is the explicit
+// opt-in for compile-time evaluation.
+package const_bare_fn_call;
+
+fn compute() -> i32 { return 42; }
+
+pub const X: i32 = compute();
+
+fn main() -> i32 { return X; }

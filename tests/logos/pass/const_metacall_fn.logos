@@ -1,0 +1,17 @@
+// B-ca-03: `metacall <fn>(...)` is the explicit opt-in for compile-time
+// evaluation in a `pub const` initializer. The function runs at compile
+// time, the result is baked in as a constant, and every read site sees
+// the same value (no per-read function call).
+package const_metacall_fn;
+
+fn compute() -> i32 { return 42; }
+fn double_it(x: i32) -> i32 { return x * 2; }
+
+pub const X: i32 = metacall compute();
+pub const Y: i32 = metacall double_it(7);
+
+fn main() -> i32 {
+    // Both consts are evaluated at compile time; reads are direct.
+    return X + Y;
+    // 42 + 14 = 56
+}

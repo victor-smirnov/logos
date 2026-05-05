@@ -859,6 +859,62 @@ void SemaChecker::collect_const(TinyMapView node) {
                 error(std::format("const '{}' references itself in initializer",
                                   name));
             }
+            // B-ca-03: const initializer must be a literal expression, simple
+            // arithmetic over literals, OR an explicit `metacall <fn>()` —
+            // otherwise the bare fn-call is silently inlined at every use
+            // site (effectively making `pub const X = compute()` a fn alias,
+            // not a constant). Reject anything else with a specific message.
+            //
+            // Allowed shapes: LIT_*, METACALL, BINOP/UNARY/PAREN_EXPR with
+            // const-evaluable children, CAST of const-evaluable, hermes-lit
+            // (already handled below as HermesStatic).
+            std::function<bool(TinyMapView)> is_const_evaluable;
+            is_const_evaluable = [&](TinyMapView v) -> bool {
+                int32_t vc = code_of(v);
+                if (vc == la::LIT_INT  || vc == la::LIT_BOOL ||
+                    vc == la::LIT_STR  || vc == la::LIT_FLOAT ||
+                    vc == la::LIT_CHAR || vc == la::LIT_HSTATIC)
+                    return true;
+                if (vc == la::HERMES_MAP.code  || vc == la::HERMES_ARRAY.code ||
+                    vc == la::HERMES_STR.code  || vc == la::HERMES_INT.code  ||
+                    vc == la::HERMES_NEG_INT.code || vc == la::HERMES_FLOAT.code ||
+                    vc == la::HERMES_BOOL.code || vc == la::HERMES_NULL.code)
+                    return true;  // HermesStatic literal — handled separately
+                if (vc == la::METACALL) return true;
+                if (vc == la::CAST) {
+                    if (!v.has_key(la::VALUE)) return false;
+                    return is_const_evaluable(map_of(v.get(la::VALUE.code)));
+                }
+                if (vc == la::PAREN_EXPR) {
+                    if (!v.has_key(la::VALUE)) return false;
+                    return is_const_evaluable(map_of(v.get(la::VALUE.code)));
+                }
+                if (vc == la::UNARY) {
+                    if (!v.has_key(la::VALUE)) return false;
+                    return is_const_evaluable(map_of(v.get(la::VALUE.code)));
+                }
+                if (vc == la::BINOP) {
+                    bool lhs_ok = v.has_key(la::LHS) &&
+                        is_const_evaluable(map_of(v.get(la::LHS.code)));
+                    bool rhs_ok = v.has_key(la::RHS) &&
+                        is_const_evaluable(map_of(v.get(la::RHS.code)));
+                    return lhs_ok && rhs_ok;
+                }
+                // Array / tuple literals: defer to lower_const_def's B-ca-05
+                // check, which produces a specific "const arrays/tuples not
+                // yet supported" diagnostic. Returning true here doesn't
+                // accept them — it just lets the more-specific message win.
+                if (vc == la::ARR_LIT || vc == la::TUPLE_LIT) return true;
+                return false;
+            };
+            if (!is_const_evaluable(map_of(val_av))) {
+                error(std::format(
+                    "const '{}': initializer must be a literal expression, "
+                    "simple arithmetic over literals, or an explicit "
+                    "`metacall <fn>(...)` (a bare fn call would otherwise "
+                    "silently inline at every read site, not produce a "
+                    "compile-time constant)", name));
+            }
         }
     }
 
