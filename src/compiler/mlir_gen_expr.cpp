@@ -556,9 +556,56 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
         if (op == "<=") return builder_.create<mlir::arith::CmpFOp>(loc_, mlir::arith::CmpFPredicate::OLE, lhs, rhs);
         if (op == ">=") return builder_.create<mlir::arith::CmpFOp>(loc_, mlir::arith::CmpFPredicate::OGE, lhs, rhs);
     }
-    if (op == "+")  return builder_.create<mlir::arith::AddIOp>(loc_, lhs, rhs);
-    if (op == "-")  return builder_.create<mlir::arith::SubIOp>(loc_, lhs, rhs);
-    if (op == "*")  return builder_.create<mlir::arith::MulIOp>(loc_, lhs, rhs);
+    // B-ex-01: runtime overflow trap on integer +/-/*. Replace silent-wrap
+    // arith ops with LLVM with-overflow intrinsics + cond_br + llvm.intr.trap
+    // (SIGILL on overflow). Intentional wrapping — hashing, modular arith,
+    // parsers — must use the `wrapping_add`/`wrapping_sub`/`wrapping_mul`
+    // intrinsic family which emits the silent arith op directly.
+    if (op == "+" || op == "-" || op == "*") {
+        bool is_unsigned = lhs_l->type &&
+            (TypeRef(lhs_l->type).kind() == LogosType::Kind::U8  ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U16 ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U24 ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U32 ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U56 ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U64 ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U128 ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::Usize);
+        auto int_ty = mlir::dyn_cast<mlir::IntegerType>(lhs.getType());
+        if (int_ty) {
+            mlir::Type i1 = builder_.getI1Type();
+            mlir::Type result_struct = mlir::LLVM::LLVMStructType::getLiteral(
+                builder_.getContext(), {int_ty, i1});
+            mlir::Operation* intr = nullptr;
+            if (op == "+") intr = is_unsigned
+                ? (mlir::Operation*)builder_.create<mlir::LLVM::UAddWithOverflowOp>(loc_, result_struct, lhs, rhs)
+                : (mlir::Operation*)builder_.create<mlir::LLVM::SAddWithOverflowOp>(loc_, result_struct, lhs, rhs);
+            else if (op == "-") intr = is_unsigned
+                ? (mlir::Operation*)builder_.create<mlir::LLVM::USubWithOverflowOp>(loc_, result_struct, lhs, rhs)
+                : (mlir::Operation*)builder_.create<mlir::LLVM::SSubWithOverflowOp>(loc_, result_struct, lhs, rhs);
+            else intr = is_unsigned
+                ? (mlir::Operation*)builder_.create<mlir::LLVM::UMulWithOverflowOp>(loc_, result_struct, lhs, rhs)
+                : (mlir::Operation*)builder_.create<mlir::LLVM::SMulWithOverflowOp>(loc_, result_struct, lhs, rhs);
+            mlir::Value result_v = builder_.create<mlir::LLVM::ExtractValueOp>(
+                loc_, intr->getResult(0), llvm::ArrayRef<int64_t>{0});
+            mlir::Value ovf_v = builder_.create<mlir::LLVM::ExtractValueOp>(
+                loc_, intr->getResult(0), llvm::ArrayRef<int64_t>{1});
+            auto* parent_region = builder_.getInsertionBlock()->getParent();
+            auto* trap_block = new mlir::Block();
+            auto* cont_block = new mlir::Block();
+            parent_region->getBlocks().push_back(trap_block);
+            parent_region->getBlocks().push_back(cont_block);
+            builder_.create<mlir::cf::CondBranchOp>(loc_, ovf_v, trap_block, cont_block);
+            builder_.setInsertionPointToStart(trap_block);
+            builder_.create<mlir::LLVM::Trap>(loc_);
+            builder_.create<mlir::LLVM::UnreachableOp>(loc_);
+            builder_.setInsertionPointToStart(cont_block);
+            return result_v;
+        }
+        if (op == "+") return builder_.create<mlir::arith::AddIOp>(loc_, lhs, rhs);
+        if (op == "-") return builder_.create<mlir::arith::SubIOp>(loc_, lhs, rhs);
+        return builder_.create<mlir::arith::MulIOp>(loc_, lhs, rhs);
+    }
     {
         bool is_unsigned = lhs_l->type &&
             (TypeRef(lhs_l->type).kind() == LogosType::Kind::U8  ||
@@ -856,6 +903,31 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
     auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
 
     // ── Compiler intrinsics recognised by name ────────────────────────────────
+    // wrapping_add / wrapping_sub / wrapping_mul — silent two's-complement
+    // arithmetic that explicitly opts out of the runtime overflow trap on
+    // `+`/`-`/`*`. Same signature as the built-in op; emits the silent
+    // arith.* directly (B-ex-01).
+    if (callee == "wrapping_add" || callee == "wrapping_sub" || callee == "wrapping_mul") {
+        if (arg_les.size() == 2) {
+            auto a = gen_expr(*arg_les[0]); if (!a) return nullptr;
+            auto b = gen_expr(*arg_les[1]); if (!b) return nullptr;
+            // Coerce types so the arith op sees matching integer widths.
+            if (a.getType() != b.getType()) {
+                if (auto ai = mlir::dyn_cast<mlir::IntegerType>(a.getType()))
+                    if (auto bi = mlir::dyn_cast<mlir::IntegerType>(b.getType()))
+                        if (ai.getWidth() < bi.getWidth())
+                            a = builder_.create<mlir::arith::ExtUIOp>(loc_, b.getType(), a);
+                        else if (bi.getWidth() < ai.getWidth())
+                            b = builder_.create<mlir::arith::ExtUIOp>(loc_, a.getType(), b);
+            }
+            if (callee == "wrapping_add")
+                return builder_.create<mlir::arith::AddIOp>(loc_, a, b);
+            if (callee == "wrapping_sub")
+                return builder_.create<mlir::arith::SubIOp>(loc_, a, b);
+            return builder_.create<mlir::arith::MulIOp>(loc_, a, b);
+        }
+    }
+
     // str_from_raw(ptr: *const u8, len: i64) -> str
     // Constructs a str fat-pointer {ptr, len} on the stack, mirroring ELitStr.
     if (callee == "str__str_from_raw" || callee == "str_from_raw") {

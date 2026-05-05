@@ -12,6 +12,7 @@
 
 package std.hermes.hashing;
 
+use std.lang.arith;
 use std.hermes.anyval;
 use std.hermes.string;
 use std.hermes.tags;
@@ -44,14 +45,14 @@ pub unsafe fn fnv_mix_u64(h: u64, v: u64) -> u64 {
     while i < 8 {
         let byte: u64 = (v >> (i as u64 * 8)) & 0xFF;
         x = x ^ byte;
-        x = x * 1099511628211;
-        i = i + 1;
+        x = wrapping_mul(x, 1099511628211u64);  // FNV intentionally wraps
+        i = wrapping_add(i, 1i64);
     }
     return x;
 }
 unsafe fn fnv_mix_byte(h: u64, b: u8) -> u64 {
     let mut x: u64 = h ^ b as u64;
-    x = x * 1099511628211;
+    x = wrapping_mul(x, 1099511628211u64);
     return x;
 }
 

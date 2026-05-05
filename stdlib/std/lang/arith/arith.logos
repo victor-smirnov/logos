@@ -1,0 +1,19 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos standard library — std.lang.arith
+//
+// Wrapping (silent two's-complement) integer arithmetic. Use these
+// instead of `+` / `-` / `*` when overflow is intentional (hash
+// mixing, modular parsers, etc.) — the regular operators trap on
+// overflow at runtime (B-ex-01).
+//
+// These are compiler intrinsics: mlir_gen_expr.cpp intercepts the
+// call sites by name and emits the silent `arith.{add,sub,mul}i`
+// directly. The bodies below exist only so the fn signatures
+// type-check; they are never actually executed.
+
+package std.lang.arith;
+
+pub fn wrapping_add<T>(a: T, b: T) -> T { return a; }
+pub fn wrapping_sub<T>(a: T, b: T) -> T { return a; }
+pub fn wrapping_mul<T>(a: T, b: T) -> T { return a; }
