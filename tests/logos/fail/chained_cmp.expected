@@ -1,0 +1,1 @@
+chained comparisons (e.g. `a < b < c`) are not supported

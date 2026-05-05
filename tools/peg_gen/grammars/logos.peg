@@ -266,6 +266,7 @@
     DOUBLE_REF_TYPE             = 218   // `&&T` (Sprint 6.2 — B-ty-07; resolved by sema as nested REF_TYPE).
     DOUBLE_REF_MUT_TYPE         = 219   // `&&mut T` (B-ty-07; resolved as REF_TYPE wrapping MUT_REF_TYPE).
     DEREF_COMPOUND              = 220   // `*p op= val;` — compound assign through bare deref (B-st-04). Sema lowers to deref_write of *p = *p OP val.
+    CHAINED_CMP                 = 221   // `a < b < c` (2+ comparators in a row). Sema rejects with "chained comparisons not supported; use `a < b && b < c`" (B-ex-08).
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -1462,10 +1463,14 @@
                     => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
                 )*
 
-    // Non-chainable: at most one comparison.  Wrapping in `?` removes the
-    // `/ bitwise_expr` fallback that caused bitwise_expr to reparse on
-    // every `(1)`-style leaf expression without a comparator.
-    cmp_expr <- bitwise_expr
+    // Non-chainable: at most one comparison.  The CHAINED_CMP alt comes first
+    // so 2+ comparators (`a < b < c`) parse cleanly and sema rejects with a
+    // helpful diagnostic instead of a generic "syntax error" (B-ex-08).
+    cmp_expr <- bitwise_expr (EQ / NE / LE / GE / LT / GT) bitwise_expr
+                (EQ / NE / LE / GE / LT / GT) bitwise_expr
+                ((EQ / NE / LE / GE / LT / GT) bitwise_expr)*
+                => { CODE: CHAINED_CMP, ITEMS: $... }
+              / bitwise_expr
                 ( (EQ / NE / LE / GE / LT / GT) bitwise_expr
                     => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
                 )?

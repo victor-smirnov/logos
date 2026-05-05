@@ -125,7 +125,7 @@ fn main() -> i32 {
 ### B-ex-08: Comparison chain `a < b < c` produces cryptic syntax error
 
 **Severity**: P1 diagnostic
-**Status**: deferred — chained-comparison parser-error-recovery work
+**Status**: fixed — added CHAINED_CMP AST node (code 221); grammar's `cmp_expr` now matches the chained form first and produces CHAINED_CMP, falling back to the existing 0-or-1 single-comparison form. Sema rejects with a helpful "split into `a < b && b < c`" diagnostic. Lock-in: fail test `chained_cmp`.
 **Repro**: `B06/` —
 ```logos
 fn main() -> i32 {

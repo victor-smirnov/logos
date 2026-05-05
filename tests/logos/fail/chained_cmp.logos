@@ -1,0 +1,8 @@
+// B-ex-08: chained comparisons must produce a helpful diagnostic.
+package chained_cmp;
+
+fn main() -> i32 {
+    let x: i32 = 3;
+    if 1 < x < 5 { return 1; }
+    return 0;
+}

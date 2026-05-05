@@ -286,6 +286,7 @@ inline constexpr Code LET_PAT              {"LET_PAT",             217}; // `let
 inline constexpr Code DOUBLE_REF_TYPE      {"DOUBLE_REF_TYPE",     218}; // `&&T` resolved by sema as nested REF_TYPE.
 inline constexpr Code DOUBLE_REF_MUT_TYPE  {"DOUBLE_REF_MUT_TYPE", 219}; // `&&mut T`.
 inline constexpr Code DEREF_COMPOUND       {"DEREF_COMPOUND",     220}; // `*p op= val;` — sema lowers to deref_write of *p = *p OP val.
+inline constexpr Code CHAINED_CMP          {"CHAINED_CMP",        221}; // `a < b < c` (2+ comparators); sema rejects with helpful diag (B-ex-08).
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  META            {"META",               16};   // meta @{...} block node on struct/trait/datatype declarations (reuses PATH_PARTS slot; these node types never co-exist)

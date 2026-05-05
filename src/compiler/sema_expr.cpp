@@ -389,6 +389,14 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     }
 
     case la::BINOP:       return lower_binop(expr);
+    case la::CHAINED_CMP: {
+        // B-ex-08: 2+ chained comparators are explicitly captured at the
+        // grammar level so sema can emit a helpful diagnostic instead of a
+        // bare "syntax error" from the higher-level expression rule.
+        error("chained comparisons (e.g. `a < b < c`) are not supported; "
+              "split into `a < b && b < c` instead");
+        return error_expr();
+    }
     case la::UNARY:       return lower_unary(expr);
     case la::DEREF:       return lower_deref(expr);
 

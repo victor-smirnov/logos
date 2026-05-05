@@ -45,7 +45,7 @@ let h: HermesStatic = @{ "k": 1, "k": 2 };
 ### B-he-03: Integer key in Hermes map silently accepted
 
 **Severity**: P1 (per-spec violation)
-**Status**: deferred — integer Hermes keys are valid feature; bug is design
+**Status**: not-a-bug — integer Hermes-map keys are an intentional feature. The grammar's `hermes_entry` accepts `STRING|INTEGER|MINUS INTEGER` keys for TinyObjectMap-style maps; the catalog's "per-Hermes-spec violation" hypothesis was wrong (the reference doc never said string-only). Closed without code change.
 **Repro**: `B14/` —
 ```logos
 let h: HermesStatic = @{ 42: 99 };  // int key, not string
