@@ -79,7 +79,7 @@ fn main() -> i32 {
 ### B-lx-06: Nested block comments (`/* outer /* inner */ ... */`) don't work
 
 **Severity**: P2 design (vs Rust)
-**Status**: deferred — nested block comments need state-machine lexer
+**Status**: fixed — replaced the naive "scan to first `*/`" loop in peg_gen's block-comment skip emitter with a depth-counted state machine: increment on `/*`, decrement on `*/`, continue until depth reaches 0. As a side effect, newlines inside multi-line block comments now correctly increment `line_` (the previous matcher silently lost them). Lock-in: pass test `nested_block_comment` covers two-level and three-level nesting.
 **Repro**: `B08/` —
 ```logos
 /* outer /* inner */ still in comment */
@@ -93,7 +93,7 @@ fn main() -> i32 { return 0; }
 ### B-lx-07: Character literal `'A'` doesn't parse (lifetime collision)
 
 **Severity**: P2 design (lexer ambiguity)
-**Status**: deferred — char literal vs lifetime needs context-aware tokenisation
+**Status**: not-a-bug — Logos has no char-literal syntax by design (use `65 as u8` for `'A'`'s value, or string-byte indexing for sequences). The `'` token is reserved for lifetimes. The current "syntax error near '...'" diagnostic could be polished to suggest the byte-value form, but adding char literals proper is a feature, not a bug fix. Documented here; reference doc could carry the same note when it next gets a polish pass.
 **Repro**: `B10/` —
 ```logos
 fn main() -> i32 { let c: u8 = 'A'; return c as i32; }

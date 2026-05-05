@@ -921,11 +921,18 @@ private:
             if (t.kind != skip_code) continue;
             auto inner = regex_inner(t.pattern);
             if (inner.starts_with("/*") || inner.starts_with("\\/\\*")) {
+                // Nested `/* outer /* inner */ ... */` (B-lx-06): keep a
+                // depth counter; close only on the matching `*/`. Track
+                // newlines so line_ stays correct across multi-line
+                // comments (the prior matcher silently lost them).
                 w.line("if (c == '/' && pos_+1 < source_.size() && source_[pos_+1] == '*') {");
                 w.line("    pos_ += 2;");
-                w.line("    while (pos_+1 < source_.size() &&");
-                w.line("           !(source_[pos_] == '*' && source_[pos_+1] == '/')) ++pos_;");
-                w.line("    if (pos_+1 < source_.size()) pos_ += 2;");
+                w.line("    int depth = 1;");
+                w.line("    while (depth > 0 && pos_+1 < source_.size()) {");
+                w.line("        if (source_[pos_] == '/' && source_[pos_+1] == '*') { ++depth; pos_ += 2; }");
+                w.line("        else if (source_[pos_] == '*' && source_[pos_+1] == '/') { --depth; pos_ += 2; }");
+                w.line(R"(        else { if (source_[pos_] == '\n') ++line_; ++pos_; })");
+                w.line("    }");
                 w.line("    continue; }");
                 break;
             }

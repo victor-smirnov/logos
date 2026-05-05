@@ -1,0 +1,13 @@
+// B-lx-06: block comments must nest. Without depth-counting, the inner
+// `*/` would close the outer comment too early and leave dangling tokens.
+package nested_block_comment;
+
+/* outer /* inner */ still in outer */
+fn main() -> i32 {
+    /* one
+       /* two
+          /* three */
+       */
+    */
+    return 42;
+}
