@@ -86,7 +86,7 @@ fn helper(
 ### B-fn-06: Tail-expression as return rejected
 
 **Severity**: P2 design (Rust-style ergonomics)
-**Status**: deferred — tail-expression-as-return is feature work
+**Status**: not-a-bug — Logos requires explicit `return` by design. Block-as-value at function-body position is intentionally absent (no Rust-style implicit tail-return). The current `not all paths return a value` diagnostic is the correct behavior. If the design ever changes, that's a feature addition, not a bug fix.
 **Repro**: `B09/` —
 ```logos
 fn helper() -> i32 { 42 }
@@ -99,7 +99,7 @@ fn helper() -> i32 { 42 }
 ### B-fn-07: Nested function definitions rejected
 
 **Severity**: P2 design (Rust analog absent)
-**Status**: deferred — nested fns are feature work; closure is the available alternative
+**Status**: not-a-bug — closures (`|args| -> R { … }`) are the supported nested-callable form. Nested fn-items capturing nothing would only duplicate that surface; intentionally absent. The current "syntax error" diagnostic is generic but the construct is correctly disallowed. Diagnostic polish (a specific "use a closure here") is small Phase-5 cleanup, not a feature gap.
 **Repro**: `B14/` —
 ```logos
 fn outer() -> i32 {

@@ -142,7 +142,7 @@ fn main() -> i32 { let t: (i32) = 5; return t; }
 ### B-ty-10: Zero-sized array `[T; 0]` silently compiles
 
 **Severity**: P2 design (intentional?)
-**Status**: deferred — zero-size [T;0] is intentionally accepted
+**Status**: not-a-bug — `[T; 0]` is a valid zero-sized type. Logos accepts ZSTs (matches Rust); the catalog's "should warn" hypothesis was speculative. No code change.
 **Repro**: `B05/` —
 ```logos
 fn helper(x: [i32; 0]) -> i32 { return 0; }
