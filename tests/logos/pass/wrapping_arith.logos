@@ -1,0 +1,25 @@
+// B-ex-01 (variable case): runtime overflow trap on +/-/*. Intentional
+// wrap is opt-in via the wrapping_add / wrapping_sub / wrapping_mul
+// intrinsics in std.lang.arith.
+package wrapping_arith;
+
+use std.lang.arith;
+
+unsafe fn main() -> i32 {
+    // Wrap is intentional here — wrapping_add gives silent two's-complement.
+    let a: i32 = 2147483647;            // INT_MAX
+    let w: i32 = wrapping_add(a, 1i32);  // wraps to INT_MIN
+
+    // Verify wrap result.
+    if w != ((0i64 - 2147483648i64) as i32) { return 1; }
+
+    // Wrapping mul too.
+    let m: u32 = wrapping_mul(0xFFFFFFFFu32, 2u32);  // wraps to 0xFFFFFFFE
+    if m != 0xFFFFFFFEu32 { return 2; }
+
+    // Wrapping sub.
+    let s: u8 = wrapping_sub(0u8, 1u8);  // wraps to 255
+    if s != 255u8 { return 3; }
+
+    return 0;
+}

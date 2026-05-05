@@ -5,7 +5,8 @@
 ; symbol leaks for an arithmetic-only program.
 
 ; CHECK-LABEL: define i32 @main()
-; CHECK: add i64
+; B-ex-01: integer + lowers to llvm.sadd.with.overflow + trap on overflow.
+; CHECK: call {{.*}} @llvm.sadd.with.overflow.i64
 ; CHECK: trunc i64
 ; CHECK: ret i32
 

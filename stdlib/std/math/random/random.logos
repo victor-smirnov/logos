@@ -7,6 +7,8 @@
 
 package std.math.random;
 
+use std.lang.arith;
+
 // glibc exposes getrandom(3) via <sys/random.h> — the symbol is always
 // available on recent glibc. Flags=0 means blocking on /dev/urandom.
 extern fn getrandom(buf: *mut u8, buflen: i64, flags: u32) -> i64;
@@ -52,10 +54,11 @@ impl Rng {
     // Raw splitmix64 step.
     pub fn next_u64(self: &mut Rng) -> u64 {
         unsafe {
-            self.state = self.state + 11400714819323198485 as u64;
+            // splitmix64 — all of these wrap intentionally.
+            self.state = wrapping_add(self.state, 11400714819323198485u64);
             let mut z: u64 = self.state;
-            z = (z ^ (z >> 30 as u64)) * (13787848793156543929 as u64);
-            z = (z ^ (z >> 27 as u64)) * (10723151780598845931 as u64);
+            z = wrapping_mul(z ^ (z >> 30 as u64), 13787848793156543929u64);
+            z = wrapping_mul(z ^ (z >> 27 as u64), 10723151780598845931u64);
             return z ^ (z >> 31 as u64);
         }
     }

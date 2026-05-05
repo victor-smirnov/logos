@@ -907,7 +907,18 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
     // arithmetic that explicitly opts out of the runtime overflow trap on
     // `+`/`-`/`*`. Same signature as the built-in op; emits the silent
     // arith.* directly (B-ex-01).
-    if (callee == "wrapping_add" || callee == "wrapping_sub" || callee == "wrapping_mul") {
+    // After monomorphization the callee may carry a `__g__<sig>` suffix.
+    // Match the bare name OR the monomorphized prefix.
+    auto is_wrapping_intr = [&](std::string_view name) {
+        return callee == name ||
+               (callee.size() > name.size() + 4 &&
+                callee.compare(0, name.size(), name) == 0 &&
+                callee.compare(name.size(), 4, "__g_") == 0);
+    };
+    if (is_wrapping_intr("wrapping_add") || is_wrapping_intr("wrapping_sub") || is_wrapping_intr("wrapping_mul")) {
+        std::string_view base_op =
+            is_wrapping_intr("wrapping_add") ? "wrapping_add" :
+            is_wrapping_intr("wrapping_sub") ? "wrapping_sub" : "wrapping_mul";
         if (arg_les.size() == 2) {
             auto a = gen_expr(*arg_les[0]); if (!a) return nullptr;
             auto b = gen_expr(*arg_les[1]); if (!b) return nullptr;
@@ -920,9 +931,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                         else if (bi.getWidth() < ai.getWidth())
                             b = builder_.create<mlir::arith::ExtUIOp>(loc_, a.getType(), b);
             }
-            if (callee == "wrapping_add")
+            if (base_op == "wrapping_add")
                 return builder_.create<mlir::arith::AddIOp>(loc_, a, b);
-            if (callee == "wrapping_sub")
+            if (base_op == "wrapping_sub")
                 return builder_.create<mlir::arith::SubIOp>(loc_, a, b);
             return builder_.create<mlir::arith::MulIOp>(loc_, a, b);
         }
