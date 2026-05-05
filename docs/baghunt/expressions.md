@@ -20,7 +20,7 @@
 1. If the fold itself overflows i64 (e.g. `9223372036854775807 + 1`), emit "literal arithmetic 'A op B' overflows i64".
 2. Otherwise replace the BinOp with a LitInt of the folded value, so the existing per-destination-type `intlit_fits` check at the let-coercion / fn-arg / return site catches per-type overflows like `let y: i32 = 2147483647 + 1` (folds to 2147483648, doesn't fit in i32).
 
-The non-literal case (`let x: i32 = INT_MAX; let y: i32 = x + 1`) still wraps silently — that needs runtime overflow checks (LLVM `*.with.overflow` intrinsics or trap-on-overflow codegen mode). Tracked separately. Lock-in: fail tests `lit_arith_i32_overflow` and `lit_arith_i64_overflow`.
+The non-literal case (`let x: i32 = INT_MAX; let y: i32 = x + 1`) still wraps silently. **Tested**: replacing `arith.{add,sub,mul}i` with `llvm.intr.{s,u}{add,sub,mul}.with.overflow` + cond_br + `llvm.intr.trap` works (verified — SIGILL on overflow), but breaks 65 stdlib tests that intentionally rely on silent wrap (FNV hash, modular parsers, hash-mixing). Closing this requires a design decision: opt-in `-Coverflow-checks=on` flag (Rust-debug-style), `#[wrapping]`/`#[checked]` annotations, or `checked_add`/`wrapping_add` stdlib API with default-wrap. Each is a multi-day language-feature change, not a one-shot bug fix. Lock-in for the literal case: fail tests `lit_arith_i32_overflow` and `lit_arith_i64_overflow`.
 **Repro**: `B01/` —
 ```logos
 fn main() -> i32 {
