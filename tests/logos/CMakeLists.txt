@@ -306,6 +306,7 @@ function(logos_add_grouped_test MODE BASE EXP_FILE LOGOS_FILE SUITE)
     set_tests_properties(${_test_name} PROPERTIES
         TIMEOUT ${_timeout}
         LABELS  "logos;${MODE};suite_${SUITE}"
+        ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
     )
 endfunction()
 
@@ -394,6 +395,7 @@ if (FILECHECK_BIN)
         set_tests_properties(${_test_name} PROPERTIES
             TIMEOUT 30
             LABELS  "logos;ir_snapshot;suite_ir"
+            ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
         )
     endforeach()
 else()

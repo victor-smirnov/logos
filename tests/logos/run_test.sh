@@ -76,19 +76,35 @@ while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
 done < "$EXPECTED"
 
 BIN="$TMPD/test"
-# Collect .a archives from -L flags in EXTRA so stdlib symbols resolve.
-# Handles both -L/path and -L /path (separate arg) forms.
+# Collect .a archives for static linking. Sources, in order:
+#   1. ${LOGOS_LIB_DIR}/*.a — system module library (set by test harness;
+#      mirrors the path baked into logosc, so the linker sees the same
+#      archives the compiler used for symbol discovery).
+#   2. -L flags in EXTRA — user-provided directories (globbed for *.a).
+#   3. -l flags in EXTRA — specific archive files (passed verbatim).
 LINK_ARCHIVES=()
-_take_next=0
+if [ -n "${LOGOS_LIB_DIR:-}" ]; then
+    for a in "$LOGOS_LIB_DIR"/*.a; do
+        [ -f "$a" ] && LINK_ARCHIVES+=("$a")
+    done
+fi
+_take_next_dir=0
+_take_next_file=0
 for arg in "${EXTRA[@]}"; do
-    if [ "$_take_next" = 1 ]; then
+    if [ "$_take_next_dir" = 1 ]; then
         for a in "$arg"/*.a; do [ -f "$a" ] && LINK_ARCHIVES+=("$a"); done
-        _take_next=0
-    elif [ "$arg" = "-L" ]; then
-        _take_next=1
+        _take_next_dir=0
+    elif [ "$_take_next_file" = 1 ]; then
+        [ -f "$arg" ] && LINK_ARCHIVES+=("$arg")
+        _take_next_file=0
+    elif [ "$arg" = "-L" ] || [ "$arg" = "--libs" ]; then
+        _take_next_dir=1
+    elif [ "$arg" = "-l" ] || [ "$arg" = "--lib" ]; then
+        _take_next_file=1
     else
         case "$arg" in
             -L?*) dir="${arg#-L}"; for a in "$dir"/*.a; do [ -f "$a" ] && LINK_ARCHIVES+=("$a"); done ;;
+            -l?*) f="${arg#-l}"; [ -f "$f" ] && LINK_ARCHIVES+=("$f") ;;
         esac
     fi
 done

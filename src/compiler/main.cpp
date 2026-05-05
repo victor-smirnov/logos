@@ -10,7 +10,10 @@
 #include "mlir_gen.hpp"
 #include "module_manifest.hpp"
 #include <chrono>
+#include <climits>
+#include <cstdlib>
 #include <cstring>
+#include <unistd.h>
 #include "module_loader.hpp"
 #include <logos/compiler/borrow_check.hpp>
 #include <logos/compiler/ast.hpp>
@@ -1793,7 +1796,45 @@ int main(int argc, char** argv) {
     bool jit_run   = false;                      // --jit: compile and run main() in-process
     const char* emit_module_manifest = nullptr;  // --emit-module <manifest>
     std::vector<std::string> search_paths;
+    // Subset of search_paths populated only from explicit -L / --libs
+    // (and -l targets). Used to scope `binary_symbols` collection: only
+    // user-explicit module-library paths feed the body-skip set, so
+    // bare-name fns in the system stdlib never shadow user-source
+    // definitions in projects that don't opt in to stdlib's pre-baked
+    // bodies. The system module path is still resolved into search_paths
+    // for module discovery — only the symbol-skip side is restricted.
+    std::vector<std::string> explicit_lib_paths;
     int opt_level = 0;
+    bool no_system = false;
+    bool print_system_libdir = false;
+
+    // System module library discovery — argv[0]-relative with env override.
+    //
+    //   priority (highest first):
+    //     1. CLI -L / -l       (user explicit; -L pushes here, -l later)
+    //     2. LOGOS_LIB_DIR env (override on system path)
+    //     3. argv[0]-relative LOGOS_LIB_RELDIR (default; baked at build)
+    //
+    // The result is appended to `search_paths` after CLI parsing so user
+    // -L flags still take precedence over the system path during module
+    // resolution.
+    auto resolve_system_lib_dir = []() -> std::string {
+        if (const char* env = std::getenv("LOGOS_LIB_DIR")) return env;
+#ifdef LOGOS_LIB_RELDIR
+        char exe[PATH_MAX];
+        ssize_t n = ::readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+        if (n > 0) {
+            exe[n] = '\0';
+            std::string p(exe);
+            if (auto slash = p.rfind('/'); slash != std::string::npos)
+                p.resize(slash);
+            p += "/" LOGOS_LIB_RELDIR;
+            char real[PATH_MAX];
+            if (::realpath(p.c_str(), real)) return real;
+        }
+#endif
+        return {};
+    };
 
     // Seed search paths from LOGOS_MODULE_PATH (colon-separated).
     if (const char* module_path_env = std::getenv("LOGOS_MODULE_PATH")) {
@@ -1811,6 +1852,13 @@ int main(int argc, char** argv) {
         std::string arg = argv[i];
         if (arg == "-o" && i + 1 < argc) { output_path = argv[++i]; }
         else if (arg == "-I" && i + 1 < argc) { search_paths.push_back(argv[++i]); }
+        else if ((arg == "-L" || arg == "--libs") && i + 1 < argc) {
+            search_paths.push_back(argv[i+1]);
+            explicit_lib_paths.push_back(argv[i+1]);
+            ++i;
+        }
+        else if (arg == "--no-system") { no_system = true; }
+        else if (arg == "--print-system-libdir") { print_system_libdir = true; }
         else if (arg == "--emit-mlir") { emit_mlir = true; }
         else if (arg == "--emit-llvm") { emit_llvm = true; }
         else if (arg == "--jit") { jit_run = true; }
@@ -1820,6 +1868,20 @@ int main(int argc, char** argv) {
         else if (arg == "-O2") { opt_level = 2; }
         else if (arg == "-O3") { opt_level = 3; }
         else if (arg[0] != '-' && !input_path) { input_path = argv[i]; }
+    }
+
+    if (print_system_libdir) {
+        auto sys = resolve_system_lib_dir();
+        std::printf("%s\n", sys.c_str());
+        return 0;
+    }
+
+    // Append system module library to search_paths after CLI flags so
+    // user-provided -L wins (search runs front-to-back). --no-system opts
+    // out for hermetic / cross-compiling builds.
+    if (!no_system) {
+        auto sys = resolve_system_lib_dir();
+        if (!sys.empty()) search_paths.push_back(sys);
     }
 
     // ── emit-module mode ────────────────────────────────────────────
@@ -1876,6 +1938,8 @@ int main(int argc, char** argv) {
     // M.1 Stage 2 (Mode B): also collect the archive paths themselves so the
     // metaprog JIT can register them via StaticLibraryDefinitionGenerator.
     std::vector<std::string> archive_paths;
+    // archive_paths spans every search dir (incl. system) so the metacall
+    // ORC JIT can resolve stdlib symbols at compile time.
     for (const auto& dir : search_paths) {
         std::string cmd = "ls " + dir + "/*.a 2>/dev/null";
         if (FILE* lp = ::popen(cmd.c_str(), "r")) {
@@ -1888,8 +1952,17 @@ int main(int argc, char** argv) {
             }
             ::pclose(lp);
         }
-        std::string cmd2 = "nm --defined-only -j " + dir + "/*.a 2>/dev/null";
-        FILE* pipe = ::popen(cmd2.c_str(), "r");
+    }
+    // binary_symbols is restricted to user-explicit -L paths. mlir_gen
+    // consults this set to skip body emission for fns whose pre-baked
+    // implementation is already in a user-pulled archive — the user's
+    // intent is to link against that archive, so emitting again would
+    // produce multi-def errors. The system stdlib is intentionally OUT:
+    // user-source bodies (e.g. a local `fn alloc`) win at link time via
+    // standard lazy-archive resolution.
+    for (const auto& dir : explicit_lib_paths) {
+        std::string cmd = "nm --defined-only -j " + dir + "/*.a 2>/dev/null";
+        FILE* pipe = ::popen(cmd.c_str(), "r");
         if (!pipe) continue;
         char line[512];
         while (std::fgets(line, sizeof(line), pipe)) {

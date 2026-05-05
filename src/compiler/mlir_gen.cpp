@@ -65,11 +65,23 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     ensure_malloc_free(mod);
 
     // Pass 1: forward-declare all functions (structs, free fns).
-    // Skip non-generic functions from binary modules — the linker finds them in the .a.
-    // Skip functions already compiled into a binary archive — the linker will
-    // find them there.  We check prog.binary_symbols (populated from nm output)
-    // rather than the from_binary_module flag, because generic instantiations
-    // from binary-module templates are NOT in the archive and must be compiled.
+    // Skip a fn's body emission iff the linker can find it in a binary
+    // archive (libstdlib.a et al.) — emitting again would cause multiple-
+    // definition link errors.
+    //
+    // Two distinct cases trigger a skip:
+    //   1. fn.from_binary_module — sema lowered this from a `.hermes0`
+    //      member; the matching `.o` member is right next to it.
+    //   2. fn.name is in binary_symbols AND the name carries mono mangling
+    //      markers (`$` for type-arg packs, `__` for type-method joins) —
+    //      this is a mono-instantiated entry whose template's pre-baked
+    //      instance is already in the archive (e.g. user's `Vec_u64__push`
+    //      colliding with stdlib's pre-baked one).
+    //
+    // We deliberately do NOT skip on bare-name match — a user-source fn
+    // sharing a bare name with a stdlib symbol (`fn alloc(...)`) must be
+    // emitted; the user's `.o` definition wins at link time and the
+    // archive's same-named member is left out (lazy archive linking).
     auto is_binary_skip = [&prog](const lir::LFunction& fn) -> bool {
         if (fn.is_extern || prog.binary_symbols.empty()) return false;
         return prog.binary_symbols.count(fn.name) > 0;
