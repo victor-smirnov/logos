@@ -66,6 +66,7 @@ add_executable(logosc
     sema_collect.cpp
     sema_auto_trait.cpp
     sema_expr.cpp
+    sema_render.cpp
     sema_stmt.cpp
     sema_decl.cpp
     ctfe.cpp

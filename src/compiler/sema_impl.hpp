@@ -1694,6 +1694,15 @@ private:
     // (sema.cpp item dispatch) supplies the AST offset of the METACALL_ITEM
     // node so the driver can mark it consumed (CODE → METACALL_ITEM_DONE).
     void          lower_metacall_item(hermes::TinyMapView node, lir::LProgram& prog);
+
+    // ── AST → Logos source pretty-printer (sema_render.cpp) ──────────
+    // Used by `metacall (<expr>)` and `metacall { ... }` to splice arbitrary
+    // expressions/blocks into the synthesised JIT thunk source. Pure walk
+    // over the AST; does not modify sema state.
+    std::string render_expr_src(hermes::TinyMapView node);
+    std::string render_stmt_src(hermes::TinyMapView node);
+    std::string render_block_src(hermes::TinyMapView node);
+    std::string render_type_src(hermes::TinyMapView node);
     lir::LExprPtr lower_if_expr(hermes::TinyMapView node);
     lir::LExprPtr lower_closure_expr(hermes::TinyMapView node);
 
