@@ -1,0 +1,8 @@
+// Walker must catch metacall hidden inside an if-expr arg.
+package nested_metacall_in_if;
+fn id(n: i32) -> i32 { return n; }
+fn ifx(c: bool, a: i32) -> i32 { return a; }
+fn main() -> i32 {
+    let v: i32 = metacall ifx(true, if true { metacall id(1) } else { 0 });
+    return v;
+}

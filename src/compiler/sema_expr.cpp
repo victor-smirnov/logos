@@ -8600,9 +8600,32 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
     // a compile-time constant for the outer's CTFE, but metacall returns
     // a runtime value.  Deep walk the arg AST detecting METACALL nodes.
     {
+        // Tag-aware walker. Every tagged arena object carries a TypeTag in
+        // the byte(s) immediately before its address; `descriptor()` derives
+        // Map / Array / Data from the type_code. We push only Map-tagged
+        // pointees into the AST traversal; Array-tagged pointees are
+        // iterated as arrays of AnyVal children. This keeps us from
+        // mis-treating an ObjectArray as a TinyMap (the segfault Mike I
+        // ran into during exploration).
+        using hermes::TagDescriptor;
+        using hermes::TypeTag;
         std::vector<TinyMapView> stack;
-        auto push_av = [&](AnyVal av) {
-            if (av.is_pointer()) stack.push_back(map_of(av));
+        const uint8_t* base_ = holder_->base();
+        std::function<void(AnyVal)> push_av = [&](AnyVal av) {
+            if (!av.is_pointer()) return;
+            const uint8_t* obj = base_ + av.to_offset().value();
+            auto desc = TypeTag::read_before(obj).descriptor();
+            if (desc == TagDescriptor::Map) {
+                stack.push_back(map_of(av));
+            } else if (desc == TagDescriptor::Array) {
+                auto arr = arr_of(av);
+                for (uint64_t i = 0; i < arr.size(); ++i) {
+                    auto e = arr.get(i);
+                    if (e.is_pointer()) push_av(e);
+                }
+            }
+            // Data-tagged pointees (strings, decimals, etc.) — never
+            // contain a metacall AST; ignore.
         };
         if (inner.has_key(la::ARGS)) {
             auto av = inner.get(la::ARGS.code);
@@ -8643,6 +8666,15 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
             try_push(la::RHS);
             try_push(la::VALUE);
             try_push(la::RECEIVER);
+            try_push(la::THEN);
+            try_push(la::ELSE);
+            try_push(la::COND);
+            try_push(la::BODY);
+            try_push(la::GUARD);
+            try_push(la::EXPR);
+            try_push(la::BASE);
+            try_push(la::ARGS);
+            try_push(la::ITEMS);
         }
         if (nested_found) return error_expr();
     }

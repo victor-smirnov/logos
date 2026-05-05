@@ -1,0 +1,8 @@
+// Walker must catch metacall hidden inside an array literal arg.
+package nested_metacall_in_arr;
+fn id(n: i32) -> i32 { return n; }
+fn arr_first(a: [i32; 1]) -> i32 { return a[0]; }
+fn main() -> i32 {
+    let v: i32 = metacall arr_first([metacall id(1)]);
+    return v;
+}
