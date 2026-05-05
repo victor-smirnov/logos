@@ -99,7 +99,7 @@ fn helper() -> i32 { 42 }
 ### B-fn-07: Nested function definitions rejected
 
 **Severity**: P2 design (Rust analog absent)
-**Status**: deferred — nested fns are feature work (use closures)
+**Status**: deferred — nested fns are feature work; closure is the available alternative
 **Repro**: `B14/` —
 ```logos
 fn outer() -> i32 {

@@ -115,7 +115,7 @@ fn main() -> i32 { let _e = Empty {}; return 0; }
 ### B-it-08: Forward `pub struct Foo<T>;` then `pub struct Foo<T> { ... }` confuses sema
 
 **Severity**: P2 design
-**Status**: deferred — forward struct decl is feature work
+**Status**: deferred — forward struct-decl semantics ambiguous (template-with-typevars vs instantiation hint); proper forward-decl is feature work
 **Repro**: `B14/` —
 ```logos
 pub struct Foo<T>;
@@ -130,7 +130,7 @@ fn main() -> i32 { let f: Foo<i32> = Foo::<i32> { x: 5 }; return f.x; }
 ### B-it-09: `impl Trait for i32` parses + sema-OKs but method dispatch fails
 
 **Severity**: P2 design
-**Status**: deferred — impl Trait for primitives needs method-dispatch overhaul
+**Status**: deferred — impl Trait for primitives needs method-dispatch overhaul on i32/etc.
 **Repro**: `B13/` —
 ```logos
 trait Doubled { fn doubled(self: *const Self) -> i32; }
