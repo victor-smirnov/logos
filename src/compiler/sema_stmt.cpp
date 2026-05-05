@@ -3894,7 +3894,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
                 break;
             }
         }
-        if (!has_wild && TypeRef(scrut_type).kind() == LogosType::Kind::Enum) {
+        if (TypeRef(scrut_type).kind() == LogosType::Kind::Enum) {
             auto [epkg_match, esi_match] = find_enum_by_name(TypeRef(scrut_type).enum_name());
             auto eit = esi_match ? enums_.find(sema_key(epkg_match, TypeRef(scrut_type).enum_name())) : enums_.end();
             if (eit == enums_.end()) eit = enums_.find(TypeRef(scrut_type).enum_name());
@@ -3919,16 +3919,39 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
                         add_pat_ref(apr);
                     }
                 }
-                std::string missing;
-                for (auto& v : eit->second.variants) {
-                    if (covered.find(v.value) == covered.end()) {
-                        if (!missing.empty()) missing += ", ";
-                        missing += std::string(v.name);
+                if (!has_wild) {
+                    std::string missing;
+                    for (auto& v : eit->second.variants) {
+                        if (covered.find(v.value) == covered.end()) {
+                            if (!missing.empty()) missing += ", ";
+                            missing += std::string(v.name);
+                        }
                     }
+                    if (!missing.empty())
+                        error(std::format("match is not exhaustive — missing variant(s): {}",
+                              missing));
+                } else {
+                    // B-st-07: wildcard arm is unreachable when every variant
+                    // is already covered AND the enum has only unit variants
+                    // (so PatVariant covers each fully). For payload variants,
+                    // "covered" is a disc-only approximation that can't
+                    // distinguish irrefutable from refutable inner patterns,
+                    // so we conservatively skip the warning there.
+                    bool all_unit = true;
+                    for (auto& v : eit->second.variants) {
+                        if (!v.payload_types.empty()) { all_unit = false; break; }
+                    }
+                    bool all_covered = true;
+                    for (auto& v : eit->second.variants) {
+                        if (covered.find(v.value) == covered.end()) {
+                            all_covered = false;
+                            break;
+                        }
+                    }
+                    if (all_unit && all_covered && !eit->second.variants.empty())
+                        warn("unreachable wildcard arm: every variant of the "
+                             "enum is already covered explicitly");
                 }
-                if (!missing.empty())
-                    error(std::format("match is not exhaustive — missing variant(s): {}",
-                          missing));
             }
         }
         if (!has_wild && TypeRef(scrut_type).kind() == LogosType::Kind::Bool) {

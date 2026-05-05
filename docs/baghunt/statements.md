@@ -117,7 +117,7 @@ fn main() -> i32 {
 ### B-st-07: Unreachable wildcard arm not detected
 
 **Severity**: P2 design (lint-quality)
-**Status**: deferred — exhaustivity-based unreachable-arm needs Phase 5 fact-base
+**Status**: fixed — extended the existing exhaustiveness check in `lower_match` so the case where a wildcard is present AND every variant is explicitly covered AND the enum has only unit variants emits a "unreachable wildcard arm" warning. Restricted to unit-only enums because the variant-coverage analysis is disc-only (an approximation that can't tell `Ok(_)` apart from `Ok(5)`); for payload variants we conservatively skip rather than risk false positives. Phase-5 fact-base would generalise this; for now the unit-enum case is the common one.
 **Repro**: `B20/` —
 ```logos
 enum E { A, B, C, }
