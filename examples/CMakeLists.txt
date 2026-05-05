@@ -8,7 +8,7 @@ if (NOT TARGET logosc)
 endif()
 
 set(STDLIB ${CMAKE_SOURCE_DIR}/stdlib)
-set(STDLIB_BIN_DIR ${CMAKE_BINARY_DIR}/stdlib_bin)
+set(STDLIB_BIN_DIR ${LOGOS_BUILD_LIB_DIR})
 
 # Rebuild when any Hermes stdlib file changes.
 file(GLOB HERMES_STDLIB CONFIGURE_DEPENDS ${STDLIB}/hermes/*.logos)
@@ -29,7 +29,7 @@ function(logos_add_example NAME)
     set(_compile_deps logosc ${SRC} ${HERMES_STDLIB})
     if (EX_METAPROG)
         set(_compile_extra -L ${STDLIB_BIN_DIR})
-        set(_link_extra ${STDLIB_BIN_DIR}/libstdlib_rt.a)
+        set(_link_extra ${STDLIB_BIN_DIR}/liblstdlib_rt.a)
         list(APPEND _compile_deps stdlib_binary)
     endif()
 

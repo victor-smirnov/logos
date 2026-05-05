@@ -11,12 +11,12 @@ set(TEST_RUNNER ${CMAKE_CURRENT_SOURCE_DIR}/run_test.sh)
 set(STDLIB      ${CMAKE_SOURCE_DIR}/stdlib)
 set(PUB_LIB     ${CMAKE_CURRENT_SOURCE_DIR}/pub_lib)
 
-# Build libstdlib.a from the stdlib module manifest.
+# Build liblstdlib.a from the stdlib module manifest into the system
+# library dir (mirrors the install-tree layout).
 set(STDLIB_MODULE_MANIFEST ${CMAKE_SOURCE_DIR}/stdlib/logos.module)
-set(STDLIB_BIN_DIR ${CMAKE_BINARY_DIR}/stdlib_bin)
-set(STDLIB_BIN ${STDLIB_BIN_DIR}/libstdlib.a)
+set(STDLIB_BIN_DIR ${LOGOS_BUILD_LIB_DIR})
+set(STDLIB_BIN ${STDLIB_BIN_DIR}/liblstdlib.a)
 file(GLOB_RECURSE STDLIB_SOURCES ${CMAKE_SOURCE_DIR}/stdlib/*.logos)
-file(MAKE_DIRECTORY ${STDLIB_BIN_DIR})
 add_custom_command(
     OUTPUT  ${STDLIB_BIN}
     COMMAND $<TARGET_FILE:logosc>
@@ -24,7 +24,7 @@ add_custom_command(
             -o ${STDLIB_BIN}
     DEPENDS logosc ${STDLIB_MODULE_MANIFEST} ${STDLIB_SOURCES}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    COMMENT "Building binary stdlib: libstdlib.a"
+    COMMENT "Building binary stdlib: liblstdlib.a"
 )
 add_custom_target(stdlib_binary ALL DEPENDS ${STDLIB_BIN})
 

@@ -142,3 +142,15 @@ target_link_libraries(logosc PRIVATE
 # to split into separate TUs.
 target_compile_options(logosc PRIVATE -fno-rtti)
 
+# Place logosc in build/bin so it can find the system module library at
+# build/lib/logos via argv[0]-relative resolution (../lib/logos), matching
+# the install-tree layout.
+set_target_properties(logosc PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
+# Bake the bin-relative system library path into the binary. Resolving
+# /proc/self/exe at runtime + appending this gives both the build-tree
+# and install-tree directories with the same compiled-in suffix.
+target_compile_definitions(logosc PRIVATE
+    LOGOS_LIB_RELDIR="../${LOGOS_LIB_RELDIR}")
+

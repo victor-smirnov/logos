@@ -14,26 +14,25 @@
 # runner picks it up automatically (run_test.sh collects every *.a from
 # every -L directory it receives).
 
-set(STDLIB_BIN_DIR ${CMAKE_BINARY_DIR}/stdlib_bin)
-file(MAKE_DIRECTORY ${STDLIB_BIN_DIR})
+set(STDLIB_BIN_DIR ${LOGOS_BUILD_LIB_DIR})
 
 add_library(logos_rt STATIC fiber_ctx.S atomic_ops.S thread_uring.c env.c metaprog_stubs.c)
 target_include_directories(logos_rt PRIVATE /usr/include)
 set_target_properties(logos_rt PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY ${STDLIB_BIN_DIR}
-    # Must sort AFTER libstdlib.a so static-link order is correct:
-    # libstdlib.a calls logos_fiber_switch etc.; libstdlib_rt.a provides them.
-    # Shell glob of *.a is alphabetical: 'libstdlib.' < 'libstdlib_' ✓
-    OUTPUT_NAME stdlib_rt)
+    # Must sort AFTER liblstdlib.a so static-link order is correct:
+    # liblstdlib.a calls logos_fiber_switch etc.; liblstdlib_rt.a provides them.
+    # Shell glob of *.a is alphabetical: 'liblstdlib.' < 'liblstdlib_' ✓
+    OUTPUT_NAME lstdlib_rt)
 
 # Copy liburing.a into STDLIB_BIN_DIR so run_test.sh's glob picks it up.
-# Named libstdlib_uring.a so it sorts after libstdlib_rt.a (provider order).
-set(STDLIB_URING_DST ${STDLIB_BIN_DIR}/libstdlib_uring.a)
+# Named liblstdlib_uring.a so it sorts after liblstdlib_rt.a (provider order).
+set(STDLIB_URING_DST ${STDLIB_BIN_DIR}/liblstdlib_uring.a)
 add_custom_command(
     OUTPUT  ${STDLIB_URING_DST}
     COMMAND ${CMAKE_COMMAND} -E copy
             /usr/lib/x86_64-linux-gnu/liburing.a
             ${STDLIB_URING_DST}
-    COMMENT "Copy liburing.a → libstdlib_uring.a"
+    COMMENT "Copy liburing.a → liblstdlib_uring.a"
 )
 add_custom_target(stdlib_uring ALL DEPENDS ${STDLIB_URING_DST})

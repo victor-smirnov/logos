@@ -24,6 +24,20 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Strict warnings
 add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)
 
+include(GNUInstallDirs)
+
+# ── System module path (bin-relative, baked into logosc) ─────────────────
+#
+# logosc resolves its system module library directory at runtime by
+# readlink'ing /proc/self/exe and appending LOGOS_LIB_RELDIR. Both the
+# build tree (build/bin/logosc → build/lib/logos/) and the install tree
+# (<prefix>/bin/logosc → <prefix>/lib/logos/) follow the same layout
+# so a single relative suffix works for both, no absolute paths baked in.
+set(LOGOS_LIB_RELDIR "lib/logos" CACHE STRING
+    "Path under install prefix (and mirrored in build tree) for the Logos system module library")
+set(LOGOS_BUILD_LIB_DIR ${CMAKE_BINARY_DIR}/${LOGOS_LIB_RELDIR})
+file(MAKE_DIRECTORY ${LOGOS_BUILD_LIB_DIR})
+
 # Find dependencies
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SQLite3 REQUIRED IMPORTED_TARGET sqlite3)
