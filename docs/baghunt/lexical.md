@@ -93,7 +93,7 @@ fn main() -> i32 { return 0; }
 ### B-lx-07: Character literal `'A'` doesn't parse (lifetime collision)
 
 **Severity**: P2 design (lexer ambiguity)
-**Status**: not-a-bug — Logos has no char-literal syntax by design (use `65 as u8` for `'A'`'s value, or string-byte indexing for sequences). The `'` token is reserved for lifetimes. The current "syntax error near '...'" diagnostic could be polished to suggest the byte-value form, but adding char literals proper is a feature, not a bug fix. Documented here; reference doc could carry the same note when it next gets a polish pass.
+**Status**: fixed — proper Rust-style `char` type (4-byte Unicode scalar) added together with peek-ahead char-literal lexing. peg_gen's codegen recognises a `'(...)'` regex pattern shape and emits a hand-coded matcher placed BEFORE the LIFETIME matcher; if the closing apostrophe is found it's a CHAR_LIT, otherwise we fall through to LIFETIME (so `'a` still parses as a lifetime). `Kind::Char` is distinct from u32 — `c as u32` / `c as u8` required. Supports `'\\n'`, `'\\t'`, `'\\r'`, `'\\0'`, `'\\\\'`, `'\\''`, `'\\"'`, plus any single ASCII byte. Lock-in: pass test `char_literal` (literals + escapes + casts + lifetime co-existence); fail test `char_implicit_to_u32`.
 **Repro**: `B10/` —
 ```logos
 fn main() -> i32 { let c: u8 = 'A'; return c as i32; }

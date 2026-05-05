@@ -107,6 +107,45 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
         bool v = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
         return builder().lit_bool(v, bool_t());
     }
+    case la::LIT_CHAR: {
+        // Decode `'X'` text. The lexer guarantees the form is either
+        // `'<single non-`'`/`\` char>'` or `'<\esc>'`; we need to map the
+        // contents to a Unicode scalar value.
+        auto sv = str_of(expr.get(la::VALUE.code));
+        // sv is e.g. `'A'` or `'\n'`; strip the outer apostrophes.
+        if (sv.size() < 3 || sv.front() != '\'' || sv.back() != '\'') {
+            error(std::format("malformed char literal '{}'", sv));
+            return error_expr();
+        }
+        std::string_view body = sv.substr(1, sv.size() - 2);
+        int64_t v = 0;
+        if (!body.empty() && body[0] == '\\') {
+            if (body.size() < 2) {
+                error(std::format("malformed char literal '{}'", sv));
+                return error_expr();
+            }
+            switch (body[1]) {
+                case 'n':  v = '\n'; break;
+                case 't':  v = '\t'; break;
+                case 'r':  v = '\r'; break;
+                case '0':  v = 0;    break;
+                case '\\': v = '\\'; break;
+                case '\'': v = '\''; break;
+                case '"':  v = '"';  break;
+                default:
+                    error(std::format("char literal '{}': unknown escape '\\{}'",
+                          sv, body[1]));
+                    return error_expr();
+            }
+        } else if (body.size() == 1) {
+            v = (uint8_t)body[0];
+        } else {
+            error(std::format("char literal '{}': multi-byte body not supported "
+                  "(only ASCII / simple escapes today)", sv));
+            return error_expr();
+        }
+        return builder().lit_int(v, prim(LogosType::Kind::Char));
+    }
     case la::LIT_STR: {
         auto sv = str_of(expr.get(la::VALUE.code));
         return builder().lit_str(std::string(sv), make_slice_type(u8_t()));
@@ -337,6 +376,9 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                               TypeRef(target).kind() == LogosType::Kind::U64  ||
                               TypeRef(target).kind() == LogosType::Kind::I128 ||
                               TypeRef(target).kind() == LogosType::Kind::U128 ||
+                              TypeRef(target).kind() == LogosType::Kind::Usize ||
+                              TypeRef(target).kind() == LogosType::Kind::Isize ||
+                              TypeRef(target).kind() == LogosType::Kind::Char ||
                               TypeRef(target).kind() == LogosType::Kind::F64  ||
                               TypeRef(target).kind() == LogosType::Kind::F32  ||
                               TypeRef(target).kind() == LogosType::Kind::Bool ||

@@ -1,0 +1,29 @@
+// `char` is a 4-byte Unicode scalar (Rust-style); `'X'` is a char literal.
+// Distinct from u32 — explicit cast required. Lifetimes (`'a`) still
+// parse correctly because the lexer peeks for the closing apostrophe.
+package char_literal;
+
+struct Borrowed<'a> { p: &'a i32 }
+
+fn upper(c: char) -> char { return c; }
+
+fn main() -> i32 {
+    let a: char = 'A';                      // 65
+    let nl: char = '\n';                    // 10
+    let bs: char = '\\';                    // 92
+    let q:  char = '\'';                    // 39
+    let z:  char = '\0';                    // 0
+    let _b: char = upper(a);
+
+    // Cast char→u32 (no-op) and char→u8 (truncating).
+    let n: u32 = a as u32;
+    let bv: u8 = a as u8;
+
+    // Lifetime tokens still work alongside char literals.
+    let x: i32 = 7;
+    let r: Borrowed<'static> = Borrowed { p: &x };
+
+    return (n as i32) + (bv as i32) + (nl as u32 as i32) +
+           (bs as u32 as i32) + (q as u32 as i32) + (z as u32 as i32) + *r.p;
+    // 65 + 65 + 10 + 92 + 39 + 0 + 7 = 278; 278 mod 256 = 22
+}

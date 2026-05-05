@@ -1,0 +1,7 @@
+// char must NOT implicitly convert to u32 — explicit `as` required.
+package char_implicit_to_u32;
+fn main() -> i32 {
+    let c: char = 'A';
+    let n: u32 = c;
+    return n as i32;
+}

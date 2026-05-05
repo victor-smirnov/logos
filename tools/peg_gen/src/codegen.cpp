@@ -1250,6 +1250,32 @@ private:
                 w.dedent();
                 w.line("}");
             }
+            // CHAR_LIT-like: starts with apostrophe, then `(...)` regex group
+            // (e.g. `/'(\\.|[^'\\])'/`). Matched BEFORE LIFETIME so `'A'` is
+            // a char-lit and `'a` is a lifetime. The matcher is non-consuming
+            // when no closing apostrophe is found — we leave pos_ untouched
+            // and fall through to LIFETIME.
+            else if (pat.size() >= 2 && pat.front() == '\'' && pat[1] == '(') {
+                w.fmt("// {} = /{}/", t.name, pat);
+                w.line("if (c == '\\'' && pos_ + 1 < source_.size()) {");
+                w.indent();
+                w.line("size_t save = pos_;");
+                w.line("size_t p = pos_ + 1;");
+                w.line("bool ok = false;");
+                // Escape: `\<any>` is one char.
+                w.line("if (p + 2 < source_.size() && source_[p] == '\\\\') {");
+                w.line("    p += 2;");
+                w.line("    if (source_[p] == '\\'') { pos_ = p + 1; ok = true; }");
+                // Plain char: any single char that isn't `'` or `\`.
+                w.line("} else if (p + 1 < source_.size() && source_[p] != '\\'' && source_[p] != '\\\\') {");
+                w.line("    if (source_[p + 1] == '\\'') { pos_ = p + 2; ok = true; }");
+                w.line("}");
+                w.fmt("if (ok) return {{TK::{}, source_.substr(start, pos_ - start), start_line_}};",
+                      safe_tok_name(t.name));
+                w.line("pos_ = save;");
+                w.dedent();
+                w.line("}");
+            }
             // LIFETIME-like: starts with apostrophe, then [a-z][a-z0-9_]*
             // Matches Rust-style lifetime annotations: 'a, 'static, 'lifetime_name
             // NOTE: c = source_[pos_] is read WITHOUT incrementing pos_, so pos_

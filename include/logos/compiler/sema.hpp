@@ -74,6 +74,7 @@ struct LogosType {
         CfgSlotType,              // <type:CFG.SLOT> — type at top-level slot of a HermesStatic-typed binding. Carries `type_var_name` = CFG ident, `assoc_type_name` = slot key (reused fields). Resolved by mono_subst when CFG is bound to a concrete HStaticLit.
         Usize,                    // pointer-sized unsigned int (u32 on 32-bit, u64 on 64-bit). Distinct from u32/u64 — explicit `as` to/from fixed-width.
         Isize,                    // pointer-sized signed int. Distinct from i32/i64.
+        Char,                     // 4-byte Unicode scalar (Rust-style). Distinct from u32; cast required.
         Error                     // sentinel for ill-typed expressions
     };
 
