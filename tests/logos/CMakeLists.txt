@@ -239,16 +239,18 @@ function(logos_pass_extra_args BASE OUT_VAR)
     generic_ref_registry_shape generic_ref_registry_dispatch path_expr_multi_step generic_const_hstatic
     hex_basic base64_basic url_basic url_parse_basic http_types_basic http_parse_basic http_parse_corpus http_golden_suite http_parse_stream http_serialize_stream http_service_basic http_serve_bounded http_keepalive http_workers_basic http_chunked_body_helper http_chunked http_chunked_reader http_framing_readers http_roundtrip json_basic log_basic args_basic crypto_basic testing_basic csv_basic datetime_basic regex_basic)
 
-    if (BASE IN_LIST LOCAL_STDLIB_USERS)
-        set(_extra -I ${STDLIB_BIN_DIR} -L ${STDLIB_BIN_DIR})
-    elseif (BASE IN_LIST LOCAL_METAPROG_USERS)
-        set(_extra -I ${STDLIB} -I ${STDLIB_BIN_DIR} -L ${STDLIB_BIN_DIR})
+    # Post-C2 / C3: logosc auto-discovers liblstdlib.a via its baked-in
+    # argv[0]-relative path; tests no longer need -I ${STDLIB_BIN_DIR}
+    # or -L ${STDLIB_BIN_DIR} for the system stdlib. Two carve-outs
+    # remain: METAPROG users need source access to std.compiler.metaprog
+    # (excluded from binary archive), and PUB_LIB users need source
+    # access to the pub_lib test fixture under tests/logos/pub_lib/.
+    if (BASE IN_LIST LOCAL_METAPROG_USERS)
+        set(_extra -I ${STDLIB})
     elseif (BASE IN_LIST LOCAL_METAPROG_PUBLIB_USERS)
-        set(_extra -I ${STDLIB} -I ${PUB_LIB} -I ${STDLIB_BIN_DIR} -L ${STDLIB_BIN_DIR})
+        set(_extra -I ${STDLIB} -I ${PUB_LIB})
     elseif (BASE IN_LIST LOCAL_PUBLIB_USERS)
-        set(_extra -I ${PUB_LIB} -I ${STDLIB_BIN_DIR} -L ${STDLIB_BIN_DIR})
-    elseif (BASE IN_LIST LOCAL_HERMES_USERS)
-        set(_extra -I ${STDLIB_BIN_DIR} -L ${STDLIB_BIN_DIR})
+        set(_extra -I ${PUB_LIB})
     else()
         set(_extra "")
     endif()
@@ -258,14 +260,11 @@ endfunction()
 
 function(logos_fail_extra_args BASE OUT_VAR)
     set(FAIL_PUBLIB_USERS pub_call_private pub_private_field_access)
-    set(FAIL_HERMES_USERS type_lit_unbound hermes_capture_bad_type hermes_capture_typed_array hermes_as_array_bad_type hermes_as_array_not_slice hermes_as_array_elem_mismatch hermes_as_map_wrong_src hermes_comp_coerce_bad hermes_map_comp_guard_bad auto_trait_send_raw_ptr auto_trait_negative_impl auto_trait_bound_check_target blanket_impl_overlap blanket_impl_assoc_eq_mismatch instantiate_decl_unknown)
     set(FAIL_METAPROG_USERS metacall_item_odr_conflict)
     if (BASE IN_LIST FAIL_PUBLIB_USERS)
-        set(_extra -I ${PUB_LIB} -I ${STDLIB_BIN_DIR} -L ${STDLIB_BIN_DIR})
-    elseif (BASE IN_LIST FAIL_HERMES_USERS)
-        set(_extra -I ${STDLIB_BIN_DIR} -L ${STDLIB_BIN_DIR})
+        set(_extra -I ${PUB_LIB})
     elseif (BASE IN_LIST FAIL_METAPROG_USERS)
-        set(_extra -I ${STDLIB} -I ${STDLIB_BIN_DIR} -L ${STDLIB_BIN_DIR})
+        set(_extra -I ${STDLIB})
     else()
         set(_extra "")
     endif()
@@ -390,7 +389,6 @@ if (FILECHECK_BIN)
                     ${LOGOS_FILE}
                     ${CHK_FILE}
                     -I ${STDLIB}
-                    -I ${STDLIB_BIN_DIR}
         )
         set_tests_properties(${_test_name} PROPERTIES
             TIMEOUT 30
