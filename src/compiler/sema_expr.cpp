@@ -8817,62 +8817,6 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
     // Stage 2: collect printable literal text for each arg so we can splice
     // into the synthesised thunk body. Empty string means CTFE failed.
     std::vector<std::string> arg_lits;
-    auto print_ctfe_lit = [](const ctfe::CtfeValue& v) -> std::string {
-        using K = LogosType::Kind;
-        if (v.kind == K::Bool) return v.b ? "true" : "false";
-        if (v.kind == K::Slice) {
-            std::string s = "\"";
-            for (char c : v.s) {
-                switch (c) {
-                case '\\': s += "\\\\"; break;
-                case '"':  s += "\\\""; break;
-                case '\n': s += "\\n"; break;
-                case '\r': s += "\\r"; break;
-                case '\t': s += "\\t"; break;
-                default:   s += c; break;
-                }
-            }
-            s += "\"";
-            return s;
-        }
-        // float kinds
-        if (v.kind == K::F32 || v.kind == K::F64 || v.kind == K::FloatLit) {
-            char buf[64];
-            std::snprintf(buf, sizeof(buf), "%.17g", v.f);
-            std::string s = buf;
-            // Need a decimal point so the parser sees LIT_FLOAT, not LIT_INT.
-            if (s.find('.') == std::string::npos && s.find('e') == std::string::npos
-                && s.find('n') == std::string::npos /* nan */ && s.find('i') == std::string::npos /* inf */) {
-                s += ".0";
-            }
-            if (v.kind == K::F32) s += "f32";
-            else if (v.kind == K::F64) s += "f64";
-            return s;
-        }
-        // integer kinds
-        std::string s;
-        bool sgn = (v.kind == K::I8 || v.kind == K::I16 || v.kind == K::I24 ||
-                    v.kind == K::I32 || v.kind == K::I56 || v.kind == K::I64 ||
-                    v.kind == K::I128 || v.kind == K::IntLit);
-        if (sgn) {
-            if (v.i < 0) { s = "(-"; s += std::to_string(-(v.i + 1)); s.back()++; s += ")"; }
-            else s = std::to_string(v.i);
-        } else {
-            s = std::to_string(v.u);
-        }
-        switch (v.kind) {
-        case K::I8:  s += "i8";  break;
-        case K::I16: s += "i16"; break;
-        case K::I32: s += "i32"; break;
-        case K::I64: s += "i64"; break;
-        case K::U8:  s += "u8";  break;
-        case K::U16: s += "u16"; break;
-        case K::U32: s += "u32"; break;
-        case K::U64: s += "u64"; break;
-        default: break;  // IntLit / I24 / U24 / I56 / U56 — leave unsuffixed
-        }
-        return s;
-    };
     auto eval_args_array = [&](hermes::ArrayView args) {
         for (uint64_t i = 0; i < args.size(); ++i) {
             auto a = map_of(args.get(i));
@@ -8882,7 +8826,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
                                   i + 1, r.error().msg));
                 arg_lits.emplace_back();  // marker: CTFE failed
             } else {
-                arg_lits.push_back(print_ctfe_lit(*r));
+                arg_lits.push_back(render_ctfe_lit(*r));
             }
         }
     };
@@ -9187,58 +9131,6 @@ void SemaChecker::lower_metacall_item(hermes::TinyMapView node,
 
     // CTFE each arg to a printable literal (mirrors lower_metacall).
     std::vector<std::string> arg_lits;
-    auto print_ctfe_lit = [](const ctfe::CtfeValue& v) -> std::string {
-        using K = LogosType::Kind;
-        if (v.kind == K::Bool) return v.b ? "true" : "false";
-        if (v.kind == K::Slice) {
-            std::string s = "\"";
-            for (char c : v.s) {
-                switch (c) {
-                case '\\': s += "\\\\"; break;
-                case '"':  s += "\\\""; break;
-                case '\n': s += "\\n"; break;
-                case '\r': s += "\\r"; break;
-                case '\t': s += "\\t"; break;
-                default:   s += c; break;
-                }
-            }
-            s += "\"";
-            return s;
-        }
-        if (v.kind == K::F32 || v.kind == K::F64 || v.kind == K::FloatLit) {
-            char buf[64];
-            std::snprintf(buf, sizeof(buf), "%.17g", v.f);
-            std::string s = buf;
-            if (s.find('.') == std::string::npos && s.find('e') == std::string::npos
-                && s.find('n') == std::string::npos && s.find('i') == std::string::npos)
-                s += ".0";
-            if (v.kind == K::F32) s += "f32";
-            else if (v.kind == K::F64) s += "f64";
-            return s;
-        }
-        std::string s;
-        bool sgn = (v.kind == K::I8 || v.kind == K::I16 || v.kind == K::I24 ||
-                    v.kind == K::I32 || v.kind == K::I56 || v.kind == K::I64 ||
-                    v.kind == K::I128 || v.kind == K::IntLit);
-        if (sgn) {
-            if (v.i < 0) { s = "(-"; s += std::to_string(-(v.i + 1)); s.back()++; s += ")"; }
-            else s = std::to_string(v.i);
-        } else {
-            s = std::to_string(v.u);
-        }
-        switch (v.kind) {
-        case K::I8:  s += "i8";  break;
-        case K::I16: s += "i16"; break;
-        case K::I32: s += "i32"; break;
-        case K::I64: s += "i64"; break;
-        case K::U8:  s += "u8";  break;
-        case K::U16: s += "u16"; break;
-        case K::U32: s += "u32"; break;
-        case K::U64: s += "u64"; break;
-        default: break;
-        }
-        return s;
-    };
     auto eval_args_array = [&](ArrayView args) {
         for (uint64_t i = 0; i < args.size(); ++i) {
             auto a = map_of(args.get(i));
@@ -9248,7 +9140,7 @@ void SemaChecker::lower_metacall_item(hermes::TinyMapView node,
                                   i + 1, r.error().msg));
                 arg_lits.emplace_back();
             } else {
-                arg_lits.push_back(print_ctfe_lit(*r));
+                arg_lits.push_back(render_ctfe_lit(*r));
             }
         }
     };

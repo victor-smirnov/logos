@@ -39,6 +39,8 @@
 #include <unordered_set>
 #include <vector>
 
+namespace logos::compiler::ctfe { struct CtfeValue; }
+
 namespace logos::compiler {
 
 // ── Forward declarations of free helpers used in inline class methods ─────
@@ -1704,6 +1706,11 @@ private:
     std::string render_block_src(hermes::TinyMapView node);
     std::string render_type_src(hermes::TinyMapView node);
     std::string render_pat_src(hermes::TinyMapView node);
+
+    // Render a CTFE-evaluated value as a Logos source literal. Used by both
+    // expression-position and item-position metacall arg-splicing to embed
+    // CTFE results into the synthesised JIT thunk source.
+    static std::string render_ctfe_lit(const logos::compiler::ctfe::CtfeValue& v);
     lir::LExprPtr lower_if_expr(hermes::TinyMapView node);
     lir::LExprPtr lower_closure_expr(hermes::TinyMapView node);
 

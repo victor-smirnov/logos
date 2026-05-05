@@ -19,11 +19,13 @@
 // excess parens fine, and the resulting source is human-readable.
 
 #include "sema_impl.hpp"
+#include "ctfe.hpp"
 
 #include <logos/hermes/tiny_object_map.hpp>
 #include <logos/hermes/object_array.hpp>
 #include <logos/hermes/access.hpp>
 
+#include <cstdio>
 #include <format>
 #include <string>
 
@@ -727,6 +729,65 @@ std::string SemaChecker::render_block_src(TinyMapView node) {
         }
     }
     s += " }";
+    return s;
+}
+
+std::string SemaChecker::render_ctfe_lit(const ctfe::CtfeValue& v) {
+    using K = LogosType::Kind;
+    if (v.kind == K::Bool) return v.b ? "true" : "false";
+    if (v.kind == K::Slice) {
+        std::string s = "\"";
+        for (char c : v.s) {
+            switch (c) {
+            case '\\': s += "\\\\"; break;
+            case '"':  s += "\\\""; break;
+            case '\n': s += "\\n";  break;
+            case '\r': s += "\\r";  break;
+            case '\t': s += "\\t";  break;
+            default:   s += c;      break;
+            }
+        }
+        s += "\"";
+        return s;
+    }
+    if (v.kind == K::F32 || v.kind == K::F64 || v.kind == K::FloatLit) {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%.17g", v.f);
+        std::string s = buf;
+        // Need a decimal point so the parser sees LIT_FLOAT, not LIT_INT.
+        if (s.find('.') == std::string::npos && s.find('e') == std::string::npos
+            && s.find('n') == std::string::npos /* nan */
+            && s.find('i') == std::string::npos /* inf */) {
+            s += ".0";
+        }
+        if (v.kind == K::F32)      s += "f32";
+        else if (v.kind == K::F64) s += "f64";
+        return s;
+    }
+    // Integer kinds.
+    std::string s;
+    bool sgn = (v.kind == K::I8  || v.kind == K::I16 || v.kind == K::I24 ||
+                v.kind == K::I32 || v.kind == K::I56 || v.kind == K::I64 ||
+                v.kind == K::I128 || v.kind == K::IntLit);
+    if (sgn) {
+        // INT64_MIN dance: -(-INT64_MIN) is UB; emit "(-N)" via two's-complement
+        // arithmetic on the magnitude string.
+        if (v.i < 0) { s = "(-"; s += std::to_string(-(v.i + 1)); s.back()++; s += ")"; }
+        else         s = std::to_string(v.i);
+    } else {
+        s = std::to_string(v.u);
+    }
+    switch (v.kind) {
+    case K::I8:  s += "i8";  break;
+    case K::I16: s += "i16"; break;
+    case K::I32: s += "i32"; break;
+    case K::I64: s += "i64"; break;
+    case K::U8:  s += "u8";  break;
+    case K::U16: s += "u16"; break;
+    case K::U32: s += "u32"; break;
+    case K::U64: s += "u64"; break;
+    default: break;  // IntLit / I24 / U24 / I56 / U56 — leave unsuffixed
+    }
     return s;
 }
 
