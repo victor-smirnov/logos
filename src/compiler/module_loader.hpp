@@ -26,8 +26,12 @@ struct ParsedModule {
 // Load a .logos file and all its transitive dependencies.
 // search_paths: directories to search for package files (e.g. {"stdlib"}).
 // Returns all modules in dependency order (dependencies first, root last).
+// If `out_had_error` is non-null, it is set to true when at least one
+// `use <pkg>;` could not be resolved (B-mv-03/04). The diagnostic is still
+// printed to stderr; the flag lets the caller treat it as fatal.
 std::vector<ParsedModule> load_modules(
     const std::string& root_path,
-    const std::vector<std::string>& search_paths) noexcept;
+    const std::vector<std::string>& search_paths,
+    bool* out_had_error = nullptr) noexcept;
 
 } // namespace logos::compiler

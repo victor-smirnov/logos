@@ -36,9 +36,9 @@
 ### B-mv-03: `use <missing-pkg>;` produces diagnostic but compilation continues
 
 **Severity**: P1 diagnostic
-**Status**: deferred (attempted fatal-on-error in main; broke tests that rely on the loader being lenient when binary stdlib provides the symbols. Needs binary-index-aware package resolution before the stderr message can promote to a hard error.)
+**Status**: fixed (load_modules now returns `out_had_error`; main treats missing pkg as fatal; lock-in tests `use_missing_pkg` + `pub_use_missing_pkg`. Two source-only tests `hermes_type_lit_parse`/`hermes_lit_parse` were silently relying on the lenient loader and got `-I ${STDLIB_BIN_DIR}` added to LOCAL_HERMES_USERS to keep them passing.)
 **Repro**: `B07/` — `package main; use does_not_exist; fn main() -> i32 { return 0; }`
-**Observed**: `module_loader: cannot find package 'does_not_exist'` printed to stderr, but `logosc: wrote /tmp/B07.o` follows. Exit code is **0** despite the error.
+**Observed (was)**: `module_loader: cannot find package 'does_not_exist'` printed to stderr, but `logosc: wrote /tmp/B07.o` follows. Exit code is **0** despite the error.
 **Expected**: Hard error, non-zero exit, no `.o` written.
 **Suspected root**: [src/compiler/module_loader.cpp](../../src/compiler/module_loader.cpp) emits the "cannot find package" message as a warning rather than promoting it to a sema error.
 **Tags**: `oversight:simple`, `tech-debt:diagnostic-not-fatal`
@@ -46,7 +46,7 @@
 ### B-mv-04: `pub use <missing-pkg>;` same as B-mv-03
 
 **Severity**: P1 diagnostic
-**Status**: deferred (same root as B-mv-03)
+**Status**: fixed (same patch as B-mv-03; same lock-in test set)
 **Repro**: `B17/` — `pub use does_not_exist;` at item position.
 **Observed**: Same as B-mv-03 — message + clean exit + `.o` written.
 **Expected**: Hard error.

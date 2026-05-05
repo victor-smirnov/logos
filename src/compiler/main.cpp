@@ -1847,17 +1847,18 @@ int main(int argc, char** argv) {
         t_start = now;
     };
     // ── Step 1-2: Load and parse all modules ────────────────────
-    auto modules = logos::compiler::load_modules(input_path, search_paths);
+    bool loader_had_error = false;
+    auto modules = logos::compiler::load_modules(input_path, search_paths, &loader_had_error);
     report("load+parse");
     if (modules.empty()) {
         std::fprintf(stderr, "logosc: no modules loaded\n");
         return 1;
     }
-    // B-mv-03: ideally we'd make missing-package fatal, but several
-    // tests rely on the loader being tolerant when the binary stdlib
-    // archive provides the symbols even if the source-side package
-    // index doesn't.  Deferred — needs binary-index-aware package
-    // resolution before the loader stderr can be promoted to error.
+    if (loader_had_error) {
+        // B-mv-03/04: `use <pkg>;` referencing a missing package is fatal.
+        // The loader already emitted "module_loader: cannot find package 'X'".
+        return 1;
+    }
 
     // Collect ASTs and source paths.
     std::vector<logos::hermes::Hermes> asts;

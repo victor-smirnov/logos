@@ -1,0 +1,6 @@
+// B-mv-03: `use <pkg>;` referencing a missing package must be fatal.
+package use_missing_pkg;
+
+use missing_pkg_no_such;
+
+pub unsafe fn main() -> i32 { return 0; }

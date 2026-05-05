@@ -389,9 +389,11 @@ static PackageIndex build_package_index(const std::vector<std::string>& search_p
 
 std::vector<ParsedModule> load_modules(
     const std::string& root_path,
-    const std::vector<std::string>& search_paths) noexcept
+    const std::vector<std::string>& search_paths,
+    bool* out_had_error) noexcept
 {
     const bool trace = std::getenv("LOGOS_TRACE_PHASES") != nullptr;
+    bool had_error = false;
 
     PackageIndex index = build_package_index(search_paths);
     auto binary_index  = build_binary_index(search_paths);
@@ -528,6 +530,7 @@ std::vector<ParsedModule> load_modules(
         }
 
         std::fprintf(stderr, "module_loader: cannot find package '%s'\n", pkg.c_str());
+        had_error = true;
     };
 
     // Visit a single file (used for the root entry point, which is addressed
@@ -560,6 +563,7 @@ std::vector<ParsedModule> load_modules(
     auto root_pkg = scan_package_decl(root_canonical);
     visit_file(root_canonical, root_pkg);
 
+    if (out_had_error) *out_had_error = had_error;
     return modules;
 }
 
