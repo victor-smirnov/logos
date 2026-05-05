@@ -267,6 +267,7 @@
     DOUBLE_REF_MUT_TYPE         = 219   // `&&mut T` (B-ty-07; resolved as REF_TYPE wrapping MUT_REF_TYPE).
     DEREF_COMPOUND              = 220   // `*p op= val;` — compound assign through bare deref (B-st-04). Sema lowers to deref_write of *p = *p OP val.
     CHAINED_CMP                 = 221   // `a < b < c` (2+ comparators in a row). Sema rejects with "chained comparisons not supported; use `a < b && b < c`" (B-ex-08).
+    PAREN_TYPE                  = 222   // `(T)` — paren-wrapped type expression (B-ty-09). Sema unwraps to inner; structurally same as T.
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -919,7 +920,12 @@
     // type_or_lt_arg's hermes_lit alt; at top-level naming, use
     // `pub const X: HermesStatic = @{...};` instead of legacy
     // `pub type X = @{...};` (the latter no longer parses).
-    type_ref <- antiquot_type / typeof_type / cfg_slot_assoc_ref / cfg_slot_type / hermes_arr_type / hermes_map_type / ptr_type / arr_type / slice_type / tagged_type / dyn_type / ref_type / impl_type / unit_type / closure_type / fn_ptr_type / tuple_type / assoc_type_ref / simple_type
+    type_ref <- antiquot_type / typeof_type / cfg_slot_assoc_ref / cfg_slot_type / hermes_arr_type / hermes_map_type / ptr_type / arr_type / slice_type / tagged_type / dyn_type / ref_type / impl_type / unit_type / closure_type / fn_ptr_type / tuple_type / paren_type / assoc_type_ref / simple_type
+
+    // (T) — paren-wrapped type. Distinct from `()` (unit), `(T,)` (1-tuple),
+    // and `(T1, T2)` (n-tuple). Sema unwraps PAREN_TYPE.TYPE to its inner.
+    paren_type <- LPAREN type_ref RPAREN
+               => { CODE: PAREN_TYPE, TYPE: $2 }
 
     // <type:CFG.path> — extract the type stored at the given path of a
     // HermesStatic-typed type-level binding. Mono-time projection; the

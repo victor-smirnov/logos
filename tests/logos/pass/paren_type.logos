@@ -1,0 +1,12 @@
+// B-ty-09: `(T)` is a synonym for `T` (paren-wrapped type expression).
+package paren_type;
+
+fn helper(x: (i32)) -> (i32) { return x + 1; }
+
+fn main() -> i32 {
+    let a: (i32) = 5;
+    let b: ((u32)) = 7u32;
+    let c = helper(a);
+    return c + (b as i32);
+    // 5 + 1 + 7 = 13
+}

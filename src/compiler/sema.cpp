@@ -2195,6 +2195,12 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         return make_slice_type(elem);
     }
 
+    if (tc == la::PAREN_TYPE) {
+        // B-ty-09: `(T)` — paren-wrapped type, structurally same as T.
+        if (!node.has_key(la::TYPE)) return error_t();
+        return resolve_type(map_of(node.get(la::TYPE.code)));
+    }
+
     if (tc == la::TUPLE_TYPE) {
         if (!node.has_key(la::ITEMS))
             return void_t();  // () = unit/void type

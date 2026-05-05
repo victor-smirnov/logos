@@ -129,7 +129,7 @@ fn helper(f: || -> i32) -> i32 { return 0; }
 ### B-ty-09: Paren'd type `(i32)` rejected at let-position
 
 **Severity**: P2 design (consistency)
-**Status**: deferred — `(T)` paren-type tried via grammar+sema unwrap with PARENS marker; TinyMap schema doesn't persist slot 52 marker for TUPLE_TYPE so the unwrap path didn't fire. Needs schema-aware approach.
+**Status**: fixed — added a new AST code PAREN_TYPE (222), grammar's `paren_type <- LPAREN type_ref RPAREN` produces it, sema's `resolve_type` recurses on its inner. Avoids the earlier flag-on-TUPLE_TYPE approach that hit the schema-persistence issue. Lock-in: pass test `paren_type` (covers nested, params, return).
 **Repro**: `B25/` —
 ```logos
 fn main() -> i32 { let t: (i32) = 5; return t; }
