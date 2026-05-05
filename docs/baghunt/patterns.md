@@ -148,7 +148,7 @@ fn main() -> i32 {
 ### B-pt-08: Empty match block on uninhabited type rejected
 
 **Severity**: P2 design
-**Status**: deferred — empty match on uninhabited type needs exhaustivity analysis
+**Status**: fixed — root cause was the struct-lit/block-head ambiguity (the catalog's `match_arm+` hypothesis was wrong; grammar already used `*`). For `match e { ... }`, `e {` greedy-parsed as a struct literal `e { }`, leaving the match's own `{ }` unmatched. Added a first match_stmt alt `KW_MATCH IDENT LBRACE match_arm* RBRACE` (with a `match_head_var` helper that wraps IDENT as VAR_REF), which sidesteps the struct-lit alt for the bare-identifier case. Complex heads (`match foo.bar() { ... }`) fall through to the existing expr-based alt. Lock-in: pass test `match_bare_ident_head` covers both empty match on uninhabited type and ordinary bare-ident-head match.
 **Repro**: `B20/` —
 ```logos
 enum Empty {}

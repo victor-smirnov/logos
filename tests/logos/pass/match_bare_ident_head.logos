@@ -1,0 +1,28 @@
+// B-pt-08: `match e { ... }` (bare-ident head) used to be ambiguous with
+// struct-lit `e {}`; the first match_stmt alt now consumes IDENT directly
+// as the scrutinee, sidestepping that. Empty match on a value of an
+// uninhabited enum is also accepted.
+package match_bare_ident_head;
+
+enum Empty {}
+fn loops_forever() -> Empty { return loops_forever(); }
+
+enum Tag { A, B }
+
+fn classify(t: Tag) -> i32 {
+    match t {
+        Tag::A => { return 10; }
+        Tag::B => { return 20; }
+    }
+}
+
+fn main() -> i32 {
+    // Empty match on uninhabited type — must parse and compile.
+    // (We never reach it; loops_forever diverges.)
+    if false {
+        let e: Empty = loops_forever();
+        match e { }
+    }
+    let t: Tag = Tag::B;
+    return classify(t);
+}

@@ -1181,7 +1181,15 @@
                   => { CODE: CONTINUE }
 
     // match expr { Pat => stmt_or_block, ... }
-    match_stmt <- KW_MATCH expr LBRACE match_arm* RBRACE
+    // The first alt with a bare IDENT head sidesteps the struct-lit
+    // ambiguity for `match e { ... }` (B-pt-08): without it, `e {`
+    // greedy-parses as a struct literal `e { }` and the match's own
+    // LBRACE never matches. Complex heads (`match foo.bar() { ... }`)
+    // fall through to the general expr-based alt.
+    match_head_var <- IDENT => { CODE: VAR_REF, NAME: $1 }
+    match_stmt <- KW_MATCH match_head_var LBRACE match_arm* RBRACE
+               => { CODE: MATCH, VALUE: $2, ITEMS: $... }
+                / KW_MATCH expr LBRACE match_arm* RBRACE
                => { CODE: MATCH, VALUE: $2, ITEMS: $... }
 
     match_arm <- pattern KW_IF expr FATARROW block COMMA?
