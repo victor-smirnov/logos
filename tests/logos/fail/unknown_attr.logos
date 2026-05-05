@@ -1,0 +1,8 @@
+// B-at-01: unknown `#[unknown_attr]` should at least produce a warning
+// (not a hard error today; fail tests grep stderr substring).
+package unknown_attr;
+
+#[some_typo_or_missing_import]
+struct Foo { x: i32 }
+
+fn main() -> i32 { return 0; }

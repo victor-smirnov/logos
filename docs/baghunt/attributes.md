@@ -17,7 +17,7 @@
 ### B-at-01: Unknown `#[unknown_attr]` silently accepted (known/documented)
 
 **Severity**: P1 design
-**Status**: deferred-to-Phase-5 (cross-module trigger registry not closed at collect-time; whole-program fact-base needed before warning is reliable)
+**Status**: fixed — added a post-collect cross-module pass that walks every top-level `#[name]` annotation in user (non-binary) ASTs and warns when `name` is neither (a) a builtin attribute (`attr_builtin_targets`), (b) a registered metaprog-handler trigger (`metaprog_handlers_`), nor (c) an `#[annotation]` datatype (`datatypes_[*].is_annotation_type`). Runs at the same point as the existing trigger-target scan so all three registries are fully populated. No false positives in stdlib (builtins / triggers / annotation datatypes all known by then). Phase-5 fact-base would extend this to nested annotations and cross-form usage; the simple top-level case is closed.
 **Repro**: `B01/` —
 ```logos
 #[unknown_attr]

@@ -316,6 +316,52 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         }
     }
 
+    // B-at-01: cross-module unknown-annotation warning. Now that the full
+    // trigger registry AND all annotation-type datatypes are known, walk
+    // every top-level user-AST `#[name]` and warn if `name` is neither a
+    // builtin attribute, a registered metaprog-handler trigger, nor an
+    // `#[annotation]` datatype.
+    {
+        using namespace sema_detail;
+        std::set<std::string> trigger_names;
+        for (const auto& mh : metaprog_handlers_)
+            if (mh.trigger != "<missing>") trigger_names.insert(mh.trigger);
+        std::set<std::string> annotation_type_names;
+        for (auto& [k, dt] : datatypes_)
+            if (dt.is_annotation_type) {
+                // Key is "<pkg>::<name>" or just "<name>"; strip pkg prefix.
+                auto colon = k.rfind("::");
+                annotation_type_names.insert(
+                    colon == std::string::npos ? k : k.substr(colon + 2));
+            }
+        for (size_t ai = 0; ai < asts.size(); ++ai) {
+            bool is_bin = (from_binary_ && ai < from_binary_->size())
+                          ? (*from_binary_)[ai] : false;
+            if (is_bin) continue;
+            holder_ = asts[ai].holder();
+            auto root = asts[ai].root_object().as_tiny_map();
+            if (!root.has_key(la::ITEMS)) continue;
+            auto items = arr_of(root.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                auto item = map_of(items.get(i));
+                if (code_of(item) != la::ANNOTATION) continue;
+                auto aname = std::string(str_of(item.get(la::NAME.code)));
+                if (aname.empty()) continue;
+                if (attr_builtin_targets(aname) != 0) continue;
+                if (trigger_names.count(aname))         continue;
+                if (annotation_type_names.count(aname)) continue;
+                node_line_ = get_line(item);
+                ctx_.clear();
+                warn(std::format(
+                    "unknown attribute '#[{}]' — not a builtin, not a "
+                    "registered metaprog-handler trigger, and not an "
+                    "`#[annotation]` datatype. Typo, missing import, or "
+                    "removed?",
+                    aname));
+            }
+        }
+    }
+
     // Final pass: simplify all collected types (resolve concrete associated types).
     simplify_all_types();
 
