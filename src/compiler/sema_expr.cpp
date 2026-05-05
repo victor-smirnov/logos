@@ -540,6 +540,10 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
         auto inner = map_of(expr.get(la::BODY.code));
         bool was = inside_unsafe_;
         inside_unsafe_ = true;
+        // B-fn-06: unsafe block at expression position; trailing TAIL_EXPR is
+        // the block's value, not a return.
+        bool saved_tail = tail_as_return_;
+        tail_as_return_ = false;
         lir::LExprPtr result = nullptr;
         auto block = lir::alloc_block(*cur_prog_);
         if (inner.has_key(la::ITEMS)) {
@@ -548,9 +552,9 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                 auto s = map_of(stmts.get(i));
                 if (i == stmts.size() - 1) {
                     int32_t lc = code_of(s);
-                    if (lc == la::EXPR_STMT && s.has_key(la::VALUE)) {
+                    if ((lc == la::EXPR_STMT || lc == la::TAIL_EXPR) && s.has_key(la::VALUE)) {
                         result = lower_expr(map_of(s.get(la::VALUE.code)));
-                    } else if (lc != la::EXPR_STMT && lc != la::LET && lc != la::LET_DESTRUCT && lc != la::RETURN) {
+                    } else if (lc != la::EXPR_STMT && lc != la::TAIL_EXPR && lc != la::LET && lc != la::LET_DESTRUCT && lc != la::RETURN) {
                         result = lower_expr(s);
                     } else {
                         block->stmts.push_back(lower_stmt(s));
@@ -561,6 +565,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
             }
         }
         inside_unsafe_ = was;
+        tail_as_return_ = saved_tail;
         if (!result) return builder().block_expr(std::move(block), nullptr, void_t());
         TypeRef rt = result->type;
         return builder().block_expr(std::move(block), std::move(result), rt);
@@ -6072,15 +6077,19 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
         if (blk.is_null() || !blk.has_key(la::ITEMS)) return error_expr();
         auto stmts = arr_of(blk.get(la::ITEMS.code));
         if (stmts.size() == 0) { error("block-as-expression: empty branch"); return error_expr(); }
+        // B-fn-06: this is a block in expression position (if-as-expr branch);
+        // a trailing TAIL_EXPR is the block's value, not an implicit return.
+        bool saved_tail = tail_as_return_;
+        tail_as_return_ = false;
         lir::LExprPtr result = nullptr;
         auto block = lir::alloc_block(*cur_prog_);
         for (uint64_t i = 0; i < stmts.size(); ++i) {
             auto s = map_of(stmts.get(i));
             if (i == stmts.size() - 1) {
                 int32_t lc = code_of(s);
-                if (lc == la::EXPR_STMT && s.has_key(la::VALUE)) {
+                if ((lc == la::EXPR_STMT || lc == la::TAIL_EXPR) && s.has_key(la::VALUE)) {
                     result = lower_expr(map_of(s.get(la::VALUE.code)));
-                } else if (lc != la::EXPR_STMT && lc != la::LET && lc != la::LET_DESTRUCT && lc != la::RETURN) {
+                } else if (lc != la::EXPR_STMT && lc != la::TAIL_EXPR && lc != la::LET && lc != la::LET_DESTRUCT && lc != la::RETURN) {
                     result = lower_expr(s);
                 } else {
                     block->stmts.push_back(lower_stmt(s));
@@ -6089,6 +6098,7 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
                 block->stmts.push_back(lower_stmt(s));
             }
         }
+        tail_as_return_ = saved_tail;
         if (!result) return builder().block_expr(std::move(block), nullptr, void_t());
         TypeRef rt = result->type;
         return builder().block_expr(std::move(block), std::move(result), rt);

@@ -2108,12 +2108,17 @@ lir::LFunction SemaChecker::lower_spec_fn(TinyMapView node) {
 
     if (!fn.is_extern && node.has_key(la::BODY)) {
         auto body_node = map_of(node.get(la::BODY.code));
+        // B-fn-06: TAIL_EXPR acts as implicit return inside fn-body lowering
+        // and the reachability check.
+        bool saved_tail = tail_as_return_;
+        tail_as_return_ = true;
         fn.body = lower_block(body_node);
         if (fn.ret_type && TypeRef(fn.ret_type).kind() != LogosType::Kind::Void &&
             TypeRef(fn.ret_type).kind() != LogosType::Kind::Error &&
             !block_always_returns(body_node)) {
             error("not all paths return a value");
         }
+        tail_as_return_ = saved_tail;
     }
 
     pop_scope();

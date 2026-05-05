@@ -1,0 +1,53 @@
+// B-fn-06: tail expression (no SEMI) at fn body acts as implicit return.
+package tail_expr_return;
+
+// Single-expression body.
+fn helper() -> i32 { 42 }
+
+// Body with prelude statements + trailing expression.
+fn double_plus_one(x: i32) -> i32 {
+    let y: i32 = x * 2;
+    y + 1
+}
+
+// `if` as fn-body tail — both branches end in tail-expressions.
+fn pick(c: bool) -> i32 { if c { 7 } else { 13 } }
+
+// `match` arm with block body still uses block-as-value semantics
+// (NOT implicit return) — tail-expression IS the arm's value.
+fn classify(n: i32) -> i32 {
+    let label: i32 = match n {
+        0 => 0,
+        1 => {
+            let m: i32 = n + 100;
+            m
+        }
+        _ => 99,
+    };
+    label
+}
+
+// Mixing explicit `return` with implicit tail in non-tail branches.
+fn early(n: i32) -> i32 {
+    if n < 0 { return 0 - 1; }
+    n * 3
+}
+
+// Void fn with trailing call expression — must NOT synthesize a return,
+// just evaluate (ignored).
+fn note(_x: i32) -> () { () }
+
+fn main() -> i32 {
+    let a = helper();                  // 42
+    let b = double_plus_one(5);        // 11
+    let c = pick(true);                // 7
+    let d = pick(false);               // 13
+    let e = classify(1);               // 101
+    let f = classify(0);               // 0
+    let g = classify(7);               // 99
+    let h = early(2);                  // 6
+    let i = early(0 - 5);              // -1
+    note(0);
+    return a + b + c + d + e + f + g + h + i;
+    // 42 + 11 + 7 + 13 + 101 + 0 + 99 + 6 + (-1) = 278; 278 mod 256 = 22
+}

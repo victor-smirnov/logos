@@ -491,7 +491,10 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                 }
             }
         }
+        bool saved_tail_as_return = tail_as_return_;
+        tail_as_return_ = true;
         fn.body = lower_block(body_node);
+        tail_as_return_ = saved_tail_as_return;
         match_in_tail_position_ = false;
         // Resolve impl Trait return type to the concrete type inferred from returns.
         if (fn.ret_type && TypeRef(fn.ret_type).kind() == LogosType::Kind::ImplTrait) {
@@ -503,12 +506,18 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                 error("impl Trait return: could not infer concrete return type");
             }
         }
-        // Return reachability check (on AST node — before scope is gone)
+        // Return reachability check (on AST node — before scope is gone).
+        // Re-set tail_as_return_ for the duration so block_always_returns
+        // (and recursive stmt_always_returns) treat trailing TAIL_EXPRs in
+        // fn-body's transitive control flow as implicit returns.
+        bool saved_check_flag = tail_as_return_;
+        tail_as_return_ = true;
         if (fn.ret_type && TypeRef(fn.ret_type).kind() != LogosType::Kind::Void &&
             TypeRef(fn.ret_type).kind() != LogosType::Kind::Error &&
             !block_always_returns(body_node)) {
             error("not all paths return a value");
         }
+        tail_as_return_ = saved_check_flag;
     }
 
     inside_unsafe_ = was_unsafe;

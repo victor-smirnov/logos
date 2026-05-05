@@ -1538,6 +1538,10 @@ private:
     bool break_without_value_ = false;
     std::string pending_loop_label_;  // set by LABELED_LOOP before lowering inner loop
     bool match_in_tail_position_ = false;
+    // B-fn-06: when true, TAIL_EXPR statements act as implicit returns.
+    // Set around fn-body lowering; cleared inside block-as-expression
+    // contexts (match-arm-body, unsafe-block-as-expr, if-as-expr).
+    bool tail_as_return_ = false;
     TypeRef impl_ret_type_inferred_ = nullptr;
     TypeRef hint_enum_type_ = nullptr;
     TypeRef hint_struct_type_ = nullptr;

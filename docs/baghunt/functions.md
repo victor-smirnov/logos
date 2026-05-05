@@ -86,7 +86,7 @@ fn helper(
 ### B-fn-06: Tail-expression as return rejected
 
 **Severity**: P2 design (Rust-style ergonomics)
-**Status**: not-a-bug — Logos requires explicit `return` by design. Block-as-value at function-body position is intentionally absent (no Rust-style implicit tail-return). The current `not all paths return a value` diagnostic is the correct behavior. If the design ever changes, that's a feature addition, not a bug fix.
+**Status**: fixed — implemented Rust-style tail-expression-as-implicit-return. Added `TAIL_EXPR` AST code (223); grammar's no-SEMI alt in `stmt` produces it. Sema gates with a `tail_as_return_` flag set around fn-body lowering and the reachability check, cleared in block-as-expression contexts (match-arm-body-block, unsafe-block-as-expr, if-as-expr branches) so those keep their existing block-value semantics. Lock-in: pass test `tail_expr_return` covers single-expr body, prelude+tail, if-as-tail, mixed return+tail, void fn with trailing call, and match-arm-block (block-value, NOT return).
 **Repro**: `B09/` —
 ```logos
 fn helper() -> i32 { 42 }

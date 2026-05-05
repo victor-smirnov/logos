@@ -268,6 +268,7 @@
     DEREF_COMPOUND              = 220   // `*p op= val;` — compound assign through bare deref (B-st-04). Sema lowers to deref_write of *p = *p OP val.
     CHAINED_CMP                 = 221   // `a < b < c` (2+ comparators in a row). Sema rejects with "chained comparisons not supported; use `a < b && b < c`" (B-ex-08).
     PAREN_TYPE                  = 222   // `(T)` — paren-wrapped type expression (B-ty-09). Sema unwraps to inner; structurally same as T.
+    TAIL_EXPR                   = 223   // `expr` (no SEMI) at stmt position; sema synthesizes implicit `return expr` for non-void fns (B-fn-06).
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -1136,7 +1137,7 @@
           / expr SEMI
             => { CODE: EXPR_STMT, VALUE: $1 }
           / expr
-            => { CODE: EXPR_STMT, VALUE: $1 }
+            => { CODE: TAIL_EXPR, VALUE: $1 }
 
     // for i in lo..hi { }  (exclusive) and  for i in lo..=hi { }  (inclusive)
     // for item in array { }  (for-each over fixed-size array)

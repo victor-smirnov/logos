@@ -288,6 +288,7 @@ inline constexpr Code DOUBLE_REF_MUT_TYPE  {"DOUBLE_REF_MUT_TYPE", 219}; // `&&m
 inline constexpr Code DEREF_COMPOUND       {"DEREF_COMPOUND",     220}; // `*p op= val;` — sema lowers to deref_write of *p = *p OP val.
 inline constexpr Code CHAINED_CMP          {"CHAINED_CMP",        221}; // `a < b < c` (2+ comparators); sema rejects with helpful diag (B-ex-08).
 inline constexpr Code PAREN_TYPE           {"PAREN_TYPE",         222}; // `(T)` — paren-wrapped type; sema unwraps to inner (B-ty-09).
+inline constexpr Code TAIL_EXPR            {"TAIL_EXPR",          223}; // `expr` (no SEMI) at stmt position; sema synthesizes implicit `return expr` for non-void fns (B-fn-06).
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  META            {"META",               16};   // meta @{...} block node on struct/trait/datatype declarations (reuses PATH_PARTS slot; these node types never co-exist)

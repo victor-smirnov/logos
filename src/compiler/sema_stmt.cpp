@@ -26,6 +26,11 @@ using hermes::MemHolder;
 bool SemaChecker::stmt_always_returns(TinyMapView stmt) {
     int32_t c = code_of(stmt);
     if (c == la::RETURN) return true;
+    // B-fn-06: TAIL_EXPR (no-SEMI trailing expression) is treated as an
+    // implicit return ONLY at fn-body context, signalled by tail_as_return_.
+    // In match-arm-body / unsafe-block-as-expr contexts the same node is the
+    // block-expression value, NOT a return, so the flag is cleared there.
+    if (c == la::TAIL_EXPR) return tail_as_return_;
     if (c == la::UNSAFE_BLOCK) {
         return stmt.has_key(la::BODY) &&
                block_always_returns(map_of(stmt.get(la::BODY.code)));
@@ -172,6 +177,20 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
     if (c == la::FIELD_INDEX_COMPOUND_ASSIGN) return lower_field_index_compound_assign(stmt);
     if (c == la::MATCH)        return lower_match(stmt);
     if (c == la::EXPR_STMT) {
+        lir::LExprPtr e = stmt.has_key(la::VALUE)
+            ? lower_expr(map_of(stmt.get(la::VALUE.code)))
+            : error_expr();
+        return builder().stmt_expr(std::move(e), node_line_);
+    }
+    if (c == la::TAIL_EXPR) {
+        // B-fn-06: trailing expression (no SEMI) at stmt position. Only
+        // synthesise an implicit `return expr` when we're at fn-body level
+        // (tail_as_return_) AND the ret type is non-void. In other contexts
+        // (block-as-expression, void fn) lower as an expression-stmt.
+        if (tail_as_return_ && ret_type_ &&
+            TypeRef(ret_type_).kind() != LogosType::Kind::Void) {
+            return lower_return(stmt);
+        }
         lir::LExprPtr e = stmt.has_key(la::VALUE)
             ? lower_expr(map_of(stmt.get(la::VALUE.code)))
             : error_expr();
@@ -4109,6 +4128,10 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 val = lower_expr(map_of(arm.get(la::EXPR.code)));
             } else if (arm.has_key(la::BODY)) {
                 auto body_node = map_of(arm.get(la::BODY.code));
+                // B-fn-06: this is a match expression's arm body block; a
+                // trailing TAIL_EXPR is the arm value, not an implicit return.
+                bool saved_tail = tail_as_return_;
+                tail_as_return_ = false;
                 bool diverges = (code_of(body_node) == la::BLOCK)
                                 ? block_always_diverts(body_node)
                                 : stmt_always_diverts(body_node);
@@ -4133,9 +4156,9 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                         auto s = map_of(stmts.get(si));
                         if (si == stmts.size() - 1) {
                             int32_t sc = code_of(s);
-                            if (sc == la::EXPR_STMT && s.has_key(la::VALUE))
+                            if ((sc == la::EXPR_STMT || sc == la::TAIL_EXPR) && s.has_key(la::VALUE))
                                 last_expr = lower_expr(map_of(s.get(la::VALUE.code)));
-                            else if (sc != la::EXPR_STMT && sc != la::LET &&
+                            else if (sc != la::EXPR_STMT && sc != la::TAIL_EXPR && sc != la::LET &&
                                      sc != la::LET_DESTRUCT && sc != la::RETURN)
                                 last_expr = lower_expr(s);
                             else
@@ -4154,6 +4177,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                     error("match expression: block arm must end with an expression or always return");
                     val = error_expr();
                 }
+                tail_as_return_ = saved_tail;
             } else {
                 error("match expression: arm has no body");
                 val = error_expr();
