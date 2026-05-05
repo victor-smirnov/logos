@@ -1711,6 +1711,24 @@ private:
     // expression-position and item-position metacall arg-splicing to embed
     // CTFE results into the synthesised JIT thunk source.
     static std::string render_ctfe_lit(const logos::compiler::ctfe::CtfeValue& v);
+
+    // Build a typed pass-through LExpr for a `metacall { … }` site.
+    //
+    // The block's tail-expr type drives sema, but its lowered LIR cannot be
+    // returned as the metacall's pass-through — that LIR references LET/FOR
+    // bindings introduced *inside* the block, which are out of scope in the
+    // surrounding fn. The metacall splice driver replaces the AST node with
+    // a real literal (post-JIT) before final mlir-gen, so this expression is
+    // throwaway. We still need it to be syntactically valid because the
+    // meta-JIT's own mlir-gen pass runs over the user fn (which is then
+    // internalised and DCE'd, but mlir-gen happens first) and would choke on
+    // dangling var refs.
+    //
+    // Concretely: a typed-zero literal of the block's type. If a future
+    // Phase-2 transform needs a more semantically precise marker, this is
+    // the call site to upgrade to a dedicated LIR opcode (one helper, one
+    // mlir-gen case).
+    lir::LExprPtr make_metacall_placeholder_expr(TypeRef ty);
     lir::LExprPtr lower_if_expr(hermes::TinyMapView node);
     lir::LExprPtr lower_closure_expr(hermes::TinyMapView node);
 

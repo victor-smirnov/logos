@@ -8872,25 +8872,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
                   "(no trailing semicolon) so the metacall has a value");
             return error_expr();
         }
-        // Pass-through cannot reference vars from inside the block (they're
-        // out of scope in the surrounding fn). Stand in with a typed-zero
-        // literal of the block's type — the AST gets replaced by a real
-        // literal at splice time, so this LIR is throwaway but must be
-        // syntactically valid for the meta-JIT's mlir-gen of the surrounding
-        // fn (the user fn is internalized + DCE'd, but mlir-gen runs first).
-        auto bk = block_ty.kind();
-        if (bk == LogosType::Kind::Bool) {
-            lowered = builder().lit_bool(false, block_ty);
-        } else if (bk == LogosType::Kind::F32 || bk == LogosType::Kind::F64
-                || bk == LogosType::Kind::FloatLit) {
-            lowered = builder().lit_float(0.0, block_ty);
-        } else if (bk == LogosType::Kind::Slice && block_ty.elem()
-                && block_ty.elem().kind() == LogosType::Kind::U8) {
-            lowered = builder().lit_str("", block_ty);
-        } else {
-            // All integer kinds (and IntLit) accept lit_int.
-            lowered = builder().lit_int(0, block_ty);
-        }
+        lowered = make_metacall_placeholder_expr(block_ty);
     } else {
         lowered = lower_expr(inner);
     }
