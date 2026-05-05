@@ -910,6 +910,19 @@ private:
         for (auto& ann : annots) {
             auto aname = std::string(str_of(ann.get(la::NAME.code)));
             if (aname.empty()) continue;
+            // B-at-06: Rust-style `#[derive(Trait, ...)]` is not Logos
+            // surface; Logos uses `#[derive_<trait>]` triggers registered by
+            // `#[metaprog_handler("derive_<trait>")]`. Detect the Rust shape
+            // and surface a specific diagnostic.
+            if (aname == "derive" && ann.has_key(la::ARGS)) {
+                error(std::format(
+                    "'#[derive(...)]' on {} '{}' is not Logos syntax. Logos "
+                    "uses one trigger annotation per derive: write "
+                    "`#[derive_<trait>]` for each trait you want, and ensure a "
+                    "`#[metaprog_handler(\"derive_<trait>\")]` fn is in scope",
+                    attr_target_name(target), target_name));
+                continue;
+            }
             unsigned tgts = attr_builtin_targets(aname);
             if (tgts == 0) {
                 // Not a builtin.  Could be:

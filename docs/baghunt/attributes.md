@@ -86,7 +86,7 @@ struct Foo { x: i32 }   // tag_dispatch is for traits only
 ### B-at-06: `#[derive(NonExistentTrait)]` silently accepted
 
 **Severity**: P1 (silent miscompile potential)
-**Status**: deferred — no general derive() registry yet
+**Status**: fixed — Rust-style `#[derive(Trait, ...)]` is not Logos syntax (Logos uses one `#[derive_<trait>]` trigger annotation per trait, registered via `#[metaprog_handler("derive_<trait>")]`). `check_annotations` now special-cases the `derive` annotation when it carries args and produces a specific diagnostic pointing at Logos's per-trigger form. Catches both Rust-style typo and "non-existent trait" cases without needing a general derive() registry. Lock-in: fail test `derive_rust_syntax`.
 **Repro**: `B10/` —
 ```logos
 #[derive(NonExistentTrait)]

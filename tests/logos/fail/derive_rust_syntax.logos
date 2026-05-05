@@ -1,0 +1,8 @@
+// B-at-06: Rust-style `#[derive(Trait)]` must produce a clear diagnostic
+// pointing at Logos's per-trigger `#[derive_<trait>]` form.
+package derive_rust_syntax;
+
+#[derive(NonExistentTrait)]
+struct Foo { x: i32 }
+
+fn main() -> i32 { return 0; }
