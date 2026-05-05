@@ -52,21 +52,39 @@ See [memory: feat_hstatic_const_generic](../../README.md), [memory: feat_paramet
 ## `metacall`
 
 ```logos
-metacall expand_filter::<T...>()         // expression position
+metacall expand_filter::<T...>()         // expression position — call form
+metacall (a + b * cube(3))               // expression position — paren-expr form
+metacall { let s = compute(); s + 1 }    // expression position — block form
 metacall emit_traits::<T...>();          // statement / item position
 ```
 
-`metacall <call>` runs the callee at compile time and splices its return into the surrounding program. The callee:
+`metacall <…>` runs the bracketed code at compile time and splices its return into the surrounding program. Three surface forms are accepted:
 
-- Is a regular Logos function compiled into the metaprog JIT module.
-- Receives compile-time arguments (`Type`, `Template`, scalars, `TypeList`s).
-- Returns either a normal value (spliced as a literal) or a typed AST fragment (`Item`, `Expr`, `Stmt`, `Pat`, `Ty`) that the compiler grafts into the AST.
+| Form | Shape | What runs at compile time |
+|---|---|---|
+| Call | `metacall foo(<args>)` | The callee `foo` with each `<arg>` CTFE-evaluated to a literal first. |
+| Paren-expr | `metacall (<expr>)` | An arbitrary expression — operators, calls, casts, etc. |
+| Block | `metacall { <stmts>; <tail_expr> }` | A full block: `let`, `while`, `for`, `match`, … with the trailing tail expression as the value. |
+
+For all three forms the compiler synthesises a no-arg thunk, JIT-compiles it, invokes it, and replaces the AST node with a literal carrying the result. The user is unaware of the thunk.
+
+The callee/expression/block:
+
+- Compiles to a regular Logos function in the metaprog JIT module.
+- For the call form: receives compile-time arguments (`Type`, `Template`, scalars, `TypeList`s).
+- Returns either a normal value (spliced as a literal) or a typed AST fragment (`Item`, `Expr`, `Stmt`, `Pat`, `Ty`) that the compiler grafts into the AST. Block form supports primitive scalar / `&str` / `HermesStatic` returns; `Hermes` (mutable) and `ExprBlob` returns stay call-only.
+
+Block / paren-expr **capture rules**:
+
+- The block/expr may freely use **module-level** `pub const`s, top-level fns, and bindings introduced **inside** the block (`let`, `for`, `for-each`, pattern bindings).
+- It **may not capture runtime locals** from the enclosing fn — those don't exist at compile time. Sema rejects with a hint to hoist into a `pub const` or pass via a metacall arg.
+- **Nested `metacall`** inside the block/expr is also rejected — `metacall` is a one-shot lift to compile time; the inner result would be a runtime value.
 
 Position rules:
 
 - **Expression position** — return must be `Expr`-shaped or a normal value.
 - **Statement position** — return is spliced as one or more statements.
-- **Item position (top-level / inside `impl`)** — return is item(s); the call sites of `metacall` at item position are written without `;`.
+- **Item position (top-level / inside `impl`)** — return is item(s); the call sites of `metacall` at item position are written without `;`. Block / paren-expr forms are expression-position only — at item position, only the call form lifts to a `QuoteItemBlob`.
 
 See [memory: feat_metacall_arch](../../README.md) for full position / return-type matrix and the HERMES_BLOB splice protocol.
 
@@ -296,7 +314,7 @@ unless explicitly marked roadmap).
 
 - **Phase 2 transformative passes** — design only.
 - **Hybrid hygiene** — `gensym` covers opaque-name ODR; full split of literal-internal vs antiquoted name scopes is still future work.
-- **`metacall` captures** — accessing local variables from the surrounding scope at expression position; not yet implemented.
+- **`metacall` captures** — surrounding-fn locals are explicitly out of scope (compile-time evaluation) and rejected. Marshalling values via implicit serialisation (e.g. `metacall(captures: x)`) is not on the roadmap; hoist to `pub const` or pass as a metacall arg.
 - **`std::meta` module** — formal API surface for typelevel handles. Currently scattered across `std.compiler.metaprog.*`.
 - **Constant-folding through `metacall`** — folder will treat `metacall` as a first-class producer; today only literal-args flows fold reliably.
 - **`quote_stmt!` / `quote_pat!` / `quote_ident!`** — typed quote forms beyond item / expr / ty.
