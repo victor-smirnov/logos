@@ -8441,6 +8441,58 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
         error("metacall: expected a free-function or static-method call");
         return error_expr();
     }
+    // Reject nested metacall: `metacall foo(metacall bar(...))`.  metacall
+    // is a one-shot lift to compile-time; nesting another metacall inside
+    // the arg list has no semantics — the inner one would need to produce
+    // a compile-time constant for the outer's CTFE, but metacall returns
+    // a runtime value.  Deep walk the arg AST detecting METACALL nodes.
+    {
+        std::vector<TinyMapView> stack;
+        auto push_av = [&](AnyVal av) {
+            if (av.is_pointer()) stack.push_back(map_of(av));
+        };
+        if (inner.has_key(la::ARGS)) {
+            auto av = inner.get(la::ARGS.code);
+            if (av.is_pointer()) {
+                if (ic == la::CALL) {
+                    auto arr = arr_of(av);
+                    for (uint64_t i = 0; i < arr.size(); ++i) push_av(arr.get(i));
+                } else {
+                    auto m = map_of(av);
+                    if (m.has_key(la::ITEMS)) {
+                        auto arr = arr_of(m.get(la::ITEMS.code));
+                        for (uint64_t i = 0; i < arr.size(); ++i) push_av(arr.get(i));
+                    }
+                }
+            }
+        }
+        bool nested_found = false;
+        // Bound walk depth to keep AST traversal cheap; metacall args are
+        // typically small expressions.
+        size_t budget = 1000;
+        while (!stack.empty() && budget--) {
+            auto n = stack.back();
+            stack.pop_back();
+            if (n.is_null()) continue;
+            int32_t nc = code_of(n);
+            if (nc <= 0) continue;  // not a recognisable AST node
+            if (nc == la::METACALL) {
+                error("metacall: nested 'metacall' inside argument is not "
+                      "allowed; metacall is a one-shot lift to compile-time, "
+                      "the inner result is a runtime value");
+                nested_found = true;
+                break;
+            }
+            auto try_push = [&](const auto& k) {
+                if (n.has_key(k)) push_av(n.get(k.code));
+            };
+            try_push(la::LHS);
+            try_push(la::RHS);
+            try_push(la::VALUE);
+            try_push(la::RECEIVER);
+        }
+        if (nested_found) return error_expr();
+    }
 
     // CTFE each arg of the inner call; missing => non-CT-constant diag.
     // Note: CALL stores ARGS as a flat array directly; GENERIC_CALL/STATIC_CALL

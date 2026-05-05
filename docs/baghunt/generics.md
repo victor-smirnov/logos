@@ -74,7 +74,7 @@ fn main() -> i32 { return 0; }
 ### B-gn-05: Type-param shadowing user struct produces misleading diagnostic
 
 **Severity**: P1 diagnostic
-**Status**: deferred — type-param shadowing diagnostic needs separate lookup path
+**Status**: partial — defensive shadow-warning in collect_fn (struct/enum/trait); the `<Bar>` parser-collapse case still slips through (parser issue, not diagnostic)
 **Repro**: `B13/` —
 ```logos
 struct Bar { x: i32 }
@@ -89,7 +89,7 @@ fn main() -> i32 { return helper::<i32>(5); }
 ### B-gn-06: Const-generic arity-mismatch reported as type-mismatch
 
 **Severity**: P1 diagnostic
-**Status**: deferred — const-generic arity diagnostic needs special-case in type-arg arity
+**Status**: fixed — primary diagnostic now says "expected 2 type arg(s), got 3"; cascading "type mismatch" follow-up is benign
 **Repro**: `B17/` —
 ```logos
 struct Foo<T, const N: usize> { arr: [T; N] }
@@ -106,7 +106,7 @@ fn main() -> i32 {
 ### B-gn-07: Unused type parameter — diagnostic at use-site only
 
 **Severity**: P1 diagnostic
-**Status**: deferred — needs unused-typeparam lint pass
+**Status**: fixed (post-collect check_unused_generics_in_funcs lint; bound-type-args also count as use)
 **Repro**: `B19/` —
 ```logos
 fn helper<T>(x: i32) -> i32 { return x; }

@@ -693,6 +693,72 @@ private:
     // Phase 5 successor: Datalog
     //   cycle(t) :- by_value_field(t, t).
     //   cycle(t) :- by_value_field(t, u), cycle(u, t).
+    // Walks a TypeRef collecting all TypeVar names and lifetime args.
+    // Used by unused-type-param / unused-lifetime lints (B-gn-07/09).
+    void collect_type_var_uses(TypeRef t,
+                                logos::compiler::StrSet& tv_names,
+                                logos::compiler::StrSet& lt_names) {
+        if (!t) return;
+        TypeRef tr = t;
+        auto k = tr.kind();
+        if (k == LogosType::Kind::TypeVar) {
+            tv_names.insert(std::string(tr.type_var_name()));
+        }
+        if (k == LogosType::Kind::ConstVar) {
+            tv_names.insert(std::string(tr.type_var_name()));
+        }
+        if ((k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef) &&
+            !tr.lifetime().empty()) {
+            lt_names.insert(std::string(tr.lifetime()));
+        }
+        for (auto& lt : tr.lifetime_args()) {
+            if (!lt.empty()) lt_names.insert(lt);
+        }
+        for (auto a : tr.type_args())   collect_type_var_uses(a, tv_names, lt_names);
+        for (auto e : tr.tuple_elems()) collect_type_var_uses(e, tv_names, lt_names);
+        if (tr.elem())     collect_type_var_uses(tr.elem(), tv_names, lt_names);
+        if (tr.pointee())  collect_type_var_uses(tr.pointee(), tv_names, lt_names);
+        for (auto p : tr.closure_params()) collect_type_var_uses(p, tv_names, lt_names);
+        if (tr.closure_ret()) collect_type_var_uses(tr.closure_ret(), tv_names, lt_names);
+    }
+
+    // Post-collect: warn about declared type-params / lifetimes that don't
+    // appear in the fn signature (closes B-gn-07 / B-gn-09).  Conservative:
+    // only fires for fns currently; struct/enum unused-param checks need
+    // more thought (phantom-data convention may legitimately exist).
+    void check_unused_generics_in_funcs() {
+        for (auto& [_k, fi] : generic_funcs_) {
+            // Skip synthetic blanket-impl methods — the typeparam is
+            // implicit from the impl bound and intentionally absent from
+            // the signature when the method only forwards to a trait fn.
+            if (fi.base_name.rfind("$blanket$", 0) == 0) continue;
+            logos::compiler::StrSet tv_uses;
+            logos::compiler::StrSet lt_uses;
+            for (auto pt : fi.param_types) collect_type_var_uses(pt, tv_uses, lt_uses);
+            collect_type_var_uses(fi.ret_type, tv_uses, lt_uses);
+            // Trait bounds count as a use — `fn f<T: Foo>(x: i32)` may
+            // legitimately have T not in signature when f only calls
+            // T-static methods.  Also walk bound type-args: in
+            // `<I: Iterator<T>, T>`, T appears inside I's bound only.
+            for (auto& tp : fi.type_params) {
+                if (!tp.bounds.empty()) tv_uses.insert(tp.name);
+                for (auto& b : tp.bounds)
+                    for (auto ba : b.type_args)
+                        collect_type_var_uses(ba, tv_uses, lt_uses);
+            }
+            ctx_ = std::format("fn {}", fi.base_name);
+            for (auto& tp : fi.type_params) {
+                if (tp.is_variadic) continue;
+                if (tv_uses.count(tp.name) == 0) {
+                    warn(std::format(
+                        "type parameter '{}' is unused in fn '{}'; "
+                        "consider removing or replacing with `_`",
+                        tp.name, fi.base_name));
+                }
+            }
+        }
+    }
+
     // Post-collect validation of trait bounds (Sprint catalog-sweep).
     // Closes B-gn-03 (unknown trait in bound) and B-gn-04 (bound arity).
     // Walks every recorded TypeParam.bounds across funcs/structs/enums/
@@ -858,10 +924,20 @@ private:
                                       "generic {} '{}' (apply on each instantiation)",
                                       attr_target_name(target), target_name));
                 }
-                // B-at-07 (reserved-range warning) is deferred: stdlib
-                // primitives legitimately use codes 1..128, so a static range
-                // check here would be noisy.  Phase 5 fact-base can attribute
-                // each #[type_code] to its package and warn only on user code.
+                // B-at-07: codes 1..128 are reserved for the stdlib's
+                // runtime tag system (TypeTagSystem).  User code (i.e. not
+                // in `std.*` package) should not use them.
+                if (ann.has_key(la::VALUE)) {
+                    uint64_t tc = read_annotation_u64(ann);
+                    bool is_stdlib = cur_package_.starts_with("std.") ||
+                                     cur_package_ == "std";
+                    if (!is_stdlib && tc >= 1 && tc <= 128) {
+                        warn(std::format(
+                            "'#[type_code={}]' on '{}' is in the reserved "
+                            "range [1..128] used by stdlib primitives; "
+                            "user types should use codes ≥129", tc, target_name));
+                    }
+                }
             }
         }
     }

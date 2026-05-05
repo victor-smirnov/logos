@@ -276,6 +276,10 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
     // B-gn-03 unknown trait, B-gn-04 bound arity).
     check_trait_bounds_well_formed();
 
+    // Catalog-sweep: warn on unused type-params in fn signatures
+    // (closes B-gn-07).
+    check_unused_generics_in_funcs();
+
     // Phase 7 slice 12: scan top-level items in user (non-binary) asts
     // for annotations whose name matches a registered metaprog handler
     // trigger; record (ast_idx, offset, trigger) targets for the driver.
@@ -2123,6 +2127,22 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
     info.base_name = base_name;
     info.source_file = file_;
     info.package = cur_package_;
+    // B-gn-05: warn when a type-param shadows a known type/trait — this
+    // currently breaks fn-name resolution at the call site, surfacing as
+    // a misleading "undefined function" error.  Use the qualified
+    // find_*_by_name lookups so cur_package_-qualified entries are seen.
+    for (auto& tp : info.type_params) {
+        bool shadows = find_struct_by_name(tp.name).second   != nullptr ||
+                       find_datatype_by_name(tp.name).second != nullptr ||
+                       find_enum_by_name(tp.name).second     != nullptr ||
+                       find_trait_by_name(tp.name).second    != nullptr;
+        if (shadows) {
+            warn(std::format(
+                "type parameter '{}' shadows an existing type / trait — "
+                "this currently breaks fn-name resolution at use sites; "
+                "rename the type parameter", tp.name));
+        }
+    }
 
     auto read_param_types = [&]() {
         if (!node.has_key(la::PARAMS)) return;

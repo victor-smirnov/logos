@@ -100,7 +100,7 @@ struct Foo { x: i32 }
 ### B-at-07: `#[type_code]` in reserved range (1-127) silently accepted
 
 **Severity**: P2 (spec violation)
-**Status**: deferred — reserved-range (1..128) used by stdlib primitives; needs user-package predicate
+**Status**: fixed (warn when type_code in 1..128 outside std.* package)
 **Repro**: `B13/` —
 ```logos
 #[type_code = 100]   // per docs: 1-127 reserved for system
