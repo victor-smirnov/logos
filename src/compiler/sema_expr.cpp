@@ -6436,6 +6436,14 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
             // If the name was a type-param in scope, substitute it.
             if (current_type_params_.count(name))
                 name = type_str(t);
+        } else if (current_type_params_.count(name) == 0) {
+            // B-ca-06: silent acceptance of unbound `<type:Q>` in a HermesStatic
+            // literal. The enclosing const must declare it as a type-param.
+            error(std::format(
+                "<type:{}>: '{}' is not a known type and is not a type-param "
+                "in scope; the enclosing const must declare it as a type-param "
+                "(`pub const X<{}>: HermesStatic = ...`) or use a concrete type",
+                name, name, name));
         }
         return alloc_hv_emit(lir::HVType{kind, uid64, std::move(name)});
     }

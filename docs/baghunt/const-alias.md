@@ -88,7 +88,7 @@ fn main() -> i32 { return ARR[0]; }
 ### B-ca-06: Misleading diagnostic for `<type:T>` in non-parametric const
 
 **Severity**: P1 diagnostic
-**Status**: deferred — cascading error needs richer error tracking
+**Status**: fixed — root cause was distinct from the catalog's hypothesis. `lower_const_def` lowered the value AST via `lower_expr` for *every* const, not pushing the const's own type-params first. For a generic const containing `<type:K>`, K was unbound at this lowering and silently emitted as a placeholder string. Fix: push the const's `type_params` (as TypeVars) into `current_type_params_` before `lower_expr` and pop after; sema_expr's HERMES_TYPE_LIT handler now also rejects truly-unbound names (lock-in test `type_lit_unbound`).
 **Repro**: `B14/` —
 ```logos
 pub const X: HermesStatic = @{ "key": <type:T> };

@@ -608,6 +608,20 @@ lir::LConst SemaChecker::lower_const_def(TinyMapView node) {
     lc.name = name;
     auto cit = module_consts_.find(name);
     lc.type = (cit != module_consts_.end()) ? cit->second : error_t();
+    // For generic consts, push the const's type-params so any `<type:T>`
+    // inside the value AST resolves to the param TypeVar (not an unbound
+    // name).  The actual concrete instantiations happen per use-site via
+    // resolve_hstatic_value; this lowering only needs the names in scope so
+    // diagnostics see them as type-params instead of bogus unknowns.
+    auto git = generic_consts_.find(name);
+    std::vector<std::string> pushed_params;
+    if (git != generic_consts_.end()) {
+        for (auto& tp : git->second.type_params) {
+            if (current_type_params_.count(tp.name)) continue;
+            current_type_params_[tp.name] = make_typevar(tp.name);
+            pushed_params.push_back(tp.name);
+        }
+    }
     if (node.has_key(la::VALUE)) {
         lc.value = lower_expr(map_of(node.get(la::VALUE.code)));
         // B-ca-02: typecheck initializer against declared const type at sema
@@ -631,6 +645,7 @@ lir::LConst SemaChecker::lower_const_def(TinyMapView node) {
     } else {
         lc.value = error_expr();
     }
+    for (auto& n : pushed_params) current_type_params_.erase(n);
     return lc;
 }
 
