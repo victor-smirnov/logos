@@ -1,0 +1,14 @@
+// User-requested: sema must reject nested `metacall` in argument
+// position. `metacall` is a one-shot lift to compile-time; the inner
+// `metacall`'s result is a runtime value, so wrapping it in an outer
+// metacall has no semantics. Use a single metacall with the composed
+// call as its argument, or split into separate `pub const`s.
+package nested_metacall;
+
+fn baz(n: i32) -> i32 { return n + 1; }
+fn bar(n: i32) -> i32 { return n + 10; }
+fn foo(n: i32) -> i32 { return n + 100; }
+
+pub const X: i32 = metacall foo(metacall bar(metacall baz(5)));
+
+fn main() -> i32 { return X; }
