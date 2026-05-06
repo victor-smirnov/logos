@@ -483,12 +483,21 @@ std::vector<ParsedModule> load_modules(
     std::function<void(const std::string&)> visit_package;
     std::function<void(const std::string&, const std::string&)> visit_file;
 
-    // Load all packages provided by a binary archive,
-    // emitting them into `modules` and marking them visited.
-    // cache_key is the archive path (stable across different packages in the same archive).
+    // Load and emit files belonging to `requested_pkg` plus the implicit
+    // prelude. The prelude covers stdlib packages that define cross-cutting
+    // traits and genos types (Send, Default, Ord, Map<K,V>, AnyVal, ...)
+    // referenced by other stdlib modules without explicit `use` statements.
+    // Other packages in the same archive load only when visited.
+    auto pkg_in_prelude = [](std::string_view pkg) {
+        auto starts = [&](std::string_view p) {
+            return pkg.size() >= p.size() &&
+                   pkg.compare(0, p.size(), p) == 0;
+        };
+        return starts("std.lang") || starts("std.hermes") || starts("std.mem");
+    };
     auto visit_binary_module = [&](const std::string& cache_key,
-                                   const std::string& archive_path) {
-        // Load and cache the archive's decoded modules if not yet done.
+                                   const std::string& archive_path,
+                                   const std::string& requested_pkg) {
         auto cit = binary_cache.find(cache_key);
         if (cit == binary_cache.end()) {
             if (trace)
@@ -507,16 +516,22 @@ std::vector<ParsedModule> load_modules(
             cit = binary_cache.emplace(cache_key, std::move(decoded)).first;
         }
 
-        // Emit all files from this binary module that haven't been seen yet.
+        auto wanted = [&](const std::string& pkg) {
+            return pkg == requested_pkg || pkg_in_prelude(pkg);
+        };
+
+        std::vector<std::string> pkg_uses;
         for (auto& pm : cit->second) {
-            if (!visited_files.insert(pm.path).second) continue;
-            // Mark the package as visited so text loader doesn't try to re-load it.
+            if (!wanted(pm.package)) continue;
             auto uses = extract_uses(pm.ast);
-            // Determine the package name from the AST path (it was stored by emit_module).
-            auto pkg = scan_package_decl(pm.path);
-            if (!pkg.empty()) visited_packages.insert(pkg);
-            // Recurse into uses (these may be in other binary or text modules).
-            for (const auto& u : uses) visit_package(u);
+            for (auto& u : uses) pkg_uses.push_back(std::move(u));
+        }
+        for (const auto& u : pkg_uses) visit_package(u);
+
+        for (auto& pm : cit->second) {
+            if (!wanted(pm.package)) continue;
+            if (!visited_files.insert(pm.path).second) continue;
+            if (!pm.package.empty()) visited_packages.insert(pm.package);
             modules.push_back({pm.path, pm.package, pm.ast, /*from_binary_module=*/true});
         }
     };
@@ -547,7 +562,7 @@ std::vector<ParsedModule> load_modules(
         auto bit = binary_index.find(pkg);
         if (bit != binary_index.end()) {
             // Use the archive path as a stable key for the binary cache.
-            visit_binary_module(bit->second, bit->second);
+            visit_binary_module(bit->second, bit->second, pkg);
             return;
         }
 
