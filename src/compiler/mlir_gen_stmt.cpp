@@ -129,7 +129,10 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
 
     // 2. Auto-drop droppable fields (reverse field order)
     if (TypeRef st = v.type(pool_impl()); v.drop_fields() && st && st.kind() == LogosType::Kind::Struct) {
-        auto sit = struct_types_.find(std::string(st.struct_name()));
+        // Try pkg-qualified key first; fall back to bare for back-compat.
+        auto sit = struct_types_.find(mlir_struct_key(st));
+        if (sit == struct_types_.end())
+            sit = struct_types_.find(std::string(st.struct_name()));
         if (sit != struct_types_.end()) {
             auto& info = sit->second;
             for (int fi = (int)info.fields.size() - 1; fi >= 0; --fi) {

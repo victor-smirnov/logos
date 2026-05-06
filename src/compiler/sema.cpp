@@ -740,14 +740,14 @@ std::string SemaChecker::function_symbol_name(std::string_view base_name,
     //   - struct methods (base_name contains `__`): already disambiguated
     //     by their struct's pkg-qualified name in mlir_gen.
     bool is_method = base_name.find("__") != std::string_view::npos;
-    bool with_pkg  = !info.package.empty() && !info.is_extern && !is_method;
+    bool with_pkg  = !info.package.empty() && !info.is_extern;
 
     std::string key = function_signature_key(base_name, info.param_types, info.is_vararg);
     auto suffix = key.substr(std::string(base_name).size() + 2);
     std::string out;
     if (with_pkg) {
         out = info.package;
-        out += '$';
+        out += is_method ? '.' : '$';
     }
     out += std::string(base_name);
     out += info.type_params.empty() ? "__f__" : "__g__";

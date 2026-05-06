@@ -136,38 +136,43 @@ private:
     // when no match is found.
     std::string resolve_method_symbol(std::string_view struct_name,
                                       std::string_view method_name) const noexcept {
-        // struct_name may carry a pkg prefix (`pkg.Type`) since field-info
-        // now uses mlir_struct_key. Method-symbol convention is bare
-        // `Type__method`, so build the base on the bare struct name.
         auto bare_struct = strip_struct_pkg(struct_name);
         std::string base; base.reserve(bare_struct.size() + 2 + method_name.size());
         base.append(bare_struct); base.append("__"); base.append(method_name);
         if (!prog_) return base;
+        // After unification, method names may be `[pkg.]Base__method[__f__sig]`.
+        // Match either bare base or a pkg-qualified form ending with `.base`.
+        auto matches = [&](std::string_view nm) -> bool {
+            if (nm == base) return true;
+            // Check `Base__method__[fg]__sig` exact prefix
+            bool starts = nm.size() > base.size() &&
+                          nm.compare(0, base.size(), base) == 0 &&
+                          (nm.compare(base.size(), 5, "__f__") == 0 ||
+                           nm.compare(base.size(), 5, "__g__") == 0);
+            if (starts) return true;
+            // Check `pkg.Base__method[__[fg]__sig]`
+            auto dot = nm.find('.');
+            if (dot != std::string_view::npos) {
+                std::string_view rest = nm.substr(dot + 1);
+                if (rest == base) return true;
+                if (rest.size() > base.size() &&
+                    rest.compare(0, base.size(), base) == 0 &&
+                    (rest.compare(base.size(), 5, "__f__") == 0 ||
+                     rest.compare(base.size(), 5, "__g__") == 0))
+                    return true;
+            }
+            return false;
+        };
         for (auto& sd : prog_->structs) {
             if (sd.name != bare_struct) continue;
             for (auto& mp : sd.methods) {
                 if (!mp) continue;
-                std::string_view nm = mp->name;
-                if (nm == base) return std::string(nm);
-                if (nm.size() > base.size() &&
-                    nm.compare(0, base.size(), base) == 0 &&
-                    (nm.compare(base.size(), 5, "__f__") == 0 ||
-                     nm.compare(base.size(), 5, "__g__") == 0)) {
-                    return std::string(nm);
-                }
+                if (matches(mp->name)) return mp->name;
             }
         }
-        // Fallback: scan free fns (drop fns may live there for non-struct types).
         for (auto& fn : prog_->functions) {
             if (!fn) continue;
-            std::string_view nm = fn->name;
-            if (nm == base) return std::string(nm);
-            if (nm.size() > base.size() &&
-                nm.compare(0, base.size(), base) == 0 &&
-                (nm.compare(base.size(), 5, "__f__") == 0 ||
-                 nm.compare(base.size(), 5, "__g__") == 0)) {
-                return std::string(nm);
-            }
+            if (matches(fn->name)) return fn->name;
         }
         return base;
     }

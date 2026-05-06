@@ -510,7 +510,9 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 if      (op == "-") method_name = "neg";
                 else if (op == "!") method_name = "not_";
                 if (!method_name.empty()) {
-                    std::string callee = concrete_struct_name(vt) + "__" + method_name;
+                    std::string bare = concrete_struct_name(vt) + "__" + method_name;
+                    std::string pkg{vt.pkg_name()};
+                    std::string callee = pkg.empty() ? bare : pkg + "." + bare;
                     std::vector<lir::LExprPtr> args; args.push_back(std::move(new_op));
                     result->mirror_offset_ = lir_mirror_emit_call(
                         out_, result->type, callee, {}, args);
@@ -541,7 +543,9 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 else if (op == ">")  method_name = "gt";
                 else if (op == ">=") method_name = "ge";
                 if (!method_name.empty()) {
-                    std::string callee = concrete_struct_name(lt) + "__" + method_name;
+                    std::string bare = concrete_struct_name(lt) + "__" + method_name;
+                    std::string pkg{lt.pkg_name()};
+                    std::string callee = pkg.empty() ? bare : pkg + "." + bare;
                     std::vector<lir::LExprPtr> args;
                     args.push_back(std::move(new_lhs));
                     args.push_back(std::move(new_rhs));
@@ -2099,12 +2103,19 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                     nc.args.push_back(subst_child_expr(ar));
                 }
             });
-            // Generic static-trait-dispatch: rewrite "DT__method" prefix when
-            // DT is bound by the substitution map.
+            // Generic static-trait-dispatch: rewrite "[pkg.]DT__method" prefix
+            // when DT is bound by the substitution map. Pkg prefix (set by
+            // unified mangling) is stripped before checking the subst map.
             {
-                auto sep = nc.callee.find("__");
+                std::string callee_pkg;
+                std::string callee_body = nc.callee;
+                if (auto dot = callee_body.find('.'); dot != std::string::npos) {
+                    callee_pkg = callee_body.substr(0, dot);
+                    callee_body = callee_body.substr(dot + 1);
+                }
+                auto sep = callee_body.find("__");
                 if (sep != std::string::npos) {
-                    std::string prefix = nc.callee.substr(0, sep);
+                    std::string prefix = callee_body.substr(0, sep);
                     auto it = s.find(prefix);
                     if (it != s.end() && it->second) {
                         std::string cname;
@@ -2114,8 +2125,13 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         else
                             cname = type_str(t);
                         if (cname == "&[u8]") cname = "str";
-                        if (!cname.empty())
-                            nc.callee = cname + nc.callee.substr(sep);
+                        if (!cname.empty()) {
+                            // Use the substituted type's pkg if available.
+                            std::string new_pkg{TypeRef(t).pkg_name()};
+                            if (new_pkg.empty()) new_pkg = callee_pkg;
+                            std::string bare = cname + callee_body.substr(sep);
+                            nc.callee = new_pkg.empty() ? bare : new_pkg + "." + bare;
+                        }
                     }
                 }
             }
@@ -2202,12 +2218,23 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                     std::string base_fn = cname + "__" + method;
                     std::string tmpl_key = base_fn;
                     if (!templates_.count(tmpl_key) && !specs_.count(tmpl_key)) {
+                        // Pkg-qualified at sema: look for any template name
+                        // ending with `.<base_fn>__g__sig` or starting with it.
                         std::string p = base_fn + "__g__";
-                        for (auto& [kn, _] : templates_)
-                            if (kn.rfind(p, 0) == 0) { tmpl_key = kn; break; }
+                        std::string p_dot = "." + base_fn + "__g__";
+                        for (auto& [kn, _] : templates_) {
+                            if (kn.rfind(p, 0) == 0 ||
+                                kn.find(p_dot) != std::string::npos) {
+                                tmpl_key = kn; break;
+                            }
+                        }
                         if (tmpl_key == base_fn)
-                            for (auto& [kn, _] : specs_)
-                                if (kn.rfind(p, 0) == 0) { tmpl_key = kn; break; }
+                            for (auto& [kn, _] : specs_) {
+                                if (kn.rfind(p, 0) == 0 ||
+                                    kn.find(p_dot) != std::string::npos) {
+                                    tmpl_key = kn; break;
+                                }
+                            }
                     }
                     nc.callee = tmpl_key;
                     nc.args.push_back(std::move(new_recv));
@@ -2940,15 +2967,21 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
         auto& m = *m_up;
         if (!method_bound_ok(m, s)) continue;
         auto nm = clone_fn(m, s, packs);
-        // Rename method: "OldBase__methodName" → "new_name__methodName".
-        // If the template method name carries a generic suffix
-        // ("OldBase__method__g__T"), strip it for the instantiated struct
-        // method. The concrete struct name already captures the instantiation.
-        auto sep = m.name.find("__");
-        if (sep != std::string::npos)
-            nm.name = new_name + "__" + m.name.substr(sep + 2, m.name.find("__", sep + 2) == std::string::npos
-                ? std::string::npos
-                : m.name.find("__", sep + 2) - (sep + 2));
+        // Rename method: "[pkg.]OldBase__methodName[__g__T]" →
+        //                "[pkg.]new_name__methodName[__g__T]".
+        // Preserve pkg prefix and any sig suffix; replace base name only.
+        std::string mn = m.name;
+        std::string mn_pkg;
+        if (auto dot = mn.find('.'); dot != std::string::npos) {
+            mn_pkg = mn.substr(0, dot);
+            mn = mn.substr(dot + 1);
+        }
+        auto sep = mn.find("__");
+        if (sep != std::string::npos) {
+            std::string rest = mn.substr(sep);  // "__methodName[__g__T]"
+            std::string new_bare = new_name + rest;
+            nm.name = mn_pkg.empty() ? new_bare : mn_pkg + "." + new_bare;
+        }
         // Specialization: if the user wrote `impl Foo<Concrete> { fn m ... }`
         // separately from `impl<T> Foo<T> { fn m ... }`, the concrete method
         // lives in in_.functions under the mangled name.  Skip cloning the

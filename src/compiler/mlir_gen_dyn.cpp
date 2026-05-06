@@ -787,23 +787,37 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(lir_view::EMethodCallView v,
     std::string rtc_sym = rtc_base;
     auto rtc_fn = parent_mod.lookupSymbol<mlir::func::FuncOp>(rtc_sym);
     if (!rtc_fn && prog_) {
-        // Unconditional mangling appends `__f__sig`; scan for matching prefix.
+        // Method names may be bare (`Base__read_tag[__f__sig]`) or pkg-qualified
+        // (`pkg.Base__read_tag[__f__sig]`). Concrete trait impls land in
+        // prog_->functions (not sd.methods), so scan both.
+        std::string rtc_f = rtc_base + "__f__";
+        std::string rtc_g = rtc_base + "__g__";
+        auto try_match = [&](const std::string& nm) {
+            return nm == rtc_base ||
+                   nm.find(rtc_f) != std::string::npos ||
+                   nm.find(rtc_g) != std::string::npos;
+        };
         for (auto& sd : prog_->structs) {
             if (sd.name != v.tag_system()) continue;
             for (auto& mp : sd.methods) {
                 if (!mp) continue;
-                std::string_view nm = mp->name;
-                if (nm == rtc_base ||
-                    (nm.size() > rtc_base.size() &&
-                     nm.compare(0, rtc_base.size(), rtc_base) == 0 &&
-                     (nm.compare(rtc_base.size(), 5, "__f__") == 0 ||
-                      nm.compare(rtc_base.size(), 5, "__g__") == 0))) {
-                    rtc_sym = std::string(nm);
+                if (try_match(mp->name)) {
+                    rtc_sym = mp->name;
                     rtc_fn = parent_mod.lookupSymbol<mlir::func::FuncOp>(rtc_sym);
                     if (rtc_fn) break;
                 }
             }
             if (rtc_fn) break;
+        }
+        if (!rtc_fn) {
+            for (auto& fn : prog_->functions) {
+                if (!fn) continue;
+                if (try_match(fn->name)) {
+                    rtc_sym = fn->name;
+                    rtc_fn = parent_mod.lookupSymbol<mlir::func::FuncOp>(rtc_sym);
+                    if (rtc_fn) break;
+                }
+            }
         }
     }
     if (!rtc_fn) {

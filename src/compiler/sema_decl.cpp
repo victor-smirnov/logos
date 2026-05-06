@@ -353,6 +353,25 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                 fi_ptr = const_cast<SemaFuncInfo*>(find_generic_func(mangled, decl_param_arity));
             if (!fi_ptr)
                 fi_ptr = const_cast<SemaFuncInfo*>(find_generic_func(mangled));
+            // Primitive-target impl (`impl Eq for i32 { fn eq … }`) doesn't
+            // resolve via self_t (i32 isn't a struct/datatype). Fall back
+            // to base-name candidate matching with arity. Only for impl
+            // methods (struct_ctx non-empty) — free fns must use the
+            // strict matching above.
+            if (!fi_ptr && !struct_ctx.empty()) {
+                // Match on arity. For primitive-target impls, decl_param_types
+                // already includes `self` (collect_fn for primitives runs
+                // without struct context flag). For struct/datatype impls,
+                // decl_param_types excludes self (added back via self_t).
+                for (auto* cand : find_func_candidates(mangled)) {
+                    if (!cand) continue;
+                    if (cand->type_params.size() != node_tparams.size()) continue;
+                    if (cand->param_types.size() != decl_param_types.size() &&
+                        cand->param_types.size() != decl_param_types.size() + 1)
+                        continue;
+                    fi_ptr = const_cast<SemaFuncInfo*>(cand); break;
+                }
+            }
         }
     }
     if (!fi_ptr) return fn;   // shouldn't happen after collect

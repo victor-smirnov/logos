@@ -52,6 +52,11 @@ struct TypeSets {
 static TypeSets build_type_sets(const lir::LProgram& prog) {
     TypeSets ts;
     auto register_drop_symbol = [&](std::string_view sym) {
+        // After unification, method names are pkg-qualified
+        // (`pkg.Buf__drop__f__sig`). Strip pkg prefix before extracting
+        // the bare type name.
+        if (auto dot = sym.find('.'); dot != std::string_view::npos)
+            sym = sym.substr(dot + 1);
         if (auto p = sym.find("__drop"); p != std::string_view::npos)
             ts.drop_types.insert(std::string(sym.substr(0, p)));
     };

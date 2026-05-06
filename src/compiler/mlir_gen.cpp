@@ -196,122 +196,98 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
         }
     }
 
-    // Pkg-qualify struct method symbols at MLIR level. Same-named structs
-    // from distinct pkgs produce distinct method symbols at link. This
-    // closes Box-vs-UserBox; mlir_struct_key already disambiguates struct
-    // identity, this handles the method-symbol layer.
+    // Canonical-form rename pass. Bridges callees produced in older bare
+    // forms (mono call rewrites, T → Concrete substitutions, blanket-impl
+    // emit) to the unified pkg-qualified fn symbols.
+    //
+    // Canonical form: strip leading `pkg.` and the `__f__sig`/`__g__sig`
+    // segment. To avoid arity mismatches when multiple actual fns share a
+    // canonical (overloads), only register canonicals that are UNAMBIGUOUS.
     {
-        // (struct_name, base) → pkg lookup. Supports both bare base names
-        // (e.g. "Box") and concrete generic instances (e.g. "Box$G1$i64").
-        std::unordered_map<std::string, std::string> struct_pkg;
-        for (auto& sd : prog.structs)
-            if (!sd.pkg.empty()) struct_pkg[sd.name] = sd.pkg;
-        auto pkg_for_struct = [&](std::string_view base) -> std::string {
-            // Try exact match first (covers concrete instances).
-            std::string s(base);
-            if (auto it = struct_pkg.find(s); it != struct_pkg.end())
-                return it->second;
-            // Strip generic suffix `$G..` and retry against the base name.
-            if (auto p = s.find("$G"); p != std::string::npos) {
-                s.resize(p);
-                if (auto it = struct_pkg.find(s); it != struct_pkg.end())
-                    return it->second;
+        auto canonical = [](std::string_view name) -> std::string {
+            std::string s(name);
+            if (auto dot = s.find('.'); dot != std::string::npos) {
+                bool looks_pkg = !s.empty() && s[0] != '_' && s[0] != '.';
+                if (looks_pkg) s = s.substr(dot + 1);
             }
-            return {};
-        };
-        // Extract `<struct_part>__<method_part>` if name looks method-shaped
-        // (no pkg yet, no `$` outside generic marker, contains `__`).
-        auto parse_method = [&](const std::string& name)
-                -> std::optional<std::pair<std::string, std::string>> {
-            if (name.find('.') != std::string::npos) return std::nullopt;
-            auto sep = name.find("__");
-            if (sep == std::string::npos) return std::nullopt;
-            return std::make_pair(name.substr(0, sep), name.substr(sep));
-        };
-        // Build (bare → qualified) rename map. Per-method pkg attribution
-        // (via fn.package, set by sema and propagated by mono clone) so a
-        // single concrete struct that aggregates methods from two pkgs'
-        // templates correctly attributes each method.
-        std::unordered_map<std::string, std::string> rename_map;
-        for (auto& sd : prog.structs) {
-            for (auto& m : sd.methods) {
-                if (m->name.find('.') != std::string::npos) continue;
-                std::string pkg = m->package.empty() ? sd.pkg : m->package;
-                if (pkg.empty()) continue;
-                rename_map[m->name] = pkg + "." + m->name;
+            auto p = s.find("__f__");
+            if (p == std::string::npos) p = s.find("__g__");
+            if (p != std::string::npos) {
+                size_t after = p + 5;
+                auto next = s.find("__", after);
+                s = (next == std::string::npos)
+                    ? s.substr(0, p)
+                    : s.substr(0, p) + s.substr(next);
             }
-        }
-        // Free fns that look like `Concrete__method` for a KNOWN struct.
-        // Skip free fns that just happen to have `__` in their name —
-        // only treat them as struct methods if the prefix matches a
-        // registered struct/datatype. Use fn.package when available so
-        // two pkgs with same-named struct produce distinct symbols.
-        auto try_method_rename = [&](const lir::LFunction& fn) {
-            if (fn.is_extern) return;
-            if (fn.name.find('.') != std::string::npos) return;
-            auto parsed = parse_method(fn.name);
-            if (!parsed) return;
-            // Require the prefix to be a known struct/datatype.
-            std::string struct_pkg_lookup = pkg_for_struct(parsed->first);
-            if (struct_pkg_lookup.empty()) return;
-            std::string pkg = fn.package.empty() ? struct_pkg_lookup : fn.package;
-            if (rename_map.count(fn.name)) return;
-            rename_map[fn.name] = pkg + "." + fn.name;
+            return s;
         };
-        for (auto& fn : prog.functions)       try_method_rename(*fn);
-        for (auto& fn : prog.specializations) try_method_rename(*fn);
-        if (!rename_map.empty()) {
-            // Rename func.func sym_names.
-            mod.walk([&](mlir::func::FuncOp fn) {
-                auto it = rename_map.find(fn.getName().str());
-                if (it != rename_map.end()) fn.setName(it->second);
-            });
-            // Rewrite func.call callees.
-            mod.walk([&](mlir::func::CallOp call) {
-                auto callee = call.getCallee().str();
-                auto it = rename_map.find(callee);
-                if (it != rename_map.end())
-                    call.setCallee(it->second);
-            });
-            // Rewrite GlobalOp initial values that reference fn symbols
-            // (dispatch tables, vtables). MLIR stores fn pointers as
-            // FlatSymbolRefAttr inside an array attribute.
-            mod.walk([&](mlir::LLVM::AddressOfOp op) {
-                auto it = rename_map.find(op.getGlobalName().str());
-                if (it != rename_map.end())
-                    op.setGlobalName(it->second);
-            });
-            // func.constant ops referencing renamed fns (vtable entries).
-            mod.walk([&](mlir::func::ConstantOp op) {
-                auto it = rename_map.find(op.getValue().str());
-                if (it != rename_map.end())
-                    op.setValueAttr(mlir::FlatSymbolRefAttr::get(
-                        op.getContext(), it->second));
-            });
-            // llvm.mlir.global with array<ptr> initialization referencing
-            // fn symbols (dispatch tables) — walk Attributes recursively.
-            mod.walk([&](mlir::LLVM::GlobalOp gop) {
-                auto v = gop.getValueAttr();
-                if (!v) return;
-                auto arr = mlir::dyn_cast<mlir::ArrayAttr>(v);
-                if (!arr) return;
-                std::vector<mlir::Attribute> elems;
-                bool changed = false;
-                for (auto a : arr) {
-                    if (auto sym = mlir::dyn_cast<mlir::FlatSymbolRefAttr>(a)) {
-                        auto it = rename_map.find(sym.getValue().str());
-                        if (it != rename_map.end()) {
-                            elems.push_back(mlir::FlatSymbolRefAttr::get(
-                                gop.getContext(), it->second));
-                            changed = true;
-                            continue;
-                        }
+
+        std::unordered_map<std::string, std::string> canon_to_actual;
+        std::unordered_set<std::string> ambiguous_canon;
+        std::unordered_set<std::string> existing_names;
+        mod.walk([&](mlir::func::FuncOp fn) {
+            auto nm = fn.getName().str();
+            existing_names.insert(nm);
+            auto c = canonical(nm);
+            // Store canonical → actual for every fn (incl. ones where
+            // canonical == name) so both bridging directions work:
+            // - bare callee → pkg-qualified actual
+            // - pkg-qualified callee → bare actual
+            auto [it, inserted] = canon_to_actual.try_emplace(c, nm);
+            if (!inserted && it->second != nm) ambiguous_canon.insert(c);
+        });
+
+        auto rewrite = [&](const std::string& callee) -> std::string {
+            if (existing_names.count(callee)) return callee;
+            auto c = canonical(callee);
+            auto try_lookup = [&](const std::string& key) -> const std::string* {
+                if (ambiguous_canon.count(key)) return nullptr;
+                auto it = canon_to_actual.find(key);
+                return it == canon_to_actual.end() ? nullptr : &it->second;
+            };
+            if (c != callee) if (auto* a = try_lookup(c)) return *a;
+            if (auto* a = try_lookup(callee)) return *a;
+            return callee;
+        };
+
+        mod.walk([&](mlir::func::CallOp call) {
+            auto callee = call.getCallee().str();
+            auto fixed = rewrite(callee);
+            if (fixed != callee) call.setCallee(fixed);
+        });
+        mod.walk([&](mlir::LLVM::AddressOfOp op) {
+            auto sym = op.getGlobalName().str();
+            auto fixed = rewrite(sym);
+            if (fixed != sym) op.setGlobalName(fixed);
+        });
+        mod.walk([&](mlir::func::ConstantOp op) {
+            auto sym = op.getValue().str();
+            auto fixed = rewrite(sym);
+            if (fixed != sym)
+                op.setValueAttr(mlir::FlatSymbolRefAttr::get(op.getContext(), fixed));
+        });
+        mod.walk([&](mlir::LLVM::GlobalOp gop) {
+            auto v = gop.getValueAttr();
+            if (!v) return;
+            auto arr = mlir::dyn_cast<mlir::ArrayAttr>(v);
+            if (!arr) return;
+            std::vector<mlir::Attribute> elems;
+            bool changed = false;
+            for (auto a : arr) {
+                if (auto sym = mlir::dyn_cast<mlir::FlatSymbolRefAttr>(a)) {
+                    auto s = sym.getValue().str();
+                    auto fixed = rewrite(s);
+                    if (fixed != s) {
+                        elems.push_back(mlir::FlatSymbolRefAttr::get(
+                            gop.getContext(), fixed));
+                        changed = true;
+                        continue;
                     }
-                    elems.push_back(a);
                 }
-                if (changed) gop.setValueAttr(mlir::ArrayAttr::get(gop.getContext(), elems));
-            });
-        }
+                elems.push_back(a);
+            }
+            if (changed) gop.setValueAttr(mlir::ArrayAttr::get(gop.getContext(), elems));
+        });
     }
 
     if (mlir::failed(mlir::verify(mod))) {

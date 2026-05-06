@@ -26,18 +26,21 @@ namespace logos::compiler {
 using namespace lir;
 
 namespace {
+// Iterate top-level func.func ops directly (mod.getOps<>) instead of
+// recursively walking ALL nested ops — orders of magnitude faster for
+// modules with thousands of functions.
+template<class Pred>
+static mlir::func::FuncOp find_fn_matching(mlir::ModuleOp mod, Pred&& pred) {
+    for (auto fn : mod.getOps<mlir::func::FuncOp>())
+        if (pred(fn)) return fn;
+    return {};
+}
+
 static mlir::func::FuncOp find_func_op(mlir::ModuleOp mod, std::string_view name) {
     if (auto fn = mod.lookupSymbol<mlir::func::FuncOp>(name))
         return fn;
-
-    mlir::func::FuncOp found;
-    mod.walk([&](mlir::func::FuncOp fn) {
-        if (fn.getName().str() == name) {
-            found = fn;
-            return mlir::WalkResult::interrupt();
-        }
-        return mlir::WalkResult::advance();
-    });
+    auto found = find_fn_matching(mod,
+        [&](mlir::func::FuncOp fn) { return fn.getName().str() == name; });
     return found;
 }
 }  // namespace
@@ -1062,44 +1065,53 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
         if (!callee_fn && gpos != std::string::npos) {
             std::string base_with_pkg = callee.substr(0, gpos);
             std::string fn_prefix_pkg = base_with_pkg + "__f__";
-            parent_mod.walk([&](mlir::func::FuncOp fn) {
-                auto fn_name = fn.getName().str();
-                if (fn_name.rfind(fn_prefix_pkg, 0) == 0) {
-                    callee_fn = fn;
-                    return mlir::WalkResult::interrupt();
-                }
-                return mlir::WalkResult::advance();
-            });
-            // If `base_with_pkg` includes `pkg$`, also try the bare base.
+            callee_fn = find_fn_matching(parent_mod,
+                [&](mlir::func::FuncOp fn) {
+                    return fn.getName().str().rfind(fn_prefix_pkg, 0) == 0;
+                });
             if (!callee_fn) {
                 auto dollar = base_with_pkg.rfind('$');
                 if (dollar != std::string::npos) {
                     std::string fn_prefix_bare =
                         base_with_pkg.substr(dollar + 1) + "__f__";
-                    parent_mod.walk([&](mlir::func::FuncOp fn) {
-                        auto fn_name = fn.getName().str();
-                        if (fn_name.rfind(fn_prefix_bare, 0) == 0) {
-                            callee_fn = fn;
-                            return mlir::WalkResult::interrupt();
-                        }
-                        return mlir::WalkResult::advance();
-                    });
+                    callee_fn = find_fn_matching(parent_mod,
+                        [&](mlir::func::FuncOp fn) {
+                            return fn.getName().str().rfind(fn_prefix_bare, 0) == 0;
+                        });
                 }
             }
         }
         if (!callee_fn) {
-            // Generic instantiations may be emitted without their trailing
-            // `__g__...` suffix in the call site.  Fall back to the concrete
-            // generic symbol with the same base prefix.
             std::string generic_prefix = callee + "__g__";
-            parent_mod.walk([&](mlir::func::FuncOp fn) {
-                auto fn_name = fn.getName().str();
-                if (fn_name.rfind(generic_prefix, 0) == 0) {
-                    callee_fn = fn;
-                    return mlir::WalkResult::interrupt();
-                }
-                return mlir::WalkResult::advance();
-            });
+            std::string fn_prefix      = callee + "__f__";
+            callee_fn = find_fn_matching(parent_mod,
+                [&](mlir::func::FuncOp fn) {
+                    auto n = fn.getName().str();
+                    return n.rfind(generic_prefix, 0) == 0 ||
+                           n.rfind(fn_prefix, 0) == 0;
+                });
+        }
+        if (!callee_fn) {
+            std::string contains_f = "." + callee + "__f__";
+            std::string contains_g = "." + callee + "__g__";
+            std::string ends_dot = "." + callee;
+            callee_fn = find_fn_matching(parent_mod,
+                [&](mlir::func::FuncOp fn) {
+                    auto n = fn.getName().str();
+                    bool ends = n.size() >= ends_dot.size() &&
+                                n.compare(n.size() - ends_dot.size(),
+                                          ends_dot.size(), ends_dot) == 0;
+                    return ends ||
+                           n.find(contains_f) != std::string::npos ||
+                           n.find(contains_g) != std::string::npos;
+                });
+        }
+        if (!callee_fn) {
+            std::string callee_prefix = callee + "__";
+            callee_fn = find_fn_matching(parent_mod,
+                [&](mlir::func::FuncOp fn) {
+                    return fn.getName().str().rfind(callee_prefix, 0) == 0;
+                });
         }
     }
     if (!callee_fn) {
@@ -1234,45 +1246,59 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
         builder_.create<mlir::LLVM::StoreOp>(loc_, coerce_numeric(ptr, builder_.getI32Type()), slot);
         ptr = slot;
     }
-    // Method symbols are mangled by mono as "<bare-struct>__<method>", not
-    // pkg-qualified. tname (from gen_recv_struct/var_struct_) carries a
-    // qualified key like "pkg.Pair$G..." — strip the pkg prefix.
+    // Method symbols are pkg-qualified at sema (`pkg.Concrete__method__f__sig`).
+    // Build qualified callee from receiver tname's pkg prefix; fall back to
+    // bare and to a global suffix scan when needed.
     std::string defining = resolved_type.empty()
                            ? std::string(strip_struct_pkg(tname))
                            : resolved_type;
-    auto mangled     = defining + "__" + method;
+    std::string tname_pkg;
+    if (auto p = tname.find('.'); p != std::string::npos)
+        tname_pkg = tname.substr(0, p);
+    std::string bare_mangled = defining + "__" + method;
+    auto mangled = tname_pkg.empty()
+                   ? bare_mangled
+                   : tname_pkg + "." + bare_mangled;
+
     auto callee_name = resolved_symbol.empty() ? mangled : resolved_symbol;
     auto parent_mod  = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
     auto callee_fn   = find_func_op(parent_mod, callee_name);
-    if (!callee_fn) {
-        std::string generic_prefix = callee_name + "__g__";
-        std::string fn_prefix = callee_name + "__f__";
-        parent_mod.walk([&](mlir::func::FuncOp fn) {
-            auto fn_name = fn.getName().str();
-            if (fn_name.rfind(generic_prefix, 0) == 0 ||
-                fn_name.rfind(fn_prefix, 0) == 0) {
-                callee_fn = fn;
-                return mlir::WalkResult::interrupt();
-            }
-            return mlir::WalkResult::advance();
-        });
-    }
+    auto walk_prefix = [&](const std::string& cn) -> mlir::func::FuncOp {
+        std::string generic_prefix = cn + "__g__";
+        std::string fn_prefix = cn + "__f__";
+        return find_fn_matching(parent_mod,
+            [&](mlir::func::FuncOp fn) {
+                auto n = fn.getName().str();
+                return n.rfind(generic_prefix, 0) == 0 ||
+                       n.rfind(fn_prefix, 0) == 0;
+            });
+    };
+    if (!callee_fn) callee_fn = walk_prefix(callee_name);
     if (!callee_fn && !resolved_symbol.empty()) {
         callee_name = mangled;
         callee_fn = find_func_op(parent_mod, callee_name);
-        if (!callee_fn) {
-            std::string generic_prefix = callee_name + "__g__";
-            std::string fn_prefix = callee_name + "__f__";
-            parent_mod.walk([&](mlir::func::FuncOp fn) {
-                auto fn_name = fn.getName().str();
-                if (fn_name.rfind(generic_prefix, 0) == 0 ||
-                    fn_name.rfind(fn_prefix, 0) == 0) {
-                    callee_fn = fn;
-                    return mlir::WalkResult::interrupt();
-                }
-                return mlir::WalkResult::advance();
+        if (!callee_fn) callee_fn = walk_prefix(callee_name);
+    }
+    if (!callee_fn && mangled != bare_mangled) {
+        callee_name = bare_mangled;
+        callee_fn = find_func_op(parent_mod, callee_name);
+        if (!callee_fn) callee_fn = walk_prefix(callee_name);
+    }
+    if (!callee_fn) {
+        std::string suffix1 = "." + bare_mangled;
+        std::string contains_f = "." + bare_mangled + "__f__";
+        std::string contains_g = "." + bare_mangled + "__g__";
+        callee_fn = find_fn_matching(parent_mod,
+            [&](mlir::func::FuncOp fn) {
+                auto n = fn.getName().str();
+                bool ends = n.size() >= suffix1.size() &&
+                            n.compare(n.size() - suffix1.size(),
+                                      suffix1.size(), suffix1) == 0;
+                return ends ||
+                       n.find(contains_f) != std::string::npos ||
+                       n.find(contains_g) != std::string::npos;
             });
-        }
+        if (callee_fn) callee_name = callee_fn.getName().str();
     }
     if (!callee_fn) {
         std::fprintf(stderr, "mlir_gen: method '%s' not found\n", callee_name.c_str());

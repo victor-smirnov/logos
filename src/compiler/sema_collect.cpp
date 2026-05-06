@@ -2405,30 +2405,15 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
         return;
     }
 
-    bool is_method = base_name.find("__") != std::string::npos;
     // `main` is the program entry — ld.lld looks for the bare symbol.
+    // `__metacall_thunk_*` are JIT-resolved by bare name in main.cpp.
     // `#[no_mangle]` suppresses pkg+sig mangling so a fn called from
     // inline asm / extern "C" callers keeps its bare name.
-    bool is_runtime_abi = (base_name == "main") || pending_no_mangle_;
+    bool is_runtime_abi = (base_name == "main") || pending_no_mangle_ ||
+                          base_name.rfind("__metacall_thunk_", 0) == 0;
     pending_no_mangle_ = false;
     auto& overloads = func_overloads_[base_name];
-    if (is_runtime_abi) {
-    } else if (!is_method) {
-        info.symbol_name = function_symbol_name(base_name, info);
-    } else if (!overloads.empty()) {
-        if (overloads.size() == 1 && overloads[0] == base_name) {
-            auto it = funcs_.find(base_name);
-            if (it != funcs_.end()) {
-                auto old_info = std::move(it->second);
-                funcs_.erase(it);
-                std::string renamed = function_symbol_name(base_name, old_info);
-                old_info.symbol_name = renamed;
-                funcs_[renamed] = std::move(old_info);
-                overloads[0] = renamed;
-            }
-        }
-        info.symbol_name = function_symbol_name(base_name, info);
-    } else if (generic_overloads_.count(base_name)) {
+    if (!is_runtime_abi) {
         info.symbol_name = function_symbol_name(base_name, info);
     }
     for (auto& sym : overloads) {

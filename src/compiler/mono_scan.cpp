@@ -154,19 +154,23 @@ void Mono::scan_expr(lir_view::ExprRef e) {
         }
         if (lazy_methods_) {
             // L1.5: sema may lower `recv.method()` directly to ECall
-            // `<Concrete>__<method>` (e.g. desugared comprehensions, MethodCall→ECall
-            // rewrites in subst_expr). Recover the (concrete struct, method) pair
-            // and enqueue the method instance.
+            // `[pkg.]<Concrete>__<method>[__f__|__g__sig]`. Recover the
+            // (concrete struct, method short-name) pair and enqueue.
             std::string callee{v.callee()};
             if (auto sep = callee.find("__"); sep != std::string::npos) {
                 std::string concrete = callee.substr(0, sep);
-                std::string method   = callee.substr(sep + 2);
+                std::string method_part = callee.substr(sep + 2);
+                // Strip `__f__sig` / `__g__sig` to get the user-facing short name.
+                if (auto sig = method_part.find("__f__"); sig != std::string::npos)
+                    method_part.resize(sig);
+                else if (auto sig = method_part.find("__g__"); sig != std::string::npos)
+                    method_part.resize(sig);
                 auto cit = concrete_struct_types_.find(concrete);
                 if (cit != concrete_struct_types_.end())
-                    enqueue_method_inst(cit->second, method);
+                    enqueue_method_inst(cit->second, method_part);
                 else if (concrete.find("$G") != std::string::npos)
                     deferred_method_enqueues_.emplace_back(std::move(concrete),
-                                                           std::move(method));
+                                                           std::move(method_part));
             }
         }
         v.each_arg([&](lir_view::ExprRef a) { scan_expr(a); });
@@ -544,19 +548,35 @@ void Mono::drain_method_worklist() {
                 if (sd.name == item.concrete_struct) { target = &sd; break; }
         if (!target) continue;
 
-        // Skip if a method with this name is already on the struct (e.g.
-        // eagerly cloned by the existing clone_struct_def path).
-        std::string dest_name = item.concrete_struct + "__" + item.method_name;
+        // Build pkg-qualified dest_name preserving the template's sig suffix
+        // (`__f__sig` / `__g__sig`). With unification, the method template's
+        // name is `[pkg.]Base__method__[fg]__sig`; the cloned method should
+        // be `[pkg.]Concrete__method__[fg]__sig`.
+        std::string sig;
+        {
+            std::string tn = tmpl->name;
+            if (auto dot = tn.find('.'); dot != std::string::npos)
+                tn = tn.substr(dot + 1);
+            auto sep1 = tn.find("__");
+            if (sep1 != std::string::npos) {
+                auto sep2 = tn.find("__", sep1 + 2);
+                if (sep2 != std::string::npos) sig = tn.substr(sep2);
+            }
+        }
+        std::string bare_dest = item.concrete_struct + "__" + item.method_name + sig;
+        std::string dest_name = item.struct_pkg.empty()
+                                ? bare_dest
+                                : item.struct_pkg + "." + bare_dest;
         bool exists = false;
         for (auto& m : target->methods)
-            if (bare_fn_name(m->name) == dest_name) { exists = true; break; }
+            if (m->name == dest_name) { exists = true; break; }
         if (exists) continue;
         // Specialization: a non-generic `impl Foo<Concrete>` lowers to a
         // free-fn under this exact mangled name. Don't clone the blanket
         // body — the passthrough free-fn path emits the correct one.
         for (auto& fn : in_.functions) {
             if (!fn->type_params.empty()) continue;
-            if (bare_fn_name(fn->name) == dest_name) { exists = true; break; }
+            if (fn->name == dest_name) { exists = true; break; }
         }
         if (exists) continue;
 

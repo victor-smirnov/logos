@@ -91,14 +91,22 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             struct_templates_[sd.name] = &sd;  // stable: in_.structs not moved
         }
         // L1: build (base_struct, short_method_name) → template index for lazy
-        // method instantiation. Method fn-names are stored as `Base__method` in
-        // sema (lower_fn); strip the prefix so the lookup key is the short name
-        // ("bar") that subst_expr's MethodCall hook has at hand.
+        // method instantiation. After unification, method fn-names are
+        // pkg-qualified (`pkg.Base__method__f__sig`); extract short name
+        // by finding `Base__` and reading until next `__`.
         std::string prefix = sd.name + "__";
         for (auto& m : sd.methods) {
-            std::string short_name = m->name.rfind(prefix, 0) == 0
-                ? m->name.substr(prefix.size())
-                : m->name;
+            std::string short_name;
+            auto p = m->name.find(prefix);
+            if (p != std::string::npos) {
+                size_t start = p + prefix.size();
+                auto end = m->name.find("__", start);
+                short_name = (end == std::string::npos)
+                             ? m->name.substr(start)
+                             : m->name.substr(start, end - start);
+            } else {
+                short_name = m->name;
+            }
             if (!sd.pkg.empty())
                 struct_method_templates_[sd.pkg + "." + sd.name][short_name] = m.get();
             struct_method_templates_[sd.name][short_name] = m.get();
@@ -272,8 +280,16 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             // and emit under `concrete__method`.
             for (auto& tfn_up : in_.functions) {
                 auto& tfn = *tfn_up;
-                if (tfn.name.rfind(tmpl_prefix, 0) != 0) continue;
-                std::string method = tfn.name.substr(tmpl_prefix.size());
+                // Strip pkg prefix (`pkg.`) before matching the
+                // synthetic `$blanket$...` template prefix.
+                std::string tn = tfn.name;
+                if (auto dot = tn.find('.'); dot != std::string::npos)
+                    tn = tn.substr(dot + 1);
+                if (tn.rfind(tmpl_prefix, 0) != 0) continue;
+                // Method may carry `__f__sig` / `__g__sig`. Preserve sig in
+                // dest_name so subsequent enqueues that mangle with type_args
+                // produce matching final names.
+                std::string method = tn.substr(tmpl_prefix.size());
                 std::string dest = concrete + "__" + method;
                 if (done_.count(dest)) continue;
                 SubstMap subst;
