@@ -467,12 +467,14 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
         base = base.substr(0, p);
 
     // Prefer pkg-qualified lookup so cross-pkg same-named structs use
-    // the correct template. Fall back to bare for legacy / unqualified
-    // call sites.
+    // the correct template. If the struct exists in this pkg but has no
+    // methods, don't fall back to bare (would leak other pkg's methods).
     std::string pkg{TypeRef(concrete_struct_t).pkg_name()};
+    bool pkg_struct_exists = !pkg.empty() &&
+        struct_templates_.find(pkg + "." + base) != struct_templates_.end();
     auto sit = pkg.empty() ? struct_method_templates_.end()
                             : struct_method_templates_.find(pkg + "." + base);
-    if (sit == struct_method_templates_.end())
+    if (sit == struct_method_templates_.end() && !pkg_struct_exists)
         sit = struct_method_templates_.find(base);
     if (sit == struct_method_templates_.end()) return;
 
@@ -492,7 +494,7 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
 
     auto stt = pkg.empty() ? struct_templates_.end()
                             : struct_templates_.find(pkg + "." + base);
-    if (stt == struct_templates_.end())
+    if (stt == struct_templates_.end() && !pkg_struct_exists)
         stt = struct_templates_.find(base);
     if (stt == struct_templates_.end()) return;
     const auto& tpars = stt->second->type_params;

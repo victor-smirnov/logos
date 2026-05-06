@@ -943,8 +943,16 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             }
         }
         if (!target_struct_tmpl) {
+            // Prefer struct in the impl's pkg (cur_package_) over a same-named
+            // struct from another pkg (e.g. stdlib's Box vs user's Box).
             for (auto& sd : prog.structs)
-                if (sd.name == target) { target_struct_tmpl = &sd; break; }
+                if (sd.name == target && sd.pkg == cur_package_) {
+                    target_struct_tmpl = &sd; break;
+                }
+            if (!target_struct_tmpl) {
+                for (auto& sd : prog.structs)
+                    if (sd.name == target) { target_struct_tmpl = &sd; break; }
+            }
         }
     }
     StrSet overridden;

@@ -406,7 +406,17 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 kind != LogosType::Kind::ZonedStruct)
                 continue;
             std::string base{TypeRef(ia.struct_type).struct_name()};
-            auto sit = struct_method_templates_.find(base);
+            std::string ia_pkg{TypeRef(ia.struct_type).pkg_name()};
+            // Pkg-aware: prefer pkg-qualified method-template lookup. If the
+            // struct exists in this pkg (template registered) but has no
+            // methods, accept that — don't fall back to bare which would
+            // pull in another pkg's same-named struct's methods.
+            bool pkg_struct_exists = !ia_pkg.empty() &&
+                struct_templates_.find(ia_pkg + "." + base) != struct_templates_.end();
+            auto sit = ia_pkg.empty() ? struct_method_templates_.end()
+                                      : struct_method_templates_.find(ia_pkg + "." + base);
+            if (sit == struct_method_templates_.end() && !pkg_struct_exists)
+                sit = struct_method_templates_.find(base);
             if (sit == struct_method_templates_.end()) continue;
             std::string concrete = concrete_struct_name(ia.struct_type);
             // Strip overload-disambiguation suffix `__g__<sig>` so the dest
