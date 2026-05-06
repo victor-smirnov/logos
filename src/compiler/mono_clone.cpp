@@ -3206,13 +3206,20 @@ void Mono::instantiate_struct_templates() {
 
             const lir::LStructDef* tmpl = nullptr;
             PackMap packs;
+            // Prefer pkg-qualified lookup so cross-pkg same-named structs
+            // route to their own template; fall back to bare for legacy
+            // call sites that don't carry pkg.
+            std::string struct_pkg{TypeRef(struct_t).pkg_name()};
             if (auto* spec = find_best_struct_spec(base, TypeRef(struct_t).type_args())) {
                 for (size_t i = 0; i < spec->spec_patterns.size() &&
                                    i < TypeRef(struct_t).type_args().size(); ++i)
                     match_type(TypeRef(struct_t).type_args()[i], spec->spec_patterns[i], subst);
                 tmpl = spec;
             } else {
-                auto it = struct_templates_.find(base);
+                auto it = struct_pkg.empty() ? struct_templates_.end()
+                                             : struct_templates_.find(struct_pkg + "." + base);
+                if (it == struct_templates_.end())
+                    it = struct_templates_.find(base);
                 if (it == struct_templates_.end()) continue;
                 tmpl = it->second;
                 for (size_t i = 0, j = 0; i < tmpl->type_params.size(); ++i) {
@@ -3232,8 +3239,17 @@ void Mono::instantiate_struct_templates() {
             // different pkg only contributes layout; the cloned inst should
             // carry the generic's pkg so user-side TypeRefs (resolved against
             // the generic decl) and mlir-side struct names agree.
-            if (auto git = struct_templates_.find(base); git != struct_templates_.end())
-                inst.pkg = git->second->pkg;
+            // Inst pkg comes from the generic template (not the spec, which
+            // may live in a different pkg and only contribute layout).
+            if (!struct_pkg.empty())
+                if (auto git = struct_templates_.find(struct_pkg + "." + base);
+                    git != struct_templates_.end()) {
+                    inst.pkg = git->second->pkg;
+                }
+            if (inst.pkg.empty())
+                if (auto git = struct_templates_.find(base);
+                    git != struct_templates_.end())
+                    inst.pkg = git->second->pkg;
             // Mirror emit happens here — *after* clone, *before* scan_fn — because
             // only at this point are stmt/expr addresses stable. Two conditions:
             //   (a) all recursive subst_block push_backs are done, so the

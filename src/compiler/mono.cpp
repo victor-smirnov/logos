@@ -81,9 +81,15 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     }
 
     // Index generic struct templates; pass-through plain structs immediately.
+    // Pkg-qualified entries enable cross-pkg same-named struct disambig;
+    // bare alias kept as last-wins for back-compat with callers operating
+    // by base name only.
     for (auto& sd : in_.structs) {
-        if (!sd.type_params.empty())
+        if (!sd.type_params.empty()) {
+            if (!sd.pkg.empty())
+                struct_templates_[sd.pkg + "." + sd.name] = &sd;
             struct_templates_[sd.name] = &sd;  // stable: in_.structs not moved
+        }
         // L1: build (base_struct, short_method_name) → template index for lazy
         // method instantiation. Method fn-names are stored as `Base__method` in
         // sema (lower_fn); strip the prefix so the lookup key is the short name
@@ -93,6 +99,8 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             std::string short_name = m->name.rfind(prefix, 0) == 0
                 ? m->name.substr(prefix.size())
                 : m->name;
+            if (!sd.pkg.empty())
+                struct_method_templates_[sd.pkg + "." + sd.name][short_name] = m.get();
             struct_method_templates_[sd.name][short_name] = m.get();
         }
     }

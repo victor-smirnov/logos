@@ -466,7 +466,14 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
     if (auto p = base.find("$G"); p != std::string::npos)
         base = base.substr(0, p);
 
-    auto sit = struct_method_templates_.find(base);
+    // Prefer pkg-qualified lookup so cross-pkg same-named structs use
+    // the correct template. Fall back to bare for legacy / unqualified
+    // call sites.
+    std::string pkg{TypeRef(concrete_struct_t).pkg_name()};
+    auto sit = pkg.empty() ? struct_method_templates_.end()
+                            : struct_method_templates_.find(pkg + "." + base);
+    if (sit == struct_method_templates_.end())
+        sit = struct_method_templates_.find(base);
     if (sit == struct_method_templates_.end()) return;
 
     // Method names may carry overload-disambiguation suffix `__g__<sig>`.
@@ -483,7 +490,10 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
     }
     if (matches.empty()) return;
 
-    auto stt = struct_templates_.find(base);
+    auto stt = pkg.empty() ? struct_templates_.end()
+                            : struct_templates_.find(pkg + "." + base);
+    if (stt == struct_templates_.end())
+        stt = struct_templates_.find(base);
     if (stt == struct_templates_.end()) return;
     const auto& tpars = stt->second->type_params;
     auto type_args = TypeRef(concrete_struct_t).type_args();
