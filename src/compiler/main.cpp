@@ -2278,10 +2278,20 @@ int main(int argc, char** argv) {
             for (const auto& mh : prog.metaprog_handlers) {
                 if (mh.trigger != tgt.trigger) continue;
                 any_handler = true;
-                auto* sym = meta_jit->lookup(mh.hook_fn);
+                // mh.hook_fn is the bare AST name; resolve to the actual
+                // emitted symbol (function_symbol_name may have applied
+                // pkg+sig mangling) before JIT-side lookup.
+                std::string lookup_name = mh.hook_fn;
+                for (const auto& f : prog.functions) {
+                    if (logos::compiler::bare_fn_name(f->name) == mh.hook_fn) {
+                        lookup_name = f->name;
+                        break;
+                    }
+                }
+                auto* sym = meta_jit->lookup(lookup_name);
                 if (!sym) {
                     std::fprintf(stderr, "logosc: metaprog hook lookup '%s': %s\n",
-                                 mh.hook_fn.c_str(), meta_jit->error_str().c_str());
+                                 lookup_name.c_str(), meta_jit->error_str().c_str());
                     return 1;
                 }
                 g_current_hook_name = mh.hook_fn.c_str();
@@ -2690,7 +2700,9 @@ int main(int argc, char** argv) {
         for (const auto& mh : prog.metaprog_handlers) hook_names.insert(mh.hook_fn);
         prog.functions.erase(
             std::remove_if(prog.functions.begin(), prog.functions.end(),
-                [&](const auto& f) { return hook_names.count(f->name) > 0; }),
+                [&](const auto& f) {
+                    return hook_names.count(std::string(logos::compiler::bare_fn_name(f->name))) > 0;
+                }),
             prog.functions.end());
     }
 

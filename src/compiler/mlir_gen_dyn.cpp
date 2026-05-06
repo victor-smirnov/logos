@@ -650,8 +650,28 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
             if (ib.trait_name != td.name) continue;
             auto key = td.name + "::" + ib.target_type;
             std::vector<std::string> methods;
-            for (auto& m : td.methods)
-                methods.push_back(ib.target_type + "__" + m.name);
+            // Resolve actual method symbol from the impl block's fn pointers
+            // (sema may have applied package + signature mangling on top of
+            // the bare `Type__method` convention).
+            for (auto& m : td.methods) {
+                std::string sym;
+                for (auto& fp : ib.methods) {
+                    if (!fp) continue;
+                    std::string_view nm = fp->name;
+                    auto p = nm.rfind("__" + m.name);
+                    if (p != std::string_view::npos) {
+                        // Match either exact end or sig-suffix start.
+                        auto rest = nm.substr(p + 2 + m.name.size());
+                        if (rest.empty() || rest.rfind("__f__", 0) == 0
+                                          || rest.rfind("__g__", 0) == 0) {
+                            sym = std::string(nm);
+                            break;
+                        }
+                    }
+                }
+                if (sym.empty()) sym = ib.target_type + "__" + m.name;
+                methods.push_back(std::move(sym));
+            }
             dyn_vtable_methods_[key] = std::move(methods);
         }
     }
@@ -763,8 +783,29 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(lir_view::EMethodCallView v,
     // encoding (legacy 2-byte tag vs. vlen datatag vs. TOM inline header).
     // TagSystems are unit structs with no state, so self can be a null pointer.
     auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
-    auto rtc_sym = std::string(v.tag_system()) + "__read_tag";
+    auto rtc_base = std::string(v.tag_system()) + "__read_tag";
+    std::string rtc_sym = rtc_base;
     auto rtc_fn = parent_mod.lookupSymbol<mlir::func::FuncOp>(rtc_sym);
+    if (!rtc_fn && prog_) {
+        // Unconditional mangling appends `__f__sig`; scan for matching prefix.
+        for (auto& sd : prog_->structs) {
+            if (sd.name != v.tag_system()) continue;
+            for (auto& mp : sd.methods) {
+                if (!mp) continue;
+                std::string_view nm = mp->name;
+                if (nm == rtc_base ||
+                    (nm.size() > rtc_base.size() &&
+                     nm.compare(0, rtc_base.size(), rtc_base) == 0 &&
+                     (nm.compare(rtc_base.size(), 5, "__f__") == 0 ||
+                      nm.compare(rtc_base.size(), 5, "__g__") == 0))) {
+                    rtc_sym = std::string(nm);
+                    rtc_fn = parent_mod.lookupSymbol<mlir::func::FuncOp>(rtc_sym);
+                    if (rtc_fn) break;
+                }
+            }
+            if (rtc_fn) break;
+        }
+    }
     if (!rtc_fn) {
         std::fprintf(stderr, "gen_tagged_dispatch: '%s' not found\n", rtc_sym.c_str());
         return nullptr;

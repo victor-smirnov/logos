@@ -130,6 +130,44 @@ private:
         if (it == mirror_->stmt_by_offset.end()) return nullptr;
         return it->second;
     }
+    // Resolve `<struct>__<method>` to the actual mangled fn symbol in
+    // prog_->structs (sema may append `__f__sig` / `__g__sig` under
+    // overload mangling). Returns the bare convention name as fallback
+    // when no match is found.
+    std::string resolve_method_symbol(std::string_view struct_name,
+                                      std::string_view method_name) const noexcept {
+        std::string base; base.reserve(struct_name.size() + 2 + method_name.size());
+        base.append(struct_name); base.append("__"); base.append(method_name);
+        if (!prog_) return base;
+        for (auto& sd : prog_->structs) {
+            if (sd.name != struct_name) continue;
+            for (auto& mp : sd.methods) {
+                if (!mp) continue;
+                std::string_view nm = mp->name;
+                if (nm == base) return std::string(nm);
+                if (nm.size() > base.size() &&
+                    nm.compare(0, base.size(), base) == 0 &&
+                    (nm.compare(base.size(), 5, "__f__") == 0 ||
+                     nm.compare(base.size(), 5, "__g__") == 0)) {
+                    return std::string(nm);
+                }
+            }
+        }
+        // Fallback: scan free fns (drop fns may live there for non-struct types).
+        for (auto& fn : prog_->functions) {
+            if (!fn) continue;
+            std::string_view nm = fn->name;
+            if (nm == base) return std::string(nm);
+            if (nm.size() > base.size() &&
+                nm.compare(0, base.size(), base) == 0 &&
+                (nm.compare(base.size(), 5, "__f__") == 0 ||
+                 nm.compare(base.size(), 5, "__g__") == 0)) {
+                return std::string(nm);
+            }
+        }
+        return base;
+    }
+
     const TypePoolImpl* pool_impl() const noexcept {
         return prog_ ? prog_->type_pool.impl() : nullptr;
     }

@@ -528,9 +528,9 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                     std::string sym = sd.name + "__" + tm.name;
                     // Only emit if the method actually exists (cloned by mono).
                     bool has = false;
-                    for (auto& sm : sd.methods) if (sm->name == sym) { has = true; break; }
+                    for (auto& sm : sd.methods) if (bare_fn_name(sm->name) == sym) { has = true; break; }
                     if (!has) {
-                        for (auto& f : out_.functions) if (f->name == sym) { has = true; break; }
+                        for (auto& f : out_.functions) if (bare_fn_name(f->name) == sym) { has = true; break; }
                     }
                     if (!has) continue;
                     // Dedup: skip if an equivalent entry already exists (sema

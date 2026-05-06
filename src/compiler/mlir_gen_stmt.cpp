@@ -135,7 +135,7 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
             for (int fi = (int)info.fields.size() - 1; fi >= 0; --fi) {
                 auto& f = info.fields[fi];
                 std::string field_drop = f.struct_name.empty()
-                    ? std::string{} : f.struct_name + "__drop";
+                    ? std::string{} : resolve_method_symbol(f.struct_name, "drop");
                 if (field_drop.empty()) continue;
                 auto field_fn = mod.lookupSymbol<mlir::func::FuncOp>(field_drop);
                 if (!field_fn) continue;
@@ -2306,7 +2306,7 @@ void MLIRGenImpl::gen_delete(lir_view::SDeleteView v) {
         auto tname = et.pointee().struct_name();
         if (!tname.empty()) {
             auto mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
-            auto drop_fn = mod.lookupSymbol<mlir::func::FuncOp>(std::string(tname) + "__drop");
+            auto drop_fn = mod.lookupSymbol<mlir::func::FuncOp>(resolve_method_symbol(tname, "drop"));
             if (drop_fn)
                 builder_.create<mlir::func::CallOp>(loc_, drop_fn, mlir::ValueRange{ptr});
         }

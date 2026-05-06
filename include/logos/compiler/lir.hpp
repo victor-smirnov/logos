@@ -1038,6 +1038,33 @@ inline EClosure* alloc_closure(LProgram& prog, Args&&... args) {
 
 } // namespace logos::compiler::lir
 
+namespace logos::compiler {
+
+// Strip `function_symbol_name` mangling layers
+// (`pkg$base__f__sig` / `pkg$base__g__sig`) and return the bare base
+// name. Used at sites that compare an AST-captured string (always
+// bare, e.g. metaprog hook trigger) against an LFunction `name` (may
+// be mangled by the time mono / final-strip / dispatch runs).
+//
+// Pkg prefix vs struct-generic `$G\d+`: strip the first `$` unless it
+// introduces the generic marker (`$G` followed by a digit). The pkg
+// form is `<pkgname>$<base>` (pkgname may be `main` or a dotted path);
+// the struct-generic form is `<Type>$G<n>$<arg1>$...` and must stay
+// intact on method symbols (`Foo$G1$i32__get`).
+inline std::string_view bare_fn_name(std::string_view nm) noexcept {
+    if (auto p = nm.find("__f__"); p != std::string_view::npos) nm = nm.substr(0, p);
+    else if (auto p = nm.find("__g__"); p != std::string_view::npos) nm = nm.substr(0, p);
+    if (auto d = nm.find('$'); d != std::string_view::npos) {
+        bool is_generic_marker = (d + 2 < nm.size()
+                                  && nm[d + 1] == 'G'
+                                  && nm[d + 2] >= '0' && nm[d + 2] <= '9');
+        if (!is_generic_marker) nm = nm.substr(d + 1);
+    }
+    return nm;
+}
+
+} // namespace logos::compiler
+
 // B.6 Stage 3.5 step 7e: variant `kind` fields removed from
 // LExpr/LStmt/Pattern/HermesVal. Schema codes (lir_schema::expr/stmt/pat) are
 // the sole source of truth; payload lives in the Hermes mirror.

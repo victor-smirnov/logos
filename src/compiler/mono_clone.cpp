@@ -2167,10 +2167,10 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         bool ptr_exists = templates_.count(ptr_fn) || specs_.count(ptr_fn);
                         if (!ptr_exists)
                             for (auto& f : in_.functions)
-                                if (f->name == ptr_fn) { ptr_exists = true; break; }
+                                if (bare_fn_name(f->name) == ptr_fn) { ptr_exists = true; break; }
                         if (!ptr_exists)
                             for (auto& f : out_.functions)
-                                if (f->name == ptr_fn) { ptr_exists = true; break; }
+                                if (bare_fn_name(f->name) == ptr_fn) { ptr_exists = true; break; }
                         cname = ptr_exists ? ptr_cname : type_str(TypeRef(rt).pointee());
                     }
                 }
@@ -2935,7 +2935,7 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
         bool overridden = false;
         for (auto& fn : in_.functions) {
             if (!fn->type_params.empty()) continue;
-            if (fn->name == nm.name) { overridden = true; break; }
+            if (bare_fn_name(fn->name) == nm.name) { overridden = true; break; }
         }
         if (overridden) continue;
         // Substitute struct type in params/ret as needed (already done by clone_fn).

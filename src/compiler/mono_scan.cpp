@@ -530,14 +530,14 @@ void Mono::drain_method_worklist() {
         std::string dest_name = item.concrete_struct + "__" + item.method_name;
         bool exists = false;
         for (auto& m : target->methods)
-            if (m->name == dest_name) { exists = true; break; }
+            if (bare_fn_name(m->name) == dest_name) { exists = true; break; }
         if (exists) continue;
         // Specialization: a non-generic `impl Foo<Concrete>` lowers to a
         // free-fn under this exact mangled name. Don't clone the blanket
         // body — the passthrough free-fn path emits the correct one.
         for (auto& fn : in_.functions) {
             if (!fn->type_params.empty()) continue;
-            if (fn->name == dest_name) { exists = true; break; }
+            if (bare_fn_name(fn->name) == dest_name) { exists = true; break; }
         }
         if (exists) continue;
 

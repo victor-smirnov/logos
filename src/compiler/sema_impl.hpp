@@ -116,15 +116,10 @@ public:
         metaprog_keep_fns_ = std::move(names);
     }
     bool fn_is_metaprog_keep(std::string_view name) const {
-        // Strip mangling layers added by function_symbol_name:
-        //   pkg-prefix `pkg$` (cross-package coexistence)
-        //   sig suffix `__f__<sig>` / `__g__<sig>` (overload-disambig)
         // metacall_sites store the raw callee token (bare base name);
-        // compare against the fully-stripped base.
-        std::string_view base = name;
-        if (auto p = base.find("__g__"); p != std::string_view::npos) base = base.substr(0, p);
-        else if (auto p = base.find("__f__"); p != std::string_view::npos) base = base.substr(0, p);
-        if (auto d = base.rfind('$'); d != std::string_view::npos) base = base.substr(d + 1);
+        // compare against the bare form of `name` (which may carry
+        // `pkg$base__f__sig` mangling at this point).
+        auto base = bare_fn_name(name);
         for (const auto& n : metaprog_keep_fns_) if (n == base) return true;
         return false;
     }
@@ -698,6 +693,7 @@ private:
         if (name == "annotation")      return bit(AttrTarget::Struct) | bit(AttrTarget::Datatype);
         if (name == "tag_dispatch")    return bit(AttrTarget::Trait);
         if (name == "metaprog_handler")return bit(AttrTarget::Fn);
+        if (name == "no_mangle")       return bit(AttrTarget::Fn);
         return 0u;  // not a builtin
     }
 
@@ -1049,8 +1045,9 @@ private:
     hermes::TinyMapView cur_root_;
 
     bool fn_is_metaprog_handler(std::string_view name) const {
+        auto base = bare_fn_name(name);
         for (const auto& mh : metaprog_handlers_)
-            if (mh.hook_fn == name) return true;
+            if (mh.hook_fn == base) return true;
         return false;
     }
 
@@ -1200,6 +1197,10 @@ private:
     // Set by collect_impl/lower_impl_block for `impl<T>` blocks so that
     // collect_fn/lower_fn include the impl-level type params in the function.
     std::vector<TypeParam> impl_type_params_;
+    // Set when the upcoming collect_fn/lower_fn carries `#[no_mangle]` on
+    // its annotation list. Reset to false at the end of each collect_fn /
+    // lower_fn invocation so the flag never leaks across items.
+    bool pending_no_mangle_ = false;
     // Mangled name of the currently-being-lowered fn. Used by make_drop_stmt
     // to skip auto-drop on the `self` parameter of a Drop fn (would be
     // infinite self-recursion).

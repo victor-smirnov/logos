@@ -1088,7 +1088,7 @@ lir::LProgram borrow_check(lir::LProgram prog) {
     auto check = [&](const LFunction& fn) {
         if (fn.is_extern)             return;
         if (!fn.type_params.empty())  return;
-        BorrowChecker(prog.diags, "fn " + fn.name, prog, ts).check(fn);
+        BorrowChecker(prog.diags, "fn " + std::string(bare_fn_name(fn.name)), prog, ts).check(fn);
     };
 
     for (auto& fn : prog.functions)       check(*fn);

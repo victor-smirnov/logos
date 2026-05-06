@@ -260,6 +260,13 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
         }
     }
     decl_param_arity = decl_param_types.size();
+    // Resolve any AssocType / alias placeholders so the param signature
+    // matches what sema_collect's add_func saved (collect already runs
+    // assoc-type resolution before mangling). Otherwise types_equal in
+    // the candidate-matching loop fails for fns whose params are
+    // associated types (e.g. `Box<i32>::Inner<i32>` -> i32).
+    for (auto& pt : decl_param_types)
+        pt = subst_type_sema(pt, {});
     pop_type_params(node_tparams);
     pop_type_params(impl_type_params_);
 
@@ -1129,11 +1136,22 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                         auto mangled = target + "__" + m.name;
                         if (!overridden.count(mangled) && !m.has_default) continue;
 
+                        // Resolve the bare convention-name to the actual mangled
+                        // symbol stored in funcs_ (unconditional mangling appends
+                        // an `__f__sig` suffix to every fn).
+                        std::string actual_sym = mangled;
+                        for (auto* cand : find_func_candidates(mangled)) {
+                            if (cand && !cand->symbol_name.empty()) {
+                                actual_sym = cand->symbol_name;
+                                break;
+                            }
+                        }
+
                         lir::LDispatchEntry de;
                         de.tag_system     = tag_system;
                         de.trait_name     = trait_name;
                         de.method_name    = m.name;
-                        de.fn_symbol      = mangled;
+                        de.fn_symbol      = std::move(actual_sym);
                         de.impl_type_name = target;
                         de.type_code      = tcode;
                         prog.dispatch_entries.push_back(std::move(de));

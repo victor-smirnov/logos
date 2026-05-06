@@ -332,6 +332,7 @@ pub fn yield_fiber() {
 // Called by the logos_fiber_entry trampoline (fiber_ctx.S) after the fiber
 // function returns.  Notifies the scheduler to free this fiber and switches
 // back to the scheduler context.
+#[no_mangle]
 pub fn logos_fiber_done() {
     let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
     let cur: i64 = unsafe { s.current };

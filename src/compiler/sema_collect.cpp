@@ -660,6 +660,15 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                                       str_of(item.get(la::NAME.code)),
                                       item_has_type_params(item), pending_annots);
                 }
+                // Detect `#[no_mangle]` so collect_fn keeps the bare base
+                // name in symbol_name (program entry / inline-asm callees).
+                pending_no_mangle_ = false;
+                for (auto& ann : pending_annots) {
+                    if (str_of(ann.get(la::NAME.code)) == "no_mangle") {
+                        pending_no_mangle_ = true;
+                        break;
+                    }
+                }
                 // Phase 7 slice 12: record `#[metaprog_handler("trigger")]`
                 // hooks. The annotation's first positional arg is the
                 // user-facing trigger name; the host driver scans user
@@ -2396,8 +2405,17 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
         return;
     }
 
+    bool is_method = base_name.find("__") != std::string::npos;
+    // `main` is the program entry — ld.lld looks for the bare symbol.
+    // `#[no_mangle]` suppresses pkg+sig mangling so a fn called from
+    // inline asm / extern "C" callers keeps its bare name.
+    bool is_runtime_abi = (base_name == "main") || pending_no_mangle_;
+    pending_no_mangle_ = false;
     auto& overloads = func_overloads_[base_name];
-    if (!overloads.empty()) {
+    if (is_runtime_abi) {
+    } else if (!is_method) {
+        info.symbol_name = function_symbol_name(base_name, info);
+    } else if (!overloads.empty()) {
         if (overloads.size() == 1 && overloads[0] == base_name) {
             auto it = funcs_.find(base_name);
             if (it != funcs_.end()) {

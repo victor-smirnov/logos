@@ -1053,6 +1053,40 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                 callee_fn = find_func_op(parent_mod,
                     callee.substr(dollar + 1, gpos - dollar - 1));
         }
+        // Variadic-shrinking fallback: a recursive call inside a
+        // variadic-pack-expand template carries the literal generic
+        // mangling `…__g__sig__H__T` that no concrete clone matches.
+        // The actual terminator is a sibling **non-generic** overload
+        // of the same base whose own symbol is mangled with `__f__sig`.
+        // Strip `__g__sig` and search for any `<base>__f__…` defined.
+        if (!callee_fn && gpos != std::string::npos) {
+            std::string base_with_pkg = callee.substr(0, gpos);
+            std::string fn_prefix_pkg = base_with_pkg + "__f__";
+            parent_mod.walk([&](mlir::func::FuncOp fn) {
+                auto fn_name = fn.getName().str();
+                if (fn_name.rfind(fn_prefix_pkg, 0) == 0) {
+                    callee_fn = fn;
+                    return mlir::WalkResult::interrupt();
+                }
+                return mlir::WalkResult::advance();
+            });
+            // If `base_with_pkg` includes `pkg$`, also try the bare base.
+            if (!callee_fn) {
+                auto dollar = base_with_pkg.rfind('$');
+                if (dollar != std::string::npos) {
+                    std::string fn_prefix_bare =
+                        base_with_pkg.substr(dollar + 1) + "__f__";
+                    parent_mod.walk([&](mlir::func::FuncOp fn) {
+                        auto fn_name = fn.getName().str();
+                        if (fn_name.rfind(fn_prefix_bare, 0) == 0) {
+                            callee_fn = fn;
+                            return mlir::WalkResult::interrupt();
+                        }
+                        return mlir::WalkResult::advance();
+                    });
+                }
+            }
+        }
         if (!callee_fn) {
             // Generic instantiations may be emitted without their trailing
             // `__g__...` suffix in the call site.  Fall back to the concrete
@@ -1212,9 +1246,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
     auto callee_fn   = find_func_op(parent_mod, callee_name);
     if (!callee_fn) {
         std::string generic_prefix = callee_name + "__g__";
+        std::string fn_prefix = callee_name + "__f__";
         parent_mod.walk([&](mlir::func::FuncOp fn) {
             auto fn_name = fn.getName().str();
-            if (fn_name.rfind(generic_prefix, 0) == 0) {
+            if (fn_name.rfind(generic_prefix, 0) == 0 ||
+                fn_name.rfind(fn_prefix, 0) == 0) {
                 callee_fn = fn;
                 return mlir::WalkResult::interrupt();
             }
@@ -1226,9 +1262,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
         callee_fn = find_func_op(parent_mod, callee_name);
         if (!callee_fn) {
             std::string generic_prefix = callee_name + "__g__";
+            std::string fn_prefix = callee_name + "__f__";
             parent_mod.walk([&](mlir::func::FuncOp fn) {
                 auto fn_name = fn.getName().str();
-                if (fn_name.rfind(generic_prefix, 0) == 0) {
+                if (fn_name.rfind(generic_prefix, 0) == 0 ||
+                    fn_name.rfind(fn_prefix, 0) == 0) {
                     callee_fn = fn;
                     return mlir::WalkResult::interrupt();
                 }

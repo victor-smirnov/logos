@@ -1231,6 +1231,15 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     // Identify which entry to use
     const SemaFuncInfo* infer_fi = nullptr;
     const SemaFuncInfo* fi_sel = (fit != funcs_.end()) ? &fit->second : git;
+    // Under unconditional fn-symbol mangling, funcs_ is keyed by the
+    // mangled symbol_name, so a bare base-name `find` misses. Fall back
+    // to the first non-generic candidate so arity / type diagnostics
+    // can still pin a representative signature.
+    if (!fi_sel && !all_cands.empty()) {
+        for (auto* c : all_cands) {
+            if (c && c->type_params.empty()) { fi_sel = c; break; }
+        }
+    }
     if (!fi_sel) {
         if (!all_cands.empty()) {
             return builder().call(std::string(callee), {}, std::move(arg_exprs), error_t());
@@ -1440,7 +1449,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         return builder().call(fi.symbol_name.empty() ? std::string(callee) : fi.symbol_name, std::move(type_var_args), std::move(arg_exprs), ret);
     }
 
-    return builder().call(std::string(callee), {}, std::move(arg_exprs), fi.ret_type);
+    return builder().call(fi.symbol_name.empty() ? std::string(callee) : fi.symbol_name, {}, std::move(arg_exprs), fi.ret_type);
 }
 
 void SemaChecker::unify_types(TypeRef formal, TypeRef actual,

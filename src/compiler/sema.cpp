@@ -655,10 +655,13 @@ static std::string mangle_type_for_name(TypeRef t);
 std::string concrete_struct_name(TypeRef t) {
     if (!t || (TypeRef(t).kind() != LogosType::Kind::Struct &&
                TypeRef(t).kind() != LogosType::Kind::ZonedStruct)) return {};
-    if (TypeRef(t).type_args().empty()) return std::string(TypeRef(t).struct_name());
-    std::string r = std::string(TypeRef(t).struct_name()) + "$G" + std::to_string(TypeRef(t).type_args().size());
-    for (auto a : TypeRef(t).type_args()) { r += "$"; r += mangle_type_for_name(a); }
-    return r;
+    std::string base(TypeRef(t).struct_name());
+    if (!TypeRef(t).type_args().empty()) {
+        base += "$G";
+        base += std::to_string(TypeRef(t).type_args().size());
+        for (auto a : TypeRef(t).type_args()) { base += "$"; base += mangle_type_for_name(a); }
+    }
+    return base;
 }
 
 std::string concrete_struct_name_raw(std::string_view base_name,
@@ -1149,9 +1152,11 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
             // all fire on each match in source-declaration order. No
             // dedup of the (trigger, hook_fn) pair: registering the same
             // fn twice would call it twice, which is the user's bug.
+            // mh.hook_fn was captured as the bare AST name; the actual
+            // emitted symbol may carry `pkg$base__f__sig` mangling.
             const lir::LFunction* fn = nullptr;
             for (const auto& f : prog.functions)
-                if (f->name == mh.hook_fn) { fn = f.get(); break; }
+                if (bare_fn_name(f->name) == mh.hook_fn) { fn = f.get(); break; }
             if (!fn) { error("#[metaprog_handler] not a free fn"); continue; }
             if (fn->is_extern)
                 error("#[metaprog_handler] cannot be applied to extern fn");
