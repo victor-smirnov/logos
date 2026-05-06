@@ -192,6 +192,7 @@ private:
 
     struct MethodWorkItem {
         std::string             concrete_struct; // e.g. "Foo$G1$i32"
+        std::string             struct_pkg;      // pkg of receiver struct (for cross-pkg disambig)
         std::string             base_struct;     // e.g. "Foo"
         std::string             method_name;     // short name (e.g. "bar"), used as dest suffix
         const lir::LFunction*   tmpl;            // resolved template (overload-aware)

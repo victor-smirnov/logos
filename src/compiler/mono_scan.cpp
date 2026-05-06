@@ -518,7 +518,7 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
             }
         }
 
-        method_worklist_.push_back({concrete, base, method_name, fp,
+        method_worklist_.push_back({concrete, pkg, base, method_name, fp,
                                     std::move(subst), std::move(packs), depth_ + 1});
     }
 }
@@ -533,8 +533,15 @@ void Mono::drain_method_worklist() {
         // Find the target struct in out_.structs (it must already exist —
         // struct shells are emitted before any method enqueue can fire).
         lir::LStructDef* target = nullptr;
+        // Pkg-aware disambig when two same-named clones coexist.
         for (auto& sd : out_.structs)
-            if (sd.name == item.concrete_struct) { target = &sd; break; }
+            if (sd.name == item.concrete_struct &&
+                (item.struct_pkg.empty() || sd.pkg == item.struct_pkg)) {
+                target = &sd; break;
+            }
+        if (!target)
+            for (auto& sd : out_.structs)
+                if (sd.name == item.concrete_struct) { target = &sd; break; }
         if (!target) continue;
 
         // Skip if a method with this name is already on the struct (e.g.

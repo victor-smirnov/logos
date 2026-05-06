@@ -1902,10 +1902,17 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                     if (T && (T.kind() == LogosType::Kind::Struct ||
                               T.kind() == LogosType::Kind::ZonedStruct)) {
                         std::string base{T.struct_name()};
+                        std::string tpkg{T.pkg_name()};
+                        const lir::LStructDef* match = nullptr;
                         for (auto& sd : in_.structs)
-                            if (sd.name == base) {
-                                n = (int64_t)sd.fields.size(); break;
+                            if (sd.name == base &&
+                                (tpkg.empty() || sd.pkg == tpkg)) {
+                                match = &sd; break;
                             }
+                        if (!match)
+                            for (auto& sd : in_.structs)
+                                if (sd.name == base) { match = &sd; break; }
+                        if (match) n = (int64_t)match->fields.size();
                     }
                 }
                 LirBuilder b(out_);
@@ -1925,9 +1932,16 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                     if (T && (T.kind() == LogosType::Kind::Struct ||
                               T.kind() == LogosType::Kind::ZonedStruct)) {
                         std::string base{T.struct_name()};
+                        std::string tpkg{T.pkg_name()};
                         const lir::LStructDef* tmpl = nullptr;
                         for (auto& sd : in_.structs)
-                            if (sd.name == base) { tmpl = &sd; break; }
+                            if (sd.name == base &&
+                                (tpkg.empty() || sd.pkg == tpkg)) {
+                                tmpl = &sd; break;
+                            }
+                        if (!tmpl)
+                            for (auto& sd : in_.structs)
+                                if (sd.name == base) { tmpl = &sd; break; }
                         if (tmpl)
                             for (auto& f : tmpl->fields)
                                 field_names.push_back(f.name);
@@ -1981,9 +1995,16 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         if (T && (T.kind() == LogosType::Kind::Struct ||
                                   T.kind() == LogosType::Kind::ZonedStruct)) {
                             std::string base{T.struct_name()};
+                            std::string tpkg{T.pkg_name()};
                             const lir::LStructDef* tmpl = nullptr;
                             for (auto& sd : in_.structs)
-                                if (sd.name == base) { tmpl = &sd; break; }
+                                if (sd.name == base &&
+                                    (tpkg.empty() || sd.pkg == tpkg)) {
+                                    tmpl = &sd; break;
+                                }
+                            if (!tmpl)
+                                for (auto& sd : in_.structs)
+                                    if (sd.name == base) { tmpl = &sd; break; }
                             if (tmpl) {
                                 SubstMap fsubst;
                                 for (size_t i = 0, j = 0;
