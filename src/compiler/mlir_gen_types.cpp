@@ -172,11 +172,13 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
         }
         if (fv.kind() == LogosType::Kind::ZonedStruct ||
             fv.kind() == LogosType::Kind::Struct) {
-            auto cname = concrete_struct_name(f.type);
+            auto cname = mlir_struct_key(f.type);
             auto sit = struct_types_.find(cname);
             if (sit == struct_types_.end()) {
                 // Not yet registered — try to register it now (resolve dependency order).
                 auto def_it = all_struct_defs_.find(cname);
+                if (def_it == all_struct_defs_.end())
+                    def_it = all_struct_defs_.find(concrete_struct_name(f.type));
                 if (def_it != all_struct_defs_.end())
                     register_struct(*def_it->second);
                 sit = struct_types_.find(cname);
@@ -199,7 +201,7 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
             // *Struct / &Struct / &mut Struct field — pointer to struct.
             // Set fsname so gen_recv_struct can chain field access through it.
             ft = ptr_type();
-            fsname = concrete_struct_name(fv.pointee());
+            fsname = mlir_struct_key(fv.pointee());
         } else {
             ft = logos_to_mlir(f.type);
             if (!ft) {

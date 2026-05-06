@@ -136,11 +136,15 @@ private:
     // when no match is found.
     std::string resolve_method_symbol(std::string_view struct_name,
                                       std::string_view method_name) const noexcept {
-        std::string base; base.reserve(struct_name.size() + 2 + method_name.size());
-        base.append(struct_name); base.append("__"); base.append(method_name);
+        // struct_name may carry a pkg prefix (`pkg.Type`) since field-info
+        // now uses mlir_struct_key. Method-symbol convention is bare
+        // `Type__method`, so build the base on the bare struct name.
+        auto bare_struct = strip_struct_pkg(struct_name);
+        std::string base; base.reserve(bare_struct.size() + 2 + method_name.size());
+        base.append(bare_struct); base.append("__"); base.append(method_name);
         if (!prog_) return base;
         for (auto& sd : prog_->structs) {
-            if (sd.name != struct_name) continue;
+            if (sd.name != bare_struct) continue;
             for (auto& mp : sd.methods) {
                 if (!mp) continue;
                 std::string_view nm = mp->name;
