@@ -230,6 +230,20 @@ private:
     lir::Pattern subst_pattern(const lir::Pattern& pat, const SubstMap& s);
     lir::Pattern subst_pattern(lir_view::PatRef pref, const SubstMap& s);
 
+    // Pkg-qualified workspace key. When tr.pkg_name() is set, the key
+    // is "pkg.bare"; otherwise just "bare". Two same-named structs from
+    // different pkgs (user's `Box<i64>` vs `std.mem.box.Box<i64>`) get
+    // distinct keys so both can be cloned in one compilation.
+    static std::string qualified_cname(TypeRef tr) {
+        auto bare = concrete_struct_name(tr);
+        auto pkg = tr.pkg_name();
+        if (pkg.empty()) return bare;
+        std::string r;
+        r.reserve(pkg.size() + 1 + bare.size());
+        r.append(pkg); r.push_back('.'); r.append(bare);
+        return r;
+    }
+
     // ── Record needed instantiations (small — inline) ────────────────────
     void record_needed_struct(TypeRef tr) {
         if (!tr || (tr.kind() != LogosType::Kind::Struct &&
@@ -237,7 +251,7 @@ private:
             tr.type_args().empty()) return;
         for (auto a : tr.type_args())
             if (TypeRef(a).kind() == LogosType::Kind::TypeVar) return;
-        auto cname = concrete_struct_name(tr);
+        auto cname = qualified_cname(tr);
         if (!struct_done_.count(cname)) {
             if (depth_ >= max_depth_) {
                 in_.diags.diags.push_back({Diag::Level::Error, "mono",

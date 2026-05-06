@@ -3194,13 +3194,17 @@ void Mono::instantiate_struct_templates() {
         auto current = std::move(needed_struct_insts_);
         needed_struct_insts_.clear();
 
-        for (auto& [cname, info] : current) {
-            if (struct_done_.count(cname)) continue;
-            struct_done_.insert(cname);
+        for (auto& [qcname, info] : current) {
+            if (struct_done_.count(qcname)) continue;
+            struct_done_.insert(qcname);
 
             TypeRef struct_t = info.first;
             depth_ = info.second;
 
+            // Bare cname (no pkg prefix) — used as the cloned struct's
+            // sd.name and as the back-compat key in concrete_struct_types_.
+            // qcname is "pkg.bare" or just "bare" when struct_t has no pkg.
+            const std::string cname = concrete_struct_name(struct_t);
             const std::string base{TypeRef(struct_t).struct_name()};
             SubstMap subst;
 
@@ -3233,7 +3237,11 @@ void Mono::instantiate_struct_templates() {
                 }
             }
 
-            concrete_struct_types_[cname] = struct_t;
+            // Pkg-qualified primary key + bare back-compat key (last-wins).
+            // Sites that have a TypeRef use qualified_cname for routing;
+            // sites that only have sd.name fall through bare lookup.
+            concrete_struct_types_[qcname] = struct_t;
+            concrete_struct_types_[cname]  = struct_t;
             auto inst = clone_struct_def(*tmpl, subst, packs, cname);
             // The generic's home pkg owns the conceptual identity. A spec in a
             // different pkg only contributes layout; the cloned inst should

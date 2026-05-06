@@ -1,0 +1,28 @@
+// Cross-pkg same-name struct with DIFFERENT field layouts coexist in
+// one binary. User defines `struct Box<T> { v: T }` in pkg `test`;
+// stdlib has `struct Box<T> { ptr: *mut T }` in pkg `std.mem.box`.
+// Both `Box$G1$i64` clones must end up in mlir-gen with their own
+// fields and methods (user's `weight()` reads `.v`, stdlib's `get()`
+// reads `.ptr`). Mono workspace is keyed by pkg-qualified name to
+// keep the two clones from collapsing into one.
+
+package test;
+
+use std.mem.box;
+
+struct Box<T> { v: T }
+
+trait BoxLike { fn weight(self: Self) -> i64; }
+
+impl BoxLike for Box<i64> {
+    fn weight(self: Box<i64>) -> i64 { return self.v; }
+}
+
+unsafe fn main() -> i32 {
+    let user_b: Box<i64> = Box::<i64> { v: 13i64 };
+    let mut std_b = box_new::<i64>(29i64);
+    let user_w: i64 = user_b.weight();
+    let std_w: i64 = *std_b.get();
+    box_free::<i64>(&mut std_b);
+    return (user_w + std_w) as i32;
+}
