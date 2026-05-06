@@ -8,11 +8,11 @@ package main;
 use std.compiler.metaprog;
 use std.hermes.view;
 
-trait BoxLike { fn weight(self: Self) -> i64; }
+trait UserBoxLike { fn weight(self: Self) -> i64; }
 
 struct UserBox<T> { v: T }
 
-impl BoxLike for UserBox<i64> {
+impl UserBoxLike for UserBox<i64> {
     fn weight(self: UserBox<i64>) -> i64 { return self.v; }
 }
 

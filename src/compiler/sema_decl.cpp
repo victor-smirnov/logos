@@ -358,6 +358,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     if (!fi_ptr) return fn;   // shouldn't happen after collect
 
     fn.name           = fi_ptr->symbol_name.empty() ? mangled : fi_ptr->symbol_name;
+    fn.package        = fi_ptr->package;
     fn.type_params    = fi_ptr->type_params;
     fn.lifetime_params = read_lifetime_params(node);
     // Lifetime-param uniqueness on fn (closes B-gn-02)

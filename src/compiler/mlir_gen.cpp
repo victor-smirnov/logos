@@ -196,6 +196,120 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
         }
     }
 
+    // Pkg-qualify struct method symbols at MLIR level. Same-named structs
+    // from distinct pkgs produce distinct method symbols at link. This
+    // closes Box-vs-UserBox; mlir_struct_key already disambiguates struct
+    // identity, this handles the method-symbol layer.
+    {
+        // (struct_name, base) → pkg lookup. Supports both bare base names
+        // (e.g. "Box") and concrete generic instances (e.g. "Box$G1$i64").
+        std::unordered_map<std::string, std::string> struct_pkg;
+        for (auto& sd : prog.structs)
+            if (!sd.pkg.empty()) struct_pkg[sd.name] = sd.pkg;
+        auto pkg_for_struct = [&](std::string_view base) -> std::string {
+            // Try exact match first (covers concrete instances).
+            std::string s(base);
+            if (auto it = struct_pkg.find(s); it != struct_pkg.end())
+                return it->second;
+            // Strip generic suffix `$G..` and retry against the base name.
+            if (auto p = s.find("$G"); p != std::string::npos) {
+                s.resize(p);
+                if (auto it = struct_pkg.find(s); it != struct_pkg.end())
+                    return it->second;
+            }
+            return {};
+        };
+        // Extract `<struct_part>__<method_part>` if name looks method-shaped
+        // (no pkg yet, no `$` outside generic marker, contains `__`).
+        auto parse_method = [&](const std::string& name)
+                -> std::optional<std::pair<std::string, std::string>> {
+            if (name.find('.') != std::string::npos) return std::nullopt;
+            auto sep = name.find("__");
+            if (sep == std::string::npos) return std::nullopt;
+            return std::make_pair(name.substr(0, sep), name.substr(sep));
+        };
+        // Build (bare → qualified) rename map.
+        std::unordered_map<std::string, std::string> rename_map;
+        for (auto& sd : prog.structs) {
+            if (sd.pkg.empty()) continue;
+            for (auto& m : sd.methods) {
+                if (m->name.find('.') != std::string::npos) continue;
+                rename_map[m->name] = sd.pkg + "." + m->name;
+            }
+        }
+        // Free fns that look like `Concrete__method` for a KNOWN struct.
+        // Skip free fns that just happen to have `__` in their name —
+        // only treat them as struct methods if the prefix matches a
+        // registered struct/datatype. Use fn.package when available so
+        // two pkgs with same-named struct produce distinct symbols.
+        auto try_method_rename = [&](const lir::LFunction& fn) {
+            if (fn.is_extern) return;
+            if (fn.name.find('.') != std::string::npos) return;
+            auto parsed = parse_method(fn.name);
+            if (!parsed) return;
+            // Require the prefix to be a known struct/datatype.
+            std::string struct_pkg_lookup = pkg_for_struct(parsed->first);
+            if (struct_pkg_lookup.empty()) return;
+            std::string pkg = fn.package.empty() ? struct_pkg_lookup : fn.package;
+            if (rename_map.count(fn.name)) return;
+            rename_map[fn.name] = pkg + "." + fn.name;
+        };
+        for (auto& fn : prog.functions)       try_method_rename(*fn);
+        for (auto& fn : prog.specializations) try_method_rename(*fn);
+        if (!rename_map.empty()) {
+            // Rename func.func sym_names.
+            mod.walk([&](mlir::func::FuncOp fn) {
+                auto it = rename_map.find(fn.getName().str());
+                if (it != rename_map.end()) fn.setName(it->second);
+            });
+            // Rewrite func.call callees.
+            mod.walk([&](mlir::func::CallOp call) {
+                auto callee = call.getCallee().str();
+                auto it = rename_map.find(callee);
+                if (it != rename_map.end())
+                    call.setCallee(it->second);
+            });
+            // Rewrite GlobalOp initial values that reference fn symbols
+            // (dispatch tables, vtables). MLIR stores fn pointers as
+            // FlatSymbolRefAttr inside an array attribute.
+            mod.walk([&](mlir::LLVM::AddressOfOp op) {
+                auto it = rename_map.find(op.getGlobalName().str());
+                if (it != rename_map.end())
+                    op.setGlobalName(it->second);
+            });
+            // func.constant ops referencing renamed fns (vtable entries).
+            mod.walk([&](mlir::func::ConstantOp op) {
+                auto it = rename_map.find(op.getValue().str());
+                if (it != rename_map.end())
+                    op.setValueAttr(mlir::FlatSymbolRefAttr::get(
+                        op.getContext(), it->second));
+            });
+            // llvm.mlir.global with array<ptr> initialization referencing
+            // fn symbols (dispatch tables) — walk Attributes recursively.
+            mod.walk([&](mlir::LLVM::GlobalOp gop) {
+                auto v = gop.getValueAttr();
+                if (!v) return;
+                auto arr = mlir::dyn_cast<mlir::ArrayAttr>(v);
+                if (!arr) return;
+                std::vector<mlir::Attribute> elems;
+                bool changed = false;
+                for (auto a : arr) {
+                    if (auto sym = mlir::dyn_cast<mlir::FlatSymbolRefAttr>(a)) {
+                        auto it = rename_map.find(sym.getValue().str());
+                        if (it != rename_map.end()) {
+                            elems.push_back(mlir::FlatSymbolRefAttr::get(
+                                gop.getContext(), it->second));
+                            changed = true;
+                            continue;
+                        }
+                    }
+                    elems.push_back(a);
+                }
+                if (changed) gop.setValueAttr(mlir::ArrayAttr::get(gop.getContext(), elems));
+            });
+        }
+    }
+
     if (mlir::failed(mlir::verify(mod))) {
         std::fprintf(stderr, "mlir_gen: module verification failed\n");
         mod.dump();

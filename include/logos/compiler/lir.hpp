@@ -659,6 +659,10 @@ struct EClosure {
 
 struct LFunction {
     std::string              name;
+    // Package the fn was declared in (sema's `package …;` of the source
+    // module). Used by mlir_gen's pkg-rename pass to disambiguate
+    // same-named struct methods from distinct pkgs (Box-vs-UserBox).
+    std::string              package;
     std::vector<TypeParam>   type_params;    // TypeVar names (generic def, empty otherwise)
     std::vector<std::string> lifetime_params; // Lifetime param names, e.g. ["'a", "'b"]
     std::vector<LParam>      params;
