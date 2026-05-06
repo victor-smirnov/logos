@@ -334,11 +334,17 @@ const lir::LFunction* Mono::find_best_spec(
     const std::vector<TypeRef>& type_args) {
     auto sit = specs_.find(base_name);
     if (sit == specs_.end()) {
+        // Strip mangling: pkg`$` prefix and the `__f__`/`__g__` suffix.
+        // lower_spec_fn registers specs under the bare raw name, while
+        // generic templates carry pkg + `__g__sig`. The fallback unifies
+        // the two namespaces for spec lookup.
         std::string raw = base_name;
         if (auto p = raw.find("__g__"); p != std::string::npos)
             raw.resize(p);
         else if (auto p = raw.find("__f__"); p != std::string::npos)
             raw.resize(p);
+        if (auto d = raw.rfind('$'); d != std::string::npos)
+            raw = raw.substr(d + 1);
         sit = specs_.find(raw);
     }
     if (sit == specs_.end()) return nullptr;

@@ -116,12 +116,15 @@ public:
         metaprog_keep_fns_ = std::move(names);
     }
     bool fn_is_metaprog_keep(std::string_view name) const {
-        // Strip overload-disambig suffix added by function_symbol_name:
-        // generics get "__g__<sig>", overloaded non-generics get "__f__<sig>".
-        // metacall_sites store the raw callee token, so compare against the base name.
+        // Strip mangling layers added by function_symbol_name:
+        //   pkg-prefix `pkg$` (cross-package coexistence)
+        //   sig suffix `__f__<sig>` / `__g__<sig>` (overload-disambig)
+        // metacall_sites store the raw callee token (bare base name);
+        // compare against the fully-stripped base.
         std::string_view base = name;
         if (auto p = base.find("__g__"); p != std::string_view::npos) base = base.substr(0, p);
         else if (auto p = base.find("__f__"); p != std::string_view::npos) base = base.substr(0, p);
+        if (auto d = base.rfind('$'); d != std::string_view::npos) base = base.substr(d + 1);
         for (const auto& n : metaprog_keep_fns_) if (n == base) return true;
         return false;
     }

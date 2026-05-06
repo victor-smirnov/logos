@@ -1,0 +1,13 @@
+// B-mv-01 follow-up: when both packages defining a same-base+sig fn are
+// imported, a bare-name call is ambiguous and must be rejected. The
+// design accepts coexistence at the symbol level but requires explicit
+// disambiguation at the call site (TODO: pkg-qualified call syntax).
+
+package main;
+
+use alpha;
+use beta;
+
+fn main() -> i32 {
+    return shared(0);
+}

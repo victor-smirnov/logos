@@ -907,13 +907,18 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
     // arithmetic that explicitly opts out of the runtime overflow trap on
     // `+`/`-`/`*`. Same signature as the built-in op; emits the silent
     // arith.* directly (B-ex-01).
-    // After monomorphization the callee may carry a `__g__<sig>` suffix.
-    // Match the bare name OR the monomorphized prefix.
+    // After pkg-mangling and monomorphization the callee may take the
+    // form `pkg$<name>__g__<sig>` or `<name>__g__<sig>` (or just bare
+    // `<name>` pre-mono). Strip pkg prefix before matching.
     auto is_wrapping_intr = [&](std::string_view name) {
-        return callee == name ||
-               (callee.size() > name.size() + 4 &&
-                callee.compare(0, name.size(), name) == 0 &&
-                callee.compare(name.size(), 4, "__g_") == 0);
+        auto dollar = callee.rfind('$');
+        std::string_view suffix = (dollar == std::string::npos)
+            ? std::string_view{callee}
+            : std::string_view{callee}.substr(dollar + 1);
+        return suffix == name ||
+               (suffix.size() > name.size() + 4 &&
+                suffix.compare(0, name.size(), name) == 0 &&
+                suffix.compare(name.size(), 4, "__g_") == 0);
     };
     if (is_wrapping_intr("wrapping_add") || is_wrapping_intr("wrapping_sub") || is_wrapping_intr("wrapping_mul")) {
         std::string_view base_op =
@@ -939,9 +944,25 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
         }
     }
 
+    // After pkg-mangling, intrinsic names ship as
+    // `std.lang.text$str_from_raw__f__pcst_u8__i64` etc. Strip pkg
+    // prefix and the `__f__<sig>` / `__g__<sig>` suffix to recover
+    // the bare name for matching against the known-intrinsic set.
+    auto bare_intrinsic = [&]() -> std::string {
+        auto dollar = callee.rfind('$');
+        std::string_view body = (dollar == std::string::npos)
+            ? std::string_view{callee}
+            : std::string_view{callee}.substr(dollar + 1);
+        if (auto p = body.find("__f__"); p != std::string::npos)
+            return std::string(body.substr(0, p));
+        if (auto p = body.find("__g__"); p != std::string::npos)
+            return std::string(body.substr(0, p));
+        return std::string(body);
+    }();
+
     // str_from_raw(ptr: *const u8, len: i64) -> str
     // Constructs a str fat-pointer {ptr, len} on the stack, mirroring ELitStr.
-    if (callee == "str__str_from_raw" || callee == "str_from_raw") {
+    if (bare_intrinsic == "str__str_from_raw" || bare_intrinsic == "str_from_raw") {
         if (arg_les.size() == 2) {
             auto ptr_v = gen_expr(*arg_les[0]); if (!ptr_v) return nullptr;
             auto len_v = gen_expr(*arg_les[1]); if (!len_v) return nullptr;
@@ -960,31 +981,31 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
 
     // Bitwise intrinsics on u64 — emit LLVM dialect ops.
     // popcount/ctlz/cttz return i64 from i64 input; truncate to i32 for u32 return.
-    if (callee == "popcount_u64"        || callee == "leading_zeros_u64"  ||
-        callee == "trailing_zeros_u64"  || callee == "bswap_u64"          ||
-        callee == "bitreverse_u64") {
+    if (bare_intrinsic == "popcount_u64"        || bare_intrinsic == "leading_zeros_u64"  ||
+        bare_intrinsic == "trailing_zeros_u64"  || bare_intrinsic == "bswap_u64"          ||
+        bare_intrinsic == "bitreverse_u64") {
         if (arg_les.size() == 1) {
             auto v = gen_expr(*arg_les[0]); if (!v) return nullptr;
             auto i64_ty = builder_.getIntegerType(64);
             auto i32_ty = builder_.getIntegerType(32);
             v = coerce_int(v, i64_ty);
             mlir::Value res;
-            if (callee == "popcount_u64")
+            if (bare_intrinsic == "popcount_u64")
                 res = builder_.create<mlir::LLVM::CtPopOp>(loc_, i64_ty, v);
-            else if (callee == "leading_zeros_u64")
+            else if (bare_intrinsic == "leading_zeros_u64")
                 res = builder_.create<mlir::LLVM::CountLeadingZerosOp>(
                     loc_, i64_ty, v, /*is_zero_poison=*/false);
-            else if (callee == "trailing_zeros_u64")
+            else if (bare_intrinsic == "trailing_zeros_u64")
                 res = builder_.create<mlir::LLVM::CountTrailingZerosOp>(
                     loc_, i64_ty, v, /*is_zero_poison=*/false);
-            else if (callee == "bswap_u64")
+            else if (bare_intrinsic == "bswap_u64")
                 res = builder_.create<mlir::LLVM::ByteSwapOp>(loc_, i64_ty, v);
             else // bitreverse_u64
                 res = builder_.create<mlir::LLVM::BitReverseOp>(loc_, i64_ty, v);
             // popcount/ctlz/cttz: Logos return type is u32; truncate.
-            if (callee == "popcount_u64"       ||
-                callee == "leading_zeros_u64"  ||
-                callee == "trailing_zeros_u64")
+            if (bare_intrinsic == "popcount_u64"       ||
+                bare_intrinsic == "leading_zeros_u64"  ||
+                bare_intrinsic == "trailing_zeros_u64")
                 res = coerce_int(res, i32_ty);
             return res;
         }
@@ -1020,6 +1041,18 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
         auto gpos = callee.find("__g__");
         if (gpos != std::string::npos)
             callee_fn = find_func_op(parent_mod, callee.substr(0, gpos));
+        // Pkg-mangled generic call (`pkg$base__g__sig`) whose terminator
+        // overload is registered under the bare name `base` (the first-
+        // registered overload of a same-name pair stays bare when the
+        // second one is generic — sema_collect's demote-rename only
+        // fires for two non-generic overloads). Strip pkg + g-suffix
+        // and retry.
+        if (!callee_fn && gpos != std::string::npos) {
+            auto dollar = callee.rfind('$', gpos);
+            if (dollar != std::string::npos)
+                callee_fn = find_func_op(parent_mod,
+                    callee.substr(dollar + 1, gpos - dollar - 1));
+        }
         if (!callee_fn) {
             // Generic instantiations may be emitted without their trailing
             // `__g__...` suffix in the call site.  Fall back to the concrete

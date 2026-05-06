@@ -1,0 +1,4 @@
+package alpha;
+
+pub fn shared(x: i32) -> i32 { return x + 1; }
+pub fn alpha_only() -> i32 { return 7; }

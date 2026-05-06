@@ -727,9 +727,29 @@ std::string SemaChecker::function_signature_key(std::string_view base_name,
 
 std::string SemaChecker::function_symbol_name(std::string_view base_name,
                                              const SemaChecker::SemaFuncInfo& info) const {
+    // Pkg-qualified mangling: `pkg$base__f__sig` (or `__g__` for generic).
+    // Two packages defining `error(msg: str)` get distinct symbols
+    // (`std.log$error__f__str` vs `std.compiler.metaprog$error__f__str`)
+    // so they coexist in funcs_, in user `.o`, and at link time.
+    //
+    // Carve-outs that stay bare:
+    //   - extern fns: ABI symbols (malloc, printf) must keep their C name.
+    //   - struct methods (base_name contains `__`): already disambiguated
+    //     by their struct's pkg-qualified name in mlir_gen.
+    bool is_method = base_name.find("__") != std::string_view::npos;
+    bool with_pkg  = !info.package.empty() && !info.is_extern && !is_method;
+
     std::string key = function_signature_key(base_name, info.param_types, info.is_vararg);
     auto suffix = key.substr(std::string(base_name).size() + 2);
-    return std::string(base_name) + (info.type_params.empty() ? "__f__" : "__g__") + suffix;
+    std::string out;
+    if (with_pkg) {
+        out = info.package;
+        out += '$';
+    }
+    out += std::string(base_name);
+    out += info.type_params.empty() ? "__f__" : "__g__";
+    out += suffix;
+    return out;
 }
 
 const SemaChecker::SemaFuncInfo* SemaChecker::find_func_by_symbol(std::string_view symbol) const {
@@ -791,23 +811,42 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_func_by_base_and_signature(
 }
 
 std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::find_func_candidates(std::string_view base_name) const {
-    std::vector<const SemaChecker::SemaFuncInfo*> out;
+    std::vector<const SemaChecker::SemaFuncInfo*> all;
     if (auto it = func_overloads_.find(std::string(base_name)); it != func_overloads_.end()) {
         for (auto& sym : it->second) {
             auto fit = funcs_.find(sym);
-            if (fit != funcs_.end()) out.push_back(&fit->second);
+            if (fit != funcs_.end()) all.push_back(&fit->second);
         }
     } else {
         auto fit = funcs_.find(std::string(base_name));
         if (fit != funcs_.end() && fit->second.source_file.size())
-            out.push_back(&fit->second);
+            all.push_back(&fit->second);
     }
     if (auto git = generic_overloads_.find(std::string(base_name)); git != generic_overloads_.end()) {
         for (auto& sym : git->second) {
             auto fit = generic_funcs_.find(sym);
-            if (fit != generic_funcs_.end()) out.push_back(&fit->second);
+            if (fit != generic_funcs_.end()) all.push_back(&fit->second);
         }
     }
+    // Visibility filter: under pkg-qualified mangling two packages can
+    // define the same base+sig fn. The user's call site sees only fns
+    // reachable through cur_package_ (own pkg) or cur_imports_ (use
+    // pkg;). Empty pkg (extern fns / prelude) stay visible.
+    // Fallback: if filtering would leave nothing, return everything —
+    // sema-internal lookups during synthetic phases (metaprog stubs,
+    // mono pre-image) may run before cur_imports_ is primed.
+    std::vector<const SemaChecker::SemaFuncInfo*> out;
+    out.reserve(all.size());
+    for (auto* fi : all) {
+        if (fi->package.empty() ||
+            fi->package == cur_package_ ||
+            std::find(cur_imports_.wildcard_packages.begin(),
+                      cur_imports_.wildcard_packages.end(),
+                      fi->package) != cur_imports_.wildcard_packages.end()) {
+            out.push_back(fi);
+        }
+    }
+    if (out.empty()) return all;
     return out;
 }
 

@@ -1577,6 +1577,9 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
         callee_diag.resize(p);
     else if (auto p = callee_diag.find("__f__"); p != std::string::npos)
         callee_diag.resize(p);
+    // Strip pkg prefix for user-facing diagnostic.
+    if (auto d = callee_diag.rfind('$'); d != std::string::npos)
+        callee_diag = callee_diag.substr(d + 1);
     // Unsafe check: covers both inferred (lower_call) and explicit (lower_generic_call) paths.
     if (fi.is_unsafe && !inside_unsafe_)
         error(std::format("call to unsafe function '{}' requires unsafe context", callee_diag));

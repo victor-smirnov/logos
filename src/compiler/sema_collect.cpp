@@ -2380,20 +2380,14 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
         auto& gen_overloads = generic_overloads_[base_name];
         for (auto& sym : gen_overloads) {
             auto it = generic_funcs_.find(sym);
-            if (it != generic_funcs_.end() && it->second.signature_key == info.signature_key) {
+            if (it == generic_funcs_.end()) continue;
+            // Pkg-qualified mangling: cross-pkg same-base+sig produce
+            // distinct symbol_names → coexist. Duplicate flagged only on
+            // exact symbol_name match (same pkg, base, signature).
+            if (it->second.symbol_name == info.symbol_name) {
                 if (code_of(node) == la::EXTERN_FN && it->second.is_extern)
                     return;
-                if (it->second.package != info.package &&
-                    !it->second.package.empty() && !info.package.empty()) {
-                    error(std::format(
-                        "function '{}' defined in both packages '{}' and "
-                        "'{}' with the same signature — cross-package "
-                        "same-name fns are not yet supported (B-mv-01); "
-                        "rename one of them",
-                        base_name, it->second.package, info.package));
-                } else {
-                    error(std::format("duplicate function '{}'", base_name));
-                }
+                error(std::format("duplicate function '{}'", base_name));
                 return;
             }
         }
@@ -2422,20 +2416,10 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
     for (auto& sym : overloads) {
         auto fit = funcs_.find(sym);
         if (fit == funcs_.end()) continue;
-        if (fit->second.signature_key == info.signature_key) {
+        if (fit->second.symbol_name == info.symbol_name) {
             if (code_of(node) == la::EXTERN_FN && fit->second.is_extern)
                 return;
-            if (fit->second.package != info.package &&
-                !fit->second.package.empty() && !info.package.empty()) {
-                error(std::format(
-                    "function '{}' defined in both packages '{}' and "
-                    "'{}' with the same signature — cross-package "
-                    "same-name fns are not yet supported (B-mv-01); "
-                    "rename one of them",
-                    base_name, fit->second.package, info.package));
-            } else {
-                error(std::format("duplicate function '{}'", base_name));
-            }
+            error(std::format("duplicate function '{}'", base_name));
             return;
         }
     }

@@ -1,0 +1,17 @@
+// B-mv-01: two packages may define a fn with the same base + signature
+// (`alpha::shared(i32) -> i32` and `beta::shared(i32) -> i32`). Each
+// package's symbol is pkg-qualified at link level, so they coexist.
+//
+// User code that imports only one of the two reaches just that one's
+// `shared`; importing both makes a bare `shared(...)` call ambiguous
+// (see fail/cross_pkg_ambiguous_call).
+
+package main;
+
+use alpha;
+
+fn main() -> i32 {
+    let a: i32 = shared(0);          // alpha's: 0 + 1 = 1
+    let b: i32 = alpha_only();        // 7
+    return a + b + 34;                // 1 + 7 + 34 = 42
+}

@@ -13,14 +13,14 @@
 
 ## Bugs
 
-### B-mv-01: Cross-pkg same-name fn → "duplicate function" instead of first-import-wins
+### B-mv-01: Cross-pkg same-name fn → coexistence with import-aware resolution
 
 **Severity**: P2 design (inconsistency)
-**Status**: fixed — pkg-aware diagnostic ("function defined in both packages X and Y with the same signature; rename one") replaces bare "duplicate function". This satisfies the catalog's "OR explicit ambiguous reference diagnostic" branch. Coexistence + qualified-call syntax (`pkg::shared()`) is a separate future language feature, not a bug.
+**Status**: fixed (full coexistence) — `function_symbol_name` now produces pkg-qualified mangling (`pkg$base__f__sig` for free fns, `pkg$base__g__sig` for generics). Two packages defining `error(msg: str)` get distinct symbols (`std.log$error__f__str` vs `std.compiler.metaprog$error__f__str`) and coexist in `funcs_`, the user `.o`, and at link time. `find_func_candidates` filters by `cur_imports_.wildcard_packages` + `cur_package_` so a user `use`-ing only one of them reaches just that one. Importing both makes a bare-name call ambiguous (resolve_function_call's existing ambiguity diagnostic fires) — explicit `pkg::fn(...)` qualified-call syntax is the next step (deferred). Carve-outs that stay bare: `extern fn` (ABI symbols, `malloc`, `printf`) and struct methods (already disambiguated by the struct's pkg-qualified name in mlir_gen). Side-fixes: mlir_gen's intrinsic intercepts (`wrapping_*`, `str_from_raw`, bit ops) strip pkg prefix before matching; `find_best_spec` strips both `__g__` suffix and pkg prefix when looking up specializations registered under bare names; `fn_is_metaprog_keep` strips both layers when matching against raw callee tokens; mlir_gen's generic-base fallback when looking up a `__g__` symbol now also strips pkg prefix; user-facing diag (`callee_diag`) drops pkg for "call to '{}'..." messages. Lock-in: pass test `cross_pkg_coexistence` (alpha+beta both define `shared`, main uses alpha only — alpha's wins), fail test `cross_pkg_ambiguous_call` (importing both → ambiguous), IR snapshot `generic_id_mono.check` updated to expect `main$id__g__T__i64`. 1121/1121.
 **Repro**: `B01/` — pkg_a defines `pub fn shared() -> i32`, pkg_b defines `pub fn shared() -> i32`. `main` does `use pkg_a; use pkg_b; let v = shared();`.
-**Observed**: `error [fn shared]: duplicate function 'shared'` and compilation aborts.
-**Expected**: For consistency with structs (first-import-wins, see B-mv-08 / `feat_type_uid_pkg_skip_bug`), should resolve to pkg_a's `shared()` silently. OR produce an explicit "ambiguous reference" diagnostic — but NOT a "duplicate" error attached to the definition site. The function definitions are NOT duplicates; they're in different packages.
-**Suspected root**: function name registration in [src/compiler/sema_collect.cpp](../../src/compiler/sema_collect.cpp) keys by bare `fn name` rather than `pkg::name` for the duplicate-detection check.
+**Observed (was)**: `error [fn shared]: duplicate function 'shared'` and compilation aborts.
+**Expected**: For consistency with structs (first-import-wins), should resolve when only one is imported, produce an explicit "ambiguous reference" diagnostic when both are imported. Achieved.
+**Suspected root**: function name registration in [src/compiler/sema_collect.cpp](../../src/compiler/sema_collect.cpp) keyed by bare `fn name` rather than `pkg::name`. Fixed in `function_symbol_name` ([src/compiler/sema.cpp](../../src/compiler/sema.cpp)).
 **Tags**: `tech-debt:bare-name-lookup`, `design:incomplete`
 
 ### B-mv-02: Cross-pkg same-name trait → wrong-trait resolution + confusing diagnostic
