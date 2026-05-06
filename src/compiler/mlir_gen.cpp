@@ -228,13 +228,17 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
             if (sep == std::string::npos) return std::nullopt;
             return std::make_pair(name.substr(0, sep), name.substr(sep));
         };
-        // Build (bare → qualified) rename map.
+        // Build (bare → qualified) rename map. Per-method pkg attribution
+        // (via fn.package, set by sema and propagated by mono clone) so a
+        // single concrete struct that aggregates methods from two pkgs'
+        // templates correctly attributes each method.
         std::unordered_map<std::string, std::string> rename_map;
         for (auto& sd : prog.structs) {
-            if (sd.pkg.empty()) continue;
             for (auto& m : sd.methods) {
                 if (m->name.find('.') != std::string::npos) continue;
-                rename_map[m->name] = sd.pkg + "." + m->name;
+                std::string pkg = m->package.empty() ? sd.pkg : m->package;
+                if (pkg.empty()) continue;
+                rename_map[m->name] = pkg + "." + m->name;
             }
         }
         // Free fns that look like `Concrete__method` for a KNOWN struct.
