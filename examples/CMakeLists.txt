@@ -31,12 +31,10 @@ function(logos_add_example NAME)
     # because its bodies reference host-only externs); they get -I source.
     # Native runtime archives (fiber switch, liburing wrappers) sit
     # alongside liblstdlib.a and feed the link line.
-    set(_compile_deps logosc ${SRC} ${HERMES_STDLIB} stdlib_binary stdlib_uring logos_rt)
+    set(_compile_deps logosc ${SRC} ${HERMES_STDLIB} stdlib_binary stdlib_uring logos_rt logos_fibers)
     set(_compile_extra)
-    if (EX_METAPROG)
-        set(_compile_extra -I ${STDLIB})
-    endif()
     set(_link_archives
+        ${LOGOS_BUILD_LIB_DIR}/liblstdlib_fibers.a
         ${LOGOS_BUILD_LIB_DIR}/liblstdlib_rt.a
         ${LOGOS_BUILD_LIB_DIR}/liblstdlib_uring.a)
 

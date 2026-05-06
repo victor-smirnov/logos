@@ -1,28 +1,39 @@
 # SPDX-License-Identifier: Apache-2.0
-# stdlib/rt — native runtime support library (libstdlib_rt.a).
+# stdlib/rt — native runtime support libraries.
 #
-# Contains arch-specific code that the Logos stdlib externs into:
-#   fiber_ctx.S      — x86-64 context switch, fiber entry trampoline,
-#                      per-thread scheduler/thread TLS pointers.
-#   atomic_ops.S     — atomic load/store/fetch-add/CAS (i32/i64).
-#                      Split out so this TU has zero TLS relocations,
-#                      letting ORC meta-jit load it via RuntimeDyld.
-#   thread_uring.c   — thin C wrappers for liburing static-inline helpers
-#                      (io_uring_prep_poll_add, cqe_seen, wait_cqe, etc.).
+# Two archives, separated by ORC RuntimeDyld compatibility:
 #
-# The resulting archive is placed in ${STDLIB_BIN_DIR} so that the test
-# runner picks it up automatically (run_test.sh collects every *.a from
-# every -L directory it receives).
+#   liblstdlib_fibers.a  — fiber_ctx.S only.
+#                          Carries `R_X86_64_GOTTPOFF` TLS relocations
+#                          that ORC's RuntimeDyld can't resolve, so it
+#                          must NOT be in the metacall-JIT archive set
+#                          (main.cpp filters `*_fibers.a` out of
+#                          `archive_paths`). It IS in the user link line
+#                          via the install/build lib/logos directory.
+#
+#   liblstdlib_rt.a      — atomic_ops.S, thread_uring.c, env.c,
+#                          metaprog_stubs.c. Zero TLS relocations →
+#                          safe for both link-time use and JIT load.
+#
+# Glob order ensures static-link finds fiber symbols correctly:
+#   liblstdlib.a < liblstdlib_fibers.a < liblstdlib_rt.a < liblstdlib_uring.a
+# (period < underscore, then alpha within `_`).
+#
+# The resulting archives are placed in ${STDLIB_BIN_DIR} so that the
+# test runner picks them up automatically (run_test.sh collects every
+# *.a from every -L directory it receives).
 
 set(STDLIB_BIN_DIR ${LOGOS_BUILD_LIB_DIR})
 
-add_library(logos_rt STATIC fiber_ctx.S atomic_ops.S thread_uring.c env.c metaprog_stubs.c)
+add_library(logos_fibers STATIC fiber_ctx.S)
+set_target_properties(logos_fibers PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY ${STDLIB_BIN_DIR}
+    OUTPUT_NAME lstdlib_fibers)
+
+add_library(logos_rt STATIC atomic_ops.S thread_uring.c env.c metaprog_stubs.c)
 target_include_directories(logos_rt PRIVATE /usr/include)
 set_target_properties(logos_rt PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY ${STDLIB_BIN_DIR}
-    # Must sort AFTER liblstdlib.a so static-link order is correct:
-    # liblstdlib.a calls logos_fiber_switch etc.; liblstdlib_rt.a provides them.
-    # Shell glob of *.a is alphabetical: 'liblstdlib.' < 'liblstdlib_' ✓
     OUTPUT_NAME lstdlib_rt)
 
 # Copy liburing.a into STDLIB_BIN_DIR so run_test.sh's glob picks it up.

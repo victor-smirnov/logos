@@ -262,60 +262,67 @@ bool emit_module(const ModuleManifest& manifest,
     std::vector<std::string> search_paths = {root};
     for (auto& p : opts.extra_search_paths) search_paths.push_back(p);
 
-    // Collect all .logos files under the module root, dropping anything
-    // that matches a manifest `exclude <prefix>` directive. Excluded
-    // sources are still discoverable via -I path search at compile time
-    // (e.g. for metaprog JIT), they just don't get baked into libNAME.a.
-    auto all_files = collect_logos_files(root);
-    if (!manifest.excludes.empty()) {
-        std::vector<std::string> abs_excludes;
-        abs_excludes.reserve(manifest.excludes.size());
-        for (auto& e : manifest.excludes) {
+    auto absolutize_prefixes = [&](const std::vector<std::string>& src) {
+        std::vector<std::string> out;
+        out.reserve(src.size());
+        for (auto& e : src) {
             auto p = fs::path(root) / e;
-            abs_excludes.push_back(fs::weakly_canonical(p).string());
+            out.push_back(fs::weakly_canonical(p).string());
         }
-        std::vector<std::string> filtered;
-        filtered.reserve(all_files.size());
-        for (auto& f : all_files) {
-            bool drop = false;
-            for (auto& ex : abs_excludes) {
-                if (f.compare(0, ex.size(), ex) == 0) { drop = true; break; }
-            }
-            if (!drop) filtered.push_back(f);
-        }
-        all_files = std::move(filtered);
+        return out;
+    };
+    auto matches_any = [](const std::string& f, const std::vector<std::string>& prefixes) {
+        for (auto& p : prefixes)
+            if (f.compare(0, p.size(), p) == 0) return true;
+        return false;
+    };
+
+    auto abs_excludes = absolutize_prefixes(manifest.excludes);
+    auto abs_ast_only = absolutize_prefixes(manifest.ast_only);
+
+    // Collect all .logos files under the module root and bucket them:
+    //   exclude  → drop entirely (not in archive at all).
+    //   ast_only → loaded for AST emission, skipped at codegen (host-only
+    //     externs make the .o invalid for user-link-time use; the AST
+    //     is still needed by the metacall JIT at compile time).
+    //   regular  → both .o and .hermes0.
+    auto all_files = collect_logos_files(root);
+    std::vector<std::string> codegen_files;
+    std::vector<std::string> ast_only_files;
+    codegen_files.reserve(all_files.size());
+    for (auto& f : all_files) {
+        if (matches_any(f, abs_excludes)) continue;
+        if (matches_any(f, abs_ast_only)) ast_only_files.push_back(f);
+        else                              codegen_files.push_back(f);
     }
-    if (all_files.empty()) {
+    if (codegen_files.empty() && ast_only_files.empty()) {
         std::fprintf(stderr, "emit_module: no .logos files found under %s\n",
                      root.c_str());
         return false;
     }
     if (verbose) {
-        std::fprintf(stderr, "emit_module: found %zu source file(s)\n", all_files.size());
+        std::fprintf(stderr, "emit_module: found %zu codegen file(s), %zu ast-only file(s)\n",
+                     codegen_files.size(), ast_only_files.size());
     }
 
-    // Parse all files.  Use load_modules on the first file with the root as
-    // search path — this follows use-deps transitively, so all needed files
-    // (including those outside root) are included.  Files discovered this way
-    // but outside root are included for compilation but not re-exported in the
-    // manifest (they're dependencies, not part of this module).
-    // For a comprehensive scan of the root itself, we load every file.
+    // Parse all files. load_modules follows `use`-deps transitively from
+    // each entry; we load both buckets, dedup by path. ast_only files
+    // load LAST so transitive deps reachable from codegen files surface
+    // in the codegen bucket first.
     std::vector<ParsedModule> modules;
     {
-        // Load starting from every file in the root so we get them all even if
-        // they're not reachable from a single entry point.
-        // We deduplicate by path using load_modules which tracks visited_files.
-        // Simplest: just load the first file; module_loader follows all uses.
-        // For modules without a single root file, load each file separately and
-        // deduplicate.
         std::unordered_set<std::string> seen;
-        for (auto& file : all_files) {
-            auto mods = load_modules(file, search_paths);
-            for (auto& m : mods) {
-                if (seen.insert(m.path).second)
-                    modules.push_back(std::move(m));
+        auto load_bucket = [&](const std::vector<std::string>& bucket) {
+            for (auto& file : bucket) {
+                auto mods = load_modules(file, search_paths);
+                for (auto& m : mods) {
+                    if (seen.insert(m.path).second)
+                        modules.push_back(std::move(m));
+                }
             }
-        }
+        };
+        load_bucket(codegen_files);
+        load_bucket(ast_only_files);
     }
 
     if (modules.empty()) {
@@ -326,6 +333,10 @@ bool emit_module(const ModuleManifest& manifest,
         std::fprintf(stderr, "emit_module: loaded %zu module(s) total\n", modules.size());
     }
 
+    auto is_ast_only_path = [&](const std::string& path) {
+        return matches_any(path, abs_ast_only);
+    };
+
     // Prepare temp dir for intermediate files.
     auto tmp_dir = fs::temp_directory_path() / ("logos_emit_" + manifest.name);
     std::error_code ec;
@@ -334,20 +345,23 @@ bool emit_module(const ModuleManifest& manifest,
     std::string obj_path  = (tmp_dir / (manifest.name + ".o")).string();
     std::string h0_path   = (tmp_dir / (manifest.name + ".hermes0")).string();
 
-    // Collect ASTs + filenames for the compiler pipeline.
+    // Build AST + filename arrays for codegen — skip ast_only modules.
+    // .hermes0 takes everything (incl. ast_only).
     std::vector<hermes::Hermes> asts;
     std::vector<std::string> filenames;
-    // Keep a copy of modules for .hermes0 (asts are moved below).
     std::vector<ParsedModule> modules_for_h0;
     for (auto& m : modules) {
-        filenames.push_back(m.path);
         modules_for_h0.push_back({m.path, m.package, m.ast});  // Hermes is copy-on-write safe
-        asts.push_back(std::move(m.ast));
+        if (!is_ast_only_path(m.path)) {
+            filenames.push_back(m.path);
+            asts.push_back(std::move(m.ast));
+        }
     }
 
     // Compile to object file.
     if (verbose) {
-        std::fprintf(stderr, "emit_module: compiling → %s\n", obj_path.c_str());
+        std::fprintf(stderr, "emit_module: compiling %zu file(s) → %s\n",
+                     filenames.size(), obj_path.c_str());
     }
     if (!compile_to_object(asts, filenames, obj_path)) {
         std::fprintf(stderr, "emit_module: compilation failed\n");

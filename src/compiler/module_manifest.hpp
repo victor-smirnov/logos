@@ -15,7 +15,8 @@ struct ModuleManifest {
     std::string version;   // e.g. "0.1"
     std::string root;      // directory containing .logos files (relative or absolute)
     std::vector<std::string> depends;  // other module names (for future use)
-    std::vector<std::string> excludes; // path-prefixes (relative to root) to omit from the binary archive
+    std::vector<std::string> excludes; // path-prefixes to drop from the archive entirely (no .o, no .hermes0)
+    std::vector<std::string> ast_only; // path-prefixes included as .hermes0 only — codegen skipped (host-extern bodies invalid for user link)
 };
 
 // Parse a logos.module manifest file.  Returns nullopt + message on error.

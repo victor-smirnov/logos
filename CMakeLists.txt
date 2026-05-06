@@ -90,6 +90,7 @@ install(TARGETS logosc
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES
     ${LOGOS_BUILD_LIB_DIR}/liblstdlib.a
+    ${LOGOS_BUILD_LIB_DIR}/liblstdlib_fibers.a
     ${LOGOS_BUILD_LIB_DIR}/liblstdlib_rt.a
     ${LOGOS_BUILD_LIB_DIR}/liblstdlib_uring.a
     DESTINATION ${LOGOS_LIB_RELDIR})

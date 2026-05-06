@@ -2,9 +2,11 @@ module stdlib
 version 0.1
 root stdlib/
 
-# Metaprog plumbing: references host externs (logos_emit_source,
+# Metaprog plumbing references host externs (logos_emit_source,
 # logos_get_module_ast_oview, ...) defined inside logosc itself for
-# JIT'd hooks. Hooks find these sources via -I at metaprog compile
-# time, but they must NOT be baked into the user-link-time archive —
-# the externs aren't resolvable in user binaries.
-exclude std/compiler/metaprog
+# JIT'd hooks. The .o for these modules can't link into user binaries
+# (the externs aren't resolvable), but the metacall JIT does need
+# their AST at compile time. `ast_only` writes their .hermes0 into
+# the archive while skipping codegen — single artifact, system path
+# alone is enough to drive #[derive_clone] and friends.
+ast_only std/compiler/metaprog

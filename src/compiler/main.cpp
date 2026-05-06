@@ -1945,9 +1945,18 @@ int main(int argc, char** argv) {
     // M.1 Stage 2 (Mode B): also collect the archive paths themselves so the
     // metaprog JIT can register them via StaticLibraryDefinitionGenerator.
     std::vector<std::string> archive_paths;
-    // archive_paths spans every search dir (incl. system) plus -l files so
-    // the metacall ORC JIT can resolve every available symbol at compile
-    // time.
+    // archive_paths spans every search dir (incl. system) plus -l files
+    // so the metacall ORC JIT can resolve every available symbol at
+    // compile time. Native fiber-context archives carry TLS relocations
+    // that ORC's RuntimeDyld can't handle (R_X86_64_GOTTPOFF), so we
+    // filter `*_fibers.a` here. Those symbols are still resolved at
+    // user-link time — the JIT just doesn't need them, since metaprog
+    // handlers run in the host's main thread, not in a Logos fiber.
+    auto is_jit_unsafe_archive = [](std::string_view sv) {
+        auto last = sv.rfind('/');
+        std::string_view base = (last == std::string_view::npos) ? sv : sv.substr(last + 1);
+        return base.find("_fibers.a") != std::string_view::npos;
+    };
     for (const auto& dir : search_paths) {
         std::string cmd = "ls " + dir + "/*.a 2>/dev/null";
         if (FILE* lp = ::popen(cmd.c_str(), "r")) {
@@ -1956,12 +1965,15 @@ int main(int argc, char** argv) {
                 std::string_view sv(path);
                 while (!sv.empty() && (sv.back() == '\n' || sv.back() == '\r' || sv.back() == ' '))
                     sv.remove_suffix(1);
-                if (!sv.empty()) archive_paths.emplace_back(sv);
+                if (!sv.empty() && !is_jit_unsafe_archive(sv))
+                    archive_paths.emplace_back(sv);
             }
             ::pclose(lp);
         }
     }
-    for (const auto& f : explicit_lib_files) archive_paths.push_back(f);
+    for (const auto& f : explicit_lib_files) {
+        if (!is_jit_unsafe_archive(f)) archive_paths.push_back(f);
+    }
 
     // binary_symbols: only collected from user-explicit -L / -l. mlir_gen
     // consults this set to skip body emission for fns whose pre-baked

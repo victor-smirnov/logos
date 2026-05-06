@@ -37,8 +37,9 @@ std::optional<ModuleManifest> parse_module_manifest(const std::string& path,
         if      (key == "module")  m.name    = val;
         else if (key == "version") m.version = val;
         else if (key == "root")    m.root    = val;
-        else if (key == "depends") { if (!val.empty()) m.depends.push_back(val); }
-        else if (key == "exclude") { if (!val.empty()) m.excludes.push_back(val); }
+        else if (key == "depends")  { if (!val.empty()) m.depends.push_back(val); }
+        else if (key == "exclude")  { if (!val.empty()) m.excludes.push_back(val); }
+        else if (key == "ast_only") { if (!val.empty()) m.ast_only.push_back(val); }
         // ignore unknown keys for forward compat
     }
 

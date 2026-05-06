@@ -119,3 +119,50 @@ const uint8_t* logos_metaprog_gensym(const uint8_t* pref, uint64_t pref_len,
     (void)pref; (void)pref_len; (void)out_len;
     metaprog_unavailable("logos_metaprog_gensym");
 }
+
+// ── Fiber-runtime stubs for the metacall JIT ────────────────────────
+//
+// liblstdlib_fibers.a (fiber_ctx.S) carries TLS relocations
+// (R_X86_64_GOTTPOFF) that ORC's RuntimeDyld can't resolve, so it's
+// filtered out of the metacall JIT's archive set. Metaprog handlers
+// never actually run on a Logos fiber — they execute on the host's
+// main thread — but their compiled bodies may transitively reference
+// these symbols through stdlib types (Vec, String, …) that have
+// fiber-aware paths. Weak no-op stubs here let the JIT link without
+// pulling in the real, non-relocatable archive.
+//
+// At user-link time these stubs are overridden by the strong
+// definitions in liblstdlib_fibers.a.
+
+__attribute__((weak))
+void logos_fiber_switch(void* from, const void* to) {
+    (void)from; (void)to;
+    metaprog_unavailable("logos_fiber_switch");
+}
+
+__attribute__((weak))
+void* logos_get_fiber_entry_addr(void) {
+    metaprog_unavailable("logos_get_fiber_entry_addr");
+}
+
+__attribute__((weak))
+void logos_fiber_entry(void) {
+    metaprog_unavailable("logos_fiber_entry");
+}
+
+// Pointer accessors: the real fiber_ctx.S uses TLS via GOTTPOFF; the
+// stubs hand back a single non-TLS slot — handlers don't share fiber
+// state, so a single global is fine for the JIT-only path. (At user
+// link time fiber_ctx.S's strong definitions override these.)
+// MUST NOT be __thread here: TLS relocations would make this .o
+// unloadable by ORC RuntimeDyld too, putting us back at square one.
+static void* _stub_slot;
+
+__attribute__((weak)) void* logos_sched_get(void) { return _stub_slot; }
+__attribute__((weak)) void  logos_sched_set(void* p) { _stub_slot = p; }
+__attribute__((weak)) void* logos_thread_get(void) { return _stub_slot; }
+__attribute__((weak)) void  logos_thread_set(void* p) { _stub_slot = p; }
+__attribute__((weak)) void* logos_reactor_get(void) { return _stub_slot; }
+__attribute__((weak)) void  logos_reactor_set(void* p) { _stub_slot = p; }
+__attribute__((weak)) int64_t* logos_user_tls_get(void) { return (int64_t*)&_stub_slot; }
+__attribute__((weak)) void  logos_user_tls_set(int64_t* p) { (void)p; }
