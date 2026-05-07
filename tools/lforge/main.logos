@@ -67,6 +67,7 @@ use std.sys.process;
 use std.sys.args;
 
 use lforge.version;
+use lforge.schema;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
@@ -76,63 +77,8 @@ extern fn execv(path: *const u8, argv: *const *const u8) -> i32;
 extern fn chdir(path: *const u8) -> i32;
 extern fn getcwd(buf: *mut u8, size: u64) -> *mut u8;
 
-// ── Schema ────────────────────────────────────────────────────────────────
-
-pub enum TargetKind { Bin, Lib }
-
-pub struct Target {
-    pub kind:  TargetKind,
-    pub name:  String,
-    pub src:   String,           // dir for Logos sources (may be empty)
-    pub entry: String,           // empty for lib targets
-    pub deps:  Vec<String>,      // names of sibling lib targets
-    // Native sources, project-root-relative paths. C and asm files are
-    // compiled via `cc -c <src> -o <stem>.<ext>.o` and folded into the
-    // same archive as Logos artifacts. Both arrays are independently
-    // optional; `src` may also be empty for pure-native libs.
-    pub c_sources:   Vec<String>,
-    pub asm_sources: Vec<String>,
-}
-
-// External dependency on another lforge project. Either a local path
-// (`path:`) or a git URL (`project:`) -- exactly one. For git deps,
-// exactly one of `tag` / `branch` / `sha` must be set.
-pub struct ExternalDep {
-    pub path:    String,
-    pub project: String,
-    pub tag:     String,
-    pub branch:  String,
-    pub sha:     String,
-    pub modules: Vec<String>,
-}
-
-// One pinned entry in lforge.lock (B3). `tag` is preserved for diff
-// readability; SHA is the source of truth for what gets fetched.
-pub struct LockEntry {
-    pub project: String,
-    pub tag:     String,
-    pub sha:     String,
-}
-
-// One git project that's been resolved during the closure walk. Used to
-// detect MVS conflicts (same project at different versions in the same
-// closure) and apply the lockfile's pin atomically across all consumers.
-pub struct GitWinner {
-    pub display: String,
-    pub tag:     String,
-    pub sha:     String,
-}
-
-pub struct Manifest {
-    pub name:    String,
-    pub version: String,
-    pub targets: Vec<Target>,
-    pub deps:    Vec<ExternalDep>,
-}
-
-pub struct ManifestError {
-    pub message: String,
-}
+// Schema types (TargetKind/Target/ExternalDep/ExternalLib/LockEntry/
+// GitWinner/Manifest/ManifestError) live in `lforge.schema`.
 
 // ── String helpers ────────────────────────────────────────────────────────
 
@@ -574,10 +520,7 @@ unsafe fn make_absolute(rel: str) -> String {
 
 // ── External deps (B2: local paths only) ──────────────────────────────────
 
-pub struct ExternalLib {
-    pub name:         String,    // lib target name in the external project
-    pub archive_path: String,    // absolute path to <ext>/.lforge/<profile>/out/lib<name>.a
-}
+// ExternalLib lives in lforge.schema.
 
 // Build the lib targets named in `dep.modules` from the external project at
 // `dep.path`. Returns the absolute archive paths so the consumer can
