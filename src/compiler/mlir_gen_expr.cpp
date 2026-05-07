@@ -932,12 +932,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
             auto b = gen_expr(*arg_les[1]); if (!b) return nullptr;
             // Coerce types so the arith op sees matching integer widths.
             if (a.getType() != b.getType()) {
-                if (auto ai = mlir::dyn_cast<mlir::IntegerType>(a.getType()))
-                    if (auto bi = mlir::dyn_cast<mlir::IntegerType>(b.getType()))
+                if (auto ai = mlir::dyn_cast<mlir::IntegerType>(a.getType())) {
+                    if (auto bi = mlir::dyn_cast<mlir::IntegerType>(b.getType())) {
                         if (ai.getWidth() < bi.getWidth())
                             a = builder_.create<mlir::arith::ExtUIOp>(loc_, b.getType(), a);
                         else if (bi.getWidth() < ai.getWidth())
                             b = builder_.create<mlir::arith::ExtUIOp>(loc_, a.getType(), b);
+                    }
+                }
             }
             if (base_op == "wrapping_add")
                 return builder_.create<mlir::arith::AddIOp>(loc_, a, b);

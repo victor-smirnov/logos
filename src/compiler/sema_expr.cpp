@@ -9192,14 +9192,6 @@ void SemaChecker::lower_metacall_item(hermes::TinyMapView node,
     // renders HStaticLit as `@hs_<hex>` which doesn't parse; for the
     // metacall thunk we must reconstruct the original `@{...}` source.
     std::function<std::string(TinyMapView)> render_hstatic;
-    auto render_hstatic_val = [&](AnyVal av) -> std::string {
-        if (av.is_null()) return "null";
-        if (av.is_pointer()) return render_hstatic(map_of(av));
-        // Inline scalar — fallback to string-of (won't typically occur
-        // at this spot since the parser stores ints/floats/strs as
-        // string-typed VALUEs in their respective HERMES_* nodes).
-        return std::string(str_of(av));
-    };
     render_hstatic = [&](TinyMapView n) -> std::string {
         int32_t c = code_of(n);
         if (c == la::HERMES_MAP.code) {

@@ -22,9 +22,7 @@ std::optional<ModuleManifest> parse_module_manifest(const std::string& path,
 
     ModuleManifest m;
     std::string line;
-    int lineno = 0;
     while (std::getline(f, line)) {
-        ++lineno;
         auto t = trim(line);
         if (t.empty() || t[0] == '#') continue;
 

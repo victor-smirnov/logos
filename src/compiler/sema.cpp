@@ -1077,8 +1077,9 @@ std::string type_str(TypeRef t) {
         return r;
     }
     case LogosType::Kind::ImplTrait:   return "impl " + std::string(TypeRef(t).struct_name());
-    case LogosType::Kind::Generic: return "generic " + std::string(TypeRef(t).struct_name());
-    case LogosType::Kind::Error:   return "<error>";
+    case LogosType::Kind::Generic:     return "generic " + std::string(TypeRef(t).struct_name());
+    case LogosType::Kind::CfgSlotType: return "<cfg-slot-type>";
+    case LogosType::Kind::Error:       return "<error>";
     }
     return "<unknown>";
 }

@@ -182,6 +182,7 @@ static AnyVal hermes_val_to_doc(Hermes& doc, lir_view::HermesValRef v) {
             return as_ptr(a);
         }
         case HVC::Capture: return AnyVal{};
+        case HVC::Type:    return AnyVal{};
     }
     return AnyVal{};
 }

@@ -131,9 +131,11 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
                      base_s.c_str(), std::string(tv.trait_name()).c_str(), std::string(tv.assoc_type_name()).c_str());
         return nullptr;
     }
-    case LogosType::Kind::Error:     return nullptr;
-    case LogosType::Kind::ImplTrait: return nullptr;
-    case LogosType::Kind::Generic:   return nullptr;  // value-side marker only
+    case LogosType::Kind::Error:       return nullptr;
+    case LogosType::Kind::ImplTrait:   return nullptr;
+    case LogosType::Kind::Generic:     return nullptr;  // value-side marker only
+    case LogosType::Kind::HStaticLit:  return nullptr;  // type-level only, no MLIR mapping
+    case LogosType::Kind::CfgSlotType: return nullptr;  // type-level only, no MLIR mapping
     }
     return nullptr;
 }

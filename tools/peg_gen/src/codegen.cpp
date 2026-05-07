@@ -1792,7 +1792,7 @@ private:
             w.line("{");
             w.indent();
             w.line("size_t na_pos_ = pos_; bool na_la_ = have_la_; Token na_tok_ = la_; uint32_t na_line_ = line_;");
-            w.line("size_t na_doc_ = doc_.arena_checkpoint();");
+            w.line("[[maybe_unused]] size_t na_doc_ = doc_.arena_checkpoint();");
             w.line("{");
             w.indent();
             if (!item.sub_items.empty()) {
@@ -1804,7 +1804,9 @@ private:
             w.fmt("goto {};", fail_label);
             w.dedent();
             w.line("}");
-            w.fmt("{}: ;", fail_lbl);
+            // Label may be dead when sub_items is empty (no goto generated);
+            // suppress -Wunused-label.
+            w.fmt("__attribute__((unused)) {}: ;", fail_lbl);
             w.fmt("{}: ;", ok_lbl);
             w.line("pos_ = na_pos_; have_la_ = na_la_; la_ = na_tok_; line_ = na_line_;");
             w.fmt("[[maybe_unused]] AnyVal {} = AnyVal{{}};  // negative lookahead succeeded", cap);
