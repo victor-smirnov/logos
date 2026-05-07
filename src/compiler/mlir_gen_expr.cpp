@@ -41,7 +41,30 @@ static mlir::func::FuncOp find_func_op(mlir::ModuleOp mod, std::string_view name
         return fn;
     auto found = find_fn_matching(mod,
         [&](mlir::func::FuncOp fn) { return fn.getName().str() == name; });
-    return found;
+    if (found) return found;
+    // Hardcoded stdlib intrinsic lookups (e.g. `hermes_build_from_template`)
+    // must also resolve the post-unify pkg-qualified + sig-suffixed form
+    // (`std.hermes.ctr$<bare>__f__<sig>`). Walk fns and canonicalise.
+    auto canonical = [](std::string_view nm) -> std::string_view {
+        // Strip free-fn `pkg$` prefix.
+        if (auto d = nm.find('$'); d != std::string_view::npos) {
+            bool gen = (d + 2 < nm.size() && nm[d + 1] == 'G' &&
+                        nm[d + 2] >= '0' && nm[d + 2] <= '9');
+            if (!gen) nm = nm.substr(d + 1);
+        }
+        // Strip method `pkg.` prefix (last dot before bare name).
+        if (auto d = nm.rfind('.'); d != std::string_view::npos)
+            nm = nm.substr(d + 1);
+        // Strip sig suffix.
+        if (auto p = nm.find("__f__"); p != std::string_view::npos)
+            nm = nm.substr(0, p);
+        else if (auto p = nm.find("__g__"); p != std::string_view::npos)
+            nm = nm.substr(0, p);
+        return nm;
+    };
+    return find_fn_matching(mod, [&](mlir::func::FuncOp fn) {
+        return canonical(fn.getName()) == name;
+    });
 }
 }  // namespace
 
