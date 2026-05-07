@@ -19,14 +19,18 @@ There is no separate "package author" role. Publishing = pushing a tagged commit
 
 ## Identity
 
-A project is identified by its git URL. Two forms are accepted in the manifest, both resolve to the same repo:
+A project is identified by its git URL. Several forms are accepted in the manifest, all resolve via `git fetch`:
 
 ```
-github.com/anthropics/logos-http       # Go-style — implied https://github.com/...
-https://git.example.com/team/lib.git   # explicit URL — any git host
+github.com/anthropics/logos-http        # Go-style — implied https://github.com/...
+https://git.example.com/team/lib.git    # explicit https URL — any git host
+ssh://git@git.example.com/team/lib.git  # explicit ssh URL
+git@github.com:anthropics/logos-http    # SCP-style ssh shorthand
 ```
 
-GitHub gets the short form because that's where ~95% of code lives. The bare-URL form is the canonical shape; the short form is sugar.
+GitHub `https` gets the short form because that's where ~95% of code lives. SSH forms are first-class — required for private repos and self-hosted git. lforge does not implement transport itself: it shells out to `git`, which inherits whatever credential helpers / SSH agent / `~/.ssh/config` the user already has configured. No lforge-specific auth config.
+
+A consequence: the same project can be referred to via either `https` or `ssh`. lforge canonicalises to a single form for cache and lockfile keys (recommended: `<host>/<path>` stripped of scheme, port, and `.git` suffix) so the same project pinned via `https` in CI and via `ssh` on a developer's laptop hits the same cache entry.
 
 Identity is stable across hosting moves. If a project relocates, the manifest gains a `replace` entry — the consumer's manifest doesn't change. (Same shape as Go's `replace` directive.)
 
