@@ -103,19 +103,22 @@ Confirmed working — same as B-ty-10 (zero-size array). Documented as design.
 
 Confirmed working (H12). Trailing-comma-cluster: contrast with B-fn-03/04/05 (rejected in fn args). Inconsistency: Hermes accepts, fns don't.
 
-### B-he-09: hermes_typed_array / hermes_typed_map syntax not surveyed (deferred)
+### B-he-09: hermes_typed_array / hermes_typed_map gated on missing stdlib helper
 
-**Severity**: deferred
-**Status**: not-tested-this-pass
-**Note**: Grammar shows `hermes_typed_array <- LT IDENT GT LBRACKET ... RBRACKET` (i.e. `@<i32>[1, 2]`-style) but my initial test used wrong syntax. Worth a re-test with `@<i32>[1, 2, 3]` form.
-**Tags**: deferred
+**Severity**: feature-incomplete
+**Status**: confirmed-feature-incomplete (2026-05-07) — `@<I32>[10, 20, 30]` parses; type tag must be the capitalised Hermes scalar set (I8/U8/.../F64). Sema then asks for `use std.hermes.array;` because the typed-array stdlib helper (`ArrayI32`, …) hasn't been ported. lowercase `i32` is rejected with a list of accepted names.
+**Note**: Sema gate works. Unblocking needs `stdlib/std/hermes/array.logos` exposing `ArrayI32` … `ArrayF64` (and a `map.logos` analog for typed maps).
+**Tags**: feature-incomplete:no-stdlib-helper
 
-### B-he-10: hermes_list_comp / hermes_map_comp comprehensions not surveyed (deferred)
+### B-he-10: hermes_list_comp / hermes_map_comp comprehensions gated on missing stdlib helper
 
-**Severity**: deferred
-**Status**: not-tested-this-pass
-**Note**: Forms like `@[expr for x in iter]` exist in grammar but weren't probed.
-**Tags**: deferred
+**Severity**: feature-incomplete
+**Status**: confirmed-feature-incomplete (2026-05-07) — `@[x * 2 for x in xs]` parses; sema rejects with two flavours:
+  1. Iterating over a HermesStatic (`@[...]`) → `only array/slice iteration supported (got HermesStatic)`.
+  2. Iterating over `[T; N]` / `&[T]` → `hermes list comprehension requires use std.hermes.ctr;`.
+  `std.hermes.ctr` does not exist in stdlib.
+**Note**: Same shape as B-he-09 / B-pt-09 — comprehension lowering was sketched on the compiler side, but the stdlib builders never landed.
+**Tags**: feature-incomplete:no-stdlib-helper
 
 ## Tag summary
 

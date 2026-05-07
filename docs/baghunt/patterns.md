@@ -163,19 +163,19 @@ fn todo() -> Empty { return todo(); }
 **Suspected root**: Grammar's `match_arm+` (one-or-more) instead of `match_arm*`. Once empty enums work cleanly (they currently compile silently — see B-it-06), empty match should round out the story.
 **Tags**: `design:incomplete`, `tech-debt:grammar-too-strict`
 
-### B-pt-09: Hermes-pattern positions not surveyed (deferred)
+### B-pt-09: Hermes-pattern positions gated on missing stdlib helper
 
-**Severity**: deferred
-**Status**: not-tested-this-pass
-**Note**: The grammar's `pat_hermes_map_entry`, `pat_hermes_map_entries`, `pat_hermes_arr_elem`, `pat_hermes_arr_elems` productions exist but weren't probed in this hunt. The Hermes literal infrastructure (Group 12) covers similar surface; bugs there will likely re-surface here. Worth a return visit after Hermes group.
-**Tags**: deferred-to-hermes-group
+**Severity**: feature-incomplete
+**Status**: confirmed-feature-incomplete (2026-05-07) — `match arr { @[a, b, c] => ... }` is rejected by sema with `Hermes pattern needs stdlib helper 'hermes_pat_array_slot'; use std.hermes.pat;`, but `std.hermes.pat` does not exist in stdlib. Sema gate works; the stdlib side was never written.
+**Note**: To revive, write `stdlib/std/hermes/pat.logos` exposing the helpers the gate names (`hermes_pat_array_slot`, etc.). Same shape as B-he-09/B-he-10.
+**Tags**: feature-incomplete:no-stdlib-helper, deferred-to-hermes-group
 
-### B-pt-10: Or-pattern with bindings has unclear scope
+### B-pt-10: Or-pattern with bindings — FIXED
 
-**Severity**: deferred
-**Status**: not-tested-this-pass
-**Note**: `(Some(x) | None) => use(x)` — does `x` exist in the None branch? Rust requires consistent bindings across or-pattern arms. Logos behavior unverified. Worth follow-up.
-**Tags**: deferred
+**Severity**: was silent miscompile (mlir-gen "undefined" warning + bogus exit code)
+**Status**: FIXED (2026-05-07, this sprint) — `Either::L(x) | Either::R(x) => x` now works. Sema's NG4 already enforced consistent binding name sets across alternatives; mlir-gen's `extract_arm_payload` (in `src/compiler/mlir_gen_expr.cpp`) didn't recognize PatOr. Added a recursive case that extracts from the first alt — sema's NG4 guarantees compatible payload shape across alts. Inconsistent-bindings (`L(x) | B`, where B has no payload) still rejected by sema.
+**Regression test**: `tests/logos/pass/or_pattern_binding.logos`
+**Tags**: codegen:missing-pattern-handler, fixed
 
 ## Tag summary
 

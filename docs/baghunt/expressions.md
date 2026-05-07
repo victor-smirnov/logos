@@ -161,12 +161,12 @@ fn main() -> i32 {
 **Suspected root**: Grammar precedence ordering — see [logos.peg](../../tools/peg_gen/grammars/logos.peg). Design choice.
 **Tags**: `design:incomplete`, `tech-debt:precedence-c-style`
 
-### B-ex-10: Cast expression chain `(a as b as c)` not surveyed (deferred)
+### B-ex-10: Cast expression chain `(a as b as c)` — works
 
-**Severity**: deferred
-**Status**: not-tested-this-pass
-**Note**: `cast_expr` parses as `unary_expr (KW_AS type_ref)*` — chained casts should work. Worth a positive-test pass.
-**Tags**: deferred
+**Severity**: not-a-bug
+**Status**: confirmed-works (2026-05-07) — `x as i64 as f64 as i32` builds, runs, returns the expected value.
+**Note**: `cast_expr` parses as `unary_expr (KW_AS type_ref)*` and codegen handles each cast as an independent step.
+**Tags**: regression-confirmed
 
 ## Tag summary
 

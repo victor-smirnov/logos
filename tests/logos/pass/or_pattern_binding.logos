@@ -1,0 +1,22 @@
+// B-pt-10: or-pattern with consistent bindings should propagate the binding
+// into the arm body. Sema's NG4 check accepts `L(x) | R(x)` (matching name
+// sets), but mlir-gen's extract_arm_payload didn't handle PatOr — the body
+// saw "undefined 'x'". Fix: recurse into the first alternative; sema
+// guarantees alternatives bind the same names with compatible payload
+// shapes, so the GEP into alt[0]'s variant struct lands at the correct
+// offset/type for any matching alt.
+package or_pattern_binding;
+
+enum Either { L(i32), R(i32) }
+
+fn pick(e: Either) -> i32 {
+    return match e {
+        Either::L(x) | Either::R(x) => x,
+    };
+}
+
+fn main() -> i32 {
+    let a = pick(Either::L(40));
+    let b = pick(Either::R(2));
+    return a + b;
+}

@@ -1949,7 +1949,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
     mlir::Type scrut_type = scrut.getType();
 
     // Extract payload bindings for a PatVariantData arm into scope.
-    auto extract_arm_payload = [&](lir_view::PatRef pat_ref) -> std::vector<std::string> {
+    std::function<std::vector<std::string>(lir_view::PatRef)> extract_arm_payload =
+        [&](lir_view::PatRef pat_ref) -> std::vector<std::string> {
         std::vector<std::string> added;
         if (pat_ref.kind() == pc::Code::VariantData) {
             lir_view::PatVariantDataView pvd{pat_ref};
@@ -2016,6 +2017,20 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                 let_vars_.insert(name);
                 var_elem_types_[name] = sv.getType();
                 added.push_back(name);
+            }
+        } else if (pat_ref.kind() == pc::Code::Or) {
+            // Or-pattern bindings: sema's NG4 check guarantees every alternative
+            // binds the same name set. For variant alts that share payload
+            // shape (e.g. L(x: i32) | R(x: i32)), GEP'ing as the first alt's
+            // variant lands at the same offset/type — which is what we want.
+            // (Mixed-shape alts are rejected at sema.)
+            lir_view::PatRef first;
+            lir_view::PatOrView{pat_ref}.each_alt([&](lir_view::PatRef a){
+                if (!first) first = a;
+            });
+            if (first) {
+                auto inner = extract_arm_payload(first);
+                added.insert(added.end(), inner.begin(), inner.end());
             }
         }
         return added;
