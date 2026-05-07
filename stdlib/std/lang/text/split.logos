@@ -1,0 +1,88 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.lang.text.split
+//
+// Splitter: iterator over substrings of a `str` separated by a fixed separator.
+// Returns sub-`str` views into the input — caller must keep the original
+// buffer alive for the duration of iteration.
+//
+// Semantics match Rust/Python `split`:
+//   "a,b,c"      split on ","   ->  ["a", "b", "c"]
+//   "a,,b"       split on ","   ->  ["a", "", "b"]
+//   ""           split on ","   ->  [""]
+//   "abc"        split on ","   ->  ["abc"]
+//   ",a,"        split on ","   ->  ["", "a", ""]
+
+package std.lang.text;
+
+use std.lang.iter;
+use std.lang.option;
+
+// Multi-byte separator splitter.
+pub struct Splitter {
+    rest: str,      // remaining input
+    sep: str,       // separator
+    done: bool,     // true after final segment yielded
+}
+
+impl Iterator<str> for Splitter {
+    fn next(self: &mut Splitter) -> Option<str> {
+        if self.done { return Option::None; }
+        let n: i64 = self.rest.len();
+        let sn: i64 = self.sep.len();
+        if sn == 0 as i64 {
+            // Empty separator: yield whole rest once.
+            self.done = true;
+            return Option::Some(self.rest);
+        }
+        let idx: i64 = str_index_of(self.rest, self.sep);
+        if idx < 0 as i64 {
+            self.done = true;
+            return Option::Some(self.rest);
+        }
+        unsafe {
+            let head: str = str_from_raw(self.rest.as_ptr(), idx);
+            let tail_ptr: *const u8 = (self.rest.as_ptr() as i64 + idx + sn) as *const u8;
+            let tail_len: i64 = n - idx - sn;
+            self.rest = str_from_raw(tail_ptr, tail_len);
+            return Option::Some(head);
+        }
+    }
+}
+
+// Split `s` on each occurrence of `sep`. Empty `sep` yields the whole `s` once.
+pub fn split(s: str, sep: str) -> Splitter {
+    return Splitter { rest: s, sep: sep, done: false };
+}
+
+// Single-byte separator splitter — common fast path for ',', '/', etc.
+pub struct ByteSplitter {
+    rest: str,
+    sep: u8,
+    done: bool,
+}
+
+impl Iterator<str> for ByteSplitter {
+    fn next(self: &mut ByteSplitter) -> Option<str> {
+        if self.done { return Option::None; }
+        let n: i64 = self.rest.len();
+        let sp: *const u8 = self.rest.as_ptr();
+        let mut i: i64 = 0 as i64;
+        unsafe {
+            while i < n {
+                if (*((sp as i64 + i) as *const u8)) == self.sep {
+                    let head: str = str_from_raw(sp, i);
+                    let tail_ptr: *const u8 = (sp as i64 + i + 1 as i64) as *const u8;
+                    self.rest = str_from_raw(tail_ptr, n - i - 1 as i64);
+                    return Option::Some(head);
+                }
+                i = i + 1 as i64;
+            }
+        }
+        self.done = true;
+        return Option::Some(self.rest);
+    }
+}
+
+pub fn split_byte(s: str, sep: u8) -> ByteSplitter {
+    return ByteSplitter { rest: s, sep: sep, done: false };
+}

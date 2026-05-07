@@ -7,6 +7,9 @@
 package std.sys.process;
 
 use std.io.pipe;
+use std.lang.text;
+use std.lang.option;
+use std.lang.iter;
 
 extern fn fork() -> i32;
 extern fn execvp(file: *const u8, argv: *const *const u8) -> i32;
@@ -174,4 +177,120 @@ pub fn spawn(argv: *const *const u8,
 // Convenience: spawn without any pipes (inherit parent fds).
 pub fn spawn_simple(argv: *const *const u8) -> Child {
     return spawn(argv, false, false, false);
+}
+
+// ---- Line streaming ---------------------------------------------------------
+//
+// LineReader buffers raw bytes from a pipe fd and yields one line at a time
+// (newline-terminated, terminator stripped). Trailing partial line at EOF is
+// also yielded.
+//
+// Currently uses blocking read(). This is fine for batch-mode build orchestration
+// where the parent doesn't need to multitask while a single child runs. When
+// reactor pipe-poll integration lands, this will be upgraded to register the
+// fd with io_uring and yield the fiber on empty buffer (instead of blocking).
+// API shape stays the same.
+
+pub struct LineReader {
+    fd:        i32,
+    buf:       *mut u8,
+    cap:       i64,    // allocation size
+    head:      i64,    // start of unread bytes
+    tail:      i64,    // end of unread bytes
+    eof:       bool,
+}
+
+impl Iterator<String> for LineReader {
+    fn next(self: &mut LineReader) -> Option<String> {
+        unsafe {
+            loop {
+                // Scan current buffer [head..tail) for '\n'.
+                let mut i: i64 = self.head;
+                while i < self.tail {
+                    if self.buf[i] == 10 as u8 {  // '\n'
+                        let line_len: i64 = i - self.head;
+                        let mut s: String = String::new();
+                        if line_len > 0 as i64 {
+                            let p: *const u8 = (self.buf as i64 + self.head) as *const u8;
+                            s.push_bytes(p, line_len);
+                        }
+                        self.head = i + 1 as i64;
+                        return Option::Some(s);
+                    }
+                    i = i + 1 as i64;
+                }
+                // No newline. If EOF already, drain tail as a final line (if any).
+                if self.eof {
+                    let rem: i64 = self.tail - self.head;
+                    if rem <= 0 as i64 { return Option::None; }
+                    let mut s: String = String::new();
+                    let p: *const u8 = (self.buf as i64 + self.head) as *const u8;
+                    s.push_bytes(p, rem);
+                    self.head = self.tail;
+                    return Option::Some(s);
+                }
+                // Compact unread bytes to start of buf, then read more.
+                let rem: i64 = self.tail - self.head;
+                if self.head > 0 as i64 {
+                    let mut k: i64 = 0 as i64;
+                    while k < rem {
+                        self.buf[k] = self.buf[self.head + k];
+                        k = k + 1 as i64;
+                    }
+                    self.head = 0 as i64;
+                    self.tail = rem;
+                }
+                // Grow if buffer is full (long line, no newline yet).
+                if self.tail >= self.cap {
+                    let new_cap: i64 = self.cap * 2 as i64;
+                    let new_buf: *mut u8 = realloc_buf(self.buf, new_cap);
+                    if new_buf == 0 as *mut u8 {
+                        // Allocation failed: treat as EOF, surface what we have.
+                        self.eof = true;
+                        continue;
+                    }
+                    self.buf = new_buf;
+                    self.cap = new_cap;
+                }
+                let space: i64 = self.cap - self.tail;
+                let dst: *mut u8 = (self.buf as i64 + self.tail) as *mut u8;
+                let n: i64 = read(self.fd, dst, space);
+                if n <= 0 as i64 {
+                    // 0 = EOF, <0 = error (treat as EOF).
+                    self.eof = true;
+                } else {
+                    self.tail = self.tail + n;
+                }
+            }
+        }
+        return Option::None;
+    }
+}
+
+impl Drop for LineReader {
+    fn drop(self: LineReader) {
+        if self.buf != 0 as *mut u8 {
+            unsafe { dealloc(self.buf); }
+        }
+    }
+}
+
+fn line_reader_new(fd: i32) -> LineReader {
+    let cap: i64 = 4096 as i64;
+    let buf: *mut u8 = unsafe { alloc(cap) };
+    return LineReader { fd: fd, buf: buf, cap: cap, head: 0 as i64, tail: 0 as i64, eof: false };
+}
+
+impl Child {
+    // Iterator over lines from child stdout. Newline-terminated lines have
+    // the terminator stripped; final partial line at EOF is also yielded.
+    // Requires Command-equivalent pipe_stdout=true at spawn time.
+    pub fn stdout_lines(self: &mut Child) -> LineReader {
+        return line_reader_new(self.stdout);
+    }
+
+    // Iterator over lines from child stderr. Same semantics as stdout_lines.
+    pub fn stderr_lines(self: &mut Child) -> LineReader {
+        return line_reader_new(self.stderr);
+    }
 }

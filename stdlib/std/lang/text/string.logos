@@ -279,6 +279,17 @@ impl String {
         }
     }
 
+    // Truncate length to `new_len` bytes. No-op if new_len >= current len.
+    // Negative values are clamped to 0. Allocation is preserved.
+    pub fn truncate(&mut self, new_len: i64) {
+        if new_len < 0 as i64 { self.clear(); return; }
+        if new_len >= self.nbytes { return; }
+        self.nbytes = new_len;
+        if self.data != 0 as *mut u8 {
+            unsafe { self.data[self.nbytes] = 0 as u8; }
+        }
+    }
+
     // Ensure `reserve` spare bytes, return pointer to first spare byte.
     // Used by Display impls to write directly into the buffer.
     pub fn spare_ptr(&mut self, reserve: i64) -> *mut u8 {
@@ -442,6 +453,105 @@ impl Display for str {
     }
 }
 
+// ── Predicates and trimming on `str` ───────────────────────────────────────
+// Free functions are prefixed `str_` because `str` is a primitive and cannot
+// host inherent methods. When `impl str { ... }` lands these will move into it.
+
+pub fn str_starts_with(s: str, prefix: str) -> bool {
+    if s.len() < prefix.len() { return false; }
+    let n: i64 = prefix.len();
+    let mut i: i64 = 0 as i64;
+    unsafe {
+        while i < n {
+            if s.as_ptr()[i] != prefix.as_ptr()[i] { return false; }
+            i = i + 1 as i64;
+        }
+    }
+    return true;
+}
+
+pub fn str_ends_with(s: str, suffix: str) -> bool {
+    let n: i64 = suffix.len();
+    let m: i64 = s.len();
+    if n > m { return false; }
+    let off: i64 = m - n;
+    let mut i: i64 = 0 as i64;
+    unsafe {
+        while i < n {
+            if s.as_ptr()[off + i] != suffix.as_ptr()[i] { return false; }
+            i = i + 1 as i64;
+        }
+    }
+    return true;
+}
+
+// Byte offset of first occurrence of `needle` in `s`, or -1 if not found.
+// Empty needle returns 0. Naive search.
+pub fn str_index_of(s: str, needle: str) -> i64 {
+    let n: i64 = needle.len();
+    let m: i64 = s.len();
+    if n == 0 as i64 { return 0 as i64; }
+    if n > m { return 0 as i64 - 1 as i64; }
+    let last: i64 = m - n;
+    let mut i: i64 = 0 as i64;
+    unsafe {
+        while i <= last {
+            let mut j: i64 = 0 as i64;
+            let mut eq: bool = true;
+            while j < n {
+                if s.as_ptr()[i + j] != needle.as_ptr()[j] {
+                    eq = false;
+                    j = n;
+                } else {
+                    j = j + 1 as i64;
+                }
+            }
+            if eq { return i; }
+            i = i + 1 as i64;
+        }
+    }
+    return 0 as i64 - 1 as i64;
+}
+
+pub fn str_contains(s: str, needle: str) -> bool {
+    return str_index_of(s, needle) >= 0 as i64;
+}
+
+// True if a byte is ASCII whitespace.
+fn is_ws_byte(b: u8) -> bool {
+    let c: i32 = b as i32;
+    return c == 32 || c == 9 || c == 10 || c == 13 || c == 11 || c == 12;
+}
+
+// Trim leading ASCII whitespace, return a sub-`str` of `s`.
+pub fn str_trim_start(s: str) -> str {
+    let n: i64 = s.len();
+    let mut i: i64 = 0 as i64;
+    unsafe {
+        while i < n && is_ws_byte(s.as_ptr()[i]) {
+            i = i + 1 as i64;
+        }
+        let p: *const u8 = (s.as_ptr() as i64 + i) as *const u8;
+        return str_from_raw(p, n - i);
+    }
+}
+
+// Trim trailing ASCII whitespace, return a sub-`str` of `s`.
+pub fn str_trim_end(s: str) -> str {
+    let mut n: i64 = s.len();
+    unsafe {
+        while n > 0 as i64 && is_ws_byte(s.as_ptr()[n - 1 as i64]) {
+            n = n - 1 as i64;
+        }
+        return str_from_raw(s.as_ptr(), n);
+    }
+}
+
+// Trim leading and trailing ASCII whitespace, return a sub-`str` of `s`.
+pub fn str_trim(s: str) -> str {
+    return str_trim_start(str_trim_end(s));
+}
+
 // Convert any Display value to an owned String.
 pub fn to_string<T: Display>(val: T) -> String {
     let mut s: String = String::new();
@@ -497,3 +607,5 @@ unsafe fn std_utf8_encode(cp: u32, buf: *mut u8) -> i64 {
     buf[0] = 0xEF as u8; buf[1] = 0xBF as u8; buf[2] = 0xBD as u8;
     return 3;
 }
+
+

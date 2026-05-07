@@ -1,0 +1,62 @@
+// Test Child.stdout_lines() — line-by-line streaming from a child process.
+// Uses /bin/echo and /bin/sh -c to emit known multi-line output.
+
+package process_lines;
+
+use std.sys.process;
+use std.lang.text;
+use std.lang.option;
+use std.lang.iter;
+
+unsafe fn cstr(s: str) -> *const u8 {
+    let len: i64 = s.len();
+    let h: *mut u8 = alloc(len + 1 as i64);
+    let mut i: i64 = 0 as i64;
+    while i < len {
+        h[i] = s.as_ptr()[i];
+        i = i + 1 as i64;
+    }
+    h[len] = 0 as u8;
+    return h as *const u8;
+}
+
+fn main() -> i32 {
+    // Spawn `/bin/sh -c 'printf "alpha\nbeta\ngamma\n"'`.
+    let arg0: *const u8 = unsafe { cstr("/bin/sh") };
+    let arg1: *const u8 = unsafe { cstr("-c") };
+    let arg2: *const u8 = unsafe { cstr("printf 'alpha\\nbeta\\ngamma\\n'") };
+    let argv_buf: *mut *const u8 = unsafe { alloc(32 as i64) as *mut *const u8 };
+    unsafe {
+        argv_buf[0 as i64] = arg0;
+        argv_buf[1 as i64] = arg1;
+        argv_buf[2 as i64] = arg2;
+        argv_buf[3 as i64] = 0 as *const u8;
+    }
+
+    let mut child: Child = spawn(argv_buf as *const *const u8, false, true, false);
+    if child.pid() < 0 { return 1; }
+
+    let mut got: i32 = 0;
+    let mut idx: i32 = 0;
+    {
+        let mut lr: LineReader = child.stdout_lines();
+        loop {
+            match lr.next() {
+                Option::Some(line) => {
+                    got = got + 1;
+                    if idx == 0 && !line.eq_str("alpha") { return 10; }
+                    if idx == 1 && !line.eq_str("beta")  { return 11; }
+                    if idx == 2 && !line.eq_str("gamma") { return 12; }
+                    idx = idx + 1;
+                }
+                Option::None => { break; }
+            }
+        }
+    }
+    if got != 3 { return 20 + got; }
+
+    let st: ExitStatus = child.wait();
+    if !st.success() { return 30; }
+
+    return 0;
+}

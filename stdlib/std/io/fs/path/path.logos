@@ -162,3 +162,136 @@ pub fn join_into(base: &mut String, component: str) {
     }
     base.push_str(component);
 }
+
+// ---- normalization ----------------------------------------------------------
+
+// Lexical normalization (no FS access, no symlink resolution).
+// Collapses repeated slashes, removes "." segments, resolves ".." against
+// preceding non-".." segments. Behavior matches Go's path.Clean / Python's
+// posixpath.normpath:
+//   "a//b/./c"      -> "a/b/c"
+//   "a/b/../c"      -> "a/c"
+//   "/../a"         -> "/a"        (".." cannot escape root)
+//   "../a/../b"     -> "../b"      (relative ".." preserved)
+//   ""              -> "."
+//   "/"             -> "/"
+// Trailing "/" is dropped except when the result is exactly "/".
+pub fn normalize(p: str) -> String {
+    let n: i64 = p.len();
+    let mut out: String = String::new();
+    let absolute: bool = is_absolute(p);
+
+    // Output stack of segment offsets+lengths into a scratch buffer. We append
+    // segments to `out` separated by '/' and remember the start-of-segment
+    // offsets in `starts` so we can pop on "..". The leading "/" (if absolute)
+    // is written first and never popped.
+    if absolute {
+        out.push_u8(47 as u8);  // '/'
+    }
+    let root_len: i64 = out.len();
+
+    // Track segment start offsets for popping. Cap at 256 — paths deeper than
+    // that are pathological.
+    let mut starts: [i64; 256] = [0 as i64; 256];
+    let mut top: i64 = 0 as i64;
+
+    let mut i: i64 = 0 as i64;
+    while i < n {
+        // Skip slashes between segments.
+        unsafe {
+            while i < n && (p[i] as i32) == 47 {
+                i = i + 1 as i64;
+            }
+        }
+        if i >= n { break; }
+
+        // Find segment end.
+        let seg_start: i64 = i;
+        unsafe {
+            while i < n && (p[i] as i32) != 47 {
+                i = i + 1 as i64;
+            }
+        }
+        let seg_len: i64 = i - seg_start;
+
+        // Classify segment.
+        let mut is_dot: bool = false;
+        let mut is_dotdot: bool = false;
+        unsafe {
+            if seg_len == 1 as i64 && (p[seg_start] as i32) == 46 {
+                is_dot = true;
+            }
+            if seg_len == 2 as i64
+                && (p[seg_start] as i32) == 46
+                && (p[seg_start + 1 as i64] as i32) == 46 {
+                is_dotdot = true;
+            }
+        }
+
+        if is_dot {
+            let _skip: i64 = 0 as i64;
+        } else if is_dotdot {
+            // Pop one segment if possible AND that segment is not itself "..".
+            let mut popped: bool = false;
+            if top > 0 as i64 {
+                let last_start: i64 = starts[top - 1 as i64];
+                let last_end: i64 = out.len();
+                let last_len: i64 = last_end - last_start;
+                let mut last_is_dotdot: bool = false;
+                unsafe {
+                    if last_len == 2 as i64
+                        && (out.as_ptr()[last_start] as i32) == 46
+                        && (out.as_ptr()[last_start + 1 as i64] as i32) == 46 {
+                        last_is_dotdot = true;
+                    }
+                }
+                if !last_is_dotdot {
+                    let drop_to: i64 = last_start;
+                    let mut new_len: i64 = drop_to;
+                    if new_len > root_len {
+                        new_len = new_len - 1 as i64;  // drop the '/'
+                    }
+                    out.truncate(new_len);
+                    top = top - 1 as i64;
+                    popped = true;
+                }
+            }
+            if !popped {
+                // Either empty stack or top is "..". Absolute path: drop it
+                // (cannot escape root). Relative path: keep the "..".
+                if !absolute {
+                    if out.len() > root_len {
+                        out.push_u8(47 as u8);
+                    }
+                    let s: i64 = out.len();
+                    out.push_u8(46 as u8);  // '.'
+                    out.push_u8(46 as u8);  // '.'
+                    if top < 256 as i64 {
+                        starts[top] = s;
+                        top = top + 1 as i64;
+                    }
+                }
+            }
+        } else {
+            // Regular segment.
+            if out.len() > root_len {
+                out.push_u8(47 as u8);
+            }
+            let s: i64 = out.len();
+            unsafe {
+                let ptr: *const u8 = (p.as_ptr() as i64 + seg_start) as *const u8;
+                out.push_bytes(ptr, seg_len);
+            }
+            if top < 256 as i64 {
+                starts[top] = s;
+                top = top + 1 as i64;
+            }
+        }
+    }
+
+    // Empty result: "." for relative, "/" for absolute (already in `out`).
+    if out.len() == 0 as i64 {
+        out.push_str(".");
+    }
+    return out;
+}

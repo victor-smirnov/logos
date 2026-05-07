@@ -1,0 +1,322 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.io.fs (metadata + directory iteration)
+//
+// File metadata predicates, mkdir/rmdir/unlink, and a recursive directory
+// walker. These wrap the C runtime helpers in stdlib/rt/fs_meta.c.
+
+package std.io.fs;
+
+use std.lang.text;
+use std.lang.result;
+use std.lang.iter;
+use std.lang.option;
+use std.io.fs.path;
+use std.collections.vec;
+use std.mem;
+
+// ── External C helpers (stdlib/rt/fs_meta.c) ──────────────────────────────
+
+extern fn logos_path_exists(path: *const u8) -> i32;
+extern fn logos_path_is_dir(path: *const u8) -> i32;
+extern fn logos_path_is_file(path: *const u8) -> i32;
+extern fn logos_path_size(path: *const u8) -> i64;
+extern fn logos_path_mtime_ns(path: *const u8) -> i64;
+extern fn logos_mkdir(path: *const u8, mode: i32) -> i32;
+extern fn logos_rmdir(path: *const u8) -> i32;
+extern fn logos_unlink(path: *const u8) -> i32;
+extern fn logos_realpath(path: *const u8, out: *mut u8, cap: i64) -> i64;
+extern fn logos_opendir(path: *const u8) -> *mut u8;
+extern fn logos_readdir_name(d: *mut u8, out: *mut u8, cap: i64, out_is_dir: *mut i32) -> i32;
+extern fn logos_closedir(d: *mut u8);
+
+// ── Predicates ────────────────────────────────────────────────────────────
+
+// True iff path exists. Returns false on errors that "look like" not-found
+// (ENOENT, ENOTDIR). Other errors are reported via exists_checked.
+pub fn exists(path: *const u8) -> bool {
+    let r: i32 = unsafe { logos_path_exists(path) };
+    return r == 1;
+}
+
+// Like exists() but distinguishes errors. Result::Ok(true/false) for
+// exists/not-exists, Result::Err(-errno) for I/O errors.
+pub fn exists_checked(path: *const u8) -> Result<bool, i32> {
+    let r: i32 = unsafe { logos_path_exists(path) };
+    if r >= 0 { return Result::Ok(r == 1); }
+    return Result::Err(r);
+}
+
+pub fn is_dir(path: *const u8) -> bool {
+    let r: i32 = unsafe { logos_path_is_dir(path) };
+    return r == 1;
+}
+
+pub fn is_file(path: *const u8) -> bool {
+    let r: i32 = unsafe { logos_path_is_file(path) };
+    return r == 1;
+}
+
+// Size in bytes, or Err(-errno).
+pub fn file_size(path: *const u8) -> Result<i64, i32> {
+    let r: i64 = unsafe { logos_path_size(path) };
+    if r < 0 as i64 { return Result::Err(r as i32); }
+    return Result::Ok(r);
+}
+
+// Modification time in nanoseconds since epoch, or Err(-errno).
+pub fn mtime_ns(path: *const u8) -> Result<i64, i32> {
+    let r: i64 = unsafe { logos_path_mtime_ns(path) };
+    if r < 0 as i64 { return Result::Err(r as i32); }
+    return Result::Ok(r);
+}
+
+// ── Mutation ──────────────────────────────────────────────────────────────
+
+pub fn mkdir(path: *const u8, mode: i32) -> Result<i32, i32> {
+    let r: i32 = unsafe { logos_mkdir(path, mode) };
+    if r < 0 { return Result::Err(r); }
+    return Result::Ok(0);
+}
+
+// Recursive mkdir. Creates each missing directory along the path with mode
+// 0o755. Existing directories are not an error. If any non-leaf component
+// exists but is not a directory, returns -ENOTDIR.
+pub fn mkdir_p(path: str) -> Result<i32, i32> {
+    let n: i64 = path.len();
+    if n == 0 as i64 { return Result::Ok(0); }
+    let mut buf: String = String::new();
+    let mut i: i64 = 0 as i64;
+    let absolute: bool = is_absolute(path);
+    if absolute {
+        buf.push_u8(47 as u8);  // '/'
+        i = 1 as i64;
+    }
+    let mut err: i32 = 0;
+    let mut going: bool = true;
+    while going && err == 0 {
+        // Find next '/'.
+        let seg_start: i64 = i;
+        unsafe {
+            while i < n && (path[i] as i32) != 47 {
+                i = i + 1 as i64;
+            }
+        }
+        let seg_len: i64 = i - seg_start;
+        if seg_len > 0 as i64 {
+            // Append segment to buf (with leading '/' if buf is non-root).
+            unsafe {
+                if buf.len() > 0 as i64 {
+                    let last: u8 = buf.as_ptr()[buf.len() - 1 as i64];
+                    if (last as i32) != 47 { buf.push_u8(47 as u8); }
+                }
+                let p: *const u8 = (path.as_ptr() as i64 + seg_start) as *const u8;
+                buf.push_bytes(p, seg_len);
+            }
+            // Try mkdir; tolerate EEXIST (errno 17).
+            let r: i32 = unsafe { logos_mkdir(buf.as_ptr(), 493 as i32) };  // 0o755
+            if r != 0 && r != 0 - 17 {
+                err = r;
+            }
+        }
+        // Skip slashes.
+        unsafe {
+            while i < n && (path[i] as i32) == 47 {
+                i = i + 1 as i64;
+            }
+        }
+        if i >= n { going = false; }
+    }
+    if err != 0 { return Result::Err(err); }
+    return Result::Ok(0);
+}
+
+pub fn rmdir(path: *const u8) -> Result<i32, i32> {
+    let r: i32 = unsafe { logos_rmdir(path) };
+    if r < 0 { return Result::Err(r); }
+    return Result::Ok(0);
+}
+
+pub fn unlink(path: *const u8) -> Result<i32, i32> {
+    let r: i32 = unsafe { logos_unlink(path) };
+    if r < 0 { return Result::Err(r); }
+    return Result::Ok(0);
+}
+
+// Recursive rm -rf semantics. Removes path and everything under it. Returns
+// the first error encountered (if any). A non-existent path is not an error.
+pub fn rm_rf(path: str) -> Result<i32, i32> {
+    let mut buf: String = String::new();
+    buf.push_str(path);
+    let dir: bool = unsafe { logos_path_is_dir(buf.as_ptr()) == 1 };
+    if !dir {
+        // File or non-existent: try unlink.
+        let r: i32 = unsafe { logos_unlink(buf.as_ptr()) };
+        if r == 0 { return Result::Ok(0); }
+        if r == 0 - 2 { return Result::Ok(0); }   // ENOENT — fine
+        return Result::Err(r);
+    }
+    // Directory: walk, remove children, then rmdir self.
+    let dh: *mut u8 = unsafe { logos_opendir(buf.as_ptr()) };
+    if dh == 0 as *mut u8 { return Result::Err(0 - 1); }
+    let nb_ptr: *mut u8 = unsafe { alloc(1024 as i64) };
+    let mut is_dir_flag: i32 = 0;
+    let mut err: i32 = 0;
+    let mut going: bool = true;
+    while going && err == 0 {
+        let r: i32 = unsafe { logos_readdir_name(dh, nb_ptr, 1024 as i64, &mut is_dir_flag) };
+        if r == 0 { going = false; }
+        else if r < 0 { err = r; }
+        else {
+            let mut child: String = String::new();
+            child.push_str(path);
+            unsafe {
+                if path.len() > 0 as i64 {
+                    let last: u8 = path[path.len() - 1 as i64];
+                    if (last as i32) != 47 { child.push_u8(47 as u8); }
+                }
+                child.push_cstr(nb_ptr as *const u8);
+            }
+            let cs: str = unsafe { str_from_cstr(child.as_ptr()) };
+            match rm_rf(cs) {
+                Result::Err(e) => { err = e; }
+                Result::Ok(_)  => { }
+            }
+        }
+    }
+    unsafe { logos_closedir(dh); }
+    unsafe { dealloc(nb_ptr); }
+    if err != 0 { return Result::Err(err); }
+    let r2: i32 = unsafe { logos_rmdir(buf.as_ptr()) };
+    if r2 != 0 && r2 != 0 - 2 { return Result::Err(r2); }
+    return Result::Ok(0);
+}
+
+// ── Directory iteration ──────────────────────────────────────────────────
+
+// One entry from read_dir().
+pub struct DirEntry {
+    pub name:   String,
+    pub is_dir: bool,
+}
+
+// Non-recursive directory iterator. Yields children of `path` (not recursing
+// into subdirectories), skipping "." and "..".
+pub struct ReadDir {
+    handle: *mut u8,
+    done:   bool,
+}
+
+impl Iterator<DirEntry> for ReadDir {
+    fn next(self: &mut ReadDir) -> Option<DirEntry> {
+        if self.done { return Option::None; }
+        if self.handle == 0 as *mut u8 { return Option::None; }
+        let nb_ptr: *mut u8 = unsafe { alloc(1024 as i64) };
+        let mut is_dir_flag: i32 = 0;
+        let r: i32 = unsafe { logos_readdir_name(self.handle, nb_ptr, 1024 as i64, &mut is_dir_flag) };
+        if r <= 0 {
+            unsafe { logos_closedir(self.handle); }
+            unsafe { dealloc(nb_ptr); }
+            self.handle = 0 as *mut u8;
+            self.done = true;
+            return Option::None;
+        }
+        let mut name: String = String::new();
+        unsafe { name.push_cstr(nb_ptr as *const u8); }
+        unsafe { dealloc(nb_ptr); }
+        return Option::Some(DirEntry { name: name, is_dir: is_dir_flag != 0 });
+    }
+}
+
+impl Drop for ReadDir {
+    fn drop(self: ReadDir) {
+        if self.handle != 0 as *mut u8 {
+            unsafe { logos_closedir(self.handle); }
+        }
+    }
+}
+
+// Open a directory for non-recursive iteration. Returns Err(-1) on open
+// failure (errno is not propagated by opendir; callers usually want a
+// boolean "could open or not").
+pub fn read_dir(path: *const u8) -> Result<ReadDir, i32> {
+    let h: *mut u8 = unsafe { logos_opendir(path) };
+    if h == 0 as *mut u8 {
+        return Result::Err(0 - 1);
+    }
+    return Result::Ok(ReadDir { handle: h, done: false });
+}
+
+// Recursive walker. Eagerly builds the full list of entries (pre-order)
+// rooted at `path`. The first entry is `path` itself. Each entry's `name`
+// holds the full path so callers can pass it directly to FS ops. Skips
+// "." / "..". Symlinks are not followed.
+//
+// Eager rather than streaming because Vec<String> generic-struct-storage
+// has unresolved corners; this keeps the API stable for now. Memory cost
+// scales with project size — fine for build-system use.
+pub fn walk_dir(path: str) -> Vec<DirEntry> {
+    let mut out: Vec<DirEntry> = vec_new::<DirEntry>();
+    walk_dir_into(path, &mut out);
+    return out;
+}
+
+fn walk_dir_into(path: str, out: *mut Vec<DirEntry>) {
+    unsafe {
+        let mut path_buf: String = String::new();
+        path_buf.push_str(path);
+        let dir_flag: i32 = logos_path_is_dir(path_buf.as_ptr());
+        let mut name: String = String::new();
+        name.push_str(path);
+        out.push(DirEntry { name: name, is_dir: dir_flag == 1 });
+        if dir_flag != 1 { return; }
+
+        let h: *mut u8 = logos_opendir(path_buf.as_ptr());
+        if h == 0 as *mut u8 { return; }
+
+        // Recurse directly inside the readdir loop. Each level uses its own
+        // dir handle; depth is bounded by FS depth, well within fd limits.
+        let nb_ptr: *mut u8 = alloc(1024 as i64);
+        let mut is_dir_flag: i32 = 0;
+        let mut going: bool = true;
+        while going {
+            let r: i32 = logos_readdir_name(h, nb_ptr, 1024 as i64, &mut is_dir_flag);
+            if r <= 0 {
+                going = false;
+            } else {
+                let mut child: String = String::new();
+                child.push_str(path);
+                let pl: i64 = path.len();
+                if pl > 0 as i64 {
+                    let last: u8 = path[pl - 1 as i64];
+                    if (last as i32) != 47 { child.push_u8(47 as u8); }
+                }
+                child.push_cstr(nb_ptr as *const u8);
+                let cv: str = str_from_raw(child.as_ptr(), child.len());
+                walk_dir_into(cv, out);
+            }
+        }
+        dealloc(nb_ptr);
+        logos_closedir(h);
+    }
+}
+
+// ── Canonical path resolution ────────────────────────────────────────────
+
+// Resolve symlinks and produce an absolute, normalized path. Wraps libc
+// realpath(). Returns Err(-errno) on failure.
+pub fn canonical(path: *const u8) -> Result<String, i32> {
+    let cap: i64 = 4096 as i64;
+    let buf: *mut u8 = unsafe { alloc(cap + 1 as i64) };
+    if buf == 0 as *mut u8 { return Result::Err(0 - 12); }   // -ENOMEM
+    let n: i64 = unsafe { logos_realpath(path, buf, cap) };
+    if n < 0 as i64 {
+        unsafe { dealloc(buf); }
+        return Result::Err(n as i32);
+    }
+    let mut out: String = String::new();
+    unsafe {
+        out.push_bytes(buf, n);
+        dealloc(buf);
+    }
+    return Result::Ok(out);
+}

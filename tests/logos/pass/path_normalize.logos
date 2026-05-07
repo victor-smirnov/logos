@@ -1,0 +1,59 @@
+// Test path.normalize: lexical path cleanup.
+
+package path_normalize;
+
+use std.io.fs.path;
+use std.lang.text;
+
+unsafe fn check(got: &String, expected: str, code: i32) -> i32 {
+    if !got.eq_str(expected) {
+        return code;
+    }
+    return 0;
+}
+
+pub unsafe fn main() -> i32 {
+    let mut rc: i32 = 0;
+
+    let r1: String = normalize("a/b/c");
+    rc = check(&r1, "a/b/c", 1);
+    if rc != 0 { return rc; }
+
+    let r2: String = normalize("a//b/./c");
+    rc = check(&r2, "a/b/c", 2);
+    if rc != 0 { return rc; }
+
+    let r3: String = normalize("a/b/../c");
+    rc = check(&r3, "a/c", 3);
+    if rc != 0 { return rc; }
+
+    let r4: String = normalize("/../a");
+    rc = check(&r4, "/a", 4);
+    if rc != 0 { return rc; }
+
+    let r5: String = normalize("../a/../b");
+    rc = check(&r5, "../b", 5);
+    if rc != 0 { return rc; }
+
+    let r6: String = normalize("");
+    rc = check(&r6, ".", 6);
+    if rc != 0 { return rc; }
+
+    let r7: String = normalize("/");
+    rc = check(&r7, "/", 7);
+    if rc != 0 { return rc; }
+
+    let r8: String = normalize("a/b/c/");
+    rc = check(&r8, "a/b/c", 8);
+    if rc != 0 { return rc; }
+
+    let r9: String = normalize("/a/b/../../c");
+    rc = check(&r9, "/c", 9);
+    if rc != 0 { return rc; }
+
+    let r10: String = normalize("./a/b");
+    rc = check(&r10, "a/b", 10);
+    if rc != 0 { return rc; }
+
+    return 0;
+}

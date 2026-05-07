@@ -1,0 +1,77 @@
+// Test str_starts_with / str_ends_with / str_index_of / str_contains /
+// str_trim / str_trim_start / str_trim_end and split iterators.
+
+package string_strops;
+
+use std.lang.text;
+use std.lang.iter;
+use std.lang.option;
+
+fn main() -> i32 {
+    // starts_with
+    if !str_starts_with("hello world", "hello") { return 1; }
+    if str_starts_with("hi", "hello")           { return 2; }
+    if !str_starts_with("abc", "")              { return 3; }
+    if !str_starts_with("abc", "abc")           { return 4; }
+
+    // ends_with
+    if !str_ends_with("hello world", "world")   { return 10; }
+    if str_ends_with("hi", "hello")             { return 11; }
+    if !str_ends_with("abc", "")                { return 12; }
+
+    // index_of
+    if str_index_of("hello", "ll") != 2 as i64  { return 20; }
+    if str_index_of("hello", "xy") != 0 as i64 - 1 as i64 { return 21; }
+    if str_index_of("hello", "")   != 0 as i64  { return 22; }
+
+    // contains
+    if !str_contains("hello world", "lo wo")    { return 30; }
+    if str_contains("hello", "xyz")             { return 31; }
+
+    // trim variants — return sub-str views
+    let t1: str = str_trim("  hello  ");
+    if t1.len() != 5 as i64                     { return 40; }
+    let t2: str = str_trim_start("\t  hi");
+    if t2.len() != 2 as i64                     { return 41; }
+    let t3: str = str_trim_end("hi  \n");
+    if t3.len() != 2 as i64                     { return 42; }
+    let t4: str = str_trim("");
+    if t4.len() != 0 as i64                     { return 43; }
+    let t5: str = str_trim("   ");
+    if t5.len() != 0 as i64                     { return 44; }
+
+    // split
+    let mut sp: Splitter = split("a,b,c", ",");
+    let mut count: i32 = 0;
+    loop {
+        match sp.next() {
+            Option::Some(part) => { count = count + 1; }
+            Option::None       => { break; }
+        }
+    }
+    if count != 3                               { return 50; }
+
+    // split: trailing separator yields empty last element
+    let mut sp2: Splitter = split("a,,b", ",");
+    let mut count2: i32 = 0;
+    loop {
+        match sp2.next() {
+            Option::Some(part) => { count2 = count2 + 1; }
+            Option::None       => { break; }
+        }
+    }
+    if count2 != 3                              { return 51; }
+
+    // split_byte
+    let mut spb: ByteSplitter = split_byte("/a/b/c", 47 as u8);
+    let mut count3: i32 = 0;
+    loop {
+        match spb.next() {
+            Option::Some(part) => { count3 = count3 + 1; }
+            Option::None       => { break; }
+        }
+    }
+    if count3 != 4                              { return 52; }   // "", "a", "b", "c"
+
+    return 0;
+}

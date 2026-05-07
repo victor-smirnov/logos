@@ -1,0 +1,112 @@
+// Test std.io.fs metadata + mkdir_p + rm_rf + walk_dir + canonical.
+
+package fs_meta;
+
+use std.io.fs;
+use std.io.fs.path;
+use std.lang.text;
+use std.lang.result;
+use std.lang.option;
+use std.lang.iter;
+use std.collections.vec;
+
+unsafe fn cstr(s: str) -> *const u8 {
+    let mut buf: String = String::new();
+    buf.push_str(s);
+    // Leak the buffer for the lifetime of this call (test-only convenience).
+    let p: *const u8 = buf.as_ptr();
+    // Drop will free; we copy the data into a fresh heap allocation.
+    let len: i64 = buf.len();
+    let h: *mut u8 = alloc(len + 1 as i64);
+    let mut i: i64 = 0 as i64;
+    while i < len {
+        h[i] = p[i];
+        i = i + 1 as i64;
+    }
+    h[len] = 0 as u8;
+    return h as *const u8;
+}
+
+fn main() -> i32 {
+    // /tmp should exist and be a directory.
+    let tmp: *const u8 = unsafe { cstr("/tmp") };
+    if !exists(tmp)  { return 1; }
+    if !is_dir(tmp)  { return 2; }
+    if  is_file(tmp) { return 3; }
+
+    // Non-existent path.
+    let nope: *const u8 = unsafe { cstr("/no/such/path/__lforge_test__") };
+    if exists(nope) { return 4; }
+
+    // Build a unique tmp dir.
+    let root: *const u8 = unsafe { cstr("/tmp/__lforge_fs_test__") };
+
+    // Cleanup any stale state.
+    match rm_rf("/tmp/__lforge_fs_test__") {
+        Result::Err(_) => { return 10; }
+        Result::Ok(_)  => { }
+    }
+    if exists(root) { return 11; }
+
+    // mkdir_p creates nested directories.
+    match mkdir_p("/tmp/__lforge_fs_test__/a/b/c") {
+        Result::Err(_) => { return 20; }
+        Result::Ok(_)  => { }
+    }
+    let leaf: *const u8 = unsafe { cstr("/tmp/__lforge_fs_test__/a/b/c") };
+    if !is_dir(leaf) { return 21; }
+
+    // mkdir_p on existing path is OK.
+    match mkdir_p("/tmp/__lforge_fs_test__/a/b/c") {
+        Result::Err(_) => { return 22; }
+        Result::Ok(_)  => { }
+    }
+
+    // First test read_dir alone: should yield 1 child "a".
+    let root_cs: *const u8 = unsafe { cstr("/tmp/__lforge_fs_test__") };
+    let mut rd_count: i32 = 0;
+    match read_dir(root_cs) {
+        Result::Err(_) => { return 25; }
+        Result::Ok(rd) => {
+            let mut rdv: ReadDir = rd;
+            loop {
+                match rdv.next() {
+                    Option::Some(e) => { rd_count = rd_count + 1; }
+                    Option::None    => { break; }
+                }
+            }
+        }
+    }
+    if rd_count != 1 { return 100 + rd_count; }
+
+    // Walk: should yield the root + 3 subdirs = 4 entries.
+    let mut entries: Vec<DirEntry> = walk_dir("/tmp/__lforge_fs_test__");
+    let count: i64 = unsafe { (&entries as *const Vec<DirEntry>).length() };
+    let mut dirs: i32 = 0;
+    let mut i: i64 = 0 as i64;
+    while i < count {
+        let e: DirEntry = unsafe { ((&mut entries) as *mut Vec<DirEntry>).get(i) };
+        if e.is_dir { dirs = dirs + 1; }
+        i = i + 1 as i64;
+    }
+    if count < 4 as i64 { return 30 + count as i32; }
+    if count > 4 as i64 { return 130 + count as i32; }
+    if dirs  != 4 { return 31; }
+
+    // canonical resolves paths.
+    match canonical(tmp) {
+        Result::Err(_)   => { return 40; }
+        Result::Ok(s)    => {
+            if !s.eq_str("/tmp") { return 41; }
+        }
+    }
+
+    // Cleanup.
+    match rm_rf("/tmp/__lforge_fs_test__") {
+        Result::Err(_) => { return 50; }
+        Result::Ok(_)  => { }
+    }
+    if exists(root) { return 51; }
+
+    return 0;
+}
