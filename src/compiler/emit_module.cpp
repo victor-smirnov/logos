@@ -163,6 +163,9 @@ lower_to_llvm_module(const lir::LProgram& prog, llvm::LLVMContext& llvm_ctx) {
     pm.addPass(mlir::createReconcileUnrealizedCastsPass());
     if (mlir::failed(pm.run(*mlir_module))) {
         std::fprintf(stderr, "lower_to_llvm_module: MLIR lowering failed\n");
+        if (std::getenv("LOGOS_DUMP_MLIR_ON_FAIL")) {
+            mlir_module->dump();
+        }
         return nullptr;
     }
 

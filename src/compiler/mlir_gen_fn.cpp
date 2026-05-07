@@ -172,6 +172,23 @@ void MLIRGenImpl::forward_declare(mlir::ModuleOp mod, const LFunction& fn) {
 // ---------------------------------------------------------------------------
 
 bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn) {
+    // Guard: two distinct LFunctions producing the same mangled name would
+    // otherwise both call addEntryBlock on the same FuncOp, resulting in a
+    // single function with two unrelated bodies stitched together. Bug
+    // surfaces later as a bare MLIR verifier "func.return op expects parent
+    // op func.func" error with no source location. Most common cause:
+    // pkg-mangling skips a non-current package context for a free fn, so
+    // a private fn in pkg A collides with a pub fn of the same base name
+    // in pkg B (which A imports).
+    if (!func.empty()) {
+        std::fprintf(stderr,
+            "mlir-gen: duplicate function body for symbol '%s'; two "
+            "functions resolved to the same mangled name — likely a "
+            "private fn in one package shadowed by a pub fn of the same "
+            "base name in an imported package. Rename one to disambiguate.\n",
+            fn.name.c_str());
+        return false;
+    }
     auto* entry = func.addEntryBlock();
     builder_.setInsertionPointToStart(entry);
     cur_entry_block_ = entry;

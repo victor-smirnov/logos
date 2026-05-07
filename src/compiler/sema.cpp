@@ -890,6 +890,33 @@ const SemaChecker::SemaFuncInfo* SemaChecker::resolve_function_call(
     }
 
     if (ambiguous) {
+        // Tiebreaker: prefer a candidate whose package matches cur_package_.
+        // Local definition shadows imported same-named pub fn (Rust/C++ rule).
+        const SemaFuncInfo* local = nullptr;
+        bool local_ambiguous = false;
+        for (auto* fi : candidates) {
+            if (!fi || fi->type_params.size() || fi->source_file.empty()) continue;
+            if (fi->package != cur_package_) continue;
+            bool arity_ok = fi->is_vararg ? arg_exprs.size() >= fi->param_types.size()
+                                          : arg_exprs.size() == fi->param_types.size();
+            if (!arity_ok) continue;
+            int score = 0;
+            bool ok = true;
+            for (size_t i = 0; i < fi->param_types.size(); ++i) {
+                auto at = arg_exprs[i] ? arg_exprs[i]->type : nullptr;
+                auto pt = fi->param_types[i];
+                if (!at || !pt) { ok = false; break; }
+                if (types_equal(at, pt)) score = std::max(score, 2);
+                else if (!exact_only && types_compatible(at, pt)) score = std::max(score, 1);
+                else { ok = false; break; }
+            }
+            if (!ok) continue;
+            if (score == best_score) {
+                if (local) local_ambiguous = true;
+                local = fi;
+            }
+        }
+        if (local && !local_ambiguous) return local;
         const_cast<SemaChecker*>(this)->error(std::format("ambiguous call to '{}'", base_name));
         return nullptr;
     }

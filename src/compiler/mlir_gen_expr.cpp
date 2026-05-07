@@ -1856,6 +1856,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIfExprView v, TypeRef type) {
     auto then_val = gen_expr(*then_l);
     if (!then_val) then_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
     then_val = coerce_numeric(then_val, result_type);
+    // Branches may return a struct by-value (function call) while the merge
+    // slot expects a pointer (struct values are normally pointer-aliased).
+    // Spill aggregate values so both branches store a pointer.
+    if (result_type == ptr_type() &&
+        mlir::isa<mlir::LLVM::LLVMStructType>(then_val.getType()))
+        then_val = spill_to_alloca(then_val);
     builder_.create<mlir::LLVM::StoreOp>(loc_, then_val, result_alloca);
     builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
 
@@ -1863,6 +1869,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIfExprView v, TypeRef type) {
     auto else_val = gen_expr(*else_l);
     if (!else_val) else_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
     else_val = coerce_numeric(else_val, result_type);
+    if (result_type == ptr_type() &&
+        mlir::isa<mlir::LLVM::LLVMStructType>(else_val.getType()))
+        else_val = spill_to_alloca(else_val);
     builder_.create<mlir::LLVM::StoreOp>(loc_, else_val, result_alloca);
     builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
 

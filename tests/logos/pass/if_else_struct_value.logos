@@ -1,0 +1,21 @@
+// Minimal repro: if/else as expression returning struct value.
+// Two branches return same struct type — one via fn call, one via literal.
+
+package repro;
+
+pub struct Pair {
+    a: i32,
+    b: i32,
+}
+
+fn make_pair() -> Pair {
+    return Pair { a: 7, b: 8 };
+}
+
+fn main() -> i32 {
+    let cond: bool = true;
+    let p: Pair = if cond { make_pair() } else { Pair { a: 0 - 1, b: 0 - 1 } };
+    if p.a != 7 { return 1; }
+    if p.b != 8 { return 2; }
+    return 0;
+}
