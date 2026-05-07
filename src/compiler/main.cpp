@@ -1816,6 +1816,7 @@ int main(int argc, char** argv) {
     bool emit_llvm = false;
     bool jit_run   = false;                      // --jit: compile and run main() in-process
     const char* emit_module_manifest = nullptr;  // --emit-module <manifest>
+    std::string only_file;                       // --only-file <path>: per-file emit (B1.7)
     std::vector<std::string> search_paths;
     // Subset of search_paths populated only from explicit -L / --libs.
     // Used to scope `binary_symbols` collection: only user-explicit
@@ -1918,6 +1919,14 @@ int main(int argc, char** argv) {
         else if (arg == "--emit-llvm") { emit_llvm = true; }
         else if (arg == "--jit") { jit_run = true; }
         else if (arg == "--emit-module" && i + 1 < argc) { emit_module_manifest = argv[++i]; }
+        else if (arg.rfind("--only-file=", 0) == 0) {
+            std::string_view v = arg;
+            v.remove_prefix(12);
+            only_file = std::string(v);
+        }
+        else if (arg == "--only-file" && i + 1 < argc) {
+            only_file = argv[++i];
+        }
         else if (arg == "-O0") { opt_level = 0; }
         else if (arg == "-O1") { opt_level = 1; }
         else if (arg == "-O2") { opt_level = 2; }
@@ -1965,6 +1974,7 @@ int main(int argc, char** argv) {
         mopts.extra_search_paths = search_paths;
         mopts.emit_mlir = emit_mlir;
         mopts.emit_llvm = emit_llvm;
+        mopts.only_file = only_file;
         return logos::compiler::emit_module(*manifest, output_path, mopts) ? 0 : 1;
     }
 

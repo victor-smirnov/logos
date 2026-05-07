@@ -169,57 +169,48 @@ static uint64_t read_le_u64(const uint8_t* p) {
 
 // Read member data from an AR archive by member name suffix.
 // Returns the raw bytes of the first matching member, or empty on failure.
-static std::vector<uint8_t> ar_read_member(const std::string& archive_path,
-                                            const std::string& member_suffix) {
-    // Read entire archive into memory to avoid seekg issues with large files.
+// Returns the bytes of EVERY archive member whose name ends with
+// `member_suffix`. Per-file emit (B1.7) writes one .hermes0 per source
+// file into the eventual archive, so callers that previously read a
+// single .hermes0 now need to merge several. Existing monolithic
+// archives still yield exactly one entry — same behaviour as before
+// for that path.
+static std::vector<std::vector<uint8_t>>
+ar_read_members(const std::string& archive_path,
+                const std::string& member_suffix) {
+    std::vector<std::vector<uint8_t>> result;
     std::ifstream f(archive_path, std::ios::binary | std::ios::ate);
-    if (!f) return {};
+    if (!f) return result;
     auto file_size = static_cast<size_t>(f.tellg());
     f.seekg(0);
     std::vector<uint8_t> raw(file_size);
-    if (!f.read(reinterpret_cast<char*>(raw.data()), file_size)) return {};
+    if (!f.read(reinterpret_cast<char*>(raw.data()), file_size)) return result;
 
     const uint8_t* p = raw.data();
     const uint8_t* end = p + file_size;
-
-    // Check AR magic.
-    if (file_size < 8 || std::memcmp(p, "!<arch>\n", 8) != 0) return {};
+    if (file_size < 8 || std::memcmp(p, "!<arch>\n", 8) != 0) return result;
     p += 8;
-
     while (p + 60 <= end) {
-        // 60-byte AR member header.
         const uint8_t* hdr = p;
-
-        // Name field is 16 bytes, right-padded with spaces.
         std::string name(reinterpret_cast<const char*>(hdr), 16);
         while (!name.empty() && (name.back() == ' ' || name.back() == '/'))
             name.pop_back();
-
-        // Size field is 10 bytes (decimal ASCII).
         char size_str[11] = {};
         std::memcpy(size_str, hdr + 48, 10);
         long long member_size = std::atoll(size_str);
         if (member_size < 0 || p + 60 + member_size > end) break;
-
-        // Check end-of-header magic "`\n".
         if (hdr[58] != '`' || hdr[59] != '\n') break;
-
         const uint8_t* data_start = hdr + 60;
-
-        // Does this member's name end with the requested suffix?
         bool match = name.size() >= member_suffix.size() &&
                      name.compare(name.size() - member_suffix.size(),
                                   member_suffix.size(), member_suffix) == 0;
-
-        if (match) {
-            return std::vector<uint8_t>(data_start, data_start + member_size);
-        }
-
-        // Advance to next member (size padded to even boundary).
+        if (match)
+            result.emplace_back(data_start, data_start + member_size);
         p = data_start + member_size + (member_size & 1);
     }
-    return {};
+    return result;
 }
+
 
 // Parse a .hermes0 blob and return decoded ParsedModules.
 static std::vector<ParsedModule> parse_hermes0(const std::vector<uint8_t>& data,
@@ -337,12 +328,15 @@ build_binary_index(const std::vector<std::string>& search_paths) {
             auto stem = p.stem().string();
             if (stem.size() < 4 || stem.substr(0, 3) != "lib") continue;
             auto archive = fs::weakly_canonical(p, ec).string();
-            // Read .hermes0 to discover which packages this archive provides.
-            auto member = ar_read_member(archive, ".hermes0");
-            if (member.empty()) continue;
-            auto pkgs = hermes0_packages(member);
-            for (auto& pkg : pkgs) {
-                if (!idx.count(pkg)) idx[pkg] = archive;
+            // Read every .hermes0 member to discover which packages this
+            // archive provides. Per-file emit (B1.7) puts one .hermes0
+            // per source file into the archive; monolithic emit puts one.
+            auto members = ar_read_members(archive, ".hermes0");
+            for (auto& member : members) {
+                auto pkgs = hermes0_packages(member);
+                for (auto& pkg : pkgs) {
+                    if (!idx.count(pkg)) idx[pkg] = archive;
+                }
             }
         }
     }
@@ -409,11 +403,12 @@ std::vector<ParsedModule> load_modules(
             continue;
         }
         auto archive = fs::weakly_canonical(f, ec).string();
-        auto member  = ar_read_member(archive, ".hermes0");
-        if (member.empty()) continue;
-        auto pkgs = hermes0_packages(member);
-        for (auto& pkg : pkgs) {
-            if (!binary_index.count(pkg)) binary_index[pkg] = archive;
+        auto members = ar_read_members(archive, ".hermes0");
+        for (auto& member : members) {
+            auto pkgs = hermes0_packages(member);
+            for (auto& pkg : pkgs) {
+                if (!binary_index.count(pkg)) binary_index[pkg] = archive;
+            }
         }
     }
 
@@ -503,16 +498,20 @@ std::vector<ParsedModule> load_modules(
             if (trace)
                 std::fprintf(stderr, "module_loader: loading binary module from %s\n",
                              archive_path.c_str());
-            auto member = ar_read_member(archive_path, ".hermes0");
-            if (member.empty()) {
+            auto members = ar_read_members(archive_path, ".hermes0");
+            if (members.empty()) {
                 std::fprintf(stderr, "module_loader: no .hermes0 in %s\n", archive_path.c_str());
                 binary_cache[cache_key] = {};
                 return;
             }
-            auto decoded = parse_hermes0(member, archive_path);
+            std::vector<ParsedModule> decoded;
+            for (auto& member : members) {
+                auto part = parse_hermes0(member, archive_path);
+                for (auto& pm : part) decoded.push_back(std::move(pm));
+            }
             if (trace)
-                std::fprintf(stderr, "module_loader: decoded %zu file(s) from %s\n",
-                             decoded.size(), archive_path.c_str());
+                std::fprintf(stderr, "module_loader: decoded %zu file(s) from %zu .hermes0 member(s) in %s\n",
+                             decoded.size(), members.size(), archive_path.c_str());
             cit = binary_cache.emplace(cache_key, std::move(decoded)).first;
         }
 

@@ -27,6 +27,17 @@ struct EmitModuleOptions {
     std::vector<std::string> extra_search_paths;  // -I flags
     bool emit_mlir = false;
     bool emit_llvm = false;
+    // Per-file emit mode (B1.7). When non-empty, emit_module produces only
+    // the artifacts for THIS source file:
+    //   <output_path>.o       — object code with body emission filtered to
+    //                           items whose lir::LFunction.source_file
+    //                           matches this path; all other fns become
+    //                           forward-decls so the linker can resolve
+    //                           them later from sibling per-file objects.
+    //   <output_path>.hermes0 — binary AST containing only this file.
+    // No `ar` step is run. The orchestrator (lforge) parallelises N such
+    // invocations and merges their outputs into the final library archive.
+    std::string only_file;
 };
 
 // Build a binary module (.a archive) from a module manifest.

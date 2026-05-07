@@ -689,6 +689,13 @@ struct LFunction {
     // resolves them from the archive's .o member.
     bool from_binary_module = false;
 
+    // Absolute path of the source file this function was lowered from.
+    // Empty for fns reconstructed from binary modules. Used by the
+    // --emit-file mode to filter mlir-gen body emission to a single
+    // source file (other files' fns become forward-decls only and the
+    // linker resolves at archive-merge time).
+    std::string source_file;
+
     // Impl-level type params (with their bounds) that were stripped from
     // type_params when this method was attached to a generic struct template.
     // Preserved so mono can check whether the impl bound is satisfied for the

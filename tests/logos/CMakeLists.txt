@@ -530,3 +530,15 @@ if (TARGET lforge)
         LABELS  "logos;lforge;suite_lforge"
     )
 endif()
+
+# B1.7: logosc --only-file <path> per-file emit.
+add_test(
+    NAME logos_15_emit_file
+    COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/emit_file.sh
+            $<TARGET_FILE:logosc>
+            ${LOGOS_BUILD_LIB_DIR}
+)
+set_tests_properties(logos_15_emit_file PROPERTIES
+    TIMEOUT 60
+    LABELS  "logos;lforge;suite_lforge"
+)

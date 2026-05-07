@@ -184,9 +184,40 @@ lower_to_llvm_module(const lir::LProgram& prog, llvm::LLVMContext& llvm_ctx) {
 // Compile a set of parsed modules to an object file.
 // Returns true on success.
 // ---------------------------------------------------------------------------
+// Filter codegen body emission to one source file when `only_file` is set:
+// every fn whose source_file != only_file is added to prog.binary_symbols
+// so mlir_gen forward-declares it without emitting a body. The linker
+// resolves these symbols at archive-merge time from sibling per-file .o
+// files produced by other --emit-file invocations.
+static void apply_only_file_filter(lir::LProgram& prog,
+                                    const std::string& only_file) {
+    if (only_file.empty()) return;
+    auto fits = [&](const std::string& src) {
+        if (src == only_file) return true;
+        // Tolerate path-shape mismatches by also matching on the lexical
+        // suffix (e.g. relative vs canonical paths).
+        if (src.size() >= only_file.size() &&
+            src.compare(src.size() - only_file.size(), only_file.size(), only_file) == 0)
+            return true;
+        if (only_file.size() >= src.size() &&
+            only_file.compare(only_file.size() - src.size(), src.size(), src) == 0)
+            return true;
+        return false;
+    };
+    auto add = [&](const lir::LFunction& fn) {
+        if (fn.is_extern) return;
+        if (fits(fn.source_file)) return;
+        prog.binary_symbols.insert(fn.name);
+    };
+    for (auto& sd : prog.structs)
+        for (auto& m : sd.methods) add(*m);
+    for (auto& fn : prog.functions) add(*fn);
+}
+
 static bool compile_to_object(const std::vector<hermes::Hermes>& asts,
                                const std::vector<std::string>& filenames,
-                               const std::string& obj_path) {
+                               const std::string& obj_path,
+                               const std::string& only_file = "") {
     // Sema — all files in the module are being compiled from source (not binary)
     auto prog = sema_lower(asts, filenames, {});
     prog.print_diags(stderr);
@@ -201,6 +232,10 @@ static bool compile_to_object(const std::vector<hermes::Hermes>& asts,
     prog = borrow_check(std::move(prog));
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
+
+    // B1.7: per-file mode marks every fn outside the target file as
+    // binary-skip so mlir_gen forward-declares without bodies.
+    apply_only_file_filter(prog, only_file);
 
     llvm::LLVMContext llvm_ctx;
     auto llvm_module = lower_to_llvm_module(prog, llvm_ctx);
@@ -340,13 +375,30 @@ bool emit_module(const ModuleManifest& manifest,
         return matches_any(path, abs_ast_only);
     };
 
-    // Prepare temp dir for intermediate files.
-    auto tmp_dir = fs::temp_directory_path() / ("logos_emit_" + manifest.name);
-    std::error_code ec;
-    fs::create_directories(tmp_dir, ec);
+    // Resolve absolute path of the per-file target if --only-file is set.
+    // load_modules canonicalizes paths, so match against the same form.
+    std::string only_file_canon;
+    if (!opts.only_file.empty()) {
+        std::error_code can_ec;
+        only_file_canon = fs::weakly_canonical(opts.only_file, can_ec).string();
+        if (can_ec) only_file_canon = opts.only_file;
+    }
 
-    std::string obj_path  = (tmp_dir / (manifest.name + ".o")).string();
-    std::string h0_path   = (tmp_dir / (manifest.name + ".hermes0")).string();
+    // Output paths. In per-file mode, write `<output_path>.o` and
+    // `<output_path>.hermes0` directly (no archive). In standard mode,
+    // intermediate files go in a temp dir and `ar` builds the .a.
+    std::string obj_path;
+    std::string h0_path;
+    if (!opts.only_file.empty()) {
+        obj_path = output_path + ".o";
+        h0_path  = output_path + ".hermes0";
+    } else {
+        auto tmp_dir = fs::temp_directory_path() / ("logos_emit_" + manifest.name);
+        std::error_code ec;
+        fs::create_directories(tmp_dir, ec);
+        obj_path = (tmp_dir / (manifest.name + ".o")).string();
+        h0_path  = (tmp_dir / (manifest.name + ".hermes0")).string();
+    }
 
     // Build AST + filename arrays for codegen — skip ast_only modules.
     // .hermes0 takes everything (incl. ast_only).
@@ -363,15 +415,53 @@ bool emit_module(const ModuleManifest& manifest,
 
     // Compile to object file.
     if (verbose) {
-        std::fprintf(stderr, "emit_module: compiling %zu file(s) → %s\n",
-                     filenames.size(), obj_path.c_str());
+        std::fprintf(stderr, "emit_module: compiling %zu file(s)%s%s%s → %s\n",
+                     filenames.size(),
+                     only_file_canon.empty() ? "" : " (filtering to ",
+                     only_file_canon.empty() ? "" : only_file_canon.c_str(),
+                     only_file_canon.empty() ? "" : ")",
+                     obj_path.c_str());
     }
-    if (!compile_to_object(asts, filenames, obj_path)) {
+    if (!compile_to_object(asts, filenames, obj_path, only_file_canon)) {
         std::fprintf(stderr, "emit_module: compilation failed\n");
         return false;
     }
 
-    // Write .hermes0.
+    // .hermes0: in per-file mode, contains only the target file's AST.
+    if (!opts.only_file.empty()) {
+        std::vector<ParsedModule> single;
+        for (auto& m : modules_for_h0) {
+            std::error_code can_ec;
+            auto canon = fs::weakly_canonical(m.path, can_ec).string();
+            if (can_ec) canon = m.path;
+            if (canon == only_file_canon ||
+                (canon.size() >= only_file_canon.size() &&
+                 canon.compare(canon.size() - only_file_canon.size(),
+                               only_file_canon.size(), only_file_canon) == 0)) {
+                single.push_back(m);
+                break;
+            }
+        }
+        if (single.empty()) {
+            std::fprintf(stderr,
+                "emit_module: --only-file '%s' did not match any source file in the manifest\n",
+                opts.only_file.c_str());
+            return false;
+        }
+        if (verbose) {
+            std::fprintf(stderr, "emit_module: writing → %s (single file)\n", h0_path.c_str());
+        }
+        if (!write_hermes0(h0_path, single)) {
+            std::fprintf(stderr, "emit_module: .hermes0 write failed\n");
+            return false;
+        }
+        if (verbose) {
+            std::fprintf(stderr, "emit_module: wrote %s + %s\n",
+                         obj_path.c_str(), h0_path.c_str());
+        }
+        return true;
+    }
+
     if (verbose) {
         std::fprintf(stderr, "emit_module: writing → %s\n", h0_path.c_str());
     }
