@@ -847,10 +847,26 @@ unsafe fn build_bin(t: &Target,
 
 // ── Top-level commands ────────────────────────────────────────────────────
 
-unsafe fn cmd_build(m: &Manifest, profile: str) -> i32 {
+// Find target index by name, or -1 if absent.
+unsafe fn find_target_index(targets: &Vec<Target>, name: str) -> i64 {
+    let n: i64 = targets.length();
+    let tp: *const Vec<Target> = targets as *const Vec<Target>;
+    let mut i: i64 = 0 as i64;
+    while i < n {
+        let t: *const Target = tp.at_const(i);
+        let tnm: str = str_from_raw((*t).name.as_ptr(), (*t).name.len());
+        if str_eq_local(tnm, name) { return i; }
+        i = i + 1 as i64;
+    }
+    return 0 as i64 - 1 as i64;
+}
+
+// If `selected_idx` >= 0, build only that target plus its transitive deps.
+// Otherwise build everything in topo order.
+unsafe fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64) -> i32 {
     let logosc: String = resolve_logosc_path();
     let lib_dir: String = resolve_logos_lib_dir();
-    let order: Vec<i64> = match topo_order(&m.targets) {
+    let full_order: Vec<i64> = match topo_order(&m.targets) {
         Result::Err(e) => {
             print_str(2, "lforge: ");
             println_str(2, str_from_raw(e.message.as_ptr(), e.message.len()));
@@ -858,25 +874,76 @@ unsafe fn cmd_build(m: &Manifest, profile: str) -> i32 {
         }
         Result::Ok(o) => { o }
     };
-    let n: i64 = order.length();
-    let op: *const Vec<i64> = (&order) as *const Vec<i64>;
+
+    // Compute which targets to actually build. If selected_idx < 0 → all.
+    // Else mark selected + transitively close over deps and intersect.
+    let nt: i64 = m.targets.length();
+    let want: *mut u8 = alloc(nt);
+    let mut wi: i64 = 0 as i64;
+    while wi < nt {
+        if selected_idx < 0 as i64 { want[wi] = 1 as u8; }
+        else                       { want[wi] = 0 as u8; }
+        wi = wi + 1 as i64;
+    }
+    if selected_idx >= 0 as i64 {
+        // Iterate to fixed point: for any wanted target, mark its deps
+        // wanted too.
+        want[selected_idx] = 1 as u8;
+        let tp: *const Vec<Target> = (&m.targets) as *const Vec<Target>;
+        let mut changed: bool = true;
+        while changed {
+            changed = false;
+            let mut k: i64 = 0 as i64;
+            while k < nt {
+                if want[k] == 1 as u8 {
+                    let t: *const Target = tp.at_const(k);
+                    let dn: i64 = (*t).deps.length();
+                    let dp: *const Vec<String> = (&(*t).deps) as *const Vec<String>;
+                    let mut di: i64 = 0 as i64;
+                    while di < dn {
+                        let nm: *const String = dp.at_const(di);
+                        let nm_view: str = str_from_raw((*nm).as_ptr(), (*nm).len());
+                        let didx: i64 = find_target_index(&m.targets, nm_view);
+                        if didx >= 0 as i64 && want[didx] == 0 as u8 {
+                            want[didx] = 1 as u8;
+                            changed = true;
+                        }
+                        di = di + 1 as i64;
+                    }
+                }
+                k = k + 1 as i64;
+            }
+        }
+    }
+
+    let n_ord: i64 = full_order.length();
+    let op: *const Vec<i64> = (&full_order) as *const Vec<i64>;
     let tp: *const Vec<Target> = (&m.targets) as *const Vec<Target>;
     let mut i: i64 = 0 as i64;
-    while i < n {
+    let mut built: i32 = 0;
+    while i < n_ord {
         let idx_p: *const i64 = op.at_const(i);
         let idx: i64 = *idx_p;
+        i = i + 1 as i64;
+        if want[idx] == 0 as u8 { continue; }
         let t: *const Target = tp.at_const(idx);
         let rc: i32 = match (*t).kind {
             TargetKind::Lib => { build_lib(&(*t), profile, &logosc) }
             TargetKind::Bin => { build_bin(&(*t), &m.targets, profile, &logosc, &lib_dir) }
         };
         if rc != 0 {
+            dealloc(want);
             return rc;
         }
-        i = i + 1 as i64;
+        built = built + 1;
     }
+    dealloc(want);
     println_str(1, "lforge: build OK");
     return 0;
+}
+
+unsafe fn cmd_build(m: &Manifest, profile: str) -> i32 {
+    return cmd_build_selected(m, profile, 0 as i64 - 1 as i64);
 }
 
 // Find the first bin target's name (for `lforge run`).
@@ -899,15 +966,32 @@ unsafe fn first_bin_name(m: &Manifest) -> String {
     return String::new();
 }
 
-unsafe fn cmd_run(m: &Manifest, profile: str, run_args: &Vec<String>) -> i32 {
-    let rc: i32 = cmd_build(m, profile);
-    if rc != 0 { return rc; }
-    let nm: String = first_bin_name(m);
-    if nm.len() == 0 as i64 {
-        println_str(2, "lforge: project has no bin target to run");
-        return 1;
+// Build (selected target if name non-empty) and run the bin target. If no
+// name is given, runs the first bin target in declared order.
+unsafe fn cmd_run_named(m: &Manifest, profile: str,
+                        target_name: str, run_args: &Vec<String>) -> i32 {
+    // Pick the bin name (and selected build index).
+    let mut bin_nm: String = String::new();
+    let mut sel_idx: i64 = 0 as i64 - 1 as i64;
+    if target_name.len() > 0 as i64 {
+        sel_idx = find_target_index(&m.targets, target_name);
+        if sel_idx < 0 as i64 {
+            println_str(2, "lforge: unknown target");
+            return 1;
+        }
+        bin_nm.push_str(target_name);
+    } else {
+        bin_nm = first_bin_name(m);
+        if bin_nm.len() == 0 as i64 {
+            println_str(2, "lforge: project has no bin target to run");
+            return 1;
+        }
     }
-    let bp: String = bin_path(profile, str_from_raw(nm.as_ptr(), nm.len()));
+
+    let rc: i32 = cmd_build_selected(m, profile, sel_idx);
+    if rc != 0 { return rc; }
+
+    let bp: String = bin_path(profile, str_from_raw(bin_nm.as_ptr(), bin_nm.len()));
     let mut argv: Vec<String> = vec_new::<String>();
     let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
     push_string_arg(argv_p, &bp);
@@ -1319,7 +1403,19 @@ unsafe fn main() -> i32 {
     let profile: str = select_profile();
 
     if str_eq_local(cmd, "build") {
-        return cmd_build(&m, profile);
+        // Optional positional: target name to build (with transitive deps).
+        let target_arg: str = positional(1 as i32);
+        let mut sel: i64 = 0 as i64 - 1 as i64;
+        if target_arg.len() > 0 as i64 {
+            sel = find_target_index(&m.targets, target_arg);
+            if sel < 0 as i64 {
+                print_str(2, "lforge: unknown target '");
+                print_str(2, target_arg);
+                println_str(2, "'");
+                return 1;
+            }
+        }
+        return cmd_build_selected(&m, profile, sel);
     }
     if str_eq_local(cmd, "test") {
         return cmd_test(&m, profile);
@@ -1328,10 +1424,30 @@ unsafe fn main() -> i32 {
         return cmd_install(&m, profile);
     }
     if str_eq_local(cmd, "run") {
+        // Optional positional: bin target to run.
+        let target_arg: str = positional(1 as i32);
         let mut run_args: Vec<String> = vec_new::<String>();
         let rap: *mut Vec<String> = (&mut run_args) as *mut Vec<String>;
         let pn: i32 = positional_count();
-        let mut k: i32 = 1;
+        let mut start_k: i32 = 1;
+        let mut sel_target: str = "";
+        if target_arg.len() > 0 as i64 {
+            // Treat first positional after `run` as a target name only if
+            // it matches an existing bin target; otherwise it's a run arg.
+            let idx: i64 = find_target_index(&m.targets, target_arg);
+            if idx >= 0 as i64 {
+                let tp: *const Vec<Target> = (&m.targets) as *const Vec<Target>;
+                let t: *const Target = tp.at_const(idx);
+                match (*t).kind {
+                    TargetKind::Bin => { sel_target = target_arg; start_k = 2; }
+                    TargetKind::Lib => {
+                        println_str(2, "lforge: cannot run a lib target");
+                        return 1;
+                    }
+                }
+            }
+        }
+        let mut k: i32 = start_k;
         while k < pn {
             let a: str = positional(k);
             let mut copy: String = String::new();
@@ -1339,7 +1455,7 @@ unsafe fn main() -> i32 {
             rap.push(copy);
             k = k + 1;
         }
-        return cmd_run(&m, profile, &run_args);
+        return cmd_run_named(&m, profile, sel_target, &run_args);
     }
     println_str(2, "lforge: unknown command (expected: build, run, test, install, clean)");
     return 2;

@@ -85,6 +85,29 @@ LOGOSC="$LOGOSC" LOGOS_LIB_DIR="$LIB" "$LFORGE" build > "$PROJ/err.log" 2>&1 && 
 [ "$rc" != "0" ] || { echo "FAIL: unknown-dep build should fail"; exit 1; }
 grep -q "unknown dep" "$PROJ/err.log" || { echo "FAIL: missing 'unknown dep' diagnostic"; cat "$PROJ/err.log"; exit 1; }
 
+# ── target selection: `lforge build <name>` builds only that target + deps.
+cat > "$PROJ/lforge.hermes" <<'EOF'
+{
+    name:    "demo",
+    version: "0.1.0",
+    targets: [
+        { kind: "lib", name: "core", src: "src/core" },
+        { kind: "bin", name: "app",  src: "src", entry: "main", deps: ["core"] },
+        { kind: "bin", name: "tool", src: "src", entry: "main", deps: ["core"] }
+    ]
+}
+EOF
+rm -rf "$PROJ/.lforge"
+LOGOSC="$LOGOSC" LOGOS_LIB_DIR="$LIB" "$LFORGE" build app > "$PROJ/sel.log" 2>&1
+[ -x "$PROJ/.lforge/debug/out/app" ]   || { echo "FAIL: app not built when selected"; cat "$PROJ/sel.log"; exit 1; }
+[ -f "$PROJ/.lforge/debug/out/libcore.a" ] || { echo "FAIL: core not built (transitive dep)"; exit 1; }
+[ ! -e "$PROJ/.lforge/debug/out/tool" ] || { echo "FAIL: tool was built but only app was selected"; exit 1; }
+
+# ── unknown target name → error ───────────────────────────────────────────
+LOGOSC="$LOGOSC" LOGOS_LIB_DIR="$LIB" "$LFORGE" build no-such-target > "$PROJ/err.log" 2>&1 && rc=$? || rc=$?
+[ "$rc" != "0" ] || { echo "FAIL: unknown target should fail"; exit 1; }
+grep -q "unknown target" "$PROJ/err.log" || { echo "FAIL: missing 'unknown target' diagnostic"; cat "$PROJ/err.log"; exit 1; }
+
 # ── manifest validation: cycle ─────────────────────────────────────────────
 cat > "$PROJ/lforge.hermes" <<'EOF'
 {
