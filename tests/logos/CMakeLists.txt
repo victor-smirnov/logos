@@ -516,4 +516,17 @@ if (TARGET lforge)
         TIMEOUT 60
         LABELS  "logos;lforge;suite_lforge"
     )
+
+    # B1.6: lforge install <prefix> places artifacts under <prefix>/{bin,lib}.
+    add_test(
+        NAME logos_14_lforge_install
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/install.sh
+                ${CMAKE_BINARY_DIR}/bin/lforge
+                $<TARGET_FILE:logosc>
+                ${LOGOS_BUILD_LIB_DIR}
+    )
+    set_tests_properties(logos_14_lforge_install PROPERTIES
+        TIMEOUT 60
+        LABELS  "logos;lforge;suite_lforge"
+    )
 endif()

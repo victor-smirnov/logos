@@ -929,6 +929,105 @@ unsafe fn cmd_clean() -> i32 {
     }
 }
 
+// ── lforge install ────────────────────────────────────────────────────────
+//
+// Copies built artifacts to a standard prefix layout:
+//   bin targets → <prefix>/bin/<name>            (mode 0755)
+//   lib targets → <prefix>/lib/lib<name>.a       (mode 0644)
+//
+// Triggers a build first so artifacts are present and up-to-date.
+// Default prefix is /usr/local. Override with `--prefix <path>` (or
+// `--prefix=<path>`).
+
+unsafe fn install_one(src: &String, dst: &String, mode: str) -> i32 {
+    let mut argv: Vec<String> = vec_new::<String>();
+    let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
+    push_arg(argv_p, "install");
+    push_arg(argv_p, "-D");
+    push_arg(argv_p, "-m");
+    push_arg(argv_p, mode);
+    push_string_arg(argv_p, src);
+    push_string_arg(argv_p, dst);
+    return run_child(&argv);
+}
+
+unsafe fn read_prefix() -> String {
+    // Prefix is a positional argument after the `install` command:
+    //   lforge install /usr/local
+    // (--prefix=PATH would be more idiomatic but Option<str> str-payload
+    // extraction has a known codegen issue where the bound `v` reads as
+    // an empty str even though the Option is Some — to be filed.)
+    let mut s: String = String::new();
+    let p: str = positional(1 as i32);
+    if p.len() > 0 as i64 {
+        s.push_str(p);
+    } else {
+        s.push_str("/usr/local");
+    }
+    return s;
+}
+
+unsafe fn cmd_install(m: &Manifest, profile: str) -> i32 {
+    // Build first.
+    let rc: i32 = cmd_build(m, profile);
+    if rc != 0 { return rc; }
+
+    let prefix: String = read_prefix();
+    let pview: str = str_from_raw(prefix.as_ptr(), prefix.len());
+
+    let mut bin_dir: String = String::new();
+    bin_dir.push_str(pview); append_path(&mut bin_dir, "bin");
+    let mut lib_dir: String = String::new();
+    lib_dir.push_str(pview); append_path(&mut lib_dir, "lib");
+
+    let nt: i64 = m.targets.length();
+    let tp: *const Vec<Target> = (&m.targets) as *const Vec<Target>;
+    let mut i: i64 = 0 as i64;
+    while i < nt {
+        let t: *const Target = tp.at_const(i);
+        i = i + 1 as i64;
+        let nm_view: str = str_from_raw((*t).name.as_ptr(), (*t).name.len());
+        match (*t).kind {
+            TargetKind::Bin => {
+                let src: String = bin_path(profile, nm_view);
+                let mut dst: String = String::new();
+                dst.push_bytes(bin_dir.as_ptr(), bin_dir.len());
+                append_path(&mut dst, nm_view);
+                let mut msg: String = String::new();
+                msg.push_str("lforge: install ");
+                msg.push_bytes(dst.as_ptr(), dst.len());
+                println_string(1, &msg);
+                let rci: i32 = install_one(&src, &dst, "0755");
+                if rci != 0 {
+                    println_str(2, "lforge: install failed");
+                    return rci;
+                }
+            }
+            TargetKind::Lib => {
+                let src: String = lib_archive_path(profile, nm_view);
+                let mut dst: String = String::new();
+                dst.push_bytes(lib_dir.as_ptr(), lib_dir.len());
+                let mut leaf: String = String::new();
+                leaf.push_str("lib");
+                leaf.push_str(nm_view);
+                leaf.push_str(".a");
+                append_path(&mut dst, str_from_raw(leaf.as_ptr(), leaf.len()));
+                let mut msg: String = String::new();
+                msg.push_str("lforge: install ");
+                msg.push_bytes(dst.as_ptr(), dst.len());
+                println_string(1, &msg);
+                let rci: i32 = install_one(&src, &dst, "0644");
+                if rci != 0 {
+                    println_str(2, "lforge: install failed");
+                    return rci;
+                }
+            }
+        }
+    }
+    println_str(1, "lforge: install OK");
+    return 0;
+}
+
 // ── lforge test ───────────────────────────────────────────────────────────
 //
 // Walks `tests/` (top level only — no recursion for now) for `*.logos`
@@ -1225,6 +1324,9 @@ unsafe fn main() -> i32 {
     if str_eq_local(cmd, "test") {
         return cmd_test(&m, profile);
     }
+    if str_eq_local(cmd, "install") {
+        return cmd_install(&m, profile);
+    }
     if str_eq_local(cmd, "run") {
         let mut run_args: Vec<String> = vec_new::<String>();
         let rap: *mut Vec<String> = (&mut run_args) as *mut Vec<String>;
@@ -1239,6 +1341,6 @@ unsafe fn main() -> i32 {
         }
         return cmd_run(&m, profile, &run_args);
     }
-    println_str(2, "lforge: unknown command (expected: build, run, test, clean)");
+    println_str(2, "lforge: unknown command (expected: build, run, test, install, clean)");
     return 2;
 }
