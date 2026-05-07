@@ -26,33 +26,37 @@ pub fn vec_new<T>() -> Vec<T> {
 }
 
 impl<T> Vec<T> {
-    pub unsafe fn push(self: *mut Vec<T>, val: T) {
-        if self.len == self.cap {
-            self.cap = self.cap * 2;
-            let byte_size: i64 = self.cap * sizeof::<T>();
-            let raw: *mut u8 = realloc_buf(self.ptr as *mut u8, byte_size);
-            self.ptr = raw as *mut T;
+    pub fn push(&mut self, val: T) {
+        unsafe {
+            if self.len == self.cap {
+                self.cap = self.cap * 2;
+                let byte_size: i64 = self.cap * sizeof::<T>();
+                let raw: *mut u8 = realloc_buf(self.ptr as *mut u8, byte_size);
+                self.ptr = raw as *mut T;
+            }
+            self.ptr[self.len] = val;
+            self.len = self.len + 1;
         }
-        unsafe { self.ptr[self.len] = val; }
-        self.len = self.len + 1;
     }
 
-    pub unsafe fn get(self: *mut Vec<T>, i: i64) -> T {
-        return self.ptr[i];
+    pub fn get(&self, i: i64) -> T {
+        unsafe { return self.ptr[i]; }
     }
 
     // Pointer to the i-th element (no copy). Caller must ensure the Vec
     // outlives the pointer and no resizing push happens meanwhile.
-    pub unsafe fn at(self: *mut Vec<T>, i: i64) -> *mut T {
+    // Returns a raw pointer — signature is unsafe.
+    pub unsafe fn at(&mut self, i: i64) -> *mut T {
         return &mut self.ptr[i];
     }
 
-    pub unsafe fn at_const(self: *const Vec<T>, i: i64) -> *const T {
+    // Returns a raw pointer — signature is unsafe.
+    pub unsafe fn at_const(&self, i: i64) -> *const T {
         return &self.ptr[i];
     }
 
-    pub unsafe fn set(self: *mut Vec<T>, i: i64, val: T) {
-        self.ptr[i] = val;
+    pub fn set(&mut self, i: i64, val: T) {
+        unsafe { self.ptr[i] = val; }
     }
 
     pub fn length(&self) -> i64 {
@@ -64,28 +68,32 @@ impl<T> Vec<T> {
     }
 
     // Remove and return the last element, or None if empty.
-    pub unsafe fn pop(self: *mut Vec<T>) -> Option<T> {
-        if self.len == 0 as i64 { return Option::None; }
-        self.len = self.len - 1 as i64;
-        let val: T = self.ptr[self.len];
-        return Option::Some(val);
+    pub fn pop(&mut self) -> Option<T> {
+        unsafe {
+            if self.len == 0 as i64 { return Option::None; }
+            self.len = self.len - 1 as i64;
+            let val: T = self.ptr[self.len];
+            return Option::Some(val);
+        }
     }
 
     // Remove element at index i, shifting subsequent elements left.
     // Panics (undefined behaviour) if i >= len.
-    pub unsafe fn remove(self: *mut Vec<T>, i: i64) -> T {
-        let val: T = self.ptr[i];
-        let mut j: i64 = i + 1 as i64;
-        while j < self.len {
-            self.ptr[j - 1 as i64] = self.ptr[j];
-            j = j + 1 as i64;
+    pub fn remove(&mut self, i: i64) -> T {
+        unsafe {
+            let val: T = self.ptr[i];
+            let mut j: i64 = i + 1 as i64;
+            while j < self.len {
+                self.ptr[j - 1 as i64] = self.ptr[j];
+                j = j + 1 as i64;
+            }
+            self.len = self.len - 1 as i64;
+            return val;
         }
-        self.len = self.len - 1 as i64;
-        return val;
     }
 
     // Return a read-only iterator over elements.
-    pub unsafe fn iter(self: *const Vec<T>) -> VecIter<T> {
+    pub fn iter(&self) -> VecIter<T> {
         return VecIter { data: self.ptr as *const T, len: self.len, idx: 0 as i64 };
     }
 }
@@ -110,12 +118,14 @@ impl<T> Iterator<T> for VecIter<T> {
 }
 
 // Linear-search contains; requires T: Eq (free function to avoid bound on main impl).
-pub unsafe fn vec_contains<T: Eq>(v: *const Vec<T>, val: &T) -> bool {
-    let mut i: i64 = 0;
-    while i < v.len {
-        let item: T = v.ptr[i];
-        if (&item).eq(val) { return true; }
-        i = i + 1 as i64;
+pub fn vec_contains<T: Eq>(v: &Vec<T>, val: &T) -> bool {
+    unsafe {
+        let mut i: i64 = 0;
+        while i < v.len {
+            let item: T = v.ptr[i];
+            if (&item).eq(val) { return true; }
+            i = i + 1 as i64;
+        }
     }
     return false;
 }
