@@ -1,0 +1,561 @@
+// SPDX-License-Identifier: Apache-2.0
+// lforge — top-level command handlers (build / update / run / clean /
+// install / test). Each one consumes a parsed Manifest + a profile.
+
+package lforge.cmd;
+
+use std.lang.text;
+use std.lang.option;
+use std.lang.result;
+use std.collections.vec;
+use std.io.fs;
+use std.sys.args;
+
+use lforge.schema;
+use lforge.util;
+use lforge.proc;
+use lforge.lockfile;
+use lforge.topo;
+use lforge.build_paths;
+use lforge.builder;
+use lforge.external_build;
+
+// If `selected_idx` >= 0, build only that target plus its transitive deps.
+// Otherwise build everything in topo order.
+pub unsafe fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64, use_lock: bool) -> i32 {
+    let logosc: String = resolve_logosc_path();
+    let lib_dir: String = resolve_logos_lib_dir();
+
+    // Build external (project-level) deps first so their archives are
+    // available when local targets resolve their per-target deps. The
+    // lockfile gives us a fast-path: tags pinned in lforge.lock skip
+    // ls-remote, and the freshly resolved entries are written back at
+    // the end of the build.
+    let mut lock_in: Vec<LockEntry> = vec_new::<LockEntry>();
+    if use_lock { lock_in = read_lockfile_or_empty("./lforge.lock"); }
+    let mut lock_out: Vec<LockEntry> = vec_new::<LockEntry>();
+    let mut visited: Vec<String> = vec_new::<String>();
+    let mut winners: Vec<GitWinner> = vec_new::<GitWinner>();
+    let externals: Vec<ExternalLib> = match build_all_externals(
+        &m.deps, profile, &logosc,
+        &lock_in,
+        (&mut lock_out) as *mut Vec<LockEntry>,
+        (&mut visited) as *mut Vec<String>,
+        (&mut winners) as *mut Vec<GitWinner>) {
+        Result::Err(rc) => { return rc; }
+        Result::Ok(libs) => { libs }
+    };
+
+    // Write a fresh lockfile if anything changed (or didn't exist).
+    if m.deps.length() > 0 as i64 {
+        let rc: i32 = write_lockfile("./lforge.lock", &lock_out);
+        if rc != 0 { println_str(2, "lforge: warning: could not write lforge.lock"); }
+    }
+
+    let full_order: Vec<i64> = match topo_order(&m.targets, &externals) {
+        Result::Err(e) => {
+            print_str(2, "lforge: ");
+            println_str(2, str_from_raw(e.message.as_ptr(), e.message.len()));
+            return 1;
+        }
+        Result::Ok(o) => { o }
+    };
+
+    // Compute which targets to actually build. If selected_idx < 0 → all.
+    // Else mark selected + transitively close over deps and intersect.
+    let nt: i64 = m.targets.length();
+    let want: *mut u8 = alloc(nt);
+    let mut wi: i64 = 0 as i64;
+    while wi < nt {
+        if selected_idx < 0 as i64 { want[wi] = 1 as u8; }
+        else                       { want[wi] = 0 as u8; }
+        wi = wi + 1 as i64;
+    }
+    if selected_idx >= 0 as i64 {
+        // Iterate to fixed point: for any wanted target, mark its deps
+        // wanted too.
+        want[selected_idx] = 1 as u8;
+        let tp: *const Vec<Target> = (&m.targets) as *const Vec<Target>;
+        let mut changed: bool = true;
+        while changed {
+            changed = false;
+            let mut k: i64 = 0 as i64;
+            while k < nt {
+                if want[k] == 1 as u8 {
+                    let t: *const Target = tp.at_const(k);
+                    let dn: i64 = (*t).deps.length();
+                    let dp: *const Vec<String> = (&(*t).deps) as *const Vec<String>;
+                    let mut di: i64 = 0 as i64;
+                    while di < dn {
+                        let nm: *const String = dp.at_const(di);
+                        let nm_view: str = str_from_raw((*nm).as_ptr(), (*nm).len());
+                        let didx: i64 = find_target_index(&m.targets, nm_view);
+                        if didx >= 0 as i64 && want[didx] == 0 as u8 {
+                            want[didx] = 1 as u8;
+                            changed = true;
+                        }
+                        di = di + 1 as i64;
+                    }
+                }
+                k = k + 1 as i64;
+            }
+        }
+    }
+
+    let n_ord: i64 = full_order.length();
+    let op: *const Vec<i64> = (&full_order) as *const Vec<i64>;
+    let tp: *const Vec<Target> = (&m.targets) as *const Vec<Target>;
+    let mut i: i64 = 0 as i64;
+    let mut built: i32 = 0;
+    while i < n_ord {
+        let idx_p: *const i64 = op.at_const(i);
+        let idx: i64 = *idx_p;
+        i = i + 1 as i64;
+        if want[idx] == 0 as u8 { continue; }
+        let t: *const Target = tp.at_const(idx);
+        let rc: i32 = match (*t).kind {
+            TargetKind::Lib => { build_lib(&(*t), profile, &logosc, &externals) }
+            TargetKind::Bin => { build_bin(&(*t), &m.targets, profile, &logosc, &lib_dir, &externals) }
+        };
+        if rc != 0 {
+            dealloc(want);
+            return rc;
+        }
+        built = built + 1;
+    }
+    dealloc(want);
+    println_str(1, "lforge: build OK");
+    return 0;
+}
+
+pub unsafe fn cmd_build(m: &Manifest, profile: str) -> i32 {
+    return cmd_build_selected(m, profile, 0 as i64 - 1 as i64, true);
+}
+
+// `lforge update` — re-resolve every git dep ignoring the lockfile, then
+// rewrite it. Equivalent to `cmd_build` with use_lock=false.
+pub unsafe fn cmd_update(m: &Manifest, profile: str) -> i32 {
+    return cmd_build_selected(m, profile, 0 as i64 - 1 as i64, false);
+}
+
+// Find the first bin target's name (for `lforge run`).
+pub unsafe fn first_bin_name(m: &Manifest) -> String {
+    let n: i64 = m.targets.length();
+    let tp: *const Vec<Target> = (&m.targets) as *const Vec<Target>;
+    let mut i: i64 = 0 as i64;
+    while i < n {
+        let t: *const Target = tp.at_const(i);
+        match (*t).kind {
+            TargetKind::Bin => {
+                let mut out: String = String::new();
+                out.push_bytes((*t).name.as_ptr(), (*t).name.len());
+                return out;
+            }
+            TargetKind::Lib => { }
+        }
+        i = i + 1 as i64;
+    }
+    return String::new();
+}
+
+// Build (selected target if name non-empty) and run the bin target. If no
+// name is given, runs the first bin target in declared order.
+pub unsafe fn cmd_run_named(m: &Manifest, profile: str,
+                            target_name: str, run_args: &Vec<String>) -> i32 {
+    // Pick the bin name (and selected build index).
+    let mut bin_nm: String = String::new();
+    let mut sel_idx: i64 = 0 as i64 - 1 as i64;
+    if target_name.len() > 0 as i64 {
+        sel_idx = find_target_index(&m.targets, target_name);
+        if sel_idx < 0 as i64 {
+            println_str(2, "lforge: unknown target");
+            return 1;
+        }
+        bin_nm.push_str(target_name);
+    } else {
+        bin_nm = first_bin_name(m);
+        if bin_nm.len() == 0 as i64 {
+            println_str(2, "lforge: project has no bin target to run");
+            return 1;
+        }
+    }
+
+    let rc: i32 = cmd_build_selected(m, profile, sel_idx, true);
+    if rc != 0 { return rc; }
+
+    let bp: String = bin_path(profile, str_from_raw(bin_nm.as_ptr(), bin_nm.len()));
+    let mut argv: Vec<String> = vec_new::<String>();
+    let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
+    push_string_arg(argv_p, &bp);
+    let an: i64 = run_args.length();
+    let rp: *const Vec<String> = run_args as *const Vec<String>;
+    let mut i: i64 = 0 as i64;
+    while i < an {
+        let s: *const String = rp.at_const(i);
+        push_string_arg(argv_p, &(*s));
+        i = i + 1 as i64;
+    }
+    return run_child(&argv);
+}
+
+pub unsafe fn cmd_clean() -> i32 {
+    match rm_rf(".lforge") {
+        Result::Err(_) => { return 1; }
+        Result::Ok(_)  => { return 0; }
+    }
+}
+
+// ── lforge install ────────────────────────────────────────────────────────
+//
+// Copies built artifacts to a standard prefix layout:
+//   bin targets → <prefix>/bin/<name>            (mode 0755)
+//   lib targets → <prefix>/lib/lib<name>.a       (mode 0644)
+//
+// Triggers a build first so artifacts are present and up-to-date.
+// Default prefix is /usr/local. Override with `--prefix <path>` (or
+// `--prefix=<path>`).
+
+unsafe fn install_one(src: &String, dst: &String, mode: str) -> i32 {
+    let mut argv: Vec<String> = vec_new::<String>();
+    let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
+    push_arg(argv_p, "install");
+    push_arg(argv_p, "-D");
+    push_arg(argv_p, "-m");
+    push_arg(argv_p, mode);
+    push_string_arg(argv_p, src);
+    push_string_arg(argv_p, dst);
+    return run_child(&argv);
+}
+
+unsafe fn read_prefix() -> String {
+    let mut s: String = String::new();
+    match get_option("prefix", "") {
+        Option::Some(v) => { s.push_str(v); }
+        Option::None    => { s.push_str("/usr/local"); }
+    }
+    return s;
+}
+
+pub unsafe fn cmd_install(m: &Manifest, profile: str) -> i32 {
+    // Build first.
+    let rc: i32 = cmd_build(m, profile);
+    if rc != 0 { return rc; }
+
+    let prefix: String = read_prefix();
+    let pview: str = str_from_raw(prefix.as_ptr(), prefix.len());
+
+    let mut bin_dir: String = String::new();
+    bin_dir.push_str(pview); append_path(&mut bin_dir, "bin");
+    let mut lib_dir: String = String::new();
+    lib_dir.push_str(pview); append_path(&mut lib_dir, "lib");
+
+    let nt: i64 = m.targets.length();
+    let tp: *const Vec<Target> = (&m.targets) as *const Vec<Target>;
+    let mut i: i64 = 0 as i64;
+    while i < nt {
+        let t: *const Target = tp.at_const(i);
+        i = i + 1 as i64;
+        let nm_view: str = str_from_raw((*t).name.as_ptr(), (*t).name.len());
+        match (*t).kind {
+            TargetKind::Bin => {
+                let src: String = bin_path(profile, nm_view);
+                let mut dst: String = String::new();
+                dst.push_bytes(bin_dir.as_ptr(), bin_dir.len());
+                append_path(&mut dst, nm_view);
+                let mut msg: String = String::new();
+                msg.push_str("lforge: install ");
+                msg.push_bytes(dst.as_ptr(), dst.len());
+                println_string(1, &msg);
+                let rci: i32 = install_one(&src, &dst, "0755");
+                if rci != 0 {
+                    println_str(2, "lforge: install failed");
+                    return rci;
+                }
+            }
+            TargetKind::Lib => {
+                let src: String = lib_archive_path(profile, nm_view);
+                let mut dst: String = String::new();
+                dst.push_bytes(lib_dir.as_ptr(), lib_dir.len());
+                let mut leaf: String = String::new();
+                leaf.push_str("lib");
+                leaf.push_str(nm_view);
+                leaf.push_str(".a");
+                append_path(&mut dst, str_from_raw(leaf.as_ptr(), leaf.len()));
+                let mut msg: String = String::new();
+                msg.push_str("lforge: install ");
+                msg.push_bytes(dst.as_ptr(), dst.len());
+                println_string(1, &msg);
+                let rci: i32 = install_one(&src, &dst, "0644");
+                if rci != 0 {
+                    println_str(2, "lforge: install failed");
+                    return rci;
+                }
+            }
+        }
+    }
+    println_str(1, "lforge: install OK");
+    return 0;
+}
+
+// ── lforge test ───────────────────────────────────────────────────────────
+//
+// Walks `tests/` (top level only — no recursion for now) for `*.logos`
+// files. Each file is treated as a stand-alone test program: compile,
+// link with all project lib targets, run, expect exit 0. Per-test
+// artifacts go under .lforge/<profile>/test/<name>.{o,bin}.
+//
+// Failures aggregate; exit code is 0 iff every test passed.
+
+unsafe fn build_test_bin(test_logos: &String,
+                          test_name:  &String,
+                          targets:    &Vec<Target>,
+                          profile:    str,
+                          logosc:     &String,
+                          lib_dir:    &String) -> i32 {
+    // Output dirs.
+    let mut td: String = String::new();
+    td.push_str(".lforge/");
+    td.push_str(profile);
+    td.push_str("/test");
+    let td_view: str = str_from_raw(td.as_ptr(), td.len());
+    match mkdir_p(td_view) {
+        Result::Err(_) => { return 1; }
+        Result::Ok(_)  => { }
+    }
+
+    let mut obj_path: String = String::new();
+    obj_path.push_bytes(td.as_ptr(), td.len());
+    obj_path.push_u8(47 as u8);
+    obj_path.push_bytes(test_name.as_ptr(), test_name.len());
+    obj_path.push_str(".o");
+
+    let mut bin_p: String = String::new();
+    bin_p.push_bytes(td.as_ptr(), td.len());
+    bin_p.push_u8(47 as u8);
+    bin_p.push_bytes(test_name.as_ptr(), test_name.len());
+
+    // Tests link against every lib target in the project (mimics
+    // ctest pattern: tests are top-level consumers of the libs).
+    let mut all_lib_archs: Vec<String> = vec_new::<String>();
+    let alp: *mut Vec<String> = (&mut all_lib_archs) as *mut Vec<String>;
+    let nt: i64 = targets.length();
+    let tp: *const Vec<Target> = targets as *const Vec<Target>;
+    let mut ti: i64 = 0 as i64;
+    while ti < nt {
+        let tt: *const Target = tp.at_const(ti);
+        match (*tt).kind {
+            TargetKind::Lib => {
+                let nm_view: str = str_from_raw((*tt).name.as_ptr(), (*tt).name.len());
+                let p: String = lib_archive_path(profile, nm_view);
+                alp.push(p);
+            }
+            TargetKind::Bin => { }
+        }
+        ti = ti + 1 as i64;
+    }
+
+    // logosc <test_logos> -o <obj> [-l <lib>]...
+    let mut argv: Vec<String> = vec_new::<String>();
+    let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
+    push_string_arg(argv_p, logosc);
+    push_string_arg(argv_p, test_logos);
+    push_arg(argv_p, "-o");
+    push_string_arg(argv_p, &obj_path);
+    let lan: i64 = all_lib_archs.length();
+    let lap: *const Vec<String> = (&all_lib_archs) as *const Vec<String>;
+    let mut li: i64 = 0 as i64;
+    while li < lan {
+        let s: *const String = lap.at_const(li);
+        push_arg(argv_p, "-l");
+        push_string_arg(argv_p, &(*s));
+        li = li + 1 as i64;
+    }
+    let rc: i32 = run_child(&argv);
+    if rc != 0 { return rc; }
+
+    if lib_dir.len() == 0 as i64 {
+        println_str(2, "lforge: cannot locate Logos lib dir");
+        return 1;
+    }
+
+    // cc <obj> [<lib>...] <stdlib_archives> -lpthread -lm -o <bin>
+    let mut largv: Vec<String> = vec_new::<String>();
+    let largv_p: *mut Vec<String> = (&mut largv) as *mut Vec<String>;
+    push_arg(largv_p, "cc");
+    push_string_arg(largv_p, &obj_path);
+    let mut lk: i64 = 0 as i64;
+    while lk < lan {
+        let s: *const String = lap.at_const(lk);
+        push_string_arg(largv_p, &(*s));
+        lk = lk + 1 as i64;
+    }
+    let lib_view: str = str_from_raw(lib_dir.as_ptr(), lib_dir.len());
+    let mut p1: String = String::new();
+    p1.push_str(lib_view); append_path(&mut p1, "liblstdlib.a"); largv_p.push(p1);
+    let mut p2: String = String::new();
+    p2.push_str(lib_view); append_path(&mut p2, "liblstdlib_fibers.a"); largv_p.push(p2);
+    let mut p3: String = String::new();
+    p3.push_str(lib_view); append_path(&mut p3, "liblstdlib_rt.a"); largv_p.push(p3);
+    let mut p4: String = String::new();
+    p4.push_str(lib_view); append_path(&mut p4, "liblstdlib_uring.a"); largv_p.push(p4);
+    push_arg(largv_p, "-lpthread");
+    push_arg(largv_p, "-lm");
+    push_arg(largv_p, "-o");
+    push_string_arg(largv_p, &bin_p);
+    return run_child(&largv);
+}
+
+// Strip a path's trailing extension. "tests/foo.logos" → "tests/foo".
+unsafe fn strip_dot_logos(s: str) -> String {
+    let mut out: String = String::new();
+    let n: i64 = s.len();
+    let mut stripped: bool = false;
+    if n >= 6 as i64 {
+        let suffix: str = ".logos";
+        let off: i64 = n - 6 as i64;
+        let mut ok: bool = true;
+        let mut k: i64 = 0 as i64;
+        while k < 6 as i64 && ok {
+            if s[off + k] != suffix[k] { ok = false; }
+            k = k + 1 as i64;
+        }
+        if ok {
+            out.push_bytes(s.as_ptr(), off);
+            stripped = true;
+        }
+    }
+    if !stripped {
+        out.push_str(s);
+    }
+    return out;
+}
+
+// Extract base file name from a path: "a/b/c.logos" → "c.logos".
+unsafe fn basename_view(p: str) -> str {
+    let n: i64 = p.len();
+    let mut start: i64 = 0 as i64;
+    let mut i: i64 = n - 1 as i64;
+    while i >= 0 as i64 {
+        if (p[i] as i32) == 47 { start = i + 1 as i64; i = 0 as i64 - 1 as i64; }
+        else { i = i - 1 as i64; }
+    }
+    return str_from_raw((p.as_ptr() as i64 + start) as *const u8, n - start);
+}
+
+pub unsafe fn cmd_test(m: &Manifest, profile: str) -> i32 {
+    // 1. Build all lib targets first; bin targets are not needed for tests.
+    let logosc:  String = resolve_logosc_path();
+    let lib_dir: String = resolve_logos_lib_dir();
+    // External deps are not threaded through cmd_test yet — that lands when
+    // tests need to import from external libs (B3+).
+    let no_externals: Vec<ExternalLib> = vec_new::<ExternalLib>();
+    let order: Vec<i64> = match topo_order(&m.targets, &no_externals) {
+        Result::Err(e) => {
+            print_str(2, "lforge: ");
+            println_str(2, str_from_raw(e.message.as_ptr(), e.message.len()));
+            return 1;
+        }
+        Result::Ok(o) => { o }
+    };
+    let n_ord: i64 = order.length();
+    let op: *const Vec<i64> = (&order) as *const Vec<i64>;
+    let tp: *const Vec<Target> = (&m.targets) as *const Vec<Target>;
+    let mut k: i64 = 0 as i64;
+    while k < n_ord {
+        let idx_p: *const i64 = op.at_const(k);
+        let idx: i64 = *idx_p;
+        let t: *const Target = tp.at_const(idx);
+        match (*t).kind {
+            TargetKind::Lib => {
+                let rc: i32 = build_lib(&(*t), profile, &logosc, &no_externals);
+                if rc != 0 {
+                    println_str(2, "lforge: lib target failed; aborting test run");
+                    return rc;
+                }
+            }
+            TargetKind::Bin => { }
+        }
+        k = k + 1 as i64;
+    }
+
+    // 2. Walk tests/ for .logos files.
+    let cs_tests: *mut u8 = cstr("tests");
+    let exists_tests: bool = is_dir(cs_tests as *const u8);
+    dealloc(cs_tests);
+    if !exists_tests {
+        println_str(1, "lforge: no tests/ dir, nothing to test");
+        return 0;
+    }
+
+    let entries: Vec<DirEntry> = walk_dir("tests");
+    let ep: *const Vec<DirEntry> = (&entries) as *const Vec<DirEntry>;
+    let en: i64 = entries.length();
+
+    let mut pass_n: i32 = 0;
+    let mut fail_n: i32 = 0;
+    let mut ei: i64 = 0 as i64;
+    while ei < en {
+        let de: *const DirEntry = ep.at_const(ei);
+        ei = ei + 1 as i64;
+        if (*de).is_dir { continue; }
+        let pview: str = str_from_raw((*de).name.as_ptr(), (*de).name.len());
+        let pn: i64 = pview.len();
+        if pn < 6 as i64 { continue; }
+        // Quick suffix check: ".logos"
+        let suffix: str = ".logos";
+        let off: i64 = pn - 6 as i64;
+        let mut ok: bool = true;
+        let mut sk: i64 = 0 as i64;
+        while sk < 6 as i64 && ok {
+            if pview[off + sk] != suffix[sk] { ok = false; }
+            sk = sk + 1 as i64;
+        }
+        if !ok { continue; }
+
+        let bn_view: str = basename_view(pview);
+        let stem: String = strip_dot_logos(bn_view);
+        let mut path_str: String = String::new();
+        path_str.push_str(pview);
+
+        let mut prefix: String = String::new();
+        prefix.push_str("lforge: test ");
+        prefix.push_bytes(stem.as_ptr(), stem.len());
+        println_string(1, &prefix);
+
+        let rc: i32 = build_test_bin(&path_str, &stem, &m.targets, profile, &logosc, &lib_dir);
+        if rc != 0 {
+            println_str(2, "  FAIL (compile/link)");
+            fail_n = fail_n + 1;
+            continue;
+        }
+
+        // Run the test binary.
+        let mut bin_p: String = String::new();
+        bin_p.push_str(".lforge/");
+        bin_p.push_str(profile);
+        bin_p.push_str("/test/");
+        bin_p.push_bytes(stem.as_ptr(), stem.len());
+
+        let mut argv: Vec<String> = vec_new::<String>();
+        let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
+        push_string_arg(argv_p, &bin_p);
+        let exit_rc: i32 = run_child(&argv);
+        if exit_rc == 0 {
+            println_str(1, "  PASS");
+            pass_n = pass_n + 1;
+        } else {
+            println_str(2, "  FAIL (exit code)");
+            fail_n = fail_n + 1;
+        }
+    }
+
+    // Summary.
+    let mut summary: String = String::new();
+    summary.push_str("lforge: tests passed=");
+    summary.push_i64(pass_n as i64);
+    summary.push_str(" failed=");
+    summary.push_i64(fail_n as i64);
+    println_string(1, &summary);
+    if fail_n > 0 { return 1; }
+    return 0;
+}
