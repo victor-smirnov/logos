@@ -1,0 +1,79 @@
+// SPDX-License-Identifier: Apache-2.0
+// lforge — per-target spawn + path helpers used by build_lib / build_bin.
+
+package lforge.spawn_helpers;
+
+use std.lang.text;
+use std.collections.vec;
+use std.io.fs.path;
+use std.sys.process;
+
+use lforge.proc;
+
+// Spawn an action without piping stdout/stderr — child inherits the
+// parent's fds. Used for parallel fan-out where capturing N concurrent
+// pipes would either serialise them or require multiplexing. Output
+// interleaving is per-line-atomic on libc-line-buffered streams; good
+// enough for build progress.
+pub unsafe fn spawn_inherit(argv: &Vec<String>) -> Child {
+    let n: i64 = argv.length();
+    let argv_buf: *mut *const u8 = alloc((n + 1 as i64) * 8 as i64) as *mut *const u8;
+    let ap: *const Vec<String> = argv as *const Vec<String>;
+    let mut i: i64 = 0 as i64;
+    while i < n {
+        let s: *const String = ap.at_const(i);
+        argv_buf[i] = (*s).as_ptr();
+        i = i + 1 as i64;
+    }
+    argv_buf[n] = 0 as *const u8;
+    let child: Child = spawn(argv_buf as *const *const u8, false, false, false);
+    dealloc(argv_buf as *mut u8);
+    return child;
+}
+
+// Per-file artifact paths under .lforge/<profile>/_files/<lib_name>/.
+pub unsafe fn per_file_dir(profile: str, lib_name: str) -> String {
+    let mut d: String = String::new();
+    d.push_str(".lforge/");
+    d.push_str(profile);
+    d.push_str("/_files/");
+    d.push_str(lib_name);
+    return d;
+}
+
+// `<dir>/<stem>` — basename of source without `.logos` extension, joined
+// with the per-lib output dir. Caller appends `.o` / `.hermes0`.
+pub unsafe fn per_file_prefix(dir: &String, src_path: &String) -> String {
+    let stem_str: String = stem(str_from_raw(src_path.as_ptr(), src_path.len()));
+    let mut p: String = String::new();
+    p.push_bytes(dir.as_ptr(), dir.len());
+    p.push_u8(47 as u8);
+    p.push_bytes(stem_str.as_ptr(), stem_str.len());
+    return p;
+}
+
+// `<dir>/<basename>.o` — used for native (C/asm) sources. The full
+// basename including extension goes into the object name so foo.c and
+// foo.S don't collide with each other or with foo.logos's foo.o.
+pub unsafe fn native_obj_path(dir: &String, src_path: &String) -> String {
+    let bn_str: String = basename(str_from_raw(src_path.as_ptr(), src_path.len()));
+    let mut p: String = String::new();
+    p.push_bytes(dir.as_ptr(), dir.len());
+    p.push_u8(47 as u8);
+    p.push_bytes(bn_str.as_ptr(), bn_str.len());
+    p.push_str(".o");
+    return p;
+}
+
+// Spawn `cc -c <src> -o <obj>` for a single C/asm file. cc handles both
+// .c and .S via file extension, so this one helper covers both.
+pub unsafe fn spawn_native_compile(src_path: &String, obj_path: &String) -> Child {
+    let mut argv: Vec<String> = vec_new::<String>();
+    let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
+    push_arg(argv_p, "cc");
+    push_arg(argv_p, "-c");
+    push_string_arg(argv_p, src_path);
+    push_arg(argv_p, "-o");
+    push_string_arg(argv_p, obj_path);
+    return spawn_inherit(&argv);
+}
