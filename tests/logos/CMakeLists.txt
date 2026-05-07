@@ -612,4 +612,32 @@ if (TARGET lforge)
         TIMEOUT 60
         LABELS  "logos;lforge;suite_lforge"
     )
+
+    # B3a: transitive external deps -- a closure of local-path projects
+    # where mid pulls leaf transitively.
+    add_test(
+        NAME logos_21_lforge_transitive_dep
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/transitive_dep.sh
+                ${CMAKE_BINARY_DIR}/bin/lforge
+                $<TARGET_FILE:logosc>
+                ${LOGOS_BUILD_LIB_DIR}
+    )
+    set_tests_properties(logos_21_lforge_transitive_dep PROPERTIES
+        TIMEOUT 60
+        LABELS  "logos;lforge;suite_lforge"
+    )
+
+    # B3a: lockfile records git pins; second build uses them without
+    # ls-remote; manifest tag change forces re-resolve.
+    add_test(
+        NAME logos_22_lforge_lockfile
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/lockfile.sh
+                ${CMAKE_BINARY_DIR}/bin/lforge
+                $<TARGET_FILE:logosc>
+                ${LOGOS_BUILD_LIB_DIR}
+    )
+    set_tests_properties(logos_22_lforge_lockfile PROPERTIES
+        TIMEOUT 60
+        LABELS  "logos;lforge;suite_lforge"
+    )
 endif()

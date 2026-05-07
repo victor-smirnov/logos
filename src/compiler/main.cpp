@@ -1975,6 +1975,7 @@ int main(int argc, char** argv) {
         mopts.emit_mlir = emit_mlir;
         mopts.emit_llvm = emit_llvm;
         mopts.only_file = only_file;
+        mopts.extra_lib_files = explicit_lib_files;
         return logos::compiler::emit_module(*manifest, output_path, mopts) ? 0 : 1;
     }
 

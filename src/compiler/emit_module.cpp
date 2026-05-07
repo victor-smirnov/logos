@@ -352,7 +352,8 @@ bool emit_module(const ModuleManifest& manifest,
         std::unordered_set<std::string> seen;
         auto load_bucket = [&](const std::vector<std::string>& bucket) {
             for (auto& file : bucket) {
-                auto mods = load_modules(file, search_paths);
+                auto mods = load_modules(file, search_paths, nullptr,
+                                         opts.extra_lib_files);
                 for (auto& m : mods) {
                     if (seen.insert(m.path).second)
                         modules.push_back(std::move(m));

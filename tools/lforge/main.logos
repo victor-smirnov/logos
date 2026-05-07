@@ -104,6 +104,14 @@ pub struct ExternalDep {
     pub modules: Vec<String>,
 }
 
+// One pinned entry in lforge.lock (B3). `tag` is preserved for diff
+// readability; SHA is the source of truth for what gets fetched.
+pub struct LockEntry {
+    pub project: String,
+    pub tag:     String,
+    pub sha:     String,
+}
+
 pub struct Manifest {
     pub name:    String,
     pub version: String,
@@ -566,24 +574,47 @@ pub struct ExternalLib {
 //
 // NOTE v1: external projects must NOT themselves declare project-level
 // `deps:` — recursive resolution lands with the lockfile + MVS in B3.
-unsafe fn build_external(dep: &ExternalDep, profile: str, logosc: &String) -> Result<Vec<ExternalLib>, i32> {
+unsafe fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
+                         lock_in: &Vec<LockEntry>,
+                         lock_out: *mut Vec<LockEntry>,
+                         visited: *mut Vec<String>) -> Result<Vec<ExternalLib>, i32> {
     let saved: String = save_cwd();
     if saved.len() == 0 as i64 {
         println_str(2, "lforge: getcwd failed");
         return Result::Err(1);
     }
 
-    // Local `path:` -> use as-is. Git `project:` -> fetch into the cache and
-    // chdir there.
+    // Local `path:` -> use as-is. Git `project:` -> resolve to a cache path
+    // (lockfile fast-path or ls-remote + clone).
     let mut resolved_path: String = String::new();
     if dep.path.len() > 0 as i64 {
         resolved_path.push_bytes(dep.path.as_ptr(), dep.path.len());
     } else {
-        match resolve_git_dep(dep) {
+        match resolve_git_dep(dep, lock_in, lock_out) {
             Result::Err(rc) => { return Result::Err(rc); }
-            Result::Ok(p)   => { resolved_path = p; }
+            Result::Ok(t)   => { resolved_path = t.0; }
         }
     }
+
+    // Cycle / duplicate guard: skip if we've already built this absolute
+    // path. Returns empty Vec — modules already produced earlier in the
+    // walk are visible via the parent's externals accumulator.
+    let abs_path: String = make_absolute(str_from_raw(resolved_path.as_ptr(), resolved_path.len()));
+    let abs_view: str = str_from_raw(abs_path.as_ptr(), abs_path.len());
+    let vn: i64 = (*visited).length();
+    let vp: *const Vec<String> = visited as *const Vec<String>;
+    let mut vi: i64 = 0 as i64;
+    while vi < vn {
+        let s: *const String = vp.at_const(vi);
+        let sv: str = str_from_raw((*s).as_ptr(), (*s).len());
+        if str_eq_local(sv, abs_view) {
+            return Result::Ok(vec_new::<ExternalLib>());
+        }
+        vi = vi + 1 as i64;
+    }
+    let mut abs_copy: String = String::new();
+    abs_copy.push_bytes(abs_path.as_ptr(), abs_path.len());
+    visited.push(abs_copy);
 
     let path_view: str = str_from_raw(resolved_path.as_ptr(), resolved_path.len());
     if chdir_str(path_view) != 0 {
@@ -606,16 +637,36 @@ unsafe fn build_external(dep: &ExternalDep, profile: str, logosc: &String) -> Re
         Result::Ok(m) => { m }
     };
 
+    // Recurse into the external's own project-level deps before building.
+    // We're currently chdir'd in the external; child resolutions chdir
+    // further and restore back to here.
+    let mut out: Vec<ExternalLib> = vec_new::<ExternalLib>();
+    let outp: *mut Vec<ExternalLib> = (&mut out) as *mut Vec<ExternalLib>;
     if m.deps.length() > 0 as i64 {
-        println_str(2, "lforge: external dep declares its own project-level 'deps:' — transitive resolution lands in B3");
-        chdir_str(str_from_raw(saved.as_ptr(), saved.len()));
-        return Result::Err(1);
+        match build_all_externals(&m.deps, profile, logosc, lock_in, lock_out, visited) {
+            Result::Err(rc) => {
+                chdir_str(str_from_raw(saved.as_ptr(), saved.len()));
+                return Result::Err(rc);
+            }
+            Result::Ok(sublibs) => {
+                let sn: i64 = sublibs.length();
+                let sp: *const Vec<ExternalLib> = (&sublibs) as *const Vec<ExternalLib>;
+                let mut si: i64 = 0 as i64;
+                while si < sn {
+                    let lb: *const ExternalLib = sp.at_const(si);
+                    let mut nm_c: String = String::new();
+                    nm_c.push_bytes((*lb).name.as_ptr(), (*lb).name.len());
+                    let mut ap_c: String = String::new();
+                    ap_c.push_bytes((*lb).archive_path.as_ptr(), (*lb).archive_path.len());
+                    outp.push(ExternalLib { name: nm_c, archive_path: ap_c });
+                    si = si + 1 as i64;
+                }
+            }
+        }
     }
 
     // Build only the requested modules. Each one must exist as a `kind: lib`
     // target in the external manifest.
-    let mut out: Vec<ExternalLib> = vec_new::<ExternalLib>();
-    let outp: *mut Vec<ExternalLib> = (&mut out) as *mut Vec<ExternalLib>;
     let mn: i64 = dep.modules.length();
     let mp: *const Vec<String> = (&dep.modules) as *const Vec<String>;
     let mut i: i64 = 0 as i64;
@@ -645,7 +696,9 @@ unsafe fn build_external(dep: &ExternalDep, profile: str, logosc: &String) -> Re
                 return Result::Err(1);
             }
         }
-        let rc: i32 = build_lib(&(*t), profile, logosc);
+        // External's lib is built with the closure of already-resolved
+        // externals (its own deps + their transitives) visible to logosc.
+        let rc: i32 = build_lib(&(*t), profile, logosc, &out);
         if rc != 0 {
             print_str(2, "lforge: external dep ");
             print_str(2, path_view);
@@ -672,7 +725,10 @@ unsafe fn build_external(dep: &ExternalDep, profile: str, logosc: &String) -> Re
     return Result::Ok(out);
 }
 
-unsafe fn build_all_externals(deps: &Vec<ExternalDep>, profile: str, logosc: &String) -> Result<Vec<ExternalLib>, i32> {
+unsafe fn build_all_externals(deps: &Vec<ExternalDep>, profile: str, logosc: &String,
+                              lock_in: &Vec<LockEntry>,
+                              lock_out: *mut Vec<LockEntry>,
+                              visited:  *mut Vec<String>) -> Result<Vec<ExternalLib>, i32> {
     let mut all: Vec<ExternalLib> = vec_new::<ExternalLib>();
     let allp: *mut Vec<ExternalLib> = (&mut all) as *mut Vec<ExternalLib>;
     let n: i64 = deps.length();
@@ -680,7 +736,7 @@ unsafe fn build_all_externals(deps: &Vec<ExternalDep>, profile: str, logosc: &St
     let mut i: i64 = 0 as i64;
     while i < n {
         let d: *const ExternalDep = dp.at_const(i);
-        match build_external(&(*d), profile, logosc) {
+        match build_external(&(*d), profile, logosc, lock_in, lock_out, visited) {
             Result::Err(rc) => { return Result::Err(rc); }
             Result::Ok(libs) => {
                 let m: i64 = libs.length();
@@ -857,6 +913,111 @@ unsafe fn lforge_cache_src_dir() -> String {
     return out;
 }
 
+// -- Lockfile (B3) ---------------------------------------------------------
+
+unsafe fn parse_lockfile(text: str) -> Vec<LockEntry> {
+    let mut z: Zone<Mutable> = zone_create(8192);
+    if !hermes_parse(text.as_ptr(), text.len(), &mut z) { return vec_new::<LockEntry>(); }
+    let view: HermesView<'a> = HermesView {
+        base: z.holder.base as *const u8,
+        size: z.holder.used as u64,
+    };
+    let root: AnyVal = view.root();
+    let base: *const u8 = view.base();
+    if !root.is_map(base) { return vec_new::<LockEntry>(); }
+    let pinned_av: AnyVal = view.map_get(root, "pinned");
+    if !pinned_av.is_array(base) { return vec_new::<LockEntry>(); }
+    let mut out: Vec<LockEntry> = vec_new::<LockEntry>();
+    let outp: *mut Vec<LockEntry> = (&mut out) as *mut Vec<LockEntry>;
+    let n: u64 = view.array_len(pinned_av);
+    let mut i: u64 = 0 as u64;
+    while i < n {
+        let e_av: AnyVal = view.array_get(pinned_av, i);
+        i = i + 1 as u64;
+        if !e_av.is_map(base) { continue; }
+        let proj: String = read_str_opt(&view, e_av, "project");
+        let tag:  String = read_str_opt(&view, e_av, "tag");
+        let sha:  String = read_str_opt(&view, e_av, "sha");
+        if proj.len() == 0 as i64 || sha.len() == 0 as i64 { continue; }
+        outp.push(LockEntry { project: proj, tag: tag, sha: sha });
+    }
+    return out;
+}
+
+unsafe fn read_lockfile_or_empty(path: str) -> Vec<LockEntry> {
+    let cs: *mut u8 = cstr(path);
+    let exists: bool = is_file(cs as *const u8);
+    if exists == false {
+        dealloc(cs);
+        return vec_new::<LockEntry>();
+    }
+    let body: Result<String, i32> = read_to_string(cs as *const u8);
+    dealloc(cs);
+    match body {
+        Result::Err(_) => { return vec_new::<LockEntry>(); }
+        Result::Ok(s)  => {
+            return parse_lockfile(str_from_raw(s.as_ptr(), s.len()));
+        }
+    }
+}
+
+unsafe fn lookup_lock_sha(lock: &Vec<LockEntry>, project: str, expected_tag: str) -> String {
+    let n: i64 = lock.length();
+    let lp: *const Vec<LockEntry> = lock as *const Vec<LockEntry>;
+    let mut i: i64 = 0 as i64;
+    while i < n {
+        let le: *const LockEntry = lp.at_const(i);
+        let pv: str = str_from_raw((*le).project.as_ptr(), (*le).project.len());
+        if str_eq_local(pv, project) {
+            // If expected_tag is non-empty, require it match the locked tag.
+            // Empty expected_tag means "branch or sha" form -- accept any.
+            if expected_tag.len() == 0 as i64 {
+                let mut s: String = String::new();
+                s.push_bytes((*le).sha.as_ptr(), (*le).sha.len());
+                return s;
+            }
+            let tv: str = str_from_raw((*le).tag.as_ptr(), (*le).tag.len());
+            if str_eq_local(tv, expected_tag) {
+                let mut s: String = String::new();
+                s.push_bytes((*le).sha.as_ptr(), (*le).sha.len());
+                return s;
+            }
+        }
+        i = i + 1 as i64;
+    }
+    return String::new();
+}
+
+unsafe fn write_lockfile(path: str, entries: &Vec<LockEntry>) -> i32 {
+    let mut buf: String = String::new();
+    buf.push_str("// Auto-generated by lforge. DO NOT EDIT.\n");
+    buf.push_str("{\n    pinned: [\n");
+    let n: i64 = entries.length();
+    let ep: *const Vec<LockEntry> = entries as *const Vec<LockEntry>;
+    let mut i: i64 = 0 as i64;
+    while i < n {
+        let le: *const LockEntry = ep.at_const(i);
+        buf.push_str("        { project: \"");
+        buf.push_bytes((*le).project.as_ptr(), (*le).project.len());
+        buf.push_str("\", tag: \"");
+        buf.push_bytes((*le).tag.as_ptr(), (*le).tag.len());
+        buf.push_str("\", sha: \"");
+        buf.push_bytes((*le).sha.as_ptr(), (*le).sha.len());
+        buf.push_str("\" }");
+        if i + 1 as i64 < n { buf.push_str(","); }
+        buf.push_str("\n");
+        i = i + 1 as i64;
+    }
+    buf.push_str("    ]\n}\n");
+    let cs: *mut u8 = cstr(path);
+    let res: Result<i32, i32> = write_string(cs as *const u8, &buf);
+    dealloc(cs);
+    match res {
+        Result::Err(_) => { return 0 - 1; }
+        Result::Ok(_)  => { return 0; }
+    }
+}
+
 unsafe fn looks_like_sha(s: str) -> bool {
     let n: i64 = s.len();
     if n < 7 as i64    { return false; }
@@ -950,10 +1111,15 @@ unsafe fn git_clone_at_sha(fetch_url: str, sha: str, dest_dir: str) -> i32 {
     return run_child(&a2);
 }
 
-// Resolve a git ExternalDep into an absolute filesystem path that
-// build_external can chdir into. Cache hit -> return cached path with no
-// network. Cache miss -> ls-remote, clone into ~/.cache/lforge/src/.
-unsafe fn resolve_git_dep(dep: &ExternalDep) -> Result<String, i32> {
+// Resolve a git ExternalDep into an absolute filesystem path. Returns
+// (cache_path, display_id, sha). Lockfile fast-path: if `lock_in` has
+// an entry for this project AND the manifest's expected ref matches the
+// lock's tag (or is sha/branch form), the locked SHA is used and
+// ls-remote is skipped. Either way, we record the resolved entry into
+// `lock_out` so the freshly written lockfile reflects the build.
+unsafe fn resolve_git_dep(dep:  &ExternalDep,
+                          lock_in:  &Vec<LockEntry>,
+                          lock_out: *mut Vec<LockEntry>) -> Result<(String, String, String), i32> {
     let proj_view: str = str_from_raw(dep.project.as_ptr(), dep.project.len());
     let pair: (String, String) = canonical_url(proj_view);
     let display: String = pair.0;
@@ -968,19 +1134,25 @@ unsafe fn resolve_git_dep(dep: &ExternalDep) -> Result<String, i32> {
         ref_s.push_bytes(dep.sha.as_ptr(), dep.sha.len());
     }
 
-    let fetch_view: str = str_from_raw(fetch.as_ptr(), fetch.len());
-    let ref_view:   str = str_from_raw(ref_s.as_ptr(),  ref_s.len());
-    let sha: String = match git_resolve_sha(fetch_view, ref_view) {
-        Result::Err(rc) => { return Result::Err(rc); }
-        Result::Ok(s)  => { s }
-    };
+    let display_view: str = str_from_raw(display.as_ptr(), display.len());
+    let mut sha: String = String::new();
+    if dep.tag.len() > 0 as i64 {
+        sha = lookup_lock_sha(lock_in, display_view, str_from_raw(dep.tag.as_ptr(), dep.tag.len()));
+    }
+    if sha.len() == 0 as i64 {
+        let fetch_view: str = str_from_raw(fetch.as_ptr(), fetch.len());
+        let ref_view:   str = str_from_raw(ref_s.as_ptr(),  ref_s.len());
+        sha = match git_resolve_sha(fetch_view, ref_view) {
+            Result::Err(rc) => { return Result::Err(rc); }
+            Result::Ok(s)  => { s }
+        };
+    }
 
     let cache_root: String = lforge_cache_src_dir();
     if cache_root.len() == 0 as i64 {
         println_str(2, "lforge: $HOME unset -- cannot locate ~/.cache/lforge");
         return Result::Err(1);
     }
-    let display_view: str = str_from_raw(display.as_ptr(), display.len());
     let dirname: String = display_to_dirname(display_view);
 
     // Ensure parent dir <cache_root>/<dirname>/ exists.
@@ -1020,6 +1192,7 @@ unsafe fn resolve_git_dep(dep: &ExternalDep) -> Result<String, i32> {
                 Result::Ok(_) => { }
             }
         }
+        let fetch_view: str = str_from_raw(fetch.as_ptr(), fetch.len());
         print_str(1, "lforge: fetching ");
         print_str(1, display_view);
         print_str(1, " @ ");
@@ -1029,7 +1202,27 @@ unsafe fn resolve_git_dep(dep: &ExternalDep) -> Result<String, i32> {
                                        full_view);
         if rc != 0 { return Result::Err(rc); }
     }
-    return Result::Ok(full);
+
+    // Record the resolved entry for the freshly written lockfile.
+    let mut tag_copy: String = String::new();
+    if dep.tag.len() > 0 as i64 {
+        tag_copy.push_bytes(dep.tag.as_ptr(), dep.tag.len());
+    }
+    let mut display_lc: String = String::new();
+    display_lc.push_bytes(display.as_ptr(), display.len());
+    let mut sha_lc: String = String::new();
+    sha_lc.push_bytes(sha.as_ptr(), sha.len());
+    let already: bool = lookup_lock_sha(&(*lock_out), display_view,
+                                        str_from_raw(tag_copy.as_ptr(), tag_copy.len())).len() > 0 as i64;
+    if already == false {
+        lock_out.push(LockEntry {
+            project: display_lc,
+            tag:     tag_copy,
+            sha:     sha_lc,
+        });
+    }
+
+    return Result::Ok((full, display, sha));
 }
 
 // ── Tool resolution ───────────────────────────────────────────────────────
@@ -1387,7 +1580,8 @@ unsafe fn spawn_native_compile(src_path: &String, obj_path: &String) -> Child {
     return spawn_inherit(&argv);
 }
 
-unsafe fn build_lib(t: &Target, profile: str, logosc: &String) -> i32 {
+unsafe fn build_lib(t: &Target, profile: str, logosc: &String,
+                    externals: &Vec<ExternalLib>) -> i32 {
     let lib_name_view: str = str_from_raw(t.name.as_ptr(), t.name.len());
 
     // ── Walk Logos source dir, if any ────────────────────────────────────
@@ -1492,6 +1686,18 @@ unsafe fn build_lib(t: &Target, profile: str, logosc: &String) -> i32 {
         push_string_arg(argv_p, &(*src_p));
         push_arg(argv_p, "-o");
         push_string_arg(argv_p, &prefix);
+        // External archives so logosc can load their .hermes0 modules and
+        // resolve `use <pkg>` statements that reference symbols outside
+        // this project.
+        let en_lib: i64 = externals.length();
+        let ep_lib: *const Vec<ExternalLib> = externals as *const Vec<ExternalLib>;
+        let mut ei_lib: i64 = 0 as i64;
+        while ei_lib < en_lib {
+            let lb: *const ExternalLib = ep_lib.at_const(ei_lib);
+            push_arg(argv_p, "-l");
+            push_string_arg(argv_p, &(*lb).archive_path);
+            ei_lib = ei_lib + 1 as i64;
+        }
 
         let child: Child = spawn_inherit(&argv);
         if child.pid() < 0 {
@@ -1745,6 +1951,43 @@ unsafe fn build_bin(t: &Target,
     // Resolve dep archives.
     let dep_archs: Vec<String> = dep_archive_paths(targets, &t.deps, profile, externals);
 
+    // Transitive closure: every external archive (direct + indirect) must
+    // be visible to logosc and cc, so the consumer's source can resolve
+    // symbols across the whole closure. Dedupe against dep_archs.
+    let mut all_archs: Vec<String> = vec_new::<String>();
+    let aap: *mut Vec<String> = (&mut all_archs) as *mut Vec<String>;
+    let mut di: i64 = 0 as i64;
+    let dap_v: *const Vec<String> = (&dep_archs) as *const Vec<String>;
+    while di < dep_archs.length() {
+        let s: *const String = dap_v.at_const(di);
+        let mut c: String = String::new();
+        c.push_bytes((*s).as_ptr(), (*s).len());
+        aap.push(c);
+        di = di + 1 as i64;
+    }
+    let en: i64 = externals.length();
+    let ep: *const Vec<ExternalLib> = externals as *const Vec<ExternalLib>;
+    let mut ei: i64 = 0 as i64;
+    while ei < en {
+        let lb: *const ExternalLib = ep.at_const(ei);
+        let lbv: str = str_from_raw((*lb).archive_path.as_ptr(), (*lb).archive_path.len());
+        let mut already: bool = false;
+        let mut ai: i64 = 0 as i64;
+        let aap_v: *const Vec<String> = (&all_archs) as *const Vec<String>;
+        while ai < all_archs.length() {
+            let s: *const String = aap_v.at_const(ai);
+            let sv: str = str_from_raw((*s).as_ptr(), (*s).len());
+            if str_eq_local(sv, lbv) { already = true; ai = all_archs.length(); }
+            else                     { ai = ai + 1 as i64; }
+        }
+        if already == false {
+            let mut c: String = String::new();
+            c.push_bytes(lbv.as_ptr(), lbv.len());
+            aap.push(c);
+        }
+        ei = ei + 1 as i64;
+    }
+
     // logosc <entry> -o <obj> [-l <dep_arch>]...
     let mut argv: Vec<String> = vec_new::<String>();
     let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
@@ -1752,8 +1995,8 @@ unsafe fn build_bin(t: &Target,
     push_string_arg(argv_p, &entry_path);
     push_arg(argv_p, "-o");
     push_string_arg(argv_p, &obj_path);
-    let dn: i64 = dep_archs.length();
-    let dap: *const Vec<String> = (&dep_archs) as *const Vec<String>;
+    let dn: i64 = all_archs.length();
+    let dap: *const Vec<String> = (&all_archs) as *const Vec<String>;
     let mut i: i64 = 0 as i64;
     while i < dn {
         let s: *const String = dap.at_const(i);
@@ -1832,11 +2075,27 @@ unsafe fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64) -> i
     let lib_dir: String = resolve_logos_lib_dir();
 
     // Build external (project-level) deps first so their archives are
-    // available when local targets resolve their per-target deps.
-    let externals: Vec<ExternalLib> = match build_all_externals(&m.deps, profile, &logosc) {
+    // available when local targets resolve their per-target deps. The
+    // lockfile gives us a fast-path: tags pinned in lforge.lock skip
+    // ls-remote, and the freshly resolved entries are written back at
+    // the end of the build.
+    let lock_in: Vec<LockEntry> = read_lockfile_or_empty("./lforge.lock");
+    let mut lock_out: Vec<LockEntry> = vec_new::<LockEntry>();
+    let mut visited: Vec<String> = vec_new::<String>();
+    let externals: Vec<ExternalLib> = match build_all_externals(
+        &m.deps, profile, &logosc,
+        &lock_in,
+        (&mut lock_out) as *mut Vec<LockEntry>,
+        (&mut visited) as *mut Vec<String>) {
         Result::Err(rc) => { return rc; }
         Result::Ok(libs) => { libs }
     };
+
+    // Write a fresh lockfile if anything changed (or didn't exist).
+    if m.deps.length() > 0 as i64 {
+        let rc: i32 = write_lockfile("./lforge.lock", &lock_out);
+        if rc != 0 { println_str(2, "lforge: warning: could not write lforge.lock"); }
+    }
 
     let full_order: Vec<i64> = match topo_order(&m.targets, &externals) {
         Result::Err(e) => {
@@ -1900,7 +2159,7 @@ unsafe fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64) -> i
         if want[idx] == 0 as u8 { continue; }
         let t: *const Target = tp.at_const(idx);
         let rc: i32 = match (*t).kind {
-            TargetKind::Lib => { build_lib(&(*t), profile, &logosc) }
+            TargetKind::Lib => { build_lib(&(*t), profile, &logosc, &externals) }
             TargetKind::Bin => { build_bin(&(*t), &m.targets, profile, &logosc, &lib_dir, &externals) }
         };
         if rc != 0 {
@@ -2247,7 +2506,7 @@ unsafe fn cmd_test(m: &Manifest, profile: str) -> i32 {
         let t: *const Target = tp.at_const(idx);
         match (*t).kind {
             TargetKind::Lib => {
-                let rc: i32 = build_lib(&(*t), profile, &logosc);
+                let rc: i32 = build_lib(&(*t), profile, &logosc, &no_externals);
                 if rc != 0 {
                     println_str(2, "lforge: lib target failed; aborting test run");
                     return rc;

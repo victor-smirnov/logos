@@ -38,6 +38,11 @@ struct EmitModuleOptions {
     // No `ar` step is run. The orchestrator (lforge) parallelises N such
     // invocations and merges their outputs into the final library archive.
     std::string only_file;
+
+    // External archives whose .hermes0 modules should be loaded so `use
+    // <pkg>;` statements in this module can resolve symbols from other
+    // already-built lforge projects (B3 transitive deps).
+    std::vector<std::string> extra_lib_files;
 };
 
 // Build a binary module (.a archive) from a module manifest.
