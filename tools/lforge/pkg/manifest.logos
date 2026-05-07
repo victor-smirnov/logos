@@ -1,0 +1,215 @@
+// SPDX-License-Identifier: Apache-2.0
+// lforge — Hermes-SDN parser for `lforge.hermes` manifest files.
+
+package lforge.manifest;
+
+use std.lang.text;
+use std.lang.result;
+use std.collections.vec;
+use std.io.fs;
+use std.hermes.zone;
+use std.hermes.anyval;
+use std.hermes.view;
+use std.hermes.map;
+use std.hermes.array;
+use std.hermes.parser;
+
+use lforge.schema;
+use lforge.util;
+use lforge.hermes_io;
+
+// Parse one entry of the project-level `deps: [...]` array. Forms:
+//     { path: "../foo", modules: [...] }
+//     { project: "github.com/x/y", tag:    "v1.0", modules: [...] }
+//     { project: "github.com/x/y", branch: "main", modules: [...] }
+//     { project: "github.com/x/y", sha:    "abc...", modules: [...] }
+unsafe fn parse_external_dep(view: &HermesView<'a>, base: *const u8, d_av: AnyVal) -> Result<ExternalDep, ManifestError> {
+    if !d_av.is_map(base) {
+        return Result::Err(err_msg("manifest: deps[] entry is not a map"));
+    }
+    let path_s:    String = read_str_opt(view, d_av, "path");
+    let project_s: String = read_str_opt(view, d_av, "project");
+    let tag_s:     String = read_str_opt(view, d_av, "tag");
+    let branch_s:  String = read_str_opt(view, d_av, "branch");
+    let sha_s:     String = read_str_opt(view, d_av, "sha");
+
+    let has_path: bool = path_s.len()    > 0 as i64;
+    let has_proj: bool = project_s.len() > 0 as i64;
+    if has_path && has_proj {
+        return Result::Err(err_msg("manifest: deps[] entry has both 'path' and 'project' -- pick one"));
+    }
+    if has_path == false && has_proj == false {
+        return Result::Err(err_msg("manifest: deps[] entry has neither 'path' nor 'project'"));
+    }
+    let has_tag:    bool = tag_s.len()    > 0 as i64;
+    let has_branch: bool = branch_s.len() > 0 as i64;
+    let has_sha:    bool = sha_s.len()    > 0 as i64;
+    let mut nv: i32 = 0 as i32;
+    if has_tag    { nv = nv + 1 as i32; }
+    if has_branch { nv = nv + 1 as i32; }
+    if has_sha    { nv = nv + 1 as i32; }
+    if has_proj && nv != 1 as i32 {
+        return Result::Err(err_msg("manifest: deps[] git entry needs exactly one of 'tag' / 'branch' / 'sha'"));
+    }
+    if has_path && nv != 0 as i32 {
+        return Result::Err(err_msg("manifest: deps[] local entry must not have 'tag' / 'branch' / 'sha'"));
+    }
+
+    let mods: Vec<String> = read_str_array(view, d_av, "modules");
+    if mods.length() == 0 as i64 {
+        return Result::Err(err_msg("manifest: deps[].modules is empty -- list at least one lib target name"));
+    }
+    return Result::Ok(ExternalDep {
+        path:    path_s,
+        project: project_s,
+        tag:     tag_s,
+        branch:  branch_s,
+        sha:     sha_s,
+        modules: mods,
+    });
+}
+
+unsafe fn parse_target(view: &HermesView<'a>, base: *const u8, t_av: AnyVal) -> Result<Target, ManifestError> {
+    if !t_av.is_map(base) {
+        return Result::Err(err_msg("manifest: targets[] entry is not a map"));
+    }
+    let kind_s: String = match read_str_field(view, t_av, "kind") {
+        Result::Err(e) => { return Result::Err(e); }
+        Result::Ok(s)  => { s }
+    };
+    let mut k: TargetKind = TargetKind::Bin;
+    let kv: str = str_from_raw(kind_s.as_ptr(), kind_s.len());
+    if str_eq_local(kv, "lib") {
+        k = TargetKind::Lib;
+    } else if !str_eq_local(kv, "bin") {
+        return Result::Err(err_msg2("manifest: target.kind must be 'bin' or 'lib', got ", kv));
+    }
+    let name_s: String = match read_str_field(view, t_av, "name") {
+        Result::Err(e) => { return Result::Err(e); }
+        Result::Ok(s)  => { s }
+    };
+    // src is required only when not all native; we accept missing here
+    // and let build_lib enforce "must have at least one source category".
+    let src_s: String = read_str_opt(view, t_av, "src");
+    let entry_s: String = read_str_opt(view, t_av, "entry");
+    let deps_v: Vec<String> = read_str_array(view, t_av, "deps");
+    let c_v:   Vec<String> = read_str_array(view, t_av, "c_sources");
+    let asm_v: Vec<String> = read_str_array(view, t_av, "asm_sources");
+    return Result::Ok(Target {
+        kind:  k,
+        name:  name_s,
+        src:   src_s,
+        entry: entry_s,
+        deps:  deps_v,
+        c_sources:   c_v,
+        asm_sources: asm_v,
+    });
+}
+
+pub unsafe fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
+    let mut z: Zone<Mutable> = zone_create(8192);
+    if !hermes_parse(text.as_ptr(), text.len(), &mut z) {
+        return Result::Err(err_msg("manifest: SDN parse failed"));
+    }
+    let view: HermesView<'a> = HermesView {
+        base: z.holder.base as *const u8,
+        size: z.holder.used as u64,
+    };
+    let root: AnyVal = view.root();
+    let base: *const u8 = view.base();
+    if !root.is_map(base) {
+        return Result::Err(err_msg("manifest: top-level value must be a map"));
+    }
+
+    // Required: name + version.
+    let name_s: String = match read_str_field(&view, root, "name") {
+        Result::Err(e) => { return Result::Err(e); }
+        Result::Ok(s)  => { s }
+    };
+    let version_s: String = match read_str_field(&view, root, "version") {
+        Result::Err(e) => { return Result::Err(e); }
+        Result::Ok(s)  => { s }
+    };
+
+    // Targets: prefer explicit targets[]; fall back to legacy {src, entry}.
+    let mut targets: Vec<Target> = vec_new::<Target>();
+    let tp: *mut Vec<Target> = (&mut targets) as *mut Vec<Target>;
+    let targets_av: AnyVal = view.map_get(root, "targets");
+    let mut have_legacy: bool = false;
+    if targets_av.is_array(base) {
+        let n: u64 = view.array_len(targets_av);
+        let mut i: u64 = 0 as u64;
+        while i < n {
+            let t_av: AnyVal = view.array_get(targets_av, i);
+            match parse_target(&view, base, t_av) {
+                Result::Err(e) => { return Result::Err(e); }
+                Result::Ok(t)  => { tp.push(t); }
+            }
+            i = i + 1 as u64;
+        }
+    } else {
+        // Legacy schema: synthesize one bin target.
+        have_legacy = true;
+        let src_s: String = match read_str_field(&view, root, "src") {
+            Result::Err(e) => { return Result::Err(e); }
+            Result::Ok(s)  => { s }
+        };
+        let entry_s: String = match read_str_field(&view, root, "entry") {
+            Result::Err(e) => { return Result::Err(e); }
+            Result::Ok(s)  => { s }
+        };
+        let mut nm: String = String::new();
+        nm.push_bytes(name_s.as_ptr(), name_s.len());
+        let synth: Target = Target {
+            kind:  TargetKind::Bin,
+            name:  nm,
+            src:   src_s,
+            entry: entry_s,
+            deps:  vec_new::<String>(),
+            c_sources:   vec_new::<String>(),
+            asm_sources: vec_new::<String>(),
+        };
+        tp.push(synth);
+    }
+
+    if targets.length() == 0 as i64 {
+        return Result::Err(err_msg("manifest: no targets"));
+    }
+
+    // Project-level deps: [{ path: "...", modules: [...] }, ...] (B2).
+    let mut deps: Vec<ExternalDep> = vec_new::<ExternalDep>();
+    let dp: *mut Vec<ExternalDep> = (&mut deps) as *mut Vec<ExternalDep>;
+    let deps_av: AnyVal = view.map_get(root, "deps");
+    if deps_av.is_array(base) {
+        let nd: u64 = view.array_len(deps_av);
+        let mut j: u64 = 0 as u64;
+        while j < nd {
+            let d_av: AnyVal = view.array_get(deps_av, j);
+            match parse_external_dep(&view, base, d_av) {
+                Result::Err(e) => { return Result::Err(e); }
+                Result::Ok(d)  => { dp.push(d); }
+            }
+            j = j + 1 as u64;
+        }
+    }
+
+    return Result::Ok(Manifest {
+        name:    name_s,
+        version: version_s,
+        targets: targets,
+        deps:    deps,
+    });
+}
+
+pub unsafe fn read_manifest(p: str) -> Result<Manifest, ManifestError> {
+    let cs: *mut u8 = cstr(p);
+    let body: Result<String, i32> = read_to_string(cs as *const u8);
+    dealloc(cs);
+    match body {
+        Result::Err(_) => { return Result::Err(err_msg("lforge.hermes: cannot read")); }
+        Result::Ok(s)  => {
+            let view: str = str_from_raw(s.as_ptr(), s.len());
+            return parse_manifest(view);
+        }
+    }
+}
