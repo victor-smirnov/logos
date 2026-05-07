@@ -1,0 +1,30 @@
+package cond_no_struct_lit;
+
+// Regression: `if a < b { ... }` / `while a > b { ... }` / `for i in lo..hi { ... }`
+// must not greedy-parse the cond as `IDENT { ... }` struct literal.
+// See grammar `expr_ns` chain.
+
+fn min_i64(a: i64, b: i64) -> i64 {
+    let lim: i64 = if a < b { a } else { b };
+    return lim;
+}
+
+fn count_lt(n: i64) -> i64 {
+    let mut i: i64 = 0;
+    let mut acc: i64 = 0;
+    while i < n { acc = acc + i; i = i + 1; }
+    return acc;
+}
+
+fn sum_range(lo: i64, hi: i64) -> i64 {
+    let mut acc: i64 = 0;
+    for k in lo..hi { acc = acc + k; }
+    return acc;
+}
+
+fn main() -> i32 {
+    let a: i64 = min_i64(7, 3);          // 3
+    let b: i64 = count_lt(4);            // 0+1+2+3 = 6
+    let c: i64 = sum_range(1, 5);        // 1+2+3+4 = 10
+    return (a + b + c) as i32;           // 19
+}

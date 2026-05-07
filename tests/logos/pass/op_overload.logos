@@ -21,7 +21,7 @@ unsafe fn main() -> i32 {
     let a: Vec2 = Vec2 { x: 10, y: 20 };
     let b: Vec2 = Vec2 { x: 5, y: 7 };
     let c: Vec2 = a + b;
-    if c == Vec2 { x: 15, y: 27 } {
+    if c == (Vec2 { x: 15, y: 27 }) {
         return c.x + c.y;
     }
     return 0;

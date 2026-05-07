@@ -1154,11 +1154,11 @@
     // Factor the shared prefix `KW_FOR IDENT KW_IN expr` so we don't reparse
     // the iterator expression on each alternative's failure.  The tail rule
     // dispatches on the operator that follows (DOTDOT / DOTDOTEQ / block).
-    for_stmt <- KW_FOR IDENT KW_IN expr DOTDOTEQ expr block
+    for_stmt <- KW_FOR IDENT KW_IN expr_ns DOTDOTEQ expr_ns block
              => { CODE: FOR, NAME: $2, LHS: $4, RHS: $6, BODY: $7, INCLUSIVE: true }
-              / KW_FOR IDENT KW_IN expr DOTDOT   expr block
+              / KW_FOR IDENT KW_IN expr_ns DOTDOT   expr_ns block
              => { CODE: FOR, NAME: $2, LHS: $4, RHS: $6, BODY: $7, INCLUSIVE: false }
-              / KW_FOR IDENT KW_IN expr                block
+              / KW_FOR IDENT KW_IN expr_ns             block
              => { CODE: FOR_EACH, NAME: $2, ITER: $4, BODY: $5 }
 
     loop_stmt     <- KW_LOOP block
@@ -1392,9 +1392,9 @@
               / KW_LET pat_single ASSIGN expr SEMI
              => { CODE: LET_PAT, PAT: $2, VALUE: $4 }
 
-    while_stmt <- KW_WHILE KW_LET pattern ASSIGN expr block
+    while_stmt <- KW_WHILE KW_LET pattern ASSIGN expr_ns block
                => { CODE: WHILE, PAT: $3, VALUE: $5, BODY: $6 }
-             / KW_WHILE expr block
+             / KW_WHILE expr_ns block
                => { CODE: WHILE, COND: $2, BODY: $3 }
 
     return_stmt <- KW_RETURN expr? (SEMI / COMMA)
@@ -1467,13 +1467,13 @@
                       / STAR unary_expr compound_assign_op expr SEMI
                      => { CODE: DEREF_COMPOUND, NAME: $2, OP: $3, VALUE: $4 }
 
-    if_expr <- KW_IF KW_LET pattern ASSIGN expr block KW_ELSE (if_expr / block)
+    if_expr <- KW_IF KW_LET pattern ASSIGN expr_ns block KW_ELSE (if_expr / block)
             => { CODE: IF, PAT: $3, VALUE: $5, THEN: $6, ELSE: $8 }
-             / KW_IF KW_LET pattern ASSIGN expr block
+             / KW_IF KW_LET pattern ASSIGN expr_ns block
             => { CODE: IF, PAT: $3, VALUE: $5, THEN: $6 }
-             / KW_IF expr block KW_ELSE (if_expr / block)
+             / KW_IF expr_ns block KW_ELSE (if_expr / block)
             => { CODE: IF, COND: $2, THEN: $3, ELSE: $5 }
-             / KW_IF expr block
+             / KW_IF expr_ns block
             => { CODE: IF, COND: $2, THEN: $3 }
 
     // ── Expressions (precedence via rule nesting) ─────────────────
@@ -1481,6 +1481,125 @@
     // parses as (a + b) + c without requiring explicit parentheses.
     // Comparison and logical operators remain single-level (non-chainable).
     expr <- log_expr
+
+    // ── No-struct-lit expression chain ──────────────────────────
+    // Used in if/while/for-cond positions where a trailing `IDENT { ... }`
+    // would be greedily eaten as a struct literal, swallowing the loop's
+    // own block. Mirrors Rust's "Expression with restrictions" mode.
+    // Only the *top-level* primary skips struct lits; once we're inside
+    // parens/brackets/calls, full `expr` resumes.
+    expr_ns <- log_expr_ns
+
+    log_expr_ns <- cmp_expr_ns
+                   ( (AND / OR) cmp_expr_ns
+                       => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
+                   )*
+
+    cmp_expr_ns <- bitwise_expr_ns (EQ / NE / LE / GE / LT / GT) bitwise_expr_ns
+                   (EQ / NE / LE / GE / LT / GT) bitwise_expr_ns
+                   ((EQ / NE / LE / GE / LT / GT) bitwise_expr_ns)*
+                   => { CODE: CHAINED_CMP, ITEMS: $... }
+                 / bitwise_expr_ns
+                   ( (EQ / NE / LE / GE / LT / GT) bitwise_expr_ns
+                       => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
+                   )?
+
+    bitwise_expr_ns <- add_expr_ns
+                       ( (SHL / SHR / AMP / CARET / PIPE) add_expr_ns
+                           => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
+                       )*
+
+    add_expr_ns <- mul_expr_ns
+                   ( (PLUS / MINUS) mul_expr_ns
+                       => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
+                   )*
+
+    mul_expr_ns <- cast_expr_ns
+                   ( (STAR / SLASH / PERCENT) cast_expr_ns
+                       => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
+                   )*
+
+    cast_expr_ns <- unary_expr_ns
+                    ( KW_AS type_ref
+                        => { CODE: CAST, VALUE: $0, TYPE: $2 }
+                    )*
+
+    unary_expr_ns <- STAR  unary_expr_ns => { CODE: DEREF,      VALUE: $2 }
+                   / AMP KW_MUT unary_expr_ns => { CODE: ADDR_OF_MUT, VALUE: $3 }
+                   / MINUS unary_expr_ns => { CODE: UNARY,  OP: $1, VALUE: $2 }
+                   / BANG  unary_expr_ns => { CODE: UNARY,  OP: $1, VALUE: $2 }
+                   / AMP   unary_expr_ns => { CODE: UNARY,  OP: $1, VALUE: $2 }
+                   / atom_ns
+
+    atom_ns <- primary_expr_ns
+               ( DOT IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE LPAREN call_arg_list? RPAREN
+                   => { CODE: METHOD_CALL, RECEIVER: $0, NAME: $2, TYPE_PARAMS: $5, ARGS: $8 }
+               / DOT IDENT LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
+                   => { CODE: METHOD_CALL, RECEIVER: $0, NAME: $2, ARGS: $... }
+               / DOT INTEGER
+                   => { CODE: TUPLE_INDEX, RECEIVER: $0, FIELD: $2 }
+               / DOT HASH LPAREN expr RPAREN
+                   => { CODE: FIELD_READ, RECEIVER: $0, NAME_VAR: $4 }
+               / DOT HASH IDENT
+                   => { CODE: FIELD_READ, RECEIVER: $0, NAME_VAR: $3 }
+               / DOT IDENT
+                   => { CODE: FIELD_READ, RECEIVER: $0, FIELD: $2 }
+               / LBRACKET expr RBRACKET
+                   => { CODE: INDEX_READ, RECEIVER: $0, VALUE: $2 }
+               / QUESTION
+                   => { CODE: TRY_EXPR, VALUE: $0 }
+               )*
+
+    // primary_expr without the three IDENT-prefixed struct-lit alts.
+    // Falls through to plain IDENT (VAR_REF), so `if a < b { ... }` parses
+    // the cond as `a < b` and the LBRACE belongs to the if-body block.
+    // To use a struct literal in cond position, parenthesize: `if (Foo {x:1}.ok) { }`.
+    primary_expr_ns <- hermes_lit
+                     / list_comp
+                     / map_comp
+                     / arr_fill_lit
+                     / arr_lit
+                     / LPAREN RPAREN => { CODE: TUPLE_LIT }
+                     / paren_expr
+                     / tuple_lit
+                     / closure_expr
+                     / unsafe_block
+                     / loop_expr
+                     / if_expr
+                     / match_stmt
+                     / KW_METACALL block
+                                        => { CODE: METACALL, VALUE: $2 }
+                     / KW_METACALL LPAREN expr RPAREN
+                                        => { CODE: METACALL, VALUE: $3 }
+                     / KW_METACALL call_expr
+                                        => { CODE: METACALL, VALUE: $2 }
+                     / IDENT DOTDOTDOT LPAREN IDENT RPAREN
+                                        => { CODE: SIZEOF_PACK, OP: $1, NAME: $4 }
+                     / quote_item_expr
+                     / quote_expr_expr
+                     / quote_ty_expr
+                     / call_expr
+                     / IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE
+                                        => { CODE: GENERIC_REF, CALLEE: $1, TYPE_PARAMS: $4 }
+                     / enum_lit
+                     / RAW_STRING => { CODE: LIT_STR, VALUE: $1 }
+                     / STRING   => { CODE: LIT_STR,  VALUE: $1 }
+                     / CHAR_LIT => { CODE: LIT_CHAR, VALUE: $1 }
+                     / KW_TRUE  => { CODE: LIT_BOOL, VALUE: true }
+                     / KW_FALSE => { CODE: LIT_BOOL, VALUE: false }
+                     / FLOAT    => { CODE: LIT_FLOAT, VALUE: $1 }
+                     / INTEGER  => { CODE: LIT_INT,  VALUE: $1 }
+                     / IDENT DOTDOTDOT => { CODE: PACK_EXPAND, NAME: $1 }
+                     / HASH LPAREN expr RPAREN AND STAR
+                           => { CODE: REPEAT_GROUP, VALUE: $3, OP: 2 }
+                     / HASH LPAREN expr RPAREN COMMA STAR
+                           => { CODE: REPEAT_GROUP, VALUE: $3, OP: 1 }
+                     / HASH LPAREN expr RPAREN STAR
+                           => { CODE: REPEAT_GROUP, VALUE: $3, OP: 0 }
+                     / HASH LPAREN expr RPAREN
+                           => { CODE: VAR_REF, NAME_VAR: $3 }
+                     / HASH IDENT => { CODE: VAR_REF, NAME_VAR: $2 }
+                     / IDENT    => { CODE: VAR_REF,  NAME: $1 }
 
     log_expr <- cmp_expr
                 ( (AND / OR) cmp_expr
