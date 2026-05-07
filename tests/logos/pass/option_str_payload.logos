@@ -1,0 +1,19 @@
+package r;
+use std.lang.option;
+
+unsafe fn make_some() -> Option<str> { return Option::Some("hello"); }
+
+fn main() -> i32 {
+    let o: Option<str> = unsafe { make_some() };
+    match o {
+        Option::Some(v) => {
+            if v.len() != 5 as i64 { return 1; }
+            unsafe {
+                if v.as_ptr()[0 as i64] != 104 as u8 { return 2; }   // 'h'
+                if v.as_ptr()[4 as i64] != 111 as u8 { return 3; }   // 'o'
+            }
+            return 0;
+        }
+        Option::None => { return 10; }
+    }
+}

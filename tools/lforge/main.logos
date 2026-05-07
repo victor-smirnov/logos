@@ -1036,17 +1036,10 @@ unsafe fn install_one(src: &String, dst: &String, mode: str) -> i32 {
 }
 
 unsafe fn read_prefix() -> String {
-    // Prefix is a positional argument after the `install` command:
-    //   lforge install /usr/local
-    // (--prefix=PATH would be more idiomatic but Option<str> str-payload
-    // extraction has a known codegen issue where the bound `v` reads as
-    // an empty str even though the Option is Some — to be filed.)
     let mut s: String = String::new();
-    let p: str = positional(1 as i32);
-    if p.len() > 0 as i64 {
-        s.push_str(p);
-    } else {
-        s.push_str("/usr/local");
+    match get_option("prefix", "") {
+        Option::Some(v) => { s.push_str(v); }
+        Option::None    => { s.push_str("/usr/local"); }
     }
     return s;
 }

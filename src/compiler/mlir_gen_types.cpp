@@ -260,15 +260,19 @@ uint64_t MLIRGenImpl::logos_abi_byte_size(TypeRef t,
     case LogosType::Kind::Ref:
     case LogosType::Kind::MutRef:
     case LogosType::Kind::FnPtr:
-    case LogosType::Kind::TaggedPtr:
-    case LogosType::Kind::Slice:       return 8;
+    case LogosType::Kind::TaggedPtr:    return 8;
     case LogosType::Kind::I128:
-    case LogosType::Kind::U128:        return 16;
+    case LogosType::Kind::U128:         return 16;
     case LogosType::Kind::Array:
         if (!tv.elem()) return 0;
         return tv.arr_size() * logos_abi_byte_size(tv.elem(), seen);
+    // Fat pointers — two pointers wide. The Slice case used to be lumped
+    // in with Ptr/Ref above and reported 8 bytes, which silently truncated
+    // slices stored in enum variant payloads (e.g. Option<&[u8]>'s Some
+    // arm only kept the .ptr field; .len was lost on extraction).
+    case LogosType::Kind::Slice:
     case LogosType::Kind::Closure:
-    case LogosType::Kind::TraitObject: return 16;  // two pointers
+    case LogosType::Kind::TraitObject:  return 16;
     case LogosType::Kind::Tuple: {
         uint64_t offset = 0, max_align = 1;
         for (auto e : tv.tuple_elems()) {

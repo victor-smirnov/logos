@@ -34,7 +34,7 @@ EOF
 cd "$PROJ"
 
 # install --prefix <path>
-LOGOSC="$LOGOSC" LOGOS_LIB_DIR="$LIB" "$LFORGE" install "$PROJ/prefix" > "$PROJ/install.log" 2>&1 || {
+LOGOSC="$LOGOSC" LOGOS_LIB_DIR="$LIB" "$LFORGE" install --prefix="$PROJ/prefix" > "$PROJ/install.log" 2>&1 || {
     echo "FAIL: install"; cat "$PROJ/install.log"; exit 1;
 }
 
