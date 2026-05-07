@@ -1353,9 +1353,16 @@ std::optional<lir::LStmt> SemaChecker::make_drop_stmt(const std::string& name, c
         // Both names may carry an overload-disambig "__g__..." suffix —
         // strip from each before compare so the self-recursion check
         // catches the template-vs-template equivalence.
+        // Strip pkg prefix (`pkg.`) and overload-disambig suffix (`__[fg]__`)
+        // before compare so the self-recursion check catches the
+        // template-vs-template equivalence. After unconditional pkg-mangling
+        // dfn carries `pkg.Base__drop__g__sig` while current_fn_mangled_ may
+        // be the bare `Base__drop`.
         auto strip_g = [](std::string s) {
-            auto p = s.find("__g__");
-            if (p != std::string::npos) s.resize(p);
+            if (auto dot = s.rfind('.'); dot != std::string::npos)
+                s = s.substr(dot + 1);
+            if (auto p = s.find("__g__"); p != std::string::npos) s.resize(p);
+            else if (auto p = s.find("__f__"); p != std::string::npos) s.resize(p);
             return s;
         };
         if (strip_g(dfn) == strip_g(current_fn_mangled_)) return std::nullopt;

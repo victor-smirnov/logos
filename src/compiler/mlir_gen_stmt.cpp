@@ -119,10 +119,24 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
     if (it == scope_.end()) return;
     auto mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
 
-    // 1. Call user's explicit drop function (if any)
+    // 1. Call user's explicit drop function (if any).
+    //    mono_clone re-mangles drop_fn to the bare `<concrete>__drop` form;
+    //    after unconditional pkg-mangling the actual symbol is
+    //    `pkg.<concrete>__drop__[fg]__sig`. Bridge via resolve_method_symbol.
     std::string drop_fn(v.drop_fn());
     if (!drop_fn.empty()) {
         auto fn = mod.lookupSymbol<mlir::func::FuncOp>(drop_fn);
+        if (!fn) {
+            std::string_view dfn = drop_fn;
+            // Strip a `pkg.` prefix if present, then `__drop[__...]`.
+            if (auto dot = dfn.rfind('.'); dot != std::string_view::npos)
+                dfn = dfn.substr(dot + 1);
+            if (auto p = dfn.find("__drop"); p != std::string_view::npos) {
+                auto resolved = resolve_method_symbol(dfn.substr(0, p), "drop");
+                if (!resolved.empty())
+                    fn = mod.lookupSymbol<mlir::func::FuncOp>(resolved);
+            }
+        }
         if (fn)
             builder_.create<mlir::func::CallOp>(loc_, fn, mlir::ValueRange{it->second});
     }
