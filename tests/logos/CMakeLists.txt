@@ -598,4 +598,18 @@ if (TARGET lforge)
         TIMEOUT 60
         LABELS  "logos;lforge;suite_lforge"
     )
+
+    # B2.5: project-level external deps via git URLs (uses a local file://
+    # repo created in tmp; no network required).
+    add_test(
+        NAME logos_20_lforge_git_dep
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/git_dep.sh
+                ${CMAKE_BINARY_DIR}/bin/lforge
+                $<TARGET_FILE:logosc>
+                ${LOGOS_BUILD_LIB_DIR}
+    )
+    set_tests_properties(logos_20_lforge_git_dep PROPERTIES
+        TIMEOUT 60
+        LABELS  "logos;lforge;suite_lforge"
+    )
 endif()

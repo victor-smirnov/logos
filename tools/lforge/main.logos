@@ -92,11 +92,16 @@ pub struct Target {
     pub asm_sources: Vec<String>,
 }
 
-// External dependency on another lforge project. v1 supports local paths
-// only; git URLs land in B2.5 as a parallel kind.
+// External dependency on another lforge project. Either a local path
+// (`path:`) or a git URL (`project:`) -- exactly one. For git deps,
+// exactly one of `tag` / `branch` / `sha` must be set.
 pub struct ExternalDep {
-    pub path:    String,         // relative or absolute filesystem path
-    pub modules: Vec<String>,    // lib target names to pull from the project
+    pub path:    String,
+    pub project: String,
+    pub tag:     String,
+    pub branch:  String,
+    pub sha:     String,
+    pub modules: Vec<String>,
 }
 
 pub struct Manifest {
@@ -217,24 +222,55 @@ unsafe fn read_str_array(view: &HermesView<'a>, root: AnyVal, key: str) -> Vec<S
 
 // ── Manifest parser ──────────────────────────────────────────────────────
 
-// Parse one entry of the project-level `deps: [...]` array. v1 shape:
-//     { path: "../foo", modules: ["util"] }
-// Future shapes (`{ project, tag }` etc.) are added in B2.5.
+// Parse one entry of the project-level `deps: [...]` array. Forms:
+//     { path: "../foo", modules: [...] }
+//     { project: "github.com/x/y", tag:    "v1.0", modules: [...] }
+//     { project: "github.com/x/y", branch: "main", modules: [...] }
+//     { project: "github.com/x/y", sha:    "abc...", modules: [...] }
 unsafe fn parse_external_dep(view: &HermesView<'a>, base: *const u8, d_av: AnyVal) -> Result<ExternalDep, ManifestError> {
     if !d_av.is_map(base) {
         return Result::Err(err_msg("manifest: deps[] entry is not a map"));
     }
-    let path_s: String = match read_str_field(view, d_av, "path") {
-        Result::Err(_) => {
-            return Result::Err(err_msg("manifest: deps[] entry missing 'path' (only local-path deps supported in v1)"));
-        }
-        Result::Ok(s)  => { s }
-    };
+    let path_s:    String = read_str_opt(view, d_av, "path");
+    let project_s: String = read_str_opt(view, d_av, "project");
+    let tag_s:     String = read_str_opt(view, d_av, "tag");
+    let branch_s:  String = read_str_opt(view, d_av, "branch");
+    let sha_s:     String = read_str_opt(view, d_av, "sha");
+
+    let has_path: bool = path_s.len()    > 0 as i64;
+    let has_proj: bool = project_s.len() > 0 as i64;
+    if has_path && has_proj {
+        return Result::Err(err_msg("manifest: deps[] entry has both 'path' and 'project' -- pick one"));
+    }
+    if has_path == false && has_proj == false {
+        return Result::Err(err_msg("manifest: deps[] entry has neither 'path' nor 'project'"));
+    }
+    let has_tag:    bool = tag_s.len()    > 0 as i64;
+    let has_branch: bool = branch_s.len() > 0 as i64;
+    let has_sha:    bool = sha_s.len()    > 0 as i64;
+    let mut nv: i32 = 0 as i32;
+    if has_tag    { nv = nv + 1 as i32; }
+    if has_branch { nv = nv + 1 as i32; }
+    if has_sha    { nv = nv + 1 as i32; }
+    if has_proj && nv != 1 as i32 {
+        return Result::Err(err_msg("manifest: deps[] git entry needs exactly one of 'tag' / 'branch' / 'sha'"));
+    }
+    if has_path && nv != 0 as i32 {
+        return Result::Err(err_msg("manifest: deps[] local entry must not have 'tag' / 'branch' / 'sha'"));
+    }
+
     let mods: Vec<String> = read_str_array(view, d_av, "modules");
     if mods.length() == 0 as i64 {
-        return Result::Err(err_msg("manifest: deps[].modules is empty — list at least one lib target name"));
+        return Result::Err(err_msg("manifest: deps[].modules is empty -- list at least one lib target name"));
     }
-    return Result::Ok(ExternalDep { path: path_s, modules: mods });
+    return Result::Ok(ExternalDep {
+        path:    path_s,
+        project: project_s,
+        tag:     tag_s,
+        branch:  branch_s,
+        sha:     sha_s,
+        modules: mods,
+    });
 }
 
 unsafe fn parse_target(view: &HermesView<'a>, base: *const u8, t_av: AnyVal) -> Result<Target, ManifestError> {
@@ -537,7 +573,19 @@ unsafe fn build_external(dep: &ExternalDep, profile: str, logosc: &String) -> Re
         return Result::Err(1);
     }
 
-    let path_view: str = str_from_raw(dep.path.as_ptr(), dep.path.len());
+    // Local `path:` -> use as-is. Git `project:` -> fetch into the cache and
+    // chdir there.
+    let mut resolved_path: String = String::new();
+    if dep.path.len() > 0 as i64 {
+        resolved_path.push_bytes(dep.path.as_ptr(), dep.path.len());
+    } else {
+        match resolve_git_dep(dep) {
+            Result::Err(rc) => { return Result::Err(rc); }
+            Result::Ok(p)   => { resolved_path = p; }
+        }
+    }
+
+    let path_view: str = str_from_raw(resolved_path.as_ptr(), resolved_path.len());
     if chdir_str(path_view) != 0 {
         let mut msg: String = String::new();
         msg.push_str("lforge: cannot chdir into external dep ");
@@ -667,6 +715,323 @@ unsafe fn external_lookup(externals: &Vec<ExternalLib>, name: str) -> i64 {
     return 0 as i64 - 1 as i64;
 }
 
+// -- Git URL helpers (B2.5) -----------------------------------------------
+
+unsafe fn home_dir() -> String {
+    let key: *mut u8 = cstr("HOME");
+    let val: *const u8 = getenv(key as *const u8);
+    dealloc(key);
+    let mut out: String = String::new();
+    if val != 0 as *const u8 { out.push_str(str_from_cstr(val)); }
+    return out;
+}
+
+unsafe fn find_byte(s: str, b: u8) -> i64 {
+    let n: i64 = s.len();
+    let mut i: i64 = 0 as i64;
+    while i < n {
+        if s.as_ptr()[i] == b { return i; }
+        i = i + 1 as i64;
+    }
+    return 0 as i64 - 1 as i64;
+}
+
+unsafe fn slice_from_off(s: str, off: i64) -> str {
+    let p: *const u8 = (s.as_ptr() as i64 + off) as *const u8;
+    let n: i64 = s.len() - off;
+    return str_from_raw(p, n);
+}
+
+unsafe fn ends_with_dot_git(s: str) -> bool {
+    return str_ends_with(s, ".git");
+}
+
+unsafe fn strip_dot_git_inplace(s: &mut String) {
+    let view: str = str_from_raw(s.as_ptr(), s.len());
+    let has: bool = str_ends_with(view, ".git");
+    if has { s.truncate(s.len() - 4 as i64); }
+}
+
+// Compute (display_id, fetch_url) from a manifest-supplied `project` string.
+//   bare host/path             -- prepend https://
+//   https:// or http://        -- use as-is
+//   ssh:// (with optional user@)  -- use as-is, strip user@ from display
+//   user@host:path SCP-style   -- use as-is, replace `:` with `/` in display
+// Always: ensure fetch ends with `.git`; display drops `.git` and scheme.
+// Find first occurrence of "://" — returns offset of the ':' or -1.
+unsafe fn find_scheme_sep(s: str) -> i64 {
+    let n: i64 = s.len();
+    if n < 3 as i64 { return 0 as i64 - 1 as i64; }
+    let mut i: i64 = 0 as i64;
+    while i + 2 as i64 < n {
+        let a: i32 = s.as_ptr()[i + 0 as i64] as i32;
+        let b: i32 = s.as_ptr()[i + 1 as i64] as i32;
+        let c: i32 = s.as_ptr()[i + 2 as i64] as i32;
+        if a == 58 as i32 && b == 47 as i32 && c == 47 as i32 { return i; }
+        i = i + 1 as i64;
+    }
+    return 0 as i64 - 1 as i64;
+}
+
+unsafe fn canonical_url(project: str) -> (String, String) {
+    let mut display: String = String::new();
+    let mut fetch:   String = String::new();
+
+    let scheme_off: i64 = find_scheme_sep(project);
+    let is_gh:    bool = str_starts_with(project, "github.com/");
+
+    if scheme_off >= 0 as i64 {
+        // <scheme>://<rest>
+        let after: str = slice_from_off(project, scheme_off + 3 as i64);
+        // For ssh:// strip optional user@ from display.
+        let is_ssh: bool = str_starts_with(project, "ssh://");
+        if is_ssh {
+            let at_off: i64 = find_byte(after, 64 as u8);
+            if at_off >= 0 as i64 {
+                display.push_str(slice_from_off(after, at_off + 1 as i64));
+            } else {
+                display.push_str(after);
+            }
+        } else {
+            display.push_str(after);
+        }
+        fetch.push_str(project);
+    } else {
+        // No scheme. Either SCP shorthand (`user@host:path`) or bare host/path.
+        let at_off: i64 = find_byte(project, 64 as u8);
+        let cl_off: i64 = find_byte(project, 58 as u8);
+        let is_scp: bool = at_off >= 0 as i64 && cl_off > at_off && is_gh == false;
+        if is_scp {
+            let after_at: str = slice_from_off(project, at_off + 1 as i64);
+            let cn: i64 = after_at.len();
+            let mut k: i64 = 0 as i64;
+            while k < cn {
+                let bb: u8 = after_at.as_ptr()[k];
+                let cc: i32 = bb as i32;
+                if cc == 58 as i32 { display.push_u8(47 as u8); }
+                else               { display.push_u8(bb); }
+                k = k + 1 as i64;
+            }
+            fetch.push_str(project);
+        } else {
+            display.push_str(project);
+            fetch.push_str("https://");
+            fetch.push_str(project);
+        }
+    }
+
+    strip_dot_git_inplace(&mut display);
+    let fview: str = str_from_raw(fetch.as_ptr(), fetch.len());
+    let has_g: bool = ends_with_dot_git(fview);
+    let is_file_scheme: bool = str_starts_with(project, "file://");
+    if has_g == false && is_file_scheme == false { fetch.push_str(".git"); }
+
+    return (display, fetch);
+}
+
+// `/`, `:`, `@` -> `_` so the display id can be used as a directory name.
+unsafe fn display_to_dirname(display: str) -> String {
+    let mut out: String = String::new();
+    let n: i64 = display.len();
+    let mut i: i64 = 0 as i64;
+    while i < n {
+        let bb: u8 = display.as_ptr()[i];
+        let cc: i32 = bb as i32;
+        if cc == 47 as i32 { out.push_u8(95 as u8); }
+        else if cc == 58 as i32 { out.push_u8(95 as u8); }
+        else if cc == 64 as i32 { out.push_u8(95 as u8); }
+        else { out.push_u8(bb); }
+        i = i + 1 as i64;
+    }
+    return out;
+}
+
+unsafe fn lforge_cache_src_dir() -> String {
+    let h: String = home_dir();
+    if h.len() == 0 as i64 { return String::new(); }
+    let mut out: String = String::new();
+    out.push_bytes(h.as_ptr(), h.len());
+    append_path(&mut out, ".cache");
+    append_path(&mut out, "lforge");
+    append_path(&mut out, "src");
+    return out;
+}
+
+unsafe fn looks_like_sha(s: str) -> bool {
+    let n: i64 = s.len();
+    if n < 7 as i64    { return false; }
+    if n > 40 as i64   { return false; }
+    let mut i: i64 = 0 as i64;
+    while i < n {
+        let cc: i32 = s.as_ptr()[i] as i32;
+        let d:  bool = cc >= 48 as i32 && cc <= 57 as i32;
+        let lo: bool = cc >= 97 as i32 && cc <= 102 as i32;
+        let up: bool = cc >= 65 as i32 && cc <= 70 as i32;
+        if d == false && lo == false && up == false { return false; }
+        i = i + 1 as i64;
+    }
+    return true;
+}
+
+// Resolve a `git ls-remote <url> <ref>` output line to its SHA. `ref` may
+// be a tag, branch, or already-a-SHA (echoed back).
+unsafe fn git_resolve_sha(fetch_url: str, ref_str: str) -> Result<String, i32> {
+    if looks_like_sha(ref_str) {
+        let mut s: String = String::new();
+        s.push_str(ref_str);
+        return Result::Ok(s);
+    }
+
+    let mut argv: Vec<String> = vec_new::<String>();
+    let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
+    push_arg(argv_p, "git");
+    push_arg(argv_p, "ls-remote");
+    push_arg(argv_p, "--exit-code");
+    let mut url_s: String = String::new();
+    url_s.push_str(fetch_url);
+    push_string_arg(argv_p, &url_s);
+    let mut ref_s: String = String::new();
+    ref_s.push_str(ref_str);
+    push_string_arg(argv_p, &ref_s);
+
+    let res: (i32, String) = run_child_capture_stdout(&argv);
+    let rc:  i32 = res.0;
+    let out: String = res.1;
+    if rc != 0 {
+        print_str(2, "lforge: git ls-remote failed for ");
+        print_str(2, fetch_url);
+        print_str(2, " ref=");
+        println_str(2, ref_str);
+        return Result::Err(rc);
+    }
+    let view: str = str_from_raw(out.as_ptr(), out.len());
+    let nl: i64 = find_byte(view, 10 as u8);
+    let mut end: i64 = view.len();
+    if nl >= 0 as i64 { end = nl; }
+    // First whitespace token = SHA.
+    let mut tok_end: i64 = end;
+    let tab_off: i64 = find_byte(view, 9 as u8);
+    if tab_off >= 0 as i64 && tab_off < tok_end { tok_end = tab_off; }
+    let sp_off: i64 = find_byte(view, 32 as u8);
+    if sp_off >= 0 as i64 && sp_off < tok_end { tok_end = sp_off; }
+    if tok_end == 0 as i64 {
+        println_str(2, "lforge: git ls-remote returned empty SHA");
+        return Result::Err(1);
+    }
+    let mut sha: String = String::new();
+    sha.push_bytes(view.as_ptr(), tok_end);
+    return Result::Ok(sha);
+}
+
+// Clone fetch_url into dest_dir then checkout the given SHA. dest_dir
+// must not exist.
+unsafe fn git_clone_at_sha(fetch_url: str, sha: str, dest_dir: str) -> i32 {
+    let mut a1: Vec<String> = vec_new::<String>();
+    let a1p: *mut Vec<String> = (&mut a1) as *mut Vec<String>;
+    push_arg(a1p, "git");
+    push_arg(a1p, "clone");
+    push_arg(a1p, "--quiet");
+    let mut url_s: String = String::new(); url_s.push_str(fetch_url);
+    push_string_arg(a1p, &url_s);
+    let mut dst_s: String = String::new(); dst_s.push_str(dest_dir);
+    push_string_arg(a1p, &dst_s);
+    let rc1: i32 = run_child(&a1);
+    if rc1 != 0 { return rc1; }
+
+    let mut a2: Vec<String> = vec_new::<String>();
+    let a2p: *mut Vec<String> = (&mut a2) as *mut Vec<String>;
+    push_arg(a2p, "git");
+    push_arg(a2p, "-C");
+    push_string_arg(a2p, &dst_s);
+    push_arg(a2p, "checkout");
+    push_arg(a2p, "--quiet");
+    let mut sha_s: String = String::new(); sha_s.push_str(sha);
+    push_string_arg(a2p, &sha_s);
+    return run_child(&a2);
+}
+
+// Resolve a git ExternalDep into an absolute filesystem path that
+// build_external can chdir into. Cache hit -> return cached path with no
+// network. Cache miss -> ls-remote, clone into ~/.cache/lforge/src/.
+unsafe fn resolve_git_dep(dep: &ExternalDep) -> Result<String, i32> {
+    let proj_view: str = str_from_raw(dep.project.as_ptr(), dep.project.len());
+    let pair: (String, String) = canonical_url(proj_view);
+    let display: String = pair.0;
+    let fetch:   String = pair.1;
+
+    let mut ref_s: String = String::new();
+    if dep.tag.len() > 0 as i64 {
+        ref_s.push_bytes(dep.tag.as_ptr(), dep.tag.len());
+    } else if dep.branch.len() > 0 as i64 {
+        ref_s.push_bytes(dep.branch.as_ptr(), dep.branch.len());
+    } else {
+        ref_s.push_bytes(dep.sha.as_ptr(), dep.sha.len());
+    }
+
+    let fetch_view: str = str_from_raw(fetch.as_ptr(), fetch.len());
+    let ref_view:   str = str_from_raw(ref_s.as_ptr(),  ref_s.len());
+    let sha: String = match git_resolve_sha(fetch_view, ref_view) {
+        Result::Err(rc) => { return Result::Err(rc); }
+        Result::Ok(s)  => { s }
+    };
+
+    let cache_root: String = lforge_cache_src_dir();
+    if cache_root.len() == 0 as i64 {
+        println_str(2, "lforge: $HOME unset -- cannot locate ~/.cache/lforge");
+        return Result::Err(1);
+    }
+    let display_view: str = str_from_raw(display.as_ptr(), display.len());
+    let dirname: String = display_to_dirname(display_view);
+
+    // Ensure parent dir <cache_root>/<dirname>/ exists.
+    let mut parent: String = String::new();
+    parent.push_bytes(cache_root.as_ptr(), cache_root.len());
+    append_path(&mut parent, str_from_raw(dirname.as_ptr(), dirname.len()));
+    let pview: str = str_from_raw(parent.as_ptr(), parent.len());
+    match mkdir_p(pview) {
+        Result::Err(_) => { println_str(2, "lforge: cannot create cache parent dir"); return Result::Err(1); }
+        Result::Ok(_)  => { }
+    }
+
+    // Full cache dir = parent / sha.
+    let mut full: String = String::new();
+    full.push_bytes(parent.as_ptr(), parent.len());
+    append_path(&mut full, str_from_raw(sha.as_ptr(), sha.len()));
+
+    // Cache hit: <full>/lforge.hermes already there.
+    let mut manifest_path: String = String::new();
+    manifest_path.push_bytes(full.as_ptr(), full.len());
+    append_path(&mut manifest_path, "lforge.hermes");
+    let mc_cs: *mut u8 = cstr(str_from_raw(manifest_path.as_ptr(), manifest_path.len()));
+    let cache_hit: bool = is_file(mc_cs as *const u8);
+    dealloc(mc_cs);
+
+    if cache_hit == false {
+        let full_view: str = str_from_raw(full.as_ptr(), full.len());
+        let cs_full: *mut u8 = cstr(full_view);
+        let exists: bool = is_dir(cs_full as *const u8);
+        dealloc(cs_full);
+        if exists {
+            match rm_rf(full_view) {
+                Result::Err(_) => {
+                    println_str(2, "lforge: cannot wipe stale cache dir");
+                    return Result::Err(1);
+                }
+                Result::Ok(_) => { }
+            }
+        }
+        print_str(1, "lforge: fetching ");
+        print_str(1, display_view);
+        print_str(1, " @ ");
+        println_str(1, str_from_raw(sha.as_ptr(), sha.len()));
+        let rc: i32 = git_clone_at_sha(fetch_view,
+                                       str_from_raw(sha.as_ptr(), sha.len()),
+                                       full_view);
+        if rc != 0 { return Result::Err(rc); }
+    }
+    return Result::Ok(full);
+}
+
 // ── Tool resolution ───────────────────────────────────────────────────────
 
 unsafe fn resolve_logos_lib_dir() -> String {
@@ -764,6 +1129,49 @@ unsafe fn run_child(argv_strs: &Vec<String>) -> i32 {
     let st: ExitStatus = child.wait();
     dealloc(argv_buf as *mut u8);
     return st.code();
+}
+
+// Spawn `argv` and capture stdout into a String. Stderr is forwarded to the
+// parent's stderr. Used for short-output commands like `git ls-remote`.
+unsafe fn run_child_capture_stdout(argv_strs: &Vec<String>) -> (i32, String) {
+    let n: i64 = argv_strs.length();
+    let argv_buf: *mut *const u8 = alloc((n + 1 as i64) * 8 as i64) as *mut *const u8;
+    let mut i: i64 = 0 as i64;
+    let ap: *const Vec<String> = argv_strs as *const Vec<String>;
+    while i < n {
+        let s: *const String = ap.at_const(i);
+        argv_buf[i] = (*s).as_ptr();
+        i = i + 1 as i64;
+    }
+    argv_buf[n] = 0 as *const u8;
+
+    let mut child: Child = spawn(argv_buf as *const *const u8, false, true, true);
+    if child.pid() < 0 {
+        dealloc(argv_buf as *mut u8);
+        return (0 - 1, String::new());
+    }
+
+    let mut out: String = String::new();
+    let mut lr_out: LineReader = child.stdout_lines();
+    loop {
+        match lr_out.next() {
+            Option::Some(line) => {
+                if out.len() > 0 as i64 { out.push_u8(10 as u8); }
+                out.push_bytes(line.as_ptr(), line.len());
+            }
+            Option::None => { break; }
+        }
+    }
+    let mut lr_err: LineReader = child.stderr_lines();
+    loop {
+        match lr_err.next() {
+            Option::Some(line) => { println_str(2, str_from_raw(line.as_ptr(), line.len())); }
+            Option::None       => { break; }
+        }
+    }
+    let st: ExitStatus = child.wait();
+    dealloc(argv_buf as *mut u8);
+    return (st.code(), out);
 }
 
 // ── Build helpers ─────────────────────────────────────────────────────────
