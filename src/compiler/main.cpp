@@ -1852,10 +1852,14 @@ int main(int argc, char** argv) {
         }
     }
 
+    std::vector<std::string> dashI_paths;  // for compile-mode rejection
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "-o" && i + 1 < argc) { output_path = argv[++i]; }
-        else if (arg == "-I" && i + 1 < argc) { search_paths.push_back(argv[++i]); }
+        else if (arg == "-I" && i + 1 < argc) {
+            dashI_paths.push_back(argv[++i]);
+            search_paths.push_back(dashI_paths.back());
+        }
         else if ((arg == "-L" || arg == "--libs") && i + 1 < argc) {
             search_paths.push_back(argv[i+1]);
             explicit_lib_paths.push_back(argv[i+1]);
@@ -1881,6 +1885,20 @@ int main(int argc, char** argv) {
         auto sys = resolve_system_lib_dir();
         std::printf("%s\n", sys.c_str());
         return 0;
+    }
+
+    // -I is only valid alongside --emit-module (where it drives source-file
+    // discovery for the manifest). In normal compile mode source-level
+    // imports don't exist; -L/-l carry binary modules instead.
+    if (!emit_module_manifest && !dashI_paths.empty()) {
+        std::fprintf(stderr,
+            "logosc: error: -I '%s' is not allowed in compile mode "
+            "(no source-level imports in Logos);\n"
+            "  use -L DIR for binary module directories or -l FILE "
+            "for a specific archive.\n"
+            "  -I is only available with --emit-module.\n",
+            dashI_paths.front().c_str());
+        return 2;
     }
 
     // Append system module library to search_paths after CLI flags so

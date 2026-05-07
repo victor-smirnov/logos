@@ -45,6 +45,25 @@ add_custom_command(
 )
 add_custom_target(pub_lib_binary ALL DEPENDS ${PUB_LIB_BIN})
 
+# Build libcoex.a from the cross-pkg-coexistence fixture (alpha + beta).
+# Used as `-l <archive>` for the cross_pkg_coexistence /
+# cross_pkg_ambiguous_call tests, replacing the earlier `-I .../coex`
+# source-include path.
+set(COEX_DIR      ${CMAKE_CURRENT_SOURCE_DIR}/coex)
+set(COEX_MANIFEST ${COEX_DIR}/coex.module)
+set(COEX_BIN      ${CMAKE_CURRENT_BINARY_DIR}/libcoex.a)
+file(GLOB COEX_SOURCES ${COEX_DIR}/*.logos)
+add_custom_command(
+    OUTPUT  ${COEX_BIN}
+    COMMAND $<TARGET_FILE:logosc>
+            --emit-module ${COEX_MANIFEST}
+            -o ${COEX_BIN}
+    DEPENDS logosc ${COEX_MANIFEST} ${COEX_SOURCES}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building test fixture: libcoex.a"
+)
+add_custom_target(coex_binary ALL DEPENDS ${COEX_BIN})
+
 set(LOGOS_SUITE_ORDER
     smoke
     semantic_core
@@ -270,7 +289,7 @@ function(logos_pass_extra_args BASE OUT_VAR)
     elseif (BASE IN_LIST LOCAL_PUBLIB_USERS)
         set(_extra -l ${PUB_LIB_BIN})
     elseif (BASE IN_LIST LOCAL_COEX_USERS)
-        set(_extra -I ${CMAKE_CURRENT_SOURCE_DIR}/coex)
+        set(_extra -l ${COEX_BIN})
     else()
         set(_extra "")
     endif()
@@ -287,7 +306,7 @@ function(logos_fail_extra_args BASE OUT_VAR)
     elseif (BASE IN_LIST FAIL_METAPROG_USERS)
         set(_extra "")  # post-C4: metaprog is in liblstdlib.a as AST-only
     elseif (BASE IN_LIST FAIL_COEX_USERS)
-        set(_extra -I ${CMAKE_CURRENT_SOURCE_DIR}/coex)
+        set(_extra -l ${COEX_BIN})
     else()
         set(_extra "")
     endif()
@@ -411,7 +430,6 @@ if (FILECHECK_BIN)
                     ${FILECHECK_BIN}
                     ${LOGOS_FILE}
                     ${CHK_FILE}
-                    -I ${STDLIB}
         )
         set_tests_properties(${_test_name} PROPERTIES
             TIMEOUT 30
