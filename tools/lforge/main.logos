@@ -69,6 +69,7 @@ use std.sys.args;
 use lforge.version;
 use lforge.schema;
 use lforge.util;
+use lforge.hermes_io;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
@@ -84,56 +85,8 @@ extern fn getcwd(buf: *mut u8, size: u64) -> *mut u8;
 // String / I/O helpers (cstr, str_eq_local, err_msg/2, print_str,
 // println_str, println_string, append_path) live in `lforge.util`.
 
-// ── Hermes helpers ────────────────────────────────────────────────────────
-
-unsafe fn read_str_field(view: &HermesView<'a>, root: AnyVal, key: str) -> Result<String, ManifestError> {
-    let v: AnyVal = view.map_get(root, key);
-    if v.is_null() {
-        return Result::Err(err_msg2("manifest: missing required field ", key));
-    }
-    if !v.is_string(view.base()) {
-        return Result::Err(err_msg2("manifest: not a string: ", key));
-    }
-    let sv: StringView = view.get_str_view(v);
-    let mut out: String = String::new();
-    out.push_bytes(sv.ptr, sv.len as i64);
-    return Result::Ok(out);
-}
-
-// Read an optional string field — returns empty String if absent.
-unsafe fn read_str_opt(view: &HermesView<'a>, root: AnyVal, key: str) -> String {
-    let mut out: String = String::new();
-    let v: AnyVal = view.map_get(root, key);
-    if !v.is_null() && v.is_string(view.base()) {
-        let sv: StringView = view.get_str_view(v);
-        out.push_bytes(sv.ptr, sv.len as i64);
-    }
-    return out;
-}
-
-// Read an array of strings (e.g. `deps: ["a", "b"]`). Returns empty Vec if
-// absent or wrong type.
-unsafe fn read_str_array(view: &HermesView<'a>, root: AnyVal, key: str) -> Vec<String> {
-    let mut out: Vec<String> = vec_new::<String>();
-    let v: AnyVal = view.map_get(root, key);
-    let base: *const u8 = view.base();
-    if !v.is_null() && v.is_array(base) {
-        let n: u64 = view.array_len(v);
-        let outp: *mut Vec<String> = (&mut out) as *mut Vec<String>;
-        let mut i: u64 = 0 as u64;
-        while i < n {
-            let elem: AnyVal = view.array_get(v, i);
-            if elem.is_string(base) {
-                let sv: StringView = view.get_str_view(elem);
-                let mut s: String = String::new();
-                s.push_bytes(sv.ptr, sv.len as i64);
-                outp.push(s);
-            }
-            i = i + 1 as u64;
-        }
-    }
-    return out;
-}
+// Hermes-view typed field helpers (read_str_field/opt/array) live in
+// `lforge.hermes_io`.
 
 // ── Manifest parser ──────────────────────────────────────────────────────
 
