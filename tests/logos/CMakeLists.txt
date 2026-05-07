@@ -463,3 +463,18 @@ set_tests_properties(logos_09_diag_json_format PROPERTIES
     TIMEOUT 30
     LABELS  "logos;diag;suite_diag"
 )
+
+# lforge end-to-end smoke: build, run, clean a hello-world fixture (B0.5).
+if (TARGET lforge)
+    add_test(
+        NAME logos_10_lforge_smoke
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/smoke.sh
+                ${CMAKE_BINARY_DIR}/bin/lforge
+                $<TARGET_FILE:logosc>
+                ${LOGOS_BUILD_LIB_DIR}
+    )
+    set_tests_properties(logos_10_lforge_smoke PROPERTIES
+        TIMEOUT 60
+        LABELS  "logos;lforge;suite_lforge"
+    )
+endif()

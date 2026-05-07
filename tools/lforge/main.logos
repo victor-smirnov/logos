@@ -1,0 +1,448 @@
+// SPDX-License-Identifier: Apache-2.0
+// lforge — Logos build system, MVP.
+//
+// CLI:
+//   lforge build       — compile project rooted at cwd to .lforge/debug/out/
+//   lforge run [args]  — build + exec the produced binary
+//   lforge clean       — rm -rf .lforge/
+//
+// Reads `./lforge.hermes`, finds the entry .logos file, spawns logosc and
+// cc as child processes, captures their stdout/stderr line-by-line and
+// associates lines with the action that produced them.
+//
+// CAS / incremental rebuild are scaffolded in stdlib (B0.4) but not yet
+// used here — every `lforge build` is a full rebuild. That's fine for MVP
+// batch mode; B1 wires up daemon + incremental.
+
+package lforge_main;
+
+use std.hermes.zone;
+use std.hermes.anyval;
+use std.hermes.view;
+use std.hermes.string;
+use std.hermes.typetag;
+use std.hermes.array;
+use std.hermes.map;
+use std.hermes.typed_value;
+use std.hermes.objectmap;
+use std.hermes.document;
+use std.hermes.parser;
+use std.io.fs;
+use std.io.fs.path;
+use std.lang.text;
+use std.lang.option;
+use std.lang.result;
+use std.lang.iter;
+use std.collections.vec;
+use std.sys.process;
+use std.sys.args;
+
+extern fn malloc(size: i64) -> *mut u8;
+extern fn free(ptr: *mut u8);
+extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
+extern fn getenv(name: *const u8) -> *const u8;
+extern fn execv(path: *const u8, argv: *const *const u8) -> i32;
+
+// ── Manifest schema ───────────────────────────────────────────────────────
+
+pub struct Manifest {
+    pub name:    String,
+    pub version: String,
+    pub src:     String,
+    pub entry:   String,
+}
+
+pub struct ManifestError {
+    pub message: String,
+}
+
+unsafe fn cstr(s: str) -> *mut u8 {
+    let n: i64 = s.len();
+    let h: *mut u8 = alloc(n + 1 as i64);
+    let mut i: i64 = 0 as i64;
+    while i < n { h[i] = s.as_ptr()[i]; i = i + 1 as i64; }
+    h[n] = 0 as u8;
+    return h;
+}
+
+fn str_eq_local(a: str, b: str) -> bool {
+    if a.len() != b.len() { return false; }
+    return str_starts_with(a, b);
+}
+
+unsafe fn err_msg(msg: str) -> ManifestError {
+    let mut s: String = String::new();
+    s.push_str(msg);
+    return ManifestError { message: s };
+}
+
+unsafe fn read_str_field(view: &HermesView<'a>, root: AnyVal, key: str) -> Result<String, ManifestError> {
+    let v: AnyVal = view.map_get(root, key);
+    if v.is_null() {
+        let mut e: String = String::new();
+        e.push_str("manifest: missing required field '");
+        e.push_str(key);
+        e.push_str("'");
+        return Result::Err(ManifestError { message: e });
+    }
+    if !v.is_string(view.base()) {
+        let mut e: String = String::new();
+        e.push_str("manifest: field '");
+        e.push_str(key);
+        e.push_str("' must be a string");
+        return Result::Err(ManifestError { message: e });
+    }
+    let sv: StringView = view.get_str_view(v);
+    let mut out: String = String::new();
+    out.push_bytes(sv.ptr, sv.len as i64);
+    return Result::Ok(out);
+}
+
+pub unsafe fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
+    let mut z: Zone<Mutable> = zone_create(8192);
+    if !hermes_parse(text.as_ptr(), text.len(), &mut z) {
+        return Result::Err(err_msg("manifest: SDN parse failed"));
+    }
+    let view: HermesView<'a> = HermesView {
+        base: z.holder.base as *const u8,
+        size: z.holder.used as u64,
+    };
+    let root: AnyVal = view.root();
+    if !root.is_map(view.base()) {
+        return Result::Err(err_msg("manifest: top-level value must be a map"));
+    }
+    let mut n: String = String::new();
+    let mut v: String = String::new();
+    let mut s: String = String::new();
+    let mut e: String = String::new();
+    let mut err_buf: String = String::new();
+    let mut have_err: bool = false;
+    match read_str_field(&view, root, "name") {
+        Result::Ok(x)  => { n = x; }
+        Result::Err(z) => { err_buf.push_bytes(z.message.as_ptr(), z.message.len()); have_err = true; }
+    }
+    if !have_err {
+        match read_str_field(&view, root, "version") {
+            Result::Ok(x)  => { v = x; }
+            Result::Err(z) => { err_buf.push_bytes(z.message.as_ptr(), z.message.len()); have_err = true; }
+        }
+    }
+    if !have_err {
+        match read_str_field(&view, root, "src") {
+            Result::Ok(x)  => { s = x; }
+            Result::Err(z) => { err_buf.push_bytes(z.message.as_ptr(), z.message.len()); have_err = true; }
+        }
+    }
+    if !have_err {
+        match read_str_field(&view, root, "entry") {
+            Result::Ok(x)  => { e = x; }
+            Result::Err(z) => { err_buf.push_bytes(z.message.as_ptr(), z.message.len()); have_err = true; }
+        }
+    }
+    if have_err {
+        return Result::Err(ManifestError { message: err_buf });
+    }
+    return Result::Ok(Manifest { name: n, version: v, src: s, entry: e });
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+unsafe fn print_str(fd: i32, s: str) {
+    write(fd, s.as_ptr(), s.len());
+}
+
+unsafe fn println_str(fd: i32, s: str) {
+    print_str(fd, s);
+    let nl: u8 = 10 as u8;
+    write(fd, &nl as *const u8, 1 as i64);
+}
+
+unsafe fn read_manifest(p: str) -> Result<Manifest, ManifestError> {
+    let cs: *mut u8 = cstr(p);
+    let body: Result<String, i32> = read_to_string(cs as *const u8);
+    dealloc(cs);
+    match body {
+        Result::Err(_) => { return Result::Err(err_msg("lforge.hermes: cannot read")); }
+        Result::Ok(s)  => {
+            let view: str = str_from_raw(s.as_ptr(), s.len());
+            return parse_manifest(view);
+        }
+    }
+}
+
+// Locate the directory holding the system stdlib archives. We re-implement
+// the same argv[0]-relative search that logosc itself uses, so a freshly
+// built lforge can find liblstdlib*.a without env tweaks.
+unsafe fn resolve_logos_lib_dir() -> String {
+    let env_key: *mut u8 = cstr("LOGOS_LIB_DIR");
+    let env_val: *const u8 = getenv(env_key as *const u8);
+    dealloc(env_key);
+    if env_val != 0 as *const u8 {
+        let s: str = str_from_cstr(env_val);
+        let mut out: String = String::new();
+        out.push_str(s);
+        return out;
+    }
+    // Fallback: try cwd-relative ./build/lib/logos (development), then
+    // /usr/local/lib/logos (system install). Empty string if neither.
+    let candidates: [str; 2] = ["./build/lib/logos", "/usr/local/lib/logos"];
+    let mut i: i64 = 0 as i64;
+    while i < 2 as i64 {
+        let c: str = candidates[i];
+        let cs: *mut u8 = cstr(c);
+        let ok: bool = is_dir(cs as *const u8);
+        dealloc(cs);
+        if ok {
+            let mut out: String = String::new();
+            out.push_str(c);
+            return out;
+        }
+        i = i + 1 as i64;
+    }
+    return String::new();
+}
+
+// Where's logosc itself? Try $LOGOSC, then ./build/bin/logosc, then plain "logosc".
+unsafe fn resolve_logosc_path() -> String {
+    let env_key: *mut u8 = cstr("LOGOSC");
+    let env_val: *const u8 = getenv(env_key as *const u8);
+    dealloc(env_key);
+    if env_val != 0 as *const u8 {
+        let s: str = str_from_cstr(env_val);
+        let mut out: String = String::new();
+        out.push_str(s);
+        return out;
+    }
+    let cs: *mut u8 = cstr("./build/bin/logosc");
+    let ok: bool = is_file(cs as *const u8);
+    dealloc(cs);
+    let mut out: String = String::new();
+    if ok { out.push_str("./build/bin/logosc"); }
+    else  { out.push_str("logosc"); }
+    return out;
+}
+
+// Run a child to completion, streaming its stdout+stderr to our own.
+// Returns the exit code (or -1 if spawn failed).
+unsafe fn run_child(argv_strs: &Vec<String>) -> i32 {
+    // Build argv: array of *const u8, null-terminated.
+    let n: i64 = argv_strs.length();
+    let argv_buf: *mut *const u8 = alloc((n + 1 as i64) * 8 as i64) as *mut *const u8;
+    let mut i: i64 = 0 as i64;
+    let ap: *const Vec<String> = argv_strs as *const Vec<String>;
+    while i < n {
+        let s: *const String = ap.at_const(i);
+        argv_buf[i] = (*s).as_ptr();
+        i = i + 1 as i64;
+    }
+    argv_buf[n] = 0 as *const u8;
+
+    let mut child: Child = spawn(argv_buf as *const *const u8, false, true, true);
+    if child.pid() < 0 {
+        dealloc(argv_buf as *mut u8);
+        return 0 - 1;
+    }
+
+    // Drain stdout and stderr line-by-line, prefixing with action label.
+    let mut lr_out: LineReader = child.stdout_lines();
+    loop {
+        match lr_out.next() {
+            Option::Some(line) => { println_str(1, str_from_raw(line.as_ptr(), line.len())); }
+            Option::None       => { break; }
+        }
+    }
+    let mut lr_err: LineReader = child.stderr_lines();
+    loop {
+        match lr_err.next() {
+            Option::Some(line) => { println_str(2, str_from_raw(line.as_ptr(), line.len())); }
+            Option::None       => { break; }
+        }
+    }
+    let st: ExitStatus = child.wait();
+    dealloc(argv_buf as *mut u8);
+    return st.code();
+}
+
+// Append a single argument to argv vector.
+unsafe fn push_arg(args: *mut Vec<String>, s: str) {
+    let mut a: String = String::new();
+    a.push_str(s);
+    args.push(a);
+}
+
+// Append a path joined as `<base>/<rest>`.
+unsafe fn push_path_arg(args: *mut Vec<String>, base: str, rest: str) {
+    let mut a: String = String::new();
+    a.push_str(base);
+    let n: i64 = a.len();
+    if n > 0 as i64 && (a.as_ptr()[n - 1 as i64] as i32) != 47 {
+        a.push_u8(47 as u8);
+    }
+    a.push_str(rest);
+    args.push(a);
+}
+
+// ── Commands ──────────────────────────────────────────────────────────────
+
+unsafe fn cmd_build(m: &Manifest) -> i32 {
+    let cache_root: str  = ".lforge/debug";
+    let out_dir:    str  = ".lforge/debug/out";
+    match mkdir_p(out_dir) {
+        Result::Err(_) => { println_str(2, "lforge: cannot create .lforge/debug/out"); return 1; }
+        Result::Ok(_)  => { }
+    }
+
+    // Compose entry path: <src>/<entry>.logos
+    let mut entry_path: String = String::new();
+    entry_path.push_bytes(m.src.as_ptr(), m.src.len());
+    let elen: i64 = entry_path.len();
+    if elen > 0 as i64 && (entry_path.as_ptr()[elen - 1 as i64] as i32) != 47 {
+        entry_path.push_u8(47 as u8);
+    }
+    entry_path.push_bytes(m.entry.as_ptr(), m.entry.len());
+    entry_path.push_str(".logos");
+
+    // Output object path: .lforge/debug/out/<name>.o
+    let mut obj_path: String = String::new();
+    obj_path.push_str(out_dir);
+    obj_path.push_u8(47 as u8);
+    obj_path.push_bytes(m.name.as_ptr(), m.name.len());
+    obj_path.push_str(".o");
+
+    // Output binary path: .lforge/debug/out/<name>
+    let mut bin_path: String = String::new();
+    bin_path.push_str(out_dir);
+    bin_path.push_u8(47 as u8);
+    bin_path.push_bytes(m.name.as_ptr(), m.name.len());
+
+    // logosc <entry> -o <obj>
+    let logosc: String = resolve_logosc_path();
+    let mut argv: Vec<String> = vec_new::<String>();
+    let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
+    let mut a0: String = String::new();
+    a0.push_bytes(logosc.as_ptr(), logosc.len());
+    argv_p.push(a0);
+    let mut a1: String = String::new();
+    a1.push_bytes(entry_path.as_ptr(), entry_path.len());
+    argv_p.push(a1);
+    push_arg(argv_p, "-o");
+    let mut a3: String = String::new();
+    a3.push_bytes(obj_path.as_ptr(), obj_path.len());
+    argv_p.push(a3);
+
+    println_str(1, "lforge: compiling");
+    let rc: i32 = run_child(&argv);
+    if rc != 0 {
+        println_str(2, "lforge: logosc failed");
+        return rc;
+    }
+
+    // cc <obj> <stdlib_archives> -lpthread -lm -o <bin>
+    let lib_dir: String = resolve_logos_lib_dir();
+    if lib_dir.len() == 0 as i64 {
+        println_str(2, "lforge: cannot locate Logos lib dir (set LOGOS_LIB_DIR)");
+        return 1;
+    }
+
+    let mut largv: Vec<String> = vec_new::<String>();
+    let largv_p: *mut Vec<String> = (&mut largv) as *mut Vec<String>;
+    push_arg(largv_p, "cc");
+    let mut o_arg: String = String::new();
+    o_arg.push_bytes(obj_path.as_ptr(), obj_path.len());
+    largv_p.push(o_arg);
+    let lib_view: str = str_from_raw(lib_dir.as_ptr(), lib_dir.len());
+    push_path_arg(largv_p, lib_view, "liblstdlib.a");
+    push_path_arg(largv_p, lib_view, "liblstdlib_fibers.a");
+    push_path_arg(largv_p, lib_view, "liblstdlib_rt.a");
+    push_path_arg(largv_p, lib_view, "liblstdlib_uring.a");
+    push_arg(largv_p, "-lpthread");
+    push_arg(largv_p, "-lm");
+    push_arg(largv_p, "-o");
+    let mut b_arg: String = String::new();
+    b_arg.push_bytes(bin_path.as_ptr(), bin_path.len());
+    largv_p.push(b_arg);
+
+    println_str(1, "lforge: linking");
+    let lrc: i32 = run_child(&largv);
+    if lrc != 0 {
+        println_str(2, "lforge: cc failed");
+        return lrc;
+    }
+    println_str(1, "lforge: build OK");
+    return 0;
+}
+
+unsafe fn cmd_run(m: &Manifest, run_args: &Vec<String>) -> i32 {
+    let rc: i32 = cmd_build(m);
+    if rc != 0 { return rc; }
+    let mut bin_path: String = String::new();
+    bin_path.push_str(".lforge/debug/out/");
+    bin_path.push_bytes(m.name.as_ptr(), m.name.len());
+
+    let mut argv: Vec<String> = vec_new::<String>();
+    let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
+    let mut a0: String = String::new();
+    a0.push_bytes(bin_path.as_ptr(), bin_path.len());
+    argv_p.push(a0);
+    let n: i64 = run_args.length();
+    let rp: *const Vec<String> = run_args as *const Vec<String>;
+    let mut i: i64 = 0 as i64;
+    while i < n {
+        let s: *const String = rp.at_const(i);
+        let mut copy: String = String::new();
+        copy.push_bytes((*s).as_ptr(), (*s).len());
+        argv_p.push(copy);
+        i = i + 1 as i64;
+    }
+    return run_child(&argv);
+}
+
+unsafe fn cmd_clean() -> i32 {
+    match rm_rf(".lforge") {
+        Result::Err(_) => { return 1; }
+        Result::Ok(_)  => { return 0; }
+    }
+}
+
+// ── main ──────────────────────────────────────────────────────────────────
+
+unsafe fn main() -> i32 {
+    let cmd: str = positional(0 as i32);
+    if cmd.len() == 0 as i64 {
+        println_str(2, "usage: lforge <build|run|clean> [args...]");
+        return 2;
+    }
+
+    if str_eq_local(cmd, "clean") {
+        return cmd_clean();
+    }
+
+    let m: Manifest = match read_manifest("./lforge.hermes") {
+        Result::Err(e) => {
+            print_str(2, "lforge: ");
+            println_str(2, str_from_raw(e.message.as_ptr(), e.message.len()));
+            return 1;
+        }
+        Result::Ok(x)  => { x }
+    };
+
+    if str_eq_local(cmd, "build") {
+        return cmd_build(&m);
+    }
+    if str_eq_local(cmd, "run") {
+        let mut run_args: Vec<String> = vec_new::<String>();
+        let rap: *mut Vec<String> = (&mut run_args) as *mut Vec<String>;
+        let pn: i32 = positional_count();
+        let mut k: i32 = 1;
+        while k < pn {
+            let a: str = positional(k);
+            let mut copy: String = String::new();
+            copy.push_str(a);
+            rap.push(copy);
+            k = k + 1;
+        }
+        return cmd_run(&m, &run_args);
+    }
+    println_str(2, "lforge: unknown command (expected: build, run, clean)");
+    return 2;
+}
