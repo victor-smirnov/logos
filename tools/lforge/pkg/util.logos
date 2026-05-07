@@ -24,40 +24,48 @@ pub fn str_eq_local(a: str, b: str) -> bool {
     return str_starts_with(a, b);
 }
 
-pub unsafe fn err_msg(msg: str) -> ManifestError {
+pub fn err_msg(msg: str) -> ManifestError {
     let mut s: String = String::new();
     s.push_str(msg);
     return ManifestError { message: s };
 }
 
-pub unsafe fn err_msg2(a: str, b: str) -> ManifestError {
+pub fn err_msg2(a: str, b: str) -> ManifestError {
     let mut s: String = String::new();
     s.push_str(a);
     s.push_str(b);
     return ManifestError { message: s };
 }
 
-pub unsafe fn print_str(fd: i32, s: str) {
-    write(fd, s.as_ptr(), s.len());
+pub fn print_str(fd: i32, s: str) {
+    unsafe {
+        write(fd, s.as_ptr(), s.len());
+    }
 }
 
-pub unsafe fn println_str(fd: i32, s: str) {
-    print_str(fd, s);
+pub fn println_str(fd: i32, s: str) {
+    unsafe {
+        print_str(fd, s);
     let nl: u8 = 10 as u8;
     write(fd, &nl as *const u8, 1 as i64);
+    }
 }
 
-pub unsafe fn println_string(fd: i32, s: &String) {
-    write(fd, s.as_ptr(), s.len());
+pub fn println_string(fd: i32, s: &String) {
+    unsafe {
+        write(fd, s.as_ptr(), s.len());
     let nl: u8 = 10 as u8;
     write(fd, &nl as *const u8, 1 as i64);
+    }
 }
 
 // Append `<base>/<rest>` semantics into an existing String.
-pub unsafe fn append_path(base: &mut String, rest: str) {
-    let n: i64 = base.len();
+pub fn append_path(base: &mut String, rest: str) {
+    unsafe {
+        let n: i64 = base.len();
     if n > 0 as i64 && (base.as_ptr()[n - 1 as i64] as i32) != 47 {
         base.push_u8(47 as u8);
     }
     base.push_str(rest);
+    }
 }

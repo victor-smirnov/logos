@@ -129,14 +129,15 @@ extern fn getcwd(buf: *mut u8, size: u64) -> *mut u8;
 
 // ── main ──────────────────────────────────────────────────────────────────
 
-unsafe fn select_profile() -> str {
+fn select_profile() -> str {
     if has_flag("release", "") { return "release"; }
     if has_flag("debug",   "") { return "debug"; }
     return "debug";
 }
 
-unsafe fn main() -> i32 {
-    let cmd: str = positional(0 as i32);
+fn main() -> i32 {
+    unsafe {
+        let cmd: str = positional(0 as i32);
     if cmd.len() == 0 as i64 {
         println_str(2, "usage: lforge <build|run|update|clean|test|install> [--release] [target] [-- args...]");
         return 2;
@@ -226,4 +227,5 @@ unsafe fn main() -> i32 {
     }
     println_str(2, "lforge: unknown command (expected: build, run, test, install, clean)");
     return 2;
+    }
 }

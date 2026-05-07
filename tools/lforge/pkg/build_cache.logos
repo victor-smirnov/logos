@@ -26,8 +26,9 @@ use lforge.proc;
 
 extern fn getenv(name: *const u8) -> *const u8;
 
-pub unsafe fn cache_root() -> String {
-    let key: *mut u8 = cstr("HOME");
+pub fn cache_root() -> String {
+    unsafe {
+        let key: *mut u8 = cstr("HOME");
     let val: *const u8 = getenv(key as *const u8);
     dealloc(key);
     if val == 0 as *const u8 { return String::new(); }
@@ -37,23 +38,25 @@ pub unsafe fn cache_root() -> String {
     append_path(&mut out, "lforge");
     append_path(&mut out, "build");
     return out;
+    }
 }
 
-pub unsafe fn logosc_mtime(logosc: &String) -> i64 {
-    let cs: *mut u8 = cstr(str_from_raw(logosc.as_ptr(), logosc.len()));
+pub fn logosc_mtime(logosc: &String) -> i64 {
+    unsafe {
+        let cs: *mut u8 = cstr(str_from_raw(logosc.as_ptr(), logosc.len()));
     let mt: Result<i64, i32> = mtime_ns(cs as *const u8);
     dealloc(cs);
     match mt {
         Result::Ok(v)  => { return v; }
         Result::Err(_) => { return 0 as i64; }
     }
+    }
 }
 
 // sha256 of NUL-separated record over (project, sha, module, profile,
 // logosc_mtime decimal, then \1-separated dep_keys). Returns hex.
-pub unsafe fn compute_key(project: str, sha: str, module: str, profile: str,
-                          mtime_ns_val: i64, dep_keys: &Vec<String>) -> String {
-    let mut buf: String = String::new();
+pub fn compute_key(project: str, sha: str, module: str, profile: str,
+                          mtime_ns_val: i64, dep_keys: &Vec<String>) -> String { unsafe {    let mut buf: String = String::new();
     buf.push_str(project); buf.push_u8(0 as u8);
     buf.push_str(sha);     buf.push_u8(0 as u8);
     buf.push_str(module);  buf.push_u8(0 as u8);
@@ -71,9 +74,10 @@ pub unsafe fn compute_key(project: str, sha: str, module: str, profile: str,
     let mut out: String = String::new();
     sha256_hex(buf.as_ptr(), buf.len(), &mut out);
     return out;
+    }
 }
 
-pub unsafe fn cache_dir_for(key: str) -> String {
+pub fn cache_dir_for(key: str) -> String {
     let root: String = cache_root();
     if root.len() == 0 as i64 { return String::new(); }
     let mut out: String = String::new();
@@ -83,8 +87,9 @@ pub unsafe fn cache_dir_for(key: str) -> String {
 }
 
 // Returns absolute path of the cached archive on hit, or empty string on miss.
-pub unsafe fn cache_lookup(key: str, archive_basename: str) -> String {
-    let dir: String = cache_dir_for(key);
+pub fn cache_lookup(key: str, archive_basename: str) -> String {
+    unsafe {
+        let dir: String = cache_dir_for(key);
     if dir.len() == 0 as i64 { return String::new(); }
     let mut p: String = String::new();
     p.push_bytes(dir.as_ptr(), dir.len());
@@ -94,15 +99,15 @@ pub unsafe fn cache_lookup(key: str, archive_basename: str) -> String {
     dealloc(cs);
     if exists { return p; }
     return String::new();
+    }
 }
 
 // Copy <src_archive> into <cache>/<archive_basename>; write meta.hermes.
 // Returns 0 on success, non-zero on failure (caller should treat the dep
 // as "built but uncached" rather than fail the whole build).
-pub unsafe fn cache_populate(key: str, src_archive: &String, archive_basename: str,
+pub fn cache_populate(key: str, src_archive: &String, archive_basename: str,
                              project: str, sha: str, module: str, profile: str,
-                             mtime_ns_val: i64) -> i32 {
-    let dir: String = cache_dir_for(key);
+                             mtime_ns_val: i64) -> i32 { unsafe {    let dir: String = cache_dir_for(key);
     if dir.len() == 0 as i64 { return 0 - 1; }
     let dir_view: str = str_from_raw(dir.as_ptr(), dir.len());
     match mkdir_p(dir_view) {
@@ -146,5 +151,6 @@ pub unsafe fn cache_populate(key: str, src_archive: &String, archive_basename: s
     match wr {
         Result::Err(_) => { return 0 - 1; }
         Result::Ok(_)  => { return 0; }
+    }
     }
 }

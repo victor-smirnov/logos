@@ -16,8 +16,9 @@ use std.hermes.array;
 use lforge.schema;
 use lforge.util;
 
-pub unsafe fn read_str_field(view: &HermesView<'a>, root: AnyVal, key: str) -> Result<String, ManifestError> {
-    let v: AnyVal = view.map_get(root, key);
+pub fn read_str_field(view: &HermesView<'a>, root: AnyVal, key: str) -> Result<String, ManifestError> {
+    unsafe {
+        let v: AnyVal = view.map_get(root, key);
     if v.is_null() {
         return Result::Err(err_msg2("manifest: missing required field ", key));
     }
@@ -28,23 +29,27 @@ pub unsafe fn read_str_field(view: &HermesView<'a>, root: AnyVal, key: str) -> R
     let mut out: String = String::new();
     out.push_bytes(sv.ptr, sv.len as i64);
     return Result::Ok(out);
+    }
 }
 
 // Read an optional string field — returns empty String if absent.
-pub unsafe fn read_str_opt(view: &HermesView<'a>, root: AnyVal, key: str) -> String {
-    let mut out: String = String::new();
+pub fn read_str_opt(view: &HermesView<'a>, root: AnyVal, key: str) -> String {
+    unsafe {
+        let mut out: String = String::new();
     let v: AnyVal = view.map_get(root, key);
     if !v.is_null() && v.is_string(view.base()) {
         let sv: StringView = view.get_str_view(v);
         out.push_bytes(sv.ptr, sv.len as i64);
     }
     return out;
+    }
 }
 
 // Read an array of strings (e.g. `deps: ["a", "b"]`). Returns empty Vec if
 // absent or wrong type.
-pub unsafe fn read_str_array(view: &HermesView<'a>, root: AnyVal, key: str) -> Vec<String> {
-    let mut out: Vec<String> = vec_new::<String>();
+pub fn read_str_array(view: &HermesView<'a>, root: AnyVal, key: str) -> Vec<String> {
+    unsafe {
+        let mut out: Vec<String> = vec_new::<String>();
     let v: AnyVal = view.map_get(root, key);
     let base: *const u8 = view.base();
     if !v.is_null() && v.is_array(base) {
@@ -63,4 +68,5 @@ pub unsafe fn read_str_array(view: &HermesView<'a>, root: AnyVal, key: str) -> V
         }
     }
     return out;
+    }
 }

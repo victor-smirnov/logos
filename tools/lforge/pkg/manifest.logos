@@ -106,8 +106,9 @@ unsafe fn parse_target(view: &HermesView<'a>, base: *const u8, t_av: AnyVal) -> 
     });
 }
 
-pub unsafe fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
-    let mut z: Zone<Mutable> = zone_create(8192);
+pub fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
+    unsafe {
+        let mut z: Zone<Mutable> = zone_create(8192);
     if !hermes_parse(text.as_ptr(), text.len(), &mut z) {
         return Result::Err(err_msg("manifest: SDN parse failed"));
     }
@@ -228,10 +229,12 @@ pub unsafe fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
         deps:           deps,
         replace:        replace,
     });
+    }
 }
 
-pub unsafe fn read_manifest(p: str) -> Result<Manifest, ManifestError> {
-    let cs: *mut u8 = cstr(p);
+pub fn read_manifest(p: str) -> Result<Manifest, ManifestError> {
+    unsafe {
+        let cs: *mut u8 = cstr(p);
     let body: Result<String, i32> = read_to_string(cs as *const u8);
     dealloc(cs);
     match body {
@@ -240,5 +243,6 @@ pub unsafe fn read_manifest(p: str) -> Result<Manifest, ManifestError> {
             let view: str = str_from_raw(s.as_ptr(), s.len());
             return parse_manifest(view);
         }
+    }
     }
 }

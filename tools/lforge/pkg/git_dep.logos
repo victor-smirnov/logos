@@ -16,36 +16,40 @@ use lforge.proc;
 
 extern fn getenv(name: *const u8) -> *const u8;
 
-pub unsafe fn home_dir() -> String {
-    let key: *mut u8 = cstr("HOME");
+pub fn home_dir() -> String {
+    unsafe {
+        let key: *mut u8 = cstr("HOME");
     let val: *const u8 = getenv(key as *const u8);
     dealloc(key);
     let mut out: String = String::new();
     if val != 0 as *const u8 { out.push_str(str_from_cstr(val)); }
     return out;
+    }
 }
 
-pub unsafe fn find_byte(s: str, b: u8) -> i64 {
-    let n: i64 = s.len();
+pub fn find_byte(s: str, b: u8) -> i64 {
+    unsafe {
+        let n: i64 = s.len();
     let mut i: i64 = 0 as i64;
     while i < n {
         if s.as_ptr()[i] == b { return i; }
         i = i + 1 as i64;
     }
     return 0 as i64 - 1 as i64;
+    }
 }
 
-pub unsafe fn slice_from_off(s: str, off: i64) -> str {
+pub fn slice_from_off(s: str, off: i64) -> str {
     let p: *const u8 = (s.as_ptr() as i64 + off) as *const u8;
     let n: i64 = s.len() - off;
     return str_from_raw(p, n);
 }
 
-pub unsafe fn ends_with_dot_git(s: str) -> bool {
+pub fn ends_with_dot_git(s: str) -> bool {
     return str_ends_with(s, ".git");
 }
 
-pub unsafe fn strip_dot_git_inplace(s: &mut String) {
+pub fn strip_dot_git_inplace(s: &mut String) {
     let view: str = str_from_raw(s.as_ptr(), s.len());
     let has: bool = str_ends_with(view, ".git");
     if has { s.truncate(s.len() - 4 as i64); }
@@ -58,8 +62,9 @@ pub unsafe fn strip_dot_git_inplace(s: &mut String) {
 //   user@host:path SCP-style   -- use as-is, replace `:` with `/` in display
 // Always: ensure fetch ends with `.git`; display drops `.git` and scheme.
 // Find first occurrence of "://" — returns offset of the ':' or -1.
-pub unsafe fn find_scheme_sep(s: str) -> i64 {
-    let n: i64 = s.len();
+pub fn find_scheme_sep(s: str) -> i64 {
+    unsafe {
+        let n: i64 = s.len();
     if n < 3 as i64 { return 0 as i64 - 1 as i64; }
     let mut i: i64 = 0 as i64;
     while i + 2 as i64 < n {
@@ -70,10 +75,12 @@ pub unsafe fn find_scheme_sep(s: str) -> i64 {
         i = i + 1 as i64;
     }
     return 0 as i64 - 1 as i64;
+    }
 }
 
-pub unsafe fn canonical_url(project: str) -> (String, String) {
-    let mut display: String = String::new();
+pub fn canonical_url(project: str) -> (String, String) {
+    unsafe {
+        let mut display: String = String::new();
     let mut fetch:   String = String::new();
 
     let scheme_off: i64 = find_scheme_sep(project);
@@ -126,11 +133,13 @@ pub unsafe fn canonical_url(project: str) -> (String, String) {
     if has_g == false && is_file_scheme == false { fetch.push_str(".git"); }
 
     return (display, fetch);
+    }
 }
 
 // `/`, `:`, `@` -> `_` so the display id can be used as a directory name.
-pub unsafe fn display_to_dirname(display: str) -> String {
-    let mut out: String = String::new();
+pub fn display_to_dirname(display: str) -> String {
+    unsafe {
+        let mut out: String = String::new();
     let n: i64 = display.len();
     let mut i: i64 = 0 as i64;
     while i < n {
@@ -143,9 +152,10 @@ pub unsafe fn display_to_dirname(display: str) -> String {
         i = i + 1 as i64;
     }
     return out;
+    }
 }
 
-pub unsafe fn lforge_cache_src_dir() -> String {
+pub fn lforge_cache_src_dir() -> String {
     let h: String = home_dir();
     if h.len() == 0 as i64 { return String::new(); }
     let mut out: String = String::new();
@@ -156,8 +166,9 @@ pub unsafe fn lforge_cache_src_dir() -> String {
     return out;
 }
 
-pub unsafe fn looks_like_sha(s: str) -> bool {
-    let n: i64 = s.len();
+pub fn looks_like_sha(s: str) -> bool {
+    unsafe {
+        let n: i64 = s.len();
     if n < 7 as i64    { return false; }
     if n > 40 as i64   { return false; }
     let mut i: i64 = 0 as i64;
@@ -170,12 +181,14 @@ pub unsafe fn looks_like_sha(s: str) -> bool {
         i = i + 1 as i64;
     }
     return true;
+    }
 }
 
 // Resolve a `git ls-remote <url> <ref>` output line to its SHA. `ref` may
 // be a tag, branch, or already-a-SHA (echoed back).
-pub unsafe fn git_resolve_sha(fetch_url: str, ref_str: str) -> Result<String, i32> {
-    if looks_like_sha(ref_str) {
+pub fn git_resolve_sha(fetch_url: str, ref_str: str) -> Result<String, i32> {
+    unsafe {
+        if looks_like_sha(ref_str) {
         let mut s: String = String::new();
         s.push_str(ref_str);
         return Result::Ok(s);
@@ -220,12 +233,14 @@ pub unsafe fn git_resolve_sha(fetch_url: str, ref_str: str) -> Result<String, i3
     let mut sha: String = String::new();
     sha.push_bytes(view.as_ptr(), tok_end);
     return Result::Ok(sha);
+    }
 }
 
 // Clone fetch_url into dest_dir then checkout the given SHA. dest_dir
 // must not exist.
-pub unsafe fn git_clone_at_sha(fetch_url: str, sha: str, dest_dir: str) -> i32 {
-    let mut a1: Vec<String> = vec_new::<String>();
+pub fn git_clone_at_sha(fetch_url: str, sha: str, dest_dir: str) -> i32 {
+    unsafe {
+        let mut a1: Vec<String> = vec_new::<String>();
     let a1p: *mut Vec<String> = (&mut a1) as *mut Vec<String>;
     push_arg(a1p, "git");
     push_arg(a1p, "clone");
@@ -247,6 +262,7 @@ pub unsafe fn git_clone_at_sha(fetch_url: str, sha: str, dest_dir: str) -> i32 {
     let mut sha_s: String = String::new(); sha_s.push_str(sha);
     push_string_arg(a2p, &sha_s);
     return run_child(&a2);
+    }
 }
 
 // Resolve a git ExternalDep into an absolute filesystem path. Returns
@@ -255,10 +271,9 @@ pub unsafe fn git_clone_at_sha(fetch_url: str, sha: str, dest_dir: str) -> i32 {
 // lock's tag (or is sha/branch form), the locked SHA is used and
 // ls-remote is skipped. Either way, we record the resolved entry into
 // `lock_out` so the freshly written lockfile reflects the build.
-pub unsafe fn resolve_git_dep(dep:  &ExternalDep,
+pub fn resolve_git_dep(dep:  &ExternalDep,
                               lock_in:  &Vec<LockEntry>,
-                              lock_out: *mut Vec<LockEntry>) -> Result<(String, String, String), i32> {
-    let proj_view: str = str_from_raw(dep.project.as_ptr(), dep.project.len());
+                              lock_out: *mut Vec<LockEntry>) -> Result<(String, String, String), i32> { unsafe {    let proj_view: str = str_from_raw(dep.project.as_ptr(), dep.project.len());
     let pair: (String, String) = canonical_url(proj_view);
     let display: String = pair.0;
     let fetch:   String = pair.1;
@@ -361,4 +376,5 @@ pub unsafe fn resolve_git_dep(dep:  &ExternalDep,
     }
 
     return Result::Ok((full, display, sha));
+    }
 }

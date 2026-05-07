@@ -23,8 +23,9 @@ use lforge.external_build;
 // B5: parse `logosc --version` (format: "logosc X.Y[.Z]") into the bare
 // version segment. Empty string means we couldn't determine — the caller
 // treats that as a soft pass.
-pub unsafe fn get_logosc_version(logosc: &String) -> String {
-    let mut argv: Vec<String> = vec_new::<String>();
+pub fn get_logosc_version(logosc: &String) -> String {
+    unsafe {
+        let mut argv: Vec<String> = vec_new::<String>();
     let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
     push_string_arg(argv_p, logosc);
     push_arg(argv_p, "--version");
@@ -56,11 +57,12 @@ pub unsafe fn get_logosc_version(logosc: &String) -> String {
     let mut s: String = String::new();
     s.push_bytes((view.as_ptr() as i64 + start) as *const u8, end - start);
     return s;
+    }
 }
 
 // B5: compare logosc's reported version to the manifest's `requires_logos`
 // floor. Returns 0 OK, 1 error (already printed). Empty floor → pass.
-pub unsafe fn check_requires_logos(m: &Manifest) -> i32 {
+pub fn check_requires_logos(m: &Manifest) -> i32 {
     if m.requires_logos.len() == 0 as i64 { return 0; }
     let logosc: String = resolve_logosc_path();
     let have: String = get_logosc_version(&logosc);
@@ -83,8 +85,9 @@ pub unsafe fn check_requires_logos(m: &Manifest) -> i32 {
 
 // If `selected_idx` >= 0, build only that target plus its transitive deps.
 // Otherwise build everything in topo order.
-pub unsafe fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64, use_lock: bool) -> i32 {
-    let logosc: String = resolve_logosc_path();
+pub fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64, use_lock: bool) -> i32 {
+    unsafe {
+        let logosc: String = resolve_logosc_path();
     let lib_dir: String = resolve_logos_lib_dir();
 
     // Build external (project-level) deps first so their archives are
@@ -188,21 +191,23 @@ pub unsafe fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64, 
     dealloc(want);
     println_str(1, "lforge: build OK");
     return 0;
+    }
 }
 
-pub unsafe fn cmd_build(m: &Manifest, profile: str) -> i32 {
+pub fn cmd_build(m: &Manifest, profile: str) -> i32 {
     return cmd_build_selected(m, profile, 0 as i64 - 1 as i64, true);
 }
 
 // `lforge update` — re-resolve every git dep ignoring the lockfile, then
 // rewrite it. Equivalent to `cmd_build` with use_lock=false.
-pub unsafe fn cmd_update(m: &Manifest, profile: str) -> i32 {
+pub fn cmd_update(m: &Manifest, profile: str) -> i32 {
     return cmd_build_selected(m, profile, 0 as i64 - 1 as i64, false);
 }
 
 // Find the first bin target's name (for `lforge run`).
-pub unsafe fn first_bin_name(m: &Manifest) -> String {
-    let n: i64 = m.targets.length();
+pub fn first_bin_name(m: &Manifest) -> String {
+    unsafe {
+        let n: i64 = m.targets.length();
     let tp: *const Vec<Target> = (&m.targets) as *const Vec<Target>;
     let mut i: i64 = 0 as i64;
     while i < n {
@@ -218,13 +223,13 @@ pub unsafe fn first_bin_name(m: &Manifest) -> String {
         i = i + 1 as i64;
     }
     return String::new();
+    }
 }
 
 // Build (selected target if name non-empty) and run the bin target. If no
 // name is given, runs the first bin target in declared order.
-pub unsafe fn cmd_run_named(m: &Manifest, profile: str,
-                            target_name: str, run_args: &Vec<String>) -> i32 {
-    // Pick the bin name (and selected build index).
+pub fn cmd_run_named(m: &Manifest, profile: str,
+                            target_name: str, run_args: &Vec<String>) -> i32 { unsafe {    // Pick the bin name (and selected build index).
     let mut bin_nm: String = String::new();
     let mut sel_idx: i64 = 0 as i64 - 1 as i64;
     if target_name.len() > 0 as i64 {
@@ -258,9 +263,10 @@ pub unsafe fn cmd_run_named(m: &Manifest, profile: str,
         i = i + 1 as i64;
     }
     return run_child(&argv);
+    }
 }
 
-pub unsafe fn cmd_clean() -> i32 {
+pub fn cmd_clean() -> i32 {
     match rm_rf(".lforge") {
         Result::Err(_) => { return 1; }
         Result::Ok(_)  => { return 0; }
@@ -277,8 +283,9 @@ pub unsafe fn cmd_clean() -> i32 {
 // Default prefix is /usr/local. Override with `--prefix <path>` (or
 // `--prefix=<path>`).
 
-unsafe fn install_one(src: &String, dst: &String, mode: str) -> i32 {
-    let mut argv: Vec<String> = vec_new::<String>();
+fn install_one(src: &String, dst: &String, mode: str) -> i32 {
+    unsafe {
+        let mut argv: Vec<String> = vec_new::<String>();
     let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
     push_arg(argv_p, "install");
     push_arg(argv_p, "-D");
@@ -287,9 +294,10 @@ unsafe fn install_one(src: &String, dst: &String, mode: str) -> i32 {
     push_string_arg(argv_p, src);
     push_string_arg(argv_p, dst);
     return run_child(&argv);
+    }
 }
 
-unsafe fn read_prefix() -> String {
+fn read_prefix() -> String {
     let mut s: String = String::new();
     match get_option("prefix", "") {
         Option::Some(v) => { s.push_str(v); }
@@ -298,8 +306,9 @@ unsafe fn read_prefix() -> String {
     return s;
 }
 
-pub unsafe fn cmd_install(m: &Manifest, profile: str) -> i32 {
-    // Build first.
+pub fn cmd_install(m: &Manifest, profile: str) -> i32 {
+    unsafe {
+        // Build first.
     let rc: i32 = cmd_build(m, profile);
     if rc != 0 { return rc; }
 
@@ -357,6 +366,7 @@ pub unsafe fn cmd_install(m: &Manifest, profile: str) -> i32 {
     }
     println_str(1, "lforge: install OK");
     return 0;
+    }
 }
 
 // ── lforge test ───────────────────────────────────────────────────────────
@@ -368,13 +378,12 @@ pub unsafe fn cmd_install(m: &Manifest, profile: str) -> i32 {
 //
 // Failures aggregate; exit code is 0 iff every test passed.
 
-unsafe fn build_test_bin(test_logos: &String,
+fn build_test_bin(test_logos: &String,
                           test_name:  &String,
                           targets:    &Vec<Target>,
                           profile:    str,
                           logosc:     &String,
-                          lib_dir:    &String) -> i32 {
-    // Output dirs.
+                          lib_dir:    &String) -> i32 { unsafe {    // Output dirs.
     let mut td: String = String::new();
     td.push_str(".lforge/");
     td.push_str(profile);
@@ -465,10 +474,11 @@ unsafe fn build_test_bin(test_logos: &String,
     push_arg(largv_p, "-o");
     push_string_arg(largv_p, &bin_p);
     return run_child(&largv);
+    }
 }
 
 // Strip a path's trailing extension. "tests/foo.logos" → "tests/foo".
-unsafe fn strip_dot_logos(s: str) -> String {
+fn strip_dot_logos(s: str) -> String {
     let mut out: String = String::new();
     let n: i64 = s.len();
     let mut stripped: bool = false;
@@ -493,7 +503,7 @@ unsafe fn strip_dot_logos(s: str) -> String {
 }
 
 // Extract base file name from a path: "a/b/c.logos" → "c.logos".
-unsafe fn basename_view(p: str) -> str {
+fn basename_view(p: str) -> str {
     let n: i64 = p.len();
     let mut start: i64 = 0 as i64;
     let mut i: i64 = n - 1 as i64;
@@ -504,8 +514,9 @@ unsafe fn basename_view(p: str) -> str {
     return str_from_raw((p.as_ptr() as i64 + start) as *const u8, n - start);
 }
 
-pub unsafe fn cmd_test(m: &Manifest, profile: str) -> i32 {
-    // 1. Build all lib targets first; bin targets are not needed for tests.
+pub fn cmd_test(m: &Manifest, profile: str) -> i32 {
+    unsafe {
+        // 1. Build all lib targets first; bin targets are not needed for tests.
     let logosc:  String = resolve_logosc_path();
     let lib_dir: String = resolve_logos_lib_dir();
     // External deps are not threaded through cmd_test yet — that lands when
@@ -620,4 +631,5 @@ pub unsafe fn cmd_test(m: &Manifest, profile: str) -> i32 {
     println_string(1, &summary);
     if fail_n > 0 { return 1; }
     return 0;
+    }
 }

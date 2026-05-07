@@ -15,8 +15,9 @@ use lforge.proc;
 // pipes would either serialise them or require multiplexing. Output
 // interleaving is per-line-atomic on libc-line-buffered streams; good
 // enough for build progress.
-pub unsafe fn spawn_inherit(argv: &Vec<String>) -> Child {
-    let n: i64 = argv.length();
+pub fn spawn_inherit(argv: &Vec<String>) -> Child {
+    unsafe {
+        let n: i64 = argv.length();
     let argv_buf: *mut *const u8 = alloc((n + 1 as i64) * 8 as i64) as *mut *const u8;
     let ap: *const Vec<String> = argv as *const Vec<String>;
     let mut i: i64 = 0 as i64;
@@ -29,10 +30,11 @@ pub unsafe fn spawn_inherit(argv: &Vec<String>) -> Child {
     let child: Child = spawn(argv_buf as *const *const u8, false, false, false);
     dealloc(argv_buf as *mut u8);
     return child;
+    }
 }
 
 // Per-file artifact paths under .lforge/<profile>/_files/<lib_name>/.
-pub unsafe fn per_file_dir(profile: str, lib_name: str) -> String {
+pub fn per_file_dir(profile: str, lib_name: str) -> String {
     let mut d: String = String::new();
     d.push_str(".lforge/");
     d.push_str(profile);
@@ -43,7 +45,7 @@ pub unsafe fn per_file_dir(profile: str, lib_name: str) -> String {
 
 // `<dir>/<stem>` — basename of source without `.logos` extension, joined
 // with the per-lib output dir. Caller appends `.o` / `.hermes0`.
-pub unsafe fn per_file_prefix(dir: &String, src_path: &String) -> String {
+pub fn per_file_prefix(dir: &String, src_path: &String) -> String {
     let stem_str: String = stem(str_from_raw(src_path.as_ptr(), src_path.len()));
     let mut p: String = String::new();
     p.push_bytes(dir.as_ptr(), dir.len());
@@ -55,7 +57,7 @@ pub unsafe fn per_file_prefix(dir: &String, src_path: &String) -> String {
 // `<dir>/<basename>.o` — used for native (C/asm) sources. The full
 // basename including extension goes into the object name so foo.c and
 // foo.S don't collide with each other or with foo.logos's foo.o.
-pub unsafe fn native_obj_path(dir: &String, src_path: &String) -> String {
+pub fn native_obj_path(dir: &String, src_path: &String) -> String {
     let bn_str: String = basename(str_from_raw(src_path.as_ptr(), src_path.len()));
     let mut p: String = String::new();
     p.push_bytes(dir.as_ptr(), dir.len());
@@ -67,8 +69,9 @@ pub unsafe fn native_obj_path(dir: &String, src_path: &String) -> String {
 
 // Spawn `cc -c <src> -o <obj>` for a single C/asm file. cc handles both
 // .c and .S via file extension, so this one helper covers both.
-pub unsafe fn spawn_native_compile(src_path: &String, obj_path: &String) -> Child {
-    let mut argv: Vec<String> = vec_new::<String>();
+pub fn spawn_native_compile(src_path: &String, obj_path: &String) -> Child {
+    unsafe {
+        let mut argv: Vec<String> = vec_new::<String>();
     let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
     push_arg(argv_p, "cc");
     push_arg(argv_p, "-c");
@@ -76,4 +79,5 @@ pub unsafe fn spawn_native_compile(src_path: &String, obj_path: &String) -> Chil
     push_arg(argv_p, "-o");
     push_string_arg(argv_p, obj_path);
     return spawn_inherit(&argv);
+    }
 }

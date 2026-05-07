@@ -17,9 +17,8 @@ use lforge.proc;
 use lforge.build_paths;
 use lforge.spawn_helpers;
 
-pub unsafe fn build_lib(t: &Target, profile: str, logosc: &String,
-                        externals: &Vec<ExternalLib>) -> i32 {
-    let lib_name_view: str = str_from_raw(t.name.as_ptr(), t.name.len());
+pub fn build_lib(t: &Target, profile: str, logosc: &String,
+                        externals: &Vec<ExternalLib>) -> i32 { unsafe {    let lib_name_view: str = str_from_raw(t.name.as_ptr(), t.name.len());
 
     // ── Walk Logos source dir, if any ────────────────────────────────────
     let mut sources: Vec<String> = vec_new::<String>();
@@ -320,15 +319,15 @@ pub unsafe fn build_lib(t: &Target, profile: str, logosc: &String,
         return 1;
     }
     return 0;
+    }
 }
 
-pub unsafe fn build_bin(t: &Target,
+pub fn build_bin(t: &Target,
                         targets: &Vec<Target>,
                         profile: str,
                         logosc: &String,
                         lib_dir: &String,
-                        externals: &Vec<ExternalLib>) -> i32 {
-    if t.entry.len() == 0 as i64 {
+                        externals: &Vec<ExternalLib>) -> i32 { unsafe {    if t.entry.len() == 0 as i64 {
         println_str(2, "lforge: bin target missing 'entry'");
         return 1;
     }
@@ -487,4 +486,5 @@ pub unsafe fn build_bin(t: &Target,
     prefix2.push_bytes(t.name.as_ptr(), t.name.len());
     println_string(1, &prefix2);
     return run_child(&largv);
+    }
 }

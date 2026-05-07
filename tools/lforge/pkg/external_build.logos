@@ -26,8 +26,9 @@ use lforge.build_cache;
 
 // B5: lookup a replace entry by canonicalised project display id. Returns
 // the absolute substitute path on hit, or empty String on miss.
-unsafe fn replace_lookup(replaces: &Vec<ReplaceEntry>, project_canonical: str) -> String {
-    let n: i64 = replaces.length();
+fn replace_lookup(replaces: &Vec<ReplaceEntry>, project_canonical: str) -> String {
+    unsafe {
+        let n: i64 = replaces.length();
     let rp: *const Vec<ReplaceEntry> = replaces as *const Vec<ReplaceEntry>;
     let mut i: i64 = 0 as i64;
     while i < n {
@@ -44,15 +45,15 @@ unsafe fn replace_lookup(replaces: &Vec<ReplaceEntry>, project_canonical: str) -
         i = i + 1 as i64;
     }
     return String::new();
+    }
 }
 
-pub unsafe fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
+pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
                              lock_in: &Vec<LockEntry>,
                              lock_out: *mut Vec<LockEntry>,
                              visited: *mut Vec<String>,
                              winners: *mut Vec<GitWinner>,
-                             replaces: &Vec<ReplaceEntry>) -> Result<Vec<ExternalLib>, i32> {
-    let saved: String = save_cwd();
+                             replaces: &Vec<ReplaceEntry>) -> Result<Vec<ExternalLib>, i32> { unsafe {    let saved: String = save_cwd();
     if saved.len() == 0 as i64 {
         println_str(2, "lforge: getcwd failed");
         return Result::Err(1);
@@ -333,15 +334,15 @@ pub unsafe fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
         return Result::Err(1);
     }
     return Result::Ok(out);
+    }
 }
 
-pub unsafe fn build_all_externals(deps: &Vec<ExternalDep>, profile: str, logosc: &String,
+pub fn build_all_externals(deps: &Vec<ExternalDep>, profile: str, logosc: &String,
                                   lock_in: &Vec<LockEntry>,
                                   lock_out: *mut Vec<LockEntry>,
                                   visited:  *mut Vec<String>,
                                   winners:  *mut Vec<GitWinner>,
-                                  replaces: &Vec<ReplaceEntry>) -> Result<Vec<ExternalLib>, i32> {
-    let mut all: Vec<ExternalLib> = vec_new::<ExternalLib>();
+                                  replaces: &Vec<ReplaceEntry>) -> Result<Vec<ExternalLib>, i32> { unsafe {    let mut all: Vec<ExternalLib> = vec_new::<ExternalLib>();
     let allp: *mut Vec<ExternalLib> = (&mut all) as *mut Vec<ExternalLib>;
     let n: i64 = deps.length();
     let dp: *const Vec<ExternalDep> = deps as *const Vec<ExternalDep>;
@@ -370,4 +371,5 @@ pub unsafe fn build_all_externals(deps: &Vec<ExternalDep>, profile: str, logosc:
         i = i + 1 as i64;
     }
     return Result::Ok(all);
+    }
 }

@@ -23,8 +23,9 @@ pub unsafe fn push_string_arg(args: *mut Vec<String>, s: &String) {
     args.push(a);
 }
 
-pub unsafe fn run_child(argv_strs: &Vec<String>) -> i32 {
-    let n: i64 = argv_strs.length();
+pub fn run_child(argv_strs: &Vec<String>) -> i32 {
+    unsafe {
+        let n: i64 = argv_strs.length();
     let argv_buf: *mut *const u8 = alloc((n + 1 as i64) * 8 as i64) as *mut *const u8;
     let mut i: i64 = 0 as i64;
     let ap: *const Vec<String> = argv_strs as *const Vec<String>;
@@ -58,12 +59,14 @@ pub unsafe fn run_child(argv_strs: &Vec<String>) -> i32 {
     let st: ExitStatus = child.wait();
     dealloc(argv_buf as *mut u8);
     return st.code();
+    }
 }
 
 // Spawn `argv` and capture stdout into a String. Stderr is forwarded to the
 // parent's stderr. Used for short-output commands like `git ls-remote`.
-pub unsafe fn run_child_capture_stdout(argv_strs: &Vec<String>) -> (i32, String) {
-    let n: i64 = argv_strs.length();
+pub fn run_child_capture_stdout(argv_strs: &Vec<String>) -> (i32, String) {
+    unsafe {
+        let n: i64 = argv_strs.length();
     let argv_buf: *mut *const u8 = alloc((n + 1 as i64) * 8 as i64) as *mut *const u8;
     let mut i: i64 = 0 as i64;
     let ap: *const Vec<String> = argv_strs as *const Vec<String>;
@@ -101,4 +104,5 @@ pub unsafe fn run_child_capture_stdout(argv_strs: &Vec<String>) -> (i32, String)
     let st: ExitStatus = child.wait();
     dealloc(argv_buf as *mut u8);
     return (st.code(), out);
+    }
 }

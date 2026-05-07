@@ -12,8 +12,9 @@ use std.collections.vec;
 use lforge.schema;
 use lforge.util;
 
-pub unsafe fn find_target_index(targets: &Vec<Target>, name: str) -> i64 {
-    let n: i64 = targets.length();
+pub fn find_target_index(targets: &Vec<Target>, name: str) -> i64 {
+    unsafe {
+        let n: i64 = targets.length();
     let tp: *const Vec<Target> = targets as *const Vec<Target>;
     let mut i: i64 = 0 as i64;
     while i < n {
@@ -23,10 +24,12 @@ pub unsafe fn find_target_index(targets: &Vec<Target>, name: str) -> i64 {
         i = i + 1 as i64;
     }
     return 0 as i64 - 1 as i64;
+    }
 }
 
-pub unsafe fn external_lookup(externals: &Vec<ExternalLib>, name: str) -> i64 {
-    let n: i64 = externals.length();
+pub fn external_lookup(externals: &Vec<ExternalLib>, name: str) -> i64 {
+    unsafe {
+        let n: i64 = externals.length();
     let lp: *const Vec<ExternalLib> = externals as *const Vec<ExternalLib>;
     let mut i: i64 = 0 as i64;
     while i < n {
@@ -36,13 +39,15 @@ pub unsafe fn external_lookup(externals: &Vec<ExternalLib>, name: str) -> i64 {
         i = i + 1 as i64;
     }
     return 0 as i64 - 1 as i64;
+    }
 }
 
 // Returns an order of indices into `targets` such that for any i in the
 // order, all of targets[i].deps appear before i. Errors out on cycles or
 // unknown dep names.
-pub unsafe fn topo_order(targets: &Vec<Target>, externals: &Vec<ExternalLib>) -> Result<Vec<i64>, ManifestError> {
-    let n: i64 = targets.length();
+pub fn topo_order(targets: &Vec<Target>, externals: &Vec<ExternalLib>) -> Result<Vec<i64>, ManifestError> {
+    unsafe {
+        let n: i64 = targets.length();
     let tp: *const Vec<Target> = targets as *const Vec<Target>;
 
     // state: 0 = unvisited, 1 = visiting (on stack), 2 = done.
@@ -128,4 +133,5 @@ pub unsafe fn topo_order(targets: &Vec<Target>, externals: &Vec<ExternalLib>) ->
         return Result::Err(ManifestError { message: err_buf });
     }
     return Result::Ok(order);
+    }
 }
