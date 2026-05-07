@@ -157,10 +157,10 @@ fn helper() -> i32 {
 
 Moved to Regression list below.
 
-### B-st-10: For-iteration over non-iterable detects but lacks "what's iterable" hint
+### B-st-10: For-iteration over non-iterable detects but lacks "what's iterable" hint — FIXED
 
 **Severity**: P2 (diagnostic quality)
-**Status**: confirmed (2026-05-04, low priority)
+**Status**: FIXED (2026-05-07) — diagnostic now reads `for-in: '<type>' is not iterable. Iterable scrutinees: arrays ([T; N]), slices (&[T] / str), or a struct exposing 'fn next(&mut self) -> Option<T>'`. Source: `src/compiler/sema_stmt.cpp:2558`.
 **Repro**: `B11/` —
 ```logos
 fn main() -> i32 { for x in 5 { let _ = x; } return 0; }
@@ -179,7 +179,7 @@ fn main() -> i32 { for x in 5 { let _ = x; } return 0; }
 | `tech-debt:no-reachability-lint` | 0 | 2 | 2 | B-st-07, B-st-08 |
 | `tech-debt:assignment-matrix-incomplete` | 0 | 1 | 1 | B-st-04 |
 | `tech-debt:diagnostic-from-codegen` | 0 | 1 | 1 | B-st-05 |
-| `tech-debt:diagnostic-help-missing` | 1 | 0 | 1 | B-st-10 |
+| `tech-debt:diagnostic-help-missing` | 0 | 1 | 1 | B-st-10 |
 | `tech-debt:divergence-not-checked` | 0 | 1 | 1 | B-st-03 |
 | `tech-debt:label-not-validated` | 0 | 1 | 1 | B-st-06 |
 | `tech-debt:misleading-diagnostic` | 0 | 1 | 1 | B-st-02 |

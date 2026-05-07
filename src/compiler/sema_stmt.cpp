@@ -2555,7 +2555,11 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
     if (TypeRef(iter_type).kind() != LogosType::Kind::Error) {
         auto sname = struct_name_from_type(iter_type);
         if (sname.empty()) {
-            error(std::format("for-in: '{}' is not iterable (not a struct)", type_str(iter_type)));
+            error(std::format(
+                "for-in: '{}' is not iterable. Iterable scrutinees: arrays "
+                "([T; N]), slices (&[T] / str), or a struct exposing "
+                "`fn next(&mut self) -> Option<T>`",
+                type_str(iter_type)));
             return builder().stmt_break(nullptr, "", node_line_);
         }
 

@@ -68,10 +68,10 @@ logosc: MLIR generation failed
 **Suspected root**: Same as B-ty-04 (too-few-type-args pattern). `instantiate_decl` doesn't validate arity against the template's type-params count.
 **Tags**: `tech-debt:missing-arity-check`, `tech-debt:diagnostic-from-codegen`
 
-### B-mt-04: Unknown trigger attribute (`#[no_such_trigger]`) silently accepted
+### B-mt-04: Unknown trigger attribute (`#[no_such_trigger]`) silently accepted — FIXED
 
-**Severity**: P1 (silent miscompile)
-**Status**: confirmed (2026-05-04, also B-at-01)
+**Severity**: was P1 (silent miscompile)
+**Status**: FIXED (re-verified 2026-05-07) — emits `warning: unknown attribute '#[no_such_trigger]' — not a builtin, not a registered metaprog-handler trigger, and not an '#[annotation]' datatype.` (`src/compiler/sema_collect.cpp:355` — B-at-01 implementation also covers metaprog triggers).
 **Repro**: `B14/` —
 ```logos
 #[no_such_trigger]
@@ -117,7 +117,7 @@ All run at compile time via a synthesised JIT thunk and splice the result back a
 | `tech-debt:diagnostic-from-codegen` | 0 | 1 | 0 | 1 | B-mt-03 |
 | `tech-debt:misleading-diagnostic` | 0 | 0 | 1 | 1 | B-mt-01 |
 | `tech-debt:missing-arity-check` | 0 | 1 | 0 | 1 | B-mt-03 |
-| `tech-debt:no-attribute-validation` | 1 | 0 | 0 | 1 | B-mt-04 |
+| `tech-debt:no-attribute-validation` | 0 | 1 | 0 | 1 | B-mt-04 |
 | `tech-debt:no-validation` | 0 | 1 | 0 | 1 | B-mt-02 |
 | `tech-debt:wrong-error-context` | 0 | 0 | 1 | 1 | B-mt-01 |
 
