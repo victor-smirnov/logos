@@ -3431,11 +3431,22 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 std::string concrete_mangled = concrete_enum + "__" + std::string(method_name);
                 std::string callee_name = concrete_mangled;
                 if (!fi_ptr->symbol_name.empty()) {
+                    // sema may pkg-qualify the symbol (`pkg.Base__method__f__sig`).
+                    // Strip pkg prefix before splicing in the concrete enum
+                    // name, then re-attach it.
+                    std::string_view sym = fi_ptr->symbol_name;
+                    std::string fn_pkg;
+                    if (auto dot = sym.rfind('.'); dot != std::string_view::npos) {
+                        fn_pkg = std::string(sym.substr(0, dot));
+                        sym = sym.substr(dot + 1);
+                    }
                     std::string enum_prefix = base + "__";
-                    if (fi_ptr->symbol_name.rfind(enum_prefix, 0) == 0)
-                        callee_name = concrete_enum + fi_ptr->symbol_name.substr(base.size());
+                    std::string bare;
+                    if (sym.compare(0, enum_prefix.size(), enum_prefix) == 0)
+                        bare = concrete_enum + std::string(sym.substr(base.size()));
                     else
-                        callee_name = fi_ptr->symbol_name;
+                        bare = std::string(sym);
+                    callee_name = fn_pkg.empty() ? bare : fn_pkg + "." + bare;
                 }
                 std::vector<lir::LExprPtr> pargs;
                 pargs.push_back(std::move(recv));
