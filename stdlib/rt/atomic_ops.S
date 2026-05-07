@@ -99,3 +99,6 @@ logos_atomic_cas32:
     movzbl  %al, %eax
     ret
     .size   logos_atomic_cas32, .-logos_atomic_cas32
+
+
+.section .note.GNU-stack,"",%progbits

@@ -182,3 +182,6 @@ logos_reactor_set:
     .size   logos_reactor_set, .-logos_reactor_set
 
 // Atomic primitives moved to atomic_ops.S (this TU stays pure-fiber/TLS).
+
+
+.section .note.GNU-stack,"",%progbits
