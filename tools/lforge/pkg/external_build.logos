@@ -1,0 +1,250 @@
+// SPDX-License-Identifier: Apache-2.0
+// lforge — closure walk over project-level deps. For each dep:
+//   * resolve to a filesystem path (local or git cache)
+//   * detect MVS conflicts via the winners ledger
+//   * recurse into its own deps before building its libs
+//   * record produced archives for the parent consumer
+//
+// Cycle/dup guard via `visited` (absolute paths).
+
+package lforge.external_build;
+
+use std.lang.text;
+use std.lang.result;
+use std.collections.vec;
+
+use lforge.schema;
+use lforge.util;
+use lforge.cwd;
+use lforge.manifest;
+use lforge.lockfile;
+use lforge.git_dep;
+use lforge.topo;
+use lforge.build_paths;
+use lforge.builder;
+
+pub unsafe fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
+                             lock_in: &Vec<LockEntry>,
+                             lock_out: *mut Vec<LockEntry>,
+                             visited: *mut Vec<String>,
+                             winners: *mut Vec<GitWinner>) -> Result<Vec<ExternalLib>, i32> {
+    let saved: String = save_cwd();
+    if saved.len() == 0 as i64 {
+        println_str(2, "lforge: getcwd failed");
+        return Result::Err(1);
+    }
+
+    // Local `path:` -> use as-is. Git `project:` -> resolve to a cache path
+    // (lockfile fast-path or ls-remote + clone). MVS conflict check before
+    // we commit to fetching: if another consumer already pinned this
+    // project to a higher version, silently defer to that one; a lower
+    // pin would require an upgrade we don't support yet.
+    let mut resolved_path: String = String::new();
+    let mut resolved_display: String = String::new();
+    let mut resolved_sha: String = String::new();
+    let mut resolved_tag: String = String::new();
+    if dep.path.len() > 0 as i64 {
+        resolved_path.push_bytes(dep.path.as_ptr(), dep.path.len());
+    } else {
+        match resolve_git_dep(dep, lock_in, lock_out) {
+            Result::Err(rc) => { return Result::Err(rc); }
+            Result::Ok(t)   => {
+                resolved_path = t.0;
+                resolved_display = t.1;
+                resolved_sha = t.2;
+            }
+        }
+        if dep.tag.len() > 0 as i64 {
+            resolved_tag.push_bytes(dep.tag.as_ptr(), dep.tag.len());
+        }
+        let dview: str = str_from_raw(resolved_display.as_ptr(), resolved_display.len());
+        let tview: str = str_from_raw(resolved_tag.as_ptr(),     resolved_tag.len());
+        let sview: str = str_from_raw(resolved_sha.as_ptr(),     resolved_sha.len());
+        let verdict: i32 = check_git_winner(&(*winners), dview, tview, sview);
+        if verdict == 2 as i32 || verdict == 1 as i32 {
+            // 1 = same SHA already a winner (transitive dup). 2 = higher
+            // version already wins. Either way: skip without recursing or
+            // building. Symbols of this project are already covered by the
+            // existing winner.
+            return Result::Ok(vec_new::<ExternalLib>());
+        }
+        if verdict == 0 as i32 - 1 as i32 {
+            print_str(2, "lforge: project '");
+            print_str(2, dview);
+            print_str(2, "' requested at version '");
+            print_str(2, tview);
+            print_str(2, "' but a lower-version pin is already in this build's closure. ");
+            println_str(2, "Full MVS upgrade not yet implemented; use a `replace:` directive in the manifest to choose explicitly.");
+            return Result::Err(1);
+        }
+        let mut display_c: String = String::new();
+        display_c.push_bytes(resolved_display.as_ptr(), resolved_display.len());
+        let mut tag_c: String = String::new();
+        tag_c.push_bytes(resolved_tag.as_ptr(), resolved_tag.len());
+        let mut sha_c: String = String::new();
+        sha_c.push_bytes(resolved_sha.as_ptr(), resolved_sha.len());
+        winners.push(GitWinner { display: display_c, tag: tag_c, sha: sha_c });
+    }
+
+    // Cycle / duplicate guard: skip if we've already built this absolute
+    // path. Returns empty Vec — modules already produced earlier in the
+    // walk are visible via the parent's externals accumulator.
+    let abs_path: String = make_absolute(str_from_raw(resolved_path.as_ptr(), resolved_path.len()));
+    let abs_view: str = str_from_raw(abs_path.as_ptr(), abs_path.len());
+    let vn: i64 = (*visited).length();
+    let vp: *const Vec<String> = visited as *const Vec<String>;
+    let mut vi: i64 = 0 as i64;
+    while vi < vn {
+        let s: *const String = vp.at_const(vi);
+        let sv: str = str_from_raw((*s).as_ptr(), (*s).len());
+        if str_eq_local(sv, abs_view) {
+            return Result::Ok(vec_new::<ExternalLib>());
+        }
+        vi = vi + 1 as i64;
+    }
+    let mut abs_copy: String = String::new();
+    abs_copy.push_bytes(abs_path.as_ptr(), abs_path.len());
+    visited.push(abs_copy);
+
+    let path_view: str = str_from_raw(resolved_path.as_ptr(), resolved_path.len());
+    if chdir_str(path_view) != 0 {
+        let mut msg: String = String::new();
+        msg.push_str("lforge: cannot chdir into external dep ");
+        msg.push_str(path_view);
+        println_string(2, &msg);
+        return Result::Err(1);
+    }
+
+    let m: Manifest = match read_manifest("./lforge.hermes") {
+        Result::Err(e) => {
+            print_str(2, "lforge: external dep ");
+            print_str(2, path_view);
+            print_str(2, ": ");
+            println_str(2, str_from_raw(e.message.as_ptr(), e.message.len()));
+            chdir_str(str_from_raw(saved.as_ptr(), saved.len()));
+            return Result::Err(1);
+        }
+        Result::Ok(m) => { m }
+    };
+
+    // Recurse into the external's own project-level deps before building.
+    // We're currently chdir'd in the external; child resolutions chdir
+    // further and restore back to here.
+    let mut out: Vec<ExternalLib> = vec_new::<ExternalLib>();
+    let outp: *mut Vec<ExternalLib> = (&mut out) as *mut Vec<ExternalLib>;
+    if m.deps.length() > 0 as i64 {
+        match build_all_externals(&m.deps, profile, logosc, lock_in, lock_out, visited, winners) {
+            Result::Err(rc) => {
+                chdir_str(str_from_raw(saved.as_ptr(), saved.len()));
+                return Result::Err(rc);
+            }
+            Result::Ok(sublibs) => {
+                let sn: i64 = sublibs.length();
+                let sp: *const Vec<ExternalLib> = (&sublibs) as *const Vec<ExternalLib>;
+                let mut si: i64 = 0 as i64;
+                while si < sn {
+                    let lb: *const ExternalLib = sp.at_const(si);
+                    let mut nm_c: String = String::new();
+                    nm_c.push_bytes((*lb).name.as_ptr(), (*lb).name.len());
+                    let mut ap_c: String = String::new();
+                    ap_c.push_bytes((*lb).archive_path.as_ptr(), (*lb).archive_path.len());
+                    outp.push(ExternalLib { name: nm_c, archive_path: ap_c });
+                    si = si + 1 as i64;
+                }
+            }
+        }
+    }
+
+    // Build only the requested modules. Each one must exist as a `kind: lib`
+    // target in the external manifest.
+    let mn: i64 = dep.modules.length();
+    let mp: *const Vec<String> = (&dep.modules) as *const Vec<String>;
+    let mut i: i64 = 0 as i64;
+    while i < mn {
+        let nm: *const String = mp.at_const(i);
+        let nm_view: str = str_from_raw((*nm).as_ptr(), (*nm).len());
+        let idx: i64 = find_target_index(&m.targets, nm_view);
+        if idx < 0 as i64 {
+            print_str(2, "lforge: external dep ");
+            print_str(2, path_view);
+            print_str(2, ": no lib target named ");
+            println_str(2, nm_view);
+            chdir_str(str_from_raw(saved.as_ptr(), saved.len()));
+            return Result::Err(1);
+        }
+        let tp: *const Vec<Target> = (&m.targets) as *const Vec<Target>;
+        let t: *const Target = tp.at_const(idx);
+        match (*t).kind {
+            TargetKind::Lib => { }
+            TargetKind::Bin => {
+                print_str(2, "lforge: external dep ");
+                print_str(2, path_view);
+                print_str(2, ": '");
+                print_str(2, nm_view);
+                println_str(2, "' is a bin target — only libs can be exported");
+                chdir_str(str_from_raw(saved.as_ptr(), saved.len()));
+                return Result::Err(1);
+            }
+        }
+        // External's lib is built with the closure of already-resolved
+        // externals (its own deps + their transitives) visible to logosc.
+        let rc: i32 = build_lib(&(*t), profile, logosc, &out);
+        if rc != 0 {
+            print_str(2, "lforge: external dep ");
+            print_str(2, path_view);
+            print_str(2, ": build of '");
+            print_str(2, nm_view);
+            println_str(2, "' failed");
+            chdir_str(str_from_raw(saved.as_ptr(), saved.len()));
+            return Result::Err(rc);
+        }
+        // Resolve the produced archive to an absolute path so the consumer
+        // can reference it after we chdir back.
+        let rel_arch: String = lib_archive_path(profile, nm_view);
+        let abs_arch: String = make_absolute(str_from_raw(rel_arch.as_ptr(), rel_arch.len()));
+        let mut nm_copy: String = String::new();
+        nm_copy.push_bytes((*nm).as_ptr(), (*nm).len());
+        outp.push(ExternalLib { name: nm_copy, archive_path: abs_arch });
+        i = i + 1 as i64;
+    }
+
+    if chdir_str(str_from_raw(saved.as_ptr(), saved.len())) != 0 {
+        println_str(2, "lforge: cannot restore cwd after building external dep");
+        return Result::Err(1);
+    }
+    return Result::Ok(out);
+}
+
+pub unsafe fn build_all_externals(deps: &Vec<ExternalDep>, profile: str, logosc: &String,
+                                  lock_in: &Vec<LockEntry>,
+                                  lock_out: *mut Vec<LockEntry>,
+                                  visited:  *mut Vec<String>,
+                                  winners:  *mut Vec<GitWinner>) -> Result<Vec<ExternalLib>, i32> {
+    let mut all: Vec<ExternalLib> = vec_new::<ExternalLib>();
+    let allp: *mut Vec<ExternalLib> = (&mut all) as *mut Vec<ExternalLib>;
+    let n: i64 = deps.length();
+    let dp: *const Vec<ExternalDep> = deps as *const Vec<ExternalDep>;
+    let mut i: i64 = 0 as i64;
+    while i < n {
+        let d: *const ExternalDep = dp.at_const(i);
+        match build_external(&(*d), profile, logosc, lock_in, lock_out, visited, winners) {
+            Result::Err(rc) => { return Result::Err(rc); }
+            Result::Ok(libs) => {
+                let m: i64 = libs.length();
+                let lp: *const Vec<ExternalLib> = (&libs) as *const Vec<ExternalLib>;
+                let mut j: i64 = 0 as i64;
+                while j < m {
+                    let lb: *const ExternalLib = lp.at_const(j);
+                    let mut nm_copy: String = String::new();
+                    nm_copy.push_bytes((*lb).name.as_ptr(), (*lb).name.len());
+                    let mut ap_copy: String = String::new();
+                    ap_copy.push_bytes((*lb).archive_path.as_ptr(), (*lb).archive_path.len());
+                    allp.push(ExternalLib { name: nm_copy, archive_path: ap_copy });
+                    j = j + 1 as i64;
+                }
+            }
+        }
+        i = i + 1 as i64;
+    }
+    return Result::Ok(all);
+}
