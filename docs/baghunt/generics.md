@@ -71,10 +71,10 @@ fn main() -> i32 { return 0; }
 **Suspected root**: Same `missing-arity-check` cluster as B-ty-03/04/05 — bound-arg count not validated.
 **Tags**: `tech-debt:missing-arity-check`
 
-### B-gn-05: Type-param shadowing user struct produces misleading diagnostic
+### B-gn-05: Type-param shadowing user struct produces misleading diagnostic — FIXED
 
 **Severity**: P1 diagnostic
-**Status**: partial — defensive shadow-warning in collect_fn (struct/enum/trait); the `<Bar>` parser-collapse case still slips through (parser issue, not diagnostic)
+**Status**: FIXED (2026-05-07) — sema now validates at end of lower that every entry in `prog.specializations` has a matching generic in `prog.functions`. `fn helper<Bar>(x: Bar) -> Bar { ... }` (where `Bar` is a known type and there is no `fn helper<T>(...)` to specialise on) now produces: `specialisation 'fn helper<...>' has no generic counterpart 'fn helper<T>' to specialise on. If you meant a regular free fn, rename the type parameter so it doesn't shadow an existing type.` Source: end-of-lower validator in `src/compiler/sema.cpp`. Regression test: `tests/logos/fail/spec_without_generic`. Real free-fn specialisation (`spec_dispatch.logos`) continues to work.
 **Repro**: `B13/` —
 ```logos
 struct Bar { x: i32 }

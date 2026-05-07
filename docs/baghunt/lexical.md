@@ -33,10 +33,10 @@
 **Suspected root**: Same as B-lx-01 — lexer fails on the first byte not being ASCII or expected token. Logos rejects all non-ASCII at lexer level (per [feat_unicode_parser](../../../.claude/projects/-home-victor-devel-logos/memory/feat_unicode_parser.md)) but does so via assertion.
 **Tags**: `tech-debt:assertion-as-diagnostic`, `oversight:simple`
 
-### B-lx-03: Non-ASCII identifier silently rejected with cryptic syntax error
+### B-lx-03: Non-ASCII identifier silently rejected with cryptic syntax error — improved
 
-**Severity**: P1 diagnostic (known per [feat_unicode_parser](../../../.claude/projects/-home-victor-devel-logos/memory/feat_unicode_parser.md))
-**Status**: confirmed-known (2026-05-04)
+**Severity**: P1 diagnostic
+**Status**: improved (2026-05-07) — when a syntax error fires and the offending line contains any non-ASCII byte, the message appends `(note: identifiers must be ASCII; non-ASCII bytes found on this line)`. Doesn't fix the underlying limitation (non-ASCII idents are still rejected) — that's a language-design call tracked by [feat_unicode_parser](../../../.claude/projects/-home-victor-devel-logos/memory/feat_unicode_parser.md) — but the user-visible diagnostic now points at the actual problem.
 **Repro**: `B02/` —
 ```logos
 package main;
@@ -113,7 +113,7 @@ fn main() -> i32 { let c: u8 = 'A'; return c as i32; }
 | `tech-debt:diagnostic-imprecise` | 0 | 1 | 1 | B-lx-05 |
 | `tech-debt:lexer-greedy-collision` | 0 | 1 | 1 | B-lx-07 |
 | `tech-debt:literal-saturation-no-error` | 0 | 1 | 1 | B-lx-04 |
-| `tech-debt:misleading-diagnostic` | 1 | 0 | 1 | B-lx-03 |
+| `tech-debt:misleading-diagnostic` | 0 | 1 | 1 | B-lx-03 |
 
 **Cluster updates after Lexical**:
 - `tech-debt:assertion-as-diagnostic` now at **6 bugs** (B-mv-05/06/07/08, B-lx-01, B-lx-02). Strongest cluster — single architectural fix in parser error-recovery closes all 6 P0 crashes.

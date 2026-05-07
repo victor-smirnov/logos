@@ -1,0 +1,12 @@
+// B-gn-05: a free fn with type parameter that names an existing type is
+// parsed as a specialisation. Without an underlying generic counterpart
+// (`fn helper<T>(...)`), it silently disappears, and the call site reports
+// the misleading "undefined function 'helper'". Sema should reject the
+// orphan specialisation up front.
+package spec_without_generic;
+
+struct Bar { x: i32 }
+
+fn helper<Bar>(x: Bar) -> Bar { return x; }
+
+fn main() -> i32 { return helper::<i32>(5); }

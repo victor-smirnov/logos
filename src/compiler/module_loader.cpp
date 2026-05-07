@@ -464,11 +464,28 @@ std::vector<ParsedModule> load_modules(
                 err_line = nxt_line;
                 err_col  = parser.next_column();
             }
+            // B-lx-03: identifiers are ASCII-only. If the failing line carries
+            // a high-bit byte, the bare "syntax error near 'fn'" is misleading
+            // (the lexer slurped 'привет' as bytes the parser then couldn't
+            // classify). Surface that explicitly.
+            const char* hint = "";
+            uint32_t line_no = 1, line_start = 0;
+            for (size_t i = 0; i < source.size(); ++i) {
+                if (line_no == err_line) break;
+                if (source[i] == '\n') { ++line_no; line_start = static_cast<uint32_t>(i + 1); }
+            }
+            for (size_t i = line_start; i < source.size() && source[i] != '\n'; ++i) {
+                if (static_cast<unsigned char>(source[i]) >= 0x80) {
+                    hint = " (note: identifiers must be ASCII; non-ASCII bytes "
+                           "found on this line)";
+                    break;
+                }
+            }
             std::fprintf(stderr,
-                "error [%s]: syntax error near '%.*s' at line %u col %u\n",
+                "error [%s]: syntax error near '%.*s' at line %u col %u%s\n",
                 canonical.c_str(),
                 static_cast<int>(err_text.size()), err_text.data(),
-                err_line, err_col);
+                err_line, err_col, hint);
             return {};
         }
         auto uses = extract_uses(ast);

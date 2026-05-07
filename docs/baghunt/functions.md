@@ -67,10 +67,10 @@ fn main() -> i32 { return add(1, 2,); }
 **Suspected root**: `call_arg_list` grammar lacks `COMMA?` at end.
 **Tags**: `oversight:simple`, `design:incomplete`
 
-### B-fn-05: Multi-line fn signatures rejected
+### B-fn-05: Multi-line fn signatures rejected — FIXED
 
 **Severity**: P2 design (ergonomics)
-**Status**: confirmed-known (already in [feedback_logos_fn_sig_oneline](../../../.claude/projects/-home-victor-devel-logos/memory/feedback_logos_fn_sig_oneline.md))
+**Status**: FIXED (re-verified 2026-05-07) — multi-line param lists with trailing commas parse and run correctly. Likely closed by the trailing-comma cluster work (B-fn-03/04/09). The [feedback_logos_fn_sig_oneline](../../../.claude/projects/-home-victor-devel-logos/memory/feedback_logos_fn_sig_oneline.md) memo was stale and has been removed.
 **Repro**: `B06/` —
 ```logos
 fn helper(

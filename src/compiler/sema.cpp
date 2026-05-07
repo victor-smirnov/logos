@@ -1206,6 +1206,32 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
         }
     }
 
+    // B-gn-05: every specialisation `fn helper<Foo>` needs a generic `fn
+    // helper<T>` to specialise on; otherwise the def silently disappears
+    // (lowered into prog.specializations, never resolved at call sites)
+    // and the user gets a misleading "undefined function 'helper'".
+    {
+        std::set<std::string> generic_bases;
+        for (auto& f : prog.functions) {
+            if (!f->type_params.empty())
+                generic_bases.insert(std::string(bare_fn_name(f->name)));
+        }
+        for (auto& s : prog.specializations) {
+            // s->name is the bare base (e.g. "helper" / "describe").
+            if (!generic_bases.count(std::string(bare_fn_name(s->name)))) {
+                ctx_  = std::format("fn {}", s->name);
+                file_ = s->source_file;
+                node_line_ = 0;
+                error(std::format(
+                    "specialisation 'fn {}<...>' has no generic counterpart "
+                    "'fn {}<T>' to specialise on. If you meant a regular "
+                    "free fn, rename the type parameter so it doesn't shadow "
+                    "an existing type.",
+                    s->name, s->name));
+            }
+        }
+    }
+
     prog.diags      = std::move(result_);
     prog.metaprog_handlers = std::move(metaprog_handlers_);
     prog.metaprog_targets = std::move(metaprog_targets_);
