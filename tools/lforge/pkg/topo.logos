@@ -1,0 +1,118 @@
+// SPDX-License-Identifier: Apache-2.0
+// lforge — topological sort of build targets by their declared deps,
+// plus external_lookup which the sort consults to allow target.deps to
+// reference external lib names.
+
+package lforge.topo;
+
+use std.lang.text;
+use std.lang.result;
+use std.collections.vec;
+
+use lforge.schema;
+use lforge.util;
+
+pub unsafe fn external_lookup(externals: &Vec<ExternalLib>, name: str) -> i64 {
+    let n: i64 = externals.length();
+    let lp: *const Vec<ExternalLib> = externals as *const Vec<ExternalLib>;
+    let mut i: i64 = 0 as i64;
+    while i < n {
+        let lb: *const ExternalLib = lp.at_const(i);
+        let nm_view: str = str_from_raw((*lb).name.as_ptr(), (*lb).name.len());
+        if str_eq_local(nm_view, name) { return i; }
+        i = i + 1 as i64;
+    }
+    return 0 as i64 - 1 as i64;
+}
+
+// Returns an order of indices into `targets` such that for any i in the
+// order, all of targets[i].deps appear before i. Errors out on cycles or
+// unknown dep names.
+pub unsafe fn topo_order(targets: &Vec<Target>, externals: &Vec<ExternalLib>) -> Result<Vec<i64>, ManifestError> {
+    let n: i64 = targets.length();
+    let tp: *const Vec<Target> = targets as *const Vec<Target>;
+
+    // state: 0 = unvisited, 1 = visiting (on stack), 2 = done.
+    let state: *mut u8 = alloc(n);
+    let mut s_init: i64 = 0 as i64;
+    while s_init < n { state[s_init] = 0 as u8; s_init = s_init + 1 as i64; }
+
+    let mut order: Vec<i64> = vec_new::<i64>();
+    let order_p: *mut Vec<i64> = (&mut order) as *mut Vec<i64>;
+
+    // Recursion helper. Returns Err on cycle / unknown.
+    let mut err_buf: String = String::new();
+    let mut have_err: bool = false;
+    // Iterative DFS using an explicit stack of (target_idx, dep_cursor).
+    let mut work_idx: *mut i64 = alloc(n * 8 as i64) as *mut i64;
+    let mut work_cur: *mut i64 = alloc(n * 8 as i64) as *mut i64;
+    let mut top: i64 = 0 as i64;
+
+    let mut start: i64 = 0 as i64;
+    while start < n && !have_err {
+        if state[start] != 0 as u8 {
+            start = start + 1 as i64;
+            continue;
+        }
+        work_idx[top] = start;
+        work_cur[top] = 0 as i64;
+        state[start] = 1 as u8;
+        top = top + 1 as i64;
+        while top > 0 as i64 && !have_err {
+            let cur: i64 = work_idx[top - 1 as i64];
+            let cur_dep: i64 = work_cur[top - 1 as i64];
+            let t: *const Target = tp.at_const(cur);
+            let dn: i64 = (*t).deps.length();
+            if cur_dep < dn {
+                let dp: *const Vec<String> = (&(*t).deps) as *const Vec<String>;
+                let dnm: *const String = dp.at_const(cur_dep);
+                let dnms: str = str_from_raw((*dnm).as_ptr(), (*dnm).len());
+                // Inline resolve dep name → target index.
+                let mut didx: i64 = 0 as i64 - 1 as i64;
+                let mut ri: i64 = 0 as i64;
+                while ri < n {
+                    let rt: *const Target = tp.at_const(ri);
+                    let rtnm: str = str_from_raw((*rt).name.as_ptr(), (*rt).name.len());
+                    if str_eq_local(rtnm, dnms) { didx = ri; ri = n; }
+                    else { ri = ri + 1 as i64; }
+                }
+                work_cur[top - 1 as i64] = cur_dep + 1 as i64;
+                if didx < 0 as i64 {
+                    // External-dep name? Treat as edge to nothing (already
+                    // built before topo_order is called).
+                    if external_lookup(externals, dnms) >= 0 as i64 {
+                        // skip — no in-target predecessor
+                    } else {
+                        have_err = true;
+                        err_buf.push_str("manifest: unknown dep '");
+                        err_buf.push_bytes((*dnm).as_ptr(), (*dnm).len());
+                        err_buf.push_str("'");
+                    }
+                } else if state[didx] == 1 as u8 {
+                    have_err = true;
+                    err_buf.push_str("manifest: dependency cycle involving '");
+                    err_buf.push_bytes((*t).name.as_ptr(), (*t).name.len());
+                    err_buf.push_str("'");
+                } else if state[didx] == 0 as u8 {
+                    work_idx[top] = didx;
+                    work_cur[top] = 0 as i64;
+                    state[didx] = 1 as u8;
+                    top = top + 1 as i64;
+                }
+            } else {
+                state[cur] = 2 as u8;
+                order_p.push(cur);
+                top = top - 1 as i64;
+            }
+        }
+        start = start + 1 as i64;
+    }
+
+    dealloc(state);
+    dealloc(work_idx as *mut u8);
+    dealloc(work_cur as *mut u8);
+    if have_err {
+        return Result::Err(ManifestError { message: err_buf });
+    }
+    return Result::Ok(order);
+}
