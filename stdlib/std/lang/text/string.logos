@@ -256,6 +256,13 @@ impl String {
         return self.data as *const u8;
     }
 
+    // Read-only str view of the String's bytes. Safe wrapper over
+    // `str_from_raw(self.as_ptr(), self.len())` — the raw ptr is
+    // guaranteed valid because it came from this String.
+    pub fn as_str(&self) -> str {
+        unsafe { return str_from_raw(self.data as *const u8, self.nbytes); }
+    }
+
     // Number of content bytes (not counting null terminator).
     pub fn len(&self) -> i64 {
         return self.nbytes;
