@@ -21,6 +21,7 @@ Start here if you want to *work on* Logos itself.
 
 - [Compiler Architecture](internals/architecture.md) — the `logosc` pipeline from source to native code.
 - [lforge — Build System](internals/lforge.md) — the Logos-level build orchestrator, current MVP and roadmap toward daemon mode + package manager.
+- [Package Management](internals/package-manager.md) — design (no implementation yet) for how lforge resolves, fetches, builds, and caches external dependencies. Go-modules-shaped with a Hermes manifest, distributed via git, no central registry.
 - [Hermes Runtime](internals/hermes-runtime.md) — Datatype/Storage/View, zones, the type registry.
 - [Metaprogramming](internals/metaprog.md) — current state of compile-time programming and reflection.
 - [HRPC](internals/hrpc.md) — bidirectional Hermes-native RPC and streaming protocol; wire format, session model, IDL, and the C++/Logos split.
