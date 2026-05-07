@@ -37,14 +37,51 @@ fn main() -> i32 {
 }
 ```
 
-Compile and run:
+There are two ways to build a Logos program: drive `logosc` directly (good for testing the compiler, single files), or use `lforge`, the Logos-level build system (what real projects use).
+
+### With `lforge` (recommended)
+
+Create a project layout:
+
+```
+hello/
+  lforge.hermes
+  src/main.logos
+```
+
+with `lforge.hermes`:
+
+```
+{
+    name:    "hello",
+    version: "0.1.0",
+    src:     "src",
+    entry:   "main"
+}
+```
+
+Build and run:
 
 ```bash
-build/src/compiler/logosc hello.logos -o hello
+cd hello
+lforge build       # produces .lforge/debug/out/hello
+lforge run         # build + execute
+lforge clean       # remove .lforge/
+```
+
+See [lforge — Build System](../internals/lforge.md) for the manifest schema, output layout, and roadmap.
+
+### Driving `logosc` directly
+
+For single-file experiments and compiler testing:
+
+```bash
+build/bin/logosc hello.logos -o hello.o
+cc hello.o build/lib/logos/lib*.a -lpthread -lm -o hello
 ./hello
 ```
 
-`logosc --help` lists current flags (output path, dump options for AST/MLIR/LLVM IR, optimization level).
+Useful flags: `--emit-mlir`, `--emit-llvm`, `-O0`/`-O1`/`-O2`/`-O3`, `--diag-format=json` (NDJSON diagnostics for tooling), `--print-system-libdir`.
 
 ## Examples
 

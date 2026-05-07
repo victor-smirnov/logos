@@ -6,7 +6,7 @@ The checklist exists because the [bag-hunt](baghunt/README.md) found ~122 bugs t
 
 ## Always
 
-- [ ] **Existing tests still pass.** Run `ninja -C build && ctest --test-dir build -j12`. 1030/1030 baseline as of 2026-05-04.
+- [ ] **Existing tests still pass.** Run `ninja -C build && ctest --test-dir build -j12`. 1132/1132 baseline as of 2026-05-07.
 - [ ] **No new compiler warnings.** Treat warnings as errors during local build.
 - [ ] **No `LOGOS_ASSERT` reachable from user input.** `LOGOS_ASSERT` is for internal invariants only — see [antipat_assertion_as_diagnostic](../../.claude/projects/-home-victor-devel-logos/memory/antipat_assertion_as_diagnostic.md).
 - [ ] **No new inline `LogosTypeBuilder t; t.kind = K::Struct/Enum/...`.** Route through `make_*_type` helpers in [sema_impl.hpp](../src/compiler/sema_impl.hpp). See [antipat_inline_typebuilder](../../.claude/projects/-home-victor-devel-logos/memory/antipat_inline_typebuilder.md).
