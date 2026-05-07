@@ -10,7 +10,27 @@ set(LFORGE_SRC ${CMAKE_CURRENT_SOURCE_DIR}/main.logos)
 set(LFORGE_OBJ ${CMAKE_CURRENT_BINARY_DIR}/lforge.o)
 set(LFORGE_BIN ${CMAKE_BINARY_DIR}/bin/lforge)
 
+# Sub-packages (lforge.<name>) live in tools/lforge/pkg/ and ship as
+# a binary archive consumed via `-l`. main.logos is the entry-point.
+set(LFORGE_PKG_MANIFEST ${CMAKE_CURRENT_SOURCE_DIR}/pkg/lforge.module)
+set(LFORGE_PKG_BIN      ${CMAKE_CURRENT_BINARY_DIR}/liblforge_pkg.a)
+file(GLOB LFORGE_PKG_SRCS CONFIGURE_DEPENDS
+    ${CMAKE_CURRENT_SOURCE_DIR}/pkg/*.logos)
+
+add_custom_command(
+    OUTPUT ${LFORGE_PKG_BIN}
+    COMMAND $<TARGET_FILE:logosc>
+            --emit-module ${LFORGE_PKG_MANIFEST}
+            -o ${LFORGE_PKG_BIN}
+    DEPENDS logosc ${LFORGE_PKG_MANIFEST} ${LFORGE_PKG_SRCS}
+            stdlib_binary stdlib_uring logos_rt logos_fibers
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building lforge sub-package archive: liblforge_pkg.a"
+)
+add_custom_target(lforge_pkg_binary DEPENDS ${LFORGE_PKG_BIN})
+
 set(_link_archives
+    ${LFORGE_PKG_BIN}
     ${LOGOS_BUILD_LIB_DIR}/liblstdlib.a
     ${LOGOS_BUILD_LIB_DIR}/liblstdlib_fibers.a
     ${LOGOS_BUILD_LIB_DIR}/liblstdlib_rt.a
@@ -18,8 +38,11 @@ set(_link_archives
 
 add_custom_command(
     OUTPUT ${LFORGE_OBJ}
-    COMMAND $<TARGET_FILE:logosc> ${LFORGE_SRC} -o ${LFORGE_OBJ}
-    DEPENDS logosc ${LFORGE_SRC} stdlib_binary stdlib_uring logos_rt logos_fibers
+    COMMAND $<TARGET_FILE:logosc>
+        -l ${LFORGE_PKG_BIN}
+        ${LFORGE_SRC} -o ${LFORGE_OBJ}
+    DEPENDS logosc ${LFORGE_SRC} ${LFORGE_PKG_BIN}
+            stdlib_binary stdlib_uring logos_rt logos_fibers
     COMMENT "logosc: tools/lforge/main.logos"
 )
 

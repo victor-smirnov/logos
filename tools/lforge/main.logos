@@ -66,6 +66,8 @@ use std.collections.vec;
 use std.sys.process;
 use std.sys.args;
 
+use lforge.version;
+
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
 extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
@@ -2769,6 +2771,11 @@ unsafe fn main() -> i32 {
 
     if str_eq_local(cmd, "clean") {
         return cmd_clean();
+    }
+
+    if str_eq_local(cmd, "version") {
+        println_str(1, lforge_version());
+        return 0;
     }
 
     let m: Manifest = match read_manifest("./lforge.hermes") {

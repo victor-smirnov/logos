@@ -1,0 +1,3 @@
+module lforge
+version 0.1
+root tools/lforge/pkg/
