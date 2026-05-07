@@ -3449,11 +3449,20 @@ void Mono::instantiate_enum_templates() {
             for (auto& fn_up : in_.functions) {
                 auto& fn = *fn_up;
                 if (fn.type_params.empty()) continue;
-                if (fn.name.substr(0, prefix.size()) != prefix) continue;
+                // Strip pkg prefix (`pkg.`) before matching the bare base name.
+                std::string_view bare = fn.name;
+                std::string fn_pkg;
+                if (auto dot = bare.rfind('.'); dot != std::string_view::npos) {
+                    fn_pkg = std::string(bare.substr(0, dot));
+                    bare = bare.substr(dot + 1);
+                }
+                if (bare.substr(0, prefix.size()) != prefix) continue;
                 // Match type params to subst keys
                 bool matches = fn.type_params.size() == tmpl->type_params.size();
                 if (!matches) continue;
-                std::string inst_name = cname + fn.name.substr(base.size());
+                std::string bare_inst = cname + std::string(bare.substr(base.size()));
+                std::string inst_name = fn_pkg.empty() ? bare_inst
+                                                       : fn_pkg + "." + bare_inst;
                 if (done_.count(inst_name)) continue;
                 SubstMap fn_subst = subst;
                 PackMap fn_packs = packs;

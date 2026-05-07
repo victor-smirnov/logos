@@ -4005,6 +4005,17 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     for (auto& tp : fi.type_params)
                         if (!struct_names.count(tp.name)) { has_method_level = true; break; }
                 }
+            } else if (rst && TypeRef(rst).kind() == LogosType::Kind::Enum) {
+                // Enum receiver: type-params bound by the enum are struct-level.
+                auto [_, esi] = find_enum_by_name(TypeRef(rst).enum_name());
+                if (esi) {
+                    StrSet enum_tparam_names;
+                    for (auto& tp : esi->type_params) enum_tparam_names.insert(tp.name);
+                    for (auto& tp : fi.type_params)
+                        if (!enum_tparam_names.count(tp.name)) { has_method_level = true; break; }
+                } else if (!fi.type_params.empty()) {
+                    has_method_level = true;
+                }
             } else {
                 // Non-struct receiver: any fi.type_params is method-level.
                 if (!fi.type_params.empty()) has_method_level = true;

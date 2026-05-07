@@ -255,7 +255,12 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
         mod.walk([&](mlir::func::CallOp call) {
             auto callee = call.getCallee().str();
             auto fixed = rewrite(callee);
-            if (fixed != callee) call.setCallee(fixed);
+            if (fixed != callee) {
+                if (const char* d = std::getenv("LOGOS_RENAME_DBG"); d && *d == '1')
+                    std::fprintf(stderr, "[rename] %s -> %s\n",
+                                 callee.c_str(), fixed.c_str());
+                call.setCallee(fixed);
+            }
         });
         mod.walk([&](mlir::LLVM::AddressOfOp op) {
             auto sym = op.getGlobalName().str();

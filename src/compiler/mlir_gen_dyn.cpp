@@ -655,18 +655,42 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
             // the bare `Type__method` convention).
             for (auto& m : td.methods) {
                 std::string sym;
+                // Match `[pkg.]Target__method[__f__sig|__g__sig]`. Concrete
+                // (non-generic) impl methods land in prog.functions; generic
+                // impl methods land in their struct template's methods which
+                // mono clones into prog.functions; rare cases populate
+                // ib.methods directly. Search all three.
+                auto tail = "__" + m.name;
+                auto try_match = [&](std::string_view nm) -> bool {
+                    // Strip pkg prefix.
+                    if (auto dot = nm.rfind('.'); dot != std::string_view::npos)
+                        nm = nm.substr(dot + 1);
+                    if (nm.compare(0, ib.target_type.size(), ib.target_type) != 0)
+                        return false;
+                    auto p = nm.find(tail, ib.target_type.size());
+                    if (p == std::string_view::npos) return false;
+                    auto rest = nm.substr(p + tail.size());
+                    return rest.empty() || rest.rfind("__f__", 0) == 0
+                                        || rest.rfind("__g__", 0) == 0;
+                };
                 for (auto& fp : ib.methods) {
                     if (!fp) continue;
-                    std::string_view nm = fp->name;
-                    auto p = nm.rfind("__" + m.name);
-                    if (p != std::string_view::npos) {
-                        // Match either exact end or sig-suffix start.
-                        auto rest = nm.substr(p + 2 + m.name.size());
-                        if (rest.empty() || rest.rfind("__f__", 0) == 0
-                                          || rest.rfind("__g__", 0) == 0) {
-                            sym = std::string(nm);
-                            break;
+                    if (try_match(fp->name)) { sym = fp->name; break; }
+                }
+                if (sym.empty()) {
+                    for (auto& fp : prog.functions) {
+                        if (!fp) continue;
+                        if (try_match(fp->name)) { sym = fp->name; break; }
+                    }
+                }
+                if (sym.empty()) {
+                    for (auto& sd : prog.structs) {
+                        if (sd.name != ib.target_type) continue;
+                        for (auto& mp : sd.methods) {
+                            if (!mp) continue;
+                            if (try_match(mp->name)) { sym = mp->name; break; }
                         }
+                        if (!sym.empty()) break;
                     }
                 }
                 if (sym.empty()) sym = ib.target_type + "__" + m.name;

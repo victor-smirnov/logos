@@ -290,8 +290,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 // dest_name so subsequent enqueues that mangle with type_args
                 // produce matching final names.
                 std::string method = tn.substr(tmpl_prefix.size());
-                std::string dest = concrete + "__" + method;
-                if (done_.count(dest)) continue;
+                std::string concrete_pkg;
                 SubstMap subst;
                 // Build concrete type for substitution.
                 // Target may be a struct or datatype — use the right Kind.
@@ -303,6 +302,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                                                  : LogosType::Kind::Struct;
                         st.struct_name = concrete;
                         st.pkg_name    = sd.pkg;
+                        concrete_pkg   = sd.pkg;
                         concrete_t = out_.type_pool.alloc(std::move(st));
                         break;
                     }
@@ -313,6 +313,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                             et.kind = LogosType::Kind::Enum;
                             et.enum_name = concrete;
                             et.pkg_name  = ed.pkg;
+                            concrete_pkg = ed.pkg;
                             concrete_t = out_.type_pool.alloc(std::move(et));
                             break;
                         }
@@ -338,6 +339,11 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                     }
                 }
                 if (!concrete_t) continue;
+                std::string bare_dest = concrete + "__" + method;
+                std::string dest = concrete_pkg.empty()
+                                       ? bare_dest
+                                       : concrete_pkg + "." + bare_dest;
+                if (done_.count(dest)) continue;
                 subst[bi.target_typevar] = concrete_t;
                 auto cloned = clone_fn(tfn, subst);
                 cloned.name = dest;
