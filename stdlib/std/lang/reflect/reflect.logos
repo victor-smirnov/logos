@@ -29,8 +29,10 @@ pub struct TypeInfo {
 }
 
 impl TypeInfo {
-    pub fn make<T>() -> TypeInfo {
-        return TypeInfo { inner: reflect::<T>() };
+    // T appears only in the `reflect::<T>()` body call (turbofish), which
+    // the unused-tparam check doesn't follow. Rename to `_T` to opt out.
+    pub fn make<_T>() -> TypeInfo {
+        return TypeInfo { inner: reflect::<_T>() };
     }
 
     pub fn name(self: &TypeInfo) -> StringView {

@@ -766,6 +766,17 @@ private:
             ctx_ = std::format("fn {}", fi.base_name);
             for (auto& tp : fi.type_params) {
                 if (tp.is_variadic) continue;
+                // const-generic params (e.g. `const CFG: HermesStatic`) are
+                // typically consumed in the body via expression-level uses
+                // (`CFG.as_view()`, `f::<CFG>(...)`) which the
+                // signature-walking check doesn't track. Skipping them
+                // avoids systematic false positives in pmap/CFG-driven code.
+                if (tp.is_const) continue;
+                // The fix-it suggestion below recommends `_`; honour that as
+                // an explicit "intentionally unused" marker. Also covers
+                // names that begin with `_` (Rust convention).
+                if (tp.name == "_" || (!tp.name.empty() && tp.name[0] == '_'))
+                    continue;
                 if (tv_uses.count(tp.name) == 0) {
                     warn(std::format(
                         "type parameter '{}' is unused in fn '{}'; "

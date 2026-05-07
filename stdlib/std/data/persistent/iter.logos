@@ -10,7 +10,6 @@ package std.data.persistent.iter;
 pub use std.data.persistent.bt.iter;
 
 use std.data.persistent.bt.node;
-use std.data.persistent.bt.iter;
 use std.data.persistent.view;
 use std.lang.cmp;
 use std.lang.ord;
