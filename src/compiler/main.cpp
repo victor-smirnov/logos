@@ -1779,10 +1779,31 @@ build_jit_from_module(const llvm::Module& src_module, const char* who,
     return jit;
 }
 
+// Structured exit codes. lforge depends on these to classify failure
+// kinds without parsing diagnostic text.
+//
+//   0  EXIT_OK             — success
+//   1  EXIT_USER_ERROR     — sema / lir / borrow-check / mono error in user code
+//   2  EXIT_USAGE          — bad CLI args, manifest-parse failure, missing file
+//   3  EXIT_CODEGEN        — mlir-gen / lowering / LLVM IR translation failure
+//                            (treated as compiler-internal but triggered by user code)
+//   4  EXIT_LINK_IO        — output write / module load / archive read failure
+//   5  EXIT_ICE            — internal consistency check / unexpected state
+//
+// Tests previously relied on `return 1` for any non-success; that still
+// holds for sema failures (the 99% case) so `EXIT_USER_ERROR == 1` keeps
+// the existing test surface intact.
+constexpr int EXIT_OK         = 0;
+constexpr int EXIT_USER_ERROR = 1;
+constexpr int EXIT_USAGE      = 2;
+constexpr int EXIT_CODEGEN    = 3;
+constexpr int EXIT_LINK_IO    = 4;
+constexpr int EXIT_ICE        = 5;
+
 int main(int argc, char** argv) {
     if (argc < 2) {
-        std::fprintf(stderr, "usage: logosc <input.logos> [-o output.o] [-O0|-O1|-O2|-O3] [--emit-mlir] [--emit-llvm]\n");
-        return 1;
+        std::fprintf(stderr, "usage: logosc <input.logos> [-o output.o] [-O0|-O1|-O2|-O3] [--emit-mlir] [--emit-llvm] [--diag-format=text|json]\n");
+        return EXIT_USAGE;
     }
 
     // Initialize Hermes TypeOps registry; the @-literal builder uses
@@ -1870,6 +1891,29 @@ int main(int argc, char** argv) {
         }
         else if (arg == "--no-system") { no_system = true; }
         else if (arg == "--print-system-libdir") { print_system_libdir = true; }
+        else if (arg.rfind("--diag-format=", 0) == 0) {
+            std::string_view fmt = arg;
+            fmt.remove_prefix(14);
+            if (fmt == "text") {
+                logos::compiler::diag_format_global() = logos::compiler::DiagFormat::Text;
+            } else if (fmt == "json") {
+                logos::compiler::diag_format_global() = logos::compiler::DiagFormat::Json;
+            } else {
+                std::fprintf(stderr, "logosc: --diag-format must be 'text' or 'json'\n");
+                return EXIT_USAGE;
+            }
+        }
+        else if (arg == "--diag-format" && i + 1 < argc) {
+            std::string_view fmt = argv[++i];
+            if (fmt == "text") {
+                logos::compiler::diag_format_global() = logos::compiler::DiagFormat::Text;
+            } else if (fmt == "json") {
+                logos::compiler::diag_format_global() = logos::compiler::DiagFormat::Json;
+            } else {
+                std::fprintf(stderr, "logosc: --diag-format must be 'text' or 'json'\n");
+                return EXIT_USAGE;
+            }
+        }
         else if (arg == "--emit-mlir") { emit_mlir = true; }
         else if (arg == "--emit-llvm") { emit_llvm = true; }
         else if (arg == "--jit") { jit_run = true; }
@@ -1915,7 +1959,7 @@ int main(int argc, char** argv) {
         auto manifest = logos::compiler::parse_module_manifest(emit_module_manifest, err);
         if (!manifest) {
             std::fprintf(stderr, "logosc: %s\n", err.c_str());
-            return 1;
+            return EXIT_USAGE;
         }
         logos::compiler::EmitModuleOptions mopts;
         mopts.extra_search_paths = search_paths;
@@ -1939,12 +1983,12 @@ int main(int argc, char** argv) {
     report("load+parse");
     if (modules.empty()) {
         std::fprintf(stderr, "logosc: no modules loaded\n");
-        return 1;
+        return EXIT_LINK_IO;
     }
     if (loader_had_error) {
         // B-mv-03/04: `use <pkg>;` referencing a missing package is fatal.
         // The loader already emitted "module_loader: cannot find package 'X'".
-        return 1;
+        return EXIT_LINK_IO;
     }
 
     // Collect ASTs and source paths.

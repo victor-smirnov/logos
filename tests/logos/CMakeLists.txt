@@ -452,3 +452,14 @@ set_tests_properties(logos_08_lint_inline_typebuilder PROPERTIES
     TIMEOUT 10
     LABELS  "logos;lint;suite_lint"
 )
+
+# Diagnostics: --diag-format=json + structured exit codes (B0.2).
+add_test(
+    NAME logos_09_diag_json_format
+    COMMAND ${CMAKE_SOURCE_DIR}/tests/diag/json_format.sh
+            $<TARGET_FILE:logosc>
+)
+set_tests_properties(logos_09_diag_json_format PROPERTIES
+    TIMEOUT 30
+    LABELS  "logos;diag;suite_diag"
+)

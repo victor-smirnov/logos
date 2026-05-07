@@ -342,6 +342,15 @@ struct Diag {
     uint32_t    line = 0; // source line (0 if unknown)
 };
 
+// Diagnostic output format. Set by main from --diag-format=<text|json>.
+// Stored as a global because SemaResult::print is called from many sites
+// without options threading. JSON form emits NDJSON: one object per line.
+enum class DiagFormat { Text, Json };
+inline DiagFormat& diag_format_global() noexcept {
+    static DiagFormat g = DiagFormat::Text;
+    return g;
+}
+
 // ── Result ─────────────────────────────────────────────────────────────────
 
 struct SemaResult {
@@ -361,17 +370,47 @@ struct SemaResult {
         // multi-phase reruns may produce different contexts for the same
         // underlying issue.
         static std::set<std::string> g_seen;
+        bool as_json = (diag_format_global() == DiagFormat::Json);
         for (auto& d : diags) {
             std::string key = std::format("{}|{}|{}|{}",
                 int(d.level), d.file, d.line, d.message);
             if (!g_seen.insert(std::move(key)).second) continue;
             const char* lev = (d.level == Diag::Level::Error) ? "error" : "warning";
-            if (d.line > 0 && !d.file.empty())
+            if (as_json) {
+                std::fprintf(fp,
+                    "{\"level\":\"%s\",\"file\":", lev);
+                json_escape_to(fp, d.file);
+                std::fprintf(fp, ",\"line\":%u,\"context\":", d.line);
+                json_escape_to(fp, d.context);
+                std::fprintf(fp, ",\"message\":");
+                json_escape_to(fp, d.message);
+                std::fprintf(fp, "}\n");
+            } else if (d.line > 0 && !d.file.empty())
                 std::fprintf(fp, "%s:%u: %s [%s]: %s\n",
                              d.file.c_str(), d.line, lev, d.context.c_str(), d.message.c_str());
             else
                 std::fprintf(fp, "%s [%s]: %s\n", lev, d.context.c_str(), d.message.c_str());
         }
+    }
+
+    // Minimal JSON string escape — write `"...escaped..."` to fp.
+    static void json_escape_to(std::FILE* fp, const std::string& s) noexcept {
+        std::fputc('"', fp);
+        for (unsigned char c : s) {
+            switch (c) {
+                case '"':  std::fputs("\\\"", fp); break;
+                case '\\': std::fputs("\\\\", fp); break;
+                case '\b': std::fputs("\\b", fp); break;
+                case '\f': std::fputs("\\f", fp); break;
+                case '\n': std::fputs("\\n", fp); break;
+                case '\r': std::fputs("\\r", fp); break;
+                case '\t': std::fputs("\\t", fp); break;
+                default:
+                    if (c < 0x20) std::fprintf(fp, "\\u%04x", c);
+                    else          std::fputc(c, fp);
+            }
+        }
+        std::fputc('"', fp);
     }
 };
 
