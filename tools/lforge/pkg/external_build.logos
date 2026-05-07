@@ -24,15 +24,57 @@ use lforge.build_paths;
 use lforge.builder;
 use lforge.build_cache;
 
+// B5: lookup a replace entry by canonicalised project display id. Returns
+// the absolute substitute path on hit, or empty String on miss.
+unsafe fn replace_lookup(replaces: &Vec<ReplaceEntry>, project_canonical: str) -> String {
+    let n: i64 = replaces.length();
+    let rp: *const Vec<ReplaceEntry> = replaces as *const Vec<ReplaceEntry>;
+    let mut i: i64 = 0 as i64;
+    while i < n {
+        let e: *const ReplaceEntry = rp.at_const(i);
+        let pv: str = str_from_raw((*e).project.as_ptr(), (*e).project.len());
+        let pair: (String, String) = canonical_url(pv);
+        let disp: String = pair.0;
+        let dview: str = str_from_raw(disp.as_ptr(), disp.len());
+        if str_eq_local(dview, project_canonical) {
+            let mut out: String = String::new();
+            out.push_bytes((*e).path.as_ptr(), (*e).path.len());
+            return out;
+        }
+        i = i + 1 as i64;
+    }
+    return String::new();
+}
+
 pub unsafe fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
                              lock_in: &Vec<LockEntry>,
                              lock_out: *mut Vec<LockEntry>,
                              visited: *mut Vec<String>,
-                             winners: *mut Vec<GitWinner>) -> Result<Vec<ExternalLib>, i32> {
+                             winners: *mut Vec<GitWinner>,
+                             replaces: &Vec<ReplaceEntry>) -> Result<Vec<ExternalLib>, i32> {
     let saved: String = save_cwd();
     if saved.len() == 0 as i64 {
         println_str(2, "lforge: getcwd failed");
         return Result::Err(1);
+    }
+
+    // B5 replace fast-path: if root manifest's replace[] redirects this
+    // git project to a local path, behave as if the manifest had `path:`
+    // set in the first place. Replaces don't apply to local-path deps.
+    let mut effective_path: String = String::new();
+    if dep.path.len() == 0 as i64 && dep.project.len() > 0 as i64 && replaces.length() > 0 as i64 {
+        let proj_view: str = str_from_raw(dep.project.as_ptr(), dep.project.len());
+        let pair: (String, String) = canonical_url(proj_view);
+        let disp: String = pair.0;
+        let dview: str = str_from_raw(disp.as_ptr(), disp.len());
+        let hit: String = replace_lookup(replaces, dview);
+        if hit.len() > 0 as i64 {
+            effective_path.push_bytes(hit.as_ptr(), hit.len());
+            print_str(1, "lforge: replace ");
+            print_str(1, dview);
+            print_str(1, " -> ");
+            println_str(1, str_from_raw(effective_path.as_ptr(), effective_path.len()));
+        }
     }
 
     // Local `path:` -> use as-is. Git `project:` -> resolve to a cache path
@@ -46,6 +88,8 @@ pub unsafe fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
     let mut resolved_tag: String = String::new();
     if dep.path.len() > 0 as i64 {
         resolved_path.push_bytes(dep.path.as_ptr(), dep.path.len());
+    } else if effective_path.len() > 0 as i64 {
+        resolved_path.push_bytes(effective_path.as_ptr(), effective_path.len());
     } else {
         match resolve_git_dep(dep, lock_in, lock_out) {
             Result::Err(rc) => { return Result::Err(rc); }
@@ -134,7 +178,7 @@ pub unsafe fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
     let mut out: Vec<ExternalLib> = vec_new::<ExternalLib>();
     let outp: *mut Vec<ExternalLib> = (&mut out) as *mut Vec<ExternalLib>;
     if m.deps.length() > 0 as i64 {
-        match build_all_externals(&m.deps, profile, logosc, lock_in, lock_out, visited, winners) {
+        match build_all_externals(&m.deps, profile, logosc, lock_in, lock_out, visited, winners, replaces) {
             Result::Err(rc) => {
                 chdir_str(str_from_raw(saved.as_ptr(), saved.len()));
                 return Result::Err(rc);
@@ -295,7 +339,8 @@ pub unsafe fn build_all_externals(deps: &Vec<ExternalDep>, profile: str, logosc:
                                   lock_in: &Vec<LockEntry>,
                                   lock_out: *mut Vec<LockEntry>,
                                   visited:  *mut Vec<String>,
-                                  winners:  *mut Vec<GitWinner>) -> Result<Vec<ExternalLib>, i32> {
+                                  winners:  *mut Vec<GitWinner>,
+                                  replaces: &Vec<ReplaceEntry>) -> Result<Vec<ExternalLib>, i32> {
     let mut all: Vec<ExternalLib> = vec_new::<ExternalLib>();
     let allp: *mut Vec<ExternalLib> = (&mut all) as *mut Vec<ExternalLib>;
     let n: i64 = deps.length();
@@ -303,7 +348,7 @@ pub unsafe fn build_all_externals(deps: &Vec<ExternalDep>, profile: str, logosc:
     let mut i: i64 = 0 as i64;
     while i < n {
         let d: *const ExternalDep = dp.at_const(i);
-        match build_external(&(*d), profile, logosc, lock_in, lock_out, visited, winners) {
+        match build_external(&(*d), profile, logosc, lock_in, lock_out, visited, winners, replaces) {
             Result::Err(rc) => { return Result::Err(rc); }
             Result::Ok(libs) => {
                 let m: i64 = libs.length();

@@ -61,11 +61,21 @@ pub struct GitWinner {
     pub sha:     String,
 }
 
+// One `replace:` entry. Matches by `project` (canonicalised display id);
+// substitution form is a local `path:`. Other replacement forms (e.g.
+// `replace foo@v1 with foo@v2`) can land later — for v1, path-only.
+pub struct ReplaceEntry {
+    pub project: String,
+    pub path:    String,
+}
+
 pub struct Manifest {
-    pub name:    String,
-    pub version: String,
-    pub targets: Vec<Target>,
-    pub deps:    Vec<ExternalDep>,
+    pub name:           String,
+    pub version:        String,
+    pub requires_logos: String,        // e.g. "0.1" — empty = no floor
+    pub targets:        Vec<Target>,
+    pub deps:           Vec<ExternalDep>,
+    pub replace:        Vec<ReplaceEntry>,
 }
 
 pub struct ManifestError {

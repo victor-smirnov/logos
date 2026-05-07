@@ -160,6 +160,10 @@ unsafe fn main() -> i32 {
         Result::Ok(x)  => { x }
     };
 
+    // B5: enforce manifest's `requires_logos:` floor before any work.
+    let req_rc: i32 = check_requires_logos(&m);
+    if req_rc != 0 { return req_rc; }
+
     let profile: str = select_profile();
 
     if str_eq_local(cmd, "build") {

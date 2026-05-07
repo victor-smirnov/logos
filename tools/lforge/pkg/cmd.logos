@@ -20,6 +20,67 @@ use lforge.build_paths;
 use lforge.builder;
 use lforge.external_build;
 
+// B5: parse `logosc --version` (format: "logosc X.Y[.Z]") into the bare
+// version segment. Empty string means we couldn't determine — the caller
+// treats that as a soft pass.
+pub unsafe fn get_logosc_version(logosc: &String) -> String {
+    let mut argv: Vec<String> = vec_new::<String>();
+    let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
+    push_string_arg(argv_p, logosc);
+    push_arg(argv_p, "--version");
+    let res: (i32, String) = run_child_capture_stdout(&argv);
+    let rc:  i32 = res.0;
+    let out: String = res.1;
+    if rc != 0 { return String::new(); }
+    let view: str = str_from_raw(out.as_ptr(), out.len());
+    // First line, after the prefix "logosc ".
+    let mut start: i64 = 0 as i64;
+    let prefix: str = "logosc ";
+    let n: i64 = view.len();
+    if n >= 7 as i64 {
+        let mut ok: bool = true;
+        let mut k: i64 = 0 as i64;
+        while k < 7 as i64 && ok {
+            if view[k] != prefix[k] { ok = false; }
+            k = k + 1 as i64;
+        }
+        if ok { start = 7 as i64; }
+    }
+    let mut end: i64 = n;
+    let mut i: i64 = start;
+    while i < end {
+        let cc: i32 = view[i] as i32;
+        if cc == 10 as i32 || cc == 13 as i32 || cc == 32 as i32 { end = i; }
+        else { i = i + 1 as i64; }
+    }
+    let mut s: String = String::new();
+    s.push_bytes((view.as_ptr() as i64 + start) as *const u8, end - start);
+    return s;
+}
+
+// B5: compare logosc's reported version to the manifest's `requires_logos`
+// floor. Returns 0 OK, 1 error (already printed). Empty floor → pass.
+pub unsafe fn check_requires_logos(m: &Manifest) -> i32 {
+    if m.requires_logos.len() == 0 as i64 { return 0; }
+    let logosc: String = resolve_logosc_path();
+    let have: String = get_logosc_version(&logosc);
+    if have.len() == 0 as i64 {
+        println_str(2, "lforge: warning: could not determine logosc version; skipping requires_logos check");
+        return 0;
+    }
+    let hv: str = str_from_raw(have.as_ptr(), have.len());
+    let nv: str = str_from_raw(m.requires_logos.as_ptr(), m.requires_logos.len());
+    let cmp: i32 = cmp_tags(hv, nv);
+    if cmp < 0 as i32 {
+        print_str(2, "lforge: error: this manifest requires logosc >= ");
+        print_str(2, nv);
+        print_str(2, ", but the active compiler is ");
+        println_str(2, hv);
+        return 1;
+    }
+    return 0;
+}
+
 // If `selected_idx` >= 0, build only that target plus its transitive deps.
 // Otherwise build everything in topo order.
 pub unsafe fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64, use_lock: bool) -> i32 {
@@ -41,7 +102,8 @@ pub unsafe fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64, 
         &lock_in,
         (&mut lock_out) as *mut Vec<LockEntry>,
         (&mut visited) as *mut Vec<String>,
-        (&mut winners) as *mut Vec<GitWinner>) {
+        (&mut winners) as *mut Vec<GitWinner>,
+        &m.replace) {
         Result::Err(rc) => { return rc; }
         Result::Ok(libs) => { libs }
     };

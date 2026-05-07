@@ -1833,6 +1833,7 @@ int main(int argc, char** argv) {
     int opt_level = 0;
     bool no_system = false;
     bool print_system_libdir = false;
+    bool print_version = false;
 
     // System module library discovery — argv[0]-relative with env override.
     //
@@ -1892,6 +1893,7 @@ int main(int argc, char** argv) {
         }
         else if (arg == "--no-system") { no_system = true; }
         else if (arg == "--print-system-libdir") { print_system_libdir = true; }
+        else if (arg == "--version" || arg == "-V") { print_version = true; }
         else if (arg.rfind("--diag-format=", 0) == 0) {
             std::string_view fmt = arg;
             fmt.remove_prefix(14);
@@ -1937,6 +1939,14 @@ int main(int argc, char** argv) {
     if (print_system_libdir) {
         auto sys = resolve_system_lib_dir();
         std::printf("%s\n", sys.c_str());
+        return 0;
+    }
+
+    if (print_version) {
+        // Single source of truth for the compiler version. Bump on
+        // releases; lforge's `requires_logos` floor (B5) compares against
+        // this string segment-by-segment.
+        std::printf("logosc 0.1.0\n");
         return 0;
     }
 

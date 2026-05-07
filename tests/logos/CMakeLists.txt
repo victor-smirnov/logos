@@ -666,4 +666,17 @@ if (TARGET lforge)
         TIMEOUT 60
         LABELS  "logos;lforge;suite_lforge"
     )
+
+    # B5: replace: directive + requires_logos: ABI floor.
+    add_test(
+        NAME logos_25_lforge_replace_and_floor
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/replace_and_floor.sh
+                ${CMAKE_BINARY_DIR}/bin/lforge
+                $<TARGET_FILE:logosc>
+                ${LOGOS_BUILD_LIB_DIR}
+    )
+    set_tests_properties(logos_25_lforge_replace_and_floor PROPERTIES
+        TIMEOUT 60
+        LABELS  "logos;lforge;suite_lforge"
+    )
 endif()

@@ -193,11 +193,40 @@ pub unsafe fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
         }
     }
 
+    // Optional `requires_logos: "X.Y"` ABI floor (B5).
+    let requires_s: String = read_str_opt(&view, root, "requires_logos");
+
+    // Optional `replace: [{ project, path }, ...]` (B5). Local override —
+    // when a downstream dep matches `project`, lforge uses the given path
+    // instead of fetching from git. Only the root manifest's replaces apply.
+    let mut replace: Vec<ReplaceEntry> = vec_new::<ReplaceEntry>();
+    let rp_v: *mut Vec<ReplaceEntry> = (&mut replace) as *mut Vec<ReplaceEntry>;
+    let replace_av: AnyVal = view.map_get(root, "replace");
+    if replace_av.is_array(base) {
+        let nr: u64 = view.array_len(replace_av);
+        let mut ri: u64 = 0 as u64;
+        while ri < nr {
+            let r_av: AnyVal = view.array_get(replace_av, ri);
+            ri = ri + 1 as u64;
+            if !r_av.is_map(base) {
+                return Result::Err(err_msg("manifest: replace[] entry is not a map"));
+            }
+            let proj_s: String = read_str_opt(&view, r_av, "project");
+            let path_s: String = read_str_opt(&view, r_av, "path");
+            if proj_s.len() == 0 as i64 || path_s.len() == 0 as i64 {
+                return Result::Err(err_msg("manifest: replace[] entry needs both 'project' and 'path'"));
+            }
+            rp_v.push(ReplaceEntry { project: proj_s, path: path_s });
+        }
+    }
+
     return Result::Ok(Manifest {
-        name:    name_s,
-        version: version_s,
-        targets: targets,
-        deps:    deps,
+        name:           name_s,
+        version:        version_s,
+        requires_logos: requires_s,
+        targets:        targets,
+        deps:           deps,
+        replace:        replace,
     });
 }
 
