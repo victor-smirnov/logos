@@ -1,0 +1,35 @@
+// Regression: Slice ABI was 8 bytes (ptr-only) instead of 16 (ptr+len),
+// which silently truncated the .len half whenever a slice was extracted
+// from an Option payload or stored in a struct field.
+//
+// The probe exercises four slice escape paths:
+//   - by-value pass through a fn arg
+//   - return-by-value of a slice
+//   - Option<str>::Some(v) payload extraction (B-bag-hunt root cause)
+//   - struct field of type str, read across a function boundary
+//     (was the "struct field fat-ptr ABI bug" memo)
+//
+// Total = 2 + 5 + 5 + 6 + 7 = 25.
+package slice_payload_and_struct_field;
+use std.lang.option;
+
+fn pass_str(s: str) -> i64 { return s.len() as i64; }
+fn ret_str() -> str { return "hello"; }
+fn opt_str_some() -> Option<str> { return Option::Some("world"); }
+
+struct Holder { name: str, count: i32 }
+fn make() -> Holder { return Holder { name: "abcdef", count: 7 }; }
+fn use_holder(h: Holder) -> i32 { return h.name.len() as i32 + h.count; }
+
+fn main() -> i32 {
+    let a = pass_str("xy");
+    let b = ret_str();
+    let c = b.len() as i64;
+    let d = match opt_str_some() {
+        Option::Some(v) => v.len() as i64,
+        Option::None => -1i64,
+    };
+    let h = make();
+    let e = use_holder(h) as i64;
+    return (a + c + d + e) as i32;
+}
