@@ -542,3 +542,19 @@ set_tests_properties(logos_15_emit_file PROPERTIES
     TIMEOUT 60
     LABELS  "logos;lforge;suite_lforge"
 )
+
+# B1.3: lforge fans out per-file lib compilation in parallel + per-file
+# incremental rebuild.
+if (TARGET lforge)
+    add_test(
+        NAME logos_16_lforge_parallel
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/parallel.sh
+                ${CMAKE_BINARY_DIR}/bin/lforge
+                $<TARGET_FILE:logosc>
+                ${LOGOS_BUILD_LIB_DIR}
+    )
+    set_tests_properties(logos_16_lforge_parallel PROPERTIES
+        TIMEOUT 90
+        LABELS  "logos;lforge;suite_lforge"
+    )
+endif()

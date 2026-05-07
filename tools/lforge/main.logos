@@ -643,31 +643,86 @@ unsafe fn output_is_fresh(out_path: str, max_input_mt: i64) -> bool {
 
 // ── Per-target build actions ──────────────────────────────────────────────
 
+// Spawn an action without piping stdout/stderr — child inherits the
+// parent's fds. Used for parallel fan-out where capturing N concurrent
+// pipes would either serialise them or require multiplexing. Output
+// interleaving is per-line-atomic on libc-line-buffered streams; good
+// enough for build progress.
+unsafe fn spawn_inherit(argv: &Vec<String>) -> Child {
+    let n: i64 = argv.length();
+    let argv_buf: *mut *const u8 = alloc((n + 1 as i64) * 8 as i64) as *mut *const u8;
+    let ap: *const Vec<String> = argv as *const Vec<String>;
+    let mut i: i64 = 0 as i64;
+    while i < n {
+        let s: *const String = ap.at_const(i);
+        argv_buf[i] = (*s).as_ptr();
+        i = i + 1 as i64;
+    }
+    argv_buf[n] = 0 as *const u8;
+    let child: Child = spawn(argv_buf as *const *const u8, false, false, false);
+    dealloc(argv_buf as *mut u8);
+    return child;
+}
+
+// Per-file artifact paths under .lforge/<profile>/_files/<lib_name>/.
+unsafe fn per_file_dir(profile: str, lib_name: str) -> String {
+    let mut d: String = String::new();
+    d.push_str(".lforge/");
+    d.push_str(profile);
+    d.push_str("/_files/");
+    d.push_str(lib_name);
+    return d;
+}
+
+// `<dir>/<stem>` — basename of source without `.logos` extension, joined
+// with the per-lib output dir. Caller appends `.o` / `.hermes0`.
+unsafe fn per_file_prefix(dir: &String, src_path: &String) -> String {
+    let stem_str: String = stem(str_from_raw(src_path.as_ptr(), src_path.len()));
+    let mut p: String = String::new();
+    p.push_bytes(dir.as_ptr(), dir.len());
+    p.push_u8(47 as u8);
+    p.push_bytes(stem_str.as_ptr(), stem_str.len());
+    return p;
+}
+
 unsafe fn build_lib(t: &Target, profile: str, logosc: &String) -> i32 {
-    // Incremental skip: if the archive is newer than every input .logos
-    // under target.src, the lib target is up-to-date.
+    // ── Walk source files and decide what needs rebuild ──────────────────
     let src_view: str = str_from_raw(t.src.as_ptr(), t.src.len());
-    let inputs: Vec<String> = collect_logos_files(src_view);
-    let max_mt: i64 = newest_mtime(&inputs);
-    let arch_check: String = lib_archive_path(profile, str_from_raw(t.name.as_ptr(), t.name.len()));
-    let arch_check_view: str = str_from_raw(arch_check.as_ptr(), arch_check.len());
-    if output_is_fresh(arch_check_view, max_mt) {
+    let sources: Vec<String> = collect_logos_files(src_view);
+    let n_src: i64 = sources.length();
+    if n_src == 0 as i64 {
         let mut msg: String = String::new();
         msg.push_str("lforge: lib ");
         msg.push_bytes(t.name.as_ptr(), t.name.len());
-        msg.push_str(" up-to-date");
-        println_string(1, &msg);
-        return 0;
+        msg.push_str(": no .logos files under ");
+        msg.push_bytes(t.src.as_ptr(), t.src.len());
+        println_string(2, &msg);
+        return 1;
     }
 
-    // Generate <profile>/_gen/<name>.module text.
+    let lib_name_view: str = str_from_raw(t.name.as_ptr(), t.name.len());
+    let pf_dir: String = per_file_dir(profile, lib_name_view);
+    let pf_dir_view: str = str_from_raw(pf_dir.as_ptr(), pf_dir.len());
+    match mkdir_p(pf_dir_view) {
+        Result::Err(_) => { println_str(2, "lforge: cannot create _files dir"); return 1; }
+        Result::Ok(_)  => { }
+    }
+
+    let od: String = out_dir_for(profile);
+    let od_view: str = str_from_raw(od.as_ptr(), od.len());
+    match mkdir_p(od_view) {
+        Result::Err(_) => { println_str(2, "lforge: cannot create out dir"); return 1; }
+        Result::Ok(_)  => { }
+    }
+    let arch: String = lib_archive_path(profile, lib_name_view);
+
+    // ── Generate .module manifest text (each --only-file invocation needs it) ──
     let gd: String = gen_dir_for(profile);
     let gd_view: str = str_from_raw(gd.as_ptr(), gd.len());
     match mkdir_p(gd_view) {
         Result::Err(_) => { println_str(2, "lforge: cannot create _gen dir"); return 1; }
         Result::Ok(_)  => { }
     }
-
     let mut man: String = String::new();
     man.push_str("module ");
     man.push_bytes(t.name.as_ptr(), t.name.len());
@@ -676,13 +731,11 @@ unsafe fn build_lib(t: &Target, profile: str, logosc: &String) -> i32 {
     man.push_str("root ");
     man.push_bytes(t.src.as_ptr(), t.src.len());
     man.push_u8(10 as u8);
-
     let mut man_path: String = String::new();
     man_path.push_bytes(gd.as_ptr(), gd.len());
     man_path.push_u8(47 as u8);
     man_path.push_bytes(t.name.as_ptr(), t.name.len());
     man_path.push_str(".module");
-
     let man_path_cs: *mut u8 = cstr(str_from_raw(man_path.as_ptr(), man_path.len()));
     let wr: Result<i32, i32> = write_string(man_path_cs as *const u8, &man);
     dealloc(man_path_cs);
@@ -691,29 +744,164 @@ unsafe fn build_lib(t: &Target, profile: str, logosc: &String) -> i32 {
         Result::Ok(_)  => { }
     }
 
-    // Output archive path.
-    let od: String = out_dir_for(profile);
-    let od_view: str = str_from_raw(od.as_ptr(), od.len());
-    match mkdir_p(od_view) {
-        Result::Err(_) => { println_str(2, "lforge: cannot create out dir"); return 1; }
-        Result::Ok(_)  => { }
+    // ── For each source: determine whether per-file .o is up-to-date.   ──
+    // Spawn the rebuilds in parallel; collect Child handles to wait on.
+    let sp: *const Vec<String> = (&sources) as *const Vec<String>;
+    let mut children: Vec<Child> = vec_new::<Child>();
+    let cp: *mut Vec<Child> = (&mut children) as *mut Vec<Child>;
+    let mut rebuilt_count: i32 = 0;
+
+    let mut i: i64 = 0 as i64;
+    while i < n_src {
+        let src_p: *const String = sp.at_const(i);
+        i = i + 1 as i64;
+        let src_view2: str = str_from_raw((*src_p).as_ptr(), (*src_p).len());
+
+        // Per-file prefix: <_files/lib>/<stem>
+        let prefix: String = per_file_prefix(&pf_dir, &(*src_p));
+        let mut obj_path: String = String::new();
+        obj_path.push_bytes(prefix.as_ptr(), prefix.len());
+        obj_path.push_str(".o");
+
+        // mtime check: if .o is newer than the source, skip rebuild.
+        let src_cs: *mut u8 = cstr(src_view2);
+        let src_mt: i64 = match mtime_ns(src_cs as *const u8) {
+            Result::Ok(v)  => { v }
+            Result::Err(_) => { 0 as i64 }
+        };
+        dealloc(src_cs);
+        let obj_view: str = str_from_raw(obj_path.as_ptr(), obj_path.len());
+        if output_is_fresh(obj_view, src_mt) {
+            continue;
+        }
+
+        // Build argv: logosc --emit-module <manifest> --only-file <src> -o <prefix>
+        let mut argv: Vec<String> = vec_new::<String>();
+        let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
+        push_string_arg(argv_p, logosc);
+        push_arg(argv_p, "--emit-module");
+        push_string_arg(argv_p, &man_path);
+        push_arg(argv_p, "--only-file");
+        push_string_arg(argv_p, &(*src_p));
+        push_arg(argv_p, "-o");
+        push_string_arg(argv_p, &prefix);
+
+        let child: Child = spawn_inherit(&argv);
+        if child.pid() < 0 {
+            println_str(2, "lforge: spawn failed");
+            return 1;
+        }
+        cp.push(child);
+        rebuilt_count = rebuilt_count + 1;
     }
-    let arch: String = lib_archive_path(profile, str_from_raw(t.name.as_ptr(), t.name.len()));
 
-    // logosc --emit-module <man_path> -o <arch>
-    let mut argv: Vec<String> = vec_new::<String>();
-    let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
-    push_string_arg(argv_p, logosc);
-    push_arg(argv_p, "--emit-module");
-    push_string_arg(argv_p, &man_path);
-    push_arg(argv_p, "-o");
-    push_string_arg(argv_p, &arch);
+    // Announce.
+    if rebuilt_count > 0 {
+        let mut msg: String = String::new();
+        msg.push_str("lforge: build lib ");
+        msg.push_bytes(t.name.as_ptr(), t.name.len());
+        msg.push_str(" — compiling ");
+        msg.push_i64(rebuilt_count as i64);
+        msg.push_str(" file(s) in parallel");
+        println_string(1, &msg);
+    }
 
-    let mut prefix: String = String::new();
-    prefix.push_str("lforge: build lib ");
-    prefix.push_bytes(t.name.as_ptr(), t.name.len());
-    println_string(1, &prefix);
-    return run_child(&argv);
+    // ── Wait for all spawned children ────────────────────────────────────
+    let mut all_ok: bool = true;
+    let mut waited: i64 = 0 as i64;
+    let nch: i64 = children.length();
+    while waited < nch {
+        let cgp: *mut Vec<Child> = (&mut children) as *mut Vec<Child>;
+        // Pop yields children in reverse spawn order; we just need every
+        // one to be reaped.
+        match cgp.pop() {
+            Option::None       => { waited = nch; }
+            Option::Some(c)    => {
+                let mut child_local: Child = c;
+                let st: ExitStatus = child_local.wait();
+                if !st.success() { all_ok = false; }
+                waited = waited + 1 as i64;
+            }
+        }
+    }
+    if !all_ok {
+        println_str(2, "lforge: one or more per-file compilations failed");
+        return 1;
+    }
+
+    // ── Re-archive if anything was rebuilt or the .a is missing/stale ───
+    let arch_view: str = str_from_raw(arch.as_ptr(), arch.len());
+    let mut need_ar: bool = rebuilt_count > 0;
+    if !need_ar {
+        // Check archive freshness against every per-file artifact.
+        let mut max_pf: i64 = 0 as i64;
+        let mut k: i64 = 0 as i64;
+        while k < n_src {
+            let src_p: *const String = sp.at_const(k);
+            k = k + 1 as i64;
+            let prefix: String = per_file_prefix(&pf_dir, &(*src_p));
+            let mut obj_p: String = String::new();
+            obj_p.push_bytes(prefix.as_ptr(), prefix.len());
+            obj_p.push_str(".o");
+            let cs: *mut u8 = cstr(str_from_raw(obj_p.as_ptr(), obj_p.len()));
+            let mt: Result<i64, i32> = mtime_ns(cs as *const u8);
+            dealloc(cs);
+            match mt {
+                Result::Ok(v)  => { if v > max_pf { max_pf = v; } }
+                Result::Err(_) => { }
+            }
+        }
+        if !output_is_fresh(arch_view, max_pf) { need_ar = true; }
+    }
+
+    if !need_ar {
+        let mut msg: String = String::new();
+        msg.push_str("lforge: lib ");
+        msg.push_bytes(t.name.as_ptr(), t.name.len());
+        msg.push_str(" up-to-date");
+        println_string(1, &msg);
+        return 0;
+    }
+
+    // Build `ar rcs <arch> <obj1> <h0_1> <obj2> <h0_2> ...`
+    let mut ar_argv: Vec<String> = vec_new::<String>();
+    let aap: *mut Vec<String> = (&mut ar_argv) as *mut Vec<String>;
+    push_arg(aap, "ar");
+    push_arg(aap, "rcs");
+    push_string_arg(aap, &arch);
+    let mut j: i64 = 0 as i64;
+    while j < n_src {
+        let src_p: *const String = sp.at_const(j);
+        j = j + 1 as i64;
+        let prefix: String = per_file_prefix(&pf_dir, &(*src_p));
+        let mut o: String = String::new();
+        o.push_bytes(prefix.as_ptr(), prefix.len());
+        o.push_str(".o");
+        let mut h: String = String::new();
+        h.push_bytes(prefix.as_ptr(), prefix.len());
+        h.push_str(".hermes0");
+        aap.push(o);
+        aap.push(h);
+    }
+
+    // Remove a stale archive first; ar would otherwise append rather than
+    // replace and dead members would linger.
+    let arch_cs: *mut u8 = cstr(arch_view);
+    unlink(arch_cs as *const u8);
+    dealloc(arch_cs);
+
+    let ar_child: Child = spawn_inherit(&ar_argv);
+    if ar_child.pid() < 0 {
+        println_str(2, "lforge: ar spawn failed");
+        return 1;
+    }
+    let mut ar_local: Child = ar_child;
+    let ar_st: ExitStatus = ar_local.wait();
+    if !ar_st.success() {
+        println_str(2, "lforge: ar failed");
+        return 1;
+    }
+    return 0;
 }
 
 unsafe fn build_bin(t: &Target,
