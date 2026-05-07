@@ -570,4 +570,19 @@ if (TARGET lforge)
         TIMEOUT 90
         LABELS  "logos;lforge;suite_lforge"
     )
+
+    # B1.9: dogfood — build stdlib_rt + stdlib_fibers via lforge and verify
+    # the resulting archives match cmake's member set + export expected symbols.
+    add_test(
+        NAME logos_18_lforge_dogfood_rt
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/dogfood_rt.sh
+                ${CMAKE_BINARY_DIR}/bin/lforge
+                $<TARGET_FILE:logosc>
+                ${LOGOS_BUILD_LIB_DIR}
+                ${CMAKE_SOURCE_DIR}/stdlib/rt
+    )
+    set_tests_properties(logos_18_lforge_dogfood_rt PROPERTIES
+        TIMEOUT 120
+        LABELS  "logos;lforge;suite_lforge"
+    )
 endif()
