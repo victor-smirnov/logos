@@ -585,4 +585,17 @@ if (TARGET lforge)
         TIMEOUT 120
         LABELS  "logos;lforge;suite_lforge"
     )
+
+    # B2: project-level external deps via local paths.
+    add_test(
+        NAME logos_19_lforge_external_dep
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/external_dep.sh
+                ${CMAKE_BINARY_DIR}/bin/lforge
+                $<TARGET_FILE:logosc>
+                ${LOGOS_BUILD_LIB_DIR}
+    )
+    set_tests_properties(logos_19_lforge_external_dep PROPERTIES
+        TIMEOUT 60
+        LABELS  "logos;lforge;suite_lforge"
+    )
 endif()

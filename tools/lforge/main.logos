@@ -71,6 +71,8 @@ extern fn free(ptr: *mut u8);
 extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
 extern fn getenv(name: *const u8) -> *const u8;
 extern fn execv(path: *const u8, argv: *const *const u8) -> i32;
+extern fn chdir(path: *const u8) -> i32;
+extern fn getcwd(buf: *mut u8, size: u64) -> *mut u8;
 
 // ── Schema ────────────────────────────────────────────────────────────────
 
@@ -90,10 +92,18 @@ pub struct Target {
     pub asm_sources: Vec<String>,
 }
 
+// External dependency on another lforge project. v1 supports local paths
+// only; git URLs land in B2.5 as a parallel kind.
+pub struct ExternalDep {
+    pub path:    String,         // relative or absolute filesystem path
+    pub modules: Vec<String>,    // lib target names to pull from the project
+}
+
 pub struct Manifest {
     pub name:    String,
     pub version: String,
     pub targets: Vec<Target>,
+    pub deps:    Vec<ExternalDep>,
 }
 
 pub struct ManifestError {
@@ -207,6 +217,26 @@ unsafe fn read_str_array(view: &HermesView<'a>, root: AnyVal, key: str) -> Vec<S
 
 // ── Manifest parser ──────────────────────────────────────────────────────
 
+// Parse one entry of the project-level `deps: [...]` array. v1 shape:
+//     { path: "../foo", modules: ["util"] }
+// Future shapes (`{ project, tag }` etc.) are added in B2.5.
+unsafe fn parse_external_dep(view: &HermesView<'a>, base: *const u8, d_av: AnyVal) -> Result<ExternalDep, ManifestError> {
+    if !d_av.is_map(base) {
+        return Result::Err(err_msg("manifest: deps[] entry is not a map"));
+    }
+    let path_s: String = match read_str_field(view, d_av, "path") {
+        Result::Err(_) => {
+            return Result::Err(err_msg("manifest: deps[] entry missing 'path' (only local-path deps supported in v1)"));
+        }
+        Result::Ok(s)  => { s }
+    };
+    let mods: Vec<String> = read_str_array(view, d_av, "modules");
+    if mods.length() == 0 as i64 {
+        return Result::Err(err_msg("manifest: deps[].modules is empty — list at least one lib target name"));
+    }
+    return Result::Ok(ExternalDep { path: path_s, modules: mods });
+}
+
 unsafe fn parse_target(view: &HermesView<'a>, base: *const u8, t_av: AnyVal) -> Result<Target, ManifestError> {
     if !t_av.is_map(base) {
         return Result::Err(err_msg("manifest: targets[] entry is not a map"));
@@ -314,10 +344,28 @@ pub unsafe fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
         return Result::Err(err_msg("manifest: no targets"));
     }
 
+    // Project-level deps: [{ path: "...", modules: [...] }, ...] (B2).
+    let mut deps: Vec<ExternalDep> = vec_new::<ExternalDep>();
+    let dp: *mut Vec<ExternalDep> = (&mut deps) as *mut Vec<ExternalDep>;
+    let deps_av: AnyVal = view.map_get(root, "deps");
+    if deps_av.is_array(base) {
+        let nd: u64 = view.array_len(deps_av);
+        let mut j: u64 = 0 as u64;
+        while j < nd {
+            let d_av: AnyVal = view.array_get(deps_av, j);
+            match parse_external_dep(&view, base, d_av) {
+                Result::Err(e) => { return Result::Err(e); }
+                Result::Ok(d)  => { dp.push(d); }
+            }
+            j = j + 1 as u64;
+        }
+    }
+
     return Result::Ok(Manifest {
         name:    name_s,
         version: version_s,
         targets: targets,
+        deps:    deps,
     });
 }
 
@@ -339,7 +387,7 @@ unsafe fn read_manifest(p: str) -> Result<Manifest, ManifestError> {
 // Returns an order of indices into `targets` such that for any i in the
 // order, all of targets[i].deps appear before i. Errors out on cycles or
 // unknown dep names.
-unsafe fn topo_order(targets: &Vec<Target>) -> Result<Vec<i64>, ManifestError> {
+unsafe fn topo_order(targets: &Vec<Target>, externals: &Vec<ExternalLib>) -> Result<Vec<i64>, ManifestError> {
     let n: i64 = targets.length();
     let tp: *const Vec<Target> = targets as *const Vec<Target>;
 
@@ -389,10 +437,16 @@ unsafe fn topo_order(targets: &Vec<Target>) -> Result<Vec<i64>, ManifestError> {
                 }
                 work_cur[top - 1 as i64] = cur_dep + 1 as i64;
                 if didx < 0 as i64 {
-                    have_err = true;
-                    err_buf.push_str("manifest: unknown dep '");
-                    err_buf.push_bytes((*dnm).as_ptr(), (*dnm).len());
-                    err_buf.push_str("'");
+                    // External-dep name? Treat as edge to nothing (already
+                    // built before topo_order is called).
+                    if external_lookup(externals, dnms) >= 0 as i64 {
+                        // skip — no in-target predecessor
+                    } else {
+                        have_err = true;
+                        err_buf.push_str("manifest: unknown dep '");
+                        err_buf.push_bytes((*dnm).as_ptr(), (*dnm).len());
+                        err_buf.push_str("'");
+                    }
                 } else if state[didx] == 1 as u8 {
                     have_err = true;
                     err_buf.push_str("manifest: dependency cycle involving '");
@@ -420,6 +474,197 @@ unsafe fn topo_order(targets: &Vec<Target>) -> Result<Vec<i64>, ManifestError> {
         return Result::Err(ManifestError { message: err_buf });
     }
     return Result::Ok(order);
+}
+
+// ── Working-directory + path helpers ──────────────────────────────────────
+
+unsafe fn save_cwd() -> String {
+    let cap: u64 = 4096 as u64;
+    let buf: *mut u8 = alloc(cap as i64);
+    let r: *mut u8 = getcwd(buf, cap);
+    if r == 0 as *mut u8 {
+        dealloc(buf);
+        return String::new();
+    }
+    let s: str = str_from_cstr(r as *const u8);
+    let mut out: String = String::new();
+    out.push_str(s);
+    dealloc(buf);
+    return out;
+}
+
+unsafe fn chdir_str(path: str) -> i32 {
+    let cs: *mut u8 = cstr(path);
+    let rc: i32 = chdir(cs as *const u8);
+    dealloc(cs);
+    return rc;
+}
+
+// Concatenate cwd + "/" + rel into an absolute path (no normalisation —
+// the kernel handles `.` / `..` fine and lockfile/cache canonicalisation
+// is a future-step concern).
+unsafe fn make_absolute(rel: str) -> String {
+    let n: i64 = rel.len();
+    if n > 0 as i64 && (rel.as_ptr()[0 as i64] as i32) == 47 {
+        let mut out: String = String::new();
+        out.push_str(rel);
+        return out;
+    }
+    let cwd: String = save_cwd();
+    let mut out: String = String::new();
+    out.push_bytes(cwd.as_ptr(), cwd.len());
+    append_path(&mut out, rel);
+    return out;
+}
+
+// ── External deps (B2: local paths only) ──────────────────────────────────
+
+pub struct ExternalLib {
+    pub name:         String,    // lib target name in the external project
+    pub archive_path: String,    // absolute path to <ext>/.lforge/<profile>/out/lib<name>.a
+}
+
+// Build the lib targets named in `dep.modules` from the external project at
+// `dep.path`. Returns the absolute archive paths so the consumer can
+// resolve t.deps lookups + pass them to logosc/cc.
+//
+// NOTE v1: external projects must NOT themselves declare project-level
+// `deps:` — recursive resolution lands with the lockfile + MVS in B3.
+unsafe fn build_external(dep: &ExternalDep, profile: str, logosc: &String) -> Result<Vec<ExternalLib>, i32> {
+    let saved: String = save_cwd();
+    if saved.len() == 0 as i64 {
+        println_str(2, "lforge: getcwd failed");
+        return Result::Err(1);
+    }
+
+    let path_view: str = str_from_raw(dep.path.as_ptr(), dep.path.len());
+    if chdir_str(path_view) != 0 {
+        let mut msg: String = String::new();
+        msg.push_str("lforge: cannot chdir into external dep ");
+        msg.push_str(path_view);
+        println_string(2, &msg);
+        return Result::Err(1);
+    }
+
+    let m: Manifest = match read_manifest("./lforge.hermes") {
+        Result::Err(e) => {
+            print_str(2, "lforge: external dep ");
+            print_str(2, path_view);
+            print_str(2, ": ");
+            println_str(2, str_from_raw(e.message.as_ptr(), e.message.len()));
+            chdir_str(str_from_raw(saved.as_ptr(), saved.len()));
+            return Result::Err(1);
+        }
+        Result::Ok(m) => { m }
+    };
+
+    if m.deps.length() > 0 as i64 {
+        println_str(2, "lforge: external dep declares its own project-level 'deps:' — transitive resolution lands in B3");
+        chdir_str(str_from_raw(saved.as_ptr(), saved.len()));
+        return Result::Err(1);
+    }
+
+    // Build only the requested modules. Each one must exist as a `kind: lib`
+    // target in the external manifest.
+    let mut out: Vec<ExternalLib> = vec_new::<ExternalLib>();
+    let outp: *mut Vec<ExternalLib> = (&mut out) as *mut Vec<ExternalLib>;
+    let mn: i64 = dep.modules.length();
+    let mp: *const Vec<String> = (&dep.modules) as *const Vec<String>;
+    let mut i: i64 = 0 as i64;
+    while i < mn {
+        let nm: *const String = mp.at_const(i);
+        let nm_view: str = str_from_raw((*nm).as_ptr(), (*nm).len());
+        let idx: i64 = find_target_index(&m.targets, nm_view);
+        if idx < 0 as i64 {
+            print_str(2, "lforge: external dep ");
+            print_str(2, path_view);
+            print_str(2, ": no lib target named ");
+            println_str(2, nm_view);
+            chdir_str(str_from_raw(saved.as_ptr(), saved.len()));
+            return Result::Err(1);
+        }
+        let tp: *const Vec<Target> = (&m.targets) as *const Vec<Target>;
+        let t: *const Target = tp.at_const(idx);
+        match (*t).kind {
+            TargetKind::Lib => { }
+            TargetKind::Bin => {
+                print_str(2, "lforge: external dep ");
+                print_str(2, path_view);
+                print_str(2, ": '");
+                print_str(2, nm_view);
+                println_str(2, "' is a bin target — only libs can be exported");
+                chdir_str(str_from_raw(saved.as_ptr(), saved.len()));
+                return Result::Err(1);
+            }
+        }
+        let rc: i32 = build_lib(&(*t), profile, logosc);
+        if rc != 0 {
+            print_str(2, "lforge: external dep ");
+            print_str(2, path_view);
+            print_str(2, ": build of '");
+            print_str(2, nm_view);
+            println_str(2, "' failed");
+            chdir_str(str_from_raw(saved.as_ptr(), saved.len()));
+            return Result::Err(rc);
+        }
+        // Resolve the produced archive to an absolute path so the consumer
+        // can reference it after we chdir back.
+        let rel_arch: String = lib_archive_path(profile, nm_view);
+        let abs_arch: String = make_absolute(str_from_raw(rel_arch.as_ptr(), rel_arch.len()));
+        let mut nm_copy: String = String::new();
+        nm_copy.push_bytes((*nm).as_ptr(), (*nm).len());
+        outp.push(ExternalLib { name: nm_copy, archive_path: abs_arch });
+        i = i + 1 as i64;
+    }
+
+    if chdir_str(str_from_raw(saved.as_ptr(), saved.len())) != 0 {
+        println_str(2, "lforge: cannot restore cwd after building external dep");
+        return Result::Err(1);
+    }
+    return Result::Ok(out);
+}
+
+unsafe fn build_all_externals(deps: &Vec<ExternalDep>, profile: str, logosc: &String) -> Result<Vec<ExternalLib>, i32> {
+    let mut all: Vec<ExternalLib> = vec_new::<ExternalLib>();
+    let allp: *mut Vec<ExternalLib> = (&mut all) as *mut Vec<ExternalLib>;
+    let n: i64 = deps.length();
+    let dp: *const Vec<ExternalDep> = deps as *const Vec<ExternalDep>;
+    let mut i: i64 = 0 as i64;
+    while i < n {
+        let d: *const ExternalDep = dp.at_const(i);
+        match build_external(&(*d), profile, logosc) {
+            Result::Err(rc) => { return Result::Err(rc); }
+            Result::Ok(libs) => {
+                let m: i64 = libs.length();
+                let lp: *const Vec<ExternalLib> = (&libs) as *const Vec<ExternalLib>;
+                let mut j: i64 = 0 as i64;
+                while j < m {
+                    let lb: *const ExternalLib = lp.at_const(j);
+                    let mut nm_copy: String = String::new();
+                    nm_copy.push_bytes((*lb).name.as_ptr(), (*lb).name.len());
+                    let mut ap_copy: String = String::new();
+                    ap_copy.push_bytes((*lb).archive_path.as_ptr(), (*lb).archive_path.len());
+                    allp.push(ExternalLib { name: nm_copy, archive_path: ap_copy });
+                    j = j + 1 as i64;
+                }
+            }
+        }
+        i = i + 1 as i64;
+    }
+    return Result::Ok(all);
+}
+
+unsafe fn external_lookup(externals: &Vec<ExternalLib>, name: str) -> i64 {
+    let n: i64 = externals.length();
+    let lp: *const Vec<ExternalLib> = externals as *const Vec<ExternalLib>;
+    let mut i: i64 = 0 as i64;
+    while i < n {
+        let lb: *const ExternalLib = lp.at_const(i);
+        let nm_view: str = str_from_raw((*lb).name.as_ptr(), (*lb).name.len());
+        if str_eq_local(nm_view, name) { return i; }
+        i = i + 1 as i64;
+    }
+    return 0 as i64 - 1 as i64;
 }
 
 // ── Tool resolution ───────────────────────────────────────────────────────
@@ -556,9 +801,12 @@ unsafe fn bin_path(profile: str, bin_name: str) -> String {
     return p;
 }
 
-// Resolve dep names → archive paths under <profile>/out/lib<name>.a, in the
-// order the deps appear in the bin target's manifest.
-unsafe fn dep_archive_paths(targets: &Vec<Target>, deps: &Vec<String>, profile: str) -> Vec<String> {
+// Resolve dep names → archive paths. Externals shadow local libs of the
+// same name (consumer's t.deps already declared the name; the project that
+// defines a lib with that name wins). Order preserved from the bin target's
+// manifest.
+unsafe fn dep_archive_paths(targets: &Vec<Target>, deps: &Vec<String>, profile: str,
+                            externals: &Vec<ExternalLib>) -> Vec<String> {
     let mut out: Vec<String> = vec_new::<String>();
     let outp: *mut Vec<String> = (&mut out) as *mut Vec<String>;
     let dn: i64 = deps.length();
@@ -567,8 +815,17 @@ unsafe fn dep_archive_paths(targets: &Vec<Target>, deps: &Vec<String>, profile: 
     while i < dn {
         let nm: *const String = dp.at_const(i);
         let nm_view: str = str_from_raw((*nm).as_ptr(), (*nm).len());
-        let p: String = lib_archive_path(profile, nm_view);
-        outp.push(p);
+        let ei: i64 = external_lookup(externals, nm_view);
+        if ei >= 0 as i64 {
+            let lp: *const Vec<ExternalLib> = externals as *const Vec<ExternalLib>;
+            let lb: *const ExternalLib = lp.at_const(ei);
+            let mut p: String = String::new();
+            p.push_bytes((*lb).archive_path.as_ptr(), (*lb).archive_path.len());
+            outp.push(p);
+        } else {
+            let p: String = lib_archive_path(profile, nm_view);
+            outp.push(p);
+        }
         i = i + 1 as i64;
     }
     return out;
@@ -1018,7 +1275,8 @@ unsafe fn build_bin(t: &Target,
                     targets: &Vec<Target>,
                     profile: str,
                     logosc: &String,
-                    lib_dir: &String) -> i32 {
+                    lib_dir: &String,
+                    externals: &Vec<ExternalLib>) -> i32 {
     if t.entry.len() == 0 as i64 {
         println_str(2, "lforge: bin target missing 'entry'");
         return 1;
@@ -1035,7 +1293,7 @@ unsafe fn build_bin(t: &Target,
     let src_view: str = str_from_raw(t.src.as_ptr(), t.src.len());
     let mut all_inputs: Vec<String> = collect_logos_files(src_view);
     let alp: *mut Vec<String> = (&mut all_inputs) as *mut Vec<String>;
-    let dep_archs_for_check: Vec<String> = dep_archive_paths(targets, &t.deps, profile);
+    let dep_archs_for_check: Vec<String> = dep_archive_paths(targets, &t.deps, profile, externals);
     let dap_check: *const Vec<String> = (&dep_archs_for_check) as *const Vec<String>;
     let dnc: i64 = dep_archs_for_check.length();
     let mut di: i64 = 0 as i64;
@@ -1077,7 +1335,7 @@ unsafe fn build_bin(t: &Target,
     let bp: String = bin_path(profile, str_from_raw(t.name.as_ptr(), t.name.len()));
 
     // Resolve dep archives.
-    let dep_archs: Vec<String> = dep_archive_paths(targets, &t.deps, profile);
+    let dep_archs: Vec<String> = dep_archive_paths(targets, &t.deps, profile, externals);
 
     // logosc <entry> -o <obj> [-l <dep_arch>]...
     let mut argv: Vec<String> = vec_new::<String>();
@@ -1164,7 +1422,15 @@ unsafe fn find_target_index(targets: &Vec<Target>, name: str) -> i64 {
 unsafe fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64) -> i32 {
     let logosc: String = resolve_logosc_path();
     let lib_dir: String = resolve_logos_lib_dir();
-    let full_order: Vec<i64> = match topo_order(&m.targets) {
+
+    // Build external (project-level) deps first so their archives are
+    // available when local targets resolve their per-target deps.
+    let externals: Vec<ExternalLib> = match build_all_externals(&m.deps, profile, &logosc) {
+        Result::Err(rc) => { return rc; }
+        Result::Ok(libs) => { libs }
+    };
+
+    let full_order: Vec<i64> = match topo_order(&m.targets, &externals) {
         Result::Err(e) => {
             print_str(2, "lforge: ");
             println_str(2, str_from_raw(e.message.as_ptr(), e.message.len()));
@@ -1227,7 +1493,7 @@ unsafe fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64) -> i
         let t: *const Target = tp.at_const(idx);
         let rc: i32 = match (*t).kind {
             TargetKind::Lib => { build_lib(&(*t), profile, &logosc) }
-            TargetKind::Bin => { build_bin(&(*t), &m.targets, profile, &logosc, &lib_dir) }
+            TargetKind::Bin => { build_bin(&(*t), &m.targets, profile, &logosc, &lib_dir, &externals) }
         };
         if rc != 0 {
             dealloc(want);
@@ -1552,7 +1818,10 @@ unsafe fn cmd_test(m: &Manifest, profile: str) -> i32 {
     // 1. Build all lib targets first; bin targets are not needed for tests.
     let logosc:  String = resolve_logosc_path();
     let lib_dir: String = resolve_logos_lib_dir();
-    let order: Vec<i64> = match topo_order(&m.targets) {
+    // External deps are not threaded through cmd_test yet — that lands when
+    // tests need to import from external libs (B3+).
+    let no_externals: Vec<ExternalLib> = vec_new::<ExternalLib>();
+    let order: Vec<i64> = match topo_order(&m.targets, &no_externals) {
         Result::Err(e) => {
             print_str(2, "lforge: ");
             println_str(2, str_from_raw(e.message.as_ptr(), e.message.len()));
