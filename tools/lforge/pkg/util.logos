@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: Apache-2.0
+// lforge — small string / I/O / error-construction helpers shared by all
+// sub-packages and the entry-point.
+
+package lforge.util;
+
+use std.lang.text;
+use lforge.schema;
+
+extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
+
+// Heap-allocate a NUL-terminated copy of `s`. Caller frees with `dealloc`.
+pub unsafe fn cstr(s: str) -> *mut u8 {
+    let n: i64 = s.len();
+    let h: *mut u8 = alloc(n + 1 as i64);
+    let mut i: i64 = 0 as i64;
+    while i < n { h[i] = s.as_ptr()[i]; i = i + 1 as i64; }
+    h[n] = 0 as u8;
+    return h;
+}
+
+pub fn str_eq_local(a: str, b: str) -> bool {
+    if a.len() != b.len() { return false; }
+    return str_starts_with(a, b);
+}
+
+pub unsafe fn err_msg(msg: str) -> ManifestError {
+    let mut s: String = String::new();
+    s.push_str(msg);
+    return ManifestError { message: s };
+}
+
+pub unsafe fn err_msg2(a: str, b: str) -> ManifestError {
+    let mut s: String = String::new();
+    s.push_str(a);
+    s.push_str(b);
+    return ManifestError { message: s };
+}
+
+pub unsafe fn print_str(fd: i32, s: str) {
+    write(fd, s.as_ptr(), s.len());
+}
+
+pub unsafe fn println_str(fd: i32, s: str) {
+    print_str(fd, s);
+    let nl: u8 = 10 as u8;
+    write(fd, &nl as *const u8, 1 as i64);
+}
+
+pub unsafe fn println_string(fd: i32, s: &String) {
+    write(fd, s.as_ptr(), s.len());
+    let nl: u8 = 10 as u8;
+    write(fd, &nl as *const u8, 1 as i64);
+}
+
+// Append `<base>/<rest>` semantics into an existing String.
+pub unsafe fn append_path(base: &mut String, rest: str) {
+    let n: i64 = base.len();
+    if n > 0 as i64 && (base.as_ptr()[n - 1 as i64] as i32) != 47 {
+        base.push_u8(47 as u8);
+    }
+    base.push_str(rest);
+}

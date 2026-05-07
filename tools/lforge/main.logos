@@ -68,6 +68,7 @@ use std.sys.args;
 
 use lforge.version;
 use lforge.schema;
+use lforge.util;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
@@ -80,59 +81,8 @@ extern fn getcwd(buf: *mut u8, size: u64) -> *mut u8;
 // Schema types (TargetKind/Target/ExternalDep/ExternalLib/LockEntry/
 // GitWinner/Manifest/ManifestError) live in `lforge.schema`.
 
-// ── String helpers ────────────────────────────────────────────────────────
-
-unsafe fn cstr(s: str) -> *mut u8 {
-    let n: i64 = s.len();
-    let h: *mut u8 = alloc(n + 1 as i64);
-    let mut i: i64 = 0 as i64;
-    while i < n { h[i] = s.as_ptr()[i]; i = i + 1 as i64; }
-    h[n] = 0 as u8;
-    return h;
-}
-
-fn str_eq_local(a: str, b: str) -> bool {
-    if a.len() != b.len() { return false; }
-    return str_starts_with(a, b);
-}
-
-unsafe fn err_msg(msg: str) -> ManifestError {
-    let mut s: String = String::new();
-    s.push_str(msg);
-    return ManifestError { message: s };
-}
-
-unsafe fn err_msg2(a: str, b: str) -> ManifestError {
-    let mut s: String = String::new();
-    s.push_str(a);
-    s.push_str(b);
-    return ManifestError { message: s };
-}
-
-unsafe fn print_str(fd: i32, s: str) {
-    write(fd, s.as_ptr(), s.len());
-}
-
-unsafe fn println_str(fd: i32, s: str) {
-    print_str(fd, s);
-    let nl: u8 = 10 as u8;
-    write(fd, &nl as *const u8, 1 as i64);
-}
-
-unsafe fn println_string(fd: i32, s: &String) {
-    write(fd, s.as_ptr(), s.len());
-    let nl: u8 = 10 as u8;
-    write(fd, &nl as *const u8, 1 as i64);
-}
-
-// Append `<base>/<rest>` semantics into an existing String.
-unsafe fn append_path(base: &mut String, rest: str) {
-    let n: i64 = base.len();
-    if n > 0 as i64 && (base.as_ptr()[n - 1 as i64] as i32) != 47 {
-        base.push_u8(47 as u8);
-    }
-    base.push_str(rest);
-}
+// String / I/O helpers (cstr, str_eq_local, err_msg/2, print_str,
+// println_str, println_string, append_path) live in `lforge.util`.
 
 // ── Hermes helpers ────────────────────────────────────────────────────────
 
