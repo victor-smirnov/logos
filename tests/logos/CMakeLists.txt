@@ -640,4 +640,17 @@ if (TARGET lforge)
         TIMEOUT 60
         LABELS  "logos;lforge;suite_lforge"
     )
+
+    # B3b: MVS conflict detection + `lforge update` re-resolves.
+    add_test(
+        NAME logos_23_lforge_mvs_update
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/mvs_update.sh
+                ${CMAKE_BINARY_DIR}/bin/lforge
+                $<TARGET_FILE:logosc>
+                ${LOGOS_BUILD_LIB_DIR}
+    )
+    set_tests_properties(logos_23_lforge_mvs_update PROPERTIES
+        TIMEOUT 60
+        LABELS  "logos;lforge;suite_lforge"
+    )
 endif()
