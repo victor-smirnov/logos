@@ -1,0 +1,192 @@
+// B0.3: Hermes-SDN manifest schema for lforge.
+//
+// Schema (text Hermes):
+//
+//   {
+//     name:    "my-project",
+//     version: "0.1.0",
+//     src:     "src",         // source dir relative to project root
+//     entry:   "main"         // entry module name (last logical pkg segment)
+//   }
+//
+// Required fields: name, version, src, entry. Unknown fields ignored
+// (forward compat). `deps` and `build` will be added in later phases —
+// kept out of MVP so the schema is small and the parser stays compact.
+//
+// This file holds the schema types + parser inline; lforge will move them
+// into its own module in B0.5.
+
+package lforge_manifest;
+
+use std.hermes.zone;
+use std.hermes.anyval;
+use std.hermes.view;
+use std.hermes.string;
+use std.hermes.typetag;
+use std.hermes.array;
+use std.hermes.map;
+use std.hermes.typed_value;
+use std.hermes.objectmap;
+use std.hermes.document;
+use std.hermes.parser;
+use std.lang.text;
+use std.lang.option;
+use std.lang.result;
+
+extern fn malloc(size: i64) -> *mut u8;
+extern fn free(ptr: *mut u8);
+
+// ── Schema types ──────────────────────────────────────────────────────────
+
+pub struct Manifest {
+    pub name:    String,
+    pub version: String,
+    pub src:     String,
+    pub entry:   String,
+}
+
+pub struct ManifestError {
+    pub message: String,
+}
+
+unsafe fn err_msg(msg: str) -> ManifestError {
+    let mut s: String = String::new();
+    s.push_str(msg);
+    return ManifestError { message: s };
+}
+
+// ── Parser ────────────────────────────────────────────────────────────────
+
+// Read a required string field from `root` (a Hermes map). Returns Err if
+// the field is absent or not a string.
+unsafe fn read_str_field(view: &HermesView<'a>, root: AnyVal, key: str) -> Result<String, ManifestError> {
+    let v: AnyVal = view.map_get(root, key);
+    if v.is_null() {
+        let mut e: String = String::new();
+        e.push_str("manifest: missing required field '");
+        e.push_str(key);
+        e.push_str("'");
+        return Result::Err(ManifestError { message: e });
+    }
+    let base: *const u8 = view.base();
+    if !v.is_string(base) {
+        let mut e: String = String::new();
+        e.push_str("manifest: field '");
+        e.push_str(key);
+        e.push_str("' must be a string");
+        return Result::Err(ManifestError { message: e });
+    }
+    let sv: StringView = view.get_str_view(v);
+    let mut out: String = String::new();
+    out.push_bytes(sv.ptr, sv.len as i64);
+    return Result::Ok(out);
+}
+
+pub unsafe fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
+    let mut z: Zone<Mutable> = zone_create(8192);
+    if !hermes_parse(text.as_ptr(), text.len(), &mut z) {
+        return Result::Err(err_msg("manifest: SDN parse failed"));
+    }
+    let view: HermesView<'a> = HermesView {
+        base: z.holder.base as *const u8,
+        size: z.holder.used as u64,
+    };
+    let root: AnyVal = view.root();
+    if !root.is_map(view.base()) {
+        return Result::Err(err_msg("manifest: top-level value must be a map"));
+    }
+
+    let mut name_s:    String = String::new();
+    let mut version_s: String = String::new();
+    let mut src_s:     String = String::new();
+    let mut entry_s:   String = String::new();
+    let mut err_pos: i32 = 0;
+    let mut err_msg_buf: String = String::new();
+
+    match read_str_field(&view, root, "name") {
+        Result::Ok(s)  => { name_s = s; }
+        Result::Err(e) => { err_pos = 1; err_msg_buf.push_bytes(e.message.as_ptr(), e.message.len()); }
+    }
+    if err_pos == 0 {
+        match read_str_field(&view, root, "version") {
+            Result::Ok(s)  => { version_s = s; }
+            Result::Err(e) => { err_pos = 2; err_msg_buf.push_bytes(e.message.as_ptr(), e.message.len()); }
+        }
+    }
+    if err_pos == 0 {
+        match read_str_field(&view, root, "src") {
+            Result::Ok(s)  => { src_s = s; }
+            Result::Err(e) => { err_pos = 3; err_msg_buf.push_bytes(e.message.as_ptr(), e.message.len()); }
+        }
+    }
+    if err_pos == 0 {
+        match read_str_field(&view, root, "entry") {
+            Result::Ok(s)  => { entry_s = s; }
+            Result::Err(e) => { err_pos = 4; err_msg_buf.push_bytes(e.message.as_ptr(), e.message.len()); }
+        }
+    }
+    if err_pos != 0 {
+        return Result::Err(ManifestError { message: err_msg_buf });
+    }
+    return Result::Ok(Manifest {
+        name:    name_s,
+        version: version_s,
+        src:     src_s,
+        entry:   entry_s,
+    });
+}
+
+// ── Test ──────────────────────────────────────────────────────────────────
+
+unsafe fn main() -> i32 {
+    // 1. Happy path: complete manifest.
+    let s1: str = "{ name: \"my-project\", version: \"0.1.0\", src: \"src\", entry: \"main\" }";
+    match parse_manifest(s1) {
+        Result::Err(_) => { return 1; }
+        Result::Ok(m)  => {
+            if !m.name.eq_str("my-project") { return 2; }
+            if !m.version.eq_str("0.1.0")    { return 3; }
+            if !m.src.eq_str("src")          { return 4; }
+            if !m.entry.eq_str("main")       { return 5; }
+        }
+    }
+
+    // 2. Forward-compat: unknown fields are ignored.
+    let s2: str = "{ name: \"p\", version: \"v\", src: \"s\", entry: \"e\", future: 42 }";
+    match parse_manifest(s2) {
+        Result::Err(_) => { return 10; }
+        Result::Ok(m)  => {
+            if !m.name.eq_str("p") { return 11; }
+        }
+    }
+
+    // 3. Missing required field → Err.
+    let s3: str = "{ name: \"p\", src: \"s\", entry: \"e\" }";
+    match parse_manifest(s3) {
+        Result::Err(_) => { /* expected */ }
+        Result::Ok(_)  => { return 20; }
+    }
+
+    // 4. Wrong type for field → Err.
+    let s4: str = "{ name: 42, version: \"v\", src: \"s\", entry: \"e\" }";
+    match parse_manifest(s4) {
+        Result::Err(_) => { /* expected */ }
+        Result::Ok(_)  => { return 21; }
+    }
+
+    // 5. Top-level not a map → Err.
+    let s5: str = "[1, 2, 3]";
+    match parse_manifest(s5) {
+        Result::Err(_) => { /* expected */ }
+        Result::Ok(_)  => { return 22; }
+    }
+
+    // 6. Malformed SDN → Err.
+    let s6: str = "{ name: ";
+    match parse_manifest(s6) {
+        Result::Err(_) => { /* expected */ }
+        Result::Ok(_)  => { return 23; }
+    }
+
+    return 0;
+}
