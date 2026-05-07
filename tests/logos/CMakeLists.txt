@@ -653,4 +653,17 @@ if (TARGET lforge)
         TIMEOUT 60
         LABELS  "logos;lforge;suite_lforge"
     )
+
+    # B4: content-addressed build cache shared across consumers.
+    add_test(
+        NAME logos_24_lforge_build_cache
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/build_cache.sh
+                ${CMAKE_BINARY_DIR}/bin/lforge
+                $<TARGET_FILE:logosc>
+                ${LOGOS_BUILD_LIB_DIR}
+    )
+    set_tests_properties(logos_24_lforge_build_cache PROPERTIES
+        TIMEOUT 60
+        LABELS  "logos;lforge;suite_lforge"
+    )
 endif()

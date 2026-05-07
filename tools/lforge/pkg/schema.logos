@@ -35,9 +35,13 @@ pub struct ExternalDep {
 }
 
 // Built archive of an external dep, surfaced to consumer compiles.
+// `cache_key` is the sha256-hex content-addressed cache key (B4) for git
+// deps; empty for local-path deps that aren't cached. Used as input to
+// downstream consumers' own keys so a sub-dep change invalidates them.
 pub struct ExternalLib {
     pub name:         String,    // lib target name in the external project
     pub archive_path: String,    // absolute path to the built .a
+    pub cache_key:    String,    // sha256-hex (empty for non-cached)
 }
 
 // One pinned entry in lforge.lock (B3). `tag` is preserved for diff

@@ -12,6 +12,7 @@ _deps
 CMakeUserPresets.json
 build*
 !tools/lforge/pkg/build*
+!tests/lforge/build_cache.sh
 /memoria*
 /vcpkg_installed
 *.o

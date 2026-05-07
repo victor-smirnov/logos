@@ -22,6 +22,7 @@ use lforge.git_dep;
 use lforge.topo;
 use lforge.build_paths;
 use lforge.builder;
+use lforge.build_cache;
 
 pub unsafe fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
                              lock_in: &Vec<LockEntry>,
@@ -148,10 +149,34 @@ pub unsafe fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
                     nm_c.push_bytes((*lb).name.as_ptr(), (*lb).name.len());
                     let mut ap_c: String = String::new();
                     ap_c.push_bytes((*lb).archive_path.as_ptr(), (*lb).archive_path.len());
-                    outp.push(ExternalLib { name: nm_c, archive_path: ap_c });
+                    let mut ck_c: String = String::new();
+                    ck_c.push_bytes((*lb).cache_key.as_ptr(), (*lb).cache_key.len());
+                    outp.push(ExternalLib { name: nm_c, archive_path: ap_c, cache_key: ck_c });
                     si = si + 1 as i64;
                 }
             }
+        }
+    }
+
+    // Cache key inputs that are constant across this dep's modules.
+    // We only cache git deps (sha non-empty); local-path deps go through
+    // the build path unconditionally.
+    let cache_eligible: bool = resolved_sha.len() > 0 as i64;
+    let lc_mtime: i64 = logosc_mtime(logosc);
+    let mut sub_dep_keys: Vec<String> = vec_new::<String>();
+    let sdk_p: *mut Vec<String> = (&mut sub_dep_keys) as *mut Vec<String>;
+    if cache_eligible {
+        let on: i64 = out.length();
+        let op: *const Vec<ExternalLib> = (&out) as *const Vec<ExternalLib>;
+        let mut oi: i64 = 0 as i64;
+        while oi < on {
+            let lb: *const ExternalLib = op.at_const(oi);
+            if (*lb).cache_key.len() > 0 as i64 {
+                let mut k_copy: String = String::new();
+                k_copy.push_bytes((*lb).cache_key.as_ptr(), (*lb).cache_key.len());
+                sdk_p.push(k_copy);
+            }
+            oi = oi + 1 as i64;
         }
     }
 
@@ -163,6 +188,36 @@ pub unsafe fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
     while i < mn {
         let nm: *const String = mp.at_const(i);
         let nm_view: str = str_from_raw((*nm).as_ptr(), (*nm).len());
+
+        // Cache lookup before we even consult the local manifest. Hits
+        // skip find_target_index + build_lib entirely.
+        let mut ck: String = String::new();
+        let mut archive_basename: String = String::new();
+        archive_basename.push_str("lib");
+        archive_basename.push_str(nm_view);
+        archive_basename.push_str(".a");
+        let ab_view: str = str_from_raw(archive_basename.as_ptr(), archive_basename.len());
+        if cache_eligible {
+            let dview: str = str_from_raw(resolved_display.as_ptr(), resolved_display.len());
+            let sview: str = str_from_raw(resolved_sha.as_ptr(),     resolved_sha.len());
+            ck = compute_key(dview, sview, nm_view, profile, lc_mtime, &sub_dep_keys);
+            let ck_view: str = str_from_raw(ck.as_ptr(), ck.len());
+            let hit_path: String = cache_lookup(ck_view, ab_view);
+            if hit_path.len() > 0 as i64 {
+                let mut nm_copy: String = String::new();
+                nm_copy.push_bytes((*nm).as_ptr(), (*nm).len());
+                let mut ck_copy: String = String::new();
+                ck_copy.push_bytes(ck.as_ptr(), ck.len());
+                outp.push(ExternalLib {
+                    name: nm_copy,
+                    archive_path: hit_path,
+                    cache_key: ck_copy,
+                });
+                i = i + 1 as i64;
+                continue;
+            }
+        }
+
         let idx: i64 = find_target_index(&m.targets, nm_view);
         if idx < 0 as i64 {
             print_str(2, "lforge: external dep ");
@@ -202,9 +257,30 @@ pub unsafe fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
         // can reference it after we chdir back.
         let rel_arch: String = lib_archive_path(profile, nm_view);
         let abs_arch: String = make_absolute(str_from_raw(rel_arch.as_ptr(), rel_arch.len()));
+
+        // Populate cache for git deps. On failure: warn and continue with
+        // the per-source archive — caching is an optimisation, not load-
+        // bearing for correctness.
+        if cache_eligible {
+            let dview: str = str_from_raw(resolved_display.as_ptr(), resolved_display.len());
+            let sview: str = str_from_raw(resolved_sha.as_ptr(),     resolved_sha.len());
+            let ck_view: str = str_from_raw(ck.as_ptr(), ck.len());
+            let prc: i32 = cache_populate(ck_view, &abs_arch, ab_view,
+                                          dview, sview, nm_view, profile, lc_mtime);
+            if prc != 0 {
+                println_str(2, "lforge: warning: could not populate build cache");
+            }
+        }
+
         let mut nm_copy: String = String::new();
         nm_copy.push_bytes((*nm).as_ptr(), (*nm).len());
-        outp.push(ExternalLib { name: nm_copy, archive_path: abs_arch });
+        let mut ck_copy: String = String::new();
+        ck_copy.push_bytes(ck.as_ptr(), ck.len());
+        outp.push(ExternalLib {
+            name: nm_copy,
+            archive_path: abs_arch,
+            cache_key: ck_copy,
+        });
         i = i + 1 as i64;
     }
 
@@ -239,7 +315,9 @@ pub unsafe fn build_all_externals(deps: &Vec<ExternalDep>, profile: str, logosc:
                     nm_copy.push_bytes((*lb).name.as_ptr(), (*lb).name.len());
                     let mut ap_copy: String = String::new();
                     ap_copy.push_bytes((*lb).archive_path.as_ptr(), (*lb).archive_path.len());
-                    allp.push(ExternalLib { name: nm_copy, archive_path: ap_copy });
+                    let mut ck_copy: String = String::new();
+                    ck_copy.push_bytes((*lb).cache_key.as_ptr(), (*lb).cache_key.len());
+                    allp.push(ExternalLib { name: nm_copy, archive_path: ap_copy, cache_key: ck_copy });
                     j = j + 1 as i64;
                 }
             }
