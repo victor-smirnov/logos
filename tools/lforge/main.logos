@@ -70,6 +70,7 @@ use lforge.version;
 use lforge.schema;
 use lforge.util;
 use lforge.hermes_io;
+use lforge.cwd;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
@@ -380,46 +381,8 @@ unsafe fn topo_order(targets: &Vec<Target>, externals: &Vec<ExternalLib>) -> Res
     return Result::Ok(order);
 }
 
-// ── Working-directory + path helpers ──────────────────────────────────────
-
-unsafe fn save_cwd() -> String {
-    let cap: u64 = 4096 as u64;
-    let buf: *mut u8 = alloc(cap as i64);
-    let r: *mut u8 = getcwd(buf, cap);
-    if r == 0 as *mut u8 {
-        dealloc(buf);
-        return String::new();
-    }
-    let s: str = str_from_cstr(r as *const u8);
-    let mut out: String = String::new();
-    out.push_str(s);
-    dealloc(buf);
-    return out;
-}
-
-unsafe fn chdir_str(path: str) -> i32 {
-    let cs: *mut u8 = cstr(path);
-    let rc: i32 = chdir(cs as *const u8);
-    dealloc(cs);
-    return rc;
-}
-
-// Concatenate cwd + "/" + rel into an absolute path (no normalisation —
-// the kernel handles `.` / `..` fine and lockfile/cache canonicalisation
-// is a future-step concern).
-unsafe fn make_absolute(rel: str) -> String {
-    let n: i64 = rel.len();
-    if n > 0 as i64 && (rel.as_ptr()[0 as i64] as i32) == 47 {
-        let mut out: String = String::new();
-        out.push_str(rel);
-        return out;
-    }
-    let cwd: String = save_cwd();
-    let mut out: String = String::new();
-    out.push_bytes(cwd.as_ptr(), cwd.len());
-    append_path(&mut out, rel);
-    return out;
-}
+// Working-directory helpers (save_cwd / chdir_str / make_absolute) live
+// in `lforge.cwd`.
 
 // ── External deps (B2: local paths only) ──────────────────────────────────
 
