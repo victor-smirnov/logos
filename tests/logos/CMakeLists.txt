@@ -477,4 +477,17 @@ if (TARGET lforge)
         TIMEOUT 60
         LABELS  "logos;lforge;suite_lforge"
     )
+
+    # B1.1: multi-target builds (lib + bin with deps), topo-sort, --release.
+    add_test(
+        NAME logos_11_lforge_multitarget
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/multitarget.sh
+                ${CMAKE_BINARY_DIR}/bin/lforge
+                $<TARGET_FILE:logosc>
+                ${LOGOS_BUILD_LIB_DIR}
+    )
+    set_tests_properties(logos_11_lforge_multitarget PROPERTIES
+        TIMEOUT 60
+        LABELS  "logos;lforge;suite_lforge"
+    )
 endif()
