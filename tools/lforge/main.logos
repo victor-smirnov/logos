@@ -563,9 +563,103 @@ unsafe fn dep_archive_paths(targets: &Vec<Target>, deps: &Vec<String>, profile: 
     return out;
 }
 
+// ── Incremental rebuild (mtime-based) ─────────────────────────────────────
+//
+// Action skip rule: if the output file exists and its mtime is >= the max
+// mtime of every input file, the action is fresh and we skip the spawn.
+// Matches the cmake/ninja default behavior (which is what users expect).
+//
+// A future slice can replace this with content-hash keyed CAS — the
+// primitives are already in tests/logos/pass/lforge_graph_cas.logos.
+
+unsafe fn collect_logos_files(dir: str) -> Vec<String> {
+    let mut out: Vec<String> = vec_new::<String>();
+    let outp: *mut Vec<String> = (&mut out) as *mut Vec<String>;
+    let cs: *mut u8 = cstr(dir);
+    let exists_dir: bool = is_dir(cs as *const u8);
+    dealloc(cs);
+    if exists_dir {
+        let entries: Vec<DirEntry> = walk_dir(dir);
+        let ep: *const Vec<DirEntry> = (&entries) as *const Vec<DirEntry>;
+        let n: i64 = entries.length();
+        let mut i: i64 = 0 as i64;
+        while i < n {
+            let de: *const DirEntry = ep.at_const(i);
+            i = i + 1 as i64;
+            if (*de).is_dir { continue; }
+            let pview: str = str_from_raw((*de).name.as_ptr(), (*de).name.len());
+            let pn: i64 = pview.len();
+            if pn < 6 as i64 { continue; }
+            let suffix: str = ".logos";
+            let off: i64 = pn - 6 as i64;
+            let mut ok: bool = true;
+            let mut sk: i64 = 0 as i64;
+            while sk < 6 as i64 && ok {
+                if pview[off + sk] != suffix[sk] { ok = false; }
+                sk = sk + 1 as i64;
+            }
+            if !ok { continue; }
+            let mut p: String = String::new();
+            p.push_str(pview);
+            outp.push(p);
+        }
+    }
+    return out;
+}
+
+// Latest mtime in a list of file paths; returns 0 if list is empty or every
+// stat fails.
+unsafe fn newest_mtime(paths: &Vec<String>) -> i64 {
+    let mut max_mt: i64 = 0 as i64;
+    let n: i64 = paths.length();
+    let pp: *const Vec<String> = paths as *const Vec<String>;
+    let mut i: i64 = 0 as i64;
+    while i < n {
+        let s: *const String = pp.at_const(i);
+        let cs: *mut u8 = cstr(str_from_raw((*s).as_ptr(), (*s).len()));
+        let mt: Result<i64, i32> = mtime_ns(cs as *const u8);
+        dealloc(cs);
+        match mt {
+            Result::Ok(t)  => { if t > max_mt { max_mt = t; } }
+            Result::Err(_) => { }
+        }
+        i = i + 1 as i64;
+    }
+    return max_mt;
+}
+
+// True if `out_path` exists and its mtime is >= every input mtime.
+unsafe fn output_is_fresh(out_path: str, max_input_mt: i64) -> bool {
+    let cs: *mut u8 = cstr(out_path);
+    let ok: bool = exists(cs as *const u8);
+    if !ok { dealloc(cs); return false; }
+    let mt: Result<i64, i32> = mtime_ns(cs as *const u8);
+    dealloc(cs);
+    match mt {
+        Result::Ok(t)  => { return t >= max_input_mt; }
+        Result::Err(_) => { return false; }
+    }
+}
+
 // ── Per-target build actions ──────────────────────────────────────────────
 
 unsafe fn build_lib(t: &Target, profile: str, logosc: &String) -> i32 {
+    // Incremental skip: if the archive is newer than every input .logos
+    // under target.src, the lib target is up-to-date.
+    let src_view: str = str_from_raw(t.src.as_ptr(), t.src.len());
+    let inputs: Vec<String> = collect_logos_files(src_view);
+    let max_mt: i64 = newest_mtime(&inputs);
+    let arch_check: String = lib_archive_path(profile, str_from_raw(t.name.as_ptr(), t.name.len()));
+    let arch_check_view: str = str_from_raw(arch_check.as_ptr(), arch_check.len());
+    if output_is_fresh(arch_check_view, max_mt) {
+        let mut msg: String = String::new();
+        msg.push_str("lforge: lib ");
+        msg.push_bytes(t.name.as_ptr(), t.name.len());
+        msg.push_str(" up-to-date");
+        println_string(1, &msg);
+        return 0;
+    }
+
     // Generate <profile>/_gen/<name>.module text.
     let gd: String = gen_dir_for(profile);
     let gd_view: str = str_from_raw(gd.as_ptr(), gd.len());
@@ -636,6 +730,34 @@ unsafe fn build_bin(t: &Target,
     match mkdir_p(od_view) {
         Result::Err(_) => { println_str(2, "lforge: cannot create out dir"); return 1; }
         Result::Ok(_)  => { }
+    }
+
+    // Incremental skip: if the linked binary is newer than every input
+    // (the bin's own .logos files + every dep .a archive), skip the action.
+    let src_view: str = str_from_raw(t.src.as_ptr(), t.src.len());
+    let mut all_inputs: Vec<String> = collect_logos_files(src_view);
+    let alp: *mut Vec<String> = (&mut all_inputs) as *mut Vec<String>;
+    let dep_archs_for_check: Vec<String> = dep_archive_paths(targets, &t.deps, profile);
+    let dap_check: *const Vec<String> = (&dep_archs_for_check) as *const Vec<String>;
+    let dnc: i64 = dep_archs_for_check.length();
+    let mut di: i64 = 0 as i64;
+    while di < dnc {
+        let s: *const String = dap_check.at_const(di);
+        let mut copy: String = String::new();
+        copy.push_bytes((*s).as_ptr(), (*s).len());
+        alp.push(copy);
+        di = di + 1 as i64;
+    }
+    let max_mt: i64 = newest_mtime(&all_inputs);
+    let bp_check: String = bin_path(profile, str_from_raw(t.name.as_ptr(), t.name.len()));
+    let bp_check_view: str = str_from_raw(bp_check.as_ptr(), bp_check.len());
+    if output_is_fresh(bp_check_view, max_mt) {
+        let mut msg: String = String::new();
+        msg.push_str("lforge: bin ");
+        msg.push_bytes(t.name.as_ptr(), t.name.len());
+        msg.push_str(" up-to-date");
+        println_string(1, &msg);
+        return 0;
     }
 
     // Compose entry path: <src>/<entry>.logos

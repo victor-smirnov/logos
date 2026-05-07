@@ -503,4 +503,17 @@ if (TARGET lforge)
         TIMEOUT 90
         LABELS  "logos;lforge;suite_lforge"
     )
+
+    # B1.2: mtime-based incremental rebuild.
+    add_test(
+        NAME logos_13_lforge_incremental
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/incremental.sh
+                ${CMAKE_BINARY_DIR}/bin/lforge
+                $<TARGET_FILE:logosc>
+                ${LOGOS_BUILD_LIB_DIR}
+    )
+    set_tests_properties(logos_13_lforge_incremental PROPERTIES
+        TIMEOUT 60
+        LABELS  "logos;lforge;suite_lforge"
+    )
 endif()
