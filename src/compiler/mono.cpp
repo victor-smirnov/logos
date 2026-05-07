@@ -567,12 +567,16 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 for (auto& tm : td.methods) {
                     std::string sym = sd.name + "__" + tm.name;
                     // Only emit if the method actually exists (cloned by mono).
-                    bool has = false;
-                    for (auto& sm : sd.methods) if (bare_fn_name(sm->name) == sym) { has = true; break; }
-                    if (!has) {
-                        for (auto& f : out_.functions) if (bare_fn_name(f->name) == sym) { has = true; break; }
+                    // Capture the actual (pkg-qualified, sig-suffixed) symbol
+                    // so the dispatch table init resolves correctly.
+                    std::string actual_sym;
+                    for (auto& sm : sd.methods)
+                        if (bare_fn_name(sm->name) == sym) { actual_sym = sm->name; break; }
+                    if (actual_sym.empty()) {
+                        for (auto& f : out_.functions)
+                            if (bare_fn_name(f->name) == sym) { actual_sym = f->name; break; }
                     }
-                    if (!has) continue;
+                    if (actual_sym.empty()) continue;
                     // Dedup: skip if an equivalent entry already exists (sema
                     // may have emitted one for a concrete specialization).
                     bool dup = false;
@@ -585,7 +589,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                     de.tag_system     = tag_system;
                     de.trait_name     = impl.trait_name;
                     de.method_name    = tm.name;
-                    de.fn_symbol      = sym;
+                    de.fn_symbol      = std::move(actual_sym);
                     de.impl_type_name = sd.name;
                     de.type_code      = sd.type_code;
                     out_.dispatch_entries.push_back(std::move(de));

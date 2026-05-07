@@ -1058,12 +1058,18 @@ namespace logos::compiler {
 inline std::string_view bare_fn_name(std::string_view nm) noexcept {
     if (auto p = nm.find("__f__"); p != std::string_view::npos) nm = nm.substr(0, p);
     else if (auto p = nm.find("__g__"); p != std::string_view::npos) nm = nm.substr(0, p);
+    // Strip free-fn pkg prefix (`pkg$base`).
     if (auto d = nm.find('$'); d != std::string_view::npos) {
         bool is_generic_marker = (d + 2 < nm.size()
                                   && nm[d + 1] == 'G'
                                   && nm[d + 2] >= '0' && nm[d + 2] <= '9');
         if (!is_generic_marker) nm = nm.substr(d + 1);
     }
+    // Strip method pkg prefix (`pkg.Concrete__method`). Pkg may have inner
+    // dots; split at LAST dot. The bare side starts with the type name and
+    // contains no dots.
+    if (auto d = nm.rfind('.'); d != std::string_view::npos)
+        nm = nm.substr(d + 1);
     return nm;
 }
 
