@@ -28,6 +28,8 @@ pub struct Duration {
     nanos: i64,
 }
 
+impl Copy for Duration {}
+
 pub fn duration_from_nanos(ns: i64) -> Duration {
     return Duration { nanos: ns };
 }
@@ -91,6 +93,8 @@ unsafe fn read_timespec_nanos(buf: *mut u8) -> i64 {
 pub struct Instant {
     nanos: i64,   // nanoseconds since unspecified monotonic epoch
 }
+
+impl Copy for Instant {}
 
 pub unsafe fn instant_now() -> Instant {
     let buf: *mut u8 = alloc(16 as i64);

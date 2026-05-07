@@ -143,6 +143,8 @@ pub struct Header {
     pub value_len: i32,
 }
 
+impl Copy for Header {}
+
 pub struct Headers {
     pub buf:     String,
     pub entries: Vec<Header>,

@@ -2884,6 +2884,22 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     auto method_name = str_of(node.get(la::NAME.code));
     auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
 
+    // Helper: mark by-value move-type args as moved so scope-end Drops do
+    // not fire on locals whose ownership has been transferred. Apply
+    // before any EMethodCall is constructed (or finish_generic_call is
+    // invoked) — otherwise pushing a freshly-built struct value via
+    // `vec.push(local)` leaves `local`'s Drop registered, double-freeing
+    // the buffer that the Vec slot now owns.
+    auto track_args_moved = [this](const std::vector<lir::LExprPtr>& args) {
+        for (auto& a : args) {
+            if (!a) continue;
+            if (!is_move_type(a->type)) continue;
+            auto er = expr_ref_of(*a);
+            if (er.kind() == lir_schema::expr::Code::VarRef)
+                mark_moved(std::string(lir_view::EVarRefView{er}.name()));
+        }
+    };
+
     // Optional explicit method-level turbofish: `recv.method::<T1, T2>(args)`.
     // The turbofish-bearing METHOD_CALL alt wraps ARGS as { ITEMS: [...] }
     // (same shape as GENERIC_CALL / STATIC_CALL); the legacy alt keeps ARGS
@@ -3081,6 +3097,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     if (ret_type && TypeRef(ret_type).kind() == LogosType::Kind::TypeVar &&
                         TypeRef(ret_type).type_var_name() == "Self")
                         ret_type = recv->type;
+                    track_args_moved(arg_exprs);
                     lir::EMethodCall mc;
                     mc.receiver     = std::move(recv);
                     mc.method       = std::string(method_name);
@@ -3128,6 +3145,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             if (ret_type && TypeRef(ret_type).kind() == LogosType::Kind::TypeVar &&
                 TypeRef(ret_type).type_var_name() == "Self")
                 ret_type = recv->type;
+            track_args_moved(arg_exprs);
             lir::EMethodCall mc;
             mc.receiver    = std::move(recv);
             mc.method      = std::string(method_name);
@@ -3353,6 +3371,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     mc.type_args.push_back(it != bindings.end() ? it->second : nullptr);
                 }
             }
+            track_args_moved(arg_exprs);
             mc.args     = std::move(arg_exprs);
             mc.vtable_index = -1;
             mc.resolved_type = "";
@@ -4037,6 +4056,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             if (!ta || TypeRef(ta).kind() == LogosType::Kind::TypeVar ||
                 TypeRef(ta).kind() == LogosType::Kind::Error) { all_concrete = false; break; }
         if (all_concrete) {
+            track_args_moved(arg_exprs);
             std::vector<lir::LExprPtr> pargs;
             pargs.push_back(std::move(recv));
             for (auto& a : arg_exprs) pargs.push_back(std::move(a));
@@ -4050,6 +4070,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     TypeRef ret = struct_subst.empty()
         ? fi.ret_type : subst_type_sema(fi.ret_type, struct_subst);
 
+    track_args_moved(arg_exprs);
     lir::EMethodCall mc;
     mc.receiver     = std::move(recv);
     mc.method       = std::string(method_name);
