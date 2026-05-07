@@ -1,0 +1,261 @@
+// B0.4: build graph nodes + FS content-addressed cache.
+//
+// Two pieces, both small enough to live in one file for MVP:
+//
+// 1. Graph nodes — FileNode / PackageNode. Carry content hash + mtime so
+//    incremental rebuild can compare cheaply. Action keys hash the set of
+//    input file hashes plus the command line, giving a stable cache key.
+//
+// 2. FS-CAS — a directory at `.lforge/<build-type>/cache/<aa>/<rest>` (first
+//    two hex chars sharded as subdir) where each entry is the output of an
+//    action keyed by its hash. cache_put copies the file in; cache_get
+//    returns the cached path or absent.
+//
+// No process execution yet — that lives in B0.5 when lforge actually drives
+// logosc.
+
+package lforge_graph_cas;
+
+use std.io.fs;
+use std.io.fs.path;
+use std.lang.text;
+use std.lang.option;
+use std.lang.result;
+use std.lang.iter;
+use std.collections.vec;
+use std.crypto;
+
+// ── Graph types ───────────────────────────────────────────────────────────
+
+pub struct FileNode {
+    pub path:    String,        // canonical relative path
+    pub hash:    String,        // sha256 hex of file contents
+    pub size:    i64,           // bytes
+    pub mtime_ns: i64,          // mtime ns (cheap-change detector)
+}
+
+pub struct PackageNode {
+    pub name:  String,
+    pub files: Vec<FileNode>,
+}
+
+// Action key: hash of (sorted input hashes + command-line args). Two actions
+// with identical inputs+args produce identical keys → cache hit.
+pub struct ActionKey {
+    pub hex: String,            // sha256 hex (64 chars)
+}
+
+// ── FileNode construction ─────────────────────────────────────────────────
+
+unsafe fn cstr_of(s: str) -> *mut u8 {
+    let n: i64 = s.len();
+    let h: *mut u8 = alloc(n + 1 as i64);
+    let mut i: i64 = 0 as i64;
+    while i < n { h[i] = s.as_ptr()[i]; i = i + 1 as i64; }
+    h[n] = 0 as u8;
+    return h;
+}
+
+pub unsafe fn file_node_of(path: str) -> Result<FileNode, i32> {
+    let cs: *const u8 = cstr_of(path) as *const u8;
+    let size: i64 = match file_size(cs) {
+        Result::Err(e) => { dealloc(cs as *mut u8); return Result::Err(e); }
+        Result::Ok(n)  => { n }
+    };
+    let mt: i64 = match mtime_ns(cs) {
+        Result::Err(e) => { dealloc(cs as *mut u8); return Result::Err(e); }
+        Result::Ok(n)  => { n }
+    };
+    let body: Result<String, i32> = read_to_string(cs);
+    dealloc(cs as *mut u8);
+    let bytes: String = match body {
+        Result::Err(e) => { return Result::Err(e); }
+        Result::Ok(s)  => { s }
+    };
+    let mut hash_hex: String = String::new();
+    sha256_hex(bytes.as_ptr(), bytes.len(), &mut hash_hex);
+    let mut p: String = String::new();
+    p.push_str(path);
+    return Result::Ok(FileNode {
+        path:     p,
+        hash:     hash_hex,
+        size:     size,
+        mtime_ns: mt,
+    });
+}
+
+// ── Action key derivation ─────────────────────────────────────────────────
+
+// Build an action key from: sorted file-hash hex strings + args (one per
+// entry, in order). The serialized form is `<hash>\n<hash>\n--\n<arg>\n...`
+// which is unambiguous (no arg can contain literal `\n` in our use cases).
+pub unsafe fn make_action_key(inputs: &Vec<FileNode>, args: &Vec<String>) -> ActionKey {
+    let mut buf: String = String::new();
+    let nin: i64 = inputs.length();
+    let mut i: i64 = 0 as i64;
+    let ip: *const Vec<FileNode> = inputs as *const Vec<FileNode>;
+    while i < nin {
+        let f: *const FileNode = ip.at_const(i);
+        buf.push_bytes((*f).hash.as_ptr(), (*f).hash.len());
+        buf.push_u8(10 as u8);
+        i = i + 1 as i64;
+    }
+    buf.push_str("--\n");
+    let nar: i64 = args.length();
+    let ap: *const Vec<String> = args as *const Vec<String>;
+    let mut k: i64 = 0 as i64;
+    while k < nar {
+        let s: *const String = ap.at_const(k);
+        buf.push_bytes((*s).as_ptr(), (*s).len());
+        buf.push_u8(10 as u8);
+        k = k + 1 as i64;
+    }
+    let mut hex: String = String::new();
+    sha256_hex(buf.as_ptr(), buf.len(), &mut hex);
+    return ActionKey { hex: hex };
+}
+
+// ── FS-CAS ────────────────────────────────────────────────────────────────
+
+// Compute the cache path for a given action key, sharded by first two hex
+// chars: `<root>/<aa>/<rest>`. Caller is responsible for mkdir_p of root.
+pub fn cas_path(root: str, key: &ActionKey) -> String {
+    let mut out: String = String::new();
+    out.push_str(root);
+    let n: i64 = out.len();
+    unsafe {
+        if n > 0 as i64 && (out.as_ptr()[n - 1 as i64] as i32) != 47 {
+            out.push_u8(47 as u8);
+        }
+    }
+    let hh: *const u8 = key.hex.as_ptr();
+    unsafe {
+        out.push_bytes(hh, 2 as i64);
+        out.push_u8(47 as u8);
+        let rest_ptr: *const u8 = (hh as i64 + 2 as i64) as *const u8;
+        out.push_bytes(rest_ptr, key.hex.len() - 2 as i64);
+    }
+    return out;
+}
+
+// True if the cache already has an entry for this action key.
+pub unsafe fn cas_has(root: str, key: &ActionKey) -> bool {
+    let p: String = cas_path(root, key);
+    let cs: *mut u8 = cstr_of(unsafe { str_from_raw(p.as_ptr(), p.len()) });
+    let r: bool = exists(cs as *const u8);
+    dealloc(cs);
+    return r;
+}
+
+// Store `src_path` into the CAS under `key`. Creates the shard dir.
+// Returns the canonical CAS path, or Err(-errno).
+pub unsafe fn cas_put(root: str, key: &ActionKey, src_path: str) -> Result<String, i32> {
+    // mkdir_p root + first-two-hex shard dir
+    let mut shard: String = String::new();
+    shard.push_str(root);
+    let n: i64 = shard.len();
+    if n > 0 as i64 && (shard.as_ptr()[n - 1 as i64] as i32) != 47 {
+        shard.push_u8(47 as u8);
+    }
+    shard.push_bytes(key.hex.as_ptr(), 2 as i64);
+    let shard_view: str = str_from_raw(shard.as_ptr(), shard.len());
+    match mkdir_p(shard_view) {
+        Result::Err(e) => { return Result::Err(e); }
+        Result::Ok(_)  => { }
+    }
+    // Read src content, write to dst.
+    let src_cs: *mut u8 = cstr_of(src_path);
+    let body: Result<String, i32> = read_to_string(src_cs as *const u8);
+    dealloc(src_cs);
+    let bytes: String = match body {
+        Result::Err(e) => { return Result::Err(e); }
+        Result::Ok(s)  => { s }
+    };
+    let dst: String = cas_path(root, key);
+    let dst_cs: *mut u8 = cstr_of(str_from_raw(dst.as_ptr(), dst.len()));
+    let wr: Result<i32, i32> = write_string(dst_cs as *const u8, &bytes);
+    dealloc(dst_cs);
+    match wr {
+        Result::Err(e) => { return Result::Err(e); }
+        Result::Ok(_)  => { return Result::Ok(dst); }
+    }
+}
+
+// ── Test ──────────────────────────────────────────────────────────────────
+
+unsafe fn write_text(path: str, body: str) {
+    let p_cs: *mut u8 = cstr_of(path);
+    let mut s: String = String::new();
+    s.push_str(body);
+    write_string(p_cs as *const u8, &s);
+    dealloc(p_cs);
+}
+
+unsafe fn main() -> i32 {
+    rm_rf("/tmp/__lf_b04__");
+    mkdir_p("/tmp/__lf_b04__/src");
+
+    // Two input files.
+    write_text("/tmp/__lf_b04__/src/a.logos", "package a;\n");
+    write_text("/tmp/__lf_b04__/src/b.logos", "package b;\n");
+
+    // 1. file_node_of: hash + size populated.
+    let a: FileNode = match file_node_of("/tmp/__lf_b04__/src/a.logos") {
+        Result::Err(_) => { return 1; }
+        Result::Ok(n)  => { n }
+    };
+    if a.hash.len() != 64 as i64 { return 2; }
+    if a.size != 11 as i64       { return 3; }   // "package a;\n"
+    if a.mtime_ns <= 0 as i64    { return 4; }
+
+    let b: FileNode = match file_node_of("/tmp/__lf_b04__/src/b.logos") {
+        Result::Err(_) => { return 5; }
+        Result::Ok(n)  => { n }
+    };
+    if a.hash.eq_string(&b.hash) { return 6; }   // distinct content → distinct hash
+
+    // 2. ActionKey: stable for same inputs+args.
+    let mut inputs: Vec<FileNode> = vec_new::<FileNode>();
+    let inputs_p: *mut Vec<FileNode> = (&mut inputs) as *mut Vec<FileNode>;
+    // Build inputs by reading from disk fresh (no clone yet for FileNode).
+    let a2: FileNode = match file_node_of("/tmp/__lf_b04__/src/a.logos") {
+        Result::Err(_) => { return 11; }
+        Result::Ok(n)  => { n }
+    };
+    inputs_p.push(a2);
+
+    let mut args: Vec<String> = vec_new::<String>();
+    let args_p: *mut Vec<String> = (&mut args) as *mut Vec<String>;
+    let mut a1: String = String::new(); a1.push_str("logosc");
+    let mut a2s: String = String::new(); a2s.push_str("-O2");
+    args_p.push(a1);
+    args_p.push(a2s);
+
+    let key1: ActionKey = make_action_key(&inputs, &args);
+    if key1.hex.len() != 64 as i64 { return 12; }
+
+    // 3. CAS put + has.
+    let cache_root: str = "/tmp/__lf_b04__/cache";
+    if cas_has(cache_root, &key1) { return 20; }    // not yet
+    write_text("/tmp/__lf_b04__/out.txt", "compiled output");
+    match cas_put(cache_root, &key1, "/tmp/__lf_b04__/out.txt") {
+        Result::Err(_) => { return 21; }
+        Result::Ok(_)  => { }
+    }
+    if !cas_has(cache_root, &key1) { return 22; }
+
+    // 4. CAS round-trip: file content matches.
+    let cp: String = cas_path(cache_root, &key1);
+    let cp_cs: *mut u8 = cstr_of(str_from_raw(cp.as_ptr(), cp.len()));
+    let read_back: Result<String, i32> = read_to_string(cp_cs as *const u8);
+    dealloc(cp_cs);
+    match read_back {
+        Result::Err(_) => { return 23; }
+        Result::Ok(content) => {
+            if !content.eq_str("compiled output") { return 24; }
+        }
+    }
+
+    rm_rf("/tmp/__lf_b04__");
+    return 0;
+}
