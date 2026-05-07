@@ -1275,7 +1275,7 @@ private:
             // when no closing apostrophe is found — we leave pos_ untouched
             // and fall through to LIFETIME.
             else if (pat.size() >= 2 && pat.front() == '\'' && pat[1] == '(') {
-                w.fmt("// {} = /{}/", t.name, pat);
+                w.fmt("// {} = /{}/  (UTF-8 codepoint allowed in plain-char alt)", t.name, pat);
                 w.line("if (c == '\\'' && pos_ + 1 < source_.size()) {");
                 w.indent();
                 w.line("size_t save = pos_;");
@@ -1285,9 +1285,26 @@ private:
                 w.line("if (p + 2 < source_.size() && source_[p] == '\\\\') {");
                 w.line("    p += 2;");
                 w.line("    if (source_[p] == '\\'') { pos_ = p + 1; ok = true; }");
-                // Plain char: any single char that isn't `'` or `\`.
-                w.line("} else if (p + 1 < source_.size() && source_[p] != '\\'' && source_[p] != '\\\\') {");
-                w.line("    if (source_[p + 1] == '\\'') { pos_ = p + 2; ok = true; }");
+                // Plain char: a single Unicode codepoint that isn't `'` or `\`.
+                // Lead byte determines UTF-8 length (1..4 bytes).
+                w.line("} else if (p < source_.size() && source_[p] != '\\'' && source_[p] != '\\\\') {");
+                w.line("    unsigned char lead = static_cast<unsigned char>(source_[p]);");
+                w.line("    size_t cp_len = 0;");
+                w.line("    if      ((lead & 0x80) == 0x00) cp_len = 1;");
+                w.line("    else if ((lead & 0xE0) == 0xC0) cp_len = 2;");
+                w.line("    else if ((lead & 0xF0) == 0xE0) cp_len = 3;");
+                w.line("    else if ((lead & 0xF8) == 0xF0) cp_len = 4;");
+                w.line("    if (cp_len > 0 && p + cp_len < source_.size()) {");
+                w.line("        bool valid = true;");
+                w.line("        for (size_t i = 1; i < cp_len; ++i) {");
+                w.line("            if ((static_cast<unsigned char>(source_[p + i]) & 0xC0) != 0x80) {");
+                w.line("                valid = false; break;");
+                w.line("            }");
+                w.line("        }");
+                w.line("        if (valid && source_[p + cp_len] == '\\'') {");
+                w.line("            pos_ = p + cp_len + 1; ok = true;");
+                w.line("        }");
+                w.line("    }");
                 w.line("}");
                 w.fmt("if (ok) return {{TK::{}, source_.substr(start, pos_ - start), start_line_}};",
                       safe_tok_name(t.name));

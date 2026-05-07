@@ -1,0 +1,19 @@
+// Char literals accept any single Unicode codepoint, encoded as 1..4 UTF-8
+// bytes between the apostrophes. The lexer validates UTF-8 byte length from
+// the lead byte; sema decodes the bytes back into the codepoint scalar.
+//
+//   'A'   →  U+0041   (1 byte)
+//   'я'   →  U+044F   (2 bytes,  cyrillic small letter ya)
+//   '€'   →  U+20AC   (3 bytes,  euro sign)
+//   '🎉'  →  U+1F389  (4 bytes,  party popper)
+//
+// Sum: 0x41 + 0x44F + 0x20AC + 0x1F389 = 137413, so subtracting yields 0.
+package char_lit_unicode;
+
+fn main() -> i32 {
+    let ascii_A: i32 = 'A' as i32;
+    let ya:      i32 = 'я' as i32;
+    let euro:    i32 = '€' as i32;
+    let party:   i32 = '🎉' as i32;
+    return ascii_A + ya + euro + party - 137413;
+}

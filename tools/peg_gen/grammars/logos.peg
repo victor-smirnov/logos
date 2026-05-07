@@ -390,6 +390,10 @@
     // Char literal — must be matched BEFORE LIFETIME so `'A'` (closing
     // apostrophe present) wins over `'A` (lifetime). codegen.cpp has a
     // hand-coded matcher keyed off the leading `'(` in the pattern.
+    // CHAR_LIT body is one of: a `\<x>` escape, or a single Unicode codepoint
+    // encoded as 1..4 UTF-8 bytes (regex `[^'\\]` reads byte-by-byte but the
+    // hand-coded matcher in tools/peg_gen/src/codegen.cpp consumes the full
+    // codepoint). Sema decodes the body back into the scalar value.
     CHAR_LIT    = /'(\\.|[^'\\])'/
     LIFETIME    = /'[a-z][a-z0-9_]*/
     IDENT       = /[a-zA-Z_][a-zA-Z0-9_]*/

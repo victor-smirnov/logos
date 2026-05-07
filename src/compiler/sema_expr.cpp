@@ -140,9 +140,28 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
         } else if (body.size() == 1) {
             v = (uint8_t)body[0];
         } else {
-            error(std::format("char literal '{}': multi-byte body not supported "
-                  "(only ASCII / simple escapes today)", sv));
-            return error_expr();
+            // Multi-byte body: decode as a single UTF-8 codepoint. Lexer
+            // already validated the byte length matches the lead byte; we
+            // re-decode here for the actual scalar value.
+            unsigned char lead = static_cast<unsigned char>(body[0]);
+            size_t cp_len = 0;
+            uint32_t cp  = 0;
+            if      ((lead & 0xE0) == 0xC0) { cp_len = 2; cp = lead & 0x1F; }
+            else if ((lead & 0xF0) == 0xE0) { cp_len = 3; cp = lead & 0x0F; }
+            else if ((lead & 0xF8) == 0xF0) { cp_len = 4; cp = lead & 0x07; }
+            if (cp_len == 0 || body.size() != cp_len) {
+                error(std::format("char literal '{}': malformed UTF-8 body", sv));
+                return error_expr();
+            }
+            for (size_t i = 1; i < cp_len; ++i) {
+                unsigned char cb = static_cast<unsigned char>(body[i]);
+                if ((cb & 0xC0) != 0x80) {
+                    error(std::format("char literal '{}': malformed UTF-8 body", sv));
+                    return error_expr();
+                }
+                cp = (cp << 6) | (cb & 0x3F);
+            }
+            v = static_cast<int64_t>(cp);
         }
         return builder().lit_int(v, prim(LogosType::Kind::Char));
     }
