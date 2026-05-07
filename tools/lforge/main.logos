@@ -73,6 +73,7 @@ use lforge.hermes_io;
 use lforge.cwd;
 use lforge.manifest;
 use lforge.lockfile;
+use lforge.proc;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
@@ -839,99 +840,8 @@ unsafe fn resolve_logosc_path() -> String {
     return out;
 }
 
-// ── Process orchestration ─────────────────────────────────────────────────
-
-unsafe fn push_arg(args: *mut Vec<String>, s: str) {
-    let mut a: String = String::new();
-    a.push_str(s);
-    args.push(a);
-}
-
-unsafe fn push_string_arg(args: *mut Vec<String>, s: &String) {
-    let mut a: String = String::new();
-    a.push_bytes(s.as_ptr(), s.len());
-    args.push(a);
-}
-
-unsafe fn run_child(argv_strs: &Vec<String>) -> i32 {
-    let n: i64 = argv_strs.length();
-    let argv_buf: *mut *const u8 = alloc((n + 1 as i64) * 8 as i64) as *mut *const u8;
-    let mut i: i64 = 0 as i64;
-    let ap: *const Vec<String> = argv_strs as *const Vec<String>;
-    while i < n {
-        let s: *const String = ap.at_const(i);
-        argv_buf[i] = (*s).as_ptr();
-        i = i + 1 as i64;
-    }
-    argv_buf[n] = 0 as *const u8;
-
-    let mut child: Child = spawn(argv_buf as *const *const u8, false, true, true);
-    if child.pid() < 0 {
-        dealloc(argv_buf as *mut u8);
-        return 0 - 1;
-    }
-
-    let mut lr_out: LineReader = child.stdout_lines();
-    loop {
-        match lr_out.next() {
-            Option::Some(line) => { println_str(1, str_from_raw(line.as_ptr(), line.len())); }
-            Option::None       => { break; }
-        }
-    }
-    let mut lr_err: LineReader = child.stderr_lines();
-    loop {
-        match lr_err.next() {
-            Option::Some(line) => { println_str(2, str_from_raw(line.as_ptr(), line.len())); }
-            Option::None       => { break; }
-        }
-    }
-    let st: ExitStatus = child.wait();
-    dealloc(argv_buf as *mut u8);
-    return st.code();
-}
-
-// Spawn `argv` and capture stdout into a String. Stderr is forwarded to the
-// parent's stderr. Used for short-output commands like `git ls-remote`.
-unsafe fn run_child_capture_stdout(argv_strs: &Vec<String>) -> (i32, String) {
-    let n: i64 = argv_strs.length();
-    let argv_buf: *mut *const u8 = alloc((n + 1 as i64) * 8 as i64) as *mut *const u8;
-    let mut i: i64 = 0 as i64;
-    let ap: *const Vec<String> = argv_strs as *const Vec<String>;
-    while i < n {
-        let s: *const String = ap.at_const(i);
-        argv_buf[i] = (*s).as_ptr();
-        i = i + 1 as i64;
-    }
-    argv_buf[n] = 0 as *const u8;
-
-    let mut child: Child = spawn(argv_buf as *const *const u8, false, true, true);
-    if child.pid() < 0 {
-        dealloc(argv_buf as *mut u8);
-        return (0 - 1, String::new());
-    }
-
-    let mut out: String = String::new();
-    let mut lr_out: LineReader = child.stdout_lines();
-    loop {
-        match lr_out.next() {
-            Option::Some(line) => {
-                if out.len() > 0 as i64 { out.push_u8(10 as u8); }
-                out.push_bytes(line.as_ptr(), line.len());
-            }
-            Option::None => { break; }
-        }
-    }
-    let mut lr_err: LineReader = child.stderr_lines();
-    loop {
-        match lr_err.next() {
-            Option::Some(line) => { println_str(2, str_from_raw(line.as_ptr(), line.len())); }
-            Option::None       => { break; }
-        }
-    }
-    let st: ExitStatus = child.wait();
-    dealloc(argv_buf as *mut u8);
-    return (st.code(), out);
-}
+// Process orchestration (push_arg / push_string_arg / run_child /
+// run_child_capture_stdout) lives in `lforge.proc`.
 
 // ── Build helpers ─────────────────────────────────────────────────────────
 
