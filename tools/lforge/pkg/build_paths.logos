@@ -1,0 +1,204 @@
+// SPDX-License-Identifier: Apache-2.0
+// lforge — tool resolution + build-output path helpers + mtime-based
+// freshness check used to skip up-to-date actions.
+
+package lforge.build_paths;
+
+use std.lang.text;
+use std.lang.result;
+use std.collections.vec;
+use std.io.fs;
+
+use lforge.schema;
+use lforge.util;
+use lforge.topo;
+
+extern fn getenv(name: *const u8) -> *const u8;
+
+// ── Tool resolution ───────────────────────────────────────────────────────
+
+pub unsafe fn resolve_logos_lib_dir() -> String {
+    let env_key: *mut u8 = cstr("LOGOS_LIB_DIR");
+    let env_val: *const u8 = getenv(env_key as *const u8);
+    dealloc(env_key);
+    if env_val != 0 as *const u8 {
+        let s: str = str_from_cstr(env_val);
+        let mut out: String = String::new();
+        out.push_str(s);
+        return out;
+    }
+    let candidates: [str; 2] = ["./build/lib/logos", "/usr/local/lib/logos"];
+    let mut i: i64 = 0 as i64;
+    while i < 2 as i64 {
+        let c: str = candidates[i];
+        let cs: *mut u8 = cstr(c);
+        let ok: bool = is_dir(cs as *const u8);
+        dealloc(cs);
+        if ok {
+            let mut out: String = String::new();
+            out.push_str(c);
+            return out;
+        }
+        i = i + 1 as i64;
+    }
+    return String::new();
+}
+
+pub unsafe fn resolve_logosc_path() -> String {
+    let env_key: *mut u8 = cstr("LOGOSC");
+    let env_val: *const u8 = getenv(env_key as *const u8);
+    dealloc(env_key);
+    if env_val != 0 as *const u8 {
+        let s: str = str_from_cstr(env_val);
+        let mut out: String = String::new();
+        out.push_str(s);
+        return out;
+    }
+    let cs: *mut u8 = cstr("./build/bin/logosc");
+    let ok: bool = is_file(cs as *const u8);
+    dealloc(cs);
+    let mut out: String = String::new();
+    if ok { out.push_str("./build/bin/logosc"); }
+    else  { out.push_str("logosc"); }
+    return out;
+}
+
+// ── Build output paths ────────────────────────────────────────────────────
+
+pub unsafe fn out_dir_for(profile: str) -> String {
+    let mut d: String = String::new();
+    d.push_str(".lforge/");
+    d.push_str(profile);
+    d.push_str("/out");
+    return d;
+}
+
+pub unsafe fn gen_dir_for(profile: str) -> String {
+    let mut d: String = String::new();
+    d.push_str(".lforge/");
+    d.push_str(profile);
+    d.push_str("/_gen");
+    return d;
+}
+
+// Path of the .a archive a lib target produces.
+pub unsafe fn lib_archive_path(profile: str, lib_name: str) -> String {
+    let mut p: String = out_dir_for(profile);
+    p.push_str("/lib");
+    p.push_str(lib_name);
+    p.push_str(".a");
+    return p;
+}
+
+// Path of the bin executable a bin target produces.
+pub unsafe fn bin_path(profile: str, bin_name: str) -> String {
+    let mut p: String = out_dir_for(profile);
+    p.push_u8(47 as u8);
+    p.push_str(bin_name);
+    return p;
+}
+
+// Resolve dep names → archive paths. Externals shadow local libs of the
+// same name (consumer's t.deps already declared the name; the project that
+// defines a lib with that name wins). Order preserved from the bin target's
+// manifest.
+pub unsafe fn dep_archive_paths(targets: &Vec<Target>, deps: &Vec<String>, profile: str,
+                                externals: &Vec<ExternalLib>) -> Vec<String> {
+    let mut out: Vec<String> = vec_new::<String>();
+    let outp: *mut Vec<String> = (&mut out) as *mut Vec<String>;
+    let dn: i64 = deps.length();
+    let dp: *const Vec<String> = deps as *const Vec<String>;
+    let mut i: i64 = 0 as i64;
+    while i < dn {
+        let nm: *const String = dp.at_const(i);
+        let nm_view: str = str_from_raw((*nm).as_ptr(), (*nm).len());
+        let ei: i64 = external_lookup(externals, nm_view);
+        if ei >= 0 as i64 {
+            let lp: *const Vec<ExternalLib> = externals as *const Vec<ExternalLib>;
+            let lb: *const ExternalLib = lp.at_const(ei);
+            let mut p: String = String::new();
+            p.push_bytes((*lb).archive_path.as_ptr(), (*lb).archive_path.len());
+            outp.push(p);
+        } else {
+            let p: String = lib_archive_path(profile, nm_view);
+            outp.push(p);
+        }
+        i = i + 1 as i64;
+    }
+    return out;
+}
+
+// ── Incremental rebuild (mtime-based) ─────────────────────────────────────
+//
+// Action skip rule: if the output file exists and its mtime is >= the max
+// mtime of every input file, the action is fresh and we skip the spawn.
+// Matches the cmake/ninja default behavior (which is what users expect).
+
+pub unsafe fn collect_logos_files(dir: str) -> Vec<String> {
+    let mut out: Vec<String> = vec_new::<String>();
+    let outp: *mut Vec<String> = (&mut out) as *mut Vec<String>;
+    let cs: *mut u8 = cstr(dir);
+    let exists_dir: bool = is_dir(cs as *const u8);
+    dealloc(cs);
+    if exists_dir {
+        let entries: Vec<DirEntry> = walk_dir(dir);
+        let ep: *const Vec<DirEntry> = (&entries) as *const Vec<DirEntry>;
+        let n: i64 = entries.length();
+        let mut i: i64 = 0 as i64;
+        while i < n {
+            let de: *const DirEntry = ep.at_const(i);
+            i = i + 1 as i64;
+            if (*de).is_dir { continue; }
+            let pview: str = str_from_raw((*de).name.as_ptr(), (*de).name.len());
+            let pn: i64 = pview.len();
+            if pn < 6 as i64 { continue; }
+            let suffix: str = ".logos";
+            let off: i64 = pn - 6 as i64;
+            let mut ok: bool = true;
+            let mut sk: i64 = 0 as i64;
+            while sk < 6 as i64 && ok {
+                if pview[off + sk] != suffix[sk] { ok = false; }
+                sk = sk + 1 as i64;
+            }
+            if !ok { continue; }
+            let mut p: String = String::new();
+            p.push_str(pview);
+            outp.push(p);
+        }
+    }
+    return out;
+}
+
+// Latest mtime in a list of file paths; returns 0 if list is empty or every
+// stat fails.
+pub unsafe fn newest_mtime(paths: &Vec<String>) -> i64 {
+    let mut max_mt: i64 = 0 as i64;
+    let n: i64 = paths.length();
+    let pp: *const Vec<String> = paths as *const Vec<String>;
+    let mut i: i64 = 0 as i64;
+    while i < n {
+        let s: *const String = pp.at_const(i);
+        let cs: *mut u8 = cstr(str_from_raw((*s).as_ptr(), (*s).len()));
+        let mt: Result<i64, i32> = mtime_ns(cs as *const u8);
+        dealloc(cs);
+        match mt {
+            Result::Ok(t)  => { if t > max_mt { max_mt = t; } }
+            Result::Err(_) => { }
+        }
+        i = i + 1 as i64;
+    }
+    return max_mt;
+}
+
+// True if `out_path` exists and its mtime is >= every input mtime.
+pub unsafe fn output_is_fresh(out_path: str, max_input_mt: i64) -> bool {
+    let cs: *mut u8 = cstr(out_path);
+    let ok: bool = exists(cs as *const u8);
+    if !ok { dealloc(cs); return false; }
+    let mt: Result<i64, i32> = mtime_ns(cs as *const u8);
+    dealloc(cs);
+    match mt {
+        Result::Ok(t)  => { return t >= max_input_mt; }
+        Result::Err(_) => { return false; }
+    }
+}
