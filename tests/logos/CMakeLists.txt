@@ -490,4 +490,17 @@ if (TARGET lforge)
         TIMEOUT 60
         LABELS  "logos;lforge;suite_lforge"
     )
+
+    # B1.5: lforge test discovers tests/*.logos, builds + runs each.
+    add_test(
+        NAME logos_12_lforge_test_cmd
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/test_cmd.sh
+                ${CMAKE_BINARY_DIR}/bin/lforge
+                $<TARGET_FILE:logosc>
+                ${LOGOS_BUILD_LIB_DIR}
+    )
+    set_tests_properties(logos_12_lforge_test_cmd PROPERTIES
+        TIMEOUT 90
+        LABELS  "logos;lforge;suite_lforge"
+    )
 endif()
