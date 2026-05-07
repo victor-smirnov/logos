@@ -1,6 +1,6 @@
 # Package Management in lforge
 
-This document describes how `lforge` will resolve, fetch, build, and cache external dependencies. **Status: design — no implementation yet.** The shape is fixed; deferred items are listed at the bottom.
+This document describes how `lforge` resolves, fetches, builds, and caches external dependencies. **Status (2026-05-07): shipped end-to-end.** B2..B5 (local paths, git URLs, lockfile + MVS, build cache, replace + requires_logos) are implemented and exercised by [tests/lforge/](../../tests/lforge/). The first external `.logos` package — `github.com/victor-smirnov/lforge-hello-world` — is live. See [internals/lforge.md](lforge.md) for the user-facing manifest schema and CLI; this page focuses on the model and the rationale.
 
 The model deliberately rejects two common shapes:
 
@@ -183,17 +183,17 @@ These belong on the roadmap but explicitly aren't in the v1 scope:
 - **Private repos beyond what git already supports.** SSH/HTTPS auth = git's problem; lforge calls `git fetch` and inherits.
 - **Vendoring.** A `lforge vendor` that copies the resolved closure into `vendor/` for offline builds is useful but not v1.
 
-## Open Items for Implementation
+## Implementation Status
 
-Once this doc is accepted, implementation order is roughly:
+All v1 milestones shipped on 2026-05-07. Each step landed independently and ships its own test under [tests/lforge/](../../tests/lforge/):
 
-1. **B2 (deps, local paths only).** Manifest accepts `deps: [{ path: "../foo", modules: [...] }]`. No fetching, no cache, no SHA. Unblocks multi-repo workflows immediately.
-2. **B2.5 (deps, git URLs).** Manifest accepts `{ project, tag/sha }` for github.com prefixes. Clone into `~/.cache/lforge/src/`, no MVS yet (single-version assumption).
-3. **B3 (lockfile + MVS).** Full closure resolution with diamond handling, lockfile generation, `lforge update`.
-4. **B4 (build cache).** Content-addressed `~/.cache/lforge/build/`, hit/miss logic, `lforge cache prune`.
-5. **B5 (replace + requires_logos).** Identity remap and ABI floor enforcement.
+1. **B2 — local-path deps.** `deps: [{ path: "../foo", modules: [...] }]`. No fetching, no cache, no SHA.
+2. **B2.5 — git URL deps.** `{ project, tag/branch/sha }` for bare host/path, `https://`, `ssh://`, and SCP-shorthand forms; clone into `~/.cache/lforge/src/<flat>/<sha>/`.
+3. **B3 — lockfile + MVS.** Closure walk with diamond detection (highest-version-wins, errors on lower-version-after-higher), lockfile generation, `lforge update`.
+4. **B4 — build cache.** Content-addressed `~/.cache/lforge/build/<sha256>/`, key includes `logosc` mtime + sub-dep cache_keys (transitive invalidation). Cross-consumer share verified.
+5. **B5 — replace + requires_logos.** Local override of git deps (root manifest only), compiler ABI floor compared via `logosc --version`.
 
-Each step is independently shippable and observable; v1 = (1)..(5) inclusive.
+`lforge cache prune` (cache GC) is **not** in v1 — entries accumulate. That's the only piece of the original v1 list still pending.
 
 ## Why Not …
 
