@@ -1,0 +1,133 @@
+// Test JSON parser: literals, numbers, strings, arrays, objects.
+
+package json_parse;
+
+use std.encoding.json;
+use std.lang.text;
+use std.lang.option;
+use std.lang.result;
+use std.collections.vec;
+
+fn check_null(j: &Json) -> bool {
+    match j {
+        Json::Null => { return true; }
+        _          => { return false; }
+    }
+}
+
+fn check_bool(j: &Json, want: bool) -> bool {
+    match j {
+        Json::Bool(b) => { return b == want; }
+        _             => { return false; }
+    }
+}
+
+fn check_int(j: &Json, want: i64) -> bool {
+    match j {
+        Json::Number(n) => { return (n as i64) == want; }
+        _ => { return false; }
+    }
+}
+
+fn check_str_arm(j: &Json, want: str) -> bool {
+    match j {
+        Json::Str(s) => { return s.eq_str(want); }
+        _            => { return false; }
+    }
+}
+
+fn main() -> i32 {
+    match parse("null") {
+        Result::Err(_) => { return 1; }
+        Result::Ok(j)  => { if !check_null(&j) { return 2; } }
+    }
+    match parse("true") {
+        Result::Ok(j)  => { if !check_bool(&j, true) { return 3; } }
+        Result::Err(_) => { return 4; }
+    }
+    match parse("false") {
+        Result::Ok(j)  => { if !check_bool(&j, false) { return 5; } }
+        Result::Err(_) => { return 6; }
+    }
+
+    match parse("42") {
+        Result::Ok(j)  => { if !check_int(&j, 42) { return 10; } }
+        Result::Err(_) => { return 11; }
+    }
+    match parse("1000") {
+        Result::Ok(j)  => { if !check_int(&j, 1000) { return 14; } }
+        Result::Err(_) => { return 15; }
+    }
+    match parse("1e3") {
+        Result::Ok(j)  => { if !check_int(&j, 1000) { return 16; } }
+        Result::Err(_) => { return 17; }
+    }
+
+    match parse("\"hello\"") {
+        Result::Ok(j)  => { if !check_str_arm(&j, "hello") { return 20; } }
+        Result::Err(_) => { return 21; }
+    }
+    match parse("\"\"") {
+        Result::Ok(j)  => { if !check_str_arm(&j, "") { return 22; } }
+        Result::Err(_) => { return 23; }
+    }
+
+    match parse("[]") {
+        Result::Ok(j) => {
+            match j {
+                Json::Array(a) => { if a.length() != 0 as i64 { return 30; } }
+                _              => { return 31; }
+            }
+        }
+        Result::Err(_) => { return 32; }
+    }
+
+    match parse("[1, \"two\", null, true]") {
+        Result::Ok(j) => {
+            match j {
+                Json::Array(a) => { if a.length() != 4 as i64 { return 40; } }
+                _              => { return 41; }
+            }
+        }
+        Result::Err(_) => { return 42; }
+    }
+
+    match parse("{}") {
+        Result::Ok(j) => {
+            match j {
+                Json::Object(o) => { if o.length() != 0 as i64 { return 50; } }
+                _               => { return 51; }
+            }
+        }
+        Result::Err(_) => { return 52; }
+    }
+
+    match parse("{ \"a\" : 1, \"b\" : \"x\" }") {
+        Result::Ok(j) => {
+            match j {
+                Json::Object(o) => {
+                    if o.length() != 2 as i64 { return 60; }
+                    let i_a: i64 = json_field_index(&o, "a");
+                    let i_b: i64 = json_field_index(&o, "b");
+                    let i_z: i64 = json_field_index(&o, "z");
+                    if i_a < 0 as i64 { return 61; }
+                    if i_b < 0 as i64 { return 62; }
+                    if i_z >= 0 as i64 { return 63; }
+                }
+                _ => { return 64; }
+            }
+        }
+        Result::Err(_) => { return 65; }
+    }
+
+    match parse("[1,") {
+        Result::Err(_) => { }
+        Result::Ok(_)  => { return 70; }
+    }
+    match parse("nul") {
+        Result::Err(_) => { }
+        Result::Ok(_)  => { return 71; }
+    }
+
+    return 0;
+}

@@ -1656,21 +1656,41 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
     // Detect tagged enum: scrut is a pointer, load discriminant.
     mlir::Value scrut_ptr = nullptr;  // non-null for tagged enums
     const TaggedEnumInfo* te_info = nullptr;
-    if (TypeRef sct(scrut_le->type); sct && sct.kind() == LogosType::Kind::Enum) {
-        te_info = resolve_tagged_enum(std::string(sct.enum_name()), scrut_le->type);
-        if (te_info) {
-            // If scrut is an aggregate (returned by value from a function),
-            // spill it to an alloca so GEP works below.
-            if (scrut.getType() != ptr_type()) {
-                auto alloca = create_entry_alloca(te_info->llvm_type);
-                builder_.create<mlir::LLVM::StoreOp>(loc_, scrut, alloca);
-                scrut = alloca;
+    if (TypeRef sct(scrut_le->type); sct) {
+        // Auto-deref `&Enum` / `&mut Enum` / `*Enum` so `match &enum_val {...}`
+        // works the same as `match enum_val {...}`.
+        TypeRef enum_t = sct;
+        bool via_ref = false;
+        if ((sct.kind() == LogosType::Kind::Ref ||
+             sct.kind() == LogosType::Kind::MutRef ||
+             sct.kind() == LogosType::Kind::Ptr) && sct.pointee()) {
+            TypeRef inner(sct.pointee());
+            if (inner.kind() == LogosType::Kind::Enum) {
+                enum_t = inner;
+                via_ref = true;
             }
-            scrut_ptr = scrut;  // pointer to enum struct
-            llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
-            auto dp = builder_.create<mlir::LLVM::GEPOp>(
-                loc_, ptr_type(), te_info->llvm_type, scrut_ptr, di);
-            scrut = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), dp);
+        }
+        if (enum_t.kind() == LogosType::Kind::Enum) {
+            te_info = resolve_tagged_enum(std::string(enum_t.enum_name()), enum_t);
+            if (te_info) {
+                // Logos enum values are themselves heap pointers (EEnumLitData
+                // mallocs and returns the ptr). So `&Enum` is a pointer-to-
+                // pointer: scrut = ptr-to-slot-holding-ptr-to-enum-struct.
+                // Load the inner ptr to get the actual enum-struct address.
+                if (via_ref) {
+                    scrut = builder_.create<mlir::LLVM::LoadOp>(
+                        loc_, ptr_type(), scrut);
+                } else if (scrut.getType() != ptr_type()) {
+                    auto alloca = create_entry_alloca(te_info->llvm_type);
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, scrut, alloca);
+                    scrut = alloca;
+                }
+                scrut_ptr = scrut;  // pointer to enum struct
+                llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
+                auto dp = builder_.create<mlir::LLVM::GEPOp>(
+                    loc_, ptr_type(), te_info->llvm_type, scrut_ptr, di);
+                scrut = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), dp);
+            }
         }
     }
     // Keep scrut at its natural type; coerce disc constants to match it.
@@ -1755,7 +1775,15 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             }
         }
         exhaustive_discrete = has_wild || (has_true && has_false);
-    } else if (scrut_le->type && TypeRef(scrut_le->type).kind() == LogosType::Kind::Enum) {
+    } else if (TypeRef sct(scrut_le->type); sct &&
+               (sct.kind() == LogosType::Kind::Enum ||
+                ((sct.kind() == LogosType::Kind::Ref ||
+                  sct.kind() == LogosType::Kind::MutRef ||
+                  sct.kind() == LogosType::Kind::Ptr) &&
+                 sct.pointee() &&
+                 TypeRef(sct.pointee()).kind() == LogosType::Kind::Enum))) {
+        // Resolve the underlying enum type (auto-deref &Enum / *Enum).
+        TypeRef enum_lt = sct.kind() == LogosType::Kind::Enum ? sct : TypeRef(sct.pointee());
         std::set<int32_t> covered;
         bool has_wild = false;
         auto cover_enum = [&](lir_view::PatRef pp) {
@@ -1778,13 +1806,13 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
         if (has_wild) {
             exhaustive_discrete = true;
         } else {
-            std::string en(TypeRef(scrut_le->type).enum_name());
+            std::string en(enum_lt.enum_name());
             auto eit = enum_types_.find(en);
             if (eit != enum_types_.end() && eit->second) {
                 exhaustive_discrete = std::all_of(
                     eit->second->variants.begin(), eit->second->variants.end(),
                     [&](const lir::LVariant& v) { return covered.count(v.disc) > 0; });
-            } else if (auto* te = resolve_tagged_enum(en, scrut_le->type)) {
+            } else if (auto* te = resolve_tagged_enum(en, enum_lt)) {
                 exhaustive_discrete = std::all_of(
                     te->variants.begin(), te->variants.end(),
                     [&](const TaggedEnumInfo::VariantPayload& v) { return covered.count(v.disc) > 0; });

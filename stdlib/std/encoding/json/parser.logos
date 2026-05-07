@@ -1,0 +1,419 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.encoding.json (parser)
+//
+// Recursive-descent parser building a Json AST.
+// Companion to the JsonWriter / json_validate helpers in json.logos.
+//
+// Grammar (RFC 8259, common subset):
+//   value   := null | true | false | string | number | array | object
+//   array   := '[' (value (',' value)*)? ']'
+//   object  := '{' (member (',' member)*)? '}'
+//   member  := string ':' value
+//   number  := stored as f64
+//   string  := decoded via json_unescape_string
+//
+// Not yet supported:
+//   - \uXXXX escape sequences in strings (json_unescape_string handles only
+//     ascii escapes); add when needed by callers.
+//   - Trailing comma extension.
+//   - Comments (not in the spec).
+//
+// Public API:
+//   pub enum Json { Null, Bool(bool), Number(f64), Str(String),
+//                   Array(Vec<Json>), Object(Vec<JsonField>) }
+//   pub fn parse(src: str) -> Result<Json, JsonError>
+//   accessors: j.is_null(), as_bool(), as_number(), as_str(),
+//              as_array() -> Option<&Vec<Json>>, as_object() -> ...
+//   pub fn json_get<'a>(obj: &'a Vec<JsonField>, key: str) -> Option<&'a Json>
+
+package std.encoding.json;
+
+use std.lang.text;
+use std.lang.option;
+use std.lang.result;
+use std.collections.vec;
+
+// ── AST ───────────────────────────────────────────────────────────────────
+
+pub struct JsonField {
+    pub key: String,
+    pub val: Json,
+}
+
+pub enum Json {
+    Null,
+    Bool(bool),
+    Number(f64),
+    Str(String),
+    Array(Vec<Json>),
+    Object(Vec<JsonField>),
+}
+
+pub struct JsonError {
+    pub offset:  i64,    // byte offset into source where the error was detected
+    pub message: String,
+}
+
+// ── Parser state ──────────────────────────────────────────────────────────
+
+pub struct Parser {
+    src: *const u8,
+    len: i64,
+    pos: i64,
+}
+
+fn parser_new(s: str) -> Parser {
+    return Parser { src: s.as_ptr(), len: s.len(), pos: 0 as i64 };
+}
+
+unsafe fn peek(p: &Parser) -> i32 {
+    if p.pos >= p.len { return 0 - 1; }
+    return p.src[p.pos] as i32;
+}
+
+unsafe fn advance(p: &mut Parser) -> i32 {
+    if p.pos >= p.len { return 0 - 1; }
+    let c: i32 = p.src[p.pos] as i32;
+    p.pos = p.pos + 1 as i64;
+    return c;
+}
+
+unsafe fn skip_ws(p: &mut Parser) {
+    while p.pos < p.len {
+        let c: i32 = p.src[p.pos] as i32;
+        if c == 32 || c == 9 || c == 10 || c == 13 {
+            p.pos = p.pos + 1 as i64;
+        } else {
+            return;
+        }
+    }
+}
+
+fn err_at(pos: i64, msg: str) -> JsonError {
+    let mut m: String = String::new();
+    m.push_str(msg);
+    return JsonError { offset: pos, message: m };
+}
+
+// ── Literals: null / true / false ─────────────────────────────────────────
+
+unsafe fn match_literal(p: &mut Parser, lit: str) -> bool {
+    let n: i64 = lit.len();
+    if p.pos + n > p.len { return false; }
+    let mut i: i64 = 0 as i64;
+    while i < n {
+        if p.src[p.pos + i] != lit.as_ptr()[i] { return false; }
+        i = i + 1 as i64;
+    }
+    p.pos = p.pos + n;
+    return true;
+}
+
+// ── String ────────────────────────────────────────────────────────────────
+
+unsafe fn parse_string(p: &mut Parser) -> Result<String, JsonError> {
+    if peek(p) != 34 {     // '"'
+        return Result::Err(err_at(p.pos, "expected '\"'"));
+    }
+    let start: i64 = p.pos;
+    // Use json_unescape_string from json.logos — it scans from the opening
+    // quote, returns bytes consumed (including both quotes), or -1 on error.
+    let mut out: String = String::new();
+    let consumed: i64 = json_unescape_string(
+        (p.src as i64 + p.pos) as *const u8,
+        p.len - p.pos,
+        &mut out);
+    if consumed <= 0 as i64 {
+        return Result::Err(err_at(start, "invalid string literal"));
+    }
+    p.pos = p.pos + consumed;
+    return Result::Ok(out);
+}
+
+// ── Number ────────────────────────────────────────────────────────────────
+
+unsafe fn parse_number(p: &mut Parser) -> Result<f64, JsonError> {
+    let start: i64 = p.pos;
+    if peek(p) == 45 { p.pos = p.pos + 1 as i64; }   // optional '-'
+    // integer part
+    let mut had_digit: bool = false;
+    while p.pos < p.len {
+        let c: i32 = p.src[p.pos] as i32;
+        if c >= 48 && c <= 57 { had_digit = true; p.pos = p.pos + 1 as i64; }
+        else { break; }
+    }
+    if !had_digit {
+        return Result::Err(err_at(start, "expected number"));
+    }
+    // fractional
+    if p.pos < p.len && p.src[p.pos] == 46 as u8 {
+        p.pos = p.pos + 1 as i64;
+        while p.pos < p.len {
+            let c: i32 = p.src[p.pos] as i32;
+            if c >= 48 && c <= 57 { p.pos = p.pos + 1 as i64; }
+            else { break; }
+        }
+    }
+    // exponent
+    if p.pos < p.len {
+        let c: i32 = p.src[p.pos] as i32;
+        if c == 101 || c == 69 {   // 'e' or 'E'
+            p.pos = p.pos + 1 as i64;
+            if p.pos < p.len {
+                let sign: i32 = p.src[p.pos] as i32;
+                if sign == 43 || sign == 45 { p.pos = p.pos + 1 as i64; }
+            }
+            while p.pos < p.len {
+                let cc: i32 = p.src[p.pos] as i32;
+                if cc >= 48 && cc <= 57 { p.pos = p.pos + 1 as i64; }
+                else { break; }
+            }
+        }
+    }
+    // Convert via strtod-style parse on the byte range [start, p.pos).
+    let val: f64 = parse_f64_bytes((p.src as i64 + start) as *const u8, p.pos - start);
+    return Result::Ok(val);
+}
+
+// Parse decimal/scientific number bytes into f64 by hand. Supports sign,
+// integer part, optional fractional part, optional 'e'/'E' exponent.
+unsafe fn parse_f64_bytes(s: *const u8, n: i64) -> f64 {
+    let mut i: i64 = 0 as i64;
+    let mut sign: f64 = 1.0;
+    if i < n && (s[i] as i32) == 45 { sign = 0.0 - 1.0; i = i + 1 as i64; }
+    else if i < n && (s[i] as i32) == 43 { i = i + 1 as i64; }
+    let mut whole: f64 = 0.0;
+    while i < n {
+        let c: i32 = s[i] as i32;
+        if c < 48 || c > 57 { break; }
+        whole = whole * 10.0 + ((c - 48) as f64);
+        i = i + 1 as i64;
+    }
+    let mut frac: f64 = 0.0;
+    let mut frac_div: f64 = 1.0;
+    if i < n && (s[i] as i32) == 46 {
+        i = i + 1 as i64;
+        while i < n {
+            let c: i32 = s[i] as i32;
+            if c < 48 || c > 57 { break; }
+            frac = frac * 10.0 + ((c - 48) as f64);
+            frac_div = frac_div * 10.0;
+            i = i + 1 as i64;
+        }
+    }
+    let mut value: f64 = sign * (whole + frac / frac_div);
+    if i < n {
+        let e: i32 = s[i] as i32;
+        if e == 101 || e == 69 {
+            i = i + 1 as i64;
+            let mut esign: f64 = 1.0;
+            if i < n && (s[i] as i32) == 45 { esign = 0.0 - 1.0; i = i + 1 as i64; }
+            else if i < n && (s[i] as i32) == 43 { i = i + 1 as i64; }
+            let mut exp: i32 = 0;
+            while i < n {
+                let c: i32 = s[i] as i32;
+                if c < 48 || c > 57 { break; }
+                exp = exp * 10 + (c - 48);
+                i = i + 1 as i64;
+            }
+            let mut mult: f64 = 1.0;
+            let mut k: i32 = 0;
+            while k < exp { mult = mult * 10.0; k = k + 1; }
+            if esign < 0.0 { value = value / mult; }
+            else           { value = value * mult; }
+        }
+    }
+    return value;
+}
+
+// ── Recursive descent ─────────────────────────────────────────────────────
+
+unsafe fn parse_value(p: &mut Parser) -> Result<Json, JsonError> {
+    skip_ws(p);
+    if p.pos >= p.len {
+        return Result::Err(err_at(p.pos, "unexpected end of input"));
+    }
+    let c: i32 = p.src[p.pos] as i32;
+    if c == 110 {       // 'n' → null
+        if match_literal(p, "null") { return Result::Ok(Json::Null); }
+        return Result::Err(err_at(p.pos, "expected 'null'"));
+    }
+    if c == 116 {       // 't' → true
+        if match_literal(p, "true") { return Result::Ok(Json::Bool(true)); }
+        return Result::Err(err_at(p.pos, "expected 'true'"));
+    }
+    if c == 102 {       // 'f' → false
+        if match_literal(p, "false") { return Result::Ok(Json::Bool(false)); }
+        return Result::Err(err_at(p.pos, "expected 'false'"));
+    }
+    if c == 34 {        // '"' → string
+        match parse_string(p) {
+            Result::Err(e) => { return Result::Err(e); }
+            Result::Ok(s)  => { return Result::Ok(Json::Str(s)); }
+        }
+    }
+    if c == 91 {        // '[' → array
+        return parse_array(p);
+    }
+    if c == 123 {       // '{' → object
+        return parse_object(p);
+    }
+    if c == 45 || (c >= 48 && c <= 57) {   // '-' or digit → number
+        match parse_number(p) {
+            Result::Err(e) => { return Result::Err(e); }
+            Result::Ok(n)  => { return Result::Ok(Json::Number(n)); }
+        }
+    }
+    return Result::Err(err_at(p.pos, "unexpected character"));
+}
+
+unsafe fn parse_array(p: &mut Parser) -> Result<Json, JsonError> {
+    if peek(p) != 91 {
+        return Result::Err(err_at(p.pos, "expected '['"));
+    }
+    p.pos = p.pos + 1 as i64;
+    let mut items: Vec<Json> = vec_new::<Json>();
+    let mut err_pos: i64 = 0 as i64 - 1 as i64;     // -1 = no error yet
+    let mut err_msg: String = String::new();
+    {
+        let items_ptr: *mut Vec<Json> = (&mut items) as *mut Vec<Json>;
+        skip_ws(p);
+        let mut empty: bool = peek(p) == 93;     // ']'
+        if empty { p.pos = p.pos + 1 as i64; }
+        let mut going: bool = !empty;
+        while going {
+            match parse_value(p) {
+                Result::Err(e) => {
+                    err_pos = e.offset;
+                    err_msg.push_bytes(e.message.as_ptr(), e.message.len());
+                    going = false;
+                }
+                Result::Ok(v)  => { items_ptr.push(v); }
+            }
+            if going {
+                skip_ws(p);
+                let c: i32 = peek(p);
+                if c == 44 {            // ','
+                    p.pos = p.pos + 1 as i64;
+                    skip_ws(p);
+                } else if c == 93 {     // ']'
+                    p.pos = p.pos + 1 as i64;
+                    going = false;
+                } else {
+                    err_pos = p.pos;
+                    err_msg.push_str("expected ',' or ']'");
+                    going = false;
+                }
+            }
+        }
+    }
+    if err_pos >= 0 as i64 {
+        return Result::Err(JsonError { offset: err_pos, message: err_msg });
+    }
+    return Result::Ok(Json::Array(items));
+}
+
+unsafe fn parse_object(p: &mut Parser) -> Result<Json, JsonError> {
+    if peek(p) != 123 {
+        return Result::Err(err_at(p.pos, "expected '{'"));
+    }
+    p.pos = p.pos + 1 as i64;
+    let mut fields: Vec<JsonField> = vec_new::<JsonField>();
+    let mut err_pos: i64 = 0 as i64 - 1 as i64;
+    let mut err_msg: String = String::new();
+    {
+        let fields_ptr: *mut Vec<JsonField> = (&mut fields) as *mut Vec<JsonField>;
+        skip_ws(p);
+        let mut empty: bool = peek(p) == 125;     // '}'
+        if empty { p.pos = p.pos + 1 as i64; }
+        let mut going: bool = !empty;
+        while going {
+            skip_ws(p);
+            let mut k: String = String::new();
+            let mut have_key: bool = false;
+            match parse_string(p) {
+                Result::Err(e) => {
+                    err_pos = e.offset;
+                    err_msg.push_bytes(e.message.as_ptr(), e.message.len());
+                    going = false;
+                }
+                Result::Ok(s)  => { k = s; have_key = true; }
+            }
+            if going {
+                skip_ws(p);
+                if peek(p) != 58 {
+                    err_pos = p.pos;
+                    err_msg.push_str("expected ':' after object key");
+                    going = false;
+                } else {
+                    p.pos = p.pos + 1 as i64;
+                }
+            }
+            if going && have_key {
+                match parse_value(p) {
+                    Result::Err(e) => {
+                        err_pos = e.offset;
+                        err_msg.push_bytes(e.message.as_ptr(), e.message.len());
+                        going = false;
+                    }
+                    Result::Ok(jv) => {
+                        fields_ptr.push(JsonField { key: k, val: jv });
+                    }
+                }
+            }
+            if going {
+                skip_ws(p);
+                let c: i32 = peek(p);
+                if c == 44 {            // ','
+                    p.pos = p.pos + 1 as i64;
+                } else if c == 125 {    // '}'
+                    p.pos = p.pos + 1 as i64;
+                    going = false;
+                } else {
+                    err_pos = p.pos;
+                    err_msg.push_str("expected ',' or '}'");
+                    going = false;
+                }
+            }
+        }
+    }
+    if err_pos >= 0 as i64 {
+        return Result::Err(JsonError { offset: err_pos, message: err_msg });
+    }
+    return Result::Ok(Json::Object(fields));
+}
+
+// ── Public entry point ────────────────────────────────────────────────────
+
+pub fn parse(src: str) -> Result<Json, JsonError> {
+    let mut p: Parser = parser_new(src);
+    unsafe {
+        match parse_value(&mut p) {
+            Result::Err(e) => { return Result::Err(e); }
+            Result::Ok(v)  => {
+                skip_ws(&mut p);
+                if p.pos != p.len {
+                    return Result::Err(err_at(p.pos, "trailing content after JSON value"));
+                }
+                return Result::Ok(v);
+            }
+        }
+    }
+}
+
+// ── Object lookup ─────────────────────────────────────────────────────────
+
+// Linear search by key. Returns the index of the first matching field or -1.
+pub fn json_field_index(fields: &Vec<JsonField>, key: str) -> i64 {
+    let n: i64 = fields.length();
+    let mut i: i64 = 0 as i64;
+    unsafe {
+        let fp: *const Vec<JsonField> = fields as *const Vec<JsonField>;
+        while i < n {
+            let f: *const JsonField = fp.at_const(i);
+            if (*f).key.eq_str(key) { return i; }
+            i = i + 1 as i64;
+        }
+    }
+    return 0 as i64 - 1 as i64;
+}

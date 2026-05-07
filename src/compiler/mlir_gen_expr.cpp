@@ -414,6 +414,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitDataView v, TypeRef typ
                     std::unordered_set<std::string> seen;
                     uint64_t sz = logos_abi_byte_size(lt, seen);
                     auto sz_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, (int64_t)sz, 64);
+                    // val may be a struct value (e.g. result of a function
+                    // call returning a struct) rather than a pointer. memcpy
+                    // requires a pointer source — spill aggregate values.
+                    if (mlir::isa<mlir::LLVM::LLVMStructType>(val.getType()))
+                        val = spill_to_alloca(val);
                     builder_.create<mlir::LLVM::MemcpyOp>(loc_, fp, val, sz_val, false);
                 } else {
                     builder_.create<mlir::LLVM::StoreOp>(loc_, coerce_int(val, vp->field_types[i]), fp);
@@ -1905,21 +1910,40 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
     // Detect tagged enum: load discriminant.
     mlir::Value scrut_ptr = nullptr;
     const TaggedEnumInfo* te_info = nullptr;
-    if (TypeRef st(scrut_le->type); st && st.kind() == LogosType::Kind::Enum) {
-        te_info = resolve_tagged_enum(std::string(st.enum_name()), scrut_le->type);
-        if (te_info) {
-            // GEP requires a pointer operand.  If the scrutinee is a by-value
-            // struct (e.g. a direct function call result), spill it to an alloca.
-            if (scrut.getType() != ptr_type()) {
-                auto tmp = create_entry_alloca(te_info->llvm_type);
-                builder_.create<mlir::LLVM::StoreOp>(loc_, scrut, tmp);
-                scrut = tmp;
+    if (TypeRef st(scrut_le->type); st) {
+        // Auto-deref `&Enum` / `&mut Enum` / `*Enum` so `match &enum_val { ... }`
+        // works the same as `match enum_val { ... }`.
+        TypeRef enum_t = st;
+        bool via_ref = false;
+        if ((st.kind() == LogosType::Kind::Ref ||
+             st.kind() == LogosType::Kind::MutRef ||
+             st.kind() == LogosType::Kind::Ptr) && st.pointee()) {
+            TypeRef inner(st.pointee());
+            if (inner.kind() == LogosType::Kind::Enum) {
+                enum_t = inner;
+                via_ref = true;
             }
-            scrut_ptr = scrut;
-            llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
-            auto dp = builder_.create<mlir::LLVM::GEPOp>(
-                loc_, ptr_type(), te_info->llvm_type, scrut_ptr, di);
-            scrut = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), dp);
+        }
+        if (enum_t.kind() == LogosType::Kind::Enum) {
+            te_info = resolve_tagged_enum(std::string(enum_t.enum_name()), enum_t);
+            if (te_info) {
+                // Logos enum values are heap pointers (EEnumLitData returns
+                // a malloc'd ptr). `&Enum` is therefore a pointer-to-pointer;
+                // load the inner ptr first to get the enum-struct address.
+                if (via_ref) {
+                    scrut = builder_.create<mlir::LLVM::LoadOp>(
+                        loc_, ptr_type(), scrut);
+                } else if (scrut.getType() != ptr_type()) {
+                    auto tmp = create_entry_alloca(te_info->llvm_type);
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, scrut, tmp);
+                    scrut = tmp;
+                }
+                scrut_ptr = scrut;
+                llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
+                auto dp = builder_.create<mlir::LLVM::GEPOp>(
+                    loc_, ptr_type(), te_info->llvm_type, scrut_ptr, di);
+                scrut = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), dp);
+            }
         }
     }
     mlir::Type scrut_type = scrut.getType();
