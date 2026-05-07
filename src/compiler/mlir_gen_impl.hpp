@@ -150,8 +150,9 @@ private:
                           (nm.compare(base.size(), 5, "__f__") == 0 ||
                            nm.compare(base.size(), 5, "__g__") == 0);
             if (starts) return true;
-            // Check `pkg.Base__method[__[fg]__sig]`
-            auto dot = nm.find('.');
+            // Check `pkg.Base__method[__[fg]__sig]` — pkg may have inner dots,
+            // so split at the LAST dot (boundary between pkg and bare name).
+            auto dot = nm.rfind('.');
             if (dot != std::string_view::npos) {
                 std::string_view rest = nm.substr(dot + 1);
                 if (rest == base) return true;

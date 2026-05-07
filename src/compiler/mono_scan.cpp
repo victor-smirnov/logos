@@ -555,7 +555,8 @@ void Mono::drain_method_worklist() {
         std::string sig;
         {
             std::string tn = tmpl->name;
-            if (auto dot = tn.find('.'); dot != std::string::npos)
+            // Pkg may have inner dots; split at LAST dot.
+            if (auto dot = tn.rfind('.'); dot != std::string::npos)
                 tn = tn.substr(dot + 1);
             auto sep1 = tn.find("__");
             if (sep1 != std::string::npos) {

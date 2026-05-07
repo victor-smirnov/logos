@@ -1253,7 +1253,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
                            ? std::string(strip_struct_pkg(tname))
                            : resolved_type;
     std::string tname_pkg;
-    if (auto p = tname.find('.'); p != std::string::npos)
+    // Pkg may have inner dots; split at LAST dot.
+    if (auto p = tname.rfind('.'); p != std::string::npos)
         tname_pkg = tname.substr(0, p);
     std::string bare_mangled = defining + "__" + method;
     auto mangled = tname_pkg.empty()

@@ -283,7 +283,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 // Strip pkg prefix (`pkg.`) before matching the
                 // synthetic `$blanket$...` template prefix.
                 std::string tn = tfn.name;
-                if (auto dot = tn.find('.'); dot != std::string::npos)
+                if (auto dot = tn.rfind('.'); dot != std::string::npos)
                     tn = tn.substr(dot + 1);
                 if (tn.rfind(tmpl_prefix, 0) != 0) continue;
                 // Method may carry `__f__sig` / `__g__sig`. Preserve sig in

@@ -2109,7 +2109,8 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             {
                 std::string callee_pkg;
                 std::string callee_body = nc.callee;
-                if (auto dot = callee_body.find('.'); dot != std::string::npos) {
+                // Pkg may have inner dots; split at LAST dot.
+                if (auto dot = callee_body.rfind('.'); dot != std::string::npos) {
                     callee_pkg = callee_body.substr(0, dot);
                     callee_body = callee_body.substr(dot + 1);
                 }
@@ -2972,7 +2973,8 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
         // Preserve pkg prefix and any sig suffix; replace base name only.
         std::string mn = m.name;
         std::string mn_pkg;
-        if (auto dot = mn.find('.'); dot != std::string::npos) {
+        // Pkg may have inner dots; split at LAST dot.
+        if (auto dot = mn.rfind('.'); dot != std::string::npos) {
             mn_pkg = mn.substr(0, dot);
             mn = mn.substr(dot + 1);
         }

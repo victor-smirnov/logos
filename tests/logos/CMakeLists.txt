@@ -28,6 +28,23 @@ add_custom_command(
 )
 add_custom_target(stdlib_binary ALL DEPENDS ${STDLIB_BIN})
 
+# Build libpub_lib.a from the pub_lib test fixture manifest. Used as a
+# realistic `-l <user-archive>` smoke test in the publib suite, replacing
+# the earlier `-I ${PUB_LIB}` source-include path.
+set(PUB_LIB_MANIFEST ${PUB_LIB}/mylib.module)
+set(PUB_LIB_BIN ${CMAKE_CURRENT_BINARY_DIR}/libpub_lib.a)
+file(GLOB PUB_LIB_SOURCES ${PUB_LIB}/*.logos)
+add_custom_command(
+    OUTPUT  ${PUB_LIB_BIN}
+    COMMAND $<TARGET_FILE:logosc>
+            --emit-module ${PUB_LIB_MANIFEST}
+            -o ${PUB_LIB_BIN}
+    DEPENDS logosc ${PUB_LIB_MANIFEST} ${PUB_LIB_SOURCES}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building test fixture: libpub_lib.a"
+)
+add_custom_target(pub_lib_binary ALL DEPENDS ${PUB_LIB_BIN})
+
 set(LOGOS_SUITE_ORDER
     smoke
     semantic_core
@@ -245,11 +262,13 @@ function(logos_pass_extra_args BASE OUT_VAR)
     # baked-in argv[0]-relative path; metaprog modules ship as AST-only
     # `.hermes0` members of the same archive, so tests no longer need
     # any -I/-L for the system stdlib. The remaining -I lookups are for
-    # local test fixtures (pub_lib, cross-pkg coexistence).
+    # local test fixtures (cross-pkg coexistence — source-only).
+    # pub_lib is built as a binary archive and consumed via -l (matches
+    # the user-facing workflow for shipping libraries).
     if (BASE IN_LIST LOCAL_METAPROG_PUBLIB_USERS)
-        set(_extra -I ${PUB_LIB})
+        set(_extra -l ${PUB_LIB_BIN})
     elseif (BASE IN_LIST LOCAL_PUBLIB_USERS)
-        set(_extra -I ${PUB_LIB})
+        set(_extra -l ${PUB_LIB_BIN})
     elseif (BASE IN_LIST LOCAL_COEX_USERS)
         set(_extra -I ${CMAKE_CURRENT_SOURCE_DIR}/coex)
     else()
@@ -264,7 +283,7 @@ function(logos_fail_extra_args BASE OUT_VAR)
     set(FAIL_METAPROG_USERS metacall_item_odr_conflict)
     set(FAIL_COEX_USERS cross_pkg_ambiguous_call)
     if (BASE IN_LIST FAIL_PUBLIB_USERS)
-        set(_extra -I ${PUB_LIB})
+        set(_extra -l ${PUB_LIB_BIN})
     elseif (BASE IN_LIST FAIL_METAPROG_USERS)
         set(_extra "")  # post-C4: metaprog is in liblstdlib.a as AST-only
     elseif (BASE IN_LIST FAIL_COEX_USERS)

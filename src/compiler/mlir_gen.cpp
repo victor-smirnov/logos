@@ -206,7 +206,9 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     {
         auto canonical = [](std::string_view name) -> std::string {
             std::string s(name);
-            if (auto dot = s.find('.'); dot != std::string::npos) {
+            // Pkg may contain inner dots (`std.lang.datatypes.Buf`); split at
+            // the LAST dot to isolate the bare name.
+            if (auto dot = s.rfind('.'); dot != std::string::npos) {
                 bool looks_pkg = !s.empty() && s[0] != '_' && s[0] != '.';
                 if (looks_pkg) s = s.substr(dot + 1);
             }
