@@ -79,9 +79,15 @@ pub enum TargetKind { Bin, Lib }
 pub struct Target {
     pub kind:  TargetKind,
     pub name:  String,
-    pub src:   String,
+    pub src:   String,           // dir for Logos sources (may be empty)
     pub entry: String,           // empty for lib targets
     pub deps:  Vec<String>,      // names of sibling lib targets
+    // Native sources, project-root-relative paths. C and asm files are
+    // compiled via `cc -c <src> -o <stem>.<ext>.o` and folded into the
+    // same archive as Logos artifacts. Both arrays are independently
+    // optional; `src` may also be empty for pure-native libs.
+    pub c_sources:   Vec<String>,
+    pub asm_sources: Vec<String>,
 }
 
 pub struct Manifest {
@@ -220,18 +226,21 @@ unsafe fn parse_target(view: &HermesView<'a>, base: *const u8, t_av: AnyVal) -> 
         Result::Err(e) => { return Result::Err(e); }
         Result::Ok(s)  => { s }
     };
-    let src_s: String = match read_str_field(view, t_av, "src") {
-        Result::Err(e) => { return Result::Err(e); }
-        Result::Ok(s)  => { s }
-    };
+    // src is required only when not all native; we accept missing here
+    // and let build_lib enforce "must have at least one source category".
+    let src_s: String = read_str_opt(view, t_av, "src");
     let entry_s: String = read_str_opt(view, t_av, "entry");
     let deps_v: Vec<String> = read_str_array(view, t_av, "deps");
+    let c_v:   Vec<String> = read_str_array(view, t_av, "c_sources");
+    let asm_v: Vec<String> = read_str_array(view, t_av, "asm_sources");
     return Result::Ok(Target {
         kind:  k,
         name:  name_s,
         src:   src_s,
         entry: entry_s,
         deps:  deps_v,
+        c_sources:   c_v,
+        asm_sources: asm_v,
     });
 }
 
@@ -295,6 +304,8 @@ pub unsafe fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
             src:   src_s,
             entry: entry_s,
             deps:  vec_new::<String>(),
+            c_sources:   vec_new::<String>(),
+            asm_sources: vec_new::<String>(),
         };
         tp.push(synth);
     }
@@ -685,22 +696,53 @@ unsafe fn per_file_prefix(dir: &String, src_path: &String) -> String {
     return p;
 }
 
+// `<dir>/<basename>.o` — used for native (C/asm) sources. The full
+// basename including extension goes into the object name so foo.c and
+// foo.S don't collide with each other or with foo.logos's foo.o.
+unsafe fn native_obj_path(dir: &String, src_path: &String) -> String {
+    let bn_str: String = basename(str_from_raw(src_path.as_ptr(), src_path.len()));
+    let mut p: String = String::new();
+    p.push_bytes(dir.as_ptr(), dir.len());
+    p.push_u8(47 as u8);
+    p.push_bytes(bn_str.as_ptr(), bn_str.len());
+    p.push_str(".o");
+    return p;
+}
+
+// Spawn `cc -c <src> -o <obj>` for a single C/asm file. cc handles both
+// .c and .S via file extension, so this one helper covers both.
+unsafe fn spawn_native_compile(src_path: &String, obj_path: &String) -> Child {
+    let mut argv: Vec<String> = vec_new::<String>();
+    let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
+    push_arg(argv_p, "cc");
+    push_arg(argv_p, "-c");
+    push_string_arg(argv_p, src_path);
+    push_arg(argv_p, "-o");
+    push_string_arg(argv_p, obj_path);
+    return spawn_inherit(&argv);
+}
+
 unsafe fn build_lib(t: &Target, profile: str, logosc: &String) -> i32 {
-    // ── Walk source files and decide what needs rebuild ──────────────────
-    let src_view: str = str_from_raw(t.src.as_ptr(), t.src.len());
-    let sources: Vec<String> = collect_logos_files(src_view);
+    let lib_name_view: str = str_from_raw(t.name.as_ptr(), t.name.len());
+
+    // ── Walk Logos source dir, if any ────────────────────────────────────
+    let mut sources: Vec<String> = vec_new::<String>();
+    if t.src.len() > 0 as i64 {
+        let src_view: str = str_from_raw(t.src.as_ptr(), t.src.len());
+        sources = collect_logos_files(src_view);
+    }
     let n_src: i64 = sources.length();
-    if n_src == 0 as i64 {
+    let n_c:   i64 = t.c_sources.length();
+    let n_asm: i64 = t.asm_sources.length();
+    if n_src == 0 as i64 && n_c == 0 as i64 && n_asm == 0 as i64 {
         let mut msg: String = String::new();
         msg.push_str("lforge: lib ");
         msg.push_bytes(t.name.as_ptr(), t.name.len());
-        msg.push_str(": no .logos files under ");
-        msg.push_bytes(t.src.as_ptr(), t.src.len());
+        msg.push_str(": no Logos / C / asm sources");
         println_string(2, &msg);
         return 1;
     }
 
-    let lib_name_view: str = str_from_raw(t.name.as_ptr(), t.name.len());
     let pf_dir: String = per_file_dir(profile, lib_name_view);
     let pf_dir_view: str = str_from_raw(pf_dir.as_ptr(), pf_dir.len());
     match mkdir_p(pf_dir_view) {
@@ -716,54 +758,57 @@ unsafe fn build_lib(t: &Target, profile: str, logosc: &String) -> i32 {
     }
     let arch: String = lib_archive_path(profile, lib_name_view);
 
-    // ── Generate .module manifest text (each --only-file invocation needs it) ──
-    let gd: String = gen_dir_for(profile);
-    let gd_view: str = str_from_raw(gd.as_ptr(), gd.len());
-    match mkdir_p(gd_view) {
-        Result::Err(_) => { println_str(2, "lforge: cannot create _gen dir"); return 1; }
-        Result::Ok(_)  => { }
-    }
-    let mut man: String = String::new();
-    man.push_str("module ");
-    man.push_bytes(t.name.as_ptr(), t.name.len());
-    man.push_u8(10 as u8);
-    man.push_str("version 0.1\n");
-    man.push_str("root ");
-    man.push_bytes(t.src.as_ptr(), t.src.len());
-    man.push_u8(10 as u8);
+    // ── Generate .module manifest text only when there are Logos files ──
     let mut man_path: String = String::new();
-    man_path.push_bytes(gd.as_ptr(), gd.len());
-    man_path.push_u8(47 as u8);
-    man_path.push_bytes(t.name.as_ptr(), t.name.len());
-    man_path.push_str(".module");
-    let man_path_cs: *mut u8 = cstr(str_from_raw(man_path.as_ptr(), man_path.len()));
-    let wr: Result<i32, i32> = write_string(man_path_cs as *const u8, &man);
-    dealloc(man_path_cs);
-    match wr {
-        Result::Err(_) => { println_str(2, "lforge: cannot write generated .module"); return 1; }
-        Result::Ok(_)  => { }
+    if n_src > 0 as i64 {
+        let gd: String = gen_dir_for(profile);
+        let gd_view: str = str_from_raw(gd.as_ptr(), gd.len());
+        match mkdir_p(gd_view) {
+            Result::Err(_) => { println_str(2, "lforge: cannot create _gen dir"); return 1; }
+            Result::Ok(_)  => { }
+        }
+        let mut man: String = String::new();
+        man.push_str("module ");
+        man.push_bytes(t.name.as_ptr(), t.name.len());
+        man.push_u8(10 as u8);
+        man.push_str("version 0.1\n");
+        man.push_str("root ");
+        man.push_bytes(t.src.as_ptr(), t.src.len());
+        man.push_u8(10 as u8);
+        man_path.push_bytes(gd.as_ptr(), gd.len());
+        man_path.push_u8(47 as u8);
+        man_path.push_bytes(t.name.as_ptr(), t.name.len());
+        man_path.push_str(".module");
+        let man_path_cs: *mut u8 = cstr(str_from_raw(man_path.as_ptr(), man_path.len()));
+        let wr: Result<i32, i32> = write_string(man_path_cs as *const u8, &man);
+        dealloc(man_path_cs);
+        match wr {
+            Result::Err(_) => { println_str(2, "lforge: cannot write generated .module"); return 1; }
+            Result::Ok(_)  => { }
+        }
     }
 
     // ── For each source: determine whether per-file .o is up-to-date.   ──
     // Spawn the rebuilds in parallel; collect Child handles to wait on.
     let sp: *const Vec<String> = (&sources) as *const Vec<String>;
+    let cp_arr: *const Vec<String> = (&t.c_sources) as *const Vec<String>;
+    let ap_arr: *const Vec<String> = (&t.asm_sources) as *const Vec<String>;
     let mut children: Vec<Child> = vec_new::<Child>();
     let cp: *mut Vec<Child> = (&mut children) as *mut Vec<Child>;
     let mut rebuilt_count: i32 = 0;
 
+    // Logos files via logosc --only-file
     let mut i: i64 = 0 as i64;
     while i < n_src {
         let src_p: *const String = sp.at_const(i);
         i = i + 1 as i64;
         let src_view2: str = str_from_raw((*src_p).as_ptr(), (*src_p).len());
 
-        // Per-file prefix: <_files/lib>/<stem>
         let prefix: String = per_file_prefix(&pf_dir, &(*src_p));
         let mut obj_path: String = String::new();
         obj_path.push_bytes(prefix.as_ptr(), prefix.len());
         obj_path.push_str(".o");
 
-        // mtime check: if .o is newer than the source, skip rebuild.
         let src_cs: *mut u8 = cstr(src_view2);
         let src_mt: i64 = match mtime_ns(src_cs as *const u8) {
             Result::Ok(v)  => { v }
@@ -771,11 +816,8 @@ unsafe fn build_lib(t: &Target, profile: str, logosc: &String) -> i32 {
         };
         dealloc(src_cs);
         let obj_view: str = str_from_raw(obj_path.as_ptr(), obj_path.len());
-        if output_is_fresh(obj_view, src_mt) {
-            continue;
-        }
+        if output_is_fresh(obj_view, src_mt) { continue; }
 
-        // Build argv: logosc --emit-module <manifest> --only-file <src> -o <prefix>
         let mut argv: Vec<String> = vec_new::<String>();
         let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
         push_string_arg(argv_p, logosc);
@@ -793,6 +835,40 @@ unsafe fn build_lib(t: &Target, profile: str, logosc: &String) -> i32 {
         }
         cp.push(child);
         rebuilt_count = rebuilt_count + 1;
+    }
+
+    // C and asm files via cc -c
+    let mut native_lists: [*const Vec<String>; 2] = [cp_arr, ap_arr];
+    let mut native_counts: [i64; 2] = [n_c, n_asm];
+    let mut nl: i64 = 0 as i64;
+    while nl < 2 as i64 {
+        let lst: *const Vec<String> = native_lists[nl];
+        let cnt: i64 = native_counts[nl];
+        nl = nl + 1 as i64;
+        let mut k: i64 = 0 as i64;
+        while k < cnt {
+            let src_p: *const String = lst.at_const(k);
+            k = k + 1 as i64;
+            let src_view2: str = str_from_raw((*src_p).as_ptr(), (*src_p).len());
+
+            let obj_path: String = native_obj_path(&pf_dir, &(*src_p));
+            let src_cs: *mut u8 = cstr(src_view2);
+            let src_mt: i64 = match mtime_ns(src_cs as *const u8) {
+                Result::Ok(v)  => { v }
+                Result::Err(_) => { 0 as i64 }
+            };
+            dealloc(src_cs);
+            let obj_view: str = str_from_raw(obj_path.as_ptr(), obj_path.len());
+            if output_is_fresh(obj_view, src_mt) { continue; }
+
+            let child: Child = spawn_native_compile(&(*src_p), &obj_path);
+            if child.pid() < 0 {
+                println_str(2, "lforge: cc spawn failed");
+                return 1;
+            }
+            cp.push(child);
+            rebuilt_count = rebuilt_count + 1;
+        }
     }
 
     // Announce.
@@ -833,7 +909,8 @@ unsafe fn build_lib(t: &Target, profile: str, logosc: &String) -> i32 {
     let arch_view: str = str_from_raw(arch.as_ptr(), arch.len());
     let mut need_ar: bool = rebuilt_count > 0;
     if !need_ar {
-        // Check archive freshness against every per-file artifact.
+        // Check archive freshness against every per-file artifact —
+        // Logos .o, plus C/asm .o files.
         let mut max_pf: i64 = 0 as i64;
         let mut k: i64 = 0 as i64;
         while k < n_src {
@@ -851,6 +928,25 @@ unsafe fn build_lib(t: &Target, profile: str, logosc: &String) -> i32 {
                 Result::Err(_) => { }
             }
         }
+        let mut nl2: i64 = 0 as i64;
+        while nl2 < 2 as i64 {
+            let lst: *const Vec<String> = native_lists[nl2];
+            let cnt: i64 = native_counts[nl2];
+            nl2 = nl2 + 1 as i64;
+            let mut k2: i64 = 0 as i64;
+            while k2 < cnt {
+                let src_p: *const String = lst.at_const(k2);
+                k2 = k2 + 1 as i64;
+                let obj_p: String = native_obj_path(&pf_dir, &(*src_p));
+                let cs: *mut u8 = cstr(str_from_raw(obj_p.as_ptr(), obj_p.len()));
+                let mt: Result<i64, i32> = mtime_ns(cs as *const u8);
+                dealloc(cs);
+                match mt {
+                    Result::Ok(v)  => { if v > max_pf { max_pf = v; } }
+                    Result::Err(_) => { }
+                }
+            }
+        }
         if !output_is_fresh(arch_view, max_pf) { need_ar = true; }
     }
 
@@ -863,7 +959,7 @@ unsafe fn build_lib(t: &Target, profile: str, logosc: &String) -> i32 {
         return 0;
     }
 
-    // Build `ar rcs <arch> <obj1> <h0_1> <obj2> <h0_2> ...`
+    // Build `ar rcs <arch> <logos_obj> <logos_hermes0> ... <native_obj> ...`
     let mut ar_argv: Vec<String> = vec_new::<String>();
     let aap: *mut Vec<String> = (&mut ar_argv) as *mut Vec<String>;
     push_arg(aap, "ar");
@@ -882,6 +978,20 @@ unsafe fn build_lib(t: &Target, profile: str, logosc: &String) -> i32 {
         h.push_str(".hermes0");
         aap.push(o);
         aap.push(h);
+    }
+    // Native (C/asm) .o files.
+    let mut nl3: i64 = 0 as i64;
+    while nl3 < 2 as i64 {
+        let lst: *const Vec<String> = native_lists[nl3];
+        let cnt: i64 = native_counts[nl3];
+        nl3 = nl3 + 1 as i64;
+        let mut k3: i64 = 0 as i64;
+        while k3 < cnt {
+            let src_p: *const String = lst.at_const(k3);
+            k3 = k3 + 1 as i64;
+            let o: String = native_obj_path(&pf_dir, &(*src_p));
+            aap.push(o);
+        }
     }
 
     // Remove a stale archive first; ar would otherwise append rather than

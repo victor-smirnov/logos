@@ -557,4 +557,17 @@ if (TARGET lforge)
         TIMEOUT 90
         LABELS  "logos;lforge;suite_lforge"
     )
+
+    # B1.8: lib targets accept C and asm sources alongside Logos files.
+    add_test(
+        NAME logos_17_lforge_c_asm
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/c_asm.sh
+                ${CMAKE_BINARY_DIR}/bin/lforge
+                $<TARGET_FILE:logosc>
+                ${LOGOS_BUILD_LIB_DIR}
+    )
+    set_tests_properties(logos_17_lforge_c_asm PROPERTIES
+        TIMEOUT 90
+        LABELS  "logos;lforge;suite_lforge"
+    )
 endif()
