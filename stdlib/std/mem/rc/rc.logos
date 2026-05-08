@@ -74,6 +74,15 @@ impl<T> Rc<T> {
         return Rc { inner: self.inner };
     }
 
+    // Same as clone_rc but with a `&mut self` signature — modern call
+    // sites prefer this; raw-pointer self is kept for back-compat.
+    pub fn clone_ref(&mut self) -> Rc<T> {
+        unsafe {
+            let p: *mut Rc<T> = self as *mut Rc<T>;
+            return p.clone_rc();
+        }
+    }
+
     // Decrement strong count; free the inner block when it reaches zero.
     pub unsafe fn drop_rc(self: *mut Rc<T>) {
         if self.inner == 0 as *mut RcInner<T> { return; }

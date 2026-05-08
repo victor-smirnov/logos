@@ -52,6 +52,25 @@ impl<T: Send + Sync> Arc<T> {
         return &self.inner.val as *const T;
     }
 
+    // Reference-returning accessors. The inner block is heap-stable
+    // for the lifetime of any Arc handle; mirror the `&self`/`&mut self`
+    // shape Rc<T> already exposes so callers don't have to launder
+    // through raw-pointer self.
+    pub fn deref(&self) -> &T {
+        unsafe { return &self.inner.val; }
+    }
+
+    // NOTE: `&mut self` access through an Arc is sound only because
+    // we don't hand out concurrent &mut references — Arc is meant for
+    // shared ownership across threads, and any cross-thread interior
+    // mutation should use the proper sync primitives on T (Mutex,
+    // atomics) which take &T. Here, `deref_mut` is the convenient
+    // single-thread escape hatch used by stdlib (mostly the persistent
+    // store handle code) where the caller has exclusive use.
+    pub fn deref_mut(&mut self) -> &mut T {
+        unsafe { return &mut self.inner.val; }
+    }
+
     pub unsafe fn strong_count(self: *mut Arc<T>) -> i32 {
         return (&self.inner.strong).load();
     }
@@ -64,6 +83,16 @@ impl<T: Send + Sync> Arc<T> {
     pub unsafe fn clone_arc(self: *mut Arc<T>) -> Arc<T> {
         (&mut self.inner.strong).fetch_add(1);
         return Arc { inner: self.inner };
+    }
+
+    // Same, taking `&mut self` instead of raw self pointer. Modern
+    // call sites prefer this — same semantics, no caller-side raw
+    // cast.
+    pub fn clone_ref(&mut self) -> Arc<T> {
+        unsafe {
+            let p: *mut Arc<T> = self as *mut Arc<T>;
+            return p.clone_arc();
+        }
     }
 
     // Atomically decrement; free the inner block when the count reaches zero.

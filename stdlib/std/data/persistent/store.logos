@@ -100,36 +100,40 @@ pub fn locking_store_new() -> LockingStore {
 // Idempotently register a release thunk for cfg_hash. Called from
 // `register_pmap_release_thunk::<CFG>` on each create/open. Linear scan
 // for "already registered" is fine — N = distinct CFG count, tiny.
-pub unsafe fn locking_store_register_release(s: *mut LockingStore, cfg_hash: u64, fp_u64: u64) {
-    s.lock.lock();
+//
+// Inner unsafe block: Mutex::lock/unlock are themselves marked unsafe
+// in stdlib (raw lock primitive); the caller doesn't need an unsafe
+// context — the lock-scope discipline is local to this fn.
+pub fn locking_store_register_release(s: &mut LockingStore, cfg_hash: u64, fp_u64: u64) {
+    unsafe { s.lock.lock(); }
     let n: u64 = s.release_hashes.len;
     let mut i: u64 = 0u64;
     while i < n {
         if s.release_hashes.get(i) == cfg_hash {
-            s.lock.unlock();
+            unsafe { s.lock.unlock(); }
             return;
         }
         i = i + 1u64;
     }
     s.release_hashes.push(cfg_hash);
     s.release_fn_ptrs.push(fp_u64);
-    s.lock.unlock();
+    unsafe { s.lock.unlock(); }
 }
 
 // Lookup release fn-ptr (as u64). Returns 0 on miss; caller asserts.
-pub unsafe fn locking_store_lookup_release(s: *mut LockingStore, cfg_hash: u64) -> u64 {
-    s.lock.lock();
+pub fn locking_store_lookup_release(s: &mut LockingStore, cfg_hash: u64) -> u64 {
+    unsafe { s.lock.lock(); }
     let n: u64 = s.release_hashes.len;
     let mut i: u64 = 0u64;
     while i < n {
         if s.release_hashes.get(i) == cfg_hash {
             let fp: u64 = s.release_fn_ptrs.get(i);
-            s.lock.unlock();
+            unsafe { s.lock.unlock(); }
             return fp;
         }
         i = i + 1u64;
     }
-    s.lock.unlock();
+    unsafe { s.lock.unlock(); }
     return 0u64;
 }
 
