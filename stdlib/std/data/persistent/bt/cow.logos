@@ -27,7 +27,8 @@ pub fn node_alloc_c<K: Container + ContainerOrd, V: Container, const CFG: Hermes
     let raw: *mut u8 = alloc(sizeof::<LeafNode<K, V, CFG>>());
     let leaf: *mut LeafNode<K, V, CFG> = raw as *mut LeafNode<K, V, CFG>;
     unsafe {
-        leaf.base.cfg_hash = hstatic_hash_of::<CFG>();
+        leaf.base.cfg_hash        = hstatic_hash_of::<CFG>();
+        leaf.base.block_type_hash = type_hash::<LeafNode<K, V, CFG>>();
         leaf.base.rc       = 1u64;
         leaf.base.n        = 0u16;
         leaf.base.is_leaf  = true;
@@ -41,7 +42,8 @@ pub fn node_alloc_internal_c<K: Container + ContainerOrd, V: Container, const CF
     let raw: *mut u8 = alloc(sizeof::<BranchNode<K, V, CFG>>());
     let br: *mut BranchNode<K, V, CFG> = raw as *mut BranchNode<K, V, CFG>;
     unsafe {
-        br.base.cfg_hash = hstatic_hash_of::<CFG>();
+        br.base.cfg_hash        = hstatic_hash_of::<CFG>();
+        br.base.block_type_hash = type_hash::<BranchNode<K, V, CFG>>();
         br.base.rc       = 1u64;
         br.base.n        = 0u16;
         br.base.is_leaf  = false;
