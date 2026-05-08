@@ -25,9 +25,12 @@
 #include <logos/hermes/object_array.hpp>
 #include <logos/hermes/access.hpp>
 
+#include <algorithm>
 #include <cstdio>
 #include <format>
+#include <functional>
 #include <string>
+#include <vector>
 
 namespace logos::compiler {
 
@@ -1321,6 +1324,86 @@ std::string render_module_source_for_dump(hermes::MemHolder* holder,
     TinyMapView root_view{root_offset, holder};
     if (c == la::MODULE.code) return checker.render_module_src(root_view);
     return checker.render_item_src(root_view);
+}
+
+std::vector<std::string> collect_fn_names_for_dump(hermes::MemHolder* holder,
+                                                   hermes::arena_offset_t root_offset) {
+    std::vector<std::string> out;
+    if (!holder || root_offset == hermes::NULL_OFFSET) return out;
+    auto* base = holder->base();
+
+    auto map_at = [&](hermes::arena_offset_t off) {
+        return reinterpret_cast<hermes::TinyObjectMap*>(base + off.value());
+    };
+    auto str_at = [&](hermes::AnyVal av) -> std::string {
+        if (av.is_null()) return {};
+        // String values point at hermes::ArenaString (length-prefixed bytes).
+        // Reuse the same StringView wrapper sema uses.
+        auto sv = hermes::StringView(av.to_offset(), holder).view();
+        return std::string(sv);
+    };
+    auto arr_at = [&](hermes::AnyVal av) {
+        return hermes::ArrayView(av.to_offset(), holder);
+    };
+
+    auto get_fn_or_impl_items = [&](hermes::TinyObjectMap* tom, std::string prefix) {
+        auto code_av = tom->get(la::CODE.code, base);
+        int32_t c = (!code_av.is_null() && code_av.is_value())
+                    ? code_av.as_value<int32_t>() : -1;
+        if (c == la::FN.code || c == la::EXTERN_FN.code || c == la::STATIC_FN.code) {
+            auto name = str_at(tom->get(la::NAME.code, base));
+            if (!name.empty()) {
+                if (!prefix.empty()) name = prefix + "__" + name;
+                out.push_back(std::move(name));
+            }
+        }
+    };
+
+    auto* root_tom = map_at(root_offset);
+    auto root_code = root_tom->get(la::CODE.code, base);
+    int32_t rc = (!root_code.is_null() && root_code.is_value())
+                 ? root_code.as_value<int32_t>() : -1;
+
+    std::function<void(hermes::TinyObjectMap*, std::string)> walk_items =
+        [&](hermes::TinyObjectMap* tom, std::string prefix) {
+        auto items_av = tom->get(la::ITEMS.code, base);
+        if (items_av.is_null()) return;
+        auto items = arr_at(items_av);
+        for (uint64_t i = 0; i < items.size(); ++i) {
+            auto child_av = items.get(i);
+            if (child_av.is_null()) continue;
+            auto* child = map_at(child_av.to_offset());
+            auto code_av = child->get(la::CODE.code, base);
+            int32_t cc = (!code_av.is_null() && code_av.is_value())
+                         ? code_av.as_value<int32_t>() : -1;
+            if (cc == la::IMPL_BLOCK.code) {
+                // Best-effort impl receiver name: from TYPE child if it's
+                // a TYPE_REF / GENERIC_INST with NAME. Otherwise use the
+                // trait name (NAME field on impl_block).
+                std::string recv;
+                auto type_av = child->get(la::TYPE.code, base);
+                if (!type_av.is_null()) {
+                    auto* ty_tom = map_at(type_av.to_offset());
+                    auto nm_av = ty_tom->get(la::NAME.code, base);
+                    if (!nm_av.is_null()) recv = str_at(nm_av);
+                }
+                if (recv.empty()) recv = str_at(child->get(la::NAME.code, base));
+                walk_items(child, recv);
+            } else {
+                get_fn_or_impl_items(child, prefix);
+            }
+        }
+    };
+
+    if (rc == la::MODULE.code) {
+        walk_items(root_tom, std::string{});
+    } else {
+        get_fn_or_impl_items(root_tom, std::string{});
+    }
+    // Stable order, dedup.
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
 }
 
 } // namespace logos::compiler

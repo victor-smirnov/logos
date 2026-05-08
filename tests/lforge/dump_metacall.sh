@@ -79,6 +79,39 @@ if ! grep -q "fn clone" "$sample"; then
     exit 1
 fi
 
+# Per-metacall index lists the bare fn names defined here (Pair__clone).
+idx_dir=$(dirname "$sample")
+if [ ! -f "$idx_dir/post_mono_index.txt" ]; then
+    echo "FAIL: post_mono_index.txt missing"
+    ls "$idx_dir"
+    exit 1
+fi
+if ! grep -q "^Pair__clone$" "$idx_dir/post_mono_index.txt"; then
+    echo "FAIL: post_mono_index.txt missing Pair__clone"
+    cat "$idx_dir/post_mono_index.txt"
+    exit 1
+fi
+
+# Global post-mono MLIR + post-mlirgen LLVM IR snapshots written once per
+# logosc invocation; they should mention the post-mono mangled form of the
+# fn the user can navigate to from the index.
+if [ ! -f "$DUMP_DIR/_global_post_mono.mlir" ]; then
+    echo "FAIL: _global_post_mono.mlir missing"
+    exit 1
+fi
+if ! grep -q "Pair__clone" "$DUMP_DIR/_global_post_mono.mlir"; then
+    echo "FAIL: _global_post_mono.mlir doesn't mention Pair__clone"
+    exit 1
+fi
+if [ ! -f "$DUMP_DIR/_global_post_mlirgen.ll" ]; then
+    echo "FAIL: _global_post_mlirgen.ll missing"
+    exit 1
+fi
+if ! grep -q "Pair__clone" "$DUMP_DIR/_global_post_mlirgen.ll"; then
+    echo "FAIL: _global_post_mlirgen.ll doesn't mention Pair__clone"
+    exit 1
+fi
+
 # Without the flag, no dump dir.
 LOGOSC="$LOGOSC" LOGOS_LIB_DIR="$LIB" "$LFORGE" clean > /dev/null
 LOGOSC="$LOGOSC" LOGOS_LIB_DIR="$LIB" "$LFORGE" build > /dev/null 2>&1

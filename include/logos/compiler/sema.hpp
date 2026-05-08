@@ -285,6 +285,15 @@ std::string type_str(TypeRef t);
 std::string render_module_source_for_dump(hermes::MemHolder* holder,
                                           hermes::arena_offset_t root_offset);
 
+// Walk a metafn-emitted AST document and collect "navigable" function
+// names — bare fn names plus `Type__method` for impl-block members.
+// Used by `--dump-metaprog`'s per-metacall index file so users can
+// grep these names in the global post-mono MLIR / post-mlirgen LLVM
+// IR snapshots. The names are pre-mangling (sema later prefixes pkg
+// or type qualifiers); user-facing grep fans out via substring match.
+std::vector<std::string> collect_fn_names_for_dump(hermes::MemHolder* holder,
+                                                   hermes::arena_offset_t root_offset);
+
 // Concrete struct name: plain structs → struct_name; generic insts → "Pair__i32__bool".
 // Used by mono and mlir_gen to look up instantiated struct definitions.
 std::string concrete_struct_name(TypeRef t);
