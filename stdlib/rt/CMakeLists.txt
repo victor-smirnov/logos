@@ -36,6 +36,19 @@ set_target_properties(logos_rt PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY ${STDLIB_BIN_DIR}
     OUTPUT_NAME lstdlib_rt)
 
+# Process-global block-ops registry for the persistent containers
+# (std.data.persistent.bt.registry). C++17 + std::unordered_map +
+# std::mutex. Kept in its own archive so the lforge dogfood test
+# (which only mirrors lstdlib_rt + lstdlib_fibers) doesn't have to
+# learn cpp_sources support yet. Naming sorts after lstdlib_rt so
+# the test runner's *.a glob picks it up consistently.
+add_library(logos_block_ops STATIC block_ops_registry.cpp)
+set_target_properties(logos_block_ops PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    ARCHIVE_OUTPUT_DIRECTORY ${STDLIB_BIN_DIR}
+    OUTPUT_NAME lstdlib_z_block_ops)
+
 # Copy liburing.a into STDLIB_BIN_DIR so run_test.sh's glob picks it up.
 # Named liblstdlib_uring.a so it sorts after liblstdlib_rt.a (provider order).
 set(STDLIB_URING_DST ${STDLIB_BIN_DIR}/liblstdlib_uring.a)

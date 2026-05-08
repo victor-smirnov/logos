@@ -108,7 +108,7 @@ for arg in "${EXTRA[@]}"; do
         esac
     fi
 done
-if ! cc "$OBJ" "${LINK_ARCHIVES[@]}" -lpthread -lm -o "$BIN" 2>/dev/null; then
+if ! cc "$OBJ" "${LINK_ARCHIVES[@]}" -lpthread -lm -lstdc++ -o "$BIN" 2>/dev/null; then
     echo "FAIL: cc link failed"
     exit 1
 fi

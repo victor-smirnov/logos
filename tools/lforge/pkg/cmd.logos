@@ -493,6 +493,7 @@ fn build_test_bin(test_logos: &String,
     p4.push_str(lib_view); append_path(&mut p4, "liblstdlib_uring.a"); largv_p.push(p4);
     push_arg(largv_p, "-lpthread");
     push_arg(largv_p, "-lm");
+    push_arg(largv_p, "-lstdc++");
     push_arg(largv_p, "-o");
     push_string_arg(largv_p, &bin_p);
     return run_child(&largv);
