@@ -82,6 +82,19 @@ impl<T> Vec<T> {
         unsafe { return &mut self.ptr[i]; }
     }
 
+    // Non-panicking ref accessor. Returns Some(&T) on hit, None on
+    // out-of-bounds. Equivalent to Rust's `vec.get(i)`.
+    pub fn try_borrow(&self, i: i64) -> Option<&T> {
+        if i < 0 || i >= self.len { return Option::None; }
+        unsafe { return Option::Some(&self.ptr[i]); }
+    }
+
+    // Mutable counterpart. Equivalent to Rust's `vec.get_mut(i)`.
+    pub fn try_borrow_mut(&mut self, i: i64) -> Option<&mut T> {
+        if i < 0 || i >= self.len { return Option::None; }
+        unsafe { return Option::Some(&mut self.ptr[i]); }
+    }
+
     // Indexed write. Panics on out-of-bounds.
     pub fn set(&mut self, i: i64, val: T) {
         if i < 0 || i >= self.len {
