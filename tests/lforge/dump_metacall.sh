@@ -89,29 +89,34 @@ if [ ! -f "$idx_dir/post_mono_index.txt" ]; then
     ls "$idx_dir"
     exit 1
 fi
-if ! grep -q "^Pair__clone$" "$idx_dir/post_mono_index.txt"; then
-    echo "FAIL: post_mono_index.txt missing Pair__clone"
+if ! grep -q "^Pair$" "$idx_dir/post_mono_index.txt"; then
+    echo "FAIL: post_mono_index.txt missing 'Pair' (impl receiver)"
+    cat "$idx_dir/post_mono_index.txt"
+    exit 1
+fi
+if ! grep -q "^clone$" "$idx_dir/post_mono_index.txt"; then
+    echo "FAIL: post_mono_index.txt missing 'clone' (method)"
     cat "$idx_dir/post_mono_index.txt"
     exit 1
 fi
 
 # Global post-mono MLIR + post-mlirgen LLVM IR snapshots written once per
 # logosc invocation; they should mention the post-mono mangled form of the
-# fn the user can navigate to from the index.
+# Pair clone fn (mono inserts $G1$T markers between type and method).
 if [ ! -f "$DUMP_DIR/_global_post_mono.mlir" ]; then
     echo "FAIL: _global_post_mono.mlir missing"
     exit 1
 fi
-if ! grep -q "Pair__clone" "$DUMP_DIR/_global_post_mono.mlir"; then
-    echo "FAIL: _global_post_mono.mlir doesn't mention Pair__clone"
+if ! grep -q "main\.Pair.*clone" "$DUMP_DIR/_global_post_mono.mlir"; then
+    echo "FAIL: _global_post_mono.mlir doesn't mention main.Pair…clone"
     exit 1
 fi
 if [ ! -f "$DUMP_DIR/_global_post_mlirgen.ll" ]; then
     echo "FAIL: _global_post_mlirgen.ll missing"
     exit 1
 fi
-if ! grep -q "Pair__clone" "$DUMP_DIR/_global_post_mlirgen.ll"; then
-    echo "FAIL: _global_post_mlirgen.ll doesn't mention Pair__clone"
+if ! grep -q "main\.Pair.*clone" "$DUMP_DIR/_global_post_mlirgen.ll"; then
+    echo "FAIL: _global_post_mlirgen.ll doesn't mention main.Pair…clone"
     exit 1
 fi
 

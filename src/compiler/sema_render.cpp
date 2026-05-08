@@ -1113,14 +1113,18 @@ std::string SemaChecker::render_item_src(TinyMapView node) {
                 int32_t cc = code_of(child);
                 // PEG `$...` collects every matched non-keyword node into
                 // the action — for IMPL_BLOCK that means the trait-target
-                // simple_type ends up here too. Skip pure type-position
-                // nodes so the dump shows only real impl members.
-                if (cc == la::TYPE_REF.code || cc == la::GENERIC_INST.code
+                // simple_type ends up here too, and on generic impls a
+                // CODE-less wrapper sometimes slips in too. Skip pure
+                // type-position nodes and uncoded slots so the dump shows
+                // only real impl members.
+                if (cc < 0
+                    || cc == la::TYPE_REF.code || cc == la::GENERIC_INST.code
                     || cc == la::PTR_TYPE.code || cc == la::REF_TYPE.code
                     || cc == la::MUT_REF_TYPE.code || cc == la::ARR_TYPE.code
                     || cc == la::SLICE_TYPE.code || cc == la::TUPLE_TYPE.code
                     || cc == la::IMPL_TYPE.code || cc == la::DYN_TYPE.code
-                    || cc == la::FN_PTR_TYPE.code) continue;
+                    || cc == la::FN_PTR_TYPE.code
+                    || cc == la::TRAIT_BOUND.code || cc == la::TYPE_PARAM.code) continue;
                 auto sub = render_item_src(child);
                 if (sub.empty()) continue;
                 std::string indented;
@@ -1310,6 +1314,26 @@ std::string SemaChecker::render_type_src_syntactic_(TinyMapView node) {
         }
         return s;
     }
+    case la::TRAIT_BOUND: {
+        // `Trait` or `Trait<T1, T2>` — appears in type-param bounds.
+        std::string s;
+        if (node.has_key(la::NAME)) s += std::string(str_of(node.get(la::NAME.code)));
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tp = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tp.has_key(la::ITEMS)) {
+                auto items = arr_of(tp.get(la::ITEMS.code));
+                if (items.size() > 0) {
+                    s += "<";
+                    for (uint64_t i = 0; i < items.size(); ++i) {
+                        if (i) s += ", ";
+                        s += recur(map_of(items.get(i)));
+                    }
+                    s += ">";
+                }
+            }
+        }
+        return s;
+    }
     default:
         return std::format("<ty:{}>", c);
     }
@@ -1365,10 +1389,14 @@ std::vector<std::string> collect_fn_names_for_dump(hermes::MemHolder* holder,
                     ? code_av.as_value<int32_t>() : -1;
         if (c == la::FN.code || c == la::EXTERN_FN.code || c == la::STATIC_FN.code) {
             auto name = str_at(tom->get(la::NAME.code, base));
-            if (!name.empty()) {
-                if (!prefix.empty()) name = prefix + "__" + name;
-                out.push_back(std::move(name));
-            }
+            if (name.empty()) return;
+            // Emit BOTH the bare method name AND the impl receiver type
+            // (when present) as separate index entries. Mono mangles
+            // generic types as `Type$G1$Arg__method`, so the joined
+            // `Type__method` substring fails to match — listing them
+            // separately keeps grep robust across mono variants.
+            out.push_back(name);
+            if (!prefix.empty()) out.push_back(prefix);
         }
     };
 
