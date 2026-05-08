@@ -456,9 +456,28 @@ bool emit_module(const ModuleManifest& manifest,
             std::fprintf(stderr, "emit_module: .hermes0 write failed\n");
             return false;
         }
+        // Per-file mode also wraps .hermes0 → .hermes0.o so lforge can
+        // archive it without ld.lld emitting an "is neither ET_REL nor
+        // LLVM bitcode" warning at downstream link time.
+        // Match emit_module-mode naming: "<base>.hm0" (≤15 chars in ar).
+        std::string h0_obj =
+            h0_path.substr(0, h0_path.find_last_of('.')) + ".hm0";
+        {
+            std::ostringstream cmd;
+            cmd << "objcopy -I binary -O elf64-x86-64 "
+                << "--rename-section .data=.lhermes "
+                << h0_path << " " << h0_obj;
+            if (verbose) {
+                std::fprintf(stderr, "emit_module: %s\n", cmd.str().c_str());
+            }
+            if (std::system(cmd.str().c_str()) != 0) {
+                std::fprintf(stderr, "emit_module: objcopy wrap failed\n");
+                return false;
+            }
+        }
         if (verbose) {
             std::fprintf(stderr, "emit_module: wrote %s + %s\n",
-                         obj_path.c_str(), h0_path.c_str());
+                         obj_path.c_str(), h0_obj.c_str());
         }
         return true;
     }
@@ -471,12 +490,36 @@ bool emit_module(const ModuleManifest& manifest,
         return false;
     }
 
-    // Create .a archive: ar rcs output.a NAME.o NAME.hermes0
+    // Wrap .hermes0 as a relocatable ELF object so ld.lld doesn't warn
+    // about a non-ET_REL archive member when downstream binaries link
+    // against this archive. The data lives in a non-ALLOC `.lhermes`
+    // section; module_loader looks for that section by name.
+    // Wrap into "<basename>.hm0" (must stay <=15 chars including the
+    // trailing `/` separator that ar appends, otherwise the name spills
+    // into the GNU extended name table — which our ar parser doesn't
+    // chase).
+    std::string h0_obj_path =
+        h0_path.substr(0, h0_path.find_last_of('.')) + ".hm0";
+    {
+        std::ostringstream cmd;
+        cmd << "objcopy -I binary -O elf64-x86-64 "
+            << "--rename-section .data=.lhermes "
+            << h0_path << " " << h0_obj_path;
+        if (verbose) {
+            std::fprintf(stderr, "emit_module: %s\n", cmd.str().c_str());
+        }
+        if (std::system(cmd.str().c_str()) != 0) {
+            std::fprintf(stderr, "emit_module: objcopy wrap failed\n");
+            return false;
+        }
+    }
+
+    // Create .a archive: ar rcs output.a NAME.o NAME.hermes0.o
     {
         std::ostringstream cmd;
         cmd << "ar rcs " << output_path
             << " " << obj_path
-            << " " << h0_path;
+            << " " << h0_obj_path;
         if (verbose) {
             std::fprintf(stderr, "emit_module: %s\n", cmd.str().c_str());
         }

@@ -282,7 +282,7 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
         o.push_str(".o");
         let mut h: String = String::new();
         h.push_bytes(prefix.as_ptr(), prefix.len());
-        h.push_str(".hermes0");
+        h.push_str(".hm0");
         aap.push(o);
         aap.push(h);
     }

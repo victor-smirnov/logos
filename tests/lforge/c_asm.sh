@@ -76,13 +76,14 @@ grep -q "compiling 3 file(s) in parallel" "$PROJ/b1.log" || {
 # Per-file artifacts.
 [ -f "$PROJ/.lforge/debug/_files/core/wrap.o" ]      || { echo "FAIL: wrap.o missing"; exit 1; }
 [ -f "$PROJ/.lforge/debug/_files/core/wrap.hermes0" ] || { echo "FAIL: wrap.hermes0 missing"; exit 1; }
+[ -f "$PROJ/.lforge/debug/_files/core/wrap.hm0" ]     || { echo "FAIL: wrap.hm0 missing"; exit 1; }
 [ -f "$PROJ/.lforge/debug/_files/core/answer.c.o" ]  || { echo "FAIL: answer.c.o missing"; exit 1; }
 [ -f "$PROJ/.lforge/debug/_files/core/triple.S.o" ]  || { echo "FAIL: triple.S.o missing"; exit 1; }
 
 # Archive contains all four members.
 ar_list=$(ar t "$PROJ/.lforge/debug/out/libcore.a")
 echo "$ar_list" | grep -q "^wrap.o$"        || { echo "FAIL: archive missing wrap.o"; exit 1; }
-echo "$ar_list" | grep -q "^wrap.hermes0$"  || { echo "FAIL: archive missing wrap.hermes0"; exit 1; }
+echo "$ar_list" | grep -q "^wrap.hm0$"      || { echo "FAIL: archive missing wrap.hm0"; exit 1; }
 echo "$ar_list" | grep -q "^answer.c.o$"    || { echo "FAIL: archive missing answer.c.o"; exit 1; }
 echo "$ar_list" | grep -q "^triple.S.o$"    || { echo "FAIL: archive missing triple.S.o"; exit 1; }
 
