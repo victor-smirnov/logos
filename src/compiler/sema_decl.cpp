@@ -764,6 +764,28 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         if (code_of(tnode) == la::PTR_TYPE) {
             auto resolved = resolve_type(tnode);
             target = type_str(resolved);
+        } else if (code_of(tnode) == la::REF_TYPE ||
+                   code_of(tnode) == la::MUT_REF_TYPE) {
+            // Mirror sema_collect: "$ref_Foo" / "$mut_ref_Foo" (symbol-safe,
+            // distinct namespace from regular structs). See sema_collect.cpp
+            // for full rationale.
+            auto resolved = resolve_type(tnode);
+            target_resolved = resolved;
+            std::string prefix = (code_of(tnode) == la::MUT_REF_TYPE) ? "$mut_ref_" : "$ref_";
+            TypeRef pointee = resolved ? TypeRef(resolved).pointee() : TypeRef(nullptr);
+            if (pointee && (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
+                            TypeRef(pointee).kind() == LogosType::Kind::ZonedStruct)) {
+                bool has_tvar = false;
+                for (auto a : TypeRef(pointee).type_args())
+                    if (a && TypeRef(a).kind() == LogosType::Kind::TypeVar) { has_tvar = true; break; }
+                if (TypeRef(pointee).type_args().empty() || has_tvar) {
+                    target = prefix + std::string(TypeRef(pointee).struct_name());
+                } else {
+                    target = prefix + concrete_struct_name(pointee);
+                }
+            } else {
+                target = prefix + type_str(resolved);
+            }
         } else if (code_of(tnode) == la::GENERIC_INST) {
             target = std::string(str_of(tnode.get(la::NAME.code)));
             if (impl_tps.empty()) {

@@ -3610,6 +3610,71 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     }
 
     auto mangled = std::string(sname) + "__" + std::string(method_name);
+    // If receiver is `&T` / `&mut T`, prefer `$ref_T__method` /
+    // `$mut_ref_T__method` (impls declared with `impl Trait for &T`) over
+    // the auto-deref'd `T__method`. Fall back to the bare form below if
+    // no match. The "$ref_" prefix mirrors sema_collect's impl-target
+    // mangling — keeps `&` out of symbol names.
+    if (recv->type && is_ref_like(TypeRef(recv->type).kind())) {
+        std::string prefix = (TypeRef(recv->type).kind() == LogosType::Kind::MutRef)
+                                 ? "$mut_ref_" : "$ref_";
+        std::vector<std::string> ref_keys;
+        TypeRef pointee = TypeRef(recv->type).pointee();
+        if (pointee && (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
+                        TypeRef(pointee).kind() == LogosType::Kind::ZonedStruct)) {
+            // Concrete-mangled ("$ref_Foo$G1$i32__m") + base ("$ref_Foo__m").
+            if (!TypeRef(pointee).type_args().empty()) {
+                ref_keys.push_back(prefix + concrete_struct_name(pointee)
+                                   + "__" + std::string(method_name));
+            }
+            ref_keys.push_back(prefix + std::string(TypeRef(pointee).struct_name())
+                               + "__" + std::string(method_name));
+        }
+        std::vector<TypeRef> types;
+        types.push_back(recv->type);
+        for (auto& a : arg_exprs) types.push_back(a->type);
+        for (auto& key : ref_keys) {
+            const SemaFuncInfo* pfit = nullptr;
+            if (auto fit = find_func_by_base_and_signature(key, types, false))
+                pfit = fit;
+            else if (auto git = find_generic_func(key))
+                pfit = git;
+            if (!pfit) continue;
+            // Build subst: bind impl/struct type params to pointee's type args
+            // so generic ref-impls (`impl<T> Foo for &Pair<T>`) get T → i32 etc.
+            SemaSubst ref_subst;
+            if (pointee && !TypeRef(pointee).type_args().empty()) {
+                SemaStructInfo* si2 = nullptr;
+                { auto [p, si] = find_struct_by_name(TypeRef(pointee).struct_name()); si2 = si; }
+                if (!si2) { auto [p, di] = find_datatype_by_name(TypeRef(pointee).struct_name()); si2 = di; }
+                if (si2) {
+                    auto& tps = si2->type_params;
+                    for (size_t i = 0; i < tps.size() && i < TypeRef(pointee).type_args().size(); ++i)
+                        ref_subst[tps[i].name] = TypeRef(pointee).type_args()[i];
+                }
+            }
+            std::vector<lir::LExprPtr> pargs;
+            pargs.push_back(std::move(recv));
+            for (auto& a : arg_exprs) pargs.push_back(std::move(a));
+            // Generic ref-impl method: route through finish_generic_call so
+            // mono produces a concrete specialization. Type args derived from
+            // pointee's type-args, in the order of the impl's type params.
+            if (!pfit->type_params.empty()) {
+                std::vector<TypeRef> m_type_args;
+                for (auto& tp : pfit->type_params) {
+                    auto it = ref_subst.find(tp.name);
+                    m_type_args.push_back(it != ref_subst.end() ? it->second : nullptr);
+                }
+                return finish_generic_call(
+                    pfit->symbol_name.empty() ? key : pfit->symbol_name,
+                    *pfit, std::move(m_type_args), std::move(pargs));
+            }
+            TypeRef ret = pfit->ret_type;
+            if (!ref_subst.empty()) ret = subst_type_sema(ret, ref_subst);
+            return builder().call(pfit->symbol_name.empty() ? key : pfit->symbol_name,
+                                  {}, std::move(pargs), ret);
+        }
+    }
     const SemaFuncInfo* fi_ptr = nullptr;
     bool auto_ref_recv = false;
     bool auto_ref_mut = false;

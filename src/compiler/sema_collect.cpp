@@ -1203,6 +1203,29 @@ void SemaChecker::collect_impl(TinyMapView node) {
             // *const T or *mut T → resolve full type string
             auto resolved = resolve_type(tnode);
             target = type_str(resolved);
+        } else if (code_of(tnode) == la::REF_TYPE ||
+                   code_of(tnode) == la::MUT_REF_TYPE) {
+            // &T or &mut T → "$ref_Foo" / "$mut_ref_Foo" (base) for generic
+            // pointee, "$ref_Foo$G1$i32" for concrete. The "$ref_"/"$mut_ref_"
+            // prefix is symbol-safe (no `&` in mangled names) and unambiguous
+            // (regular structs can't start with "$"). Mirrors GENERIC_INST.
+            auto resolved = resolve_type(tnode);
+            target_resolved = resolved;
+            std::string prefix = (code_of(tnode) == la::MUT_REF_TYPE) ? "$mut_ref_" : "$ref_";
+            TypeRef pointee = resolved ? TypeRef(resolved).pointee() : TypeRef(nullptr);
+            if (pointee && (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
+                            TypeRef(pointee).kind() == LogosType::Kind::ZonedStruct)) {
+                bool has_tvar = false;
+                for (auto a : TypeRef(pointee).type_args())
+                    if (a && TypeRef(a).kind() == LogosType::Kind::TypeVar) { has_tvar = true; break; }
+                if (TypeRef(pointee).type_args().empty() || has_tvar) {
+                    target = prefix + std::string(TypeRef(pointee).struct_name());
+                } else {
+                    target = prefix + concrete_struct_name(pointee);
+                }
+            } else {
+                target = prefix + type_str(resolved);
+            }
         } else if (code_of(tnode) == la::GENERIC_INST) {
             // Concrete generic (e.g. Pair<i32>) → use mangled name; generic (Pair<T>) → base name.
             target = std::string(str_of(tnode.get(la::NAME.code)));

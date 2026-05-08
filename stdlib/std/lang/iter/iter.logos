@@ -14,6 +14,21 @@ pub trait Iterator<Item> {
     fn next(self: &mut Self) -> Option<Item>;
 }
 
+// ── IntoIterator ─────────────────────────────────────────────────────────────
+//
+// Conversion into an Iterator. Implemented for:
+//   - owning types like Vec<T> (consuming)
+//   - &Vec<T> (borrowing — yields T by copy)
+//   - &mut Vec<T> (mut-borrowing — yields &mut T)
+//
+// `for x in expr` desugars to `let mut __it = expr.into_iter(); loop { ... }`
+// when `expr` has no direct `next()` method.
+
+pub trait IntoIterator<Item> {
+    type Iter: Iterator<Item>;
+    fn into_iter(self: Self) -> Self::Iter;
+}
+
 // ── MapIter<I, T, R> — lazy map ──────────────────────────────────────────────
 
 pub struct MapIter<I, T, R> {

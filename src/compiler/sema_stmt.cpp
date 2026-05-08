@@ -2592,6 +2592,95 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         }
 
         if (!fi_ptr) {
+            // Fallback: look for `into_iter()` (IntoIterator impl). For
+            //   for x in vec        → Vec<T>::into_iter
+            //   for x in &vec       → &Vec<T>::into_iter   (ref-impl)
+            //   for x in &mut vec   → &mut Vec<T>::into_iter
+            // Synthesize iter.into_iter() call, replace iter+iter_type, then
+            // re-enter the next() lookup.
+            std::vector<std::string> ii_keys;
+            std::string base_struct;
+            if (TypeRef(iter_type).kind() == LogosType::Kind::Struct ||
+                TypeRef(iter_type).kind() == LogosType::Kind::ZonedStruct) {
+                base_struct = TypeRef(iter_type).struct_name();
+                ii_keys.push_back(std::string(sname) + "__into_iter");
+                if (base_struct != std::string(sname))
+                    ii_keys.push_back(base_struct + "__into_iter");
+            } else if (is_ref_like(TypeRef(iter_type).kind()) && TypeRef(iter_type).pointee()) {
+                base_struct = TypeRef(iter_type).pointee().struct_name();
+                std::string prefix =
+                    TypeRef(iter_type).kind() == LogosType::Kind::MutRef ? "$mut_ref_" : "$ref_";
+                ii_keys.push_back(prefix + base_struct + "__into_iter");
+                // Fallback for ref receivers when no IntoIterator impl exists:
+                // try inherent `iter()` / `iter_mut()` on the pointee struct.
+                if (TypeRef(iter_type).kind() == LogosType::Kind::MutRef)
+                    ii_keys.push_back(base_struct + "__iter_mut");
+                else
+                    ii_keys.push_back(base_struct + "__iter");
+            }
+            const SemaFuncInfo* ii_fn = nullptr;
+            std::string ii_key_chosen;
+            for (auto& k : ii_keys) {
+                if (auto fit = find_func_by_base_and_signature(k, {}, false)) { ii_fn = fit; ii_key_chosen = k; break; }
+                if (auto git = find_generic_func(k)) { ii_fn = git; ii_key_chosen = k; break; }
+                if (auto cands = find_func_candidates(k); cands.size() == 1) { ii_fn = cands[0]; ii_key_chosen = k; break; }
+            }
+            if (ii_fn) {
+                // Build subst from iter_type's pointee (for ref-impl) or the
+                // type itself (struct).
+                SemaSubst ii_subst;
+                TypeRef target_ty = is_ref_like(TypeRef(iter_type).kind())
+                                        ? TypeRef(iter_type).pointee() : iter_type;
+                if (target_ty && !TypeRef(target_ty).type_args().empty()) {
+                    SemaStructInfo* si2 = nullptr;
+                    { auto [p, si] = find_struct_by_name(TypeRef(target_ty).struct_name()); si2 = si; }
+                    if (!si2) { auto [p, di] = find_datatype_by_name(TypeRef(target_ty).struct_name()); si2 = di; }
+                    if (si2) {
+                        auto& tps = si2->type_params;
+                        for (size_t i = 0; i < tps.size() && i < TypeRef(target_ty).type_args().size(); ++i)
+                            ii_subst[tps[i].name] = TypeRef(target_ty).type_args()[i];
+                    }
+                }
+                TypeRef new_iter_type = ii_fn->ret_type;
+                if (!ii_subst.empty()) new_iter_type = subst_type_sema(new_iter_type, ii_subst);
+                std::vector<lir::LExprPtr> pargs;
+                pargs.push_back(std::move(iter));
+                if (!ii_fn->type_params.empty()) {
+                    std::vector<TypeRef> m_type_args;
+                    for (auto& tp : ii_fn->type_params) {
+                        auto it = ii_subst.find(tp.name);
+                        m_type_args.push_back(it != ii_subst.end() ? it->second : nullptr);
+                    }
+                    iter = finish_generic_call(
+                        ii_fn->symbol_name.empty() ? ii_key_chosen : ii_fn->symbol_name,
+                        *ii_fn, std::move(m_type_args), std::move(pargs));
+                } else {
+                    iter = builder().call(ii_fn->symbol_name.empty() ? ii_key_chosen : ii_fn->symbol_name,
+                                          {}, std::move(pargs), new_iter_type);
+                }
+                iter_type = new_iter_type;
+                sname = struct_name_from_type(iter_type);
+                // Re-attempt next() lookup on the new iter type.
+                mangled_next = std::string(sname) + "__next";
+                if (auto fit = find_func_by_base_and_signature(mangled_next, {}, false))
+                    fi_ptr = fit;
+                else if (auto cands = find_func_candidates(mangled_next); cands.size() == 1)
+                    fi_ptr = cands[0];
+                if (!fi_ptr) {
+                    std::string bn;
+                    if (TypeRef(iter_type).kind() == LogosType::Kind::Struct ||
+                        TypeRef(iter_type).kind() == LogosType::Kind::ZonedStruct)
+                        bn = TypeRef(iter_type).struct_name();
+                    if (!bn.empty() && bn != std::string(sname)) {
+                        auto bk = bn + "__next";
+                        if (auto git = find_generic_func(bk)) fi_ptr = git;
+                        else if (auto cands = find_func_candidates(bk); cands.size() == 1) fi_ptr = cands[0];
+                    }
+                }
+            }
+        }
+
+        if (!fi_ptr) {
             error(std::format("for-in: type '{}' has no `next()` method", sname));
             return builder().stmt_break(nullptr, "", node_line_);
         }

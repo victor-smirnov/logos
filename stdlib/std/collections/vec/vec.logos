@@ -145,6 +145,11 @@ impl<T> Vec<T> {
     pub fn iter(&self) -> VecIter<T> {
         return VecIter { data: self.ptr as *const T, len: self.len, idx: 0};
     }
+
+    // Return a mutable iterator yielding &mut T.
+    pub fn iter_mut(&mut self) -> VecIterMut<T> {
+        return VecIterMut { data: self.ptr, len: self.len, idx: 0 };
+    }
 }
 
 // ── VecIter<T> ────────────────────────────────────────────────────────────────
@@ -166,6 +171,43 @@ impl<T> Iterator<T> for VecIter<T> {
             self.idx = self.idx + 1;
             return Option::Some(val);
         }
+    }
+}
+
+// ── VecIterMut<T> ─────────────────────────────────────────────────────────────
+
+pub struct VecIterMut<T> {
+    data: *mut T,
+    len:  i64,
+    idx:  i64,
+}
+
+impl<T> Iterator<&mut T> for VecIterMut<T> {
+    fn next(self: &mut VecIterMut<T>) -> Option<&mut T> {
+        if self.idx >= self.len {
+            return Option::None;
+        }
+        unsafe {
+            let r: &mut T = &mut self.data[self.idx];
+            self.idx = self.idx + 1;
+            return Option::Some(r);
+        }
+    }
+}
+
+// ── IntoIterator impls ────────────────────────────────────────────────────────
+
+impl<T> IntoIterator<T> for Vec<T> {
+    type Iter = VecIter<T>;
+    fn into_iter(self: Vec<T>) -> VecIter<T> {
+        return VecIter { data: self.ptr as *const T, len: self.len, idx: 0 };
+    }
+}
+
+impl<T> IntoIterator<T> for &Vec<T> {
+    type Iter = VecIter<T>;
+    fn into_iter(self: &Vec<T>) -> VecIter<T> {
+        return VecIter { data: self.ptr as *const T, len: self.len, idx: 0 };
     }
 }
 

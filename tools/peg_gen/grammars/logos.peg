@@ -710,11 +710,15 @@
                => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, IMPL_TYPE_PARAMS: $3, NAME: $4, TYPE_PARAMS: $6, TYPE: $9, ITEMS: $... }
                 / KW_UNSAFE KW_IMPL type_param_list IDENT KW_FOR ptr_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, IMPL_TYPE_PARAMS: $3, NAME: $4, TYPE: $6, ITEMS: $... }
+                / KW_UNSAFE KW_IMPL type_param_list IDENT KW_FOR ref_type LBRACE impl_item* RBRACE
+               => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, IMPL_TYPE_PARAMS: $3, NAME: $4, TYPE: $6, ITEMS: $... }
                 / KW_UNSAFE KW_IMPL type_param_list IDENT KW_FOR simple_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, IMPL_TYPE_PARAMS: $3, NAME: $4, TYPE: $6, ITEMS: $... }
                 / KW_UNSAFE KW_IMPL IDENT LT type_arg_list GT_TYPE KW_FOR simple_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $5, TYPE: $8, ITEMS: $... }
                 / KW_UNSAFE KW_IMPL IDENT KW_FOR ptr_type LBRACE impl_item* RBRACE
+               => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, NAME: $3, TYPE: $5, ITEMS: $... }
+                / KW_UNSAFE KW_IMPL IDENT KW_FOR ref_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, NAME: $3, TYPE: $5, ITEMS: $... }
                 / KW_UNSAFE KW_IMPL IDENT KW_FOR simple_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, NAME: $3, TYPE: $5, ITEMS: $... }
@@ -727,19 +731,31 @@
                => { CODE: IMPL_BLOCK, IS_NEGATIVE: 1, IMPL_TYPE_PARAMS: $2, NAME: $4, TYPE: $6 }
                 / KW_IMPL type_param_list BANG IDENT KW_FOR ptr_type LBRACE RBRACE
                => { CODE: IMPL_BLOCK, IS_NEGATIVE: 1, IMPL_TYPE_PARAMS: $2, NAME: $4, TYPE: $6 }
+                / KW_IMPL type_param_list BANG IDENT KW_FOR ref_type LBRACE RBRACE
+               => { CODE: IMPL_BLOCK, IS_NEGATIVE: 1, IMPL_TYPE_PARAMS: $2, NAME: $4, TYPE: $6 }
                 / KW_IMPL BANG IDENT KW_FOR simple_type LBRACE RBRACE
                => { CODE: IMPL_BLOCK, IS_NEGATIVE: 1, NAME: $3, TYPE: $5 }
                 / KW_IMPL BANG IDENT KW_FOR ptr_type LBRACE RBRACE
                => { CODE: IMPL_BLOCK, IS_NEGATIVE: 1, NAME: $3, TYPE: $5 }
+                / KW_IMPL BANG IDENT KW_FOR ref_type LBRACE RBRACE
+               => { CODE: IMPL_BLOCK, IS_NEGATIVE: 1, NAME: $3, TYPE: $5 }
                 / KW_IMPL type_param_list IDENT LT type_arg_list GT_TYPE KW_FOR simple_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE_PARAMS: $5, TYPE: $8, ITEMS: $... }
+                / KW_IMPL type_param_list IDENT LT type_arg_list GT_TYPE KW_FOR ref_type LBRACE impl_item* RBRACE
+               => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE_PARAMS: $5, TYPE: $8, ITEMS: $... }
                 / KW_IMPL type_param_list IDENT KW_FOR ptr_type LBRACE impl_item* RBRACE
+               => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE: $5, ITEMS: $... }
+                / KW_IMPL type_param_list IDENT KW_FOR ref_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE: $5, ITEMS: $... }
                 / KW_IMPL type_param_list IDENT KW_FOR simple_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE: $5, ITEMS: $... }
                 / KW_IMPL IDENT LT type_arg_list GT_TYPE KW_FOR simple_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE_PARAMS: $4, TYPE: $7, ITEMS: $... }
+                / KW_IMPL IDENT LT type_arg_list GT_TYPE KW_FOR ref_type LBRACE impl_item* RBRACE
+               => { CODE: IMPL_BLOCK, NAME: $2, TYPE_PARAMS: $4, TYPE: $7, ITEMS: $... }
                 / KW_IMPL IDENT KW_FOR ptr_type LBRACE impl_item* RBRACE
+               => { CODE: IMPL_BLOCK, NAME: $2, TYPE: $4, ITEMS: $... }
+                / KW_IMPL IDENT KW_FOR ref_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE: $4, ITEMS: $... }
                 / KW_IMPL IDENT KW_FOR simple_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE: $4, ITEMS: $... }
