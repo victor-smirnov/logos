@@ -1512,11 +1512,16 @@ struct SMatchView {
 
     template <class F>
     void each_arm(F&& f) const noexcept {
+        // Re-fetch the array pointer on each iteration: `f` may recurse
+        // into substitution/cloning which allocates and triggers
+        // GrowableSingleChunk relocation, moving the arena's head buffer.
+        // A cached `arr` pointer would dangle. Mirror the pattern used by
+        // detail::each_block_stmt / each_call_arg above.
         auto av = self.mirror()->get(sk::ARMS.code, self.base());
         if (av.is_null()) return;
-        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
-        for (uint64_t i = 0; i < arr->size(); ++i) {
-            auto el = arr->get(i, self.base());
+        uint64_t n = av.as_ptr<const hermes::ObjectArray>(self.base())->size();
+        for (uint64_t i = 0; i < n; ++i) {
+            auto el = av.as_ptr<const hermes::ObjectArray>(self.base())->get(i, self.base());
             if (el.is_null()) continue;
             f(EMatchArmRef(self.arena(), el.to_offset()));
         }
