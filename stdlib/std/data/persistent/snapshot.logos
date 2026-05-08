@@ -28,6 +28,15 @@ package std.data.persistent.snapshot;
 // enables a single container compilation to serve every store flavour
 // once we have multiple — exactly the isolation seam called out in
 // `project_mini_memoria_isolation_model.md`.
+//
+// SAFETY contract on `set_root`: callers (= container create/mutate
+// code) MUST register a real container root pointer that points to an
+// allocated NodeBase whose cfg_hash slot at offset 8 is a registered
+// release thunk's hash. Snap::drop walks the directory and dereferences
+// `*((root_u64 + 8) as *mut u64)` for each registered root to dispatch
+// release; passing arbitrary u64 (or freed memory) makes that drop walk
+// segfault. Same constraint holds in big Memoria — setRoot is internal
+// to container code, not a public knob.
 pub trait ISnapshot {
     // True iff the snapshot's directory has a root registered for ctr_id.
     // For ctr_id == 0u64, true iff the directory itself has a root.
@@ -43,7 +52,10 @@ pub trait ISnapshot {
     // ctr_id, upserts the entry (CoW-cloning the directory tree as
     // needed). The MVP in-mem impl performs no ref/unref — caller
     // arranged that — but on-disk Stores will plumb the ballet here.
-    fn set_root(&mut self, ctr_id: u64, root: u64);
+    //
+    // Unsafe because Snap::drop will dereference each registered root's
+    // cfg_hash slot; see the trait-level SAFETY note above.
+    unsafe fn set_root(&mut self, ctr_id: u64, root: u64);
 }
 
 // Reserved sentinel for "the directory itself" — same role as a null

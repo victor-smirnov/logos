@@ -201,7 +201,7 @@ impl<const STORE_CFG: HermesStatic> ISnapshot for Snap<STORE_CFG> {
         }
     }
 
-    fn set_root(&mut self, ctr_id: u64, root: u64) {
+    unsafe fn set_root(&mut self, ctr_id: u64, root: u64) {
         unsafe {
             let dp:    *mut Rc<MutSnapshot<DirCfg>> = &mut self.dir as *mut Rc<MutSnapshot<DirCfg>>;
             let dir_p: *mut MutSnapshot<DirCfg>     = dp.get_mut();
