@@ -47,7 +47,7 @@ function(logos_add_example NAME)
 
     add_custom_command(
         OUTPUT ${BIN}
-        COMMAND ${CMAKE_CXX_COMPILER} ${OBJ} ${_link_archives} -lpthread -lm -o ${BIN}
+        COMMAND ${CMAKE_CXX_COMPILER} -Wl,--gc-sections ${OBJ} ${_link_archives} -lpthread -lm -o ${BIN}
         DEPENDS ${OBJ} ${_link_archives}
         COMMENT "link: ${NAME}"
     )

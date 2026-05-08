@@ -453,6 +453,7 @@ fn build_test_bin(test_logos: &String,
     let mut largv: Vec<String> = vec_new::<String>();
     let largv_p: *mut Vec<String> = (&mut largv) as *mut Vec<String>;
     push_arg(largv_p, "cc");
+    push_arg(largv_p, "-Wl,--gc-sections");
     push_string_arg(largv_p, &obj_path);
     let mut lk: i64 = 0 as i64;
     while lk < lan {

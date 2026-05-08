@@ -48,7 +48,7 @@ add_custom_command(
 
 add_custom_command(
     OUTPUT ${LFORGE_BIN}
-    COMMAND ${CMAKE_CXX_COMPILER} ${LFORGE_OBJ} ${_link_archives} -lpthread -lm -o ${LFORGE_BIN}
+    COMMAND ${CMAKE_CXX_COMPILER} -Wl,--gc-sections ${LFORGE_OBJ} ${_link_archives} -lpthread -lm -o ${LFORGE_BIN}
     DEPENDS ${LFORGE_OBJ} ${_link_archives}
     COMMENT "link: lforge"
 )

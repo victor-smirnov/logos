@@ -252,10 +252,17 @@ static bool compile_to_object(const std::vector<hermes::Hermes>& asts,
         std::fprintf(stderr, "emit_module: target lookup: %s\n", err.c_str());
         return false;
     }
+    // Per-function & per-data sections so downstream `--gc-sections`
+    // strips unused stdlib symbols at link time. Without this, the entire
+    // stdlib.o gets pulled into any binary that references *any* symbol
+    // in it (single .o → all-or-nothing archive extraction).
+    llvm::TargetOptions tmopts;
+    tmopts.FunctionSections = true;
+    tmopts.DataSections     = true;
     auto tm = std::unique_ptr<llvm::TargetMachine>(
         target->createTargetMachine(
             llvm_module->getTargetTriple(), "generic", "",
-            llvm::TargetOptions{}, llvm::Reloc::PIC_));
+            tmopts, llvm::Reloc::PIC_));
     llvm_module->setDataLayout(tm->createDataLayout());
 
     std::error_code ec;

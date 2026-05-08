@@ -2917,10 +2917,15 @@ int main(int argc, char** argv) {
         }
     }();
 
+    // Per-function/data sections so downstream `--gc-sections` strips
+    // unused symbols. Critical for stdlib bloat — see emit_module.cpp.
+    llvm::TargetOptions tmopts_main;
+    tmopts_main.FunctionSections = true;
+    tmopts_main.DataSections     = true;
     auto target_machine = std::unique_ptr<llvm::TargetMachine>(
         target->createTargetMachine(
             llvm_module->getTargetTriple(), "generic", "",
-            llvm::TargetOptions{}, llvm::Reloc::PIC_,
+            tmopts_main, llvm::Reloc::PIC_,
             std::nullopt, llvm_opt));
 
     llvm_module->setDataLayout(target_machine->createDataLayout());
