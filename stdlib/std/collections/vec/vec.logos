@@ -10,6 +10,7 @@ use std.mem;
 use std.lang.option;
 use std.lang.iter;
 use std.lang.cmp;
+use std.lang.panic;
 
 pub struct Vec<T> {
     ptr: *mut T,
@@ -39,23 +40,33 @@ impl<T> Vec<T> {
         }
     }
 
+    // Indexed read. Panics on out-of-bounds.
     pub fn get(&self, i: i64) -> T {
+        if i < 0 || i >= self.len {
+            panic("Vec::get: index out of bounds");
+        }
         unsafe { return self.ptr[i]; }
     }
 
     // Pointer to the i-th element (no copy). Caller must ensure the Vec
     // outlives the pointer and no resizing push happens meanwhile.
-    // Returns a raw pointer — signature is unsafe.
+    // Returns a raw pointer — signature is unsafe; bounds-check is the
+    // caller's responsibility.
     pub unsafe fn at(&mut self, i: i64) -> *mut T {
         return &mut self.ptr[i];
     }
 
-    // Returns a raw pointer — signature is unsafe.
+    // Returns a raw pointer — signature is unsafe; bounds-check is the
+    // caller's responsibility.
     pub unsafe fn at_const(&self, i: i64) -> *const T {
         return &self.ptr[i];
     }
 
+    // Indexed write. Panics on out-of-bounds.
     pub fn set(&mut self, i: i64, val: T) {
+        if i < 0 || i >= self.len {
+            panic("Vec::set: index out of bounds");
+        }
         unsafe { self.ptr[i] = val; }
     }
 
@@ -69,8 +80,10 @@ impl<T> Vec<T> {
 
     // Remove and return the last element, or None if empty.
     pub fn pop(&mut self) -> Option<T> {
+        if self.len == 0 as i64 { 
+            return Option::None; 
+        }
         unsafe {
-            if self.len == 0 as i64 { return Option::None; }
             self.len = self.len - 1 as i64;
             let val: T = self.ptr[self.len];
             return Option::Some(val);
@@ -78,23 +91,26 @@ impl<T> Vec<T> {
     }
 
     // Remove element at index i, shifting subsequent elements left.
-    // Panics (undefined behaviour) if i >= len.
+    // Panics if i is out of bounds.
     pub fn remove(&mut self, i: i64) -> T {
+        if i < 0 || i >= self.len {
+            panic("Vec::remove: index out of bounds");
+        }
         unsafe {
             let val: T = self.ptr[i];
-            let mut j: i64 = i + 1 as i64;
+            let mut j: i64 = i + 1;
             while j < self.len {
-                self.ptr[j - 1 as i64] = self.ptr[j];
-                j = j + 1 as i64;
+                self.ptr[j - 1] = self.ptr[j];
+                j = j + 1;
             }
-            self.len = self.len - 1 as i64;
+            self.len = self.len - 1;
             return val;
         }
     }
 
     // Return a read-only iterator over elements.
     pub fn iter(&self) -> VecIter<T> {
-        return VecIter { data: self.ptr as *const T, len: self.len, idx: 0 as i64 };
+        return VecIter { data: self.ptr as *const T, len: self.len, idx: 0};
     }
 }
 
@@ -108,10 +124,13 @@ pub struct VecIter<T> {
 
 impl<T> Iterator<T> for VecIter<T> {
     fn next(self: &mut VecIter<T>) -> Option<T> {
+        if self.idx >= self.len { 
+            return Option::None; 
+        }
+
         unsafe {
-            if self.idx >= self.len { return Option::None; }
             let val: T = self.data[self.idx];
-            self.idx = self.idx + 1 as i64;
+            self.idx = self.idx + 1;
             return Option::Some(val);
         }
     }
@@ -119,12 +138,14 @@ impl<T> Iterator<T> for VecIter<T> {
 
 // Linear-search contains; requires T: Eq (free function to avoid bound on main impl).
 pub fn vec_contains<T: Eq>(v: &Vec<T>, val: &T) -> bool {
+    let mut i: i64 = 0;        
     unsafe {
-        let mut i: i64 = 0;
         while i < v.len {
             let item: T = v.ptr[i];
-            if (&item).eq(val) { return true; }
-            i = i + 1 as i64;
+            if (&item).eq(val) { 
+                return true; 
+            }
+            i = i + 1;
         }
     }
     return false;
