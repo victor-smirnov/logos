@@ -25,8 +25,12 @@
 // Registrations are rare (once per CFG per process at first
 // snap_begin / create_pmap); lookups are on the BTree CoW hot path,
 // but they fire only at clone/release moments, not per-node-read.
-// Should the lock contention ever matter, switch to a striped or
-// lock-free map.
+//
+// TODO: switch to thread-local cached lookups (= each thread keeps a
+// small thread-local map mirroring the global, populated lazily on
+// miss; global mutex is held only on registration and on the
+// thread-local-miss path). Mass clone/release operations should never
+// pay the lock per node.
 
 #include <cstdint>
 #include <mutex>

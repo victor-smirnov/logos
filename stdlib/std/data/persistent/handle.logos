@@ -100,9 +100,10 @@ impl<const STORE_CFG: HermesStatic> Store<STORE_CFG> {
     }
 }
 
-// Idempotently register the per-CFG release thunk in the store's
-// registry. Unsafe is local to the fn-ptr cast (release fns are typed
-// `fn(*mut NodeBase<K,V,CFG>) -> ()` and we erase to u64).
+// Idempotently register the per-CFG release thunk in the per-store
+// registry (cfg_hash → release fp). Used by Snap::drop's explicit
+// walker. Will be subsumed by the process-global block-ops registry
+// (bt.registry, keyed on block_type_hash) once Snap::drop migrates.
 fn register_release_thunk<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(s: &mut LockingStore) {
     let h: u64 = hstatic_hash_of::<CFG>();
     let fp: fn(*mut NodeBase<K, V, CFG>) -> () = node_release_c::<K, V, CFG>;
@@ -122,6 +123,10 @@ pub fn snap_begin<const STORE_CFG: HermesStatic>(store: &mut Store<STORE_CFG>) -
     // registry user containers populate. Snap::drop dispatches the dir
     // tree the same way as any user container.
     register_release_thunk::<u64, u64, DirCfg>(store.arc.deref_mut());
+    // Register dir-flavour block ops in the process-global registry —
+    // dir-leaves contain rc-counted child pointers, so leaf-clone has
+    // to retain them and node release has to recursively release them.
+    register_dir_container_block_ops::<u64, u64, DirCfg>();
     let dir_inner: MutSnapshot<DirCfg> = store_begin::<DirCfg, LockingStore>(
         store.arc.deref_mut() as *mut LockingStore, NO_COMMIT);
     return Snap::<STORE_CFG> {
@@ -137,6 +142,7 @@ pub fn snap_begin<const STORE_CFG: HermesStatic>(store: &mut Store<STORE_CFG>) -
 // NodeBase, regardless of the container's K/V/CFG).
 pub fn snap_fork<const STORE_CFG: HermesStatic>(store: &mut Store<STORE_CFG>, parent: i64) -> Snap<STORE_CFG> {
     register_release_thunk::<u64, u64, DirCfg>(store.arc.deref_mut());
+    register_dir_container_block_ops::<u64, u64, DirCfg>();
     let dir_inner: MutSnapshot<DirCfg> = store_begin::<DirCfg, LockingStore>(
         store.arc.deref_mut() as *mut LockingStore, parent);
 
@@ -241,6 +247,7 @@ impl<const STORE_CFG: HermesStatic> ISnapshot for Snap<STORE_CFG> {
 // a dir Rc clone for the writeback path on drop.
 pub fn create_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(snap: &mut Snap<STORE_CFG>, ctr_id: <type:STORE_CFG.ctr_id>) -> ContainerRef<CFG> {
     register_release_thunk::<<type:CFG.key>, <type:CFG.value>, CFG>(snap.arc.deref_mut());
+    register_data_container_block_ops::<<type:CFG.key>, <type:CFG.value>, CFG>();
     let r: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> =
         node_alloc_c::<<type:CFG.key>, <type:CFG.value>, CFG>();
     let key: u64 = ctr_id as u64;
