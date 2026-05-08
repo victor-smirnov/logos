@@ -51,7 +51,8 @@ impl<T> Vec<T> {
     // Pointer to the i-th element (no copy). Caller must ensure the Vec
     // outlives the pointer and no resizing push happens meanwhile.
     // Returns a raw pointer — signature is unsafe; bounds-check is the
-    // caller's responsibility.
+    // caller's responsibility. (Equivalent to Rust's
+    // `vec.as_mut_ptr().add(i)` idiom.)
     pub unsafe fn at(&mut self, i: i64) -> *mut T {
         return &mut self.ptr[i];
     }
@@ -60,6 +61,25 @@ impl<T> Vec<T> {
     // caller's responsibility.
     pub unsafe fn at_const(&self, i: i64) -> *const T {
         return &self.ptr[i];
+    }
+
+    // Borrow a reference to the i-th element. Bounds-checked: panics on
+    // out-of-bounds. Equivalent to Rust's `&vec[i]`. Use when the caller
+    // wants to read/inspect a struct element without copying.
+    pub fn borrow(&self, i: i64) -> &T {
+        if i < 0 || i >= self.len {
+            panic("Vec::borrow: index out of bounds");
+        }
+        unsafe { return &self.ptr[i]; }
+    }
+
+    // Borrow a mutable reference to the i-th element. Bounds-checked.
+    // Equivalent to Rust's `&mut vec[i]`.
+    pub fn borrow_mut(&mut self, i: i64) -> &mut T {
+        if i < 0 || i >= self.len {
+            panic("Vec::borrow_mut: index out of bounds");
+        }
+        unsafe { return &mut self.ptr[i]; }
     }
 
     // Indexed write. Panics on out-of-bounds.

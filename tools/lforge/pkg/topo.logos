@@ -13,33 +13,25 @@ use lforge.schema;
 use lforge.util;
 
 pub fn find_target_index(targets: &Vec<Target>, name: str) -> i64 {
-    unsafe {
-        let n: i64 = targets.length();
-    let tp: *const Vec<Target> = targets as *const Vec<Target>;
-    let mut i: i64 = 0 as i64;
+    let n: i64 = targets.length();
+    let mut i: i64 = 0;
     while i < n {
-        let t: *const Target = tp.at_const(i);
-        let tnm: str = str_from_raw((*t).name.as_ptr(), (*t).name.len());
-        if str_eq_local(tnm, name) { return i; }
-        i = i + 1 as i64;
+        let t: &Target = targets.borrow(i);
+        if str_eq_local(t.name.as_str(), name) { return i; }
+        i = i + 1;
     }
-    return 0 as i64 - 1 as i64;
-    }
+    return 0 - 1;
 }
 
 pub fn external_lookup(externals: &Vec<ExternalLib>, name: str) -> i64 {
-    unsafe {
-        let n: i64 = externals.length();
-    let lp: *const Vec<ExternalLib> = externals as *const Vec<ExternalLib>;
-    let mut i: i64 = 0 as i64;
+    let n: i64 = externals.length();
+    let mut i: i64 = 0;
     while i < n {
-        let lb: *const ExternalLib = lp.at_const(i);
-        let nm_view: str = str_from_raw((*lb).name.as_ptr(), (*lb).name.len());
-        if str_eq_local(nm_view, name) { return i; }
-        i = i + 1 as i64;
+        let lb: &ExternalLib = externals.borrow(i);
+        if str_eq_local(lb.name.as_str(), name) { return i; }
+        i = i + 1;
     }
-    return 0 as i64 - 1 as i64;
-    }
+    return 0 - 1;
 }
 
 // Returns an order of indices into `targets` such that for any i in the
