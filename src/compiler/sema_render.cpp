@@ -67,6 +67,7 @@ std::string escape_str_lit(std::string_view raw) {
 
 std::string SemaChecker::render_type_src(TinyMapView node) {
     if (node.is_null()) return "_";
+    if (dump_syntactic_types_) return render_type_src_syntactic_(node);
     auto t = resolve_type(node);
     if (!t) return "_";
     return type_str(t);
@@ -823,6 +824,7 @@ bool flag_set(TinyMapView node, ast::Key k) {
 std::string SemaChecker::render_path_parts_(TinyMapView node) {
     // PATH_PARTS: array of {NAME: ident}, dot-separated tail of a path.
     std::string s;
+    if (node.is_null()) return s;
     if (!node.has_key(la::mod::PATH_PARTS)) return s;
     auto av = node.get(la::mod::PATH_PARTS.code);
     if (av.is_null()) return s;
@@ -839,6 +841,7 @@ std::string SemaChecker::render_type_param_src_(TinyMapView node) {
     // TYPE_PARAM: NAME, optional ITEMS (bounds), optional IS_VARIADIC,
     // optional NAME_VAR (antiquot in a quote).
     std::string s;
+    if (node.is_null()) return s;
     if (node.has_key(la::NAME)) s += std::string(str_of(node.get(la::NAME.code)));
     else if (node.has_key(la::NAME_VAR)) s += "<antiquot>";
     if (flag_set(node, la::IS_VARIADIC)) s += "...";
@@ -856,6 +859,7 @@ std::string SemaChecker::render_type_param_src_(TinyMapView node) {
 }
 
 std::string SemaChecker::render_type_param_list_(TinyMapView node) {
+    if (node.is_null()) return {};
     if (!node.has_key(la::ITEMS)) return {};
     auto items = arr_of(node.get(la::ITEMS.code));
     if (items.size() == 0) return {};
@@ -872,6 +876,7 @@ std::string SemaChecker::render_param_src_(TinyMapView node) {
     // PARAM: NAME, TYPE, IS_REF, IS_MUT, IS_VARIADIC. Self-receivers come
     // through as PARAM with IS_REF and no TYPE.
     std::string s;
+    if (node.is_null()) return s;
     bool is_ref = flag_set(node, la::IS_REF);
     bool is_mut = flag_set(node, la::IS_MUT);
     bool is_var = flag_set(node, la::IS_VARIADIC);
@@ -894,6 +899,7 @@ std::string SemaChecker::render_param_src_(TinyMapView node) {
 }
 
 std::string SemaChecker::render_param_list_(TinyMapView node) {
+    if (node.is_null()) return "()";
     if (!node.has_key(la::ITEMS)) return "()";
     auto items = arr_of(node.get(la::ITEMS.code));
     std::string s = "(";
@@ -908,6 +914,7 @@ std::string SemaChecker::render_param_list_(TinyMapView node) {
 std::string SemaChecker::render_field_def_src_(TinyMapView node) {
     // FIELD_DEF: NAME, TYPE, IS_PUB, IS_VARIADIC.
     std::string s;
+    if (node.is_null()) return s;
     if (flag_set(node, la::IS_PUB)) s += "pub ";
     s += std::string(str_of(node.get(la::NAME.code)));
     s += ": ";
@@ -919,6 +926,7 @@ std::string SemaChecker::render_field_def_src_(TinyMapView node) {
 std::string SemaChecker::render_variant_def_src_(TinyMapView node) {
     // VARIANT_DEF: NAME, optional VALUE (discriminant), optional ITEMS
     // (tuple-style payload types).
+    if (node.is_null()) return {};
     std::string s(str_of(node.get(la::NAME.code)));
     if (node.has_key(la::ITEMS)) {
         auto items = arr_of(node.get(la::ITEMS.code));
@@ -1191,6 +1199,128 @@ std::string SemaChecker::render_module_src(TinyMapView node) {
         }
     }
     return s;
+}
+
+std::string SemaChecker::render_type_src_syntactic_(TinyMapView node) {
+    // Pure AST walk — for the --dump-metaprog driver where the type pool
+    // is empty (resolve_type would return null for any user struct/alias).
+    // Covers the common shapes; unsupported nodes degrade to a `<ty:CODE>`
+    // marker so the dump still reads visually as Logos.
+    if (node.is_null()) return "_";
+    int32_t c = code_of(node);
+
+    auto recur = [&](TinyMapView n) { return render_type_src_syntactic_(n); };
+
+    switch (c) {
+    case la::TYPE_REF: {
+        if (node.has_key(la::NAME)) return std::string(str_of(node.get(la::NAME.code)));
+        if (node.has_key(la::NAME_VAR)) return "<antiquot>";
+        return "_";
+    }
+    case la::GENERIC_INST: {
+        std::string s;
+        if (node.has_key(la::NAME)) s = std::string(str_of(node.get(la::NAME.code)));
+        else if (node.has_key(la::NAME_VAR)) s = "<antiquot>";
+        s += "<";
+        if (node.has_key(la::ITEMS)) {
+            auto items = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                if (i) s += ", ";
+                s += recur(map_of(items.get(i)));
+            }
+        }
+        s += ">";
+        return s;
+    }
+    case la::PTR_TYPE: {
+        bool is_mut = flag_set(node, la::IS_MUT);
+        return std::string(is_mut ? "*mut " : "*const ") +
+               recur(map_of(node.get(la::TYPE.code)));
+    }
+    case la::REF_TYPE:     return "&" + recur(map_of(node.get(la::TYPE.code)));
+    case la::MUT_REF_TYPE: return "&mut " + recur(map_of(node.get(la::TYPE.code)));
+    case la::ARR_TYPE: {
+        std::string s = "[";
+        s += recur(map_of(node.get(la::TYPE.code)));
+        if (node.has_key(la::VALUE)) {
+            s += "; ";
+            s += std::string(str_of(node.get(la::VALUE.code)));
+        }
+        s += "]";
+        return s;
+    }
+    case la::SLICE_TYPE:
+        return "&[" + recur(map_of(node.get(la::TYPE.code))) + "]";
+    case la::TUPLE_TYPE: {
+        std::string s = "(";
+        if (node.has_key(la::ITEMS)) {
+            auto items = arr_of(node.get(la::ITEMS.code));
+            uint64_t n = items.size();
+            for (uint64_t i = 0; i < n; ++i) {
+                if (i) s += ", ";
+                s += recur(map_of(items.get(i)));
+            }
+            if (n == 1) s += ",";
+        }
+        s += ")";
+        return s;
+    }
+    case la::IMPL_TYPE: {
+        std::string s = "impl ";
+        if (node.has_key(la::NAME)) s += std::string(str_of(node.get(la::NAME.code)));
+        return s;
+    }
+    case la::DYN_TYPE: {
+        std::string s = "&dyn ";
+        if (node.has_key(la::NAME)) s += std::string(str_of(node.get(la::NAME.code)));
+        return s;
+    }
+    case la::FN_PTR_TYPE: {
+        std::string s = "fn(";
+        if (node.has_key(la::PARAMS)) {
+            auto pm = map_of(node.get(la::PARAMS.code));
+            if (pm.has_key(la::ITEMS)) {
+                auto items = arr_of(pm.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i) {
+                    if (i) s += ", ";
+                    s += recur(map_of(items.get(i)));
+                }
+            }
+        }
+        s += ")";
+        if (node.has_key(la::RET_TYPE)) {
+            s += " -> ";
+            s += recur(map_of(node.get(la::RET_TYPE.code)));
+        }
+        return s;
+    }
+    default:
+        return std::format("<ty:{}>", c);
+    }
+}
+
+// Free entry point for `--dump-metaprog`: renders an entire Hermes
+// document as Logos source through Stage 2 of the AST pretty-printer.
+// Builds a throwaway SemaChecker, points its holder_ at the foreign
+// doc, flips dump_syntactic_types_ so type-position rendering doesn't
+// touch the (empty) type pool, and dispatches by the root node's
+// CODE — MODULE renders the whole package; anything else (a single
+// item from a quote_item! splice) falls through to render_item_src.
+std::string render_module_source_for_dump(hermes::MemHolder* holder,
+                                          hermes::arena_offset_t root_offset) {
+    if (!holder || root_offset == hermes::NULL_OFFSET) return {};
+    SemaChecker checker;
+    checker.set_holder_for_render(holder);
+    checker.set_render_syntactic(true);
+    auto* base = holder->base();
+    auto* root = reinterpret_cast<logos::hermes::TinyObjectMap*>(
+                    base + root_offset.value());
+    auto code_av = root->get(la::CODE.code, base);
+    int32_t c = (!code_av.is_null() && code_av.is_value())
+                ? code_av.as_value<int32_t>() : -1;
+    TinyMapView root_view{root_offset, holder};
+    if (c == la::MODULE.code) return checker.render_module_src(root_view);
+    return checker.render_item_src(root_view);
 }
 
 } // namespace logos::compiler

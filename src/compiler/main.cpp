@@ -13,9 +13,12 @@
 #include <climits>
 #include <cstdlib>
 #include <cstring>
+#include <cerrno>
+#include <sys/stat.h>
 #include <unistd.h>
 #include "module_loader.hpp"
 #include <logos/compiler/borrow_check.hpp>
+#include <logos/compiler/sema.hpp>
 #include <logos/compiler/ast.hpp>
 #include <logos/compiler/lir.hpp>
 #include <logos/compiler/mono.hpp>
@@ -109,6 +112,40 @@ size_t                               g_user_root_idx = 0;
 // arg-passing lands (an emitted node ref will carry source info).
 std::vector<std::string>*            g_metaprog_diags = nullptr;
 const char*                          g_current_hook_name = nullptr;
+
+// `--dump-metaprog` provenance tracking. When the metaprog driver is
+// about to invoke a hook or metacall thunk, it sets g_current_emit_ctx
+// (file:line of the trigger / metacall + callee name + iteration). Any
+// document appended to g_asts during that invocation inherits the
+// context, recorded by index into g_ast_provenance (sparse — entries
+// stay nullopt for non-metaprog-emitted docs).
+//
+// Provenance is doc-level rather than item-level because the splice
+// path (logos_emit_item_blob / _subst, logos_emit_source) appends a
+// whole new Hermes document per emission; per-item stamping would
+// require threading the context deeper into sema, which gives no
+// extra information for the dump UX (file-level granularity is what
+// users select on).
+struct EmitProvenance {
+    std::string  src_file;     // file containing the metacall/trigger site
+    int          src_line = 0; // 1-based line; 0 = unknown
+    std::string  callee_name;  // metacall callee, or hook fn name (for triggers)
+    std::string  trigger;      // empty for `metacall`; #[derive_clone]→"derive_clone"
+    int          iter_seq = 0; // metaprog discovery-loop iteration (informational)
+};
+EmitProvenance                       g_current_emit_ctx;
+bool                                 g_current_emit_ctx_valid = false;
+std::vector<std::optional<EmitProvenance>>* g_ast_provenance = nullptr;
+
+// Record provenance for the most recently appended ast (call AFTER
+// g_asts->push_back). No-op if the dump driver hasn't allocated a
+// provenance vector or the context is invalid.
+void record_emit_provenance() {
+    if (!g_ast_provenance || !g_current_emit_ctx_valid || !g_asts) return;
+    while (g_ast_provenance->size() < g_asts->size())
+        g_ast_provenance->emplace_back(std::nullopt);
+    g_ast_provenance->back() = g_current_emit_ctx;
+}
 }
 
 // Phase 7 slice 3a: read-only AST view for metaprog hooks.
@@ -232,6 +269,7 @@ extern "C" int32_t logos_emit_source(const char* src) {
     g_filenames->emplace_back("<metaprog>");
     g_from_binary->push_back(false);
     *g_any_emitted = true;
+    record_emit_provenance();
     return 1;
 }
 
@@ -261,6 +299,7 @@ extern "C" int32_t logos_emit_item_blob(const uint8_t* data, uint64_t size) {
     g_filenames->emplace_back("<metaprog-blob>");
     g_from_binary->push_back(false);
     *g_any_emitted = true;
+    record_emit_provenance();
     return 1;
 }
 
@@ -833,6 +872,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
     g_filenames->emplace_back("<metaprog-blob-subst>");
     g_from_binary->push_back(false);
     *g_any_emitted = true;
+    record_emit_provenance();
     return 1;
 }
 
@@ -1817,6 +1857,7 @@ int main(int argc, char** argv) {
     bool jit_run   = false;                      // --jit: compile and run main() in-process
     const char* emit_module_manifest = nullptr;  // --emit-module <manifest>
     std::string only_file;                       // --only-file <path>: per-file emit (B1.7)
+    std::string dump_metaprog_dir;                // --dump-metaprog <dir>: write metafn-emitted ASTs as Logos source under <dir>/<callee>__<file>_<line>/post_quote.logos
     std::vector<std::string> search_paths;
     // Subset of search_paths populated only from explicit -L / --libs.
     // Used to scope `binary_symbols` collection: only user-explicit
@@ -1921,6 +1962,14 @@ int main(int argc, char** argv) {
         else if (arg == "--emit-llvm") { emit_llvm = true; }
         else if (arg == "--jit") { jit_run = true; }
         else if (arg == "--emit-module" && i + 1 < argc) { emit_module_manifest = argv[++i]; }
+        else if (arg.rfind("--dump-metaprog=", 0) == 0) {
+            std::string_view v = arg;
+            v.remove_prefix(16);
+            dump_metaprog_dir = std::string(v);
+        }
+        else if (arg == "--dump-metaprog" && i + 1 < argc) {
+            dump_metaprog_dir = argv[++i];
+        }
         else if (arg.rfind("--only-file=", 0) == 0) {
             std::string_view v = arg;
             v.remove_prefix(12);
@@ -2100,6 +2149,10 @@ int main(int argc, char** argv) {
     g_asts        = &asts;
     g_filenames   = &filenames;
     g_from_binary = &from_binary;
+    // Provenance vector (parallel to asts) — only populated when
+    // --dump-metaprog is on. Sized lazily by record_emit_provenance.
+    std::vector<std::optional<EmitProvenance>> ast_provenance;
+    if (!dump_metaprog_dir.empty()) g_ast_provenance = &ast_provenance;
     // Module loader is post-order: dependencies first, entry file last.
     // Record the entry-file index before any metaprog source-splice so
     // logos_get_module_ast keeps pointing at the user's root doc even
@@ -2378,7 +2431,28 @@ int main(int argc, char** argv) {
                     return 1;
                 }
                 g_current_hook_name = mh.hook_fn.c_str();
+                // Provenance for --dump-metaprog: triggered item's file:line
+                // is the natural identity. SRC_LINE is on the targeted item
+                // (struct/fn the annotation sits on).
+                {
+                    int line = 0;
+                    if (tgt.ast_idx < asts.size()) {
+                        auto* h    = asts[tgt.ast_idx].holder();
+                        auto* base = h->base();
+                        auto* tom  = reinterpret_cast<logos::hermes::TinyObjectMap*>(
+                                        base + tgt.item_offset);
+                        auto av = tom->get(logos::compiler::ast::SRC_LINE.code, base);
+                        if (!av.is_null() && av.is_value())
+                            line = static_cast<int>(av.as_value<uint32_t>());
+                    }
+                    g_current_emit_ctx = EmitProvenance{
+                        tgt.ast_idx < filenames.size() ? filenames[tgt.ast_idx] : std::string{},
+                        line, mh.hook_fn, tgt.trigger, iter,
+                    };
+                    g_current_emit_ctx_valid = true;
+                }
                 reinterpret_cast<void (*)(uint32_t)>(sym)(tgt.item_offset);
+                g_current_emit_ctx_valid = false;
                 g_current_hook_name = nullptr;
             }
             if (!any_handler) {
@@ -2622,7 +2696,28 @@ int main(int argc, char** argv) {
                 // METACALL_ITEM AST node consumed (CODE = METACALL_ITEM_DONE)
                 // so the next sema pass skips it.
                 if (site.ret_tag == RT::ItemBlob) {
+                    // Provenance for --dump-metaprog: file:line + callee at
+                    // the original `metacall foo();` site. Read SRC_LINE
+                    // from the METACALL_ITEM TOM before splice.
+                    {
+                        int line = 0;
+                        if (site.ast_idx < asts.size()) {
+                            auto* h    = asts[site.ast_idx].holder();
+                            auto* base = h->base();
+                            auto* tom  = reinterpret_cast<logos::hermes::TinyObjectMap*>(
+                                            base + site.expr_offset);
+                            auto av = tom->get(logos::compiler::ast::SRC_LINE.code, base);
+                            if (!av.is_null() && av.is_value())
+                                line = static_cast<int>(av.as_value<uint32_t>());
+                        }
+                        g_current_emit_ctx = EmitProvenance{
+                            site.ast_idx < filenames.size() ? filenames[site.ast_idx] : std::string{},
+                            line, site.callee_name, std::string{}, mi,
+                        };
+                        g_current_emit_ctx_valid = true;
+                    }
                     reinterpret_cast<void (*)()>(sym)();
+                    g_current_emit_ctx_valid = false;
                     auto& doc = asts[site.ast_idx];
                     auto* h   = doc.holder();
                     auto* base = h->base();
@@ -2772,6 +2867,93 @@ int main(int argc, char** argv) {
         }
     }
     report("sema+lower (final)");
+
+    // ── --dump-metaprog: write metafn-emitted ASTs as Logos source ──────────
+    // Iterates ast_provenance (parallel to asts, sparse — only emit-tracked
+    // docs have entries). Per emitted doc, builds a directory whose name
+    // identifies the producing metacall by callee + file:line, and writes
+    // `post_quote.logos` with the full module rendered through Stage 2 of
+    // the AST pretty-printer. Type-position renders are syntactic so we
+    // don't depend on a populated type pool. Post-sema / post-mono dumps
+    // are a follow-up commit (need filtered MLIR / LLVM IR slice).
+    if (!dump_metaprog_dir.empty()) {
+        // mkdir -p the root.
+        auto mkdir_p = [](const std::string& path) {
+            for (size_t i = 1; i <= path.size(); ++i) {
+                if (i == path.size() || path[i] == '/') {
+                    std::string seg = path.substr(0, i);
+                    if (seg.empty()) continue;
+                    ::mkdir(seg.c_str(), 0755);  // EEXIST tolerated
+                }
+            }
+        };
+        auto sanitize = [](std::string s) {
+            for (auto& c : s) {
+                if (c == '/' || c == '\\' || c == ':' || c == ' ' || c == '<' || c == '>' || c == '"' || c == '\'')
+                    c = '_';
+            }
+            return s;
+        };
+        auto basename_no_ext = [](std::string_view p) -> std::string {
+            auto slash = p.find_last_of('/');
+            std::string_view bn = (slash == std::string::npos) ? p : p.substr(slash + 1);
+            auto dot = bn.find_last_of('.');
+            if (dot != std::string_view::npos) bn = bn.substr(0, dot);
+            return std::string(bn);
+        };
+        auto write_file = [](const std::string& path, const std::string& content) {
+            FILE* f = std::fopen(path.c_str(), "w");
+            if (!f) {
+                std::fprintf(stderr, "logosc: --dump-metaprog: cannot write %s\n", path.c_str());
+                return;
+            }
+            std::fwrite(content.data(), 1, content.size(), f);
+            std::fclose(f);
+        };
+
+        mkdir_p(dump_metaprog_dir);
+
+        // Render each emit-tracked doc. The provenance vector parallels
+        // g_asts; entries left as nullopt are docs the user wrote, not
+        // metafn output.
+        for (size_t i = 0; i < ast_provenance.size(); ++i) {
+            if (!ast_provenance[i]) continue;
+            if (i >= asts.size()) continue;
+            const auto& ctx = *ast_provenance[i];
+            std::string base_file = basename_no_ext(ctx.src_file);
+            if (base_file.empty()) base_file = "unknown";
+            std::string label = ctx.callee_name.empty()
+                ? (ctx.trigger.empty() ? std::string{"emit"} : ctx.trigger)
+                : ctx.callee_name;
+            std::string slot = sanitize(label) + "__" + sanitize(base_file)
+                + "_" + std::to_string(ctx.src_line);
+            // Disambiguate when the same trigger fires N times on the same line.
+            std::string dir = dump_metaprog_dir + "/" + slot;
+            int suffix = 0;
+            std::string trial = dir;
+            while (::mkdir(trial.c_str(), 0755) != 0) {
+                if (errno != EEXIST) break;
+                trial = dir + "_" + std::to_string(++suffix);
+            }
+            dir = trial;
+            mkdir_p(dir);
+
+            auto* h = asts[i].holder();
+            auto root_off = logos::hermes::HermesAccess::root_offset(asts[i]);
+            std::string body =
+                logos::compiler::render_module_source_for_dump(h, root_off);
+
+            std::string header;
+            header += "// Auto-generated by logosc --dump-metaprog\n";
+            header += "// metacall callee: " + ctx.callee_name + "\n";
+            if (!ctx.trigger.empty()) header += "// trigger:          #[" + ctx.trigger + "]\n";
+            header += "// site:             " + ctx.src_file + ":" + std::to_string(ctx.src_line) + "\n";
+            header += "// metaprog iter:    " + std::to_string(ctx.iter_seq) + "\n";
+            header += "// ast index:        " + std::to_string(i) + "\n\n";
+
+            write_file(dir + "/post_quote.logos", header + body);
+        }
+    }
 
     // Phase 7 slice 19: strip metaprog hook fns from the FINAL prog. Their
     // bodies reference host-only symbols (logos_emit_source, etc.) that the

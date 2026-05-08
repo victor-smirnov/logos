@@ -1727,6 +1727,16 @@ public:
     std::string render_pat_src(hermes::TinyMapView node);
     std::string render_item_src(hermes::TinyMapView node);
     std::string render_module_src(hermes::TinyMapView node);
+
+    // For the --dump-metaprog driver: temporarily point this checker at a
+    // foreign Hermes doc so render_*_src can walk it without running full
+    // sema. Caller is responsible for keeping the holder alive across
+    // render calls. When `dump_syntactic_types_` is set, render_type_src
+    // bypasses resolve_type and walks TYPE_REF / GENERIC_INST / PTR_TYPE /
+    // etc. structurally — necessary for fresh checkers that have empty
+    // type pools (no user struct/alias is registered).
+    void set_holder_for_render(hermes::MemHolder* h) { holder_ = h; }
+    void set_render_syntactic(bool on) { dump_syntactic_types_ = on; }
 private:
     // Item-rendering sub-helpers (sema_render.cpp Stage 2).
     std::string render_path_parts_(hermes::TinyMapView node);
@@ -1736,6 +1746,10 @@ private:
     std::string render_param_list_(hermes::TinyMapView node);
     std::string render_field_def_src_(hermes::TinyMapView node);
     std::string render_variant_def_src_(hermes::TinyMapView node);
+    // Syntactic type walk used when dump_syntactic_types_ is on (fresh
+    // checker with empty type pool — resolve_type would fail).
+    std::string render_type_src_syntactic_(hermes::TinyMapView node);
+    bool dump_syntactic_types_ = false;
 
     // Render a CTFE-evaluated value as a Logos source literal. Used by both
     // expression-position and item-position metacall arg-splicing to embed

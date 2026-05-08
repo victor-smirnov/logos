@@ -276,6 +276,15 @@ bool types_equal(TypeRef a, TypeRef b) noexcept;
 // Human-readable name for error messages.
 std::string type_str(TypeRef t);
 
+// Render an entire Hermes AST document back as Logos source. Used by
+// `logosc --dump-metaprog` to display metafn-generated ASTs without
+// needing a populated type pool — type-position renders are syntactic
+// (TYPE_REF/GENERIC_INST/etc. walked structurally). Holder owns the
+// arena bytes; the call is read-only. Returns rendered source ending
+// with a newline.
+std::string render_module_source_for_dump(hermes::MemHolder* holder,
+                                          hermes::arena_offset_t root_offset);
+
 // Concrete struct name: plain structs → struct_name; generic insts → "Pair__i32__bool".
 // Used by mono and mlir_gen to look up instantiated struct definitions.
 std::string concrete_struct_name(TypeRef t);
