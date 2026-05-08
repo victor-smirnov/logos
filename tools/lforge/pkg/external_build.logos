@@ -288,7 +288,11 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
         }
         // External's lib is built with the closure of already-resolved
         // externals (its own deps + their transitives) visible to logosc.
-        let rc: i32 = build_lib(&(*t), profile, logosc, &out);
+        // External deps are not dumped: --dump-metacall only applies to
+        // the user's own targets (their metacalls are what they're
+        // debugging). Empty dump_dir disables the flag.
+        let no_dump: String = String::new();
+        let rc: i32 = build_lib(&(*t), profile, logosc, &out, &no_dump);
         if rc != 0 {
             print_str(2, "lforge: external dep ");
             print_str(2, path_view);

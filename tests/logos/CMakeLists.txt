@@ -529,6 +529,19 @@ if (TARGET lforge)
         TIMEOUT 60
         LABELS  "logos;lforge;suite_lforge"
     )
+
+    # `lforge build --dump-metacall` writes metafn-emitted ASTs as Logos source.
+    add_test(
+        NAME logos_14_lforge_dump_metacall
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/dump_metacall.sh
+                ${CMAKE_BINARY_DIR}/bin/lforge
+                $<TARGET_FILE:logosc>
+                ${LOGOS_BUILD_LIB_DIR}
+    )
+    set_tests_properties(logos_14_lforge_dump_metacall PROPERTIES
+        TIMEOUT 90
+        LABELS  "logos;lforge;suite_lforge"
+    )
 endif()
 
 # B1.7: logosc --only-file <path> per-file emit.

@@ -18,7 +18,8 @@ use lforge.build_paths;
 use lforge.spawn_helpers;
 
 pub fn build_lib(t: &Target, profile: str, logosc: &String,
-                        externals: &Vec<ExternalLib>) -> i32 { unsafe {    let lib_name_view: str = str_from_raw(t.name.as_ptr(), t.name.len());
+                        externals: &Vec<ExternalLib>,
+                        dump_dir: &String) -> i32 { unsafe {    let lib_name_view: str = str_from_raw(t.name.as_ptr(), t.name.len());
 
     // ── Walk Logos source dir, if any ────────────────────────────────────
     let mut sources: Vec<String> = vec_new::<String>();
@@ -122,6 +123,10 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
         push_string_arg(argv_p, &(*src_p));
         push_arg(argv_p, "-o");
         push_string_arg(argv_p, &prefix);
+        if dump_dir.len() > 0 as i64 {
+            push_arg(argv_p, "--dump-metaprog");
+            push_string_arg(argv_p, dump_dir);
+        }
         // External archives so logosc can load their .hermes0 modules and
         // resolve `use <pkg>` statements that reference symbols outside
         // this project.
@@ -327,7 +332,8 @@ pub fn build_bin(t: &Target,
                         profile: str,
                         logosc: &String,
                         lib_dir: &String,
-                        externals: &Vec<ExternalLib>) -> i32 { unsafe {    if t.entry.len() == 0 as i64 {
+                        externals: &Vec<ExternalLib>,
+                        dump_dir: &String) -> i32 { unsafe {    if t.entry.len() == 0 as i64 {
         println_str(2, "lforge: bin target missing 'entry'");
         return 1;
     }
@@ -431,6 +437,10 @@ pub fn build_bin(t: &Target,
     push_string_arg(argv_p, &entry_path);
     push_arg(argv_p, "-o");
     push_string_arg(argv_p, &obj_path);
+    if dump_dir.len() > 0 as i64 {
+        push_arg(argv_p, "--dump-metaprog");
+        push_string_arg(argv_p, dump_dir);
+    }
     let dn: i64 = all_archs.length();
     let dap: *const Vec<String> = (&all_archs) as *const Vec<String>;
     let mut i: i64 = 0 as i64;

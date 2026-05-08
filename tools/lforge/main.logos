@@ -180,7 +180,19 @@ fn main() -> i32 {
                 return 1;
             }
         }
-        return cmd_build_selected(&m, profile, sel, true);
+        // Optional --dump-metacall <selector>: dump metafn-emitted ASTs
+        // as readable Logos source under .lforge/<profile>/dump/<target>/.
+        // v1 ignores the selector value (dumps everything; the per-
+        // metacall directory layout makes greping easy). Common values:
+        //   *                       — dump all (idiomatic placeholder)
+        //   path/to/file.logos:NNN  — future v2 filter
+        //   derive_clone            — future v2 filter (by callee/trigger)
+        let mut dump_sel: String = String::new();
+        match get_option("dump-metacall", "") {
+            Option::Some(s) => { dump_sel.push_str(s); }
+            Option::None    => { }
+        }
+        return cmd_build_selected(&m, profile, sel, true, &dump_sel);
     }
     if str_eq_local(cmd, "update") {
         return cmd_update(&m, profile);

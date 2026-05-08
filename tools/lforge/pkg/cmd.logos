@@ -84,8 +84,14 @@ pub fn check_requires_logos(m: &Manifest) -> i32 {
 }
 
 // If `selected_idx` >= 0, build only that target plus its transitive deps.
-// Otherwise build everything in topo order.
-pub fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64, use_lock: bool) -> i32 {
+// Otherwise build everything in topo order. `dump_metacall_sel` is the raw
+// `--dump-metacall` argument: empty disables dumping; `*` or any non-empty
+// value triggers logosc to write metafn-emitted ASTs as Logos source under
+// `.lforge/<profile>/dump/<target>/<callee>__<file>_<line>/post_quote.logos`.
+// (Selector filtering is a v2 — the current build dumps every metacall in
+// each target's compilation; the directory layout makes greping easy.)
+pub fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64, use_lock: bool,
+                                 dump_metacall_sel: &String) -> i32 {
     unsafe {
         let logosc: String = resolve_logosc_path();
     let lib_dir: String = resolve_logos_lib_dir();
@@ -178,9 +184,18 @@ pub fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64, use_loc
         i = i + 1 as i64;
         if want[idx] == 0 as u8 { continue; }
         let t: *const Target = tp.at_const(idx);
+        // Per-target dump dir: .lforge/<profile>/dump/<target>/. logosc
+        // creates per-metacall subdirs by callee + file:line.
+        let mut dump_dir: String = String::new();
+        if dump_metacall_sel.len() > 0 as i64 {
+            dump_dir.push_str(".lforge/");
+            dump_dir.push_str(profile);
+            dump_dir.push_str("/dump/");
+            dump_dir.push_bytes((*t).name.as_ptr(), (*t).name.len());
+        }
         let rc: i32 = match (*t).kind {
-            TargetKind::Lib => { build_lib(&(*t), profile, &logosc, &externals) }
-            TargetKind::Bin => { build_bin(&(*t), &m.targets, profile, &logosc, &lib_dir, &externals) }
+            TargetKind::Lib => { build_lib(&(*t), profile, &logosc, &externals, &dump_dir) }
+            TargetKind::Bin => { build_bin(&(*t), &m.targets, profile, &logosc, &lib_dir, &externals, &dump_dir) }
         };
         if rc != 0 {
             dealloc(want);
@@ -195,13 +210,15 @@ pub fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64, use_loc
 }
 
 pub fn cmd_build(m: &Manifest, profile: str) -> i32 {
-    return cmd_build_selected(m, profile, 0 as i64 - 1 as i64, true);
+    let empty: String = String::new();
+    return cmd_build_selected(m, profile, 0 as i64 - 1 as i64, true, &empty);
 }
 
 // `lforge update` — re-resolve every git dep ignoring the lockfile, then
 // rewrite it. Equivalent to `cmd_build` with use_lock=false.
 pub fn cmd_update(m: &Manifest, profile: str) -> i32 {
-    return cmd_build_selected(m, profile, 0 as i64 - 1 as i64, false);
+    let empty: String = String::new();
+    return cmd_build_selected(m, profile, 0 as i64 - 1 as i64, false, &empty);
 }
 
 // Find the first bin target's name (for `lforge run`).
@@ -247,7 +264,8 @@ pub fn cmd_run_named(m: &Manifest, profile: str,
         }
     }
 
-    let rc: i32 = cmd_build_selected(m, profile, sel_idx, true);
+    let empty: String = String::new();
+    let rc: i32 = cmd_build_selected(m, profile, sel_idx, true, &empty);
     if rc != 0 { return rc; }
 
     let bp: String = bin_path(profile, str_from_raw(bin_nm.as_ptr(), bin_nm.len()));
@@ -541,7 +559,8 @@ pub fn cmd_test(m: &Manifest, profile: str) -> i32 {
         let t: *const Target = tp.at_const(idx);
         match (*t).kind {
             TargetKind::Lib => {
-                let rc: i32 = build_lib(&(*t), profile, &logosc, &no_externals);
+                let no_dump: String = String::new();
+                let rc: i32 = build_lib(&(*t), profile, &logosc, &no_externals, &no_dump);
                 if rc != 0 {
                     println_str(2, "lforge: lib target failed; aborting test run");
                     return rc;
