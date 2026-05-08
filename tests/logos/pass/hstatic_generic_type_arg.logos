@@ -1,0 +1,38 @@
+// 3a' — generic type instantiations inside `<type:...>`.
+//
+// Pre-3a' the grammar only accepted bare IDENTs after `<type:`, so
+// `<type:Vec<u8>>` was a parse error. Now the slot accepts any
+// simple_type, including generic instantiations. Two HermesStatic
+// literals that differ only in the generic arg of their `<type:...>`
+// slot must produce distinct byte-hash identities.
+
+package hstatic_generic_type_arg;
+
+use std.compiler.metaprog;
+use std.collections.vec;
+use std.hermes.view;
+
+pub struct Bag<const CFG: HermesStatic> { pub x: i32, }
+
+unsafe fn main() -> i32 {
+    // Concrete generic instantiation inside <type:...> — the new path.
+    let a: Type = type_of::<Bag<@{"v": <type:Vec<u8>>}>>();
+    let b: Type = type_of::<Bag<@{"v": <type:Vec<u8>>}>>();   // same → same uid
+    let c: Type = type_of::<Bag<@{"v": <type:Vec<i32>>}>>();  // different generic arg
+    let d: Type = type_of::<Bag<@{"v": <type:Vec<u64>>}>>();  // different again
+    let e: Type = type_of::<Bag<@{"v": <type:u8>}>>();        // primitive — distinct from Vec<u8>
+
+    if a.uid == 0 as u64 { return 1; }
+    if a.uid != b.uid    { return 2; }
+    if a.uid == c.uid    { return 3; }
+    if a.uid == d.uid    { return 4; }
+    if c.uid == d.uid    { return 5; }
+    if a.uid == e.uid    { return 6; }
+    if c.uid == e.uid    { return 7; }
+
+    // Constructibility — proves the new AST shape doesn't break codegen.
+    let f: Bag<@{"v": <type:Vec<u8>>}> = Bag::<@{"v": <type:Vec<u8>>}> { x: 11 };
+    if f.x != 11 { return 8; }
+
+    return 0;
+}

@@ -6763,32 +6763,46 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
     int32_t c = code_of(node);
 
     if (c == la::HERMES_TYPE_LIT.code) {
-        // Component-metaprog slice 1B: resolve the named type and embed it as
-        // a first-class HVType (kind, uid64, name). When NAME is a type-param
-        // bound in the current scope (generic-const instantiation in flight),
-        // emit the canonical name of the substituted concrete type so
-        // downstream slot extraction (`<type:CFG.key>`) reads e.g. "u64"
-        // instead of the template's "K".
-        auto sv = str_of(node.get(la::NAME.code));
-        std::string name(sv);
-        TypeRef t = try_resolve_as_known_type(name);
+        // Embed a Logos Type as a first-class Hermes value. Grammar (3a')
+        // hands us a simple_type child (TYPE_REF or GENERIC_INST), so we
+        // route the whole subtree through resolve_type — that handles
+        // primitives, bare structs, type-params in scope, and generic
+        // instantiations like Vec<u8> uniformly. type_str then prints the
+        // canonical name (e.g. "Vec<u8>") which becomes the HVType label
+        // and feeds parametric HermesStatic byte-hash identity.
+        TypeRef t;
+        std::string name;
+        auto type_av = node.get(la::TYPE.code);
+        if (!type_av.is_null()) {
+            auto type_node = map_of(type_av);
+            // For a bare TYPE_REF we keep the B-ca-06 diagnostic — it
+            // points the user at adding the missing type-param to the
+            // enclosing const's declaration, which the generic
+            // "unknown type" error from resolve_type doesn't.
+            if (code_of(type_node) == la::TYPE_REF.code && type_node.has_key(la::NAME)) {
+                name = std::string(str_of(type_node.get(la::NAME.code)));
+                t = try_resolve_as_known_type(name);
+                if (t) {
+                    if (current_type_params_.count(name))
+                        name = type_str(t);
+                } else if (current_type_params_.count(name) == 0) {
+                    error(std::format(
+                        "<type:{}>: '{}' is not a known type and is not a type-param "
+                        "in scope; the enclosing const must declare it as a type-param "
+                        "(`pub const X<{}>: HermesStatic = ...`) or use a concrete type",
+                        name, name, name));
+                }
+            } else {
+                t = resolve_type(type_node);
+                if (t) name = type_str(t);
+            }
+        }
         uint32_t kind = 0;
         uint64_t uid64 = 0;
         if (t) {
             kind = static_cast<uint32_t>(t.kind());
             auto uid = pool_->uid_of(t);
             std::memcpy(&uid64, uid.bytes, sizeof(uid64));
-            // If the name was a type-param in scope, substitute it.
-            if (current_type_params_.count(name))
-                name = type_str(t);
-        } else if (current_type_params_.count(name) == 0) {
-            // B-ca-06: silent acceptance of unbound `<type:Q>` in a HermesStatic
-            // literal. The enclosing const must declare it as a type-param.
-            error(std::format(
-                "<type:{}>: '{}' is not a known type and is not a type-param "
-                "in scope; the enclosing const must declare it as a type-param "
-                "(`pub const X<{}>: HermesStatic = ...`) or use a concrete type",
-                name, name, name));
         }
         return alloc_hv_emit(lir::HVType{kind, uid64, std::move(name)});
     }
@@ -9418,7 +9432,13 @@ void SemaChecker::lower_metacall_item(hermes::TinyMapView node,
         if (c == la::HERMES_NULL.code) return "null";
         if (c == la::HERMES_TYPE_LIT.code) {
             std::string s = "<type:";
-            if (n.has_key(la::NAME)) s += std::string(str_of(n.get(la::NAME.code)));
+            if (n.has_key(la::TYPE)) {
+                auto type_node = map_of(n.get(la::TYPE.code));
+                TypeRef t = resolve_type(type_node);
+                if (t) s += type_str(t);
+            } else if (n.has_key(la::NAME)) {
+                s += std::string(str_of(n.get(la::NAME.code)));
+            }
             s += ">";
             return s;
         }

@@ -2940,13 +2940,18 @@ TypeRef SemaChecker::resolve_hstatic_value(TinyMapView val_node) {
                     if (av.is_value() && av.as_value<uint8_t>() != 0) h = fnv_byte(h, 1);
                 }
             } else if (c == la::HERMES_TYPE_LIT.code) {
-                if (n.has_key(la::NAME)) {
+                // 3a': grammar feeds a simple_type child via TYPE — resolve
+                // it with current_type_params_ in scope and hash the
+                // canonical type_str. That subsumes the legacy NAME-only
+                // path since type-param substitution flows through
+                // resolve_type → lookup_type_by_name.
+                if (n.has_key(la::TYPE)) {
+                    auto type_node = map_of(n.get(la::TYPE.code));
+                    TypeRef t = resolve_type(type_node);
+                    if (t) h = fnv_str(h, type_str(t));
+                } else if (n.has_key(la::NAME)) {
+                    // Legacy AST shape (kept for safety; pre-3a' grammar).
                     auto nm = str_of(n.get(la::NAME.code));
-                    // If the name is a type-param bound in current scope
-                    // (generic const instantiation in flight), hash the
-                    // resolved type's canonical name so two distinct
-                    // bindings of the same template yield distinct
-                    // HStaticLit identities.
                     auto pit = current_type_params_.find(std::string(nm));
                     if (pit != current_type_params_.end() && pit->second) {
                         h = fnv_str(h, type_str(pit->second));
