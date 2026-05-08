@@ -3116,7 +3116,7 @@ int main(int argc, char** argv) {
     // per logosc invocation since LFunction → ast_idx provenance isn't
     // threaded through mono_clone today (mono drops source_file too).
     // Per-metacall index files in per_metacall_dirs point users here.
-    if (!dump_metaprog_dir.empty() && !per_metacall_dirs.empty()) {
+    if (!dump_metaprog_dir.empty()) {
         std::string mlir_text;
         {
             llvm::raw_string_ostream os(mlir_text);
@@ -3163,7 +3163,7 @@ int main(int argc, char** argv) {
     }
 
     // --dump-metaprog phase 3: post-mlirgen LLVM IR snapshot.
-    if (!dump_metaprog_dir.empty() && !per_metacall_dirs.empty()) {
+    if (!dump_metaprog_dir.empty()) {
         std::string ll_text;
         {
             llvm::raw_string_ostream os(ll_text);
