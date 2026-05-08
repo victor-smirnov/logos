@@ -1,11 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // Logos standard library — std.data.persistent.store
 //
-// Cross-thread Store API: a narrow type-erased trait `StoreOps` over
+// Cross-thread Store API: a narrow type-erased trait `IStore` over
 // raw root pointers + commit ids. All typed (K, V)-aware operations
 // live in the consumer (e.g. `std.data.persistent.pmap.store`) and are
 // fully monomorphised — switching the Store impl from locking to
 // queue-based later changes only the trait implementer.
+//
+// IStore is complementary to ISnapshot (std.data.persistent.snapshot):
+// IStore manages the commit DAG (snapshot lifecycles + naming + load/
+// save when those land), ISnapshot manages a single snapshot's
+// container directory. Mirrors big-Memoria's IMemoryStore /
+// IMemorySnapshot split — the two virtual ABIs that isolate user
+// container code from store-specific impl details.
 //
 // v1 scope: DAG = tree (parent edge per commit, no merge). No DAG GC:
 // commits live until program exit. Named refs deferred.
@@ -30,16 +37,28 @@ pub struct CommitEntry {
     pub parent: i64,
 }
 
-// ── StoreOps trait ───────────────────────────────────────────────────
+// ── IStore trait ─────────────────────────────────────────────────────
 // Narrow cross-thread surface — all type-erased, no method-level
 // generics (which would defeat type inference under raw-pointer
-// dispatch).  v1 = LockingStore.
-
-pub trait StoreOps {
-    // Read commit's root pointer.  Does NOT retain.
+// dispatch). v1 = LockingStore.
+//
+// Mirrors big-Memoria's IMemoryStore — the virtual ABI through which
+// snapshot lifecycle and commit-DAG navigation are exposed without
+// leaking the store implementation. Pluggable backends (locking
+// in-mem now; queue-based, swmr, lmdb later) implement this trait;
+// stdlib's snapshot/handle helpers are generic over `S: IStore` so
+// switching backends recompiles consumers without API churn.
+//
+// Concrete IStore impls are NOT user-pluggable from arbitrary code:
+// stdlib's drop walker assumes the registered roots have NodeBase
+// headers (rc + cfg_hash + block_type_hash). Custom impls that don't
+// satisfy that contract will break Snap::drop. Adding new in-stdlib
+// backends is the expected extension path.
+pub trait IStore {
+    // Read commit's root pointer. Does NOT retain.
     unsafe fn get_root(self: *mut Self, id: i64) -> *mut u8;
 
-    // Push a new commit entry.  Caller has already arranged for the
+    // Push a new commit entry. Caller has already arranged for the
     // root to carry 1 rc (transferred to this entry).
     unsafe fn register_commit(self: *mut Self, root: *mut u8, parent: i64) -> i64;
 
@@ -120,7 +139,7 @@ unsafe fn rc_bump(p: *mut u8) {
     *rcp = *rcp + 1u64;
 }
 
-impl StoreOps for LockingStore {
+impl IStore for LockingStore {
     unsafe fn get_root(self: *mut LockingStore, id: i64) -> *mut u8 {
         self.lock.lock();
         let raw: *mut u8 = self.dag.get(id as u64).root;
@@ -161,7 +180,7 @@ impl StoreOps for LockingStore {
 // ── Typed Snapshot ops (CFG-parameterised) ───────────────────────────
 // Const-generic CFG carries the (K, V, fanout, …) configuration; K and
 // V are extracted via `<type:CFG.key>` / `<type:CFG.value>`. The
-// LockingStore backing is type-erased — see StoreOps above.
+// LockingStore backing is type-erased — see IStore above.
 
 // Single-threaded immutable view over a frozen tree at a specific
 // commit. CFG carries the configuration the snapshot was taken at.
@@ -177,7 +196,7 @@ pub struct MutSnapshot<const CFG: HermesStatic> {
     pub parent_id: i64,
 }
 
-pub fn store_begin<const CFG: HermesStatic, S: StoreOps>(s: *mut S, parent: i64) -> MutSnapshot<CFG> {
+pub fn store_begin<const CFG: HermesStatic, S: IStore>(s: *mut S, parent: i64) -> MutSnapshot<CFG> {
     unsafe {
         if parent == NO_COMMIT {
             let r: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> = node_alloc_c::<<type:CFG.key>, <type:CFG.value>, CFG>();
@@ -190,7 +209,7 @@ pub fn store_begin<const CFG: HermesStatic, S: StoreOps>(s: *mut S, parent: i64)
     }
 }
 
-pub fn store_commit<const CFG: HermesStatic, S: StoreOps>(s: *mut S, snap: MutSnapshot<CFG>) -> i64 {
+pub fn store_commit<const CFG: HermesStatic, S: IStore>(s: *mut S, snap: MutSnapshot<CFG>) -> i64 {
     unsafe { return s.register_commit(snap.root as *mut u8, snap.parent_id); }
 }
 
@@ -198,7 +217,7 @@ pub fn store_rollback<const CFG: HermesStatic>(snap: MutSnapshot<CFG>) {
     unsafe { node_release_c::<<type:CFG.key>, <type:CFG.value>, CFG>(snap.root); }
 }
 
-pub fn store_checkout<const CFG: HermesStatic, S: StoreOps>(s: *mut S, id: i64) -> Snapshot<CFG> {
+pub fn store_checkout<const CFG: HermesStatic, S: IStore>(s: *mut S, id: i64) -> Snapshot<CFG> {
     unsafe {
         let raw: *mut u8 = s.get_root(id);
         let r: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> = raw as *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG>;
