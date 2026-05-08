@@ -96,6 +96,11 @@ pub fn snap_begin<const STORE_CFG: HermesStatic>(store: &mut Store<STORE_CFG>) -
     unsafe {
         let ap: *mut Arc<LockingStore> = &mut store.arc as *mut Arc<LockingStore>;
         let stp: *mut LockingStore = ap.get() as *mut LockingStore;
+        // Register the directory's release thunk in the same per-store
+        // registry user containers populate. Snap::drop's release walker
+        // dispatches the dir tree the same way as any user container —
+        // dir is a real container in the registry's eyes.
+        register_release_thunk::<u64, u64, DirCfg>(stp);
         let dir_inner: MutSnapshot<DirCfg> = store_begin::<DirCfg, LockingStore>(stp, NO_COMMIT);
         return Snap::<STORE_CFG> {
             dir: rc_new::<MutSnapshot<DirCfg>>(dir_inner),
@@ -113,6 +118,7 @@ pub fn snap_fork<const STORE_CFG: HermesStatic>(store: &mut Store<STORE_CFG>, pa
     unsafe {
         let ap: *mut Arc<LockingStore> = &mut store.arc as *mut Arc<LockingStore>;
         let stp: *mut LockingStore = ap.get() as *mut LockingStore;
+        register_release_thunk::<u64, u64, DirCfg>(stp);
         let dir_inner: MutSnapshot<DirCfg> = store_begin::<DirCfg, LockingStore>(stp, parent);
 
         if dir_inner.root != 0 as *mut NodeBase<u64, u64, DirCfg> {
@@ -332,7 +338,21 @@ impl<const STORE_CFG: HermesStatic> Drop for Snap<STORE_CFG> {
                 leaf_iter_next_leaf::<u64, u64, DirCfg>(&mut it as *mut LeafIter<u64, u64, DirCfg>);
             }
 
-            node_release_c::<u64, u64, DirCfg>(dir_p.root);
+            // Release the dir tree itself through the same registry
+            // dispatch user containers use. Dir's NodeBase carries
+            // hstatic_hash_of::<DirCfg>() at offset 8; snap_begin/fork
+            // populated the registry with that key → DirCfg's
+            // node_release_c. Conceptually the dir is just one more
+            // container in the snapshot — the release walker treats
+            // it identically.
+            let dir_raw: *mut u8 = dir_p.root as *mut u8;
+            let dir_h_slot: *mut u64 = (dir_raw as i64 + 8i64) as *mut u64;
+            let dir_h: u64 = *dir_h_slot;
+            let dir_fp_u64: u64 = locking_store_lookup_release(stp, dir_h);
+            if dir_fp_u64 != 0u64 {
+                let dir_release: fn(*mut u8) -> () = dir_fp_u64 as fn(*mut u8) -> ();
+                dir_release(dir_raw);
+            }
             dir_p.root = 0 as *mut NodeBase<u64, u64, DirCfg>;
         }
     }
