@@ -1109,7 +1109,20 @@ std::string SemaChecker::render_item_src(TinyMapView node) {
         if (node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < items.size(); ++i) {
-                auto sub = render_item_src(map_of(items.get(i)));
+                auto child = map_of(items.get(i));
+                int32_t cc = code_of(child);
+                // PEG `$...` collects every matched non-keyword node into
+                // the action — for IMPL_BLOCK that means the trait-target
+                // simple_type ends up here too. Skip pure type-position
+                // nodes so the dump shows only real impl members.
+                if (cc == la::TYPE_REF.code || cc == la::GENERIC_INST.code
+                    || cc == la::PTR_TYPE.code || cc == la::REF_TYPE.code
+                    || cc == la::MUT_REF_TYPE.code || cc == la::ARR_TYPE.code
+                    || cc == la::SLICE_TYPE.code || cc == la::TUPLE_TYPE.code
+                    || cc == la::IMPL_TYPE.code || cc == la::DYN_TYPE.code
+                    || cc == la::FN_PTR_TYPE.code) continue;
+                auto sub = render_item_src(child);
+                if (sub.empty()) continue;
                 std::string indented;
                 size_t start = 0;
                 while (start < sub.size()) {
