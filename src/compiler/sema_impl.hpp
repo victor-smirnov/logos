@@ -1712,15 +1712,30 @@ private:
     // node so the driver can mark it consumed (CODE → METACALL_ITEM_DONE).
     void          lower_metacall_item(hermes::TinyMapView node, lir::LProgram& prog);
 
+public:
     // ── AST → Logos source pretty-printer (sema_render.cpp) ──────────
     // Used by `metacall (<expr>)` and `metacall { ... }` to splice arbitrary
-    // expressions/blocks into the synthesised JIT thunk source. Pure walk
-    // over the AST; does not modify sema state.
+    // expressions/blocks into the synthesised JIT thunk source. Stage 2
+    // (item-position) is also reused by `--dump-metaprog` to emit
+    // metafn-generated AST documents as readable Logos source. Pure walks;
+    // do not modify sema state. Public so dump-driver code outside the
+    // class can render arbitrary sub-trees.
     std::string render_expr_src(hermes::TinyMapView node);
     std::string render_stmt_src(hermes::TinyMapView node);
     std::string render_block_src(hermes::TinyMapView node);
     std::string render_type_src(hermes::TinyMapView node);
     std::string render_pat_src(hermes::TinyMapView node);
+    std::string render_item_src(hermes::TinyMapView node);
+    std::string render_module_src(hermes::TinyMapView node);
+private:
+    // Item-rendering sub-helpers (sema_render.cpp Stage 2).
+    std::string render_path_parts_(hermes::TinyMapView node);
+    std::string render_type_param_src_(hermes::TinyMapView node);
+    std::string render_type_param_list_(hermes::TinyMapView node);
+    std::string render_param_src_(hermes::TinyMapView node);
+    std::string render_param_list_(hermes::TinyMapView node);
+    std::string render_field_def_src_(hermes::TinyMapView node);
+    std::string render_variant_def_src_(hermes::TinyMapView node);
 
     // Render a CTFE-evaluated value as a Logos source literal. Used by both
     // expression-position and item-position metacall arg-splicing to embed
