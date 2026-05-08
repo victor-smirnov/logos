@@ -82,6 +82,32 @@ unsafe fn cfg_hash_at(root: u64) -> u64 {
     return *h_slot;
 }
 
+// Directory-as-container upsert. For NULL_CTR_ID = direct dir.root
+// write (recursion bottom-out). For non-zero ctr_id — perform
+// mut_snapshot_insert and bottom-out via dir.root = t.root.
+//
+// TODO (next session): integrate ref(new) + release(prev) rc
+// accounting once the leaf-clone-retain side of the protocol is
+// stable. The two halves (clone retain in node_clone_for_cow_c and
+// upsert ref/release here) must land together; the bug we hit while
+// trying that under commit/fork is reproducible with full Increments
+// 2+3+4 enabled and step-3-of-snap_fork removed — a path-condition
+// in the multi-fork scenario over-releases somewhere.
+unsafe fn dir_set_root_with_rc(dir: &mut MutSnapshot<DirCfg>, ctr_id: u64, root: u64) {
+    if ctr_id == NULL_CTR_ID {
+        dir.root = root as *mut NodeBase<u64, u64, DirCfg>;
+        return;
+    }
+    let mut t: MutSnapshot<DirCfg> = MutSnapshot::<DirCfg> {
+        root:      dir.root,
+        parent_id: dir.parent_id,
+    };
+    let _ = mut_snapshot_insert::<DirCfg>(
+        &mut t as *mut MutSnapshot<DirCfg>,
+        ctr_id, root, &ctr_id as *const u64);
+    dir.root = t.root;
+}
+
 
 // ── Store<STORE_CFG> — Arc<LockingStore> + STORE_CFG schema. ────
 
@@ -140,6 +166,13 @@ pub fn snap_begin<const STORE_CFG: HermesStatic>(store: &mut Store<STORE_CFG>) -
 // leaves are also rc-bumped so a future mutation in either parent or
 // fork CoW-clones cleanly. Type-erased rc-bump (rc at offset 0 of
 // NodeBase, regardless of the container's K/V/CFG).
+//
+// TODO: the explicit per-container rc bump below should disappear once
+// the proper CoW protocol is wired through (set_root retain/release +
+// leaf-clone retain + open_pmap ref + ContainerRef::drop release). The
+// process-global block-ops registry foundation is in place; the
+// integration broke commit_fork's multi-fork rc balance and was
+// reverted to keep the tree green. Next session: investigate.
 pub fn snap_fork<const STORE_CFG: HermesStatic>(store: &mut Store<STORE_CFG>, parent: i64) -> Snap<STORE_CFG> {
     register_release_thunk::<u64, u64, DirCfg>(store.arc.deref_mut());
     register_dir_container_block_ops::<u64, u64, DirCfg>();
@@ -214,30 +247,8 @@ impl<const STORE_CFG: HermesStatic> ISnapshot for Snap<STORE_CFG> {
     }
 
     unsafe fn set_root(&mut self, ctr_id: u64, root: u64) {
-        // NULL_CTR_ID is the recursion bottom: "the directory itself".
-        // In-mem store = direct write to dir.root. On-disk backends
-        // will plumb update_directory_root semantics here (unref(prev),
-        // update history_node.root_id_, …).
-        if ctr_id == NULL_CTR_ID {
-            let dir = self.dir.deref_mut();
-            dir.root = root as *mut NodeBase<u64, u64, DirCfg>;
-            return;
-        }
-        // Non-null ctr_id: directory-as-container mutation. Invariant:
-        // mutating the directory routes the new root back through
-        // `set_root(NULL_CTR_ID, …)`. Recursive "directory = container"
-        // pattern from big Memoria — every dir mutation, like every
-        // user-container mutation, ends in setRoot(name, new_root)
-        // with name=null for the dir itself.
-        let dir = self.dir.deref();
-        let mut t: MutSnapshot<DirCfg> = MutSnapshot::<DirCfg> {
-            root:      dir.root,
-            parent_id: dir.parent_id,
-        };
-        let _ = mut_snapshot_insert::<DirCfg>(
-            &mut t as *mut MutSnapshot<DirCfg>,
-            ctr_id, root, &ctr_id as *const u64);
-        self.set_root(NULL_CTR_ID, t.root as u64);
+        let dir = self.dir.deref_mut();
+        dir_set_root_with_rc(dir, ctr_id, root);
     }
 }
 
@@ -296,11 +307,6 @@ fn release_root_via_registry(store: &mut LockingStore, root_u64: u64) {
 // is zeroed → drop returns early (DAG owns the trees). Otherwise walks
 // dir → registry-dispatched release per container → release dir tree
 // itself through the same registry path.
-//
-// The Drop signature receives `self` by value (not `&mut self`), so we
-// have to launder through raw-pointer self once to reach the inner
-// fields. That single `unsafe` is irreducible — Drop is exactly the
-// place where ownership transitions, by definition.
 impl<const STORE_CFG: HermesStatic> Drop for Snap<STORE_CFG> {
     fn drop(self: Snap<STORE_CFG>) {
         unsafe {
@@ -310,10 +316,6 @@ impl<const STORE_CFG: HermesStatic> Drop for Snap<STORE_CFG> {
             let stp: *mut LockingStore =
                 (&self.arc as *const Arc<LockingStore> as *mut Arc<LockingStore>).get() as *mut LockingStore;
 
-            // Per-container release walk: every entry in dir.leaves is
-            // a (ctr_id, root_u64) pair; release_root_via_registry
-            // dispatches by cfg_hash. Dir mutation/access in this
-            // closure is read-only from dir's POV.
             let view: PMapView<DirCfg> = PMapView::<DirCfg> { root: dir_p.root };
             let mut it: LeafIter<u64, u64, DirCfg> =
                 pmap_view_acquire_leaf_iter::<DirCfg>(&view as *const PMapView<DirCfg>);
@@ -329,7 +331,6 @@ impl<const STORE_CFG: HermesStatic> Drop for Snap<STORE_CFG> {
                 leaf_iter_next_leaf::<u64, u64, DirCfg>(&mut it as *mut LeafIter<u64, u64, DirCfg>);
             }
 
-            // Dir tree itself — same registry path as user containers.
             release_root_via_registry(&mut *stp, dir_p.root as u64);
             dir_p.root = 0 as *mut NodeBase<u64, u64, DirCfg>;
         }
@@ -402,19 +403,18 @@ impl<const CFG: HermesStatic> ContainerRef<CFG> {
     }
 }
 
-// ContainerRef.drop — writeback cached root to dir at ctr_id. The
-// container's tree stays alive (dir holds the ptr) until Snap.drop
-// runs the registry-driven release. Drop receives self by value, so
-// the one inner unsafe is irreducible — same shape as Snap::drop.
+// ContainerRef.drop — writeback the cached root (CoW may have swapped
+// it during ContainerRef's lifetime). Routes through
+// dir_set_root_with_rc so this writeback shares one upsert path with
+// Snap::set_root.
 impl<const CFG: HermesStatic> Drop for ContainerRef<CFG> {
     fn drop(self: ContainerRef<CFG>) {
         if self.root == 0 as *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> { return; }
         unsafe {
             let dir_p: *mut MutSnapshot<DirCfg> =
                 (&self.dir_rc as *const Rc<MutSnapshot<DirCfg>> as *mut Rc<MutSnapshot<DirCfg>>).get_mut();
-            let key: u64 = self.ctr_id;
-            let val: u64 = self.root as u64;
-            let _ = mut_snapshot_insert::<DirCfg>(dir_p, key, val, &key as *const u64);
+            let dir: &mut MutSnapshot<DirCfg> = &mut *dir_p;
+            dir_set_root_with_rc(dir, self.ctr_id, self.root as u64);
         }
     }
 }

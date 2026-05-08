@@ -106,6 +106,13 @@ pub fn for_each_child_leaf_ptrs_c<K: Container + ContainerOrd, V: Container, con
     }
 }
 
+// Type-erased release wrapper used in registry — keeps the fn-ptr
+// signature uniform (*mut u8) so callers that retrieved the fp via u64
+// can call directly without a typed cast.
+pub fn node_release_erased<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node_raw: *mut u8) {
+    unsafe { node_release_c::<K, V, CFG>(node_raw as *mut NodeBase<K, V, CFG>); }
+}
+
 // ── Registration helpers (called once per CFG at snap_begin /
 // create_pmap). Idempotent — registry de-dupes on block_type_hash.
 
@@ -116,9 +123,9 @@ pub fn register_data_container_block_ops<K: Container + ContainerOrd, V: Contain
     let h_leaf:   u64 = type_hash::<LeafNode<K, V, CFG>>();
     let branch_for_each: fn(*mut u8, fn(u64) -> ()) -> () = for_each_child_branch_c::<K, V, CFG>;
     let leaf_for_each:   fn(*mut u8, fn(u64) -> ()) -> () = for_each_child_leaf_data_c::<K, V, CFG>;
-    let release_typed:   fn(*mut NodeBase<K, V, CFG>) -> () = node_release_c::<K, V, CFG>;
-    block_ops_register(h_branch, branch_for_each as u64, release_typed as u64);
-    block_ops_register(h_leaf,   leaf_for_each   as u64, release_typed as u64);
+    let release_erased:  fn(*mut u8) -> () = node_release_erased::<K, V, CFG>;
+    block_ops_register(h_branch, branch_for_each as u64, release_erased as u64);
+    block_ops_register(h_leaf,   leaf_for_each   as u64, release_erased as u64);
 }
 
 // Register branch + leaf-pointer ops. For the directory CFG and any
@@ -128,9 +135,9 @@ pub fn register_dir_container_block_ops<K: Container + ContainerOrd, V: Containe
     let h_leaf:   u64 = type_hash::<LeafNode<K, V, CFG>>();
     let branch_for_each: fn(*mut u8, fn(u64) -> ()) -> () = for_each_child_branch_c::<K, V, CFG>;
     let leaf_for_each:   fn(*mut u8, fn(u64) -> ()) -> () = for_each_child_leaf_ptrs_c::<K, V, CFG>;
-    let release_typed:   fn(*mut NodeBase<K, V, CFG>) -> () = node_release_c::<K, V, CFG>;
-    block_ops_register(h_branch, branch_for_each as u64, release_typed as u64);
-    block_ops_register(h_leaf,   leaf_for_each   as u64, release_typed as u64);
+    let release_erased:  fn(*mut u8) -> () = node_release_erased::<K, V, CFG>;
+    block_ops_register(h_branch, branch_for_each as u64, release_erased as u64);
+    block_ops_register(h_leaf,   leaf_for_each   as u64, release_erased as u64);
 }
 
 pub fn node_alloc_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>() -> *mut NodeBase<K, V, CFG> {
