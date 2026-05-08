@@ -40,8 +40,8 @@ fn main() -> i32 {
     if h_a == 0u64 { return 1; }
     if h_a == h_b { return 2; }
 
-    let r_a: *mut NodeBase<u64, u64, CfgA> = node_alloc_c::<u64, u64, CfgA>();
-    let r_b: *mut NodeBase<u32, u32, CfgB> = node_alloc_c::<u32, u32, CfgB>();
+    let r_a: *mut NodeBase<u64, u64, CfgA> = node_alloc_c::<u64, u64, CfgA>(0u64, 0u64);
+    let r_b: *mut NodeBase<u32, u32, CfgB> = node_alloc_c::<u32, u32, CfgB>(0u64, 0u64);
 
     // Type-erased read at the universal layout (rc, cfg_hash, ...).
     let rc_a:        u64 = read_rc(r_a as *mut u8);

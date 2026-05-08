@@ -91,7 +91,7 @@ unsafe fn main() -> i32 {
     let t16b: Type = type_of::<MyMap16>();
     if t16.uid != t16b.uid { return 32; }
 
-    let mut pm: MyMap16 = pmap_mut_new::<Cfg16>();
+    let mut pm: MyMap16 = pmap_mut_new::<Cfg16>(0u64, 0u64, 0 as *mut u64);
     let pmptr: *mut MyMap16 = &mut pm as *mut MyMap16;
 
     // Runtime-extract the cfg's fanout from inside a Read part on the View.

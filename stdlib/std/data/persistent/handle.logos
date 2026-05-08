@@ -107,8 +107,10 @@ unsafe fn dir_set_root_with_rc(dir: &mut MutSnapshot<DirCfg>, ctr_id: u64, root:
     }
     let prev: u64 = dir_get(dir, ctr_id);
     let mut t: MutSnapshot<DirCfg> = MutSnapshot::<DirCfg> {
-        root:      dir.root,
-        parent_id: dir.parent_id,
+        root:        dir.root,
+        parent_id:   dir.parent_id,
+        snapshot_id: dir.snapshot_id,
+        id_ctr_p:    dir.id_ctr_p,
     };
     let _ = mut_snapshot_insert::<DirCfg>(
         &mut t as *mut MutSnapshot<DirCfg>,
@@ -150,8 +152,12 @@ pub fn snap_begin<const STORE_CFG: HermesStatic>(store: &mut Store<STORE_CFG>) -
     // dir-leaves contain rc-counted child pointers, so leaf-clone has
     // to retain them and node release has to recursively release them.
     register_dir_container_block_ops::<u64, u64, DirCfg>();
+    let s: &mut LockingStore = store.arc.deref_mut();
+    let snap_id: u64 = locking_store_alloc_snapshot_id(s);
+    let root_id: u64 = locking_store_alloc_block_id(s);
+    let id_ctr_p: *mut u64 = &mut s.next_block_id as *mut u64;
     let dir_inner: MutSnapshot<DirCfg> = store_begin::<DirCfg, LockingStore>(
-        store.arc.deref_mut() as *mut LockingStore, NO_COMMIT);
+        s as *mut LockingStore, NO_COMMIT, snap_id, id_ctr_p, root_id);
     return Snap::<STORE_CFG> {
         dir: rc_new::<MutSnapshot<DirCfg>>(dir_inner),
         arc: store.arc.clone_ref(),
@@ -164,8 +170,14 @@ pub fn snap_begin<const STORE_CFG: HermesStatic>(store: &mut Store<STORE_CFG>) -
 // at the first mutation that CoW-clones a dir leaf.
 pub fn snap_fork<const STORE_CFG: HermesStatic>(store: &mut Store<STORE_CFG>, parent: i64) -> Snap<STORE_CFG> {
     register_dir_container_block_ops::<u64, u64, DirCfg>();
+    let s: &mut LockingStore = store.arc.deref_mut();
+    let snap_id: u64 = locking_store_alloc_snapshot_id(s);
+    let id_ctr_p: *mut u64 = &mut s.next_block_id as *mut u64;
+    // root_id is unused on the parent path (store_begin retains the
+    // existing parent root rather than allocating); pass 0 as a clear
+    // sentinel — the field never gets written.
     let dir_inner: MutSnapshot<DirCfg> = store_begin::<DirCfg, LockingStore>(
-        store.arc.deref_mut() as *mut LockingStore, parent);
+        s as *mut LockingStore, parent, snap_id, id_ctr_p, 0u64);
     return Snap::<STORE_CFG> {
         dir: rc_new::<MutSnapshot<DirCfg>>(dir_inner),
         arc: store.arc.clone_ref(),
@@ -222,8 +234,10 @@ impl<const STORE_CFG: HermesStatic> ISnapshot for Snap<STORE_CFG> {
 // ContainerRef holding a dir Rc clone for the writeback path on drop.
 pub fn create_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(snap: &mut Snap<STORE_CFG>, ctr_id: <type:STORE_CFG.ctr_id>) -> ContainerRef<CFG> {
     register_data_container_block_ops::<<type:CFG.key>, <type:CFG.value>, CFG>();
+    let block_id: u64 = locking_store_alloc_block_id(snap.arc.deref_mut());
+    let snap_id:  u64 = snap.dir.deref_mut().snapshot_id;
     let r: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> =
-        node_alloc_c::<<type:CFG.key>, <type:CFG.value>, CFG>();
+        node_alloc_c::<<type:CFG.key>, <type:CFG.value>, CFG>(block_id, snap_id);
     let key: u64 = ctr_id as u64;
     unsafe { snap.set_root(key, r as u64); }
     return ContainerRef::<CFG> {
@@ -294,8 +308,10 @@ impl<const CFG: HermesStatic> ContainerRef<CFG> {
     fn ctr_view(&mut self) -> MutSnapshot<CFG> {
         let dir = self.dir_rc.deref_mut();
         return MutSnapshot::<CFG> {
-            root:      self.root,
-            parent_id: dir.parent_id,
+            root:        self.root,
+            parent_id:   dir.parent_id,
+            snapshot_id: dir.snapshot_id,
+            id_ctr_p:    dir.id_ctr_p,
         };
     }
 

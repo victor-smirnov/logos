@@ -50,6 +50,17 @@ pub struct NodeBase<K: Container + ContainerOrd, V: Container, const CFG: Hermes
     // dispatch keys. `type_hash` alone is structural and would collide
     // when K/V match across CFGs. Mirrors big Memoria's `block_type_hash`.
     pub block_type_hash: u64,
+    // id (offset 24): unique block id within the owning Store. Allocated
+    // monotonically by the Store at every node alloc / clone. Persistent
+    // identity for save/load (mirrors big-Memoria's BlockID).
+    pub id:           u64,
+    // snapshot_id (offset 32): id of the snapshot in which this node was
+    // created or cloned. `make_root_unique` / `make_child_unique` use it
+    // as the CoW-skip key: if `node.snapshot_id == current_snapshot_id`
+    // the node is owned by us — mutate in place, no clone — independent
+    // of rc (rc may be >1 while another snap holds an open-claim). 0 is
+    // the "no-snapshot context" sentinel for pmap-only callers.
+    pub snapshot_id:  u64,
     pub n:        u16,
     pub is_leaf:  bool,
 }

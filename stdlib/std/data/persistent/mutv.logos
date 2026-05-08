@@ -13,13 +13,25 @@ use std.lang.ord;
 use std.lang.datatypes;
 use std.hermes.view;
 
+// PMapMut carries the snapshot context for CoW + ID-allocation:
+//   • snapshot_id — current snapshot's id; stamped on freshly allocated /
+//     cloned nodes; used as the CoW-skip key in make_root_unique /
+//     make_child_unique_c.
+//   • id_ctr_p   — raw pointer to the caller-owned id counter (typically
+//     LockingStore.next_block_id). Bumped on every alloc / clone.
+// Both default to 0 / null for pmap-only callers without a Store; in
+// that case the CoW path falls back to the legacy rc>1 rule.
 pub struct PMapMut<const CFG: HermesStatic> {
-    pub view: PMapView<CFG>,
+    pub view:        PMapView<CFG>,
+    pub snapshot_id: u64,
+    pub id_ctr_p:    *mut u64,
 }
 
-pub fn pmap_mut_new<const CFG: HermesStatic>() -> PMapMut<CFG> {
+pub fn pmap_mut_new<const CFG: HermesStatic>(root_id: u64, snapshot_id: u64, id_ctr_p: *mut u64) -> PMapMut<CFG> {
     return PMapMut::<CFG> {
-        view: PMapView::<CFG> { root: node_alloc_c::<<type:CFG.key>, <type:CFG.value>, CFG>() },
+        view:        PMapView::<CFG> { root: node_alloc_c::<<type:CFG.key>, <type:CFG.value>, CFG>(root_id, snapshot_id) },
+        snapshot_id: snapshot_id,
+        id_ctr_p:    id_ctr_p,
     };
 }
 
@@ -35,11 +47,24 @@ pub fn pmap_mut_snapshot<const CFG: HermesStatic>(m: *const PMapMut<CFG>) -> PMa
     }
 }
 
+unsafe fn alloc_id_for_pmap<const CFG: HermesStatic>(m: *mut PMapMut<CFG>) -> u64 {
+    if m.id_ctr_p == 0 as *mut u64 { return 0u64; }
+    let id: u64 = *m.id_ctr_p + 1u64;
+    *m.id_ctr_p = id;
+    return id;
+}
+
 fn pmap_mut_make_root_unique<const CFG: HermesStatic>(m: *mut PMapMut<CFG>) {
     unsafe {
         let r: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> = m.view.root;
-        if r.rc > 1u64 {
-            let copy: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> = node_clone_for_cow_c::<<type:CFG.key>, <type:CFG.value>, CFG>(r);
+        let need_clone: bool = if m.snapshot_id == 0u64 {
+            r.rc > 1u64
+        } else {
+            r.snapshot_id != m.snapshot_id
+        };
+        if need_clone {
+            let new_id: u64 = alloc_id_for_pmap::<CFG>(m);
+            let copy: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> = node_clone_for_cow_c::<<type:CFG.key>, <type:CFG.value>, CFG>(r, new_id, m.snapshot_id);
             node_release_c::<<type:CFG.key>, <type:CFG.value>, CFG>(r);
             m.view.root = copy;
         }
@@ -48,7 +73,8 @@ fn pmap_mut_make_root_unique<const CFG: HermesStatic>(m: *mut PMapMut<CFG>) {
 
 fn pmap_mut_grow_root<const CFG: HermesStatic>(m: *mut PMapMut<CFG>, right: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG>) {
     unsafe {
-        let new_root_base: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> = node_alloc_internal_c::<<type:CFG.key>, <type:CFG.value>, CFG>();
+        let new_root_id: u64 = alloc_id_for_pmap::<CFG>(m);
+        let new_root_base: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> = node_alloc_internal_c::<<type:CFG.key>, <type:CFG.value>, CFG>(new_root_id, m.snapshot_id);
         let new_root: *mut BranchNode<<type:CFG.key>, <type:CFG.value>, CFG> = new_root_base as *mut BranchNode<<type:CFG.key>, <type:CFG.value>, CFG>;
         let sep: <type:CFG.key>::ViewInStore = if right.is_leaf {
             let rl: *mut LeafNode<<type:CFG.key>, <type:CFG.value>, CFG> = right as *mut LeafNode<<type:CFG.key>, <type:CFG.value>, CFG>;
@@ -73,7 +99,7 @@ fn pmap_mut_grow_root<const CFG: HermesStatic>(m: *mut PMapMut<CFG>, right: *mut
 pub fn pmap_mut_insert<const CFG: HermesStatic>(m: *mut PMapMut<CFG>, key: <type:CFG.key>::ViewInStore, val: <type:CFG.value>::ViewInStore, qkey: *const <type:CFG.key>) -> bool {
     unsafe {
         pmap_mut_make_root_unique::<CFG>(m);
-        let outcome: InsertOutcome<<type:CFG.key>, <type:CFG.value>, CFG> = node_insert_rec_c::<<type:CFG.key>, <type:CFG.value>, CFG>(m.view.root, key, val, qkey);
+        let outcome: InsertOutcome<<type:CFG.key>, <type:CFG.value>, CFG> = node_insert_rec_c::<<type:CFG.key>, <type:CFG.value>, CFG>(m.view.root, key, val, qkey, m.id_ctr_p, m.snapshot_id);
         if outcome.split {
             pmap_mut_grow_root::<CFG>(m, outcome.right);
         }
@@ -85,6 +111,6 @@ pub fn pmap_mut_remove<const CFG: HermesStatic>(m: *mut PMapMut<CFG>, qkey: *con
     unsafe {
         if !node_contains_rec_c::<<type:CFG.key>, <type:CFG.value>, CFG>(m.view.root, qkey) { return false; }
         pmap_mut_make_root_unique::<CFG>(m);
-        return node_remove_rec_c::<<type:CFG.key>, <type:CFG.value>, CFG>(m.view.root, qkey);
+        return node_remove_rec_c::<<type:CFG.key>, <type:CFG.value>, CFG>(m.view.root, qkey, m.id_ctr_p, m.snapshot_id);
     }
 }

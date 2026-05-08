@@ -27,12 +27,12 @@ pub struct InsertOutcome<K: Container + ContainerOrd, V: Container, const CFG: H
     pub right: *mut NodeBase<K, V, CFG>,
 }
 
-fn node_split_leaf_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>) -> *mut NodeBase<K, V, CFG> {
+fn node_split_leaf_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>, new_id: u64, snapshot_id: u64) -> *mut NodeBase<K, V, CFG> {
     unsafe {
         let leaf: *mut LeafNode<K, V, CFG> = node as *mut LeafNode<K, V, CFG>;
         let cap: u64 = leaf.keys.len();
         let mid: u64 = cap / 2u64;
-        let right_base: *mut NodeBase<K, V, CFG> = node_alloc_c::<K, V, CFG>();
+        let right_base: *mut NodeBase<K, V, CFG> = node_alloc_c::<K, V, CFG>(new_id, snapshot_id);
         let right: *mut LeafNode<K, V, CFG> = right_base as *mut LeafNode<K, V, CFG>;
         let mut i: u64 = mid;
         while i < cap {
@@ -50,12 +50,12 @@ fn node_split_leaf_c<K: Container + ContainerOrd, V: Container, const CFG: Herme
     }
 }
 
-fn node_split_internal_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>) -> *mut NodeBase<K, V, CFG> {
+fn node_split_internal_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>, new_id: u64, snapshot_id: u64) -> *mut NodeBase<K, V, CFG> {
     unsafe {
         let br: *mut BranchNode<K, V, CFG> = node as *mut BranchNode<K, V, CFG>;
         let cap: u64 = br.keys.len();
         let mid: u64 = cap / 2u64;
-        let right_base: *mut NodeBase<K, V, CFG> = node_alloc_internal_c::<K, V, CFG>();
+        let right_base: *mut NodeBase<K, V, CFG> = node_alloc_internal_c::<K, V, CFG>(new_id, snapshot_id);
         let right: *mut BranchNode<K, V, CFG> = right_base as *mut BranchNode<K, V, CFG>;
         let mut i: u64 = mid;
         while i < cap {
@@ -78,7 +78,18 @@ fn node_split_internal_c<K: Container + ContainerOrd, V: Container, const CFG: H
     }
 }
 
-pub fn node_insert_rec_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>, key: K::ViewInStore, val: V::ViewInStore, qkey: *const K) -> InsertOutcome<K, V, CFG> {
+// Helper: read-bump the caller-owned id counter, return the fresh id.
+// `id_ctr_p` is a raw `*mut u64` — typically points at LockingStore's
+// next_block_id field. NULL `id_ctr_p` means "no-store context"
+// (pmap-only callers); returns 0 in that case.
+unsafe fn alloc_id(id_ctr_p: *mut u64) -> u64 {
+    if id_ctr_p == 0 as *mut u64 { return 0u64; }
+    let id: u64 = *id_ctr_p + 1u64;
+    *id_ctr_p = id;
+    return id;
+}
+
+pub fn node_insert_rec_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>, key: K::ViewInStore, val: V::ViewInStore, qkey: *const K, id_ctr_p: *mut u64, cur_snapshot_id: u64) -> InsertOutcome<K, V, CFG> {
     unsafe {
         let zero_node: *mut NodeBase<K, V, CFG> = 0 as *mut NodeBase<K, V, CFG>;
         if node.is_leaf {
@@ -100,7 +111,7 @@ pub fn node_insert_rec_c<K: Container + ContainerOrd, V: Container, const CFG: H
             leaf.vals.insert_at(pos, val);
             node.n = node.n + 1u16;
             if leaf.keys.len() > max_keys_l {
-                let right: *mut NodeBase<K, V, CFG> = node_split_leaf_c::<K, V, CFG>(node);
+                let right: *mut NodeBase<K, V, CFG> = node_split_leaf_c::<K, V, CFG>(node, alloc_id(id_ctr_p), cur_snapshot_id);
                 return InsertOutcome::<K, V, CFG> { hit: false, split: true, right: right };
             }
             return InsertOutcome::<K, V, CFG> { hit: false, split: false, right: zero_node };
@@ -108,9 +119,9 @@ pub fn node_insert_rec_c<K: Container + ContainerOrd, V: Container, const CFG: H
         let br: *mut BranchNode<K, V, CFG> = node as *mut BranchNode<K, V, CFG>;
         let max_keys_b: u64 = node_max_keys_branch_c::<CFG>();
         let i: u64 = node_descend_idx_c::<K, V, CFG>(node, qkey);
-        node_make_child_unique_c::<K, V, CFG>(node, i);
+        node_make_child_unique_c::<K, V, CFG>(node, i, alloc_id(id_ctr_p), cur_snapshot_id);
         let child: *mut NodeBase<K, V, CFG> = br.children.get(i);
-        let mut inner: InsertOutcome<K, V, CFG> = node_insert_rec_c::<K, V, CFG>(child, key, val, qkey);
+        let mut inner: InsertOutcome<K, V, CFG> = node_insert_rec_c::<K, V, CFG>(child, key, val, qkey, id_ctr_p, cur_snapshot_id);
         if inner.hit {
             return InsertOutcome::<K, V, CFG> { hit: true, split: false, right: zero_node };
         }
@@ -138,7 +149,7 @@ pub fn node_insert_rec_c<K: Container + ContainerOrd, V: Container, const CFG: H
         }
         node.n = node.n + 1u16;
         if br.keys.len() > max_keys_b {
-            let right2: *mut NodeBase<K, V, CFG> = node_split_internal_c::<K, V, CFG>(node);
+            let right2: *mut NodeBase<K, V, CFG> = node_split_internal_c::<K, V, CFG>(node, alloc_id(id_ctr_p), cur_snapshot_id);
             return InsertOutcome::<K, V, CFG> { hit: false, split: true, right: right2 };
         }
         return InsertOutcome::<K, V, CFG> { hit: false, split: false, right: zero_node };
@@ -154,7 +165,7 @@ pub fn node_remove_at_c<K: Container + ContainerOrd, V: Container, const CFG: He
     }
 }
 
-pub fn node_remove_rec_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>, key: *const K) -> bool {
+pub fn node_remove_rec_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>, key: *const K, id_ctr_p: *mut u64, cur_snapshot_id: u64) -> bool {
     unsafe {
         if node.is_leaf {
             let idx: i64 = node_find_c::<K, V, CFG>(node, key);
@@ -164,8 +175,8 @@ pub fn node_remove_rec_c<K: Container + ContainerOrd, V: Container, const CFG: H
         }
         let br: *mut BranchNode<K, V, CFG> = node as *mut BranchNode<K, V, CFG>;
         let i: u64 = node_descend_idx_c::<K, V, CFG>(node, key);
-        node_make_child_unique_c::<K, V, CFG>(node, i);
+        node_make_child_unique_c::<K, V, CFG>(node, i, alloc_id(id_ctr_p), cur_snapshot_id);
         let child: *mut NodeBase<K, V, CFG> = br.children.get(i);
-        return node_remove_rec_c::<K, V, CFG>(child, key);
+        return node_remove_rec_c::<K, V, CFG>(child, key, id_ctr_p, cur_snapshot_id);
     }
 }

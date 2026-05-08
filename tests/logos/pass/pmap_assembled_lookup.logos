@@ -170,7 +170,7 @@ unsafe fn populate_bin(pm: *mut PMapMut<CfgBin>) {
 unsafe fn main() -> i32 {
     // ── MapLin: linear-lookup AssembledMap ─────────────────────────
     let mut pm_lin: PMapMut<CfgLin> =
-        pmap_mut_new::<CfgLin>();
+        pmap_mut_new::<CfgLin>(0u64, 0u64, 0 as *mut u64);
     populate_lin(&mut pm_lin as *mut PMapMut<CfgLin>);
     let lin: MapLin = MapLin { handle: pm_lin };
 
@@ -185,7 +185,7 @@ unsafe fn main() -> i32 {
 
     // ── MapBin: binary-lookup AssembledMap ─────────────────────────
     let mut pm_bin: PMapMut<CfgBin> =
-        pmap_mut_new::<CfgBin>();
+        pmap_mut_new::<CfgBin>(0u64, 0u64, 0 as *mut u64);
     populate_bin(&mut pm_bin as *mut PMapMut<CfgBin>);
     let bin: MapBin = MapBin { handle: pm_bin };
 

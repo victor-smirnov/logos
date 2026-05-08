@@ -81,14 +81,14 @@ unsafe fn fill_16<const CFG: HermesStatic>(pmptr: *mut PMapMut<CFG>) {
 
 unsafe fn main() -> i32 {
     // Asymmetric tree.
-    let mut pa: PMapMut<CfgAsym> = pmap_mut_new::<CfgAsym>();
+    let mut pa: PMapMut<CfgAsym> = pmap_mut_new::<CfgAsym>(0u64, 0u64, 0 as *mut u64);
     let pap: *mut PMapMut<CfgAsym> = &mut pa as *mut PMapMut<CfgAsym>;
     fill_16::<CfgAsym>(pap);
     if pa.view.len() != 16u64 { return 10; }
     let leaves_a: u64 = count_leaves::<CfgAsym>(&pa.view as *const PMapView<CfgAsym>);
 
     // Symmetric tree.
-    let mut pe: PMapMut<CfgEqu> = pmap_mut_new::<CfgEqu>();
+    let mut pe: PMapMut<CfgEqu> = pmap_mut_new::<CfgEqu>(0u64, 0u64, 0 as *mut u64);
     let pep: *mut PMapMut<CfgEqu> = &mut pe as *mut PMapMut<CfgEqu>;
     fill_16::<CfgEqu>(pep);
     if pe.view.len() != 16u64 { return 20; }

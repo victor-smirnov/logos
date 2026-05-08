@@ -57,7 +57,7 @@ unsafe fn main() -> i32 {
     };
     if validate_pmap_cfg(cfg) != 0 { return 1; }
 
-    let mut pm: MyMap = pmap_mut_new::<Cfg4>();
+    let mut pm: MyMap = pmap_mut_new::<Cfg4>(0u64, 0u64, 0 as *mut u64);
     let pmptr: *mut MyMap = &mut pm as *mut MyMap;
 
     // 16 keys: 10, 20, ..., 160. fanout=4 ⇒ multi-leaf.

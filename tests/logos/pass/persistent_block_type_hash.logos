@@ -32,12 +32,12 @@ unsafe fn main() -> i32 {
     // key is `type_hash ^ cfg_hash` so structurally-equal schemas under
     // different CFGs (e.g. Map vs Dir with same K/V) get distinct keys.
     let cfg_h: u64 = hstatic_hash_of::<MapCfg>();
-    let leaf: *mut NodeBase<u64, u64, MapCfg> = node_alloc_c::<u64, u64, MapCfg>();
+    let leaf: *mut NodeBase<u64, u64, MapCfg> = node_alloc_c::<u64, u64, MapCfg>(0u64, 0u64);
     let h_leaf: u64 = read_block_type_hash(leaf as *mut u8);
     let h_leaf_expected: u64 = type_hash::<LeafNode<u64, u64, MapCfg>>() ^ cfg_h;
     if h_leaf != h_leaf_expected { return 11; }
 
-    let br: *mut NodeBase<u64, u64, MapCfg> = node_alloc_internal_c::<u64, u64, MapCfg>();
+    let br: *mut NodeBase<u64, u64, MapCfg> = node_alloc_internal_c::<u64, u64, MapCfg>(0u64, 0u64);
     let h_br: u64 = read_block_type_hash(br as *mut u8);
     let h_br_expected: u64 = type_hash::<BranchNode<u64, u64, MapCfg>>() ^ cfg_h;
     if h_br != h_br_expected { return 12; }
@@ -47,7 +47,7 @@ unsafe fn main() -> i32 {
     if h_br   == 0u64 { return 15; }
 
     // 2. Stability — second leaf alloc has the same hash.
-    let leaf2: *mut NodeBase<u64, u64, MapCfg> = node_alloc_c::<u64, u64, MapCfg>();
+    let leaf2: *mut NodeBase<u64, u64, MapCfg> = node_alloc_c::<u64, u64, MapCfg>(0u64, 0u64);
     if read_block_type_hash(leaf2 as *mut u8) != h_leaf { return 21; }
 
     // 3. cfg_hash at slot 1 (offset 8) is unchanged — still the raw

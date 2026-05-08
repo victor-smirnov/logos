@@ -137,7 +137,7 @@ metacall assemble_client::<@{
 }>();
 
 unsafe fn main() -> i32 {
-    let mut pm: PMapMut<Cfg16> = pmap_mut_new::<Cfg16>();
+    let mut pm: PMapMut<Cfg16> = pmap_mut_new::<Cfg16>(0u64, 0u64, 0 as *mut u64);
     let pmptr: *mut PMapMut<Cfg16> = &mut pm as *mut PMapMut<Cfg16>;
 
     let k1: U64Key = U64Key { x: 10u64 };

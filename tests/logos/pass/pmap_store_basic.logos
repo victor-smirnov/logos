@@ -48,7 +48,7 @@ unsafe fn main() -> i32 {
 
     // ── Commit c0: empty → three entries ────────────────────────────
     let mut snap0: MutSnapshot<MyCfg> =
-        store_begin::<MyCfg, LockingStore>(stp, NO_COMMIT);
+        store_begin::<MyCfg, LockingStore>(stp, NO_COMMIT, locking_store_alloc_snapshot_id(&mut st), &mut st.next_block_id as *mut u64, locking_store_alloc_block_id(&mut st));
     let snap0p: *mut MutSnapshot<MyCfg> =
         &mut snap0 as *mut MutSnapshot<MyCfg>;
     let k1: U64Key = U64Key { x: 10u64 };
@@ -62,7 +62,7 @@ unsafe fn main() -> i32 {
 
     // ── Commit c1: fork from c0, overwrite k2 with new value ────────
     let mut snap1: MutSnapshot<MyCfg> =
-        store_begin::<MyCfg, LockingStore>(stp, c0);
+        store_begin::<MyCfg, LockingStore>(stp, c0, locking_store_alloc_snapshot_id(&mut st), &mut st.next_block_id as *mut u64, 0u64);
     let snap1p: *mut MutSnapshot<MyCfg> =
         &mut snap1 as *mut MutSnapshot<MyCfg>;
     let _ = mut_snapshot_insert::<MyCfg>(snap1p, 20u64, 9999u64, &k2 as *const U64Key);
@@ -89,7 +89,7 @@ unsafe fn main() -> i32 {
 
     // ── Begin → remove → rollback. DAG unchanged; c1 still has k2 ──
     let mut snap2: MutSnapshot<MyCfg> =
-        store_begin::<MyCfg, LockingStore>(stp, c1);
+        store_begin::<MyCfg, LockingStore>(stp, c1, locking_store_alloc_snapshot_id(&mut st), &mut st.next_block_id as *mut u64, 0u64);
     let snap2p: *mut MutSnapshot<MyCfg> =
         &mut snap2 as *mut MutSnapshot<MyCfg>;
     if !mut_snapshot_remove::<MyCfg>(snap2p, &k2 as *const U64Key) { return 8; }

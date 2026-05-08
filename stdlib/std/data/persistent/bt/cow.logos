@@ -157,12 +157,14 @@ pub fn register_dir_container_block_ops<K: Container + ContainerOrd, V: Containe
     block_ops_register(h_leaf,   leaf_for_each   as u64, release_erased as u64);
 }
 
-pub fn node_alloc_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>() -> *mut NodeBase<K, V, CFG> {
+pub fn node_alloc_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(id: u64, snapshot_id: u64) -> *mut NodeBase<K, V, CFG> {
     let raw: *mut u8 = alloc(sizeof::<LeafNode<K, V, CFG>>());
     let leaf: *mut LeafNode<K, V, CFG> = raw as *mut LeafNode<K, V, CFG>;
     unsafe {
         leaf.base.cfg_hash        = hstatic_hash_of::<CFG>();
         leaf.base.block_type_hash = type_hash::<LeafNode<K, V, CFG>>() ^ hstatic_hash_of::<CFG>();
+        leaf.base.id          = id;
+        leaf.base.snapshot_id = snapshot_id;
         leaf.base.rc       = 1u64;
         leaf.base.n        = 0u16;
         leaf.base.is_leaf  = true;
@@ -172,12 +174,14 @@ pub fn node_alloc_c<K: Container + ContainerOrd, V: Container, const CFG: Hermes
     return leaf as *mut NodeBase<K, V, CFG>;
 }
 
-pub fn node_alloc_internal_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>() -> *mut NodeBase<K, V, CFG> {
+pub fn node_alloc_internal_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(id: u64, snapshot_id: u64) -> *mut NodeBase<K, V, CFG> {
     let raw: *mut u8 = alloc(sizeof::<BranchNode<K, V, CFG>>());
     let br: *mut BranchNode<K, V, CFG> = raw as *mut BranchNode<K, V, CFG>;
     unsafe {
         br.base.cfg_hash        = hstatic_hash_of::<CFG>();
         br.base.block_type_hash = type_hash::<BranchNode<K, V, CFG>>() ^ hstatic_hash_of::<CFG>();
+        br.base.id          = id;
+        br.base.snapshot_id = snapshot_id;
         br.base.rc       = 1u64;
         br.base.n        = 0u16;
         br.base.is_leaf  = false;
@@ -226,11 +230,11 @@ pub fn node_release_c<K: Container + ContainerOrd, V: Container, const CFG: Herm
     }
 }
 
-pub fn node_clone_for_cow_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(orig: *mut NodeBase<K, V, CFG>) -> *mut NodeBase<K, V, CFG> {
+pub fn node_clone_for_cow_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(orig: *mut NodeBase<K, V, CFG>, new_id: u64, snapshot_id: u64) -> *mut NodeBase<K, V, CFG> {
     unsafe {
         if orig.is_leaf {
             let src: *mut LeafNode<K, V, CFG> = orig as *mut LeafNode<K, V, CFG>;
-            let copy: *mut NodeBase<K, V, CFG> = node_alloc_c::<K, V, CFG>();
+            let copy: *mut NodeBase<K, V, CFG> = node_alloc_c::<K, V, CFG>(new_id, snapshot_id);
             let dst: *mut LeafNode<K, V, CFG> = copy as *mut LeafNode<K, V, CFG>;
             let mut i: u64 = 0u64;
             while i < src.keys.len() {
@@ -255,7 +259,7 @@ pub fn node_clone_for_cow_c<K: Container + ContainerOrd, V: Container, const CFG
             return copy;
         }
         let src: *mut BranchNode<K, V, CFG> = orig as *mut BranchNode<K, V, CFG>;
-        let copy: *mut NodeBase<K, V, CFG> = node_alloc_internal_c::<K, V, CFG>();
+        let copy: *mut NodeBase<K, V, CFG> = node_alloc_internal_c::<K, V, CFG>(new_id, snapshot_id);
         let dst: *mut BranchNode<K, V, CFG> = copy as *mut BranchNode<K, V, CFG>;
         let mut i: u64 = 0u64;
         while i < src.keys.len() {
@@ -277,13 +281,21 @@ pub fn node_clone_for_cow_c<K: Container + ContainerOrd, V: Container, const CFG
 }
 
 // Pre-write CoW step: ensure the child at `idx` of `parent_branch` is
-// uniquely owned before mutating it.
-pub fn node_make_child_unique_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>, idx: u64) {
+// uniquely owned by `cur_snapshot_id` before mutating it. Skip the
+// clone when the child was created/cloned in the current snapshot
+// (snapshot_id match). Falls back to rc>1 when cur_snapshot_id == 0
+// (= pmap-only callers without a snapshot context).
+pub fn node_make_child_unique_c<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(node: *mut NodeBase<K, V, CFG>, idx: u64, new_id: u64, cur_snapshot_id: u64) {
     unsafe {
         let br: *mut BranchNode<K, V, CFG> = node as *mut BranchNode<K, V, CFG>;
         let c: *mut NodeBase<K, V, CFG> = br.children.get(idx);
-        if c.rc > 1u64 {
-            let copy: *mut NodeBase<K, V, CFG> = node_clone_for_cow_c::<K, V, CFG>(c);
+        let need_clone: bool = if cur_snapshot_id == 0u64 {
+            c.rc > 1u64
+        } else {
+            c.snapshot_id != cur_snapshot_id
+        };
+        if need_clone {
+            let copy: *mut NodeBase<K, V, CFG> = node_clone_for_cow_c::<K, V, CFG>(c, new_id, cur_snapshot_id);
             node_release_c::<K, V, CFG>(c);
             br.children.set(idx, copy);
         }

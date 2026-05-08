@@ -56,7 +56,7 @@ unsafe fn main() -> i32 {
     if validate_pmap_cfg(cfg) != 0 { return 1; }
 
     // Build with 12 ordered keys (10..120) — fanout=4 ⇒ several leaves.
-    let mut pm: MyMap = pmap_mut_new::<Cfg4>();
+    let mut pm: MyMap = pmap_mut_new::<Cfg4>(0u64, 0u64, 0 as *mut u64);
     let pmptr: *mut MyMap = &mut pm as *mut MyMap;
 
     let mut i: u64 = 0u64;

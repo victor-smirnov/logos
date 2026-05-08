@@ -52,14 +52,14 @@ unsafe fn populate6<const CFG: HermesStatic>(pm: *mut PMapMut<CFG>) -> u64 {
 
 unsafe fn main() -> i32 {
     // fanout=2 → splits at 3+ keys; six keys → root is internal (split).
-    let mut pm2: PMapMut<CfgF2> = pmap_mut_new::<CfgF2>();
+    let mut pm2: PMapMut<CfgF2> = pmap_mut_new::<CfgF2>(0u64, 0u64, 0 as *mut u64);
     let pm2p: *mut PMapMut<CfgF2> =
         &mut pm2 as *mut PMapMut<CfgF2>;
     if populate6::<CfgF2>(pm2p) != 6u64 { return 1; }
     if pm2.view.root.is_leaf { return 2; }   // fanout=2: must have split
 
     // fanout=8 → six keys fit in one leaf; root is still a leaf.
-    let mut pm8: PMapMut<CfgF8> = pmap_mut_new::<CfgF8>();
+    let mut pm8: PMapMut<CfgF8> = pmap_mut_new::<CfgF8>(0u64, 0u64, 0 as *mut u64);
     let pm8p: *mut PMapMut<CfgF8> =
         &mut pm8 as *mut PMapMut<CfgF8>;
     if populate6::<CfgF8>(pm8p) != 6u64 { return 3; }

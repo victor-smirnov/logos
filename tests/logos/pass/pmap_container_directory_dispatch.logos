@@ -43,8 +43,8 @@ fn main() -> i32 {
 
     // ── 2. Allocate two roots; their block_type_hash slots differ because
     //       cfg_hash gets folded in at alloc time.
-    let r_a: *mut NodeBase<u64, u64, CfgA> = node_alloc_c::<u64, u64, CfgA>();
-    let r_b: *mut NodeBase<u32, u32, CfgB> = node_alloc_c::<u32, u32, CfgB>();
+    let r_a: *mut NodeBase<u64, u64, CfgA> = node_alloc_c::<u64, u64, CfgA>(0u64, 0u64);
+    let r_b: *mut NodeBase<u32, u32, CfgB> = node_alloc_c::<u32, u32, CfgB>(0u64, 0u64);
 
     let h_a: u64 = unsafe { read_block_type_hash(r_a as *mut u8) };
     let h_b: u64 = unsafe { read_block_type_hash(r_b as *mut u8) };
