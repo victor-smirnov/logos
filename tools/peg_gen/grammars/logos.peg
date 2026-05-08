@@ -1496,7 +1496,18 @@
     // Binary levels use left-associative fold chains so that a + b + c
     // parses as (a + b) + c without requiring explicit parentheses.
     // Comparison and logical operators remain single-level (non-chainable).
-    expr <- log_expr
+    // Range as a value-position expression: `lo..hi` and `lo..=hi`. Sema
+    // lowers each to a stdlib `RangeI64` (or RangeI32) struct construction
+    // which implements `Iterator<T>`. for-stmt keeps its dedicated
+    // DOTDOT path (uses expr_ns, no range here) so simple integer loops
+    // stay zero-overhead.
+    expr <- range_expr
+
+    range_expr <- log_expr DOTDOTEQ log_expr
+               => { CODE: RANGE_EXPR, LHS: $1, RHS: $3, INCLUSIVE: true }
+                / log_expr DOTDOT   log_expr
+               => { CODE: RANGE_EXPR, LHS: $1, RHS: $3 }
+                / log_expr
 
     // ── No-struct-lit expression chain ──────────────────────────
     // Used in if/while/for-cond positions where a trailing `IDENT { ... }`

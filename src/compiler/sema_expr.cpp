@@ -527,6 +527,67 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
         return builder().try_expr(std::move(inner), ok_disc, err_disc, ok_type);
     }
 
+    case la::RANGE_EXPR: {
+        // `lo..hi` / `lo..=hi` — synthesise a stdlib `RangeI64` /
+        // `RangeI32` struct construction. Picks RangeI64 if either bound
+        // is wider than 32 bits or any literal overflows i32.
+        auto lo = expr.has_key(la::LHS) ? lower_expr(map_of(expr.get(la::LHS.code))) : error_expr();
+        auto hi = expr.has_key(la::RHS) ? lower_expr(map_of(expr.get(la::RHS.code))) : error_expr();
+        bool inclusive = false;
+        if (expr.has_key(la::INCLUSIVE)) {
+            AnyVal av = expr.get(la::INCLUSIVE.code);
+            if (!av.is_null() && av.is_value()) inclusive = av.as_value<uint8_t>() != 0;
+        }
+        if (!is_integer(lo->type) && TypeRef(lo->type).kind() != LogosType::Kind::Error)
+            error(std::format("range start must be integer, got {}", type_str(lo->type)));
+        if (!is_integer(hi->type) && TypeRef(hi->type).kind() != LogosType::Kind::Error)
+            error(std::format("range end must be integer, got {}", type_str(hi->type)));
+        auto width = [](LogosType::Kind k) -> int {
+            switch (k) {
+                case LogosType::Kind::I64: case LogosType::Kind::U64: return 64;
+                default: return 32;
+            }
+        };
+        bool need_64 = width(TypeRef(lo->type).kind()) > 32 || width(TypeRef(hi->type).kind()) > 32;
+        if (!need_64) {
+            auto overflows = [this](const lir::LExpr* e) {
+                if (auto v = get_intlit_value(e))
+                    return !intlit_fits(*v, LogosType::Kind::I32);
+                return false;
+            };
+            if (overflows(lo) || overflows(hi)) need_64 = true;
+        }
+        TypeRef bound_t = need_64 ? prim(LogosType::Kind::I64) : i32_t();
+        widen_int_expr(lo, bound_t, builder());
+        widen_int_expr(hi, bound_t, builder());
+        // Rewrite hi to (hi+1) for inclusive form so `next() < end` semantics hold.
+        if (inclusive) {
+            auto one = builder().lit_int(1, bound_t);
+            hi = builder().bin_op("+", std::move(hi), std::move(one), bound_t);
+        }
+        std::string sname = need_64 ? "RangeI64" : "RangeI32";
+        auto [pkg, ssi] = find_struct_by_name(sname);
+        if (!ssi) {
+            error("range expression: stdlib `" + sname + "` not in scope (missing `use std.lang.range`)");
+            return error_expr();
+        }
+        // Defer to the stdlib `range_i32` / `range_i64` free fn so we
+        // pick up its sema-resolved signature/mangling (struct field
+        // offsets etc. are settled at the fn's body, not here).
+        std::string ctor = need_64 ? "range_i64" : "range_i32";
+        auto cands = find_func_candidates(ctor);
+        if (cands.empty()) {
+            error("range expression: stdlib `" + ctor + "` not in scope");
+            return error_expr();
+        }
+        const SemaFuncInfo* fi = cands[0];
+        TypeRef rt = fi->ret_type;
+        std::vector<lir::LExprPtr> args;
+        args.push_back(std::move(lo));
+        args.push_back(std::move(hi));
+        return builder().call(fi->symbol_name.empty() ? ctor : fi->symbol_name,
+                              {}, std::move(args), rt);
+    }
     case la::CALL:         return lower_call(expr);
     case la::GENERIC_CALL: return lower_generic_call(expr);
     case la::GENERIC_REF:  return lower_generic_ref(expr);

@@ -30,6 +30,27 @@ impl Iterator<i32> for RangeI32 {
     }
 }
 
+// ── RevRangeI32 — same elements as RangeI32, yielded in reverse order ────────
+
+pub struct RevRangeI32 {
+    pub current: i32,  // next value to yield is current-1 (decrement-then-yield)
+    pub start:   i32,
+}
+
+impl Iterator<i32> for RevRangeI32 {
+    fn next(self: &mut RevRangeI32) -> Option<i32> {
+        if self.current <= self.start { return Option::None; }
+        self.current = self.current - 1;
+        return Option::Some(self.current);
+    }
+}
+
+impl RangeI32 {
+    pub fn rev(self: RangeI32) -> RevRangeI32 {
+        return RevRangeI32 { current: self.end, start: self.current };
+    }
+}
+
 // ── RangeI64 — exclusive range [start, end) over i64 ─────────────────────────
 
 pub struct RangeI64 {
@@ -47,5 +68,26 @@ impl Iterator<i64> for RangeI64 {
         let v: i64 = self.current;
         self.current = self.current + 1 as i64;
         return Option::Some(v);
+    }
+}
+
+// ── RevRangeI64 — reverse iteration over RangeI64 ────────────────────────────
+
+pub struct RevRangeI64 {
+    pub current: i64,
+    pub start:   i64,
+}
+
+impl Iterator<i64> for RevRangeI64 {
+    fn next(self: &mut RevRangeI64) -> Option<i64> {
+        if self.current <= self.start { return Option::None; }
+        self.current = self.current - 1 as i64;
+        return Option::Some(self.current);
+    }
+}
+
+impl RangeI64 {
+    pub fn rev(self: RangeI64) -> RevRangeI64 {
+        return RevRangeI64 { current: self.end, start: self.current };
     }
 }
