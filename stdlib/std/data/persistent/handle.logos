@@ -34,6 +34,7 @@ use std.data.persistent.mutv;
 use std.data.persistent.store;
 use std.data.persistent.iter;
 use std.data.persistent.cfg;
+use std.data.persistent.snapshot;
 use std.data.persistent.bt.node;
 use std.data.persistent.bt.cow;
 use std.mem.arc;
@@ -154,6 +155,62 @@ impl<const STORE_CFG: HermesStatic> Snap<STORE_CFG> {
             let id: i64 = stp.register_commit(dir_p.root as *mut u8, dir_p.parent_id);
             dir_p.root = 0 as *mut NodeBase<u64, u64, DirCfg>;
             return id;
+        }
+    }
+}
+
+// ── ISnapshot impl on Snap<STORE_CFG> ───────────────────────────
+// Routes through the directory MutSnapshot<DirCfg>. The NULL_CTR_ID
+// sentinel (= 0u64) is the "directory itself" key — get returns the
+// dir's own root, set replaces it. For non-zero ctr_id, get/set
+// delegate to mut_snapshot_get / mut_snapshot_insert on the dir.
+//
+// MVP: set_root performs no ref/unref ballet on the *registered* root
+// — caller arranged for it. The dir tree itself does CoW-clone via
+// mut_snapshot_insert. on-disk Stores will plumb proper unref(prev)
+// here once block-refcount semantics span backends.
+impl<const STORE_CFG: HermesStatic> ISnapshot for Snap<STORE_CFG> {
+    fn has_root(&mut self, ctr_id: u64) -> bool {
+        unsafe {
+            let dp:    *mut Rc<MutSnapshot<DirCfg>> = &mut self.dir as *mut Rc<MutSnapshot<DirCfg>>;
+            let dir_p: *mut MutSnapshot<DirCfg>     = dp.get_mut();
+            if ctr_id == NULL_CTR_ID {
+                return dir_p.root != 0 as *mut NodeBase<u64, u64, DirCfg>;
+            }
+            let mut out: u64 = 0u64;
+            return mut_snapshot_get::<DirCfg>(
+                dir_p as *const MutSnapshot<DirCfg>,
+                &ctr_id as *const u64,
+                &mut out as *mut u64);
+        }
+    }
+
+    fn get_root(&mut self, ctr_id: u64) -> u64 {
+        unsafe {
+            let dp:    *mut Rc<MutSnapshot<DirCfg>> = &mut self.dir as *mut Rc<MutSnapshot<DirCfg>>;
+            let dir_p: *mut MutSnapshot<DirCfg>     = dp.get_mut();
+            if ctr_id == NULL_CTR_ID {
+                return dir_p.root as u64;
+            }
+            let mut out: u64 = 0u64;
+            let hit: bool = mut_snapshot_get::<DirCfg>(
+                dir_p as *const MutSnapshot<DirCfg>,
+                &ctr_id as *const u64,
+                &mut out as *mut u64);
+            if hit { return out; } else { return 0u64; }
+        }
+    }
+
+    fn set_root(&mut self, ctr_id: u64, root: u64) {
+        unsafe {
+            let dp:    *mut Rc<MutSnapshot<DirCfg>> = &mut self.dir as *mut Rc<MutSnapshot<DirCfg>>;
+            let dir_p: *mut MutSnapshot<DirCfg>     = dp.get_mut();
+            if ctr_id == NULL_CTR_ID {
+                dir_p.root = root as *mut NodeBase<u64, u64, DirCfg>;
+                return;
+            }
+            let _ = mut_snapshot_insert::<DirCfg>(
+                dir_p, ctr_id, root, &ctr_id as *const u64);
         }
     }
 }

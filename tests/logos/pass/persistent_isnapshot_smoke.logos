@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: Apache-2.0
+// ISnapshot trait smoke — has_root / get_root / set_root semantics on
+// Snap<STORE_CFG>. Validates the abstraction layer added in the mini-
+// Memoria evolution: containers route directory access through these
+// three methods only.
+
+package persistent_isnapshot_smoke_probe;
+
+use std.data.persistent.handle;
+use std.data.persistent.store;
+use std.data.persistent.btree;
+use std.data.persistent.snapshot;
+use std.mem.rc;
+use std.lang.cmp; use std.lang.ord; use std.lang.datatypes;
+use std.hermes.view; use std.hermes.anyval;
+
+pub const StoreCfg: HermesStatic = @{ "name": "isnap-smoke", "ctr_id": <type:u64>, "snp_id": <type:u64> };
+pub const MapCfg:   HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 8 };
+
+fn main() -> i32 {
+    let mut s: Store<StoreCfg> = store_open();
+    let mut sn: Snap<StoreCfg> = snap_begin(&mut s);
+
+    // Empty snapshot — directory has no entries.
+    if sn.has_root(7u64) { return 11; }
+    if sn.get_root(7u64) != 0u64 { return 12; }
+
+    // Create a container at ctr_id=7 — the standard path populates dir.
+    {
+        let mut cr: ContainerRef<MapCfg> = create_pmap::<MapCfg>(&mut sn, 7u64);
+        let _ = cr.insert(1u64, 100u64, &1u64 as *const u64);
+    }
+
+    // After ContainerRef::drop the dir entry must be live.
+    if !sn.has_root(7u64) { return 21; }
+    let r7: u64 = sn.get_root(7u64);
+    if r7 == 0u64 { return 22; }
+
+    // Other ctr_ids — absent.
+    if sn.has_root(8u64) { return 31; }
+
+    // Null sentinel — directory has its own root after a successful insert.
+    if !sn.has_root(NULL_CTR_ID) { return 41; }
+
+    return 0;
+}
