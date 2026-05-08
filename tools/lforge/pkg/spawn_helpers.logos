@@ -16,21 +16,20 @@ use lforge.proc;
 // interleaving is per-line-atomic on libc-line-buffered streams; good
 // enough for build progress.
 pub fn spawn_inherit(argv: &Vec<String>) -> Child {
-    unsafe {
-        let n: i64 = argv.length();
+    let n: i64 = argv.length();
     let argv_buf: *mut *const u8 = alloc((n + 1 as i64) * 8 as i64) as *mut *const u8;
-    let ap: *const Vec<String> = argv as *const Vec<String>;
     let mut i: i64 = 0 as i64;
-    while i < n {
-        let s: *const String = ap.at_const(i);
-        argv_buf[i] = (*s).as_ptr();
-        i = i + 1 as i64;
+    unsafe {
+        while i < n {
+            let s: &String = argv.borrow(i);
+            argv_buf[i] = s.as_ptr();
+            i = i + 1 as i64;
+        }
+        argv_buf[n] = 0 as *const u8;
     }
-    argv_buf[n] = 0 as *const u8;
-    let child: Child = spawn(argv_buf as *const *const u8, false, false, false);
+    let child: Child = unsafe { spawn(argv_buf as *const *const u8, false, false, false) };
     dealloc(argv_buf as *mut u8);
     return child;
-    }
 }
 
 // Per-file artifact paths under .lforge/<profile>/_files/<lib_name>/.
@@ -70,14 +69,11 @@ pub fn native_obj_path(dir: &String, src_path: &String) -> String {
 // Spawn `cc -c <src> -o <obj>` for a single C/asm file. cc handles both
 // .c and .S via file extension, so this one helper covers both.
 pub fn spawn_native_compile(src_path: &String, obj_path: &String) -> Child {
-    unsafe {
-        let mut argv: Vec<String> = vec_new::<String>();
-    let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
-    push_arg(argv_p, "cc");
-    push_arg(argv_p, "-c");
-    push_string_arg(argv_p, src_path);
-    push_arg(argv_p, "-o");
-    push_string_arg(argv_p, obj_path);
+    let mut argv: Vec<String> = vec_new::<String>();
+    push_arg(&mut argv, "cc");
+    push_arg(&mut argv, "-c");
+    push_string_arg(&mut argv, src_path);
+    push_arg(&mut argv, "-o");
+    push_string_arg(&mut argv, obj_path);
     return spawn_inherit(&argv);
-    }
 }

@@ -10,13 +10,17 @@ use lforge.schema;
 extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
 
 // Heap-allocate a NUL-terminated copy of `s`. Caller frees with `dealloc`.
-pub unsafe fn cstr(s: str) -> *mut u8 {
-    let n: i64 = s.len();
-    let h: *mut u8 = alloc(n + 1 as i64);
-    let mut i: i64 = 0 as i64;
-    while i < n { h[i] = s.as_ptr()[i]; i = i + 1 as i64; }
-    h[n] = 0 as u8;
-    return h;
+// Safe to call (allocates valid memory + copies); unsafe by ownership
+// contract — caller must dealloc.
+pub fn cstr(s: str) -> *mut u8 {
+    unsafe {
+        let n: i64 = s.len();
+        let h: *mut u8 = alloc(n + 1 as i64);
+        let mut i: i64 = 0 as i64;
+        while i < n { h[i] = s.as_ptr()[i]; i = i + 1 as i64; }
+        h[n] = 0 as u8;
+        return h;
+    }
 }
 
 pub fn str_eq_local(a: str, b: str) -> bool {

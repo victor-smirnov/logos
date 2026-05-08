@@ -10,38 +10,32 @@ extern fn chdir(path: *const u8) -> i32;
 extern fn getcwd(buf: *mut u8, size: u64) -> *mut u8;
 
 pub fn save_cwd() -> String {
-    unsafe {
-        let cap: u64 = 4096 as u64;
+    let cap: u64 = 4096 as u64;
     let buf: *mut u8 = alloc(cap as i64);
-    let r: *mut u8 = getcwd(buf, cap);
-    if r == 0 as *mut u8 {
-        dealloc(buf);
-        return String::new();
-    }
-    let s: str = str_from_cstr(r as *const u8);
     let mut out: String = String::new();
-    out.push_str(s);
+    unsafe {
+        let r: *mut u8 = getcwd(buf, cap);
+        if r != 0 as *mut u8 {
+            out.push_str(str_from_cstr(r as *const u8));
+        }
+    }
     dealloc(buf);
     return out;
-    }
 }
 
 pub fn chdir_str(path: str) -> i32 {
-    unsafe {
-        let cs: *mut u8 = cstr(path);
-    let rc: i32 = chdir(cs as *const u8);
+    let cs: *mut u8 = cstr(path);
+    let rc: i32 = unsafe { chdir(cs as *const u8) };
     dealloc(cs);
     return rc;
-    }
 }
 
 // Concatenate cwd + "/" + rel into an absolute path (no normalisation —
 // the kernel handles `.` / `..` fine and lockfile/cache canonicalisation
 // is a future-step concern).
 pub fn make_absolute(rel: str) -> String {
-    unsafe {
-        let n: i64 = rel.len();
-    if n > 0 as i64 && (rel.as_ptr()[0 as i64] as i32) == 47 {
+    let n: i64 = rel.len();
+    if n > 0 as i64 && unsafe { rel.as_ptr()[0 as i64] as i32 } == 47 {
         let mut out: String = String::new();
         out.push_str(rel);
         return out;
@@ -51,5 +45,4 @@ pub fn make_absolute(rel: str) -> String {
     out.push_bytes(cwd.as_ptr(), cwd.len());
     append_path(&mut out, rel);
     return out;
-    }
 }

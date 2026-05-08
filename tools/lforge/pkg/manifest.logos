@@ -23,8 +23,8 @@ use lforge.hermes_io;
 //     { project: "github.com/x/y", tag:    "v1.0", modules: [...] }
 //     { project: "github.com/x/y", branch: "main", modules: [...] }
 //     { project: "github.com/x/y", sha:    "abc...", modules: [...] }
-unsafe fn parse_external_dep(view: &HermesView<'a>, base: *const u8, d_av: AnyVal) -> Result<ExternalDep, ManifestError> {
-    if !d_av.is_map(base) {
+fn parse_external_dep(view: &HermesView<'a>, d_av: AnyVal) -> Result<ExternalDep, ManifestError> {
+    if unsafe { !d_av.is_map(view.base()) } {
         return Result::Err(err_msg("manifest: deps[] entry is not a map"));
     }
     let path_s:    String = read_str_opt(view, d_av, "path");
@@ -69,8 +69,8 @@ unsafe fn parse_external_dep(view: &HermesView<'a>, base: *const u8, d_av: AnyVa
     });
 }
 
-unsafe fn parse_target(view: &HermesView<'a>, base: *const u8, t_av: AnyVal) -> Result<Target, ManifestError> {
-    if !t_av.is_map(base) {
+fn parse_target(view: &HermesView<'a>, t_av: AnyVal) -> Result<Target, ManifestError> {
+    if unsafe { !t_av.is_map(view.base()) } {
         return Result::Err(err_msg("manifest: targets[] entry is not a map"));
     }
     let kind_s: String = match read_str_field(view, t_av, "kind") {
@@ -142,7 +142,7 @@ pub fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
         let mut i: u64 = 0 as u64;
         while i < n {
             let t_av: AnyVal = view.array_get(targets_av, i);
-            match parse_target(&view, base, t_av) {
+            match parse_target(&view, t_av) {
                 Result::Err(e) => { return Result::Err(e); }
                 Result::Ok(t)  => { tp.push(t); }
             }
@@ -186,7 +186,7 @@ pub fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
         let mut j: u64 = 0 as u64;
         while j < nd {
             let d_av: AnyVal = view.array_get(deps_av, j);
-            match parse_external_dep(&view, base, d_av) {
+            match parse_external_dep(&view, d_av) {
                 Result::Err(e) => { return Result::Err(e); }
                 Result::Ok(d)  => { dp.push(d); }
             }
