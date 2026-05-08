@@ -203,14 +203,33 @@ impl<const STORE_CFG: HermesStatic> ISnapshot for Snap<STORE_CFG> {
 
     unsafe fn set_root(&mut self, ctr_id: u64, root: u64) {
         unsafe {
+            // NULL_CTR_ID is the recursion bottom: "the directory itself".
+            // For in-mem store, that's just a write to dir.root. On-disk
+            // backends will plumb update_directory_root semantics here
+            // (unref(prev), update history_node.root_id_, …).
             let dp:    *mut Rc<MutSnapshot<DirCfg>> = &mut self.dir as *mut Rc<MutSnapshot<DirCfg>>;
             let dir_p: *mut MutSnapshot<DirCfg>     = dp.get_mut();
             if ctr_id == NULL_CTR_ID {
                 dir_p.root = root as *mut NodeBase<u64, u64, DirCfg>;
                 return;
             }
+            // Non-null ctr_id: directory-as-container mutation.
+            // Invariant we enforce: mutating the directory routes the
+            // new root back through `set_root(NULL_CTR_ID, …)`. This is
+            // the recursive "directory = container" pattern from big
+            // Memoria — every dir mutation, like every user-container
+            // mutation, ends in setRoot(name, new_root) with name=null
+            // for the dir itself. mut_snapshot_insert performs CoW on
+            // a local view and writes the (possibly new) root back into
+            // it; we then commit that root via the null-sentinel path.
+            let mut t: MutSnapshot<DirCfg> = MutSnapshot::<DirCfg> {
+                root:      dir_p.root,
+                parent_id: dir_p.parent_id,
+            };
             let _ = mut_snapshot_insert::<DirCfg>(
-                dir_p, ctr_id, root, &ctr_id as *const u64);
+                &mut t as *mut MutSnapshot<DirCfg>,
+                ctr_id, root, &ctr_id as *const u64);
+            self.set_root(NULL_CTR_ID, t.root as u64);
         }
     }
 }
