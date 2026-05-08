@@ -12,6 +12,176 @@
 
 namespace logos::compiler {
 
+// ── Structural TypeHash (mini-Memoria block_type_hash / ctr_type_hash) ────────
+//
+// FNV-1a-64 over a tag-prefixed walk of T's structure. Layout-stable: bears
+// no struct/field name, so refactors that don't change physical layout
+// (rename fields, rename struct, internal reorganisation) preserve the hash.
+// Inspired by legacy Memoria's `TypeHash<T>::Value` (compile-time MD5 over
+// type-list of constituent codes); we use FNV-1a-64 to share infrastructure
+// with HermesStatic and ObjectMap-key hashing already in stdlib.
+//
+// Tag values pick low integers so the most common tags fit in one byte mix.
+// Primitive codes mirror legacy Memoria's table for wire-format proximity:
+// i8=7, u8=6, i16=8, u16=9, i32=1, u32=10, i64=2, u64=8 collide on legacy
+// (legacy assigns u64=8 same as i16) — we deliberately diverge to give every
+// primitive a unique code, which matters more for collision avoidance than
+// historical legacy parity (we have no on-disk format yet).
+
+static constexpr uint64_t TH_FNV_OFFSET_BASIS = 14695981039346656037ULL;
+static constexpr uint64_t TH_FNV_PRIME        = 1099511628211ULL;
+
+// Tag bytes for non-primitive shapes. Distinct from any primitive code.
+// Reserved 0x80+ keeps room for primitive codes 1..0x40 if we ever need them.
+static constexpr uint64_t TH_TAG_STRUCT = 0x80;
+static constexpr uint64_t TH_TAG_TUPLE  = 0x81;
+static constexpr uint64_t TH_TAG_ARRAY  = 0x82;
+static constexpr uint64_t TH_TAG_PTR    = 0x83;  // *const T
+static constexpr uint64_t TH_TAG_REF    = 0x84;  // &T
+static constexpr uint64_t TH_TAG_MUTREF = 0x85;  // &mut T
+static constexpr uint64_t TH_TAG_SLICE  = 0x86;
+static constexpr uint64_t TH_TAG_ENUM   = 0x87;
+static constexpr uint64_t TH_TAG_HSTAT  = 0x88;  // HermesStatic literal: mix const_val
+static constexpr uint64_t TH_TAG_FNPTR  = 0x89;
+static constexpr uint64_t TH_TAG_VOID   = 0x01;
+
+static uint64_t th_mix_u64(uint64_t h, uint64_t v) noexcept {
+    for (int i = 0; i < 8; ++i) {
+        uint8_t b = static_cast<uint8_t>((v >> (i * 8)) & 0xff);
+        h ^= b;
+        h *= TH_FNV_PRIME;
+    }
+    return h;
+}
+
+static uint64_t th_primitive_code(LogosType::Kind k) noexcept {
+    using K = LogosType::Kind;
+    switch (k) {
+        case K::Bool: return 0x05;
+        case K::I8:   return 0x07;
+        case K::U8:   return 0x06;
+        case K::I16:  return 0x08;
+        case K::U16:  return 0x09;
+        case K::I32:  return 0x0A;
+        case K::U32:  return 0x0B;
+        case K::I64:  return 0x0C;
+        case K::U64:  return 0x0D;
+        case K::I24:  return 0x0E;
+        case K::U24:  return 0x0F;
+        case K::I56:  return 0x10;
+        case K::U56:  return 0x11;
+        case K::I128: return 0x12;
+        case K::U128: return 0x13;
+        case K::F32:  return 0x14;
+        case K::F64:  return 0x15;
+        default:      return 0;
+    }
+}
+
+uint64_t Mono::compute_type_hash(TypeRef t, StrSet& seen) noexcept {
+    using K = LogosType::Kind;
+    uint64_t h = TH_FNV_OFFSET_BASIS;
+    if (!t) return th_mix_u64(h, 0);
+    K k = t.kind();
+    switch (k) {
+        case K::Void:
+            return th_mix_u64(h, TH_TAG_VOID);
+        case K::Bool:
+        case K::I8:  case K::U8:
+        case K::I16: case K::U16:
+        case K::I32: case K::U32:
+        case K::I64: case K::U64:
+        case K::I24: case K::U24:
+        case K::I56: case K::U56:
+        case K::I128: case K::U128:
+        case K::F32: case K::F64:
+            return th_mix_u64(h, th_primitive_code(k));
+        case K::Ptr:
+            h = th_mix_u64(h, TH_TAG_PTR);
+            return th_mix_u64(h, compute_type_hash(t.pointee(), seen));
+        case K::Ref:
+            h = th_mix_u64(h, TH_TAG_REF);
+            return th_mix_u64(h, compute_type_hash(t.pointee(), seen));
+        case K::MutRef:
+            h = th_mix_u64(h, TH_TAG_MUTREF);
+            return th_mix_u64(h, compute_type_hash(t.pointee(), seen));
+        case K::Slice:
+            h = th_mix_u64(h, TH_TAG_SLICE);
+            return th_mix_u64(h, compute_type_hash(t.elem(), seen));
+        case K::Array: {
+            h = th_mix_u64(h, TH_TAG_ARRAY);
+            h = th_mix_u64(h, compute_type_hash(t.elem(), seen));
+            return th_mix_u64(h, t.arr_size());
+        }
+        case K::Tuple: {
+            h = th_mix_u64(h, TH_TAG_TUPLE);
+            auto elems = t.tuple_elems();
+            h = th_mix_u64(h, static_cast<uint64_t>(elems.size()));
+            for (auto e : elems)
+                h = th_mix_u64(h, compute_type_hash(e, seen));
+            return h;
+        }
+        case K::FnPtr:
+            // Treat as opaque scalar for now — fn-pointers hashing equal
+            // across signatures is the conservative choice; refine if a
+            // wire format pins it down.
+            return th_mix_u64(h, TH_TAG_FNPTR);
+        case K::HStaticLit: {
+            // HermesStatic literal: identity = byte-hash of the underlying
+            // CFG value (already stored in const_val()). No structural
+            // recursion — opaque to the compiler at this level.
+            h = th_mix_u64(h, TH_TAG_HSTAT);
+            uint64_t v = static_cast<uint64_t>(t.const_val().value_or(0));
+            return th_mix_u64(h, v);
+        }
+        case K::Enum:
+            // Without per-variant layout introspection wired up here, we
+            // hash by enum-tag-only. Refine when block_type_hash needs
+            // discriminate variants (= when first persistent enum lands).
+            return th_mix_u64(h, TH_TAG_ENUM);
+        case K::Struct:
+        case K::ZonedStruct: {
+            // Cycle guard: recursive structs (e.g. linked-list-style) would
+            // otherwise blow the stack. Mix a marker on re-entry.
+            std::string sk = type_str(t);
+            if (!seen.insert(sk).second)
+                return th_mix_u64(h, 0xCAFEBABEull);
+            h = th_mix_u64(h, TH_TAG_STRUCT);
+            std::string base{t.struct_name()};
+            std::string tpkg{t.pkg_name()};
+            const lir::LStructDef* tmpl = nullptr;
+            for (auto& sd : in_.structs)
+                if (sd.name == base && (tpkg.empty() || sd.pkg == tpkg)) {
+                    tmpl = &sd; break;
+                }
+            if (!tmpl)
+                for (auto& sd : in_.structs)
+                    if (sd.name == base) { tmpl = &sd; break; }
+            if (!tmpl) {
+                seen.erase(sk);
+                return th_mix_u64(h, 0);
+            }
+            SubstMap fsubst;
+            for (size_t i = 0, j = 0; i < tmpl->type_params.size(); ++i) {
+                if (j < t.type_args().size())
+                    fsubst[tmpl->type_params[i].name] = t.type_args()[j++];
+            }
+            h = th_mix_u64(h, static_cast<uint64_t>(tmpl->fields.size()));
+            for (auto& f : tmpl->fields) {
+                TypeRef ft = subst_type(f.type, fsubst);
+                h = th_mix_u64(h, compute_type_hash(ft, seen));
+            }
+            seen.erase(sk);
+            return h;
+        }
+        default:
+            // TypeVar / ConstVar / unresolved — should not reach mono
+            // post-substitution. Fall through to a stable but identifiable
+            // sentinel so callers can grep for unexpected zero-hashes.
+            return th_mix_u64(h, 0xDEADBEEFull);
+    }
+}
+
 // ── Auto-trait structural check (Rust-style) ──────────────────────────────────
 // Mirrors sema_auto_trait.cpp but works against mono's tables.  Used by the
 // bound gate in clone_struct_def so that `impl<T: Send> Foo<T>` only clones
@@ -829,6 +999,18 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                           ? 0
                           : (int64_t)(uint64_t)nc.type_args[0].const_val().value_or(0);
                 result->mirror_offset_ = lir_mirror_emit_lit_int(out_, result->type, v);
+                break;
+            }
+            // type_hash::<T>() — structural FNV-1a-64 hash of T.
+            // Layout-stable: bears no struct/field name, recurses into
+            // field types after subst. See compute_type_hash() above.
+            if (nc.callee == "__type_hash_of__") {
+                StrSet seen;
+                uint64_t h = (nc.type_args.empty())
+                           ? 0
+                           : compute_type_hash(nc.type_args[0], seen);
+                result->mirror_offset_ = lir_mirror_emit_lit_int(
+                    out_, result->type, (int64_t)h);
                 break;
             }
             // type_of::<T>().name — magic intrinsic that mono replaces with

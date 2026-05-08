@@ -227,6 +227,12 @@ private:
     // ── Type substitution (large — defined in mono_subst.cpp) ────────────
     TypeRef subst_type(TypeRef tv, const SubstMap& s) noexcept;
 
+    // Structural FNV-1a-64 hash of T (mini-Memoria block_type_hash). Layout-
+    // stable: ignores struct/field names, recurses into field types using
+    // the same SubstMap shape as __field_types_of__. Cycle-guarded via the
+    // caller-provided seen set. Defined in mono_clone.cpp.
+    uint64_t compute_type_hash(TypeRef t, StrSet& seen) noexcept;
+
     // Pattern substitution — view-based walk over the input mirror.
     lir::Pattern subst_pattern(const lir::Pattern& pat, const SubstMap& s);
     lir::Pattern subst_pattern(lir_view::PatRef pref, const SubstMap& s);

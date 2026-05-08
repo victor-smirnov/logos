@@ -1921,6 +1921,21 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         return builder().call("__hstatic_hash_of__", std::move(ts), {},
                               prim(LogosType::Kind::U64));
     }
+    // type_hash::<T>() — structural FNV-1a-64 hash of T. Layout-stable:
+    // primitives → fixed code; struct/tuple/array/ptr → tag + recursive
+    // hash of constituents, no struct/field name. Two structurally
+    // identical layouts hash equal. Generic insts substitute their args
+    // through the same recursion (Foo<i32> ≠ Foo<u32>). Folded at mono
+    // via __type_hash_of__ to a u64 literal.
+    if (callee == "type_hash") {
+        auto ts = collect_type_args();
+        if (ts.size() != 1 || !ts[0]) {
+            error("type_hash::<T>() requires exactly one type argument");
+            return error_expr();
+        }
+        return builder().call("__type_hash_of__", std::move(ts), {},
+                              prim(LogosType::Kind::U64));
+    }
     if (callee == "is_ptr" || callee == "is_ref" || callee == "is_mut_ref" ||
         callee == "is_struct" || callee == "is_zoned" || callee == "is_enum" ||
         callee == "is_tuple" || callee == "is_slice" || callee == "is_array" ||

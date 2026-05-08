@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: Apache-2.0
+// type_hash::<T>() — structural FNV-1a-64 hash. Layout-stable: bears no
+// struct/field name; layout-equivalent structs hash equal; layout
+// differences (field type, count) hash differently.
+
+package meta_type_hash_probe;
+
+use std.compiler.metaprog;
+
+pub struct A { pub x: u64, pub y: u64, }
+pub struct B { pub p: u64, pub q: u64, }     // layout-equivalent to A
+pub struct C { pub x: u64, }                  // shorter
+pub struct D { pub x: u32, pub y: u64, }     // first field type differs
+pub struct E { pub x: u64, pub y: u32, }     // second field type differs
+
+pub struct G<T> { pub v: T, }
+
+unsafe fn main() -> i32 {
+    // Primitives — distinct codes.
+    let h_i32: u64 = type_hash::<i32>();
+    let h_i64: u64 = type_hash::<i64>();
+    let h_u64: u64 = type_hash::<u64>();
+    let h_u8:  u64 = type_hash::<u8>();
+    let h_b:   u64 = type_hash::<bool>();
+    if h_i32 == h_i64 { return 11; }
+    if h_i32 == h_u64 { return 12; }
+    if h_u8  == h_u64 { return 13; }
+    if h_b   == h_u8  { return 14; }
+    if h_i32 == 0u64 { return 15; }
+
+    // Layout-equivalent structs hash the same (no name in hash).
+    let h_a: u64 = type_hash::<A>();
+    let h_b2: u64 = type_hash::<B>();
+    if h_a != h_b2 { return 21; }
+
+    // Different layout — different hash.
+    let h_c: u64 = type_hash::<C>();
+    let h_d: u64 = type_hash::<D>();
+    let h_e: u64 = type_hash::<E>();
+    if h_a == h_c { return 22; }       // field-count differs
+    if h_a == h_d { return 23; }       // first-field type differs
+    if h_a == h_e { return 24; }       // second-field type differs
+    if h_d == h_e { return 25; }       // permutation matters
+
+    // Generic instantiation — args get substituted, layout follows.
+    let h_g_u64: u64 = type_hash::<G<u64>>();
+    let h_g_i32: u64 = type_hash::<G<i32>>();
+    if h_g_u64 == h_g_i32 { return 31; }
+    // G<u64> wraps a single u64, same shape as C { x: u64 }: layout-equal.
+    if h_g_u64 != h_c { return 32; }
+
+    // Stable: two calls yield equal results (mono-baked literal).
+    let h_a2: u64 = type_hash::<A>();
+    if h_a != h_a2 { return 33; }
+
+    return 0;
+}
