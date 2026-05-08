@@ -113,14 +113,30 @@ pub fn node_release_erased<K: Container + ContainerOrd, V: Container, const CFG:
     unsafe { node_release_c::<K, V, CFG>(node_raw as *mut NodeBase<K, V, CFG>); }
 }
 
+// Dispatch through the process-global block-ops registry: read
+// block_type_hash off the node header (offset 16) and invoke its
+// `for_each_child` thunk with the supplied visitor. No-op if the
+// block isn't registered (= legacy callsites that allocate nodes
+// without going through snap_begin / create_pmap, e.g. early
+// pmap-only tests).
+unsafe fn for_each_child_via_registry(node: *mut u8, visit: fn(u64) -> ()) {
+    let h_slot: *mut u64 = (node as i64 + 16i64) as *mut u64;
+    let block_hash: u64 = *h_slot;
+    let fp_u64: u64 = block_ops_lookup_for_each_child(block_hash);
+    if fp_u64 == 0u64 { return; }
+    let fp: fn(*mut u8, fn(u64) -> ()) -> () = fp_u64 as fn(*mut u8, fn(u64) -> ()) -> ();
+    fp(node, visit);
+}
+
 // ── Registration helpers (called once per CFG at snap_begin /
 // create_pmap). Idempotent — registry de-dupes on block_type_hash.
 
 // Register branch + leaf-data ops. For ordinary user containers whose
 // leaves hold value data, not child pointers.
 pub fn register_data_container_block_ops<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>() {
-    let h_branch: u64 = type_hash::<BranchNode<K, V, CFG>>();
-    let h_leaf:   u64 = type_hash::<LeafNode<K, V, CFG>>();
+    let cfg_h: u64 = hstatic_hash_of::<CFG>();
+    let h_branch: u64 = type_hash::<BranchNode<K, V, CFG>>() ^ cfg_h;
+    let h_leaf:   u64 = type_hash::<LeafNode<K, V, CFG>>()   ^ cfg_h;
     let branch_for_each: fn(*mut u8, fn(u64) -> ()) -> () = for_each_child_branch_c::<K, V, CFG>;
     let leaf_for_each:   fn(*mut u8, fn(u64) -> ()) -> () = for_each_child_leaf_data_c::<K, V, CFG>;
     let release_erased:  fn(*mut u8) -> () = node_release_erased::<K, V, CFG>;
@@ -131,8 +147,9 @@ pub fn register_data_container_block_ops<K: Container + ContainerOrd, V: Contain
 // Register branch + leaf-pointer ops. For the directory CFG and any
 // future container whose leaves hold rc-counted child pointers.
 pub fn register_dir_container_block_ops<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>() {
-    let h_branch: u64 = type_hash::<BranchNode<K, V, CFG>>();
-    let h_leaf:   u64 = type_hash::<LeafNode<K, V, CFG>>();
+    let cfg_h: u64 = hstatic_hash_of::<CFG>();
+    let h_branch: u64 = type_hash::<BranchNode<K, V, CFG>>() ^ cfg_h;
+    let h_leaf:   u64 = type_hash::<LeafNode<K, V, CFG>>()   ^ cfg_h;
     let branch_for_each: fn(*mut u8, fn(u64) -> ()) -> () = for_each_child_branch_c::<K, V, CFG>;
     let leaf_for_each:   fn(*mut u8, fn(u64) -> ()) -> () = for_each_child_leaf_ptrs_c::<K, V, CFG>;
     let release_erased:  fn(*mut u8) -> () = node_release_erased::<K, V, CFG>;
@@ -145,7 +162,7 @@ pub fn node_alloc_c<K: Container + ContainerOrd, V: Container, const CFG: Hermes
     let leaf: *mut LeafNode<K, V, CFG> = raw as *mut LeafNode<K, V, CFG>;
     unsafe {
         leaf.base.cfg_hash        = hstatic_hash_of::<CFG>();
-        leaf.base.block_type_hash = type_hash::<LeafNode<K, V, CFG>>();
+        leaf.base.block_type_hash = type_hash::<LeafNode<K, V, CFG>>() ^ hstatic_hash_of::<CFG>();
         leaf.base.rc       = 1u64;
         leaf.base.n        = 0u16;
         leaf.base.is_leaf  = true;
@@ -160,7 +177,7 @@ pub fn node_alloc_internal_c<K: Container + ContainerOrd, V: Container, const CF
     let br: *mut BranchNode<K, V, CFG> = raw as *mut BranchNode<K, V, CFG>;
     unsafe {
         br.base.cfg_hash        = hstatic_hash_of::<CFG>();
-        br.base.block_type_hash = type_hash::<BranchNode<K, V, CFG>>();
+        br.base.block_type_hash = type_hash::<BranchNode<K, V, CFG>>() ^ hstatic_hash_of::<CFG>();
         br.base.rc       = 1u64;
         br.base.n        = 0u16;
         br.base.is_leaf  = false;
@@ -179,6 +196,12 @@ pub fn node_release_c<K: Container + ContainerOrd, V: Container, const CFG: Herm
         node.rc = node.rc - 1u64;
         if node.rc == 0u64 {
             if node.is_leaf {
+                // Dir-flavour leaves have rc-counted vals — release each
+                // via registry-dispatched for_each_child + release_visitor
+                // before tearing down the leaf payload. Data-flavour leaves
+                // are no-op at registry level. Unregistered leaves (legacy
+                // pmap-only tests) also no-op via the lookup-miss path.
+                for_each_child_via_registry(node as *mut u8, release_visitor);
                 let leaf: *mut LeafNode<K, V, CFG> = node as *mut LeafNode<K, V, CFG>;
                 let kp: *mut Buffer<K> = &mut leaf.keys as *mut Buffer<K>;
                 let vp: *mut Buffer<V> = &mut leaf.vals as *mut Buffer<V>;
@@ -222,6 +245,13 @@ pub fn node_clone_for_cow_c<K: Container + ContainerOrd, V: Container, const CFG
                 i = i + 1u64;
             }
             copy.n = orig.n;
+            // Dir-flavour leaves hold rc-counted child pointers in vals
+            // — retain each so the new clone owns its own refs, paired
+            // with the future release_visitor walk when this clone (or
+            // the original) drops to rc=0 in node_release_c. Data-flavour
+            // leaves are no-op via registry. Dispatch through the copy
+            // (they share block_type_hash so either works).
+            for_each_child_via_registry(copy as *mut u8, retain_visitor);
             return copy;
         }
         let src: *mut BranchNode<K, V, CFG> = orig as *mut BranchNode<K, V, CFG>;

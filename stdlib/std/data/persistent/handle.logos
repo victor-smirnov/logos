@@ -3,8 +3,8 @@
 // std.data.persistent.handle — safe wrappers, container-directory
 // architecture.
 //
-//   Store<STORE_CFG>     — Arc<LockingStore>; per-store release registry +
-//                          STORE_CFG schema (ctr_id type, snp_id type, …).
+//   Store<STORE_CFG>     — Arc<LockingStore> + STORE_CFG schema (ctr_id
+//                          type, snp_id type, …).
 //   Snap<STORE_CFG>      — directory MutSnapshot<DirCfg>. Hosts containers,
 //                          dispatches commit/fork.
 //   ContainerRef<CFG>    — handle to one container in a Snap. Holds an Rc
@@ -15,16 +15,26 @@
 //
 // commit() lives on Snap — finalises the dir tree as a new DAG entry; the
 // dir's leaves carry container roots, so all containers in the snap commit
-// together. fork() inherits the dir from a parent commit and rc-bumps every
-// container root referenced by dir leaves so subsequent in-fork mutations
-// CoW-clone cleanly without touching the parent commit's view.
+// together. fork() inherits the dir from a parent commit; container-root
+// rc bumps happen lazily through node_clone_for_cow_c's leaf-clone retain
+// at the first dir-leaf CoW (no eager per-container bump at fork time).
 //
-// Drop chain (auto-fires on scope exit):
-//   • ContainerRef.drop — writeback cached root to dir.
-//   • Snap.drop         — walk dir, dispatch release per container via
-//                          the store-level cfg_hash registry, release dir.
-//                          (commit zeroes dir.root so post-commit drop
-//                          skips the release walk — DAG owns the trees.)
+// CoW rc protocol (whole pipeline):
+//   • create_pmap        — alloc root rc=1, set_root retains → rc=2 (one
+//                          for the dir-leaf occurrence, one open-claim).
+//   • open_pmap          — retain root → +1 open-claim.
+//   • mutation           — pmap_mut_make_root_unique CoW-clones; clone
+//                          retains children via the registry's
+//                          for_each_child + retain_visitor (no-op for data
+//                          leaves, recursive for branch / dir leaves).
+//   • ContainerRef.drop  — dir_set_root_with_rc retains new + releases
+//                          prev around the dir-leaf upsert; then releases
+//                          the open-claim so the dir-leaf is sole owner.
+//   • Snap.drop          — single release_visitor on dir.root; the
+//                          process-global block-ops registry recurses
+//                          through dir leaves and branch nodes. (Commit
+//                          zeroes dir.root so post-commit drop is a
+//                          no-op — DAG owns the trees.)
 
 package std.data.persistent.handle;
 
@@ -82,22 +92,20 @@ unsafe fn cfg_hash_at(root: u64) -> u64 {
     return *h_slot;
 }
 
-// Directory-as-container upsert. For NULL_CTR_ID = direct dir.root
-// write (recursion bottom-out). For non-zero ctr_id — perform
-// mut_snapshot_insert and bottom-out via dir.root = t.root.
-//
-// TODO (next session): integrate ref(new) + release(prev) rc
-// accounting once the leaf-clone-retain side of the protocol is
-// stable. The two halves (clone retain in node_clone_for_cow_c and
-// upsert ref/release here) must land together; the bug we hit while
-// trying that under commit/fork is reproducible with full Increments
-// 2+3+4 enabled and step-3-of-snap_fork removed — a path-condition
-// in the multi-fork scenario over-releases somewhere.
+// Directory-as-container upsert with full CoW rc accounting.
+// For NULL_CTR_ID = direct dir.root write (recursion bottom-out).
+// For non-zero ctr_id — peek prev val (0 if absent), perform
+// mut_snapshot_insert (which CoW-clones the dir-leaf, leaf-clone
+// retains the val children of the clone), then balance the slot:
+// retain the newly stored val (so the dir-leaf's leaf-clone-retain
+// has the right total) and release the prev val (the leaf-clone-retain
+// counted prev into the new leaf, and we just overwrote that slot).
 unsafe fn dir_set_root_with_rc(dir: &mut MutSnapshot<DirCfg>, ctr_id: u64, root: u64) {
     if ctr_id == NULL_CTR_ID {
         dir.root = root as *mut NodeBase<u64, u64, DirCfg>;
         return;
     }
+    let prev: u64 = dir_get(dir, ctr_id);
     let mut t: MutSnapshot<DirCfg> = MutSnapshot::<DirCfg> {
         root:      dir.root,
         parent_id: dir.parent_id,
@@ -106,6 +114,10 @@ unsafe fn dir_set_root_with_rc(dir: &mut MutSnapshot<DirCfg>, ctr_id: u64, root:
         &mut t as *mut MutSnapshot<DirCfg>,
         ctr_id, root, &ctr_id as *const u64);
     dir.root = t.root;
+    // Slot balance: the leaf clone above retained `prev`; the
+    // overwrite drops `prev` from the slot and writes `root`.
+    if root != 0u64 { retain_visitor(root); }
+    if prev != 0u64 { release_visitor(prev); }
 }
 
 
@@ -126,17 +138,6 @@ impl<const STORE_CFG: HermesStatic> Store<STORE_CFG> {
     }
 }
 
-// Idempotently register the per-CFG release thunk in the per-store
-// registry (cfg_hash → release fp). Used by Snap::drop's explicit
-// walker. Will be subsumed by the process-global block-ops registry
-// (bt.registry, keyed on block_type_hash) once Snap::drop migrates.
-fn register_release_thunk<K: Container + ContainerOrd, V: Container, const CFG: HermesStatic>(s: &mut LockingStore) {
-    let h: u64 = hstatic_hash_of::<CFG>();
-    let fp: fn(*mut NodeBase<K, V, CFG>) -> () = node_release_c::<K, V, CFG>;
-    locking_store_register_release(s, h, fp as u64);
-}
-
-
 // ── Snap<STORE_CFG> — directory snapshot. ──────────────────────
 
 pub struct Snap<const STORE_CFG: HermesStatic> {
@@ -145,10 +146,6 @@ pub struct Snap<const STORE_CFG: HermesStatic> {
 }
 
 pub fn snap_begin<const STORE_CFG: HermesStatic>(store: &mut Store<STORE_CFG>) -> Snap<STORE_CFG> {
-    // Register the directory's release thunk in the same per-store
-    // registry user containers populate. Snap::drop dispatches the dir
-    // tree the same way as any user container.
-    register_release_thunk::<u64, u64, DirCfg>(store.arc.deref_mut());
     // Register dir-flavour block ops in the process-global registry —
     // dir-leaves contain rc-counted child pointers, so leaf-clone has
     // to retain them and node release has to recursively release them.
@@ -161,47 +158,14 @@ pub fn snap_begin<const STORE_CFG: HermesStatic>(store: &mut Store<STORE_CFG>) -
     };
 }
 
-// snap_fork — fork from parent commit. The dir tree is rc-bumped via
-// store_begin's parent path. Container roots referenced from dir
-// leaves are also rc-bumped so a future mutation in either parent or
-// fork CoW-clones cleanly. Type-erased rc-bump (rc at offset 0 of
-// NodeBase, regardless of the container's K/V/CFG).
-//
-// TODO: the explicit per-container rc bump below should disappear once
-// the proper CoW protocol is wired through (set_root retain/release +
-// leaf-clone retain + open_pmap ref + ContainerRef::drop release). The
-// process-global block-ops registry foundation is in place; the
-// integration broke commit_fork's multi-fork rc balance and was
-// reverted to keep the tree green. Next session: investigate.
+// snap_fork — fork from parent commit. store_begin retains the dir
+// tree's root; container roots in dir leaves are NOT bumped here —
+// the leaf-clone-retain in node_clone_for_cow_c handles that lazily
+// at the first mutation that CoW-clones a dir leaf.
 pub fn snap_fork<const STORE_CFG: HermesStatic>(store: &mut Store<STORE_CFG>, parent: i64) -> Snap<STORE_CFG> {
-    register_release_thunk::<u64, u64, DirCfg>(store.arc.deref_mut());
     register_dir_container_block_ops::<u64, u64, DirCfg>();
     let dir_inner: MutSnapshot<DirCfg> = store_begin::<DirCfg, LockingStore>(
         store.arc.deref_mut() as *mut LockingStore, parent);
-
-    if dir_inner.root != 0 as *mut NodeBase<u64, u64, DirCfg> {
-        unsafe {
-            let view: PMapView<DirCfg> = PMapView::<DirCfg> { root: dir_inner.root };
-            let mut it: LeafIter<u64, u64, DirCfg> =
-                pmap_view_acquire_leaf_iter::<DirCfg>(&view as *const PMapView<DirCfg>);
-            while leaf_iter_valid::<u64, u64, DirCfg>(&it as *const LeafIter<u64, u64, DirCfg>) {
-                let leaf: *mut LeafNode<u64, u64, DirCfg> =
-                    leaf_iter_leaf::<u64, u64, DirCfg>(&it as *const LeafIter<u64, u64, DirCfg>);
-                let n: u64 = leaf.keys.len();
-                let mut j: u64 = 0u64;
-                while j < n {
-                    let root_u64: u64 = leaf.vals.get(j);
-                    if root_u64 != 0u64 {
-                        let rcp: *mut u64 = root_u64 as *mut u64;
-                        *rcp = *rcp + 1u64;
-                    }
-                    j = j + 1u64;
-                }
-                leaf_iter_next_leaf::<u64, u64, DirCfg>(&mut it as *mut LeafIter<u64, u64, DirCfg>);
-            }
-        }
-    }
-
     return Snap::<STORE_CFG> {
         dir: rc_new::<MutSnapshot<DirCfg>>(dir_inner),
         arc: store.arc.clone_ref(),
@@ -253,11 +217,10 @@ impl<const STORE_CFG: HermesStatic> ISnapshot for Snap<STORE_CFG> {
 }
 
 // create_pmap::<STORE_CFG, CFG>(&mut snap, ctr_id) — register the per-CFG
-// release thunk (idempotent), allocate a fresh empty leaf, register
-// (ctr_id → root) via ISnapshot.set_root, return ContainerRef holding
-// a dir Rc clone for the writeback path on drop.
+// block ops in the process-global registry (idempotent), allocate a fresh
+// empty leaf, register (ctr_id → root) via ISnapshot.set_root, return
+// ContainerRef holding a dir Rc clone for the writeback path on drop.
 pub fn create_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(snap: &mut Snap<STORE_CFG>, ctr_id: <type:STORE_CFG.ctr_id>) -> ContainerRef<CFG> {
-    register_release_thunk::<<type:CFG.key>, <type:CFG.value>, CFG>(snap.arc.deref_mut());
     register_data_container_block_ops::<<type:CFG.key>, <type:CFG.value>, CFG>();
     let r: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> =
         node_alloc_c::<<type:CFG.key>, <type:CFG.value>, CFG>();
@@ -275,12 +238,16 @@ pub fn create_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(snap:
 // slot-1 read on the root). Returns invalid (root=null) on miss or
 // cfg-mismatch.
 pub fn open_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(snap: &mut Snap<STORE_CFG>, ctr_id: <type:STORE_CFG.ctr_id>) -> ContainerRef<CFG> {
+    register_data_container_block_ops::<<type:CFG.key>, <type:CFG.value>, CFG>();
     let key: u64 = ctr_id as u64;
     let out: u64 = snap.get_root(key);
     let mut root: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> =
         0 as *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG>;
     if out != 0u64 && unsafe { cfg_hash_at(out) } == hstatic_hash_of::<CFG>() {
         root = out as *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG>;
+        // Open-claim: ContainerRef holds 1 rc on the cached root for
+        // its lifetime; balanced by release in ContainerRef::drop.
+        unsafe { node_retain_c::<<type:CFG.key>, <type:CFG.value>, CFG>(root); }
     }
     return ContainerRef::<CFG> {
         dir_rc: snap.dir.clone_ref(),
@@ -289,49 +256,19 @@ pub fn open_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(snap: &
     };
 }
 
-// Type-erased registry-driven release: look up the release thunk by
-// the container's cfg_hash (offset-8 slot of its NodeBase) and invoke
-// it on the root pointer. No-op if the thunk isn't registered.
-fn release_root_via_registry(store: &mut LockingStore, root_u64: u64) {
-    if root_u64 == 0u64 { return; }
-    let h: u64 = unsafe { cfg_hash_at(root_u64) };
-    let fp_u64: u64 = locking_store_lookup_release(store, h);
-    if fp_u64 == 0u64 { return; }
-    unsafe {
-        let release: fn(*mut u8) -> () = fp_u64 as fn(*mut u8) -> ();
-        release(root_u64 as *mut u8);
-    }
-}
-
 // Snap.drop — auto-fires on scope exit. If commit was called, dir.root
-// is zeroed → drop returns early (DAG owns the trees). Otherwise walks
-// dir → registry-dispatched release per container → release dir tree
-// itself through the same registry path.
+// is zeroed → drop returns early (DAG owns the trees). Otherwise
+// dispatches a single release_visitor on the dir-tree root; the
+// process-global block-ops registry recurses through dir leaves to
+// release each container root, and through branch nodes to release
+// children. Replaces the previous explicit walker.
 impl<const STORE_CFG: HermesStatic> Drop for Snap<STORE_CFG> {
     fn drop(self: Snap<STORE_CFG>) {
         unsafe {
             let dir_p: *mut MutSnapshot<DirCfg> =
                 (&self.dir as *const Rc<MutSnapshot<DirCfg>> as *mut Rc<MutSnapshot<DirCfg>>).get_mut();
             if dir_p.root == 0 as *mut NodeBase<u64, u64, DirCfg> { return; }
-            let stp: *mut LockingStore =
-                (&self.arc as *const Arc<LockingStore> as *mut Arc<LockingStore>).get() as *mut LockingStore;
-
-            let view: PMapView<DirCfg> = PMapView::<DirCfg> { root: dir_p.root };
-            let mut it: LeafIter<u64, u64, DirCfg> =
-                pmap_view_acquire_leaf_iter::<DirCfg>(&view as *const PMapView<DirCfg>);
-            while leaf_iter_valid::<u64, u64, DirCfg>(&it as *const LeafIter<u64, u64, DirCfg>) {
-                let leaf: *mut LeafNode<u64, u64, DirCfg> =
-                    leaf_iter_leaf::<u64, u64, DirCfg>(&it as *const LeafIter<u64, u64, DirCfg>);
-                let n: u64 = leaf.keys.len();
-                let mut j: u64 = 0u64;
-                while j < n {
-                    release_root_via_registry(&mut *stp, leaf.vals.get(j));
-                    j = j + 1u64;
-                }
-                leaf_iter_next_leaf::<u64, u64, DirCfg>(&mut it as *mut LeafIter<u64, u64, DirCfg>);
-            }
-
-            release_root_via_registry(&mut *stp, dir_p.root as u64);
+            release_visitor(dir_p.root as u64);
             dir_p.root = 0 as *mut NodeBase<u64, u64, DirCfg>;
         }
     }
@@ -404,9 +341,8 @@ impl<const CFG: HermesStatic> ContainerRef<CFG> {
 }
 
 // ContainerRef.drop — writeback the cached root (CoW may have swapped
-// it during ContainerRef's lifetime). Routes through
-// dir_set_root_with_rc so this writeback shares one upsert path with
-// Snap::set_root.
+// it during ContainerRef's lifetime), then release the open-claim rc
+// that was taken at create_pmap / open_pmap.
 impl<const CFG: HermesStatic> Drop for ContainerRef<CFG> {
     fn drop(self: ContainerRef<CFG>) {
         if self.root == 0 as *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> { return; }
@@ -415,6 +351,10 @@ impl<const CFG: HermesStatic> Drop for ContainerRef<CFG> {
                 (&self.dir_rc as *const Rc<MutSnapshot<DirCfg>> as *mut Rc<MutSnapshot<DirCfg>>).get_mut();
             let dir: &mut MutSnapshot<DirCfg> = &mut *dir_p;
             dir_set_root_with_rc(dir, self.ctr_id, self.root as u64);
+            // Release the open-claim retain taken at create/open. The
+            // dir-leaf occurrence (just retained inside set_root) is the
+            // sole owner now.
+            node_release_c::<<type:CFG.key>, <type:CFG.value>, CFG>(self.root);
         }
     }
 }

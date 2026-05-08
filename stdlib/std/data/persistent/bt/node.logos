@@ -41,13 +41,14 @@ pub struct NodeBase<K: Container + ContainerOrd, V: Container, const CFG: Hermes
     // through `*((raw + 8) as *mut u64)`). MUST stay at offset 8 — that
     // cast is the type-erased read in handle.logos.
     pub cfg_hash:        u64,
-    // block_type_hash (offset 16): layout-stable structural hash of the
-    // concrete node schema (LeafNode<K,V,CFG> vs BranchNode<K,V,CFG>
-    // have different layouts → different hashes), computed via
-    // `type_hash::<T>()`. Mirrors big Memoria's `block_type_hash` —
-    // the dispatch key for type-erased ops (drop walker, for_each_child,
-    // serialize/deserialize) once those land. Populated at alloc time
-    // with the schema of the concrete subtype.
+    // block_type_hash (offset 16): runtime dispatch key for type-erased
+    // ops (block-ops registry: for_each_child + release). Computed at
+    // alloc time as `type_hash::<NodeSchema>() ^ hstatic_hash_of::<CFG>()`
+    // — the XOR mixes CFG identity into the schema hash so that two
+    // structurally-identical schemas with different CFGs (e.g.
+    // LeafNode<u64,u64,DirCfg> vs LeafNode<u64,u64,MapCfg>) get distinct
+    // dispatch keys. `type_hash` alone is structural and would collide
+    // when K/V match across CFGs. Mirrors big Memoria's `block_type_hash`.
     pub block_type_hash: u64,
     pub n:        u16,
     pub is_leaf:  bool,

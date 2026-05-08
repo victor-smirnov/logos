@@ -28,15 +28,18 @@ unsafe fn read_cfg_hash(node: *mut u8) -> u64 {
 }
 
 unsafe fn main() -> i32 {
-    // 1. Direct alloc — Leaf and Branch hashes must differ.
+    // 1. Direct alloc — Leaf and Branch hashes must differ. The dispatch
+    // key is `type_hash ^ cfg_hash` so structurally-equal schemas under
+    // different CFGs (e.g. Map vs Dir with same K/V) get distinct keys.
+    let cfg_h: u64 = hstatic_hash_of::<MapCfg>();
     let leaf: *mut NodeBase<u64, u64, MapCfg> = node_alloc_c::<u64, u64, MapCfg>();
     let h_leaf: u64 = read_block_type_hash(leaf as *mut u8);
-    let h_leaf_expected: u64 = type_hash::<LeafNode<u64, u64, MapCfg>>();
+    let h_leaf_expected: u64 = type_hash::<LeafNode<u64, u64, MapCfg>>() ^ cfg_h;
     if h_leaf != h_leaf_expected { return 11; }
 
     let br: *mut NodeBase<u64, u64, MapCfg> = node_alloc_internal_c::<u64, u64, MapCfg>();
     let h_br: u64 = read_block_type_hash(br as *mut u8);
-    let h_br_expected: u64 = type_hash::<BranchNode<u64, u64, MapCfg>>();
+    let h_br_expected: u64 = type_hash::<BranchNode<u64, u64, MapCfg>>() ^ cfg_h;
     if h_br != h_br_expected { return 12; }
 
     if h_leaf == h_br { return 13; }              // distinct schemas
@@ -47,11 +50,10 @@ unsafe fn main() -> i32 {
     let leaf2: *mut NodeBase<u64, u64, MapCfg> = node_alloc_c::<u64, u64, MapCfg>();
     if read_block_type_hash(leaf2 as *mut u8) != h_leaf { return 21; }
 
-    // 3. cfg_hash at slot 1 (offset 8) is unchanged — still the
-    //    CFG-byte-hash. block_type_hash and cfg_hash are independent.
-    let cfg_h: u64 = read_cfg_hash(leaf as *mut u8);
-    let cfg_h_expected: u64 = hstatic_hash_of::<MapCfg>();
-    if cfg_h != cfg_h_expected { return 31; }
+    // 3. cfg_hash at slot 1 (offset 8) is unchanged — still the raw
+    //    CFG-byte-hash, independent of block_type_hash's combined form.
+    let cfg_h_observed: u64 = read_cfg_hash(leaf as *mut u8);
+    if cfg_h_observed != cfg_h { return 31; }
 
     // Cleanup.
     node_release_c::<u64, u64, MapCfg>(leaf);
