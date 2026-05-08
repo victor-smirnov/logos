@@ -216,8 +216,9 @@ impl<const STORE_CFG: HermesStatic> ISnapshot for Snap<STORE_CFG> {
 }
 
 // create_pmap::<STORE_CFG, CFG>(&mut snap, ctr_id) — register the per-CFG
-// release thunk (idempotent), allocate a fresh empty leaf, dir.insert
-// (ctr_id → root_u64), return ContainerRef holding a dir Rc clone.
+// release thunk (idempotent), allocate a fresh empty leaf, register
+// (ctr_id → root) via ISnapshot.set_root, return ContainerRef holding
+// a dir Rc clone for the writeback path on drop.
 pub fn create_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(snap: &mut Snap<STORE_CFG>, ctr_id: <type:STORE_CFG.ctr_id>) -> ContainerRef<CFG> {
     unsafe {
         let stp: *mut LockingStore = (&mut snap.arc as *mut Arc<LockingStore>).get() as *mut LockingStore;
@@ -226,12 +227,10 @@ pub fn create_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(snap:
         let r: *mut NodeBase<<type:CFG.key>, <type:CFG.value>, CFG> =
             node_alloc_c::<<type:CFG.key>, <type:CFG.value>, CFG>();
 
-        let dp:    *mut Rc<MutSnapshot<DirCfg>> = &mut snap.dir as *mut Rc<MutSnapshot<DirCfg>>;
-        let dir_p: *mut MutSnapshot<DirCfg>     = dp.get_mut();
-        let key:   u64 = ctr_id as u64;
-        let val:   u64 = r as u64;
-        let _ = mut_snapshot_insert::<DirCfg>(dir_p, key, val, &key as *const u64);
+        let key: u64 = ctr_id as u64;
+        snap.set_root(key, r as u64);
 
+        let dp: *mut Rc<MutSnapshot<DirCfg>> = &mut snap.dir as *mut Rc<MutSnapshot<DirCfg>>;
         return ContainerRef::<CFG> {
             dir_rc: dp.clone_rc(),
             ctr_id: key,
@@ -240,21 +239,17 @@ pub fn create_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(snap:
     }
 }
 
-// open_pmap::<STORE_CFG, CFG>(&mut snap, ctr_id) — dir lookup + cfg_hash
-// validation (defensive type check via slot-1 read on the root). Returns
-// invalid (root=null) on miss or cfg-mismatch.
+// open_pmap::<STORE_CFG, CFG>(&mut snap, ctr_id) — dir lookup via
+// ISnapshot.get_root + cfg_hash validation (defensive type check via
+// slot-1 read on the root). Returns invalid (root=null) on miss or
+// cfg-mismatch.
 pub fn open_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(snap: &mut Snap<STORE_CFG>, ctr_id: <type:STORE_CFG.ctr_id>) -> ContainerRef<CFG> {
     unsafe {
-        let dp:    *mut Rc<MutSnapshot<DirCfg>> = &mut snap.dir as *mut Rc<MutSnapshot<DirCfg>>;
-        let dir_p: *mut MutSnapshot<DirCfg>     = dp.get_mut();
-
         let key: u64 = ctr_id as u64;
-        let mut out: u64 = 0u64;
-        let hit: bool = mut_snapshot_get::<DirCfg>(
-            dir_p as *const MutSnapshot<DirCfg>,
-            &key as *const u64,
-            &mut out as *mut u64);
-        if !hit {
+        let out: u64 = snap.get_root(key);
+
+        let dp: *mut Rc<MutSnapshot<DirCfg>> = &mut snap.dir as *mut Rc<MutSnapshot<DirCfg>>;
+        if out == 0u64 {
             return ContainerRef::<CFG> {
                 dir_rc: dp.clone_rc(),
                 ctr_id: key,
