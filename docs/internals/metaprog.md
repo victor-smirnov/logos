@@ -46,6 +46,29 @@ The metaprogramming rollout is staged across three phases (MP1 / MP2 / MP3) tied
 - **Vec<Class> over C++ type lists.** Once compile-time programs run, generic-over-shape utilities (serializers, hashers, equality) are written as ordinary loops over a `Vec<Class>` rather than as recursive type-list templates.
 - **Datalog/Rete on Logos.** A native Datalog engine in Logos itself, using Hermes as the fact base. Long-term, this is a candidate for the compiler's trait resolution and borrow analysis. It is also intentional dogfooding — the engine and the compiler exercise each other.
 - **Constraint solving via Z3.** Embedding Z3 cleanly behind a small solver layer is a near-term priority. Used for trait resolution, reward signals (for AI-generated code), and verification.
+- **Metafunction sandbox (ASAP).** Today the ORC resolver falls through to `dlsym(RTLD_DEFAULT)`, so a metafunction can call any `libc` symbol — a real hole, not a stylistic concern. Closing it: metafn-eligibility lifted into the type system as an effect, with capability declarations in `lforge.toml` (`[metaprog].caps`) and JIT-layer symbol allowlist as backstop. Because Logos packages distribute as source today, the consumer's `logosc` runs the effect-check during their build — incorrect metafn code simply doesn't compile downstream; cross-TU signing isn't on the v1 critical path. Default deny: pure AST API only unless declared. Plan: `~/.claude/plans/metaprog-sandbox.md`.
+
+## Metafunction Sandbox
+
+Metafunctions are **arbitrary code, not an arbitrary execution environment.** The code is ordinary Logos; the world it touches is restricted to the compiler API plus capability-declared imports.
+
+The contract is enforced at three layers in v1, with a fourth deferred:
+
+1. **Type system: metafn-eligibility is an effect.** `metafn fn(...) -> T` refines `fn(...) -> T`, with subtyping `metafn fn <: fn` (a metafn is usable from runtime contexts too). Transitivity — "a metafn body can only call metafn fns" — falls out of standard effect typechecking, not a separate compiler pass; `metacall foo()` requires `foo : metafn fn`, otherwise type error. Inference handles internal functions automatically; public API surfaces declare eligibility explicitly as a stability commitment. Generic monomorphization carries the effect through, so HOFs are effect-polymorphic without explicit annotation. Diagnostic chain-trace ("`foo` not eligible because it calls `bar` because it uses inline asm at *file:line*") is mandatory — inference is opaque without it.
+
+2. **JIT load-time: pre-load symbol-table scan.** Before a `.a` enters its `JITDylib`, walk undefined symbols and reject the load if any aren't in the package's capability-derived allowlist. Catches `libc` references cheaply, before any code runs.
+
+3. **JIT runtime: per-package `DefinitionGenerator`.** Each metapackage gets its own `JITDylib` whose generator only resolves capability-allowed symbols. Defence in depth against lazy resolution + per-package symbol views (package A with `caps=["fs.read"]` sees `__logos_fs_read`, package B without it doesn't).
+
+In a source-distribution world the type-system check is the security contract; layers 2–3 are belt-and-suspenders against compiler bugs and effect-checker misses, not the primary defence. Today everything distributes as source through `lforge` git-deps, so the consumer's `logosc` runs Layer 1 against actual sources during their build — there is no opaque pre-built binary needing signature verification.
+
+When binary distribution eventually arrives (Memoria binary releases, marketplace), it will ride on **distribution-level signing** (apt/pacman-style whole-repository signatures), not per-artifact `logosc sign` infrastructure. The cap manifest (declared caps + metafn-exported symbols + effect signatures) is embedded in the `.a` as Hermes metadata; `lforge` trusts it because it trusts the distribution channel. No bespoke signing milestone is on the roadmap.
+
+Default with no `[metaprog].caps` declaration: pure AST / type-reflection API only. Filesystem, network, env, process state are unreachable.
+
+The capability vocabulary is the same object that will later drive the wasm-imports allowlist when metaprog runs on the WASM target (a special case of the accelerator codegen path). The effect system here is also a pilot for Logos's general effect-system work later — decisions about hybrid explicit/inferred declaration, subtyping, and trait coherence here will be reused for `async`, `may_suspend`, and other effects.
+
+Out of scope for v1: seccomp-bpf process isolation (marketplace scenario only), CPU/RSS limits on metafn execution (orthogonal), WASM backend itself (rides on the accelerator path), full effect polymorphism for object-level abstractions across TU (explicit declarations required there). The plan is `~/.claude/plans/metaprog-sandbox.md`.
 
 ## Shape and Scope
 

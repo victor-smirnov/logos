@@ -46,6 +46,20 @@ impl<T> Rc<T> {
         return &mut self.inner.val as *mut T;
     }
 
+    // Reference-returning accessors. The inner block is heap-stable
+    // for the lifetime of any Rc handle, so a `&T` / `&mut T` borrowed
+    // from the inner is well-defined as long as the Rc itself lives.
+    // Prefer these over `get`/`get_mut` — they hand the value back as
+    // a normal Logos reference instead of a raw pointer that callers
+    // have to launder through `unsafe { … }` blocks.
+    pub fn deref(&self) -> &T {
+        unsafe { return &self.inner.val; }
+    }
+
+    pub fn deref_mut(&mut self) -> &mut T {
+        unsafe { return &mut self.inner.val; }
+    }
+
     pub unsafe fn strong_count(self: *mut Rc<T>) -> i32 {
         return self.inner.strong;
     }
