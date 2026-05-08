@@ -1858,6 +1858,7 @@ int main(int argc, char** argv) {
     const char* emit_module_manifest = nullptr;  // --emit-module <manifest>
     std::string only_file;                       // --only-file <path>: per-file emit (B1.7)
     std::string dump_metaprog_dir;                // --dump-metaprog <dir>: write metafn-emitted ASTs as Logos source under <dir>/<callee>__<file>_<line>/post_quote.logos
+    std::string dump_metaprog_filter;             // --dump-metaprog-filter <pat>: comma-separated patterns (`*` / callee substring / `file:line`); empty or `*` = match all
     std::vector<std::string> search_paths;
     // Subset of search_paths populated only from explicit -L / --libs.
     // Used to scope `binary_symbols` collection: only user-explicit
@@ -1969,6 +1970,14 @@ int main(int argc, char** argv) {
         }
         else if (arg == "--dump-metaprog" && i + 1 < argc) {
             dump_metaprog_dir = argv[++i];
+        }
+        else if (arg.rfind("--dump-metaprog-filter=", 0) == 0) {
+            std::string_view v = arg;
+            v.remove_prefix(23);
+            dump_metaprog_filter = std::string(v);
+        }
+        else if (arg == "--dump-metaprog-filter" && i + 1 < argc) {
+            dump_metaprog_filter = argv[++i];
         }
         else if (arg.rfind("--only-file=", 0) == 0) {
             std::string_view v = arg;
@@ -2918,6 +2927,49 @@ int main(int argc, char** argv) {
 
         mkdir_p(dump_metaprog_dir);
 
+        // Parse comma-separated filter patterns. Empty / "*" = match all.
+        // Per pattern, match if it equals "*" OR appears as a substring of
+        // ctx.callee_name / ctx.trigger / "<basename>:<line>" /
+        // "<basename>" — covers the common selector forms (callee name,
+        // trigger annotation, file:line, file). OR'd across all patterns.
+        std::vector<std::string> filter_pats;
+        {
+            std::string_view f = dump_metaprog_filter;
+            while (!f.empty()) {
+                auto comma = f.find(',');
+                std::string_view part = (comma == std::string_view::npos) ? f : f.substr(0, comma);
+                while (!part.empty() && part.front() == ' ') part.remove_prefix(1);
+                while (!part.empty() && part.back()  == ' ') part.remove_suffix(1);
+                if (!part.empty()) filter_pats.emplace_back(part);
+                if (comma == std::string_view::npos) break;
+                f.remove_prefix(comma + 1);
+            }
+        }
+        auto matches_filter = [&](const EmitProvenance& ctx) {
+            if (filter_pats.empty()) return true;  // no filter = all
+            std::string base_noext = std::string(basename_no_ext(ctx.src_file));
+            // Basename WITH extension — for `<file.logos>:<line>` selectors.
+            std::string base_full;
+            {
+                auto slash = ctx.src_file.find_last_of('/');
+                base_full = (slash == std::string::npos) ? ctx.src_file : ctx.src_file.substr(slash + 1);
+            }
+            std::string line_str = std::to_string(ctx.src_line);
+            std::string fl_noext = base_noext + ":" + line_str;
+            std::string fl_full  = base_full  + ":" + line_str;
+            std::string fl_path  = ctx.src_file + ":" + line_str;
+            for (const auto& pat : filter_pats) {
+                if (pat == "*") return true;
+                if (ctx.callee_name.find(pat) != std::string::npos) return true;
+                if (!ctx.trigger.empty() && ctx.trigger.find(pat) != std::string::npos) return true;
+                if (fl_noext.find(pat) != std::string::npos) return true;
+                if (fl_full.find(pat)  != std::string::npos) return true;
+                if (fl_path.find(pat)  != std::string::npos) return true;
+                if (ctx.src_file.find(pat) != std::string::npos) return true;
+            }
+            return false;
+        };
+
         // Render each emit-tracked doc. The provenance vector parallels
         // g_asts; entries left as nullopt are docs the user wrote, not
         // metafn output.
@@ -2925,6 +2977,7 @@ int main(int argc, char** argv) {
             if (!ast_provenance[i]) continue;
             if (i >= asts.size()) continue;
             const auto& ctx = *ast_provenance[i];
+            if (!matches_filter(ctx)) continue;
             std::string base_file = basename_no_ext(ctx.src_file);
             if (base_file.empty()) base_file = "unknown";
             std::string label = ctx.callee_name.empty()

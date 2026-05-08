@@ -19,7 +19,8 @@ use lforge.spawn_helpers;
 
 pub fn build_lib(t: &Target, profile: str, logosc: &String,
                         externals: &Vec<ExternalLib>,
-                        dump_dir: &String) -> i32 { unsafe {    let lib_name_view: str = str_from_raw(t.name.as_ptr(), t.name.len());
+                        dump_dir: &String,
+                        dump_filter: &String) -> i32 { unsafe {    let lib_name_view: str = str_from_raw(t.name.as_ptr(), t.name.len());
 
     // ── Walk Logos source dir, if any ────────────────────────────────────
     let mut sources: Vec<String> = vec_new::<String>();
@@ -126,6 +127,10 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
         if dump_dir.len() > 0 as i64 {
             push_arg(argv_p, "--dump-metaprog");
             push_string_arg(argv_p, dump_dir);
+            if dump_filter.len() > 0 as i64 {
+                push_arg(argv_p, "--dump-metaprog-filter");
+                push_string_arg(argv_p, dump_filter);
+            }
         }
         // External archives so logosc can load their .hermes0 modules and
         // resolve `use <pkg>` statements that reference symbols outside
@@ -333,7 +338,8 @@ pub fn build_bin(t: &Target,
                         logosc: &String,
                         lib_dir: &String,
                         externals: &Vec<ExternalLib>,
-                        dump_dir: &String) -> i32 { unsafe {    if t.entry.len() == 0 as i64 {
+                        dump_dir: &String,
+                        dump_filter: &String) -> i32 { unsafe {    if t.entry.len() == 0 as i64 {
         println_str(2, "lforge: bin target missing 'entry'");
         return 1;
     }
@@ -440,6 +446,10 @@ pub fn build_bin(t: &Target,
     if dump_dir.len() > 0 as i64 {
         push_arg(argv_p, "--dump-metaprog");
         push_string_arg(argv_p, dump_dir);
+        if dump_filter.len() > 0 as i64 {
+            push_arg(argv_p, "--dump-metaprog-filter");
+            push_string_arg(argv_p, dump_filter);
+        }
     }
     let dn: i64 = all_archs.length();
     let dap: *const Vec<String> = (&all_archs) as *const Vec<String>;

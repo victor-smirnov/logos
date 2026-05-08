@@ -185,7 +185,10 @@ pub fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64, use_loc
         if want[idx] == 0 as u8 { continue; }
         let t: *const Target = tp.at_const(idx);
         // Per-target dump dir: .lforge/<profile>/dump/<target>/. logosc
-        // creates per-metacall subdirs by callee + file:line.
+        // creates per-metacall subdirs by callee + file:line. The selector
+        // value (`*` / callee / file:line) is passed verbatim to logosc as
+        // --dump-metaprog-filter; logosc applies a substring/equality
+        // match against ctx.callee_name / ctx.trigger / file:line.
         let mut dump_dir: String = String::new();
         if dump_metacall_sel.len() > 0 as i64 {
             dump_dir.push_str(".lforge/");
@@ -194,8 +197,8 @@ pub fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64, use_loc
             dump_dir.push_bytes((*t).name.as_ptr(), (*t).name.len());
         }
         let rc: i32 = match (*t).kind {
-            TargetKind::Lib => { build_lib(&(*t), profile, &logosc, &externals, &dump_dir) }
-            TargetKind::Bin => { build_bin(&(*t), &m.targets, profile, &logosc, &lib_dir, &externals, &dump_dir) }
+            TargetKind::Lib => { build_lib(&(*t), profile, &logosc, &externals, &dump_dir, dump_metacall_sel) }
+            TargetKind::Bin => { build_bin(&(*t), &m.targets, profile, &logosc, &lib_dir, &externals, &dump_dir, dump_metacall_sel) }
         };
         if rc != 0 {
             dealloc(want);
@@ -560,7 +563,8 @@ pub fn cmd_test(m: &Manifest, profile: str) -> i32 {
         match (*t).kind {
             TargetKind::Lib => {
                 let no_dump: String = String::new();
-                let rc: i32 = build_lib(&(*t), profile, &logosc, &no_externals, &no_dump);
+                let no_filter: String = String::new();
+                let rc: i32 = build_lib(&(*t), profile, &logosc, &no_externals, &no_dump, &no_filter);
                 if rc != 0 {
                     println_str(2, "lforge: lib target failed; aborting test run");
                     return rc;
