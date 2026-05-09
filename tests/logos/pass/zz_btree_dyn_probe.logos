@@ -46,8 +46,21 @@ pub struct NodeBase<const STORE_CFG: HermesStatic> {
 }
 
 // ── BTreeNode trait ─────────────────────────────────────────────────────
+// drop_in_place has a DEFAULT body that runs the concrete impl's full
+// destructor chain via Logos's per-let auto-Drop. Self is substituted
+// per-impl by mono; `let _: Self = *p` moves Self contents into a
+// scope-local binding that auto-drops at fn exit, firing user Drop body
+// (if any) + recursive field destructors.
 pub trait BTreeNode<const STORE_CFG: HermesStatic> {
-    fn release(&mut self);
+    fn drop_in_place(&mut self) {
+        // Move `self` contents out into a scope-local binding; auto-Drop
+        // at fn exit fires user `impl Drop` body (if any) + recursive
+        // field destructors. Per-concrete clone via mono substitution.
+        unsafe {
+            let p: *mut Self = self as *mut Self;
+            let _consumed: Self = *p;
+        }
+    }
     fn block_type_hash(&self) -> u64;
 }
 
@@ -59,10 +72,15 @@ pub struct LeafN<const STORE_CFG: HermesStatic> {
     pub counter: *mut u64,
 }
 
-impl<const STORE_CFG: HermesStatic> BTreeNode<STORE_CFG> for LeafN<STORE_CFG> {
-    fn release(&mut self) {
+// User Drop impl on LeafN — fires from auto-Drop chain triggered by
+// drop_in_place's default body.
+impl<const STORE_CFG: HermesStatic> Drop for LeafN<STORE_CFG> {
+    fn drop(self: LeafN<STORE_CFG>) {
         unsafe { *self.counter = *self.counter + 1u64; }
     }
+}
+
+impl<const STORE_CFG: HermesStatic> BTreeNode<STORE_CFG> for LeafN<STORE_CFG> {
     fn block_type_hash(&self) -> u64 { return 1001u64; }
 }
 
@@ -86,18 +104,14 @@ pub struct BranchN<const STORE_CFG: HermesStatic> {
     pub children: Vec<NodeARC<STORE_CFG>>,
 }
 
-impl<const STORE_CFG: HermesStatic> BTreeNode<STORE_CFG> for BranchN<STORE_CFG> {
-    fn release(&mut self) {
+// User Drop impl on BranchN — fires before auto-field-drop in the chain.
+impl<const STORE_CFG: HermesStatic> Drop for BranchN<STORE_CFG> {
+    fn drop(self: BranchN<STORE_CFG>) {
         unsafe { *self.counter = *self.counter + 1u64; }
-        // Drain children explicitly — each pop'd NodeARC drops at the end
-        // of its iteration, recursing through Vec<NodeARC> via the rc
-        // protocol. NodeARC::drop on the surrounding handle will dealloc
-        // BranchN's bytes raw, so we must release-by-value here rather
-        // than rely on a struct-level Drop chain.
-        while !self.children.is_empty() {
-            let _ = self.children.pop();
-        }
     }
+}
+
+impl<const STORE_CFG: HermesStatic> BTreeNode<STORE_CFG> for BranchN<STORE_CFG> {
     fn block_type_hash(&self) -> u64 { return 2002u64; }
 }
 
@@ -144,7 +158,7 @@ impl<const STORE_CFG: HermesStatic> Drop for NodeARC<STORE_CFG> {
             let rcp: *mut u64 = data_p as *mut u64;
             *rcp = *rcp - 1u64;
             if *rcp == 0u64 {
-                self.p.release();
+                self.p.drop_in_place();   // dyn dispatch — fires user Drop + field destructors
                 dealloc(data_p);
             }
         }

@@ -1089,7 +1089,28 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     auto fn = lower_fn(map_of(m.default_ast), target);
                     holder_ = saved_holder;
                     fn.is_pub = true;  // default trait method inherits trait visibility
-                    prog.functions.push_back(std::make_unique<lir::LFunction>(std::move(fn)));
+                    // Generic impl: the default method must travel as a struct-
+                    // template method so mono clones it per concrete struct
+                    // instantiation. Otherwise the bare-name template ends up as
+                    // a free fn that mono only clones on explicit callsites —
+                    // and dyn-trait dispatch is NOT a callsite.
+                    if (target_struct_tmpl) {
+                        if (!fn.type_params.empty()) {
+                            std::vector<TypeParam> kept;
+                            kept.reserve(fn.type_params.size());
+                            for (auto& tp : fn.type_params) {
+                                bool is_impl_level = false;
+                                for (auto& itp : impl_tps)
+                                    if (itp.name == tp.name) { is_impl_level = true; break; }
+                                if (!is_impl_level) kept.push_back(tp);
+                            }
+                            fn.type_params = std::move(kept);
+                        }
+                        fn.impl_type_params = impl_tps;
+                        target_struct_tmpl->methods.push_back(std::make_unique<lir::LFunction>(std::move(fn)));
+                    } else {
+                        prog.functions.push_back(std::make_unique<lir::LFunction>(std::move(fn)));
+                    }
                     current_type_params_.erase("Self");
                 }
             }
