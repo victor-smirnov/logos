@@ -309,73 +309,53 @@ pub struct RemoveOutcome {
     pub underflow: bool,
 }
 
-// ── Leaf rebalance: borrow from / merge with sibling ──────────────────
-// `parent_branch`'s child at `i` is an under-min leaf. Try to borrow
-// from a sibling with spare keys; otherwise merge. Max-key invariant
-// (parent.keys[k] = max of children[k]) is restored after every op.
+// ── Leaf rebalance: merge-first, borrow only when forced ──────────────
+// Memoria-style decision: if child + sibling combined arity ≤ max_keys,
+// merge them — keeps the tree shorter and avoids paying for another
+// underflow on the next remove near here. Otherwise borrow (which is
+// always feasible because, with the merge-fits failing, the sibling
+// must have > max_keys − child_len ≥ max_keys − (min_keys − 1) > min_keys).
 //
-//   borrow-from-left:  child gains left's last key/val at front.
-//                      • parent.keys[i-1] = left.keys.last (new max of left).
-//                      • parent.keys[i]   unchanged (child's max unchanged).
-//   borrow-from-right: child gains right's first key/val at end.
-//                      • parent.keys[i]   = child.keys.last (new max of child).
-//                      • parent.keys[i+1] unchanged (right's max unchanged).
-//   merge-with-right:  child += right's keys/vals; merged max = right's old max.
-//                      • parent.keys.remove_at(i) — keys[i+1] slides to i,
-//                        which equals merged child's max. parent.children.remove_at(i+1).
-//   merge-with-left:   left += child's keys/vals; left's new max = child's old max.
-//                      • parent.keys.remove_at(i-1) — keys[i] slides to i-1,
-//                        which equals new left's max. parent.children.remove_at(i).
+// Only the sibling we actually use gets CoW-cloned (probe length first
+// without make_unique — reads only).
+//
+// Max-key invariant restored after every op:
+//   borrow-from-left:  parent.keys[i-1] = left.keys.last (post-pop);
+//                      parent.keys[i]   unchanged (child's max unchanged).
+//   borrow-from-right: parent.keys[i]   = the moved key (= child.keys.last);
+//                      parent.keys[i+1] unchanged (right's max unaffected).
+//   merge-with-right:  parent.keys.remove_at(i) — keys[i+1] (right's max =
+//                      merged child's new max) slides to i.
+//                      parent.children.remove_at(i+1).
+//   merge-with-left:   parent.keys.remove_at(i-1) — keys[i] (child's old
+//                      max = merged left's new max) slides to i-1.
+//                      parent.children.remove_at(i).
 pub unsafe fn rebalance_leaf_child<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     parent_branch: *mut BranchNode<K, STORE_CFG, CFG>, i: i64,
     cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
 ) {
-    let min_keys: u64 = min_keys_leaf::<CFG>();
+    let max_keys: u64 = max_keys_leaf::<CFG>();
     let nc: i64 = parent_branch.children.length();
+    let has_left:  bool = i > 0i64;
+    let has_right: bool = i + 1i64 < nc;
 
-    // Try borrow from left sibling.
-    if i > 0i64 {
-        let left_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i - 1i64);
-        make_unique::<STORE_CFG>(left_ref, cur_snapshot_id, id_ctr_p);
-        let left = as_leaf::<K, V, STORE_CFG, CFG>(left_ref);
-        if left.keys.len() > min_keys {
-            let child_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i);
-            let child = as_leaf::<K, V, STORE_CFG, CFG>(child_ref);
-            let last: u64 = left.keys.len() - 1u64;
-            let k: K::ViewInStore = left.keys.get(last);
-            let v: V::ViewInStore = left.vals.get(last);
-            child.keys.insert_at(0u64, k);
-            child.vals.insert_at(0u64, v);
-            left.keys.remove_at(last);
-            left.vals.remove_at(last);
-            // Update parent.keys[i-1] = new max of left (= left.keys.last after pop).
-            parent_branch.keys.set((i - 1i64) as u64, left.keys.get(left.keys.len() - 1u64));
-            // parent.keys[i] (= child max) unchanged: prepend doesn't move last.
-            return;
-        }
+    // Probe sizes without CoW (reads only).
+    let child_probe = as_leaf::<K, V, STORE_CFG, CFG>(parent_branch.children.borrow(i));
+    let child_len: u64 = child_probe.keys.len();
+    let mut left_len:  u64 = 0u64;
+    let mut right_len: u64 = 0u64;
+    if has_left {
+        let lp = as_leaf::<K, V, STORE_CFG, CFG>(parent_branch.children.borrow(i - 1i64));
+        left_len = lp.keys.len();
     }
-    // Try borrow from right sibling.
-    if i + 1i64 < nc {
-        let right_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i + 1i64);
-        make_unique::<STORE_CFG>(right_ref, cur_snapshot_id, id_ctr_p);
-        let right = as_leaf::<K, V, STORE_CFG, CFG>(right_ref);
-        if right.keys.len() > min_keys {
-            let child_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i);
-            let child = as_leaf::<K, V, STORE_CFG, CFG>(child_ref);
-            let k: K::ViewInStore = right.keys.get(0u64);
-            let v: V::ViewInStore = right.vals.get(0u64);
-            child.keys.push(k);
-            child.vals.push(v);
-            right.keys.remove_at(0u64);
-            right.vals.remove_at(0u64);
-            // child's last is the moved key → new child max.
-            parent_branch.keys.set(i as u64, child.keys.get(child.keys.len() - 1u64));
-            // parent.keys[i+1] unchanged (right's last unaffected by front pop).
-            return;
-        }
+    if has_right {
+        let rp = as_leaf::<K, V, STORE_CFG, CFG>(parent_branch.children.borrow(i + 1i64));
+        right_len = rp.keys.len();
     }
-    // No spare in either sibling — merge.
-    if i + 1i64 < nc {
+
+    // Prefer merge — keeps tree compact. Right preferred over left when
+    // both fit (consistent with iter / scan direction).
+    if has_right && child_len + right_len <= max_keys {
         let right_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i + 1i64);
         make_unique::<STORE_CFG>(right_ref, cur_snapshot_id, id_ctr_p);
         let right = as_leaf::<K, V, STORE_CFG, CFG>(right_ref);
@@ -387,14 +367,11 @@ pub unsafe fn rebalance_leaf_child<K: Container + ContainerOrd, V: Container, co
             right.keys.remove_at(0u64);
             right.vals.remove_at(0u64);
         }
-        // Drop parent.keys[i] (was child's old max); keys[i+1] (right's max,
-        // = merged child's new max) slides into position i. Drop children[i+1].
         parent_branch.keys.remove_at(i as u64);
         let dropped: NodeARC<STORE_CFG> = parent_branch.children.remove(i + 1i64);
         return;
     }
-    // No right sibling — merge left + child into left.
-    {
+    if has_left && child_len + left_len <= max_keys {
         let left_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i - 1i64);
         make_unique::<STORE_CFG>(left_ref, cur_snapshot_id, id_ctr_p);
         let left = as_leaf::<K, V, STORE_CFG, CFG>(left_ref);
@@ -406,73 +383,72 @@ pub unsafe fn rebalance_leaf_child<K: Container + ContainerOrd, V: Container, co
             child.keys.remove_at(0u64);
             child.vals.remove_at(0u64);
         }
-        // Drop parent.keys[i-1] (was left's old max); keys[i] (child's max,
-        // = merged left's new max) slides into i-1. Drop children[i].
         parent_branch.keys.remove_at((i - 1i64) as u64);
         let dropped: NodeARC<STORE_CFG> = parent_branch.children.remove(i);
+        return;
+    }
+    // Merge didn't fit on either side — borrow. Prefer the side with more
+    // keys (more stable; less likely to underflow next remove).
+    if has_left && (!has_right || left_len >= right_len) {
+        let left_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i - 1i64);
+        make_unique::<STORE_CFG>(left_ref, cur_snapshot_id, id_ctr_p);
+        let left = as_leaf::<K, V, STORE_CFG, CFG>(left_ref);
+        let child_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i);
+        let child = as_leaf::<K, V, STORE_CFG, CFG>(child_ref);
+        let last: u64 = left.keys.len() - 1u64;
+        let k: K::ViewInStore = left.keys.get(last);
+        let v: V::ViewInStore = left.vals.get(last);
+        child.keys.insert_at(0u64, k);
+        child.vals.insert_at(0u64, v);
+        left.keys.remove_at(last);
+        left.vals.remove_at(last);
+        parent_branch.keys.set((i - 1i64) as u64, left.keys.get(left.keys.len() - 1u64));
+        return;
+    }
+    {   // borrow from right
+        let right_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i + 1i64);
+        make_unique::<STORE_CFG>(right_ref, cur_snapshot_id, id_ctr_p);
+        let right = as_leaf::<K, V, STORE_CFG, CFG>(right_ref);
+        let child_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i);
+        let child = as_leaf::<K, V, STORE_CFG, CFG>(child_ref);
+        let k: K::ViewInStore = right.keys.get(0u64);
+        let v: V::ViewInStore = right.vals.get(0u64);
+        child.keys.push(k);
+        child.vals.push(v);
+        right.keys.remove_at(0u64);
+        right.vals.remove_at(0u64);
+        parent_branch.keys.set(i as u64, child.keys.get(child.keys.len() - 1u64));
     }
 }
 
-// ── Branch rebalance: borrow / merge of (key, child) pairs ────────────
-// Same skeleton as rebalance_leaf_child, but the unit transferred is a
-// (key, child) pair (parallel arrays). No separator rotation through
-// the parent — keys ARE the per-child max, moved alongside the child.
-//
-//   borrow-from-left:  pop (key, child) from left's last → prepend to child.
-//                      • parent.keys[i-1] = left.keys.last (after pop).
-//                      • parent.keys[i]   unchanged.
-//   borrow-from-right: pop (key, child) from right's first → append to child.
-//                      • parent.keys[i]   = the moved key (= child.keys.last).
-//                      • parent.keys[i+1] unchanged.
-//   merge / collapse:  same parent slot updates as the leaf case.
+// ── Branch rebalance: merge-first, borrow only when forced ────────────
+// Same decision policy as rebalance_leaf_child but the unit transferred
+// is (key, child) pair instead of (key, val).
 pub unsafe fn rebalance_branch_child<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     parent_branch: *mut BranchNode<K, STORE_CFG, CFG>, i: i64,
     cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
 ) {
-    let min_keys: u64 = min_keys_branch::<CFG>();
+    let max_keys: u64 = max_keys_branch::<CFG>();
     let nc: i64 = parent_branch.children.length();
+    let has_left:  bool = i > 0i64;
+    let has_right: bool = i + 1i64 < nc;
 
-    // Borrow from left.
-    if i > 0i64 {
-        let left_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i - 1i64);
-        make_unique::<STORE_CFG>(left_ref, cur_snapshot_id, id_ctr_p);
-        let left = as_branch::<K, STORE_CFG, CFG>(left_ref);
-        if left.keys.len() > min_keys {
-            let child_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i);
-            let child = as_branch::<K, STORE_CFG, CFG>(child_ref);
-            // Transfer (left.keys.last, left.children.last) → (child.keys[0], child.children[0]).
-            let last: u64 = left.keys.len() - 1u64;
-            let moved_key: K::ViewInStore = left.keys.get(last);
-            child.keys.insert_at(0u64, moved_key);
-            let moved_child: NodeARC<STORE_CFG> = left.children.remove(left.children.length() - 1i64);
-            vec_arc_insert_at::<STORE_CFG>(&mut child.children as *mut Vec<NodeARC<STORE_CFG>>, 0i64, moved_child);
-            left.keys.remove_at(last);
-            // Update parent.keys[i-1] = new max of left.
-            parent_branch.keys.set((i - 1i64) as u64, left.keys.get(left.keys.len() - 1u64));
-            return;
-        }
+    // Probe sizes without CoW.
+    let child_probe = as_branch::<K, STORE_CFG, CFG>(parent_branch.children.borrow(i));
+    let child_len: u64 = child_probe.keys.len();
+    let mut left_len:  u64 = 0u64;
+    let mut right_len: u64 = 0u64;
+    if has_left {
+        let lp = as_branch::<K, STORE_CFG, CFG>(parent_branch.children.borrow(i - 1i64));
+        left_len = lp.keys.len();
     }
-    // Borrow from right.
-    if i + 1i64 < nc {
-        let right_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i + 1i64);
-        make_unique::<STORE_CFG>(right_ref, cur_snapshot_id, id_ctr_p);
-        let right = as_branch::<K, STORE_CFG, CFG>(right_ref);
-        if right.keys.len() > min_keys {
-            let child_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i);
-            let child = as_branch::<K, STORE_CFG, CFG>(child_ref);
-            // Transfer (right.keys[0], right.children[0]) → (child.keys.last, child.children.last).
-            let moved_key: K::ViewInStore = right.keys.get(0u64);
-            child.keys.push(moved_key);
-            let moved_child: NodeARC<STORE_CFG> = right.children.remove(0i64);
-            child.children.push(moved_child);
-            right.keys.remove_at(0u64);
-            // Update parent.keys[i] = new max of child (= the moved key).
-            parent_branch.keys.set(i as u64, child.keys.get(child.keys.len() - 1u64));
-            return;
-        }
+    if has_right {
+        let rp = as_branch::<K, STORE_CFG, CFG>(parent_branch.children.borrow(i + 1i64));
+        right_len = rp.keys.len();
     }
-    // Merge with right.
-    if i + 1i64 < nc {
+
+    // Merge-with-right if it fits.
+    if has_right && child_len + right_len <= max_keys {
         let right_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i + 1i64);
         make_unique::<STORE_CFG>(right_ref, cur_snapshot_id, id_ctr_p);
         let right = as_branch::<K, STORE_CFG, CFG>(right_ref);
@@ -490,8 +466,7 @@ pub unsafe fn rebalance_branch_child<K: Container + ContainerOrd, V: Container, 
         let dropped: NodeARC<STORE_CFG> = parent_branch.children.remove(i + 1i64);
         return;
     }
-    // Merge with left (when child is rightmost — no right sibling).
-    {
+    if has_left && child_len + left_len <= max_keys {
         let left_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i - 1i64);
         make_unique::<STORE_CFG>(left_ref, cur_snapshot_id, id_ctr_p);
         let left = as_branch::<K, STORE_CFG, CFG>(left_ref);
@@ -507,6 +482,36 @@ pub unsafe fn rebalance_branch_child<K: Container + ContainerOrd, V: Container, 
         }
         parent_branch.keys.remove_at((i - 1i64) as u64);
         let dropped: NodeARC<STORE_CFG> = parent_branch.children.remove(i);
+        return;
+    }
+    // Borrow — prefer side with more keys for stability.
+    if has_left && (!has_right || left_len >= right_len) {
+        let left_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i - 1i64);
+        make_unique::<STORE_CFG>(left_ref, cur_snapshot_id, id_ctr_p);
+        let left = as_branch::<K, STORE_CFG, CFG>(left_ref);
+        let child_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i);
+        let child = as_branch::<K, STORE_CFG, CFG>(child_ref);
+        let last: u64 = left.keys.len() - 1u64;
+        let moved_key: K::ViewInStore = left.keys.get(last);
+        child.keys.insert_at(0u64, moved_key);
+        let moved_child: NodeARC<STORE_CFG> = left.children.remove(left.children.length() - 1i64);
+        vec_arc_insert_at::<STORE_CFG>(&mut child.children as *mut Vec<NodeARC<STORE_CFG>>, 0i64, moved_child);
+        left.keys.remove_at(last);
+        parent_branch.keys.set((i - 1i64) as u64, left.keys.get(left.keys.len() - 1u64));
+        return;
+    }
+    {   // borrow from right
+        let right_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i + 1i64);
+        make_unique::<STORE_CFG>(right_ref, cur_snapshot_id, id_ctr_p);
+        let right = as_branch::<K, STORE_CFG, CFG>(right_ref);
+        let child_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i);
+        let child = as_branch::<K, STORE_CFG, CFG>(child_ref);
+        let moved_key: K::ViewInStore = right.keys.get(0u64);
+        child.keys.push(moved_key);
+        let moved_child: NodeARC<STORE_CFG> = right.children.remove(0i64);
+        child.children.push(moved_child);
+        right.keys.remove_at(0u64);
+        parent_branch.keys.set(i as u64, child.keys.get(child.keys.len() - 1u64));
     }
 }
 
