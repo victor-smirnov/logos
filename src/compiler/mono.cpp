@@ -100,7 +100,23 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             auto p = m->name.find(prefix);
             if (p != std::string::npos) {
                 size_t start = p + prefix.size();
-                auto end = m->name.find("__", start);
+                // The mangled tail looks like `<short>__[fg]__<sig>` (or just
+                // `<short>` for body-less / non-overloaded forms). For methods
+                // whose own name starts with `__` (e.g. `__drop_in_place`),
+                // a naive `find("__", start)` returns offset `start` itself —
+                // truncating short to empty. Walk to the `__f__` / `__g__`
+                // overload-disambig boundary instead, falling back to plain
+                // `__` only when neither is present.
+                auto find_sig_boundary = [&](size_t from) -> size_t {
+                    auto pf = m->name.find("__f__", from);
+                    auto pg = m->name.find("__g__", from);
+                    if (pf == std::string::npos) return pg;
+                    if (pg == std::string::npos) return pf;
+                    return std::min(pf, pg);
+                };
+                auto end = find_sig_boundary(start);
+                if (end == std::string::npos)
+                    end = m->name.find("__", start);
                 short_name = (end == std::string::npos)
                              ? m->name.substr(start)
                              : m->name.substr(start, end - start);

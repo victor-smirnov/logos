@@ -560,7 +560,19 @@ void Mono::drain_method_worklist() {
                 tn = tn.substr(dot + 1);
             auto sep1 = tn.find("__");
             if (sep1 != std::string::npos) {
-                auto sep2 = tn.find("__", sep1 + 2);
+                // Method names may themselves start with `__` (e.g.
+                // `__drop_in_place`). Walk to the actual signature boundary —
+                // `__f__` (free fn / by-value self) or `__g__` (generic /
+                // ref self) — instead of grabbing the next `__`, which would
+                // otherwise cut into the method name.
+                auto pf = tn.find("__f__", sep1 + 2);
+                auto pg = tn.find("__g__", sep1 + 2);
+                size_t sep2 = std::string::npos;
+                if (pf != std::string::npos && pg != std::string::npos)
+                    sep2 = std::min(pf, pg);
+                else if (pf != std::string::npos) sep2 = pf;
+                else if (pg != std::string::npos) sep2 = pg;
+                else                              sep2 = tn.find("__", sep1 + 2);
                 if (sep2 != std::string::npos) sig = tn.substr(sep2);
             }
         }
