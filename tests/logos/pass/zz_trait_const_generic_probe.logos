@@ -1,0 +1,50 @@
+// Probe: trait with a const-generic HermesStatic parameter — required
+// for `BTreeNode<const STORE_CFG: HermesStatic>` in the persistent
+// rearch. Verifies impl resolution + method dispatch under a const-
+// generic trait header, and that distinct STORE_CFGs produce distinct
+// dyn-trait-object types (i.e. the type system distinguishes them).
+
+package zz_trait_const_generic_probe;
+
+use std.lang.cmp; use std.lang.ord; use std.lang.datatypes;
+use std.hermes.view; use std.hermes.anyval;
+
+pub const StoreA: HermesStatic = @{ "name": "A", "tag": <type:u64> };
+pub const StoreB: HermesStatic = @{ "name": "B", "tag": <type:u64> };
+
+pub trait Marker<const STORE_CFG: HermesStatic> {
+    fn store_hash(&self) -> u64;
+    fn double(&self, x: u64) -> u64;
+}
+
+pub struct NodeA { pub v: u64 }
+pub struct NodeB { pub v: u64 }
+
+impl Marker<StoreA> for NodeA {
+    fn store_hash(&self) -> u64 { return hstatic_hash_of::<StoreA>(); }
+    fn double(&self, x: u64) -> u64 { return x + x + self.v; }
+}
+
+impl Marker<StoreB> for NodeB {
+    fn store_hash(&self) -> u64 { return hstatic_hash_of::<StoreB>(); }
+    fn double(&self, x: u64) -> u64 { return x * 2u64 + self.v; }
+}
+
+fn use_a(m: &dyn Marker<StoreA>) -> u64 { return m.double(10u64); }
+fn use_b(m: &dyn Marker<StoreB>) -> u64 { return m.double(10u64); }
+
+fn main() -> i32 {
+    // Identity check — the impls fire on the right STORE_CFG.
+    let a1: NodeA = NodeA { v: 1u64 };
+    if a1.store_hash() != hstatic_hash_of::<StoreA>() { return 3; }
+
+    let b1: NodeB = NodeB { v: 2u64 };
+    if b1.store_hash() != hstatic_hash_of::<StoreB>() { return 4; }
+    if hstatic_hash_of::<StoreA>() == hstatic_hash_of::<StoreB>() { return 5; }
+
+    // Dyn dispatch under const-generic trait param.
+    if use_a(NodeA { v: 1u64 }) != 21u64 { return 1; }   // 10 + 10 + 1
+    if use_b(NodeB { v: 2u64 }) != 22u64 { return 2; }   // 10 * 2 + 2
+
+    return 0;
+}

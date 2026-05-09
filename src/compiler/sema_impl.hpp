@@ -290,9 +290,11 @@ private:
         t.elem = elem;
         return pool_->alloc(std::move(t));
     }
-    TypeRef make_trait_object(std::string_view tname) {
+    TypeRef make_trait_object(std::string_view tname,
+                              std::vector<TypeRef> args = {}) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::TraitObject;
         t.trait_name = std::string(tname);
+        t.type_args = std::move(args);
         return pool_->alloc(std::move(t));
     }
     TypeRef make_typevar(std::string_view name) {

@@ -1014,9 +1014,16 @@
     tagged_type <- AMP KW_TAGGED LT simple_type GT_TYPE IDENT
                => { CODE: TAGGED_TYPE, TYPE: $4, NAME: $6 }
 
-    // &dyn Trait — trait object (fat pointer: data + vtable)
-    dyn_type <- AMP KW_DYN IDENT
+    // &dyn Trait / &dyn Trait<T,…> — trait object (fat pointer: data + vtable).
+    // The TARGS form is needed for traits with type / const-generic params
+    // (e.g. `&dyn BTreeNode<StoreCfg>`); type-args use the LT_TYPE/GT_TYPE
+    // pair like other type-position generic instances.
+    dyn_type <- AMP KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE
+             => { CODE: DYN_TYPE, NAME: $3, ITEMS: $... }
+              / AMP KW_DYN IDENT
              => { CODE: DYN_TYPE, NAME: $3 }
+              / KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE
+             => { CODE: DYN_TYPE, NAME: $2, ITEMS: $... }
               / KW_DYN IDENT
              => { CODE: DYN_TYPE, NAME: $2 }
 

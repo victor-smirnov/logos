@@ -341,6 +341,9 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         put_sub(buf, impl, t.closure_ret);
         break;
     case K::TraitObject:
+        put_str(buf, t.trait_name);
+        for (auto a : t.type_args) put_sub(buf, impl, a);
+        break;
     case K::TaggedPtr:
         put_str(buf, t.trait_name);
         break;
@@ -451,6 +454,8 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
         return vec_ptr_eq(t.closure_params, r.closure_params()) &&
                t.closure_ret == r.closure_ret();
     case K::TraitObject:
+        return t.trait_name == r.trait_name() &&
+               vec_ptr_eq(t.type_args, r.type_args());
     case K::TaggedPtr:
         return t.trait_name == r.trait_name();
     case K::ImplTrait:
@@ -1087,7 +1092,18 @@ std::string type_str(TypeRef t) {
         r += type_str(TypeRef(t).closure_ret());
         return r; }
     case LogosType::Kind::Enum:        return std::string(TypeRef(t).enum_name());
-    case LogosType::Kind::TraitObject: return "&dyn " + std::string(TypeRef(t).trait_name());
+    case LogosType::Kind::TraitObject: {
+        std::string r = "&dyn " + std::string(TypeRef(t).trait_name());
+        auto ta = TypeRef(t).type_args();
+        if (!ta.empty()) {
+            r += "<";
+            for (size_t i = 0; i < ta.size(); ++i) {
+                if (i) r += ", ";
+                r += type_str(ta[i]);
+            }
+            r += ">";
+        }
+        return r; }
     case LogosType::Kind::TaggedPtr:   return "&tagged<" + std::string(TypeRef(t).struct_name()) + "> " + std::string(TypeRef(t).trait_name());
     case LogosType::Kind::TypeVar:     return std::string(TypeRef(t).type_var_name());
     case LogosType::Kind::ConstVar:    return std::string(TypeRef(t).type_var_name());
@@ -2328,7 +2344,14 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         auto tname = std::string(str_of(node.get(la::NAME.code)));
         if (!traits_.count(tname))
             error(std::format("unknown trait '{}' in &dyn type", tname));
-        return make_trait_object(tname);
+        // Optional type-args: &dyn Trait<T,…> — same shape as Struct<T,…>.
+        std::vector<TypeRef> args;
+        if (node.has_key(la::ITEMS)) {
+            auto items = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < items.size(); ++i)
+                args.push_back(resolve_type(map_of(items.get(i))));
+        }
+        return make_trait_object(tname, std::move(args));
     }
 
     if (tc == la::TAGGED_TYPE) {
