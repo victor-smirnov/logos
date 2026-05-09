@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// std.data.persistent.v3.mutate — write-side BTree on NodeARC.
+// std.data.persistent.mutate — write-side BTree on NodeARC.
 //
 // Insert / remove descend through the tree, CoW-clone any node that
 // wasn't created in the current snapshot (snapshot_id mismatch),
@@ -16,7 +16,7 @@
 //     (in cow_clone trait impl); no manual node_retain_c.
 //   • Auto-Drop chains the release path — no explicit walker needed.
 
-package std.data.persistent.v3.mutate;
+package std.data.persistent.mutate;
 
 use std.collections.vec;
 use std.mem;
@@ -26,9 +26,9 @@ use std.lang.datatypes;
 use std.hermes.view;
 use std.hermes.anyval;
 
-use std.data.persistent.v3.node;
-use std.data.persistent.v3.cow;
-use std.data.persistent.v3.descent;
+use std.data.persistent.node;
+use std.data.persistent.cow;
+use std.data.persistent.descent;
 use std.lang.panic;
 
 // ── Vec<NodeARC> insert helper ────────────────────────────────────────
@@ -87,7 +87,7 @@ pub unsafe fn split_leaf<K: Container + ContainerOrd, V: Container, const STORE_
 ) -> NodeARC<STORE_CFG> {
     let cap: u64 = leaf.keys.len();
     let vcap: u64 = leaf.vals.len();
-    if cap != vcap { panic("[v3 split_leaf] keys.len != vals.len"); }
+    if cap != vcap { panic("[split_leaf] keys.len != vals.len"); }
     let mid: u64 = cap / 2u64;
     let right: *mut LeafNode<K, V, STORE_CFG, CFG> =
         leaf_alloc::<K, V, STORE_CFG, CFG>(new_id, snapshot_id);

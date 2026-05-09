@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// std.data.persistent.v3.cow — concrete node types + alloc helpers +
+// std.data.persistent.cow — concrete node types + alloc helpers +
 // BTreeNode trait impls for the dyn-trait persistent-store rearch.
 //
 // Three concrete node flavours:
@@ -23,7 +23,7 @@
 // counters in tests, custom logging, etc.). For ordinary persistent-store
 // usage no user Drop is needed — the field destructor chain is sufficient.
 
-package std.data.persistent.v3.cow;
+package std.data.persistent.cow;
 
 use std.collections.vec;
 use std.mem;
@@ -33,7 +33,7 @@ use std.lang.datatypes;
 use std.hermes.view;
 use std.hermes.anyval;
 
-use std.data.persistent.v3.node;
+use std.data.persistent.node;
 
 // ── BranchNode ─────────────────────────────────────────────────────────
 pub struct BranchNode<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic> {

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// std.data.persistent.v3.node — uniform node header + BTreeNode trait
+// std.data.persistent.node — uniform node header + BTreeNode trait
 // + NodeARC smart pointer for the dyn-trait persistent-store rearch.
 //
 // Architecture summary:
@@ -21,7 +21,7 @@
 // STORE_CFG carries the ID-types (block_id, snp_id, ctr_id) so different
 // stores can pick e.g. u128 block ids without changing the source.
 
-package std.data.persistent.v3.node;
+package std.data.persistent.node;
 
 use std.mem;
 use std.lang.cmp;

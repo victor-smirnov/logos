@@ -1,8 +1,8 @@
-// End-to-end smoke for the v3 persistent stack: store_open → snap_begin
+// End-to-end smoke for the persistent stack: store_open → snap_begin
 // → create_pmap → insert → commit → drop chain releases everything.
 //
 // v1 limits: single-leaf inserts only (no branch descent / splits).
-// Snapshot fork + multi-level CoW land when v3.mutate's full BTree
+// Snapshot fork + multi-level CoW land when mutate's full BTree
 // algos port over.
 
 package zz_v3_handle_smoke;
@@ -13,13 +13,13 @@ use std.lang.cmp; use std.lang.ord; use std.lang.datatypes;
 use std.lang.drop;
 use std.hermes.view; use std.hermes.anyval;
 
-use std.data.persistent.v3.node;
-use std.data.persistent.v3.cow;
-use std.data.persistent.v3.store;
-use std.data.persistent.v3.handle;
+use std.data.persistent.node;
+use std.data.persistent.cow;
+use std.data.persistent.store;
+use std.data.persistent.handle;
 
 pub const StoreCfg: HermesStatic = @{
-    "name":     "v3-handle",
+    "name":     "handle",
     "ctr_id":   <type:u64>,
     "snp_id":   <type:u64>,
     "block_id": <type:u64>,
@@ -32,18 +32,18 @@ pub const MapCfg: HermesStatic = @{
 };
 
 fn main() -> i32 {
-    let mut store: StoreV3<StoreCfg> = store_open_v3::<StoreCfg>();
-    let mut snap:  SnapV3<StoreCfg>  = snap_begin_v3::<StoreCfg>(&mut store);
+    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
+    let mut snap:  Snap<StoreCfg>  = snap_begin::<StoreCfg>(&mut store);
 
     {
-        let mut cr: ContainerRefV3<StoreCfg, MapCfg> =
-            create_pmap_v3::<MapCfg, StoreCfg>(&mut snap, 7u64);
+        let mut cr: ContainerRef<StoreCfg, MapCfg> =
+            create_pmap::<MapCfg, StoreCfg>(&mut snap, 7u64);
 
         if cr.len() != 0u64 { return 1; }
 
         // Push enough entries to force multi-level splits (fanout=8).
         let s_id: u64 = snap.snapshot_id;
-        let store_ref: &mut LockingStoreV3<StoreCfg> = snap.arc.deref_mut();
+        let store_ref: &mut LockingStore<StoreCfg> = snap.arc.deref_mut();
         let cp: *mut u64 = &mut store_ref.next_block_id as *mut u64;
         let mut i: u64 = 0u64;
         while (i < 1000u64) {
@@ -79,8 +79,8 @@ fn main() -> i32 {
     //
     // BUT: commit cloned the dir's rc into the DAG, so the DAG-side
     // entry keeps everything alive past snap's drop. When `store`
-    // drops at fn-end, the DAG (Vec<CommitEntryV3>) auto-drops →
-    // CommitEntryV3.drop → NodeARC.drop → recursive release. Full
+    // drops at fn-end, the DAG (Vec<CommitEntry>) auto-drops →
+    // CommitEntry.drop → NodeARC.drop → recursive release. Full
     // teardown.
 
     return 0;

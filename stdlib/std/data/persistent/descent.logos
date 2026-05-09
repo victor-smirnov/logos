@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// std.data.persistent.v3.descent — read-side BTree walkers on NodeARC.
+// std.data.persistent.descent — read-side BTree walkers on NodeARC.
 //
 // Walkers follow the legacy bt.descent.* shape but operate on
 // NodeARC<STORE_CFG> handles instead of raw `*mut NodeBase`. Cast to
@@ -8,7 +8,7 @@
 // Branch descent reads child NodeARCs from `Vec<NodeARC>` slots and
 // recurses; no CoW, no rc bumps (read-only access through borrow).
 
-package std.data.persistent.v3.descent;
+package std.data.persistent.descent;
 
 use std.collections.vec;
 use std.lang.cmp;
@@ -17,11 +17,11 @@ use std.lang.datatypes;
 use std.hermes.view;
 use std.hermes.anyval;
 
-use std.data.persistent.v3.node;
-use std.data.persistent.v3.cow;
+use std.data.persistent.node;
+use std.data.persistent.cow;
 
 // ── CFG fanout readers ────────────────────────────────────────────────
-unsafe fn cfg_int_or_v3<const CFG: HermesStatic>(key: str, dflt: u64) -> u64 {
+unsafe fn cfg_int_or<const CFG: HermesStatic>(key: str, dflt: u64) -> u64 {
     let v = CFG.as_view();
     let av: AnyVal = v.map_get(v.root(), key);
     if av.is_null() { return dflt; }
@@ -30,17 +30,17 @@ unsafe fn cfg_int_or_v3<const CFG: HermesStatic>(key: str, dflt: u64) -> u64 {
 }
 
 pub unsafe fn max_keys_branch<const CFG: HermesStatic>() -> u64 {
-    let fb: u64 = cfg_int_or_v3::<CFG>("fanout_branch", 0u64);
+    let fb: u64 = cfg_int_or::<CFG>("fanout_branch", 0u64);
     if fb > 0u64 { return fb; }
-    let f: u64 = cfg_int_or_v3::<CFG>("fanout", 0u64);
+    let f: u64 = cfg_int_or::<CFG>("fanout", 0u64);
     if f > 0u64 { return f; }
     return 4u64;
 }
 
 pub unsafe fn max_keys_leaf<const CFG: HermesStatic>() -> u64 {
-    let fl: u64 = cfg_int_or_v3::<CFG>("fanout_leaf", 0u64);
+    let fl: u64 = cfg_int_or::<CFG>("fanout_leaf", 0u64);
     if fl > 0u64 { return fl; }
-    let f: u64 = cfg_int_or_v3::<CFG>("fanout", 0u64);
+    let f: u64 = cfg_int_or::<CFG>("fanout", 0u64);
     if f > 0u64 { return f; }
     return 4u64;
 }

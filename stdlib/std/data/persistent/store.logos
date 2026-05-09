@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// std.data.persistent.v3.store — Store + IStoreV3 + MutSnapshotV3 for v3.
+// std.data.persistent.store — Store + IStore + MutSnapshot for v3.
 //
 // Store side of the persistent stack: holds the commit DAG, allocates
-// monotonic block + snapshot ids, exposes a narrow IStoreV3 trait that
+// monotonic block + snapshot ids, exposes a narrow IStore trait that
 // container-side code (handle, mutate) routes through. Mirrors big-
 // Memoria's IMemoryStore. v1 backend is in-memory + single-mutex; the
-// IStoreV3 abstraction lets queue / locking-free / on-disk backends slot
+// IStore abstraction lets queue / locking-free / on-disk backends slot
 // in later without touching consumers.
 
-package std.data.persistent.v3.store;
+package std.data.persistent.store;
 
 use std.collections.vec;
 use std.lang.cmp;
@@ -19,29 +19,27 @@ use std.sync;
 use std.hermes.view;
 use std.hermes.anyval;
 
-use std.data.persistent.v3.node;
+use std.data.persistent.node;
 
 // ── DAG entry ─────────────────────────────────────────────────────────
 // Each commit pins one root NodeARC handle. The root is the directory
 // tree root for v3.handle's Snap; user containers hang off dir leaves
 // (vals: NodeARC<STORE_CFG>).
 
-pub struct CommitEntryV3<const STORE_CFG: HermesStatic> {
+pub struct CommitEntry<const STORE_CFG: HermesStatic> {
     pub root:   NodeARC<STORE_CFG>,
     pub parent: i64,
 }
 
-// Re-exporting NO_COMMIT under the v3 namespace would collide with the
-// legacy store.logos const at link time. v3 callers reference the legacy
-// `std.data.persistent.store::NO_COMMIT` via use, or substitute -1 directly.
-// pub let NO_COMMIT: i64 = 0i64 - 1i64;
+// Sentinel "no parent" commit id — used for root commits. Sites
+// substitute -1i64 inline to avoid module-const ergonomics for now.
 
-// ── IStoreV3 trait ──────────────────────────────────────────────────────
+// ── IStore trait ──────────────────────────────────────────────────────
 // Narrow cross-backend ABI: snapshot lifecycle + commit DAG navigation
 // + id allocators. NO type params on methods (would defeat dyn dispatch
-// under raw-ptr backends). v1 backend is LockingStoreV3.
+// under raw-ptr backends). v1 backend is LockingStore.
 
-pub trait IStoreV3<const STORE_CFG: HermesStatic> {
+pub trait IStore<const STORE_CFG: HermesStatic> {
     fn alloc_snapshot_id(self: *mut Self) -> u64;
     fn alloc_block_id(self:    *mut Self) -> u64;
 
@@ -56,29 +54,29 @@ pub trait IStoreV3<const STORE_CFG: HermesStatic> {
     fn parent_of(self: *mut Self, id: i64) -> i64;
 }
 
-// ── LockingStoreV3 — v1 backend ─────────────────────────────────────────
-// PrimVec<CommitEntryV3<STORE_CFG>> guarded by Mutex. Doesn't actually
+// ── LockingStore — v1 backend ─────────────────────────────────────────
+// PrimVec<CommitEntry<STORE_CFG>> guarded by Mutex. Doesn't actually
 // need mutex for v1 (no concurrent Snap), but it's already there as a
 // placeholder for the queue/swmr backends.
 
-pub struct LockingStoreV3<const STORE_CFG: HermesStatic> {
-    pub dag:              Vec<CommitEntryV3<STORE_CFG>>,
+pub struct LockingStore<const STORE_CFG: HermesStatic> {
+    pub dag:              Vec<CommitEntry<STORE_CFG>>,
     pub lock:             Mutex<i32>,
     pub next_block_id:    u64,
     pub next_snapshot_id: u64,
 }
 
-pub fn locking_store_new<const STORE_CFG: HermesStatic>() -> LockingStoreV3<STORE_CFG> {
-    return LockingStoreV3::<STORE_CFG> {
-        dag:              vec_new::<CommitEntryV3<STORE_CFG>>(),
+pub fn locking_store_new<const STORE_CFG: HermesStatic>() -> LockingStore<STORE_CFG> {
+    return LockingStore::<STORE_CFG> {
+        dag:              vec_new::<CommitEntry<STORE_CFG>>(),
         lock:             mutex_new::<i32>(0i32),
         next_block_id:    0u64,
         next_snapshot_id: 0u64,
     };
 }
 
-impl<const STORE_CFG: HermesStatic> IStoreV3<STORE_CFG> for LockingStoreV3<STORE_CFG> {
-    fn alloc_snapshot_id(self: *mut LockingStoreV3<STORE_CFG>) -> u64 {
+impl<const STORE_CFG: HermesStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG> {
+    fn alloc_snapshot_id(self: *mut LockingStore<STORE_CFG>) -> u64 {
         unsafe {
             self.lock.lock();
             self.next_snapshot_id = self.next_snapshot_id + 1u64;
@@ -87,7 +85,7 @@ impl<const STORE_CFG: HermesStatic> IStoreV3<STORE_CFG> for LockingStoreV3<STORE
             return id;
         }
     }
-    fn alloc_block_id(self: *mut LockingStoreV3<STORE_CFG>) -> u64 {
+    fn alloc_block_id(self: *mut LockingStore<STORE_CFG>) -> u64 {
         unsafe {
             self.lock.lock();
             self.next_block_id = self.next_block_id + 1u64;
@@ -96,28 +94,28 @@ impl<const STORE_CFG: HermesStatic> IStoreV3<STORE_CFG> for LockingStoreV3<STORE
             return id;
         }
     }
-    fn register_commit(self: *mut LockingStoreV3<STORE_CFG>, root: NodeARC<STORE_CFG>, parent: i64) -> i64 {
+    fn register_commit(self: *mut LockingStore<STORE_CFG>, root: NodeARC<STORE_CFG>, parent: i64) -> i64 {
         unsafe {
             self.lock.lock();
             let id: i64 = self.dag.length();
-            self.dag.push(CommitEntryV3::<STORE_CFG> { root: root, parent: parent });
+            self.dag.push(CommitEntry::<STORE_CFG> { root: root, parent: parent });
             self.lock.unlock();
             return id;
         }
     }
-    fn checkout(self: *mut LockingStoreV3<STORE_CFG>, id: i64) -> NodeARC<STORE_CFG> {
+    fn checkout(self: *mut LockingStore<STORE_CFG>, id: i64) -> NodeARC<STORE_CFG> {
         unsafe {
             self.lock.lock();
-            let entry: &CommitEntryV3<STORE_CFG> = self.dag.borrow(id);
+            let entry: &CommitEntry<STORE_CFG> = self.dag.borrow(id);
             let cloned: NodeARC<STORE_CFG> = entry.root.clone_arc();
             self.lock.unlock();
             return cloned;
         }
     }
-    fn parent_of(self: *mut LockingStoreV3<STORE_CFG>, id: i64) -> i64 {
+    fn parent_of(self: *mut LockingStore<STORE_CFG>, id: i64) -> i64 {
         unsafe {
             self.lock.lock();
-            let entry: &CommitEntryV3<STORE_CFG> = self.dag.borrow(id);
+            let entry: &CommitEntry<STORE_CFG> = self.dag.borrow(id);
             let p: i64 = entry.parent;
             self.lock.unlock();
             return p;
@@ -125,14 +123,14 @@ impl<const STORE_CFG: HermesStatic> IStoreV3<STORE_CFG> for LockingStoreV3<STORE
     }
 }
 
-// ── MutSnapshotV3 — single-thread mutable handle ────────────────────────
+// ── MutSnapshot — single-thread mutable handle ────────────────────────
 // Owns one rc on `root`. Carries snapshot_id + id_ctr_p so the CoW
 // protocol (make_unique) can stamp + alloc fresh ids without going
 // through Store on the per-mutation hot path.
 
-pub struct MutSnapshotV3<const STORE_CFG: HermesStatic> {
+pub struct MutSnapshot<const STORE_CFG: HermesStatic> {
     pub root:        NodeARC<STORE_CFG>,
     pub parent_id:   i64,
     pub snapshot_id: u64,
-    pub id_ctr_p:    *mut u64,    // points at LockingStoreV3.next_block_id
+    pub id_ctr_p:    *mut u64,    // points at LockingStore.next_block_id
 }

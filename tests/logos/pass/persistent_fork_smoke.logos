@@ -1,4 +1,4 @@
-// Multi-snapshot CoW smoke for v3 persistent stack.
+// Multi-snapshot CoW smoke for persistent stack.
 //
 //   1. snap_a creates ctr=7 with [0..50) → i*3 (multi-level: splits cause
 //      Branch root). Commits → C0.
@@ -20,13 +20,13 @@ use std.lang.cmp; use std.lang.ord; use std.lang.datatypes;
 use std.lang.drop;
 use std.hermes.view; use std.hermes.anyval;
 
-use std.data.persistent.v3.node;
-use std.data.persistent.v3.cow;
-use std.data.persistent.v3.store;
-use std.data.persistent.v3.handle;
+use std.data.persistent.node;
+use std.data.persistent.cow;
+use std.data.persistent.store;
+use std.data.persistent.handle;
 
 pub const StoreCfg: HermesStatic = @{
-    "name":     "v3-fork",
+    "name":     "fork",
     "ctr_id":   <type:u64>,
     "snp_id":   <type:u64>,
     "block_id": <type:u64>,
@@ -38,7 +38,7 @@ pub const MapCfg: HermesStatic = @{
     "fanout": 8,
 };
 
-unsafe fn fill_range(cr: &mut ContainerRefV3<StoreCfg, MapCfg>, lo: u64, hi: u64, mul: u64, snap_id: u64, cp: *mut u64) {
+unsafe fn fill_range(cr: &mut ContainerRef<StoreCfg, MapCfg>, lo: u64, hi: u64, mul: u64, snap_id: u64, cp: *mut u64) {
     let mut i: u64 = lo;
     while i < hi {
         cr.insert(i, i * mul, &i as *const u64, snap_id, cp);
@@ -46,7 +46,7 @@ unsafe fn fill_range(cr: &mut ContainerRefV3<StoreCfg, MapCfg>, lo: u64, hi: u64
     }
 }
 
-unsafe fn check_range(cr: &ContainerRefV3<StoreCfg, MapCfg>, lo: u64, hi: u64, mul: u64) -> i32 {
+unsafe fn check_range(cr: &ContainerRef<StoreCfg, MapCfg>, lo: u64, hi: u64, mul: u64) -> i32 {
     let mut i: u64 = lo;
     while i < hi {
         let mut out: u64 = 0u64;
@@ -58,17 +58,17 @@ unsafe fn check_range(cr: &ContainerRefV3<StoreCfg, MapCfg>, lo: u64, hi: u64, m
 }
 
 fn main() -> i32 {
-    let mut store: StoreV3<StoreCfg> = store_open_v3::<StoreCfg>();
+    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
 
     // Build base commit C0 — ctr=7 has [0..50) at *3 (multi-level)
     let mut c0: i64 = -1i64;
     {
-        let mut snap_a: SnapV3<StoreCfg> = snap_begin_v3::<StoreCfg>(&mut store);
+        let mut snap_a: Snap<StoreCfg> = snap_begin::<StoreCfg>(&mut store);
         {
-            let mut cr: ContainerRefV3<StoreCfg, MapCfg> =
-                create_pmap_v3::<MapCfg, StoreCfg>(&mut snap_a, 7u64);
+            let mut cr: ContainerRef<StoreCfg, MapCfg> =
+                create_pmap::<MapCfg, StoreCfg>(&mut snap_a, 7u64);
             let s_id: u64 = snap_a.snapshot_id;
-            let store_ref: &mut LockingStoreV3<StoreCfg> = snap_a.arc.deref_mut();
+            let store_ref: &mut LockingStore<StoreCfg> = snap_a.arc.deref_mut();
             let cp: *mut u64 = &mut store_ref.next_block_id as *mut u64;
             unsafe { fill_range(&mut cr, 0u64, 50u64, 3u64, s_id, cp); }
             if cr.len() != 50u64 { return 10; }
@@ -80,13 +80,13 @@ fn main() -> i32 {
     // Fork B: extend ctr=7 with [50..100) at *5
     let mut c1: i64 = -1i64;
     {
-        let mut snap_b: SnapV3<StoreCfg> = snap_fork_v3::<StoreCfg>(&mut store, c0);
+        let mut snap_b: Snap<StoreCfg> = snap_fork::<StoreCfg>(&mut store, c0);
         {
-            let mut cr: ContainerRefV3<StoreCfg, MapCfg> =
-                open_pmap_v3::<MapCfg, StoreCfg>(&mut snap_b, 7u64);
+            let mut cr: ContainerRef<StoreCfg, MapCfg> =
+                open_pmap::<MapCfg, StoreCfg>(&mut snap_b, 7u64);
             if cr.len() != 50u64 { return 21; }
             let s_id: u64 = snap_b.snapshot_id;
-            let store_ref: &mut LockingStoreV3<StoreCfg> = snap_b.arc.deref_mut();
+            let store_ref: &mut LockingStore<StoreCfg> = snap_b.arc.deref_mut();
             let cp: *mut u64 = &mut store_ref.next_block_id as *mut u64;
             unsafe { fill_range(&mut cr, 50u64, 100u64, 5u64, s_id, cp); }
             if cr.len() != 100u64 { return 22; }
@@ -98,13 +98,13 @@ fn main() -> i32 {
     // Fork C from C0 — extend ctr=7 with [100..150) at *7
     let mut c2: i64 = -1i64;
     {
-        let mut snap_c: SnapV3<StoreCfg> = snap_fork_v3::<StoreCfg>(&mut store, c0);
+        let mut snap_c: Snap<StoreCfg> = snap_fork::<StoreCfg>(&mut store, c0);
         {
-            let mut cr: ContainerRefV3<StoreCfg, MapCfg> =
-                open_pmap_v3::<MapCfg, StoreCfg>(&mut snap_c, 7u64);
+            let mut cr: ContainerRef<StoreCfg, MapCfg> =
+                open_pmap::<MapCfg, StoreCfg>(&mut snap_c, 7u64);
             if cr.len() != 50u64 { return 30; }
             let s_id: u64 = snap_c.snapshot_id;
-            let store_ref: &mut LockingStoreV3<StoreCfg> = snap_c.arc.deref_mut();
+            let store_ref: &mut LockingStore<StoreCfg> = snap_c.arc.deref_mut();
             let cp: *mut u64 = &mut store_ref.next_block_id as *mut u64;
             unsafe { fill_range(&mut cr, 100u64, 150u64, 7u64, s_id, cp); }
             if cr.len() != 100u64 { return 31; }
@@ -115,9 +115,9 @@ fn main() -> i32 {
 
     // Fork D from C0 — must see only [0..50), not fork B's nor C's writes.
     {
-        let mut snap_d: SnapV3<StoreCfg> = snap_fork_v3::<StoreCfg>(&mut store, c0);
-        let cr: ContainerRefV3<StoreCfg, MapCfg> =
-            open_pmap_v3::<MapCfg, StoreCfg>(&mut snap_d, 7u64);
+        let mut snap_d: Snap<StoreCfg> = snap_fork::<StoreCfg>(&mut store, c0);
+        let cr: ContainerRef<StoreCfg, MapCfg> =
+            open_pmap::<MapCfg, StoreCfg>(&mut snap_d, 7u64);
         if cr.len() != 50u64 { return 40; }
         if unsafe { check_range(&cr, 0u64, 50u64, 3u64) } != 0i32 { return 41; }
         let probe: u64 = 75u64;
@@ -126,9 +126,9 @@ fn main() -> i32 {
 
     // Fork B' from C1 — sees [0..100) merged.
     {
-        let mut snap_b2: SnapV3<StoreCfg> = snap_fork_v3::<StoreCfg>(&mut store, c1);
-        let cr: ContainerRefV3<StoreCfg, MapCfg> =
-            open_pmap_v3::<MapCfg, StoreCfg>(&mut snap_b2, 7u64);
+        let mut snap_b2: Snap<StoreCfg> = snap_fork::<StoreCfg>(&mut store, c1);
+        let cr: ContainerRef<StoreCfg, MapCfg> =
+            open_pmap::<MapCfg, StoreCfg>(&mut snap_b2, 7u64);
         if cr.len() != 100u64 { return 50; }
         if unsafe { check_range(&cr, 0u64, 50u64, 3u64) } != 0i32 { return 51; }
         if unsafe { check_range(&cr, 50u64, 100u64, 5u64) } != 0i32 { return 52; }
@@ -138,9 +138,9 @@ fn main() -> i32 {
 
     // Fork C' from C2 — sees [0..50) ∪ [100..150).
     {
-        let mut snap_c2: SnapV3<StoreCfg> = snap_fork_v3::<StoreCfg>(&mut store, c2);
-        let cr: ContainerRefV3<StoreCfg, MapCfg> =
-            open_pmap_v3::<MapCfg, StoreCfg>(&mut snap_c2, 7u64);
+        let mut snap_c2: Snap<StoreCfg> = snap_fork::<StoreCfg>(&mut store, c2);
+        let cr: ContainerRef<StoreCfg, MapCfg> =
+            open_pmap::<MapCfg, StoreCfg>(&mut snap_c2, 7u64);
         if cr.len() != 100u64 { return 60; }
         if unsafe { check_range(&cr, 0u64, 50u64, 3u64) } != 0i32 { return 61; }
         if unsafe { check_range(&cr, 100u64, 150u64, 7u64) } != 0i32 { return 62; }

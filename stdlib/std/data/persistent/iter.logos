@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// std.data.persistent.v3.iter — leaf walker over a v3 BTree.
+// std.data.persistent.iter — leaf walker over a BTree.
 //
 // v1 scope: single-leaf walker. The iter wraps a typed leaf pointer
 // (downcast from NodeARC.p via the is_leaf header bit). When multi-
-// level descent lands in v3.mutate, this iter grows a path-stack of
+// level descent lands in mutate, this iter grows a path-stack of
 // branch frames (existing pmap_v2 LeafIter pattern adapted to dyn).
 
-package std.data.persistent.v3.iter;
+package std.data.persistent.iter;
 
 use std.collections.vec;
 use std.mem;
@@ -17,8 +17,8 @@ use std.lang.datatypes;
 use std.hermes.view;
 use std.hermes.anyval;
 
-use std.data.persistent.v3.node;
-use std.data.persistent.v3.cow;
+use std.data.persistent.node;
+use std.data.persistent.cow;
 
 // LeafIter — single-leaf iter (no descent yet). Holds the typed leaf
 // pointer + cursor index. Caller checks `valid()` before reading.
