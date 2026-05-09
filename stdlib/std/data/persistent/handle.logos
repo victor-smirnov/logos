@@ -55,19 +55,53 @@ pub struct Store<const STORE_CFG: HermesStatic> {
     pub arc: Arc<LockingStore<STORE_CFG>>,
 }
 
+// store_open — initialise the store with an empty genesis commit at id 0.
+// All snapshots are forks off some commit (`store.fork(parent)`); use
+// `store.fork(GENESIS)` for fresh work.
+//
+// Multiple independent root histories should each live in their own
+// Store — keeping a single store linear simplifies merge / GC /
+// on-disk serialisation when those land.
+pub const GENESIS: i64 = 0i64;
+
 pub fn store_open<const STORE_CFG: HermesStatic>() -> Store<STORE_CFG> {
-    let s: LockingStore<STORE_CFG> = locking_store_new::<STORE_CFG>();
-    return Store::<STORE_CFG> { arc: arc_new::<LockingStore<STORE_CFG>>(s) };
+    let mut s: LockingStore<STORE_CFG> = locking_store_new::<STORE_CFG>();
+    let arc: Arc<LockingStore<STORE_CFG>> = arc_new::<LockingStore<STORE_CFG>>(s);
+    // Sema gap: the move of `s` into `arc_new(s)` doesn't propagate to
+    // suppress `s`'s scope-exit Drop. The local then drops s.dag (Vec)
+    // freeing storage that ArcInner.val.dag now owns. Workaround: zero
+    // the local's bytes via raw cast so its Drop chain becomes a no-op.
+    // See investigation in commit log; sema fix is a separate item.
+    unsafe {
+        let sp: *mut LockingStore<STORE_CFG> = &mut s as *mut LockingStore<STORE_CFG>;
+        sp.dag.ptr    = 0 as *mut CommitEntry<STORE_CFG>;
+        sp.dag.len    = 0i64;
+        sp.dag.cap    = 0i64;
+    }
+    // Seed an empty genesis dir as commit 0. snapshot_id stamp = 0
+    // (no live snap yet); any fork's first write triggers make_unique
+    // CoW on the genesis dir, leaving it untouched.
+    {
+        let lk: &mut LockingStore<STORE_CFG> = arc.deref_mut();
+        let block_id: u64 = unsafe { (lk as *mut LockingStore<STORE_CFG>).alloc_block_id() };
+        let dir_leaf: *mut LeafDirNode<u64, STORE_CFG, DirCfg> = unsafe {
+            leaf_dir_alloc::<u64, STORE_CFG, DirCfg>(block_id, 0u64)
+        };
+        let dir: NodeARC<STORE_CFG> = node_arc_wrap::<STORE_CFG>(dir_leaf as *mut dyn BTreeNode<STORE_CFG>);
+        unsafe {
+            let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&dir);
+            let rcp: *mut u64 = dp as *mut u64;
+            *rcp = *rcp + 1u64;
+        }
+        let _id: i64 = unsafe { (lk as *mut LockingStore<STORE_CFG>).register_commit(dir, 0i64 - 1i64) };
+    }
+    return Store::<STORE_CFG> { arc: arc };
 }
 
 impl<const STORE_CFG: HermesStatic> Store<STORE_CFG> {
-    // Begin a fresh snapshot — empty directory, no parent commit.
-    pub fn begin(&mut self) -> Snap<STORE_CFG> {
-        return snap_begin::<STORE_CFG>(self);
-    }
-
     // Fork a mutable snapshot off `parent_commit`. The fork sees that
     // commit's directory tree (shared via rc) and CoWs on first write.
+    // Pass `GENESIS` for the empty initial dir (id 0, seeded by store_open).
     pub fn fork(&mut self, parent_commit: i64) -> Snap<STORE_CFG> {
         return snap_fork::<STORE_CFG>(self, parent_commit);
     }
@@ -112,23 +146,6 @@ pub fn snap_fork<const STORE_CFG: HermesStatic>(
         arc:         store.arc.clone_ref(),
         snapshot_id: snap_id,
         parent_id:   parent_commit,
-    };
-}
-
-pub fn snap_begin<const STORE_CFG: HermesStatic>(store: &mut Store<STORE_CFG>) -> Snap<STORE_CFG> {
-    let s: &mut LockingStore<STORE_CFG> = store.arc.deref_mut();
-    let snap_id:  u64 = unsafe { (s as *mut LockingStore<STORE_CFG>).alloc_snapshot_id() };
-    let block_id: u64 = unsafe { (s as *mut LockingStore<STORE_CFG>).alloc_block_id() };
-    // Empty dir leaf as initial root.
-    let dir_leaf: *mut LeafDirNode<u64, STORE_CFG, DirCfg> = unsafe {
-        leaf_dir_alloc::<u64, STORE_CFG, DirCfg>(block_id, snap_id)
-    };
-    let dir: NodeARC<STORE_CFG> = node_arc_wrap::<STORE_CFG>(dir_leaf as *mut dyn BTreeNode<STORE_CFG>);
-    return Snap::<STORE_CFG> {
-        dir:         dir,
-        arc:         store.arc.clone_ref(),
-        snapshot_id: snap_id,
-        parent_id:   0i64 - 1i64,
     };
 }
 

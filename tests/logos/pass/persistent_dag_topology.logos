@@ -40,13 +40,13 @@ fn vec_contains_i64(v: &Vec<i64>, x: i64) -> bool {
     return false;}
 
 fn commit_with(store: &mut Store<StoreCfg>, parent: i64, ctr_id: u64, k: u64) -> i64 {
-    let mut snap: Snap<StoreCfg> = if parent < 0i64 {
-        store.begin()
-    } else {
-        store.fork(parent)
-    };
+    let mut snap: Snap<StoreCfg> = store.fork(parent);
     {
-        let mut cr: ContainerRef<StoreCfg, MapCfg> = if parent < 0i64 {
+        // Probe: if the container doesn't exist in the parent, create it.
+        let probe: ContainerRef<StoreCfg, MapCfg> =
+            open_pmap::<MapCfg, StoreCfg>(&mut snap, ctr_id);
+        let absent: bool = unsafe { (probe.arc.p as *mut u8) == (0 as *mut u8) };
+        let mut cr: ContainerRef<StoreCfg, MapCfg> = if absent {
             create_pmap::<MapCfg, StoreCfg>(&mut snap, ctr_id)
         } else {
             open_pmap::<MapCfg, StoreCfg>(&mut snap, ctr_id)
@@ -58,22 +58,28 @@ fn commit_with(store: &mut Store<StoreCfg>, parent: i64, ctr_id: u64, k: u64) ->
 fn main() -> i32 {
     let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
 
-    // Build the topology described above.
-    let c0: i64 = commit_with(&mut store, -1i64, 7u64, 100u64);
-    let c1: i64 = commit_with(&mut store, c0,    7u64, 101u64);
-    let c2: i64 = commit_with(&mut store, c0,    7u64, 201u64);
-    let c3: i64 = commit_with(&mut store, c1,    7u64, 301u64);
-    let c4: i64 = commit_with(&mut store, c1,    7u64, 401u64);
-    let c5: i64 = commit_with(&mut store, c2,    7u64, 501u64);
+    // Build the topology described above. c0 forks from GENESIS;
+    // every later commit chains off a previous one.
+    let c0: i64 = commit_with(&mut store, GENESIS, 7u64, 100u64);
+    let c1: i64 = commit_with(&mut store, c0,      7u64, 101u64);
+    let c2: i64 = commit_with(&mut store, c0,      7u64, 201u64);
+    let c3: i64 = commit_with(&mut store, c1,      7u64, 301u64);
+    let c4: i64 = commit_with(&mut store, c1,      7u64, 401u64);
+    let c5: i64 = commit_with(&mut store, c2,      7u64, 501u64);
 
 
-    // ── commit_count ──
-    if store.commit_count() != 6i64 { return 10; }
+    // ── commit_count ── (genesis + 6 user commits)
+    if store.commit_count() != 7i64 { return 10; }
 
     // ── parents_of ──
     {
+        let pg: Vec<i64> = store.parents_of(GENESIS);
+        if pg.length() != 0i64 { return 19; }
+    }
+    {
         let p0: Vec<i64> = store.parents_of(c0);
-        if p0.length() != 0i64 { return 20; }
+        if p0.length() != 1i64 { return 20; }
+        if p0.get(0i64) != GENESIS { return 25; }
     }
     {
         let p1: Vec<i64> = store.parents_of(c1);
@@ -114,11 +120,17 @@ fn main() -> i32 {
         if ch5.length() != 0i64 { return 40; }
     }
 
-    // ── roots() ──
+    // ── roots() ── (only GENESIS, the auto-seeded commit 0)
     {
         let rs: Vec<i64> = store.roots();
         if rs.length() != 1i64 { return 50; }
-        if rs.get(0i64)  != c0 { return 51; }
+        if rs.get(0i64)  != GENESIS { return 51; }
+    }
+    // GENESIS has c0 as its only child.
+    {
+        let chg: Vec<i64> = store.children_of(GENESIS);
+        if chg.length() != 1i64 { return 52; }
+        if chg.get(0i64) != c0  { return 53; }
     }
 
     // Sanity: each commit's data still resolves through checkout.

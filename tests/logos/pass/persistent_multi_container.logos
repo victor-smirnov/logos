@@ -49,7 +49,7 @@ fn main() -> i32 {
     let mut commit: i64 = -1i64;
 
     {
-        let mut snap: Snap<StoreCfg> = store.begin();
+        let mut snap: Snap<StoreCfg> = store.fork(GENESIS);
 
         // Four containers, distinct multipliers.
         unsafe {

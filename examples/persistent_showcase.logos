@@ -94,7 +94,7 @@ fn main() -> i32 {
     section("commit C0: two containers");
     let mut c0: i64 = -1i64;
     {
-        let mut snap: Snap<StoreCfg> = store.begin();
+        let mut snap: Snap<StoreCfg> = store.fork(GENESIS);
 
         {
             // TODO: turbofish order is `<MapCfg, StoreCfg>` — STORE_CFG

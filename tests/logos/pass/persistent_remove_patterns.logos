@@ -26,7 +26,7 @@ pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fan
 
 fn main() -> i32 {
     let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
-    let mut snap: Snap<StoreCfg> = store.begin();
+    let mut snap: Snap<StoreCfg> = store.fork(GENESIS);
 
     // ── Stage 1: remove from empty container ──
     {
