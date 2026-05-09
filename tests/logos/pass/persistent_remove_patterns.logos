@@ -1,0 +1,130 @@
+// Remove patterns:
+//   1. remove non-existent → returns false, container unchanged
+//   2. remove all entries one by one → cr.len shrinks to 0, contains
+//      goes false for every removed key as we go
+//   3. interleaved insert + remove preserves invariants
+//   4. remove half then re-insert (lazy underflow path; v1 doesn't
+//      rebalance, just leaves leaves underfull — must still be readable)
+
+package persistent_remove_patterns;
+
+use std.collections.vec;
+use std.mem;
+use std.lang.cmp; use std.lang.ord; use std.lang.datatypes;
+use std.hermes.view; use std.hermes.anyval;
+
+use std.data.persistent.node;
+use std.data.persistent.cow;
+use std.data.persistent.store;
+use std.data.persistent.handle;
+
+pub const StoreCfg: HermesStatic = @{
+    "name": "rm-patterns", "ctr_id": <type:u64>, "snp_id": <type:u64>, "block_id": <type:u64>,
+};
+pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 8 };
+
+unsafe fn cp_of(snap: &mut Snap<StoreCfg>) -> *mut u64 {
+    let store_ref: &mut LockingStore<StoreCfg> = snap.arc.deref_mut();
+    return &mut store_ref.next_block_id as *mut u64;
+}
+
+fn main() -> i32 {
+    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
+    let mut snap: Snap<StoreCfg> = snap_begin::<StoreCfg>(&mut store);
+
+    // ── Stage 1: remove from empty container ──
+    {
+        let mut cr: ContainerRef<StoreCfg, MapCfg> =
+            create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
+        let s_id: u64 = snap.snapshot_id;
+        let cp: *mut u64 = unsafe { cp_of(&mut snap) };
+
+        let k: u64 = 42u64;
+        if cr.remove(&k as *const u64, s_id, cp) { return 10; }
+        if cr.len() != 0u64 { return 11; }
+    }
+
+    // ── Stage 2: insert N, remove all sequentially ──
+    {
+        let mut cr: ContainerRef<StoreCfg, MapCfg> =
+            create_pmap::<MapCfg, StoreCfg>(&mut snap, 2u64);
+        let s_id: u64 = snap.snapshot_id;
+        let cp: *mut u64 = unsafe { cp_of(&mut snap) };
+
+        let mut i: u64 = 0u64;
+        while i < 30u64 {
+            cr.insert(i, i * 5u64, &i as *const u64, s_id, cp);
+            i = i + 1u64;
+        }
+        if cr.len() != 30u64 { return 20; }
+
+        // Remove non-existent key → false, len unchanged.
+        let absent: u64 = 9999u64;
+        if cr.remove(&absent as *const u64, s_id, cp) { return 21; }
+        if cr.len() != 30u64 { return 22; }
+
+        // Remove all 30 in order.
+        i = 0u64;
+        while i < 30u64 {
+            if !cr.remove(&i as *const u64, s_id, cp) { return 23; }
+            if cr.contains(&i as *const u64) { return 24; }
+            // remaining entries still there
+            let after: u64 = i + 1u64;
+            if after < 30u64 && !cr.contains(&after as *const u64) { return 25; }
+            i = i + 1u64;
+        }
+        if cr.len() != 0u64 { return 26; }
+        // Second remove of an already-removed key returns false.
+        let r: u64 = 5u64;
+        if cr.remove(&r as *const u64, s_id, cp) { return 27; }
+    }
+
+    // ── Stage 3: interleaved insert + remove ──
+    {
+        let mut cr: ContainerRef<StoreCfg, MapCfg> =
+            create_pmap::<MapCfg, StoreCfg>(&mut snap, 3u64);
+        let s_id: u64 = snap.snapshot_id;
+        let cp: *mut u64 = unsafe { cp_of(&mut snap) };
+
+        // Insert 0..20, remove evens, verify odds remain, re-insert evens.
+        let mut i: u64 = 0u64;
+        while i < 20u64 {
+            cr.insert(i, i * 3u64, &i as *const u64, s_id, cp);
+            i = i + 1u64;
+        }
+        i = 0u64;
+        while i < 20u64 {
+            if !cr.remove(&i as *const u64, s_id, cp) { return 30; }
+            i = i + 2u64;
+        }
+        if cr.len() != 10u64 { return 31; }
+        // odds present, evens absent
+        let mut j: u64 = 0u64;
+        while j < 20u64 {
+            let want: bool = j % 2u64 == 1u64;
+            let got:  bool = cr.contains(&j as *const u64);
+            if want != got { return 32; }
+            j = j + 1u64;
+        }
+        // Re-insert evens, all 20 back.
+        i = 0u64;
+        while i < 20u64 {
+            cr.insert(i, i * 100u64, &i as *const u64, s_id, cp);
+            i = i + 2u64;
+        }
+        if cr.len() != 20u64 { return 33; }
+        // Evens have new value, odds untouched.
+        j = 0u64;
+        while j < 20u64 {
+            let mut out: u64 = 0u64;
+            if !cr.get(&j as *const u64, &mut out as *mut u64) { return 34; }
+            let want: u64 = if j % 2u64 == 0u64 { j * 100u64 } else { j * 3u64 };
+            if out != want { return 35; }
+            j = j + 1u64;
+        }
+    }
+
+    let id: i64 = snap.commit();
+    if id < 0i64 { return 99; }
+    return 0;
+}
