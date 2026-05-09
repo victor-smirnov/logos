@@ -45,14 +45,11 @@ fn check_value(cr: &ContainerRef<StoreCfg, MapCfg>, k: u64, want: u64) -> bool {
     return out == want;
 }
 
-fn extend(store: &mut Store<StoreCfg>, parent: i64, lo: u64, hi: u64, mul: u64) -> i64 {
-    let mut snap: Snap<StoreCfg> = if parent < 0i64 {
-        store.fork(GENESIS)
-    } else {
-        store.fork(parent)
-    };
+fn extend(store: &mut Store<StoreCfg>, parent: u64, lo: u64, hi: u64, mul: u64) -> u64 {
+    let mut snap: Snap<StoreCfg> = store.fork(parent);
     {
-        let mut cr: ContainerRef<StoreCfg, MapCfg> = if parent < 0i64 {
+        // GENESIS has no container yet; later commits open the existing one.
+        let mut cr: ContainerRef<StoreCfg, MapCfg> = if parent == GENESIS {
             create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64)
         } else {
             open_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64)
@@ -64,16 +61,11 @@ fn extend(store: &mut Store<StoreCfg>, parent: i64, lo: u64, hi: u64, mul: u64) 
 fn main() -> i32 {
     let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
 
-    let c0: i64 = extend(&mut store, -1i64, 0u64, 20u64, 2u64);
-    if c0 < 0i64 { return 10; }
-    let c1: i64 = extend(&mut store, c0, 20u64, 40u64, 3u64);
-    if c1 < 0i64 { return 11; }
-    let c2: i64 = extend(&mut store, c1, 40u64, 60u64, 5u64);
-    if c2 < 0i64 { return 12; }
-    let c3: i64 = extend(&mut store, c2, 60u64, 80u64, 7u64);
-    if c3 < 0i64 { return 13; }
-    let c4: i64 = extend(&mut store, c3, 80u64, 100u64, 11u64);
-    if c4 < 0i64 { return 14; }
+    let c0: u64 = extend(&mut store, GENESIS, 0u64, 20u64, 2u64);
+    let c1: u64 = extend(&mut store, c0, 20u64, 40u64, 3u64);
+    let c2: u64 = extend(&mut store, c1, 40u64, 60u64, 5u64);
+    let c3: u64 = extend(&mut store, c2, 60u64, 80u64, 7u64);
+    let c4: u64 = extend(&mut store, c3, 80u64, 100u64, 11u64);
 
     // C4: full union of all 5 ranges with their respective multipliers.
     {

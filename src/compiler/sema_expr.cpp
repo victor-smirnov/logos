@@ -4086,6 +4086,17 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // though H could be inferred from the arg.
     std::vector<TypeRef> m_type_args;
     if (!fi.type_params.empty()) {
+        // Method-level turbofish (`recv.method::<T1,T2>(args)`) wins over
+        // inference: seed struct_subst with the explicit args so the
+        // arg-compat check below sees the substituted param types, and
+        // run inference only for the trailing unbound positions. Closes
+        // the case where method type params don't appear in any arg
+        // (e.g. `fn checkout<K,V>(&self, id: i64) -> Snap<K,V>`),
+        // which inference can never resolve.
+        if (!user_type_args.empty()) {
+            for (size_t i = 0; i < fi.type_params.size() && i < user_type_args.size(); ++i)
+                struct_subst[fi.type_params[i].name] = user_type_args[i];
+        }
         infer_type_args(fi, arg_exprs, m_type_args, struct_subst, 1);
         for (size_t i = 0; i < fi.type_params.size() && i < m_type_args.size(); ++i)
             if (m_type_args[i])

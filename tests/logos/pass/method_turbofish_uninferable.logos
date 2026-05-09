@@ -1,0 +1,20 @@
+// Method turbofish: type params that don't appear in any param can't be
+// inferred — explicit turbofish on the method call must seed them.
+package method_turbofish_uninferable;
+
+struct Store { x: i64, }
+
+impl Store {
+    // K and V appear only in the (synthetic) return path — pure inference
+    // can't bind them. Caller supplies them via turbofish.
+    pub fn pick<K, V>(self: *mut Store, id: i64) -> i64 {
+        unsafe { return self.x + id; }
+    }
+}
+
+unsafe fn main() -> i32 {
+    let mut s: Store = Store { x: 100 };
+    let sp: *mut Store = &mut s as *mut Store;
+    let r: i64 = sp.pick::<i64, i64>(5i64);
+    return r as i32;
+}

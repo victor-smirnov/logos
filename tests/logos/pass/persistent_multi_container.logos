@@ -46,7 +46,7 @@ fn check(cr: &ContainerRef<StoreCfg, MapCfg>, n: u64, mul: u64) -> bool {
 
 fn main() -> i32 {
     let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
-    let mut commit: i64 = -1i64;
+    let mut commit: u64 = 0u64;
 
     {
         let mut snap: Snap<StoreCfg> = store.fork(GENESIS);
@@ -92,7 +92,6 @@ fn main() -> i32 {
 
         commit = snap.commit();
     }
-    if commit < 0i64 { return 20; }
 
     // Fork: all four containers visible, untouched.
     {

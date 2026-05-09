@@ -61,7 +61,7 @@ fn main() -> i32 {
     let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
 
     // Build base commit C0 — ctr=7 has [0..50) at *3 (multi-level)
-    let mut c0: i64 = -1i64;
+    let mut c0: u64 = 0u64;
     {
         let mut snap_a: Snap<StoreCfg> = store.fork(GENESIS);
         {
@@ -72,10 +72,9 @@ fn main() -> i32 {
         }
         c0 = snap_a.commit();
     }
-    if c0 < 0i64 { return 11; }
 
     // Fork B: extend ctr=7 with [50..100) at *5
-    let mut c1: i64 = -1i64;
+    let mut c1: u64 = 0u64;
     {
         let mut snap_b: Snap<StoreCfg> = store.fork(c0);
         {
@@ -87,10 +86,9 @@ fn main() -> i32 {
         }
         c1 = snap_b.commit();
     }
-    if c1 < 0i64 { return 23; }
 
     // Fork C from C0 — extend ctr=7 with [100..150) at *7
-    let mut c2: i64 = -1i64;
+    let mut c2: u64 = 0u64;
     {
         let mut snap_c: Snap<StoreCfg> = store.fork(c0);
         {
@@ -102,7 +100,6 @@ fn main() -> i32 {
         }
         c2 = snap_c.commit();
     }
-    if c2 < 0i64 { return 32; }
 
     // Fork D from C0 — must see only [0..50), not fork B's nor C's writes.
     {

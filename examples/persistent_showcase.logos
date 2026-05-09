@@ -92,7 +92,7 @@ fn main() -> i32 {
 
     // ── 1. Build commit C0 — scores: [0..30) → key*2; tags: [0..10) → key+100 ──
     section("commit C0: two containers");
-    let mut c0: i64 = -1i64;
+    let mut c0: u64 = 0u64;
     {
         let mut snap: Snap<StoreCfg> = store.fork(GENESIS);
 
@@ -144,7 +144,7 @@ fn main() -> i32 {
 
     // ── 3. Mutating fork — extends scores; original commit untouched ──
     section("mutating fork from C0");
-    let mut c1: i64 = -1i64;
+    let mut c1: u64 = 0u64;
     {
         let mut snap: Snap<StoreCfg> = store.fork(c0);
 
@@ -193,17 +193,17 @@ fn main() -> i32 {
     {
         unsafe {
             printf("  commit_count = %ld\n" as *const u8, store.commit_count());
-            let rs: Vec<i64> = store.roots();
+            let rs: Vec<u64> = store.roots();
             printf("  roots.len = %ld" as *const u8, rs.length());
             if rs.length() > 0i64 { printf(" (first = %ld)" as *const u8, rs.get(0i64)); }
             printf("\n" as *const u8);
 
-            let parents_c1: Vec<i64> = store.parents_of(c1);
+            let parents_c1: Vec<u64> = store.parents_of(c1);
             printf("  parents_of(C1).len = %ld" as *const u8, parents_c1.length());
             if parents_c1.length() > 0i64 { printf(" (first = %ld)" as *const u8, parents_c1.get(0i64)); }
             printf("\n" as *const u8);
 
-            let children_c0: Vec<i64> = store.children_of(c0);
+            let children_c0: Vec<u64> = store.children_of(c0);
             printf("  children_of(C0).len = %ld\n" as *const u8, children_c0.length());
         }
     }

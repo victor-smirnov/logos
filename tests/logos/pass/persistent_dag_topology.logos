@@ -30,7 +30,7 @@ pub const StoreCfg: HermesStatic = @{
 };
 pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 8 };
 
-fn vec_contains_i64(v: &Vec<i64>, x: i64) -> bool {
+fn vec_contains_u64(v: &Vec<u64>, x: u64) -> bool {
     let n: i64 = v.length();
     let mut i: i64 = 0i64;
     while i < n {
@@ -39,7 +39,7 @@ fn vec_contains_i64(v: &Vec<i64>, x: i64) -> bool {
     }
     return false;}
 
-fn commit_with(store: &mut Store<StoreCfg>, parent: i64, ctr_id: u64, k: u64) -> i64 {
+fn commit_with(store: &mut Store<StoreCfg>, parent: u64, ctr_id: u64, k: u64) -> u64 {
     let mut snap: Snap<StoreCfg> = store.fork(parent);
     {
         // Probe: if the container doesn't exist in the parent, create it.
@@ -60,12 +60,12 @@ fn main() -> i32 {
 
     // Build the topology described above. c0 forks from GENESIS;
     // every later commit chains off a previous one.
-    let c0: i64 = commit_with(&mut store, GENESIS, 7u64, 100u64);
-    let c1: i64 = commit_with(&mut store, c0,      7u64, 101u64);
-    let c2: i64 = commit_with(&mut store, c0,      7u64, 201u64);
-    let c3: i64 = commit_with(&mut store, c1,      7u64, 301u64);
-    let c4: i64 = commit_with(&mut store, c1,      7u64, 401u64);
-    let c5: i64 = commit_with(&mut store, c2,      7u64, 501u64);
+    let c0: u64 = commit_with(&mut store, GENESIS, 7u64, 100u64);
+    let c1: u64 = commit_with(&mut store, c0,      7u64, 101u64);
+    let c2: u64 = commit_with(&mut store, c0,      7u64, 201u64);
+    let c3: u64 = commit_with(&mut store, c1,      7u64, 301u64);
+    let c4: u64 = commit_with(&mut store, c1,      7u64, 401u64);
+    let c5: u64 = commit_with(&mut store, c2,      7u64, 501u64);
 
 
     // ── commit_count ── (genesis + 6 user commits)
@@ -73,69 +73,69 @@ fn main() -> i32 {
 
     // ── parents_of ──
     {
-        let pg: Vec<i64> = store.parents_of(GENESIS);
+        let pg: Vec<u64> = store.parents_of(GENESIS);
         if pg.length() != 0i64 { return 19; }
     }
     {
-        let p0: Vec<i64> = store.parents_of(c0);
+        let p0: Vec<u64> = store.parents_of(c0);
         if p0.length() != 1i64 { return 20; }
         if p0.get(0i64) != GENESIS { return 25; }
     }
     {
-        let p1: Vec<i64> = store.parents_of(c1);
+        let p1: Vec<u64> = store.parents_of(c1);
         if p1.length() != 1i64 { return 21; }
         if p1.get(0i64) != c0  { return 22; }
     }
     {
-        let p5: Vec<i64> = store.parents_of(c5);
+        let p5: Vec<u64> = store.parents_of(c5);
         if p5.length() != 1i64 { return 23; }
         if p5.get(0i64) != c2  { return 24; }
     }
 
     // ── children_of ──
     {
-        let ch0: Vec<i64> = store.children_of(c0);
+        let ch0: Vec<u64> = store.children_of(c0);
         if ch0.length() != 2i64 { return 30; }
-        if !unsafe { vec_contains_i64(&ch0, c1) } { return 31; }
-        if !unsafe { vec_contains_i64(&ch0, c2) } { return 32; }
+        if !unsafe { vec_contains_u64(&ch0, c1) } { return 31; }
+        if !unsafe { vec_contains_u64(&ch0, c2) } { return 32; }
     }
     {
-        let ch1: Vec<i64> = store.children_of(c1);
+        let ch1: Vec<u64> = store.children_of(c1);
         if ch1.length() != 2i64 { return 33; }
-        if !unsafe { vec_contains_i64(&ch1, c3) } { return 34; }
-        if !unsafe { vec_contains_i64(&ch1, c4) } { return 35; }
+        if !unsafe { vec_contains_u64(&ch1, c3) } { return 34; }
+        if !unsafe { vec_contains_u64(&ch1, c4) } { return 35; }
     }
     {
-        let ch2: Vec<i64> = store.children_of(c2);
+        let ch2: Vec<u64> = store.children_of(c2);
         if ch2.length() != 1i64 { return 36; }
         if ch2.get(0i64)  != c5 { return 37; }
     }
     // Leaf commits — no children.
     {
-        let ch3: Vec<i64> = store.children_of(c3);
+        let ch3: Vec<u64> = store.children_of(c3);
         if ch3.length() != 0i64 { return 38; }
-        let ch4: Vec<i64> = store.children_of(c4);
+        let ch4: Vec<u64> = store.children_of(c4);
         if ch4.length() != 0i64 { return 39; }
-        let ch5: Vec<i64> = store.children_of(c5);
+        let ch5: Vec<u64> = store.children_of(c5);
         if ch5.length() != 0i64 { return 40; }
     }
 
     // ── roots() ── (only GENESIS, the auto-seeded commit 0)
     {
-        let rs: Vec<i64> = store.roots();
+        let rs: Vec<u64> = store.roots();
         if rs.length() != 1i64 { return 50; }
         if rs.get(0i64)  != GENESIS { return 51; }
     }
     // GENESIS has c0 as its only child.
     {
-        let chg: Vec<i64> = store.children_of(GENESIS);
+        let chg: Vec<u64> = store.children_of(GENESIS);
         if chg.length() != 1i64 { return 52; }
         if chg.get(0i64) != c0  { return 53; }
     }
 
     // Sanity: each commit's data still resolves through checkout.
     let probes: [u64; 6] = [100u64, 101u64, 201u64, 301u64, 401u64, 501u64];
-    let cids:   [i64; 6] = [c0, c1, c2, c3, c4, c5];
+    let cids:   [u64; 6] = [c0, c1, c2, c3, c4, c5];
     let mut i: i64 = 0i64;
     while i < 6i64 {
         let mut snap: Snap<StoreCfg> = store.fork(cids[i]);

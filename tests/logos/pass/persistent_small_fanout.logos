@@ -22,7 +22,7 @@ pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fan
 
 fn main() -> i32 {
     let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
-    let mut commit: i64 = -1i64;
+    let mut commit: u64 = 0u64;
 
     // 200 entries with fanout=4 → tree of depth ~4 (4^4 = 256).
     {
@@ -61,7 +61,6 @@ fn main() -> i32 {
         }
         commit = snap.commit();
     }
-    if commit < 0i64 { return 20; }
 
     // Fork: the inherited tree is multi-level; descend reads must work.
     {

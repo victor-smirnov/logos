@@ -67,8 +67,8 @@ fn main() -> i32 {
         if cr.contains(r1) { return 7; }
     }
 
-    let id: i64 = snap.commit();
-    if id < 0i64 { return 3; }
+    let id: u64 = snap.commit();
+    
 
     // snap drops at fn-end — its dir NodeARC's drop chain hits:
     //   dir LeafDirNode → vals: Vec<NodeARC> → child container root

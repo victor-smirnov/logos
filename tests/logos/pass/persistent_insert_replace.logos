@@ -107,7 +107,6 @@ fn main() -> i32 {
         }
     }
 
-    let id: i64 = snap.commit();
-    if id < 0i64 { return 99; }
+    let id: u64 = snap.commit();
     return 0;
 }
