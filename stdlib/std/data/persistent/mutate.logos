@@ -62,6 +62,37 @@ pub unsafe fn vec_arc_insert_at<const STORE_CFG: HermesStatic>(
     }
 }
 
+// ── Vec<NodeARC> remove helper ────────────────────────────────────────
+// Vec<T>::remove for T=NodeARC has a generic-typevar move-tracking gap:
+// `let val: T = ...; return val;` doesn't mark val moved when T is
+// TypeVar at sema (is_move_type only fires for Struct, not TypeVar),
+// so val auto-drops at fn-end AND the caller owns the returned value
+// → double-decrement on the underlying block. Workaround: manual
+// shift + len-- + rc-decrement done here, returning a *neutralised*
+// NodeARC that the caller is responsible for the rc share of (caller
+// can drop it to release, or transfer it elsewhere).
+//
+// Returns a NodeARC that owns one rc share (semantically, the share
+// previously held by the slot). Caller's auto-drop releases it.
+pub unsafe fn vec_arc_remove_at<const STORE_CFG: HermesStatic>(
+    v: *mut Vec<NodeARC<STORE_CFG>>, idx: i64,
+) -> NodeARC<STORE_CFG> {
+    let n: i64 = v.length();
+    let slot: *mut NodeARC<STORE_CFG> = v.at(idx);
+    let handle: *mut dyn BTreeNode<STORE_CFG> = (*slot).p;
+    // Shift subsequent slots left by one (fat-handle bytes only).
+    let mut j: i64 = idx + 1i64;
+    while j < n {
+        let dst: *mut NodeARC<STORE_CFG> = v.at(j - 1i64);
+        let src: *mut NodeARC<STORE_CFG> = v.at(j);
+        (*dst).p = (*src).p;
+        j = j + 1i64;
+    }
+    // Decrement len directly via the Vec's len field.
+    v.len = v.len - 1i64;
+    return NodeARC::<STORE_CFG> { p: handle };
+}
+
 // ── Insert outcome — propagates split info up the recursion ───────────
 pub struct InsertOutcome<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
     pub hit:   bool,
@@ -272,31 +303,249 @@ pub unsafe fn pmap_insert<K: Container + ContainerOrd, V: Container, const STORE
     return outcome.hit;
 }
 
-// ── Recursive remove (no merge — leaves can underflow lazily) ─────────
+// ── Remove outcome — propagates underflow signal up the recursion ─────
+// `hit`: key was found and removed. `underflow`: this node is now
+// below min_keys and needs the parent to rebalance via siblings.
+pub struct RemoveOutcome {
+    pub hit:       bool,
+    pub underflow: bool,
+}
+
+// ── Leaf rebalance: borrow from / merge with sibling ──────────────────
+// `parent_branch`'s child at `i` is an under-min leaf. Try to borrow
+// from a sibling with spare keys; otherwise merge with one. Both
+// siblings are CoW-cloned via make_unique before mutation. Caller has
+// already make_unique'd parent_branch and the underflow child.
+pub unsafe fn rebalance_leaf_child<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+    parent_branch: *mut BranchNode<K, STORE_CFG, CFG>, i: i64,
+    cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
+) {
+    let min_keys: u64 = min_keys_leaf::<CFG>();
+    let nc: i64 = parent_branch.children.length();
+
+    // Try borrow from left sibling.
+    if i > 0i64 {
+        let left_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i - 1i64);
+        make_unique::<STORE_CFG>(left_ref, cur_snapshot_id, id_ctr_p);
+        let left = as_leaf::<K, V, STORE_CFG, CFG>(left_ref);
+        if left.keys.len() > min_keys {
+            let child_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i);
+            let child = as_leaf::<K, V, STORE_CFG, CFG>(child_ref);
+            let last: u64 = left.keys.len() - 1u64;
+            let k: K::ViewInStore = left.keys.get(last);
+            let v: V::ViewInStore = left.vals.get(last);
+            child.keys.insert_at(0u64, k);
+            child.vals.insert_at(0u64, v);
+            left.keys.remove_at(last);
+            left.vals.remove_at(last);
+            // Update parent separator: keys[i-1] = child.keys[0].
+            parent_branch.keys.set((i - 1i64) as u64, child.keys.get(0u64));
+            return;
+        }
+    }
+    // Try borrow from right sibling.
+    if i + 1i64 < nc {
+        let right_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i + 1i64);
+        make_unique::<STORE_CFG>(right_ref, cur_snapshot_id, id_ctr_p);
+        let right = as_leaf::<K, V, STORE_CFG, CFG>(right_ref);
+        if right.keys.len() > min_keys {
+            let child_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i);
+            let child = as_leaf::<K, V, STORE_CFG, CFG>(child_ref);
+            let k: K::ViewInStore = right.keys.get(0u64);
+            let v: V::ViewInStore = right.vals.get(0u64);
+            child.keys.push(k);
+            child.vals.push(v);
+            right.keys.remove_at(0u64);
+            right.vals.remove_at(0u64);
+            // New separator at parent.keys[i] = right.keys[0] (post-shift).
+            parent_branch.keys.set(i as u64, right.keys.get(0u64));
+            return;
+        }
+    }
+    // No spare in either sibling — merge. Prefer right merge if available;
+    // otherwise merge into left.
+    if i + 1i64 < nc {
+        // Merge child + right into child. Right was already make_unique'd
+        // above (when probing); but if we skipped the right-borrow branch
+        // (e.g. right was at min), redo to be sure.
+        let right_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i + 1i64);
+        make_unique::<STORE_CFG>(right_ref, cur_snapshot_id, id_ctr_p);
+        let right = as_leaf::<K, V, STORE_CFG, CFG>(right_ref);
+        let child_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i);
+        let child = as_leaf::<K, V, STORE_CFG, CFG>(child_ref);
+        // Drain right into child.
+        while right.keys.len() > 0u64 {
+            child.keys.push(right.keys.get(0u64));
+            child.vals.push(right.vals.get(0u64));
+            right.keys.remove_at(0u64);
+            right.vals.remove_at(0u64);
+        }
+        // Drop separator parent.keys[i]; remove parent.children[i+1].
+        // The removed NodeARC carries the right block's rc share; auto-drop
+        // releases it (right's now-empty Buffer storages drop cleanly).
+        parent_branch.keys.remove_at(i as u64);
+        let dropped: NodeARC<STORE_CFG> = vec_arc_remove_at::<STORE_CFG>(&mut parent_branch.children as *mut Vec<NodeARC<STORE_CFG>>, i + 1i64);
+        return;
+    }
+    // No right sibling — merge left + child into left.
+    {
+        let left_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i - 1i64);
+        make_unique::<STORE_CFG>(left_ref, cur_snapshot_id, id_ctr_p);
+        let left = as_leaf::<K, V, STORE_CFG, CFG>(left_ref);
+        let child_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i);
+        let child = as_leaf::<K, V, STORE_CFG, CFG>(child_ref);
+        while child.keys.len() > 0u64 {
+            left.keys.push(child.keys.get(0u64));
+            left.vals.push(child.vals.get(0u64));
+            child.keys.remove_at(0u64);
+            child.vals.remove_at(0u64);
+        }
+        parent_branch.keys.remove_at((i - 1i64) as u64);
+        let dropped: NodeARC<STORE_CFG> = vec_arc_remove_at::<STORE_CFG>(&mut parent_branch.children as *mut Vec<NodeARC<STORE_CFG>>, i);
+    }
+}
+
+// ── Branch rebalance: borrow / merge with rotation through parent ─────
+pub unsafe fn rebalance_branch_child<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+    parent_branch: *mut BranchNode<K, STORE_CFG, CFG>, i: i64,
+    cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
+) {
+    let min_keys: u64 = min_keys_branch::<CFG>();
+    let nc: i64 = parent_branch.children.length();
+
+    // Borrow from left sibling: rotate parent.keys[i-1] down into child.front,
+    // sibling.last_key up to parent, sibling.last_child to child.front.
+    if i > 0i64 {
+        let left_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i - 1i64);
+        make_unique::<STORE_CFG>(left_ref, cur_snapshot_id, id_ctr_p);
+        let left = as_branch::<K, STORE_CFG, CFG>(left_ref);
+        if left.keys.len() > min_keys {
+            let child_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i);
+            let child = as_branch::<K, STORE_CFG, CFG>(child_ref);
+            // child.keys.front = parent.keys[i-1]
+            child.keys.insert_at(0u64, parent_branch.keys.get((i - 1i64) as u64));
+            // child.children.front = left.children.last (transfer rc via remove + insert)
+            let moved: NodeARC<STORE_CFG> = vec_arc_remove_at::<STORE_CFG>(&mut left.children as *mut Vec<NodeARC<STORE_CFG>>, left.children.length() - 1i64);
+            vec_arc_insert_at::<STORE_CFG>(&mut child.children as *mut Vec<NodeARC<STORE_CFG>>, 0i64, moved);
+            // parent.keys[i-1] = left.keys.last
+            let last: u64 = left.keys.len() - 1u64;
+            parent_branch.keys.set((i - 1i64) as u64, left.keys.get(last));
+            left.keys.remove_at(last);
+            return;
+        }
+    }
+    // Borrow from right sibling.
+    if i + 1i64 < nc {
+        let right_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i + 1i64);
+        make_unique::<STORE_CFG>(right_ref, cur_snapshot_id, id_ctr_p);
+        let right = as_branch::<K, STORE_CFG, CFG>(right_ref);
+        if right.keys.len() > min_keys {
+            let child_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i);
+            let child = as_branch::<K, STORE_CFG, CFG>(child_ref);
+            // child.keys.push(parent.keys[i])
+            child.keys.push(parent_branch.keys.get(i as u64));
+            // child.children.push(right.children.front)
+            let moved: NodeARC<STORE_CFG> = vec_arc_remove_at::<STORE_CFG>(&mut right.children as *mut Vec<NodeARC<STORE_CFG>>, 0i64);
+            child.children.push(moved);
+            // parent.keys[i] = right.keys.front
+            parent_branch.keys.set(i as u64, right.keys.get(0u64));
+            right.keys.remove_at(0u64);
+            return;
+        }
+    }
+    // Merge with right: child.keys += [sep] + right.keys; child.children += right.children.
+    if i + 1i64 < nc {
+        let right_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i + 1i64);
+        make_unique::<STORE_CFG>(right_ref, cur_snapshot_id, id_ctr_p);
+        let right = as_branch::<K, STORE_CFG, CFG>(right_ref);
+        let child_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i);
+        let child = as_branch::<K, STORE_CFG, CFG>(child_ref);
+        child.keys.push(parent_branch.keys.get(i as u64));
+        while right.keys.len() > 0u64 {
+            child.keys.push(right.keys.get(0u64));
+            right.keys.remove_at(0u64);
+        }
+        while right.children.length() > 0i64 {
+            let moved: NodeARC<STORE_CFG> = vec_arc_remove_at::<STORE_CFG>(&mut right.children as *mut Vec<NodeARC<STORE_CFG>>, 0i64);
+            child.children.push(moved);
+        }
+        parent_branch.keys.remove_at(i as u64);
+        let dropped: NodeARC<STORE_CFG> = vec_arc_remove_at::<STORE_CFG>(&mut parent_branch.children as *mut Vec<NodeARC<STORE_CFG>>, i + 1i64);
+        return;
+    }
+    // Merge with left: left.keys += [sep] + child.keys; left.children += child.children.
+    {
+        let left_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i - 1i64);
+        make_unique::<STORE_CFG>(left_ref, cur_snapshot_id, id_ctr_p);
+        let left = as_branch::<K, STORE_CFG, CFG>(left_ref);
+        let child_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i);
+        let child = as_branch::<K, STORE_CFG, CFG>(child_ref);
+        left.keys.push(parent_branch.keys.get((i - 1i64) as u64));
+        while child.keys.len() > 0u64 {
+            left.keys.push(child.keys.get(0u64));
+            child.keys.remove_at(0u64);
+        }
+        while child.children.length() > 0i64 {
+            let moved: NodeARC<STORE_CFG> = vec_arc_remove_at::<STORE_CFG>(&mut child.children as *mut Vec<NodeARC<STORE_CFG>>, 0i64);
+            left.children.push(moved);
+        }
+        parent_branch.keys.remove_at((i - 1i64) as u64);
+        let dropped: NodeARC<STORE_CFG> = vec_arc_remove_at::<STORE_CFG>(&mut parent_branch.children as *mut Vec<NodeARC<STORE_CFG>>, i);
+    }
+}
+
+// ── Recursive remove with rebalance ───────────────────────────────────
 pub unsafe fn remove_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     arc: &mut NodeARC<STORE_CFG>,
     qkey: *const K,
     cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
-) -> bool {
+) -> RemoveOutcome {
     make_unique::<STORE_CFG>(arc, cur_snapshot_id, id_ctr_p);
 
     if arc_is_leaf::<STORE_CFG>(arc) {
         let leaf = as_leaf::<K, V, STORE_CFG, CFG>(arc);
         let idx: i64 = leaf_find::<K, V, STORE_CFG, CFG>(leaf, qkey);
-        if idx < 0i64 { return false; }
+        if idx < 0i64 { return RemoveOutcome { hit: false, underflow: false }; }
         leaf.keys.remove_at(idx as u64);
         leaf.vals.remove_at(idx as u64);
-        return true;
+        let under: bool = leaf.keys.len() < min_keys_leaf::<CFG>();
+        return RemoveOutcome { hit: true, underflow: under };
     }
     let br = as_branch::<K, STORE_CFG, CFG>(arc);
     let i: u64 = branch_descend_idx::<K, STORE_CFG, CFG>(br, qkey);
     let child_ref: &mut NodeARC<STORE_CFG> = br.children.borrow_mut(i as i64);
-    return remove_rec::<K, V, STORE_CFG, CFG>(child_ref, qkey, cur_snapshot_id, id_ctr_p);
+    let inner = remove_rec::<K, V, STORE_CFG, CFG>(child_ref, qkey, cur_snapshot_id, id_ctr_p);
+
+    if !inner.hit { return RemoveOutcome { hit: false, underflow: false }; }
+    if inner.underflow {
+        // Distinguish leaf vs branch child by inspecting the (now-CoW'd)
+        // child's header. Same `i` slot.
+        let child_check: &NodeARC<STORE_CFG> = br.children.borrow(i as i64);
+        if arc_is_leaf::<STORE_CFG>(child_check) {
+            rebalance_leaf_child::<K, V, STORE_CFG, CFG>(br, i as i64, cur_snapshot_id, id_ctr_p);
+        } else {
+            rebalance_branch_child::<K, V, STORE_CFG, CFG>(br, i as i64, cur_snapshot_id, id_ctr_p);
+        }
+    }
+    let self_under: bool = br.keys.len() < min_keys_branch::<CFG>();
+    return RemoveOutcome { hit: true, underflow: self_under };
 }
 
+// ── Top-level remove: descend, then collapse root if it shrank to one child ─
 pub unsafe fn pmap_remove<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     root: &mut NodeARC<STORE_CFG>, qkey: *const K,
     cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
 ) -> bool {
-    return remove_rec::<K, V, STORE_CFG, CFG>(root, qkey, cur_snapshot_id, id_ctr_p);
+    let outcome = remove_rec::<K, V, STORE_CFG, CFG>(root, qkey, cur_snapshot_id, id_ctr_p);
+    // Root-collapse: when the root is a branch with only one remaining
+    // child, demote that child to be the new root. Loop in case multiple
+    // levels collapse (rare but possible after large drains).
+    while !arc_is_leaf::<STORE_CFG>(root) {
+        let br = as_branch::<K, STORE_CFG, CFG>(root);
+        if br.children.length() != 1i64 { break; }
+        let only_child: NodeARC<STORE_CFG> = vec_arc_remove_at::<STORE_CFG>(&mut br.children as *mut Vec<NodeARC<STORE_CFG>>, 0i64);
+        arc_replace_in_slot::<STORE_CFG>(
+            root as *mut NodeARC<STORE_CFG>, only_child);
+    }
+    return outcome.hit;
 }

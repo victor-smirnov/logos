@@ -139,7 +139,11 @@ Toolchain hole is closed; the phase is now scaling **wide** — using the toolch
 - **Multi-clause / nested-for comprehensions** — chained `for`/`if` clauses (Python's `[x for xs in mat for x in xs]`).
 - **`Set<T>`** — until then, `Map<K, ()>` / `ObjectMap<K, null>` carries set semantics.
 - **`if let`** — `match` with a wildcard arm is the workaround.
-- **Range as value-type + `Iterator` trait + blanket `for` over `IntoIterator`** — today `for x in lo..hi` (and `..=`) is a fixed grammar form; range is not first-class and has no methods. Lift `lo..hi` to a value of `Range<T>`, define `Iterator`/`IntoIterator` traits in stdlib, rewrite `for` as desugaring to `IntoIterator::into_iter` + `Iterator::next` loop. Unlocks `(1..4).rev()`, `.map()`, `.filter()`, user-defined iterables.
+- **Iterator surface — finish the chain story.** `Iterator`/`IntoIterator` traits and `for x in iter`/`vec`/`&vec`/`&mut vec` desugar are landed (closed 2026-05-07). What's still missing for Rust-style iterator chains:
+    - `lo..hi` as a free expression (today only legal in for-head; `(0..10).rev()` doesn't parse — must write `range_i32(0, 10).rev()`).
+    - `.enumerate()` / `.map()` / `.filter()` as methods on `Iterator` (today only as free functions `iter_enumerate`/`iter_map`/`iter_filter`).
+    - Tuple-destructure binding in for-head: `for (i, x) in it { }` — grammar only accepts a single IDENT.
+    - Deref-pattern in for-binding (`for &item in xs { }`) and slice `.iter()` so `bytes.iter().enumerate()` works on `&[u8]`.
 - **Constraint solving via Z3** — clean isolated solver layer; for trait resolution and reward signals.
 
 ## Longer-Term
