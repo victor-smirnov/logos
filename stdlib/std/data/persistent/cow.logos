@@ -46,6 +46,11 @@ impl<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: Herm
     fn cfg_hash(&self) -> u64        { return hstatic_hash_of::<CFG>(); }
     fn block_type_hash(&self) -> u64 { return type_hash::<BranchNode<K, STORE_CFG, CFG>>(); }
 
+    fn child_count(&self) -> u64 { return self.children.length() as u64; }
+    fn child_at(&self, idx: u64) -> *const NodeARC<STORE_CFG> {
+        unsafe { return self.children.at_const(idx as i64); }
+    }
+
     fn cow_clone(&self, new_id: BlockId<STORE_CFG>, snapshot_id: SnpId<STORE_CFG>) -> NodeARC<STORE_CFG> {
         let copy: *mut BranchNode<K, STORE_CFG, CFG> = unsafe {
             branch_alloc::<K, STORE_CFG, CFG>(new_id, snapshot_id)
@@ -98,6 +103,12 @@ impl<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, c
     fn cfg_hash(&self) -> u64        { return hstatic_hash_of::<CFG>(); }
     fn block_type_hash(&self) -> u64 { return type_hash::<LeafNode<K, V, STORE_CFG, CFG>>(); }
 
+    // Data leaves carry no NodeARC children — keys/vals are datatype storage.
+    fn child_count(&self) -> u64 { return 0u64; }
+    fn child_at(&self, idx: u64) -> *const NodeARC<STORE_CFG> {
+        return 0 as *const NodeARC<STORE_CFG>;
+    }
+
     fn cow_clone(&self, new_id: BlockId<STORE_CFG>, snapshot_id: SnpId<STORE_CFG>) -> NodeARC<STORE_CFG> {
         let copy: *mut LeafNode<K, V, STORE_CFG, CFG> = unsafe {
             leaf_alloc::<K, V, STORE_CFG, CFG>(new_id, snapshot_id)
@@ -147,6 +158,14 @@ pub struct LeafDirNode<K: Container + ContainerOrd, const STORE_CFG: HermesStati
 impl<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic> BTreeNode<STORE_CFG> for LeafDirNode<K, STORE_CFG, CFG> {
     fn cfg_hash(&self) -> u64        { return hstatic_hash_of::<CFG>(); }
     fn block_type_hash(&self) -> u64 { return type_hash::<LeafDirNode<K, STORE_CFG, CFG>>(); }
+
+    // Dir leaves' vals are NodeARC handles to container roots — those
+    // ARE this dir leaf's children for the type-erased walk (drop and
+    // save/load both want to recurse through them).
+    fn child_count(&self) -> u64 { return self.vals.length() as u64; }
+    fn child_at(&self, idx: u64) -> *const NodeARC<STORE_CFG> {
+        unsafe { return self.vals.at_const(idx as i64); }
+    }
 
     fn cow_clone(&self, new_id: BlockId<STORE_CFG>, snapshot_id: SnpId<STORE_CFG>) -> NodeARC<STORE_CFG> {
         let copy: *mut LeafDirNode<K, STORE_CFG, CFG> = unsafe {

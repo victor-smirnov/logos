@@ -83,6 +83,22 @@ pub trait BTreeNode<const STORE_CFG: HermesStatic> {
     // for stores with u128 / opaque-token id types.
     fn cow_clone(&self, new_id: BlockId<STORE_CFG>, snapshot_id: SnpId<STORE_CFG>) -> NodeARC<STORE_CFG>;
 
+    // Type-erased child traversal — the foundation for save/load,
+    // integrity checks, and any walk that needs to recurse over the
+    // tree without knowing the concrete K/V/CFG of each level.
+    //
+    //   • BranchNode: child_count = children.length, child_at = children[idx].
+    //   • LeafDirNode: child_count = vals.length, child_at = vals[idx]
+    //                  (dir leaves carry NodeARC vals — the heterogeneous
+    //                   container roots are themselves children of the dir).
+    //   • LeafNode (data): child_count = 0; child_at must not be called.
+    //
+    // Caller holds the parent's NodeARC for the duration of the walk —
+    // returned `*const NodeARC<STORE_CFG>` is valid as long as the
+    // parent's vals/children Vec isn't mutated.
+    fn child_count(&self) -> u64;
+    fn child_at(&self, idx: u64) -> *const NodeARC<STORE_CFG>;
+
     // Default destructor — runs full Drop chain on `self`'s contents
     // (user impl Drop + field destructors). The body uses generic-T scope
     // drop: `let _: Self = *self_ptr` consumes Self into a scope-local
@@ -94,6 +110,26 @@ pub trait BTreeNode<const STORE_CFG: HermesStatic> {
             let _consumed: Self = *p;
         }
     }
+}
+
+// Type-erased recursive walk: visits every NodeARC in the tree rooted
+// at `arc` exactly once, in post-order (children first, then parent).
+// Returns the total count visited (including arc itself).
+//
+// Useful as a foundation for save/load (writer needs to visit every
+// block), integrity checks, and dump tooling. Doesn't mutate refcount
+// — caller's NodeARC keeps the tree alive for the duration.
+pub unsafe fn for_each_block_rec<const STORE_CFG: HermesStatic>(
+    arc: &NodeARC<STORE_CFG>, counter: *mut u64,
+) {
+    let nc: u64 = arc.p.child_count();
+    let mut i: u64 = 0u64;
+    while i < nc {
+        let child_p: *const NodeARC<STORE_CFG> = arc.p.child_at(i);
+        for_each_block_rec::<STORE_CFG>(&*child_p, counter);
+        i = i + 1u64;
+    }
+    *counter = *counter + 1u64;
 }
 
 // Replace the NodeARC at `slot` with `new_arc`, preserving rc invariants.
