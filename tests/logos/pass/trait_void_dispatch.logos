@@ -9,7 +9,9 @@ impl Notify for Msg {
 }
 fn send<T: Notify>(x: T) { x.notify(); }
 unsafe fn main() -> i32 {
+    // send moves its by-value arg (Msg is non-Copy); read code first, then send.
     let m: Msg = Msg { code: 42 };
+    let code: i32 = m.code;
     send::<Msg>(m);
-    return m.code;
+    return code;
 }

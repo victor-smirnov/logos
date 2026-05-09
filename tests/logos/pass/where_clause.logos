@@ -21,8 +21,9 @@ fn show_and_double<T>(x: T) -> i32 where T: Show + Double {
 }
 
 unsafe fn main() -> i32 {
-    let n = Num { val: 7 };
-    printi("%d\n", print_show(n));      // 7
-    printi("%d\n", show_and_double(n)); // 21
+    // Each generic call moves its by-value arg (Num is a non-Copy struct);
+    // construct a fresh Num at each call site.
+    printi("%d\n", print_show(Num { val: 7 }));      // 7
+    printi("%d\n", show_and_double(Num { val: 7 })); // 21
     return 0;
 }

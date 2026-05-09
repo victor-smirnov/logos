@@ -1865,6 +1865,15 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
         }
     }
 
+    // Move semantics: mark by-value move-type args as moved so scope-end
+    // Drops do not fire on locals whose ownership has transferred. Mirrors
+    // the analogous loops in lower_call / lower_method_call / lower_static_call.
+    // Without this, e.g. `arc_new::<S>(s)` left `s`'s scope-exit Drop active,
+    // freeing storage that arc_new now owns.
+    for (auto& a : arg_exprs) {
+        if (a && is_move_type(a->type))
+            mark_moved_expr(expr_ref_of(*a));
+    }
     return builder().call(callee, std::move(type_args), std::move(arg_exprs), ret);
 }
 
