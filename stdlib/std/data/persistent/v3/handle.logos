@@ -131,6 +131,13 @@ impl<const STORE_CFG: HermesStatic> SnapV3<STORE_CFG> {
 pub struct ContainerRefV3<const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
     pub arc:    NodeARC<STORE_CFG>,    // owning rc on the container root
     pub ctr_id: u64,
+    // Pointer into the dir leaf's vals slot, stored as i64 to dodge
+    // mlir-gen's auto-drop pass: typed `*mut NodeARC<…>` here would be
+    // treated as a NodeARC field and the pointer value would be passed
+    // to NodeARC::drop on cr's scope-exit — corrupting the dir slot's
+    // fat-ptr storage. Cast to *mut NodeARC<STORE_CFG> at use sites.
+    // 0 when open_pmap_v3 didn't find ctr_id.
+    pub dir_slot: i64,
 }
 
 // create_pmap_v3 — alloc a fresh empty leaf for the container, register
@@ -161,17 +168,20 @@ pub fn create_pmap_v3<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
     let arc_for_ref: NodeARC<STORE_CFG> = arc_for_dir.clone_arc();
 
     // Append to dir leaf in-place — make_unique above guarantees the
-    // dir leaf is owned by this snapshot.
-    unsafe {
+    // dir leaf is owned by this snapshot. Capture *mut to the new slot
+    // for ContainerRefV3.dir_slot.
+    let slot_p: *mut NodeARC<STORE_CFG> = unsafe {
         let dir_leaf: *mut LeafDirNode<u64, STORE_CFG, DirCfgV3> =
             node_arc_data_ptr::<STORE_CFG>(&snap.dir) as *mut LeafDirNode<u64, STORE_CFG, DirCfgV3>;
         dir_leaf.keys.push(ctr_id);
         dir_leaf.vals.push(arc_for_dir);
-    }
+        dir_leaf.vals.at(dir_leaf.vals.length() - 1i64)
+    };
 
     return ContainerRefV3::<STORE_CFG, CFG> {
-        arc:    arc_for_ref,
-        ctr_id: ctr_id,
+        arc:      arc_for_ref,
+        ctr_id:   ctr_id,
+        dir_slot: slot_p as i64,
     };
 }
 
@@ -190,6 +200,14 @@ pub fn open_pmap_v3<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
     snap:   &mut SnapV3<STORE_CFG>,
     ctr_id: u64,
 ) -> ContainerRefV3<STORE_CFG, CFG> {
+    // CoW dir up-front so any later writeback through cr.dir_slot lands
+    // in this snapshot's dir, not the parent commit's. Skips when dir
+    // is already this snapshot's (snapshot_id matches).
+    let s: &mut LockingStoreV3<STORE_CFG> = snap.arc.deref_mut();
+    let id_ctr_p: *mut u64 = unsafe {
+        &mut (*(s as *mut LockingStoreV3<STORE_CFG>)).next_block_id as *mut u64
+    };
+    unsafe { make_unique::<STORE_CFG>(&mut snap.dir, snap.snapshot_id, id_ctr_p); }
     unsafe {
         let dir_leaf: *mut LeafDirNode<u64, STORE_CFG, DirCfgV3> =
             node_arc_data_ptr::<STORE_CFG>(&snap.dir) as *mut LeafDirNode<u64, STORE_CFG, DirCfgV3>;
@@ -200,15 +218,17 @@ pub fn open_pmap_v3<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
                 let slot_p: *mut NodeARC<STORE_CFG> = dir_leaf.vals.at(i as i64);
                 let cloned: NodeARC<STORE_CFG> = (*slot_p).clone_arc();
                 return ContainerRefV3::<STORE_CFG, CFG> {
-                    arc:    cloned,
-                    ctr_id: ctr_id,
+                    arc:      cloned,
+                    ctr_id:   ctr_id,
+                    dir_slot: slot_p as i64,
                 };
             }
             i = i + 1u64;
         }
         return ContainerRefV3::<STORE_CFG, CFG> {
-            arc:    NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
-            ctr_id: ctr_id,
+            arc:      NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
+            ctr_id:   ctr_id,
+            dir_slot: 0i64,
         };
     }
 }
@@ -233,16 +253,49 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRefV3<STOR
     }
 
     pub fn insert(&mut self, key: <type:CFG.key>::ViewInStore, val: <type:CFG.value>::ViewInStore, qkey: *const <type:CFG.key>, cur_snap_id: u64, id_ctr_p: *mut u64) -> bool {
-        unsafe {
-            return pmap_insert::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
-                &mut self.arc, key, val, qkey, cur_snap_id, id_ctr_p);
-        }
+        let r: bool = unsafe {
+            pmap_insert::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
+                &mut self.arc, key, val, qkey, cur_snap_id, id_ctr_p)
+        };
+        self.writeback();
+        return r;
     }
 
     pub fn remove(&mut self, qkey: *const <type:CFG.key>, cur_snap_id: u64, id_ctr_p: *mut u64) -> bool {
+        let r: bool = unsafe {
+            pmap_remove::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
+                &mut self.arc, qkey, cur_snap_id, id_ctr_p)
+        };
+        self.writeback();
+        return r;
+    }
+
+    // Sync dir_slot's fat-handle with self.arc. Insert/remove that
+    // grow/collapse the root replaced self.arc (via arc_replace_in_slot)
+    // but the dir's vals[i] still has the pre-mutation handle. Clone-bump
+    // self.arc's block rc into the slot, release the slot's old share.
+    pub fn writeback(&mut self) {
         unsafe {
-            return pmap_remove::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
-                &mut self.arc, qkey, cur_snap_id, id_ctr_p);
+            if self.dir_slot == 0i64 { return; }
+            let slot: *mut NodeARC<STORE_CFG> = self.dir_slot as *mut NodeARC<STORE_CFG>;
+            let slot_handle: *mut dyn BTreeNode<STORE_CFG> = (*slot).p;
+            let arc_handle:  *mut dyn BTreeNode<STORE_CFG> = self.arc.p;
+            if slot_handle as *mut u8 == arc_handle as *mut u8 { return; }
+            // Bump self.arc's block rc — the slot adopts a fresh share,
+            // self.arc retains its own.
+            let new_dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&self.arc);
+            let new_rcp: *mut u64 = new_dp as *mut u64;
+            *new_rcp = *new_rcp + 1u64;
+            // Write new fat-handle into slot.
+            (*slot).p = arc_handle;
+            // Release old fat-handle.
+            let old_dp: *mut u8 = (*(slot_handle as *mut u64)) as *mut u8;
+            let old_rcp: *mut u64 = old_dp as *mut u64;
+            *old_rcp = *old_rcp - 1u64;
+            if *old_rcp == 0u64 {
+                slot_handle.__drop_in_place();
+                dealloc(old_dp);
+            }
         }
     }
 }
