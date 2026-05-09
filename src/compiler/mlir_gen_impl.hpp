@@ -46,7 +46,11 @@ struct FieldInfo {
     std::string name;
     mlir::Type  type;
     uint32_t    index;
-    std::string struct_name;   // non-empty if field is *struct
+    std::string struct_name;   // non-empty if field is struct, *struct, &struct, &mut struct.
+    bool        is_pointer = false;  // true for *T / &T / &mut T fields. The struct_name
+                                     // is still populated (so chain-field access via the
+                                     // pointer can resolve), but auto-Drop must skip these
+                                     // — they don't own the pointee.
 };
 
 struct StructInfo {

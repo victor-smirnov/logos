@@ -168,7 +168,7 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
              fv.kind() == LogosType::Kind::Struct) &&
             type_str(fv) == "AnyVal") {
             ft = logos_to_mlir(f.type);
-            info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {}});
+            info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {}, false});
             field_types.push_back(ft);
             continue;
         }
@@ -201,9 +201,13 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
                    (fv.pointee().kind() == LogosType::Kind::Struct ||
                     fv.pointee().kind() == LogosType::Kind::ZonedStruct)) {
             // *Struct / &Struct / &mut Struct field — pointer to struct.
-            // Set fsname so gen_recv_struct can chain field access through it.
+            // Set fsname so gen_recv_struct can chain field access through
+            // it; mark is_pointer so the auto-Drop pass skips it.
             ft = ptr_type();
             fsname = mlir_struct_key(fv.pointee());
+            info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), fsname, /*is_pointer=*/true});
+            field_types.push_back(ft);
+            continue;
         } else {
             ft = logos_to_mlir(f.type);
             if (!ft) {
@@ -211,7 +215,7 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
                 return false;
             }
         }
-        info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), fsname});
+        info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), fsname, false});
         field_types.push_back(ft);
     }
     if (mlir::failed(struct_type.setBody(field_types, false))) {

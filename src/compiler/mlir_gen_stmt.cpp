@@ -159,6 +159,12 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
             for (int fi = (int)info.fields.size() - 1; fi >= 0; --fi) {
                 auto& f = info.fields[fi];
                 if (moved.count(f.name)) continue;
+                // *T / &T / &mut T fields don't own their pointee — auto-drop
+                // must not call <T>::drop on the pointer value (which would
+                // reinterpret the address bits as a T and corrupt the
+                // pointee). f.struct_name is still populated for chain-field
+                // access, so we can't gate on emptiness alone.
+                if (f.is_pointer) continue;
                 std::string field_drop = f.struct_name.empty()
                     ? std::string{} : resolve_method_symbol(f.struct_name, "drop");
                 if (field_drop.empty()) continue;

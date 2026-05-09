@@ -131,13 +131,12 @@ impl<const STORE_CFG: HermesStatic> SnapV3<STORE_CFG> {
 pub struct ContainerRefV3<const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
     pub arc:    NodeARC<STORE_CFG>,    // owning rc on the container root
     pub ctr_id: u64,
-    // Pointer into the dir leaf's vals slot, stored as i64 to dodge
-    // mlir-gen's auto-drop pass: typed `*mut NodeARC<…>` here would be
-    // treated as a NodeARC field and the pointer value would be passed
-    // to NodeARC::drop on cr's scope-exit — corrupting the dir slot's
-    // fat-ptr storage. Cast to *mut NodeARC<STORE_CFG> at use sites.
-    // 0 when open_pmap_v3 didn't find ctr_id.
-    pub dir_slot: i64,
+    // Pointer into the dir leaf's vals slot. Insert/remove that grow or
+    // collapse the root replace cr.arc with arc_replace_in_slot — the
+    // dir's view of the root would otherwise stay stale, so writeback()
+    // syncs the slot's NodeARC after every mutation. null when the dir
+    // lookup didn't find ctr_id (open_pmap returned an empty handle).
+    pub dir_slot: *mut NodeARC<STORE_CFG>,
 }
 
 // create_pmap_v3 — alloc a fresh empty leaf for the container, register
@@ -181,7 +180,7 @@ pub fn create_pmap_v3<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
     return ContainerRefV3::<STORE_CFG, CFG> {
         arc:      arc_for_ref,
         ctr_id:   ctr_id,
-        dir_slot: slot_p as i64,
+        dir_slot: slot_p,
     };
 }
 
@@ -220,7 +219,7 @@ pub fn open_pmap_v3<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
                 return ContainerRefV3::<STORE_CFG, CFG> {
                     arc:      cloned,
                     ctr_id:   ctr_id,
-                    dir_slot: slot_p as i64,
+                    dir_slot: slot_p,
                 };
             }
             i = i + 1u64;
@@ -228,7 +227,7 @@ pub fn open_pmap_v3<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
         return ContainerRefV3::<STORE_CFG, CFG> {
             arc:      NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
             ctr_id:   ctr_id,
-            dir_slot: 0i64,
+            dir_slot: 0 as *mut NodeARC<STORE_CFG>,
         };
     }
 }
@@ -276,8 +275,8 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRefV3<STOR
     // self.arc's block rc into the slot, release the slot's old share.
     pub fn writeback(&mut self) {
         unsafe {
-            if self.dir_slot == 0i64 { return; }
-            let slot: *mut NodeARC<STORE_CFG> = self.dir_slot as *mut NodeARC<STORE_CFG>;
+            let slot: *mut NodeARC<STORE_CFG> = self.dir_slot;
+            if slot == 0 as *mut NodeARC<STORE_CFG> { return; }
             let slot_handle: *mut dyn BTreeNode<STORE_CFG> = (*slot).p;
             let arc_handle:  *mut dyn BTreeNode<STORE_CFG> = self.arc.p;
             if slot_handle as *mut u8 == arc_handle as *mut u8 { return; }
