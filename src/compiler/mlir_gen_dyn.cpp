@@ -789,7 +789,17 @@ mlir::Value MLIRGenImpl::coerce_to_dyn(mlir::Value data_ptr, std::string_view tr
                                         std::string_view src_type_name) {
     auto dyn_struct = mlir::LLVM::LLVMStructType::getLiteral(
         builder_.getContext(), {ptr_type(), ptr_type()});
-    auto alloca = create_entry_alloca(dyn_struct);
+    // Heap-allocate the {data, vtable} fat-storage so the resulting
+    // handle can outlive the cast site's stack frame. Necessary for
+    // smart-pointer use cases (NodeARC) where the cast happens in one
+    // fn and the handle is returned / stored elsewhere. Stack alloc
+    // would dangle on return. Cost: 16-byte malloc per `as *mut dyn`
+    // expression; the storage stays alive as long as any handle
+    // references it (caller's responsibility — Box<dyn>'s drop frees,
+    // raw `*mut dyn` doesn't).
+    auto size16 = builder_.create<mlir::arith::ConstantIntOp>(loc_, int64_t(16), 64);
+    auto alloca = call_malloc(size16);
+    if (!alloca) return nullptr;
     // Store data pointer at field 0
     llvm::SmallVector<mlir::LLVM::GEPArg> idx0{int32_t(0), int32_t(0)};
     auto dp = builder_.create<mlir::LLVM::GEPOp>(
@@ -1074,7 +1084,20 @@ mlir::Value MLIRGenImpl::gen_dyn_dispatch(lir_view::EMethodCallView v,
 
     mlir::Type ret_type;
     if (ret_logos_type && TypeRef(ret_logos_type).kind() != LogosType::Kind::Void) {
-        ret_type = logos_to_mlir(ret_logos_type);
+        // Struct returns: the actual fn signature returns the LLVM struct
+        // value (see Logos's struct-return convention — register_struct
+        // emits LLVMStructType for each concrete instantiation). The
+        // logos_to_mlir(Struct) shorthand returns ptr_type for "passed by
+        // ptr" use cases (params, fields), but for return-position we need
+        // the struct itself so the indirect call type matches the fn def.
+        if (TypeRef(ret_logos_type).kind() == LogosType::Kind::Struct ||
+            TypeRef(ret_logos_type).kind() == LogosType::Kind::ZonedStruct) {
+            auto sit = struct_types_.find(mlir_struct_key(ret_logos_type));
+            if (sit == struct_types_.end())
+                sit = struct_types_.find(std::string(TypeRef(ret_logos_type).struct_name()));
+            if (sit != struct_types_.end()) ret_type = sit->second.llvm_type;
+        }
+        if (!ret_type) ret_type = logos_to_mlir(ret_logos_type);
     }
     if (!ret_type)
         ret_type = mlir::LLVM::LLVMVoidType::get(builder_.getContext());

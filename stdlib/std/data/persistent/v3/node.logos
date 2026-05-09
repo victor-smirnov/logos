@@ -38,11 +38,17 @@ use std.hermes.anyval;
 //   later    — id, snapshot_id (typed via STORE_CFG), is_leaf.
 // For v1 STORE_CFG with u64 ID slots, header is 25 bytes (+padding).
 
+// v1 layout: rc + u64 ids + leaf flag, total 25 bytes (+padding).
+// STORE_CFG is a phantom marker for type-level distinction between stores;
+// when wider IDs land (u128 block_id, opaque snp_id) this struct's typed
+// fields will pick them up via <type:STORE_CFG.block_id> — but cfg-slot-
+// type doesn't currently round-trip through trait method args / chain
+// field writes, so v1 keeps ID fields as concrete u64.
 pub struct NodeBase<const STORE_CFG: HermesStatic> {
-    pub rc:          u64,                          // offset 0 — direct field read
-    pub id:          <type:STORE_CFG.block_id>,    // persistent block id
-    pub snapshot_id: <type:STORE_CFG.snp_id>,      // creating snapshot — CoW skip key
-    pub is_leaf:     bool,                         // branch/leaf discriminator
+    pub rc:          u64,    // offset 0 — direct field read by NodeARC
+    pub id:          u64,    // persistent block id
+    pub snapshot_id: u64,    // creating snapshot — CoW skip key
+    pub is_leaf:     bool,   // branch/leaf discriminator
 }
 
 // ── BTreeNode trait ────────────────────────────────────────────────────
@@ -61,6 +67,17 @@ pub trait BTreeNode<const STORE_CFG: HermesStatic> {
     fn cfg_hash(&self) -> u64;
     fn block_type_hash(&self) -> u64;
 
+    // CoW duplication — alloc a new node with the same logical content and
+    // a fresh (id, snapshot_id) stamp. Children referenced by branches /
+    // dir-leaves get their NodeARC.clone_arc'd (rc bumped). Returns a new
+    // NodeARC handle (rc=1) over the freshly allocated block.
+    //
+    // v1 uses u64 for ID args (matches the v1 StoreCfg slots — block_id /
+    // snp_id are both u64). When wider IDs land, this signature gains a
+    // generic type via STORE_CFG slots (cfg-slot-type currently doesn't
+    // round-trip through trait method dispatch, so v1 takes the concrete).
+    fn cow_clone(&self, new_id: u64, snapshot_id: u64) -> NodeARC<STORE_CFG>;
+
     // Default destructor — runs full Drop chain on `self`'s contents
     // (user impl Drop + field destructors). The body uses generic-T scope
     // drop: `let _: Self = *self_ptr` consumes Self into a scope-local
@@ -72,6 +89,57 @@ pub trait BTreeNode<const STORE_CFG: HermesStatic> {
             let _consumed: Self = *p;
         }
     }
+}
+
+// Make-unique helper: ensure the NodeARC handle uniquely owns its block
+// in the current snapshot. If the underlying node was created/cloned in
+// a different snapshot, CoW-clone it via vtable dispatch and return a
+// fresh NodeARC. Otherwise return the original (caller can mutate in
+// place). Mirrors the existing pmap_v2 make_root_unique pattern but
+// keys on snapshot_id (Memoria-style ownership stamping) instead of rc.
+//
+// NOTE: caller-owned id allocator (e.g. LockingStore.next_block_id) is
+// passed as a *mut so the cow_clone branch can read+bump it without a
+// thread-local detour.
+// v1 simplification: ID types fixed at u64 (per v1 StoreCfg convention).
+// When STORE_CFG-driven block_id types broaden (u128, opaque tokens) the
+// signature gains a generic alloc_id callback. For now, bumping a `*mut u64`
+// keeps the helper concrete.
+pub unsafe fn make_unique<const STORE_CFG: HermesStatic>(
+    arc:             &mut NodeARC<STORE_CFG>,
+    cur_snapshot_id: u64,
+    id_ctr_p:        *mut u64,
+) {
+    let data_p: *mut u8 = node_arc_data_ptr::<STORE_CFG>(arc);
+    let snap_p: *mut u64 = (data_p as i64 + 16i64) as *mut u64;
+    if *snap_p == cur_snapshot_id { return; }
+    *id_ctr_p = *id_ctr_p + 1u64;
+    let new_id: u64 = *id_ctr_p;
+
+    // Step 1: build the fresh clone (rc=1 on a brand-new block).
+    let cloned: NodeARC<STORE_CFG> = arc.p.cow_clone(new_id, cur_snapshot_id);
+
+    // Step 2: manually release the old block (we own one rc; this returns
+    // it). Bypasses NodeARC.drop on `arc` because we're about to swap
+    // arc.p underneath it.
+    let rcp: *mut u64 = data_p as *mut u64;
+    *rcp = *rcp - 1u64;
+    if *rcp == 0u64 {
+        arc.p.__drop_in_place();
+        dealloc(data_p);
+    }
+
+    // Step 3: bump the cloned block's rc so the local `cloned`'s auto-drop
+    // at fn exit (which we can't suppress — Logos has no mem::forget yet)
+    // takes that ref back without freeing. Net: arc inherits rc=1 on the
+    // cloned block.
+    let cloned_data_p: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&cloned);
+    let cloned_rcp: *mut u64 = cloned_data_p as *mut u64;
+    *cloned_rcp = *cloned_rcp + 1u64;
+
+    arc.p = cloned.p;
+    // `cloned` drops here at fn-end: rc 2 → 1 on the new block. arc now
+    // owns the surviving rc.
 }
 
 // ── NodeARC — shared owning fat-ptr handle ────────────────────────────

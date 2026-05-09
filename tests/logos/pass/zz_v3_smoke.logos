@@ -121,5 +121,58 @@ fn main() -> i32 {
         //   NodeARC drops → child leaves rc 1→0 → leaf auto-Drop → ...
     }
 
+    // ── Stage 4 — cow_clone via vtable, both originals and clones drop cleanly ──
+    {
+        let lp: *mut LeafNode<u64, u64, StoreCfg, DataCfg> = unsafe {
+            leaf_alloc::<u64, u64, StoreCfg, DataCfg>(601u64, 5u64)
+        };
+        unsafe {
+            lp.keys.push(7u64);
+            lp.vals.push(700u64);
+        }
+        let arc: NodeARC<StoreCfg> = node_arc_wrap::<StoreCfg>(lp as *mut dyn BTreeNode<StoreCfg>);
+
+        // Trigger cow_clone via vtable. Clone has fresh id+snap_id stamp.
+        let cloned = unsafe { arc.p.cow_clone(701u64, 9u64) };
+
+        unsafe {
+            // Original unchanged — original block keeps id=601, snap=5.
+            let op: *mut u8 = node_arc_data_ptr::<StoreCfg>(&arc);
+            if *((op as i64 +  8i64) as *mut u64) != 601u64 { return 1; }
+            if *((op as i64 + 16i64) as *mut u64) != 5u64   { return 2; }
+            // Cloned has new stamp.
+            let cp: *mut u8 = node_arc_data_ptr::<StoreCfg>(&cloned);
+            if *((cp as i64 +  8i64) as *mut u64) != 701u64 { return 3; }
+            if *((cp as i64 + 16i64) as *mut u64) != 9u64   { return 4; }
+        }
+        // Both arcs drop at scope exit — independent allocations, no shared rc.
+    }
+
+    // ── Stage 5 — make_unique CoW skip rule (snapshot_id check) ───────
+    {
+        let lp: *mut LeafNode<u64, u64, StoreCfg, DataCfg> = unsafe {
+            leaf_alloc::<u64, u64, StoreCfg, DataCfg>(801u64, 7u64)
+        };
+        let mut arc: NodeARC<StoreCfg> = node_arc_wrap::<StoreCfg>(lp as *mut dyn BTreeNode<StoreCfg>);
+
+        let mut next_id: u64 = 800u64;
+        // Same snapshot — no clone, no id bump.
+        unsafe { make_unique::<StoreCfg>(&mut arc, 7u64, &mut next_id as *mut u64); }
+        if next_id != 800u64 { return 5; }
+        unsafe {
+            let dp: *mut u8 = node_arc_data_ptr::<StoreCfg>(&arc);
+            if *((dp as i64 + 8i64) as *mut u64) != 801u64 { return 6; }
+        }
+
+        // Different snapshot — clone fires, arc swaps to new node.
+        unsafe { make_unique::<StoreCfg>(&mut arc, 9u64, &mut next_id as *mut u64); }
+        if next_id != 801u64 { return 7; }
+        unsafe {
+            let dp: *mut u8 = node_arc_data_ptr::<StoreCfg>(&arc);
+            if *((dp as i64 +  8i64) as *mut u64) != 801u64 { return 8; }
+            if *((dp as i64 + 16i64) as *mut u64) != 9u64   { return 9; }
+        }
+    }
+
     return 0;
 }

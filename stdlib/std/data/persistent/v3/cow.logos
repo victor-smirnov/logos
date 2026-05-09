@@ -45,11 +45,36 @@ pub struct BranchNode<K: Container + ContainerOrd, const STORE_CFG: HermesStatic
 impl<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic> BTreeNode<STORE_CFG> for BranchNode<K, STORE_CFG, CFG> {
     fn cfg_hash(&self) -> u64        { return hstatic_hash_of::<CFG>(); }
     fn block_type_hash(&self) -> u64 { return type_hash::<BranchNode<K, STORE_CFG, CFG>>(); }
+
+    fn cow_clone(&self, new_id: u64, snapshot_id: u64) -> NodeARC<STORE_CFG> {
+        let copy: *mut BranchNode<K, STORE_CFG, CFG> = unsafe {
+            branch_alloc::<K, STORE_CFG, CFG>(new_id, snapshot_id)
+        };
+        unsafe {
+            // Keys: shallow copy (Buffer<K> with K: Container — datatype storage).
+            let nk: u64 = self.keys.len();
+            let mut i: u64 = 0u64;
+            while i < nk {
+                copy.keys.push(self.keys.get(i));
+                i = i + 1u64;
+            }
+            // Children: clone each NodeARC — bumps rc on each child block,
+            // both copies own their share.
+            let nc: i64 = self.children.length();
+            let mut j: i64 = 0i64;
+            while j < nc {
+                let c: &NodeARC<STORE_CFG> = self.children.borrow(j);
+                copy.children.push(c.clone_arc());
+                j = j + 1i64;
+            }
+        }
+        return node_arc_wrap::<STORE_CFG>(copy as *mut dyn BTreeNode<STORE_CFG>);
+    }
     // __drop_in_place inherited — runs user Drop (none here) + auto-drops
     // keys (Buffer<K>) and children (Vec<NodeARC>) recursively.
 }
 
-pub fn branch_alloc<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(id: <type:STORE_CFG.block_id>, snapshot_id: <type:STORE_CFG.snp_id>) -> *mut BranchNode<K, STORE_CFG, CFG> {
+pub fn branch_alloc<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(id: u64, snapshot_id: u64) -> *mut BranchNode<K, STORE_CFG, CFG> {
     let p: *mut BranchNode<K, STORE_CFG, CFG> = alloc(sizeof::<BranchNode<K, STORE_CFG, CFG>>()) as *mut BranchNode<K, STORE_CFG, CFG>;
     unsafe {
         p.base.rc          = 1u64;
@@ -72,11 +97,26 @@ pub struct LeafNode<K: Container + ContainerOrd, V: Container, const STORE_CFG: 
 impl<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic> BTreeNode<STORE_CFG> for LeafNode<K, V, STORE_CFG, CFG> {
     fn cfg_hash(&self) -> u64        { return hstatic_hash_of::<CFG>(); }
     fn block_type_hash(&self) -> u64 { return type_hash::<LeafNode<K, V, STORE_CFG, CFG>>(); }
+
+    fn cow_clone(&self, new_id: u64, snapshot_id: u64) -> NodeARC<STORE_CFG> {
+        let copy: *mut LeafNode<K, V, STORE_CFG, CFG> = unsafe {
+            leaf_alloc::<K, V, STORE_CFG, CFG>(new_id, snapshot_id)
+        };
+        unsafe {
+            let nk: u64 = self.keys.len();
+            let mut i: u64 = 0u64;
+            while i < nk { copy.keys.push(self.keys.get(i)); i = i + 1u64; }
+            let nv: u64 = self.vals.len();
+            i = 0u64;
+            while i < nv { copy.vals.push(self.vals.get(i)); i = i + 1u64; }
+        }
+        return node_arc_wrap::<STORE_CFG>(copy as *mut dyn BTreeNode<STORE_CFG>);
+    }
     // __drop_in_place inherited — Buffer<K>/Buffer<V> drop_store handles
     // datatype storage cleanup. No user Drop impl needed for data leaves.
 }
 
-pub fn leaf_alloc<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(id: <type:STORE_CFG.block_id>, snapshot_id: <type:STORE_CFG.snp_id>) -> *mut LeafNode<K, V, STORE_CFG, CFG> {
+pub fn leaf_alloc<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(id: u64, snapshot_id: u64) -> *mut LeafNode<K, V, STORE_CFG, CFG> {
     let p: *mut LeafNode<K, V, STORE_CFG, CFG> = alloc(sizeof::<LeafNode<K, V, STORE_CFG, CFG>>()) as *mut LeafNode<K, V, STORE_CFG, CFG>;
     unsafe {
         p.base.rc          = 1u64;
@@ -107,9 +147,30 @@ pub struct LeafDirNode<K: Container + ContainerOrd, const STORE_CFG: HermesStati
 impl<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic> BTreeNode<STORE_CFG> for LeafDirNode<K, STORE_CFG, CFG> {
     fn cfg_hash(&self) -> u64        { return hstatic_hash_of::<CFG>(); }
     fn block_type_hash(&self) -> u64 { return type_hash::<LeafDirNode<K, STORE_CFG, CFG>>(); }
+
+    fn cow_clone(&self, new_id: u64, snapshot_id: u64) -> NodeARC<STORE_CFG> {
+        let copy: *mut LeafDirNode<K, STORE_CFG, CFG> = unsafe {
+            leaf_dir_alloc::<K, STORE_CFG, CFG>(new_id, snapshot_id)
+        };
+        unsafe {
+            let nk: u64 = self.keys.len();
+            let mut i: u64 = 0u64;
+            while i < nk { copy.keys.push(self.keys.get(i)); i = i + 1u64; }
+            // Vals: each NodeARC clone bumps the child's rc; both leaves
+            // own a share of every dir entry.
+            let nv: i64 = self.vals.length();
+            let mut j: i64 = 0i64;
+            while j < nv {
+                let c: &NodeARC<STORE_CFG> = self.vals.borrow(j);
+                copy.vals.push(c.clone_arc());
+                j = j + 1i64;
+            }
+        }
+        return node_arc_wrap::<STORE_CFG>(copy as *mut dyn BTreeNode<STORE_CFG>);
+    }
 }
 
-pub fn leaf_dir_alloc<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(id: <type:STORE_CFG.block_id>, snapshot_id: <type:STORE_CFG.snp_id>) -> *mut LeafDirNode<K, STORE_CFG, CFG> {
+pub fn leaf_dir_alloc<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(id: u64, snapshot_id: u64) -> *mut LeafDirNode<K, STORE_CFG, CFG> {
     let p: *mut LeafDirNode<K, STORE_CFG, CFG> = alloc(sizeof::<LeafDirNode<K, STORE_CFG, CFG>>()) as *mut LeafDirNode<K, STORE_CFG, CFG>;
     unsafe {
         p.base.rc          = 1u64;

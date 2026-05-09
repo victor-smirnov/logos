@@ -3199,11 +3199,21 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                             }
                         }
                     }
-                    // Return type: substitute Self → &dyn Trait
-                    auto ret_type = m.ret_type;
-                    if (ret_type && TypeRef(ret_type).kind() == LogosType::Kind::TypeVar &&
-                        TypeRef(ret_type).type_var_name() == "Self")
-                        ret_type = recv->type;
+                    // Return type: substitute Self → &dyn Trait, plus the
+                    // trait's own type/const params (e.g. `Trait<STORE_CFG>`)
+                    // → recv's trait_args. Without the latter, methods that
+                    // mention STORE_CFG in their return type carry an
+                    // un-substituted ConstVar through to the call site,
+                    // breaking type checks at let / arg position.
+                    SemaSubst trait_subst;
+                    trait_subst["Self"] = recv->type;
+                    {
+                        auto& tparams = tit->second.type_params;
+                        auto trait_args = TypeRef(recv->type).type_args();
+                        for (size_t ti = 0; ti < tparams.size() && ti < trait_args.size(); ++ti)
+                            trait_subst[tparams[ti].name] = trait_args[ti];
+                    }
+                    auto ret_type = subst_type_sema(m.ret_type, trait_subst);
                     track_args_moved(arg_exprs);
                     lir::EMethodCall mc;
                     mc.receiver     = std::move(recv);
