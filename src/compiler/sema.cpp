@@ -1886,6 +1886,18 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         if (elem == t.elem()) return t;
         return make_slice_type(elem);
     }
+    case LogosType::Kind::TraitObject: {
+        if (t.type_args().empty()) return t;
+        std::vector<TypeRef> new_args;
+        bool changed = false;
+        for (auto a : t.type_args()) {
+            auto na = subst_type_sema(a, s, ls);
+            changed |= (na != a);
+            new_args.push_back(na);
+        }
+        if (!changed) return t;
+        return make_trait_object(t.trait_name(), std::move(new_args));
+    }
     case LogosType::Kind::Closure:
     case LogosType::Kind::FnPtr: {
         std::vector<TypeRef> new_params;

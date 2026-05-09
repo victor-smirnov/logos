@@ -645,58 +645,98 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
 
 
 void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& prog) {
+    // Helper: find every concrete-mangled clone of `target_base` in
+    // prog.functions. Each clone's struct mangling looks like
+    // `[pkg.]target_base$G<N>$<arg1>[$<arg2>…]__method__[fg]__sig`.
+    // We collect the set of unique struct manglings (`target_base$G…`).
+    auto collect_concrete_targets = [&](std::string_view target_base) {
+        std::set<std::string> targets;
+        std::string prefix = std::string(target_base) + "$G";
+        auto scan = [&](std::string_view name) {
+            if (auto dot = name.rfind('.'); dot != std::string_view::npos)
+                name = name.substr(dot + 1);
+            if (name.compare(0, prefix.size(), prefix) != 0) return;
+            auto p = name.find("__", prefix.size());
+            if (p == std::string_view::npos) return;
+            targets.emplace(name.substr(0, p));
+        };
+        for (auto& fp : prog.functions) if (fp) scan(fp->name);
+        // Methods on cloned struct specs land under struct.methods in some
+        // mono paths.
+        for (auto& sd : prog.structs) {
+            for (auto& mp : sd.methods) if (mp) scan(mp->name);
+        }
+        return targets;
+    };
+
     for (auto& td : prog.traits) {
         for (auto& ib : prog.impls) {
             if (ib.trait_name != td.name) continue;
-            auto key = td.name + "::" + ib.target_type;
-            std::vector<std::string> methods;
-            // Resolve actual method symbol from the impl block's fn pointers
-            // (sema may have applied package + signature mangling on top of
-            // the bare `Type__method` convention).
-            for (auto& m : td.methods) {
-                std::string sym;
-                // Match `[pkg.]Target__method[__f__sig|__g__sig]`. Concrete
-                // (non-generic) impl methods land in prog.functions; generic
-                // impl methods land in their struct template's methods which
-                // mono clones into prog.functions; rare cases populate
-                // ib.methods directly. Search all three.
-                auto tail = "__" + m.name;
-                auto try_match = [&](std::string_view nm) -> bool {
-                    // Strip pkg prefix.
-                    if (auto dot = nm.rfind('.'); dot != std::string_view::npos)
-                        nm = nm.substr(dot + 1);
-                    if (nm.compare(0, ib.target_type.size(), ib.target_type) != 0)
-                        return false;
-                    auto p = nm.find(tail, ib.target_type.size());
-                    if (p == std::string_view::npos) return false;
-                    auto rest = nm.substr(p + tail.size());
-                    return rest.empty() || rest.rfind("__f__", 0) == 0
-                                        || rest.rfind("__g__", 0) == 0;
-                };
-                for (auto& fp : ib.methods) {
-                    if (!fp) continue;
-                    if (try_match(fp->name)) { sym = fp->name; break; }
-                }
-                if (sym.empty()) {
-                    for (auto& fp : prog.functions) {
+
+            // Resolve method-symbol given a TARGET (bare or concrete).
+            auto resolve_methods = [&](std::string_view target) -> std::vector<std::string> {
+                std::vector<std::string> methods;
+                for (auto& m : td.methods) {
+                    std::string sym;
+                    auto tail = "__" + m.name;
+                    auto try_match = [&](std::string_view nm) -> bool {
+                        if (auto dot = nm.rfind('.'); dot != std::string_view::npos)
+                            nm = nm.substr(dot + 1);
+                        if (nm.compare(0, target.size(), target) != 0)
+                            return false;
+                        auto p = nm.find(tail, target.size());
+                        if (p == std::string_view::npos) return false;
+                        // No characters between target and tail — concrete
+                        // match (e.g. `LeafN$G1$X__release`). For bare-target
+                        // generic case the in-between substring may be `$G…`
+                        // — explicitly reject so concrete entries are picked.
+                        if (target == ib.target_type && p > target.size())
+                            return false;  // bare-target: only direct concat
+                        auto rest = nm.substr(p + tail.size());
+                        return rest.empty() || rest.rfind("__f__", 0) == 0
+                                            || rest.rfind("__g__", 0) == 0;
+                    };
+                    for (auto& fp : ib.methods) {
                         if (!fp) continue;
                         if (try_match(fp->name)) { sym = fp->name; break; }
                     }
-                }
-                if (sym.empty()) {
-                    for (auto& sd : prog.structs) {
-                        if (sd.name != ib.target_type) continue;
-                        for (auto& mp : sd.methods) {
-                            if (!mp) continue;
-                            if (try_match(mp->name)) { sym = mp->name; break; }
+                    if (sym.empty()) {
+                        for (auto& fp : prog.functions) {
+                            if (!fp) continue;
+                            if (try_match(fp->name)) { sym = fp->name; break; }
                         }
-                        if (!sym.empty()) break;
                     }
+                    if (sym.empty()) {
+                        for (auto& sd : prog.structs) {
+                            if (sd.name != target) continue;
+                            for (auto& mp : sd.methods) {
+                                if (!mp) continue;
+                                if (try_match(mp->name)) { sym = mp->name; break; }
+                            }
+                            if (!sym.empty()) break;
+                        }
+                    }
+                    if (sym.empty()) sym = std::string(target) + "__" + m.name;
+                    methods.push_back(std::move(sym));
                 }
-                if (sym.empty()) sym = ib.target_type + "__" + m.name;
-                methods.push_back(std::move(sym));
+                return methods;
+            };
+
+            // Bare-target entry — used by non-generic impls and as a default
+            // fallback. For non-generic structs, this is also the lookup key.
+            dyn_vtable_methods_[td.name + "::" + ib.target_type] =
+                resolve_methods(ib.target_type);
+
+            // Concrete-target entries — for generic impls, register one
+            // vtable per concrete struct instantiation found in mono's
+            // output (prog.functions / struct.methods). Lookup at
+            // `coerce_to_dyn` keys on the concrete-mangled struct name
+            // (`Foo$G1$arg`), so this is what makes generic-impl method
+            // dispatch resolve to the right monomorphised symbols.
+            for (auto& concrete : collect_concrete_targets(ib.target_type)) {
+                dyn_vtable_methods_[td.name + "::" + concrete] =
+                    resolve_methods(concrete);
             }
-            dyn_vtable_methods_[key] = std::move(methods);
         }
     }
 }

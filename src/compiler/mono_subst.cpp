@@ -108,6 +108,20 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         nt.elem = elem;
         return out_.type_pool.alloc(std::move(nt));
     }
+    case LogosType::Kind::TraitObject: {
+        if (tv.type_args().empty()) return tv;
+        std::vector<TypeRef> new_args;
+        bool changed = false;
+        for (auto a : tv.type_args()) {
+            auto na = subst_type(a, s);
+            changed |= (na != a);
+            new_args.push_back(na);
+        }
+        if (!changed) return tv;
+        LogosTypeBuilder nt = tv.to_builder();
+        nt.type_args = std::move(new_args);
+        return out_.type_pool.alloc(std::move(nt));
+    }
     case LogosType::Kind::Tuple: {
         std::vector<TypeRef> new_elems;
         bool changed = false;

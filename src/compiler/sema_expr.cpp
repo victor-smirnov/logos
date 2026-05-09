@@ -4607,6 +4607,10 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                     if (!t) return false;
                     using K = LogosType::Kind;
                     if (t.kind() == K::TypeVar) return true;
+                    // ConstVar — const-generic param reference (e.g. STORE_CFG
+                    // inside `*mut dyn Trait<STORE_CFG>`). Treat the same as
+                    // TypeVar — defer to mono-time substitution.
+                    if (t.kind() == K::ConstVar) return true;
                     // CfgSlotType / AssocType reference type-params indirectly
                     // (cfg_name / assoc_base). Treat as "may resolve later" so
                     // sema defers comparison to mono-time substitution.

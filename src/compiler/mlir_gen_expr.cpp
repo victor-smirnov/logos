@@ -1716,7 +1716,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         std::string src_struct;
         if (pointee && (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
                         TypeRef(pointee).kind() == LogosType::Kind::ZonedStruct))
-            src_struct = type_str(pointee);
+            src_struct = concrete_struct_name(pointee);
         std::string trait = std::string(TypeRef(TypeRef(type).pointee()).trait_name());
         if (auto alloca = coerce_to_dyn(val, trait, src_struct)) return alloca;
     }

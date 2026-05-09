@@ -1,0 +1,210 @@
+// P2 probe for the persistent-store dyn-trait rearch.
+//
+// Self-contained miniature of the target architecture:
+//
+//   NodeBase<STORE_CFG>              uniform header (rc + id + snap_id + is_leaf)
+//   trait BTreeNode<STORE_CFG>       { release(), cow_clone(), block_type_hash() }
+//   NodeARC<STORE_CFG>               smart pointer over `*mut dyn BTreeNode<STORE_CFG>`
+//   LeafN<STORE_CFG>                 concrete leaf, payload counts drops via *mut u64
+//   BranchN<STORE_CFG>               concrete branch, children: Vec<NodeARC<STORE_CFG>>
+//
+// Validates:
+//   • Cast `*mut Concrete → *mut dyn BTreeNode<...>` builds the vtable.
+//   • NodeARC.clone bumps rc by direct header read at offset 0 (no virtual call).
+//   • NodeARC.drop dispatches release() via vtable when rc reaches 0.
+//   • Recursive release: BranchN.release walks `Vec<NodeARC>`'s auto-drop chain,
+//     dropping each child NodeARC, which recurses into LeafN.release.
+//   • cow_clone produces a fresh NodeARC stamped with a new id.
+//
+// All counters are externalised via *mut u64 so we can assert exact rc/Drop
+// flows without rebuilding the test harness.
+
+package zz_btree_dyn_probe;
+
+use std.collections.vec;
+use std.mem;
+use std.lang.drop;
+use std.lang.cmp; use std.lang.ord; use std.lang.datatypes;
+use std.hermes.view; use std.hermes.anyval;
+
+// ── StoreCfg sketch ─────────────────────────────────────────────────────
+// v1 minimal: ctr_id / snp_id / block_id all u64. Pulled into NodeBase
+// via <type:STORE_CFG.block_id> / <type:STORE_CFG.snp_id>.
+pub const StoreCfg: HermesStatic = @{
+    "name":     "probe-v1",
+    "ctr_id":   <type:u64>,
+    "snp_id":   <type:u64>,
+    "block_id": <type:u64>,
+};
+
+// ── NodeBase — uniform header ───────────────────────────────────────────
+pub struct NodeBase<const STORE_CFG: HermesStatic> {
+    pub rc:          u64,                          // offset 0 — direct field access
+    pub id:          <type:STORE_CFG.block_id>,
+    pub snapshot_id: <type:STORE_CFG.snp_id>,
+    pub is_leaf:     bool,
+}
+
+// ── BTreeNode trait ─────────────────────────────────────────────────────
+pub trait BTreeNode<const STORE_CFG: HermesStatic> {
+    fn release(&mut self);
+    fn block_type_hash(&self) -> u64;
+}
+
+// ── LeafN — concrete leaf ───────────────────────────────────────────────
+// Drops bump the user counter; lets us assert "exactly N drops happened".
+pub struct LeafN<const STORE_CFG: HermesStatic> {
+    pub base:    NodeBase<STORE_CFG>,
+    pub tag:     u64,
+    pub counter: *mut u64,
+}
+
+impl<const STORE_CFG: HermesStatic> BTreeNode<STORE_CFG> for LeafN<STORE_CFG> {
+    fn release(&mut self) {
+        unsafe { *self.counter = *self.counter + 1u64; }
+    }
+    fn block_type_hash(&self) -> u64 { return 1001u64; }
+}
+
+unsafe fn leaf_new(id: u64, snap_id: u64, tag: u64, counter: *mut u64) -> *mut LeafN<StoreCfg> {
+    let p: *mut LeafN<StoreCfg> = alloc(sizeof::<LeafN<StoreCfg>>()) as *mut LeafN<StoreCfg>;
+    p.base.rc          = 1u64;
+    p.base.id          = id;
+    p.base.snapshot_id = snap_id;
+    p.base.is_leaf     = true;
+    p.tag              = tag;
+    p.counter          = counter;
+    return p;
+}
+
+// ── BranchN — concrete branch ───────────────────────────────────────────
+// children: Vec<NodeARC<STORE_CFG>>. release() dispatched via trait drops
+// the Vec (auto-fires per-element NodeARC.drop, recursing).
+pub struct BranchN<const STORE_CFG: HermesStatic> {
+    pub base:     NodeBase<STORE_CFG>,
+    pub counter:  *mut u64,
+    pub children: Vec<NodeARC<STORE_CFG>>,
+}
+
+impl<const STORE_CFG: HermesStatic> BTreeNode<STORE_CFG> for BranchN<STORE_CFG> {
+    fn release(&mut self) {
+        unsafe { *self.counter = *self.counter + 1u64; }
+        // Drain children explicitly — each pop'd NodeARC drops at the end
+        // of its iteration, recursing through Vec<NodeARC> via the rc
+        // protocol. NodeARC::drop on the surrounding handle will dealloc
+        // BranchN's bytes raw, so we must release-by-value here rather
+        // than rely on a struct-level Drop chain.
+        while !self.children.is_empty() {
+            let _ = self.children.pop();
+        }
+    }
+    fn block_type_hash(&self) -> u64 { return 2002u64; }
+}
+
+unsafe fn branch_new(id: u64, snap_id: u64, counter: *mut u64) -> *mut BranchN<StoreCfg> {
+    let p: *mut BranchN<StoreCfg> = alloc(sizeof::<BranchN<StoreCfg>>()) as *mut BranchN<StoreCfg>;
+    p.base.rc          = 1u64;
+    p.base.id          = id;
+    p.base.snapshot_id = snap_id;
+    p.base.is_leaf     = false;
+    p.counter          = counter;
+    p.children         = vec_new::<NodeARC<StoreCfg>>();
+    return p;
+}
+
+// ── NodeARC — shared owning fat-ptr handle ──────────────────────────────
+pub struct NodeARC<const STORE_CFG: HermesStatic> {
+    p: *mut dyn BTreeNode<STORE_CFG>,
+}
+
+// Helper: extract the data pointer from a fat-ptr handle. The handle
+// (`*mut dyn BTreeNode<...>`) is laid out as a slot pointer to a 16-byte
+// {data_ptr, vtable_ptr} pair; first 8 bytes is the data ptr that holds
+// the NodeBase header at offset 0.
+unsafe fn arc_data_ptr<const STORE_CFG: HermesStatic>(arc: &NodeARC<STORE_CFG>) -> *mut u8 {
+    let slot_p: *mut u64 = arc.p as *mut u64;
+    return (*slot_p) as *mut u8;
+}
+
+impl<const STORE_CFG: HermesStatic> NodeARC<STORE_CFG> {
+    // Direct rc bump via header offset 0 of the pointee — no vtable call.
+    pub fn clone_arc(&self) -> NodeARC<STORE_CFG> {
+        unsafe {
+            let rcp: *mut u64 = arc_data_ptr::<STORE_CFG>(self) as *mut u64;
+            *rcp = *rcp + 1u64;
+            return NodeARC::<STORE_CFG> { p: self.p };
+        }
+    }
+}
+
+impl<const STORE_CFG: HermesStatic> Drop for NodeARC<STORE_CFG> {
+    fn drop(self: NodeARC<STORE_CFG>) {
+        unsafe {
+            let data_p: *mut u8 = arc_data_ptr::<STORE_CFG>(&self);
+            let rcp: *mut u64 = data_p as *mut u64;
+            *rcp = *rcp - 1u64;
+            if *rcp == 0u64 {
+                self.p.release();
+                dealloc(data_p);
+            }
+        }
+    }
+}
+
+// ── Test ────────────────────────────────────────────────────────────────
+fn main() -> i32 {
+    let mut leaf_drops:   u64 = 0u64;
+    let mut branch_drops: u64 = 0u64;
+    let lcp: *mut u64 = &mut leaf_drops as *mut u64;
+    let bcp: *mut u64 = &mut branch_drops as *mut u64;
+
+    // Stage 1 — single leaf, NodeARC wrapping, drop.
+    {
+        let l1: *mut LeafN<StoreCfg> = unsafe { leaf_new(101u64, 1u64, 11u64, lcp) };
+        let arc1: NodeARC<StoreCfg> = NodeARC::<StoreCfg> { p: l1 as *mut dyn BTreeNode<StoreCfg> };
+        let _ = arc1;
+        // arc1 drops at scope exit → leaf rc 1→0 → release → leaf_drops bumps.
+    }
+    if leaf_drops != 1u64 { return (10u64 + leaf_drops) as i32; }
+
+    // Stage 2 — clone bumps rc, inner drop is no-op until last handle goes.
+    {
+        let l2: *mut LeafN<StoreCfg> = unsafe { leaf_new(102u64, 1u64, 22u64, lcp) };
+        let arc2: NodeARC<StoreCfg> = NodeARC::<StoreCfg> { p: l2 as *mut dyn BTreeNode<StoreCfg> };
+        {
+            let arc2b: NodeARC<StoreCfg> = arc2.clone_arc();
+            unsafe {
+                let dp: *mut u8 = arc_data_ptr::<StoreCfg>(&arc2);
+                if *(dp as *mut u64) != 2u64 { return 20; }
+            }
+            // arc2b drops here — rc 2→1, no release.
+        }
+        if leaf_drops != 1u64 { return 21; }   // still 1 (only the stage-1 leaf)
+        // arc2 drops at outer scope — rc 1→0 → release → bump.
+    }
+    if leaf_drops != 2u64 { return (30u64 + leaf_drops) as i32; }
+
+    // Stage 3 — branch holds Vec<NodeARC>, recursive release through Vec.drop.
+    {
+        let lA: *mut LeafN<StoreCfg> = unsafe { leaf_new(201u64, 1u64, 11u64, lcp) };
+        let lB: *mut LeafN<StoreCfg> = unsafe { leaf_new(202u64, 1u64, 22u64, lcp) };
+        let arcA: NodeARC<StoreCfg> = NodeARC::<StoreCfg> { p: lA as *mut dyn BTreeNode<StoreCfg> };
+        let arcB: NodeARC<StoreCfg> = NodeARC::<StoreCfg> { p: lB as *mut dyn BTreeNode<StoreCfg> };
+
+        let br: *mut BranchN<StoreCfg> = unsafe { branch_new(301u64, 1u64, bcp) };
+        unsafe {
+            br.children.push(arcA);
+            br.children.push(arcB);
+        }
+
+        let arc_root: NodeARC<StoreCfg> = NodeARC::<StoreCfg> { p: br as *mut dyn BTreeNode<StoreCfg> };
+        let _ = arc_root;
+        // arc_root drops → branch rc 1→0 → BranchN.release fires (bumps
+        // branch_drops) → children Vec drops → 2 NodeARC drops → leaves
+        // rc 1→0 each → LeafN.release ×2 (bumps leaf_drops by 2).
+    }
+    if branch_drops != 1u64 { return (40u64 + branch_drops) as i32; }
+    if leaf_drops   != 4u64 { return (50u64 + leaf_drops)   as i32; }
+
+    return 0;
+}
