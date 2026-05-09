@@ -109,11 +109,11 @@ impl<T: Send + Sync> Arc<T> {
 
 // Auto-Drop. Mirrors Rc's contract: decrements + frees if last,
 // without calling T's destructor.
-//impl<T: Send + Sync> Drop for Arc<T> {
-//    fn drop(self: Arc<T>) {
-//        unsafe {
-//            let p: *mut Arc<T> = &self as *const Arc<T> as *mut Arc<T>;
-//            p.drop_arc();
-//        }
-//    }
-//}
+impl<T: Send + Sync> Drop for Arc<T> {
+    fn drop(self: Arc<T>) {
+        unsafe {
+            let p: *mut Arc<T> = &self as *const Arc<T> as *mut Arc<T>;
+            p.drop_arc();
+        }
+    }
+}
