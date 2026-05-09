@@ -1,0 +1,15 @@
+// Both match arms move x without diverging; post-match use must error.
+package sema_all_arms_move_post_use;
+struct Foo { v: i32 }
+fn drop_foo(f: Foo) { }
+fn read_foo(f: Foo) -> i32 { return f.v; }
+
+fn test(cond: bool, x: Foo) -> i32 {
+    match cond {
+        true  => { drop_foo(x); }
+        false => { drop_foo(x); }
+    }
+    return read_foo(x);
+}
+
+unsafe fn main() -> i32 { return test(false, Foo { v: 42 }); }

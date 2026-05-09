@@ -62,37 +62,6 @@ pub unsafe fn vec_arc_insert_at<const STORE_CFG: HermesStatic>(
     }
 }
 
-// ── Vec<NodeARC> remove helper ────────────────────────────────────────
-// Vec<T>::remove for T=NodeARC has a generic-typevar move-tracking gap:
-// `let val: T = ...; return val;` doesn't mark val moved when T is
-// TypeVar at sema (is_move_type only fires for Struct, not TypeVar),
-// so val auto-drops at fn-end AND the caller owns the returned value
-// → double-decrement on the underlying block. Workaround: manual
-// shift + len-- + rc-decrement done here, returning a *neutralised*
-// NodeARC that the caller is responsible for the rc share of (caller
-// can drop it to release, or transfer it elsewhere).
-//
-// Returns a NodeARC that owns one rc share (semantically, the share
-// previously held by the slot). Caller's auto-drop releases it.
-pub unsafe fn vec_arc_remove_at<const STORE_CFG: HermesStatic>(
-    v: *mut Vec<NodeARC<STORE_CFG>>, idx: i64,
-) -> NodeARC<STORE_CFG> {
-    let n: i64 = v.length();
-    let slot: *mut NodeARC<STORE_CFG> = v.at(idx);
-    let handle: *mut dyn BTreeNode<STORE_CFG> = (*slot).p;
-    // Shift subsequent slots left by one (fat-handle bytes only).
-    let mut j: i64 = idx + 1i64;
-    while j < n {
-        let dst: *mut NodeARC<STORE_CFG> = v.at(j - 1i64);
-        let src: *mut NodeARC<STORE_CFG> = v.at(j);
-        (*dst).p = (*src).p;
-        j = j + 1i64;
-    }
-    // Decrement len directly via the Vec's len field.
-    v.len = v.len - 1i64;
-    return NodeARC::<STORE_CFG> { p: handle };
-}
-
 // ── Insert outcome — propagates split info up the recursion ───────────
 pub struct InsertOutcome<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
     pub hit:   bool,
@@ -384,7 +353,7 @@ pub unsafe fn rebalance_leaf_child<K: Container + ContainerOrd, V: Container, co
         // The removed NodeARC carries the right block's rc share; auto-drop
         // releases it (right's now-empty Buffer storages drop cleanly).
         parent_branch.keys.remove_at(i as u64);
-        let dropped: NodeARC<STORE_CFG> = vec_arc_remove_at::<STORE_CFG>(&mut parent_branch.children as *mut Vec<NodeARC<STORE_CFG>>, i + 1i64);
+        let dropped: NodeARC<STORE_CFG> = parent_branch.children.remove(i + 1i64);
         return;
     }
     // No right sibling — merge left + child into left.
@@ -401,7 +370,7 @@ pub unsafe fn rebalance_leaf_child<K: Container + ContainerOrd, V: Container, co
             child.vals.remove_at(0u64);
         }
         parent_branch.keys.remove_at((i - 1i64) as u64);
-        let dropped: NodeARC<STORE_CFG> = vec_arc_remove_at::<STORE_CFG>(&mut parent_branch.children as *mut Vec<NodeARC<STORE_CFG>>, i);
+        let dropped: NodeARC<STORE_CFG> = parent_branch.children.remove(i);
     }
 }
 
@@ -425,7 +394,7 @@ pub unsafe fn rebalance_branch_child<K: Container + ContainerOrd, V: Container, 
             // child.keys.front = parent.keys[i-1]
             child.keys.insert_at(0u64, parent_branch.keys.get((i - 1i64) as u64));
             // child.children.front = left.children.last (transfer rc via remove + insert)
-            let moved: NodeARC<STORE_CFG> = vec_arc_remove_at::<STORE_CFG>(&mut left.children as *mut Vec<NodeARC<STORE_CFG>>, left.children.length() - 1i64);
+            let moved: NodeARC<STORE_CFG> = left.children.remove(left.children.length() - 1i64);
             vec_arc_insert_at::<STORE_CFG>(&mut child.children as *mut Vec<NodeARC<STORE_CFG>>, 0i64, moved);
             // parent.keys[i-1] = left.keys.last
             let last: u64 = left.keys.len() - 1u64;
@@ -445,7 +414,7 @@ pub unsafe fn rebalance_branch_child<K: Container + ContainerOrd, V: Container, 
             // child.keys.push(parent.keys[i])
             child.keys.push(parent_branch.keys.get(i as u64));
             // child.children.push(right.children.front)
-            let moved: NodeARC<STORE_CFG> = vec_arc_remove_at::<STORE_CFG>(&mut right.children as *mut Vec<NodeARC<STORE_CFG>>, 0i64);
+            let moved: NodeARC<STORE_CFG> = right.children.remove(0i64);
             child.children.push(moved);
             // parent.keys[i] = right.keys.front
             parent_branch.keys.set(i as u64, right.keys.get(0u64));
@@ -466,11 +435,11 @@ pub unsafe fn rebalance_branch_child<K: Container + ContainerOrd, V: Container, 
             right.keys.remove_at(0u64);
         }
         while right.children.length() > 0i64 {
-            let moved: NodeARC<STORE_CFG> = vec_arc_remove_at::<STORE_CFG>(&mut right.children as *mut Vec<NodeARC<STORE_CFG>>, 0i64);
+            let moved: NodeARC<STORE_CFG> = right.children.remove(0i64);
             child.children.push(moved);
         }
         parent_branch.keys.remove_at(i as u64);
-        let dropped: NodeARC<STORE_CFG> = vec_arc_remove_at::<STORE_CFG>(&mut parent_branch.children as *mut Vec<NodeARC<STORE_CFG>>, i + 1i64);
+        let dropped: NodeARC<STORE_CFG> = parent_branch.children.remove(i + 1i64);
         return;
     }
     // Merge with left: left.keys += [sep] + child.keys; left.children += child.children.
@@ -486,11 +455,11 @@ pub unsafe fn rebalance_branch_child<K: Container + ContainerOrd, V: Container, 
             child.keys.remove_at(0u64);
         }
         while child.children.length() > 0i64 {
-            let moved: NodeARC<STORE_CFG> = vec_arc_remove_at::<STORE_CFG>(&mut child.children as *mut Vec<NodeARC<STORE_CFG>>, 0i64);
+            let moved: NodeARC<STORE_CFG> = child.children.remove(0i64);
             left.children.push(moved);
         }
         parent_branch.keys.remove_at((i - 1i64) as u64);
-        let dropped: NodeARC<STORE_CFG> = vec_arc_remove_at::<STORE_CFG>(&mut parent_branch.children as *mut Vec<NodeARC<STORE_CFG>>, i);
+        let dropped: NodeARC<STORE_CFG> = parent_branch.children.remove(i);
     }
 }
 
@@ -543,7 +512,7 @@ pub unsafe fn pmap_remove<K: Container + ContainerOrd, V: Container, const STORE
     while !arc_is_leaf::<STORE_CFG>(root) {
         let br = as_branch::<K, STORE_CFG, CFG>(root);
         if br.children.length() != 1i64 { break; }
-        let only_child: NodeARC<STORE_CFG> = vec_arc_remove_at::<STORE_CFG>(&mut br.children as *mut Vec<NodeARC<STORE_CFG>>, 0i64);
+        let only_child: NodeARC<STORE_CFG> = br.children.remove(0i64);
         arc_replace_in_slot::<STORE_CFG>(
             root as *mut NodeARC<STORE_CFG>, only_child);
     }

@@ -1177,7 +1177,20 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
                 using C = lir_schema::expr::Code;
                 switch (er.kind()) {
                     case C::VarRef: {
-                        if (is_move_type(er.type(cur_prog_->type_pool.impl())))
+                        // Return moves the value out of the function — the
+                        // local can never be used again from this scope.
+                        // Mark moved for both concrete move-types AND
+                        // TypeVars (generic body): if T resolves to Copy at
+                        // mono, the suppressed scope-exit drop is harmless
+                        // (Copy types have no Drop); if T resolves to a
+                        // move-type, the suppression is necessary to avoid
+                        // double-free with the caller's owned value (closes
+                        // the Vec<T>::remove use-after-return-move bug).
+                        // Cross-arm pollution that this used to cause is
+                        // handled by lower_match / lower_if's per-arm save/
+                        // restore + divergence-aware merge.
+                        auto t = er.type(cur_prog_->type_pool.impl());
+                        if (is_move_type(t) || (t && TypeRef(t).kind() == LogosType::Kind::TypeVar))
                             mark_moved(std::string(lir_view::EVarRefView{er}.name()));
                         return;
                     }
@@ -2335,13 +2348,38 @@ lir::LStmt SemaChecker::lower_if(TinyMapView node) {
         cond = error_expr();
     }
 
+    // Per-branch move tracking — same divergence-aware merge as match.
+    auto if_pre_moves = moved_vars_;
+    std::set<std::string> if_post_moves;
+    bool if_any_non_diverging = false;
+    auto branch_diverges = [&](const lir::LBlock& b) {
+        if (b.stmts.empty()) return false;
+        auto br = stmt_ref_of(b.stmts.back());
+        if (!br) return false;
+        auto k = br.kind();
+        return k == lir_schema::stmt::Code::Return ||
+               k == lir_schema::stmt::Code::Break ||
+               k == lir_schema::stmt::Code::Continue;
+    };
+
     auto then_block = lir::alloc_block(*cur_prog_);
-    if (node.has_key(la::THEN))
+    if (node.has_key(la::THEN)) {
+        moved_vars_ = if_pre_moves;
         *then_block = lower_block(map_of(node.get(la::THEN.code)));
+        if (!branch_diverges(*then_block)) {
+            if_any_non_diverging = true;
+            for (auto& m : moved_vars_) if_post_moves.insert(m);
+        }
+    } else {
+        // No then-block ≡ no body executed; behaves as non-diverging (just fall-through).
+        if_any_non_diverging = true;
+        for (auto& m : if_pre_moves) if_post_moves.insert(m);
+    }
 
     std::optional<lir::LBlockPtr> else_opt;
     if (node.has_key(la::ELSE)) {
         auto else_node = map_of(node.get(la::ELSE.code));
+        moved_vars_ = if_pre_moves;
         if (code_of(else_node) == la::BLOCK) {
             else_opt = lir::alloc_block(*cur_prog_, lower_block(else_node));
         } else {
@@ -2351,7 +2389,16 @@ lir::LStmt SemaChecker::lower_if(TinyMapView node) {
             b->stmts.push_back(std::move(inner_if));
             else_opt = std::move(b);
         }
+        if (!branch_diverges(**else_opt)) {
+            if_any_non_diverging = true;
+            for (auto& m : moved_vars_) if_post_moves.insert(m);
+        }
+    } else {
+        // Else absent ≡ control falls through with pre-state.
+        if_any_non_diverging = true;
+        for (auto& m : if_pre_moves) if_post_moves.insert(m);
     }
+    moved_vars_ = if_any_non_diverging ? std::move(if_post_moves) : std::move(if_pre_moves);
 
     lir::SIf sif;
     sif.cond  = std::move(cond);
@@ -3912,9 +3959,27 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
 
     if (node.has_key(la::ITEMS)) {
         auto arms = arr_of(node.get(la::ITEMS.code));
+        // Per-arm move tracking: each arm starts from `pre_moves` (state
+        // before the match), and its contribution to post-match moves is
+        // collected only if the arm doesn't diverge (return/break/continue).
+        // Without this, moves in arm 1 would leak into arm 2's processing,
+        // producing spurious "use of moved variable" errors for code like
+        //   match it.next() {
+        //       Option::None => return acc;     // marks acc moved
+        //       Option::Some(v) => acc = f(acc, v);  // saw acc as moved
+        //   }
+        // After the match, moved_vars_ is the union of moves from
+        // non-diverging arms (conservative: a var moved on any falling-
+        // through path is considered moved post-match).
+        auto pre_moves = moved_vars_;
+        std::set<std::string> post_moves;
+        bool any_non_diverging = false;
         for (uint64_t i = 0; i < arms.size(); ++i) {
             auto arm = map_of(arms.get(i));
             if (code_of(arm) != la::MATCH_ARM) continue;
+
+            // Reset moves to pre-match state at each arm boundary.
+            moved_vars_ = pre_moves;
 
             // Synthesize guard for Hermes patterns (scalar + structural).
             lir::LExprPtr synth_guard = nullptr;
@@ -4016,8 +4081,27 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
                     std::make_move_iterator(prologue.end()));
             }
             pop_scope();
+
+            // Detect divergence: arm body's last stmt is a terminator.
+            bool arm_diverges = false;
+            if (!body->stmts.empty()) {
+                auto br = stmt_ref_of(body->stmts.back());
+                if (br) {
+                    auto k = br.kind();
+                    arm_diverges = (k == lir_schema::stmt::Code::Return ||
+                                    k == lir_schema::stmt::Code::Break ||
+                                    k == lir_schema::stmt::Code::Continue);
+                }
+            }
+            if (!arm_diverges) {
+                any_non_diverging = true;
+                for (auto& m : moved_vars_) post_moves.insert(m);
+            }
+
             smatch.arms.push_back({std::move(pat), std::move(body), std::move(guard)});
         }
+        // Merge per-arm contributions back into moved_vars_.
+        moved_vars_ = any_non_diverging ? std::move(post_moves) : std::move(pre_moves);
     }
     // ── Exhaustiveness check ─────────────────────────────────
     // Verify all variants of an enum (or bool) are covered.

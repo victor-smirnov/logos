@@ -1,0 +1,38 @@
+// Cross-arm move tracking: per-arm save/restore + divergence-aware merge.
+//
+// Before the fix, sema's moved_vars_ was a single accumulating set;
+// a move inside arm 1 polluted arm 2's processing, producing spurious
+// "use of moved variable" errors for legitimate code like
+//   match cond {
+//       true  => { take(x); return; }   // diverging arm
+//       false => { use(x); }             // read after match — should be OK
+//   }
+// Now: arm 1 diverges → its contribution is discarded; arm 2 sees x
+// as not-moved. After the match, moved_vars_ is the union of moves
+// from non-diverging arms.
+package sema_cross_arm_move;
+
+struct Foo { v: i32 }
+fn drop_foo(f: Foo)   { }
+
+fn arm1_diverges(cond: bool, x: Foo) -> i32 {
+    match cond {
+        true  => { drop_foo(x); return 1; }   // moves x, diverges → discarded
+        false => { return x.v; }              // x is NOT moved here
+    }
+}
+
+fn arm2_diverges(cond: bool, x: Foo) -> i32 {
+    match cond {
+        true  => { return x.v; }              // x is NOT moved here
+        false => { drop_foo(x); return 2; }   // moves x, diverges → discarded
+    }
+}
+
+unsafe fn main() -> i32 {
+    if arm1_diverges(false, Foo { v: 7 }) != 7 { return 1; }
+    if arm1_diverges(true,  Foo { v: 7 }) != 1 { return 2; }
+    if arm2_diverges(true,  Foo { v: 7 }) != 7 { return 3; }
+    if arm2_diverges(false, Foo { v: 7 }) != 2 { return 4; }
+    return 0;
+}
