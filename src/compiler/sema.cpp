@@ -941,6 +941,19 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
     if (from.kind() == LogosType::Kind::FloatLit &&
         (to.kind() == LogosType::Kind::F32 || to.kind() == LogosType::Kind::F64 ||
          to.kind() == LogosType::Kind::TypeVar)) return true;
+    // Cfg-slot types are deferred placeholders for HermesStatic-bound
+    // primitives. Treat them like TypeVar at sema for coercion checks:
+    // any concrete numeric (and IntLit/FloatLit) compatible-with the
+    // resolved primitive — mono enforces the resolved-type compatibility
+    // when STORE_CFG is substituted. Flowing in BOTH directions so both
+    // `slot_typed = 0u64` and `u64_typed = slot_value` checks pass.
+    if (from.kind() == LogosType::Kind::IntLit && to.kind() == LogosType::Kind::CfgSlotType) return true;
+    if (from.kind() == LogosType::Kind::FloatLit && to.kind() == LogosType::Kind::CfgSlotType) return true;
+    if (from.kind() == LogosType::Kind::CfgSlotType || to.kind() == LogosType::Kind::CfgSlotType) {
+        if (is_integer_kind(from.kind()) || is_integer_kind(to.kind())) return true;
+        if (from.kind() == LogosType::Kind::F32 || from.kind() == LogosType::Kind::F64 ||
+            to.kind() == LogosType::Kind::F32 || to.kind() == LogosType::Kind::F64) return true;
+    }
     if (from.kind() == LogosType::Kind::Enum   && is_integer_kind(to.kind())) return true;
     if (is_integer_kind(from.kind()) && to.kind() == LogosType::Kind::Enum)   return true;
     // Safe implicit integer widening (e.g. u32 → i64, i32 → i64, u8 → u32).

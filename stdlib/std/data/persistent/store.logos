@@ -47,8 +47,8 @@ pub struct CommitEntry<const STORE_CFG: HermesStatic> {
 // under raw-ptr backends). v1 backend is LockingStore.
 
 pub trait IStore<const STORE_CFG: HermesStatic> {
-    fn alloc_snapshot_id(self: *mut Self) -> u64;
-    fn alloc_block_id(self:    *mut Self) -> u64;
+    fn alloc_snapshot_id(self: *mut Self) -> <type:STORE_CFG.snp_id>;
+    fn alloc_block_id(self:    *mut Self) -> <type:STORE_CFG.block_id>;
 
     // Pin a new commit referencing `root` as the directory tree root.
     // Bumps `root`'s rc — the DAG entry shares ownership. `parent` is
@@ -85,8 +85,8 @@ pub trait IStore<const STORE_CFG: HermesStatic> {
 pub struct LockingStore<const STORE_CFG: HermesStatic> {
     pub dag:              Vec<CommitEntry<STORE_CFG>>,
     pub lock:             Mutex<i32>,
-    pub next_block_id:    u64,
-    pub next_snapshot_id: u64,
+    pub next_block_id:    <type:STORE_CFG.block_id>,
+    pub next_snapshot_id: <type:STORE_CFG.snp_id>,
 }
 
 // Build a parents Vec for a single-parent commit. Helper fn so the
@@ -109,20 +109,20 @@ pub fn locking_store_new<const STORE_CFG: HermesStatic>() -> LockingStore<STORE_
 }
 
 impl<const STORE_CFG: HermesStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG> {
-    fn alloc_snapshot_id(self: *mut LockingStore<STORE_CFG>) -> u64 {
+    fn alloc_snapshot_id(self: *mut LockingStore<STORE_CFG>) -> <type:STORE_CFG.snp_id> {
         unsafe {
             self.lock.lock();
             self.next_snapshot_id = self.next_snapshot_id + 1u64;
-            let id: u64 = self.next_snapshot_id;
+            let id: <type:STORE_CFG.snp_id> = self.next_snapshot_id;
             self.lock.unlock();
             return id;
         }
     }
-    fn alloc_block_id(self: *mut LockingStore<STORE_CFG>) -> u64 {
+    fn alloc_block_id(self: *mut LockingStore<STORE_CFG>) -> <type:STORE_CFG.block_id> {
         unsafe {
             self.lock.lock();
             self.next_block_id = self.next_block_id + 1u64;
-            let id: u64 = self.next_block_id;
+            let id: <type:STORE_CFG.block_id> = self.next_block_id;
             self.lock.unlock();
             return id;
         }
@@ -223,6 +223,6 @@ impl<const STORE_CFG: HermesStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG
 pub struct MutSnapshot<const STORE_CFG: HermesStatic> {
     pub root:        NodeARC<STORE_CFG>,
     pub parent_id:   i64,
-    pub snapshot_id: u64,
-    pub id_ctr_p:    *mut u64,    // points at LockingStore.next_block_id
+    pub snapshot_id: <type:STORE_CFG.snp_id>,
+    pub id_ctr_p:    *mut <type:STORE_CFG.block_id>,  // points at LockingStore.next_block_id
 }

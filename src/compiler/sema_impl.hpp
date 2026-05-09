@@ -1664,6 +1664,11 @@ private:
                k == LogosType::Kind::F32 ||
                k == LogosType::Kind::FloatLit ||
                k == LogosType::Kind::TypeVar ||
+               // Cfg-slot types are deferred until mono resolves them
+               // through the bound HermesStatic. Accept here on the trust
+               // that mono will substitute a numeric primitive (or fail
+               // there with a precise error). Mirrors TypeVar treatment.
+               k == LogosType::Kind::CfgSlotType ||
                is_integer_kind(k);
     }
     static bool is_integer(TypeRef t) noexcept {
