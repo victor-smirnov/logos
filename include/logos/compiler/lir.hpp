@@ -614,6 +614,7 @@ struct SDrop {
     std::string      drop_fn;          // user's explicit drop (may be empty)
     TypeRef type;
     bool             drop_fields = false;  // auto-drop droppable fields after drop_fn
+    std::vector<std::string> moved_fields; // field names of `var_name` consumed by move; auto-drop must skip them
 };
 
 // ── Statement node ────────────────────────────────────────────────────────

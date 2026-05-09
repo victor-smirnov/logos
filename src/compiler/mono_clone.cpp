@@ -2961,8 +2961,10 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
             auto cname = concrete_struct_name(ty);
             if (!cname.empty()) drop_fn = cname + "__drop";
         }
+        std::vector<std::string> moved_fields;
+        v.each_moved_field([&](std::string_view f) { moved_fields.emplace_back(f); });
         ns.mirror_offset_ = lir_mirror_emit_drop(
-            out_, ns.line, var_name, drop_fn, ty, drop_fields);
+            out_, ns.line, var_name, drop_fn, ty, drop_fields, moved_fields);
         break;
     }
     case SCode::Match: {

@@ -5,6 +5,7 @@
 // mlir_gen_stmt.cpp — Statement code generation.
 
 #include "mlir_gen_impl.hpp"
+#include <set>
 
 namespace logos::compiler {
 
@@ -143,6 +144,12 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
 
     // 2. Auto-drop droppable fields (reverse field order)
     if (TypeRef st = v.type(pool_impl()); v.drop_fields() && st && st.kind() == LogosType::Kind::Struct) {
+        // Sema-side move tracking marks fields consumed by the surrounding
+        // scope (e.g. `take(outer.f)` passes outer.f by value). Those fields
+        // are no longer owned by `var_name` and must be skipped here, else
+        // the underlying value gets released twice.
+        std::set<std::string> moved;
+        v.each_moved_field([&](std::string_view fn){ moved.emplace(fn); });
         // Try pkg-qualified key first; fall back to bare for back-compat.
         auto sit = struct_types_.find(mlir_struct_key(st));
         if (sit == struct_types_.end())
@@ -151,6 +158,7 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
             auto& info = sit->second;
             for (int fi = (int)info.fields.size() - 1; fi >= 0; --fi) {
                 auto& f = info.fields[fi];
+                if (moved.count(f.name)) continue;
                 std::string field_drop = f.struct_name.empty()
                     ? std::string{} : resolve_method_symbol(f.struct_name, "drop");
                 if (field_drop.empty()) continue;

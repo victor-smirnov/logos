@@ -92,22 +92,21 @@ pub trait BTreeNode<const STORE_CFG: HermesStatic> {
 }
 
 // Replace the NodeARC at `slot` with `new_arc`, preserving rc invariants.
-// Logos lacks mem::forget, so the local `new_arc`'s auto-drop at fn exit
-// would otherwise double-decrement; we rc-bump the new block first so
-// the slot's transferred share survives. The old slot's rc is manually
-// decremented + recursively released if last.
+// `new_arc` arrives by value — its rc share transfers into the slot. We
+// neutralise `new_arc.p` to null after the move (via *mut cast) so its
+// scope-exit drop is a no-op (NodeARC.drop has a null-handle escape).
+// The old slot's rc is manually decremented + recursively released if last.
 pub unsafe fn arc_replace_in_slot<const STORE_CFG: HermesStatic>(
     slot:    *mut NodeARC<STORE_CFG>,
     new_arc: NodeARC<STORE_CFG>,
 ) {
-    // Bump new block's rc — slot adopts one share, new_arc keeps another
-    // (the latter consumed by its scope-exit drop).
-    let new_data_p: *mut u8 = (*(new_arc.p as *mut u64)) as *mut u8;
-    let new_rcp:    *mut u64 = new_data_p as *mut u64;
-    *new_rcp = *new_rcp + 1u64;
+    let new_handle: *mut dyn BTreeNode<STORE_CFG> = new_arc.p;
     // Save old fat-handle, write new.
     let old_handle: *mut dyn BTreeNode<STORE_CFG> = (*slot).p;
-    (*slot).p = new_arc.p;
+    (*slot).p = new_handle;
+    // Neutralise `new_arc` so its scope-exit auto-drop is a no-op.
+    let new_arc_p: *mut NodeARC<STORE_CFG> = &new_arc as *const NodeARC<STORE_CFG> as *mut NodeARC<STORE_CFG>;
+    (*new_arc_p).p = 0 as *mut dyn BTreeNode<STORE_CFG>;
     // Release old.
     let old_data_p: *mut u8 = (*(old_handle as *mut u64)) as *mut u8;
     let old_rcp:    *mut u64 = old_data_p as *mut u64;

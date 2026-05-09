@@ -1441,9 +1441,31 @@ std::optional<lir::LStmt> SemaChecker::make_drop_stmt(const std::string& name, c
         };
         if (strip_g(dfn) == strip_g(current_fn_mangled_)) return std::nullopt;
     }
+    // Collect field paths that were moved out of this var. moved_vars_ stores
+    // dotted paths like "<name>.<field>" (and deeper, ignored at this level —
+    // a field move implies the whole field is gone, so we only need the
+    // first-level field name). The mlir-gen field-drop loop reads this and
+    // skips matching fields, so the underlying value isn't released twice.
+    std::vector<std::string> moved_fields;
+    {
+        std::string prefix = name + ".";
+        for (auto& mv : moved_vars_) {
+            if (mv.size() <= prefix.size()) continue;
+            if (mv.compare(0, prefix.size(), prefix) != 0) continue;
+            std::string rest = mv.substr(prefix.size());
+            // Take only the first segment — a deeper move (a.b.c) still means
+            // a.b is partially consumed; we suppress the whole-field drop.
+            auto dot = rest.find('.');
+            std::string field = (dot == std::string::npos) ? rest : rest.substr(0, dot);
+            // De-dup
+            bool seen = false;
+            for (auto& f : moved_fields) if (f == field) { seen = true; break; }
+            if (!seen) moved_fields.push_back(std::move(field));
+        }
+    }
     lir::LStmt s; s.line = node_line_;
     if (cur_prog_)
-        s.mirror_offset_ = lir_mirror_emit_drop(*cur_prog_, node_line_, name, dfn, info.type, df);
+        s.mirror_offset_ = lir_mirror_emit_drop(*cur_prog_, node_line_, name, dfn, info.type, df, moved_fields);
     return s;
 }
 

@@ -906,14 +906,12 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
 
     define(name, var_type, is_mut);
 
-    // Move semantics: if RHS is a variable reference to a move type, mark it moved
-    if (rhs && is_move_type(rhs_type)) {
-        {
-            auto er = expr_ref_of(*rhs);
-            if (er.kind() == lir_schema::expr::Code::VarRef)
-                mark_moved(std::string(lir_view::EVarRefView{er}.name()));
-        }
-    }
+    // Move semantics: if RHS is a variable reference (or struct-field read) of a
+    // move type, mark it moved. mark_moved_expr handles both VarRef and
+    // nested FieldRead chains, recording dotted paths so make_drop_stmt
+    // can suppress per-field auto-drop on the source struct.
+    if (rhs && is_move_type(rhs_type))
+        mark_moved_expr(expr_ref_of(*rhs));
 
     lir::SLet slet;
     slet.name   = std::string(name);
@@ -1181,6 +1179,15 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
                     case C::VarRef: {
                         if (is_move_type(er.type(cur_prog_->type_pool.impl())))
                             mark_moved(std::string(lir_view::EVarRefView{er}.name()));
+                        return;
+                    }
+                    case C::FieldRead: {
+                        // outer.field passed by value moves the field — mark
+                        // "outer.field" so collect_*_drops skips it via
+                        // SDrop.moved_fields. Nested FieldReads inside the
+                        // receiver are not recursed (those access only,
+                        // not move).
+                        mark_moved_expr(er);
                         return;
                     }
                     case C::EnumLitData: {

@@ -386,7 +386,7 @@ private:
             } else if constexpr (std::is_same_v<KT, lir::SDerefWrite>) {
                 s.mirror_offset_ = lir_mirror_emit_deref_write(p, line, k.ptr, k.value);
             } else if constexpr (std::is_same_v<KT, lir::SDrop>) {
-                s.mirror_offset_ = lir_mirror_emit_drop(p, line, k.var_name, k.drop_fn, k.type, k.drop_fields);
+                s.mirror_offset_ = lir_mirror_emit_drop(p, line, k.var_name, k.drop_fn, k.type, k.drop_fields, k.moved_fields);
             } else if constexpr (std::is_same_v<KT, lir::SDerefFieldWrite>) {
                 s.mirror_offset_ = lir_mirror_emit_deref_field_write(p, line, k.receiver, k.type_name, k.field, k.value);
             } else if constexpr (std::is_same_v<KT, lir::STupleWrite>) {
@@ -1076,6 +1076,41 @@ private:
 
     bool is_move_type(TypeRef t) const;
     void mark_moved(const std::string& name) { moved_vars_.insert(name); }
+
+    // Mark a moved expression — handles VarRef + nested FieldRead chains.
+    // For `outer.field` (move-type) inserts "outer.field" into moved_vars_;
+    // for `outer.a.b` inserts "outer.a.b". make_drop_stmt extracts the
+    // first-level field name and passes to SDrop.moved_fields so the
+    // mlir-gen field-drop loop skips that field. No-op if not a move type
+    // or not a recognised l-value chain.
+    void mark_moved_expr(lir_view::ExprRef er) {
+        if (!er) return;
+        using C = lir_schema::expr::Code;
+        if (er.kind() == C::VarRef) {
+            if (is_move_type(er.type(cur_prog_->type_pool.impl())))
+                mark_moved(std::string(lir_view::EVarRefView{er}.name()));
+            return;
+        }
+        if (er.kind() == C::FieldRead) {
+            if (!is_move_type(er.type(cur_prog_->type_pool.impl()))) return;
+            // Walk down the FieldRead chain, prepending segments. Bottom must
+            // be a VarRef for this to be a stable l-value path.
+            std::vector<std::string> segs;
+            lir_view::ExprRef cur = er;
+            while (cur && cur.kind() == C::FieldRead) {
+                lir_view::EFieldReadView v{cur};
+                segs.emplace_back(std::string(v.field()));
+                cur = v.receiver();
+            }
+            if (!cur || cur.kind() != C::VarRef) return;
+            std::string path(lir_view::EVarRefView{cur}.name());
+            for (auto it = segs.rbegin(); it != segs.rend(); ++it) {
+                path.push_back('.');
+                path += *it;
+            }
+            mark_moved(path);
+        }
+    }
 
     std::string drop_fn_for(TypeRef t) const;
     bool has_droppable_fields(TypeRef t) const;

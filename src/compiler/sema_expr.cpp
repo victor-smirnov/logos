@@ -1287,11 +1287,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         }
 
         for (auto& a : arg_exprs) {
-            if (is_move_type(a->type)) {
-                auto er = expr_ref_of(*a);
-                if (er.kind() == lir_schema::expr::Code::VarRef)
-                    mark_moved(std::string(lir_view::EVarRefView{er}.name()));
-            }
+            if (is_move_type(a->type))
+                mark_moved_expr(expr_ref_of(*a));
         }
         return builder().call(exact_fi->symbol_name.empty() ? std::string(callee) : exact_fi->symbol_name, {}, std::move(arg_exprs), exact_fi->ret_type);
     }
@@ -1505,11 +1502,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
 
     // Move semantics: mark by-value move-type args as moved
     for (auto& a : arg_exprs) {
-        if (is_move_type(a->type)) {
-            auto er = expr_ref_of(*a);
-            if (er.kind() == lir_schema::expr::Code::VarRef)
-                mark_moved(std::string(lir_view::EVarRefView{er}.name()));
-        }
+        if (is_move_type(a->type))
+            mark_moved_expr(expr_ref_of(*a));
     }
 
     // Inside generic context (inference deferred): preserve generic call shape
@@ -2989,9 +2983,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         for (auto& a : args) {
             if (!a) continue;
             if (!is_move_type(a->type)) continue;
-            auto er = expr_ref_of(*a);
-            if (er.kind() == lir_schema::expr::Code::VarRef)
-                mark_moved(std::string(lir_view::EVarRefView{er}.name()));
+            mark_moved_expr(expr_ref_of(*a));
         }
     };
 
@@ -4821,11 +4813,8 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
 
     // Move semantics: mark Move-typed field values as consumed.
     for (auto& [fname, fval] : fields) {
-        if (fval && is_move_type(fval->type)) {
-            auto er = expr_ref_of(*fval);
-            if (er.kind() == lir_schema::expr::Code::VarRef)
-                mark_moved(std::string(lir_view::EVarRefView{er}.name()));
-        }
+        if (fval && is_move_type(fval->type))
+            mark_moved_expr(expr_ref_of(*fval));
     }
 
     std::vector<std::string> ng_lt_args;
@@ -6409,11 +6398,8 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
     // Move semantics: mark by-value move-type args as moved so that scope-end
     // drops do not fire on locals whose ownership has been transferred.
     for (auto& a : arg_exprs) {
-        if (is_move_type(a->type)) {
-            auto er = expr_ref_of(*a);
-            if (er.kind() == lir_schema::expr::Code::VarRef)
-                mark_moved(std::string(lir_view::EVarRefView{er}.name()));
-        }
+        if (is_move_type(a->type))
+            mark_moved_expr(expr_ref_of(*a));
     }
 
     return builder().call(fi.symbol_name.empty() ? mangled : fi.symbol_name, {}, std::move(arg_exprs), fi.ret_type);

@@ -1504,6 +1504,10 @@ struct SDropView     {
     TypeRef          type(const TypePoolImpl* pool) const noexcept {
         return detail::stmt_type(self, sk::TYPE.code, pool);
     }
+    uint64_t         moved_fields_count() const noexcept { return detail::stmt_array_size(self, sk::MOVED_FIELDS.code); }
+    template <class F> void each_moved_field(F&& f) const noexcept {
+        detail::for_each_stmt_string(self, sk::MOVED_FIELDS.code, std::forward<F>(f));
+    }
 };
 
 struct SMatchView {

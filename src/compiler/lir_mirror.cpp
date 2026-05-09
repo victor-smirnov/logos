@@ -779,15 +779,20 @@ public:
                                              std::string_view var_name,
                                              std::string_view drop_fn,
                                              TypeRef ty,
-                                             bool drop_fields) {
+                                             bool drop_fields,
+                                             const std::vector<std::string>& moved_fields) {
         auto var_av = put_string(var_name);
         hermes::AnyVal drop_av;
         if (!drop_fn.empty()) drop_av = put_string(drop_fn);
+        hermes::AnyVal moved_av;
+        if (!moved_fields.empty()) moved_av = string_array(moved_fields);
         auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Drop));
         put(map_off, sk::NAME,         var_av);
         put(map_off, sk::DROP_FN,      drop_av);
         put(map_off, sk::TYPE,         type_av(ty));
         put(map_off, sk::DROP_FIELDS,  put_bool(drop_fields));
+        if (!moved_fields.empty())
+            put(map_off, sk::MOVED_FIELDS, moved_av);
         put_line(map_off, line);
         return map_off;
     }
@@ -1951,10 +1956,10 @@ hermes::arena_offset_t lir_mirror_emit_deref_write(lir::LProgram& prog, uint32_t
     LirMirrorEmitter em(arena, *prog.mirror_table);
     return em.emit_deref_write_direct(line, ptr, value);
 }
-hermes::arena_offset_t lir_mirror_emit_drop(lir::LProgram& prog, uint32_t line, std::string_view var_name, std::string_view drop_fn, TypeRef ty, bool drop_fields) {
+hermes::arena_offset_t lir_mirror_emit_drop(lir::LProgram& prog, uint32_t line, std::string_view var_name, std::string_view drop_fn, TypeRef ty, bool drop_fields, const std::vector<std::string>& moved_fields) {
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, *prog.mirror_table);
-    return em.emit_drop_direct(line, var_name, drop_fn, ty, drop_fields);
+    return em.emit_drop_direct(line, var_name, drop_fn, ty, drop_fields, moved_fields);
 }
 hermes::arena_offset_t lir_mirror_emit_deref_field_write(lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view type_name, std::string_view field, const lir::LExprPtr& value) {
     auto& arena = prog.type_pool.arena_or_init();
