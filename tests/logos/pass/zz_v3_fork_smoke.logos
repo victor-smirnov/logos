@@ -1,0 +1,130 @@
+// Multi-snapshot CoW smoke for v3 persistent stack:
+//   1. snap_a creates ctr=7 with 5 entries (single leaf, no split)
+//   2. snap_a commits → C0
+//   3. snap_b = snap_fork(C0); reads ctr=7 (sees parent's 5 entries)
+//   4. snap_b creates ctr=8 with 3 entries (its own container)
+//   5. snap_b commits → C1
+//   6. snap_c = snap_fork(C0) — sees only ctr=7, NOT ctr=8
+//      (proves dir CoW worked — snap_b's create_pmap didn't pollute C0)
+//   7. snap_d = snap_fork(C1) — sees both ctr=7 and ctr=8
+//
+// v1 limit: doesn't yet test cross-snapshot mutation of the SAME container
+// (writeback into dir slot for root-grow not yet wired). Reading + adding
+// new containers per snap is the slice that lands here.
+
+package zz_v3_fork_smoke;
+
+use std.collections.vec;
+use std.mem;
+use std.lang.cmp; use std.lang.ord; use std.lang.datatypes;
+use std.lang.drop;
+use std.hermes.view; use std.hermes.anyval;
+
+use std.data.persistent.v3.node;
+use std.data.persistent.v3.cow;
+use std.data.persistent.v3.store;
+use std.data.persistent.v3.handle;
+
+pub const StoreCfg: HermesStatic = @{
+    "name":     "v3-fork",
+    "ctr_id":   <type:u64>,
+    "snp_id":   <type:u64>,
+    "block_id": <type:u64>,
+};
+
+pub const MapCfg: HermesStatic = @{
+    "key":    <type:u64>,
+    "value":  <type:u64>,
+    "fanout": 8,
+};
+
+unsafe fn fill_range(cr: &mut ContainerRefV3<StoreCfg, MapCfg>, lo: u64, hi: u64, mul: u64, snap_id: u64, cp: *mut u64) {
+    let mut i: u64 = lo;
+    while i < hi {
+        cr.insert(i, i * mul, &i as *const u64, snap_id, cp);
+        i = i + 1u64;
+    }
+}
+
+unsafe fn check_range(cr: &ContainerRefV3<StoreCfg, MapCfg>, lo: u64, hi: u64, mul: u64) -> i32 {
+    let mut i: u64 = lo;
+    while i < hi {
+        let mut out: u64 = 0u64;
+        if !cr.get(&i as *const u64, &mut out as *mut u64) { return 1i32; }
+        if out != i * mul { return 2i32; }
+        i = i + 1u64;
+    }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let mut store: StoreV3<StoreCfg> = store_open_v3::<StoreCfg>();
+
+    // Build base commit C0 — ctr=7 with [0..5) → i*3 (single leaf, no split)
+    let mut c0: i64 = -1i64;
+    {
+        let mut snap_a: SnapV3<StoreCfg> = snap_begin_v3::<StoreCfg>(&mut store);
+        {
+            let mut cr: ContainerRefV3<StoreCfg, MapCfg> =
+                create_pmap_v3::<MapCfg, StoreCfg>(&mut snap_a, 7u64);
+            let s_id: u64 = snap_a.snapshot_id;
+            let store_ref: &mut LockingStoreV3<StoreCfg> = snap_a.arc.deref_mut();
+            let cp: *mut u64 = &mut store_ref.next_block_id as *mut u64;
+            unsafe { fill_range(&mut cr, 0u64, 5u64, 3u64, s_id, cp); }
+            if cr.len() != 5u64 { return 10; }
+        }
+        c0 = snap_a.commit();
+    }
+    if c0 < 0i64 { return 11; }
+
+    // Fork B: read ctr=7 (verify inheritance), then add ctr=8 with [0..3) at *5
+    let mut c1: i64 = -1i64;
+    {
+        let mut snap_b: SnapV3<StoreCfg> = snap_fork_v3::<StoreCfg>(&mut store, c0);
+        {
+            let cr7: ContainerRefV3<StoreCfg, MapCfg> =
+                open_pmap_v3::<MapCfg, StoreCfg>(&mut snap_b, 7u64);
+            if cr7.len() != 5u64 { return 20; }
+            if unsafe { check_range(&cr7, 0u64, 5u64, 3u64) } != 0i32 { return 21; }
+        }
+        {
+            let mut cr8: ContainerRefV3<StoreCfg, MapCfg> =
+                create_pmap_v3::<MapCfg, StoreCfg>(&mut snap_b, 8u64);
+            let s_id: u64 = snap_b.snapshot_id;
+            let store_ref: &mut LockingStoreV3<StoreCfg> = snap_b.arc.deref_mut();
+            let cp: *mut u64 = &mut store_ref.next_block_id as *mut u64;
+            unsafe { fill_range(&mut cr8, 0u64, 3u64, 5u64, s_id, cp); }
+            if cr8.len() != 3u64 { return 22; }
+        }
+        c1 = snap_b.commit();
+    }
+    if c1 < 0i64 { return 23; }
+
+    // Fork C from C0 — must NOT see ctr=8 (proves snap_b's create_pmap CoW'd
+    // the dir; parent commit's dir snapshot stays clean).
+    {
+        let mut snap_c: SnapV3<StoreCfg> = snap_fork_v3::<StoreCfg>(&mut store, c0);
+        let cr7: ContainerRefV3<StoreCfg, MapCfg> =
+            open_pmap_v3::<MapCfg, StoreCfg>(&mut snap_c, 7u64);
+        if cr7.len() != 5u64 { return 30; }
+        let cr8: ContainerRefV3<StoreCfg, MapCfg> =
+            open_pmap_v3::<MapCfg, StoreCfg>(&mut snap_c, 8u64);
+        // open_pmap returns null arc when ctr_id not found.
+        if unsafe { (cr8.arc.p as *mut u64) } != 0 as *mut u64 { return 31; }
+    }
+
+    // Fork D from C1 — must see BOTH ctr=7 and ctr=8.
+    {
+        let mut snap_d: SnapV3<StoreCfg> = snap_fork_v3::<StoreCfg>(&mut store, c1);
+        let cr7: ContainerRefV3<StoreCfg, MapCfg> =
+            open_pmap_v3::<MapCfg, StoreCfg>(&mut snap_d, 7u64);
+        if cr7.len() != 5u64 { return 40; }
+        if unsafe { check_range(&cr7, 0u64, 5u64, 3u64) } != 0i32 { return 41; }
+        let cr8: ContainerRefV3<StoreCfg, MapCfg> =
+            open_pmap_v3::<MapCfg, StoreCfg>(&mut snap_d, 8u64);
+        if cr8.len() != 3u64 { return 42; }
+        if unsafe { check_range(&cr8, 0u64, 3u64, 5u64) } != 0i32 { return 43; }
+    }
+
+    return 0;
+}
