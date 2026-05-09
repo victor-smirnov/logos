@@ -1,0 +1,222 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+//
+// std.data.persistent showcase — a tour of the surface as it stands
+// today, plus the rough edges that motivate the next API pass.
+//
+// What the package gives you:
+//   1. Store         — owns the commit DAG, allocates block + snapshot ids
+//   2. Snap          — a mutable snapshot rooted in a directory tree
+//   3. ContainerRef  — handle to one persistent map inside a Snap
+//   4. CoW + dyn-trait dispatch  — every mutation that crosses a snapshot
+//      boundary forks the touched node; reads are share-by-rc
+//   5. Multi-parent CommitEntry  — full DAG topology (single-parent for
+//      now, merge surface lands later)
+//
+// Demonstrated flows:
+//   1.  Open a store, begin a snapshot, create a container.
+//   2.  Insert / replace / get / contains / remove.
+//   3.  Commit; fork from the commit; read the inherited state.
+//   4.  Mutate the fork — original commit stays untouched.
+//   5.  Multiple containers per snapshot.
+//   6.  DAG navigation: parents_of / children_of / roots / commit_count.
+//
+// Rough edges flagged with `// TODO:` for the upcoming API pass.
+
+package persistent_showcase;
+
+use std.collections.vec;
+use std.mem;
+use std.lang.cmp; use std.lang.ord; use std.lang.datatypes;
+use std.hermes.view; use std.hermes.anyval;
+
+use std.data.persistent.node;
+use std.data.persistent.cow;
+use std.data.persistent.store;
+use std.data.persistent.handle;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+// ── Configs ───────────────────────────────────────────────────────────
+//
+// Two HermesStatic literals describe the store and the map: ID widths,
+// CFG-derived layout (key/value types, fanout). Everything keys off
+// these — different (store, map) configs yield distinct types end-to-end.
+pub const StoreCfg: HermesStatic = @{
+    "name":     "showcase",
+    "ctr_id":   <type:u64>,
+    "snp_id":   <type:u64>,
+    "block_id": <type:u64>,
+};
+
+pub const ScoresCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 8 };
+pub const TagsCfg:   HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 8 };
+
+// ── Helpers ───────────────────────────────────────────────────────────
+//
+// TODO: every mutation needs `snapshot_id` + a *mut u64 id-counter
+// pulled out of the Snap. The current API exposes both as raw fields
+// the caller has to thread through. Folding this into ContainerRef
+// (so cr.insert(k, v) suffices) is a target of the API pass.
+unsafe fn ctx(snap: &mut Snap<StoreCfg>) -> *mut u64 {
+    let s: &mut LockingStore<StoreCfg> = snap.arc.deref_mut();
+    return &mut s.next_block_id as *mut u64;
+}
+
+fn section(label: &[u8]) {
+    unsafe { printf("\n=== %s ===\n" as *const u8, label.as_ptr()); }
+}
+
+unsafe fn fill_range(cr: &mut ContainerRef<StoreCfg, ScoresCfg>, lo: u64, hi: u64, mul: u64, snap_id: u64, cp: *mut u64) {
+    let mut i: u64 = lo;
+    while i < hi {
+        // TODO: passing `&i as *const u64` for the `qkey` param at every
+        // call site is busywork — sema can synthesise the addr-of
+        // automatically when the surface clearly takes a key by reference.
+        cr.insert(i, i * mul, &i as *const u64, snap_id, cp);
+        i = i + 1u64;
+    }
+}
+
+unsafe fn dump_entry(cr: &ContainerRef<StoreCfg, ScoresCfg>, key: u64) {
+    // TODO: get returns bool + writes through *mut V. An Option<V>-shaped
+    // return is the obvious idiomatic surface; the *mut V dance only
+    // exists because mlir-gen sret + generic V is fiddly.
+    let mut out: u64 = 0u64;
+    let found: bool = cr.get(&key as *const u64, &mut out as *mut u64);
+    if found {
+        printf("  scores[%lu] = %lu\n" as *const u8, key, out);
+    } else {
+        printf("  scores[%lu] = (none)\n" as *const u8, key);
+    }
+}
+
+fn main() -> i32 {
+    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
+
+    // ── 1. Build commit C0 — scores: [0..30) → key*2; tags: [0..10) → key+100 ──
+    section("commit C0: two containers");
+    let mut c0: i64 = -1i64;
+    {
+        let mut snap: Snap<StoreCfg> = snap_begin::<StoreCfg>(&mut store);
+        let s_id: u64 = snap.snapshot_id;
+        let cp: *mut u64 = unsafe { ctx(&mut snap) };
+
+        {
+            // TODO: turbofish order is `<MapCfg, StoreCfg>` — STORE_CFG
+            // last, even though it's known from `snap`. Should infer
+            // STORE_CFG from snap's type so users only pass `<MapCfg>`.
+            let mut scores: ContainerRef<StoreCfg, ScoresCfg> =
+                create_pmap::<ScoresCfg, StoreCfg>(&mut snap, 1u64);
+            unsafe { fill_range(&mut scores, 0u64, 30u64, 2u64, s_id, cp); }
+            unsafe { printf("  scores.len = %lu\n" as *const u8, scores.len()); }
+        }
+        {
+            // Different CFG → different ContainerRef instantiation,
+            // distinct layout. Two containers coexist via dir lookup.
+            // (We reuse ScoresCfg-typed insert/get because TagsCfg
+            //  has the same K/V — purely showcase, not real usage.)
+            let mut tags: ContainerRef<StoreCfg, ScoresCfg> =
+                create_pmap::<ScoresCfg, StoreCfg>(&mut snap, 2u64);
+            let mut k: u64 = 0u64;
+            while k < 10u64 {
+                tags.insert(k, k + 100u64, &k as *const u64, s_id, cp);
+                k = k + 1u64;
+            }
+            unsafe { printf("  tags.len   = %lu\n" as *const u8, tags.len()); }
+        }
+
+        c0 = snap.commit();
+    }
+    unsafe { printf("  → commit id = %ld\n" as *const u8, c0); }
+
+    // ── 2. Read-only fork of C0 — verify both containers are visible ──
+    section("read fork of C0");
+    {
+        let mut snap: Snap<StoreCfg> = snap_fork::<StoreCfg>(&mut store, c0);
+        let scores: ContainerRef<StoreCfg, ScoresCfg> =
+            open_pmap::<ScoresCfg, StoreCfg>(&mut snap, 1u64);
+        unsafe { dump_entry(&scores, 0u64); }
+        unsafe { dump_entry(&scores, 15u64); }
+        unsafe { dump_entry(&scores, 29u64); }
+        // TODO: open_pmap returns a ContainerRef with arc.p == null on miss.
+        // Option<ContainerRef> is the right shape — eliminates the raw
+        // pointer comparison the user has to do today.
+        let missing: ContainerRef<StoreCfg, ScoresCfg> =
+            open_pmap::<ScoresCfg, StoreCfg>(&mut snap, 99u64);
+        let absent: bool = unsafe { (missing.arc.p as *mut u8) == (0 as *mut u8) };
+        unsafe { printf("  open(99) absent = %d\n" as *const u8, absent as i32); }
+    }
+
+    // ── 3. Mutating fork — extends scores; original commit untouched ──
+    section("mutating fork from C0");
+    let mut c1: i64 = -1i64;
+    {
+        let mut snap: Snap<StoreCfg> = snap_fork::<StoreCfg>(&mut store, c0);
+        let s_id: u64 = snap.snapshot_id;
+        let cp: *mut u64 = unsafe { ctx(&mut snap) };
+
+        let mut scores: ContainerRef<StoreCfg, ScoresCfg> =
+            open_pmap::<ScoresCfg, StoreCfg>(&mut snap, 1u64);
+        unsafe { fill_range(&mut scores, 30u64, 60u64, 5u64, s_id, cp); }
+
+        // Replace existing key (replace-on-hit semantics).
+        let k: u64 = 7u64;
+        scores.insert(k, 9999u64, &k as *const u64, s_id, cp);
+        unsafe { dump_entry(&scores, 7u64); }
+
+        // Remove a slice of keys. Lazy underflow — leaves shrink without
+        // rebalance. (Underflow tolerated by descent paths.)
+        let mut rk: u64 = 10u64;
+        while rk < 15u64 {
+            scores.remove(&rk as *const u64, s_id, cp);
+            rk = rk + 1u64;
+        }
+        unsafe { printf("  fork scores.len = %lu\n" as *const u8, scores.len()); }
+
+        c1 = snap.commit();
+    }
+
+    // ── 4. Re-fork C0 — must NOT see C1's writes ──
+    section("re-fork C0 — isolation check");
+    {
+        let mut snap: Snap<StoreCfg> = snap_fork::<StoreCfg>(&mut store, c0);
+        let scores: ContainerRef<StoreCfg, ScoresCfg> =
+            open_pmap::<ScoresCfg, StoreCfg>(&mut snap, 1u64);
+        unsafe {
+            printf("  C0 scores.len = %lu (expect 30)\n" as *const u8, scores.len());
+            // key 7 still has the original value
+            dump_entry(&scores, 7u64);
+            // keys [10..15) still present
+            dump_entry(&scores, 12u64);
+            // key 35 (only in C1) absent
+            let probe: u64 = 35u64;
+            printf("  C0 contains(35) = %d (expect 0)\n" as *const u8,
+                   scores.contains(&probe as *const u64) as i32);
+        }
+    }
+
+    // ── 5. DAG topology ──
+    section("DAG topology");
+    {
+        let s: &mut LockingStore<StoreCfg> = store.arc.deref_mut();
+        let sp: *mut LockingStore<StoreCfg> = s as *mut LockingStore<StoreCfg>;
+        unsafe {
+            printf("  commit_count = %ld\n" as *const u8, sp.commit_count());
+            let rs: Vec<i64> = sp.roots();
+            printf("  roots.len = %ld" as *const u8, rs.length());
+            if rs.length() > 0i64 { printf(" (first = %ld)" as *const u8, rs.get(0i64)); }
+            printf("\n" as *const u8);
+
+            let parents_c1: Vec<i64> = sp.parents_of(c1);
+            printf("  parents_of(C1).len = %ld" as *const u8, parents_c1.length());
+            if parents_c1.length() > 0i64 { printf(" (first = %ld)" as *const u8, parents_c1.get(0i64)); }
+            printf("\n" as *const u8);
+
+            let children_c0: Vec<i64> = sp.children_of(c0);
+            printf("  children_of(C0).len = %ld\n" as *const u8, children_c0.length());
+        }
+    }
+
+    return 0;
+}
