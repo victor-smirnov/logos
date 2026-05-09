@@ -31,6 +31,14 @@ use std.lang.drop;
 use std.hermes.view;
 use std.hermes.anyval;
 
+// ── Public aliases for STORE_CFG slot types ───────────────────────────
+// `SnpId<STORE_CFG>` / `BlockId<STORE_CFG>` get used
+// hundreds of times across the persistent stack. Aliases keep
+// signatures readable; sema resolves them transparently per
+// monomorphisation.
+pub type SnpId<const STORE_CFG: HermesStatic>   = <type:STORE_CFG.snp_id>;
+pub type BlockId<const STORE_CFG: HermesStatic> = <type:STORE_CFG.block_id>;
+
 // ── NodeBase — uniform header per-store ───────────────────────────────────
 // Layout invariants (for IO and rc-bump direct access):
 //   offset 0  — rc (u64). NodeARC reads/writes it via *mut u64 cast on the
@@ -45,8 +53,8 @@ use std.hermes.anyval;
 // field reads so an i64 → struct ID widening is layout-driven.
 pub struct NodeBase<const STORE_CFG: HermesStatic> {
     pub rc:          u64,                          // offset 0 — direct field read by NodeARC
-    pub id:          <type:STORE_CFG.block_id>,    // persistent block id
-    pub snapshot_id: <type:STORE_CFG.snp_id>,      // creating snapshot — CoW skip key
+    pub id:          BlockId<STORE_CFG>,    // persistent block id
+    pub snapshot_id: SnpId<STORE_CFG>,      // creating snapshot — CoW skip key
     pub is_leaf:     bool,                         // branch/leaf discriminator
 }
 
@@ -73,7 +81,7 @@ pub trait BTreeNode<const STORE_CFG: HermesStatic> {
     //
     // ID widths come from the store config so the same trait works
     // for stores with u128 / opaque-token id types.
-    fn cow_clone(&self, new_id: <type:STORE_CFG.block_id>, snapshot_id: <type:STORE_CFG.snp_id>) -> NodeARC<STORE_CFG>;
+    fn cow_clone(&self, new_id: BlockId<STORE_CFG>, snapshot_id: SnpId<STORE_CFG>) -> NodeARC<STORE_CFG>;
 
     // Default destructor — runs full Drop chain on `self`'s contents
     // (user impl Drop + field destructors). The body uses generic-T scope
@@ -121,14 +129,14 @@ pub unsafe fn arc_replace_in_slot<const STORE_CFG: HermesStatic>(
 // place). Keys on snapshot_id (Memoria-style ownership stamping).
 pub unsafe fn make_unique<const STORE_CFG: HermesStatic>(
     arc:             &mut NodeARC<STORE_CFG>,
-    cur_snapshot_id: <type:STORE_CFG.snp_id>,
-    id_ctr_p:        *mut <type:STORE_CFG.block_id>,
+    cur_snapshot_id: SnpId<STORE_CFG>,
+    id_ctr_p:        *mut BlockId<STORE_CFG>,
 ) {
     let data_p: *mut u8 = node_arc_data_ptr::<STORE_CFG>(arc);
-    let snap_p: *mut <type:STORE_CFG.snp_id> = (data_p as i64 + 16i64) as *mut <type:STORE_CFG.snp_id>;
+    let snap_p: *mut SnpId<STORE_CFG> = (data_p as i64 + 16i64) as *mut SnpId<STORE_CFG>;
     if *snap_p == cur_snapshot_id { return; }
     *id_ctr_p = *id_ctr_p + 1u64;
-    let new_id: <type:STORE_CFG.block_id> = *id_ctr_p;
+    let new_id: BlockId<STORE_CFG> = *id_ctr_p;
     let cloned: NodeARC<STORE_CFG> = arc.p.cow_clone(new_id, cur_snapshot_id);
     arc_replace_in_slot::<STORE_CFG>(arc as *mut NodeARC<STORE_CFG>, cloned);
 }

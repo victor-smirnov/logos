@@ -62,28 +62,19 @@ pub struct Store<const STORE_CFG: HermesStatic> {
 // Multiple independent root histories should each live in their own
 // Store — keeping a single store linear simplifies merge / GC /
 // on-disk serialisation when those land.
-pub const GENESIS: i64 = 0i64;
+pub const GENESIS: u64 = 0u64;
 
 pub fn store_open<const STORE_CFG: HermesStatic>() -> Store<STORE_CFG> {
-    let mut s: LockingStore<STORE_CFG> = locking_store_new::<STORE_CFG>();
+    let s: LockingStore<STORE_CFG> = locking_store_new::<STORE_CFG>();
     let arc: Arc<LockingStore<STORE_CFG>> = arc_new::<LockingStore<STORE_CFG>>(s);
-    // Sema gap: the move of `s` into `arc_new(s)` doesn't propagate to
-    // suppress `s`'s scope-exit Drop. The local then drops s.dag (Vec)
-    // freeing storage that ArcInner.val.dag now owns. Workaround: zero
-    // the local's bytes via raw cast so its Drop chain becomes a no-op.
-    // See investigation in commit log; sema fix is a separate item.
-    unsafe {
-        let sp: *mut LockingStore<STORE_CFG> = &mut s as *mut LockingStore<STORE_CFG>;
-        sp.dag.ptr    = 0 as *mut CommitEntry<STORE_CFG>;
-        sp.dag.len    = 0i64;
-        sp.dag.cap    = 0i64;
-    }
     // Seed an empty genesis dir as commit 0. snapshot_id stamp = 0
     // (no live snap yet); any fork's first write triggers make_unique
-    // CoW on the genesis dir, leaving it untouched.
+    // CoW on the genesis dir, leaving it untouched. register_commit
+    // refuses parent-less entries (no -1 sentinel under typed snp_id),
+    // so the genesis row is pushed directly to dag with empty parents.
     {
         let lk: &mut LockingStore<STORE_CFG> = arc.deref_mut();
-        let block_id: <type:STORE_CFG.block_id> = unsafe { (lk as *mut LockingStore<STORE_CFG>).alloc_block_id() };
+        let block_id: BlockId<STORE_CFG> = unsafe { (lk as *mut LockingStore<STORE_CFG>).alloc_block_id() };
         let dir_leaf: *mut LeafDirNode<u64, STORE_CFG, DirCfg> = unsafe {
             leaf_dir_alloc::<u64, STORE_CFG, DirCfg>(block_id, 0u64)
         };
@@ -93,7 +84,11 @@ pub fn store_open<const STORE_CFG: HermesStatic>() -> Store<STORE_CFG> {
             let rcp: *mut u64 = dp as *mut u64;
             *rcp = *rcp + 1u64;
         }
-        let _id: i64 = unsafe { (lk as *mut LockingStore<STORE_CFG>).register_commit(dir, 0i64 - 1i64) };
+        lk.dag.push(CommitEntry::<STORE_CFG> {
+            root:     dir,
+            parents:  vec_new::<SnpId<STORE_CFG>>(),
+            children: vec_new::<SnpId<STORE_CFG>>(),
+        });
     }
     return Store::<STORE_CFG> { arc: arc };
 }
@@ -102,7 +97,7 @@ impl<const STORE_CFG: HermesStatic> Store<STORE_CFG> {
     // Fork a mutable snapshot off `parent_commit`. The fork sees that
     // commit's directory tree (shared via rc) and CoWs on first write.
     // Pass `GENESIS` for the empty initial dir (id 0, seeded by store_open).
-    pub fn fork(&mut self, parent_commit: i64) -> Snap<STORE_CFG> {
+    pub fn fork(&mut self, parent_commit: SnpId<STORE_CFG>) -> Snap<STORE_CFG> {
         return snap_fork::<STORE_CFG>(self, parent_commit);
     }
 
@@ -111,15 +106,15 @@ impl<const STORE_CFG: HermesStatic> Store<STORE_CFG> {
         let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
         return unsafe { (s as *mut LockingStore<STORE_CFG>).commit_count() };
     }
-    pub fn parents_of(&mut self, id: i64) -> Vec<i64> {
+    pub fn parents_of(&mut self, id: SnpId<STORE_CFG>) -> Vec<SnpId<STORE_CFG>> {
         let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
         return unsafe { (s as *mut LockingStore<STORE_CFG>).parents_of(id) };
     }
-    pub fn children_of(&mut self, id: i64) -> Vec<i64> {
+    pub fn children_of(&mut self, id: SnpId<STORE_CFG>) -> Vec<SnpId<STORE_CFG>> {
         let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
         return unsafe { (s as *mut LockingStore<STORE_CFG>).children_of(id) };
     }
-    pub fn roots(&mut self) -> Vec<i64> {
+    pub fn roots(&mut self) -> Vec<SnpId<STORE_CFG>> {
         let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
         return unsafe { (s as *mut LockingStore<STORE_CFG>).roots() };
     }
@@ -129,17 +124,17 @@ impl<const STORE_CFG: HermesStatic> Store<STORE_CFG> {
 pub struct Snap<const STORE_CFG: HermesStatic> {
     pub dir: NodeARC<STORE_CFG>,    // directory tree root
     pub arc: Arc<LockingStore<STORE_CFG>>,
-    pub snapshot_id: <type:STORE_CFG.snp_id>,
-    pub parent_id:   i64,           // commit id this snap forked from; -1 for fresh
+    pub snapshot_id: SnpId<STORE_CFG>,
+    pub parent_id:   SnpId<STORE_CFG>,  // commit id this snap forked from
 }
 
 // snap_fork — start a new mutable snapshot from a committed parent.
 pub fn snap_fork<const STORE_CFG: HermesStatic>(
     store: &mut Store<STORE_CFG>,
-    parent_commit: i64,
+    parent_commit: SnpId<STORE_CFG>,
 ) -> Snap<STORE_CFG> {
     let s: &mut LockingStore<STORE_CFG> = store.arc.deref_mut();
-    let snap_id: <type:STORE_CFG.snp_id> = unsafe { (s as *mut LockingStore<STORE_CFG>).alloc_snapshot_id() };
+    let snap_id: SnpId<STORE_CFG> = unsafe { (s as *mut LockingStore<STORE_CFG>).alloc_snapshot_id() };
     let dir: NodeARC<STORE_CFG> = unsafe { (s as *mut LockingStore<STORE_CFG>).checkout(parent_commit) };
     return Snap::<STORE_CFG> {
         dir:         dir,
@@ -152,7 +147,7 @@ pub fn snap_fork<const STORE_CFG: HermesStatic>(
 impl<const STORE_CFG: HermesStatic> Snap<STORE_CFG> {
     // Commit the dir tree as a new DAG entry. Transfers the dir's rc to
     // the entry. Returns the new commit id.
-    pub fn commit(&mut self) -> i64 {
+    pub fn commit(&mut self) -> SnpId<STORE_CFG> {
         let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
         // Bump rc twice: clone_arc gives us one extra share; the second
         // explicit bump compensates for `cloned`'s scope-exit auto-drop
@@ -166,7 +161,7 @@ impl<const STORE_CFG: HermesStatic> Snap<STORE_CFG> {
             let rcp: *mut u64 = dp as *mut u64;
             *rcp = *rcp + 1u64;
         }
-        let id: i64 = unsafe { (s as *mut LockingStore<STORE_CFG>).register_commit(cloned, self.parent_id) };
+        let id: SnpId<STORE_CFG> = unsafe { (s as *mut LockingStore<STORE_CFG>).register_commit(cloned, self.parent_id) };
         return id;
     }
 }
@@ -191,8 +186,8 @@ pub struct ContainerRef<const STORE_CFG: HermesStatic, const CFG: HermesStatic> 
     // Snap-side context cached at create/open time so cr.insert /
     // cr.remove don't have to re-thread these from the call site.
     // Both stay valid for the lifetime of the originating Snap.
-    pub snap_id:    <type:STORE_CFG.snp_id>,
-    pub id_ctr_p:   *mut <type:STORE_CFG.block_id>,
+    pub snap_id:    SnpId<STORE_CFG>,
+    pub id_ctr_p:   *mut BlockId<STORE_CFG>,
 }
 
 // create_pmap — alloc a fresh empty leaf for the container, register
@@ -207,9 +202,9 @@ pub fn create_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
     ctr_id: u64,
 ) -> ContainerRef<STORE_CFG, CFG> {
     let s: &mut LockingStore<STORE_CFG> = snap.arc.deref_mut();
-    let id_ctr_p: *mut <type:STORE_CFG.block_id> = unsafe { &mut (*(s as *mut LockingStore<STORE_CFG>)).next_block_id as *mut <type:STORE_CFG.block_id> };
+    let id_ctr_p: *mut BlockId<STORE_CFG> = unsafe { &mut (*(s as *mut LockingStore<STORE_CFG>)).next_block_id as *mut BlockId<STORE_CFG> };
     unsafe { make_unique::<STORE_CFG>(&mut snap.dir, snap.snapshot_id, id_ctr_p); }
-    let block_id: <type:STORE_CFG.block_id> = unsafe { (s as *mut LockingStore<STORE_CFG>).alloc_block_id() };
+    let block_id: BlockId<STORE_CFG> = unsafe { (s as *mut LockingStore<STORE_CFG>).alloc_block_id() };
     // Allocate the container's initial empty leaf (data flavour).
     let leaf: *mut LeafNode<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> = unsafe {
         leaf_alloc::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(block_id, snap.snapshot_id)
@@ -261,8 +256,8 @@ pub fn open_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
     // in this snapshot's dir, not the parent commit's. Skips when dir
     // is already this snapshot's (snapshot_id matches).
     let s: &mut LockingStore<STORE_CFG> = snap.arc.deref_mut();
-    let id_ctr_p: *mut <type:STORE_CFG.block_id> = unsafe {
-        &mut (*(s as *mut LockingStore<STORE_CFG>)).next_block_id as *mut <type:STORE_CFG.block_id>
+    let id_ctr_p: *mut BlockId<STORE_CFG> = unsafe {
+        &mut (*(s as *mut LockingStore<STORE_CFG>)).next_block_id as *mut BlockId<STORE_CFG>
     };
     unsafe { make_unique::<STORE_CFG>(&mut snap.dir, snap.snapshot_id, id_ctr_p); }
     unsafe {

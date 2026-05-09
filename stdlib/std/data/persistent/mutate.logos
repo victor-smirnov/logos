@@ -72,7 +72,7 @@ pub struct InsertOutcome<K: Container + ContainerOrd, const STORE_CFG: HermesSta
 }
 
 // Helper to alloc a fresh block id (bump caller's counter).
-unsafe fn alloc_id<const STORE_CFG: HermesStatic>(p: *mut <type:STORE_CFG.block_id>) -> <type:STORE_CFG.block_id> {
+unsafe fn alloc_id<const STORE_CFG: HermesStatic>(p: *mut BlockId<STORE_CFG>) -> BlockId<STORE_CFG> {
     *p = *p + 1u64;
     return *p;
 }
@@ -83,7 +83,7 @@ unsafe fn alloc_id<const STORE_CFG: HermesStatic>(p: *mut <type:STORE_CFG.block_
 // caller's parent gets the right half + separator (= right's keys[0]).
 pub unsafe fn split_leaf<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     leaf: *mut LeafNode<K, V, STORE_CFG, CFG>,
-    new_id: <type:STORE_CFG.block_id>, snapshot_id: <type:STORE_CFG.snp_id>,
+    new_id: BlockId<STORE_CFG>, snapshot_id: SnpId<STORE_CFG>,
 ) -> NodeARC<STORE_CFG> {
     let cap: u64 = leaf.keys.len();
     let vcap: u64 = leaf.vals.len();
@@ -108,7 +108,7 @@ pub unsafe fn split_leaf<K: Container + ContainerOrd, V: Container, const STORE_
 // parent) shifts children right and inserts the new right node at idx+1.
 pub unsafe fn split_branch<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     branch: *mut BranchNode<K, STORE_CFG, CFG>,
-    new_id: <type:STORE_CFG.block_id>, snapshot_id: <type:STORE_CFG.snp_id>,
+    new_id: BlockId<STORE_CFG>, snapshot_id: SnpId<STORE_CFG>,
 ) -> NodeARC<STORE_CFG> {
     let cap: u64 = branch.keys.len();
     let mid: u64 = cap / 2u64;
@@ -145,7 +145,7 @@ pub unsafe fn split_branch<K: Container + ContainerOrd, const STORE_CFG: HermesS
 pub unsafe fn insert_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     arc: &mut NodeARC<STORE_CFG>,
     key: K::ViewInStore, val: V::ViewInStore, qkey: *const K,
-    cur_snapshot_id: <type:STORE_CFG.snp_id>, id_ctr_p: *mut <type:STORE_CFG.block_id>,
+    cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
 ) -> InsertOutcome<K, STORE_CFG, CFG> {
     // CoW skip: if `arc`'s block was created in another snapshot, clone.
     make_unique::<STORE_CFG>(arc, cur_snapshot_id, id_ctr_p);
@@ -173,7 +173,7 @@ pub unsafe fn insert_rec<K: Container + ContainerOrd, V: Container, const STORE_
         leaf.keys.insert_at(pos, key);
         leaf.vals.insert_at(pos, val);
         if leaf.keys.len() > max_keys {
-            let new_id: <type:STORE_CFG.block_id> = alloc_id::<STORE_CFG>(id_ctr_p);
+            let new_id: BlockId<STORE_CFG> = alloc_id::<STORE_CFG>(id_ctr_p);
             let right: NodeARC<STORE_CFG> = split_leaf::<K, V, STORE_CFG, CFG>(leaf, new_id, cur_snapshot_id);
             // Sep = right's first key.
             let rl = as_leaf::<K, V, STORE_CFG, CFG>(&right);
@@ -215,7 +215,7 @@ pub unsafe fn insert_rec<K: Container + ContainerOrd, V: Container, const STORE_
     br.keys.insert_at(i, inner.sep);
     vec_arc_insert_at::<STORE_CFG>(&mut br.children as *mut Vec<NodeARC<STORE_CFG>>, (i as i64) + 1i64, inner.right);
     if br.keys.len() > max_keys {
-        let new_id: <type:STORE_CFG.block_id> = alloc_id::<STORE_CFG>(id_ctr_p);
+        let new_id: BlockId<STORE_CFG> = alloc_id::<STORE_CFG>(id_ctr_p);
         let right: NodeARC<STORE_CFG> = split_branch::<K, STORE_CFG, CFG>(br, new_id, cur_snapshot_id);
         // Branch sep = first key of right (consumed — branches don't keep sep on themselves)
         let rb = as_branch::<K, STORE_CFG, CFG>(&right);
@@ -237,12 +237,12 @@ pub unsafe fn insert_rec<K: Container + ContainerOrd, V: Container, const STORE_
 pub unsafe fn pmap_insert<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     root: &mut NodeARC<STORE_CFG>,
     key: K::ViewInStore, val: V::ViewInStore, qkey: *const K,
-    cur_snapshot_id: <type:STORE_CFG.snp_id>, id_ctr_p: *mut <type:STORE_CFG.block_id>,
+    cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
 ) -> bool {
     let outcome = insert_rec::<K, V, STORE_CFG, CFG>(root, key, val, qkey, cur_snapshot_id, id_ctr_p);
     if outcome.split {
         // Grow root: build a new branch with [old_root, outcome.right] + sep.
-        let new_id: <type:STORE_CFG.block_id> = alloc_id::<STORE_CFG>(id_ctr_p);
+        let new_id: BlockId<STORE_CFG> = alloc_id::<STORE_CFG>(id_ctr_p);
         let new_root: *mut BranchNode<K, STORE_CFG, CFG> =
             branch_alloc::<K, STORE_CFG, CFG>(new_id, cur_snapshot_id);
         new_root.keys.push(outcome.sep);
@@ -276,7 +276,7 @@ pub unsafe fn pmap_insert<K: Container + ContainerOrd, V: Container, const STORE
 pub unsafe fn remove_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     arc: &mut NodeARC<STORE_CFG>,
     qkey: *const K,
-    cur_snapshot_id: <type:STORE_CFG.snp_id>, id_ctr_p: *mut <type:STORE_CFG.block_id>,
+    cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
 ) -> bool {
     make_unique::<STORE_CFG>(arc, cur_snapshot_id, id_ctr_p);
 
@@ -296,7 +296,7 @@ pub unsafe fn remove_rec<K: Container + ContainerOrd, V: Container, const STORE_
 
 pub unsafe fn pmap_remove<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     root: &mut NodeARC<STORE_CFG>, qkey: *const K,
-    cur_snapshot_id: <type:STORE_CFG.snp_id>, id_ctr_p: *mut <type:STORE_CFG.block_id>,
+    cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
 ) -> bool {
     return remove_rec::<K, V, STORE_CFG, CFG>(root, qkey, cur_snapshot_id, id_ctr_p);
 }

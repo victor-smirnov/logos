@@ -46,7 +46,7 @@ impl<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: Herm
     fn cfg_hash(&self) -> u64        { return hstatic_hash_of::<CFG>(); }
     fn block_type_hash(&self) -> u64 { return type_hash::<BranchNode<K, STORE_CFG, CFG>>(); }
 
-    fn cow_clone(&self, new_id: <type:STORE_CFG.block_id>, snapshot_id: <type:STORE_CFG.snp_id>) -> NodeARC<STORE_CFG> {
+    fn cow_clone(&self, new_id: BlockId<STORE_CFG>, snapshot_id: SnpId<STORE_CFG>) -> NodeARC<STORE_CFG> {
         let copy: *mut BranchNode<K, STORE_CFG, CFG> = unsafe {
             branch_alloc::<K, STORE_CFG, CFG>(new_id, snapshot_id)
         };
@@ -74,7 +74,7 @@ impl<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: Herm
     // keys (Buffer<K>) and children (Vec<NodeARC>) recursively.
 }
 
-pub fn branch_alloc<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(id: <type:STORE_CFG.block_id>, snapshot_id: <type:STORE_CFG.snp_id>) -> *mut BranchNode<K, STORE_CFG, CFG> {
+pub fn branch_alloc<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(id: BlockId<STORE_CFG>, snapshot_id: SnpId<STORE_CFG>) -> *mut BranchNode<K, STORE_CFG, CFG> {
     let p: *mut BranchNode<K, STORE_CFG, CFG> = alloc(sizeof::<BranchNode<K, STORE_CFG, CFG>>()) as *mut BranchNode<K, STORE_CFG, CFG>;
     unsafe {
         p.base.rc          = 1u64;
@@ -98,7 +98,7 @@ impl<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, c
     fn cfg_hash(&self) -> u64        { return hstatic_hash_of::<CFG>(); }
     fn block_type_hash(&self) -> u64 { return type_hash::<LeafNode<K, V, STORE_CFG, CFG>>(); }
 
-    fn cow_clone(&self, new_id: <type:STORE_CFG.block_id>, snapshot_id: <type:STORE_CFG.snp_id>) -> NodeARC<STORE_CFG> {
+    fn cow_clone(&self, new_id: BlockId<STORE_CFG>, snapshot_id: SnpId<STORE_CFG>) -> NodeARC<STORE_CFG> {
         let copy: *mut LeafNode<K, V, STORE_CFG, CFG> = unsafe {
             leaf_alloc::<K, V, STORE_CFG, CFG>(new_id, snapshot_id)
         };
@@ -116,7 +116,7 @@ impl<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, c
     // datatype storage cleanup. No user Drop impl needed for data leaves.
 }
 
-pub fn leaf_alloc<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(id: <type:STORE_CFG.block_id>, snapshot_id: <type:STORE_CFG.snp_id>) -> *mut LeafNode<K, V, STORE_CFG, CFG> {
+pub fn leaf_alloc<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(id: BlockId<STORE_CFG>, snapshot_id: SnpId<STORE_CFG>) -> *mut LeafNode<K, V, STORE_CFG, CFG> {
     let p: *mut LeafNode<K, V, STORE_CFG, CFG> = alloc(sizeof::<LeafNode<K, V, STORE_CFG, CFG>>()) as *mut LeafNode<K, V, STORE_CFG, CFG>;
     unsafe {
         p.base.rc          = 1u64;
@@ -148,7 +148,7 @@ impl<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: Herm
     fn cfg_hash(&self) -> u64        { return hstatic_hash_of::<CFG>(); }
     fn block_type_hash(&self) -> u64 { return type_hash::<LeafDirNode<K, STORE_CFG, CFG>>(); }
 
-    fn cow_clone(&self, new_id: <type:STORE_CFG.block_id>, snapshot_id: <type:STORE_CFG.snp_id>) -> NodeARC<STORE_CFG> {
+    fn cow_clone(&self, new_id: BlockId<STORE_CFG>, snapshot_id: SnpId<STORE_CFG>) -> NodeARC<STORE_CFG> {
         let copy: *mut LeafDirNode<K, STORE_CFG, CFG> = unsafe {
             leaf_dir_alloc::<K, STORE_CFG, CFG>(new_id, snapshot_id)
         };
@@ -170,7 +170,7 @@ impl<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: Herm
     }
 }
 
-pub fn leaf_dir_alloc<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(id: <type:STORE_CFG.block_id>, snapshot_id: <type:STORE_CFG.snp_id>) -> *mut LeafDirNode<K, STORE_CFG, CFG> {
+pub fn leaf_dir_alloc<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(id: BlockId<STORE_CFG>, snapshot_id: SnpId<STORE_CFG>) -> *mut LeafDirNode<K, STORE_CFG, CFG> {
     let p: *mut LeafDirNode<K, STORE_CFG, CFG> = alloc(sizeof::<LeafDirNode<K, STORE_CFG, CFG>>()) as *mut LeafDirNode<K, STORE_CFG, CFG>;
     unsafe {
         p.base.rc          = 1u64;
