@@ -1,0 +1,123 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// std.data.persistent.v3.cow — concrete node types + alloc helpers +
+// BTreeNode trait impls for the dyn-trait persistent-store rearch.
+//
+// Three concrete node flavours:
+//
+//   BranchNode<K, STORE_CFG, CFG>   — interior node. children: Vec<NodeARC>
+//                                     (heterogeneous — element drop required).
+//   LeafNode<K, V, STORE_CFG, CFG>  — data leaf. vals: Buffer<V>, V is a
+//                                     Container datatype (primitives, fixed
+//                                     structs without Drop).
+//   LeafDirNode<K, STORE_CFG, CFG>  — directory leaf. vals: Vec<NodeARC>.
+//                                     Used when the PMap value type is itself
+//                                     a NodeARC (= directory storing container
+//                                     roots).
+//
+// Each impl BTreeNode<STORE_CFG> ships ONLY the identity hashes; the
+// destructor (__drop_in_place) inherits the trait's default body which
+// fires user `impl Drop` + recursive field destructors automatically.
+//
+// User Drop impls on each concrete carry the optional cleanup work (e.g.
+// counters in tests, custom logging, etc.). For ordinary persistent-store
+// usage no user Drop is needed — the field destructor chain is sufficient.
+
+package std.data.persistent.v3.cow;
+
+use std.collections.vec;
+use std.mem;
+use std.lang.cmp;
+use std.lang.ord;
+use std.lang.datatypes;
+use std.hermes.view;
+use std.hermes.anyval;
+
+use std.data.persistent.v3.node;
+
+// ── BranchNode ─────────────────────────────────────────────────────────
+pub struct BranchNode<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
+    pub base:     NodeBase<STORE_CFG>,
+    pub keys:     Buffer<K>,
+    pub children: Vec<NodeARC<STORE_CFG>>,
+}
+
+impl<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic> BTreeNode<STORE_CFG> for BranchNode<K, STORE_CFG, CFG> {
+    fn cfg_hash(&self) -> u64        { return hstatic_hash_of::<CFG>(); }
+    fn block_type_hash(&self) -> u64 { return type_hash::<BranchNode<K, STORE_CFG, CFG>>(); }
+    // __drop_in_place inherited — runs user Drop (none here) + auto-drops
+    // keys (Buffer<K>) and children (Vec<NodeARC>) recursively.
+}
+
+pub fn branch_alloc<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(id: <type:STORE_CFG.block_id>, snapshot_id: <type:STORE_CFG.snp_id>) -> *mut BranchNode<K, STORE_CFG, CFG> {
+    let p: *mut BranchNode<K, STORE_CFG, CFG> = alloc(sizeof::<BranchNode<K, STORE_CFG, CFG>>()) as *mut BranchNode<K, STORE_CFG, CFG>;
+    unsafe {
+        p.base.rc          = 1u64;
+        p.base.id          = id;
+        p.base.snapshot_id = snapshot_id;
+        p.base.is_leaf     = false;
+        p.keys             = Buffer::<K>::new();
+        p.children         = vec_new::<NodeARC<STORE_CFG>>();
+    }
+    return p;
+}
+
+// ── LeafNode (data flavour) ────────────────────────────────────────────
+pub struct LeafNode<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
+    pub base: NodeBase<STORE_CFG>,
+    pub keys: Buffer<K>,
+    pub vals: Buffer<V>,
+}
+
+impl<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic> BTreeNode<STORE_CFG> for LeafNode<K, V, STORE_CFG, CFG> {
+    fn cfg_hash(&self) -> u64        { return hstatic_hash_of::<CFG>(); }
+    fn block_type_hash(&self) -> u64 { return type_hash::<LeafNode<K, V, STORE_CFG, CFG>>(); }
+    // __drop_in_place inherited — Buffer<K>/Buffer<V> drop_store handles
+    // datatype storage cleanup. No user Drop impl needed for data leaves.
+}
+
+pub fn leaf_alloc<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(id: <type:STORE_CFG.block_id>, snapshot_id: <type:STORE_CFG.snp_id>) -> *mut LeafNode<K, V, STORE_CFG, CFG> {
+    let p: *mut LeafNode<K, V, STORE_CFG, CFG> = alloc(sizeof::<LeafNode<K, V, STORE_CFG, CFG>>()) as *mut LeafNode<K, V, STORE_CFG, CFG>;
+    unsafe {
+        p.base.rc          = 1u64;
+        p.base.id          = id;
+        p.base.snapshot_id = snapshot_id;
+        p.base.is_leaf     = true;
+        p.keys             = Buffer::<K>::new();
+        p.vals             = Buffer::<V>::new();
+    }
+    return p;
+}
+
+// ── LeafDirNode (dir flavour) ──────────────────────────────────────────
+// V = NodeARC<STORE_CFG> — vals are heterogeneous owning handles to
+// child container roots. Vec<NodeARC>'s auto-drop handles recursive
+// release through the rc protocol; LeafDirNode's auto-Drop fires the
+// chain when this leaf goes to rc=0.
+//
+// CFG carries directory-specific layout (key type = ctr_id, fanout, etc.)
+// so the same LeafDirNode shape can host different directory cfgs in
+// future (e.g. on-disk variants).
+pub struct LeafDirNode<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
+    pub base: NodeBase<STORE_CFG>,
+    pub keys: Buffer<K>,
+    pub vals: Vec<NodeARC<STORE_CFG>>,
+}
+
+impl<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic> BTreeNode<STORE_CFG> for LeafDirNode<K, STORE_CFG, CFG> {
+    fn cfg_hash(&self) -> u64        { return hstatic_hash_of::<CFG>(); }
+    fn block_type_hash(&self) -> u64 { return type_hash::<LeafDirNode<K, STORE_CFG, CFG>>(); }
+}
+
+pub fn leaf_dir_alloc<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(id: <type:STORE_CFG.block_id>, snapshot_id: <type:STORE_CFG.snp_id>) -> *mut LeafDirNode<K, STORE_CFG, CFG> {
+    let p: *mut LeafDirNode<K, STORE_CFG, CFG> = alloc(sizeof::<LeafDirNode<K, STORE_CFG, CFG>>()) as *mut LeafDirNode<K, STORE_CFG, CFG>;
+    unsafe {
+        p.base.rc          = 1u64;
+        p.base.id          = id;
+        p.base.snapshot_id = snapshot_id;
+        p.base.is_leaf     = true;
+        p.keys             = Buffer::<K>::new();
+        p.vals             = vec_new::<NodeARC<STORE_CFG>>();
+    }
+    return p;
+}

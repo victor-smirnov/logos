@@ -1,0 +1,129 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// std.data.persistent.v3.node — uniform node header + BTreeNode trait
+// + NodeARC smart pointer for the dyn-trait persistent-store rearch.
+//
+// Architecture summary:
+//
+//   NodeBase<STORE_CFG>          uniform header at offset 0 of every block
+//   BTreeNode<STORE_CFG>         trait — release/cow_clone/identity hashes,
+//                                with auto-drop default for __drop_in_place
+//   NodeARC<STORE_CFG>           shared owning fat-ptr handle; rc lives in
+//                                NodeBase, no per-handle counter
+//
+// The trait uses dyn dispatch — concrete BranchNode / LeafNode / LeafDirNode
+// (defined in v3.bt.cow) impl BTreeNode and end up in NodeARC<STORE_CFG>'s
+// vtable per concrete instantiation. NodeARC.drop calls the concrete's
+// __drop_in_place via vtable, which fires user `impl Drop` body + recursive
+// field destructors automatically (Vec<NodeARC> auto-drops elements,
+// Buffer<V> auto-drops storage).
+//
+// STORE_CFG carries the ID-types (block_id, snp_id, ctr_id) so different
+// stores can pick e.g. u128 block ids without changing the source.
+
+package std.data.persistent.v3.node;
+
+use std.mem;
+use std.lang.cmp;
+use std.lang.ord;
+use std.lang.datatypes;
+use std.lang.drop;
+use std.hermes.view;
+use std.hermes.anyval;
+
+// ── NodeBase — uniform header per-store ───────────────────────────────────
+// Layout invariants (for IO and rc-bump direct access):
+//   offset 0  — rc (u64). NodeARC reads/writes it via *mut u64 cast on the
+//               data ptr. Disk format also pins this offset.
+//   later    — id, snapshot_id (typed via STORE_CFG), is_leaf.
+// For v1 STORE_CFG with u64 ID slots, header is 25 bytes (+padding).
+
+pub struct NodeBase<const STORE_CFG: HermesStatic> {
+    pub rc:          u64,                          // offset 0 — direct field read
+    pub id:          <type:STORE_CFG.block_id>,    // persistent block id
+    pub snapshot_id: <type:STORE_CFG.snp_id>,      // creating snapshot — CoW skip key
+    pub is_leaf:     bool,                         // branch/leaf discriminator
+}
+
+// ── BTreeNode trait ────────────────────────────────────────────────────
+// Three concrete-typed methods + one default destructor:
+//
+//   cfg_hash()        — hstatic_hash_of::<CFG>() per concrete impl. Used by
+//                       IO consistency check (verify on-disk CFG matches
+//                       runtime CFG when a block is loaded).
+//   block_type_hash() — type_hash::<NodeSchema>() per concrete impl. Same
+//                       IO purpose.
+//   __drop_in_place() — auto-default. Fires per-let auto-Drop on Self;
+//                       runs user `impl Drop` body (if any) + recursive
+//                       field destructors. Concrete impls don't override.
+
+pub trait BTreeNode<const STORE_CFG: HermesStatic> {
+    fn cfg_hash(&self) -> u64;
+    fn block_type_hash(&self) -> u64;
+
+    // Default destructor — runs full Drop chain on `self`'s contents
+    // (user impl Drop + field destructors). The body uses generic-T scope
+    // drop: `let _: Self = *self_ptr` consumes Self into a scope-local
+    // binding which auto-drops at fn exit, firing user Drop and recursive
+    // field destructors. Mono substitutes Self per concrete impl.
+    fn __drop_in_place(&mut self) {
+        unsafe {
+            let p: *mut Self = self as *mut Self;
+            let _consumed: Self = *p;
+        }
+    }
+}
+
+// ── NodeARC — shared owning fat-ptr handle ────────────────────────────
+// Layout: a single 8-byte handle pointing at a 16-byte {data, vtable}
+// slot. The data ptr in that slot points at the heap block whose first
+// 8 bytes are NodeBase.rc. Multiple NodeARCs may share one heap block;
+// rc accounting is in the header.
+
+pub struct NodeARC<const STORE_CFG: HermesStatic> {
+    pub p: *mut dyn BTreeNode<STORE_CFG>,
+}
+
+// Construct a NodeARC handle from a concrete-typed pointer. The cast
+// triggers fat-pointer materialisation (vtable lookup at compile time).
+// rc on the heap block must already be 1 — caller (alloc helpers) sets it.
+pub fn node_arc_wrap<const STORE_CFG: HermesStatic>(p: *mut dyn BTreeNode<STORE_CFG>) -> NodeARC<STORE_CFG> {
+    return NodeARC::<STORE_CFG> { p: p };
+}
+
+// Helper: extract the data ptr (first half of the fat pointer slot).
+// rc and other header fields live at the start of the pointed-to block.
+pub unsafe fn node_arc_data_ptr<const STORE_CFG: HermesStatic>(arc: &NodeARC<STORE_CFG>) -> *mut u8 {
+    let slot_p: *mut u64 = arc.p as *mut u64;
+    return (*slot_p) as *mut u8;
+}
+
+impl<const STORE_CFG: HermesStatic> NodeARC<STORE_CFG> {
+    // Bump rc directly on the data ptr — no vtable call, just a field write
+    // at the known offset 0. Returns a fresh handle pointing at the same
+    // {data, vtable} slot.
+    pub fn clone_arc(&self) -> NodeARC<STORE_CFG> {
+        unsafe {
+            let rcp: *mut u64 = node_arc_data_ptr::<STORE_CFG>(self) as *mut u64;
+            *rcp = *rcp + 1u64;
+            return NodeARC::<STORE_CFG> { p: self.p };
+        }
+    }
+}
+
+impl<const STORE_CFG: HermesStatic> Drop for NodeARC<STORE_CFG> {
+    fn drop(self: NodeARC<STORE_CFG>) {
+        unsafe {
+            let data_p: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&self);
+            let rcp: *mut u64 = data_p as *mut u64;
+            *rcp = *rcp - 1u64;
+            if *rcp == 0u64 {
+                // Run the concrete type's destructor chain via vtable —
+                // user impl Drop + recursive field destructors. Then
+                // dealloc the heap block.
+                self.p.__drop_in_place();
+                dealloc(data_p);
+            }
+        }
+    }
+}
