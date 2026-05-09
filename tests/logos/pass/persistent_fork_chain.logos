@@ -30,30 +30,26 @@ pub const StoreCfg: HermesStatic = @{
 };
 pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 8 };
 
-unsafe fn cp_of(snap: &mut Snap<StoreCfg>) -> *mut u64 {
-    let store_ref: &mut LockingStore<StoreCfg> = snap.arc.deref_mut();
-    return &mut store_ref.next_block_id as *mut u64;
-}
 
-unsafe fn fill_range(cr: &mut ContainerRef<StoreCfg, MapCfg>, lo: u64, hi: u64, mul: u64, snap_id: u64, cp: *mut u64) {
+fn fill_range(cr: &mut ContainerRef<StoreCfg, MapCfg>, lo: u64, hi: u64, mul: u64) {
     let mut i: u64 = lo;
     while i < hi {
-        cr.insert(i, i * mul, &i as *const u64, snap_id, cp);
+        cr.insert(i, i * mul);
         i = i + 1u64;
     }
 }
 
-unsafe fn check_value(cr: &ContainerRef<StoreCfg, MapCfg>, k: u64, want: u64) -> bool {
+fn check_value(cr: &ContainerRef<StoreCfg, MapCfg>, k: u64, want: u64) -> bool {
     let mut out: u64 = 0u64;
-    if !cr.get(&k as *const u64, &mut out as *mut u64) { return false; }
+    if !cr.get(k, &mut out as *mut u64) { return false; }
     return out == want;
 }
 
-unsafe fn extend(store: &mut Store<StoreCfg>, parent: i64, lo: u64, hi: u64, mul: u64) -> i64 {
+fn extend(store: &mut Store<StoreCfg>, parent: i64, lo: u64, hi: u64, mul: u64) -> i64 {
     let mut snap: Snap<StoreCfg> = if parent < 0i64 {
-        snap_begin::<StoreCfg>(store)
+        store.begin()
     } else {
-        snap_fork::<StoreCfg>(store, parent)
+        store.fork(parent)
     };
     {
         let mut cr: ContainerRef<StoreCfg, MapCfg> = if parent < 0i64 {
@@ -61,30 +57,27 @@ unsafe fn extend(store: &mut Store<StoreCfg>, parent: i64, lo: u64, hi: u64, mul
         } else {
             open_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64)
         };
-        let s_id: u64 = snap.snapshot_id;
-        let cp: *mut u64 = cp_of(&mut snap);
-        fill_range(&mut cr, lo, hi, mul, s_id, cp);
+        fill_range(&mut cr, lo, hi, mul);
     }
-    return snap.commit();
-}
+    return snap.commit();}
 
 fn main() -> i32 {
     let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
 
-    let c0: i64 = unsafe { extend(&mut store, -1i64, 0u64, 20u64, 2u64) };
+    let c0: i64 = extend(&mut store, -1i64, 0u64, 20u64, 2u64);
     if c0 < 0i64 { return 10; }
-    let c1: i64 = unsafe { extend(&mut store, c0, 20u64, 40u64, 3u64) };
+    let c1: i64 = extend(&mut store, c0, 20u64, 40u64, 3u64);
     if c1 < 0i64 { return 11; }
-    let c2: i64 = unsafe { extend(&mut store, c1, 40u64, 60u64, 5u64) };
+    let c2: i64 = extend(&mut store, c1, 40u64, 60u64, 5u64);
     if c2 < 0i64 { return 12; }
-    let c3: i64 = unsafe { extend(&mut store, c2, 60u64, 80u64, 7u64) };
+    let c3: i64 = extend(&mut store, c2, 60u64, 80u64, 7u64);
     if c3 < 0i64 { return 13; }
-    let c4: i64 = unsafe { extend(&mut store, c3, 80u64, 100u64, 11u64) };
+    let c4: i64 = extend(&mut store, c3, 80u64, 100u64, 11u64);
     if c4 < 0i64 { return 14; }
 
     // C4: full union of all 5 ranges with their respective multipliers.
     {
-        let mut snap: Snap<StoreCfg> = snap_fork::<StoreCfg>(&mut store, c4);
+        let mut snap: Snap<StoreCfg> = store.fork(c4);
         let cr: ContainerRef<StoreCfg, MapCfg> =
             open_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
         if cr.len() != 100u64 { return 20; }
@@ -96,7 +89,7 @@ fn main() -> i32 {
             let mul: u64 = multipliers[bucket as i64];
             let mut k: u64 = lo;
             while k < hi {
-                if !unsafe { check_value(&cr, k, k * mul) } { return 21; }
+                if !check_value(&cr, k, k * mul) { return 21; }
                 k = k + 1u64;
             }
             bucket = bucket + 1u64;
@@ -105,29 +98,29 @@ fn main() -> i32 {
 
     // C2: only [0..60), with C0/C1/C2 multipliers. Must NOT see C3/C4 keys.
     {
-        let mut snap: Snap<StoreCfg> = snap_fork::<StoreCfg>(&mut store, c2);
+        let mut snap: Snap<StoreCfg> = store.fork(c2);
         let cr: ContainerRef<StoreCfg, MapCfg> =
             open_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
         if cr.len() != 60u64 { return 30; }
         let probe_ahead: u64 = 75u64;
-        if cr.contains(&probe_ahead as *const u64) { return 31; }
+        if cr.contains(probe_ahead) { return 31; }
         let probe_far: u64 = 95u64;
-        if cr.contains(&probe_far as *const u64) { return 32; }
+        if cr.contains(probe_far) { return 32; }
         // Spot checks across the three accumulated ranges.
-        if !unsafe { check_value(&cr,  5u64,  5u64 * 2u64) } { return 33; }
-        if !unsafe { check_value(&cr, 25u64, 25u64 * 3u64) } { return 34; }
-        if !unsafe { check_value(&cr, 55u64, 55u64 * 5u64) } { return 35; }
+        if !check_value(&cr,  5u64,  5u64 * 2u64) { return 33; }
+        if !check_value(&cr, 25u64, 25u64 * 3u64) { return 34; }
+        if !check_value(&cr, 55u64, 55u64 * 5u64) { return 35; }
     }
 
     // C0: only [0..20). Forking from the very first commit must still work.
     {
-        let mut snap: Snap<StoreCfg> = snap_fork::<StoreCfg>(&mut store, c0);
+        let mut snap: Snap<StoreCfg> = store.fork(c0);
         let cr: ContainerRef<StoreCfg, MapCfg> =
             open_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
         if cr.len() != 20u64 { return 40; }
         let probe: u64 = 25u64;
-        if cr.contains(&probe as *const u64) { return 41; }
-        if !unsafe { check_value(&cr, 10u64, 10u64 * 2u64) } { return 42; }
+        if cr.contains(probe) { return 41; }
+        if !check_value(&cr, 10u64, 10u64 * 2u64) { return 42; }
     }
 
     return 0;

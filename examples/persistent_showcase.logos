@@ -58,22 +58,18 @@ pub const TagsCfg:   HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "
 // pulled out of the Snap. The current API exposes both as raw fields
 // the caller has to thread through. Folding this into ContainerRef
 // (so cr.insert(k, v) suffices) is a target of the API pass.
-unsafe fn ctx(snap: &mut Snap<StoreCfg>) -> *mut u64 {
-    let s: &mut LockingStore<StoreCfg> = snap.arc.deref_mut();
-    return &mut s.next_block_id as *mut u64;
-}
 
 fn section(label: &[u8]) {
     unsafe { printf("\n=== %s ===\n" as *const u8, label.as_ptr()); }
 }
 
-unsafe fn fill_range(cr: &mut ContainerRef<StoreCfg, ScoresCfg>, lo: u64, hi: u64, mul: u64, snap_id: u64, cp: *mut u64) {
+fn fill_range(cr: &mut ContainerRef<StoreCfg, ScoresCfg>, lo: u64, hi: u64, mul: u64) {
     let mut i: u64 = lo;
     while i < hi {
         // TODO: passing `&i as *const u64` for the `qkey` param at every
         // call site is busywork — sema can synthesise the addr-of
         // automatically when the surface clearly takes a key by reference.
-        cr.insert(i, i * mul, &i as *const u64, snap_id, cp);
+        cr.insert(i, i * mul);
         i = i + 1u64;
     }
 }
@@ -83,7 +79,7 @@ unsafe fn dump_entry(cr: &ContainerRef<StoreCfg, ScoresCfg>, key: u64) {
     // return is the obvious idiomatic surface; the *mut V dance only
     // exists because mlir-gen sret + generic V is fiddly.
     let mut out: u64 = 0u64;
-    let found: bool = cr.get(&key as *const u64, &mut out as *mut u64);
+    let found: bool = cr.get(key, &mut out as *mut u64);
     if found {
         printf("  scores[%lu] = %lu\n" as *const u8, key, out);
     } else {
@@ -98,9 +94,7 @@ fn main() -> i32 {
     section("commit C0: two containers");
     let mut c0: i64 = -1i64;
     {
-        let mut snap: Snap<StoreCfg> = snap_begin::<StoreCfg>(&mut store);
-        let s_id: u64 = snap.snapshot_id;
-        let cp: *mut u64 = unsafe { ctx(&mut snap) };
+        let mut snap: Snap<StoreCfg> = store.begin();
 
         {
             // TODO: turbofish order is `<MapCfg, StoreCfg>` — STORE_CFG
@@ -108,7 +102,7 @@ fn main() -> i32 {
             // STORE_CFG from snap's type so users only pass `<MapCfg>`.
             let mut scores: ContainerRef<StoreCfg, ScoresCfg> =
                 create_pmap::<ScoresCfg, StoreCfg>(&mut snap, 1u64);
-            unsafe { fill_range(&mut scores, 0u64, 30u64, 2u64, s_id, cp); }
+            fill_range(&mut scores, 0u64, 30u64, 2u64);
             unsafe { printf("  scores.len = %lu\n" as *const u8, scores.len()); }
         }
         {
@@ -120,7 +114,7 @@ fn main() -> i32 {
                 create_pmap::<ScoresCfg, StoreCfg>(&mut snap, 2u64);
             let mut k: u64 = 0u64;
             while k < 10u64 {
-                tags.insert(k, k + 100u64, &k as *const u64, s_id, cp);
+                tags.insert(k, k + 100u64);
                 k = k + 1u64;
             }
             unsafe { printf("  tags.len   = %lu\n" as *const u8, tags.len()); }
@@ -133,7 +127,7 @@ fn main() -> i32 {
     // ── 2. Read-only fork of C0 — verify both containers are visible ──
     section("read fork of C0");
     {
-        let mut snap: Snap<StoreCfg> = snap_fork::<StoreCfg>(&mut store, c0);
+        let mut snap: Snap<StoreCfg> = store.fork(c0);
         let scores: ContainerRef<StoreCfg, ScoresCfg> =
             open_pmap::<ScoresCfg, StoreCfg>(&mut snap, 1u64);
         unsafe { dump_entry(&scores, 0u64); }
@@ -152,24 +146,22 @@ fn main() -> i32 {
     section("mutating fork from C0");
     let mut c1: i64 = -1i64;
     {
-        let mut snap: Snap<StoreCfg> = snap_fork::<StoreCfg>(&mut store, c0);
-        let s_id: u64 = snap.snapshot_id;
-        let cp: *mut u64 = unsafe { ctx(&mut snap) };
+        let mut snap: Snap<StoreCfg> = store.fork(c0);
 
         let mut scores: ContainerRef<StoreCfg, ScoresCfg> =
             open_pmap::<ScoresCfg, StoreCfg>(&mut snap, 1u64);
-        unsafe { fill_range(&mut scores, 30u64, 60u64, 5u64, s_id, cp); }
+        fill_range(&mut scores, 30u64, 60u64, 5u64);
 
         // Replace existing key (replace-on-hit semantics).
         let k: u64 = 7u64;
-        scores.insert(k, 9999u64, &k as *const u64, s_id, cp);
+        scores.insert(k, 9999u64);
         unsafe { dump_entry(&scores, 7u64); }
 
         // Remove a slice of keys. Lazy underflow — leaves shrink without
         // rebalance. (Underflow tolerated by descent paths.)
         let mut rk: u64 = 10u64;
         while rk < 15u64 {
-            scores.remove(&rk as *const u64, s_id, cp);
+            scores.remove(rk);
             rk = rk + 1u64;
         }
         unsafe { printf("  fork scores.len = %lu\n" as *const u8, scores.len()); }
@@ -180,7 +172,7 @@ fn main() -> i32 {
     // ── 4. Re-fork C0 — must NOT see C1's writes ──
     section("re-fork C0 — isolation check");
     {
-        let mut snap: Snap<StoreCfg> = snap_fork::<StoreCfg>(&mut store, c0);
+        let mut snap: Snap<StoreCfg> = store.fork(c0);
         let scores: ContainerRef<StoreCfg, ScoresCfg> =
             open_pmap::<ScoresCfg, StoreCfg>(&mut snap, 1u64);
         unsafe {
@@ -192,28 +184,26 @@ fn main() -> i32 {
             // key 35 (only in C1) absent
             let probe: u64 = 35u64;
             printf("  C0 contains(35) = %d (expect 0)\n" as *const u8,
-                   scores.contains(&probe as *const u64) as i32);
+                   scores.contains(probe) as i32);
         }
     }
 
     // ── 5. DAG topology ──
     section("DAG topology");
     {
-        let s: &mut LockingStore<StoreCfg> = store.arc.deref_mut();
-        let sp: *mut LockingStore<StoreCfg> = s as *mut LockingStore<StoreCfg>;
         unsafe {
-            printf("  commit_count = %ld\n" as *const u8, sp.commit_count());
-            let rs: Vec<i64> = sp.roots();
+            printf("  commit_count = %ld\n" as *const u8, store.commit_count());
+            let rs: Vec<i64> = store.roots();
             printf("  roots.len = %ld" as *const u8, rs.length());
             if rs.length() > 0i64 { printf(" (first = %ld)" as *const u8, rs.get(0i64)); }
             printf("\n" as *const u8);
 
-            let parents_c1: Vec<i64> = sp.parents_of(c1);
+            let parents_c1: Vec<i64> = store.parents_of(c1);
             printf("  parents_of(C1).len = %ld" as *const u8, parents_c1.length());
             if parents_c1.length() > 0i64 { printf(" (first = %ld)" as *const u8, parents_c1.get(0i64)); }
             printf("\n" as *const u8);
 
-            let children_c0: Vec<i64> = sp.children_of(c0);
+            let children_c0: Vec<i64> = store.children_of(c0);
             printf("  children_of(C0).len = %ld\n" as *const u8, children_c0.length());
         }
     }

@@ -60,6 +60,37 @@ pub fn store_open<const STORE_CFG: HermesStatic>() -> Store<STORE_CFG> {
     return Store::<STORE_CFG> { arc: arc_new::<LockingStore<STORE_CFG>>(s) };
 }
 
+impl<const STORE_CFG: HermesStatic> Store<STORE_CFG> {
+    // Begin a fresh snapshot — empty directory, no parent commit.
+    pub fn begin(&mut self) -> Snap<STORE_CFG> {
+        return snap_begin::<STORE_CFG>(self);
+    }
+
+    // Fork a mutable snapshot off `parent_commit`. The fork sees that
+    // commit's directory tree (shared via rc) and CoWs on first write.
+    pub fn fork(&mut self, parent_commit: i64) -> Snap<STORE_CFG> {
+        return snap_fork::<STORE_CFG>(self, parent_commit);
+    }
+
+    // ── DAG introspection (delegates to LockingStore via *mut self) ──
+    pub fn commit_count(&mut self) -> i64 {
+        let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
+        return unsafe { (s as *mut LockingStore<STORE_CFG>).commit_count() };
+    }
+    pub fn parents_of(&mut self, id: i64) -> Vec<i64> {
+        let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
+        return unsafe { (s as *mut LockingStore<STORE_CFG>).parents_of(id) };
+    }
+    pub fn children_of(&mut self, id: i64) -> Vec<i64> {
+        let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
+        return unsafe { (s as *mut LockingStore<STORE_CFG>).children_of(id) };
+    }
+    pub fn roots(&mut self) -> Vec<i64> {
+        let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
+        return unsafe { (s as *mut LockingStore<STORE_CFG>).roots() };
+    }
+}
+
 // ── Snap<STORE_CFG> ──────────────────────────────────────────────────
 pub struct Snap<const STORE_CFG: HermesStatic> {
     pub dir: NodeARC<STORE_CFG>,    // directory tree root
@@ -140,6 +171,11 @@ pub struct ContainerRef<const STORE_CFG: HermesStatic, const CFG: HermesStatic> 
     // syncs the slot's NodeARC after every mutation. null when the dir
     // lookup didn't find ctr_id (open_pmap returned an empty handle).
     pub dir_slot: *mut NodeARC<STORE_CFG>,
+    // Snap-side context cached at create/open time so cr.insert /
+    // cr.remove don't have to re-thread these from the call site.
+    // Both stay valid for the lifetime of the originating Snap.
+    pub snap_id:    u64,
+    pub id_ctr_p:   *mut u64,
 }
 
 // create_pmap — alloc a fresh empty leaf for the container, register
@@ -184,6 +220,8 @@ pub fn create_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
         arc:      arc_for_ref,
         ctr_id:   ctr_id,
         dir_slot: slot_p,
+        snap_id:  snap.snapshot_id,
+        id_ctr_p: id_ctr_p,
     };
 }
 
@@ -223,6 +261,8 @@ pub fn open_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
                     arc:      cloned,
                     ctr_id:   ctr_id,
                     dir_slot: slot_p,
+                    snap_id:  snap.snapshot_id,
+                    id_ctr_p: id_ctr_p,
                 };
             }
             i = i + 1u64;
@@ -231,6 +271,8 @@ pub fn open_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
             arc:      NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
             ctr_id:   ctr_id,
             dir_slot: 0 as *mut NodeARC<STORE_CFG>,
+            snap_id:  snap.snapshot_id,
+            id_ctr_p: id_ctr_p,
         };
     }
 }
@@ -244,29 +286,33 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
         return pmap_size_rec::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc);
     }
 
-    pub fn contains(&self, qkey: *const <type:CFG.key>) -> bool {
-        return pmap_contains_rec::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc, qkey);
+    pub fn contains(&self, key: <type:CFG.key>::ViewInStore) -> bool {
+        return pmap_contains_rec::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
+            &self.arc, &key as *const <type:CFG.key>);
     }
 
-    pub fn get(&self, qkey: *const <type:CFG.key>, out: *mut <type:CFG.value>::ViewInStore) -> bool {
+    pub fn get(&self, key: <type:CFG.key>::ViewInStore, out: *mut <type:CFG.value>::ViewInStore) -> bool {
         unsafe {
-            return pmap_get_rec::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc, qkey, out);
+            return pmap_get_rec::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
+                &self.arc, &key as *const <type:CFG.key>, out);
         }
     }
 
-    pub fn insert(&mut self, key: <type:CFG.key>::ViewInStore, val: <type:CFG.value>::ViewInStore, qkey: *const <type:CFG.key>, cur_snap_id: u64, id_ctr_p: *mut u64) -> bool {
+    pub fn insert(&mut self, key: <type:CFG.key>::ViewInStore, val: <type:CFG.value>::ViewInStore) -> bool {
         let r: bool = unsafe {
             pmap_insert::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
-                &mut self.arc, key, val, qkey, cur_snap_id, id_ctr_p)
+                &mut self.arc, key, val, &key as *const <type:CFG.key>,
+                self.snap_id, self.id_ctr_p)
         };
         self.writeback();
         return r;
     }
 
-    pub fn remove(&mut self, qkey: *const <type:CFG.key>, cur_snap_id: u64, id_ctr_p: *mut u64) -> bool {
+    pub fn remove(&mut self, key: <type:CFG.key>::ViewInStore) -> bool {
         let r: bool = unsafe {
             pmap_remove::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
-                &mut self.arc, qkey, cur_snap_id, id_ctr_p)
+                &mut self.arc, &key as *const <type:CFG.key>,
+                self.snap_id, self.id_ctr_p)
         };
         self.writeback();
         return r;

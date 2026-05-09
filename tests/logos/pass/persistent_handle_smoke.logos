@@ -33,7 +33,7 @@ pub const MapCfg: HermesStatic = @{
 
 fn main() -> i32 {
     let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
-    let mut snap:  Snap<StoreCfg>  = snap_begin::<StoreCfg>(&mut store);
+    let mut snap:  Snap<StoreCfg>  = store.begin();
 
     {
         let mut cr: ContainerRef<StoreCfg, MapCfg> =
@@ -42,13 +42,10 @@ fn main() -> i32 {
         if cr.len() != 0u64 { return 1; }
 
         // Push enough entries to force multi-level splits (fanout=8).
-        let s_id: u64 = snap.snapshot_id;
-        let store_ref: &mut LockingStore<StoreCfg> = snap.arc.deref_mut();
-        let cp: *mut u64 = &mut store_ref.next_block_id as *mut u64;
         let mut i: u64 = 0u64;
         while (i < 1000u64) {
             let k: u64 = i;
-            cr.insert(k, k * 7u64, &k as *const u64, s_id, cp);
+            cr.insert(k, k * 7u64);
             i = i + 1u64;
         }
         if cr.len() != 1000u64 { return 2; }
@@ -56,18 +53,18 @@ fn main() -> i32 {
         // Verify all keys are reachable through descent.
         let mut probe: u64 = 0u64;
         while (probe < 1000u64) {
-            if !cr.contains(&probe as *const u64) { return 10 + probe as i32; }
+            if !cr.contains(probe) { return 10 + probe as i32; }
             let mut out: u64 = 0u64;
-            if !cr.get(&probe as *const u64, &mut out as *mut u64) { return 50 + probe as i32; }
+            if !cr.get(probe, &mut out as *mut u64) { return 50 + probe as i32; }
             if out != probe * 7u64 { return 100 + probe as i32; }
             probe = probe + 1u64;
         }
 
         // 8 fits in fanout=8, no split. Just verify reads.
         let r1: u64 = 5u64;
-        if !cr.remove(&r1 as *const u64, s_id, cp) { return 4; }
+        if !cr.remove(r1) { return 4; }
         if cr.len() != 999u64 { return 6; }
-        if cr.contains(&r1 as *const u64) { return 7; }
+        if cr.contains(r1) { return 7; }
     }
 
     let id: i64 = snap.commit();

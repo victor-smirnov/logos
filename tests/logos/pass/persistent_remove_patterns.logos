@@ -23,24 +23,18 @@ pub const StoreCfg: HermesStatic = @{
 };
 pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 8 };
 
-unsafe fn cp_of(snap: &mut Snap<StoreCfg>) -> *mut u64 {
-    let store_ref: &mut LockingStore<StoreCfg> = snap.arc.deref_mut();
-    return &mut store_ref.next_block_id as *mut u64;
-}
 
 fn main() -> i32 {
     let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
-    let mut snap: Snap<StoreCfg> = snap_begin::<StoreCfg>(&mut store);
+    let mut snap: Snap<StoreCfg> = store.begin();
 
     // ── Stage 1: remove from empty container ──
     {
         let mut cr: ContainerRef<StoreCfg, MapCfg> =
             create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
-        let s_id: u64 = snap.snapshot_id;
-        let cp: *mut u64 = unsafe { cp_of(&mut snap) };
 
         let k: u64 = 42u64;
-        if cr.remove(&k as *const u64, s_id, cp) { return 10; }
+        if cr.remove(k) { return 10; }
         if cr.len() != 0u64 { return 11; }
     }
 
@@ -48,53 +42,49 @@ fn main() -> i32 {
     {
         let mut cr: ContainerRef<StoreCfg, MapCfg> =
             create_pmap::<MapCfg, StoreCfg>(&mut snap, 2u64);
-        let s_id: u64 = snap.snapshot_id;
-        let cp: *mut u64 = unsafe { cp_of(&mut snap) };
 
         let mut i: u64 = 0u64;
         while i < 30u64 {
-            cr.insert(i, i * 5u64, &i as *const u64, s_id, cp);
+            cr.insert(i, i * 5u64);
             i = i + 1u64;
         }
         if cr.len() != 30u64 { return 20; }
 
         // Remove non-existent key → false, len unchanged.
         let absent: u64 = 9999u64;
-        if cr.remove(&absent as *const u64, s_id, cp) { return 21; }
+        if cr.remove(absent) { return 21; }
         if cr.len() != 30u64 { return 22; }
 
         // Remove all 30 in order.
         i = 0u64;
         while i < 30u64 {
-            if !cr.remove(&i as *const u64, s_id, cp) { return 23; }
-            if cr.contains(&i as *const u64) { return 24; }
+            if !cr.remove(i) { return 23; }
+            if cr.contains(i) { return 24; }
             // remaining entries still there
             let after: u64 = i + 1u64;
-            if after < 30u64 && !cr.contains(&after as *const u64) { return 25; }
+            if after < 30u64 && !cr.contains(after) { return 25; }
             i = i + 1u64;
         }
         if cr.len() != 0u64 { return 26; }
         // Second remove of an already-removed key returns false.
         let r: u64 = 5u64;
-        if cr.remove(&r as *const u64, s_id, cp) { return 27; }
+        if cr.remove(r) { return 27; }
     }
 
     // ── Stage 3: interleaved insert + remove ──
     {
         let mut cr: ContainerRef<StoreCfg, MapCfg> =
             create_pmap::<MapCfg, StoreCfg>(&mut snap, 3u64);
-        let s_id: u64 = snap.snapshot_id;
-        let cp: *mut u64 = unsafe { cp_of(&mut snap) };
 
         // Insert 0..20, remove evens, verify odds remain, re-insert evens.
         let mut i: u64 = 0u64;
         while i < 20u64 {
-            cr.insert(i, i * 3u64, &i as *const u64, s_id, cp);
+            cr.insert(i, i * 3u64);
             i = i + 1u64;
         }
         i = 0u64;
         while i < 20u64 {
-            if !cr.remove(&i as *const u64, s_id, cp) { return 30; }
+            if !cr.remove(i) { return 30; }
             i = i + 2u64;
         }
         if cr.len() != 10u64 { return 31; }
@@ -102,14 +92,14 @@ fn main() -> i32 {
         let mut j: u64 = 0u64;
         while j < 20u64 {
             let want: bool = j % 2u64 == 1u64;
-            let got:  bool = cr.contains(&j as *const u64);
+            let got:  bool = cr.contains(j);
             if want != got { return 32; }
             j = j + 1u64;
         }
         // Re-insert evens, all 20 back.
         i = 0u64;
         while i < 20u64 {
-            cr.insert(i, i * 100u64, &i as *const u64, s_id, cp);
+            cr.insert(i, i * 100u64);
             i = i + 2u64;
         }
         if cr.len() != 20u64 { return 33; }
@@ -117,7 +107,7 @@ fn main() -> i32 {
         j = 0u64;
         while j < 20u64 {
             let mut out: u64 = 0u64;
-            if !cr.get(&j as *const u64, &mut out as *mut u64) { return 34; }
+            if !cr.get(j, &mut out as *mut u64) { return 34; }
             let want: u64 = if j % 2u64 == 0u64 { j * 100u64 } else { j * 3u64 };
             if out != want { return 35; }
             j = j + 1u64;
