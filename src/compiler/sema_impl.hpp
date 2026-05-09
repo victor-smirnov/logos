@@ -1077,6 +1077,16 @@ private:
     bool is_move_type(TypeRef t) const;
     void mark_moved(const std::string& name) { moved_vars_.insert(name); }
 
+    // Writing a move-type RHS into a memory cell (deref, indexed, field, …)
+    // is a move. Mark the source so its scope-exit auto-drop is suppressed
+    // — the byte pattern now lives in the destination, and the destination
+    // owns the Drop responsibility.
+    void track_write_move(const lir::LExprPtr& val) {
+        if (!val) return;
+        if (!is_move_type(val->type)) return;
+        mark_moved_expr(expr_ref_of(*val));
+    }
+
     // Mark a moved expression — handles VarRef + nested FieldRead chains.
     // For `outer.field` (move-type) inserts "outer.field" into moved_vars_;
     // for `outer.a.b` inserts "outer.a.b". make_drop_stmt extracts the

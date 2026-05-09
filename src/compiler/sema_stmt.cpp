@@ -291,6 +291,7 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
         // *const T is read-only; only *mut T or &mut T can be written through
         if (TypeRef(pt).kind() == LogosType::Kind::Ptr && !TypeRef(pt).mut_ptr())
             error("deref-write: cannot write through *const pointer (use *mut)");
+        track_write_move(val);
         return builder().stmt_deref_write(std::move(ptr), std::move(val), node_line_);
     }
     if (c == la::UNSAFE_BLOCK) {
@@ -1059,7 +1060,6 @@ lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
     }
     // Re-assignment revives the variable (the old value was already consumed).
     moved_vars_.erase(std::string(name));
-
     return builder().stmt_assign(std::string(name), std::move(rhs), node_line_);
 }
 
@@ -2883,6 +2883,7 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
                     let_s.is_mut = false;
                     let_s.value  = builder().method_call(std::move(recv_expr), "mut_ptr", "", {}, {}, -1, mut_ptr_T);
                     // Synthesize: (*__dr_tmp).field = val
+                    track_write_move(val);
                     lir::SDerefFieldWrite dfw;
                     dfw.receiver  = tmp;
                     dfw.type_name = concrete_struct_name(T);
@@ -3024,6 +3025,7 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
             });
         }
     }
+    track_write_move(val);
     lir::SFieldWrite sfw;
     sfw.receiver = std::string(recv_name);
     sfw.field    = std::string(field_name);
@@ -3119,6 +3121,7 @@ lir::LStmt SemaChecker::lower_chain_field_write(TinyMapView node) {
               path_str, type_str(ft), type_str(val->type)));
     }
 
+    track_write_move(val);
     lir::SChainFieldWrite scfw;
     scfw.receiver  = std::string(recv_name);
     scfw.mid_field = mid_name;
@@ -3322,6 +3325,7 @@ lir::LStmt SemaChecker::lower_tuple_field_write(TinyMapView node) {
             if (!intlit_fits(*v, TypeRef(ft).kind()))
                 error(std::format("tuple field write '{}.{}': value {} does not fit in {}",
                       recv_name, idx, *v, type_str(ft)));
+    track_write_move(val);
     return make_stmt_emit(node_line_, lir::STupleWrite{std::string(recv_name), (uint32_t)idx, std::move(val), recv_t});
 }
 
@@ -3455,6 +3459,7 @@ lir::LStmt SemaChecker::lower_deref_field_write(TinyMapView node) {
         }
     }
 
+    track_write_move(val);
     lir::SDerefFieldWrite sdfw;
     sdfw.receiver  = std::string(recv_name);
     sdfw.type_name = type_name;
@@ -3575,6 +3580,7 @@ lir::LStmt SemaChecker::lower_index_write(TinyMapView node) {
         }
     }
 
+    track_write_move(val);
     lir::SIndexWrite siw;
     siw.arr   = std::string(arr_name);
     siw.index = std::move(idx);
@@ -3786,6 +3792,7 @@ lir::LStmt SemaChecker::lower_field_index_write(TinyMapView node) {
         }
     }
 
+    track_write_move(val);
     lir::SFieldIndexWrite sfiw;
     sfiw.receiver = std::string(recv_name);
     sfiw.field    = std::string(field_name);

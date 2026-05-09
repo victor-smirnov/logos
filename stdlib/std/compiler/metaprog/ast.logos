@@ -186,6 +186,10 @@ pub struct Ident {
     pub len: u64,
 }
 
+// Ident is a non-owning view (ptr borrows from the arena holding the
+// source string). No Drop, no ownership — Copy semantics match intent.
+impl Copy for Ident {}
+
 // Hygiene: `gensym(prefix)` returns a fresh `Ident` whose bytes are
 // `<prefix>__hyg_<N>` (counter is global to the compilation). The host
 // owns the byte storage; it lives until the compiler exits, which is
