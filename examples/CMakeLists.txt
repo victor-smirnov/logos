@@ -31,13 +31,12 @@ function(logos_add_example NAME)
     # because its bodies reference host-only externs); they get -I source.
     # Native runtime archives (fiber switch, liburing wrappers) sit
     # alongside liblstdlib.a and feed the link line.
-    set(_compile_deps logosc ${SRC} ${HERMES_STDLIB} stdlib_binary stdlib_uring logos_rt logos_fibers logos_block_ops)
+    set(_compile_deps logosc ${SRC} ${HERMES_STDLIB} stdlib_binary stdlib_uring logos_rt logos_fibers)
     set(_compile_extra)
     set(_link_archives
         ${LOGOS_BUILD_LIB_DIR}/liblstdlib_fibers.a
         ${LOGOS_BUILD_LIB_DIR}/liblstdlib_rt.a
-        ${LOGOS_BUILD_LIB_DIR}/liblstdlib_uring.a
-        ${LOGOS_BUILD_LIB_DIR}/liblstdlib_z_block_ops.a)
+        ${LOGOS_BUILD_LIB_DIR}/liblstdlib_uring.a)
 
     add_custom_command(
         OUTPUT ${OBJ}
@@ -59,4 +58,3 @@ endfunction()
 logos_add_example(hermes_round_trip)
 logos_add_example(hermes_showcase)
 logos_add_example(logos_showcase METAPROG)
-logos_add_example(pmap_showcase METAPROG)
