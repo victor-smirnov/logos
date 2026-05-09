@@ -39,6 +39,8 @@ use std.hermes.anyval;
 use std.data.persistent.v3.node;
 use std.data.persistent.v3.cow;
 use std.data.persistent.v3.store;
+use std.data.persistent.v3.descent;
+use std.data.persistent.v3.mutate;
 
 // DirCfgV3 — fixed v1 directory layout. Key = ctr_id (u64), val =
 // NodeARC<STORE_CFG> (heterogeneous container roots). When parametric
@@ -146,24 +148,36 @@ pub fn create_pmap_v3<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
     };
 }
 
-// ContainerRefV3 methods — v1 single-leaf (no descent, no splits).
+// ContainerRefV3 methods — full multi-level B+tree on top of NodeARC.
+// Carries the ambient snapshot_id + id allocator so insert/remove can
+// route through the v3.mutate's CoW-aware descent without round-trip
+// through the Store.
 impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRefV3<STORE_CFG, CFG> {
     pub fn len(&self) -> u64 {
+        return pmap_size_rec::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc);
+    }
+
+    pub fn contains(&self, qkey: *const <type:CFG.key>) -> bool {
+        return pmap_contains_rec::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc, qkey);
+    }
+
+    pub fn get(&self, qkey: *const <type:CFG.key>, out: *mut <type:CFG.value>::ViewInStore) -> bool {
         unsafe {
-            let leaf: *mut LeafNode<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> =
-                node_arc_data_ptr::<STORE_CFG>(&self.arc)
-                    as *mut LeafNode<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>;
-            return leaf.keys.len();
+            return pmap_get_rec::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc, qkey, out);
         }
     }
 
-    pub fn insert(&mut self, key: <type:CFG.key>::ViewInStore, val: <type:CFG.value>::ViewInStore) {
+    pub fn insert(&mut self, key: <type:CFG.key>::ViewInStore, val: <type:CFG.value>::ViewInStore, qkey: *const <type:CFG.key>, cur_snap_id: u64, id_ctr_p: *mut u64) -> bool {
         unsafe {
-            let leaf: *mut LeafNode<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> =
-                node_arc_data_ptr::<STORE_CFG>(&self.arc)
-                    as *mut LeafNode<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>;
-            leaf.keys.push(key);
-            leaf.vals.push(val);
+            return pmap_insert::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
+                &mut self.arc, key, val, qkey, cur_snap_id, id_ctr_p);
+        }
+    }
+
+    pub fn remove(&mut self, qkey: *const <type:CFG.key>, cur_snap_id: u64, id_ctr_p: *mut u64) -> bool {
+        unsafe {
+            return pmap_remove::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
+                &mut self.arc, qkey, cur_snap_id, id_ctr_p);
         }
     }
 }

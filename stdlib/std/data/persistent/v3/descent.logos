@@ -1,0 +1,178 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// std.data.persistent.v3.descent — read-side BTree walkers on NodeARC.
+//
+// Walkers follow the legacy bt.descent.* shape but operate on
+// NodeARC<STORE_CFG> handles instead of raw `*mut NodeBase`. Cast to
+// typed `*mut LeafNode<...>` / `*mut BranchNode<...>` via header.is_leaf.
+// Branch descent reads child NodeARCs from `Vec<NodeARC>` slots and
+// recurses; no CoW, no rc bumps (read-only access through borrow).
+
+package std.data.persistent.v3.descent;
+
+use std.collections.vec;
+use std.lang.cmp;
+use std.lang.ord;
+use std.lang.datatypes;
+use std.hermes.view;
+use std.hermes.anyval;
+
+use std.data.persistent.v3.node;
+use std.data.persistent.v3.cow;
+
+// ── CFG fanout readers ────────────────────────────────────────────────
+unsafe fn cfg_int_or_v3<const CFG: HermesStatic>(key: str, dflt: u64) -> u64 {
+    let v = CFG.as_view();
+    let av: AnyVal = v.map_get(v.root(), key);
+    if av.is_null() { return dflt; }
+    if !av.is_int() { return dflt; }
+    return av.as_i64() as u64;
+}
+
+pub unsafe fn max_keys_branch<const CFG: HermesStatic>() -> u64 {
+    let fb: u64 = cfg_int_or_v3::<CFG>("fanout_branch", 0u64);
+    if fb > 0u64 { return fb; }
+    let f: u64 = cfg_int_or_v3::<CFG>("fanout", 0u64);
+    if f > 0u64 { return f; }
+    return 4u64;
+}
+
+pub unsafe fn max_keys_leaf<const CFG: HermesStatic>() -> u64 {
+    let fl: u64 = cfg_int_or_v3::<CFG>("fanout_leaf", 0u64);
+    if fl > 0u64 { return fl; }
+    let f: u64 = cfg_int_or_v3::<CFG>("fanout", 0u64);
+    if f > 0u64 { return f; }
+    return 4u64;
+}
+
+// ── Header reads via NodeARC ──────────────────────────────────────────
+pub unsafe fn arc_is_leaf<const STORE_CFG: HermesStatic>(arc: &NodeARC<STORE_CFG>) -> bool {
+    let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(arc);
+    let isleaf_p: *mut bool = (dp as i64 + 24i64) as *mut bool;
+    return *isleaf_p;
+}
+
+pub unsafe fn as_leaf<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+    arc: &NodeARC<STORE_CFG>
+) -> *mut LeafNode<K, V, STORE_CFG, CFG> {
+    return node_arc_data_ptr::<STORE_CFG>(arc) as *mut LeafNode<K, V, STORE_CFG, CFG>;
+}
+
+pub unsafe fn as_branch<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+    arc: &NodeARC<STORE_CFG>
+) -> *mut BranchNode<K, STORE_CFG, CFG> {
+    return node_arc_data_ptr::<STORE_CFG>(arc) as *mut BranchNode<K, STORE_CFG, CFG>;
+}
+
+// ── In-leaf find / lower_bound ────────────────────────────────────────
+pub fn leaf_find<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+    leaf: *mut LeafNode<K, V, STORE_CFG, CFG>, key: *const K
+) -> i64 {
+    unsafe {
+        let n: u64 = leaf.keys.len();
+        let mut i: u64 = 0u64;
+        let phantom: *const K = 0 as *const K;
+        while i < n {
+            let kv: K::ViewInStore = leaf.keys.get(i);
+            match phantom.cmp_view_key(kv, key) {
+                Ordering::Equal => { return i as i64; }
+                _ => { }
+            }
+            i = i + 1u64;
+        }
+        return -1i64;
+    }
+}
+
+pub fn leaf_lower_bound<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+    leaf: *mut LeafNode<K, V, STORE_CFG, CFG>, key: *const K
+) -> u64 {
+    unsafe {
+        let n: u64 = leaf.keys.len();
+        let mut i: u64 = 0u64;
+        let phantom: *const K = 0 as *const K;
+        while i < n {
+            let kv: K::ViewInStore = leaf.keys.get(i);
+            match phantom.cmp_view_key(kv, key) {
+                Ordering::Less => { i = i + 1u64; }
+                _ => { return i; }
+            }
+        }
+        return n;
+    }
+}
+
+// ── Branch descent index ──────────────────────────────────────────────
+pub fn branch_descend_idx<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+    branch: *mut BranchNode<K, STORE_CFG, CFG>, key: *const K
+) -> u64 {
+    unsafe {
+        let n: u64 = branch.keys.len();
+        let mut i: u64 = 0u64;
+        let phantom: *const K = 0 as *const K;
+        while i < n {
+            let kv: K::ViewInStore = branch.keys.get(i);
+            match phantom.cmp_view_key(kv, key) {
+                Ordering::Greater => { return i; }
+                _ => { }
+            }
+            i = i + 1u64;
+        }
+        return n;
+    }
+}
+
+// ── Recursive walks via NodeARC ───────────────────────────────────────
+pub fn pmap_contains_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+    arc: &NodeARC<STORE_CFG>, key: *const K
+) -> bool {
+    unsafe {
+        if arc_is_leaf::<STORE_CFG>(arc) {
+            let leaf = as_leaf::<K, V, STORE_CFG, CFG>(arc);
+            return leaf_find::<K, V, STORE_CFG, CFG>(leaf, key) >= 0i64;
+        }
+        let br = as_branch::<K, STORE_CFG, CFG>(arc);
+        let i: u64 = branch_descend_idx::<K, STORE_CFG, CFG>(br, key);
+        let child: &NodeARC<STORE_CFG> = br.children.borrow(i as i64);
+        return pmap_contains_rec::<K, V, STORE_CFG, CFG>(child, key);
+    }
+}
+
+pub fn pmap_get_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+    arc: &NodeARC<STORE_CFG>, key: *const K, out: *mut V::ViewInStore
+) -> bool {
+    unsafe {
+        if arc_is_leaf::<STORE_CFG>(arc) {
+            let leaf = as_leaf::<K, V, STORE_CFG, CFG>(arc);
+            let idx: i64 = leaf_find::<K, V, STORE_CFG, CFG>(leaf, key);
+            if idx < 0i64 { return false; }
+            *out = leaf.vals.get(idx as u64);
+            return true;
+        }
+        let br = as_branch::<K, STORE_CFG, CFG>(arc);
+        let i: u64 = branch_descend_idx::<K, STORE_CFG, CFG>(br, key);
+        let child: &NodeARC<STORE_CFG> = br.children.borrow(i as i64);
+        return pmap_get_rec::<K, V, STORE_CFG, CFG>(child, key, out);
+    }
+}
+
+pub fn pmap_size_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+    arc: &NodeARC<STORE_CFG>
+) -> u64 {
+    unsafe {
+        if arc_is_leaf::<STORE_CFG>(arc) {
+            let leaf = as_leaf::<K, V, STORE_CFG, CFG>(arc);
+            return leaf.keys.len();
+        }
+        let br = as_branch::<K, STORE_CFG, CFG>(arc);
+        let nc: i64 = br.children.length();
+        let mut total: u64 = 0u64;
+        let mut i: i64 = 0i64;
+        while i < nc {
+            let child: &NodeARC<STORE_CFG> = br.children.borrow(i);
+            total = total + pmap_size_rec::<K, V, STORE_CFG, CFG>(child);
+            i = i + 1i64;
+        }
+        return total;
+    }
+}

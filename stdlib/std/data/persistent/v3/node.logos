@@ -91,6 +91,33 @@ pub trait BTreeNode<const STORE_CFG: HermesStatic> {
     }
 }
 
+// Replace the NodeARC at `slot` with `new_arc`, preserving rc invariants.
+// Logos lacks mem::forget, so the local `new_arc`'s auto-drop at fn exit
+// would otherwise double-decrement; we rc-bump the new block first so
+// the slot's transferred share survives. The old slot's rc is manually
+// decremented + recursively released if last.
+pub unsafe fn arc_replace_in_slot<const STORE_CFG: HermesStatic>(
+    slot:    *mut NodeARC<STORE_CFG>,
+    new_arc: NodeARC<STORE_CFG>,
+) {
+    // Bump new block's rc — slot adopts one share, new_arc keeps another
+    // (the latter consumed by its scope-exit drop).
+    let new_data_p: *mut u8 = (*(new_arc.p as *mut u64)) as *mut u8;
+    let new_rcp:    *mut u64 = new_data_p as *mut u64;
+    *new_rcp = *new_rcp + 1u64;
+    // Save old fat-handle, write new.
+    let old_handle: *mut dyn BTreeNode<STORE_CFG> = (*slot).p;
+    (*slot).p = new_arc.p;
+    // Release old.
+    let old_data_p: *mut u8 = (*(old_handle as *mut u64)) as *mut u8;
+    let old_rcp:    *mut u64 = old_data_p as *mut u64;
+    *old_rcp = *old_rcp - 1u64;
+    if *old_rcp == 0u64 {
+        old_handle.__drop_in_place();
+        dealloc(old_data_p);
+    }
+}
+
 // Make-unique helper: ensure the NodeARC handle uniquely owns its block
 // in the current snapshot. If the underlying node was created/cloned in
 // a different snapshot, CoW-clone it via vtable dispatch and return a
@@ -115,31 +142,8 @@ pub unsafe fn make_unique<const STORE_CFG: HermesStatic>(
     if *snap_p == cur_snapshot_id { return; }
     *id_ctr_p = *id_ctr_p + 1u64;
     let new_id: u64 = *id_ctr_p;
-
-    // Step 1: build the fresh clone (rc=1 on a brand-new block).
     let cloned: NodeARC<STORE_CFG> = arc.p.cow_clone(new_id, cur_snapshot_id);
-
-    // Step 2: manually release the old block (we own one rc; this returns
-    // it). Bypasses NodeARC.drop on `arc` because we're about to swap
-    // arc.p underneath it.
-    let rcp: *mut u64 = data_p as *mut u64;
-    *rcp = *rcp - 1u64;
-    if *rcp == 0u64 {
-        arc.p.__drop_in_place();
-        dealloc(data_p);
-    }
-
-    // Step 3: bump the cloned block's rc so the local `cloned`'s auto-drop
-    // at fn exit (which we can't suppress — Logos has no mem::forget yet)
-    // takes that ref back without freeing. Net: arc inherits rc=1 on the
-    // cloned block.
-    let cloned_data_p: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&cloned);
-    let cloned_rcp: *mut u64 = cloned_data_p as *mut u64;
-    *cloned_rcp = *cloned_rcp + 1u64;
-
-    arc.p = cloned.p;
-    // `cloned` drops here at fn-end: rc 2 → 1 on the new block. arc now
-    // owns the surviving rc.
+    arc_replace_in_slot::<STORE_CFG>(arc as *mut NodeARC<STORE_CFG>, cloned);
 }
 
 // ── NodeARC — shared owning fat-ptr handle ────────────────────────────
@@ -182,13 +186,17 @@ impl<const STORE_CFG: HermesStatic> NodeARC<STORE_CFG> {
 impl<const STORE_CFG: HermesStatic> Drop for NodeARC<STORE_CFG> {
     fn drop(self: NodeARC<STORE_CFG>) {
         unsafe {
-            let data_p: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&self);
+            // Null-handle escape: NodeARC may be constructed with a null
+            // fat-pointer as a "no value" sentinel (e.g. unused `right`
+            // field in an InsertOutcome where split=false). Skip drop —
+            // there's no block to release.
+            let slot_p: *mut u64 = self.p as *mut u64;
+            if slot_p == 0 as *mut u64 { return; }
+            let data_p: *mut u8 = (*slot_p) as *mut u8;
+            if data_p == 0 as *mut u8 { return; }
             let rcp: *mut u64 = data_p as *mut u64;
             *rcp = *rcp - 1u64;
             if *rcp == 0u64 {
-                // Run the concrete type's destructor chain via vtable —
-                // user impl Drop + recursive field destructors. Then
-                // dealloc the heap block.
                 self.p.__drop_in_place();
                 dealloc(data_p);
             }

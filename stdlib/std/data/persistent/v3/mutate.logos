@@ -1,0 +1,302 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// std.data.persistent.v3.mutate — write-side BTree on NodeARC.
+//
+// Insert / remove descend through the tree, CoW-clone any node that
+// wasn't created in the current snapshot (snapshot_id mismatch),
+// split overflow leaves / branches, and grow the root when needed.
+// All operations work on `&mut NodeARC<STORE_CFG>` handles; child
+// refs live in `Vec<NodeARC>` slots and are mutated via
+// arc_replace_in_slot to keep rc accounting honest.
+//
+// Algorithms mirror the legacy bt.mutate.* path. Differences:
+//   • Receiver is NodeARC, not raw `*mut NodeBase`.
+//   • CoW skip uses `header.snapshot_id != cur` instead of `rc > 1`.
+//   • Children retained on clone via `Vec.clone_arc` per element
+//     (in cow_clone trait impl); no manual node_retain_c.
+//   • Auto-Drop chains the release path — no explicit walker needed.
+
+package std.data.persistent.v3.mutate;
+
+use std.collections.vec;
+use std.mem;
+use std.lang.cmp;
+use std.lang.ord;
+use std.lang.datatypes;
+use std.hermes.view;
+use std.hermes.anyval;
+
+use std.data.persistent.v3.node;
+use std.data.persistent.v3.cow;
+use std.data.persistent.v3.descent;
+use std.lang.panic;
+
+// ── Vec<NodeARC> insert helper ────────────────────────────────────────
+// Vec lacks `insert_at`. We push a NodeARC carrying the same fat-handle
+// at the end (transfers rc into the slot), then bubble it up to
+// position via fat-handle swaps. Caller's `new_arc` value is neutralised
+// (handle zeroed) before fn-end so its auto-drop is a no-op — this is
+// required because Logos doesn't track move-of-struct-field through
+// function calls (passing `outer.field` as a by-value arg leaves the
+// field "live" in the caller's auto-Drop scan, so without neutralising
+// it we'd double-free the block whose rc just got transferred to the
+// Vec slot).
+pub unsafe fn vec_arc_insert_at<const STORE_CFG: HermesStatic>(
+    v: *mut Vec<NodeARC<STORE_CFG>>, idx: i64, new_arc: NodeARC<STORE_CFG>
+) {
+    // Bump rc on the underlying block: the slot adopts one share, our
+    // local `new_arc`'s auto-drop at fn-end will undo the bump.
+    let handle: *mut dyn BTreeNode<STORE_CFG> = new_arc.p;
+    let dp: *mut u8 = (*(handle as *mut u64)) as *mut u8;
+    *(dp as *mut u64) = *(dp as *mut u64) + 1u64;
+    // Push a fresh handle wrapper (consumed by push, no auto-drop here).
+    v.push(NodeARC::<STORE_CFG> { p: handle });
+    let mut i: i64 = v.length() - 1i64;
+    while i > idx {
+        let a: *mut NodeARC<STORE_CFG> = v.at(i);
+        let b: *mut NodeARC<STORE_CFG> = v.at(i - 1i64);
+        let tmp: *mut dyn BTreeNode<STORE_CFG> = (*a).p;
+        (*a).p = (*b).p;
+        (*b).p = tmp;
+        i = i - 1i64;
+    }
+}
+
+// ── Insert outcome — propagates split info up the recursion ───────────
+pub struct InsertOutcome<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
+    pub hit:   bool,
+    pub split: bool,
+    pub right: NodeARC<STORE_CFG>,
+    pub sep_present: bool,        // K may not be Default-able; track sep validity
+    pub sep:   K::ViewInStore,
+}
+
+// Helper to alloc a fresh block id (bump caller's counter).
+unsafe fn alloc_id(p: *mut u64) -> u64 {
+    *p = *p + 1u64;
+    return *p;
+}
+
+// ── Leaf split ────────────────────────────────────────────────────────
+// Take the right half of `leaf`'s entries into a fresh leaf. Mirrors
+// legacy node_split_leaf_c. The original leaf retains the LEFT half;
+// caller's parent gets the right half + separator (= right's keys[0]).
+pub unsafe fn split_leaf<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+    leaf: *mut LeafNode<K, V, STORE_CFG, CFG>,
+    new_id: u64, snapshot_id: u64,
+) -> NodeARC<STORE_CFG> {
+    let cap: u64 = leaf.keys.len();
+    let vcap: u64 = leaf.vals.len();
+    if cap != vcap { panic("[v3 split_leaf] keys.len != vals.len"); }
+    let mid: u64 = cap / 2u64;
+    let right: *mut LeafNode<K, V, STORE_CFG, CFG> =
+        leaf_alloc::<K, V, STORE_CFG, CFG>(new_id, snapshot_id);
+    let mut i: u64 = mid;
+    while i < cap {
+        right.keys.push(leaf.keys.get(i));
+        right.vals.push(leaf.vals.get(i));
+        i = i + 1u64;
+    }
+    while leaf.keys.len() > mid { leaf.keys.remove_at(leaf.keys.len() - 1u64); }
+    while leaf.vals.len() > mid { leaf.vals.remove_at(leaf.vals.len() - 1u64); }
+    return node_arc_wrap::<STORE_CFG>(right as *mut dyn BTreeNode<STORE_CFG>);
+}
+
+// ── Branch split ──────────────────────────────────────────────────────
+// Right node takes keys[mid+1..] and children[mid+1..]. The separator
+// keys[mid] is promoted up — the parent insert at idx (left's slot in
+// parent) shifts children right and inserts the new right node at idx+1.
+pub unsafe fn split_branch<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+    branch: *mut BranchNode<K, STORE_CFG, CFG>,
+    new_id: u64, snapshot_id: u64,
+) -> NodeARC<STORE_CFG> {
+    let cap: u64 = branch.keys.len();
+    let mid: u64 = cap / 2u64;
+    let right: *mut BranchNode<K, STORE_CFG, CFG> =
+        branch_alloc::<K, STORE_CFG, CFG>(new_id, snapshot_id);
+    let mut i: u64 = mid;
+    while i < cap {
+        right.keys.push(branch.keys.get(i));
+        i = i + 1u64;
+    }
+    let nc: i64 = branch.children.length();
+    let mut j: i64 = (mid as i64) + 1i64;
+    while j < nc {
+        // Move child fat-handle from left to right WITHOUT touching rc.
+        let src: *mut NodeARC<STORE_CFG> = branch.children.at(j);
+        let handle: *mut dyn BTreeNode<STORE_CFG> = (*src).p;
+        // Steal the slot's rc share into right.children's new slot.
+        // (Build a NodeARC from the handle directly via raw write.)
+        right.children.push(NodeARC::<STORE_CFG> { p: handle });
+        // Bump rc to compensate for the upcoming pop on left.
+        let dp: *mut u8 = (*(handle as *mut u64)) as *mut u8;
+        let rcp: *mut u64 = dp as *mut u64;
+        *rcp = *rcp + 1u64;
+        j = j + 1i64;
+    }
+    while branch.children.length() > (mid as i64) + 1i64 {
+        let _ = branch.children.pop();   // drop releases (rc--, balanced by bump above)
+    }
+    while branch.keys.len() > mid { branch.keys.remove_at(branch.keys.len() - 1u64); }
+    return node_arc_wrap::<STORE_CFG>(right as *mut dyn BTreeNode<STORE_CFG>);
+}
+
+// ── Recursive insert ──────────────────────────────────────────────────
+pub unsafe fn insert_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+    arc: &mut NodeARC<STORE_CFG>,
+    key: K::ViewInStore, val: V::ViewInStore, qkey: *const K,
+    cur_snapshot_id: u64, id_ctr_p: *mut u64,
+) -> InsertOutcome<K, STORE_CFG, CFG> {
+    // CoW skip: if `arc`'s block was created in another snapshot, clone.
+    make_unique::<STORE_CFG>(arc, cur_snapshot_id, id_ctr_p);
+
+    if arc_is_leaf::<STORE_CFG>(arc) {
+        let leaf = as_leaf::<K, V, STORE_CFG, CFG>(arc);
+        let max_keys: u64 = max_keys_leaf::<CFG>();
+        let pos: u64 = leaf_lower_bound::<K, V, STORE_CFG, CFG>(leaf, qkey);
+        // replace-on-hit (PMap MAX semantics)
+        if pos < leaf.keys.len() {
+            let kv: K::ViewInStore = leaf.keys.get(pos);
+            let phantom: *const K = 0 as *const K;
+            match phantom.cmp_view_key(kv, qkey) {
+                Ordering::Equal => {
+                    leaf.vals.set(pos, val);
+                    return InsertOutcome::<K, STORE_CFG, CFG> {
+                        hit: true, split: false,
+                        right: NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
+                        sep_present: false, sep: key,
+                    };
+                }
+                _ => { }
+            }
+        }
+        leaf.keys.insert_at(pos, key);
+        leaf.vals.insert_at(pos, val);
+        if leaf.keys.len() > max_keys {
+            let new_id: u64 = alloc_id(id_ctr_p);
+            let right: NodeARC<STORE_CFG> = split_leaf::<K, V, STORE_CFG, CFG>(leaf, new_id, cur_snapshot_id);
+            // Sep = right's first key.
+            let rl = as_leaf::<K, V, STORE_CFG, CFG>(&right);
+            let sep_key: K::ViewInStore = rl.keys.get(0u64);
+            return InsertOutcome::<K, STORE_CFG, CFG> {
+                hit: false, split: true, right: right,
+                sep_present: true, sep: sep_key,
+            };
+        }
+        return InsertOutcome::<K, STORE_CFG, CFG> {
+            hit: false, split: false,
+            right: NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
+            sep_present: false, sep: key,
+        };
+    }
+
+    // Branch path.
+    let br = as_branch::<K, STORE_CFG, CFG>(arc);
+    let max_keys: u64 = max_keys_branch::<CFG>();
+    let i: u64 = branch_descend_idx::<K, STORE_CFG, CFG>(br, qkey);
+    // Make-unique the descent child slot, then recurse.
+    let child_ref: &mut NodeARC<STORE_CFG> = br.children.borrow_mut(i as i64);
+    let inner = insert_rec::<K, V, STORE_CFG, CFG>(child_ref, key, val, qkey, cur_snapshot_id, id_ctr_p);
+    if inner.hit {
+        return InsertOutcome::<K, STORE_CFG, CFG> {
+            hit: true, split: false,
+            right: NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
+            sep_present: false, sep: key,
+        };
+    }
+    if !inner.split {
+        return InsertOutcome::<K, STORE_CFG, CFG> {
+            hit: false, split: false,
+            right: NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
+            sep_present: false, sep: key,
+        };
+    }
+    // Inner split: insert sep at i, child at i+1.
+    br.keys.insert_at(i, inner.sep);
+    vec_arc_insert_at::<STORE_CFG>(&mut br.children as *mut Vec<NodeARC<STORE_CFG>>, (i as i64) + 1i64, inner.right);
+    if br.keys.len() > max_keys {
+        let new_id: u64 = alloc_id(id_ctr_p);
+        let right: NodeARC<STORE_CFG> = split_branch::<K, STORE_CFG, CFG>(br, new_id, cur_snapshot_id);
+        // Branch sep = first key of right (consumed — branches don't keep sep on themselves)
+        let rb = as_branch::<K, STORE_CFG, CFG>(&right);
+        let sep_key: K::ViewInStore = rb.keys.get(0u64);
+        rb.keys.remove_at(0u64);
+        return InsertOutcome::<K, STORE_CFG, CFG> {
+            hit: false, split: true, right: right,
+            sep_present: true, sep: sep_key,
+        };
+    }
+    return InsertOutcome::<K, STORE_CFG, CFG> {
+        hit: false, split: false,
+        right: NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
+        sep_present: false, sep: key,
+    };
+}
+
+// ── Top-level insert: descend, possibly grow root ─────────────────────
+pub unsafe fn pmap_insert<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+    root: &mut NodeARC<STORE_CFG>,
+    key: K::ViewInStore, val: V::ViewInStore, qkey: *const K,
+    cur_snapshot_id: u64, id_ctr_p: *mut u64,
+) -> bool {
+    let outcome = insert_rec::<K, V, STORE_CFG, CFG>(root, key, val, qkey, cur_snapshot_id, id_ctr_p);
+    if outcome.split {
+        // Grow root: build a new branch with [old_root, outcome.right] + sep.
+        let new_id: u64 = alloc_id(id_ctr_p);
+        let new_root: *mut BranchNode<K, STORE_CFG, CFG> =
+            branch_alloc::<K, STORE_CFG, CFG>(new_id, cur_snapshot_id);
+        new_root.keys.push(outcome.sep);
+        // Move the old root and the right child into the new branch.
+        // First: bump rc on the old root (we'll store it in children),
+        // then write a NodeARC handle into children[0] without touching root.p
+        // — we'll swap root → new_root afterwards.
+        let old_handle: *mut dyn BTreeNode<STORE_CFG> = root.p;
+        let old_dp: *mut u8 = (*(old_handle as *mut u64)) as *mut u8;
+        *(old_dp as *mut u64) = *(old_dp as *mut u64) + 1u64;
+        new_root.children.push(NodeARC::<STORE_CFG> { p: old_handle });
+        // Right child: transfer its rc into the slot. outcome's local
+        // copy must not double-drop, so bump.
+        let r_handle: *mut dyn BTreeNode<STORE_CFG> = outcome.right.p;
+        let r_dp: *mut u8 = (*(r_handle as *mut u64)) as *mut u8;
+        *(r_dp as *mut u64) = *(r_dp as *mut u64) + 1u64;
+        new_root.children.push(NodeARC::<STORE_CFG> { p: r_handle });
+
+        // Swap root → NodeARC over new_root. Old root's rc was bumped
+        // above (now 2), so when arc_replace_in_slot decrements it back
+        // to 1, the children-slot still owns 1 share.
+        let new_arc: NodeARC<STORE_CFG> =
+            node_arc_wrap::<STORE_CFG>(new_root as *mut dyn BTreeNode<STORE_CFG>);
+        arc_replace_in_slot::<STORE_CFG>(
+            root as *mut NodeARC<STORE_CFG>, new_arc);
+    }
+    return outcome.hit;
+}
+
+// ── Recursive remove (no merge — leaves can underflow lazily) ─────────
+pub unsafe fn remove_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+    arc: &mut NodeARC<STORE_CFG>,
+    qkey: *const K,
+    cur_snapshot_id: u64, id_ctr_p: *mut u64,
+) -> bool {
+    make_unique::<STORE_CFG>(arc, cur_snapshot_id, id_ctr_p);
+
+    if arc_is_leaf::<STORE_CFG>(arc) {
+        let leaf = as_leaf::<K, V, STORE_CFG, CFG>(arc);
+        let idx: i64 = leaf_find::<K, V, STORE_CFG, CFG>(leaf, qkey);
+        if idx < 0i64 { return false; }
+        leaf.keys.remove_at(idx as u64);
+        leaf.vals.remove_at(idx as u64);
+        return true;
+    }
+    let br = as_branch::<K, STORE_CFG, CFG>(arc);
+    let i: u64 = branch_descend_idx::<K, STORE_CFG, CFG>(br, qkey);
+    let child_ref: &mut NodeARC<STORE_CFG> = br.children.borrow_mut(i as i64);
+    return remove_rec::<K, V, STORE_CFG, CFG>(child_ref, qkey, cur_snapshot_id, id_ctr_p);
+}
+
+pub unsafe fn pmap_remove<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+    root: &mut NodeARC<STORE_CFG>, qkey: *const K,
+    cur_snapshot_id: u64, id_ctr_p: *mut u64,
+) -> bool {
+    return remove_rec::<K, V, STORE_CFG, CFG>(root, qkey, cur_snapshot_id, id_ctr_p);
+}
