@@ -41,6 +41,7 @@ use std.data.persistent.cow;
 use std.data.persistent.store;
 use std.data.persistent.descent;
 use std.data.persistent.mutate;
+use std.data.persistent.iter;
 
 // DirCfg — fixed v1 directory layout. Key = ctr_id (u64), val =
 // NodeARC<STORE_CFG> (heterogeneous container roots). When parametric
@@ -357,5 +358,13 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
                 dealloc(old_dp);
             }
         }
+    }
+
+    // Forward iterator over the container's entries in key order.
+    // Caller must not mutate self while the iter is live — typed
+    // pointers in the iter's path/leaf would dangle on CoW-clone or
+    // split (Memoria-style "snapshot frozen for iter" rule).
+    pub unsafe fn iter(&self) -> PMapIter<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> {
+        return pmap_iter_open::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc);
     }
 }
