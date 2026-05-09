@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// std.data.persistent.v3.iter — leaf walker over a v3 BTree.
+//
+// v1 scope: single-leaf walker. The iter wraps a typed leaf pointer
+// (downcast from NodeARC.p via the is_leaf header bit). When multi-
+// level descent lands in v3.mutate, this iter grows a path-stack of
+// branch frames (existing pmap_v2 LeafIter pattern adapted to dyn).
+
+package std.data.persistent.v3.iter;
+
+use std.collections.vec;
+use std.mem;
+use std.lang.cmp;
+use std.lang.ord;
+use std.lang.datatypes;
+use std.hermes.view;
+use std.hermes.anyval;
+
+use std.data.persistent.v3.node;
+use std.data.persistent.v3.cow;
+
+// LeafIter — single-leaf iter (no descent yet). Holds the typed leaf
+// pointer + cursor index. Caller checks `valid()` before reading.
+pub struct LeafIter<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
+    pub leaf: *mut LeafNode<K, V, STORE_CFG, CFG>,
+    pub i:    u64,
+    pub n:    u64,
+}
+
+// Construct a leaf iter from a NodeARC's data ptr. Caller asserts the
+// NodeARC's underlying block is a LeafNode of the matching K/V/CFG —
+// header.is_leaf gives the runtime check; the typed downcast is the
+// caller's responsibility (typically routed through a typed handle).
+pub unsafe fn leaf_iter_open<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+    arc: &NodeARC<STORE_CFG>
+) -> LeafIter<K, V, STORE_CFG, CFG> {
+    let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(arc);
+    let lp: *mut LeafNode<K, V, STORE_CFG, CFG> = dp as *mut LeafNode<K, V, STORE_CFG, CFG>;
+    let n: u64 = lp.keys.len();
+    return LeafIter::<K, V, STORE_CFG, CFG> { leaf: lp, i: 0u64, n: n };
+}
+
+impl<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic> LeafIter<K, V, STORE_CFG, CFG> {
+    pub fn valid(&self) -> bool { return self.i < self.n; }
+
+    pub unsafe fn key(&self) -> K::ViewInStore {
+        return self.leaf.keys.get(self.i);
+    }
+    pub unsafe fn val(&self) -> V::ViewInStore {
+        return self.leaf.vals.get(self.i);
+    }
+    pub fn step(&mut self) { self.i = self.i + 1u64; }
+}
