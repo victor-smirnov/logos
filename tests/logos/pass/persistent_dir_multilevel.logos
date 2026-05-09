@@ -1,0 +1,74 @@
+// Multi-level directory: insert >16 containers (DirCfg fanout=16) so
+// the dir grows from a single LeafDirNode to a multi-level tree
+// (root branch + multiple dir leaves). Verify every container is
+// reachable + retains its data across opens, and that the dir tree
+// preserves identity through commit + fork.
+package persistent_dir_multilevel;
+
+use std.data.persistent.handle;
+use std.data.persistent.store;
+use std.data.persistent.node;
+use std.data.persistent.cow;
+use std.data.persistent.descent;
+use std.data.persistent.mutate;
+use std.lang.datatypes;
+use std.hermes.view;
+use std.hermes.anyval;
+
+pub const StoreCfg: HermesStatic = @{
+    "name": "dirmulti", "ctr_id": <type:u64>, "snp_id": <type:u64>, "block_id": <type:u64>,
+};
+pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 4 };
+
+fn main() -> i32 {
+    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
+    let mut commit: u64 = 0u64;
+
+    // ── Build a snap with 50 containers (>> dir fanout=16). Each holds
+    // a single key-value (k=ctr_id, v=ctr_id*1000) so we can verify
+    // identity-by-content. Pre-commit phase. ──
+    {
+        let mut snap: Snap<StoreCfg> = store.fork(GENESIS);
+        let mut id: u64 = 0u64;
+        while id < 50u64 {
+            let mut cr: ContainerRef<StoreCfg, MapCfg> =
+                create_pmap::<MapCfg, StoreCfg>(&mut snap, id);
+            cr.insert(id, id * 1000u64);
+            id = id + 1u64;
+        }
+        // Open every container in the same snap; verify content.
+        let mut q: u64 = 0u64;
+        while q < 50u64 {
+            let cr: ContainerRef<StoreCfg, MapCfg> =
+                open_pmap::<MapCfg, StoreCfg>(&mut snap, q);
+            if cr.arc.p as *const u8 == 0 as *const u8 { return 100 + q as i32; }
+            let mut out: u64 = 0u64;
+            if !cr.get(q, &mut out as *mut u64) { return 200 + q as i32; }
+            if out != q * 1000u64               { return 300 + q as i32; }
+            q = q + 1u64;
+        }
+        // Look up an absent ctr_id — should return empty handle.
+        let absent: ContainerRef<StoreCfg, MapCfg> =
+            open_pmap::<MapCfg, StoreCfg>(&mut snap, 9999u64);
+        if absent.arc.p as *const u8 != 0 as *const u8 { return 1; }
+
+        commit = snap.commit();
+    }
+
+    // ── Fork from the commit, verify all 50 containers still resolve. ──
+    {
+        let mut fork: Snap<StoreCfg> = store.fork(commit);
+        let mut q: u64 = 0u64;
+        while q < 50u64 {
+            let cr: ContainerRef<StoreCfg, MapCfg> =
+                open_pmap::<MapCfg, StoreCfg>(&mut fork, q);
+            if cr.arc.p as *const u8 == 0 as *const u8 { return 400 + q as i32; }
+            let mut out: u64 = 0u64;
+            if !cr.get(q, &mut out as *mut u64) { return 500 + q as i32; }
+            if out != q * 1000u64               { return 600 + q as i32; }
+            q = q + 1u64;
+        }
+    }
+
+    return 0;
+}

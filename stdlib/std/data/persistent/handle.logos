@@ -43,10 +43,252 @@ use std.data.persistent.descent;
 use std.data.persistent.mutate;
 use std.data.persistent.iter;
 
-// DirCfg — fixed v1 directory layout. Key = ctr_id (u64), val =
-// NodeARC<STORE_CFG> (heterogeneous container roots). When parametric
-// HermesStatic literals land cleanly, this becomes per-STORE_CFG.
+// DirCfg — directory layout. Key = ctr_id (u64), val = NodeARC (heterogeneous
+// container roots). fanout drives branch + leaf max-keys. Multi-level: dir
+// can grow into a tree when a leaf overflows.
 pub const DirCfg: HermesStatic = @{ "key": <type:u64>, "fanout": 16 };
+
+// ── Dir multi-level mutate (parallel to mutate.logos but for LeafDirNode) ──
+// LeafDirNode holds NodeARC vals (heterogeneous container roots) — it
+// can't share the data-leaf code path because PMap's V: Container bound
+// excludes NodeARC. These helpers mirror split_leaf + insert_rec +
+// pmap_insert for the dir-flavoured layout.
+
+// DirInsertOutcome — like InsertOutcome but K is fixed to u64 and val is
+// implicit (ownership transferred into the dir tree). `slot_p` carries
+// the post-insert *mut to the slot holding the new val (used by
+// create_pmap to wire ContainerRef.dir_slot).
+pub struct DirInsertOutcome<const STORE_CFG: HermesStatic> {
+    pub split:       bool,
+    pub right:       NodeARC<STORE_CFG>,
+    pub sep_present: bool,
+    pub sep:         u64,
+}
+
+unsafe fn dir_split_leaf<const STORE_CFG: HermesStatic>(
+    leaf: *mut LeafDirNode<u64, STORE_CFG, DirCfg>,
+    new_id: BlockId<STORE_CFG>, snapshot_id: SnpId<STORE_CFG>,
+) -> NodeARC<STORE_CFG> {
+    let cap: u64 = leaf.keys.len();
+    let mid: u64 = cap / 2u64;
+    let right: *mut LeafDirNode<u64, STORE_CFG, DirCfg> =
+        leaf_dir_alloc::<u64, STORE_CFG, DirCfg>(new_id, snapshot_id);
+    // Move keys[mid..] and vals[mid..] into right. Keys are u64 (Buffer),
+    // vals are NodeARC (Vec) — for vals, transfer fat-handle without rc
+    // bump (the slot's share moves to right's slot).
+    let mut i: u64 = mid;
+    while i < cap {
+        right.keys.push(leaf.keys.get(i));
+        let src: *mut NodeARC<STORE_CFG> = leaf.vals.at(i as i64);
+        let handle: *mut dyn BTreeNode<STORE_CFG> = (*src).p;
+        right.vals.push(NodeARC::<STORE_CFG> { p: handle });
+        // Bump rc to compensate for the upcoming pop on left (mirror
+        // split_branch's pattern: pop's auto-drop balances the bump).
+        let dp: *mut u8 = (*(handle as *mut u64)) as *mut u8;
+        *(dp as *mut u64) = *(dp as *mut u64) + 1u64;
+        i = i + 1u64;
+    }
+    while leaf.keys.len() > mid { leaf.keys.remove_at(leaf.keys.len() - 1u64); }
+    while leaf.vals.length() > (mid as i64) { let _ = leaf.vals.pop(); }
+    return node_arc_wrap::<STORE_CFG>(right as *mut dyn BTreeNode<STORE_CFG>);
+}
+
+// Linear search for ctr_id in a dir leaf; returns insertion position
+// (lower_bound). Branches reuse mutate's branch_descend_idx (key=u64).
+unsafe fn dir_leaf_lower_bound<const STORE_CFG: HermesStatic>(
+    leaf: *mut LeafDirNode<u64, STORE_CFG, DirCfg>, ctr_id: u64,
+) -> u64 {
+    let n: u64 = leaf.keys.len();
+    let mut i: u64 = 0u64;
+    while i < n {
+        if leaf.keys.get(i) >= ctr_id { return i; }
+        i = i + 1u64;
+    }
+    return n;
+}
+
+unsafe fn dir_branch_descend_idx<const STORE_CFG: HermesStatic>(
+    br: *mut BranchNode<u64, STORE_CFG, DirCfg>, ctr_id: u64,
+) -> u64 {
+    let n: u64 = br.keys.len();
+    let mut i: u64 = 0u64;
+    while i < n {
+        if br.keys.get(i) > ctr_id { return i; }
+        i = i + 1u64;
+    }
+    return n;
+}
+
+// Recursive insert. `arc` is the dir subtree root (CoW'd by caller).
+// `val_arc` ownership: caller transfers; on hit (ctr_id already present)
+// the val_arc rc share is released here (current contract: dir keys are
+// unique per ctr_id; create_pmap allocates fresh ids so no real conflict
+// expected). On split, returns the new right subtree to be inserted at
+// parent.
+unsafe fn dir_insert_rec<const STORE_CFG: HermesStatic>(
+    arc: &mut NodeARC<STORE_CFG>,
+    ctr_id: u64, val_arc: NodeARC<STORE_CFG>,
+    cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
+) -> DirInsertOutcome<STORE_CFG> {
+    make_unique::<STORE_CFG>(arc, cur_snapshot_id, id_ctr_p);
+    let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(arc);
+    let isleaf_p: *mut bool = (dp as i64 + 24i64) as *mut bool;
+    let max_keys: u64 = max_keys_leaf::<DirCfg>();
+
+    if *isleaf_p {
+        let leaf: *mut LeafDirNode<u64, STORE_CFG, DirCfg> =
+            dp as *mut LeafDirNode<u64, STORE_CFG, DirCfg>;
+        let pos: u64 = dir_leaf_lower_bound::<STORE_CFG>(leaf, ctr_id);
+        // Replace-on-hit: release the old slot's rc, write new handle.
+        // Caller's val_arc share moves into the slot.
+        if pos < leaf.keys.len() && leaf.keys.get(pos) == ctr_id {
+            let slot: *mut NodeARC<STORE_CFG> = leaf.vals.at(pos as i64);
+            let new_handle: *mut dyn BTreeNode<STORE_CFG> = val_arc.p;
+            // Bump val_arc's rc to compensate for its scope-end auto-drop.
+            let new_dp: *mut u8 = (*(new_handle as *mut u64)) as *mut u8;
+            *(new_dp as *mut u64) = *(new_dp as *mut u64) + 1u64;
+            let old_handle: *mut dyn BTreeNode<STORE_CFG> = (*slot).p;
+            (*slot).p = new_handle;
+            // Release old.
+            let old_dp: *mut u8 = (*(old_handle as *mut u64)) as *mut u8;
+            *(old_dp as *mut u64) = *(old_dp as *mut u64) - 1u64;
+            if *(old_dp as *mut u64) == 0u64 {
+                old_handle.__drop_in_place();
+                dealloc(old_dp);
+            }
+            return DirInsertOutcome::<STORE_CFG> {
+                split: false,
+                right: NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
+                sep_present: false, sep: 0u64,
+            };
+        }
+        // Insert at pos. Bump val_arc's rc to compensate for its
+        // scope-end auto-drop (Vec.push consumes the slot's share).
+        leaf.keys.insert_at(pos, ctr_id);
+        let new_handle: *mut dyn BTreeNode<STORE_CFG> = val_arc.p;
+        let new_dp: *mut u8 = (*(new_handle as *mut u64)) as *mut u8;
+        *(new_dp as *mut u64) = *(new_dp as *mut u64) + 1u64;
+        // Vec lacks insert_at, so push then bubble (mirror vec_arc_insert_at).
+        leaf.vals.push(NodeARC::<STORE_CFG> { p: new_handle });
+        let mut k: i64 = leaf.vals.length() - 1i64;
+        while k > (pos as i64) {
+            let a: *mut NodeARC<STORE_CFG> = leaf.vals.at(k);
+            let b: *mut NodeARC<STORE_CFG> = leaf.vals.at(k - 1i64);
+            let tmp: *mut dyn BTreeNode<STORE_CFG> = (*a).p;
+            (*a).p = (*b).p;
+            (*b).p = tmp;
+            k = k - 1i64;
+        }
+        if leaf.keys.len() > max_keys {
+            let new_id: BlockId<STORE_CFG> = alloc_id_dir::<STORE_CFG>(id_ctr_p);
+            let right: NodeARC<STORE_CFG> = dir_split_leaf::<STORE_CFG>(leaf, new_id, cur_snapshot_id);
+            let rl: *mut LeafDirNode<u64, STORE_CFG, DirCfg> =
+                node_arc_data_ptr::<STORE_CFG>(&right) as *mut LeafDirNode<u64, STORE_CFG, DirCfg>;
+            let sep_key: u64 = rl.keys.get(0u64);
+            return DirInsertOutcome::<STORE_CFG> {
+                split: true, right: right,
+                sep_present: true, sep: sep_key,
+            };
+        }
+        return DirInsertOutcome::<STORE_CFG> {
+            split: false,
+            right: NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
+            sep_present: false, sep: 0u64,
+        };
+    }
+    // Branch.
+    let br: *mut BranchNode<u64, STORE_CFG, DirCfg> =
+        dp as *mut BranchNode<u64, STORE_CFG, DirCfg>;
+    let i: u64 = dir_branch_descend_idx::<STORE_CFG>(br, ctr_id);
+    let max_branch: u64 = max_keys_branch::<DirCfg>();
+    let child_ref: &mut NodeARC<STORE_CFG> = br.children.borrow_mut(i as i64);
+    let inner = dir_insert_rec::<STORE_CFG>(child_ref, ctr_id, val_arc, cur_snapshot_id, id_ctr_p);
+    if !inner.split {
+        return DirInsertOutcome::<STORE_CFG> {
+            split: false,
+            right: NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
+            sep_present: false, sep: 0u64,
+        };
+    }
+    // Inner split: insert sep at i, child at i+1.
+    br.keys.insert_at(i, inner.sep);
+    vec_arc_insert_at::<STORE_CFG>(&mut br.children as *mut Vec<NodeARC<STORE_CFG>>, (i as i64) + 1i64, inner.right);
+    if br.keys.len() > max_branch {
+        let new_id: BlockId<STORE_CFG> = alloc_id_dir::<STORE_CFG>(id_ctr_p);
+        let right: NodeARC<STORE_CFG> = split_branch::<u64, STORE_CFG, DirCfg>(br, new_id, cur_snapshot_id);
+        let rb: *mut BranchNode<u64, STORE_CFG, DirCfg> =
+            node_arc_data_ptr::<STORE_CFG>(&right) as *mut BranchNode<u64, STORE_CFG, DirCfg>;
+        let sep_key: u64 = rb.keys.get(0u64);
+        rb.keys.remove_at(0u64);
+        return DirInsertOutcome::<STORE_CFG> {
+            split: true, right: right,
+            sep_present: true, sep: sep_key,
+        };
+    }
+    return DirInsertOutcome::<STORE_CFG> {
+        split: false,
+        right: NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
+        sep_present: false, sep: 0u64,
+    };
+}
+
+unsafe fn alloc_id_dir<const STORE_CFG: HermesStatic>(p: *mut BlockId<STORE_CFG>) -> BlockId<STORE_CFG> {
+    *p = *p + 1u64;
+    return *p;
+}
+
+// Top-level dir insert: descend, possibly grow root.
+pub unsafe fn dir_insert<const STORE_CFG: HermesStatic>(
+    snap_dir: &mut NodeARC<STORE_CFG>,
+    ctr_id: u64, val_arc: NodeARC<STORE_CFG>,
+    cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
+) {
+    let outcome = dir_insert_rec::<STORE_CFG>(snap_dir, ctr_id, val_arc, cur_snapshot_id, id_ctr_p);
+    if outcome.split {
+        let new_id: BlockId<STORE_CFG> = alloc_id_dir::<STORE_CFG>(id_ctr_p);
+        let new_root: *mut BranchNode<u64, STORE_CFG, DirCfg> =
+            branch_alloc::<u64, STORE_CFG, DirCfg>(new_id, cur_snapshot_id);
+        new_root.keys.push(outcome.sep);
+        // Move old root + outcome.right into new branch's children.
+        let old_handle: *mut dyn BTreeNode<STORE_CFG> = snap_dir.p;
+        let old_dp: *mut u8 = (*(old_handle as *mut u64)) as *mut u8;
+        *(old_dp as *mut u64) = *(old_dp as *mut u64) + 1u64;
+        new_root.children.push(NodeARC::<STORE_CFG> { p: old_handle });
+        let r_handle: *mut dyn BTreeNode<STORE_CFG> = outcome.right.p;
+        let r_dp: *mut u8 = (*(r_handle as *mut u64)) as *mut u8;
+        *(r_dp as *mut u64) = *(r_dp as *mut u64) + 1u64;
+        new_root.children.push(NodeARC::<STORE_CFG> { p: r_handle });
+        let new_arc: NodeARC<STORE_CFG> =
+            node_arc_wrap::<STORE_CFG>(new_root as *mut dyn BTreeNode<STORE_CFG>);
+        arc_replace_in_slot::<STORE_CFG>(snap_dir as *mut NodeARC<STORE_CFG>, new_arc);
+    }
+}
+
+// Find ctr_id in dir tree; return *mut NodeARC slot or null.
+pub unsafe fn dir_lookup<const STORE_CFG: HermesStatic>(
+    snap_dir: &NodeARC<STORE_CFG>, ctr_id: u64,
+) -> *mut NodeARC<STORE_CFG> {
+    let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(snap_dir);
+    let isleaf_p: *mut bool = (dp as i64 + 24i64) as *mut bool;
+    if *isleaf_p {
+        let leaf: *mut LeafDirNode<u64, STORE_CFG, DirCfg> =
+            dp as *mut LeafDirNode<u64, STORE_CFG, DirCfg>;
+        let n: u64 = leaf.keys.len();
+        let mut i: u64 = 0u64;
+        while i < n {
+            if leaf.keys.get(i) == ctr_id {
+                return leaf.vals.at(i as i64);
+            }
+            i = i + 1u64;
+        }
+        return 0 as *mut NodeARC<STORE_CFG>;
+    }
+    let br: *mut BranchNode<u64, STORE_CFG, DirCfg> =
+        dp as *mut BranchNode<u64, STORE_CFG, DirCfg>;
+    let i: u64 = dir_branch_descend_idx::<STORE_CFG>(br, ctr_id);
+    let child: &NodeARC<STORE_CFG> = br.children.borrow(i as i64);
+    return dir_lookup::<STORE_CFG>(child, ctr_id);
+}
 
 // ── Store<STORE_CFG> ─────────────────────────────────────────────────
 unsafe impl<const STORE_CFG: HermesStatic> Send for LockingStore<STORE_CFG> {}
@@ -191,43 +433,34 @@ pub struct ContainerRef<const STORE_CFG: HermesStatic, const CFG: HermesStatic> 
     pub id_ctr_p:   *mut BlockId<STORE_CFG>,
 }
 
-// create_pmap — alloc a fresh empty leaf for the container, register
-// it in the dir under ctr_id, return a ContainerRef holding the
-// open-claim handle.
+// create_pmap — alloc a fresh empty leaf for the container, insert it
+// into the dir under ctr_id (descending the dir tree, splitting on
+// overflow), return a ContainerRef holding the open-claim handle.
 //
-// CoW: if the dir leaf was inherited from a parent commit (snap_fork),
-// make_unique clones it before any push so the parent dir stays
-// untouched. v1 keeps the dir as a single LeafDirNode (no branching).
+// CoW: dir nodes touched on the descent are make_unique'd via
+// dir_insert_rec so the parent commit's dir stays untouched.
 pub fn create_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
     snap:   &mut Snap<STORE_CFG>,
     ctr_id: u64,
 ) -> ContainerRef<STORE_CFG, CFG> {
     let s: &mut LockingStore<STORE_CFG> = snap.arc.deref_mut();
     let id_ctr_p: *mut BlockId<STORE_CFG> = unsafe { &mut (*(s as *mut LockingStore<STORE_CFG>)).next_block_id as *mut BlockId<STORE_CFG> };
-    unsafe { make_unique::<STORE_CFG>(&mut snap.dir, snap.snapshot_id, id_ctr_p); }
     let block_id: BlockId<STORE_CFG> = unsafe { (s as *mut LockingStore<STORE_CFG>).alloc_block_id() };
     // Allocate the container's initial empty leaf (data flavour).
     let leaf: *mut LeafNode<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> = unsafe {
         leaf_alloc::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(block_id, snap.snapshot_id)
     };
-    // Wrap as NodeARC twice — one for the dir-leaf entry (transfers
-    // rc), one for the open-claim ContainerRef.
+    // Wrap as NodeARC twice — one for the dir entry (transfers rc),
+    // one for the open-claim ContainerRef.
     let arc_for_dir: NodeARC<STORE_CFG> =
         node_arc_wrap::<STORE_CFG>(leaf as *mut dyn BTreeNode<STORE_CFG>);
-    // Bump rc on the same block: dir-leaf gets one share, ContainerRef
-    // gets another.
     let arc_for_ref: NodeARC<STORE_CFG> = arc_for_dir.clone_arc();
 
-    // Append to dir leaf in-place — make_unique above guarantees the
-    // dir leaf is owned by this snapshot. Capture *mut to the new slot
-    // for ContainerRef.dir_slot.
-    let slot_p: *mut NodeARC<STORE_CFG> = unsafe {
-        let dir_leaf: *mut LeafDirNode<u64, STORE_CFG, DirCfg> =
-            node_arc_data_ptr::<STORE_CFG>(&snap.dir) as *mut LeafDirNode<u64, STORE_CFG, DirCfg>;
-        dir_leaf.keys.push(ctr_id);
-        dir_leaf.vals.push(arc_for_dir);
-        dir_leaf.vals.at(dir_leaf.vals.length() - 1i64)
-    };
+    // Insert into dir tree — dir_insert handles CoW + splits + root grow.
+    unsafe { dir_insert::<STORE_CFG>(&mut snap.dir, ctr_id, arc_for_dir, snap.snapshot_id, id_ctr_p); }
+    // Locate the slot that now holds our val (dir_lookup re-descends —
+    // log fanout-based; cheap relative to the insert work).
+    let slot_p: *mut NodeARC<STORE_CFG> = unsafe { dir_lookup::<STORE_CFG>(&snap.dir, ctr_id) };
 
     return ContainerRef::<STORE_CFG, CFG> {
         arc:      arc_for_ref,
@@ -238,48 +471,23 @@ pub fn create_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
     };
 }
 
-// open_pmap — look up ctr_id in the snapshot's dir leaf and return a
-// ContainerRef sharing rc with the dir's slot.
-//
-// v1 limit: container root mutations don't write back into the dir.
-// open+insert+commit DOES NOT yet propagate root-grow into the dir
-// leaf — the DAG's view of the root stays the value the dir had at
-// open time. Use create_pmap + commit (not open_pmap on a fork)
-// for now. Multi-snapshot CoW for containers needs writeback wiring
-// (ContainerRef.dir_slot + drop-time slot update) which lands next.
-//
-// v1: dir is a single LeafDirNode (no branching) — linear scan over keys.
+// open_pmap — look up ctr_id in the snapshot's dir tree and return a
+// ContainerRef sharing rc with the dir's slot. Returns an empty
+// ContainerRef (arc.p == null) when ctr_id isn't present.
 pub fn open_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
     snap:   &mut Snap<STORE_CFG>,
     ctr_id: u64,
 ) -> ContainerRef<STORE_CFG, CFG> {
     // CoW dir up-front so any later writeback through cr.dir_slot lands
-    // in this snapshot's dir, not the parent commit's. Skips when dir
-    // is already this snapshot's (snapshot_id matches).
+    // in this snapshot's dir. Subsequent descent during dir_lookup reads
+    // the (now-owned) dir; child nodes stay shared until first mutation.
     let s: &mut LockingStore<STORE_CFG> = snap.arc.deref_mut();
     let id_ctr_p: *mut BlockId<STORE_CFG> = unsafe {
         &mut (*(s as *mut LockingStore<STORE_CFG>)).next_block_id as *mut BlockId<STORE_CFG>
     };
     unsafe { make_unique::<STORE_CFG>(&mut snap.dir, snap.snapshot_id, id_ctr_p); }
-    unsafe {
-        let dir_leaf: *mut LeafDirNode<u64, STORE_CFG, DirCfg> =
-            node_arc_data_ptr::<STORE_CFG>(&snap.dir) as *mut LeafDirNode<u64, STORE_CFG, DirCfg>;
-        let n: u64 = dir_leaf.keys.len();
-        let mut i: u64 = 0u64;
-        while i < n {
-            if dir_leaf.keys.get(i) == ctr_id {
-                let slot_p: *mut NodeARC<STORE_CFG> = dir_leaf.vals.at(i as i64);
-                let cloned: NodeARC<STORE_CFG> = (*slot_p).clone_arc();
-                return ContainerRef::<STORE_CFG, CFG> {
-                    arc:      cloned,
-                    ctr_id:   ctr_id,
-                    dir_slot: slot_p,
-                    snap_id:  snap.snapshot_id,
-                    id_ctr_p: id_ctr_p,
-                };
-            }
-            i = i + 1u64;
-        }
+    let slot_p: *mut NodeARC<STORE_CFG> = unsafe { dir_lookup::<STORE_CFG>(&snap.dir, ctr_id) };
+    if slot_p == 0 as *mut NodeARC<STORE_CFG> {
         return ContainerRef::<STORE_CFG, CFG> {
             arc:      NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
             ctr_id:   ctr_id,
@@ -288,6 +496,14 @@ pub fn open_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
             id_ctr_p: id_ctr_p,
         };
     }
+    let cloned: NodeARC<STORE_CFG> = unsafe { (*slot_p).clone_arc() };
+    return ContainerRef::<STORE_CFG, CFG> {
+        arc:      cloned,
+        ctr_id:   ctr_id,
+        dir_slot: slot_p,
+        snap_id:  snap.snapshot_id,
+        id_ctr_p: id_ctr_p,
+    };
 }
 
 // ContainerRef methods — full multi-level B+tree on top of NodeARC.
