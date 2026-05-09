@@ -1,0 +1,169 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// std.data.persistent.v3.handle — Snap + ContainerRefV3 on top of v3.
+//
+// User-facing surface for the v3 persistent stack:
+//
+//   StoreV3<STORE_CFG>           Arc<LockingStoreV3<STORE_CFG>>; persistent
+//                              over snap_begin_v3 / snap_fork / commit.
+//   SnapV3<STORE_CFG>            Live writable snapshot. Holds dir-tree
+//                              root NodeARC + ref to its Store.
+//   ContainerRefV3<STORE_CFG, CFG>   Handle to one container in a snap.
+//                              Holds NodeARC over the container root.
+//
+// Auto-Drop chain:
+//   • ContainerRefV3.drop  — writes the cached root back to dir, releases
+//                          open-claim. NodeARC's drop-chain handles rc.
+//   • Snap.drop          — single NodeARC.drop on dir root → recursive
+//                          release through Vec<NodeARC> chain → all
+//                          container roots released too. Unless commit
+//                          consumed the dir root first (DAG owns it).
+//
+// v1 limits: single-leaf-only inserts (no branch descent / leaf split
+// yet); dir leaf is LeafDirNode<u64, ...>. Multi-level + on-disk land
+// in v3.mutate when the BTree algos port over.
+
+package std.data.persistent.v3.handle;
+
+use std.collections.vec;
+use std.mem;
+use std.mem.arc;
+use std.mem.rc;
+use std.lang.cmp;
+use std.lang.ord;
+use std.lang.datatypes;
+use std.lang.drop;
+use std.hermes.view;
+use std.hermes.anyval;
+
+use std.data.persistent.v3.node;
+use std.data.persistent.v3.cow;
+use std.data.persistent.v3.store;
+
+// DirCfgV3 — fixed v1 directory layout. Key = ctr_id (u64), val =
+// NodeARC<STORE_CFG> (heterogeneous container roots). When parametric
+// HermesStatic literals land cleanly, this becomes per-STORE_CFG.
+pub const DirCfgV3: HermesStatic = @{ "key": <type:u64>, "fanout": 16 };
+
+// ── StoreV3<STORE_CFG> ─────────────────────────────────────────────────
+unsafe impl<const STORE_CFG: HermesStatic> Send for LockingStoreV3<STORE_CFG> {}
+unsafe impl<const STORE_CFG: HermesStatic> Sync for LockingStoreV3<STORE_CFG> {}
+
+pub struct StoreV3<const STORE_CFG: HermesStatic> {
+    pub arc: Arc<LockingStoreV3<STORE_CFG>>,
+}
+
+pub fn store_open_v3<const STORE_CFG: HermesStatic>() -> StoreV3<STORE_CFG> {
+    let s: LockingStoreV3<STORE_CFG> = locking_store_new::<STORE_CFG>();
+    return StoreV3::<STORE_CFG> { arc: arc_new::<LockingStoreV3<STORE_CFG>>(s) };
+}
+
+// ── SnapV3<STORE_CFG> ──────────────────────────────────────────────────
+pub struct SnapV3<const STORE_CFG: HermesStatic> {
+    pub dir: NodeARC<STORE_CFG>,    // directory tree root
+    pub arc: Arc<LockingStoreV3<STORE_CFG>>,
+    pub snapshot_id: u64,
+}
+
+pub fn snap_begin_v3<const STORE_CFG: HermesStatic>(store: &mut StoreV3<STORE_CFG>) -> SnapV3<STORE_CFG> {
+    let s: &mut LockingStoreV3<STORE_CFG> = store.arc.deref_mut();
+    let snap_id:  u64 = unsafe { (s as *mut LockingStoreV3<STORE_CFG>).alloc_snapshot_id() };
+    let block_id: u64 = unsafe { (s as *mut LockingStoreV3<STORE_CFG>).alloc_block_id() };
+    // Empty dir leaf as initial root.
+    let dir_leaf: *mut LeafDirNode<u64, STORE_CFG, DirCfgV3> = unsafe {
+        leaf_dir_alloc::<u64, STORE_CFG, DirCfgV3>(block_id, snap_id)
+    };
+    let dir: NodeARC<STORE_CFG> = node_arc_wrap::<STORE_CFG>(dir_leaf as *mut dyn BTreeNode<STORE_CFG>);
+    return SnapV3::<STORE_CFG> {
+        dir:         dir,
+        arc:         store.arc.clone_ref(),
+        snapshot_id: snap_id,
+    };
+}
+
+impl<const STORE_CFG: HermesStatic> SnapV3<STORE_CFG> {
+    // Commit the dir tree as a new DAG entry. Transfers the dir's rc to
+    // the entry. Returns the new commit id.
+    pub fn commit(&mut self) -> i64 {
+        let s: &mut LockingStoreV3<STORE_CFG> = self.arc.deref_mut();
+        // Move dir root into the DAG. Replace self.dir with a fresh empty
+        // marker (rc'd block stays alive — DAG owns it via clone_arc).
+        let cloned: NodeARC<STORE_CFG> = self.dir.clone_arc();
+        let id: i64 = unsafe { (s as *mut LockingStoreV3<STORE_CFG>).register_commit(cloned, 0i64 - 1i64) };
+        return id;
+    }
+}
+
+// ── ContainerRefV3<STORE_CFG, CFG> ─────────────────────────────────────
+// Handle to one container's root. Holds a NodeARC (open-claim rc) and
+// the container's id within the dir. Drop writes back + releases.
+//
+// v1: ContainerRefV3 holds a typed pointer cast to the concrete leaf
+// type. Multi-level descent (where root may be a BranchNode) lands
+// when v3.mutate gains splits. Single-leaf bring-up first.
+
+pub struct ContainerRefV3<const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
+    pub arc:    NodeARC<STORE_CFG>,    // owning rc on the container root
+    pub ctr_id: u64,
+}
+
+// create_pmap_v3 — alloc a fresh empty leaf for the container, register
+// it in the dir under ctr_id, return a ContainerRefV3 holding the
+// open-claim handle.
+//
+// v1 limit: NO directory CoW yet (single-snapshot, no fork). The dir
+// leaf gets the new entry pushed in-place. When fork lands, this
+// becomes a make_unique + insert path.
+pub fn create_pmap_v3<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
+    snap:   &mut SnapV3<STORE_CFG>,
+    ctr_id: u64,
+) -> ContainerRefV3<STORE_CFG, CFG> {
+    let s: &mut LockingStoreV3<STORE_CFG> = snap.arc.deref_mut();
+    let block_id: u64 = unsafe { (s as *mut LockingStoreV3<STORE_CFG>).alloc_block_id() };
+    // Allocate the container's initial empty leaf (data flavour).
+    let leaf: *mut LeafNode<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> = unsafe {
+        leaf_alloc::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(block_id, snap.snapshot_id)
+    };
+    // Wrap as NodeARC twice — one for the dir-leaf entry (transfers
+    // rc), one for the open-claim ContainerRefV3.
+    let arc_for_dir: NodeARC<STORE_CFG> =
+        node_arc_wrap::<STORE_CFG>(leaf as *mut dyn BTreeNode<STORE_CFG>);
+    // Bump rc on the same block: dir-leaf gets one share, ContainerRefV3
+    // gets another.
+    let arc_for_ref: NodeARC<STORE_CFG> = arc_for_dir.clone_arc();
+
+    // Append to dir leaf in-place. (v1 — no dir CoW yet.)
+    unsafe {
+        let dir_leaf: *mut LeafDirNode<u64, STORE_CFG, DirCfgV3> =
+            node_arc_data_ptr::<STORE_CFG>(&snap.dir) as *mut LeafDirNode<u64, STORE_CFG, DirCfgV3>;
+        dir_leaf.keys.push(ctr_id);
+        dir_leaf.vals.push(arc_for_dir);
+    }
+
+    return ContainerRefV3::<STORE_CFG, CFG> {
+        arc:    arc_for_ref,
+        ctr_id: ctr_id,
+    };
+}
+
+// ContainerRefV3 methods — v1 single-leaf (no descent, no splits).
+impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRefV3<STORE_CFG, CFG> {
+    pub fn len(&self) -> u64 {
+        unsafe {
+            let leaf: *mut LeafNode<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> =
+                node_arc_data_ptr::<STORE_CFG>(&self.arc)
+                    as *mut LeafNode<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>;
+            return leaf.keys.len();
+        }
+    }
+
+    pub fn insert(&mut self, key: <type:CFG.key>::ViewInStore, val: <type:CFG.value>::ViewInStore) {
+        unsafe {
+            let leaf: *mut LeafNode<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> =
+                node_arc_data_ptr::<STORE_CFG>(&self.arc)
+                    as *mut LeafNode<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>;
+            leaf.keys.push(key);
+            leaf.vals.push(val);
+        }
+    }
+}

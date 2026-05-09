@@ -1,0 +1,67 @@
+// End-to-end smoke for the v3 persistent stack: store_open → snap_begin
+// → create_pmap → insert → commit → drop chain releases everything.
+//
+// v1 limits: single-leaf inserts only (no branch descent / splits).
+// Snapshot fork + multi-level CoW land when v3.mutate's full BTree
+// algos port over.
+
+package zz_v3_handle_smoke;
+
+use std.collections.vec;
+use std.mem;
+use std.lang.cmp; use std.lang.ord; use std.lang.datatypes;
+use std.lang.drop;
+use std.hermes.view; use std.hermes.anyval;
+
+use std.data.persistent.v3.node;
+use std.data.persistent.v3.cow;
+use std.data.persistent.v3.store;
+use std.data.persistent.v3.handle;
+
+pub const StoreCfg: HermesStatic = @{
+    "name":     "v3-handle",
+    "ctr_id":   <type:u64>,
+    "snp_id":   <type:u64>,
+    "block_id": <type:u64>,
+};
+
+pub const MapCfg: HermesStatic = @{
+    "key":    <type:u64>,
+    "value":  <type:u64>,
+    "fanout": 8,
+};
+
+fn main() -> i32 {
+    let mut store: StoreV3<StoreCfg> = store_open_v3::<StoreCfg>();
+    let mut snap:  SnapV3<StoreCfg>  = snap_begin_v3::<StoreCfg>(&mut store);
+
+    {
+        let mut cr: ContainerRefV3<StoreCfg, MapCfg> =
+            create_pmap_v3::<MapCfg, StoreCfg>(&mut snap, 7u64);
+
+        if cr.len() != 0u64 { return 1; }
+
+        cr.insert(10u64, 100u64);
+        cr.insert(20u64, 200u64);
+        cr.insert(30u64, 300u64);
+
+        if cr.len() != 3u64 { return 2; }
+        // cr drops at scope exit — releases its open-claim. Dir-leaf
+        // still owns one share of the container root.
+    }
+
+    let id: i64 = snap.commit();
+    if id < 0i64 { return 3; }
+
+    // snap drops at fn-end — its dir NodeARC's drop chain hits:
+    //   dir LeafDirNode → vals: Vec<NodeARC> → child container root
+    //   NodeARCs → leaves' rc 1→0 → leaves' Buffer auto-drops.
+    //
+    // BUT: commit cloned the dir's rc into the DAG, so the DAG-side
+    // entry keeps everything alive past snap's drop. When `store`
+    // drops at fn-end, the DAG (Vec<CommitEntryV3>) auto-drops →
+    // CommitEntryV3.drop → NodeARC.drop → recursive release. Full
+    // teardown.
+
+    return 0;
+}
