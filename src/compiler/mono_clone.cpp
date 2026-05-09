@@ -3030,6 +3030,7 @@ lir::LFunction Mono::clone_fn(const lir::LFunction& fn, const SubstMap& s,
     cur_packs_ = packs;  // make available to subst_expr
     lir::LFunction nf;
     nf.name               = fn.name;
+    nf.method_base        = fn.method_base;
     nf.package            = fn.package;
     nf.is_extern          = fn.is_extern;
     nf.is_vararg          = fn.is_vararg;

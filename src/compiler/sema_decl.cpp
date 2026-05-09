@@ -377,6 +377,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     if (!fi_ptr) return fn;   // shouldn't happen after collect
 
     fn.name           = fi_ptr->symbol_name.empty() ? mangled : fi_ptr->symbol_name;
+    fn.method_base    = std::string(raw_name);
     fn.package        = fi_ptr->package;
     fn.source_file    = fi_ptr->source_file;
     fn.type_params    = fi_ptr->type_params;

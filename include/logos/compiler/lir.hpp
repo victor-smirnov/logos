@@ -660,6 +660,12 @@ struct EClosure {
 
 struct LFunction {
     std::string              name;
+    // Unmangled method name as written in the source (e.g. "cow_clone").
+    // Equals the bare fn name for free fns; for struct/impl methods this
+    // is the part after `Target__`. Used by mlir_gen_dyn's vtable
+    // construction to bind trait methods to their impl symbols by
+    // exact-name lookup instead of mangling-string heuristics.
+    std::string              method_base;
     // Package the fn was declared in (sema's `package …;` of the source
     // module). Used by mlir_gen's pkg-rename pass to disambiguate
     // same-named struct methods from distinct pkgs (Box-vs-UserBox).

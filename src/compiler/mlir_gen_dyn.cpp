@@ -674,36 +674,40 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
             if (ib.trait_name != td.name) continue;
 
             // Resolve method-symbol given a TARGET (bare or concrete).
+            //
+            // Match strategy:
+            //   1. fn.method_base == trait method name (exact, no string
+            //      manipulation of the mangled symbol)
+            //   2. fn.name belongs to `target` — strip pkg prefix, then
+            //      check the symbol starts with `target__` (bare) or
+            //      `concrete__` (post-mono concrete clone).
+            //
+            // Replaces the old try_match heuristic that walked mangling
+            // suffixes with strncmp; method_base is set by sema's
+            // lower_fn (raw_name from AST) and propagated by
+            // mono_clone's clone_fn.
             auto resolve_methods = [&](std::string_view target) -> std::vector<std::string> {
+                auto belongs_to_target = [&](std::string_view nm) -> bool {
+                    if (auto dot = nm.rfind('.'); dot != std::string_view::npos)
+                        nm = nm.substr(dot + 1);
+                    if (nm.size() < target.size() + 2) return false;
+                    if (nm.compare(0, target.size(), target) != 0) return false;
+                    return nm[target.size()] == '_' && nm[target.size() + 1] == '_';
+                };
                 std::vector<std::string> methods;
                 for (auto& m : td.methods) {
                     std::string sym;
-                    auto tail = "__" + m.name;
-                    auto try_match = [&](std::string_view nm) -> bool {
-                        if (auto dot = nm.rfind('.'); dot != std::string_view::npos)
-                            nm = nm.substr(dot + 1);
-                        if (nm.compare(0, target.size(), target) != 0)
-                            return false;
-                        auto p = nm.find(tail, target.size());
-                        if (p == std::string_view::npos) return false;
-                        // No characters between target and tail — concrete
-                        // match (e.g. `LeafN$G1$X__release`). For bare-target
-                        // generic case the in-between substring may be `$G…`
-                        // — explicitly reject so concrete entries are picked.
-                        if (target == ib.target_type && p > target.size())
-                            return false;  // bare-target: only direct concat
-                        auto rest = nm.substr(p + tail.size());
-                        return rest.empty() || rest.rfind("__f__", 0) == 0
-                                            || rest.rfind("__g__", 0) == 0;
+                    auto try_match = [&](const lir::LFunction& fn) -> bool {
+                        return fn.method_base == m.name && belongs_to_target(fn.name);
                     };
                     for (auto& fp : ib.methods) {
                         if (!fp) continue;
-                        if (try_match(fp->name)) { sym = fp->name; break; }
+                        if (try_match(*fp)) { sym = fp->name; break; }
                     }
                     if (sym.empty()) {
                         for (auto& fp : prog.functions) {
                             if (!fp) continue;
-                            if (try_match(fp->name)) { sym = fp->name; break; }
+                            if (try_match(*fp)) { sym = fp->name; break; }
                         }
                     }
                     if (sym.empty()) {
@@ -711,7 +715,7 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
                             if (sd.name != target) continue;
                             for (auto& mp : sd.methods) {
                                 if (!mp) continue;
-                                if (try_match(mp->name)) { sym = mp->name; break; }
+                                if (try_match(*mp)) { sym = mp->name; break; }
                             }
                             if (!sym.empty()) break;
                         }
