@@ -54,15 +54,28 @@ pub const DirCfg: HermesStatic = @{ "key": <type:u64>, "fanout": 16 };
 // excludes NodeARC. These helpers mirror split_leaf + insert_rec +
 // pmap_insert for the dir-flavoured layout.
 
-// DirInsertOutcome — like InsertOutcome but K is fixed to u64 and val is
-// implicit (ownership transferred into the dir tree). `slot_p` carries
-// the post-insert *mut to the slot holding the new val (used by
-// create_pmap to wire ContainerRef.dir_slot).
+// DirInsertOutcome — paired with InsertOutcome's max-key model. On split,
+// `right_max` carries the max ctr_id in the new right subtree; the parent
+// inserts (right_max, right_arc) at i+1 and updates parent.keys[i] = the
+// new max of its left child.
 pub struct DirInsertOutcome<const STORE_CFG: HermesStatic> {
-    pub split:       bool,
-    pub right:       NodeARC<STORE_CFG>,
-    pub sep_present: bool,
-    pub sep:         u64,
+    pub split:              bool,
+    pub right:              NodeARC<STORE_CFG>,
+    pub right_max_present:  bool,
+    pub right_max:          u64,
+}
+
+// Read max ctr_id in a dir subtree (= keys.last for both leaf and branch
+// under the max-key invariant).
+unsafe fn dir_node_max_key<const STORE_CFG: HermesStatic>(arc: &NodeARC<STORE_CFG>) -> u64 {
+    let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(arc);
+    let isleaf_p: *mut bool = (dp as i64 + 24i64) as *mut bool;
+    if *isleaf_p {
+        let leaf: *mut LeafDirNode<u64, STORE_CFG, DirCfg> = dp as *mut LeafDirNode<u64, STORE_CFG, DirCfg>;
+        return leaf.keys.get(leaf.keys.len() - 1u64);
+    }
+    let br: *mut BranchNode<u64, STORE_CFG, DirCfg> = dp as *mut BranchNode<u64, STORE_CFG, DirCfg>;
+    return br.keys.get(br.keys.len() - 1u64);
 }
 
 unsafe fn dir_split_leaf<const STORE_CFG: HermesStatic>(
@@ -107,24 +120,27 @@ unsafe fn dir_leaf_lower_bound<const STORE_CFG: HermesStatic>(
     return n;
 }
 
+// Memoria-style: smallest i where keys[i] >= ctr_id (subtree containing
+// the id). Returns n if id > all maxes (callers handle: read=missing,
+// insert=saturate to n-1).
 unsafe fn dir_branch_descend_idx<const STORE_CFG: HermesStatic>(
     br: *mut BranchNode<u64, STORE_CFG, DirCfg>, ctr_id: u64,
 ) -> u64 {
     let n: u64 = br.keys.len();
     let mut i: u64 = 0u64;
     while i < n {
-        if br.keys.get(i) > ctr_id { return i; }
+        if br.keys.get(i) >= ctr_id { return i; }
         i = i + 1u64;
     }
     return n;
 }
 
-// Recursive insert. `arc` is the dir subtree root (CoW'd by caller).
-// `val_arc` ownership: caller transfers; on hit (ctr_id already present)
-// the val_arc rc share is released here (current contract: dir keys are
-// unique per ctr_id; create_pmap allocates fresh ids so no real conflict
-// expected). On split, returns the new right subtree to be inserted at
-// parent.
+// Recursive insert under the max-key invariant. `arc` is the dir subtree
+// root (CoW'd by caller). `val_arc` ownership: caller transfers; on
+// replace-on-hit the val_arc rc share moves into the slot, old released.
+// On split, returns right subtree + its max ctr_id; parent inserts
+// (right_max, right_arc) at i+1 and updates parent.keys[i] = new max
+// of left child.
 unsafe fn dir_insert_rec<const STORE_CFG: HermesStatic>(
     arc: &mut NodeARC<STORE_CFG>,
     ctr_id: u64, val_arc: NodeARC<STORE_CFG>,
@@ -140,16 +156,13 @@ unsafe fn dir_insert_rec<const STORE_CFG: HermesStatic>(
             dp as *mut LeafDirNode<u64, STORE_CFG, DirCfg>;
         let pos: u64 = dir_leaf_lower_bound::<STORE_CFG>(leaf, ctr_id);
         // Replace-on-hit: release the old slot's rc, write new handle.
-        // Caller's val_arc share moves into the slot.
         if pos < leaf.keys.len() && leaf.keys.get(pos) == ctr_id {
             let slot: *mut NodeARC<STORE_CFG> = leaf.vals.at(pos as i64);
             let new_handle: *mut dyn BTreeNode<STORE_CFG> = val_arc.p;
-            // Bump val_arc's rc to compensate for its scope-end auto-drop.
             let new_dp: *mut u8 = (*(new_handle as *mut u64)) as *mut u8;
             *(new_dp as *mut u64) = *(new_dp as *mut u64) + 1u64;
             let old_handle: *mut dyn BTreeNode<STORE_CFG> = (*slot).p;
             (*slot).p = new_handle;
-            // Release old.
             let old_dp: *mut u8 = (*(old_handle as *mut u64)) as *mut u8;
             *(old_dp as *mut u64) = *(old_dp as *mut u64) - 1u64;
             if *(old_dp as *mut u64) == 0u64 {
@@ -159,16 +172,14 @@ unsafe fn dir_insert_rec<const STORE_CFG: HermesStatic>(
             return DirInsertOutcome::<STORE_CFG> {
                 split: false,
                 right: NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
-                sep_present: false, sep: 0u64,
+                right_max_present: false, right_max: 0u64,
             };
         }
-        // Insert at pos. Bump val_arc's rc to compensate for its
-        // scope-end auto-drop (Vec.push consumes the slot's share).
+        // Insert at pos.
         leaf.keys.insert_at(pos, ctr_id);
         let new_handle: *mut dyn BTreeNode<STORE_CFG> = val_arc.p;
         let new_dp: *mut u8 = (*(new_handle as *mut u64)) as *mut u8;
         *(new_dp as *mut u64) = *(new_dp as *mut u64) + 1u64;
-        // Vec lacks insert_at, so push then bubble (mirror vec_arc_insert_at).
         leaf.vals.push(NodeARC::<STORE_CFG> { p: new_handle });
         let mut k: i64 = leaf.vals.length() - 1i64;
         while k > (pos as i64) {
@@ -184,51 +195,57 @@ unsafe fn dir_insert_rec<const STORE_CFG: HermesStatic>(
             let right: NodeARC<STORE_CFG> = dir_split_leaf::<STORE_CFG>(leaf, new_id, cur_snapshot_id);
             let rl: *mut LeafDirNode<u64, STORE_CFG, DirCfg> =
                 node_arc_data_ptr::<STORE_CFG>(&right) as *mut LeafDirNode<u64, STORE_CFG, DirCfg>;
-            let sep_key: u64 = rl.keys.get(0u64);
+            let rmax: u64 = rl.keys.get(rl.keys.len() - 1u64);
             return DirInsertOutcome::<STORE_CFG> {
                 split: true, right: right,
-                sep_present: true, sep: sep_key,
+                right_max_present: true, right_max: rmax,
             };
         }
         return DirInsertOutcome::<STORE_CFG> {
             split: false,
             right: NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
-            sep_present: false, sep: 0u64,
+            right_max_present: false, right_max: 0u64,
         };
     }
     // Branch.
     let br: *mut BranchNode<u64, STORE_CFG, DirCfg> =
         dp as *mut BranchNode<u64, STORE_CFG, DirCfg>;
-    let i: u64 = dir_branch_descend_idx::<STORE_CFG>(br, ctr_id);
     let max_branch: u64 = max_keys_branch::<DirCfg>();
+    let n: u64 = br.keys.len();
+    let mut i: u64 = dir_branch_descend_idx::<STORE_CFG>(br, ctr_id);
+    if i >= n { i = n - 1u64; }
     let child_ref: &mut NodeARC<STORE_CFG> = br.children.borrow_mut(i as i64);
     let inner = dir_insert_rec::<STORE_CFG>(child_ref, ctr_id, val_arc, cur_snapshot_id, id_ctr_p);
+    // Update parent.keys[i] = new max of child (may have grown).
+    let child_after: &NodeARC<STORE_CFG> = br.children.borrow(i as i64);
+    let new_left_max: u64 = dir_node_max_key::<STORE_CFG>(child_after);
+    br.keys.set(i, new_left_max);
+
     if !inner.split {
         return DirInsertOutcome::<STORE_CFG> {
             split: false,
             right: NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
-            sep_present: false, sep: 0u64,
+            right_max_present: false, right_max: 0u64,
         };
     }
-    // Inner split: insert sep at i, child at i+1.
-    br.keys.insert_at(i, inner.sep);
+    // Inner split: insert (right_max, right_arc) at i+1.
+    br.keys.insert_at(i + 1u64, inner.right_max);
     vec_arc_insert_at::<STORE_CFG>(&mut br.children as *mut Vec<NodeARC<STORE_CFG>>, (i as i64) + 1i64, inner.right);
     if br.keys.len() > max_branch {
         let new_id: BlockId<STORE_CFG> = alloc_id_dir::<STORE_CFG>(id_ctr_p);
         let right: NodeARC<STORE_CFG> = split_branch::<u64, STORE_CFG, DirCfg>(br, new_id, cur_snapshot_id);
         let rb: *mut BranchNode<u64, STORE_CFG, DirCfg> =
             node_arc_data_ptr::<STORE_CFG>(&right) as *mut BranchNode<u64, STORE_CFG, DirCfg>;
-        let sep_key: u64 = rb.keys.get(0u64);
-        rb.keys.remove_at(0u64);
+        let rmax: u64 = rb.keys.get(rb.keys.len() - 1u64);
         return DirInsertOutcome::<STORE_CFG> {
             split: true, right: right,
-            sep_present: true, sep: sep_key,
+            right_max_present: true, right_max: rmax,
         };
     }
     return DirInsertOutcome::<STORE_CFG> {
         split: false,
         right: NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
-        sep_present: false, sep: 0u64,
+        right_max_present: false, right_max: 0u64,
     };
 }
 
@@ -237,7 +254,7 @@ unsafe fn alloc_id_dir<const STORE_CFG: HermesStatic>(p: *mut BlockId<STORE_CFG>
     return *p;
 }
 
-// Top-level dir insert: descend, possibly grow root.
+// Top-level dir insert: descend, possibly grow root with [old_max, right_max] keys.
 pub unsafe fn dir_insert<const STORE_CFG: HermesStatic>(
     snap_dir: &mut NodeARC<STORE_CFG>,
     ctr_id: u64, val_arc: NodeARC<STORE_CFG>,
@@ -248,7 +265,10 @@ pub unsafe fn dir_insert<const STORE_CFG: HermesStatic>(
         let new_id: BlockId<STORE_CFG> = alloc_id_dir::<STORE_CFG>(id_ctr_p);
         let new_root: *mut BranchNode<u64, STORE_CFG, DirCfg> =
             branch_alloc::<u64, STORE_CFG, DirCfg>(new_id, cur_snapshot_id);
-        new_root.keys.push(outcome.sep);
+        // Read old_root's max BEFORE we transfer its handle.
+        let old_max: u64 = dir_node_max_key::<STORE_CFG>(snap_dir);
+        new_root.keys.push(old_max);
+        new_root.keys.push(outcome.right_max);
         // Move old root + outcome.right into new branch's children.
         let old_handle: *mut dyn BTreeNode<STORE_CFG> = snap_dir.p;
         let old_dp: *mut u8 = (*(old_handle as *mut u64)) as *mut u8;
@@ -286,6 +306,9 @@ pub unsafe fn dir_lookup<const STORE_CFG: HermesStatic>(
     let br: *mut BranchNode<u64, STORE_CFG, DirCfg> =
         dp as *mut BranchNode<u64, STORE_CFG, DirCfg>;
     let i: u64 = dir_branch_descend_idx::<STORE_CFG>(br, ctr_id);
+    if i >= br.children.length() as u64 {
+        return 0 as *mut NodeARC<STORE_CFG>;     // ctr_id > all maxes
+    }
     let child: &NodeARC<STORE_CFG> = br.children.borrow(i as i64);
     return dir_lookup::<STORE_CFG>(child, ctr_id);
 }

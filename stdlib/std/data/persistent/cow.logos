@@ -5,8 +5,10 @@
 //
 // Three concrete node flavours:
 //
-//   BranchNode<K, STORE_CFG, CFG>   — interior node. children: Vec<NodeARC>
-//                                     (heterogeneous — element drop required).
+//   BranchNode<K, STORE_CFG, CFG>   — interior node. Memoria-style max-key
+//                                     invariant: keys[i] = max key in
+//                                     children[i]; N keys ↔ N children
+//                                     (parallel arrays).
 //   LeafNode<K, V, STORE_CFG, CFG>  — data leaf. vals: Buffer<V>, V is a
 //                                     Container datatype (primitives, fixed
 //                                     structs without Drop).

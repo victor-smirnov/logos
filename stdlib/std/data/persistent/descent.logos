@@ -120,6 +120,13 @@ pub fn leaf_lower_bound<K: Container + ContainerOrd, V: Container, const STORE_C
 }
 
 // ── Branch descent index ──────────────────────────────────────────────
+// Memoria-style invariant: keys[i] = max key in children[i]. N keys ↔ N
+// children (parallel arrays). Returns smallest i where keys[i] >= key
+// (the subtree that may contain the key — its max is ≥ target). If no
+// such i (target > all maxes), returns n. Callers handle:
+//   • read (contains/get): n means "not in tree"; return false.
+//   • insert: saturate to n−1 (descend last child, extend it); the new
+//     max bubbles up via parent.keys[i] = child.keys[last] update.
 pub fn branch_descend_idx<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     branch: *mut BranchNode<K, STORE_CFG, CFG>, key: *const K
 ) -> u64 {
@@ -130,10 +137,9 @@ pub fn branch_descend_idx<K: Container + ContainerOrd, const STORE_CFG: HermesSt
         while i < n {
             let kv: K::ViewInStore = branch.keys.get(i);
             match phantom.cmp_view_key(kv, key) {
-                Ordering::Greater => { return i; }
-                _ => { }
+                Ordering::Less => { i = i + 1u64; }
+                _ => { return i; }     // keys[i] ≥ key
             }
-            i = i + 1u64;
         }
         return n;
     }
@@ -150,6 +156,7 @@ pub fn pmap_contains_rec<K: Container + ContainerOrd, V: Container, const STORE_
         }
         let br = as_branch::<K, STORE_CFG, CFG>(arc);
         let i: u64 = branch_descend_idx::<K, STORE_CFG, CFG>(br, key);
+        if i >= br.children.length() as u64 { return false; }   // key > all maxes
         let child: &NodeARC<STORE_CFG> = br.children.borrow(i as i64);
         return pmap_contains_rec::<K, V, STORE_CFG, CFG>(child, key);
     }
@@ -168,6 +175,7 @@ pub fn pmap_get_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: 
         }
         let br = as_branch::<K, STORE_CFG, CFG>(arc);
         let i: u64 = branch_descend_idx::<K, STORE_CFG, CFG>(br, key);
+        if i >= br.children.length() as u64 { return false; }   // key > all maxes
         let child: &NodeARC<STORE_CFG> = br.children.borrow(i as i64);
         return pmap_get_rec::<K, V, STORE_CFG, CFG>(child, key, out);
     }
