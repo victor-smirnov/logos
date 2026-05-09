@@ -1,0 +1,24 @@
+// User-package `pub struct Map` must shadow `#[zoned] pub struct Map`
+// from imported std.hermes.map. Pre-fix, sema preferred the imported
+// datatype regardless of cur_package_, breaking field reads with
+// "struct 'Map$G2$...' has no field 'k'".
+package struct_shadows_imported_datatype;
+
+use std.hermes.map;
+use std.lang.datatypes;
+
+pub struct Map<K, V> {
+    pub k: K,
+    pub v: V,
+}
+
+pub fn make(k: i64, v: i64) -> Map<i64, i64> {
+    return Map::<i64, i64> { k: k, v: v };
+}
+
+unsafe fn main() -> i32 {
+    let m: Map<i64, i64> = make(7i64, 11i64);
+    if m.k != 7i64  { return 1; }
+    if m.v != 11i64 { return 2; }
+    return 0;
+}

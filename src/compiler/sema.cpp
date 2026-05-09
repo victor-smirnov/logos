@@ -2877,6 +2877,22 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         auto [spkg, ssi] = find_struct_by_name(name);
         auto [dpkg, dsi] = find_datatype_by_name(name);
         auto [epkg, esi] = find_enum_by_name(name);
+        // Cross-pkg ambiguity: user's local `pub struct Foo` shadowing a
+        // datatype `#[zoned] pub struct Foo` from an imported package
+        // would otherwise lose to the datatype because the dispatch
+        // below checks is_dtype before is_struct. Pin to cur_package_
+        // when one kind is local and the other isn't.
+        if (!cur_package_.empty()) {
+            bool s_local = ssi && spkg == cur_package_;
+            bool d_local = dsi && dpkg == cur_package_;
+            bool e_local = esi && epkg == cur_package_;
+            if (s_local && !d_local) { dsi = nullptr; }
+            if (s_local && !e_local) { esi = nullptr; }
+            if (d_local && !s_local) { ssi = nullptr; }
+            if (d_local && !e_local) { esi = nullptr; }
+            if (e_local && !s_local) { ssi = nullptr; }
+            if (e_local && !d_local) { dsi = nullptr; }
+        }
         bool is_struct = ssi != nullptr;
         bool is_dtype  = dsi != nullptr;
         bool is_enum   = esi != nullptr;
