@@ -2931,6 +2931,23 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
         std::string drop_fn(v.drop_fn());
         TypeRef ty = subst_type(v.type(pool), s);
         bool drop_fields = v.drop_fields();
+        // Sentinel from sema: original type was a TypeVar (generic param);
+        // substitution has now produced a concrete type. Resolve to the
+        // actual drop fn (or skip entirely if the substituted type has no
+        // Drop impl).
+        if (drop_fn == "__typevar_pending__drop") {
+            // Resolve sentinel from sema's drop_fn_for(TypeVar) — substitute
+            // brought us a concrete type. Emit `<concrete>__drop`; mlir-gen's
+            // resolve_method_symbol handles the pkg/overload-mangling tail.
+            // If the substituted type has no Drop impl, mlir-gen's lookup
+            // fails silently → no-op (matches "primitive T → no drop").
+            drop_fn.clear();
+            if (ty && (TypeRef(ty).kind() == LogosType::Kind::Struct ||
+                       TypeRef(ty).kind() == LogosType::Kind::ZonedStruct)) {
+                auto cname = concrete_struct_name(ty);
+                if (!cname.empty()) drop_fn = cname + "__drop";
+            }
+        }
         // Re-mangle drop_fn for the substituted concrete struct type. Sema's
         // drop_fn_for returns the template name (e.g. "Foo__drop") for
         // generic struct instances because types_equal can't match

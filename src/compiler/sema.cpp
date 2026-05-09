@@ -1360,6 +1360,10 @@ bool SemaChecker::is_move_type(TypeRef t) const {
 
 std::string SemaChecker::drop_fn_for(TypeRef t) const {
     if (!t) return {};
+    // TypeVar — a generic param. Whether the substituted concrete type has a
+    // Drop impl is unknown at sema; emit a deferred drop stmt with a sentinel
+    // drop_fn that mono's SDrop case rewrites (or removes) after substitution.
+    if (TypeRef(t).kind() == LogosType::Kind::TypeVar) return "__typevar_pending__drop";
     std::string type_name;
     if (TypeRef(t).kind() == LogosType::Kind::Struct) type_name = std::string(TypeRef(t).struct_name());
     if (type_name.empty()) return {};

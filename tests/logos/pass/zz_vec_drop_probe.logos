@@ -1,0 +1,42 @@
+// Probe: Vec<T>::Drop fires T's destructor for each element on scope exit.
+// Counts destructor calls via a static fp; verifies count == #elements.
+
+package zz_vec_drop_probe;
+
+use std.collections.vec;
+use std.lang.drop;
+use std.lang.cmp; use std.lang.ord; use std.lang.datatypes;
+use std.hermes.view; use std.hermes.anyval;
+
+// Bumper owns a *mut u64 and bumps it at Drop. Verifies that Vec<T>'s
+// auto-Drop fires T's Drop once per element.
+pub struct Bumper { pub counter: *mut u64 }
+
+impl Drop for Bumper {
+    fn drop(self: Bumper) {
+        unsafe { *self.counter = *self.counter + 1u64; }
+    }
+}
+
+fn main() -> i32 {
+    let mut count: u64 = 0u64;
+    let cp: *mut u64 = &mut count as *mut u64;
+
+    {
+        let mut v: Vec<Bumper> = vec_new::<Bumper>();
+        v.push(Bumper { counter: cp });
+        v.push(Bumper { counter: cp });
+        v.push(Bumper { counter: cp });
+        // Vec drops here at scope exit → 3 elements → 3 Drop calls.
+    }
+    if count != 3u64 { return 1; }
+
+    // Empty vec — no Drop calls.
+    {
+        let v: Vec<Bumper> = vec_new::<Bumper>();
+        let _ = v.length();
+    }
+    if count != 3u64 { return 2; }
+
+    return 0;
+}

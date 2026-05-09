@@ -227,7 +227,32 @@ pub fn vec_contains<T: Eq>(v: &Vec<T>, val: &T) -> bool {
 }
 
 pub unsafe fn vec_free<T>(v: *mut Vec<T>) {
+    if v.ptr == 0 as *mut T { return; }
     dealloc(v.ptr as *mut u8);
+    v.ptr = 0 as *mut T;
+    v.len = 0;
+    v.cap = 0;
+}
+
+// Auto-Drop. On scope exit:
+//   • each live element [0 .. len) is moved out and dropped (firing T's
+//     Drop if it has one; no-op for POD/Copy T);
+//   • the heap storage is freed.
+// Manual `vec_free` callers are unaffected — auto-drop checks ptr != null.
+impl<T> Drop for Vec<T> {
+    fn drop(self: Vec<T>) {
+        unsafe {
+            let p: *mut T = self.ptr;
+            if p != 0 as *mut T {
+                let mut i: i64 = 0;
+                while i < self.len {
+                    let _x: T = p[i];   // move-and-drop on scope exit
+                    i = i + 1;
+                }
+                dealloc(p as *mut u8);
+            }
+        }
+    }
 }
 
 // Cross-package skip-codegen probe: pre-instantiate Vec<i32> in this package.
