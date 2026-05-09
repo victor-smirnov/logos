@@ -23,16 +23,23 @@ use std.data.persistent.node;
 
 // ── DAG entry ─────────────────────────────────────────────────────────
 // Each commit pins one root NodeARC handle. The root is the directory
-// tree root for v3.handle's Snap; user containers hang off dir leaves
+// tree root for the Snap; user containers hang off dir leaves
 // (vals: NodeARC<STORE_CFG>).
+//
+// Multi-parent: parents.len() == 0 for root commits, == 1 for the
+// usual fork-and-commit chain, ≥ 2 for merge commits. children is
+// maintained by register_commit (each parent's children gets the new
+// commit id appended) and supports forward navigation through the DAG.
 
 pub struct CommitEntry<const STORE_CFG: HermesStatic> {
-    pub root:   NodeARC<STORE_CFG>,
-    pub parent: i64,
+    pub root:     NodeARC<STORE_CFG>,
+    pub parents:  Vec<i64>,
+    pub children: Vec<i64>,
 }
 
-// Sentinel "no parent" commit id — used for root commits. Sites
-// substitute -1i64 inline to avoid module-const ergonomics for now.
+// Sentinel "no parent" commit id — used for root commits in API
+// signatures that take a single optional parent. Sites substitute -1i64
+// inline.
 
 // ── IStore trait ──────────────────────────────────────────────────────
 // Narrow cross-backend ABI: snapshot lifecycle + commit DAG navigation
@@ -44,14 +51,30 @@ pub trait IStore<const STORE_CFG: HermesStatic> {
     fn alloc_block_id(self:    *mut Self) -> u64;
 
     // Pin a new commit referencing `root` as the directory tree root.
-    // Bumps `root`'s rc — the DAG entry shares ownership.
+    // Bumps `root`'s rc — the DAG entry shares ownership. `parent` is
+    // the immediate ancestor (or -1 for a root commit). The parent's
+    // children list is updated to include the new id.
+    //
+    // Multi-parent (merge) commits are NOT yet exposed; the merge
+    // surface will add a sibling `register_merge_commit` that takes
+    // both parents and constructs a parents=[a, b] entry. The on-disk
+    // CommitEntry already supports arbitrary parent counts.
     fn register_commit(self: *mut Self, root: NodeARC<STORE_CFG>, parent: i64) -> i64;
 
     // Return a NodeARC clone of the commit's pinned root. Bumps rc.
     fn checkout(self: *mut Self, id: i64) -> NodeARC<STORE_CFG>;
 
-    // Parent commit id, or NO_COMMIT if `id` is a root commit.
-    fn parent_of(self: *mut Self, id: i64) -> i64;
+    // Snapshot the parents/children of `id`. Returned vectors are owned
+    // copies — callers can iterate without holding the store lock.
+    fn parents_of(self:  *mut Self, id: i64) -> Vec<i64>;
+    fn children_of(self: *mut Self, id: i64) -> Vec<i64>;
+
+    // Total number of commits ever registered in this store. Indices
+    // [0, commit_count) are valid.
+    fn commit_count(self: *mut Self) -> i64;
+
+    // Root commits — entries with no parent. Allocates a fresh Vec<i64>.
+    fn roots(self: *mut Self) -> Vec<i64>;
 }
 
 // ── LockingStore — v1 backend ─────────────────────────────────────────
@@ -64,6 +87,16 @@ pub struct LockingStore<const STORE_CFG: HermesStatic> {
     pub lock:             Mutex<i32>,
     pub next_block_id:    u64,
     pub next_snapshot_id: u64,
+}
+
+// Build a parents Vec for a single-parent commit. Helper fn so the
+// return-stmt mark_moved walker fires on the local Vec, transferring
+// ownership cleanly into the caller (= the StructLit init) without a
+// double-drop. Empty Vec for parent < 0 (root commits).
+fn make_parents_vec(parent: i64) -> Vec<i64> {
+    let mut v: Vec<i64> = vec_new::<i64>();
+    if parent >= 0i64 { v.push(parent); }
+    return v;
 }
 
 pub fn locking_store_new<const STORE_CFG: HermesStatic>() -> LockingStore<STORE_CFG> {
@@ -98,7 +131,22 @@ impl<const STORE_CFG: HermesStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG
         unsafe {
             self.lock.lock();
             let id: i64 = self.dag.length();
-            self.dag.push(CommitEntry::<STORE_CFG> { root: root, parent: parent });
+            // Update parent's children index before we push the new
+            // entry — the lock window covers both mutations atomically.
+            if parent >= 0i64 {
+                let parent_entry: *mut CommitEntry<STORE_CFG> = self.dag.at(parent);
+                parent_entry.children.push(id);
+            }
+            // Build the entry with both Vecs constructed inline-via-helpers.
+            // Each helper fn returns the Vec by value with mark_moved on
+            // the return path — so the temporary is moved straight into
+            // the struct lit's field without a local binding that would
+            // double-drop it at fn-end.
+            self.dag.push(CommitEntry::<STORE_CFG> {
+                root:     root,
+                parents:  make_parents_vec(parent),
+                children: vec_new::<i64>(),
+            });
             self.lock.unlock();
             return id;
         }
@@ -112,13 +160,57 @@ impl<const STORE_CFG: HermesStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG
             return cloned;
         }
     }
-    fn parent_of(self: *mut LockingStore<STORE_CFG>, id: i64) -> i64 {
+    fn parents_of(self: *mut LockingStore<STORE_CFG>, id: i64) -> Vec<i64> {
         unsafe {
             self.lock.lock();
             let entry: &CommitEntry<STORE_CFG> = self.dag.borrow(id);
-            let p: i64 = entry.parent;
+            let mut out: Vec<i64> = vec_new::<i64>();
+            let n: i64 = entry.parents.length();
+            let mut i: i64 = 0i64;
+            while i < n {
+                out.push(entry.parents.get(i));
+                i = i + 1i64;
+            }
             self.lock.unlock();
-            return p;
+            return out;
+        }
+    }
+    fn children_of(self: *mut LockingStore<STORE_CFG>, id: i64) -> Vec<i64> {
+        unsafe {
+            self.lock.lock();
+            let entry: &CommitEntry<STORE_CFG> = self.dag.borrow(id);
+            let mut out: Vec<i64> = vec_new::<i64>();
+            let n: i64 = entry.children.length();
+            let mut i: i64 = 0i64;
+            while i < n {
+                out.push(entry.children.get(i));
+                i = i + 1i64;
+            }
+            self.lock.unlock();
+            return out;
+        }
+    }
+    fn commit_count(self: *mut LockingStore<STORE_CFG>) -> i64 {
+        unsafe {
+            self.lock.lock();
+            let n: i64 = self.dag.length();
+            self.lock.unlock();
+            return n;
+        }
+    }
+    fn roots(self: *mut LockingStore<STORE_CFG>) -> Vec<i64> {
+        unsafe {
+            self.lock.lock();
+            let mut out: Vec<i64> = vec_new::<i64>();
+            let n: i64 = self.dag.length();
+            let mut i: i64 = 0i64;
+            while i < n {
+                let entry: &CommitEntry<STORE_CFG> = self.dag.borrow(i);
+                if entry.parents.length() == 0i64 { out.push(i); }
+                i = i + 1i64;
+            }
+            self.lock.unlock();
+            return out;
         }
     }
 }

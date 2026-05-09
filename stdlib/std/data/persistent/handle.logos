@@ -65,6 +65,7 @@ pub struct Snap<const STORE_CFG: HermesStatic> {
     pub dir: NodeARC<STORE_CFG>,    // directory tree root
     pub arc: Arc<LockingStore<STORE_CFG>>,
     pub snapshot_id: u64,
+    pub parent_id:   i64,           // commit id this snap forked from; -1 for fresh
 }
 
 // snap_fork — start a new mutable snapshot from a committed parent.
@@ -79,6 +80,7 @@ pub fn snap_fork<const STORE_CFG: HermesStatic>(
         dir:         dir,
         arc:         store.arc.clone_ref(),
         snapshot_id: snap_id,
+        parent_id:   parent_commit,
     };
 }
 
@@ -95,6 +97,7 @@ pub fn snap_begin<const STORE_CFG: HermesStatic>(store: &mut Store<STORE_CFG>) -
         dir:         dir,
         arc:         store.arc.clone_ref(),
         snapshot_id: snap_id,
+        parent_id:   0i64 - 1i64,
     };
 }
 
@@ -115,7 +118,7 @@ impl<const STORE_CFG: HermesStatic> Snap<STORE_CFG> {
             let rcp: *mut u64 = dp as *mut u64;
             *rcp = *rcp + 1u64;
         }
-        let id: i64 = unsafe { (s as *mut LockingStore<STORE_CFG>).register_commit(cloned, 0i64 - 1i64) };
+        let id: i64 = unsafe { (s as *mut LockingStore<STORE_CFG>).register_commit(cloned, self.parent_id) };
         return id;
     }
 }

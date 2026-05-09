@@ -1,0 +1,145 @@
+// DAG topology — verify multi-parent CommitEntry, children index,
+// roots(), parents_of, children_of, commit_count.
+//
+// Topology built (single root, two-way fan-out at C0 + at C1):
+//
+//                      C0 (root, parents=[])
+//                     /                  \
+//                    C1                  C2
+//                   /  \                  |
+//                  C3   C4                C5
+//
+// Built by sequential snap_fork+commit calls — no merge API yet,
+// so every commit has 0 or 1 parent. Multi-parent testing comes
+// when the merge surface lands.
+
+package persistent_dag_topology;
+
+use std.collections.vec;
+use std.mem;
+use std.lang.cmp; use std.lang.ord; use std.lang.datatypes;
+use std.hermes.view; use std.hermes.anyval;
+
+use std.data.persistent.node;
+use std.data.persistent.cow;
+use std.data.persistent.store;
+use std.data.persistent.handle;
+
+pub const StoreCfg: HermesStatic = @{
+    "name": "dag", "ctr_id": <type:u64>, "snp_id": <type:u64>, "block_id": <type:u64>,
+};
+pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 8 };
+
+unsafe fn vec_contains_i64(v: &Vec<i64>, x: i64) -> bool {
+    let n: i64 = v.length();
+    let mut i: i64 = 0i64;
+    while i < n {
+        if v.get(i) == x { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+unsafe fn commit_with(store: &mut Store<StoreCfg>, parent: i64, ctr_id: u64, k: u64) -> i64 {
+    let mut snap: Snap<StoreCfg> = if parent < 0i64 {
+        snap_begin::<StoreCfg>(store)
+    } else {
+        snap_fork::<StoreCfg>(store, parent)
+    };
+    {
+        let mut cr: ContainerRef<StoreCfg, MapCfg> = if parent < 0i64 {
+            create_pmap::<MapCfg, StoreCfg>(&mut snap, ctr_id)
+        } else {
+            open_pmap::<MapCfg, StoreCfg>(&mut snap, ctr_id)
+        };
+        let s_id: u64 = snap.snapshot_id;
+        let store_ref: &mut LockingStore<StoreCfg> = snap.arc.deref_mut();
+        let cp: *mut u64 = &mut store_ref.next_block_id as *mut u64;
+        cr.insert(k, k * 2u64, &k as *const u64, s_id, cp);
+    }
+    return snap.commit();
+}
+
+fn main() -> i32 {
+    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
+
+    // Build the topology described above.
+    let c0: i64 = unsafe { commit_with(&mut store, -1i64, 7u64, 100u64) };
+    let c1: i64 = unsafe { commit_with(&mut store, c0,    7u64, 101u64) };
+    let c2: i64 = unsafe { commit_with(&mut store, c0,    7u64, 201u64) };
+    let c3: i64 = unsafe { commit_with(&mut store, c1,    7u64, 301u64) };
+    let c4: i64 = unsafe { commit_with(&mut store, c1,    7u64, 401u64) };
+    let c5: i64 = unsafe { commit_with(&mut store, c2,    7u64, 501u64) };
+
+    let s: &mut LockingStore<StoreCfg> = store.arc.deref_mut();
+    let sp: *mut LockingStore<StoreCfg> = s as *mut LockingStore<StoreCfg>;
+
+    // ── commit_count ──
+    if unsafe { sp.commit_count() } != 6i64 { return 10; }
+
+    // ── parents_of ──
+    {
+        let p0: Vec<i64> = unsafe { sp.parents_of(c0) };
+        if p0.length() != 0i64 { return 20; }
+    }
+    {
+        let p1: Vec<i64> = unsafe { sp.parents_of(c1) };
+        if p1.length() != 1i64 { return 21; }
+        if p1.get(0i64) != c0  { return 22; }
+    }
+    {
+        let p5: Vec<i64> = unsafe { sp.parents_of(c5) };
+        if p5.length() != 1i64 { return 23; }
+        if p5.get(0i64) != c2  { return 24; }
+    }
+
+    // ── children_of ──
+    {
+        let ch0: Vec<i64> = unsafe { sp.children_of(c0) };
+        if ch0.length() != 2i64 { return 30; }
+        if !unsafe { vec_contains_i64(&ch0, c1) } { return 31; }
+        if !unsafe { vec_contains_i64(&ch0, c2) } { return 32; }
+    }
+    {
+        let ch1: Vec<i64> = unsafe { sp.children_of(c1) };
+        if ch1.length() != 2i64 { return 33; }
+        if !unsafe { vec_contains_i64(&ch1, c3) } { return 34; }
+        if !unsafe { vec_contains_i64(&ch1, c4) } { return 35; }
+    }
+    {
+        let ch2: Vec<i64> = unsafe { sp.children_of(c2) };
+        if ch2.length() != 1i64 { return 36; }
+        if ch2.get(0i64)  != c5 { return 37; }
+    }
+    // Leaf commits — no children.
+    {
+        let ch3: Vec<i64> = unsafe { sp.children_of(c3) };
+        if ch3.length() != 0i64 { return 38; }
+        let ch4: Vec<i64> = unsafe { sp.children_of(c4) };
+        if ch4.length() != 0i64 { return 39; }
+        let ch5: Vec<i64> = unsafe { sp.children_of(c5) };
+        if ch5.length() != 0i64 { return 40; }
+    }
+
+    // ── roots() ──
+    {
+        let rs: Vec<i64> = unsafe { sp.roots() };
+        if rs.length() != 1i64 { return 50; }
+        if rs.get(0i64)  != c0 { return 51; }
+    }
+
+    // Sanity: each commit's data still resolves through checkout.
+    let probes: [u64; 6] = [100u64, 101u64, 201u64, 301u64, 401u64, 501u64];
+    let cids:   [i64; 6] = [c0, c1, c2, c3, c4, c5];
+    let mut i: i64 = 0i64;
+    while i < 6i64 {
+        let mut snap: Snap<StoreCfg> = snap_fork::<StoreCfg>(&mut store, cids[i]);
+        let cr: ContainerRef<StoreCfg, MapCfg> =
+            open_pmap::<MapCfg, StoreCfg>(&mut snap, 7u64);
+        let probe: u64 = probes[i];
+        if !cr.contains(&probe as *const u64) { return 60; }
+        i = i + 1i64;
+    }
+
+    return 0;
+}
