@@ -31,12 +31,13 @@ function(logos_add_example NAME)
     # because its bodies reference host-only externs); they get -I source.
     # Native runtime archives (fiber switch, liburing wrappers) sit
     # alongside liblstdlib.a and feed the link line.
-    set(_compile_deps logosc ${SRC} ${HERMES_STDLIB} stdlib_binary stdlib_uring logos_rt logos_fibers)
+    set(_compile_deps logosc ${SRC} ${HERMES_STDLIB} stdlib_binary stdlib_uring logos_rt logos_fibers logos_block_ops)
     set(_compile_extra)
     set(_link_archives
         ${LOGOS_BUILD_LIB_DIR}/liblstdlib_fibers.a
         ${LOGOS_BUILD_LIB_DIR}/liblstdlib_rt.a
-        ${LOGOS_BUILD_LIB_DIR}/liblstdlib_uring.a)
+        ${LOGOS_BUILD_LIB_DIR}/liblstdlib_uring.a
+        ${LOGOS_BUILD_LIB_DIR}/liblstdlib_z_block_ops.a)
 
     add_custom_command(
         OUTPUT ${OBJ}
@@ -47,7 +48,7 @@ function(logos_add_example NAME)
 
     add_custom_command(
         OUTPUT ${BIN}
-        COMMAND ${CMAKE_CXX_COMPILER} -Wl,--gc-sections ${OBJ} ${_link_archives} -lpthread -lm -o ${BIN}
+        COMMAND ${CMAKE_CXX_COMPILER} -Wl,--gc-sections ${OBJ} ${_link_archives} -lpthread -lm -lstdc++ -o ${BIN}
         DEPENDS ${OBJ} ${_link_archives}
         COMMENT "link: ${NAME}"
     )
