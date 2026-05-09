@@ -1699,7 +1699,29 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
     }
 
     auto target = logos_to_mlir(type);
-    if (!target || val.getType() == target) return val;
+    if (!target) return val;
+
+    // *concrete → *mut/*const dyn Trait — synthesise a fat pointer
+    // (data + vtable). Both sides are MLIR ptr_type so the early
+    // identity-check below would otherwise short-circuit; check here
+    // first via the logos types. coerce_to_dyn allocates a 16-byte slot,
+    // populates {data_ptr, vtable_ptr}, returns the slot pointer (the
+    // 8-byte handle that subsequent code dereferences as ptr-to-fat).
+    if (val.getType() == ptr_type() && target == ptr_type() &&
+        type && TypeRef(type).kind() == LogosType::Kind::Ptr &&
+        TypeRef(TypeRef(type).pointee()).kind() == LogosType::Kind::TraitObject &&
+        op_le->type &&
+        TypeRef(op_le->type).kind() == LogosType::Kind::Ptr) {
+        auto pointee = TypeRef(op_le->type).pointee();
+        std::string src_struct;
+        if (pointee && (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
+                        TypeRef(pointee).kind() == LogosType::Kind::ZonedStruct))
+            src_struct = type_str(pointee);
+        std::string trait = std::string(TypeRef(TypeRef(type).pointee()).trait_name());
+        if (auto alloca = coerce_to_dyn(val, trait, src_struct)) return alloca;
+    }
+
+    if (val.getType() == target) return val;
 
     auto fi = mlir::dyn_cast<mlir::IntegerType>(val.getType());
     auto ti = mlir::dyn_cast<mlir::IntegerType>(target);

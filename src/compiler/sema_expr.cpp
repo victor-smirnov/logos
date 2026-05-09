@@ -3079,6 +3079,18 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         // fall through: other methods (if any) resolve via struct lookup below
     }
 
+    // *mut dyn Trait / *const dyn Trait method dispatch: peel the Ptr to
+    // expose the underlying TraitObject so the existing vtable-call branch
+    // handles it uniformly with `&dyn Trait`. The raw-ptr deref still needs
+    // an unsafe context (mirror of *mut Struct's rule).
+    if (TypeRef ptr_recv(recv->type);
+        ptr_recv && ptr_recv.kind() == LogosType::Kind::Ptr &&
+        TypeRef(ptr_recv.pointee()).kind() == LogosType::Kind::TraitObject)
+    {
+        if (!inside_unsafe_)
+            error("method call through raw pointer requires unsafe context");
+        recv->type = ptr_recv.pointee();
+    }
     // &dyn Trait method call: look up trait method, emit EMethodCall with vtable dispatch.
     if (TypeRef rt(recv->type); rt && rt.kind() == LogosType::Kind::TraitObject) {
         auto tname = std::string(rt.trait_name());

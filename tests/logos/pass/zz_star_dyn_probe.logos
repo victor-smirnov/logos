@@ -1,0 +1,57 @@
+// Probe: raw `*mut dyn Trait` as a fat pointer — supports the
+// `NodeARC<STORE_CFG>` smart pointer in the persistent-store rearch.
+// Verifies cast `*mut Concrete` → `*mut dyn Trait` synthesises the
+// vtable, and method calls through the raw fat ptr dispatch correctly
+// (when wrapped in unsafe, mirroring `*mut Struct.method()` rules).
+
+package zz_star_dyn_probe;
+
+pub trait Greet {
+    fn hi(&self) -> i32;
+}
+
+pub struct Hello { pub v: i32 }
+pub struct World { pub w: i32 }
+
+impl Greet for Hello {
+    fn hi(&self) -> i32 { return self.v; }
+}
+impl Greet for World {
+    fn hi(&self) -> i32 { return self.w * 10; }
+}
+
+unsafe fn dispatch(p: *mut dyn Greet) -> i32 {
+    return p.hi();
+}
+
+// Field-of-`*mut dyn Trait` in a struct — load + dispatch.
+pub struct Holder { pub g: *mut dyn Greet }
+
+unsafe fn holder_hi(h: *mut Holder) -> i32 {
+    return h.g.hi();
+}
+
+unsafe fn main() -> i32 {
+    let h: Hello = Hello { v: 7 };
+    let hp: *mut Hello = &mut h as *mut Hello;
+    let dh: *mut dyn Greet = hp as *mut dyn Greet;
+    if dh.hi() != 7 { return 1; }
+    if dispatch(dh) != 7 { return 2; }
+
+    let w: World = World { w: 5 };
+    let wp: *mut World = &mut w as *mut World;
+    let dw: *mut dyn Greet = wp as *mut dyn Greet;
+    if dw.hi() != 50 { return 3; }
+    if dispatch(dw) != 50 { return 4; }
+
+    // Struct holding a *mut dyn Trait field — load through the field
+    // gives a fresh fat-pointer handle; method dispatch works.
+    let mut hd: Holder = Holder { g: dh };
+    let hp: *mut Holder = &mut hd as *mut Holder;
+    if holder_hi(hp) != 7 { return 5; }
+
+    hd.g = dw;
+    if holder_hi(hp) != 50 { return 6; }
+
+    return 0;
+}

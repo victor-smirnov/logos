@@ -418,12 +418,27 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
         return;
     }
 
-    // ── &dyn Trait / Box<dyn Trait> coercion ─────────────────
-    if (TypeRef st(s.type); st && st.kind() == LogosType::Kind::TraitObject) {
+    // ── &dyn Trait / *mut dyn Trait / Box<dyn Trait> coercion ─────────────────
+    // *mut/*const dyn Trait shares its codegen layout with &dyn Trait —
+    // an 8-byte handle pointing at a 16-byte {data, vtable} slot. Peel the
+    // Ptr to expose the inner TraitObject and route to the same path.
+    TypeRef _peeled_st(s.type);
+    if (_peeled_st && _peeled_st.kind() == LogosType::Kind::Ptr &&
+        TypeRef(_peeled_st.pointee()).kind() == LogosType::Kind::TraitObject) {
+        _peeled_st = _peeled_st.pointee();
+    }
+    if (TypeRef st(_peeled_st); st && st.kind() == LogosType::Kind::TraitObject) {
         auto data_ptr = gen_expr(*s.value);
         if (!data_ptr) return;
         mlir::Value alloca;
-        if (TypeRef vt(s.value->type); vt && vt.kind() == LogosType::Kind::TraitObject) {
+        TypeRef src_vt(s.value->type);
+        // Source may also be `*mut dyn Trait` — peel for the "already fat"
+        // shortcut.
+        if (src_vt && src_vt.kind() == LogosType::Kind::Ptr &&
+            TypeRef(src_vt.pointee()).kind() == LogosType::Kind::TraitObject) {
+            src_vt = src_vt.pointee();
+        }
+        if (src_vt && src_vt.kind() == LogosType::Kind::TraitObject) {
             // RHS is already a fat pointer (e.g., returned from a Box<dyn T> function).
             // Use it directly — no need to rebuild the fat struct.
             alloca = data_ptr;
