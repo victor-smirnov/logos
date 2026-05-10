@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
-// std.compiler.metaprog — derive(BranchNodeMP) — slice-1b.
+// std.compiler.metaprog — derive(BranchNodeMP) — slice-1c.
 //
 // Hook for `#[derive_branch_node]` on a LeafNode-shaped struct. Emits
 // a sibling `BranchNodeMP<K, STORE_CFG, CFG>` whose layout mirrors
 // the existing hand-written std.data.persistent.cow.BranchNode plus
-// one aggregate column (sizes: PrimVec<u64>) for slice-1 seek(N).
+// one aggregate column per supported op (initial set: subtree-count
+// → `sizes: PrimVec<u64>` for slice-1 seek(N)).
 //
-// Slice-1b: all three of K / STORE_CFG / CFG are READ from the leaf
-// AST and antiquoted into the emission. Const-generic header position
-// accepts `#name` since debt #15 closure (KW_CONST HASH IDENT COLON
-// type_ref grammar production).
+// Slice-1c: aggregate-column field set is DERIVED from an in-handler
+// op-list. Adding an op = adding a `(field_name, elem_type)` entry to
+// the hardcoded vec; struct grows accordingly via repeat-group antiquot
+// `#( pub #col_names: PrimVec<#col_types>, )*`. Slice 1d will move the
+// op-list out of the handler (HermesStatic in the user's package or
+// an attribute arg).
 
 package std.compiler.metaprog;
 
@@ -20,6 +23,13 @@ use std.hermes.string;
 use std.lang.datatypes;
 use std.data.persistent.node;
 
+// Convenience: borrow a string-literal's bytes as an Ident. The literal
+// lives in rodata for the process lifetime — well past any metafn call,
+// so the non-owning Ident view is safe.
+fn ident_from_str(s: str) -> Ident {
+    return Ident { ptr: s.as_ptr(), len: s.len() as u64 };
+}
+
 #[metaprog_handler("derive_branch_node")]
 fn derive_branch_node_hook(target_offset: u32) -> () {
     let view: OView = oview_module_ast();
@@ -29,24 +39,34 @@ fn derive_branch_node_hook(target_offset: u32) -> () {
     let nm_sv: StringView = view.ast_node_name(item);
     if nm_sv.len == (0 as u64) { return; }
 
-    // Read the leaf's type-param names. Convention: [K, V, STORE_CFG, CFG].
+    // Read leaf type-param names. Convention: [K, V, STORE_CFG, CFG].
     let np: u64 = view.ast_type_param_count(item);
-    if np < (4 as u64) { return; }   // Not a recognised LeafNode shape.
+    if np < (4 as u64) { return; }
 
     let k_sv:    StringView = view.ast_type_param_name(item, 0 as u64);
-    let scfg_sv: StringView = view.ast_type_param_name(item, 2 as u64);  // skip V at 1
+    let scfg_sv: StringView = view.ast_type_param_name(item, 2 as u64);
     let cfg_sv:  StringView = view.ast_type_param_name(item, 3 as u64);
 
     let k:    Ident = Ident { ptr: k_sv.ptr,    len: k_sv.len };
     let scfg: Ident = Ident { ptr: scfg_sv.ptr, len: scfg_sv.len };
     let cfg:  Ident = Ident { ptr: cfg_sv.ptr,  len: cfg_sv.len };
 
+    // Op-driven aggregate columns. Each (col_name, col_type) pair becomes
+    // `pub <col_name>: PrimVec<<col_type>>` inside BranchNodeMP. Slice 1c
+    // ships a single op (subtree-count); growing the list grows the struct.
+    let mut col_names: Vec<Ident> = vec_new::<Ident>();
+    let mut col_types: Vec<Ident> = vec_new::<Ident>();
+    unsafe {
+        (&mut col_names as *mut Vec<Ident>).push(ident_from_str("sizes"));
+        (&mut col_types as *mut Vec<Ident>).push(ident_from_str("u64"));
+    }
+
     let blob: QuoteItemBlob = quote_item! {
         pub struct BranchNodeMP<#k: Container + ContainerOrd, const #scfg: HermesStatic, const #cfg: HermesStatic> {
             pub base:     NodeBase<#scfg>,
             pub keys:     Buffer<#k>,
             pub children: Vec<NodeARC<#scfg>>,
-            pub sizes:    PrimVec<u64>,
+            #( pub #col_names: PrimVec<#col_types> ),*
         }
     };
     unsafe { logos_emit_item_blob_subst(&blob); }

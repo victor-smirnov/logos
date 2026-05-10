@@ -856,7 +856,15 @@
     meta_block <- KW_META hermes_lit
                => { CODE: META_BLOCK, VALUE: $2 }
 
-    field_def <- KW_PUB IDENT COLON type_ref COMMA?
+    field_def <- HASH LPAREN field_def RPAREN COMMA STAR
+              => { CODE: REPEAT_GROUP, VALUE: $3, OP: 1 }
+               / HASH LPAREN field_def RPAREN STAR
+              => { CODE: REPEAT_GROUP, VALUE: $3, OP: 0 }
+               / KW_PUB HASH IDENT COLON type_ref COMMA?
+              => { CODE: FIELD_DEF, IS_PUB: 1, NAME_VAR: $3, TYPE: $5 }
+               / HASH IDENT COLON type_ref COMMA?
+              => { CODE: FIELD_DEF, NAME_VAR: $2, TYPE: $4 }
+               / KW_PUB IDENT COLON type_ref COMMA?
               => { CODE: FIELD_DEF, IS_PUB: 1, NAME: $2, TYPE: $4 }
                / IDENT COLON type_ref COMMA?
               => { CODE: FIELD_DEF, NAME: $1, TYPE: $3 }
