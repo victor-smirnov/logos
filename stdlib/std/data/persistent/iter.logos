@@ -2,16 +2,19 @@
 // Copyright 2026 Victor Smirnov
 // std.data.persistent.iter — forward walker over a multi-level BTree.
 //
-// Holds an explicit path stack of (branch, child_index) frames + the
-// current leaf and in-leaf cursor. step() advances within the leaf;
-// when the leaf is exhausted, frames are popped until one yields a
-// next-sibling subtree, which is descended leftmost to the next leaf.
+// Memoria-style snapshot iter: PMapIter holds NodeARC clones for every
+// branch on the path AND for the current leaf. Each clone owns an rc
+// share — the underlying blocks stay alive until the iter drops, even
+// if the originating ContainerRef is dropped or its tree is mutated.
+// Iter walks the FROZEN view at iter-open time; mutations to the live
+// container (via ContainerRef.insert / .remove) CoW-clone affected
+// nodes, leaving iter's pinned tree untouched.
 //
-// Iter is read-only from the user's POV. The container must not be
-// mutated while an iter is live (Memoria-style "snapshot frozen for
-// iter") — typed pointers held in the path/leaf would dangle on
-// CoW-clone or split. v1 enforces by convention; future enhancement
-// could thread the borrow through a `&'a ContainerRef` lifetime.
+// Drop chain (after compiler debt #12 fix in mono): PMapIter's auto-
+// derive Drop walks Vec<IterFrame>; Vec's drop body's per-element
+// `let _x: T = p[i]` for T=IterFrame gets drop_fields=true via the
+// mono SDrop sentinel→struct path → mlir-gen walks IterFrame's fields
+// → branch_arc.drop fires → rc-- on each branch.
 
 package std.data.persistent.iter;
 
@@ -28,100 +31,109 @@ use std.data.persistent.cow;
 use std.data.persistent.descent;
 
 // One descent frame: a branch on the path + the child index whose
-// subtree the iter currently occupies. step()'s "advance" walks up
-// to the nearest frame with `idx + 1 < branch.children.length()`,
-// bumps idx, then descends leftmost from the new subtree.
+// subtree the iter currently occupies. branch_arc owns an rc share —
+// the block can't be deallocated while this frame is alive. branch_p
+// is the typed-pointer view (derived from branch_arc's data ptr).
 pub struct IterFrame<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
-    pub branch: *mut BranchNode<K, STORE_CFG, CFG>,
-    pub idx:    u64,
+    pub branch_arc: NodeARC<STORE_CFG>,
+    pub branch_p:   *mut BranchNode<K, STORE_CFG, CFG>,
+    pub idx:        u64,
 }
 
-// Forward walker. `leaf` is null iff the tree is empty (root leaf with
-// 0 keys); valid() returns false in that case.
+// Forward walker. `leaf_arc` is null iff the iter is exhausted.
+// `leaf_p` is the typed view derived from `leaf_arc.p`.
 pub struct PMapIter<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
-    pub path:   Vec<IterFrame<K, STORE_CFG, CFG>>,
-    pub leaf:   *mut LeafNode<K, V, STORE_CFG, CFG>,
-    pub cursor: u64,
+    pub path:     Vec<IterFrame<K, STORE_CFG, CFG>>,
+    pub leaf_arc: NodeARC<STORE_CFG>,
+    pub leaf_p:   *mut LeafNode<K, V, STORE_CFG, CFG>,
+    pub cursor:   u64,
 }
 
-// Descend leftmost from `arc`, pushing branch frames into `path` and
-// returning the leaf at the bottom. arc must be a valid (non-null)
-// NodeARC pointing at any node level.
+// Descend leftmost from `start`, pushing branch frames into `path` and
+// returning the leaf as a NodeARC clone (rc bumped on every visited
+// branch + the leaf). Caller takes ownership of the returned NodeARC.
 unsafe fn descend_leftmost<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
-    arc: &NodeARC<STORE_CFG>,
-    path: *mut Vec<IterFrame<K, STORE_CFG, CFG>>,
-) -> *mut LeafNode<K, V, STORE_CFG, CFG> {
-    let mut cur_dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(arc);
+    start: &NodeARC<STORE_CFG>,
+    path:  *mut Vec<IterFrame<K, STORE_CFG, CFG>>,
+) -> NodeARC<STORE_CFG> {
+    let mut cur: NodeARC<STORE_CFG> = start.clone_arc();
     loop {
-        let isleaf_p: *mut bool = (cur_dp as i64 + 24i64) as *mut bool;
-        if *isleaf_p {
-            return cur_dp as *mut LeafNode<K, V, STORE_CFG, CFG>;
-        }
-        let br: *mut BranchNode<K, STORE_CFG, CFG> = cur_dp as *mut BranchNode<K, STORE_CFG, CFG>;
-        path.push(IterFrame::<K, STORE_CFG, CFG> { branch: br, idx: 0u64 });
-        let child: &NodeARC<STORE_CFG> = br.children.borrow(0i64);
-        cur_dp = node_arc_data_ptr::<STORE_CFG>(child);
+        let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&cur);
+        let isleaf_p: *mut bool = (dp as i64 + 24i64) as *mut bool;
+        if *isleaf_p { return cur; }
+        let br: *mut BranchNode<K, STORE_CFG, CFG> = dp as *mut BranchNode<K, STORE_CFG, CFG>;
+        let next_child: &NodeARC<STORE_CFG> = br.children.borrow(0i64);
+        let next_arc: NodeARC<STORE_CFG> = next_child.clone_arc();
+        path.push(IterFrame::<K, STORE_CFG, CFG> {
+            branch_arc: cur, branch_p: br, idx: 0u64,
+        });
+        cur = next_arc;
     }
 }
 
 // Open a forward iter at the leftmost (smallest) entry of the BTree
-// rooted at `arc`. valid() == true iff there is at least one entry.
+// rooted at `arc`. The iter pins its view via NodeARC clones — `arc`'s
+// container can be dropped, mutated, or commit'd; the iter still walks
+// the snapshot observed at iter-open time.
 pub unsafe fn pmap_iter_open<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     arc: &NodeARC<STORE_CFG>,
 ) -> PMapIter<K, V, STORE_CFG, CFG> {
     let mut path: Vec<IterFrame<K, STORE_CFG, CFG>> = vec_new::<IterFrame<K, STORE_CFG, CFG>>();
-    let leaf: *mut LeafNode<K, V, STORE_CFG, CFG> = descend_leftmost::<K, V, STORE_CFG, CFG>(
+    let leaf_arc: NodeARC<STORE_CFG> = descend_leftmost::<K, V, STORE_CFG, CFG>(
         arc, &mut path as *mut Vec<IterFrame<K, STORE_CFG, CFG>>);
+    let leaf_p: *mut LeafNode<K, V, STORE_CFG, CFG> =
+        node_arc_data_ptr::<STORE_CFG>(&leaf_arc) as *mut LeafNode<K, V, STORE_CFG, CFG>;
     return PMapIter::<K, V, STORE_CFG, CFG> {
-        path:   path,
-        leaf:   leaf,
-        cursor: 0u64,
+        path:     path,
+        leaf_arc: leaf_arc,
+        leaf_p:   leaf_p,
+        cursor:   0u64,
     };
 }
 
 impl<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic> PMapIter<K, V, STORE_CFG, CFG> {
     pub fn valid(&self) -> bool {
         unsafe {
-            if self.leaf == 0 as *mut LeafNode<K, V, STORE_CFG, CFG> { return false; }
-            return self.cursor < self.leaf.keys.len();
+            if self.leaf_p == 0 as *mut LeafNode<K, V, STORE_CFG, CFG> { return false; }
+            return self.cursor < self.leaf_p.keys.len();
         }
     }
 
-    pub unsafe fn key(&self) -> K::ViewInStore {
-        return self.leaf.keys.get(self.cursor);
-    }
-
-    pub unsafe fn val(&self) -> V::ViewInStore {
-        return self.leaf.vals.get(self.cursor);
-    }
+    pub unsafe fn key(&self) -> K::ViewInStore { return self.leaf_p.keys.get(self.cursor); }
+    pub unsafe fn val(&self) -> V::ViewInStore { return self.leaf_p.vals.get(self.cursor); }
 
     // Advance one position. After the leaf is exhausted, walk up the
     // path stack to the nearest frame whose branch has another
-    // unvisited child, then descend leftmost from that subtree.
-    // Sets leaf=null + cursor=0 when the iter is exhausted.
+    // unvisited child, then descend leftmost from that subtree —
+    // releasing the old leaf NodeARC and pinning the new one.
     pub unsafe fn step(&mut self) {
         self.cursor = self.cursor + 1u64;
-        if self.cursor < self.leaf.keys.len() { return; }
-        // Leaf exhausted — find the next subtree.
+        if self.cursor < self.leaf_p.keys.len() { return; }
         loop {
             let n: i64 = self.path.length();
             if n == 0i64 {
-                // Root leaf — no more frames; iter exhausted.
-                self.leaf = 0 as *mut LeafNode<K, V, STORE_CFG, CFG>;
+                // Exhausted at root level — release leaf, mark done.
+                arc_release_in_slot::<STORE_CFG>(&mut self.leaf_arc as *mut NodeARC<STORE_CFG>);
+                self.leaf_p = 0 as *mut LeafNode<K, V, STORE_CFG, CFG>;
                 self.cursor = 0u64;
                 return;
             }
             let top: *mut IterFrame<K, STORE_CFG, CFG> = self.path.at(n - 1i64);
-            let nc: u64 = top.branch.children.length() as u64;
+            let nc: u64 = top.branch_p.children.length() as u64;
             if top.idx + 1u64 < nc {
                 top.idx = top.idx + 1u64;
-                let next_child: &NodeARC<STORE_CFG> = top.branch.children.borrow(top.idx as i64);
-                self.leaf = descend_leftmost::<K, V, STORE_CFG, CFG>(
+                let next_child: &NodeARC<STORE_CFG> = top.branch_p.children.borrow(top.idx as i64);
+                let new_leaf: NodeARC<STORE_CFG> = descend_leftmost::<K, V, STORE_CFG, CFG>(
                     next_child, &mut self.path as *mut Vec<IterFrame<K, STORE_CFG, CFG>>);
+                arc_replace_in_slot::<STORE_CFG>(
+                    &mut self.leaf_arc as *mut NodeARC<STORE_CFG>, new_leaf);
+                self.leaf_p = node_arc_data_ptr::<STORE_CFG>(&self.leaf_arc) as *mut LeafNode<K, V, STORE_CFG, CFG>;
                 self.cursor = 0u64;
                 return;
             }
-            // This frame fully visited — pop and try parent.
+            // Frame fully visited — pop. Auto-drop releases its branch_arc
+            // (debt #12 fix in mono propagates drop_fields=true through
+            // the SDrop sentinel→struct substitution).
             let _ = self.path.pop();
         }
     }

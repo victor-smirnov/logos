@@ -85,7 +85,9 @@ fn main() -> i32 {
     let mut dirs: i32 = 0;
     let mut i: i64 = 0 as i64;
     while i < count {
-        let e: DirEntry = unsafe { ((&mut entries) as *mut Vec<DirEntry>).get(i) };
+        // borrow (not get) — DirEntry contains a String, so by-value
+        // get() would create an aliased copy and double-free at scope exit.
+        let e: &DirEntry = entries.borrow(i);
         if e.is_dir { dirs = dirs + 1; }
         i = i + 1 as i64;
     }

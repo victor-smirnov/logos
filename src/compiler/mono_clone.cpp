@@ -2936,16 +2936,35 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
         // actual drop fn (or skip entirely if the substituted type has no
         // Drop impl).
         if (drop_fn == "__typevar_pending__drop") {
-            // Resolve sentinel from sema's drop_fn_for(TypeVar) — substitute
-            // brought us a concrete type. Emit `<concrete>__drop`; mlir-gen's
-            // resolve_method_symbol handles the pkg/overload-mangling tail.
-            // If the substituted type has no Drop impl, mlir-gen's lookup
-            // fails silently → no-op (matches "primitive T → no drop").
             drop_fn.clear();
             if (ty && (TypeRef(ty).kind() == LogosType::Kind::Struct ||
                        TypeRef(ty).kind() == LogosType::Kind::ZonedStruct)) {
                 auto cname = concrete_struct_name(ty);
                 if (!cname.empty()) drop_fn = cname + "__drop";
+                // Propagate drop_fields=true so mlir-gen's SDrop walks
+                // the substituted struct's droppable fields. Mirrors
+                // sema's make_drop_stmt convention for direct SDrops
+                // (drop_fn called when present, then fields auto-walked).
+                // Without this, structs like IterFrame { branch_arc:
+                // NodeARC, ... } used as Vec<T> elements would never
+                // auto-drop their fields (when Vec.drop's mono'd body
+                // bitwise-reads each element into a typed local).
+                // Lookup uses the CONCRETE mangled name (out_.structs
+                // holds monomorphized defs after clone_struct_def);
+                // falls back to bare name for non-generic structs.
+                for (auto& sd : out_.structs) {
+                    bool match = (!cname.empty() && sd.name == cname) ||
+                                 sd.name == TypeRef(ty).struct_name();
+                    if (!match) continue;
+                    for (auto& f : sd.fields) {
+                        if (f.type && (TypeRef(f.type).kind() == LogosType::Kind::Struct ||
+                                       TypeRef(f.type).kind() == LogosType::Kind::ZonedStruct)) {
+                            drop_fields = true;
+                            break;
+                        }
+                    }
+                    break;
+                }
             }
         }
         // Re-mangle drop_fn for the substituted concrete struct type. Sema's

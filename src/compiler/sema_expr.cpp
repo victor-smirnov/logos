@@ -5964,6 +5964,16 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
         }
     }
 
+    // Move semantics: enum payload elements consume their source — same
+    // pattern as struct lit field values. Without this, `Option::Some(v)`
+    // for move-type v leaves v live in surrounding scope → double-drop
+    // when both v's auto-Drop and the Option's payload-walk drop fire on
+    // the same backing.
+    for (auto& p : payload) {
+        if (p && is_move_type(p->type))
+            mark_moved_expr(expr_ref_of(*p));
+    }
+
     return builder().enum_lit_data(std::string(ename), std::string(vname), vinfo->value, std::move(payload), result_type);
 }
 
@@ -6131,6 +6141,14 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                                   ename, vname, i, *v, type_str(pack_t)));
             }
         }
+    }
+    // Move semantics: same as lower_enum_lit_data — payload elements
+    // consume their source. Without this, move-type payloads would leave
+    // their sources live in the surrounding scope (silent leak before
+    // mono SDrop sentinel→struct propagation; double-drop after).
+    for (auto& p : payload) {
+        if (p && is_move_type(p->type))
+            mark_moved_expr(expr_ref_of(*p));
     }
     return builder().enum_lit_data(std::string(ename), std::string(vname), vinfo->value, std::move(payload), result_type);
 }
