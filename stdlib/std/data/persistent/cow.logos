@@ -36,21 +36,13 @@ use std.hermes.view;
 use std.hermes.anyval;
 
 use std.data.persistent.node;
+use std.compiler.metaprog;   // brings #[derive_branch_node] trigger into scope
 
-// ── BranchNode ─────────────────────────────────────────────────────────
-// Hand-written. The intended pattern is to derive this from LeafNode via
-// `#[derive_branch_node(branch = "BranchNode")]` but that hits a
-// circular-dependency snag during stdlib build: cow.logos's own bodies
-// (as_branch, IterFrame, etc.) reference BranchNode in their fn
-// signatures — the dispatch loop's first sema_lower needs to resolve
-// the type, but the derive hook runs AFTER that. Emit_module DOES now
-// run metaprog dispatch (debt #21 wired) — derives in stdlib WORK so
-// long as their emit isn't referenced by stdlib's own fn-signatures.
-// See debt #22 (stdlib self-reference cycle) for the deeper sema fix.
-pub struct BranchNode<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
-    pub base:     NodeBase<STORE_CFG>,
-    pub keys:     Buffer<K>,
-    pub children: Vec<NodeARC<STORE_CFG>>,
+#[derive_branch_node(branch = "BranchNode")]
+pub struct LeafNodeForBranch<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
+    pub base: NodeBase<STORE_CFG>,
+    pub keys: Buffer<K>,
+    pub vals: Buffer<V>,
 }
 
 impl<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic> BTreeNode<STORE_CFG> for BranchNode<K, STORE_CFG, CFG> {

@@ -3289,6 +3289,56 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
     }
     cur_package_ = {};
     cur_imports_ = {};
+
+    // ── Impl-method re-attachment pass ─────────────────────────────
+    // lower_impl_block tries to attach methods to their target struct's
+    // template by scanning prog.structs at impl-lowering time. When the
+    // struct is in a *later-processed* ast (typical for derive-emitted
+    // structs in synth docs appended at the end), the lookup misses
+    // and methods land in prog.functions. mono's
+    // struct_method_templates_ is built from struct.methods only, so
+    // those orphaned methods are never cloned for concrete struct
+    // instantiations → dyn vtable lookup fails.
+    //
+    // Walk prog.functions for impl-method-shaped names
+    // (`<Struct>__<method>__[fg]__<sig>`) whose <Struct> exists as a
+    // generic template in prog.structs. Move into struct.methods.
+    {
+        // O(1) lookup: bare struct name → template LStructDef*.
+        std::unordered_map<std::string, lir::LStructDef*> templates_by_name;
+        for (auto& sd : prog.structs) {
+            if (sd.type_params.empty()) continue;
+            templates_by_name.emplace(sd.name, &sd);  // first wins
+        }
+        auto is_impl_method_shape = [](std::string_view nm) -> std::string_view {
+            if (auto dot = nm.rfind('.'); dot != std::string_view::npos)
+                nm.remove_prefix(dot + 1);
+            auto sep = nm.find("__");
+            if (sep == std::string_view::npos) return {};
+            // Require __f__ or __g__ further along — distinguishes impl
+            // methods from coincidentally-named free fns.
+            if (nm.find("__f__", sep) == std::string_view::npos &&
+                nm.find("__g__", sep) == std::string_view::npos)
+                return {};
+            auto base = nm.substr(0, sep);
+            if (base.empty() || base[0] == '$') return {};
+            return base;
+        };
+        std::vector<std::unique_ptr<lir::LFunction>> kept;
+        kept.reserve(prog.functions.size());
+        for (auto& fp : prog.functions) {
+            if (!fp) continue;
+            auto base = is_impl_method_shape(fp->name);
+            lir::LStructDef* host = nullptr;
+            if (!base.empty()) {
+                auto it = templates_by_name.find(std::string(base));
+                if (it != templates_by_name.end()) host = it->second;
+            }
+            if (host) host->methods.push_back(std::move(fp));
+            else      kept.push_back(std::move(fp));
+        }
+        prog.functions = std::move(kept);
+    }
 }
 
 // Parse one annotation literal AST node into an LAnnotationValue.
