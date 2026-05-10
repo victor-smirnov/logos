@@ -1037,7 +1037,14 @@ lir::LExprPtr SemaChecker::lower_deref(TinyMapView node) {
 }
 
 lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
+    // Substituted antiquot at callee position lands in NAME (after
+    // NAME_VAR(idx)→NAME(string) rewrite); accept either.
     auto callee = str_of(node.get(la::CALLEE.code));
+    bool antiquot_callee = false;
+    if (callee.empty()) {
+        callee = str_of(node.get(la::NAME.code));
+        antiquot_callee = !callee.empty();
+    }
 
     // Check if callee is a closure or fn-ptr variable
     auto callee_type = lookup(callee);
@@ -1080,11 +1087,16 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     // The old intrinsic path (EFormatCall) is retained for future intrinsics but
     // no longer intercepts the "format" name.
 
-    // Lower arguments first — needed for type inference
+    // Lower arguments first — needed for type inference. For antiquot
+    // CALL produced by `#(callee_expr)(args...)` / `#cl(args...)`, the
+    // grammar's `$...` capture also includes the outer `expr` (the
+    // antiquot's payload) as the first ARGS element — skip it. Plain
+    // IDENT-form CALL is unaffected.
     std::vector<lir::LExprPtr> arg_exprs;
     if (node.has_key(la::ARGS)) {
         auto args = arr_of(node.get(la::ARGS.code));
-        for (uint64_t i = 0; i < args.size(); ++i)
+        uint64_t start = antiquot_callee ? 1 : 0;
+        for (uint64_t i = start; i < args.size(); ++i)
             arg_exprs.push_back(lower_expr(map_of(args.get(i))));
     }
     uint64_t n_args = arg_exprs.size();
@@ -4277,7 +4289,10 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
 }
 
 lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
+    // Substituted antiquot at field-name position lands in NAME (after
+    // NAME_VAR(idx)→NAME(string) rewrite); FIELD isn't set in that path.
     auto field_name = str_of(node.get(la::FIELD.code));
+    if (field_name.empty()) field_name = str_of(node.get(la::NAME.code));
     auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
     TypeRef recv_base_t = recv->type;
     if (recv_base_t && TypeRef(recv_base_t).kind() == LogosType::Kind::Ptr) {

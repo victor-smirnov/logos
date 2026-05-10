@@ -2777,6 +2777,12 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         }
         auto t = lookup_type_by_name(name);
         if (t) return t;
+        // See #20 sister site below: in metaprog discovery loop, swallow
+        // unknown-type silently for entry/synth-doc — the type may be
+        // synthesised by a hook later. Final non-metaprog sema pass
+        // catches real errors.
+        if (metaprog_mode_ && cur_ast_idx_ == metaprog_entry_ast_idx_)
+            return error_t();
         // Bug 4 fix: give a more informative error when a generic alias is used
         // without its required type arguments.
         auto ait = type_aliases_.find(std::string(name));

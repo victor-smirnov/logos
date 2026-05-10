@@ -295,16 +295,32 @@ fn derive_branch_node_hook(target_offset: u32) -> () {
     };
     unsafe { logos_emit_item_blob_subst(&blob); }
 
-    // Per-op shuttle wrapper emission deferred — `pub fn #(sym)<...>`
-    // antiquot at fn-name position currently throws a syntax error
-    // (debt #19, related to debts #15/#16). For slice 2 the user
-    // invokes the stdlib generic shuttle directly:
+    // Per-op shuttle wrapper. One thin fn per op that calls the stdlib
+    // shuttle template against the right column. Signature is uniform
+    // over op kinds (target=u64, returns ShuttleResult) so the descent
+    // composer can dispatch by name.
     //
-    //   shuttle_sum_u64(&br.sizes as *const PrimVec<u64>, target)
-    //
-    // The op-list still drives column emission, so the user knows the
-    // right (col_name, kind) pairing — slice 2.x adds the per-op
-    // wrappers when the antiquot grammar gap closes.
+    // REPEAT_GROUP at item-list position inside quote_item! is not yet
+    // supported — emit one quote_item! per op via a Logos loop instead.
+    let m: i64 = shuttle_syms.length();
+    let mut idx: i64 = 0i64;
+    while idx < m {
+        let sym:  Ident = unsafe { *shuttle_syms.at_const(idx) };
+        let tmpl: Ident = unsafe { *shuttle_fns.at_const(idx) };
+        let cn:   Ident = unsafe { *col_names.at_const(idx) };
+        let ct:   Ident = unsafe { *col_types.at_const(idx) };
+        let one: QuoteItemBlob = quote_item! {
+            pub fn #(sym)<#k: Container + ContainerOrd, const #scfg: HermesStatic, const #cfg: HermesStatic>(
+                br: *const BranchNodeMP<#k, #scfg, #cfg>, target: u64,
+            ) -> ShuttleResult {
+                unsafe {
+                    return #(tmpl)(&br.#cn as *const PrimVec<#ct>, target);
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&one); }
+        idx = idx + 1i64;
+    }
     return;
 }
 

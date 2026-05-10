@@ -1,8 +1,0 @@
-// B-ca-05: const arrays/tuples are not yet supported (would require
-// rodata-global lowering). Sema must reject with a clear message
-// instead of letting mlir-gen fail later with "undefined ARR".
-package const_array_unsupported;
-
-pub const ARR: [i32; 3] = [1, 2, 3];
-
-fn main() -> i32 { return ARR[0]; }

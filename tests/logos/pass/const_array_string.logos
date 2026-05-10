@@ -1,0 +1,21 @@
+// Const-array support (closes debt #17): `pub const X: [T; N] = [...]`
+// works for both scalar and string element types. mlir-gen re-evaluates
+// the constant at each use-site (no rodata-globals optimisation yet,
+// but functionally correct).
+package main;
+
+pub const NUMS: [i32; 3] = [10, 20, 30];
+pub const NAMES: [str; 3] = ["one", "two", "three"];
+
+fn main() -> i32 {
+    if NUMS[0] != 10 { return 1; }
+    if NUMS[1] != 20 { return 2; }
+    if NUMS[2] != 30 { return 3; }
+    let n0: str = NAMES[0];
+    let n1: str = NAMES[1];
+    let n2: str = NAMES[2];
+    if n0.len() != 3 { return 4; }
+    if n1.len() != 3 { return 5; }
+    if n2.len() != 5 { return 6; }
+    return 0;
+}

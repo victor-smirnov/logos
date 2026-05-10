@@ -495,8 +495,18 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     // dangling call-site references in the metaprog mlir module. User-side
     // impl methods don't reference yet-to-be-synthesized symbols anyway;
     // they're concrete code that already exists in the source.
+    // Stub the entry ast PLUS derive-blob-emitted synth docs (filename
+    // = "<metaprog-blob-subst>"). Their fn bodies may reference user-
+    // side fns that are themselves stubs in this metaprog discovery
+    // pass; lowering them would dangle in the meta_prog mlir module.
+    //
+    // Don't stub metacall thunks emitted via logos_emit_source (filename
+    // "<metaprog>") — those need to JIT-compile so the discovery loop
+    // can invoke them. The final non-metaprog sema pass lowers
+    // everything for real.
+    bool is_synth_blob = file_ == "<metaprog-blob-subst>";
     bool skip_body = metaprog_mode_
-                  && cur_ast_idx_ == metaprog_entry_ast_idx_
+                  && (cur_ast_idx_ == metaprog_entry_ast_idx_ || is_synth_blob)
                   && struct_ctx.empty()
                   && !fn_is_metaprog_handler(fn.name)
                   && !fn_is_metaprog_keep(fn.name);
@@ -646,20 +656,13 @@ lir::LConst SemaChecker::lower_const_def(TinyMapView node) {
     lc.name = name;
     auto cit = module_consts_.find(name);
     lc.type = (cit != module_consts_.end()) ? cit->second : error_t();
-    // B-ca-05: const arrays / tuples are not yet supported (would need a
-    // rodata-globals lowering path; today mlir-gen errors with "undefined".
-    // Reject at sema with a clear message so the user gets the right
-    // pointer instead of a downstream codegen error.
-    if (lc.type) {
-        auto ck = TypeRef(lc.type).kind();
-        if (ck == LogosType::Kind::Array || ck == LogosType::Kind::Tuple) {
-            error(std::format(
-                "const '{}': const arrays/tuples are not yet supported "
-                "(would need rodata-global lowering — feature, not bug). "
-                "Move the value into a `let` inside a fn, or use HermesStatic.",
-                name));
-        }
-    }
+    // Const arrays/tuples: mlir-gen's EVarRef-for-const path re-
+    // evaluates the const's value at each use-site, so a literal like
+    // `["a", "b"]` materialises a fresh on-stack array each access.
+    // Functionally correct as long as the const is only read from
+    // ordinary (non-metaprog-AST) code; metaprog handlers walk the
+    // AST, not the runtime value, so they're unaffected. Real rodata-
+    // global lowering would optimise this but isn't required.
     // For generic consts, push the const's type-params so any `<type:T>`
     // inside the value AST resolves to the param TypeVar (not an unbound
     // name).  The actual concrete instantiations happen per use-site via

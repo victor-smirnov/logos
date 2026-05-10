@@ -1406,6 +1406,18 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIndexReadView v, TypeRef type)
     switch (recv_ref.kind()) {
     case ec::Code::VarRef: {
         std::string name(lir_view::EVarRefView{recv_ref}.name());
+        // Module constant carrying an array literal — re-materialise the
+        // value as a fresh on-stack alloca, walk into it like a normal
+        // local. The const's TypeRef is what drives elem_type.
+        if (auto cit = module_consts_.find(name); cit != module_consts_.end()) {
+            arr_ptr = gen_expr(*cit->second->value);
+            if (!arr_ptr) return nullptr;
+            TypeRef ct = cit->second->type;
+            if (ct && TypeRef(ct).elem()) {
+                elem_type = logos_to_mlir(TypeRef(ct).elem());
+            }
+            break;
+        }
         auto lpit = var_local_ptrs_.find(name);
         if (lpit != var_local_ptrs_.end()) {
             auto alloca = get_subscript_ptr(name);
