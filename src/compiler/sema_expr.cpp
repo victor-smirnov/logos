@@ -4665,6 +4665,18 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             if (!init)
                 error(std::format("struct literal '{}': field '{}' not initialized", sname, fname));
 
+        // Move semantics: mark Move-typed field values as consumed.
+        // Without this, `Foo<T> { f: v }` where v has a move-type would
+        // leave v live in the surrounding scope → double-drop of v's
+        // bytes (once via v's scope-exit drop, once via the new struct's
+        // field-walk drop). The non-generic path below has the same
+        // loop; this duplicate is required because the generic-struct
+        // branch returns early (above this line) without falling through.
+        for (auto& [fname, fval] : fields) {
+            if (fval && is_move_type(fval->type))
+                mark_moved_expr(expr_ref_of(*fval));
+        }
+
         return builder().struct_lit(concrete, std::move(fields), lit_type);
     }
 

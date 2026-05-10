@@ -132,6 +132,26 @@ pub unsafe fn for_each_block_rec<const STORE_CFG: HermesStatic>(
     *counter = *counter + 1u64;
 }
 
+// Release the rc share held by `slot` in place: rc--, dealloc if last,
+// then null the slot's handle so subsequent NodeARC.drop on it is a
+// no-op via the null-handle escape. Used by iterators / views that
+// own NodeARC slots and need to clear them mid-life (e.g. iter step
+// transitioning from one leaf to another, or iter exhaustion).
+pub unsafe fn arc_release_in_slot<const STORE_CFG: HermesStatic>(
+    slot: *mut NodeARC<STORE_CFG>,
+) {
+    if (*slot).p as *mut u64 == 0 as *mut u64 { return; }
+    let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&*slot);
+    if dp == 0 as *mut u8 { return; }
+    let rcp: *mut u64 = dp as *mut u64;
+    *rcp = *rcp - 1u64;
+    if *rcp == 0u64 {
+        (*slot).p.__drop_in_place();
+        dealloc(dp);
+    }
+    (*slot).p = 0 as *mut dyn BTreeNode<STORE_CFG>;
+}
+
 // Replace the NodeARC at `slot` with `new_arc`, preserving rc invariants.
 // `new_arc` arrives by value — its rc share transfers into the slot. We
 // neutralise `new_arc.p` to null after the move (via *mut cast) so its

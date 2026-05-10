@@ -1,0 +1,30 @@
+// Generic struct lit must mark move-type field values as consumed —
+// pre-fix, sema's lower_struct_lit had an early return for the
+// generic-struct branch BEFORE the mark_moved loop, leaving field
+// sources live in the surrounding scope. For move types like
+// Vec<NodeARC>, this caused a double-free at scope exit (once via
+// the source's auto-drop, once via the constructed struct's
+// field-walk drop).
+package sema_generic_struct_lit_move;
+use std.collections.vec;
+
+pub struct Holder<const N: i64> {
+    pub items: Vec<i64>,
+    pub _tag:  i64,
+}
+
+unsafe fn main() -> i32 {
+    let mut v: Vec<i64> = vec_new::<i64>();
+    v.push(7i64);
+    v.push(11i64);
+    v.push(13i64);
+    let h: Holder<42i64> = Holder::<42i64> { items: v, _tag: 99i64 };
+    // v has been moved into h.items; sema must mark it moved here so
+    // its scope-exit auto-drop is suppressed (otherwise double-free
+    // when h's field-walk drop also fires Vec.drop on the same backing).
+    if h.items.length() != 3i64 { return 1; }
+    if h.items.get(0i64) != 7i64  { return 2; }
+    if h.items.get(2i64) != 13i64 { return 3; }
+    if h._tag != 99i64            { return 4; }
+    return 0;
+}

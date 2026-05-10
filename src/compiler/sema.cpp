@@ -1365,6 +1365,15 @@ TypeRef SemaChecker::lookup_type_by_name(std::string_view name) {
 
 bool SemaChecker::is_move_type(TypeRef t) const {
     if (!t) return false;
+    // TypeVar — generic body. We don't know if T resolves to a Copy or
+    // move type at sema; treat as move (conservative). If T resolves to
+    // Copy at mono, the suppressed scope-exit drop is harmless (Copy
+    // types have no Drop). If T resolves to a move-type, the
+    // suppression is necessary to avoid double-free across slots that
+    // bitwise-share the value (Vec.push / Vec.remove / let val: T =
+    // *ptr / etc.). Cross-arm move pollution that this could cause is
+    // handled by lower_match / lower_if's per-arm save/restore.
+    if (TypeRef(t).kind() == LogosType::Kind::TypeVar) return true;
     // Struct types are move types unless they implement Copy.
     if (TypeRef(t).kind() != LogosType::Kind::Struct)
         return false;

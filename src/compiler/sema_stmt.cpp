@@ -1177,20 +1177,7 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
                 using C = lir_schema::expr::Code;
                 switch (er.kind()) {
                     case C::VarRef: {
-                        // Return moves the value out of the function — the
-                        // local can never be used again from this scope.
-                        // Mark moved for both concrete move-types AND
-                        // TypeVars (generic body): if T resolves to Copy at
-                        // mono, the suppressed scope-exit drop is harmless
-                        // (Copy types have no Drop); if T resolves to a
-                        // move-type, the suppression is necessary to avoid
-                        // double-free with the caller's owned value (closes
-                        // the Vec<T>::remove use-after-return-move bug).
-                        // Cross-arm pollution that this used to cause is
-                        // handled by lower_match / lower_if's per-arm save/
-                        // restore + divergence-aware merge.
-                        auto t = er.type(cur_prog_->type_pool.impl());
-                        if (is_move_type(t) || (t && TypeRef(t).kind() == LogosType::Kind::TypeVar))
+                        if (is_move_type(er.type(cur_prog_->type_pool.impl())))
                             mark_moved(std::string(lir_view::EVarRefView{er}.name()));
                         return;
                     }
