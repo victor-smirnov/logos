@@ -1,0 +1,51 @@
+// Regression for debt #15: `quote_item!` accepts `#name` antiquot in
+// const-generic parameter NAME position. Grammar production
+// `KW_CONST HASH IDENT COLON type_ref` => CONST_PARAM { NAME_VAR, TYPE }.
+//
+// Local handler that reads its target struct's const-generic name and
+// emits a sibling struct re-using that name in const-generic header
+// position; sizeof on the derived struct exercises sema, mono, codegen.
+
+package main;
+
+use std.compiler.metaprog;
+use std.collections.vec;
+use std.hermes.view;
+use std.hermes.anyval;
+use std.hermes.string;
+
+#[metaprog_handler("derive_const_g")]
+fn derive_const_g_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+    let item: AnyVal = AnyVal::from_offset(target_offset);
+    if view.ast_node_name(item).len == (0 as u64) { return; }
+    if view.ast_type_param_count(item) < (1 as u64) { return; }
+
+    // Read the leaf's first const-generic name and antiquot it back
+    // into a derived struct's const-generic header.
+    let cg_sv: StringView = view.ast_type_param_name(item, 0 as u64);
+    let cg:    Ident = Ident { ptr: cg_sv.ptr, len: cg_sv.len };
+
+    let blob: QuoteItemBlob = quote_item! {
+        pub struct DerivedCG<const #cg: HermesStatic> {
+            pub n: u64,
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
+    return;
+}
+
+pub const SomeCfg: HermesStatic = @{ "tag": "x" };
+
+#[derive_const_g]
+pub struct LeafCG<const SCFG: HermesStatic> {
+    pub n: u64,
+}
+
+fn main() -> i32 {
+    // Touch DerivedCG to force monomorphisation through codegen.
+    let sz: i64 = sizeof::<DerivedCG<SomeCfg>>();
+    if sz <= 0i64 { return 1; }
+    return 0;
+}

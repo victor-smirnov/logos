@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: Apache-2.0
+// std.compiler.metaprog — derive(BranchNodeMP) — slice-1b.
+//
+// Hook for `#[derive_branch_node]` on a LeafNode-shaped struct. Emits
+// a sibling `BranchNodeMP<K, STORE_CFG, CFG>` whose layout mirrors
+// the existing hand-written std.data.persistent.cow.BranchNode plus
+// one aggregate column (sizes: PrimVec<u64>) for slice-1 seek(N).
+//
+// Slice-1b: all three of K / STORE_CFG / CFG are READ from the leaf
+// AST and antiquoted into the emission. Const-generic header position
+// accepts `#name` since debt #15 closure (KW_CONST HASH IDENT COLON
+// type_ref grammar production).
+
+package std.compiler.metaprog;
+
+use std.collections.vec;
+use std.hermes.view;
+use std.hermes.anyval;
+use std.hermes.string;
+use std.lang.datatypes;
+use std.data.persistent.node;
+
+#[metaprog_handler("derive_branch_node")]
+fn derive_branch_node_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+
+    let item: AnyVal = AnyVal::from_offset(target_offset);
+    let nm_sv: StringView = view.ast_node_name(item);
+    if nm_sv.len == (0 as u64) { return; }
+
+    // Read the leaf's type-param names. Convention: [K, V, STORE_CFG, CFG].
+    let np: u64 = view.ast_type_param_count(item);
+    if np < (4 as u64) { return; }   // Not a recognised LeafNode shape.
+
+    let k_sv:    StringView = view.ast_type_param_name(item, 0 as u64);
+    let scfg_sv: StringView = view.ast_type_param_name(item, 2 as u64);  // skip V at 1
+    let cfg_sv:  StringView = view.ast_type_param_name(item, 3 as u64);
+
+    let k:    Ident = Ident { ptr: k_sv.ptr,    len: k_sv.len };
+    let scfg: Ident = Ident { ptr: scfg_sv.ptr, len: scfg_sv.len };
+    let cfg:  Ident = Ident { ptr: cfg_sv.ptr,  len: cfg_sv.len };
+
+    let blob: QuoteItemBlob = quote_item! {
+        pub struct BranchNodeMP<#k: Container + ContainerOrd, const #scfg: HermesStatic, const #cfg: HermesStatic> {
+            pub base:     NodeBase<#scfg>,
+            pub keys:     Buffer<#k>,
+            pub children: Vec<NodeARC<#scfg>>,
+            pub sizes:    PrimVec<u64>,
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
+    return;
+}

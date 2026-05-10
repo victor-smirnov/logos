@@ -1996,6 +1996,8 @@
                 / arr_type
                 / KW_CONST IDENT DOTDOTDOT COLON type_ref
                => { CODE: CONST_PARAM, NAME: $2, IS_VARIADIC: true, TYPE: $5 }
+                / KW_CONST HASH IDENT COLON type_ref
+               => { CODE: CONST_PARAM, NAME_VAR: $3, TYPE: $5 }
                 / KW_CONST IDENT COLON type_ref
                => { CODE: CONST_PARAM, NAME: $2, TYPE: $4 }
                 / IDENT DOTDOTDOT COLON trait_bound (PLUS trait_bound)*
