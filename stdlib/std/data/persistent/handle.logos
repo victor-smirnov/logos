@@ -643,6 +643,21 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
         }
     }
 
+    // Smallest position N (zero-indexed) such that key-at-N ≥ k.
+    // Returns len() if k exceeds every key. O(depth) via shuttle_max_k
+    // + per-level subtree_size accumulation.
+    pub unsafe fn lower_bound(&self, k: <type:CFG.key>::ViewInStore) -> u64 {
+        return pmap_lower_bound::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
+            &self.arc, &k as *const <type:CFG.key>);
+    }
+
+    // Smallest position N such that key-at-N > k (strict). Returns len()
+    // if k ≥ every key.
+    pub unsafe fn upper_bound(&self, k: <type:CFG.key>::ViewInStore) -> u64 {
+        return pmap_upper_bound::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
+            &self.arc, &k as *const <type:CFG.key>);
+    }
+
     // Open an iter positioned at the n-th entry (zero-indexed) in
     // sorted order. O(depth) construction via the SUM-shuttle descent
     // — no need to walk leftmost + n forward steps. n >= len returns

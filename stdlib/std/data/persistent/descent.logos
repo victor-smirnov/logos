@@ -20,6 +20,8 @@ use std.hermes.anyval;
 use std.data.persistent.node;
 use std.data.persistent.cow;
 use std.data.persistent.shuttle;
+use std.lang.cmp;
+use std.lang.ord;
 
 // ── CFG fanout readers ────────────────────────────────────────────────
 unsafe fn cfg_int_or<const CFG: HermesStatic>(key: str, dflt: u64) -> u64 {
@@ -114,6 +116,26 @@ pub fn leaf_lower_bound<K: Container + ContainerOrd, V: Container, const STORE_C
             match phantom.cmp_view_key(kv, key) {
                 Ordering::Less => { i = i + 1u64; }
                 _ => { return i; }
+            }
+        }
+        return n;
+    }
+}
+
+// First in-leaf index where keys[i] > target (strict). Mirrors
+// leaf_lower_bound but with a strict-greater predicate.
+pub fn leaf_upper_bound<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+    leaf: *mut LeafNode<K, V, STORE_CFG, CFG>, key: *const K
+) -> u64 {
+    unsafe {
+        let n: u64 = leaf.keys.len();
+        let mut i: u64 = 0u64;
+        let phantom: *const K = 0 as *const K;
+        while i < n {
+            let kv: K::ViewInStore = leaf.keys.get(i);
+            match phantom.cmp_view_key(kv, key) {
+                Ordering::Greater => { return i; }
+                _ => { i = i + 1u64; }
             }
         }
         return n;
@@ -234,6 +256,104 @@ pub unsafe fn pmap_descend_to_n<K: Container + ContainerOrd, V: Container, const
     }
     *out_idx = target;
     return cur;
+}
+
+// ── Key-bound queries via shuttle_max_k + leaf bounds ─────────────────
+//
+// Tree-wide lower_bound: smallest position N (zero-indexed) in sorted
+// order such that keys_at(N) ≥ target. Returns total size if target
+// exceeds every key in the tree.
+//
+// Algorithm: at each branch level, shuttle_max_k picks the first child
+// whose subtree max ≥ target (clamps to last on OOR). Accumulate the
+// sum of preceding children's subtree_size column entries to convert
+// the per-level child idx into a global position offset. At leaf, add
+// leaf_lower_bound. The accumulator gives the global index.
+pub unsafe fn pmap_lower_bound<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+    arc: &NodeARC<STORE_CFG>, key: *const K
+) -> u64 {
+    let mut cur: NodeARC<STORE_CFG> = arc.clone_arc();
+    let mut accum: u64 = 0u64;
+    loop {
+        let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&cur);
+        let isleaf_p: *mut bool = (dp as i64 + 24i64) as *mut bool;
+        if *isleaf_p {
+            let leaf: *mut LeafNode<K, V, STORE_CFG, CFG> =
+                dp as *mut LeafNode<K, V, STORE_CFG, CFG>;
+            return accum + leaf_lower_bound::<K, V, STORE_CFG, CFG>(leaf, key);
+        }
+        let br: *mut BranchNode<K, STORE_CFG, CFG> =
+            dp as *mut BranchNode<K, STORE_CFG, CFG>;
+        let r: ShuttleResult = shuttle_max_k::<K>(&br.keys as *const Buffer<K>, key);
+        // Sum subtree_size[0..r.idx] into accum (children before the
+        // chosen subtree contribute their full sizes to the global pos).
+        let mut k: u64 = 0u64;
+        while k < r.idx {
+            accum = accum + br.subtree_size.get(k);
+            k = k + 1u64;
+        }
+        // OOR detection: if shuttle clamped to the last child but
+        // target is still > all maxes in that subtree (target also
+        // exceeds the chosen subtree's max), we need accum to cover
+        // the chosen subtree too. Detect by checking the chosen
+        // child's last key against target; cleanest is to descend and
+        // let leaf_lower_bound naturally return leaf.len for that
+        // subtree, summing into accum. Recursive descent handles it.
+        let child_ref: &NodeARC<STORE_CFG> = br.children.borrow(r.idx as i64);
+        cur = child_ref.clone_arc();
+    }
+}
+
+// Tree-wide upper_bound: smallest position N such that keys_at(N) > target.
+// Returns total size if target ≥ every key. Differs from lower_bound only
+// at the predicate (strict-greater); branch shuttle is the same shape
+// since the per-child decision is "could this subtree contain a key > target".
+//
+// shuttle_max_k picks first child whose max ≥ target. For upper_bound we
+// want first child whose max > target. To reuse shuttle_max_k we descend
+// into the chosen child and rely on leaf_upper_bound at the leaf for the
+// strict comparison. Subtle case: if the chosen child's max == target,
+// upper_bound is in the *next* sibling. leaf_upper_bound handles within
+// that case naturally — leaf_upper_bound returns leaf.len, and the next
+// step would be to walk to the right sibling. To keep this O(depth)
+// without sibling-walk plumbing, fall back to scanning slots ourselves.
+pub unsafe fn pmap_upper_bound<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+    arc: &NodeARC<STORE_CFG>, key: *const K
+) -> u64 {
+    let mut cur: NodeARC<STORE_CFG> = arc.clone_arc();
+    let mut accum: u64 = 0u64;
+    loop {
+        let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&cur);
+        let isleaf_p: *mut bool = (dp as i64 + 24i64) as *mut bool;
+        if *isleaf_p {
+            let leaf: *mut LeafNode<K, V, STORE_CFG, CFG> =
+                dp as *mut LeafNode<K, V, STORE_CFG, CFG>;
+            return accum + leaf_upper_bound::<K, V, STORE_CFG, CFG>(leaf, key);
+        }
+        let br: *mut BranchNode<K, STORE_CFG, CFG> =
+            dp as *mut BranchNode<K, STORE_CFG, CFG>;
+        // Find first child idx where keys[i] > target. If none,
+        // descend into last child (target ≥ all maxes).
+        let n: u64 = br.keys.len();
+        let mut idx: u64 = n;
+        let mut i: u64 = 0u64;
+        let phantom: *const K = 0 as *const K;
+        while i < n {
+            let kv: K::ViewInStore = br.keys.get(i);
+            match phantom.cmp_view_key(kv, key) {
+                Ordering::Greater => { idx = i; break; }
+                _ => { i = i + 1u64; }
+            }
+        }
+        if idx >= n { idx = n - 1u64; }
+        let mut k: u64 = 0u64;
+        while k < idx {
+            accum = accum + br.subtree_size.get(k);
+            k = k + 1u64;
+        }
+        let child_ref: &NodeARC<STORE_CFG> = br.children.borrow(idx as i64);
+        cur = child_ref.clone_arc();
+    }
 }
 
 pub fn pmap_size_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(

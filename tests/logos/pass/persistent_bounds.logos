@@ -1,0 +1,73 @@
+// lower_bound + upper_bound + iter_from composition for range scan.
+package persistent_bounds;
+
+use std.data.persistent.handle;
+use std.data.persistent.store;
+use std.data.persistent.node;
+use std.data.persistent.cow;
+use std.data.persistent.descent;
+use std.data.persistent.mutate;
+use std.data.persistent.iter;
+use std.lang.datatypes;
+use std.hermes.view;
+use std.hermes.anyval;
+
+pub const StoreCfg: HermesStatic = @{
+    "name": "bnd", "ctr_id": <type:u64>, "snp_id": <type:u64>, "block_id": <type:u64>,
+};
+pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 4 };
+
+fn main() -> i32 {
+    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
+    let mut snap: Snap<StoreCfg> = store.fork(GENESIS);
+    let mut cr: ContainerRef<StoreCfg, MapCfg> =
+        create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
+
+    // Empty: any bound is 0.
+    if unsafe { cr.lower_bound(7u64) } != 0u64  { return 1; }
+    if unsafe { cr.upper_bound(7u64) } != 0u64  { return 2; }
+
+    // Insert keys 0,2,4,6,8,10,...,38 (even keys).
+    let mut i: u64 = 0u64;
+    while i < 20u64 {
+        cr.insert(i * 2u64, i * 2u64 * 5u64);
+        i = i + 1u64;
+    }
+    if cr.len() != 20u64 { return 3; }
+
+    // lower_bound: first pos with key >= q.
+    if unsafe { cr.lower_bound(0u64)  } != 0u64  { return 10; }   // key 0 at pos 0
+    if unsafe { cr.lower_bound(1u64)  } != 1u64  { return 11; }   // first ≥ 1 is key 2 at pos 1
+    if unsafe { cr.lower_bound(2u64)  } != 1u64  { return 12; }   // key 2 at pos 1
+    if unsafe { cr.lower_bound(20u64) } != 10u64 { return 13; }   // key 20 at pos 10
+    if unsafe { cr.lower_bound(38u64) } != 19u64 { return 14; }   // last
+    if unsafe { cr.lower_bound(39u64) } != 20u64 { return 15; }   // OOR → len
+    if unsafe { cr.lower_bound(99u64) } != 20u64 { return 16; }
+
+    // upper_bound: first pos with key > q.
+    if unsafe { cr.upper_bound(0u64)  } != 1u64  { return 20; }   // first > 0 is key 2 at pos 1
+    if unsafe { cr.upper_bound(1u64)  } != 1u64  { return 21; }   // first > 1 is key 2 at pos 1
+    if unsafe { cr.upper_bound(2u64)  } != 2u64  { return 22; }   // first > 2 is key 4 at pos 2
+    if unsafe { cr.upper_bound(20u64) } != 11u64 { return 23; }   // first > 20 is key 22 at pos 11
+    if unsafe { cr.upper_bound(38u64) } != 20u64 { return 24; }   // OOR → len
+    if unsafe { cr.upper_bound(99u64) } != 20u64 { return 25; }
+
+    // Range scan: keys in [10, 30) — should yield 10,12,14,...,28.
+    let lo: u64 = unsafe { cr.lower_bound(10u64) };
+    let hi: u64 = unsafe { cr.lower_bound(30u64) };
+    if lo != 5u64  { return 30; }
+    if hi != 15u64 { return 31; }
+    let mut it: PMapIter<u64, u64, StoreCfg, MapCfg> = unsafe { cr.iter_from(lo) };
+    let mut expect: u64 = 10u64;
+    let mut count: u64 = lo;
+    while it.valid() && count < hi {
+        let k: u64 = unsafe { it.key() };
+        if k != expect { return 100 + (expect / 2u64) as i32; }
+        expect = expect + 2u64;
+        count = count + 1u64;
+        unsafe { it.step(); }
+    }
+    if count != hi { return 32; }
+
+    return 0;
+}
