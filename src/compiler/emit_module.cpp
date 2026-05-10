@@ -437,6 +437,10 @@ bool emit_module(const ModuleManifest& manifest,
         // downstream sema. Synth docs from item-blob substitution carry
         // the inherited package name; read it.
         if (path == "<metaprog>") continue;
+        // Multiple synth docs share filename "<metaprog-blob-subst>" —
+        // disambiguate so module_loader's visited_files dedup doesn't
+        // drop all but the first when the .hermes0 is loaded by user.
+        path += "#" + std::to_string(i - original_ast_count);
         std::string pkg;
         auto root_av = asts[i].root_object();
         if (root_av.is_pointer()) {

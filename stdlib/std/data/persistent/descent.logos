@@ -19,6 +19,7 @@ use std.hermes.anyval;
 
 use std.data.persistent.node;
 use std.data.persistent.cow;
+use std.data.persistent.shuttle;
 
 // ── CFG fanout readers ────────────────────────────────────────────────
 unsafe fn cfg_int_or<const CFG: HermesStatic>(key: str, dflt: u64) -> u64 {
@@ -179,6 +180,52 @@ pub fn pmap_get_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: 
         let child: &NodeARC<STORE_CFG> = br.children.borrow(i as i64);
         return pmap_get_rec::<K, V, STORE_CFG, CFG>(child, key, out);
     }
+}
+
+// ── Shuttle-driven descent: seek to the n-th key in sorted order ──────
+//
+// Walks the tree from `arc` to the leaf that contains the n-th key
+// (zero-indexed), composing per-level `branchnode_subtree_size_shuttle`
+// calls into a multi-level descent. SUM aggregate column on each
+// BranchNode tells the shuttle which child holds slot N at its level
+// in O(num_children); the descent itself is O(depth).
+//
+// On success returns a clone'd NodeARC for the leaf (rc bumped — caller
+// drops normally) and writes the leaf-relative index into *out_idx.
+// On out-of-range, returns a null-handle NodeARC (NodeARC::drop is a
+// no-op for null) and writes 0 into *out_idx.
+pub unsafe fn pmap_descend_to_n<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+    arc: &NodeARC<STORE_CFG>, n: u64, out_idx: *mut u64,
+) -> NodeARC<STORE_CFG> {
+    let mut cur: NodeARC<STORE_CFG> = arc.clone_arc();
+    let mut target: u64 = n;
+    loop {
+        let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&cur);
+        let isleaf_p: *mut bool = (dp as i64 + 24i64) as *mut bool;
+        if *isleaf_p { break; }
+        let br: *const BranchNode<K, STORE_CFG, CFG> =
+            dp as *const BranchNode<K, STORE_CFG, CFG>;
+        let r: ShuttleResult = branchnode_subtree_size_shuttle::<K, STORE_CFG, CFG>(br, target);
+        let nc: u64 = br.children.length() as u64;
+        if r.idx >= nc {
+            *out_idx = 0u64;
+            return NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> };
+        }
+        let child_ref: &NodeARC<STORE_CFG> = br.children.borrow(r.idx as i64);
+        let child_arc: NodeARC<STORE_CFG> = child_ref.clone_arc();
+        target = r.remainder;
+        cur = child_arc;
+    }
+    // At leaf — verify target within range.
+    let dp_leaf: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&cur);
+    let leaf: *const LeafNode<K, V, STORE_CFG, CFG> =
+        dp_leaf as *const LeafNode<K, V, STORE_CFG, CFG>;
+    if target >= leaf.keys.len() {
+        *out_idx = 0u64;
+        return NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> };
+    }
+    *out_idx = target;
+    return cur;
 }
 
 pub fn pmap_size_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(

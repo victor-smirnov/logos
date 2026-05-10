@@ -1333,7 +1333,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         if (!all_cands.empty()) {
             return builder().call(std::string(callee), {}, std::move(arg_exprs), error_t());
         }
-        error(std::format("call to undefined function '{}'", callee));
+        if (!metaprog_mode_)
+            error(std::format("call to undefined function '{}'", callee));
         return builder().call(std::string(callee), {}, std::move(arg_exprs), error_t());
     }
     // Pub check and unsafe check.
@@ -2875,7 +2876,12 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             fi_ptr = const_cast<SemaFuncInfo*>(cands[0]);
     }
     if (!fi_ptr) {
-        error(std::format("call to undefined function '{}'", callee));
+        // Metaprog discovery: a call to a not-yet-emitted derive fn
+        // (e.g. `branchnode_<col>_shuttle` which the derive will emit
+        // during dispatch) shouldn't fail-the-pass. Silently propagate
+        // <error>; post-dispatch sema sees the synth doc and resolves.
+        if (!metaprog_mode_)
+            error(std::format("call to undefined function '{}'", callee));
         return builder().call(std::string(callee), {}, {}, error_t());
     }
     check_pub_access(fi_ptr->is_pub, fi_ptr->package, callee);
