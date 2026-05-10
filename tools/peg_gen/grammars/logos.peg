@@ -270,6 +270,7 @@
     PAREN_TYPE                  = 222   // `(T)` — paren-wrapped type expression (B-ty-09). Sema unwraps to inner; structurally same as T.
     TAIL_EXPR                   = 223   // `expr` (no SEMI) at stmt position; sema synthesizes implicit `return expr` for non-void fns (B-fn-06).
     LIT_CHAR                    = 224   // `'X'` Unicode scalar literal. VALUE = original char-lit text including quotes; sema decodes.
+    FN_MACRO_CALL               = 225   // `name!(args)` / `name![args]` — function-style macro. CALLEE = ident, ARGS = expr-list. Sema resolves CALLEE against #[fn_macro] fns; arg ASTs become ExprBlobs.
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -1729,6 +1730,14 @@
                   / quote_item_expr
                   / quote_expr_expr
                   / quote_ty_expr
+
+                  // Function-style macros: `name!(args)` / `name![args]`.
+                  // Slice 1 of fn-macros: BANG-prefix disambiguates from
+                  // regular call/struct-lit; sema checks #[fn_macro] marker.
+                  / IDENT BANG LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
+                                     => { CODE: FN_MACRO_CALL, CALLEE: $1, ARGS: $... }
+                  / IDENT BANG LBRACKET (expr (COMMA expr)* COMMA?)? RBRACKET
+                                     => { CODE: FN_MACRO_CALL, CALLEE: $1, ARGS: $... }
 
                   / call_expr        // IDENT(args) / Type::method(args) — before enum_lit/IDENT
                   / IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE
