@@ -1,26 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
-// std.compiler.metaprog — derive(BranchNodeMP) — slice-1d.
+// std.compiler.metaprog — derive(BranchNodeMP) — slice-1e.
 //
-// Hook for `#[derive_branch_node]` on a LeafNode-shaped struct. Emits
-// a sibling `BranchNodeMP<K, STORE_CFG, CFG>` whose layout mirrors the
-// existing hand-written std.data.persistent.cow.BranchNode plus one
-// aggregate column per supported op.
+// Hook for `#[derive_branch_node(ops = "<CONST_NAME>")]` on a LeafNode-
+// shaped struct. Emits a sibling `BranchNodeMP<K, STORE_CFG, CFG>`
+// whose layout mirrors the existing hand-written
+// std.data.persistent.cow.BranchNode plus one aggregate column per
+// supported op.
 //
-// Slice-1d: the op-list is READ from a user-declared const named
-// `BRANCH_OPS`, an array of `str` alternating field-name / elem-type:
+// Slice-1e: the const-name carrying the op-list is READ from the
+// annotation's `ops = "..."` keyword arg. The user declares:
 //
-//   pub const BRANCH_OPS: [str; 2] = ["sizes", "u64"];
+//   pub const MY_OPS: HermesStatic = @["sizes", "u64"];
 //
-//   #[derive_branch_node]
+//   #[derive_branch_node(ops = "MY_OPS")]
 //   pub struct LeafNode<...> { ... }
 //
 // → emit `BranchNodeMP<...> { ..., pub sizes: PrimVec<u64> }`.
 //
-// Adding an op = appending two strings to BRANCH_OPS, no handler edit.
-// Slice 1e will promote the const-name discovery to an attribute arg
-// (`#[derive_branch_node(ops = "BRANCH_OPS")]`) and explore the move
-// to nested HermesStatic for richer op specs (leaf-reduce / branch-
-// reduce fn names).
+// The op-list itself is still a flat alternating-pair string array
+// (slice 2 will promote to nested HermesStatic for richer per-op
+// specs: leaf-reduce / branch-reduce fn-name / etc.).
 
 package std.compiler.metaprog;
 
@@ -29,7 +28,109 @@ use std.hermes.view;
 use std.hermes.anyval;
 use std.hermes.string;
 use std.lang.datatypes;
+use std.lang.text;
 use std.data.persistent.node;
+
+// Walk module ITEMS to find the ANNOTATION immediately preceding the
+// target item whose NAME matches `trigger`. Returns the ANNOTATION
+// AnyVal or null if not found. The walk is bounded — we stop on the
+// first non-ANNOTATION item before the target so we don't pick up an
+// earlier struct's annotations.
+unsafe fn find_my_annotation(view: &OView, target_offset: u32, trigger: str) -> AnyVal {
+    let root: AnyVal = view.root();
+    let items: AnyVal = view.tiny_map_get(root, 2 as u8);
+    if items.raw == 0 { return AnyVal::null_ptr(); }
+    let n: u64 = view.array_len(items);
+
+    // Find target index.
+    let mut tgt_idx: i64 = -1i64;
+    let mut i: u64 = 0u64;
+    while i < n {
+        let it: AnyVal = view.array_get(items, i);
+        if it.raw != 0 && (it.as_offset() as u32) == target_offset {
+            tgt_idx = i as i64;
+            break;
+        }
+        i = i + (1 as u64);
+    }
+    if tgt_idx < 0 { return AnyVal::null_ptr(); }
+
+    // Walk back collecting ANNOTATION nodes; return one whose NAME
+    // matches `trigger`. Bail at the first non-ANNOTATION item.
+    let trig_len: u64 = trigger.len() as u64;
+    let mut k: i64 = tgt_idx - (1 as i64);
+    while k >= 0 {
+        let it: AnyVal = view.array_get(items, k as u64);
+        let code_av: AnyVal = view.tiny_map_get(it, 0 as u8);     // CODE
+        if code_av.is_null() { break; }
+        let code_val: i32 = unsafe { (&code_av as *const AnyVal).as_i24() };
+        if code_val != (150 as i32) { break; }                    // !ANNOTATION
+        let nm_sv: StringView = view.ast_node_name(it);
+        if nm_sv.len == trig_len {
+            let mut j: u64 = 0u64;
+            let mut eq: bool = true;
+            unsafe {
+                while j < trig_len {
+                    let a: u8 = *((nm_sv.ptr as i64 + j as i64) as *const u8);
+                    let b: u8 = *((trigger.as_ptr() as i64 + j as i64) as *const u8);
+                    if a != b { eq = false; break; }
+                    j = j + (1 as u64);
+                }
+            }
+            if eq { return it; }
+        }
+        k = k - (1 as i64);
+    }
+    return AnyVal::null_ptr();
+}
+
+// In an ANNOTATION's ARGS list, find the ANNOT_KV with NAME=`key`
+// and return its VALUE AnyVal. Null if no such entry.
+unsafe fn annot_kv_value(view: &OView, ann: AnyVal, key: str) -> AnyVal {
+    let args: AnyVal = view.tiny_map_get(ann, 15 as u8);          // ARGS
+    if args.raw == 0 { return AnyVal::null_ptr(); }
+    let items: AnyVal = view.tiny_map_get(args, 2 as u8);         // ITEMS
+    if items.raw == 0 { return AnyVal::null_ptr(); }
+    let n: u64 = view.array_len(items);
+    let klen: u64 = key.len() as u64;
+    let mut i: u64 = 0u64;
+    while i < n {
+        let entry: AnyVal = view.array_get(items, i);
+        let code_av: AnyVal = view.tiny_map_get(entry, 0 as u8);
+        let code_val: i32 = unsafe { (&code_av as *const AnyVal).as_i24() };
+        if !code_av.is_null() && code_val == (192 as i32) {       // ANNOT_KV
+            let nm_sv: StringView = view.ast_node_name(entry);
+            if nm_sv.len == klen {
+                let mut j: u64 = 0u64;
+                let mut eq: bool = true;
+                unsafe {
+                    while j < klen {
+                        let a: u8 = *((nm_sv.ptr as i64 + j as i64) as *const u8);
+                        let b: u8 = *((key.as_ptr() as i64 + j as i64) as *const u8);
+                        if a != b { eq = false; break; }
+                        j = j + (1 as u64);
+                    }
+                }
+                if eq { return view.tiny_map_get(entry, 7 as u8); }   // VALUE
+            }
+        }
+        i = i + (1 as u64);
+    }
+    return AnyVal::null_ptr();
+}
+
+// Read a LIT_STR's bytes minus the surrounding quote chars. `lit` is
+// the LIT_STR AnyVal; the underlying STRING token captures quotes (see
+// debt #18) which we strip here. Empty StringView on failure.
+fn lit_str_unquoted(view: &OView, lit: AnyVal) -> StringView {
+    let s_av: AnyVal = view.tiny_map_get(lit, 7 as u8);            // VALUE
+    let sv: StringView = view.get_str_view(s_av);
+    if sv.len < (2 as u64) { return StringView { ptr: 0 as *const u8, len: 0 }; }
+    return StringView {
+        ptr: (sv.ptr as i64 + 1i64) as *const u8,
+        len: sv.len - (2 as u64),
+    };
+}
 
 #[metaprog_handler("derive_branch_node")]
 fn derive_branch_node_hook(target_offset: u32) -> () {
@@ -52,16 +153,31 @@ fn derive_branch_node_hook(target_offset: u32) -> () {
     let scfg: Ident = Ident { ptr: scfg_sv.ptr, len: scfg_sv.len };
     let cfg:  Ident = Ident { ptr: cfg_sv.ptr,  len: cfg_sv.len };
 
-    // Op-list discovery: look up user's BRANCH_OPS const by name and
-    // walk its ARR_LIT VALUE. Each pair of strings (field, elem-type)
+    // Resolve the op-list const name from #[derive_branch_node(ops = "...")].
+    // Falls back to "BRANCH_OPS" by convention if the arg is missing.
+    let mut ops_name_ptr: *const u8 = 0 as *const u8;
+    let mut ops_name_len: u64       = 0 as u64;
+    let ann: AnyVal = unsafe { find_my_annotation(&view, target_offset, "derive_branch_node") };
+    if ann.raw != 0 {
+        let kv: AnyVal = unsafe { annot_kv_value(&view, ann, "ops") };
+        if kv.raw != 0 {
+            let sv: StringView = lit_str_unquoted(&view, kv);
+            ops_name_ptr = sv.ptr;
+            ops_name_len = sv.len;
+        }
+    }
+    let ops_name: str = if ops_name_len > (0 as u64) {
+        unsafe { str_from_raw(ops_name_ptr, ops_name_len as i64) }
+    } else {
+        "BRANCH_OPS"
+    };
+
+    // Op-list discovery. Each pair of strings (field, elem-type)
     // becomes one aggregate column.
     let mut col_names: Vec<Ident> = vec_new::<Ident>();
     let mut col_types: Vec<Ident> = vec_new::<Ident>();
 
-    let ops_name: [u8; 10] = [
-        66u8, 82u8, 65u8, 78u8, 67u8, 72u8, 95u8, 79u8, 80u8, 83u8,
-    ];                       // "BRANCH_OPS"
-    let ops_const: AnyVal = view.find_template_decl(&ops_name);
+    let ops_const: AnyVal = view.find_template_decl(ops_name);
     if ops_const.raw != 0 {
         let arr_lit: AnyVal = view.tiny_map_get(ops_const, 7 as u8);   // VALUE
         if arr_lit.raw != 0 {
@@ -71,17 +187,9 @@ fn derive_branch_node_hook(target_offset: u32) -> () {
                 let mut i: u64 = 0u64;
                 while i < n {
                     let elem: AnyVal = view.array_get(items, i);
-                    let s_av: AnyVal = view.tiny_map_get(elem, 7 as u8);  // VALUE of HERMES_STR
-                    let sv: StringView = view.get_str_view(s_av);
-                    // HERMES_STR.VALUE captures the STRING token with surrounding
-                    // quotes; sema's C++ consumers strip them. Replicate here:
-                    // ptr+1 / len-2 yields the unquoted byte view (zero escape
-                    // handling for slice 1d — op specs are ascii ident-like).
-                    if sv.len >= (2 as u64) {
-                        let id: Ident = Ident {
-                            ptr: (sv.ptr as i64 + 1i64) as *const u8,
-                            len: sv.len - (2 as u64),
-                        };
+                    let sv: StringView = lit_str_unquoted(&view, elem);
+                    if sv.len > (0 as u64) {
+                        let id: Ident = Ident { ptr: sv.ptr, len: sv.len };
                         unsafe {
                             if i % (2 as u64) == (0 as u64) {
                                 (&mut col_names as *mut Vec<Ident>).push(id);

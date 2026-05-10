@@ -1,11 +1,13 @@
-// derive_branch_node slice 1d end-to-end: handler reads BRANCH_OPS
-// HermesStatic const from user package, walks its array of alternating
-// (field-name, elem-type) strings, emits a BranchNodeMP-shape struct
-// with one PrimVec column per op pair.
+// derive_branch_node slice 1e end-to-end: handler reads the op-list
+// const-name from `#[derive_branch_node(ops = "...")]` attribute arg,
+// resolves the named const via OView::find_template_decl, walks its
+// HERMES_ARRAY of alternating (field-name, elem-type) strings, and
+// emits a BranchNodeMP-shape struct with one PrimVec column per op
+// pair via parallel-cursor repeat-group in quote_item!.
 //
-// This test ships TWO ops in BRANCH_OPS to exercise the parallel
-// Vec<Ident> cursor expansion (handler iterates without reading the
-// concrete count).
+// This test ships TWO ops in MyOps to exercise multi-element cursor
+// expansion AND uses a non-default const name to prove the attribute
+// arg actually drives lookup (not the slice-1d "BRANCH_OPS" fallback).
 
 package main;
 
@@ -21,9 +23,9 @@ pub const StoreCfg: HermesStatic = @{
 };
 pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 4 };
 
-pub const BRANCH_OPS: HermesStatic = @["sizes", "u64", "sums", "i64"];
+pub const MyOps: HermesStatic = @["sizes", "u64", "sums", "i64"];
 
-#[derive_branch_node]
+#[derive_branch_node(ops = "MyOps")]
 pub struct LeafNodeShape<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
     pub base: NodeBase<STORE_CFG>,
     pub keys: Buffer<K>,
@@ -33,7 +35,7 @@ pub struct LeafNodeShape<K: Container + ContainerOrd, V: Container, const STORE_
 fn main() -> i32 {
     // Touch the derived struct to force monomorphisation through
     // sema/mono/codegen — proves the emitted struct + both PrimVec
-    // columns are real types, not just AST nodes.
+    // columns reach codegen with the attribute-driven op-list.
     let sz: i64 = sizeof::<BranchNodeMP<u64, StoreCfg, MapCfg>>();
     if sz <= 0i64 { return 1; }
     return 0;
