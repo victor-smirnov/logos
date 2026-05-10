@@ -182,23 +182,38 @@ fn derive_branch_node_hook(target_offset: u32) -> () {
     let scfg: Ident = Ident { ptr: scfg_sv.ptr, len: scfg_sv.len };
     let cfg:  Ident = Ident { ptr: cfg_sv.ptr,  len: cfg_sv.len };
 
-    // Resolve the op-list const name from #[derive_branch_node(ops = "...")].
-    // Falls back to "BRANCH_OPS" by convention if the arg is missing.
-    let mut ops_name_ptr: *const u8 = 0 as *const u8;
-    let mut ops_name_len: u64       = 0 as u64;
+    // Resolve `ops` (op-list const name) and `branch` (emitted struct
+    // name) from the annotation's keyword args. Defaults preserve the
+    // pre-1f behaviour: ops="BRANCH_OPS", branch="BranchNodeMP".
+    let mut ops_name_ptr:    *const u8 = 0 as *const u8;
+    let mut ops_name_len:    u64       = 0 as u64;
+    let mut branch_name_ptr: *const u8 = 0 as *const u8;
+    let mut branch_name_len: u64       = 0 as u64;
     let ann: AnyVal = unsafe { find_my_annotation(&view, target_offset, "derive_branch_node") };
     if ann.raw != 0 {
-        let kv: AnyVal = unsafe { annot_kv_value(&view, ann, "ops") };
-        if kv.raw != 0 {
-            let sv: StringView = view.ast_lit_str_view( kv);
+        let kv_ops: AnyVal = unsafe { annot_kv_value(&view, ann, "ops") };
+        if kv_ops.raw != 0 {
+            let sv: StringView = view.ast_lit_str_view(kv_ops);
             ops_name_ptr = sv.ptr;
             ops_name_len = sv.len;
+        }
+        let kv_branch: AnyVal = unsafe { annot_kv_value(&view, ann, "branch") };
+        if kv_branch.raw != 0 {
+            let sv: StringView = view.ast_lit_str_view(kv_branch);
+            branch_name_ptr = sv.ptr;
+            branch_name_len = sv.len;
         }
     }
     let ops_name: str = if ops_name_len > (0 as u64) {
         unsafe { str_from_raw(ops_name_ptr, ops_name_len as i64) }
     } else {
         "BRANCH_OPS"
+    };
+    let branch_id: Ident = if branch_name_len > (0 as u64) {
+        Ident { ptr: branch_name_ptr, len: branch_name_len }
+    } else {
+        let s: str = "BranchNodeMP";
+        Ident { ptr: s.as_ptr(), len: s.len() as u64 }
     };
 
     // Op-list discovery. Each op is a HERMES_MAP with keys
@@ -286,7 +301,7 @@ fn derive_branch_node_hook(target_offset: u32) -> () {
     }
 
     let blob: QuoteItemBlob = quote_item! {
-        pub struct BranchNodeMP<#k: Container + ContainerOrd, const #scfg: HermesStatic, const #cfg: HermesStatic> {
+        pub struct #branch_id<#k: Container + ContainerOrd, const #scfg: HermesStatic, const #cfg: HermesStatic> {
             pub base:     NodeBase<#scfg>,
             pub keys:     Buffer<#k>,
             pub children: Vec<NodeARC<#scfg>>,
@@ -311,7 +326,7 @@ fn derive_branch_node_hook(target_offset: u32) -> () {
         let ct:   Ident = unsafe { *col_types.at_const(idx) };
         let one: QuoteItemBlob = quote_item! {
             pub fn #(sym)<#k: Container + ContainerOrd, const #scfg: HermesStatic, const #cfg: HermesStatic>(
-                br: *const BranchNodeMP<#k, #scfg, #cfg>, target: u64,
+                br: *const #branch_id<#k, #scfg, #cfg>, target: u64,
             ) -> ShuttleResult {
                 unsafe {
                     return #(tmpl)(&br.#cn as *const PrimVec<#ct>, target);

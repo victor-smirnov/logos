@@ -38,6 +38,10 @@ use std.hermes.anyval;
 use std.data.persistent.node;
 
 // ── BranchNode ─────────────────────────────────────────────────────────
+// Hand-written for now. Could be `#[derive_branch_node]` over LeafNode
+// once stdlib metaprog dispatch lands (debt #21) — emit_module today
+// runs sema/mono/mlir-gen but skips the metaprog hook loop, so
+// derive-emitted items vanish during stdlib build.
 pub struct BranchNode<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
     pub base:     NodeBase<STORE_CFG>,
     pub keys:     Buffer<K>,
