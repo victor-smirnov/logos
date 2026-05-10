@@ -71,6 +71,30 @@ unsafe fn descend_leftmost<K: Container + ContainerOrd, V: Container, const STOR
     }
 }
 
+// Symmetric to descend_leftmost: walk to the rightmost leaf, recording
+// each branch's last child idx in the path. Used by step_back when a
+// frame has its idx decremented and we need to position at the end of
+// the new subtree. (And by iter_back_open for a future reverse iter.)
+unsafe fn descend_rightmost<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+    start: &NodeARC<STORE_CFG>,
+    path:  *mut Vec<IterFrame<K, STORE_CFG, CFG>>,
+) -> NodeARC<STORE_CFG> {
+    let mut cur: NodeARC<STORE_CFG> = start.clone_arc();
+    loop {
+        let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&cur);
+        let isleaf_p: *mut bool = (dp as i64 + 24i64) as *mut bool;
+        if *isleaf_p { return cur; }
+        let br: *mut BranchNode<K, STORE_CFG, CFG> = dp as *mut BranchNode<K, STORE_CFG, CFG>;
+        let last: i64 = br.children.length() - 1i64;
+        let next_child: &NodeARC<STORE_CFG> = br.children.borrow(last);
+        let next_arc: NodeARC<STORE_CFG> = next_child.clone_arc();
+        path.push(IterFrame::<K, STORE_CFG, CFG> {
+            branch_arc: cur, branch_p: br, idx: last as u64,
+        });
+        cur = next_arc;
+    }
+}
+
 // Open a forward iter at the leftmost (smallest) entry of the BTree
 // rooted at `arc`. The iter pins its view via NodeARC clones — `arc`'s
 // container can be dropped, mutated, or commit'd; the iter still walks
@@ -101,6 +125,42 @@ impl<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, c
 
     pub unsafe fn key(&self) -> K::ViewInStore { return self.leaf_p.keys.get(self.cursor); }
     pub unsafe fn val(&self) -> V::ViewInStore { return self.leaf_p.vals.get(self.cursor); }
+
+    // Reverse step: move one position backward in sorted order. On
+    // leaf exhaustion (cursor==0 with no path), the iter becomes
+    // invalid; clear leaf_p so valid() returns false. Otherwise walk
+    // up the path stack to the nearest frame whose branch has a
+    // previous child (idx > 0); decrement its idx, descend rightmost
+    // from that subtree, position cursor at last key of the new leaf.
+    pub unsafe fn step_back(&mut self) {
+        if self.cursor > 0u64 {
+            self.cursor = self.cursor - 1u64;
+            return;
+        }
+        loop {
+            let n: i64 = self.path.length();
+            if n == 0i64 {
+                arc_release_in_slot::<STORE_CFG>(&mut self.leaf_arc as *mut NodeARC<STORE_CFG>);
+                self.leaf_p = 0 as *mut LeafNode<K, V, STORE_CFG, CFG>;
+                self.cursor = 0u64;
+                return;
+            }
+            let top: *mut IterFrame<K, STORE_CFG, CFG> = self.path.at(n - 1i64);
+            if top.idx > 0u64 {
+                top.idx = top.idx - 1u64;
+                let prev_child: &NodeARC<STORE_CFG> = top.branch_p.children.borrow(top.idx as i64);
+                let new_leaf: NodeARC<STORE_CFG> = descend_rightmost::<K, V, STORE_CFG, CFG>(
+                    prev_child, &mut self.path as *mut Vec<IterFrame<K, STORE_CFG, CFG>>);
+                arc_replace_in_slot::<STORE_CFG>(
+                    &mut self.leaf_arc as *mut NodeARC<STORE_CFG>, new_leaf);
+                self.leaf_p = node_arc_data_ptr::<STORE_CFG>(&self.leaf_arc) as *mut LeafNode<K, V, STORE_CFG, CFG>;
+                self.cursor = self.leaf_p.keys.len() - 1u64;
+                return;
+            }
+            // This frame is at its leftmost child; pop and look one level up.
+            let _ = self.path.pop();
+        }
+    }
 
     // Advance one position. After the leaf is exhausted, walk up the
     // path stack to the nearest frame whose branch has another

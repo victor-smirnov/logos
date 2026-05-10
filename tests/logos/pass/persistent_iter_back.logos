@@ -1,0 +1,77 @@
+// Reverse iter (step_back) — symmetric to step. Build multi-level
+// tree (fanout=4 forces branches), iter to end, then walk back
+// keys 29..0 verifying sorted descending order.
+package persistent_iter_back;
+
+use std.data.persistent.handle;
+use std.data.persistent.store;
+use std.data.persistent.node;
+use std.data.persistent.cow;
+use std.data.persistent.descent;
+use std.data.persistent.mutate;
+use std.data.persistent.iter;
+use std.lang.datatypes;
+use std.hermes.view;
+use std.hermes.anyval;
+
+pub const StoreCfg: HermesStatic = @{
+    "name": "iback", "ctr_id": <type:u64>, "snp_id": <type:u64>, "block_id": <type:u64>,
+};
+pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 4 };
+
+fn main() -> i32 {
+    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
+    let mut snap: Snap<StoreCfg> = store.fork(GENESIS);
+    let mut cr: ContainerRef<StoreCfg, MapCfg> =
+        create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
+
+    // Insert 30 keys shuffled.
+    let order: [u64; 30] = [
+        17u64, 5u64, 23u64, 1u64, 19u64, 11u64, 7u64, 29u64, 13u64, 3u64,
+        25u64, 0u64, 21u64, 9u64, 27u64, 15u64, 28u64, 4u64, 12u64, 6u64,
+        10u64, 18u64, 26u64, 24u64, 8u64, 14u64, 22u64, 2u64, 20u64, 16u64,
+    ];
+    let mut i: u64 = 0u64;
+    while i < 30u64 {
+        cr.insert(order[i as i64], order[i as i64] * 11u64);
+        i = i + 1u64;
+    }
+
+    // Walk forward stopping at last entry (don't step past it — that
+    // invalidates the iter, and step_back on an invalid iter is a
+    // no-op by design, symmetric to step on invalid).
+    let mut it: PMapIter<u64, u64, StoreCfg, MapCfg> = unsafe { cr.iter() };
+    let mut last_seen: u64 = 0u64;
+    let mut count: u64 = 0u64;
+    while it.valid() {
+        last_seen = unsafe { it.key() };
+        count = count + 1u64;
+        if count == 30u64 { break; }
+        unsafe { it.step(); }
+    }
+    if count != 30u64                   { return 1; }
+    if last_seen != 29u64               { return 2; }
+    if !it.valid()                      { return 3; }   // still on last entry
+
+    // Walk back keys 29..0.
+    let mut expect: u64 = 29u64;
+    let mut walked: u64 = 0u64;
+    loop {
+        if !it.valid() { break; }
+        let k: u64 = unsafe { it.key() };
+        let v: u64 = unsafe { it.val() };
+        if k != expect              { return 100 + expect as i32; }
+        if v != expect * 11u64      { return 200 + expect as i32; }
+        walked = walked + 1u64;
+        if expect == 0u64 {
+            unsafe { it.step_back(); }   // crosses lower bound → invalid
+            break;
+        }
+        expect = expect - 1u64;
+        unsafe { it.step_back(); }
+    }
+    if walked != 30u64  { return 4; }
+    if it.valid()       { return 5; }    // step_back from key=0 invalidates
+
+    return 0;
+}
