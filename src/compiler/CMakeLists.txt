@@ -52,6 +52,7 @@ add_executable(logosc
     mlir_gen_stmt.cpp
     mlir_gen_expr.cpp
     mlir_gen_dyn.cpp
+    compile_pipeline.cpp
     emit_module.cpp
     module_loader.cpp
     module_manifest.cpp

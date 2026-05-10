@@ -9,6 +9,7 @@
 #include "emit_module.hpp"
 #include "metaprog_dispatch.hpp"
 #include "mlir_gen.hpp"
+#include "compile_pipeline.hpp"
 #include "module_manifest.hpp"
 #include <chrono>
 #include <climits>
@@ -3305,191 +3306,37 @@ int main(int argc, char** argv) {
             }),
         prog.functions.end());
 
-    // ── Step 3: L-IR → MLIR ─────────────────────────────────────
-    mlir::MLIRContext mlir_ctx;
-    mlir_ctx.getOrLoadDialect<mlir::func::FuncDialect>();
-    mlir_ctx.getOrLoadDialect<mlir::arith::ArithDialect>();
-    mlir_ctx.getOrLoadDialect<mlir::scf::SCFDialect>();
-    mlir_ctx.getOrLoadDialect<mlir::cf::ControlFlowDialect>();
-    mlir_ctx.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
-
-    auto mlir_module = logos::compiler::mlir_gen(mlir_ctx, prog);
-    report("mlir_gen");
-    if (std::getenv("LOGOS_DUMP_MLIR")) mlir_module->dump();
-    if (!mlir_module) {
-        std::fprintf(stderr, "logosc: MLIR generation failed\n");
-        return 1;
-    }
-
-    // --dump-metaprog phase 2: post-mono MLIR snapshot. Single global file
-    // per logosc invocation since LFunction → ast_idx provenance isn't
-    // threaded through mono_clone today (mono drops source_file too).
-    // Per-metacall index files in per_metacall_dirs point users here.
-    if (!dump_metaprog_dir.empty()) {
-        std::string mlir_text;
-        {
-            llvm::raw_string_ostream os(mlir_text);
-            mlir_module->print(os);
-        }
-        std::string path = dump_metaprog_dir + "/_global_post_mono.mlir";
-        FILE* f = std::fopen(path.c_str(), "w");
-        if (f) {
-            std::fwrite(mlir_text.data(), 1, mlir_text.size(), f);
-            std::fclose(f);
+    // ── Steps 3-6: shared MLIR/LLVM lowering tail (compile_pipeline.cpp).
+    // Handles mlir_gen → MLIR→LLVM lowering → opt pipeline → object emission.
+    // Honors --emit-mlir / --emit-llvm short-circuits internally; --jit
+    // returns the module for us to JIT-run here (build_jit_from_module is
+    // local to this TU).
+    {
+        logos::compiler::LowerEmitOpts lopts;
+        lopts.opt_level         = opt_level;
+        lopts.function_sections = true;
+        lopts.emit_mlir         = emit_mlir;
+        lopts.emit_llvm         = emit_llvm;
+        lopts.dump_metaprog_dir = dump_metaprog_dir;
+        std::unique_ptr<llvm::Module> jit_module;
+        if (jit_run) lopts.jit_module_out = &jit_module;
+        int rc = logos::compiler::lower_and_emit_object(prog, output_path, lopts);
+        if (rc != 0) return rc;
+        report("codegen+write");
+        if (emit_mlir || emit_llvm) return 0;
+        if (jit_run) {
+            auto jit = build_jit_from_module(*jit_module, "logosc");
+            if (!jit) return 1;
+            auto* sym = jit->lookup("main");
+            if (!sym) {
+                std::fprintf(stderr, "logosc: jit lookup main: %s\n",
+                             jit->error_str().c_str());
+                return 1;
+            }
+            report("jit_compile");
+            return reinterpret_cast<int (*)()>(sym)();
         }
     }
-
-    if (emit_mlir) {
-        mlir_module->dump();
-        return 0;
-    }
-
-    // ── Step 4: MLIR → LLVM dialect ─────────────────────────────
-    if (std::getenv("LOGOS_DUMP_MLIR")) mlir_module->dump();
-    mlir::PassManager pm(&mlir_ctx);
-    pm.addPass(mlir::createSCFToControlFlowPass());
-    pm.addPass(mlir::createConvertControlFlowToLLVMPass());
-    pm.addPass(mlir::createArithToLLVMConversionPass());
-    pm.addPass(mlir::createConvertFuncToLLVMPass());
-    pm.addPass(mlir::createReconcileUnrealizedCastsPass());
-
-    if (mlir::failed(pm.run(*mlir_module))) {
-        std::fprintf(stderr, "logosc: MLIR lowering failed\n");
-        return 1;
-    }
-    report("mlir->llvm dialect");
-
-    // ── Step 5: MLIR LLVM dialect → LLVM IR ─────────────────────
-    mlir::registerBuiltinDialectTranslation(mlir_ctx);
-    mlir::registerLLVMDialectTranslation(mlir_ctx);
-
-    llvm::LLVMContext llvm_ctx;
-    auto llvm_module = mlir::translateModuleToLLVMIR(*mlir_module, llvm_ctx);
-    report("llvm_ir");
-    if (!llvm_module) {
-        std::fprintf(stderr, "logosc: LLVM IR translation failed\n");
-        return 1;
-    }
-
-    // --dump-metaprog phase 3: post-mlirgen LLVM IR snapshot.
-    if (!dump_metaprog_dir.empty()) {
-        std::string ll_text;
-        {
-            llvm::raw_string_ostream os(ll_text);
-            llvm_module->print(os, nullptr);
-        }
-        std::string path = dump_metaprog_dir + "/_global_post_mlirgen.ll";
-        FILE* f = std::fopen(path.c_str(), "w");
-        if (f) {
-            std::fwrite(ll_text.data(), 1, ll_text.size(), f);
-            std::fclose(f);
-        }
-    }
-
-    llvm_module->setTargetTriple(llvm::Triple(llvm::sys::getDefaultTargetTriple()));
-
-    // ── --jit: compile and run main() in-process via ORC ──────────────
-    if (jit_run) {
-        auto jit = build_jit_from_module(*llvm_module, "logosc");
-        if (!jit) return 1;
-        auto* sym = jit->lookup("main");
-        if (!sym) {
-            std::fprintf(stderr, "logosc: jit lookup main: %s\n",
-                         jit->error_str().c_str());
-            return 1;
-        }
-        report("jit_compile");
-        return reinterpret_cast<int (*)()>(sym)();
-    }
-
-    if (emit_llvm) {
-        llvm_module->print(llvm::outs(), nullptr);
-        return 0;
-    }
-
-    // ── Step 6: LLVM IR → object file ───────────────────────────
-    llvm::InitializeNativeTarget();
-    llvm::InitializeNativeTargetAsmPrinter();
-    report("llvm_init");
-
-    std::string error;
-    auto* target = llvm::TargetRegistry::lookupTarget(
-        llvm_module->getTargetTriple(), error);
-    if (!target) {
-        std::fprintf(stderr, "logosc: target lookup failed: %s\n", error.c_str());
-        return 1;
-    }
-
-    // Map opt_level → LLVM enums.
-    auto llvm_opt = [&]() -> llvm::CodeGenOptLevel {
-        switch (opt_level) {
-            case 1: return llvm::CodeGenOptLevel::Less;
-            case 2: return llvm::CodeGenOptLevel::Default;
-            case 3: return llvm::CodeGenOptLevel::Aggressive;
-            default: return llvm::CodeGenOptLevel::None;
-        }
-    }();
-    auto pb_opt = [&]() -> llvm::OptimizationLevel {
-        switch (opt_level) {
-            case 1: return llvm::OptimizationLevel::O1;
-            case 2: return llvm::OptimizationLevel::O2;
-            case 3: return llvm::OptimizationLevel::O3;
-            default: return llvm::OptimizationLevel::O0;
-        }
-    }();
-
-    // Per-function/data sections so downstream `--gc-sections` strips
-    // unused symbols. Critical for stdlib bloat — see emit_module.cpp.
-    llvm::TargetOptions tmopts_main;
-    tmopts_main.FunctionSections = true;
-    tmopts_main.DataSections     = true;
-    auto target_machine = std::unique_ptr<llvm::TargetMachine>(
-        target->createTargetMachine(
-            llvm_module->getTargetTriple(), "generic", "",
-            tmopts_main, llvm::Reloc::PIC_,
-            std::nullopt, llvm_opt));
-
-    llvm_module->setDataLayout(target_machine->createDataLayout());
-    report("target_machine");
-
-    // ── Step 6b: run LLVM optimization pipeline (O1/O2/O3 only) ────────────
-    if (opt_level > 0) {
-        llvm::LoopAnalysisManager     lam;
-        llvm::FunctionAnalysisManager fam;
-        llvm::CGSCCAnalysisManager    cgam;
-        llvm::ModuleAnalysisManager   mam;
-
-        llvm::PassBuilder pb(target_machine.get());
-        // Register all standard analyses.
-        pb.registerModuleAnalyses(mam);
-        pb.registerCGSCCAnalyses(cgam);
-        pb.registerFunctionAnalyses(fam);
-        pb.registerLoopAnalyses(lam);
-        pb.crossRegisterProxies(lam, fam, cgam, mam);
-
-        auto mpm = pb.buildPerModuleDefaultPipeline(pb_opt);
-        mpm.run(*llvm_module, mam);
-        report("opt");
-    }
-
-    std::error_code ec;
-    llvm::raw_fd_ostream out(output_path, ec, llvm::sys::fs::OF_None);
-    if (ec) {
-        std::fprintf(stderr, "logosc: cannot open output '%s': %s\n",
-                     output_path, ec.message().c_str());
-        return 1;
-    }
-
-    llvm::legacy::PassManager pass;
-    if (target_machine->addPassesToEmitFile(pass, out, nullptr,
-                                             llvm::CodeGenFileType::ObjectFile)) {
-        std::fprintf(stderr, "logosc: target cannot emit object file\n");
-        return 1;
-    }
-
-    pass.run(*llvm_module);
-    out.flush();
-    report("codegen+write");
 
     std::fprintf(stderr, "logosc: wrote %s\n", output_path);
 
@@ -3518,16 +3365,5 @@ int main(int argc, char** argv) {
         std::system(sz.c_str());
     }
 
-    // Measure destructor/dealloc time for large objects.
-    {
-        auto t0 = std::chrono::steady_clock::now();
-        llvm_module.reset();
-        mlir_module = {};
-        if (trace) {
-            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - t0).count();
-            std::fprintf(stderr, "[trace   %4lldms] destroy\n", (long long)ms);
-        }
-    }
     return 0;
 }

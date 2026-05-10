@@ -8,9 +8,9 @@
 //   NAME.hermes0 — binary AST dump (for sema on client side)
 
 #include "emit_module.hpp"
+#include "compile_pipeline.hpp"
 #include "metaprog_dispatch.hpp"
 #include "module_loader.hpp"
-#include "mlir_gen.hpp"
 
 #include <logos/compiler/borrow_check.hpp>
 #include <logos/compiler/lir.hpp>
@@ -18,36 +18,6 @@
 #include <logos/hermes/binary_codec.hpp>
 #include <logos/hermes/document.hpp>
 #include <logos/hermes/type_ops.hpp>
-
-// MLIR
-#include <mlir/IR/MLIRContext.h>
-#include <mlir/IR/BuiltinOps.h>
-#include <mlir/Dialect/Func/IR/FuncOps.h>
-#include <mlir/Dialect/Arith/IR/Arith.h>
-#include <mlir/Dialect/SCF/IR/SCF.h>
-#include <mlir/Dialect/ControlFlow/IR/ControlFlowOps.h>
-#include <mlir/Dialect/LLVMIR/LLVMDialect.h>
-#include <mlir/Pass/Pass.h>
-#include <mlir/Pass/PassManager.h>
-#include <mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h>
-#include <mlir/Conversion/ArithToLLVM/ArithToLLVM.h>
-#include <mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h>
-#include <mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h>
-#include <mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h>
-#include <mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h>
-#include <mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h>
-#include <mlir/Target/LLVMIR/Export.h>
-
-// LLVM
-#include <llvm/IR/Module.h>
-#include <llvm/IR/LegacyPassManager.h>
-#include <llvm/MC/TargetRegistry.h>
-#include <llvm/Support/FileSystem.h>
-#include <llvm/Support/TargetSelect.h>
-#include <llvm/Support/raw_ostream.h>
-#include <llvm/Target/TargetMachine.h>
-#include <llvm/Target/TargetOptions.h>
-#include <llvm/TargetParser/Host.h>
 
 #include <cstdio>
 #include <cstdint>
@@ -138,50 +108,6 @@ static std::vector<std::string> collect_logos_files(const std::string& root) {
 }
 
 // ---------------------------------------------------------------------------
-// Lower an already-typechecked LProgram to an LLVM module.
-// Public entry — used by emit_module (→ .o) and by --jit (→ in-process).
-// ---------------------------------------------------------------------------
-std::unique_ptr<llvm::Module>
-lower_to_llvm_module(const lir::LProgram& prog, llvm::LLVMContext& llvm_ctx) {
-    mlir::MLIRContext mlir_ctx;
-    mlir_ctx.getOrLoadDialect<mlir::func::FuncDialect>();
-    mlir_ctx.getOrLoadDialect<mlir::arith::ArithDialect>();
-    mlir_ctx.getOrLoadDialect<mlir::scf::SCFDialect>();
-    mlir_ctx.getOrLoadDialect<mlir::cf::ControlFlowDialect>();
-    mlir_ctx.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
-
-    auto mlir_module = mlir_gen(mlir_ctx, prog);
-    if (!mlir_module) {
-        std::fprintf(stderr, "lower_to_llvm_module: MLIR generation failed\n");
-        return nullptr;
-    }
-
-    mlir::PassManager pm(&mlir_ctx);
-    pm.addPass(mlir::createSCFToControlFlowPass());
-    pm.addPass(mlir::createConvertControlFlowToLLVMPass());
-    pm.addPass(mlir::createArithToLLVMConversionPass());
-    pm.addPass(mlir::createConvertFuncToLLVMPass());
-    pm.addPass(mlir::createReconcileUnrealizedCastsPass());
-    if (mlir::failed(pm.run(*mlir_module))) {
-        std::fprintf(stderr, "lower_to_llvm_module: MLIR lowering failed\n");
-        if (std::getenv("LOGOS_DUMP_MLIR_ON_FAIL")) {
-            mlir_module->dump();
-        }
-        return nullptr;
-    }
-
-    mlir::registerBuiltinDialectTranslation(mlir_ctx);
-    mlir::registerLLVMDialectTranslation(mlir_ctx);
-    auto llvm_module = mlir::translateModuleToLLVMIR(*mlir_module, llvm_ctx);
-    if (!llvm_module) {
-        std::fprintf(stderr, "lower_to_llvm_module: LLVM IR translation failed\n");
-        return nullptr;
-    }
-    llvm_module->setTargetTriple(llvm::Triple(llvm::sys::getDefaultTargetTriple()));
-    return llvm_module;
-}
-
-// ---------------------------------------------------------------------------
 // Compile a set of parsed modules to an object file.
 // Returns true on success.
 // ---------------------------------------------------------------------------
@@ -264,50 +190,11 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
     // binary-skip so mlir_gen forward-declares without bodies.
     apply_only_file_filter(prog, only_file);
 
-    llvm::LLVMContext llvm_ctx;
-    auto llvm_module = lower_to_llvm_module(prog, llvm_ctx);
-    if (!llvm_module) return false;
-
-    // LLVM IR → .o
-    llvm::InitializeNativeTarget();
-    llvm::InitializeNativeTargetAsmPrinter();
-
-    std::string err;
-    auto* target = llvm::TargetRegistry::lookupTarget(
-        llvm_module->getTargetTriple(), err);
-    if (!target) {
-        std::fprintf(stderr, "emit_module: target lookup: %s\n", err.c_str());
-        return false;
-    }
-    // Per-function & per-data sections so downstream `--gc-sections`
-    // strips unused stdlib symbols at link time. Without this, the entire
-    // stdlib.o gets pulled into any binary that references *any* symbol
-    // in it (single .o → all-or-nothing archive extraction).
-    llvm::TargetOptions tmopts;
-    tmopts.FunctionSections = true;
-    tmopts.DataSections     = true;
-    auto tm = std::unique_ptr<llvm::TargetMachine>(
-        target->createTargetMachine(
-            llvm_module->getTargetTriple(), "generic", "",
-            tmopts, llvm::Reloc::PIC_));
-    llvm_module->setDataLayout(tm->createDataLayout());
-
-    std::error_code ec;
-    llvm::raw_fd_ostream out(obj_path, ec, llvm::sys::fs::OF_None);
-    if (ec) {
-        std::fprintf(stderr, "emit_module: cannot create %s: %s\n",
-                     obj_path.c_str(), ec.message().c_str());
-        return false;
-    }
-    llvm::legacy::PassManager pass;
-    if (tm->addPassesToEmitFile(pass, out, nullptr,
-                                llvm::CodeGenFileType::ObjectFile)) {
-        std::fprintf(stderr, "emit_module: cannot emit object file\n");
-        return false;
-    }
-    pass.run(*llvm_module);
-    out.flush();
-    return true;
+    // Shared lowering tail (mlir_gen → MLIR→LLVM → object).
+    LowerEmitOpts lopts;
+    lopts.opt_level = 0;            // stdlib build skips opt pipeline
+    lopts.function_sections = true; // per-fn sections for --gc-sections
+    return lower_and_emit_object(prog, obj_path, lopts) == 0;
 }
 
 // ---------------------------------------------------------------------------
