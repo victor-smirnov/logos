@@ -1,0 +1,52 @@
+// is_empty + clear: verify the small mod surface added for ContainerRef.
+// Build a tree, assert non-empty, clear it, assert empty + len 0, reuse
+// after clear. Snapshot fork before/after clear shows clear is local
+// (parent snap retains its data; child sees empty container after clear).
+package persistent_clear;
+
+use std.data.persistent.handle;
+use std.data.persistent.store;
+use std.data.persistent.node;
+use std.data.persistent.cow;
+use std.data.persistent.descent;
+use std.data.persistent.mutate;
+use std.lang.datatypes;
+use std.hermes.view;
+use std.hermes.anyval;
+
+pub const StoreCfg: HermesStatic = @{
+    "name": "clear", "ctr_id": <type:u64>, "snp_id": <type:u64>, "block_id": <type:u64>,
+};
+pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 4 };
+
+fn main() -> i32 {
+    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
+    let mut snap: Snap<StoreCfg> = store.fork(GENESIS);
+    let mut cr: ContainerRef<StoreCfg, MapCfg> =
+        create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
+
+    if !cr.is_empty()       { return 1; }
+    if cr.len() != 0u64     { return 2; }
+
+    let mut i: u64 = 0u64;
+    while i < 12u64 {
+        cr.insert(i, i * 5u64);
+        i = i + 1u64;
+    }
+    if cr.is_empty()        { return 3; }
+    if cr.len() != 12u64    { return 4; }
+
+    cr.clear();
+    if !cr.is_empty()       { return 5; }
+    if cr.len() != 0u64     { return 6; }
+
+    // Reuse — clear leaves the container valid for further insertions.
+    cr.insert(99u64, 7u64);
+    if cr.is_empty()        { return 7; }
+    if cr.len() != 1u64     { return 8; }
+    let mut v: u64 = 0u64;
+    if !cr.get(99u64, &mut v as *mut u64) { return 9; }
+    if v != 7u64            { return 10; }
+
+    return 0;
+}

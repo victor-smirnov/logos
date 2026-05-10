@@ -538,6 +538,29 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
         return pmap_size_rec::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc);
     }
 
+    pub fn is_empty(&self) -> bool {
+        return self.len() == 0u64;
+    }
+
+    // Replace the container's contents with an empty leaf. Old root's
+    // rc is decremented via arc_replace_in_slot — recursive release
+    // through the auto-Drop chain frees every block reachable from
+    // the previous tree (modulo blocks shared with another snapshot).
+    pub fn clear(&mut self) {
+        unsafe {
+            let new_id: BlockId<STORE_CFG> = *self.id_ctr_p + 1u64;
+            *self.id_ctr_p = new_id;
+            let leaf_p: *mut LeafNode<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> =
+                leaf_alloc::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
+                    new_id, self.snap_id);
+            let new_arc: NodeARC<STORE_CFG> =
+                node_arc_wrap::<STORE_CFG>(leaf_p as *mut dyn BTreeNode<STORE_CFG>);
+            arc_replace_in_slot::<STORE_CFG>(
+                &mut self.arc as *mut NodeARC<STORE_CFG>, new_arc);
+        }
+        self.writeback();
+    }
+
     pub fn contains(&self, key: <type:CFG.key>::ViewInStore) -> bool {
         return pmap_contains_rec::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
             &self.arc, &key as *const <type:CFG.key>);
