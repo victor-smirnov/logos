@@ -1,0 +1,68 @@
+// SPDX-License-Identifier: Apache-2.0
+// std.data.persistent.shuttle — typed B+tree descent components.
+//
+// A "shuttle" is the per-branch step that picks which child to descend
+// into for one tree dimension. Two kinds today:
+//
+//   SUM  — branch slot[i] = subtree-count (or any monoidal sum). The
+//          shuttle finds the child whose prefix-sum brackets the target
+//          ordinal, returning the child index plus the remainder
+//          (target − prefix-sum) for the recursive descent.
+//
+//   MAX  — branch slot[i] = max-key in subtree. The shuttle finds the
+//          first child whose max ≥ target. Remainder is unchanged
+//          (kept for ABI uniformity with SUM).
+//
+// derive_branch_node emits, per op declared in BRANCH_OPS, a thin
+// wrapper that calls one of these templates with the right column.
+// User-side find(K) / seek(N) compose those wrappers into a descent.
+
+package std.data.persistent.shuttle;
+
+use std.lang.datatypes;
+
+pub struct ShuttleResult {
+    pub idx:       u64,   // child index to descend into
+    pub remainder: u64,   // adjusted target for the recursive call
+}
+
+// SUM dimension: walk slots accumulating prefix-sum until prefix +
+// slots[i] > target. Returns (i, target − prefix). Caller's `target`
+// is assumed to be in-range; callers must check `len == 0` and total
+// before invoking.
+pub fn shuttle_sum_u64(slots: *const PrimVec<u64>, target: u64) -> ShuttleResult {
+    unsafe {
+        let n: u64 = slots.len;
+        let mut prefix: u64 = 0u64;
+        let mut i: u64 = 0u64;
+        while i < n {
+            let s: u64 = slots.get(i);
+            if prefix + s > target {
+                return ShuttleResult { idx: i, remainder: target - prefix };
+            }
+            prefix = prefix + s;
+            i = i + 1u64;
+        }
+        // Out of range — clamp to last child with full remainder.
+        return ShuttleResult { idx: if n > 0u64 { n - 1u64 } else { 0u64 },
+                                remainder: target - prefix };
+    }
+}
+
+// MAX dimension: first slot whose max ≥ target. If none qualifies the
+// target is past the last subtree — clamp to the last child.
+pub fn shuttle_max_u64(slots: *const PrimVec<u64>, target: u64) -> ShuttleResult {
+    unsafe {
+        let n: u64 = slots.len;
+        let mut i: u64 = 0u64;
+        while i < n {
+            let s: u64 = slots.get(i);
+            if s >= target {
+                return ShuttleResult { idx: i, remainder: target };
+            }
+            i = i + 1u64;
+        }
+        return ShuttleResult { idx: if n > 0u64 { n - 1u64 } else { 0u64 },
+                                remainder: target };
+    }
+}

@@ -29,7 +29,9 @@ use std.hermes.anyval;
 use std.hermes.string;
 use std.lang.datatypes;
 use std.lang.text;
+use std.mem;
 use std.data.persistent.node;
+use std.data.persistent.shuttle;
 
 // Walk module ITEMS to find the ANNOTATION immediately preceding the
 // target item whose NAME matches `trigger`. Returns the ANNOTATION
@@ -132,6 +134,42 @@ fn lit_str_unquoted(view: &OView, lit: AnyVal) -> StringView {
     };
 }
 
+// In a HERMES_MAP node (AST shape: { CODE: HERMES_MAP, ITEMS: [HERMES_ENTRY{KEY,VALUE},...] }),
+// find the entry whose KEY matches `key` byte-for-byte and return its
+// VALUE AnyVal. KEY is a STRING token captured with surrounding quotes.
+fn hermes_map_get(view: &OView, hmap: AnyVal, key: str) -> AnyVal {
+    let items: AnyVal = view.tiny_map_get(hmap, 2 as u8);          // ITEMS
+    if items.raw == 0 { return AnyVal::null_ptr(); }
+    let n: u64 = view.array_len(items);
+    let klen: u64 = key.len() as u64;
+    let mut i: u64 = 0u64;
+    while i < n {
+        let entry: AnyVal = view.array_get(items, i);
+        // entry has KEY (field 18) and VALUE (field 7); KEY is a STRING-
+        // captured token with quotes around it, same as LIT_STR/HERMES_STR.
+        let key_av: AnyVal = view.tiny_map_get(entry, 51 as u8);   // KEY
+        let raw: StringView = view.get_str_view(key_av);
+        if raw.len >= (2 as u64) {
+            let inner_len: u64 = raw.len - (2 as u64);
+            if inner_len == klen {
+                let mut j: u64 = 0u64;
+                let mut eq: bool = true;
+                unsafe {
+                    while j < klen {
+                        let a: u8 = *((raw.ptr as i64 + 1i64 + j as i64) as *const u8);
+                        let b: u8 = *((key.as_ptr() as i64 + j as i64) as *const u8);
+                        if a != b { eq = false; break; }
+                        j = j + (1 as u64);
+                    }
+                }
+                if eq { return view.tiny_map_get(entry, 7 as u8); }
+            }
+        }
+        i = i + (1 as u64);
+    }
+    return AnyVal::null_ptr();
+}
+
 #[metaprog_handler("derive_branch_node")]
 fn derive_branch_node_hook(target_offset: u32) -> () {
     let view: OView = oview_module_ast();
@@ -172,10 +210,14 @@ fn derive_branch_node_hook(target_offset: u32) -> () {
         "BRANCH_OPS"
     };
 
-    // Op-list discovery. Each pair of strings (field, elem-type)
-    // becomes one aggregate column.
-    let mut col_names: Vec<Ident> = vec_new::<Ident>();
-    let mut col_types: Vec<Ident> = vec_new::<Ident>();
+    // Op-list discovery. Each op is a HERMES_MAP with keys
+    // "field" (col name), "type" (elem type), "kind" ("SUM" or "MAX").
+    // Three parallel cursors drive both struct-field emission and
+    // shuttle-wrapper emission below.
+    let mut col_names:    Vec<Ident> = vec_new::<Ident>();
+    let mut col_types:    Vec<Ident> = vec_new::<Ident>();
+    let mut shuttle_fns:  Vec<Ident> = vec_new::<Ident>();   // stdlib templ name
+    let mut shuttle_syms: Vec<Ident> = vec_new::<Ident>();   // emitted wrapper
 
     let ops_const: AnyVal = view.find_template_decl(ops_name);
     if ops_const.raw != 0 {
@@ -186,16 +228,64 @@ fn derive_branch_node_hook(target_offset: u32) -> () {
                 let n: u64 = view.array_len(items);
                 let mut i: u64 = 0u64;
                 while i < n {
-                    let elem: AnyVal = view.array_get(items, i);
-                    let sv: StringView = lit_str_unquoted(&view, elem);
-                    if sv.len > (0 as u64) {
-                        let id: Ident = Ident { ptr: sv.ptr, len: sv.len };
+                    let op_map: AnyVal = view.array_get(items, i);
+                    let f_sv: StringView = lit_str_unquoted(&view,
+                        hermes_map_get(&view, op_map, "field"));
+                    let t_sv: StringView = lit_str_unquoted(&view,
+                        hermes_map_get(&view, op_map, "type"));
+                    let k_sv: StringView = lit_str_unquoted(&view,
+                        hermes_map_get(&view, op_map, "kind"));
+                    if f_sv.len > (0 as u64) && t_sv.len > (0 as u64) && k_sv.len > (0 as u64) {
+                        let f_id: Ident = Ident { ptr: f_sv.ptr, len: f_sv.len };
+                        let t_id: Ident = Ident { ptr: t_sv.ptr, len: t_sv.len };
+                        // Pick stdlib template: shuttle_sum_<type> / shuttle_max_<type>.
+                        // Slice 2 ships only u64 instantiations, so we hardcode the
+                        // suffix; richer types come with monomorphisation work.
+                        let mut tmpl_name: String = String::new();
                         unsafe {
-                            if i % (2 as u64) == (0 as u64) {
-                                (&mut col_names as *mut Vec<Ident>).push(id);
-                            } else {
-                                (&mut col_types as *mut Vec<Ident>).push(id);
+                            let mut p: i64 = k_sv.ptr as i64;
+                            let mut left: u64 = k_sv.len;
+                            tmpl_name.push_str("shuttle_");
+                            while left > (0 as u64) {
+                                let b: u8 = *(p as *const u8);
+                                // Lowercase ASCII A-Z → a-z.
+                                let lo: u8 = if b >= (65u8) && b <= (90u8) { b + (32u8) } else { b };
+                                tmpl_name.push_u8(lo);
+                                p = p + (1 as i64);
+                                left = left - (1 as u64);
                             }
+                            tmpl_name.push_str("_u64");
+                        }
+                        let tmpl_len: u64 = tmpl_name.len() as u64;
+                        let tmpl_ptr: *const u8 = unsafe {
+                            leak_str_bytes(tmpl_name.as_str())
+                        };
+                        let tmpl_id: Ident = Ident { ptr: tmpl_ptr, len: tmpl_len };
+
+                        // Wrapper symbol name: branchnode_<field>_shuttle.
+                        let mut sym_name: String = String::new();
+                        unsafe {
+                            sym_name.push_str("branchnode_");
+                            let mut p: i64 = f_sv.ptr as i64;
+                            let mut left: u64 = f_sv.len;
+                            while left > (0 as u64) {
+                                sym_name.push_u8(*(p as *const u8));
+                                p = p + (1 as i64);
+                                left = left - (1 as u64);
+                            }
+                            sym_name.push_str("_shuttle");
+                        }
+                        let sym_len: u64 = sym_name.len() as u64;
+                        let sym_ptr: *const u8 = unsafe {
+                            leak_str_bytes(sym_name.as_str())
+                        };
+                        let sym_id: Ident = Ident { ptr: sym_ptr, len: sym_len };
+
+                        unsafe {
+                            (&mut col_names    as *mut Vec<Ident>).push(f_id);
+                            (&mut col_types    as *mut Vec<Ident>).push(t_id);
+                            (&mut shuttle_fns  as *mut Vec<Ident>).push(tmpl_id);
+                            (&mut shuttle_syms as *mut Vec<Ident>).push(sym_id);
                         }
                     }
                     i = i + (1 as u64);
@@ -213,5 +303,34 @@ fn derive_branch_node_hook(target_offset: u32) -> () {
         }
     };
     unsafe { logos_emit_item_blob_subst(&blob); }
+
+    // Per-op shuttle wrapper emission deferred — `pub fn #(sym)<...>`
+    // antiquot at fn-name position currently throws a syntax error
+    // (debt #19, related to debts #15/#16). For slice 2 the user
+    // invokes the stdlib generic shuttle directly:
+    //
+    //   shuttle_sum_u64(&br.sizes as *const PrimVec<u64>, target)
+    //
+    // The op-list still drives column emission, so the user knows the
+    // right (col_name, kind) pairing — slice 2.x adds the per-op
+    // wrappers when the antiquot grammar gap closes.
     return;
+}
+
+// Copy the string's bytes into a fresh heap allocation that we never
+// free. Used for Ident backings whose bytes the quote_item!
+// placeholders need to read at substitution time — placeholder reads
+// happen after the local String would have been dropped, so a non-
+// owning Ident view into the local would dangle. The leak's lifetime
+// is one metafn invocation; cleanup later via a host-side gensym-
+// equivalent that rents bytes for the metafn lifetime.
+unsafe fn leak_str_bytes(s: str) -> *const u8 {
+    let n: i64 = s.len();
+    let p: *mut u8 = alloc(n);
+    let mut i: i64 = 0i64;
+    while i < n {
+        p[i] = s.as_ptr()[i];
+        i = i + 1i64;
+    }
+    return p as *const u8;
 }

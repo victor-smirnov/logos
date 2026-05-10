@@ -1,0 +1,76 @@
+// derive_branch_node slice 2: nested op-spec drives derived
+// BranchNodeMP shape; stdlib shuttle templates execute the per-
+// dimension descent (SUM for seek(N), MAX for find(K)).
+//
+// Verifies:
+//   - HERMES_MAP per-op spec parsing (field/type/kind keys)
+//   - Two-op emission (sizes via SUM, maxes via MAX)
+//   - shuttle_sum_u64 prefix-sum descent + remainder
+//   - shuttle_max_u64 first-≥ descent
+package main;
+
+use std.compiler.metaprog;
+use std.data.persistent.node;
+use std.data.persistent.shuttle;
+use std.lang.datatypes;
+use std.hermes.view;
+use std.mem;
+
+pub const StoreCfg: HermesStatic = @{
+    "name": "demo", "ctr_id": <type:u64>, "snp_id": <type:u64>, "block_id": <type:u64>,
+};
+pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 4 };
+
+pub const MyOps: HermesStatic = @[
+    @{ "field": "sizes", "type": "u64", "kind": "SUM" },
+    @{ "field": "maxes", "type": "u64", "kind": "MAX" },
+];
+
+#[derive_branch_node(ops = "MyOps")]
+pub struct LeafShape<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
+    pub base: NodeBase<STORE_CFG>,
+    pub keys: Buffer<K>,
+    pub vals: Buffer<V>,
+}
+
+fn main() -> i32 {
+    unsafe {
+        let p: *mut BranchNodeMP<u64, StoreCfg, MapCfg> =
+            alloc(sizeof::<BranchNodeMP<u64, StoreCfg, MapCfg>>())
+                as *mut BranchNodeMP<u64, StoreCfg, MapCfg>;
+        p.base.rc      = 1u64;
+        p.base.is_leaf = false;
+        p.keys         = Buffer::<u64>::new();
+        p.children     = vec_new::<NodeARC<StoreCfg>>();
+        p.sizes        = PrimVec::<u64>::empty();
+        p.maxes        = PrimVec::<u64>::empty();
+        p.sizes.push(3u64);
+        p.sizes.push(2u64);
+        p.sizes.push(4u64);
+        p.maxes.push(2u64);
+        p.maxes.push(4u64);
+        p.maxes.push(8u64);
+
+        let br: *const BranchNodeMP<u64, StoreCfg, MapCfg> =
+            p as *const BranchNodeMP<u64, StoreCfg, MapCfg>;
+
+        // SUM: sizes=[3,2,4], total=9. seek pivots at 3, 5.
+        let sumv: *const PrimVec<u64> = &br.sizes as *const PrimVec<u64>;
+        let r0: ShuttleResult = shuttle_sum_u64(sumv, 0u64);
+        if r0.idx != 0u64 || r0.remainder != 0u64 { return 10; }
+        let r3: ShuttleResult = shuttle_sum_u64(sumv, 3u64);
+        if r3.idx != 1u64 || r3.remainder != 0u64 { return 11; }
+        let r8: ShuttleResult = shuttle_sum_u64(sumv, 8u64);
+        if r8.idx != 2u64 || r8.remainder != 3u64 { return 12; }
+
+        // MAX: maxes=[2,4,8].
+        let maxv: *const PrimVec<u64> = &br.maxes as *const PrimVec<u64>;
+        let m1: ShuttleResult = shuttle_max_u64(maxv, 1u64);
+        if m1.idx != 0u64 { return 20; }
+        let m4: ShuttleResult = shuttle_max_u64(maxv, 4u64);
+        if m4.idx != 1u64 { return 21; }
+        let m7: ShuttleResult = shuttle_max_u64(maxv, 7u64);
+        if m7.idx != 2u64 { return 22; }
+    }
+    return 0;
+}
