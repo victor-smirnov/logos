@@ -120,6 +120,12 @@ const uint8_t* logos_metaprog_gensym(const uint8_t* pref, uint64_t pref_len,
     metaprog_unavailable("logos_metaprog_gensym");
 }
 
+__attribute__((weak))
+const uint8_t* logos_macro_arg(uint64_t site_id, uint64_t arg_idx) {
+    (void)site_id; (void)arg_idx;
+    metaprog_unavailable("logos_macro_arg");
+}
+
 // ── Fiber-runtime stubs for the metacall JIT ────────────────────────
 //
 // liblstdlib_fibers.a (fiber_ctx.S) carries TLS relocations

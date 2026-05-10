@@ -1009,6 +1009,22 @@ struct LProgram {
     };
     std::vector<MetacallSite> metacall_sites;
 
+    // Function-style macro arg blobs (slice 1.3b of fn-macros).
+    //
+    // Keyed by site_id (== index into metacall_sites). Each entry is a
+    // vector of per-arg blobs; each blob has the same `[u64 size][bytes]`
+    // ABI as HermesStatic so the JIT thunk can construct ExprBlob from
+    // the bare pointer returned by the `logos_macro_arg` host shim.
+    //
+    // Populated by sema's `lower_fn_macro_call`; consumed by the driver
+    // (main.cpp) immediately before each macro thunk is invoked: the
+    // driver swaps the active map into a process-global registry that
+    // `logos_macro_arg` reads, then clears the registry after invoke.
+    //
+    // Non-fn-macro sites keep their slot empty.
+    std::unordered_map<uint64_t, std::vector<std::vector<uint8_t>>>
+        macro_arg_blobs;
+
     // Symbol names present in binary archives on the search path.
     // mlir_gen skips functions whose mangled name is in this set (they're
     // already compiled and will be found by the linker in the .a).

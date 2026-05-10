@@ -86,6 +86,7 @@
 #include <cstdio>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 // Phase 7 slice 1+2: AST-emit seam for metaprog hooks.
@@ -114,6 +115,13 @@ size_t                               g_user_root_idx = 0;
 // arg-passing lands (an emitted node ref will carry source info).
 std::vector<std::string>*            g_metaprog_diags = nullptr;
 const char*                          g_current_hook_name = nullptr;
+// Function-style macros (slice 1.3b): the metacall driver-invoke loop
+// points this at the active LProgram::macro_arg_blobs so the host shim
+// `logos_macro_arg(site_id, arg_idx)` can resolve each thunk's args.
+// Each blob is laid out as `[u64 size][bytes]`; the shim returns
+// `&blob[8]` (past the size prefix) to match the ExprBlob/HermesStatic ABI.
+const std::unordered_map<uint64_t, std::vector<std::vector<uint8_t>>>*
+    g_macro_args = nullptr;
 
 // `--dump-metaprog` provenance tracking. When the metaprog driver is
 // about to invoke a hook or metacall thunk, it sets g_current_emit_ctx
@@ -1064,6 +1072,49 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
     *g_any_emitted = true;
     record_emit_provenance();
     return 1;
+}
+
+// Function-style macros (slice 1.3b): host shim returning the bytes
+// pointer for the (site_id, arg_idx)-th ARG of a `name!(...)` call.
+// The driver populates `g_macro_args` before invoking each metacall
+// thunk; the thunk constructs `ExprBlob { ptr: logos_macro_arg(N, i) }`
+// which the splice path then decodes via lower_hermes_blob.
+//
+// Returns ptr past the 8-byte `[u64 size]` prefix so the result is
+// directly usable as an `ExprBlob.ptr` / `HermesStatic.ptr`. Aborts on
+// out-of-range indices — that would indicate a sema/driver mismatch.
+extern "C" const uint8_t* logos_macro_arg(uint64_t site_id, uint64_t arg_idx) {
+    if (!g_macro_args) {
+        std::fprintf(stderr,
+            "logos_macro_arg: invoked outside metacall driver (site=%llu)\n",
+            static_cast<unsigned long long>(site_id));
+        std::abort();
+    }
+    auto it = g_macro_args->find(site_id);
+    if (it == g_macro_args->end()) {
+        std::fprintf(stderr,
+            "logos_macro_arg: no args registered for site %llu\n",
+            static_cast<unsigned long long>(site_id));
+        std::abort();
+    }
+    const auto& args = it->second;
+    if (arg_idx >= args.size()) {
+        std::fprintf(stderr,
+            "logos_macro_arg: arg_idx %llu out of range (site %llu has %zu args)\n",
+            static_cast<unsigned long long>(arg_idx),
+            static_cast<unsigned long long>(site_id),
+            args.size());
+        std::abort();
+    }
+    const auto& blob = args[arg_idx];
+    if (blob.size() < 8) {
+        std::fprintf(stderr,
+            "logos_macro_arg: blob too small at site %llu arg %llu\n",
+            static_cast<unsigned long long>(site_id),
+            static_cast<unsigned long long>(arg_idx));
+        std::abort();
+    }
+    return blob.data() + 8;
 }
 
 // Pack a stack-local `[*const Ident; N]` (one entry per `#name` site
@@ -2975,6 +3026,21 @@ int main(int argc, char** argv) {
                              mc_jit->error_str().c_str());
                 return 1;
             }
+            if (!mc_jit->define_symbol("logos_macro_arg",
+                    reinterpret_cast<void*>(&logos_macro_arg))) {
+                std::fprintf(stderr, "logosc: bind logos_macro_arg (mc_jit): %s\n",
+                             mc_jit->error_str().c_str());
+                return 1;
+            }
+
+            // Function-style macros (slice 1.3b): publish the per-site
+            // arg-blob table so `logos_macro_arg(site, idx)` can resolve
+            // bytes for each fn-macro thunk we are about to invoke.
+            // Cleared right after the loop — the bytes live in `prog`.
+            g_macro_args = &prog.macro_arg_blobs;
+            struct MacroArgsGuard {
+                ~MacroArgsGuard() { g_macro_args = nullptr; }
+            } macro_args_guard;
 
             // Step 3: invoke each thunk and splice the result into the AST.
             using RT = logos::compiler::lir::LProgram::MetacallSite::RetTag;

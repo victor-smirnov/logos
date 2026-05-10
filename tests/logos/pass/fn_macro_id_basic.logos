@@ -1,0 +1,17 @@
+// First end-to-end test of function-style macros (slice 1 of fn-macros).
+// `id_macro!(e)` is the identity macro: it returns its arg ExprBlob
+// unchanged, so the splice replaces the call site with the original
+// expression. Validates: #[fn_macro] dispatch, ARG → ExprBlob
+// serialisation, per-site arg-blob table, host shim, thunk synthesis,
+// ExprBlob splice through lower_hermes_blob.
+package fn_macro_id_basic;
+
+use std.compiler.metaprog;
+
+#[fn_macro]
+pub fn id_macro(e: ExprBlob) -> ExprBlob { return e; }
+
+fn main() -> i32 {
+    let v: i32 = id_macro!(42);
+    return v;
+}

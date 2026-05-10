@@ -198,6 +198,13 @@ impl Copy for Ident {}
 extern fn logos_metaprog_gensym(pref_ptr: *const u8, pref_len: u64,
                                 out_len: *mut u64) -> *const u8;
 
+// Function-style macros (slice 1.3b): host shim resolving the
+// (site_id, arg_idx)-th ARG of a `name!(...)` invocation. Driver
+// (main.cpp) populates the per-site arg-blob table before invoking
+// each macro thunk; this shim returns a pointer past the 8-byte size
+// prefix so it is directly usable as `ExprBlob.ptr`.
+extern fn logos_macro_arg(site_id: u64, arg_idx: u64) -> *const u8;
+
 pub fn gensym(prefix: str) -> Ident {
     let mut len: u64 = 0u64;
     let p: *const u8 = unsafe {

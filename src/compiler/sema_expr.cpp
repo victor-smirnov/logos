@@ -9432,6 +9432,12 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
 // On any validation failure we diag and return error_expr() so the rest
 // of sema keeps moving.
 lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
+    using logos::hermes::AnyVal;
+    using logos::hermes::HermesAccess;
+    using logos::hermes::TinyObjectMap;
+    using logos::hermes::make_doc;
+    using logos::hermes::copy_object_into;
+
     if (!node.has_key(la::CALLEE)) {
         error("fn_macro call: missing callee");
         return error_expr();
@@ -9462,14 +9468,139 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
         return error_expr();
     }
 
-    // TODO(fn-macros slice 1.3+): per-site arg-blob table, host shim,
-    // thunk-source synthesis, ExprBlob splice. For now diag so the
-    // skeleton is observable from tests.
-    (void)macro_info;
-    error(std::format(
-        "fn_macro: '{}!(..)' splice not yet implemented (slice 1.3 pending)",
-        callee_name));
-    return error_expr();
+    // Slice 1 MVP: signature must be `(ExprBlob) -> ExprBlob`. Multi-arg
+    // (Vec<ExprBlob>) lands in slice 1.5 once Vec-packing in the thunk
+    // is wired up. Validate before we serialise anything.
+    if (macro_info->param_types.size() != 1 ||
+        !is_exprblob(macro_info->param_types[0]) ||
+        !is_exprblob(macro_info->ret_type)) {
+        error(std::format(
+            "fn_macro: '{}' must have signature `(ExprBlob) -> ExprBlob` "
+            "(slice 1 MVP — multi-arg variants land later)",
+            callee_name));
+        return error_expr();
+    }
+
+    // Collect ARG AnyVals.
+    std::vector<AnyVal> arg_avs;
+    if (node.has_key(la::ARGS)) {
+        auto args = arr_of(node.get(la::ARGS.code));
+        for (uint64_t i = 0; i < args.size(); ++i)
+            arg_avs.push_back(args.get(i));
+    }
+    if (arg_avs.size() != 1) {
+        error(std::format(
+            "fn_macro: '{}!' expects 1 arg (slice 1 MVP), got {}",
+            callee_name, arg_avs.size()));
+        return error_expr();
+    }
+    if (!holder_) {
+        error("fn_macro: missing AST holder");
+        return error_expr();
+    }
+
+    if (!cur_prog_) {
+        error("fn_macro: no current program");
+        return error_expr();
+    }
+
+    // Allocate site_id BEFORE pushing site so the synthesised thunk
+    // source can reference it; site_id == metacall_sites.size() at the
+    // moment of push_back.
+    uint64_t site_id = cur_prog_->metacall_sites.size();
+
+    // Serialise each ARG sub-tree into a fresh Hermes doc, prefix with
+    // [u64 size], and store under macro_arg_blobs[site_id][arg_idx].
+    auto& blobs = cur_prog_->macro_arg_blobs[site_id];
+    blobs.resize(arg_avs.size());
+    const uint8_t* src_base = holder_->base();
+    for (size_t i = 0; i < arg_avs.size(); ++i) {
+        if (arg_avs[i].is_null() || !arg_avs[i].is_pointer()) {
+            error(std::format("fn_macro: arg {} is not an AST node", i));
+            return error_expr();
+        }
+        const auto* src_tom = reinterpret_cast<const TinyObjectMap*>(
+            src_base + arg_avs[i].to_offset().value());
+        // Read CODE so we can re-stamp schema_type_code on the cloned
+        // root — lower_hermes_blob dispatches via that field.
+        int32_t code = 0;
+        if (src_tom->has_key(la::CODE.code)) {
+            AnyVal cav = src_tom->get(la::CODE.code,
+                                      const_cast<uint8_t*>(src_base));
+            if (!cav.is_null() && !cav.is_pointer())
+                code = cav.as_value<int32_t>();
+        }
+        if (code == 0) {
+            error(std::format(
+                "fn_macro: arg {} root has no CODE (parser bug?)", i));
+            return error_expr();
+        }
+        auto doc_e = make_doc(4096);
+        if (!doc_e) {
+            error("fn_macro: make_doc failed");
+            return error_expr();
+        }
+        auto doc = std::move(doc_e).get();
+        auto cp_e = copy_object_into(src_tom, src_base, doc);
+        if (!cp_e) {
+            error("fn_macro: copy_object_into failed");
+            return error_expr();
+        }
+        void* dst_obj = cp_e.get();
+        uint32_t root_off = static_cast<uint32_t>(
+            reinterpret_cast<uint8_t*>(dst_obj) - HermesAccess::base(doc));
+        {
+            auto* dst_root = reinterpret_cast<TinyObjectMap*>(
+                HermesAccess::base(doc) + root_off);
+            dst_root->set_schema_type_code(
+                logos::hermes::schema::ast(code));
+        }
+        // Promote the cloned subtree to the doc's root — without this
+        // `from_bytes_copy` on the resulting blob sees a null root and
+        // lower_hermes_blob falls through to the HermesStatic path.
+        HermesAccess::set_root_offset(doc,
+            logos::hermes::arena_offset_t{root_off});
+        auto& arena = HermesAccess::arena(doc);
+        const uint8_t* data = arena.head().data();
+        size_t used = arena.total_used();
+        blobs[i].resize(8 + used);
+        uint64_t sz = static_cast<uint64_t>(used);
+        std::memcpy(blobs[i].data(), &sz, 8);
+        std::memcpy(blobs[i].data() + 8, data, used);
+    }
+
+    // Synthesise thunk: single-arg form.
+    //   fn __metacall_thunk_N() -> ExprBlob {
+    //       let e0: ExprBlob = ExprBlob { ptr: unsafe { logos_macro_arg(N, 0) } };
+    //       return <callee>(e0);
+    //   }
+    std::string pkg = cur_package_.empty() ? "__metacall_thunks" : cur_package_;
+    std::string thunk_name = std::format("__metacall_thunk_{}", site_id);
+    std::string thunk_src = std::format(
+        "package {};\n"
+        "use std.compiler.metaprog;\n"
+        "use std.hermes.view;\n"
+        "fn {}() -> ExprBlob {{\n"
+        "    let e0: ExprBlob = ExprBlob {{ ptr: unsafe {{ logos_macro_arg({}u64, 0u64) }} }};\n"
+        "    return {}(e0);\n"
+        "}}\n",
+        pkg, thunk_name, site_id, macro_info->base_name);
+
+    lir::LProgram::MetacallSite site;
+    site.ast_idx = cur_ast_idx_;
+    site.expr_offset = static_cast<uint32_t>(node.offset().value());
+    site.thunk_name = thunk_name;
+    site.thunk_source = std::move(thunk_src);
+    site.ret_tag = lir::LProgram::MetacallSite::RetTag::ExprBlob;
+    site.callee_name = macro_info->base_name;
+    cur_prog_->metacall_sites.push_back(std::move(site));
+
+    // Pass-through placeholder typed as the callee's ret (ExprBlob) — the
+    // driver splices HERMES_BLOB over this node before the final sema
+    // pass, so this LIR never reaches mlir_gen. The let-stmt path
+    // recognises ExprBlob RHS and adopts the user's annotation type.
+    lir::EHermesLit lit;
+    return builder().hermes_lit_v(std::move(lit), macro_info->ret_type);
 }
 
 // ── metacall <call_expr>; at item position ───────────────────────────────
