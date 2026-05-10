@@ -29,6 +29,7 @@ use std.hermes.anyval;
 use std.data.persistent.node;
 use std.data.persistent.cow;
 use std.data.persistent.descent;
+use std.data.persistent.shuttle;
 
 // One descent frame: a branch on the path + the child index whose
 // subtree the iter currently occupies. branch_arc owns an rc share —
@@ -93,6 +94,52 @@ unsafe fn descend_rightmost<K: Container + ContainerOrd, V: Container, const STO
         });
         cur = next_arc;
     }
+}
+
+// Open a forward iter positioned at the n-th entry in sorted order.
+// O(depth) descent via the same SUM-shuttle wrapper as
+// pmap_descend_to_n, but recording the (branch_arc, branch_p, idx)
+// frames as it descends — so step/step_back work from the new position.
+//
+// On out-of-range (n >= total): returns an invalid iter (valid()==false).
+pub unsafe fn pmap_iter_open_at<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+    arc: &NodeARC<STORE_CFG>, n: u64,
+) -> PMapIter<K, V, STORE_CFG, CFG> {
+    let mut path: Vec<IterFrame<K, STORE_CFG, CFG>> = vec_new::<IterFrame<K, STORE_CFG, CFG>>();
+    let total: u64 = pmap_size_rec::<K, V, STORE_CFG, CFG>(arc);
+    if n >= total {
+        // Empty iter — null leaf, valid() returns false.
+        return PMapIter::<K, V, STORE_CFG, CFG> {
+            path:     path,
+            leaf_arc: NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
+            leaf_p:   0 as *mut LeafNode<K, V, STORE_CFG, CFG>,
+            cursor:   0u64,
+        };
+    }
+    let mut cur: NodeARC<STORE_CFG> = arc.clone_arc();
+    let mut target: u64 = n;
+    loop {
+        let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&cur);
+        let isleaf_p: *mut bool = (dp as i64 + 24i64) as *mut bool;
+        if *isleaf_p { break; }
+        let br: *mut BranchNode<K, STORE_CFG, CFG> = dp as *mut BranchNode<K, STORE_CFG, CFG>;
+        let r: ShuttleResult = branchnode_subtree_size_shuttle::<K, STORE_CFG, CFG>(br, target);
+        let next_child: &NodeARC<STORE_CFG> = br.children.borrow(r.idx as i64);
+        let next_arc: NodeARC<STORE_CFG> = next_child.clone_arc();
+        path.push(IterFrame::<K, STORE_CFG, CFG> {
+            branch_arc: cur, branch_p: br, idx: r.idx,
+        });
+        target = r.remainder;
+        cur = next_arc;
+    }
+    let leaf_p: *mut LeafNode<K, V, STORE_CFG, CFG> =
+        node_arc_data_ptr::<STORE_CFG>(&cur) as *mut LeafNode<K, V, STORE_CFG, CFG>;
+    return PMapIter::<K, V, STORE_CFG, CFG> {
+        path:     path,
+        leaf_arc: cur,
+        leaf_p:   leaf_p,
+        cursor:   target,
+    };
 }
 
 // Open a forward iter at the leftmost (smallest) entry of the BTree

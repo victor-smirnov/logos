@@ -643,6 +643,14 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
         }
     }
 
+    // Open an iter positioned at the n-th entry (zero-indexed) in
+    // sorted order. O(depth) construction via the SUM-shuttle descent
+    // — no need to walk leftmost + n forward steps. n >= len returns
+    // an invalid iter (valid() == false).
+    pub unsafe fn iter_from(&self, n: u64) -> PMapIter<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> {
+        return pmap_iter_open_at::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc, n);
+    }
+
     // Forward iterator over the container's entries in key order.
     // Caller must not mutate self while the iter is live — typed
     // pointers in the iter's path/leaf would dangle on CoW-clone or

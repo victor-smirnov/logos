@@ -1,0 +1,88 @@
+// iter_from(n): O(depth) seek to n-th entry, then forward iter from
+// there. Verifies the path stack is populated correctly so step
+// continues through tree boundaries (not just within the seeded leaf).
+package persistent_iter_from;
+
+use std.data.persistent.handle;
+use std.data.persistent.store;
+use std.data.persistent.node;
+use std.data.persistent.cow;
+use std.data.persistent.descent;
+use std.data.persistent.mutate;
+use std.data.persistent.iter;
+use std.lang.datatypes;
+use std.hermes.view;
+use std.hermes.anyval;
+
+pub const StoreCfg: HermesStatic = @{
+    "name": "ifrom", "ctr_id": <type:u64>, "snp_id": <type:u64>, "block_id": <type:u64>,
+};
+pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 4 };
+
+fn main() -> i32 {
+    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
+    let mut snap: Snap<StoreCfg> = store.fork(GENESIS);
+    let mut cr: ContainerRef<StoreCfg, MapCfg> =
+        create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
+
+    // Empty iter from any n.
+    {
+        let it: PMapIter<u64, u64, StoreCfg, MapCfg> = unsafe { cr.iter_from(0u64) };
+        if it.valid() { return 1; }
+    }
+
+    // Insert 25 sequentially-shuffled keys.
+    let order: [u64; 25] = [
+        13u64, 5u64, 17u64, 1u64, 9u64, 19u64, 7u64, 3u64, 15u64, 11u64,
+        0u64, 18u64, 6u64, 12u64, 4u64, 16u64, 2u64, 8u64, 14u64, 10u64,
+        20u64, 24u64, 22u64, 21u64, 23u64,
+    ];
+    let mut i: u64 = 0u64;
+    while i < 25u64 {
+        cr.insert(order[i as i64], order[i as i64] * 3u64);
+        i = i + 1u64;
+    }
+
+    // iter_from(7) — should land on key=7. Walk forward through
+    // crossing branch boundaries, expect keys 7..24 in order.
+    let mut it: PMapIter<u64, u64, StoreCfg, MapCfg> = unsafe { cr.iter_from(7u64) };
+    let mut expect: u64 = 7u64;
+    let mut walked: u64 = 0u64;
+    while it.valid() {
+        let k: u64 = unsafe { it.key() };
+        let v: u64 = unsafe { it.val() };
+        if k != expect          { return 100 + expect as i32; }
+        if v != expect * 3u64   { return 200 + expect as i32; }
+        expect = expect + 1u64;
+        walked = walked + 1u64;
+        unsafe { it.step(); }
+    }
+    if walked != 18u64 { return 2; }   // 25 - 7 = 18
+    if expect != 25u64 { return 3; }
+
+    // Out-of-range.
+    {
+        let oor: PMapIter<u64, u64, StoreCfg, MapCfg> = unsafe { cr.iter_from(25u64) };
+        if oor.valid() { return 4; }
+        let way: PMapIter<u64, u64, StoreCfg, MapCfg> = unsafe { cr.iter_from(99u64) };
+        if way.valid() { return 5; }
+    }
+
+    // step_back from iter_from'd position works too — populated path
+    // stack means reverse navigation crosses branch boundaries.
+    let mut rev: PMapIter<u64, u64, StoreCfg, MapCfg> = unsafe { cr.iter_from(15u64) };
+    let mut rexpect: u64 = 15u64;
+    let mut rwalked: u64 = 0u64;
+    while rev.valid() {
+        let k: u64 = unsafe { rev.key() };
+        if k != rexpect { return 300 + rexpect as i32; }
+        rwalked = rwalked + 1u64;
+        if rexpect == 0u64 { unsafe { rev.step_back(); } break; }
+        rexpect = rexpect - 1u64;
+        unsafe { rev.step_back(); }
+    }
+    if rwalked != 16u64 { return 6; }
+    if rev.valid()      { return 7; }
+
+    return 0;
+}
