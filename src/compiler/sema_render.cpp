@@ -537,6 +537,11 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
     case la::HERMES_CAP_EXPR: {
         return "${" + render_expr_src(map_of(node.get(la::VALUE.code))) + "}";
     }
+    case la::UNSAFE_BLOCK: {
+        // `unsafe { ... }` may sit at expr position (e.g. RHS of `let x = unsafe { ... }`).
+        // Delegate to the stmt-side renderer — it already handles BODY/ITEMS shapes.
+        return render_stmt_src(node);
+    }
 
     default:
         return std::format("/* render_expr: unsupported AST code {} */", c);
@@ -1540,11 +1545,14 @@ std::string SemaChecker::render_module_src(TinyMapView node) {
     if (node.has_key(la::ITEMS)) {
         auto items = arr_of(node.get(la::ITEMS.code));
         for (uint64_t i = 0; i < items.size(); ++i) {
-            auto item = map_of(items.get(i));
+            auto av = items.get(i);
+            if (av.is_null()) continue;  // empty slots from PEG flat-array capture
+            auto item = map_of(av);
             // Module ITEMS may include USE nodes (PEG `$...` capture
             // pulled them in alongside USES). They were already
             // rendered above; skip duplicates here.
-            if (code_of(item) == la::USE) continue;
+            int32_t ic = code_of(item);
+            if (ic == la::USE.code || ic < 0) continue;
             s += render_item_src(item);
             s += "\n\n";
         }
@@ -1591,8 +1599,16 @@ std::string SemaChecker::render_type_src_syntactic_(TinyMapView node) {
         else if (node.has_key(la::TYPE)) pointee = map_of(node.get(la::TYPE.code));  // legacy
         return std::string(is_mut ? "*mut " : "*const ") + recur(pointee);
     }
-    case la::REF_TYPE:     return "&" + recur(map_of(node.get(la::TYPE.code)));
-    case la::MUT_REF_TYPE: return "&mut " + recur(map_of(node.get(la::TYPE.code)));
+    case la::REF_TYPE: {
+        auto inner = node.has_key(la::POINTEE) ? map_of(node.get(la::POINTEE.code))
+                                                : map_of(node.get(la::TYPE.code));
+        return "&" + recur(inner);
+    }
+    case la::MUT_REF_TYPE: {
+        auto inner = node.has_key(la::POINTEE) ? map_of(node.get(la::POINTEE.code))
+                                                : map_of(node.get(la::TYPE.code));
+        return "&mut " + recur(inner);
+    }
     case la::ARR_TYPE: {
         std::string s = "[";
         s += recur(map_of(node.get(la::TYPE.code)));
@@ -1625,8 +1641,25 @@ std::string SemaChecker::render_type_src_syntactic_(TinyMapView node) {
         return s;
     }
     case la::DYN_TYPE: {
-        std::string s = "&dyn ";
+        // Grammar admits both `dyn Trait[<…>]` (bare, e.g. inside `*mut dyn …`)
+        // and `&dyn Trait[<…>]`. Both lower to CODE: DYN_TYPE with no marker
+        // distinguishing them. Default to bare `dyn …`; an outer REF_TYPE/
+        // PTR_TYPE supplies its own `&`/`*mut`. Lone `&dyn` at type position
+        // round-trips as `dyn` — broken but rare; fix when grammar carries a
+        // marker.
+        std::string s = "dyn ";
         if (node.has_key(la::NAME)) s += std::string(str_of(node.get(la::NAME.code)));
+        if (node.has_key(la::ITEMS)) {
+            auto items = arr_of(node.get(la::ITEMS.code));
+            if (items.size() > 0) {
+                s += "<";
+                for (uint64_t i = 0; i < items.size(); ++i) {
+                    if (i) s += ", ";
+                    s += recur(map_of(items.get(i)));
+                }
+                s += ">";
+            }
+        }
         return s;
     }
     case la::FN_PTR_TYPE: {

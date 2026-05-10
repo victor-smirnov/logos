@@ -505,9 +505,21 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     // can invoke them. The final non-metaprog sema pass lowers
     // everything for real.
     bool is_synth_blob = file_ == "<metaprog-blob-subst>";
+    // Impl methods on a yet-to-be-derived target struct (e.g. cow.logos's
+    // `impl BTreeNode for BranchNode { ... }` where BranchNode is emitted
+    // by a #[derive_branch_node] hook on a sibling struct) cascade if
+    // lowered: their bodies reference fields/methods of the unresolved
+    // target. Skip them in metaprog discovery — the post-dispatch sema
+    // pass lowers them for real once the derive has fired. Safe because
+    // no stdlib generic chain can reach into a struct that doesn't exist.
+    bool impl_target_unresolved = metaprog_mode_
+                               && !struct_ctx.empty()
+                               && struct_ctx.find("$blanket$") == std::string::npos
+                               && !find_struct_by_name(struct_ctx).second
+                               && !find_datatype_by_name(struct_ctx).second;
     bool skip_body = metaprog_mode_
                   && (cur_ast_idx_ == metaprog_entry_ast_idx_ || is_synth_blob)
-                  && struct_ctx.empty()
+                  && (struct_ctx.empty() || impl_target_unresolved)
                   && !fn_is_metaprog_handler(fn.name)
                   && !fn_is_metaprog_keep(fn.name);
     if (skip_body) fn.is_metaprog_stub = true;
