@@ -550,6 +550,27 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
         }
     }
 
+    // Position-indexed lookup: returns (key, value) at the n-th slot in
+    // sorted order (zero-indexed). O(depth) descent via the per-op
+    // SUM-shuttle wrapper emitted on BranchNode for the `subtree_size`
+    // aggregate column. `n >= len` returns false; out_k/out_v unmodified.
+    pub fn get_at(&self, n: u64,
+                  out_k: *mut <type:CFG.key>::ViewInStore,
+                  out_v: *mut <type:CFG.value>::ViewInStore) -> bool {
+        unsafe {
+            let mut leaf_idx: u64 = 0u64;
+            let leaf_arc: NodeARC<STORE_CFG> =
+                pmap_descend_to_n::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
+                    &self.arc, n, &mut leaf_idx as *mut u64);
+            if leaf_arc.p == (0 as *mut dyn BTreeNode<STORE_CFG>) { return false; }
+            let leaf_p: *const LeafNode<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> =
+                node_arc_data_ptr::<STORE_CFG>(&leaf_arc) as *const LeafNode<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>;
+            *out_k = leaf_p.keys.get(leaf_idx);
+            *out_v = leaf_p.vals.get(leaf_idx);
+            return true;
+        }
+    }
+
     pub fn insert(&mut self, key: <type:CFG.key>::ViewInStore, val: <type:CFG.value>::ViewInStore) -> bool {
         let r: bool = unsafe {
             pmap_insert::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(

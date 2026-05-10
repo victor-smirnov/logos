@@ -1,0 +1,75 @@
+// Position-indexed lookup via ContainerRef::get_at — exercises the
+// shuttle-driven descent (pmap_descend_to_n) over the SUM aggregate
+// column on BranchNode. Inserts shuffled-order keys to force a
+// multi-level tree, then reads each position-N key and verifies it
+// matches the sorted order.
+package persistent_get_at;
+
+use std.data.persistent.handle;
+use std.data.persistent.store;
+use std.data.persistent.node;
+use std.data.persistent.cow;
+use std.data.persistent.descent;
+use std.data.persistent.mutate;
+use std.lang.datatypes;
+use std.hermes.view;
+use std.hermes.anyval;
+
+pub const StoreCfg: HermesStatic = @{
+    "name": "get_at", "ctr_id": <type:u64>, "snp_id": <type:u64>, "block_id": <type:u64>,
+};
+pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 4 };
+
+fn main() -> i32 {
+    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
+    let mut snap: Snap<StoreCfg> = store.fork(GENESIS);
+    let mut cr: ContainerRef<StoreCfg, MapCfg> =
+        create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
+
+    // Empty: get_at(0) → false
+    {
+        let mut k: u64 = 0u64;
+        let mut v: u64 = 0u64;
+        if unsafe { cr.get_at(0u64, &mut k as *mut u64, &mut v as *mut u64) } {
+            return 1;
+        }
+    }
+
+    // Insert 20 keys in shuffled order — fanout=4 forces multi-level.
+    let order: [u64; 20] = [
+        13u64, 5u64, 17u64, 1u64, 9u64, 19u64, 7u64, 3u64, 15u64, 11u64,
+        0u64, 18u64, 6u64, 12u64, 4u64, 16u64, 2u64, 8u64, 14u64, 10u64,
+    ];
+    let mut i: u64 = 0u64;
+    while i < 20u64 {
+        cr.insert(order[i as i64], order[i as i64] * 7u64);
+        i = i + 1u64;
+    }
+    if cr.len() != 20u64 { return 2; }
+
+    // get_at(n) for n=0..19 — each must return key=n, value=n*7.
+    let mut n: u64 = 0u64;
+    while n < 20u64 {
+        let mut k: u64 = 0u64;
+        let mut v: u64 = 0u64;
+        let ok: bool = unsafe { cr.get_at(n, &mut k as *mut u64, &mut v as *mut u64) };
+        if !ok                    { return 100 + n as i32; }
+        if k != n                 { return 200 + n as i32; }
+        if v != n * 7u64          { return 300 + n as i32; }
+        n = n + 1u64;
+    }
+
+    // Out of range
+    {
+        let mut k: u64 = 0u64;
+        let mut v: u64 = 0u64;
+        if unsafe { cr.get_at(20u64, &mut k as *mut u64, &mut v as *mut u64) } {
+            return 4;
+        }
+        if unsafe { cr.get_at(99u64, &mut k as *mut u64, &mut v as *mut u64) } {
+            return 5;
+        }
+    }
+
+    return 0;
+}

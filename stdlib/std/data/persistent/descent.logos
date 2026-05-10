@@ -197,6 +197,14 @@ pub fn pmap_get_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: 
 pub unsafe fn pmap_descend_to_n<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     arc: &NodeARC<STORE_CFG>, n: u64, out_idx: *mut u64,
 ) -> NodeARC<STORE_CFG> {
+    // Out-of-range guard: shuttle clamps target == total to (last_child,
+    // remainder=0) which would resolve to the first key of the last
+    // leaf, masking the OOR. Check explicit total upfront.
+    let total: u64 = pmap_size_rec::<K, V, STORE_CFG, CFG>(arc);
+    if n >= total {
+        *out_idx = 0u64;
+        return NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> };
+    }
     let mut cur: NodeARC<STORE_CFG> = arc.clone_arc();
     let mut target: u64 = n;
     loop {
