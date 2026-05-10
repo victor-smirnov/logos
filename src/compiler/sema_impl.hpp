@@ -694,6 +694,7 @@ private:
         if (name == "tag_dispatch")    return bit(AttrTarget::Trait);
         if (name == "metaprog_handler")return bit(AttrTarget::Fn);
         if (name == "no_mangle")       return bit(AttrTarget::Fn);
+        if (name == "fn_macro")        return bit(AttrTarget::Fn);
         return 0u;  // not a builtin
     }
 
@@ -1188,6 +1189,7 @@ private:
                             std::vector<std::string> lifetime_params;  // for B-gn-09 lint
                             bool is_pub = false; bool is_unsafe = false;
                             bool is_extern = false;
+                            bool is_fn_macro = false;  // #[fn_macro] callee for name!(...)
                             std::string base_name;
                             std::string signature_key;
                             std::string symbol_name;
@@ -1261,6 +1263,10 @@ private:
     // its annotation list. Reset to false at the end of each collect_fn /
     // lower_fn invocation so the flag never leaks across items.
     bool pending_no_mangle_ = false;
+    // Set when the upcoming collect_fn carries `#[fn_macro]`. Reset after
+    // collect_fn consumes it onto SemaFuncInfo.is_fn_macro. Function-style
+    // macros `name!(...)` resolve only callees with this flag set.
+    bool pending_fn_macro_ = false;
     // Set true when the trait being collected has a `#[type_code]` annotation.
     // collect_trait reads + clears it; SemaTraitInfo.is_hermes carries the
     // result through to reflect::<T>() dispatch.
