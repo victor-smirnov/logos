@@ -594,6 +594,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::METHOD_CALL:  return lower_method_call(expr);
     case la::STATIC_CALL:  return lower_static_call(expr);
     case la::METACALL:     return lower_metacall(expr);
+    case la::FN_MACRO_CALL: return lower_fn_macro_call(expr);
     case la::FIELD_READ:  return lower_field_read(expr);
     case la::STRUCT_LIT:  return lower_struct_lit(expr);
     case la::INDEX_READ:  return lower_index_read(expr);
@@ -9416,6 +9417,59 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
     // a literal before the FINAL non-metaprog sema pass, so this lowering
     // never reaches mlir_gen.
     return lowered;
+}
+
+// ── name!(args) / name![args] function-style macro ───────────────────────
+//
+// Slice 1 of fn-macros (skeleton): validate the callee resolves to an
+// `#[fn_macro]`-marked free fn, lower each ARG expression so its type
+// check still runs, and (for now) emit a diagnostic that the splice path
+// is not yet wired up. Subsequent slices flesh out:
+//   1.3 — per-site arg-blob table + host shim `logos_macro_arg`,
+//   1.4 — thunk-source synthesis returning ExprBlob,
+//   1.5 — driver-side registration of arg blobs.
+//
+// On any validation failure we diag and return error_expr() so the rest
+// of sema keeps moving.
+lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
+    if (!node.has_key(la::CALLEE)) {
+        error("fn_macro call: missing callee");
+        return error_expr();
+    }
+    std::string callee_name(str_of(node.get(la::CALLEE.code)));
+
+    // Resolve against funcs_ (non-generic) only — generic fn_macro is
+    // out of scope for slice 1. Look up by base name across overloads.
+    auto ovit = func_overloads_.find(callee_name);
+    if (ovit == func_overloads_.end()) {
+        error(std::format("fn_macro: unknown callee '{}!'", callee_name));
+        return error_expr();
+    }
+    const SemaFuncInfo* macro_info = nullptr;
+    for (const auto& sym : ovit->second) {
+        auto fit = funcs_.find(sym);
+        if (fit == funcs_.end()) continue;
+        if (fit->second.is_fn_macro) {
+            macro_info = &fit->second;
+            break;
+        }
+    }
+    if (!macro_info) {
+        error(std::format(
+            "fn_macro: '{}' is not marked #[fn_macro]; only #[fn_macro] fns "
+            "are callable via name!(...) syntax",
+            callee_name));
+        return error_expr();
+    }
+
+    // TODO(fn-macros slice 1.3+): per-site arg-blob table, host shim,
+    // thunk-source synthesis, ExprBlob splice. For now diag so the
+    // skeleton is observable from tests.
+    (void)macro_info;
+    error(std::format(
+        "fn_macro: '{}!(..)' splice not yet implemented (slice 1.3 pending)",
+        callee_name));
+    return error_expr();
 }
 
 // ── metacall <call_expr>; at item position ───────────────────────────────

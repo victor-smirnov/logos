@@ -1,0 +1,10 @@
+// `foo!(..)` is rejected when `foo` is a regular fn (no #[fn_macro] marker).
+// Function-style macro syntax is reserved for #[fn_macro]-annotated callees.
+package fn_macro_unmarked_callee;
+
+pub fn foo(x: i32) -> i32 { return x; }
+
+fn main() -> i32 {
+    let v: i32 = foo!(1);
+    return v;
+}

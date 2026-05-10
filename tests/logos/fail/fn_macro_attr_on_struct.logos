@@ -1,0 +1,8 @@
+// #[fn_macro] applies only to fn items; using it on a struct must diag
+// through check_annotations.
+package fn_macro_attr_on_struct;
+
+#[fn_macro]
+pub struct Foo { x: i32 }
+
+fn main() -> i32 { return 0; }

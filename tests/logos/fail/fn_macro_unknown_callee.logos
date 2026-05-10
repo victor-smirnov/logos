@@ -1,0 +1,8 @@
+// name!(..) where the callee does not exist anywhere is a diag from the
+// fn_macro lowering, not a generic "unknown ident" error.
+package fn_macro_unknown_callee;
+
+fn main() -> i32 {
+    let v: i32 = nonexistent!(1);
+    return v;
+}

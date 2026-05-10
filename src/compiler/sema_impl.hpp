@@ -1769,6 +1769,10 @@ private:
             hermes::TinyMapView node, std::string_view ename, std::string_view vname);
     lir::LExprPtr lower_static_call(hermes::TinyMapView node);
     lir::LExprPtr lower_metacall   (hermes::TinyMapView node);
+    // Function-style macro `name!(args)` / `name![args]` (slice 1 of
+    // fn-macros). Resolves CALLEE against #[fn_macro] fns; ARGs are
+    // captured as ExprBlobs and passed through the metacall JIT thunk.
+    lir::LExprPtr lower_fn_macro_call(hermes::TinyMapView node);
     // Item-position metacall (MC1.1). Synthesises a void thunk that wraps
     // the inner callee — `let __b = call(); logos_emit_item_blob_subst(&__b);`
     // — and registers a MetacallSite with ret_tag = ItemBlob. Caller
