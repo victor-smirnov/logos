@@ -159,7 +159,12 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
         MetaprogDispatchOpts mopts;
         // No archive paths in stdlib build (we ARE the archive being built).
         // No --dump-metaprog wiring here yet — separate slice if needed.
-        size_t entry_idx = asts.empty() ? 0 : asts.size() - 1;
+        // emit_module bundles N files — there's no single "entry"; use a
+        // sentinel so the entry-only metaprog body-skip never matches an
+        // actual ast index. (Was: asts.size()-1, which silently stubbed
+        // free-fn bodies in whichever ast happened to load last —
+        // typically std.time.logos — corrupting metaprog mlir gen.)
+        size_t entry_idx = static_cast<size_t>(-1);
         if (run_metaprog_dispatch(asts, filenames, from_binary, entry_idx, mopts) != 0)
             return false;
     }

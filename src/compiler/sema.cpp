@@ -2778,10 +2778,10 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         auto t = lookup_type_by_name(name);
         if (t) return t;
         // See #20 sister site below: in metaprog discovery loop, swallow
-        // unknown-type silently for entry/synth-doc — the type may be
+        // unknown-type silently across all asts — the type may be
         // synthesised by a hook later. Final non-metaprog sema pass
         // catches real errors.
-        if (metaprog_mode_ && cur_ast_idx_ == metaprog_entry_ast_idx_)
+        if (metaprog_mode_)
             return error_t();
         // Bug 4 fix: give a more informative error when a generic alias is used
         // without its required type arguments.
@@ -2913,12 +2913,12 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         bool is_enum   = esi != nullptr;
         if (!is_struct && !is_dtype && !is_enum) {
             // Metaprog discovery loop runs sema BEFORE handler hooks
-            // emit derived items. Unknown types referenced from the
-            // entry-file user code may be ones a hook will synthesise
-            // — the final, non-metaprog sema pass after the loop will
+            // emit derived items. Unknown types referenced from any
+            // user-side ast may be ones a hook will synthesise — the
+            // final, non-metaprog sema pass after the loop will
             // re-resolve and surface a real error if the type still
             // doesn't exist. Silently fall through here.
-            if (metaprog_mode_ && cur_ast_idx_ == metaprog_entry_ast_idx_)
+            if (metaprog_mode_)
                 return error_t();
             error(std::format("unknown generic type '{}'", name));
             return error_t();

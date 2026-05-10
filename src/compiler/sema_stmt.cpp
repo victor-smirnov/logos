@@ -2938,7 +2938,20 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
 
     auto sname = struct_name_of(recv_name);
     if (sname.empty()) {
-        error(std::format("field write: '{}' is not a struct", recv_name));
+        // Metaprog discovery: receivers that resolve to <error> (typically
+        // a *mut to a not-yet-derived struct) are silently propagated;
+        // post-dispatch sema will surface a real error.
+        auto rt = lookup(recv_name);
+        bool sname_via_error = false;
+        if (rt) {
+            TypeRef t = rt;
+            if (TypeRef(t).kind() == LogosType::Kind::Ptr ||
+                is_ref_like(TypeRef(t).kind())) t = TypeRef(t).pointee();
+            if (t && TypeRef(t).kind() == LogosType::Kind::Error)
+                sname_via_error = true;
+        }
+        if (!(metaprog_mode_ && sname_via_error))
+            error(std::format("field write: '{}' is not a struct", recv_name));
     } else {
         auto recv_type = lookup(recv_name);
         if (recv_type && TypeRef(recv_type).kind() == LogosType::Kind::Ptr) {
@@ -3093,7 +3106,20 @@ lir::LStmt SemaChecker::lower_chain_field_write(TinyMapView node) {
 
     auto outer_sname = struct_name_of(recv_name);
     if (outer_sname.empty()) {
-        error(std::format("chain field write: '{}' is not a struct", recv_name));
+        // Metaprog discovery: silent <error> propagation when the receiver
+        // type is itself <error> (unresolved derive target). Post-dispatch
+        // sema surfaces a real error if needed.
+        auto rt = lookup(recv_name);
+        bool sname_via_error = false;
+        if (rt) {
+            TypeRef t = rt;
+            if (TypeRef(t).kind() == LogosType::Kind::Ptr ||
+                is_ref_like(TypeRef(t).kind())) t = TypeRef(t).pointee();
+            if (t && TypeRef(t).kind() == LogosType::Kind::Error)
+                sname_via_error = true;
+        }
+        if (!(metaprog_mode_ && sname_via_error))
+            error(std::format("chain field write: '{}' is not a struct", recv_name));
         return builder().stmt_expr(error_expr(), node_line_);
     }
     auto recv_type = lookup(recv_name);

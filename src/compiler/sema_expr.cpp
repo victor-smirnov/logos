@@ -3715,8 +3715,19 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             for (auto& a : arg_exprs) pargs.push_back(std::move(a));
             return builder().call(fi_ptr->symbol_name.empty() ? mangled_prim : fi_ptr->symbol_name, {}, std::move(pargs), fi_ptr->ret_type);
         }
-        error(std::format("method call: receiver is not a struct (got {})",
-              type_str(recv->type)));
+        // Same metaprog-discovery suppression as field_read above: silent
+        // <error> propagation when the receiver is already <error>.
+        bool recv_is_error = recv->type &&
+            TypeRef(recv->type).kind() == LogosType::Kind::Error;
+        bool recv_pointee_error = recv->type &&
+            (TypeRef(recv->type).kind() == LogosType::Kind::Ptr ||
+             is_ref_like(TypeRef(recv->type).kind())) &&
+            TypeRef(recv->type).pointee() &&
+            TypeRef(TypeRef(recv->type).pointee()).kind() == LogosType::Kind::Error;
+        if (!(metaprog_mode_ && (recv_is_error || recv_pointee_error))) {
+            error(std::format("method call: receiver is not a struct (got {})",
+                  type_str(recv->type)));
+        }
         return builder().method_call(std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1, error_t());
     }
 
@@ -4325,8 +4336,21 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
 
     auto sname = struct_name_from_type(recv_base_t);
     if (sname.empty()) {
-        error(std::format("field read: receiver is not a struct or class (got {})",
-              type_str(recv->type)));
+        // In metaprog discovery, receivers that are already <error> are
+        // expected — typically a chain off a yet-to-be-derived struct.
+        // Propagate <error> silently; the post-dispatch sema pass surfaces
+        // a real error if the type still doesn't exist.
+        bool recv_is_error = recv->type &&
+            TypeRef(recv->type).kind() == LogosType::Kind::Error;
+        bool recv_pointee_error = recv->type &&
+            (TypeRef(recv->type).kind() == LogosType::Kind::Ptr ||
+             is_ref_like(TypeRef(recv->type).kind())) &&
+            TypeRef(recv->type).pointee() &&
+            TypeRef(TypeRef(recv->type).pointee()).kind() == LogosType::Kind::Error;
+        if (!(metaprog_mode_ && (recv_is_error || recv_pointee_error))) {
+            error(std::format("field read: receiver is not a struct or class (got {})",
+                  type_str(recv->type)));
+        }
         return builder().field_read(std::move(recv), std::string(field_name), error_t());
     }
     // Resolve the actual struct type (receiver may be a pointer/reference to a struct).
