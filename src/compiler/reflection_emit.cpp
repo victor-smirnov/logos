@@ -147,46 +147,6 @@ static AnyVal build_field_map(Hermes& doc, const lir::LField& f) {
     return as_ptr(m);
 }
 
-// ── Serialize a HermesVal tree into a Hermes document ────────────────────
-//
-// Reads the HermesVal via Hermes mirror (HermesValRef + HV*View). Caller is
-// responsible for ensuring the mirror is emitted (call
-// `lir_mirror_emit_hv_node(prog, *root)` first).
-
-static AnyVal hermes_val_to_doc(Hermes& doc, lir_view::HermesValRef v) {
-    using HVC = lir_schema::hermes_val::Code;
-    switch (v.kind()) {
-        case HVC::Null:    return AnyVal{};
-        case HVC::Bool:    return hval_bool(doc, lir_view::HVBoolView{v}.value());
-        case HVC::Int:     return hval_i64 (doc, lir_view::HVIntView{v}.value());
-        case HVC::Float:
-            return anyval_put<double>(HermesAccess::arena(doc),
-                                      lir_view::HVFloatView{v}.value()).get();
-        case HVC::Str:     return hval_str (doc, lir_view::HVStrView{v}.value());
-        case HVC::Map: {
-            lir_view::HVMapView mv{v};
-            uint32_t m = begin_map(doc);
-            uint64_t n = mv.size();
-            for (uint64_t i = 0; i < n; ++i) {
-                std::string_view k = mv.int_keyed() ? "" : mv.str_key(i);
-                map_put(doc, m, k, hermes_val_to_doc(doc, mv.value(i)));
-            }
-            return as_ptr(m);
-        }
-        case HVC::Array: {
-            lir_view::HVArrayView av{v};
-            uint32_t a = begin_array(doc);
-            uint64_t n = av.size();
-            for (uint64_t i = 0; i < n; ++i)
-                array_push(doc, a, hermes_val_to_doc(doc, av.elem(i)));
-            return as_ptr(a);
-        }
-        case HVC::Capture: return AnyVal{};
-        case HVC::Type:    return AnyVal{};
-    }
-    return AnyVal{};
-}
-
 // ── Build TypeInfo blob for one struct ───────────────────────────────────
 
 static std::vector<uint8_t> build_type_info_blob(lir::LProgram& prog, const lir::LStructDef& sd) {
@@ -212,13 +172,6 @@ static std::vector<uint8_t> build_type_info_blob(lir::LProgram& prog, const lir:
     for (auto& inst : sd.annotations)
         array_push(doc, annots_arr, build_annotation_map(doc, inst));
     map_put(doc, root, "annotations", as_ptr(annots_arr));
-
-    // meta @{} block — contributed as-is under "meta" key
-    if (sd.meta_val) {
-        auto off = lir_mirror_emit_hv_node(prog, *sd.meta_val);
-        lir_view::HermesValRef hv{prog.type_pool.arena(), off};
-        map_put(doc, root, "meta", hermes_val_to_doc(doc, hv));
-    }
 
     HermesAccess::set_root_offset(doc, arena_offset_t(root));
 
@@ -253,11 +206,6 @@ static std::vector<uint8_t> build_genos_info_blob(lir::LProgram& prog, const lir
     map_put(doc, root, "kind", hval_i64(doc, 3));
     if (td.type_code != 0)
         map_put(doc, root, "type_code", hval_u64(doc, td.type_code));
-    if (td.meta_val) {
-        auto off = lir_mirror_emit_hv_node(prog, *td.meta_val);
-        lir_view::HermesValRef hv{prog.type_pool.arena(), off};
-        map_put(doc, root, "meta", hermes_val_to_doc(doc, hv));
-    }
     HermesAccess::set_root_offset(doc, arena_offset_t(root));
     auto packed = clone(doc).get();
     auto& arena = HermesAccess::arena(packed);
@@ -304,12 +252,11 @@ lir::LProgram reflection_emit(lir::LProgram prog) {
         prog.reflection_globals.push_back({std::move(sym), std::move(blob)});
     }
 
-    // Emit TypeInfo for genos traits that have meta @{}, explicit type_code, or reflect request.
+    // Emit TypeInfo for Hermes-tagged traits (have #[type_code]) or reflect-requested.
     for (auto& td : prog.traits) {
-        if (!td.is_genos) continue;
         std::string fqn = td.pkg.empty() ? td.name : td.pkg + "::" + td.name;
         bool requested = to_emit.count(fqn) > 0;
-        if (!td.meta_val && td.type_code == 0 && !requested) continue;
+        if (td.type_code == 0 && !requested) continue;
         if (!td.type_params.empty()) continue; // generic template, skip
         // Compute type_hash from fqn (same algorithm as for structs).
         auto hash = type_hash_23(fqn);

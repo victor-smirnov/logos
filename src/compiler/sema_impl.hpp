@@ -472,8 +472,6 @@ private:
 
     // ── meta @{} helpers ─────────────────────────────────────────
 
-    lir::HermesValPtr               eval_static_hermes_lit(hermes::TinyMapView node);
-    lir::HermesValPtr               extract_meta_val(hermes::TinyMapView node);
 
     // ── Hermes helpers ───────────────────────────────────────────
 
@@ -694,7 +692,6 @@ private:
         if (name == "zoned")           return bit(AttrTarget::Struct);
         if (name == "annotation")      return bit(AttrTarget::Struct) | bit(AttrTarget::Datatype);
         if (name == "tag_dispatch")    return bit(AttrTarget::Trait);
-        if (name == "hermes_eidos")    return bit(AttrTarget::Trait);
         if (name == "metaprog_handler")return bit(AttrTarget::Fn);
         if (name == "no_mangle")       return bit(AttrTarget::Fn);
         return 0u;  // not a builtin
@@ -1235,8 +1232,12 @@ private:
         std::vector<SemaAssocConstInfo>  assoc_consts;
         std::vector<TraitBound> supertraits;  // e.g. [{Display,[]}, {Into,[i32]}] for trait Foo: Display + Into<i32>
         bool is_unsafe = false;               // declared as `unsafe trait`
-        bool is_genos  = false;               // declared with `genos` keyword
         bool is_auto   = false;               // declared with `auto trait`
+        bool is_hermes = false;               // trait carries #[type_code] —
+                                              // Hermes-tagged datatype family;
+                                              // reflect::<T>() routes through
+                                              // Hermes path
+
     };
     struct SemaImplInfo {
         std::string trait_name;
@@ -1260,13 +1261,10 @@ private:
     // its annotation list. Reset to false at the end of each collect_fn /
     // lower_fn invocation so the flag never leaks across items.
     bool pending_no_mangle_ = false;
-    // Set when `#[hermes_eidos]` is the (or among the) pending annots for a
-    // trait. Sema-collect's trait branch sets it from pending_annots before
-    // calling collect_trait; collect_trait reads + clears it; the resulting
-    // SemaTraitInfo carries is_genos=true. Annotation replaces the legacy
-    // `pub genos` keyword for marking Hermes datatype traits — the keyword
-    // `genos` is being repurposed for computable specifications.
-    bool pending_hermes_eidos_ = false;
+    // Set true when the trait being collected has a `#[type_code]` annotation.
+    // collect_trait reads + clears it; SemaTraitInfo.is_hermes carries the
+    // result through to reflect::<T>() dispatch.
+    bool pending_trait_is_hermes_ = false;
     // Mangled name of the currently-being-lowered fn. Used by make_drop_stmt
     // to skip auto-drop on the `self` parameter of a Drop fn (would be
     // infinite self-recursion).

@@ -286,7 +286,6 @@
     KW_GENOS    = "genos"
     KW_AUTO     = "auto"
     KW_METACALL = "metacall"
-    KW_META     = "meta"
     KW_STATIC   = "static"
     KW_RETURN   = "return"
     KW_EXTERN   = "extern"
@@ -425,7 +424,7 @@
     path_dot_ident <- DOT IDENT
                    => { NAME: $2 }
 
-    item <- template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / metacall_item_decl / pub_struct_def / struct_def / pub_genos_def / genos_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
+    item <- template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / metacall_item_decl / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
 
     // ── Item-position metacall ───────────────────────────────────
     // `metacall foo::<...>(...);` at module top level. The callee returns
@@ -462,7 +461,6 @@
                     / pub_enum_def / enum_def
                     / pub_datatype_def / datatype_def
                     / pub_trait_def / trait_def
-                    / pub_genos_def / genos_def
                     / impl_block
                     / pub_fn_def / fn_def
 
@@ -595,28 +593,11 @@
     super_list <- COLON trait_bound (PLUS trait_bound)*
                => { ITEMS: $... }
 
-    // `genos` keyword: legacy alias of `trait` for the duration of the
-    // step-3.0 transition. The migration target is computable
-    // specifications (slice 3β of genos-design.md) — at that point the
-    // keyword's data-trait alias is dropped and trait_def grows
-    // meta_block? to absorb whatever genos_def carried that trait_def
-    // didn't. Today, both keywords parse identically; sema's is_genos
-    // flag is set either by the keyword path or by a future
-    // `#[hermes_eidos]` annotation (annotation infrastructure landed
-    // in this same migration).
-    trait_kw <- KW_TRAIT / KW_GENOS
-
-    // genos declarations: same as trait_def but CODE=GENOS_DEF and is_genos=true.
-    // Listed before pub_trait_def/trait_def so PEG first-match routes genos here.
-    pub_genos_def <- KW_PUB KW_GENOS IDENT type_param_list LBRACE trait_method* meta_block? RBRACE
-                  => { CODE: GENOS_DEF, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, ITEMS: $..., META: $7 }
-                  / KW_PUB KW_GENOS IDENT LBRACE trait_method* meta_block? RBRACE
-                  => { CODE: GENOS_DEF, IS_PUB: 1, NAME: $3, ITEMS: $..., META: $6 }
-
-    genos_def <- KW_GENOS IDENT type_param_list LBRACE trait_method* meta_block? RBRACE
-              => { CODE: GENOS_DEF, NAME: $2, TYPE_PARAMS: $3, ITEMS: $..., META: $6 }
-              / KW_GENOS IDENT LBRACE trait_method* meta_block? RBRACE
-              => { CODE: GENOS_DEF, NAME: $2, ITEMS: $..., META: $5 }
+    // `genos` keyword reserved for computable specifications (slice 3β
+    // of genos-design.md). Legacy data-trait-family role migrated to
+    // `pub trait` + `#[hermes_eidos]` annotation. Keyword and
+    // GENOS_DEF AST code retained for the upcoming spec form.
+    trait_kw <- KW_TRAIT
 
     pub_trait_def <- KW_PUB KW_AUTO trait_kw IDENT type_param_list super_list LBRACE trait_method* RBRACE
                   => { CODE: TRAIT_DEF, IS_PUB: 1, IS_AUTO: 1, NAME: $4, TYPE_PARAMS: $5, SUPERS: $6, ITEMS: $... }
@@ -810,11 +791,11 @@
                   => { CODE: STATIC_FN, NAME: $3, PARAMS: $5, BODY: $7 }
 
     // ── Datatype definition (Hermes — C POD layout, no heap types) ──
-    pub_datatype_def <- KW_PUB KW_EIDOS IDENT type_param_list? LBRACE field_def* meta_block? RBRACE
-                     => { CODE: DATATYPE, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, FIELDS: $6, META: $7 }
+    pub_datatype_def <- KW_PUB KW_EIDOS IDENT type_param_list? LBRACE field_def* RBRACE
+                     => { CODE: DATATYPE, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, FIELDS: $6 }
 
-    datatype_def <- KW_EIDOS IDENT type_param_list? LBRACE field_def* meta_block? RBRACE
-                 => { CODE: DATATYPE, NAME: $2, TYPE_PARAMS: $3, FIELDS: $5, META: $6 }
+    datatype_def <- KW_EIDOS IDENT type_param_list? LBRACE field_def* RBRACE
+                 => { CODE: DATATYPE, NAME: $2, TYPE_PARAMS: $3, FIELDS: $5 }
 
     // ── Explicit instantiation declarations (no body) ────────────
     // Binds metadata annotations to a generic instantiation.
@@ -842,24 +823,19 @@
     struct_inst <- KW_STRUCT type_ref SEMI
                 => { CODE: STRUCT, TYPE: $2 }
 
-    pub_struct_def <- KW_PUB KW_STRUCT HASH LPAREN expr RPAREN type_param_list? LBRACE field_def* method_def* meta_block? RBRACE
-                   => { CODE: STRUCT, IS_PUB: 1, NAME_VAR: $5, TYPE_PARAMS: $7, FIELDS: $9, ITEMS: $10, META: $11 }
-                    / KW_PUB KW_STRUCT HASH IDENT type_param_list? LBRACE field_def* method_def* meta_block? RBRACE
-                   => { CODE: STRUCT, IS_PUB: 1, NAME_VAR: $4, TYPE_PARAMS: $5, FIELDS: $7, ITEMS: $8, META: $9 }
-                    / KW_PUB KW_STRUCT IDENT type_param_list? LBRACE field_def* method_def* meta_block? RBRACE
-                   => { CODE: STRUCT, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, FIELDS: $6, ITEMS: $7, META: $8 }
+    pub_struct_def <- KW_PUB KW_STRUCT HASH LPAREN expr RPAREN type_param_list? LBRACE field_def* method_def* RBRACE
+                   => { CODE: STRUCT, IS_PUB: 1, NAME_VAR: $5, TYPE_PARAMS: $7, FIELDS: $9, ITEMS: $10 }
+                    / KW_PUB KW_STRUCT HASH IDENT type_param_list? LBRACE field_def* method_def* RBRACE
+                   => { CODE: STRUCT, IS_PUB: 1, NAME_VAR: $4, TYPE_PARAMS: $5, FIELDS: $7, ITEMS: $8 }
+                    / KW_PUB KW_STRUCT IDENT type_param_list? LBRACE field_def* method_def* RBRACE
+                   => { CODE: STRUCT, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, FIELDS: $6, ITEMS: $7 }
 
-    struct_def <- KW_STRUCT HASH LPAREN expr RPAREN type_param_list? LBRACE field_def* method_def* meta_block? RBRACE
-               => { CODE: STRUCT, NAME_VAR: $4, TYPE_PARAMS: $6, FIELDS: $8, ITEMS: $9, META: $10 }
-                / KW_STRUCT HASH IDENT type_param_list? LBRACE field_def* method_def* meta_block? RBRACE
-               => { CODE: STRUCT, NAME_VAR: $3, TYPE_PARAMS: $4, FIELDS: $6, ITEMS: $7, META: $8 }
-                / KW_STRUCT IDENT type_param_list? LBRACE field_def* method_def* meta_block? RBRACE
-               => { CODE: STRUCT, NAME: $2, TYPE_PARAMS: $3, FIELDS: $5, ITEMS: $6, META: $7 }
-
-    // meta @{...} block: attaches a static Hermes literal as metadata to any type declaration.
-    // Contributes to TypeInfo under the "meta" key. Static literals only (no $ident captures).
-    meta_block <- KW_META hermes_lit
-               => { CODE: META_BLOCK, VALUE: $2 }
+    struct_def <- KW_STRUCT HASH LPAREN expr RPAREN type_param_list? LBRACE field_def* method_def* RBRACE
+               => { CODE: STRUCT, NAME_VAR: $4, TYPE_PARAMS: $6, FIELDS: $8, ITEMS: $9 }
+                / KW_STRUCT HASH IDENT type_param_list? LBRACE field_def* method_def* RBRACE
+               => { CODE: STRUCT, NAME_VAR: $3, TYPE_PARAMS: $4, FIELDS: $6, ITEMS: $7 }
+                / KW_STRUCT IDENT type_param_list? LBRACE field_def* method_def* RBRACE
+               => { CODE: STRUCT, NAME: $2, TYPE_PARAMS: $3, FIELDS: $5, ITEMS: $6 }
 
     field_def <- HASH LPAREN field_def RPAREN COMMA STAR
               => { CODE: REPEAT_GROUP, VALUE: $3, OP: 1 }

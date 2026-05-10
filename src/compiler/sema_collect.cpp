@@ -710,16 +710,19 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                 }
                 collect_fn(item);
             }
-            else if (c == la::TRAIT_DEF || c == la::GENOS_DEF) {
+            else if (c == la::TRAIT_DEF) {
                 if (item.has_key(la::NAME.code)) {
                     check_annotations(AttrTarget::Trait,
                                       str_of(item.get(la::NAME.code)),
                                       item_has_type_params(item), pending_annots);
                 }
-                pending_hermes_eidos_ = false;
+                // Peek `#[type_code]` annotation so collect_trait can flag
+                // is_hermes for the Hermes-datatype-family identification
+                // that reflect::<T>() and reflection emission consult.
+                pending_trait_is_hermes_ = false;
                 for (auto& ann : pending_annots) {
-                    if (str_of(ann.get(la::NAME.code)) == "hermes_eidos") {
-                        pending_hermes_eidos_ = true;
+                    if (str_of(ann.get(la::NAME.code)) == "type_code") {
+                        pending_trait_is_hermes_ = true;
                         break;
                     }
                 }
@@ -1024,11 +1027,8 @@ void SemaChecker::collect_trait(TinyMapView node) {
     current_trait_name_ = tname;
     SemaTraitInfo info;
     info.name = tname;
-    // is_genos: legacy keyword OR new #[hermes_eidos] annotation. Annotation
-    // path is the migration target; keyword path stays as alias for one
-    // release before grammar drops KW_GENOS.
-    info.is_genos = (code_of(node) == la::GENOS_DEF) || pending_hermes_eidos_;
-    pending_hermes_eidos_ = false;
+    info.is_hermes = pending_trait_is_hermes_;
+    pending_trait_is_hermes_ = false;
     // Read auto marker
     if (node.has_key(la::IS_AUTO)) {
         AnyVal av = node.get(la::IS_AUTO);

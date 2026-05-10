@@ -19,126 +19,6 @@ using hermes::MemHolder;
 
 // Declaration lowering methods
 
-// Recursively evaluate a static Hermes literal AST node into a HermesVal tree.
-// Rejects capture nodes ($ident, ${expr}) — meta @{} is compile-time only.
-// Strip surrounding double quotes and basic escape sequences from a raw token string.
-static std::string unquote_str(std::string_view sv) {
-    std::string s(sv);
-    if (s.size() >= 2 && s.front() == '"' && s.back() == '"')
-        s = s.substr(1, s.size() - 2);
-    std::string out;
-    out.reserve(s.size());
-    for (size_t i = 0; i < s.size(); ++i) {
-        if (s[i] == '\\' && i + 1 < s.size()) {
-            ++i;
-            switch (s[i]) {
-                case 'n':  out += '\n'; break;
-                case 't':  out += '\t'; break;
-                case 'r':  out += '\r'; break;
-                case '\\': out += '\\'; break;
-                case '"':  out += '"';  break;
-                default:   out += s[i]; break;
-            }
-        } else {
-            out += s[i];
-        }
-    }
-    return out;
-}
-
-lir::HermesValPtr SemaChecker::eval_static_hermes_lit(TinyMapView node) {
-    using namespace lir;
-    int32_t code = code_of(node);
-
-    if (code == la::HERMES_MAP.code) {
-        HVMap map;
-        if (node.has_key(la::ITEMS) && !node.get(la::ITEMS.code).is_null()) {
-            auto items = arr_of(node.get(la::ITEMS.code));
-            for (uint64_t i = 0; i < items.size(); ++i) {
-                auto entry = map_of(items.get(i));
-                if (code_of(entry) != la::HERMES_ENTRY.code) continue;
-                std::string key = unquote_str(str_of(entry.get(la::KEY.code)));
-                auto val_node   = map_of(entry.get(la::VALUE.code));
-                auto val        = eval_static_hermes_lit(val_node);
-                if (!val) return nullptr;  // propagate error
-                lir::HVMapEntry me; me.key = std::move(key); me.val = std::move(val);
-                map.entries.push_back(std::move(me));
-            }
-        }
-        // Hermes-map key uniqueness (closes B-he-02). Keys can be string or
-        // int; only string-key dup-check at this layer (int keys deferred,
-        // see B-he-03).
-        {
-            logos::compiler::StrSet seen_str_keys;
-            for (auto& me : map.entries) {
-                if (auto* s = std::get_if<std::string>(&me.key)) {
-                    if (!s->empty() && !seen_str_keys.insert(*s).second) {
-                        error(std::format("duplicate key '{}' in Hermes map literal", *s));
-                    }
-                }
-            }
-        }
-        return alloc_hv_emit(std::move(map));
-    }
-    if (code == la::HERMES_ARRAY.code) {
-        HVArray arr;
-        if (node.has_key(la::ITEMS) && !node.get(la::ITEMS.code).is_null()) {
-            auto items = arr_of(node.get(la::ITEMS.code));
-            for (uint64_t i = 0; i < items.size(); ++i) {
-                auto elem = eval_static_hermes_lit(map_of(items.get(i)));
-                if (!elem) return nullptr;
-                arr.elements.push_back(std::move(elem));
-            }
-        }
-        return alloc_hv_emit(std::move(arr));
-    }
-    if (code == la::HERMES_STR.code) {
-        return alloc_hv_emit(HVStr{unquote_str(str_of(node.get(la::VALUE.code)))});
-    }
-    if (code == la::HERMES_INT.code) {
-        std::string s(str_of(node.get(la::VALUE.code)));
-        int64_t v = s.empty() ? 0 : (int64_t)std::stoull(s, nullptr, 0);
-        return alloc_hv_emit(HVInt{v});
-    }
-    if (code == la::HERMES_NEG_INT.code) {
-        std::string s(str_of(node.get(la::VALUE.code)));
-        int64_t v = s.empty() ? 0 : -(int64_t)std::stoull(s, nullptr, 0);
-        return alloc_hv_emit(HVInt{v});
-    }
-    if (code == la::HERMES_FLOAT.code) {
-        std::string s(str_of(node.get(la::VALUE.code)));
-        double v = s.empty() ? 0.0 : std::stod(s);
-        return alloc_hv_emit(HVFloat{v});
-    }
-    if (code == la::HERMES_BOOL.code) {
-        auto av = node.get(la::VALUE.code);
-        bool v = av.is_value() && av.as_value<uint8_t>() != 0;
-        return alloc_hv_emit(HVBool{v});
-    }
-    if (code == la::HERMES_NULL.code) {
-        return alloc_hv_emit(HVNull{});
-    }
-    if (code == la::HERMES_CAP_IDENT.code || code == la::HERMES_CAP_EXPR.code) {
-        // B-it-10: surface the rejection as a diagnostic instead of silently
-        // returning nullptr (which left the meta_val empty without error).
-        error("meta @{...} requires static values; '${...}' captures are not allowed");
-        return nullptr;
-    }
-    // Unknown node type — treat as null.
-    return alloc_hv_emit(HVNull{});
-}
-
-// Extract meta_val from an AST node (struct/datatype/trait) if it has a META key.
-lir::HermesValPtr SemaChecker::extract_meta_val(TinyMapView node) {
-    if (!node.has_key(la::META)) return nullptr;
-    auto mv = node.get(la::META.code);
-    if (mv.is_null()) return nullptr;
-    auto meta_node = map_of(mv);
-    if (code_of(meta_node) != la::META_BLOCK.code) return nullptr;
-    if (!meta_node.has_key(la::VALUE)) return nullptr;
-    return eval_static_hermes_lit(map_of(meta_node.get(la::VALUE.code)));
-}
-
 lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) {
     auto raw_name = str_of(node.get(la::NAME.code));
     // Sprint 6.3 — B-fn-08: reserve `_` for ignored-binding semantics.
@@ -628,7 +508,6 @@ lir::LStructDef SemaChecker::lower_struct_def(TinyMapView node) {
                 sd.methods.push_back(std::make_unique<lir::LFunction>(lower_fn(method, sname)));
         }
     }
-    sd.meta_val = extract_meta_val(node);
     pop_type_params(sd.type_params);
     return sd;
 }
@@ -744,8 +623,6 @@ lir::LTraitDef SemaChecker::lower_trait_def(TinyMapView node) {
         }
     }
     td.pkg = std::string(cur_package_);
-    // Bug 4 fix: only set is_auto here; is_genos is dead code since the caller
-    // at sema.cpp:2338 overwrites it for GENOS_DEF, and TRAIT_DEF is always false.
     if (tit != traits_.end())
         td.is_auto = tit->second.is_auto;
     if (node.has_key(la::TYPE_PARAMS)) {
@@ -753,7 +630,6 @@ lir::LTraitDef SemaChecker::lower_trait_def(TinyMapView node) {
         for (auto& tp : tps)
             td.type_params.push_back(tp.name);
     }
-    td.meta_val = extract_meta_val(node);
     return td;
 }
 

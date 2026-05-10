@@ -1,3 +1,0 @@
-package dup_hermes_map_key;
-struct Foo { x: i32, meta @{ "k": 1, "k": 2 } }
-fn main() -> i32 { return 0; }

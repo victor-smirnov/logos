@@ -2674,7 +2674,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                     if (tnode.has_key(la::NAME)) {
                         std::string tname(str_of(tnode.get(la::NAME.code)));
                         auto tit = traits_.find(tname);
-                        if (tit != traits_.end() && tit->second.is_genos) {
+                        if (tit != traits_.end() && tit->second.is_hermes) {
                             if (cur_prog_) {
                                 std::string pkg = std::string(cur_package_);
                                 std::string fqn = pkg.empty() ? tname : pkg + "::" + tname;

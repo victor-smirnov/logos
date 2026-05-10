@@ -1,3 +1,0 @@
-package meta_block_with_capture;
-struct Foo { x: i32, meta @{ "schema": ${some_var}, } }
-fn main() -> i32 { return 0; }

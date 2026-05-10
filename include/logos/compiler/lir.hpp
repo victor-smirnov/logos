@@ -760,7 +760,6 @@ struct LStructDef {
     // User-annotation metadata.
     bool                             is_annotation_type = false;  // true → this datatype is itself a `#[annotation]` marker type
     std::vector<LAnnotationInstance> annotations;                  // user-annotations attached to this type
-    HermesValPtr                     meta_val = nullptr;            // meta @{...} block; null if absent
 
     // Specialisation support (mirrors LFunction).
     bool                          is_specialization = false;
@@ -808,11 +807,9 @@ struct LTraitDef {
     std::vector<LTraitMethodSig>   methods;
     std::vector<std::string>       type_params;         // empty for non-generic traits
     std::string                    tag_dispatch_system; // #[tag_dispatch(system_name)]; empty = none
-    uint64_t                       type_code = 0;       // #[type_code=N] — genos identity;
+    uint64_t                       type_code = 0;       // #[type_code=N] — Hermes-tagged trait identity;
                                                         // propagates to each eidos via `impl Trait for Eidos`
-    bool                           is_genos  = false;   // declared with `genos` keyword (not `trait`)
     bool                           is_auto   = false;   // declared with `auto trait` (compiler-synthesized impls)
-    HermesValPtr                   meta_val = nullptr;   // meta @{...} block; null if absent
 };
 
 struct LImplBlock {

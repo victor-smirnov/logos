@@ -3953,22 +3953,6 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                 prog.traits.push_back(std::move(td));
             }
         }
-        else if (c == la::GENOS_DEF) {
-            auto td = lower_trait_def(item);
-            td.is_genos = true;
-            td.meta_val = extract_meta_val(item);
-            apply_annots_to_trait(td);
-            if (td.type_code != 0) {
-                auto tit = traits_.find(td.name);
-                if (tit != traits_.end() && !tit->second.type_params.empty())
-                    error(std::format("genos '{}': #[type_code] on a template "
-                                      "(parametric) genos is forbidden — "
-                                      "attach it to a concrete specialization "
-                                      "(e.g. `#[type_code=N] genos {}<T>;`)",
-                                      td.name, td.name));
-            }
-            prog.traits.push_back(std::move(td));
-        }
         else if (c == la::IMPL_BLOCK) lower_impl_block(item, prog);
         pending_annots.clear();
     }
