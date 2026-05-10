@@ -7,6 +7,7 @@
 // Pipeline: .logos file → PEG parser → Hermes AST → MLIR → LLVM IR → .o file.
 
 #include "emit_module.hpp"
+#include "metaprog_dispatch.hpp"
 #include "mlir_gen.hpp"
 #include "module_manifest.hpp"
 #include <chrono>
@@ -126,15 +127,10 @@ const char*                          g_current_hook_name = nullptr;
 // require threading the context deeper into sema, which gives no
 // extra information for the dump UX (file-level granularity is what
 // users select on).
-struct EmitProvenance {
-    std::string  src_file;     // file containing the metacall/trigger site
-    int          src_line = 0; // 1-based line; 0 = unknown
-    std::string  callee_name;  // metacall callee, or hook fn name (for triggers)
-    std::string  trigger;      // empty for `metacall`; #[derive_clone]→"derive_clone"
-    std::string  target_name;  // for triggers: name of the annotated item
-                               // (struct/fn/etc.); empty for `metacall`
-    int          iter_seq = 0; // metaprog discovery-loop iteration (informational)
-};
+// EmitProvenance struct is exposed in metaprog_dispatch.hpp (shared
+// between main.cpp and emit_module.cpp). Locally we just keep the
+// runtime state.
+using logos::compiler::EmitProvenance;
 EmitProvenance                       g_current_emit_ctx;
 bool                                 g_current_emit_ctx_valid = false;
 std::vector<std::optional<EmitProvenance>>* g_ast_provenance = nullptr;
@@ -1964,6 +1960,311 @@ constexpr int EXIT_CODEGEN    = 3;
 constexpr int EXIT_LINK_IO    = 4;
 constexpr int EXIT_ICE        = 5;
 
+namespace logos::compiler {
+
+// Shared metaprog discovery loop. Runs sema_lower in metaprog_mode,
+// JIT-fires #[derive_*]/handler triggers, processes item-position
+// metacalls, splices synthesised items into `asts`, iterates until
+// no new emissions. Used by main() (user-code path) and by
+// emit_module's compile_to_object (stdlib build path — closes
+// debt #21).
+//
+// Sets g_asts/g_filenames/g_from_binary/g_user_root_idx/g_emit_seen/
+// g_any_emitted/g_metaprog_diags/g_ast_provenance from the args;
+// restores prior values on exit.
+int run_metaprog_dispatch(
+    std::vector<hermes::Hermes>& asts,
+    std::vector<std::string>&    filenames,
+    std::vector<bool>&           from_binary,
+    std::size_t                  entry_ast_idx,
+    const MetaprogDispatchOpts&  opts)
+{
+    constexpr int kMaxMetaprogIters = 16;
+
+    // Save and reset host-side globals on exit so nested or repeated
+    // calls don't leak state.
+    auto* prev_emit_seen      = g_emit_seen;
+    auto* prev_asts           = g_asts;
+    auto* prev_filenames      = g_filenames;
+    auto* prev_from_binary    = g_from_binary;
+    auto  prev_user_root_idx  = g_user_root_idx;
+    auto* prev_metaprog_diags = g_metaprog_diags;
+    auto* prev_ast_provenance = g_ast_provenance;
+    auto* prev_any_emitted    = g_any_emitted;
+    struct ScopedRestore {
+        std::set<std::string>**             es;
+        std::vector<hermes::Hermes>**       a;
+        std::vector<std::string>**          fn;
+        std::vector<bool>**                 fb;
+        size_t*                             uri;
+        std::vector<std::string>**          md;
+        std::vector<std::optional<EmitProvenance>>** ap;
+        bool**                              ae;
+        std::set<std::string>*              p_es;
+        std::vector<hermes::Hermes>*        p_a;
+        std::vector<std::string>*           p_fn;
+        std::vector<bool>*                  p_fb;
+        size_t                              p_uri;
+        std::vector<std::string>*           p_md;
+        std::vector<std::optional<EmitProvenance>>* p_ap;
+        bool*                               p_ae;
+        ~ScopedRestore() {
+            *es = p_es; *a = p_a; *fn = p_fn; *fb = p_fb;
+            *uri = p_uri; *md = p_md; *ap = p_ap; *ae = p_ae;
+        }
+    } _restore{
+        &g_emit_seen, &g_asts, &g_filenames, &g_from_binary,
+        &g_user_root_idx, &g_metaprog_diags, &g_ast_provenance,
+        &g_any_emitted,
+        prev_emit_seen, prev_asts, prev_filenames, prev_from_binary,
+        prev_user_root_idx, prev_metaprog_diags, prev_ast_provenance,
+        prev_any_emitted,
+    };
+
+    std::set<std::string> emit_seen;
+    g_emit_seen     = &emit_seen;
+    g_asts          = &asts;
+    g_filenames     = &filenames;
+    g_from_binary   = &from_binary;
+    g_user_root_idx = entry_ast_idx;
+    // Provenance vector: caller-provided when --dump-metaprog is on
+    // (so they can read it post-dispatch); otherwise local & discarded.
+    std::vector<std::optional<EmitProvenance>> local_provenance;
+    auto* prov = opts.provenance_out ? opts.provenance_out : &local_provenance;
+    if (!opts.dump_dir.empty()) g_ast_provenance = prov;
+
+    auto report = [&](const char* label) {
+        if (!opts.trace) return;
+        std::fprintf(stderr, "[metaprog dispatch] %s\n", label);
+    };
+
+    SemaOptions meta_opts;
+    meta_opts.metaprog_mode = true;
+    meta_opts.entry_ast_idx = entry_ast_idx;
+
+    lir::LProgram prog;
+    for (int iter = 0; ; ++iter) {
+        prog = sema_lower(asts, filenames, from_binary, meta_opts);
+        prog.print_diags(stderr);
+        if (!prog.ok()) return 1;
+        report(iter == 0 ? "sema+lower" : "sema+lower (re-run)");
+
+        bool has_pending_item_mc = false;
+        {
+            using RT = lir::LProgram::MetacallSite::RetTag;
+            for (const auto& s : prog.metacall_sites) {
+                if (s.ret_tag == RT::ItemBlob) { has_pending_item_mc = true; break; }
+            }
+        }
+        if (prog.metaprog_targets.empty() && !has_pending_item_mc) break;
+
+        if (opts.trace) {
+            std::fprintf(stderr, "[metaprog iter %d] %zu target(s):\n",
+                         iter, prog.metaprog_targets.size());
+            for (auto& t : prog.metaprog_targets)
+                std::fprintf(stderr, "                 - %s\n", t.trigger.c_str());
+        }
+
+        auto meta_prog = sema_lower(asts, filenames, from_binary, meta_opts);
+        if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
+
+        std::vector<lir::LProgram::MetacallSite> meta_item_sites;
+        {
+            using RT = lir::LProgram::MetacallSite::RetTag;
+            for (const auto& s : meta_prog.metacall_sites) {
+                if (s.ret_tag == RT::ItemBlob) meta_item_sites.push_back(s);
+            }
+        }
+        if (!meta_item_sites.empty()) {
+            bool tmp_emitted = false;
+            bool* prev_any = g_any_emitted;
+            g_any_emitted = &tmp_emitted;
+            for (const auto& s : meta_item_sites) {
+                if (!s.thunk_source.empty()) logos_emit_source(s.thunk_source.c_str());
+            }
+            g_any_emitted = prev_any;
+            auto resema_opts = meta_opts;
+            for (const auto& s : meta_item_sites) {
+                if (!s.callee_name.empty())
+                    resema_opts.metaprog_keep_fns.push_back(s.callee_name);
+            }
+            meta_prog = sema_lower(asts, filenames, from_binary, resema_opts);
+            if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
+        }
+        meta_prog.functions.erase(
+            std::remove_if(meta_prog.functions.begin(), meta_prog.functions.end(),
+                [](const auto& f) { return f->is_metaprog_stub; }),
+            meta_prog.functions.end());
+        meta_prog = reflection_emit(std::move(meta_prog));
+        meta_prog = mono_pass(std::move(meta_prog));
+        if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
+        meta_prog = borrow_check(std::move(meta_prog));
+        if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
+
+        mlir::MLIRContext meta_mlir_ctx;
+        meta_mlir_ctx.getOrLoadDialect<mlir::func::FuncDialect>();
+        meta_mlir_ctx.getOrLoadDialect<mlir::arith::ArithDialect>();
+        meta_mlir_ctx.getOrLoadDialect<mlir::scf::SCFDialect>();
+        meta_mlir_ctx.getOrLoadDialect<mlir::cf::ControlFlowDialect>();
+        meta_mlir_ctx.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
+        auto meta_mlir = mlir_gen(meta_mlir_ctx, meta_prog);
+        if (!meta_mlir) { std::fprintf(stderr, "logosc: metaprog MLIR gen failed\n"); return 1; }
+        mlir::PassManager meta_pm(&meta_mlir_ctx);
+        meta_pm.addPass(mlir::createSCFToControlFlowPass());
+        meta_pm.addPass(mlir::createConvertControlFlowToLLVMPass());
+        meta_pm.addPass(mlir::createArithToLLVMConversionPass());
+        meta_pm.addPass(mlir::createConvertFuncToLLVMPass());
+        meta_pm.addPass(mlir::createReconcileUnrealizedCastsPass());
+        if (mlir::failed(meta_pm.run(*meta_mlir))) {
+            std::fprintf(stderr, "logosc: metaprog MLIR lowering failed\n"); return 1;
+        }
+        mlir::registerBuiltinDialectTranslation(meta_mlir_ctx);
+        mlir::registerLLVMDialectTranslation(meta_mlir_ctx);
+        llvm::LLVMContext meta_llvm_ctx;
+        auto meta_llvm = mlir::translateModuleToLLVMIR(*meta_mlir, meta_llvm_ctx);
+        if (!meta_llvm) { std::fprintf(stderr, "logosc: metaprog LLVM IR translate failed\n"); return 1; }
+        meta_llvm->setTargetTriple(llvm::Triple(llvm::sys::getDefaultTargetTriple()));
+        llvm::InitializeNativeTarget();
+        llvm::InitializeNativeTargetAsmPrinter();
+
+        auto meta_jit = build_jit_from_module(*meta_llvm, "logosc-metaprog",
+                                              /*with_process_symbols=*/true,
+                                              &opts.archive_paths);
+        if (!meta_jit) return 1;
+        report("metaprog jit");
+
+        bool any_emitted = false;
+        g_any_emitted = &any_emitted;
+        std::vector<std::string> hook_diags;
+        g_metaprog_diags = &hook_diags;
+        auto bind_sym = [&](const char* name, void* fn) -> bool {
+            if (meta_jit->define_symbol(name, fn)) return true;
+            std::fprintf(stderr, "logosc: bind %s: %s\n",
+                         name, meta_jit->error_str().c_str());
+            return false;
+        };
+        if (!bind_sym("logos_emit_source",                reinterpret_cast<void*>(&logos_emit_source))) return 1;
+        if (!bind_sym("logos_emit_item_blob",             reinterpret_cast<void*>(&logos_emit_item_blob))) return 1;
+        if (!bind_sym("logos_emit_item_blob_subst",       reinterpret_cast<void*>(&logos_emit_item_blob_subst))) return 1;
+        if (!bind_sym("logos_qib_pack_idents",            reinterpret_cast<void*>(&logos_qib_pack_idents))) return 1;
+        if (!bind_sym("logos_qib_free_idents",            reinterpret_cast<void*>(&logos_qib_free_idents))) return 1;
+        if (!bind_sym("logos_qib_pack_blobs",             reinterpret_cast<void*>(&logos_qib_pack_blobs))) return 1;
+        if (!bind_sym("logos_qib_free_blobs",             reinterpret_cast<void*>(&logos_qib_free_blobs))) return 1;
+        if (!bind_sym("logos_qib_pack_cursors",           reinterpret_cast<void*>(&logos_qib_pack_cursors))) return 1;
+        if (!bind_sym("logos_qib_free_cursors",           reinterpret_cast<void*>(&logos_qib_free_cursors))) return 1;
+        if (!bind_sym("logos_metaprog_gensym",            reinterpret_cast<void*>(&logos_metaprog_gensym))) return 1;
+        if (!bind_sym("logos_metaprog_test_module_blob",  reinterpret_cast<void*>(&logos_metaprog_test_module_blob))) return 1;
+        if (!bind_sym("logos_test_make_bin_op_blob",      reinterpret_cast<void*>(&logos_test_make_bin_op_blob))) return 1;
+        if (!bind_sym("logos_quote_expr_subst",           reinterpret_cast<void*>(&logos_quote_expr_subst))) return 1;
+        if (!bind_sym("logos_get_module_ast",             reinterpret_cast<void*>(&logos_get_module_ast))) return 1;
+        if (!bind_sym("logos_get_module_ast_oview",       reinterpret_cast<void*>(&logos_get_module_ast_oview))) return 1;
+        if (!bind_sym("logos_holder_release",             reinterpret_cast<void*>(&logos_holder_release))) return 1;
+        if (!bind_sym("logos_metaprog_error",             reinterpret_cast<void*>(&logos_metaprog_error))) return 1;
+        if (!bind_sym("logos_metaprog_error_at",          reinterpret_cast<void*>(&logos_metaprog_error_at))) return 1;
+
+        for (const auto& tgt : prog.metaprog_targets) {
+            // Route oview_module_ast at this trigger's ast (handler may
+            // be in a sibling module — emit_module case dispatches across
+            // multiple non-binary asts in one pass). Restored after the
+            // inner per-handler loop.
+            auto saved_root = g_user_root_idx;
+            g_user_root_idx = tgt.ast_idx;
+            bool any_handler = false;
+            for (const auto& mh : prog.metaprog_handlers) {
+                if (mh.trigger != tgt.trigger) continue;
+                any_handler = true;
+                std::string lookup_name = mh.hook_fn;
+                for (const auto& f : prog.functions) {
+                    if (bare_fn_name(f->name) == mh.hook_fn) {
+                        lookup_name = f->name;
+                        break;
+                    }
+                }
+                auto* sym = meta_jit->lookup(lookup_name);
+                if (!sym) {
+                    std::fprintf(stderr, "logosc: metaprog hook lookup '%s': %s\n",
+                                 lookup_name.c_str(), meta_jit->error_str().c_str());
+                    g_user_root_idx = saved_root;
+                    return 1;
+                }
+                g_current_hook_name = mh.hook_fn.c_str();
+                {
+                    int line = 0;
+                    std::string target_name;
+                    if (tgt.ast_idx < asts.size()) {
+                        auto* h    = asts[tgt.ast_idx].holder();
+                        auto* base = h->base();
+                        auto* tom  = reinterpret_cast<hermes::TinyObjectMap*>(
+                                        base + tgt.item_offset);
+                        auto av = tom->get(ast::SRC_LINE.code, base);
+                        if (!av.is_null() && av.is_value())
+                            line = static_cast<int>(av.as_value<uint32_t>());
+                        auto nm_av = tom->get(ast::NAME.code, base);
+                        if (!nm_av.is_null()) {
+                            auto sv = hermes::StringView(
+                                nm_av.to_offset(), h).view();
+                            target_name = std::string(sv);
+                        }
+                    }
+                    g_current_emit_ctx = EmitProvenance{
+                        tgt.ast_idx < filenames.size() ? filenames[tgt.ast_idx] : std::string{},
+                        line, mh.hook_fn, tgt.trigger, target_name, iter,
+                    };
+                    g_current_emit_ctx_valid = true;
+                }
+                reinterpret_cast<void (*)(uint32_t)>(sym)(tgt.item_offset);
+                g_current_emit_ctx_valid = false;
+                g_current_hook_name = nullptr;
+            }
+            g_user_root_idx = saved_root;
+            if (!any_handler) {
+                std::fprintf(stderr,
+                    "logosc: internal: no handler for trigger '%s'\n",
+                    tgt.trigger.c_str());
+                return 1;
+            }
+        }
+        if (!hook_diags.empty()) {
+            for (const auto& d : hook_diags)
+                std::fprintf(stderr, "error: %s\n", d.c_str());
+            return 1;
+        }
+
+        for (const auto& site : meta_item_sites) {
+            if (site.thunk_source.empty()) continue;
+            if (site.ast_idx >= asts.size()) continue;
+            auto* sym = meta_jit->lookup(site.thunk_name);
+            if (!sym) continue;
+            reinterpret_cast<void (*)()>(sym)();
+            auto& doc = asts[site.ast_idx];
+            auto* h    = doc.holder();
+            auto* base = h->base();
+            auto* tom  = reinterpret_cast<hermes::TinyObjectMap*>(
+                            base + site.expr_offset);
+            if (auto r = tom->put(
+                    ast::CODE.code,
+                    hermes::AnyVal::from_value<int32_t>(
+                        ast::METACALL_ITEM_DONE.code),
+                    h->arena()); !r) {
+                std::fprintf(stderr,
+                    "logosc: metacall item-splice (loop): CODE put failed\n");
+                return 1;
+            }
+        }
+
+        if (!any_emitted) break;
+        if (iter + 1 >= kMaxMetaprogIters) {
+            std::fprintf(stderr,
+                "logosc: metaprog loop did not converge in %d iterations\n",
+                kMaxMetaprogIters);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+} // namespace logos::compiler
+
 int main(int argc, char** argv) {
     if (argc < 2) {
         std::fprintf(stderr, "usage: logosc <input.logos> [-o output.o] [-O0|-O1|-O2|-O3] [--emit-mlir] [--emit-llvm] [--diag-format=text|json]\n");
@@ -2271,390 +2572,34 @@ int main(int argc, char** argv) {
 
     // ── Step 2b: Semantic analysis + L-IR lowering, with metaprog loop ──
     //
-    // Phase 5 driver: re-run sema after each round of post-sema hooks until
-    // no new AST items are emitted.  Hooks are currently no-op C++ stubs;
-    // when the JIT lands (Phase 4) and the AST emit API lands (Phase 7),
-    // the body of this loop fills in.  `kMaxMetaprogIters` is a safety cap
-    // against pathological recursive emission.
-    constexpr int kMaxMetaprogIters = 16;
-    std::set<std::string> emit_seen;
-    g_emit_seen   = &emit_seen;
-    g_asts        = &asts;
-    g_filenames   = &filenames;
-    g_from_binary = &from_binary;
-    // Provenance vector (parallel to asts) — only populated when
-    // --dump-metaprog is on. Sized lazily by record_emit_provenance.
+    // Discovery loop body lives in run_metaprog_dispatch (shared with
+    // emit_module's stdlib-build path, debt #21 closure). Globals it
+    // needs (g_asts, g_filenames, etc.) are set inside that function
+    // and restored on return; we re-set them below for the post-loop
+    // metacall-splice phase that still runs in main()'s scope.
     std::vector<std::optional<EmitProvenance>> ast_provenance;
-    if (!dump_metaprog_dir.empty()) g_ast_provenance = &ast_provenance;
-    // Module loader is post-order: dependencies first, entry file last.
-    // Record the entry-file index before any metaprog source-splice so
-    // logos_get_module_ast keeps pointing at the user's root doc even
-    // after asts grows.
-    g_user_root_idx = asts.empty() ? 0 : asts.size() - 1;
-    logos::compiler::lir::LProgram prog;
-    // Phase 7 slice 17: pre-sema hook timing. The discovery pass runs in
-    // metaprog mode — entry-file fn bodies (other than handlers) are NOT
-    // lowered, so references to types/impls that hooks will synthesize do
-    // not error out. Handlers and stdlib bodies *are* fully lowered, so
-    // the JIT can compile them. After convergence, a final non-metaprog
-    // sema pass lowers the now-complete entry file.
-    logos::compiler::SemaOptions meta_opts;
-    meta_opts.metaprog_mode = true;
-    meta_opts.entry_ast_idx = g_user_root_idx;
-    for (int iter = 0; ; ++iter) {
-        prog = logos::compiler::sema_lower(asts, filenames, from_binary, meta_opts);
-        prog.print_diags(stderr);
-        if (!prog.ok()) return 1;
-        report(iter == 0 ? "sema+lower" : "sema+lower (re-run)");
-
-        // Stay in the loop if there are pre-sema metaprog hook targets, OR
-        // any item-position metacall sites still pending (ItemBlob ret tag,
-        // CODE not yet flipped to METACALL_ITEM_DONE). Expr-position metacall
-        // sites inside fn bodies are NOT visible here (metaprog_mode skips
-        // entry-file fn bodies); they're handled by the post-loop pass below.
-        bool has_pending_item_mc = false;
-        {
-            using RT = logos::compiler::lir::LProgram::MetacallSite::RetTag;
-            for (const auto& s : prog.metacall_sites) {
-                if (s.ret_tag == RT::ItemBlob) { has_pending_item_mc = true; break; }
-            }
-        }
-        if (prog.metaprog_targets.empty() && !has_pending_item_mc) break;
-
-        if (trace) {
-            std::fprintf(stderr, "[metaprog iter %d] %zu target(s):\n",
-                         iter, prog.metaprog_targets.size());
-            for (auto& t : prog.metaprog_targets)
-                std::fprintf(stderr, "                 - %s\n", t.trigger.c_str());
-        }
-
-        // Phase 4 slice 4: JIT-invoke each hook. Until the AST emit API
-        // lands (Phase 7) hooks are validated `fn() -> ()` no-ops; we
-        // call them to exercise the seam end-to-end. `meta_prog` is a
-        // throwaway full-pipeline copy of the current sources — we
-        // can't reuse the outer `prog` because the post-loop expects a
-        // pre-mono LProgram.
-        // meta_prog (JIT input) uses metaprog_mode so the entry file may
-        // reference items that hooks will synthesize without erroring out.
-        // After sema, drop is_metaprog_stub fns (entry-file non-handler
-        // bodies were skipped) — mono/MLIR would otherwise see empty bodies.
-        auto meta_prog = logos::compiler::sema_lower(asts, filenames, from_binary, meta_opts);
-        if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
-        // MC1.2: stash item-position metacall sites — mono_pass below moves
-        // meta_prog and the resulting LProgram doesn't carry metacall_sites
-        // through (they're sema-pass artefacts).
-        std::vector<logos::compiler::lir::LProgram::MetacallSite>
-            meta_item_sites;
-        {
-            using RT = logos::compiler::lir::LProgram::MetacallSite::RetTag;
-            for (const auto& s : meta_prog.metacall_sites) {
-                if (s.ret_tag == RT::ItemBlob) meta_item_sites.push_back(s);
-            }
-        }
-        // Emit thunk sources up front so this iter's meta_jit picks them up.
-        // logos_emit_source requires g_any_emitted alive — wire a temp here;
-        // the loop's main `any_emitted` is set further below for hooks.
-        if (!meta_item_sites.empty()) {
-            bool tmp_emitted = false;
-            bool* prev_any = g_any_emitted;
-            g_any_emitted = &tmp_emitted;
-            for (const auto& s : meta_item_sites) {
-                if (!s.thunk_source.empty()) logos_emit_source(s.thunk_source.c_str());
-            }
-            g_any_emitted = prev_any;
-            // Add callee names to metaprog_keep_fns so re-sema lowers their
-            // bodies (otherwise the thunk's call into the user fn references
-            // an empty stub and MLIR-gen fails).
-            auto resema_opts = meta_opts;
-            for (const auto& s : meta_item_sites) {
-                if (!s.callee_name.empty())
-                    resema_opts.metaprog_keep_fns.push_back(s.callee_name);
-            }
-            meta_prog = logos::compiler::sema_lower(asts, filenames, from_binary, resema_opts);
-            if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
-        }
-        meta_prog.functions.erase(
-            std::remove_if(meta_prog.functions.begin(), meta_prog.functions.end(),
-                [](const auto& f) { return f->is_metaprog_stub; }),
-            meta_prog.functions.end());
-        meta_prog = logos::compiler::reflection_emit(std::move(meta_prog));
-        meta_prog = logos::compiler::mono_pass(std::move(meta_prog));
-        if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
-        meta_prog = logos::compiler::borrow_check(std::move(meta_prog));
-        if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
-
-        mlir::MLIRContext meta_mlir_ctx;
-        meta_mlir_ctx.getOrLoadDialect<mlir::func::FuncDialect>();
-        meta_mlir_ctx.getOrLoadDialect<mlir::arith::ArithDialect>();
-        meta_mlir_ctx.getOrLoadDialect<mlir::scf::SCFDialect>();
-        meta_mlir_ctx.getOrLoadDialect<mlir::cf::ControlFlowDialect>();
-        meta_mlir_ctx.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
-        auto meta_mlir = logos::compiler::mlir_gen(meta_mlir_ctx, meta_prog);
-        if (!meta_mlir) { std::fprintf(stderr, "logosc: metaprog MLIR gen failed\n"); return 1; }
-        mlir::PassManager meta_pm(&meta_mlir_ctx);
-        meta_pm.addPass(mlir::createSCFToControlFlowPass());
-        meta_pm.addPass(mlir::createConvertControlFlowToLLVMPass());
-        meta_pm.addPass(mlir::createArithToLLVMConversionPass());
-        meta_pm.addPass(mlir::createConvertFuncToLLVMPass());
-        meta_pm.addPass(mlir::createReconcileUnrealizedCastsPass());
-        if (mlir::failed(meta_pm.run(*meta_mlir))) {
-            std::fprintf(stderr, "logosc: metaprog MLIR lowering failed\n"); return 1;
-        }
-        mlir::registerBuiltinDialectTranslation(meta_mlir_ctx);
-        mlir::registerLLVMDialectTranslation(meta_mlir_ctx);
-        llvm::LLVMContext meta_llvm_ctx;
-        auto meta_llvm = mlir::translateModuleToLLVMIR(*meta_mlir, meta_llvm_ctx);
-        if (!meta_llvm) { std::fprintf(stderr, "logosc: metaprog LLVM IR translate failed\n"); return 1; }
-        meta_llvm->setTargetTriple(llvm::Triple(llvm::sys::getDefaultTargetTriple()));
-        llvm::InitializeNativeTarget();
-        llvm::InitializeNativeTargetAsmPrinter();
-
-        // Metaprog JIT gets process symbols (libc malloc/free, printf,
-        // memcpy, etc.) so hooks can use stdlib types like String/format
-        // without per-symbol bindings. The compiler is the trust root
-        // for hook code, so this is acceptable.
-        auto meta_jit = build_jit_from_module(*meta_llvm, "logosc-metaprog",
-                                              /*with_process_symbols=*/true,
-                                              &archive_paths);
-        if (!meta_jit) return 1;
-        report("metaprog jit");
-
-        bool any_emitted = false;
-        g_any_emitted = &any_emitted;
-        std::vector<std::string> hook_diags;
-        g_metaprog_diags = &hook_diags;
-        if (!meta_jit->define_symbol("logos_emit_source",
-                                     reinterpret_cast<void*>(&logos_emit_source))) {
-            std::fprintf(stderr, "logosc: bind logos_emit_source: %s\n",
-                         meta_jit->error_str().c_str());
+    {
+        logos::compiler::MetaprogDispatchOpts mopts;
+        mopts.trace          = trace;
+        mopts.dump_dir       = dump_metaprog_dir;
+        mopts.dump_filter    = dump_metaprog_filter;
+        mopts.archive_paths  = archive_paths;
+        mopts.provenance_out = &ast_provenance;
+        size_t entry_idx = asts.empty() ? 0 : asts.size() - 1;
+        if (logos::compiler::run_metaprog_dispatch(
+                asts, filenames, from_binary, entry_idx, mopts) != 0)
             return 1;
-        }
-        if (!meta_jit->define_symbol("logos_emit_item_blob",
-                                     reinterpret_cast<void*>(&logos_emit_item_blob))) {
-            std::fprintf(stderr, "logosc: bind logos_emit_item_blob: %s\n",
-                         meta_jit->error_str().c_str());
-            return 1;
-        }
-        if (!meta_jit->define_symbol("logos_emit_item_blob_subst",
-                                     reinterpret_cast<void*>(&logos_emit_item_blob_subst))) {
-            std::fprintf(stderr, "logosc: bind logos_emit_item_blob_subst: %s\n",
-                         meta_jit->error_str().c_str());
-            return 1;
-        }
-        if (!meta_jit->define_symbol("logos_qib_pack_idents",
-                                     reinterpret_cast<void*>(&logos_qib_pack_idents))) {
-            std::fprintf(stderr, "logosc: bind logos_qib_pack_idents: %s\n",
-                         meta_jit->error_str().c_str());
-            return 1;
-        }
-        if (!meta_jit->define_symbol("logos_qib_free_idents",
-                                     reinterpret_cast<void*>(&logos_qib_free_idents))) {
-            std::fprintf(stderr, "logosc: bind logos_qib_free_idents: %s\n",
-                         meta_jit->error_str().c_str());
-            return 1;
-        }
-        if (!meta_jit->define_symbol("logos_qib_pack_blobs",
-                                     reinterpret_cast<void*>(&logos_qib_pack_blobs))) {
-            std::fprintf(stderr, "logosc: bind logos_qib_pack_blobs: %s\n",
-                         meta_jit->error_str().c_str());
-            return 1;
-        }
-        if (!meta_jit->define_symbol("logos_qib_free_blobs",
-                                     reinterpret_cast<void*>(&logos_qib_free_blobs))) {
-            std::fprintf(stderr, "logosc: bind logos_qib_free_blobs: %s\n",
-                         meta_jit->error_str().c_str());
-            return 1;
-        }
-        if (!meta_jit->define_symbol("logos_qib_pack_cursors",
-                                     reinterpret_cast<void*>(&logos_qib_pack_cursors))) {
-            std::fprintf(stderr, "logosc: bind logos_qib_pack_cursors: %s\n",
-                         meta_jit->error_str().c_str());
-            return 1;
-        }
-        if (!meta_jit->define_symbol("logos_qib_free_cursors",
-                                     reinterpret_cast<void*>(&logos_qib_free_cursors))) {
-            std::fprintf(stderr, "logosc: bind logos_qib_free_cursors: %s\n",
-                         meta_jit->error_str().c_str());
-            return 1;
-        }
-        if (!meta_jit->define_symbol("logos_metaprog_gensym",
-                                     reinterpret_cast<void*>(&logos_metaprog_gensym))) {
-            std::fprintf(stderr, "logosc: bind logos_metaprog_gensym: %s\n",
-                         meta_jit->error_str().c_str());
-            return 1;
-        }
-        if (!meta_jit->define_symbol("logos_metaprog_test_module_blob",
-                                     reinterpret_cast<void*>(&logos_metaprog_test_module_blob))) {
-            std::fprintf(stderr, "logosc: bind logos_metaprog_test_module_blob: %s\n",
-                         meta_jit->error_str().c_str());
-            return 1;
-        }
-        if (!meta_jit->define_symbol("logos_test_make_bin_op_blob",
-                                     reinterpret_cast<void*>(&logos_test_make_bin_op_blob))) {
-            std::fprintf(stderr, "logosc: bind logos_test_make_bin_op_blob: %s\n",
-                         meta_jit->error_str().c_str());
-            return 1;
-        }
-        if (!meta_jit->define_symbol("logos_quote_expr_subst",
-                                     reinterpret_cast<void*>(&logos_quote_expr_subst))) {
-            std::fprintf(stderr, "logosc: bind logos_quote_expr_subst: %s\n",
-                         meta_jit->error_str().c_str());
-            return 1;
-        }
-        if (!meta_jit->define_symbol("logos_get_module_ast",
-                                     reinterpret_cast<void*>(&logos_get_module_ast))) {
-            std::fprintf(stderr, "logosc: bind logos_get_module_ast: %s\n",
-                         meta_jit->error_str().c_str());
-            return 1;
-        }
-        if (!meta_jit->define_symbol("logos_get_module_ast_oview",
-                                     reinterpret_cast<void*>(&logos_get_module_ast_oview))) {
-            std::fprintf(stderr, "logosc: bind logos_get_module_ast_oview: %s\n",
-                         meta_jit->error_str().c_str());
-            return 1;
-        }
-        if (!meta_jit->define_symbol("logos_holder_release",
-                                     reinterpret_cast<void*>(&logos_holder_release))) {
-            std::fprintf(stderr, "logosc: bind logos_holder_release: %s\n",
-                         meta_jit->error_str().c_str());
-            return 1;
-        }
-        if (!meta_jit->define_symbol("logos_metaprog_error",
-                                     reinterpret_cast<void*>(&logos_metaprog_error))) {
-            std::fprintf(stderr, "logosc: bind logos_metaprog_error: %s\n",
-                         meta_jit->error_str().c_str());
-            return 1;
-        }
-        if (!meta_jit->define_symbol("logos_metaprog_error_at",
-                                     reinterpret_cast<void*>(&logos_metaprog_error_at))) {
-            std::fprintf(stderr, "logosc: bind logos_metaprog_error_at: %s\n",
-                         meta_jit->error_str().c_str());
-            return 1;
-        }
-        // Phase 7 slice 12: derive-style handlers fire once per target item.
-        // trigger→hook lookup is linear (handler list is short — typically
-        // a handful per program); switch to map if it grows.
-        for (const auto& tgt : prog.metaprog_targets) {
-            // Offset is only meaningful within one Hermes doc; hooks
-            // see the entry-file doc via `oview_module_ast()`. Skip
-            // triggers in non-entry asts (imported user sources):
-            // cross-doc targeting needs an ast_idx-aware hook ABI.
-            if (tgt.ast_idx != g_user_root_idx) continue;
-            // Phase 7 slice 14: fire all handlers registered for this
-            // trigger, in source-declaration order (the order sema
-            // collected them).
-            bool any_handler = false;
-            for (const auto& mh : prog.metaprog_handlers) {
-                if (mh.trigger != tgt.trigger) continue;
-                any_handler = true;
-                // mh.hook_fn is the bare AST name; resolve to the actual
-                // emitted symbol (function_symbol_name may have applied
-                // pkg+sig mangling) before JIT-side lookup.
-                std::string lookup_name = mh.hook_fn;
-                for (const auto& f : prog.functions) {
-                    if (logos::compiler::bare_fn_name(f->name) == mh.hook_fn) {
-                        lookup_name = f->name;
-                        break;
-                    }
-                }
-                auto* sym = meta_jit->lookup(lookup_name);
-                if (!sym) {
-                    std::fprintf(stderr, "logosc: metaprog hook lookup '%s': %s\n",
-                                 lookup_name.c_str(), meta_jit->error_str().c_str());
-                    return 1;
-                }
-                g_current_hook_name = mh.hook_fn.c_str();
-                // Provenance for --dump-metaprog: triggered item's file:line
-                // is the natural identity. SRC_LINE is on the targeted item
-                // (struct/fn the annotation sits on).
-                {
-                    int line = 0;
-                    std::string target_name;
-                    if (tgt.ast_idx < asts.size()) {
-                        auto* h    = asts[tgt.ast_idx].holder();
-                        auto* base = h->base();
-                        auto* tom  = reinterpret_cast<logos::hermes::TinyObjectMap*>(
-                                        base + tgt.item_offset);
-                        auto av = tom->get(logos::compiler::ast::SRC_LINE.code, base);
-                        if (!av.is_null() && av.is_value())
-                            line = static_cast<int>(av.as_value<uint32_t>());
-                        // Targeted item's NAME (struct/fn the annotation sits on) —
-                        // lets `--dump-metacall=Pair` filter dumps to a specific type.
-                        auto nm_av = tom->get(logos::compiler::ast::NAME.code, base);
-                        if (!nm_av.is_null()) {
-                            auto sv = logos::hermes::StringView(
-                                nm_av.to_offset(), h).view();
-                            target_name = std::string(sv);
-                        }
-                    }
-                    g_current_emit_ctx = EmitProvenance{
-                        tgt.ast_idx < filenames.size() ? filenames[tgt.ast_idx] : std::string{},
-                        line, mh.hook_fn, tgt.trigger, target_name, iter,
-                    };
-                    g_current_emit_ctx_valid = true;
-                }
-                reinterpret_cast<void (*)(uint32_t)>(sym)(tgt.item_offset);
-                g_current_emit_ctx_valid = false;
-                g_current_hook_name = nullptr;
-            }
-            if (!any_handler) {
-                std::fprintf(stderr,
-                    "logosc: internal: no handler for trigger '%s'\n",
-                    tgt.trigger.c_str());
-                return 1;
-            }
-        }
-        if (!hook_diags.empty()) {
-            for (const auto& d : hook_diags)
-                std::fprintf(stderr, "error: %s\n", d.c_str());
-            return 1;
-        }
-
-        // MC1.2: item-position metacall handling, woven into the metaprog loop
-        // so synthesized items are visible to the final sema pass below.
-        // metaprog_mode sema dispatches METACALL_ITEM (it's a module item, not a
-        // fn body), so meta_prog.metacall_sites is populated. Two-step per iter:
-        //   - emit thunk_source for new sites (logos_emit_source dedups);
-        //     next iter will sema/JIT-compile the thunks.
-        //   - lookup each thunk in this iter's meta_jit; if found, invoke
-        //     (calls logos_emit_item_blob_subst → appends new AST + sets
-        //     *g_any_emitted=true) and mark the call site METACALL_ITEM_DONE.
-        {
-            for (const auto& site : meta_item_sites) {
-                if (site.thunk_source.empty()) continue;
-                if (site.ast_idx >= asts.size()) continue;
-                auto* sym = meta_jit->lookup(site.thunk_name);
-                if (!sym) continue;  // thunk compiled in next iter
-                reinterpret_cast<void (*)()>(sym)();
-                auto& doc = asts[site.ast_idx];
-                auto* h    = doc.holder();
-                auto* base = h->base();
-                auto* tom  = reinterpret_cast<logos::hermes::TinyObjectMap*>(
-                                base + site.expr_offset);
-                if (auto r = tom->put(
-                        logos::compiler::ast::CODE.code,
-                        logos::hermes::AnyVal::from_value<int32_t>(
-                            logos::compiler::ast::METACALL_ITEM_DONE.code),
-                        h->arena()); !r) {
-                    std::fprintf(stderr,
-                        "logosc: metacall item-splice (loop): CODE put failed\n");
-                    return 1;
-                }
-            }
-        }
-
-        if (!any_emitted) break;
-
-        if (iter + 1 >= kMaxMetaprogIters) {
-            std::fprintf(stderr,
-                "logosc: metaprog loop did not converge in %d iterations\n",
-                kMaxMetaprogIters);
-            return 1;
-        }
-
-        // TODO Phase 5 (compactify): for each AST, asts[i] = hermes::clone(asts[i]);
-        // — drops dead nodes accumulated by the previous iteration.
     }
+    // Globals were restored on dispatch exit; re-establish them for
+    // the post-loop metacall splice + dump-metaprog readback below.
+    std::set<std::string> emit_seen;
+    g_emit_seen     = &emit_seen;
+    g_asts          = &asts;
+    g_filenames     = &filenames;
+    g_from_binary   = &from_binary;
+    g_user_root_idx = asts.empty() ? 0 : asts.size() - 1;
+    if (!dump_metaprog_dir.empty()) g_ast_provenance = &ast_provenance;
+    logos::compiler::lir::LProgram prog;
     // Phase 7 slice 17: final, non-metaprog sema pass. Discovery loop ran in
     // metaprog_mode which skips entry-file fn bodies; here we lower them
     // for real, now that all hook-synthesized items are present.

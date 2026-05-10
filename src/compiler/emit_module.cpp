@@ -8,6 +8,7 @@
 //   NAME.hermes0 — binary AST dump (for sema on client side)
 
 #include "emit_module.hpp"
+#include "metaprog_dispatch.hpp"
 #include "module_loader.hpp"
 #include "mlir_gen.hpp"
 
@@ -214,12 +215,38 @@ static void apply_only_file_filter(lir::LProgram& prog,
     for (auto& fn : prog.functions) add(*fn);
 }
 
-static bool compile_to_object(const std::vector<hermes::Hermes>& asts,
-                               const std::vector<std::string>& filenames,
+static bool compile_to_object(std::vector<hermes::Hermes>& asts,
+                               std::vector<std::string>& filenames,
+                               const std::vector<bool>& ast_only_flags,
                                const std::string& obj_path,
                                const std::string& only_file = "") {
-    // Sema — all files in the module are being compiled from source (not binary)
-    auto prog = sema_lower(asts, filenames, {});
+    // Run metaprog discovery loop (#21 closure) so #[derive_*] hooks
+    // and metacall thunks fire during stdlib build. asts/filenames
+    // grow with synthesised docs that subsequent sema picks up.
+    //
+    // ast_only modules participate in dispatch (their handler fns
+    // need to JIT-compile + register triggers) but get from_binary=
+    // true for the post-dispatch sema pass — host externs in their
+    // bodies (logos_emit_*, etc.) make them unsuitable for codegen.
+    std::vector<bool> from_binary(asts.size(), false);
+    {
+        MetaprogDispatchOpts mopts;
+        // No archive paths in stdlib build (we ARE the archive being built).
+        // No --dump-metaprog wiring here yet — separate slice if needed.
+        size_t entry_idx = asts.empty() ? 0 : asts.size() - 1;
+        if (run_metaprog_dispatch(asts, filenames, from_binary, entry_idx, mopts) != 0)
+            return false;
+    }
+    // Re-stamp from_binary: ast_only files become "binary" so the
+    // post-dispatch sema/mono/mlir-gen pass treats them as already-
+    // emitted (no codegen for fns that bind to host externs). Synth
+    // docs appended by dispatch (filename "<metaprog-blob-subst>" /
+    // "<metaprog>") stay non-binary so their items get lowered.
+    from_binary.assign(asts.size(), false);
+    for (size_t i = 0; i < ast_only_flags.size() && i < from_binary.size(); ++i)
+        from_binary[i] = ast_only_flags[i];
+    // Sema — all files in the module are being compiled from source.
+    auto prog = sema_lower(asts, filenames, from_binary);
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
 
@@ -410,15 +437,23 @@ bool emit_module(const ModuleManifest& manifest,
 
     // Build AST + filename arrays for codegen — skip ast_only modules.
     // .hermes0 takes everything (incl. ast_only).
+    //
+    // Compile-to-object also needs ast_only modules in its asts vector
+    // — the metaprog dispatch loop (#21 closure) JIT-compiles their
+    // handler fn bodies + reads their `#[metaprog_handler]` triggers.
+    // We stamp ast_only with from_binary=true after dispatch so sema's
+    // post-dispatch pass treats those items as already-emitted (no
+    // codegen for host-extern-using fns).
     std::vector<hermes::Hermes> asts;
     std::vector<std::string> filenames;
+    std::vector<bool>        ast_only_flags;   // parallel to asts
     std::vector<ParsedModule> modules_for_h0;
     for (auto& m : modules) {
         modules_for_h0.push_back({m.path, m.package, m.ast});  // Hermes is copy-on-write safe
-        if (!is_ast_only_path(m.path)) {
-            filenames.push_back(m.path);
-            asts.push_back(std::move(m.ast));
-        }
+        bool ao = is_ast_only_path(m.path);
+        filenames.push_back(m.path);
+        asts.push_back(std::move(m.ast));
+        ast_only_flags.push_back(ao);
     }
 
     // Compile to object file.
@@ -430,7 +465,7 @@ bool emit_module(const ModuleManifest& manifest,
                      only_file_canon.empty() ? "" : ")",
                      obj_path.c_str());
     }
-    if (!compile_to_object(asts, filenames, obj_path, only_file_canon)) {
+    if (!compile_to_object(asts, filenames, ast_only_flags, obj_path, only_file_canon)) {
         std::fprintf(stderr, "emit_module: compilation failed\n");
         return false;
     }
