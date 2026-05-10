@@ -5,7 +5,7 @@
 package genos_two_eide;
 
 #[type_code=200]
-pub genos Thingy {}
+pub trait Thingy {}
 
 #[tag_dispatch(TsSystem)]
 pub trait Behave {

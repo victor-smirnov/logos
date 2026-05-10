@@ -595,10 +595,15 @@
     super_list <- COLON trait_bound (PLUS trait_bound)*
                => { ITEMS: $... }
 
-    // `genos` is accepted as a synonym of `trait` so stdlib can spell
-    // "pub genos Varchar { … }" while parsing/sema keep treating it as a
-    // trait.  Semantic distinction (carrying type_code, one-eidos-per-TS
-    // registration) will be added on top in a later pass.
+    // `genos` keyword: legacy alias of `trait` for the duration of the
+    // step-3.0 transition. The migration target is computable
+    // specifications (slice 3β of genos-design.md) — at that point the
+    // keyword's data-trait alias is dropped and trait_def grows
+    // meta_block? to absorb whatever genos_def carried that trait_def
+    // didn't. Today, both keywords parse identically; sema's is_genos
+    // flag is set either by the keyword path or by a future
+    // `#[hermes_eidos]` annotation (annotation infrastructure landed
+    // in this same migration).
     trait_kw <- KW_TRAIT / KW_GENOS
 
     // genos declarations: same as trait_def but CODE=GENOS_DEF and is_genos=true.

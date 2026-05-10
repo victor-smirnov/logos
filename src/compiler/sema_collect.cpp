@@ -716,6 +716,13 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                                       str_of(item.get(la::NAME.code)),
                                       item_has_type_params(item), pending_annots);
                 }
+                pending_hermes_eidos_ = false;
+                for (auto& ann : pending_annots) {
+                    if (str_of(ann.get(la::NAME.code)) == "hermes_eidos") {
+                        pending_hermes_eidos_ = true;
+                        break;
+                    }
+                }
                 collect_trait(item);
             }
             else if (c == la::IMPL_BLOCK)                 collect_impl(item);
@@ -1017,7 +1024,11 @@ void SemaChecker::collect_trait(TinyMapView node) {
     current_trait_name_ = tname;
     SemaTraitInfo info;
     info.name = tname;
-    info.is_genos = (code_of(node) == la::GENOS_DEF);
+    // is_genos: legacy keyword OR new #[hermes_eidos] annotation. Annotation
+    // path is the migration target; keyword path stays as alias for one
+    // release before grammar drops KW_GENOS.
+    info.is_genos = (code_of(node) == la::GENOS_DEF) || pending_hermes_eidos_;
+    pending_hermes_eidos_ = false;
     // Read auto marker
     if (node.has_key(la::IS_AUTO)) {
         AnyVal av = node.get(la::IS_AUTO);

@@ -694,6 +694,7 @@ private:
         if (name == "zoned")           return bit(AttrTarget::Struct);
         if (name == "annotation")      return bit(AttrTarget::Struct) | bit(AttrTarget::Datatype);
         if (name == "tag_dispatch")    return bit(AttrTarget::Trait);
+        if (name == "hermes_eidos")    return bit(AttrTarget::Trait);
         if (name == "metaprog_handler")return bit(AttrTarget::Fn);
         if (name == "no_mangle")       return bit(AttrTarget::Fn);
         return 0u;  // not a builtin
@@ -1259,6 +1260,13 @@ private:
     // its annotation list. Reset to false at the end of each collect_fn /
     // lower_fn invocation so the flag never leaks across items.
     bool pending_no_mangle_ = false;
+    // Set when `#[hermes_eidos]` is the (or among the) pending annots for a
+    // trait. Sema-collect's trait branch sets it from pending_annots before
+    // calling collect_trait; collect_trait reads + clears it; the resulting
+    // SemaTraitInfo carries is_genos=true. Annotation replaces the legacy
+    // `pub genos` keyword for marking Hermes datatype traits — the keyword
+    // `genos` is being repurposed for computable specifications.
+    bool pending_hermes_eidos_ = false;
     // Mangled name of the currently-being-lowered fn. Used by make_drop_stmt
     // to skip auto-drop on the `self` parameter of a Drop fn (would be
     // infinite self-recursion).

@@ -3,6 +3,10 @@ package genos_reflect;
 use std.hermes.view;
 use std.hermes.anyval;
 
+// Uses the legacy `genos` keyword form — `meta @{...}` block lives only
+// in genos_def grammar today. When slice 3β of genos-design.md repurposes
+// `genos` for computable specs, trait_def grows meta_block? and this
+// declaration migrates to `trait Learnable { meta @{...} }`.
 genos Learnable {
     meta @{ "domain": "inductive", "version": 1 }
 }

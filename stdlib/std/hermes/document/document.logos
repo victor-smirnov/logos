@@ -28,7 +28,7 @@ use std.hermes.tags;
 // ---------------------------------------------------------------------------
 
 #[type_code = HermesTag::Document]
-pub genos Document {}
+pub trait Document {}
 
 #[zoned] pub struct DocumentHeader {
     pub root: AnyVal,

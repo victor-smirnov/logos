@@ -3,7 +3,7 @@
 package template_genos_type_code;
 
 #[type_code=55]
-pub genos Bag<T> {
+pub trait Bag<T> {
     unsafe fn count(self: *const Self) -> u64;
 }
 

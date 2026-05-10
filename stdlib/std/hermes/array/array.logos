@@ -24,7 +24,7 @@ use std.hermes.relptr;
 
 // Canonical operation on any Array #[zoned] struct: the current element count.
 #[type_code = HermesTag::Array]
-pub genos Array {
+pub trait Array {
     unsafe fn len(self: *const Self) -> u64;
 }
 

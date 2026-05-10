@@ -2,12 +2,12 @@
 // decl.  An #[zoned] struct implementing the specialized genos inherits the code.
 package genos_inst_type_code;
 
-pub genos Bag<T> {
+pub trait Bag<T> {
     unsafe fn count(self: *const Self) -> u64;
 }
 
 #[type_code=200]
-pub genos Bag<i32>;
+pub trait Bag<i32>;
 
 #[zoned] pub struct IntBag {
     pub n: u64,

@@ -49,7 +49,7 @@ use std.hermes.relptr;
 // for the open-addressing hash map (was `ObjectMap`, type_code=101).
 // The Map<K, V> trait itself lives in `hermes.map`.
 #[type_code = HermesTag::ObjectMap]
-pub genos Map<Varchar, AnyVal>;
+pub trait Map<Varchar, AnyVal>;
 
 // Full specialization (no partial over V — this layout is AnyVal-specific).
 #[zoned] pub struct Map<Varchar, AnyVal> {

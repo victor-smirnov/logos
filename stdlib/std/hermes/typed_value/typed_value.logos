@@ -18,7 +18,7 @@ use std.hermes.relptr;
 use std.hermes.string;
 
 #[type_code = HermesTag::TypedValue]
-pub genos TypedValueTag {
+pub trait TypedValueTag {
     unsafe fn type_name_off(self: *const Self) -> u32;
 }
 

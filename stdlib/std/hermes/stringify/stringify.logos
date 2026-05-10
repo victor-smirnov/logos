@@ -341,7 +341,7 @@ impl HermesStringify for TypedValue {
 // `T::emit_tag(out)` on a generic type param fails to monomorphize the
 // impl; `phantom.emit_tag(out)` through EMethodCall works.  The self
 // pointer is never dereferenced.
-pub genos ArrayElemTag {
+pub trait ArrayElemTag {
     unsafe fn emit_tag(self: *const Self, out: *mut String);
 }
 

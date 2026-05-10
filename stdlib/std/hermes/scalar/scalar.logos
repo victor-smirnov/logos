@@ -29,7 +29,7 @@ use std.hermes.tags;
 // ── TinyInt (i8) ─────────────────────────────────────────────────────────
 
 #[type_code = HermesTag::I8]
-pub genos TinyInt {
+pub trait TinyInt {
     unsafe fn value(self: *const Self) -> i8;
 }
 
@@ -50,7 +50,7 @@ impl I8 {
 // ── UTinyInt (u8) ────────────────────────────────────────────────────────
 
 #[type_code = HermesTag::U8]
-pub genos UTinyInt {
+pub trait UTinyInt {
     unsafe fn value(self: *const Self) -> u8;
 }
 
@@ -71,7 +71,7 @@ impl U8 {
 // ── SmallInt (i16) ───────────────────────────────────────────────────────
 
 #[type_code = HermesTag::I16]
-pub genos SmallInt {
+pub trait SmallInt {
     unsafe fn value(self: *const Self) -> i16;
 }
 
@@ -92,7 +92,7 @@ impl I16 {
 // ── Integer (i24) ────────────────────────────────────────────────────────
 
 #[type_code = HermesTag::I24]
-pub genos Integer {
+pub trait Integer {
     unsafe fn value(self: *const Self) -> i24;
 }
 
@@ -113,7 +113,7 @@ impl I24 {
 // ── USmallInt (u16) ──────────────────────────────────────────────────────
 
 #[type_code = HermesTag::U16]
-pub genos USmallInt {
+pub trait USmallInt {
     unsafe fn value(self: *const Self) -> u16;
 }
 
@@ -134,7 +134,7 @@ impl U16 {
 // ── UInteger (u24) ───────────────────────────────────────────────────────
 
 #[type_code = HermesTag::U24]
-pub genos UInteger {
+pub trait UInteger {
     unsafe fn value(self: *const Self) -> u24;
 }
 
@@ -155,7 +155,7 @@ impl U24 {
 // ── Int64 (i64) ──────────────────────────────────────────────────────────
 
 #[type_code = HermesTag::I64]
-pub genos Int64 {
+pub trait Int64 {
     unsafe fn value(self: *const Self) -> i64;
 }
 
@@ -176,7 +176,7 @@ impl I64 {
 // ── UInt64 (u64) ─────────────────────────────────────────────────────────
 
 #[type_code = HermesTag::U64]
-pub genos UInt64 {
+pub trait UInt64 {
     unsafe fn value(self: *const Self) -> u64;
 }
 
@@ -197,7 +197,7 @@ impl U64 {
 // ── Real (f32) ───────────────────────────────────────────────────────────
 
 #[type_code = HermesTag::F32]
-pub genos Real {
+pub trait Real {
     unsafe fn value(self: *const Self) -> f32;
 }
 
@@ -218,7 +218,7 @@ impl F32 {
 // ── Double (f64) ─────────────────────────────────────────────────────────
 
 #[type_code = HermesTag::F64]
-pub genos Double {
+pub trait Double {
     unsafe fn value(self: *const Self) -> f64;
 }
 
@@ -239,7 +239,7 @@ impl F64 {
 // ── Boolean (bool) ───────────────────────────────────────────────────────
 
 #[type_code = HermesTag::Bool]
-pub genos Boolean {
+pub trait Boolean {
     unsafe fn value(self: *const Self) -> bool;
 }
 

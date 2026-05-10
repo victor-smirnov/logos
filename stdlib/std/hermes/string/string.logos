@@ -138,7 +138,7 @@ pub unsafe fn vlen_prefix_size(src: *const u8) -> u32 {
 #[zoned] pub struct Varchar { }
 
 #[type_code = HermesTag::HermesString]
-pub genos Varchar {
+pub trait Varchar {
     unsafe fn len(self: *const Self) -> u64;
     unsafe fn bytes(self: *const Self) -> *const u8;
 

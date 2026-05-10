@@ -28,7 +28,7 @@ use std.hermes.relptr;
 
 // Canonical operation on any Map #[zoned] struct: the current entry count.
 // Template genos; no type_code (that lives on concrete specialisations).
-pub genos Map<K, V> {
+pub trait Map<K, V> {
     unsafe fn size(self: *const Self) -> u32;
 }
 
@@ -61,7 +61,7 @@ pub genos Map<K, V> {
 // Concrete genos specialisation carrying the Hermes wire-format type_code
 // for the small bitmap-indexed map.
 #[type_code = HermesTag::TinyObjectMap]
-pub genos Map<Bitmap, AnyVal>;
+pub trait Map<Bitmap, AnyVal>;
 
 // Partial spec: Bitmap-keyed map, any V.
 #[zoned] pub struct Map<Bitmap, V> {
