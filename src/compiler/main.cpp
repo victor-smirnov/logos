@@ -2280,6 +2280,7 @@ int main(int argc, char** argv) {
     bool emit_mlir = false;
     bool emit_llvm = false;
     bool jit_run   = false;                      // --jit: compile and run main() in-process
+    bool expand_only = false;                    // --expand: run metaprog dispatch over input + render result back to Logos source (no codegen). Avoids stdlib build's circular-dep when derives reference each other (debt #22 alt B).
     const char* emit_module_manifest = nullptr;  // --emit-module <manifest>
     std::string only_file;                       // --only-file <path>: per-file emit (B1.7)
     std::string dump_metaprog_dir;                // --dump-metaprog <dir>: write metafn-emitted ASTs as Logos source under <dir>/<callee>__<file>_<line>/post_quote.logos
@@ -2387,6 +2388,7 @@ int main(int argc, char** argv) {
         else if (arg == "--emit-mlir") { emit_mlir = true; }
         else if (arg == "--emit-llvm") { emit_llvm = true; }
         else if (arg == "--jit") { jit_run = true; }
+        else if (arg == "--expand") { expand_only = true; }
         else if (arg == "--emit-module" && i + 1 < argc) { emit_module_manifest = argv[++i]; }
         else if (arg.rfind("--dump-metaprog=", 0) == 0) {
             std::string_view v = arg;
@@ -2578,6 +2580,10 @@ int main(int argc, char** argv) {
     // and restored on return; we re-set them below for the post-loop
     // metacall-splice phase that still runs in main()'s scope.
     std::vector<std::optional<EmitProvenance>> ast_provenance;
+    // Capture entry idx BEFORE dispatch — synth docs append to asts so
+    // `asts.size()-1` no longer points at the user's input file after
+    // dispatch returns.
+    const size_t pre_dispatch_entry_idx = asts.empty() ? 0 : asts.size() - 1;
     {
         logos::compiler::MetaprogDispatchOpts mopts;
         mopts.trace          = trace;
@@ -2585,10 +2591,146 @@ int main(int argc, char** argv) {
         mopts.dump_filter    = dump_metaprog_filter;
         mopts.archive_paths  = archive_paths;
         mopts.provenance_out = &ast_provenance;
-        size_t entry_idx = asts.empty() ? 0 : asts.size() - 1;
         if (logos::compiler::run_metaprog_dispatch(
-                asts, filenames, from_binary, entry_idx, mopts) != 0)
+                asts, filenames, from_binary, pre_dispatch_entry_idx, mopts) != 0)
             return 1;
+    }
+
+    // --expand mode: render the entry-file AST + any synth docs that
+    // were appended during dispatch as a single Logos source file
+    // (debt #22 alt B — pre-expansion). Skips sema/mono/mlir-gen/link
+    // entirely. Output goes to `output_path` (-o flag, default "output.o"
+    // — typically overridden to "<file>.expanded.logos" by the caller).
+    if (expand_only) {
+        size_t entry_idx = pre_dispatch_entry_idx;
+        // Collect registered metaprog-handler trigger names so we can
+        // strip the originating `#[trigger]` annotations from rendered
+        // output — they've been consumed by dispatch and re-firing them
+        // on the next compile would duplicate emitted items.
+        std::set<std::string> consumed_triggers;
+        {
+            auto post_prog = logos::compiler::sema_lower(asts, filenames, from_binary);
+            for (auto& mh : post_prog.metaprog_handlers) {
+                if (mh.trigger != "<missing>") consumed_triggers.insert(mh.trigger);
+            }
+        }
+        // Helper: split a rendered module string into:
+        //   header  — `package ...;` line
+        //   uses    — vector of `use ...;` lines (no semicolon stripping)
+        //   body    — everything else (items)
+        auto split_rendered = [](const std::string& s, std::string& header,
+                                  std::vector<std::string>& uses,
+                                  std::string& body) {
+            header.clear(); uses.clear(); body.clear();
+            std::string_view v = s;
+            size_t pos = 0;
+            bool body_started = false;
+            while (pos < v.size()) {
+                size_t nl = v.find('\n', pos);
+                size_t end = (nl == std::string_view::npos) ? v.size() : nl;
+                std::string_view line = v.substr(pos, end - pos);
+                auto first = line.find_first_not_of(" \t");
+                bool blank = first == std::string_view::npos;
+                bool is_pkg = !blank && line.substr(first).rfind("package ", 0) == 0;
+                bool is_use = !blank && line.substr(first).rfind("use ", 0) == 0;
+                if (!body_started) {
+                    if (is_pkg) {
+                        header.assign(v.data() + pos, end - pos);
+                    } else if (is_use) {
+                        uses.emplace_back(v.data() + pos, end - pos);
+                    } else if (!blank) {
+                        body_started = true;
+                        body.append(v.data() + pos, v.size() - pos);
+                        break;
+                    }
+                }
+                if (nl == std::string_view::npos) break;
+                pos = nl + 1;
+            }
+        };
+        auto strip_consumed_annots = [&](std::string& body) {
+            std::string out;
+            std::string_view v = body;
+            size_t pos = 0;
+            while (pos < v.size()) {
+                size_t nl = v.find('\n', pos);
+                size_t end = (nl == std::string_view::npos) ? v.size() : nl;
+                std::string_view line = v.substr(pos, end - pos);
+                auto first = line.find_first_not_of(" \t");
+                bool drop = false;
+                if (first != std::string_view::npos &&
+                    line.size() >= first + 2 &&
+                    line[first] == '#' && line[first + 1] == '[') {
+                    auto name_start = first + 2;
+                    size_t name_end = name_start;
+                    while (name_end < line.size()) {
+                        char c = line[name_end];
+                        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                              (c >= '0' && c <= '9') || c == '_')) break;
+                        ++name_end;
+                    }
+                    std::string name(line.substr(name_start, name_end - name_start));
+                    if (consumed_triggers.count(name)) drop = true;
+                }
+                if (!drop) {
+                    out.append(v.data() + pos, end - pos);
+                    if (nl != std::string_view::npos) out.push_back('\n');
+                }
+                if (nl == std::string_view::npos) break;
+                pos = nl + 1;
+            }
+            body = std::move(out);
+        };
+
+        // Combine entry + synth docs. Header from entry; merged-deduped
+        // USES from entry + every synth doc; bodies concatenated.
+        std::string entry_header;
+        std::vector<std::string> entry_uses;
+        std::string entry_body;
+        if (entry_idx < asts.size()) {
+            auto* h = asts[entry_idx].holder();
+            auto root_off = logos::hermes::HermesAccess::root_offset(asts[entry_idx]);
+            std::string r = logos::compiler::render_module_source_for_dump(h, root_off);
+            split_rendered(r, entry_header, entry_uses, entry_body);
+            strip_consumed_annots(entry_body);
+        }
+
+        std::vector<std::string> all_uses = entry_uses;
+        std::set<std::string> uses_seen(all_uses.begin(), all_uses.end());
+        std::string synth_bodies;
+        for (size_t i = 0; i < asts.size(); ++i) {
+            if (i == entry_idx) continue;
+            if (i >= filenames.size()) continue;
+            const std::string& fn = filenames[i];
+            if (fn != "<metaprog-blob-subst>" && fn != "<metaprog>") continue;
+            auto* h = asts[i].holder();
+            auto root_off = logos::hermes::HermesAccess::root_offset(asts[i]);
+            std::string r = logos::compiler::render_module_source_for_dump(h, root_off);
+            std::string s_hdr, s_body;
+            std::vector<std::string> s_uses;
+            split_rendered(r, s_hdr, s_uses, s_body);
+            for (auto& u : s_uses) {
+                if (uses_seen.insert(u).second) all_uses.push_back(u);
+            }
+            synth_bodies += "\n// ── derive-expansion (was synth doc) ──\n";
+            synth_bodies += s_body;
+        }
+
+        std::string out;
+        if (!entry_header.empty()) { out += entry_header; out += "\n\n"; }
+        for (auto& u : all_uses) { out += u; out += "\n"; }
+        if (!all_uses.empty()) out += "\n";
+        out += entry_body;
+        out += synth_bodies;
+
+        FILE* f = std::fopen(output_path, "w");
+        if (!f) {
+            std::fprintf(stderr, "logosc: --expand: cannot write %s\n", output_path);
+            return EXIT_LINK_IO;
+        }
+        std::fwrite(out.data(), 1, out.size(), f);
+        std::fclose(f);
+        return EXIT_OK;
     }
     // Globals were restored on dispatch exit; re-establish them for
     // the post-loop metacall splice + dump-metaprog readback below.

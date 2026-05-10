@@ -97,7 +97,13 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
         return b ? "true" : "false";
     }
     case la::LIT_STR: {
-        return escape_str_lit(str_of(node.get(la::VALUE.code)));
+        // VALUE is the lexer's STRING token captured WITH surrounding
+        // quotes — already a valid Logos string literal. Emit as-is.
+        // (escape_str_lit would double-quote if applied here.)
+        auto raw = str_of(node.get(la::VALUE.code));
+        if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"')
+            return std::string(raw);
+        return escape_str_lit(raw);
     }
     case la::LIT_FLOAT: {
         return std::string(str_of(node.get(la::VALUE.code)));
@@ -135,13 +141,30 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
     }
 
     case la::CALL: {
-        std::string s(str_of(node.get(la::CALLEE.code)));
+        // CALLEE for plain `name(args)` form; NAME after antiquot
+        // substitution wrote NAME_VAR(idx) → NAME(string). When the
+        // antiquot path is taken, the grammar's `$...` capture also
+        // pulled in the outer expr (the antiquot payload) as the
+        // first ARGS element — sema's lower_call skips it; we mirror
+        // that here so the rendered source round-trips correctly.
+        std::string callee_str(str_of(node.get(la::CALLEE.code)));
+        bool antiquot_callee = callee_str.empty();
+        if (antiquot_callee) callee_str = std::string(str_of(node.get(la::NAME.code)));
+        std::string s = callee_str;
         s += "(";
         if (node.has_key(la::ARGS)) {
-            auto args = arr_of(node.get(la::ARGS.code));
-            for (uint64_t i = 0; i < args.size(); ++i) {
-                if (i) s += ", ";
-                s += render_expr_src(map_of(args.get(i)));
+            auto args_av = node.get(la::ARGS.code);
+            if (args_av.is_pointer()) {
+                auto args_tom = map_of(args_av);
+                bool tom_form = !args_tom.is_null() && args_tom.has_key(la::ITEMS);
+                auto items = tom_form
+                    ? arr_of(args_tom.get(la::ITEMS.code))
+                    : arr_of(args_av);
+                uint64_t start = antiquot_callee ? 1 : 0;
+                for (uint64_t i = start; i < items.size(); ++i) {
+                    if (i > start) s += ", ";
+                    s += render_expr_src(map_of(items.get(i)));
+                }
             }
         }
         s += ")";
@@ -180,9 +203,10 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
     }
 
     case la::STATIC_CALL: {
+        // Grammar: `Buffer::<u64>::new()` parses to RECEIVER=Buffer,
+        // TYPE_PARAMS=<u64>, NAME=new, ARGS=…  — turbofish BEFORE the
+        // method name.
         std::string s(str_of(node.get(la::RECEIVER.code)));
-        s += "::";
-        s += std::string(str_of(node.get(la::NAME.code)));
         if (node.has_key(la::TYPE_PARAMS)) {
             auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
             if (tplist.has_key(la::ITEMS)) {
@@ -197,11 +221,17 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
                 }
             }
         }
+        s += "::";
+        s += std::string(str_of(node.get(la::NAME.code)));
         s += "(";
         if (node.has_key(la::ARGS)) {
-            auto am = map_of(node.get(la::ARGS.code));
-            if (am.has_key(la::ITEMS)) {
-                auto items = arr_of(am.get(la::ITEMS.code));
+            auto args_av = node.get(la::ARGS.code);
+            if (args_av.is_pointer()) {
+                auto args_tom = map_of(args_av);
+                bool tom_form = !args_tom.is_null() && args_tom.has_key(la::ITEMS);
+                auto items = tom_form
+                    ? arr_of(args_tom.get(la::ITEMS.code))
+                    : arr_of(args_av);
                 for (uint64_t i = 0; i < items.size(); ++i) {
                     if (i) s += ", ";
                     s += render_expr_src(map_of(items.get(i)));
@@ -213,9 +243,8 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
     }
 
     case la::METHOD_CALL: {
-        std::string s = "(";
-        s += render_expr_src(map_of(node.get(la::RECEIVER.code)));
-        s += ").";
+        std::string s = render_expr_src(map_of(node.get(la::RECEIVER.code)));
+        s += ".";
         s += std::string(str_of(node.get(la::NAME.code)));
         if (node.has_key(la::TYPE_PARAMS)) {
             auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
@@ -233,9 +262,15 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
         }
         s += "(";
         if (node.has_key(la::ARGS)) {
-            auto am = map_of(node.get(la::ARGS.code));
-            if (am.has_key(la::ITEMS)) {
-                auto items = arr_of(am.get(la::ITEMS.code));
+            // ARGS is flat ObjectArray (from `$...`) for the bare form,
+            // or TOM-with-ITEMS for the turbofish form via call_arg_list.
+            auto args_av = node.get(la::ARGS.code);
+            if (args_av.is_pointer()) {
+                auto args_tom = map_of(args_av);
+                bool tom_form = !args_tom.is_null() && args_tom.has_key(la::ITEMS);
+                auto items = tom_form
+                    ? arr_of(args_tom.get(la::ITEMS.code))
+                    : arr_of(args_av);
                 for (uint64_t i = 0; i < items.size(); ++i) {
                     if (i) s += ", ";
                     s += render_expr_src(map_of(items.get(i)));
@@ -247,14 +282,17 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
     }
 
     case la::FIELD_READ: {
-        std::string s = "(";
-        s += render_expr_src(map_of(node.get(la::RECEIVER.code)));
-        s += ").";
-        if (node.has_key(la::FIELD)) {
+        // Receiver — no parens for clean output (precedence is fine for
+        // `.field` chains). FIELD for plain form; NAME after antiquot
+        // substitution rewrote NAME_VAR(idx) → NAME(string).
+        std::string s = render_expr_src(map_of(node.get(la::RECEIVER.code)));
+        s += ".";
+        if (node.has_key(la::FIELD))
             s += std::string(str_of(node.get(la::FIELD.code)));
-        } else if (node.has_key(la::NAME_VAR)) {
+        else if (node.has_key(la::NAME))
+            s += std::string(str_of(node.get(la::NAME.code)));
+        else if (node.has_key(la::NAME_VAR))
             s += "<antiquot>";
-        }
         return s;
     }
 
@@ -416,6 +454,88 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
         // never reach here for value-position consts because module-level
         // hstatic refs are already inlined elsewhere.
         return "/* render_expr: LIT_HSTATIC unsupported in metacall block */";
+    }
+
+    // ── Hermes literal expressions ──
+    // Outer-position: prefix `@` (`@{...}`, `@[...]`, `@4`, `@"x"`,
+    // `@true`, `@null`). Inner positions (HERMES_MAP entry VALUEs,
+    // HERMES_ARRAY items) call render_hermes_val_inner_ which omits
+    // the `@` for scalars (grammar rejects `@4` at hermes_val position;
+    // map/array can go either way, we omit for cleanliness).
+    case la::HERMES_NULL: return "@null";
+    case la::HERMES_BOOL: {
+        AnyVal v = node.get(la::VALUE.code);
+        bool b = !v.is_null() && v.is_value() && v.as_value<uint8_t>() != 0;
+        return b ? "@true" : "@false";
+    }
+    case la::HERMES_INT:
+        return "@" + std::string(str_of(node.get(la::VALUE.code)));
+    case la::HERMES_NEG_INT:
+        return "@-" + std::string(str_of(node.get(la::VALUE.code)));
+    case la::HERMES_FLOAT:
+        return "@" + std::string(str_of(node.get(la::VALUE.code)));
+    case la::HERMES_STR: {
+        auto raw = str_of(node.get(la::VALUE.code));
+        return "@" + std::string(raw);
+    }
+    case la::HERMES_MAP: {
+        std::string s = "@{";
+        if (node.has_key(la::ITEMS)) {
+            auto items = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                if (i) s += ", ";
+                auto entry = map_of(items.get(i));
+                if (code_of(entry) == la::HERMES_ENTRY) {
+                    auto key = str_of(entry.get(la::KEY.code));
+                    s += std::string(key);
+                    s += ": ";
+                    if (entry.has_key(la::VALUE))
+                        s += render_hermes_val_inner_(map_of(entry.get(la::VALUE.code)));
+                }
+            }
+        }
+        s += "}";
+        return s;
+    }
+    case la::HERMES_ARRAY: {
+        std::string s = "@[";
+        if (node.has_key(la::ITEMS)) {
+            auto items = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                if (i) s += ", ";
+                s += render_hermes_val_inner_(map_of(items.get(i)));
+            }
+        }
+        s += "]";
+        return s;
+    }
+    case la::HERMES_TYPE_LIT: {
+        // `<type:T>` — a Logos type embedded in a Hermes literal.
+        std::string s = "<type:";
+        if (node.has_key(la::TYPE)) s += render_type_src(map_of(node.get(la::TYPE.code)));
+        s += ">";
+        return s;
+    }
+    case la::CFG_SLOT_TYPE: {
+        // `<type:CFG.SLOT>` — extract slot of HermesStatic-typed const-generic.
+        std::string s = "<type:";
+        if (node.has_key(la::NAME)) s += std::string(str_of(node.get(la::NAME.code)));
+        if (node.has_key(la::ITEMS)) {
+            auto items = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                s += ".";
+                auto step = map_of(items.get(i));
+                if (step.has_key(la::NAME)) s += std::string(str_of(step.get(la::NAME.code)));
+            }
+        }
+        s += ">";
+        return s;
+    }
+    case la::HERMES_CAP_IDENT: {
+        return "$" + std::string(str_of(node.get(la::NAME.code)));
+    }
+    case la::HERMES_CAP_EXPR: {
+        return "${" + render_expr_src(map_of(node.get(la::VALUE.code))) + "}";
     }
 
     default:
@@ -714,6 +834,68 @@ std::string SemaChecker::render_stmt_src(TinyMapView node) {
             s += std::string(str_of(node.get(la::LABEL.code)));
         }
         s += ";";
+        return s;
+    }
+
+    case la::FIELD_WRITE: {
+        // RECEIVER (str ident), FIELD (str ident), VALUE (expr).
+        std::string s(str_of(node.get(la::RECEIVER.code)));
+        s += ".";
+        s += std::string(str_of(node.get(la::FIELD.code)));
+        s += " = ";
+        s += render_expr_src(map_of(node.get(la::VALUE.code)));
+        s += ";";
+        return s;
+    }
+
+    case la::CHAIN_FIELD_WRITE: {
+        // RECEIVER (str ident), PATH (TOM with ITEMS = str array), VALUE (expr).
+        std::string s(str_of(node.get(la::RECEIVER.code)));
+        if (node.has_key(la::PATH)) {
+            auto path_node = map_of(node.get(la::PATH.code));
+            if (path_node.has_key(la::ITEMS)) {
+                auto items = arr_of(path_node.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i) {
+                    s += ".";
+                    s += std::string(str_of(items.get(i)));
+                }
+            }
+        }
+        s += " = ";
+        s += render_expr_src(map_of(node.get(la::VALUE.code)));
+        s += ";";
+        return s;
+    }
+
+    case la::IF: {
+        // IF used at stmt position (no enclosing EXPR_STMT). Delegate to
+        // expr-render which already knows the full shape; trailing `;`
+        // is optional after a brace-bounded expression.
+        return render_expr_src(node);
+    }
+
+    case la::UNSAFE_BLOCK: {
+        // `unsafe { stmts; }` — a stmt that wraps a block with the
+        // unsafe modifier. Inner BLOCK lives in BODY/ITEMS; some
+        // shapes use BODY directly. Use BODY if present, fall back to
+        // treating self as a BLOCK (ITEMS at top level).
+        std::string s = "unsafe ";
+        if (node.has_key(la::BODY)) {
+            auto inner = map_of(node.get(la::BODY.code));
+            if (code_of(inner) == la::BLOCK) s += render_block_src(inner);
+            else                              s += render_stmt_src(inner);
+        } else if (node.has_key(la::ITEMS)) {
+            // Direct items on the unsafe node — treat as a block body.
+            s += "{ ";
+            auto items = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                if (i) s += " ";
+                s += render_stmt_src(map_of(items.get(i)));
+            }
+            s += " }";
+        } else {
+            s += "{}";
+        }
         return s;
     }
 
@@ -1188,10 +1370,63 @@ std::string SemaChecker::render_item_src(TinyMapView node) {
     }
 
     case la::ANNOTATION: {
-        // #[name] / #[name=val] / #[name(args)]. Render approximately —
-        // the args may be ANNOT_KV/ANNOT_POS/ANNOT_ARR.
+        // #[name] / #[name=val] / #[name(args)]. Render with args — needed
+        // for round-trip pre-expansion (debt #22 alt B): an annotation
+        // dropped from the rendered output would re-fire on the next
+        // compile, but we want one-shot expansion.
         std::string s = "#[";
         if (node.has_key(la::NAME)) s += std::string(str_of(node.get(la::NAME.code)));
+        if (node.has_key(la::ARGS)) {
+            // ARGS is a TOM with ITEMS = [ANNOT_KV / ANNOT_POS, ...].
+            auto args_node = map_of(node.get(la::ARGS.code));
+            if (args_node.has_key(la::ITEMS)) {
+                auto items = arr_of(args_node.get(la::ITEMS.code));
+                if (items.size() > 0) {
+                    s += "(";
+                    auto render_lit = [&](TinyMapView lit) -> std::string {
+                        // ANNOT_ARR has its own ITEMS; everything else is
+                        // a regular literal expression node.
+                        if (code_of(lit) == la::ANNOT_ARR) {
+                            std::string a = "[";
+                            if (lit.has_key(la::ITEMS)) {
+                                auto inner = arr_of(lit.get(la::ITEMS.code));
+                                for (uint64_t j = 0; j < inner.size(); ++j) {
+                                    if (j) a += ", ";
+                                    a += render_expr_src(map_of(inner.get(j)));
+                                }
+                            }
+                            a += "]";
+                            return a;
+                        }
+                        return render_expr_src(lit);
+                    };
+                    for (uint64_t i = 0; i < items.size(); ++i) {
+                        if (i) s += ", ";
+                        auto entry = map_of(items.get(i));
+                        int32_t ec = code_of(entry);
+                        if (ec == la::ANNOT_KV) {
+                            if (entry.has_key(la::NAME))
+                                s += std::string(str_of(entry.get(la::NAME.code)));
+                            s += " = ";
+                            if (entry.has_key(la::VALUE))
+                                s += render_lit(map_of(entry.get(la::VALUE.code)));
+                        } else if (ec == la::ANNOT_POS) {
+                            if (entry.has_key(la::VALUE))
+                                s += render_lit(map_of(entry.get(la::VALUE.code)));
+                        } else {
+                            // Bare-IDENT legacy form: just NAME, no CODE.
+                            if (entry.has_key(la::NAME))
+                                s += std::string(str_of(entry.get(la::NAME.code)));
+                        }
+                    }
+                    s += ")";
+                }
+            }
+        } else if (node.has_key(la::VALUE)) {
+            // `#[name = literal]` form.
+            s += " = ";
+            s += render_expr_src(map_of(node.get(la::VALUE.code)));
+        }
         s += "]";
         return s;
     }
@@ -1207,6 +1442,83 @@ std::string SemaChecker::render_item_src(TinyMapView node) {
 
     default:
         return std::format("/* render_item: unsupported AST code {} */", c);
+    }
+}
+
+std::string SemaChecker::render_hermes_val_inner_(TinyMapView node) {
+    if (node.is_null()) return "null";
+    int32_t c = code_of(node);
+    switch (c) {
+    case la::HERMES_NULL:  return "null";
+    case la::HERMES_BOOL: {
+        AnyVal v = node.get(la::VALUE.code);
+        bool b = !v.is_null() && v.is_value() && v.as_value<uint8_t>() != 0;
+        return b ? "true" : "false";
+    }
+    case la::HERMES_INT:
+        return std::string(str_of(node.get(la::VALUE.code)));
+    case la::HERMES_NEG_INT:
+        return "-" + std::string(str_of(node.get(la::VALUE.code)));
+    case la::HERMES_FLOAT:
+        return std::string(str_of(node.get(la::VALUE.code)));
+    case la::HERMES_STR: {
+        // VALUE is the STRING token captured WITH quotes — emit as-is.
+        return std::string(str_of(node.get(la::VALUE.code)));
+    }
+    case la::HERMES_MAP: {
+        std::string s = "{";
+        if (node.has_key(la::ITEMS)) {
+            auto items = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                if (i) s += ", ";
+                auto entry = map_of(items.get(i));
+                if (code_of(entry) == la::HERMES_ENTRY) {
+                    s += std::string(str_of(entry.get(la::KEY.code)));
+                    s += ": ";
+                    if (entry.has_key(la::VALUE))
+                        s += render_hermes_val_inner_(map_of(entry.get(la::VALUE.code)));
+                }
+            }
+        }
+        s += "}";
+        return s;
+    }
+    case la::HERMES_ARRAY: {
+        std::string s = "[";
+        if (node.has_key(la::ITEMS)) {
+            auto items = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                if (i) s += ", ";
+                s += render_hermes_val_inner_(map_of(items.get(i)));
+            }
+        }
+        s += "]";
+        return s;
+    }
+    case la::HERMES_TYPE_LIT: {
+        std::string s = "<type:";
+        if (node.has_key(la::TYPE)) s += render_type_src(map_of(node.get(la::TYPE.code)));
+        s += ">";
+        return s;
+    }
+    case la::CFG_SLOT_TYPE: {
+        std::string s = "<type:";
+        if (node.has_key(la::NAME)) s += std::string(str_of(node.get(la::NAME.code)));
+        if (node.has_key(la::ITEMS)) {
+            auto items = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                s += ".";
+                auto step = map_of(items.get(i));
+                if (step.has_key(la::NAME)) s += std::string(str_of(step.get(la::NAME.code)));
+            }
+        }
+        s += ">";
+        return s;
+    }
+    default:
+        // Fall back to outer render for other shapes (unlikely to be
+        // hit in well-formed @-literals, but keep diagnostic clear).
+        return render_expr_src(node);
     }
 }
 
@@ -1228,7 +1540,12 @@ std::string SemaChecker::render_module_src(TinyMapView node) {
     if (node.has_key(la::ITEMS)) {
         auto items = arr_of(node.get(la::ITEMS.code));
         for (uint64_t i = 0; i < items.size(); ++i) {
-            s += render_item_src(map_of(items.get(i)));
+            auto item = map_of(items.get(i));
+            // Module ITEMS may include USE nodes (PEG `$...` capture
+            // pulled them in alongside USES). They were already
+            // rendered above; skip duplicates here.
+            if (code_of(item) == la::USE) continue;
+            s += render_item_src(item);
             s += "\n\n";
         }
     }
@@ -1267,9 +1584,12 @@ std::string SemaChecker::render_type_src_syntactic_(TinyMapView node) {
         return s;
     }
     case la::PTR_TYPE: {
-        bool is_mut = flag_set(node, la::IS_MUT);
-        return std::string(is_mut ? "*mut " : "*const ") +
-               recur(map_of(node.get(la::TYPE.code)));
+        // Grammar: POINTEE (sub-type), MUTPTR (bool, not IS_MUT).
+        bool is_mut = flag_set(node, la::MUTPTR);
+        TinyMapView pointee;
+        if (node.has_key(la::POINTEE)) pointee = map_of(node.get(la::POINTEE.code));
+        else if (node.has_key(la::TYPE)) pointee = map_of(node.get(la::TYPE.code));  // legacy
+        return std::string(is_mut ? "*mut " : "*const ") + recur(pointee);
     }
     case la::REF_TYPE:     return "&" + recur(map_of(node.get(la::TYPE.code)));
     case la::MUT_REF_TYPE: return "&mut " + recur(map_of(node.get(la::TYPE.code)));

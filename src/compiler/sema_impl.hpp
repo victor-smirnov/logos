@@ -1801,6 +1801,12 @@ private:
     // Syntactic type walk used when dump_syntactic_types_ is on (fresh
     // checker with empty type pool — resolve_type would fail).
     std::string render_type_src_syntactic_(hermes::TinyMapView node);
+    // Inner Hermes literal renderer — used recursively from
+    // render_expr_src for HERMES_MAP entries / HERMES_ARRAY elements.
+    // Omits the `@` prefix on scalars (grammar's hermes_val production
+    // doesn't accept `@4` / `@"x"` at this position; outer hermes_lit
+    // does).
+    std::string render_hermes_val_inner_(hermes::TinyMapView node);
     bool dump_syntactic_types_ = false;
 
     // Render a CTFE-evaluated value as a Logos source literal. Used by both
