@@ -354,6 +354,7 @@ pub fn store_open<const STORE_CFG: HermesStatic>() -> Store<STORE_CFG> {
             root:     dir,
             parents:  vec_new::<SnpId<STORE_CFG>>(),
             children: vec_new::<SnpId<STORE_CFG>>(),
+            released: false,
         });
     }
     return Store::<STORE_CFG> { arc: arc };
@@ -383,6 +384,22 @@ impl<const STORE_CFG: HermesStatic> Store<STORE_CFG> {
     pub fn roots(&mut self) -> Vec<SnpId<STORE_CFG>> {
         let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
         return unsafe { (s as *mut LockingStore<STORE_CFG>).roots() };
+    }
+
+    // Release a commit. Drops its root NodeARC; blocks unique to this
+    // commit's tree are reclaimed via the auto-Drop chain. Blocks
+    // shared with siblings/descendants stay live (their rc decrements
+    // but doesn't reach 0). The dag slot persists as a tombstone so
+    // commit_count and existing parent/child indices remain valid;
+    // checkout / fork on a released id is a precondition violation.
+    pub fn release(&mut self, id: SnpId<STORE_CFG>) {
+        let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
+        unsafe { (s as *mut LockingStore<STORE_CFG>).release_snapshot(id); }
+    }
+
+    pub fn is_released(&mut self, id: SnpId<STORE_CFG>) -> bool {
+        let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
+        return unsafe { (s as *mut LockingStore<STORE_CFG>).is_released(id) };
     }
 }
 

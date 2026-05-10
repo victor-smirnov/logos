@@ -41,6 +41,12 @@ pub struct CommitEntry<const STORE_CFG: HermesStatic> {
     pub root:     NodeARC<STORE_CFG>,
     pub parents:  Vec<SnpId<STORE_CFG>>,
     pub children: Vec<SnpId<STORE_CFG>>,
+    // Tombstone marker. Released entries keep their dag slot (so
+    // children/parents indices stay stable) but `root` is set to a
+    // null-handle NodeARC. Block-level reclamation happens automatically
+    // via NodeARC rc — blocks unique to this commit drop to rc=0 and
+    // free; blocks shared with a sibling/descendant commit retain rc≥1.
+    pub released: bool,
 }
 
 // ── IStore trait ──────────────────────────────────────────────────────
@@ -73,6 +79,17 @@ pub trait IStore<const STORE_CFG: HermesStatic> {
 
     // Root commits — entries with no parent. Allocates a fresh Vec.
     fn roots(self: *mut Self) -> Vec<SnpId<STORE_CFG>>;
+
+    // Release a commit. Drops the entry's root NodeARC — block-level
+    // reclamation cascades through the auto-Drop chain (blocks unique
+    // to this commit drop to rc=0 and free; shared blocks retain).
+    // The dag slot persists as a tombstone so existing indices stay
+    // valid; subsequent checkout/parents_of/children_of on a released
+    // id is a precondition violation.
+    fn release_snapshot(self: *mut Self, id: SnpId<STORE_CFG>);
+
+    // True if `id` has been released. Read-only check.
+    fn is_released(self: *mut Self, id: SnpId<STORE_CFG>) -> bool;
 }
 
 // ── LockingStore — v1 backend ─────────────────────────────────────────
@@ -136,6 +153,7 @@ impl<const STORE_CFG: HermesStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG
                 root:     root,
                 parents:  make_parents_vec::<STORE_CFG>(parent),
                 children: vec_new::<SnpId<STORE_CFG>>(),
+                released: false,
             });
             self.lock.unlock();
             return id;
@@ -196,11 +214,40 @@ impl<const STORE_CFG: HermesStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG
             let mut i: i64 = 0i64;
             while i < n {
                 let entry: &CommitEntry<STORE_CFG> = self.dag.borrow(i);
-                if entry.parents.length() == 0i64 { out.push(i as SnpId<STORE_CFG>); }
+                if entry.parents.length() == 0i64 && !entry.released {
+                    out.push(i as SnpId<STORE_CFG>);
+                }
                 i = i + 1i64;
             }
             self.lock.unlock();
             return out;
+        }
+    }
+
+    fn release_snapshot(self: *mut LockingStore<STORE_CFG>, id: SnpId<STORE_CFG>) {
+        unsafe {
+            self.lock.lock();
+            let entry: *mut CommitEntry<STORE_CFG> = self.dag.at(id as i64);
+            if !entry.released {
+                // Replace root with null-handle NodeARC; arc_replace_in_slot
+                // drops the previous handle's rc → recursive auto-Drop chain.
+                let null_arc: NodeARC<STORE_CFG> =
+                    NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> };
+                arc_replace_in_slot::<STORE_CFG>(
+                    &mut entry.root as *mut NodeARC<STORE_CFG>, null_arc);
+                entry.released = true;
+            }
+            self.lock.unlock();
+        }
+    }
+
+    fn is_released(self: *mut LockingStore<STORE_CFG>, id: SnpId<STORE_CFG>) -> bool {
+        unsafe {
+            self.lock.lock();
+            let entry: &CommitEntry<STORE_CFG> = self.dag.borrow(id as i64);
+            let r: bool = entry.released;
+            self.lock.unlock();
+            return r;
         }
     }
 }

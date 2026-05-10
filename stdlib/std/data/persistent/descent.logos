@@ -20,8 +20,6 @@ use std.hermes.anyval;
 use std.data.persistent.node;
 use std.data.persistent.cow;
 use std.data.persistent.shuttle;
-use std.lang.cmp;
-use std.lang.ord;
 
 // ── CFG fanout readers ────────────────────────────────────────────────
 unsafe fn cfg_int_or<const CFG: HermesStatic>(key: str, dflt: u64) -> u64 {

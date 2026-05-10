@@ -1,0 +1,86 @@
+// Snapshot release: verify dag tombstone behaviour + block reclamation
+// through NodeARC rc. Build linear chain genesis → snap1 → snap2,
+// release snap1 (intermediate), confirm:
+//  • snap1 marked released; snap2 still works (its tree is the
+//    superset so blocks unique to snap1 freed, shared retained).
+//  • commit_count unchanged (tombstones preserve indices).
+//  • children_of(genesis) still lists snap1's id (DAG topology
+//    preserved; tombstone reclaims data, not navigation).
+package persistent_release;
+
+use std.data.persistent.handle;
+use std.data.persistent.store;
+use std.data.persistent.node;
+use std.data.persistent.cow;
+use std.data.persistent.descent;
+use std.data.persistent.mutate;
+use std.collections.vec;
+use std.lang.datatypes;
+use std.hermes.view;
+use std.hermes.anyval;
+
+pub const StoreCfg: HermesStatic = @{
+    "name": "rel", "ctr_id": <type:u64>, "snp_id": <type:u64>, "block_id": <type:u64>,
+};
+pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 4 };
+
+fn main() -> i32 {
+    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
+
+    // snap1 — insert keys 0..5 + commit.
+    let mut snap1: Snap<StoreCfg> = store.fork(GENESIS);
+    let mut cr1: ContainerRef<StoreCfg, MapCfg> =
+        create_pmap::<MapCfg, StoreCfg>(&mut snap1, 1u64);
+    let mut i: u64 = 0u64;
+    while i < 5u64 { cr1.insert(i, i * 2u64); i = i + 1u64; }
+    cr1.writeback();
+    let snap1_id: SnpId<StoreCfg> = snap1.commit();
+
+    // snap2 — fork off snap1, insert 5..10 (shares snap1's blocks for 0..5).
+    let mut snap2: Snap<StoreCfg> = store.fork(snap1_id);
+    let mut cr2: ContainerRef<StoreCfg, MapCfg> =
+        open_pmap::<MapCfg, StoreCfg>(&mut snap2, 1u64);
+    i = 5u64;
+    while i < 10u64 { cr2.insert(i, i * 2u64); i = i + 1u64; }
+    cr2.writeback();
+    let snap2_id: SnpId<StoreCfg> = snap2.commit();
+
+    if store.is_released(snap1_id) { return 1; }
+    if store.is_released(snap2_id) { return 2; }
+    let cc_before: i64 = store.commit_count();
+    if cc_before != 3i64 { return 3; }   // genesis + snap1 + snap2
+
+    // Release snap1 — intermediate tombstone.
+    store.release(snap1_id);
+    if !store.is_released(snap1_id) { return 4; }
+    if store.commit_count() != cc_before { return 5; }   // count unchanged
+
+    // DAG topology preserved: children_of(genesis) still lists snap1_id.
+    let kids: Vec<SnpId<StoreCfg>> = store.children_of(GENESIS);
+    let mut found_snap1: bool = false;
+    let mut k: i64 = 0i64;
+    while k < kids.length() {
+        if kids.get(k) == snap1_id { found_snap1 = true; }
+        k = k + 1i64;
+    }
+    if !found_snap1 { return 6; }
+
+    // snap2 still functional — fork off it, read all 10 keys.
+    let mut snap3: Snap<StoreCfg> = store.fork(snap2_id);
+    let cr3: ContainerRef<StoreCfg, MapCfg> =
+        open_pmap::<MapCfg, StoreCfg>(&mut snap3, 1u64);
+    if cr3.len() != 10u64 { return 7; }
+    i = 0u64;
+    while i < 10u64 {
+        let mut v: u64 = 0u64;
+        if !cr3.get(i, &mut v as *mut u64) { return 100 + i as i32; }
+        if v != i * 2u64 { return 200 + i as i32; }
+        i = i + 1u64;
+    }
+
+    // Idempotent.
+    store.release(snap1_id);
+    if !store.is_released(snap1_id) { return 8; }
+
+    return 0;
+}
