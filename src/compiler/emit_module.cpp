@@ -12,6 +12,11 @@
 #include "metaprog_dispatch.hpp"
 #include "module_loader.hpp"
 
+#include <logos/compiler/ast.hpp>
+
+#include <climits>
+#include <unistd.h>
+
 #include <logos/compiler/borrow_check.hpp>
 #include <logos/compiler/lir.hpp>
 #include <logos/compiler/mono.hpp>
@@ -157,8 +162,67 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
     std::vector<bool> from_binary(asts.size(), false);
     {
         MetaprogDispatchOpts mopts;
-        // No archive paths in stdlib build (we ARE the archive being built).
-        // No --dump-metaprog wiring here yet — separate slice if needed.
+        // Stdlib build chicken-and-egg: dispatch needs to JIT-compile
+        // handler fns whose bodies reach into stdlib (Vec, AnyVal, etc.).
+        // The metaprog mlir module spans the whole stdlib, so JIT lookup
+        // of the hook fn transitively materializes deep stdlib symbols
+        // including externs (clock_gettime, IoRing, etc.) that aren't
+        // bound in JIT setup. Resolve those via the *prior* build's
+        // liblstdlib*.a (still on disk at dispatch time — emit_module
+        // overwrites only after compile_to_object returns).
+        //
+        // Cold-build limitation: when no prior .a exists (first build,
+        // clean tree), this falls through and dispatch fails on the
+        // first derive trigger that demands stdlib symbol resolution.
+        // Bootstrap: build once without stdlib-side derives, then with.
+        for (auto* env_var : {"LOGOS_LIB_DIR"}) {
+            if (const char* dir = std::getenv(env_var)) {
+                fs::path d(dir);
+                std::error_code dec;
+                if (fs::is_directory(d, dec)) {
+                    for (auto& ent : fs::directory_iterator(d, dec)) {
+                        if (!ent.is_regular_file()) continue;
+                        auto fn = ent.path().filename().string();
+                        if (fn.rfind("liblstdlib", 0) == 0 &&
+                            ent.path().extension() == ".a") {
+                            mopts.archive_paths.push_back(ent.path().string());
+                        }
+                    }
+                }
+                break;
+            }
+        }
+        // Fallback: argv[0]-relative. Mirrors main.cpp's resolve_system_lib_dir.
+        if (mopts.archive_paths.empty()) {
+            char exe[PATH_MAX];
+            ssize_t n = ::readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+            if (n > 0) {
+                exe[n] = '\0';
+                std::string p(exe);
+                if (auto slash = p.rfind('/'); slash != std::string::npos)
+                    p.resize(slash);
+#ifdef LOGOS_LIB_RELDIR
+                p += "/" LOGOS_LIB_RELDIR;
+#else
+                p += "/../lib/logos";
+#endif
+                char real[PATH_MAX];
+                if (::realpath(p.c_str(), real)) {
+                    fs::path d(real);
+                    std::error_code dec;
+                    if (fs::is_directory(d, dec)) {
+                        for (auto& ent : fs::directory_iterator(d, dec)) {
+                            if (!ent.is_regular_file()) continue;
+                            auto fn = ent.path().filename().string();
+                            if (fn.rfind("liblstdlib", 0) == 0 &&
+                                ent.path().extension() == ".a") {
+                                mopts.archive_paths.push_back(ent.path().string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // emit_module bundles N files — there's no single "entry"; use a
         // sentinel so the entry-only metaprog body-skip never matches an
         // actual ast index. (Was: asts.size()-1, which silently stubbed
@@ -357,9 +421,56 @@ bool emit_module(const ModuleManifest& manifest,
                      only_file_canon.empty() ? "" : ")",
                      obj_path.c_str());
     }
+    size_t original_ast_count = asts.size();
     if (!compile_to_object(asts, filenames, ast_only_flags, obj_path, only_file_canon)) {
         std::fprintf(stderr, "emit_module: compilation failed\n");
         return false;
+    }
+    // Harvest synth docs (appended by metaprog dispatch). These carry
+    // derive-emitted items (e.g. cow.logos's `BranchNode`) that must
+    // appear in the .hermes0 archive — otherwise downstream consumers
+    // re-load the binary stdlib without dispatch firing and fail to
+    // resolve those symbols.
+    for (size_t i = original_ast_count; i < asts.size(); ++i) {
+        std::string path = i < filenames.size() ? filenames[i] : std::string();
+        // Skip metacall thunk asts — they're for JIT only, not for
+        // downstream sema. Synth docs from item-blob substitution carry
+        // the inherited package name; read it.
+        if (path == "<metaprog>") continue;
+        std::string pkg;
+        auto root_av = asts[i].root_object();
+        if (root_av.is_pointer()) {
+            auto root_map = root_av.as_tiny_map();
+            if (root_map.has_key(logos::compiler::ast::NAME)) {
+                auto nm = root_map.get(logos::compiler::ast::NAME.code);
+                if (!nm.is_null() && nm.is_pointer()) {
+                    pkg = std::string(hermes::StringView(
+                        nm.to_offset(), asts[i].holder()).view());
+                }
+            }
+            if (root_map.has_key(logos::compiler::ast::mod::PATH_PARTS)) {
+                auto pp = root_map.get(logos::compiler::ast::mod::PATH_PARTS.code);
+                if (!pp.is_null() && pp.is_pointer()) {
+                    auto* arr = reinterpret_cast<const hermes::ObjectArray*>(
+                        asts[i].holder()->base() + pp.to_offset().value());
+                    for (uint64_t j = 0; j < arr->size(); ++j) {
+                        auto part_av = arr->get(j, asts[i].holder()->base());
+                        if (!part_av.is_pointer()) continue;
+                        auto part_map = hermes::TinyMapView(
+                            part_av.to_offset(), asts[i].holder());
+                        if (part_map.has_key(logos::compiler::ast::NAME)) {
+                            auto nm = part_map.get(logos::compiler::ast::NAME.code);
+                            if (!nm.is_null() && nm.is_pointer()) {
+                                pkg += ".";
+                                pkg += std::string(hermes::StringView(
+                                    nm.to_offset(), asts[i].holder()).view());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        modules_for_h0.push_back({path, pkg, asts[i]});
     }
 
     // .hermes0: in per-file mode, contains only the target file's AST.

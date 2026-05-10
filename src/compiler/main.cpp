@@ -867,6 +867,75 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         }
     }
 
+    // Inherit the originating user module's package name + PATH_PARTS
+    // onto the synth module's MODULE root. Without this, sema_collect
+    // registers emitted items under the empty package, and any non-entry
+    // ast (e.g. emit_module's other stdlib files referencing the derived
+    // type) fails to resolve them — find_struct_by_name iterates
+    // cur_package_ + imports + reexports and never visits "". The
+    // single-file pipeline tolerated empty-package because only the
+    // entry ast was in play and bare-key lookups happened to fall
+    // through. emit_module bundles surface this bug.
+    if (g_user_root_idx < g_asts->size()) {
+        auto& user_ast_pkg = (*g_asts)[g_user_root_idx];
+        auto user_root_pkg = user_ast_pkg.root_object().as_tiny_map();
+        auto* user_holder_pkg = user_ast_pkg.holder();
+        auto* user_base_pkg = user_holder_pkg->base();
+        // Always overwrite — quote_item!/parse-stub assigns its own NAME
+        // (e.g. "main" or "<metaprog>") which is wrong for the user's pkg.
+        if (user_root_pkg.has_key(la::NAME.code)) {
+            AnyVal nm_av = user_root_pkg.get(la::NAME.code);
+            if (!nm_av.is_null() && nm_av.is_pointer()) {
+                auto user_name = logos::hermes::StringView(
+                    nm_av.to_offset(), user_holder_pkg).view();
+                auto sv_e = ArenaString::create(arena, std::string_view(user_name));
+                if (sv_e) {
+                    auto sv_off = static_cast<uint32_t>(
+                        reinterpret_cast<uint8_t*>(sv_e.get())
+                        - HermesAccess::base(doc));
+                    (void)root_ptr()->put(la::NAME.code,
+                        AnyVal::from_offset(arena_offset_t(sv_off)),
+                        arena);
+                }
+            }
+        }
+        // PATH_PARTS — array of part objects; always overwrite.
+        if (user_root_pkg.has_key(la::mod::PATH_PARTS.code)) {
+            AnyVal pp_av = user_root_pkg.get(la::mod::PATH_PARTS.code);
+            if (!pp_av.is_null() && pp_av.is_pointer()) {
+                auto* user_pp = reinterpret_cast<const ObjectArray*>(
+                    user_base_pkg + pp_av.to_offset().value());
+                uint64_t pn = user_pp->size();
+                auto a_e = ObjectArray::create(arena, std::max<uint64_t>(1, pn));
+                if (a_e) {
+                    auto pp_off = static_cast<uint32_t>(
+                        reinterpret_cast<uint8_t*>(a_e.get())
+                        - HermesAccess::base(doc));
+                    auto pp_arr_ptr = [&]() {
+                        return reinterpret_cast<ObjectArray*>(
+                            HermesAccess::base(doc) + pp_off);
+                    };
+                    for (uint64_t i = 0; i < pn; ++i) {
+                        AnyVal part_av = user_pp->get(i, user_base_pkg);
+                        if (!part_av.is_pointer()) continue;
+                        const void* part_obj = user_base_pkg + part_av.to_offset().value();
+                        auto cp_e = copy_object_into(part_obj, user_base_pkg, doc);
+                        if (!cp_e) continue;
+                        uint32_t cp_off = static_cast<uint32_t>(
+                            reinterpret_cast<uint8_t*>(cp_e.get())
+                            - HermesAccess::base(doc));
+                        (void)pp_arr_ptr()->push_back(
+                            AnyVal::from_offset(arena_offset_t(cp_off)),
+                            arena);
+                    }
+                    (void)root_ptr()->put(la::mod::PATH_PARTS.code,
+                        AnyVal::from_offset(arena_offset_t(pp_off)),
+                        arena);
+                }
+            }
+        }
+    }
+
     // Inherit the originating user module's imports into the synth
     // module's USES array. Without this, derive-emitted items can only
     // reference types from the handler's own use-list — even though
