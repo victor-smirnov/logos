@@ -1,18 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
-// std.compiler.metaprog — derive(BranchNodeMP) — slice-1c.
+// std.compiler.metaprog — derive(BranchNodeMP) — slice-1d.
 //
 // Hook for `#[derive_branch_node]` on a LeafNode-shaped struct. Emits
-// a sibling `BranchNodeMP<K, STORE_CFG, CFG>` whose layout mirrors
-// the existing hand-written std.data.persistent.cow.BranchNode plus
-// one aggregate column per supported op (initial set: subtree-count
-// → `sizes: PrimVec<u64>` for slice-1 seek(N)).
+// a sibling `BranchNodeMP<K, STORE_CFG, CFG>` whose layout mirrors the
+// existing hand-written std.data.persistent.cow.BranchNode plus one
+// aggregate column per supported op.
 //
-// Slice-1c: aggregate-column field set is DERIVED from an in-handler
-// op-list. Adding an op = adding a `(field_name, elem_type)` entry to
-// the hardcoded vec; struct grows accordingly via repeat-group antiquot
-// `#( pub #col_names: PrimVec<#col_types>, )*`. Slice 1d will move the
-// op-list out of the handler (HermesStatic in the user's package or
-// an attribute arg).
+// Slice-1d: the op-list is READ from a user-declared const named
+// `BRANCH_OPS`, an array of `str` alternating field-name / elem-type:
+//
+//   pub const BRANCH_OPS: [str; 2] = ["sizes", "u64"];
+//
+//   #[derive_branch_node]
+//   pub struct LeafNode<...> { ... }
+//
+// → emit `BranchNodeMP<...> { ..., pub sizes: PrimVec<u64> }`.
+//
+// Adding an op = appending two strings to BRANCH_OPS, no handler edit.
+// Slice 1e will promote the const-name discovery to an attribute arg
+// (`#[derive_branch_node(ops = "BRANCH_OPS")]`) and explore the move
+// to nested HermesStatic for richer op specs (leaf-reduce / branch-
+// reduce fn names).
 
 package std.compiler.metaprog;
 
@@ -22,13 +30,6 @@ use std.hermes.anyval;
 use std.hermes.string;
 use std.lang.datatypes;
 use std.data.persistent.node;
-
-// Convenience: borrow a string-literal's bytes as an Ident. The literal
-// lives in rodata for the process lifetime — well past any metafn call,
-// so the non-owning Ident view is safe.
-fn ident_from_str(s: str) -> Ident {
-    return Ident { ptr: s.as_ptr(), len: s.len() as u64 };
-}
 
 #[metaprog_handler("derive_branch_node")]
 fn derive_branch_node_hook(target_offset: u32) -> () {
@@ -51,14 +52,48 @@ fn derive_branch_node_hook(target_offset: u32) -> () {
     let scfg: Ident = Ident { ptr: scfg_sv.ptr, len: scfg_sv.len };
     let cfg:  Ident = Ident { ptr: cfg_sv.ptr,  len: cfg_sv.len };
 
-    // Op-driven aggregate columns. Each (col_name, col_type) pair becomes
-    // `pub <col_name>: PrimVec<<col_type>>` inside BranchNodeMP. Slice 1c
-    // ships a single op (subtree-count); growing the list grows the struct.
+    // Op-list discovery: look up user's BRANCH_OPS const by name and
+    // walk its ARR_LIT VALUE. Each pair of strings (field, elem-type)
+    // becomes one aggregate column.
     let mut col_names: Vec<Ident> = vec_new::<Ident>();
     let mut col_types: Vec<Ident> = vec_new::<Ident>();
-    unsafe {
-        (&mut col_names as *mut Vec<Ident>).push(ident_from_str("sizes"));
-        (&mut col_types as *mut Vec<Ident>).push(ident_from_str("u64"));
+
+    let ops_name: [u8; 10] = [
+        66u8, 82u8, 65u8, 78u8, 67u8, 72u8, 95u8, 79u8, 80u8, 83u8,
+    ];                       // "BRANCH_OPS"
+    let ops_const: AnyVal = view.find_template_decl(&ops_name);
+    if ops_const.raw != 0 {
+        let arr_lit: AnyVal = view.tiny_map_get(ops_const, 7 as u8);   // VALUE
+        if arr_lit.raw != 0 {
+            let items: AnyVal = view.tiny_map_get(arr_lit, 2 as u8);   // ITEMS
+            if items.raw != 0 {
+                let n: u64 = view.array_len(items);
+                let mut i: u64 = 0u64;
+                while i < n {
+                    let elem: AnyVal = view.array_get(items, i);
+                    let s_av: AnyVal = view.tiny_map_get(elem, 7 as u8);  // VALUE of HERMES_STR
+                    let sv: StringView = view.get_str_view(s_av);
+                    // HERMES_STR.VALUE captures the STRING token with surrounding
+                    // quotes; sema's C++ consumers strip them. Replicate here:
+                    // ptr+1 / len-2 yields the unquoted byte view (zero escape
+                    // handling for slice 1d — op specs are ascii ident-like).
+                    if sv.len >= (2 as u64) {
+                        let id: Ident = Ident {
+                            ptr: (sv.ptr as i64 + 1i64) as *const u8,
+                            len: sv.len - (2 as u64),
+                        };
+                        unsafe {
+                            if i % (2 as u64) == (0 as u64) {
+                                (&mut col_names as *mut Vec<Ident>).push(id);
+                            } else {
+                                (&mut col_types as *mut Vec<Ident>).push(id);
+                            }
+                        }
+                    }
+                    i = i + (1 as u64);
+                }
+            }
+        }
     }
 
     let blob: QuoteItemBlob = quote_item! {

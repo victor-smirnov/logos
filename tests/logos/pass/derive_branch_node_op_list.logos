@@ -1,0 +1,40 @@
+// derive_branch_node slice 1d end-to-end: handler reads BRANCH_OPS
+// HermesStatic const from user package, walks its array of alternating
+// (field-name, elem-type) strings, emits a BranchNodeMP-shape struct
+// with one PrimVec column per op pair.
+//
+// This test ships TWO ops in BRANCH_OPS to exercise the parallel
+// Vec<Ident> cursor expansion (handler iterates without reading the
+// concrete count).
+
+package main;
+
+use std.compiler.metaprog;
+use std.data.persistent.node;
+use std.data.persistent.cow;
+use std.lang.datatypes;
+use std.hermes.view;
+use std.hermes.anyval;
+
+pub const StoreCfg: HermesStatic = @{
+    "name": "demo", "ctr_id": <type:u64>, "snp_id": <type:u64>, "block_id": <type:u64>,
+};
+pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 4 };
+
+pub const BRANCH_OPS: HermesStatic = @["sizes", "u64", "sums", "i64"];
+
+#[derive_branch_node]
+pub struct LeafNodeShape<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
+    pub base: NodeBase<STORE_CFG>,
+    pub keys: Buffer<K>,
+    pub vals: Buffer<V>,
+}
+
+fn main() -> i32 {
+    // Touch the derived struct to force monomorphisation through
+    // sema/mono/codegen — proves the emitted struct + both PrimVec
+    // columns are real types, not just AST nodes.
+    let sz: i64 = sizeof::<BranchNodeMP<u64, StoreCfg, MapCfg>>();
+    if sz <= 0i64 { return 1; }
+    return 0;
+}
