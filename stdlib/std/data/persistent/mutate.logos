@@ -159,11 +159,19 @@ pub unsafe fn split_branch<K: Container + ContainerOrd, const STORE_CFG: HermesS
         *rcp = *rcp + 1u64;
         j = j + 1i64;
     }
+    // SUM aggregate: split parallel subtree_size column same way.
+    let stn: u64 = branch.subtree_size.len;
+    let mut sj: u64 = mid;
+    while sj < stn {
+        right.subtree_size.push(branch.subtree_size.get(sj));
+        sj = sj + 1u64;
+    }
     // Shrink left to [0..mid].
     while branch.children.length() > (mid as i64) {
         let _ = branch.children.pop();   // pop's drop releases rc (balanced by bump above)
     }
     while branch.keys.len() > mid { branch.keys.remove_at(branch.keys.len() - 1u64); }
+    while branch.subtree_size.len > mid { branch.subtree_size.remove_at(branch.subtree_size.len - 1u64); }
     return node_arc_wrap::<STORE_CFG>(right as *mut dyn BTreeNode<STORE_CFG>);
 }
 
@@ -238,6 +246,12 @@ pub unsafe fn insert_rec<K: Container + ContainerOrd, V: Container, const STORE_
     let child_after: &NodeARC<STORE_CFG> = br.children.borrow(i as i64);
     let new_left_max: K::ViewInStore = node_max_key::<K, V, STORE_CFG, CFG>(child_after);
     br.keys.set(i, new_left_max);
+    // SUM aggregate: refresh subtree_size[i] to reflect the new size of
+    // children[i] post-insert. Maintained slot-by-slot so pmap_size_rec
+    // (and future seek-by-N) read O(1) at the parent.
+    let new_left_size: u64 = pmap_size_rec::<K, V, STORE_CFG, CFG>(child_after);
+    if br.subtree_size.len > i { br.subtree_size.set(i, new_left_size); }
+    else                       { br.subtree_size.push(new_left_size); }
 
     if !inner.split {
         return InsertOutcome::<K, STORE_CFG, CFG> {
@@ -248,7 +262,10 @@ pub unsafe fn insert_rec<K: Container + ContainerOrd, V: Container, const STORE_
     }
     // Inner split: insert (right_max, right_arc) at i+1.
     br.keys.insert_at(i + 1u64, inner.right_max);
+    let right_size: u64 = pmap_size_rec::<K, V, STORE_CFG, CFG>(&inner.right);
     vec_arc_insert_at::<STORE_CFG>(&mut br.children as *mut Vec<NodeARC<STORE_CFG>>, (i as i64) + 1i64, inner.right);
+    if br.subtree_size.len > i + 1u64 { br.subtree_size.insert_at(i + 1u64, right_size); }
+    else                              { br.subtree_size.push(right_size); }
     if br.keys.len() > max_keys {
         let new_id: BlockId<STORE_CFG> = alloc_id::<STORE_CFG>(id_ctr_p);
         let right: NodeARC<STORE_CFG> = split_branch::<K, STORE_CFG, CFG>(br, new_id, cur_snapshot_id);
@@ -292,6 +309,10 @@ pub unsafe fn pmap_insert<K: Container + ContainerOrd, V: Container, const STORE
         let r_dp: *mut u8 = (*(r_handle as *mut u64)) as *mut u8;
         *(r_dp as *mut u64) = *(r_dp as *mut u64) + 1u64;
         new_root.children.push(NodeARC::<STORE_CFG> { p: r_handle });
+        // SUM aggregate column for the freshly grown root: one entry per
+        // child = subtree size below it.
+        new_root.subtree_size.push(pmap_size_rec::<K, V, STORE_CFG, CFG>(root));
+        new_root.subtree_size.push(pmap_size_rec::<K, V, STORE_CFG, CFG>(&outcome.right));
 
         let new_arc: NodeARC<STORE_CFG> =
             node_arc_wrap::<STORE_CFG>(new_root as *mut dyn BTreeNode<STORE_CFG>);
@@ -549,13 +570,27 @@ pub unsafe fn remove_rec<K: Container + ContainerOrd, V: Container, const STORE_
         }
         // After rebalance the child slot may have moved (merge with left
         // shifts everything down by one) and parent.keys are already
-        // restored by the rebalance helper. No additional max update here.
+        // restored by the rebalance helper. SUM aggregate column may
+        // have stale slots — rebuild from current children.
+        while br.subtree_size.len > 0u64 {
+            br.subtree_size.remove_at(br.subtree_size.len - 1u64);
+        }
+        let nc_after: i64 = br.children.length();
+        let mut sk: i64 = 0i64;
+        while sk < nc_after {
+            let c: &NodeARC<STORE_CFG> = br.children.borrow(sk);
+            br.subtree_size.push(pmap_size_rec::<K, V, STORE_CFG, CFG>(c));
+            sk = sk + 1i64;
+        }
     } else {
         // No rebalance: child still at slot i. Its max may have shrunk if
         // the removed key was the last → propagate up.
         let child_after: &NodeARC<STORE_CFG> = br.children.borrow(i as i64);
         let new_max: K::ViewInStore = node_max_key::<K, V, STORE_CFG, CFG>(child_after);
         br.keys.set(i, new_max);
+        let new_size: u64 = pmap_size_rec::<K, V, STORE_CFG, CFG>(child_after);
+        if br.subtree_size.len > i { br.subtree_size.set(i, new_size); }
+        else                       { br.subtree_size.push(new_size); }
     }
     let self_under: bool = br.keys.len() < min_keys_branch::<CFG>();
     return RemoveOutcome { hit: true, underflow: self_under };

@@ -191,6 +191,20 @@ pub fn pmap_size_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG:
         }
         let br = as_branch::<K, STORE_CFG, CFG>(arc);
         let nc: i64 = br.children.length();
+        // Fast path: SUM aggregate column maintained — sum slot-by-slot
+        // without descending. Slow path: column empty (mutate.logos's
+        // insert/remove maintenance not landed yet) — recursive walk.
+        // Both produce the same total; the column lets us skip descent.
+        if br.subtree_size.len == (nc as u64) && nc > 0i64 {
+            let mut total: u64 = 0u64;
+            let mut i: u64 = 0u64;
+            let nu: u64 = nc as u64;
+            while i < nu {
+                total = total + br.subtree_size.get(i);
+                i = i + 1u64;
+            }
+            return total;
+        }
         let mut total: u64 = 0u64;
         let mut i: i64 = 0i64;
         while i < nc {

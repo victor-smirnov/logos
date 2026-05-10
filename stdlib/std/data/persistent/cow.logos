@@ -36,9 +36,25 @@ use std.hermes.view;
 use std.hermes.anyval;
 
 use std.data.persistent.node;
-use std.compiler.metaprog;   // brings #[derive_branch_node] trigger into scope
+use std.data.persistent.shuttle;  // ShuttleResult — derive emits per-op shuttle wrapper
+use std.compiler.metaprog;        // brings #[derive_branch_node] trigger into scope
 
-#[derive_branch_node(branch = "BranchNode")]
+// Aggregate columns on BranchNode. SUM aggregate over `subtree_size`
+// turns pmap_size_rec from O(N) full-tree walk into O(depth) — read
+// from the root branch directly. MAX-on-K is implicit in the existing
+// `keys[i] = max-in-children[i]` Memoria invariant; an explicit
+// max-key column would only matter for non-K-typed comparisons.
+//
+// Maintenance contract: branch_alloc initialises empty; cow_clone
+// inherits from parent; mutate.logos's insert/remove path updates
+// per-level on bubble-up. This slice lands the column + alloc/
+// cow_clone hooks; mutate-side maintenance is deferred (until then
+// the column stays length=0 — pmap_size_rec keeps recursing).
+pub const BRANCH_OPS: HermesStatic = @[
+    @{ "field": "subtree_size", "type": "u64", "kind": "SUM" },
+];
+
+#[derive_branch_node(branch = "BranchNode", ops = "BRANCH_OPS")]
 pub struct LeafNodeForBranch<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
     pub base: NodeBase<STORE_CFG>,
     pub keys: Buffer<K>,
@@ -75,6 +91,13 @@ impl<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: Herm
                 copy.children.push(c.clone_arc());
                 j = j + 1i64;
             }
+            // subtree_size aggregate column — copy slot-by-slot.
+            let na: u64 = self.subtree_size.len;
+            let mut k: u64 = 0u64;
+            while k < na {
+                copy.subtree_size.push(self.subtree_size.get(k));
+                k = k + 1u64;
+            }
         }
         return node_arc_wrap::<STORE_CFG>(copy as *mut dyn BTreeNode<STORE_CFG>);
     }
@@ -91,6 +114,7 @@ pub fn branch_alloc<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, 
         p.base.is_leaf     = false;
         p.keys             = Buffer::<K>::new();
         p.children         = vec_new::<NodeARC<STORE_CFG>>();
+        p.subtree_size     = PrimVec::<u64>::empty();
     }
     return p;
 }
