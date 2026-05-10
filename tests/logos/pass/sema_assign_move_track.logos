@@ -1,0 +1,44 @@
+// Regression: `dst = src` for a move-type src must mark src as moved,
+// else src's scope-exit drop double-frees the bytes that were moved
+// into dst. Surfaced when descend-style loops do
+//   path.push(Frame { o: cur, i });  cur = next;
+// and Owner has Drop; both `next` (via cur=next) and final cur would
+// dealloc the same heap pointer without the move-tracking fix.
+package sema_assign_move_track;
+
+use std.collections.vec;
+use std.mem;
+
+struct Owner {
+    pub p: *mut u8,
+}
+
+impl Drop for Owner {
+    fn drop(self: Owner) {
+        unsafe {
+            if self.p != 0 as *mut u8 { dealloc(self.p); }
+        }
+    }
+}
+
+pub struct Frame {
+    pub o: Owner,
+    pub i: i64,
+}
+
+unsafe fn make() {
+    let mut path: Vec<Frame> = vec_new::<Frame>();
+    let mut cur: Owner = Owner { p: alloc(8) };
+    let mut i: i64 = 0;
+    while i < 3 {
+        let next: Owner = Owner { p: alloc(8) };
+        path.push(Frame { o: cur, i: i });
+        cur = next;
+        i = i + 1;
+    }
+}
+
+fn main() -> i32 {
+    unsafe { make(); }
+    return 0;
+}

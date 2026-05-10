@@ -1060,6 +1060,9 @@ lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
     }
     // Re-assignment revives the variable (the old value was already consumed).
     moved_vars_.erase(std::string(name));
+    // RHS source consumed: `dst = src` for a move-type src moves src's bytes
+    // into dst; src's scope-exit drop must be suppressed, else we double-free.
+    track_write_move(rhs);
     return builder().stmt_assign(std::string(name), std::move(rhs), node_line_);
 }
 
