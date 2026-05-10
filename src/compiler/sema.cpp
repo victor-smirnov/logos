@@ -2906,6 +2906,14 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         bool is_dtype  = dsi != nullptr;
         bool is_enum   = esi != nullptr;
         if (!is_struct && !is_dtype && !is_enum) {
+            // Metaprog discovery loop runs sema BEFORE handler hooks
+            // emit derived items. Unknown types referenced from the
+            // entry-file user code may be ones a hook will synthesise
+            // — the final, non-metaprog sema pass after the loop will
+            // re-resolve and surface a real error if the type still
+            // doesn't exist. Silently fall through here.
+            if (metaprog_mode_ && cur_ast_idx_ == metaprog_entry_ast_idx_)
+                return error_t();
             error(std::format("unknown generic type '{}'", name));
             return error_t();
         }

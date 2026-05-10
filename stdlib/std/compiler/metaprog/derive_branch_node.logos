@@ -27,11 +27,15 @@ use std.collections.vec;
 use std.hermes.view;
 use std.hermes.anyval;
 use std.hermes.string;
-use std.lang.datatypes;
 use std.lang.text;
+// Note (debt #13 closure): the handler used to import
+// `std.lang.datatypes`, `std.data.persistent.node` and
+// `std.data.persistent.shuttle` to make NodeBase / Buffer / NodeARC /
+// PrimVec / ShuttleResult resolvable in the emit context. With the
+// emit now inheriting the originating user module's USES, those types
+// resolve through the user's own imports — this handler no longer
+// needs to know about the persistent stack at all.
 use std.mem;
-use std.data.persistent.node;
-use std.data.persistent.shuttle;
 
 // Walk module ITEMS to find the ANNOTATION immediately preceding the
 // target item whose NAME matches `trigger`. Returns the ANNOTATION
@@ -121,19 +125,6 @@ unsafe fn annot_kv_value(view: &OView, ann: AnyVal, key: str) -> AnyVal {
     return AnyVal::null_ptr();
 }
 
-// Read a LIT_STR's bytes minus the surrounding quote chars. `lit` is
-// the LIT_STR AnyVal; the underlying STRING token captures quotes (see
-// debt #18) which we strip here. Empty StringView on failure.
-fn lit_str_unquoted(view: &OView, lit: AnyVal) -> StringView {
-    let s_av: AnyVal = view.tiny_map_get(lit, 7 as u8);            // VALUE
-    let sv: StringView = view.get_str_view(s_av);
-    if sv.len < (2 as u64) { return StringView { ptr: 0 as *const u8, len: 0 }; }
-    return StringView {
-        ptr: (sv.ptr as i64 + 1i64) as *const u8,
-        len: sv.len - (2 as u64),
-    };
-}
-
 // In a HERMES_MAP node (AST shape: { CODE: HERMES_MAP, ITEMS: [HERMES_ENTRY{KEY,VALUE},...] }),
 // find the entry whose KEY matches `key` byte-for-byte and return its
 // VALUE AnyVal. KEY is a STRING token captured with surrounding quotes.
@@ -199,7 +190,7 @@ fn derive_branch_node_hook(target_offset: u32) -> () {
     if ann.raw != 0 {
         let kv: AnyVal = unsafe { annot_kv_value(&view, ann, "ops") };
         if kv.raw != 0 {
-            let sv: StringView = lit_str_unquoted(&view, kv);
+            let sv: StringView = view.ast_lit_str_view( kv);
             ops_name_ptr = sv.ptr;
             ops_name_len = sv.len;
         }
@@ -229,11 +220,11 @@ fn derive_branch_node_hook(target_offset: u32) -> () {
                 let mut i: u64 = 0u64;
                 while i < n {
                     let op_map: AnyVal = view.array_get(items, i);
-                    let f_sv: StringView = lit_str_unquoted(&view,
+                    let f_sv: StringView = view.ast_lit_str_view(
                         hermes_map_get(&view, op_map, "field"));
-                    let t_sv: StringView = lit_str_unquoted(&view,
+                    let t_sv: StringView = view.ast_lit_str_view(
                         hermes_map_get(&view, op_map, "type"));
-                    let k_sv: StringView = lit_str_unquoted(&view,
+                    let k_sv: StringView = view.ast_lit_str_view(
                         hermes_map_get(&view, op_map, "kind"));
                     if f_sv.len > (0 as u64) && t_sv.len > (0 as u64) && k_sv.len > (0 as u64) {
                         let f_id: Ident = Ident { ptr: f_sv.ptr, len: f_sv.len };

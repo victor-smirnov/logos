@@ -841,10 +841,24 @@ std::string SemaChecker::render_path_parts_(TinyMapView node) {
 }
 
 std::string SemaChecker::render_type_param_src_(TinyMapView node) {
-    // TYPE_PARAM: NAME, optional ITEMS (bounds), optional IS_VARIADIC,
-    // optional NAME_VAR (antiquot in a quote).
+    // TYPE_PARAM:  NAME, optional ITEMS (bounds), optional IS_VARIADIC,
+    //              optional NAME_VAR (antiquot in a quote).
+    // CONST_PARAM: NAME, TYPE, optional IS_VARIADIC. Render as
+    //              `const NAME: TYPE` so dump output round-trips back
+    //              into valid Logos source.
     std::string s;
     if (node.is_null()) return s;
+    if (code_of(node) == la::CONST_PARAM) {
+        s += "const ";
+        if (node.has_key(la::NAME)) s += std::string(str_of(node.get(la::NAME.code)));
+        else if (node.has_key(la::NAME_VAR)) s += "<antiquot>";
+        if (flag_set(node, la::IS_VARIADIC)) s += "...";
+        if (node.has_key(la::TYPE)) {
+            s += ": ";
+            s += render_type_src(map_of(node.get(la::TYPE.code)));
+        }
+        return s;
+    }
     if (node.has_key(la::NAME)) s += std::string(str_of(node.get(la::NAME.code)));
     else if (node.has_key(la::NAME_VAR)) s += "<antiquot>";
     if (flag_set(node, la::IS_VARIADIC)) s += "...";

@@ -248,6 +248,7 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
 
     // Intermediate pass: type aliases and consts (Phase 2). Wait, we execute this FIRST so aliases are known for fn signatures.
     for (size_t ai = 0; ai < asts.size(); ++ai) {
+        cur_ast_idx_ = ai;
         holder_ = asts[ai].holder();
         file_ = (filenames_ && ai < filenames_->size()) ? (*filenames_)[ai] : std::string{};
         cur_from_binary_ = (from_binary_ && ai < from_binary_->size()) ? (*from_binary_)[ai] : false;
@@ -258,6 +259,7 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
     }
     // Second pass: fill in fields, variants, function signatures (Phase 1).
     for (size_t ai = 0; ai < asts.size(); ++ai) {
+        cur_ast_idx_ = ai;
         holder_ = asts[ai].holder();
         file_ = (filenames_ && ai < filenames_->size()) ? (*filenames_)[ai] : std::string{};
         cur_from_binary_ = (from_binary_ && ai < from_binary_->size()) ? (*from_binary_)[ai] : false;

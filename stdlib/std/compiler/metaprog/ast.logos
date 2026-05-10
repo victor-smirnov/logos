@@ -514,6 +514,23 @@ impl OView {
         return AnyVal::null_ptr();
     }
 
+    // STRING-token literal byte view minus the surrounding quote chars.
+    // The lexer captures `"foo"` literally with quotes; sema's C++
+    // consumers strip them at use-site (sema_expr.cpp's HERMES_STR /
+    // LIT_STR readers). Metaprog handlers walking AST string-bearing
+    // nodes (LIT_STR, HERMES_STR, HERMES_ENTRY KEY) need the same
+    // strip — this helper does it once. Empty StringView if `lit` is
+    // null or doesn't carry a STRING-shaped payload.
+    pub fn ast_lit_str_view(self: &OView, lit: AnyVal) -> StringView {
+        let s_av: AnyVal = self.tiny_map_get(lit, 7 as u8);   // VALUE
+        let raw: StringView = self.get_str_view(s_av);
+        if raw.len < (2 as u64) { return StringView { ptr: 0 as *const u8, len: 0 }; }
+        return StringView {
+            ptr: (raw.ptr as i64 + 1i64) as *const u8,
+            len: raw.len - (2 as u64),
+        };
+    }
+
     // Decode a `<type:T>` Hermes value (TinyObjectMap with
     // schema_type_code=107) into a metaprog `Type` struct. `val` must
     // point at the TOM (e.g. via `view.tiny_map_get(node, key)` or by

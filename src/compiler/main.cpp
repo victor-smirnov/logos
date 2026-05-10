@@ -870,6 +870,128 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         }
     }
 
+    // Inherit the originating user module's imports into the synth
+    // module's USES array. Without this, derive-emitted items can only
+    // reference types from the handler's own use-list — even though
+    // the user clearly imported the right packages for the leaf the
+    // annotation sat on. Resolves debt #13.
+    if (g_user_root_idx < g_asts->size()) {
+        auto& user_ast = (*g_asts)[g_user_root_idx];
+        auto user_root = user_ast.root_object().as_tiny_map();
+        if (user_root.has_key(la::USES.code)) {
+            AnyVal user_uses_av = user_root.get(la::USES.code);
+            if (!user_uses_av.is_null() && user_uses_av.is_pointer()) {
+                auto* user_holder = user_ast.holder();
+                auto* user_base = user_holder->base();
+                auto* user_uses = reinterpret_cast<const ObjectArray*>(
+                    user_base + user_uses_av.to_offset().value());
+                uint64_t un = user_uses->size();
+                // Locate (or create) the synth module's USES array.
+                AnyVal synth_uses_av = root_ptr()->get(la::USES.code,
+                                                      HermesAccess::base(doc));
+                uint32_t synth_uses_off = 0;
+                if (synth_uses_av.is_null() || !synth_uses_av.is_pointer()) {
+                    auto a_e = ObjectArray::create(arena, std::max<uint64_t>(4, un));
+                    if (!a_e) {
+                        blob_seen.erase(key); return 0;
+                    }
+                    synth_uses_off = static_cast<uint32_t>(
+                        reinterpret_cast<uint8_t*>(a_e.get())
+                        - HermesAccess::base(doc));
+                    (void)root_ptr()->put(la::USES.code,
+                        AnyVal::from_offset(arena_offset_t(synth_uses_off)),
+                        arena);
+                } else {
+                    synth_uses_off = static_cast<uint32_t>(
+                        synth_uses_av.to_offset().value());
+                }
+                // Walk user's USE entries; for each, build the dotted
+                // package name and dedup-append a fresh USE node into
+                // the synth USES array. NAME-only form (build_import_scope
+                // is happy with that).
+                for (uint64_t i = 0; i < un; ++i) {
+                    AnyVal eav = user_uses->get(i, user_base);
+                    if (!eav.is_pointer()) continue;
+                    auto* unode = reinterpret_cast<const TinyObjectMap*>(
+                        user_base + eav.to_offset().value());
+                    std::string dotted;
+                    if (unode->has_key(la::NAME.code)) {
+                        AnyVal nm_av = unode->get(la::NAME.code, user_base);
+                        if (!nm_av.is_null() && nm_av.is_pointer()) {
+                            dotted = std::string(logos::hermes::StringView(
+                                nm_av.to_offset(), user_holder).view());
+                        }
+                    }
+                    if (unode->has_key(la::mod::PATH_PARTS.code)) {
+                        AnyVal pp_av = unode->get(la::mod::PATH_PARTS.code, user_base);
+                        if (!pp_av.is_null() && pp_av.is_pointer()) {
+                            auto* parts = reinterpret_cast<const ObjectArray*>(
+                                user_base + pp_av.to_offset().value());
+                            for (uint64_t pi = 0; pi < parts->size(); ++pi) {
+                                AnyVal pav = parts->get(pi, user_base);
+                                if (!pav.is_pointer()) continue;
+                                auto* part = reinterpret_cast<const TinyObjectMap*>(
+                                    user_base + pav.to_offset().value());
+                                if (!part->has_key(la::NAME.code)) continue;
+                                AnyVal nv = part->get(la::NAME.code, user_base);
+                                if (nv.is_null() || !nv.is_pointer()) continue;
+                                if (!dotted.empty()) dotted += '.';
+                                dotted += std::string(logos::hermes::StringView(
+                                    nv.to_offset(), user_holder).view());
+                            }
+                        }
+                    }
+                    if (dotted.empty()) continue;
+                    // Dedup: skip if already present in synth USES (synth
+                    // already has handler's imports + own self-use baked in).
+                    bool already = false;
+                    auto* synth_uses_ptr = reinterpret_cast<const ObjectArray*>(
+                        HermesAccess::base(doc) + synth_uses_off);
+                    for (uint64_t si = 0; si < synth_uses_ptr->size(); ++si) {
+                        AnyVal sav = synth_uses_ptr->get(si, HermesAccess::base(doc));
+                        if (!sav.is_pointer()) continue;
+                        auto* snode = reinterpret_cast<const TinyObjectMap*>(
+                            HermesAccess::base(doc) + sav.to_offset().value());
+                        if (!snode->has_key(la::NAME.code)) continue;
+                        AnyVal sn_av = snode->get(la::NAME.code,
+                                                  HermesAccess::base(doc));
+                        if (sn_av.is_null() || !sn_av.is_pointer()) continue;
+                        std::string s_existing(logos::hermes::StringView(
+                            sn_av.to_offset(), doc.holder()).view());
+                        if (s_existing == dotted) { already = true; break; }
+                    }
+                    if (already) continue;
+                    // Allocate name string + USE TOM.
+                    auto pname_e = ArenaString::create(arena, std::string_view(dotted));
+                    if (!pname_e) { blob_seen.erase(key); return 0; }
+                    uint32_t pname_off = static_cast<uint32_t>(
+                        reinterpret_cast<uint8_t*>(pname_e.get())
+                        - HermesAccess::base(doc));
+                    auto utom_e = HermesAccess::raw_tiny_map(doc, 4);
+                    if (!utom_e) { blob_seen.erase(key); return 0; }
+                    uint32_t utom_off = static_cast<uint32_t>(
+                        reinterpret_cast<uint8_t*>(utom_e.get())
+                        - HermesAccess::base(doc));
+                    auto utom_ptr = [&]() {
+                        return reinterpret_cast<TinyObjectMap*>(
+                            HermesAccess::base(doc) + utom_off);
+                    };
+                    (void)utom_ptr()->put(la::CODE.code,
+                        AnyVal::from_value(static_cast<int32_t>(la::USE.code)),
+                        arena);
+                    (void)utom_ptr()->put(la::NAME.code,
+                        AnyVal::from_offset(arena_offset_t(pname_off)),
+                        arena);
+                    auto* sa = reinterpret_cast<ObjectArray*>(
+                        HermesAccess::base(doc) + synth_uses_off);
+                    (void)sa->push_back(
+                        AnyVal::from_offset(arena_offset_t(utom_off)),
+                        arena);
+                }
+            }
+        }
+    }
+
     g_asts->push_back(std::move(doc));
     g_filenames->emplace_back("<metaprog-blob-subst>");
     g_from_binary->push_back(false);
