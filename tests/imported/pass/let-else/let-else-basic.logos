@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/let-else/let-else-bindings.rs (heavily
+// trimmed)
+// Modifications: only the Some-binding half of the test is kept —
+// Logos has no Result<T, E> stdlib (one exists for hermes/ctr but
+// not in std.lang). Tests `let Option::Some(y) = expr else { … };`
+// shape — confirms let-else works as in Rust.
+package let_else_basic;
+
+use std.lang.option;
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let x: Option<i64> = Option::Some(3i64);
+    let Option::Some(y) = x else {
+        panic("let-else panicked");
+        return 1;
+    };
+    assert_eq!(y, 3i64);
+    return 0;
+}
