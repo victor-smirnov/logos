@@ -1192,6 +1192,7 @@ private:
                             std::string package;
                             bool is_data_plain = true;  // false if any field is Kind::ZonedStruct
                             bool is_annotation_type = false;  // #[annotation] datatype (see LStructDef::is_annotation_type)
+                            bool is_tuple_struct = false;  // B-ts-01: `struct Foo(T1, T2);` — positional fields, ctor is `Foo(a, b)` and pattern is `Foo(x, y)`
                             // Partial-spec support: when this is a specialization,
                             // base_name is the generic template (e.g. "Map") and
                             // spec_patterns holds one entry per type-param slot
@@ -1331,6 +1332,20 @@ private:
     // pattern (PAT_INT/PAT_BOOL/PAT_CHAR) instead of silently binding
     // the scrutinee to a fresh local named CONST.
     logos::compiler::StrMap<hermes::TinyMapView> module_const_values_;
+
+    // B-ts-01: synth tuple-struct field names "0", "1", … interned in
+    // a long-lived list of unique_ptrs so SemaFieldInfo::name (a
+    // `string_view`) stays valid for the lifetime of `structs_`.
+    // unique_ptr ensures the underlying std::string never moves on
+    // pool growth (vector reallocations would invalidate views).
+    std::vector<std::unique_ptr<std::string>> synth_field_name_pool_;
+    std::string_view intern_synth_field_name(size_t i) {
+        while (synth_field_name_pool_.size() <= i)
+            synth_field_name_pool_.push_back(
+                std::make_unique<std::string>(std::to_string(synth_field_name_pool_.size())));
+        return *synth_field_name_pool_[i];
+    }
+
     // Generic compile-time consts: `pub const X<T1, T2, …>: HermesStatic =
     // @{ … <type:T1> … };`. Stores the templated value-AST node + type-params
     // declaration. At each use-site `X<concrete1, concrete2>` sema pushes the

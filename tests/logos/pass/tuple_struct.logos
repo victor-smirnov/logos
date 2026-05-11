@@ -1,0 +1,29 @@
+// B-ts-01 regression: tuple-struct syntax `struct Foo(T1, T2);` with
+// positional constructor `Foo(a, b)` and tuple-index member access
+// (`foo.0`, `foo.1`). Fields are synth-named "0", "1", … in sema's
+// struct registry so the existing named-field machinery handles
+// codegen / drop / move without a separate IR path. Pattern
+// destructure (`let Foo(a, b) = …`) still pending — separate grammar
+// slice.
+package tuple_struct;
+
+struct Pair(i32, i32);
+struct Triple(i32, i32, i32);
+
+fn sum(p: Pair) -> i32 {
+    return p.0 + p.1;
+}
+
+fn main() -> i32 {
+    let p: Pair = Pair(3i32, 4i32);
+    if p.0 != 3i32 { return 1; }
+    if p.1 != 4i32 { return 2; }
+    if sum(p) != 7i32 { return 3; }
+
+    let t: Triple = Triple(10i32, 20i32, 30i32);
+    if t.0 != 10i32 { return 4; }
+    if t.1 != 20i32 { return 5; }
+    if t.2 != 30i32 { return 6; }
+
+    return 0;
+}

@@ -1977,11 +1977,29 @@ void SemaChecker::collect_struct(TinyMapView node) {
         info.is_pub = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
     }
     push_type_params(info.type_params);
+    // B-ts-01: detect tuple-struct shape — first FIELD_DEF has no NAME slot.
+    if (node.has_key(la::FIELDS)) {
+        auto fs0 = arr_of(node.get(la::FIELDS.code));
+        if (fs0.size() > 0 && !map_of(fs0.get(0)).has_key(la::NAME))
+            info.is_tuple_struct = true;
+    }
     if (node.has_key(la::FIELDS)) {
         auto fields = arr_of(node.get(la::FIELDS.code));
         for (uint64_t i = 0; i < fields.size(); ++i) {
             auto fnode = map_of(fields.get(i));
-            auto fname = str_of(fnode.get(la::NAME.code));
+            // B-ts-01: tuple-struct fields have no NAME slot; synthesise
+            // "0", "1", … so member access (`foo.0`) and pattern shape
+            // (`Foo(a, b)`) reuse the named-field machinery uniformly.
+            std::string_view fname;
+            if (fnode.has_key(la::NAME)) {
+                fname = str_of(fnode.get(la::NAME.code));
+            }
+            // B-ts-01: tuple-struct fields carry no NAME slot; the
+            // synth digit name ("0", "1", …) is interned via the
+            // class-level pool below so the string_view stays valid
+            // for the SemaFieldInfo's lifetime.
+            if (fname.empty())
+                fname = intern_synth_field_name(i);
             auto ftype = resolve_type(map_of(fnode.get(la::TYPE.code)));
             bool fpub = fnode.has_key(la::IS_PUB) &&
                         fnode.get(la::IS_PUB.code).is_value() &&

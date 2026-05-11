@@ -728,6 +728,31 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
             rrt.pointee().kind() == LogosType::Kind::Tuple) {
             recv_tuple_type = rrt.pointee();
         }
+        // B-ts-01: `foo.0` on a tuple-struct lowers as a field read
+        // through the synth name "0" / "1" / …. Auto-deref &Foo /
+        // &mut Foo so `(&foo).0` works the same as `foo.0`.
+        TypeRef recv_struct_type = recv->type;
+        if (rrt && is_ref_like(rrt.kind()) && rrt.pointee() &&
+            rrt.pointee().kind() == LogosType::Kind::Struct) {
+            recv_struct_type = rrt.pointee();
+        }
+        if (TypeRef(recv_struct_type).kind() == LogosType::Kind::Struct) {
+            auto sname = std::string(TypeRef(recv_struct_type).struct_name());
+            auto [tspkg, tsinfo] = find_struct_by_name(sname);
+            if (tsinfo && tsinfo->is_tuple_struct) {
+                auto idx_sv = str_of(expr.get(la::FIELD.code));
+                uint32_t idx = (uint32_t)parse_int_literal(idx_sv);
+                if (idx >= tsinfo->fields.size()) {
+                    error(std::format(
+                        "tuple-struct '{}' field {} out of range ({} fields)",
+                        sname, idx, tsinfo->fields.size()));
+                    return error_expr();
+                }
+                auto fname = std::string(tsinfo->fields[idx].type ? std::to_string(idx) : "");
+                return builder().field_read(std::move(recv), fname,
+                                             tsinfo->fields[idx].type);
+            }
+        }
         if (TypeRef(recv_tuple_type).kind() != LogosType::Kind::Tuple) {
             error(std::format("tuple index on non-tuple type '{}'", type_str(recv->type)));
             return error_expr();
@@ -1086,6 +1111,45 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     if (callee.empty()) {
         callee = str_of(node.get(la::NAME.code));
         antiquot_callee = !callee.empty();
+    }
+
+    // B-ts-01: tuple-struct constructor `Foo(a, b)` → struct literal
+    // with positional fields named "0", "1", …. Routes through the
+    // existing struct-lit lowering so codegen / drop / move logic
+    // is shared with named-field structs.
+    if (!callee.empty()) {
+        auto [tspkg, tsinfo] = find_struct_by_name(callee);
+        if (tsinfo && tsinfo->is_tuple_struct) {
+            std::vector<lir::LExprPtr> arg_exprs;
+            if (node.has_key(la::ARGS)) {
+                auto args = arr_of(node.get(la::ARGS.code));
+                for (uint64_t i = 0; i < args.size(); ++i)
+                    arg_exprs.push_back(lower_expr(map_of(args.get(i))));
+            }
+            if (arg_exprs.size() != tsinfo->fields.size()) {
+                error(std::format(
+                    "tuple-struct '{}': expected {} fields, got {}",
+                    callee, tsinfo->fields.size(), arg_exprs.size()));
+                return error_expr();
+            }
+            std::vector<std::pair<std::string, lir::LExprPtr>> fields;
+            for (size_t i = 0; i < arg_exprs.size(); ++i) {
+                widen_int_expr(arg_exprs[i], tsinfo->fields[i].type, builder());
+                auto at = arg_exprs[i]->type;
+                auto pt = tsinfo->fields[i].type;
+                if (TypeRef(at).kind() != LogosType::Kind::Error &&
+                    TypeRef(pt).kind() != LogosType::Kind::Error &&
+                    !types_compatible(at, pt)) {
+                    auto [es, gs] = type_str_pair(pt, at);
+                    error(std::format(
+                        "tuple-struct '{}' field {}: expected {}, got {}",
+                        callee, i, es, gs));
+                }
+                fields.emplace_back(std::to_string(i), std::move(arg_exprs[i]));
+            }
+            return builder().struct_lit(std::string(callee), std::move(fields),
+                                         make_struct_type(callee, tspkg));
+        }
     }
 
     // Check if callee is a closure or fn-ptr variable
