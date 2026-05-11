@@ -2349,6 +2349,54 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
             }
             else_block = test_block;
+        } else if (arm_kind == pc::Code::Slice &&
+                   scrut_le->type &&
+                   TypeRef(scrut_le->type).kind() == LogosType::Kind::Array) {
+            // P4-pm-04: refutable slice pattern on fixed-size array.
+            // GEP each scalar sub-element and AND-chain equality tests.
+            // PatWild sub-patterns contribute no constraint. Suffix
+            // indices are computed from arr_size - suffix_count.
+            // (Dynamic slice scrutinees deferred — would need length
+            // check and runtime-known arr_size.)
+            lir_view::PatSliceView sv{arm_pat};
+            TypeRef atyp = scrut_le->type;
+            auto elem_mlir = logos_to_mlir(TypeRef(atyp).elem());
+            auto arr_mlir  = logos_to_mlir(atyp);
+            size_t total   = (size_t)TypeRef(atyp).arr_size();
+            size_t suf_n   = sv.suffix_count();
+            auto* test_block = new mlir::Block();
+            region->push_back(test_block);
+            {
+                mlir::OpBuilder::InsertionGuard ig(builder_);
+                builder_.setInsertionPointToStart(test_block);
+                mlir::Value aptr = scrut_ptr ? scrut_ptr : gen_expr(*scrut_le);
+                mlir::Value cond =
+                    builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 1);
+                auto chk_at = [&](lir_view::PatRef sp, int32_t idx) {
+                    if (!sp || sp.kind() == pc::Code::Wild) return;
+                    int64_t sub_val = 0;
+                    if      (sp.kind() == pc::Code::Int)  sub_val = lir_view::PatIntView{sp}.value();
+                    else if (sp.kind() == pc::Code::Bool) sub_val = lir_view::PatBoolView{sp}.value() ? 1 : 0;
+                    else return;
+                    if (!elem_mlir || !arr_mlir) return;
+                    llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), idx};
+                    auto ep = builder_.create<mlir::LLVM::GEPOp>(
+                        loc_, ptr_type(), arr_mlir, aptr, gi);
+                    auto ev = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, ep);
+                    auto cv = coerce_int(
+                        builder_.create<mlir::arith::ConstantIntOp>(loc_, sub_val, 64),
+                        elem_mlir);
+                    auto eq = builder_.create<mlir::arith::CmpIOp>(
+                        loc_, mlir::arith::CmpIPredicate::eq, ev, cv);
+                    cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, eq);
+                };
+                int32_t idx = 0;
+                sv.each_prefix([&](lir_view::PatRef sp){ chk_at(sp, idx++); });
+                int32_t sidx = (int32_t)(total - suf_n);
+                sv.each_suffix([&](lir_view::PatRef sp){ chk_at(sp, sidx++); });
+                builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
+            }
+            else_block = test_block;
         } else {
             int64_t disc = get_scalar_disc(arm_pat);
             bool have_disc = (disc != std::numeric_limits<int64_t>::min());

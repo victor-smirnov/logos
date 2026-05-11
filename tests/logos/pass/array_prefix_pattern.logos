@@ -1,0 +1,23 @@
+// P4-pm-04 regression: array-prefix pattern `[1, ..]` matches against
+// fixed-size array scrutinees. Refutable PatSlice now emits a
+// CondBranch with AND-chained equality tests on the named prefix /
+// suffix elements; trailing `..` absorbs the rest.
+package array_prefix_pattern;
+
+fn check(a: [i32; 3]) -> i32 {
+    match a {
+        [1i32, ..]       => { return 100; }
+        [2i32, 5i32, ..] => { return 250; }
+        [.., 9i32]       => { return 900; }
+        _                => { return 0; }
+    }
+}
+
+fn main() -> i32 {
+    if check([1i32, 0i32, 0i32]) != 100 { return 1; }
+    if check([2i32, 5i32, 0i32]) != 250 { return 2; }
+    if check([2i32, 6i32, 0i32]) !=   0 { return 3; }
+    if check([3i32, 0i32, 9i32]) != 900 { return 4; }
+    if check([4i32, 4i32, 4i32]) !=   0 { return 5; }
+    return 0;
+}
