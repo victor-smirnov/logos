@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/match-on-negative-integer-ranges.rs
+// Modifications: `if let` ditched (Logos doesn't have `if let`); the
+// same property is checked via a plain `match`.
+package match_on_negative_integer_ranges;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let r1: bool = match -50i8 {
+        -128i8..=-101i8 => true,
+        _ => false,
+    };
+    assert_eq!(r1, false);
+    return 0;
+}

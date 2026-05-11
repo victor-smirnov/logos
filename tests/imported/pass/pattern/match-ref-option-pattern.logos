@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/match-ref-option-pattern.rs
+// Modifications: rust's `&Some(_)` / `&None` patterns are rewritten as
+// `Option::Some(_)` / `Option::None` after deref. Logos's match
+// auto-derefs `&Enum` so the inner pattern can be the unqualified
+// variant pattern (similar to Rust). The qualified path is required.
+package match_ref_option_pattern;
+
+use std.lang.option;
+
+fn main() -> i32 {
+    let x: &Option<i32> = &Option::Some(1i32);
+    match x {
+        Option::Some(_) => {}
+        Option::None => {}
+    }
+    return 0;
+}

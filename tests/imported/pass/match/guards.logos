@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/guards.rs
+// Modifications: trimmed to the integer-literal half of the test — the
+// struct-bound second match (`Pair { x: x, y: y }` with guard) is left
+// out for a future batch (works once struct-pattern guards are
+// exercised in isolation).
+package guards;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let a: isize = match 10isize {
+        x if x < 7isize => 1isize,
+        x if x < 11isize => 2isize,
+        10isize => 3isize,
+        _ => 4isize,
+    };
+    assert_eq!(a, 2isize);
+    return 0;
+}

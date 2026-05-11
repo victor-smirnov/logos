@@ -21,6 +21,7 @@ per-file rows below.
 | B1 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | parser top-level (11 tests) |
 | B2 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | borrowck — move/copy/reference (11 tests) |
 | B3 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | generics — generic fn / struct / enum / type-alias / fn-ptr (12 tests) |
+| B4 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | patterns + match (5 tests; many features deferred — see pattern-match-gaps.md) |
 
 To kick off a batch:
 
@@ -79,6 +80,11 @@ Columns:
 | `pass/generics/issue-1112.logos` | `tests/ui/generics/issue-1112.rs` | B3 | explicit literal suffixes |
 | `pass/generics/issue-2936.logos` | `tests/ui/generics/issue-2936.rs` | B3 | rename `fn cbar(...)` → `cbar_new` to avoid name-shadow of struct |
 | `pass/generics/issue-333.logos` | `tests/ui/generics/issue-333.rs` | B3 | explicit `fn(T) -> T` type on the binding for `id::<T>` as fn-ptr |
+| `pass/match/guards.logos` | `tests/ui/match/guards.rs` | B4 | trimmed to integer-guard half; struct-pattern + guard half deferred to a later batch |
+| `pass/match/match-large-array.logos` | `tests/ui/match/match-large-array.rs` | B4 | trimmed — array-prefix patterns `[1, ..]` not yet supported (gap P4-pm-04) |
+| `pass/match/match-on-negative-integer-ranges.logos` | `tests/ui/match/match-on-negative-integer-ranges.rs` | B4 | `if let` form rewritten as `match` (no `if let` sugar in Logos — gap P4-pm-05) |
+| `pass/pattern/issue-10392.logos` | `tests/ui/pattern/issue-10392.rs` | B4 | nested struct pattern inside Option payload rewritten as bind-then-destructure (gap P4-pm-02); separate mlir-gen GEP crash on struct-by-value destructure (gap P4-pm-08) workaround |
+| `pass/pattern/match-ref-option-pattern.logos` | `tests/ui/match/match-ref-option-pattern.rs` | B4 | `&Some(_)` / `&None` rewritten via auto-deref + qualified path |
 
 ## When upstream changes
 

@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/match-large-array.rs
+// Modifications: array-prefix patterns `[1, ..]` are not (yet)
+// supported in Logos; the second match is trimmed to a wildcard
+// arm. The remaining test still exercises matching a large
+// (1024-byte) array against `_`, which was the regression's headline
+// concern.
+package match_large_array;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let r: usize = match [0u8; 1024] {
+        _ => 42usize,
+    };
+    assert_eq!(r, 42usize);
+    return 0;
+}
