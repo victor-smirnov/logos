@@ -120,6 +120,65 @@ pub fn format<T...: Display + Debug>(pattern: str, args: T...) -> String {
     return format_args_str(pattern, args...);
 }
 
+// ── Numeric format traits (slice 4.4c) ───────────────────────────────────
+//
+// LowerHex / UpperHex / Octal / Binary — Rust-shaped traits, one method
+// each. Per-type impl funnels through one of the four `write_*` helpers
+// below. Signed types cast to their unsigned bit-width counterpart
+// first so the rendered width matches Rust's behaviour
+// (`format!("{:x}", -1i32)` → "ffffffff", not "ffffffffffffffff").
+
+trait LowerHex { fn fmt_lower_hex(self: Self, buf: &mut String); }
+trait UpperHex { fn fmt_upper_hex(self: Self, buf: &mut String); }
+trait Octal    { fn fmt_octal(self: Self, buf: &mut String); }
+trait Binary   { fn fmt_binary(self: Self, buf: &mut String); }
+
+fn write_radix_u64(buf: &mut String, n: u64, radix: u64, upper: bool) {
+    if n == 0u64 { buf.push_u8(48u8); return; }
+    let mut tmp: [u8; 64] = [0u8; 64];
+    let mut pos: i64 = 0i64;
+    let mut m: u64 = n;
+    while m > 0u64 {
+        let d: u64 = m % radix;
+        let c: u8 =
+            if d < 10u64 {
+                (d as u8) + 48u8
+            } else if upper {
+                (d as u8) - 10u8 + 65u8
+            } else {
+                (d as u8) - 10u8 + 97u8
+            };
+        tmp[pos] = c;
+        pos = pos + 1i64;
+        m = m / radix;
+    }
+    let mut i: i64 = pos - 1i64;
+    while i >= 0i64 {
+        buf.push_u8(tmp[i]);
+        i = i - 1i64;
+    }
+}
+
+impl LowerHex for u64 { fn fmt_lower_hex(self: u64, buf: &mut String) { write_radix_u64(buf, self, 16u64, false); } }
+impl LowerHex for u32 { fn fmt_lower_hex(self: u32, buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, false); } }
+impl LowerHex for i64 { fn fmt_lower_hex(self: i64, buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, false); } }
+impl LowerHex for i32 { fn fmt_lower_hex(self: i32, buf: &mut String) { write_radix_u64(buf, self as u32 as u64, 16u64, false); } }
+
+impl UpperHex for u64 { fn fmt_upper_hex(self: u64, buf: &mut String) { write_radix_u64(buf, self, 16u64, true); } }
+impl UpperHex for u32 { fn fmt_upper_hex(self: u32, buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, true); } }
+impl UpperHex for i64 { fn fmt_upper_hex(self: i64, buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, true); } }
+impl UpperHex for i32 { fn fmt_upper_hex(self: i32, buf: &mut String) { write_radix_u64(buf, self as u32 as u64, 16u64, true); } }
+
+impl Octal for u64 { fn fmt_octal(self: u64, buf: &mut String) { write_radix_u64(buf, self, 8u64, false); } }
+impl Octal for u32 { fn fmt_octal(self: u32, buf: &mut String) { write_radix_u64(buf, self as u64, 8u64, false); } }
+impl Octal for i64 { fn fmt_octal(self: i64, buf: &mut String) { write_radix_u64(buf, self as u64, 8u64, false); } }
+impl Octal for i32 { fn fmt_octal(self: i32, buf: &mut String) { write_radix_u64(buf, self as u32 as u64, 8u64, false); } }
+
+impl Binary for u64 { fn fmt_binary(self: u64, buf: &mut String) { write_radix_u64(buf, self, 2u64, false); } }
+impl Binary for u32 { fn fmt_binary(self: u32, buf: &mut String) { write_radix_u64(buf, self as u64, 2u64, false); } }
+impl Binary for i64 { fn fmt_binary(self: i64, buf: &mut String) { write_radix_u64(buf, self as u64, 2u64, false); } }
+impl Binary for i32 { fn fmt_binary(self: i32, buf: &mut String) { write_radix_u64(buf, self as u32 as u64, 2u64, false); } }
+
 // ── Per-trait dispatch helpers (slice 4.4b) ──────────────────────────────
 //
 // Sema's lower_method_call short-circuits dot-method dispatch on slice
@@ -132,8 +191,12 @@ pub fn format<T...: Display + Debug>(pattern: str, args: T...) -> String {
 // `self: Self` signature). For slice/str this is free (fat-ptr copy);
 // for owned types it consumes — same semantics the variadic
 // `format_args_str` already had.
-pub fn fmt_display<T: Display>(arg: T, buf: &mut String) { arg.fmt(buf); }
-pub fn fmt_debug<T: Debug>(arg: T, buf: &mut String)     { arg.dbg(buf); }
+pub fn fmt_display<T: Display>(arg: T, buf: &mut String)     { arg.fmt(buf); }
+pub fn fmt_debug<T: Debug>(arg: T, buf: &mut String)         { arg.dbg(buf); }
+pub fn fmt_lower_hex<T: LowerHex>(arg: T, buf: &mut String)  { arg.fmt_lower_hex(buf); }
+pub fn fmt_upper_hex<T: UpperHex>(arg: T, buf: &mut String)  { arg.fmt_upper_hex(buf); }
+pub fn fmt_octal<T: Octal>(arg: T, buf: &mut String)         { arg.fmt_octal(buf); }
+pub fn fmt_binary<T: Binary>(arg: T, buf: &mut String)       { arg.fmt_binary(buf); }
 
 // ── Macro shells (slice 4.1 of fn-macros) ─────────────────────────────────
 //

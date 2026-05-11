@@ -1,0 +1,20 @@
+// Slice 4.4c: `{:x}` / `{:X}` / `{:o}` / `{:b}` placeholders dispatch
+// through LowerHex/UpperHex/Octal/Binary traits. Signed types render
+// as their unsigned bit-width counterpart (matches Rust), so
+// `format!("{:x}", -1i32)` → "ffffffff", not "ffffffffffffffff".
+package format_macro_hex;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let a: String = format!("{:x}", 255u64);          // "ff"
+    let b: String = format!("{:X}", 255u64);          // "FF"
+    let c: String = format!("{:o}", 8u64);            // "10"
+    let d: String = format!("{:b}", 10u64);           // "1010"
+    let e: String = format!("{:x}", -1i32);           // "ffffffff" (8 chars)
+    let f: String = format!("0x{:x}", 0xCAFEu64);     // "0xcafe"
+    println!("{} {} {} {} {} {}", a.as_str(), b.as_str(), c.as_str(),
+             d.as_str(), e.as_str(), f.as_str());
+    return (a.len() + b.len() + c.len() + d.len() + e.len() + f.len()) as i32;
+}

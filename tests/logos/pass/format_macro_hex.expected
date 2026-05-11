@@ -1,0 +1,2 @@
+exit: 24
+stdout: ff FF 10 1010 ffffffff 0xcafe

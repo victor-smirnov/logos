@@ -9824,12 +9824,17 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
                                   && s.spec.sign == FormatSign::None
                                   && !s.spec.alt && !s.spec.zero;
                     bool trait_ok = s.spec.trait_kind == FormatTrait::Display
-                                 || s.spec.trait_kind == FormatTrait::Debug;
+                                 || s.spec.trait_kind == FormatTrait::Debug
+                                 || s.spec.trait_kind == FormatTrait::LowerHex
+                                 || s.spec.trait_kind == FormatTrait::UpperHex
+                                 || s.spec.trait_kind == FormatTrait::Octal
+                                 || s.spec.trait_kind == FormatTrait::Binary;
                     if (!only_kind || !trait_ok) {
                         error(std::format(
                             "{}!: format spec uses features not yet "
-                            "implemented at runtime (slice 4.4c pending) — "
-                            "only `{{}}` and `{{:?}}` work for now",
+                            "implemented (slice 4.4d/e pending) — supported: "
+                            "`{{}}` `{{:?}}` `{{:x}}` `{{:X}}` `{{:o}}` `{{:b}}` "
+                            "(no width / precision / align / sign / fill yet)",
                             callee_name));
                         spec_blocked = true;
                         break;
