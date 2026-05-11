@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/default_method_simple.rs
+// Modifications: `println!` dropped; `struct A;` (unit struct) →
+// `struct A { _x: i64 }` since Logos requires a body. Test exercises:
+// trait default body calling `self.g()` (dynamic dispatch through Self).
+package default_method_simple;
+
+trait Foo {
+    fn f(self: &Self) {
+        self.g();
+    }
+    fn g(self: &Self);
+}
+
+struct A { _x: i64 }
+
+impl Foo for A {
+    fn g(self: &A) {}
+}
+
+fn main() -> i32 {
+    let a: A = A { _x: 0i64 };
+    a.f();
+    return 0;
+}

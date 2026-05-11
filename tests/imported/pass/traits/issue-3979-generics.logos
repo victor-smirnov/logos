@@ -1,0 +1,39 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/issue-3979-generics.rs
+// Modifications: `std::ops::Add` bound on supertrait dropped — Logos
+// doesn't auto-import std::ops; use plain `+` in default body which
+// Logos resolves via integer primitive op. Explicit `self: &mut Self`.
+// Default-body inheritance for `translate` exercises M7-mt-02 (Self
+// resolution works in this shape — no static methods in the trait).
+package issue_3979_generics;
+
+use std.fmt;
+use std.lang.text;
+
+trait Positioned<S> {
+    fn SetX(self: &mut Self, val: S);
+    fn X(self: &Self) -> S;
+}
+
+trait Movable<S>: Positioned<S> {
+    fn translate(self: &mut Self, dx: S) {
+        let x: S = self.X() + dx;
+        self.SetX(x);
+    }
+}
+
+struct Point { x: isize, y: isize }
+
+impl Positioned<isize> for Point {
+    fn SetX(self: &mut Point, val: isize) { self.x = val; }
+    fn X(self: &Point) -> isize { return self.x; }
+}
+
+impl Movable<isize> for Point {}
+
+fn main() -> i32 {
+    let mut p: Point = Point { x: 1isize, y: 2isize };
+    p.translate(3isize);
+    assert_eq!(p.X(), 4isize);
+    return 0;
+}
