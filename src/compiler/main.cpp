@@ -3109,10 +3109,23 @@ int main(int argc, char** argv) {
                     auto* base = h->base();
                     auto* tom = reinterpret_cast<logos::hermes::TinyObjectMap*>(
                                     base + site.expr_offset);
+                    // Determine the DONE marker from the current CODE
+                    // — metacall_item and fn_macro_call_item share the
+                    // ItemBlob splice path but have distinct grammar
+                    // node codes and matching DONE markers.
+                    int32_t done_code = logos::compiler::ast::METACALL_ITEM_DONE.code;
+                    {
+                        auto cav = tom->get(logos::compiler::ast::CODE.code,
+                                             const_cast<uint8_t*>(base));
+                        if (!cav.is_null() && cav.is_value()) {
+                            int32_t cur = cav.as_value<int32_t>();
+                            if (cur == logos::compiler::ast::FN_MACRO_CALL_ITEM.code)
+                                done_code = logos::compiler::ast::FN_MACRO_CALL_ITEM_DONE.code;
+                        }
+                    }
                     if (auto r = tom->put(
                             logos::compiler::ast::CODE.code,
-                            logos::hermes::AnyVal::from_value<int32_t>(
-                                logos::compiler::ast::METACALL_ITEM_DONE.code),
+                            logos::hermes::AnyVal::from_value<int32_t>(done_code),
                             h->arena()); !r) {
                         std::fprintf(stderr,
                             "logosc: metacall item-splice: CODE put failed\n");

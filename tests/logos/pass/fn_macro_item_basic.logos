@@ -1,0 +1,37 @@
+// Slice 6 of fn-macros: `name!{...}` at module item position. The
+// macro callee returns ItemList; sema dispatches through the
+// metacall-item pipeline (mirrors metacall foo(); but resolved via
+// the #[fn_macro] marker).
+package fn_macro_item_basic;
+
+use std.compiler.metaprog;
+use std.collections.vec;
+use std.hermes.view;
+
+#[fn_macro]
+pub fn emit_pair(args: Vec<ExprBlob>) -> ItemList {
+    let mut out: ItemList = item_list_new();
+    let s_a: str = "Foo";
+    let id_a: Ident = Ident { ptr: s_a.as_ptr(), len: s_a.len() as u64 };
+    let b1: QuoteItemBlob = quote_item! {
+        struct #id_a { x: i32 }
+    };
+    unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(b1); }
+
+    let s_b: str = "Bar";
+    let id_b: Ident = Ident { ptr: s_b.as_ptr(), len: s_b.len() as u64 };
+    let b2: QuoteItemBlob = quote_item! {
+        struct #id_b { y: i32 }
+    };
+    unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(b2); }
+
+    return out;
+}
+
+emit_pair!{}
+
+unsafe fn main() -> i32 {
+    let a: Foo = Foo { x: 17i32 };
+    let b: Bar = Bar { y: 25i32 };
+    return a.x + b.y;
+}

@@ -1789,6 +1789,12 @@ private:
     // (sema.cpp item dispatch) supplies the AST offset of the METACALL_ITEM
     // node so the driver can mark it consumed (CODE → METACALL_ITEM_DONE).
     void          lower_metacall_item(hermes::TinyMapView node, lir::LProgram& prog);
+    // Slice 6 of fn-macros — `name!{...}` at module item position.
+    // Mirrors lower_metacall_item but resolves callee against
+    // #[fn_macro] markers and routes args through the per-site
+    // arg-blob shim (slice 3 raw-capture path).
+    void          lower_fn_macro_call_item(hermes::TinyMapView node,
+                                           lir::LProgram& prog);
 
 public:
     // ── AST → Logos source pretty-printer (sema_render.cpp) ──────────

@@ -3602,6 +3602,18 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             pending_annots.clear();
             continue;
         }
+        if (c == la::FN_MACRO_CALL_ITEM) {
+            // Slice 6 of fn-macros: `name!{...}` at item position.
+            // Parallel to METACALL_ITEM but routes through the fn-macro
+            // pipeline (callee returns ItemList / QuoteItemBlob).
+            lower_fn_macro_call_item(item, prog);
+            pending_annots.clear();
+            continue;
+        }
+        if (c == la::FN_MACRO_CALL_ITEM_DONE) {
+            pending_annots.clear();
+            continue;
+        }
         if (c == la::METACALL_ITEM_DONE) {
             // Driver-set marker: this node has already been processed in
             // a prior round (its thunk has run, items have been spliced).

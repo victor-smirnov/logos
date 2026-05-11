@@ -291,6 +291,8 @@ inline constexpr Code PAREN_TYPE           {"PAREN_TYPE",         222}; // `(T)`
 inline constexpr Code TAIL_EXPR            {"TAIL_EXPR",          223}; // `expr` (no SEMI) at stmt position; sema synthesizes implicit `return expr` for non-void fns (B-fn-06).
 inline constexpr Code LIT_CHAR             {"LIT_CHAR",           224}; // `'X'` Unicode scalar literal. VALUE = original char-lit text including quotes.
 inline constexpr Code FN_MACRO_CALL        {"FN_MACRO_CALL",      225}; // `name!(args)` / `name![args]` — function-style macro invocation. CALLEE(8) = ident, ARGS(11) = items array. Sema resolves CALLEE against #[fn_macro] fns and lowers via metacall pipeline with ARGS as ExprBlobs.
+inline constexpr Code FN_MACRO_CALL_ITEM   {"FN_MACRO_CALL_ITEM", 226}; // `name!{...}` at module item position. Same RAW_TEXT capture as FN_MACRO_CALL but routes through the metacall_item pipeline (callee returns ItemList / QuoteItemBlob → items spliced).
+inline constexpr Code FN_MACRO_CALL_ITEM_DONE{"FN_MACRO_CALL_ITEM_DONE", 227}; // Set by the driver after a FN_MACRO_CALL_ITEM has been spliced.
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  META            {"META",               16};   // meta @{...} block node on struct/trait/datatype declarations (reuses PATH_PARTS slot; these node types never co-exist)

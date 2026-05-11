@@ -10176,6 +10176,282 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
     return builder().hermes_lit_v(std::move(lit), macro_info->ret_type);
 }
 
+// ── name!{...} at module item position (slice 6 of fn-macros) ────────────
+//
+// Mirrors lower_metacall_item but resolves the callee against the
+// #[fn_macro] marker (slice 1) and routes ARGs through the slice 3
+// raw-capture pipeline. Callee must return ItemList or QuoteItemBlob;
+// the synthesised thunk drains those into the global AST list via
+// logos_emit_item_blob_subst.
+void SemaChecker::lower_fn_macro_call_item(hermes::TinyMapView node,
+                                            lir::LProgram& prog) {
+    using logos::hermes::AnyVal;
+    using logos::hermes::HermesAccess;
+    using logos::hermes::TinyObjectMap;
+    using logos::hermes::make_doc;
+    using logos::hermes::copy_object_into;
+
+    if (!node.has_key(la::CALLEE)) {
+        error("fn_macro item: missing callee");
+        return;
+    }
+    std::string callee_name(str_of(node.get(la::CALLEE.code)));
+
+    auto ovit = func_overloads_.find(callee_name);
+    if (ovit == func_overloads_.end()) {
+        error(std::format("fn_macro item: unknown callee '{}!'", callee_name));
+        return;
+    }
+    const SemaFuncInfo* macro_info = nullptr;
+    for (const auto& sym : ovit->second) {
+        auto fit = funcs_.find(sym);
+        if (fit == funcs_.end()) continue;
+        if (fit->second.is_fn_macro) {
+            macro_info = &fit->second;
+            break;
+        }
+    }
+    if (!macro_info) {
+        error(std::format(
+            "fn_macro item: '{}!' is not marked #[fn_macro]", callee_name));
+        return;
+    }
+
+    // Callee must return ItemList or QuoteItemBlob.
+    auto rt = macro_info->ret_type;
+    bool rt_is_qib  = is_quote_item_blob(rt);
+    bool rt_is_il   = is_item_list(rt);
+    if (!rt_is_qib && !rt_is_il) {
+        error(std::format(
+            "fn_macro item: '{}!' must return `ItemList` or `QuoteItemBlob`",
+            callee_name));
+        return;
+    }
+
+    // Item-form callees take Vec<ExprBlob> args (mirrors the expression
+    // path's vec form). Skip single-ExprBlob shape — items are usually
+    // 0-or-many.
+    bool sig_vec = macro_info->param_types.size() == 1
+        && TypeRef(macro_info->param_types[0]).kind() == LogosType::Kind::Struct
+        && TypeRef(macro_info->param_types[0]).struct_name() == "Vec"
+        && TypeRef(macro_info->param_types[0]).type_args().size() == 1
+        && is_exprblob(TypeRef(macro_info->param_types[0]).type_args()[0]);
+    bool sig_zero = macro_info->param_types.empty();
+    if (!sig_vec && !sig_zero) {
+        error(std::format(
+            "fn_macro item: '{}!' must take `Vec<ExprBlob>` or no args",
+            callee_name));
+        return;
+    }
+
+    if (!holder_ || !cur_prog_) return;
+
+    // Re-parse RAW_TEXT via the wrap-and-extract path (same as the
+    // expression form). For zero-arg item macros, RAW_TEXT may be empty
+    // — we still wrap as `__c()` so the parser produces an empty ARGS
+    // array.
+    if (!node.has_key(la::RAW_TEXT)) {
+        error("fn_macro item: missing RAW_TEXT (grammar regression?)");
+        return;
+    }
+    std::string raw_text(str_of(node.get(la::RAW_TEXT.code)));
+    std::string wrap_src = std::format(
+        "package __fn_macro_item_args;\nfn __f() {{ __c({}); }}\n", raw_text);
+    logos::compiler::LogosParser wrap_parser(wrap_src);
+    auto wrap_doc = wrap_parser.parse_module();
+    if (wrap_doc.is_null() || !wrap_parser.at_eof()) {
+        error(std::format(
+            "fn_macro item: '{}!{{...}}' args failed to parse as expr list",
+            callee_name));
+        return;
+    }
+    const uint8_t* src_base = HermesAccess::base(wrap_doc);
+    auto wrap_root = wrap_doc.root_object().as_tiny_map();
+    auto nav_array_first = [&](TinyObjectMap* tom, uint8_t key) -> TinyObjectMap* {
+        if (!tom->has_key(key)) return nullptr;
+        AnyVal av = tom->get(key, const_cast<uint8_t*>(src_base));
+        if (!av.is_pointer()) return nullptr;
+        auto* arr = reinterpret_cast<logos::hermes::ObjectArray*>(
+            const_cast<uint8_t*>(src_base) + av.to_offset().value());
+        if (arr->size() == 0) return nullptr;
+        AnyVal el = arr->get(0, const_cast<uint8_t*>(src_base));
+        if (!el.is_pointer()) return nullptr;
+        return reinterpret_cast<TinyObjectMap*>(
+            const_cast<uint8_t*>(src_base) + el.to_offset().value());
+    };
+    auto nav_key = [&](TinyObjectMap* tom, uint8_t key) -> TinyObjectMap* {
+        if (!tom->has_key(key)) return nullptr;
+        AnyVal av = tom->get(key, const_cast<uint8_t*>(src_base));
+        if (!av.is_pointer()) return nullptr;
+        return reinterpret_cast<TinyObjectMap*>(
+            const_cast<uint8_t*>(src_base) + av.to_offset().value());
+    };
+    auto* mod = const_cast<TinyObjectMap*>(wrap_root.ptr());
+    auto* fn = nav_array_first(mod, la::ITEMS.code);
+    auto* body = fn ? nav_key(fn, la::BODY.code) : nullptr;
+    auto* stmt = body ? nav_array_first(body, la::ITEMS.code) : nullptr;
+    TinyObjectMap* call_tom = nullptr;
+    if (stmt) {
+        int32_t sc = 0;
+        if (stmt->has_key(la::CODE.code)) {
+            AnyVal cv = stmt->get(la::CODE.code, const_cast<uint8_t*>(src_base));
+            if (!cv.is_null() && !cv.is_pointer()) sc = cv.as_value<int32_t>();
+        }
+        if (sc == la::EXPR_STMT.code || sc == la::TAIL_EXPR.code)
+            call_tom = nav_key(stmt, la::VALUE.code);
+        else if (sc == la::CALL.code)
+            call_tom = stmt;
+    }
+    std::vector<AnyVal> arg_avs;
+    if (call_tom && call_tom->has_key(la::ARGS.code)) {
+        AnyVal av = call_tom->get(la::ARGS.code, const_cast<uint8_t*>(src_base));
+        if (av.is_pointer()) {
+            auto* arr = reinterpret_cast<logos::hermes::ObjectArray*>(
+                const_cast<uint8_t*>(src_base) + av.to_offset().value());
+            for (uint64_t i = 0; i < arr->size(); ++i)
+                arg_avs.push_back(arr->get(i, const_cast<uint8_t*>(src_base)));
+        }
+    }
+
+    if (sig_zero && !arg_avs.empty()) {
+        error(std::format(
+            "fn_macro item: '{}!{{...}}' takes no args, got {}",
+            callee_name, arg_avs.size()));
+        return;
+    }
+
+    uint64_t site_id = prog.metacall_sites.size();
+
+    // Serialise each ARG into the per-site arg-blob table.
+    auto& blobs = prog.macro_arg_blobs[site_id];
+    blobs.resize(arg_avs.size());
+    for (size_t i = 0; i < arg_avs.size(); ++i) {
+        if (arg_avs[i].is_null() || !arg_avs[i].is_pointer()) {
+            error(std::format("fn_macro item: arg {} is not an AST node", i));
+            return;
+        }
+        const auto* src_tom = reinterpret_cast<const TinyObjectMap*>(
+            src_base + arg_avs[i].to_offset().value());
+        int32_t code = 0;
+        if (src_tom->has_key(la::CODE.code)) {
+            AnyVal cav = src_tom->get(la::CODE.code,
+                                      const_cast<uint8_t*>(src_base));
+            if (!cav.is_null() && !cav.is_pointer())
+                code = cav.as_value<int32_t>();
+        }
+        if (code == 0) {
+            error(std::format("fn_macro item: arg {} root has no CODE", i));
+            return;
+        }
+        auto doc_e = make_doc(4096);
+        if (!doc_e) { error("fn_macro item: make_doc failed"); return; }
+        auto doc = std::move(doc_e).get();
+        auto cp_e = copy_object_into(src_tom, src_base, doc);
+        if (!cp_e) { error("fn_macro item: copy_object_into failed"); return; }
+        void* dst_obj = cp_e.get();
+        uint32_t root_off = static_cast<uint32_t>(
+            reinterpret_cast<uint8_t*>(dst_obj) - HermesAccess::base(doc));
+        {
+            auto* dst_root = reinterpret_cast<TinyObjectMap*>(
+                HermesAccess::base(doc) + root_off);
+            dst_root->set_schema_type_code(
+                logos::hermes::schema::ast(code));
+        }
+        HermesAccess::set_root_offset(doc,
+            logos::hermes::arena_offset_t{root_off});
+        auto& arena = HermesAccess::arena(doc);
+        const uint8_t* data = arena.head().data();
+        size_t used = arena.total_used();
+        blobs[i].resize(8 + used);
+        uint64_t sz = static_cast<uint64_t>(used);
+        std::memcpy(blobs[i].data(), &sz, 8);
+        std::memcpy(blobs[i].data() + 8, data, used);
+    }
+
+    // Synthesise thunk. Call shape:
+    //   let __r = callee(<args reconstituted>);
+    //   for each item in __r → emit via logos_emit_item_blob_subst.
+    std::string pkg = cur_package_.empty() ? "__metacall_thunks" : cur_package_;
+    std::string thunk_name = std::format("__metacall_thunk_{}", site_id);
+    std::string call_text;
+    if (sig_zero) {
+        call_text = std::format("{}()", macro_info->base_name);
+    } else {
+        // sig_vec — reconstitute Vec<ExprBlob>.
+        std::string vec_build;
+        for (size_t i = 0; i < arg_avs.size(); ++i) {
+            vec_build += std::format(
+                "    __v.push(ExprBlob {{ ptr: unsafe {{ logos_macro_arg({}u64, {}u64) }} }});\n",
+                site_id, i);
+        }
+        call_text = std::format(
+            "{{\n"
+            "    let mut __v: Vec<ExprBlob> = vec_new::<ExprBlob>();\n"
+            "{}"
+            "    {}(__v)\n"
+            "}}",
+            vec_build, macro_info->base_name);
+    }
+
+    std::string thunk_src;
+    if (rt_is_il) {
+        thunk_src = std::format(
+            "package {};\n"
+            "use std.compiler.metaprog;\n"
+            "use std.collections.vec;\n"
+            "use std.hermes.view;\n"
+            "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
+            "extern fn logos_qib_free_idents(blob: *const u8);\n"
+            "extern fn logos_qib_free_blobs(blob: *const u8);\n"
+            "extern fn logos_qib_free_cursors(blob: *const u8);\n"
+            "unsafe fn {}() -> () {{\n"
+            "    let mut __il: ItemList = {};\n"
+            "    let n: i64 = (&__il.blobs).length();\n"
+            "    let mut i: i64 = 0i64;\n"
+            "    while i < n {{\n"
+            "        let p: *const QuoteItemBlob = unsafe {{\n"
+            "            (&__il.blobs as *const Vec<QuoteItemBlob>).at_const(i)\n"
+            "        }};\n"
+            "        unsafe {{ logos_emit_item_blob_subst(p); }}\n"
+            "        unsafe {{ logos_qib_free_idents((*p).idents_blob); }}\n"
+            "        unsafe {{ logos_qib_free_blobs((*p).blobs_blob); }}\n"
+            "        unsafe {{ logos_qib_free_cursors((*p).cursors_blob); }}\n"
+            "        i = i + 1i64;\n"
+            "    }}\n"
+            "    return;\n"
+            "}}\n",
+            pkg, thunk_name, call_text);
+    } else {
+        thunk_src = std::format(
+            "package {};\n"
+            "use std.compiler.metaprog;\n"
+            "use std.collections.vec;\n"
+            "use std.hermes.view;\n"
+            "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
+            "extern fn logos_qib_free_idents(blob: *const u8);\n"
+            "extern fn logos_qib_free_blobs(blob: *const u8);\n"
+            "extern fn logos_qib_free_cursors(blob: *const u8);\n"
+            "unsafe fn {}() -> () {{\n"
+            "    let __b: QuoteItemBlob = {};\n"
+            "    unsafe {{ logos_emit_item_blob_subst(&__b); }}\n"
+            "    unsafe {{ logos_qib_free_idents(__b.idents_blob); }}\n"
+            "    unsafe {{ logos_qib_free_blobs(__b.blobs_blob); }}\n"
+            "    unsafe {{ logos_qib_free_cursors(__b.cursors_blob); }}\n"
+            "    return;\n"
+            "}}\n",
+            pkg, thunk_name, call_text);
+    }
+
+    lir::LProgram::MetacallSite site;
+    site.ast_idx = cur_ast_idx_;
+    site.expr_offset = static_cast<uint32_t>(node.offset().value());
+    site.thunk_name = thunk_name;
+    site.thunk_source = std::move(thunk_src);
+    site.ret_tag = lir::LProgram::MetacallSite::RetTag::ItemBlob;
+    site.callee_name = macro_info->base_name;
+    prog.metacall_sites.push_back(std::move(site));
+}
+
 // ── metacall <call_expr>; at item position ───────────────────────────────
 //
 // MC1.1: at module top-level, `metacall foo();` is required to return a

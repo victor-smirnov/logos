@@ -272,6 +272,8 @@
     TAIL_EXPR                   = 223   // `expr` (no SEMI) at stmt position; sema synthesizes implicit `return expr` for non-void fns (B-fn-06).
     LIT_CHAR                    = 224   // `'X'` Unicode scalar literal. VALUE = original char-lit text including quotes; sema decodes.
     FN_MACRO_CALL               = 225   // `name!(args)` / `name![args]` — function-style macro. CALLEE = ident, ARGS = expr-list. Sema resolves CALLEE against #[fn_macro] fns; arg ASTs become ExprBlobs.
+    FN_MACRO_CALL_ITEM          = 226   // `name!{...}` at module item position. Same shape as FN_MACRO_CALL but routes through metacall_item-style splice (callee returns ItemList / QuoteItemBlob).
+    FN_MACRO_CALL_ITEM_DONE     = 227   // set by driver after item-macro splice; sema skips.
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -426,7 +428,14 @@
     path_dot_ident <- DOT IDENT
                    => { NAME: $2 }
 
-    item <- template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / metacall_item_decl / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
+    item <- template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / metacall_item_decl / fn_macro_item_decl / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
+
+    // Slice 6 of fn-macros — item-position macro invocation. Brace
+    // delimiter only (parens / brackets stay at expression position).
+    // RAW_TEXT capture identical to FN_MACRO_CALL; sema dispatches
+    // through the metacall-item pipeline (callee returns ItemList).
+    fn_macro_item_decl <- IDENT BANG RAW_GROUP_BRACE
+                       => { CODE: FN_MACRO_CALL_ITEM, CALLEE: $1, RAW_TEXT: $3 }
 
     // ── Item-position metacall ───────────────────────────────────
     // `metacall foo::<...>(...);` at module top level. The callee returns
