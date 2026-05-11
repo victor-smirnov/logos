@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/new-style-fixed-length-vec.rs
+// Modifications: `static` → `pub const` (Logos has no `static`
+// keyword; `pub const` admits array literals at compile time). The
+// `println!` body is replaced by direct value checks since Rust's
+// `println!("{} {} {}", …)` is a macro arc Logos doesn't aim to
+// support verbatim. The point — indexing a top-level array — is
+// preserved.
+package new_style_fixed_length_vec;
+
+use std.fmt;
+use std.lang.text;
+
+pub const FOO: [isize; 3] = [1isize, 2isize, 3isize];
+
+fn main() -> i32 {
+    if FOO[0i64] != 1isize { return 1; }
+    if FOO[1i64] != 2isize { return 2; }
+    if FOO[2i64] != 3isize { return 3; }
+    return 0;
+}

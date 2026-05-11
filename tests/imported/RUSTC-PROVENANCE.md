@@ -133,3 +133,4 @@ This file is the source of truth for what came from where; keep it
 honest.
 | B11 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | Phase 3 second-pass — new imports (binop + array-slice-vec, 3 tests) |
 | B12 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | expr — block-as-expr / fn-ptr / if-generic / panic / early-return (6 tests) |
+| B13 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | array-slice-vec — fixed-length copy / index / repeat / static-array (4 tests) |

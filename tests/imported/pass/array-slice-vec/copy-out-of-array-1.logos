@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/copy-out-of-array-1.rs
+// Modifications: nested fns lifted to module scope (Logos doesn't
+// allow fn-in-fn); `#[derive(Copy, Clone)]` dropped — auto-Copy
+// covers `C { _x: u8 }`. `i: usize` becomes `i: i64` to match
+// Logos's array-index type. The original test only checked that the
+// program compiles and runs without UAF on a Copy fixed array; the
+// returned C values are still discarded.
+package copy_out_of_array_1;
+
+struct C { _x: u8 }
+
+fn d() -> C { return C { _x: 0u8 }; }
+
+fn foo(a: [C; 4], i: i64) -> C {
+    return a[i];
+}
+
+fn main() -> i32 {
+    let _d1: C = foo([d(), d(), d(), d()], 1i64);
+    let _d3: C = foo([d(), d(), d(), d()], 3i64);
+    return 0;
+}

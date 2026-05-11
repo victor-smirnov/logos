@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/repeated-vector-syntax.rs
+// Modifications: `for xi in &x[..] { … }` + `println!`/`print!` macro
+// arc dropped — Logos has no slice-from-fixed-array coercion (a
+// separate gap; `&[T; N] → &[T]` isn't wired) and the original
+// only exercised printing. The core test — `[v; N]`-style repeat
+// arrays inside other repeat arrays — is preserved with direct
+// value asserts.
+package repeated_vector_syntax;
+
+fn main() -> i32 {
+    let x: [[bool; 1]; 512] = [[true]; 512];
+    let y: [i32; 1] = [0i32; 1];
+    if x[0i64][0i64]   != true  { return 1; }
+    if x[511i64][0i64] != true  { return 2; }
+    if y[0i64]         != 0i32  { return 3; }
+    return 0;
+}
