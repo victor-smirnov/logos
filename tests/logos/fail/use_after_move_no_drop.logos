@@ -1,6 +1,11 @@
 package use_after_move_no_drop;
-// Regression: move tracking must work for structs without Drop impl
+// Regression: move tracking still fires for non-Copy structs. Owned
+// has a user Drop impl, so auto-Copy (G3-tg-03) doesn't apply and
+// `let _ = consume(x); x.val` is a real use-after-move.
 struct Owned { val: i32, }
+impl Drop for Owned {
+    fn drop(self: &mut Owned) { }
+}
 fn consume(o: Owned) -> i32 { return o.val; }
 fn main() -> i32 {
     let x = Owned { val: 42 };

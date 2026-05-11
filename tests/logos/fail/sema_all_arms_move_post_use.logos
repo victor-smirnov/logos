@@ -1,6 +1,11 @@
 // Both match arms move x without diverging; post-match use must error.
 package sema_all_arms_move_post_use;
+// Foo has a Drop impl so auto-Copy (G3-tg-03) doesn't apply and
+// move tracking fires as before.
 struct Foo { v: i32 }
+impl Drop for Foo {
+    fn drop(self: &mut Foo) { }
+}
 fn drop_foo(f: Foo) { }
 fn read_foo(f: Foo) -> i32 { return f.v; }
 

@@ -1433,6 +1433,112 @@ bool SemaChecker::has_droppable_fields(TypeRef t) const {
     return false;
 }
 
+// Auto-Copy: a struct with no `impl Drop` and whose every field is itself
+// a Copy type behaves as Copy (uniform structural rule — no
+// `#[derive(Copy)]` opt-in). Fixpoint over the struct dependency graph;
+// `impl Copy for X` entries inserted by collect_impl seed the set.
+//
+// Copy field kinds: all primitives (integers, floats, bool, char,
+// usize/isize), raw pointers (*const/*mut), references (&/&mut),
+// function pointers, and structs already known Copy. Tuples are Copy
+// iff every element is Copy. Anything else (TypeVar, Closure, Array of
+// non-Copy, Slice, TraitObject, Enum-with-payload, etc.) blocks Copy.
+//
+// `impl Drop for X` blocks Copy regardless of field shape. has_droppable_fields
+// is *not* used here — transitive drop comes from a field type, and if that
+// type isn't Copy, the field-kind check already rejects.
+void SemaChecker::compute_auto_copy_types() {
+    using K = LogosType::Kind;
+    auto field_kind_is_trivially_copy = [](K k) {
+        switch (k) {
+            case K::I8: case K::I16: case K::I24: case K::I32:
+            case K::I56: case K::I64: case K::I128:
+            case K::U8: case K::U16: case K::U24: case K::U32:
+            case K::U56: case K::U64: case K::U128:
+            case K::F32: case K::F64:
+            case K::Bool: case K::Char:
+            case K::Usize: case K::Isize:
+            case K::Ptr: case K::Ref: case K::MutRef:
+            case K::FnPtr: case K::TaggedPtr:
+            case K::Enum:               // payload-less enums; payload enums rejected below
+                return true;
+            default: return false;
+        }
+    };
+    auto has_drop_impl = [&](const std::string& bare_name) {
+        // Drop registration: collect_impl inserts into impls_ keyed
+        // "Drop::<target>". Plain bare-name lookup matches both
+        // `impl Drop for X` and pkg-qualified variants.
+        return impls_.count("Drop::" + bare_name) != 0;
+    };
+    // is_copy_field: does this field-type qualify as Copy given the current
+    // pending-copy set? Recurses into struct/tuple shapes; bottoms out on
+    // primitive kinds or the pending set.
+    std::function<bool(TypeRef)> is_copy_field;
+    is_copy_field = [&](TypeRef t) -> bool {
+        if (!t) return false;
+        auto k = TypeRef(t).kind();
+        if (field_kind_is_trivially_copy(k)) {
+            // Enum: Copy iff no variant has a payload AND no impl Drop.
+            // (Logos enums-with-payload are tagged unions storing owned data.)
+            if (k == K::Enum) {
+                auto ename = std::string(TypeRef(t).struct_name());
+                auto eit = enums_.find(ename);
+                if (eit == enums_.end()) return true;  // unknown — be generous
+                for (auto& v : eit->second.variants)
+                    if (!v.payload_types.empty()) return false;
+                return true;
+            }
+            return true;
+        }
+        if (k == K::Struct) {
+            // Look up by qualified-then-bare key, same as has_droppable_fields.
+            auto sit = structs_.end();
+            if (!TypeRef(t).pkg_name().empty()) {
+                auto qkey = sema_key(TypeRef(t).pkg_name(), TypeRef(t).struct_name());
+                sit = structs_.find(qkey);
+            }
+            if (sit == structs_.end()) sit = structs_.find(std::string(TypeRef(t).struct_name()));
+            if (sit == structs_.end()) return false;  // unknown — conservative
+            return copy_types_.count(std::string(TypeRef(t).struct_name())) != 0;
+        }
+        if (k == K::Tuple) {
+            for (auto sub : TypeRef(t).type_args())
+                if (!is_copy_field(sub)) return false;
+            return true;
+        }
+        return false;
+    };
+
+    // Fixpoint: each round, promote any non-Drop struct whose every field is
+    // a copy_field. Stops when no new struct is promoted.
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (auto& [skey, info] : structs_) {
+            // skey is "pkg::name" (sema_key separator) or "name"; strip pkg
+            // for the copy_types_ set because that's what is_move_type keys
+            // on (TypeRef::struct_name() returns bare).
+            std::string bare = skey;
+            if (auto sep = bare.rfind("::"); sep != std::string::npos)
+                bare = bare.substr(sep + 2);
+            if (copy_types_.count(bare)) continue;
+            // Spec / annotation / Hermes datatypes — leave to manual `impl Copy`.
+            if (!info.is_data_plain) continue;
+            if (info.fields.empty()) continue;  // zero-sized; skip (Logos treats odd)
+            if (has_drop_impl(bare)) continue;
+            bool all_copy = true;
+            for (auto& f : info.fields) {
+                if (!is_copy_field(f.type)) { all_copy = false; break; }
+            }
+            if (all_copy) {
+                copy_types_.insert(bare);
+                changed = true;
+            }
+        }
+    }
+}
+
 std::optional<lir::LStmt> SemaChecker::make_drop_stmt(const std::string& name, const VarInfo& info) const {
     auto dfn = drop_fn_for(info.type);
     bool df  = has_droppable_fields(info.type);

@@ -368,6 +368,12 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
     // Deferred check: verify supertrait impls are satisfied for all trait impls.
     // Deferred because impl Foo for T and impl Super for T may appear in any order.
     check_supertrait_impls();
+
+    // G3-tg-03: structural auto-Copy. After manual `impl Copy` entries are
+    // collected, walk structs_ once more and promote any non-Drop struct
+    // whose every field is itself Copy. Closes the most surprising Logos-
+    // vs-Rust divergence for porting scalar-only structs.
+    compute_auto_copy_types();
 }
 
 void SemaChecker::simplify_all_types() {

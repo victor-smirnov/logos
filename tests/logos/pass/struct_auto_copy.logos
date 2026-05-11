@@ -1,0 +1,30 @@
+package struct_auto_copy;
+// G3-tg-03: structural auto-Copy. A struct whose every field is itself
+// Copy (primitive / raw ptr / ref / Copy struct / Copy enum) and which
+// has no `impl Drop` is Copy — no `.clone()` needed, no use-after-move
+// after passing by value.
+
+struct Triple { x: i32, y: i32, z: i32 }
+struct Pair   { a: i64, b: i64 }
+struct Nested { p: Pair, k: u32 }
+
+fn id_triple(t: Triple) -> Triple { return t; }
+fn sum_pair(p: Pair) -> i64       { return p.a + p.b; }
+
+fn main() -> i32 {
+    let t = Triple { x: 1i32, y: 2i32, z: 3i32 };
+    let u = id_triple(t);
+    if t.z != 3i32 { return 1; }
+    if u.x != 1i32 { return 2; }
+
+    let p = Pair { a: 10i64, b: 20i64 };
+    let s = sum_pair(p);
+    if s != 30i64    { return 3; }
+    if p.b != 20i64  { return 4; }
+
+    let n = Nested { p: Pair { a: 7i64, b: 8i64 }, k: 99u32 };
+    let m = n;
+    if n.k != 99u32  { return 5; }
+    if m.p.a != 7i64 { return 6; }
+    return 0;
+}

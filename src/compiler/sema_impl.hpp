@@ -1079,6 +1079,10 @@ private:
     }
 
     bool is_move_type(TypeRef t) const;
+    // Auto-Copy pass — populates copy_types_ for structs whose every field
+    // is a Copy type and which have no `impl Drop`. Called after
+    // check_supertrait_impls so manual `impl Copy` entries are already in.
+    void compute_auto_copy_types();
     void mark_moved(const std::string& name) { moved_vars_.insert(name); }
 
     // Writing a move-type RHS into a memory cell (deref, indexed, field, …)

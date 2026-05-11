@@ -1,7 +1,12 @@
 package move_closure_use_after_move;
 
+// Box has a Drop impl so auto-Copy (G3-tg-03) doesn't apply; the
+// `move` closure captures it by value and post-capture use must error.
 struct Box {
     x: i32,
+}
+impl Drop for Box {
+    fn drop(self: &mut Box) { }
 }
 
 fn main() -> i32 {
