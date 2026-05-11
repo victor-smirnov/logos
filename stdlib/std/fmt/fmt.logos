@@ -120,6 +120,21 @@ pub fn format<T...: Display + Debug>(pattern: str, args: T...) -> String {
     return format_args_str(pattern, args...);
 }
 
+// ── Per-trait dispatch helpers (slice 4.4b) ──────────────────────────────
+//
+// Sema's lower_method_call short-circuits dot-method dispatch on slice
+// and str receivers (returns "slice has no method '<name>'"). Generic-
+// context dispatch through trait bounds still works, so format-family
+// lowering routes every placeholder through one of these thin generic
+// wrappers instead of emitting `(arg).fmt(&mut __buf)` directly.
+//
+// Each helper is by-value in the arg (matching the underlying trait's
+// `self: Self` signature). For slice/str this is free (fat-ptr copy);
+// for owned types it consumes — same semantics the variadic
+// `format_args_str` already had.
+pub fn fmt_display<T: Display>(arg: T, buf: &mut String) { arg.fmt(buf); }
+pub fn fmt_debug<T: Debug>(arg: T, buf: &mut String)     { arg.dbg(buf); }
+
 // ── Macro shells (slice 4.1 of fn-macros) ─────────────────────────────────
 //
 // `format!("pat", args...)` — Rust-style shorthand around `format_args_str`.

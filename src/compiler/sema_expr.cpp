@@ -9796,12 +9796,26 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
                     error(std::format("{}!: {}", callee_name, msg));
                 });
             if (fmt_result.ok) {
-                // Slice 4.4a gate: only `{}` (Display) and `{:?}` (Debug)
-                // are wired through the runtime today. The parser accepts
-                // the full Rust spec grammar so the structured form is
-                // ready for slice 4.4b lowering, but anything beyond
-                // trait_kind=Display/Debug with no width/precision/fill
-                // would silently misbehave at runtime — reject loudly.
+                // Slice 4.4b: sema-resident lowering for format-family.
+                // Generate a synthesized block expression
+                //   { let mut __buf = String::new();
+                //     __buf.push_str(<lit_0>);
+                //     (<arg_0>).fmt(&mut __buf);
+                //     __buf.push_str(<lit_1>);
+                //     (<arg_1>).dbg(&mut __buf);
+                //     ...
+                //     __buf
+                //   }
+                // and lower it in-place — no JIT thunk roundtrip. Each
+                // placeholder dispatches to its trait method
+                // (format_trait_method), so per-arg trait choice falls
+                // out of the spec at compile time. The print-family
+                // variants append a tail that drains __buf to stdout/
+                // stderr via the std.fmt re-export wrappers.
+                //
+                // Spec gating: only `{}`/`{:?}` are runtime-supported
+                // today; the rest reject. Slice 4.4c+ adds them.
+                bool spec_blocked = false;
                 for (auto& s : fmt_result.segments) {
                     if (s.is_literal) continue;
                     bool only_kind = s.spec.width < 0
@@ -9814,9 +9828,10 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
                     if (!only_kind || !trait_ok) {
                         error(std::format(
                             "{}!: format spec uses features not yet "
-                            "implemented at runtime (slice 4.4b pending) — "
+                            "implemented at runtime (slice 4.4c pending) — "
                             "only `{{}}` and `{{:?}}` work for now",
                             callee_name));
+                        spec_blocked = true;
                         break;
                     }
                 }
@@ -9835,8 +9850,10 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
                 // "K placeholders but M arguments provided" so existing
                 // tests stay green. Only fires when no explicit-index
                 // form is in use (which would re-use args differently).
+                bool arity_ok;
                 if (fmt_result.max_explicit_plus_one == 0) {
-                    if (placeholders != args_provided) {
+                    arity_ok = (placeholders == args_provided);
+                    if (!arity_ok) {
                         error(std::format(
                             "{}!: format string has {} placeholder{} but "
                             "{} argument{} provided",
@@ -9844,12 +9861,148 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
                             placeholders, (placeholders == 1 ? "" : "s"),
                             args_provided, (args_provided == 1 ? "" : "s")));
                     }
-                } else if (args_provided < needed) {
-                    error(std::format(
-                        "{}!: format string references arg index up to {} "
-                        "but only {} argument{} provided",
-                        callee_name, needed - 1,
-                        args_provided, (args_provided == 1 ? "" : "s")));
+                } else {
+                    arity_ok = (args_provided >= needed);
+                    if (!arity_ok) {
+                        error(std::format(
+                            "{}!: format string references arg index up to {} "
+                            "but only {} argument{} provided",
+                            callee_name, needed - 1,
+                            args_provided, (args_provided == 1 ? "" : "s")));
+                    }
+                }
+
+                // ── Sema-resident lowering (slice 4.4b) ─────────────────
+                // Build the synthesised block source by rendering each
+                // arg AST back to text and stitching with literal
+                // segments. Then re-parse + lower the block in user's
+                // sema context so identifier resolution sees user locals.
+                if (!spec_blocked && arity_ok) {
+                    // Helper: emit a string-literal-shaped segment of
+                    // Logos source from a slice. The format-string body
+                    // already contains well-formed Logos string content
+                    // (lexer's escape rules), so re-wrapping in `"…"`
+                    // round-trips through the parser.
+                    auto emit_str_lit = [](std::string_view t) {
+                        std::string out = "\"";
+                        out.append(t.data(), t.size());
+                        out.push_back('"');
+                        return out;
+                    };
+
+                    // Swap holder so render_expr_src reads via wrap_doc.
+                    auto* saved_holder = holder_;
+                    holder_ = wrap_doc.holder();
+
+                    std::string blk = "{ let mut __buf: String = String::new(); ";
+                    int32_t auto_idx = 0;
+                    for (auto& seg : fmt_result.segments) {
+                        if (seg.is_literal) {
+                            if (seg.lit_text.empty()) continue;
+                            blk += "__buf.push_str(";
+                            blk += emit_str_lit(seg.lit_text);
+                            blk += "); ";
+                            continue;
+                        }
+                        int32_t idx = (seg.arg_idx >= 0) ? seg.arg_idx : auto_idx++;
+                        int32_t value_idx = idx + 1;  // args[0] is the fmt str
+                        if (value_idx >= static_cast<int32_t>(arg_avs.size()))
+                            continue;
+                        // Render this arg via the existing pretty-printer.
+                        auto arg_view = hermes::TinyMapView(
+                            arg_avs[value_idx].to_offset(), holder_);
+                        std::string arg_src = render_expr_src(arg_view);
+                        const char* dispatcher = format_trait_dispatcher(seg.spec.trait_kind);
+                        blk += dispatcher;
+                        blk += "(";
+                        blk += arg_src;
+                        blk += ", &mut __buf); ";
+                    }
+                    if (callee_name == "format") {
+                        blk += "__buf }";
+                    } else if (callee_name == "println") {
+                        blk += "__fmt_println(__buf.as_str()) }";
+                    } else if (callee_name == "print") {
+                        blk += "__fmt_print(__buf.as_str()) }";
+                    } else if (callee_name == "eprintln") {
+                        blk += "__fmt_eprintln(__buf.as_str()) }";
+                    } else if (callee_name == "eprint") {
+                        blk += "__fmt_eprint(__buf.as_str()) }";
+                    }
+
+                    holder_ = saved_holder;
+
+                    // Wrap into a parsable module — the inner fn's body
+                    // is just `return <block>;` so we can navigate down
+                    // to the BLOCK node and lower it as an expression.
+                    std::string wrap2 = std::format(
+                        "package __fmt_inline;\nfn __f() {{ let _: () = {}; }}\n",
+                        blk);
+                    logos::compiler::LogosParser p2(wrap2);
+                    auto blk_doc = p2.parse_module();
+                    if (!blk_doc.is_null() && p2.at_eof()) {
+                        // MODULE → ITEMS[0]=FN → BODY=BLOCK → ITEMS[0]=LET → VALUE = our block
+                        const uint8_t* b2 = HermesAccess::base(blk_doc);
+                        auto root = blk_doc.root_object().as_tiny_map();
+                        if (!root.is_null()) {
+                            auto* mod = const_cast<TinyObjectMap*>(root.ptr());
+                            // Local nav helpers using b2 base.
+                            auto nav_kk = [&](TinyObjectMap* tom, uint8_t key)
+                                              -> TinyObjectMap* {
+                                if (!tom->has_key(key)) return nullptr;
+                                AnyVal av = tom->get(key, const_cast<uint8_t*>(b2));
+                                if (!av.is_pointer()) return nullptr;
+                                return reinterpret_cast<TinyObjectMap*>(
+                                    const_cast<uint8_t*>(b2) + av.to_offset().value());
+                            };
+                            auto nav_aa = [&](TinyObjectMap* tom, uint8_t key)
+                                              -> TinyObjectMap* {
+                                if (!tom->has_key(key)) return nullptr;
+                                AnyVal av = tom->get(key, const_cast<uint8_t*>(b2));
+                                if (!av.is_pointer()) return nullptr;
+                                auto* arr = reinterpret_cast<logos::hermes::ObjectArray*>(
+                                    const_cast<uint8_t*>(b2) + av.to_offset().value());
+                                if (arr->size() == 0) return nullptr;
+                                AnyVal el = arr->get(0, const_cast<uint8_t*>(b2));
+                                if (!el.is_pointer()) return nullptr;
+                                return reinterpret_cast<TinyObjectMap*>(
+                                    const_cast<uint8_t*>(b2) + el.to_offset().value());
+                            };
+                            auto* fn   = nav_aa(mod, la::ITEMS.code);
+                            auto* body = fn   ? nav_kk(fn,   la::BODY.code)  : nullptr;
+                            auto* let_ = body ? nav_aa(body, la::ITEMS.code) : nullptr;
+                            auto* blk_ast = let_ ? nav_kk(let_, la::VALUE.code) : nullptr;
+                            if (blk_ast) {
+                                int32_t bc = 0;
+                                if (blk_ast->has_key(la::CODE.code)) {
+                                    AnyVal cv = blk_ast->get(la::CODE.code,
+                                                             const_cast<uint8_t*>(b2));
+                                    if (!cv.is_null() && !cv.is_pointer())
+                                        bc = cv.as_value<int32_t>();
+                                }
+                                if (bc == la::BLOCK.code) {
+                                    auto blk_view = hermes::TinyMapView(
+                                        logos::hermes::arena_offset_t{static_cast<uint32_t>(
+                                            reinterpret_cast<uint8_t*>(blk_ast) - b2)},
+                                        blk_doc.holder());
+                                    // Swap holder for lowering — the
+                                    // synthesised block's AST is in
+                                    // blk_doc; identifier resolution
+                                    // (lookup, type_pool) is independent.
+                                    auto* prev2 = holder_;
+                                    holder_ = blk_doc.holder();
+                                    lir::LExprPtr lowered = lower_block_expr(blk_view);
+                                    holder_ = prev2;
+                                    return lowered;
+                                }
+                            }
+                        }
+                    } else {
+                        error(std::format(
+                            "{}!: internal — synthesised block failed to parse",
+                            callee_name));
+                        return error_expr();
+                    }
                 }
             }
         } else if (arg_avs.size() < 1) {

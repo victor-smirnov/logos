@@ -23,6 +23,24 @@ const char* format_trait_method(FormatTrait t) {
     return "fmt";
 }
 
+const char* format_trait_dispatcher(FormatTrait t) {
+    // Free-fn wrapper that the macro lowering calls instead of an
+    // x.method() dot-call. Each wrapper binds the trait at sema-time
+    // through a generic-context bound (T: Display etc.), which sidesteps
+    // lower_method_call's slice/str short-circuit.
+    switch (t) {
+    case FormatTrait::Display:  return "fmt_display";
+    case FormatTrait::Debug:    return "fmt_debug";
+    case FormatTrait::LowerHex: return "fmt_lower_hex";
+    case FormatTrait::UpperHex: return "fmt_upper_hex";
+    case FormatTrait::Octal:    return "fmt_octal";
+    case FormatTrait::Binary:   return "fmt_binary";
+    case FormatTrait::LowerExp: return "fmt_lower_exp";
+    case FormatTrait::UpperExp: return "fmt_upper_exp";
+    }
+    return "fmt_display";
+}
+
 const char* format_trait_name(FormatTrait t) {
     switch (t) {
     case FormatTrait::Display:  return "Display";

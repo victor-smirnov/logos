@@ -92,5 +92,9 @@ void parse_format_string(
 // Convert trait kind to its method-name + (eventual) stdlib trait name.
 const char* format_trait_method(FormatTrait t);   // "fmt", "dbg", …
 const char* format_trait_name  (FormatTrait t);   // "Display", "Debug", …
+// Free-fn dispatcher in std.fmt that binds the trait via a generic
+// bound — sema-resident lowering calls this instead of `x.method()`
+// to bypass the slice/str method short-circuit.
+const char* format_trait_dispatcher(FormatTrait t);
 
 } // namespace logos::compiler
