@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/empty-mutable-vec.rs
+// Modifications: `Vec::new()` → `vec_new::<isize>()` (Logos uses the
+// free-fn factory).
+package empty_mutable_vec;
+
+use std.collections.vec;
+
+fn main() -> i32 {
+    let mut _v: Vec<isize> = vec_new::<isize>();
+    return 0;
+}

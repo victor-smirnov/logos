@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/call-closure-from-overloaded-op.rs
+// Modifications: `extern "Rust" fn()` → plain `fn()`; Logos Vec uses
+// `vec_new::<T>()` constructor + `push`; indexed-get is `.get(i)`
+// rather than `[i]`. The call shape `f()` on a fn-ptr retrieved from
+// a Vec slot is the same.
+package call_closure_from_overloaded_op;
+
+use std.fmt;
+use std.lang.text;
+use std.collections.vec;
+
+fn foo() -> isize { return 22isize; }
+
+fn main() -> i32 {
+    let mut x: Vec<fn() -> isize> = vec_new::<fn() -> isize>();
+    x.push(foo);
+    let f: fn() -> isize = x.get(0i64);
+    assert_eq!(f(), 22isize);
+    return 0;
+}
