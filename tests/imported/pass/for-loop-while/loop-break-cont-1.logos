@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/loop-break-cont-1.rs
+// Modifications: explicit `usize` suffix.
+package loop_break_cont_1;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let _i: usize = 0usize;
+    loop {
+        break;
+    }
+    assert!(true);
+    return 0;
+}
