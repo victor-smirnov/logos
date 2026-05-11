@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cast/constant-expression-cast-9942.rs
+// Modifications: `[0; S]; ()` becomes `let _: [i64; 23]` — Logos
+// requires the array-length to be a literal at this position
+// (top-level `const` not accepted as array size), and a bare
+// array-literal can't be a statement.
+package constant_expression_cast_9942;
+
+const S: usize = 23usize;
+
+fn main() -> i32 {
+    let _s: usize = S;
+    let _a: [i64; 23] = [0i64; 23];
+    return 0;
+}

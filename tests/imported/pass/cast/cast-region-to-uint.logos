@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cast/cast-region-to-uint.rs
+// Modifications: `println!` of the address dropped (Logos has no
+// `{:x}` formatter dispatch on usize via the format engine yet); we
+// just take the cast and discard.
+package cast_region_to_uint;
+
+fn main() -> i32 {
+    let x: isize = 3isize;
+    let _addr: usize = &x as *const isize as usize;
+    return 0;
+}

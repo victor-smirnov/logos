@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/basic-ptr-coercions.rs
+// Modifications: Logos doesn't auto-coerce `&mut T → &T` at the
+// binding site — explicit reborrow `&*x` is required. The
+// `& → *const` and `*mut → *const` steps require explicit `as`
+// casts (gap B3-bg-05). Logos also rejects `&<literal>` bound to a
+// `let` (temporary lifetime ends at the expression — bind to a
+// named `let` first). The point of this test is "these chains
+// are accepted"; the casts and named-let workarounds make them
+// explicit.
+package basic_ptr_coercions;
+
+fn main() -> i32 {
+    let mut v: isize = 42isize;
+
+    // &mut -> & : explicit reborrow
+    let mx: &mut isize = &mut v;
+    let _x: &isize = &*mx;
+
+    let v2: isize = 42isize;
+    // & -> *const : explicit cast
+    let r: &isize = &v2;
+    let _p: *const isize = r as *const isize;
+
+    // &mut -> *const : explicit cast
+    let mut v3: isize = 42isize;
+    let mx2: &mut isize = &mut v3;
+    let _q: *const isize = mx2 as *const isize;
+
+    // *mut -> *const : explicit cast
+    let mut v4: isize = 42isize;
+    let m: *mut isize = &mut v4 as *mut isize;
+    let _c: *const isize = m as *const isize;
+    return 0;
+}

@@ -23,6 +23,7 @@ per-file rows below.
 | B3 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | generics — generic fn / struct / enum / type-alias / fn-ptr (12 tests) |
 | B4 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | patterns + match (5 tests; many features deferred — see pattern-match-gaps.md) |
 | B5 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | closures (3 tests; bulk blocked on Fn/FnMut/FnOnce — see closures-gaps.md) |
+| B6 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | coercion + cast (5 tests) |
 
 To kick off a batch:
 
@@ -89,6 +90,11 @@ Columns:
 | `pass/closures/issue-5239-2.logos` | `tests/ui/closures/issue-5239-2.rs` | B5 | `ref x` in closure param dropped (gap C5-cl-03); explicit param + ret type |
 | `pass/closures/no-capture-closure-call.logos` | `tests/ui/closures/no-capture-closure-call.rs` | B5 | unrelated `Box::new(1)` dropped; explicit `-> ()` and `return` |
 | `pass/closures/simple-capture-and-call.logos` | `tests/ui/closures/simple-capture-and-call.rs` | B5 | explicit return-type / `return` on the closure |
+| `pass/cast/cast-does-fallback.logos` | `tests/ui/cast/cast-does-fallback.rs` | B6 | `(&u8 >> 4)` → `(u8 >> 4)` (no auto-deref of `&u8` at shift-op site, tracked gap) |
+| `pass/cast/cast-enum-const.logos` | `tests/ui/cast/cast-enum-const.rs` | B6 | top-level `const` as enum discriminant rejected — inlined literal |
+| `pass/cast/cast-region-to-uint.logos` | `tests/ui/cast/cast-region-to-uint.rs` | B6 | `println!("…{:x}…")` dropped (no `{:x}` dispatch on usize yet); cast retained |
+| `pass/cast/constant-expression-cast-9942.logos` | `tests/ui/cast/constant-expression-cast-9942.rs` | B6 | `[0; S]` rejected — top-level `const` not yet a valid array length; inlined literal |
+| `pass/coercion/basic-ptr-coercions.logos` | `tests/ui/coercion/basic-ptr-coercions.rs` | B6 | explicit reborrow + `as`-casts (Logos has no implicit `&mut→&` / `&→*const` / `*mut→*const` at binding sites); `&<literal>` rejected by temp-lifetime check |
 
 ## When upstream changes
 
