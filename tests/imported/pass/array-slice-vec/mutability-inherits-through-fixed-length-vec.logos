@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/mutability-inherits-through-fixed-length-vec.rs
+// Modifications: `for i in &mut ints` / `for i in &ints` rewritten as
+// index-loop (Logos's for-on-borrowed-iterator surface is partial —
+// gap B3-bg-07 still open).
+package mutability_inherits_through_fixed_length_vec;
+
+use std.fmt;
+use std.lang.text;
+
+fn test1() {
+    let mut ints: [i64; 32] = [0i64; 32];
+    ints[0i64] = ints[0i64] + 1i64;
+    assert_eq!(ints[0i64], 1i64);
+}
+
+fn test2() {
+    let mut ints: [i64; 32] = [0i64; 32];
+    let mut i: i64 = 0i64;
+    while i < 32i64 { ints[i] = ints[i] + 22i64; i = i + 1i64; }
+    let mut j: i64 = 0i64;
+    while j < 32i64 { assert_eq!(ints[j], 22i64); j = j + 1i64; }
+}
+
+fn main() -> i32 {
+    test1();
+    test2();
+    return 0;
+}

@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binop/binary-minus-without-space.rs
+// Modifications: explicit i32 suffix; `match -1` exercises the
+// negative-literal-pattern surface (now closed S8-en-01).
+package binary_minus_without_space;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    match -1i32 {
+        -1i32 => {}
+        _ => { return 1; }
+    }
+    assert_eq!(1i32 - 1i32, 0i32);
+    return 0;
+}
