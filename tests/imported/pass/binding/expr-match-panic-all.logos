@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/expr-match-panic-all.rs
+// Modifications: `panic!()` → `panic(msg); 0i32` (Logos has a free
+// `panic(str)` fn; the trailing dummy keeps the arm's static type
+// matching the match's expected type — Logos has no `!`/never-type
+// inference yet). The nesting and exhaustiveness check is preserved.
+package binding_expr_match_panic_all;
+
+use std.lang.panic;
+
+fn main() -> i32 {
+    let _x: i32 = match true {
+        true  => { 10i32 }
+        false => {
+            match true {
+                true  => { panic("a"); 0i32 }
+                false => { panic("b"); 0i32 }
+            }
+        }
+    };
+    return 0;
+}

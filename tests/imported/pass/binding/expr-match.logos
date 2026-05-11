@@ -1,0 +1,46 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/expr-match.rs
+// Modifications: explicit `: bool` annotations on the `let` bindings
+// (Logos type inference for match-as-expr is already partial; an
+// explicit annotation pins the arm types). Otherwise faithful —
+// exercises match-as-expression in various nesting positions.
+package binding_expr_match;
+
+use std.fmt;
+use std.lang.text;
+
+fn test_basic() {
+    let mut rs: bool = match true  { true => { true  } false => { false } };
+    assert!(rs);
+    rs = match false { true => { false } false => { true  } };
+    assert!(rs);
+}
+
+fn test_inferrence() {
+    let rs: bool = match true { true => { true } false => { false } };
+    assert!(rs);
+}
+
+fn test_alt_as_alt_head() {
+    let rs: bool = match match false { true => { true } false => { false } } {
+        true  => { false }
+        false => { true  }
+    };
+    assert!(rs);
+}
+
+fn test_alt_as_block_result() {
+    let rs: bool = match false {
+        true  => { false }
+        false => { match true { true => { true } false => { false } } }
+    };
+    assert!(rs);
+}
+
+fn main() -> i32 {
+    test_basic();
+    test_inferrence();
+    test_alt_as_alt_head();
+    test_alt_as_block_result();
+    return 0;
+}

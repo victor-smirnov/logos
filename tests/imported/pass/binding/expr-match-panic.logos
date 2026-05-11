@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/expr-match-panic.rs
+// Modifications: `panic!()` → `panic(msg); false` (Logos's free
+// `panic(str)` + dummy of arm type — no `!`/never-type yet).
+// `test_box` (boxed Vec) dropped — Vec literal needs `vec!` macro
+// wiring; Box<T> not in Logos.
+package binding_expr_match_panic;
+
+use std.lang.panic;
+
+fn test_simple() {
+    let r: bool = match true {
+        true  => { true }
+        false => { panic("never"); false }
+    };
+    if r != true { panic("expected true"); }
+}
+
+fn main() -> i32 {
+    test_simple();
+    return 0;
+}

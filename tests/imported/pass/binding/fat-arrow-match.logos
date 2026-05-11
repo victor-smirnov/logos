@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/fat-arrow-match.rs
+// Modifications: `println!("{}", match … {})` macro arc folded into
+// a free `pick` fn that returns the i32 arm-value and direct
+// `assert_eq!` checks. `color::red`/`green`/`blue` preserved
+// verbatim (Logos uses lowercase variant names just fine).
+package binding_fat_arrow_match;
+
+use std.fmt;
+use std.lang.text;
+
+enum color { red, green, blue }
+
+fn pick(c: color) -> i32 {
+    return match c {
+        color::red   => { 1i32 }
+        color::green => { 2i32 }
+        color::blue  => { 3i32 }
+    };
+}
+
+fn main() -> i32 {
+    assert_eq!(pick(color::red),   1i32);
+    assert_eq!(pick(color::green), 2i32);
+    assert_eq!(pick(color::blue),  3i32);
+    return 0;
+}
