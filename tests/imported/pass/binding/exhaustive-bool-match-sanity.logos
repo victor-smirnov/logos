@@ -1,8 +1,11 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/binding/exhaustive-bool-match-sanity.rs
-// Modifications: `match (x, y) { ... }` tuple scrutinee not supported
-// (gap P4-pm-03) — rewritten as nested ifs preserving the same
-// truth table.
+// Modifications: tuple types/patterns parse in Logos (P4-pm-03
+// rescinded at parse level), but mlir-gen still trips on
+// match-with-tuple-pattern-returning-value (Sprint 6 codegen
+// cleanup target). Rewritten as if-chain preserving the truth
+// table; the tuple-match expression form is re-enabled when the
+// codegen path is fixed.
 package exhaustive_bool_match_sanity;
 
 use std.fmt;
