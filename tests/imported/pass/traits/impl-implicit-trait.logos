@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/impl-implicit-trait.rs
+// Modifications: variant ctors are tuple-shape (Logos default).
+package impl_implicit_trait;
+
+enum option_<T> { none_, some_(T) }
+
+impl<T> option_<T> {
+    pub fn foo(self: &option_<T>) -> bool { return true; }
+}
+
+enum option__ { none__, some__(isize) }
+
+impl option__ {
+    pub fn foo(self: &option__) -> bool { return true; }
+}
+
+fn main() -> i32 { return 0; }

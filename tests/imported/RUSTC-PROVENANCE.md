@@ -26,6 +26,7 @@ per-file rows below.
 | B6 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | coercion + cast (5 tests) |
 | B7 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | methods (3 tests) |
 | B8 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | structs + enums + binding (6 tests) |
+| B9 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | traits — basic (2 tests; bulk blocked on Fn-trait + default-bodies + dyn-trait) |
 
 To kick off a batch:
 
@@ -106,6 +107,8 @@ Columns:
 | `pass/enum/enum-disr-val.logos` | `tests/ui/enum/enum-disr-val-pretty.rs` | B8 | `imaginary = -1` dropped — negative discriminants not parsed (gap S8-en-01); `String::to_string()` not exercised |
 | `pass/binding/exhaustive-bool-match-sanity.logos` | `tests/ui/binding/exhaustive-bool-match-sanity.rs` | B8 | tuple scrutinee `match (x, y)` not supported (gap P4-pm-03) — rewritten as if-chain preserving the truth table |
 | `pass/binding/match-bot.logos` | `tests/ui/binding/match-bot.rs` | B8 | turbofish on variant ctor dropped (gap G3-tg-01); `Option::Some(3)` direct |
+| `pass/traits/anon-static-method.logos` | `tests/ui/traits/anon-static-method.rs` | B9 | `pub fn new()` → `pub static fn new()` (Logos explicit `static fn` for associated constructors; see logos.peg:780+) |
+| `pass/traits/impl-implicit-trait.logos` | `tests/ui/traits/impl-implicit-trait.rs` | B9 | explicit `self: &T` |
 
 ## When upstream changes
 

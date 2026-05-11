@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/anon-static-method.rs
+// Modifications: Logos has explicit `static fn name(...)` syntax for
+// associated/constructor functions; the bare `fn new()` Rust form
+// (no self) is rejected by Logos's `fn` definition production inside
+// an impl. Use `pub static fn new()` to match the test's intent (an
+// associated constructor) — see logos.peg:780+ for the production.
+// `println!` dropped.
+package anon_static_method;
+
+struct Foo { x: isize }
+
+impl Foo {
+    pub static fn new() -> Foo { return Foo { x: 3isize }; }
+}
+
+fn main() -> i32 {
+    let x: Foo = Foo::new();
+    let _ = x.x;
+    return 0;
+}
