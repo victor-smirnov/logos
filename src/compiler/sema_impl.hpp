@@ -805,6 +805,12 @@ private:
                                 std::string_view ctx) {
             for (auto& tp : tps) {
                 for (auto& b : tp.bounds) {
+                    // Sprint 5.7: Fn / FnMut / FnOnce are recognised as
+                    // compiler-builtin traits — no user-space
+                    // `trait Fn { ... }` declaration required. The
+                    // parenthesized form carries fn_params / fn_ret
+                    // (see read_trait_bound_args).
+                    if (b.is_fn_family) continue;
                     auto [_pkg, ti] = find_trait_by_name(b.trait_name);
                     if (!ti) {
                         ctx_ = std::string(ctx);

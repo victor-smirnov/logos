@@ -256,6 +256,13 @@ struct TraitBound {
     // Associated-type equality clauses: `Trait<Item = i32>` → [{ "Item", i32 }].
     // Only populated when the bound includes `Name = Type` arguments.
     std::vector<std::pair<std::string, TypeRef>> assoc_eqs;
+    // Sprint 5.7: parenthesized Fn-family bound `Fn(args) -> ret`.
+    // When set, `fn_params` holds the args and `fn_ret` the return
+    // type. Distinct slots from type_args so a bound can carry both
+    // (`Fn<…>(args) -> ret` is not Rust, but the storage is uniform).
+    std::vector<TypeRef> fn_params;
+    TypeRef              fn_ret = nullptr;
+    bool                 is_fn_family = false;  // trait is one of Fn / FnMut / FnOnce
 };
 
 // ── Type parameter ────────────────────────────────────────────────────────

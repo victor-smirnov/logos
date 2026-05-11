@@ -1631,6 +1631,31 @@ bool SemaChecker::assoc_eqs_satisfied(
 }
 
 void SemaChecker::read_trait_bound_args(TinyMapView bnode, TraitBound& tb) {
+    // Sprint 5.7: Fn-family parenthesized form `Fn(args) -> ret`.
+    // PARAMS holds the arg-type list; RET_TYPE holds the return type
+    // (both optional). Distinct slots from TYPE_PARAMS so the two
+    // bound forms coexist. `is_fn_family` flagged here for downstream
+    // dispatch (sema bound-check, mono substitution).
+    if (tb.trait_name == "Fn" || tb.trait_name == "FnMut" ||
+        tb.trait_name == "FnOnce") {
+        tb.is_fn_family = true;
+    }
+    if (bnode.has_key(la::PARAMS)) {
+        auto pav = bnode.get(la::PARAMS.code);
+        if (!pav.is_null()) {
+            auto pmap = map_of(pav);
+            if (pmap.has_key(la::ITEMS)) {
+                auto pitems = arr_of(pmap.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < pitems.size(); ++i)
+                    tb.fn_params.push_back(resolve_type(map_of(pitems.get(i))));
+            }
+        }
+    }
+    if (bnode.has_key(la::RET_TYPE)) {
+        auto rav = bnode.get(la::RET_TYPE.code);
+        if (!rav.is_null()) tb.fn_ret = resolve_type(map_of(rav));
+    }
+
     if (!bnode.has_key(la::TYPE_PARAMS)) return;
     auto tpav = bnode.get(la::TYPE_PARAMS.code);
     if (tpav.is_null()) return;

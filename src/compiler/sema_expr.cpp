@@ -1076,6 +1076,36 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     auto callee_type = lookup(callee);
     bool is_closure = callee_type && TypeRef(callee_type).kind() == LogosType::Kind::Closure;
     bool is_fn_ptr  = callee_type && TypeRef(callee_type).kind() == LogosType::Kind::FnPtr;
+
+    // Sprint 5.7c: callee is a generic-typed local `f: F` where
+    // F is a TypeVar bounded by Fn / FnMut / FnOnce. The bound
+    // carries `fn_params` / `fn_ret`; treat the call exactly like a
+    // closure call against that signature. At mono time F resolves
+    // to a concrete closure type and the call rewrites accordingly.
+    bool is_fn_bound = false;
+    TypeRef synth_closure_t = nullptr;
+    if (callee_type && TypeRef(callee_type).kind() == LogosType::Kind::TypeVar) {
+        std::string tvname(TypeRef(callee_type).type_var_name());
+        auto bit = current_type_bounds_.find(tvname);
+        if (bit != current_type_bounds_.end()) {
+            for (auto& b : bit->second) {
+                if (!b.is_fn_family) continue;
+                // Synthesize a closure-shaped type so the existing
+                // closure_call path applies. fn_ret may be null (=> unit).
+                std::vector<TypeRef> ps = b.fn_params;
+                TypeRef ret = b.fn_ret ? b.fn_ret : void_t();
+                synth_closure_t = make_closure_type(std::move(ps), ret);
+                is_fn_bound = true;
+                break;
+            }
+        }
+    }
+    if (is_fn_bound) {
+        // Rebind callee_type for the closure-call path below.
+        callee_type = synth_closure_t;
+        is_closure  = true;
+    }
+
     if (is_closure || is_fn_ptr) {
         std::vector<lir::LExprPtr> arg_exprs;
         if (node.has_key(la::ARGS)) {

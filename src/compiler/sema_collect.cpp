@@ -545,6 +545,12 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 auto key3 = bound.trait_name + "::" + std::string(cv.struct_name());
                 if (impls_.count(key3)) continue;
             }
+            // Sprint 5.7c: Fn-family bound (`F: FnOnce(args) -> R`)
+            // satisfied by any closure type. Arity / arg-type / ret-type
+            // compatibility is enforced at the call site (lower_call
+            // synthesises a closure type from the bound and re-checks).
+            if (bound.is_fn_family && cv.kind() == LogosType::Kind::Closure)
+                continue;
             error(std::format("'{}': type '{}' does not implement trait '{}' required by parameter '{}'",
                   target_name, concrete_str, bound.trait_name, tp.name));
         }

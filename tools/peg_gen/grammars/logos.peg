@@ -2047,6 +2047,18 @@
 
     trait_bound <- IDENT LT bound_arg_list GT_TYPE
                 => { CODE: TRAIT_BOUND, NAME: $1, TYPE_PARAMS: $3 }
+                 // Fn-family parenthesized form: `Fn(T1, ...) -> R` /
+                 // `FnMut(T)` / `FnOnce()`. The arg-type list lives in
+                 // PARAMS (parallel to IDENT<...>'s TYPE_PARAMS slot)
+                 // and the optional `-> R` in RET_TYPE.
+                 / IDENT LPAREN closure_type_args RPAREN ARROW type_ref
+                => { CODE: TRAIT_BOUND, NAME: $1, PARAMS: $3, RET_TYPE: $6 }
+                 / IDENT LPAREN RPAREN ARROW type_ref
+                => { CODE: TRAIT_BOUND, NAME: $1, RET_TYPE: $5 }
+                 / IDENT LPAREN closure_type_args RPAREN
+                => { CODE: TRAIT_BOUND, NAME: $1, PARAMS: $3 }
+                 / IDENT LPAREN RPAREN
+                => { CODE: TRAIT_BOUND, NAME: $1 }
                  / IDENT
                 => { CODE: TRAIT_BOUND, NAME: $1 }
 
