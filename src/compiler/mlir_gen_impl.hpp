@@ -214,6 +214,12 @@ private:
     // Local let-bound pointer variables (*mut T / *const T): maps name → pointee MLIR type.
     // Needed because scope_[name] is an alloca(ptr), so indexing requires a load first.
     std::unordered_map<std::string, mlir::Type>   var_local_ptrs_;
+    // Names of fn parameters whose type is Ref/MutRef. `&p` for such a
+    // param means "address of param storage" — we must spill the SSA
+    // arg into an entry alloca and return the alloca. Without the
+    // spill, `&p` returns p itself (the inner pointer), breaking
+    // `&&mut T` chains (was B3-bg-03 / Sprint 6).
+    std::unordered_set<std::string>               ref_param_names_;
     mlir::Type                                    cur_ret_type_;
     TypeRef                              cur_fn_ret_logos_type_ = nullptr;
     bool                                          in_llvm_func_ = false;

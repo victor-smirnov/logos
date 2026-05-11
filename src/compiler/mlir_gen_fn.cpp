@@ -202,12 +202,19 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
     var_tagged_enum_ptr_.clear();
     var_local_ptrs_.clear();
     var_dyn_trait_.clear();
+    ref_param_names_.clear();
     loop_stack_.clear();
 
     // Bind parameters.
     for (size_t i = 0; i < fn.params.size(); ++i) {
         auto& p = fn.params[i];
         scope_[p.name] = entry->getArgument(i);
+        // Record Ref/MutRef-typed params for the EAddrOfView spill path.
+        if (p.type) {
+            auto pk = TypeRef(p.type).kind();
+            if (pk == LogosType::Kind::Ref || pk == LogosType::Kind::MutRef)
+                ref_param_names_.insert(p.name);
+        }
 
         // Track subscript element type for pointer / reference parameters.
         auto is_ptr_kind = [](LogosType::Kind k) {

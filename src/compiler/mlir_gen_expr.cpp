@@ -764,6 +764,19 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfView v, TypeRef) {
         builder_.create<mlir::LLVM::StoreOp>(loc_, it->second, alloca);
         return alloca;
     }
+    // Ref/MutRef-typed param: `&p` means address of the param's own
+    // storage slot, not the value it points at. Spill the SSA arg to
+    // an entry alloca and return the alloca (closes B3-bg-03 / Sprint 6).
+    // Replace the scope entry with the alloca so subsequent reads
+    // and other `&p` calls in the same function body see the same
+    // slot (and so the spill happens exactly once).
+    if (it->second && ref_param_names_.count(var_name)) {
+        auto alloca = create_entry_alloca(it->second.getType());
+        builder_.create<mlir::LLVM::StoreOp>(loc_, it->second, alloca);
+        it->second = alloca;
+        ref_param_names_.erase(var_name);
+        return alloca;
+    }
     return it->second;
 }
 
