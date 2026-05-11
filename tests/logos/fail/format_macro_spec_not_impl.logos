@@ -1,13 +1,11 @@
-// Slice 4.4c rolled out hex/octal/binary; width / precision / fill /
-// align / sign remain gated. The synth block bypass would silently
-// emit no padding if we just let it through, so sema rejects the
-// spec up-front.
+// Slice 4.4d landed width/align/fill; precision / sign / `#` / `0`
+// remain gated until slice 4.4e.
 package format_macro_spec_not_impl;
 
 use std.fmt;
 use std.lang.text;
 
 fn main() -> i32 {
-    let s = format!("{:5}", 42i32);
+    let s = format!("{:.3}", "hello");
     return 0;
 }

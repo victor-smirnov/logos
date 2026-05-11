@@ -9818,23 +9818,25 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
                 bool spec_blocked = false;
                 for (auto& s : fmt_result.segments) {
                     if (s.is_literal) continue;
-                    bool only_kind = s.spec.width < 0
-                                  && s.spec.precision < 0
-                                  && s.spec.align == FormatAlign::None
-                                  && s.spec.sign == FormatSign::None
-                                  && !s.spec.alt && !s.spec.zero;
+                    // Slice 4.4d allows width / align / fill in addition
+                    // to the trait kind. Precision / sign / `#` / `0`
+                    // are still gated to later slices.
+                    bool simple_modifiers = s.spec.precision < 0
+                                         && s.spec.sign == FormatSign::None
+                                         && !s.spec.alt && !s.spec.zero;
                     bool trait_ok = s.spec.trait_kind == FormatTrait::Display
                                  || s.spec.trait_kind == FormatTrait::Debug
                                  || s.spec.trait_kind == FormatTrait::LowerHex
                                  || s.spec.trait_kind == FormatTrait::UpperHex
                                  || s.spec.trait_kind == FormatTrait::Octal
                                  || s.spec.trait_kind == FormatTrait::Binary;
-                    if (!only_kind || !trait_ok) {
+                    if (!simple_modifiers || !trait_ok) {
                         error(std::format(
                             "{}!: format spec uses features not yet "
-                            "implemented (slice 4.4d/e pending) — supported: "
+                            "implemented (slice 4.4e pending) — supported: "
                             "`{{}}` `{{:?}}` `{{:x}}` `{{:X}}` `{{:o}}` `{{:b}}` "
-                            "(no width / precision / align / sign / fill yet)",
+                            "with optional width / align / fill "
+                            "(no precision / sign / `#` / `0` yet)",
                             callee_name));
                         spec_blocked = true;
                         break;
@@ -9918,10 +9920,36 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
                             arg_avs[value_idx].to_offset(), holder_);
                         std::string arg_src = render_expr_src(arg_view);
                         const char* dispatcher = format_trait_dispatcher(seg.spec.trait_kind);
-                        blk += dispatcher;
-                        blk += "(";
-                        blk += arg_src;
-                        blk += ", &mut __buf); ";
+                        bool needs_pad = seg.spec.width > 0
+                                      || seg.spec.align != FormatAlign::None;
+                        if (needs_pad) {
+                            // Route the trait output through a scratch
+                            // String, then post-process via pad_into.
+                            int32_t align_code =
+                                seg.spec.align == FormatAlign::Left   ? 1 :
+                                seg.spec.align == FormatAlign::Right  ? 2 :
+                                seg.spec.align == FormatAlign::Center ? 3 : 0;
+                            int32_t fill_code = static_cast<int32_t>(
+                                static_cast<unsigned char>(seg.spec.fill));
+                            int32_t width = seg.spec.width >= 0
+                                ? seg.spec.width : 0;
+                            blk += "{ let mut __tmp: String = String::new(); ";
+                            blk += dispatcher;
+                            blk += "(";
+                            blk += arg_src;
+                            blk += ", &mut __tmp); pad_into(&mut __buf, __tmp.as_str(), ";
+                            blk += std::to_string(width);
+                            blk += "i64, ";
+                            blk += std::to_string(fill_code);
+                            blk += "i32, ";
+                            blk += std::to_string(align_code);
+                            blk += "i32); } ";
+                        } else {
+                            blk += dispatcher;
+                            blk += "(";
+                            blk += arg_src;
+                            blk += ", &mut __buf); ";
+                        }
                     }
                     if (callee_name == "format") {
                         blk += "__buf }";

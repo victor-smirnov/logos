@@ -1,0 +1,22 @@
+// Slice 4.4d: width / align / fill specs.
+//   `{:5}`       — width 5, default right-align (numeric default).
+//   `{:<5}`      — left-align in width 5.
+//   `{:^7}`      — center in width 7.
+//   `{:*>5}`     — fill char '*' on the right of content (right-align).
+//   `{:.>5x}`    — fill '.' right-align hex.
+// padding bytes count toward the produced String length.
+package format_macro_pad;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let a: String = format!("{:5}", 42i32);        // "   42"
+    let b: String = format!("{:<5}", 42i32);       // "42   "
+    let c: String = format!("{:^7}", 42i32);       // "  42   " (center, 5 pad → 2+3)
+    let d: String = format!("{:*>5}", 42i32);      // "***42"
+    let e: String = format!("{:.>6x}", 255i32);    // "....ff"
+    println!("[{}][{}][{}][{}][{}]",
+             a.as_str(), b.as_str(), c.as_str(), d.as_str(), e.as_str());
+    return (a.len() + b.len() + c.len() + d.len() + e.len()) as i32;
+}

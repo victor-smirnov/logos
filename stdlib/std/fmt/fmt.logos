@@ -198,6 +198,36 @@ pub fn fmt_upper_hex<T: UpperHex>(arg: T, buf: &mut String)  { arg.fmt_upper_hex
 pub fn fmt_octal<T: Octal>(arg: T, buf: &mut String)         { arg.fmt_octal(buf); }
 pub fn fmt_binary<T: Binary>(arg: T, buf: &mut String)       { arg.fmt_binary(buf); }
 
+// Slice 4.4d — pad/align/fill post-processor. Macro lowering routes
+// every padded placeholder through a scratch String, then this helper
+// emits the padding-then-content (or content-then-padding, or both,
+// for center) into the destination buf. align_code mirrors the
+// FormatAlign enum: 0=None/default, 1=Left, 2=Right, 3=Center.
+// `None` defaults to Right (matches Rust for numeric kinds; we'll
+// distinguish per-trait when string left-align defaults land).
+pub fn pad_into(out: &mut String, content: str, width: i64,
+                fill: i32, align_code: i32) {
+    let n: i64 = content.len();
+    let mut left_pad: i64  = 0i64;
+    let mut right_pad: i64 = 0i64;
+    if width > n {
+        let pad: i64 = width - n;
+        if align_code == 1i32 {
+            right_pad = pad;
+        } else if align_code == 3i32 {
+            left_pad  = pad / 2i64;
+            right_pad = pad - left_pad;
+        } else {
+            left_pad = pad;
+        }
+    }
+    let mut i: i64 = 0i64;
+    while i < left_pad  { out.push_u8(fill as u8); i = i + 1i64; }
+    out.push_str(content);
+    i = 0i64;
+    while i < right_pad { out.push_u8(fill as u8); i = i + 1i64; }
+}
+
 // ── Macro shells (slice 4.1 of fn-macros) ─────────────────────────────────
 //
 // `format!("pat", args...)` — Rust-style shorthand around `format_args_str`.
