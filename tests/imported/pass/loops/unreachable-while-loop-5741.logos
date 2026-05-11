@@ -1,0 +1,9 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/loops/unreachable-while-loop-5741.rs
+// Modifications: explicit return type / suffixes.
+package unreachable_while_loop_5741;
+
+fn main() -> i32 {
+    return 0;
+    while true {}
+}

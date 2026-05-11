@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/loops/loop-with-label-9047.rs
+// Modifications: rust's `String::to_string()` → str literal; `'outer:`
+// labelled break works in Logos.
+package loop_with_label_9047;
+
+fn decode() -> str {
+    'outer: loop {
+        let _ch_start: usize = 0usize;
+        break 'outer;
+    }
+    return "";
+}
+
+fn main() -> i32 {
+    let _ = decode();
+    return 0;
+}
