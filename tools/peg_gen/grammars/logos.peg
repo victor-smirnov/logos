@@ -1599,6 +1599,7 @@
                    / MINUS unary_expr_ns => { CODE: UNARY,  OP: $1, VALUE: $2 }
                    / BANG  unary_expr_ns => { CODE: UNARY,  OP: $1, VALUE: $2 }
                    / AMP   unary_expr_ns => { CODE: UNARY,  OP: $1, VALUE: $2 }
+                   / AND   unary_expr_ns => { CODE: UNARY,  OP: $1, VALUE: $2 }
                    / atom_ns
 
     atom_ns <- primary_expr_ns
@@ -1729,6 +1730,9 @@
                 / MINUS unary_expr => { CODE: UNARY,  OP: $1, VALUE: $2 }
                 / BANG  unary_expr => { CODE: UNARY,  OP: $1, VALUE: $2 }
                 / AMP   unary_expr => { CODE: UNARY,  OP: $1, VALUE: $2 }
+                // `&&v` — lexer collapses `&&` to AND. Sema lowers as
+                // nested ADDR_OF (mirror of DOUBLE_REF_TYPE at type level).
+                / AND   unary_expr => { CODE: UNARY,  OP: $1, VALUE: $2 }
                 / atom
 
     // ── Atoms (postfix chain) ─────────────────────────────────────

@@ -950,6 +950,18 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
 lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
     auto op  = str_of(node.get(la::OP.code));
 
+    // `&&v` — lexer collapses `&&` to AND. Rewrite as ADDR_OF(ADDR_OF(v)).
+    // Mirrors DOUBLE_REF_TYPE at the type level.
+    if (op == "&&") {
+        auto child = map_of(node.get(la::VALUE.code));
+        auto inner = lower_expr(child);
+        if (TypeRef(inner->type).kind() == LogosType::Kind::Error) return error_expr();
+        auto inner_ref_t = make_ref(false, inner->type);
+        auto inner_addr = builder().addr_of_temp(std::move(inner), false, inner_ref_t);
+        auto outer_ref_t = make_ref(false, inner_ref_t);
+        return builder().addr_of_temp(std::move(inner_addr), false, outer_ref_t);
+    }
+
     // & — address-of or array-to-slice
     if (op == "&") {
         auto child = map_of(node.get(la::VALUE.code));
