@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-nullary-variant.rs
+// Modifications: enum payload changed from `&'a usize` (the original
+// test's lifetime-parametric `roption<'a>`) to a plain `usize` —
+// Logos has no explicit `'a` enum-lifetime-param surface; the
+// regression here is about variant kind layout (unit + payload),
+// which the simpler shape exercises identically. `mk` returns a
+// fresh value instead of a borrow.
+package r_regions_nullary_variant;
+
+enum roption { a, b(usize) }
+
+fn mk(cond: bool, val: usize) -> roption {
+    if cond { return roption::a; }
+    else    { return roption::b(val); }
+}
+
+fn main() -> i32 {
+    let _r1 = mk(true,  5usize);
+    let _r2 = mk(false, 5usize);
+    return 0;
+}

@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-derived-type.rs
+// Modifications: `Clone` derive dropped — `Pair<T>` is auto-Copy
+// (only-T fields, no Drop) for any Copy `T`, and the test only
+// uses isize. `t.clone()` was used twice in the original to dup
+// the value; the equivalent here passes the value twice directly
+// (`f::<isize>(10, 10)`). `println!` body dropped, replaced by
+// direct `assert_eq!`.
+package g_generic_derived_type;
+
+use std.fmt;
+use std.lang.text;
+
+fn g<X>(x: X) -> X { return x; }
+
+struct Pair<T> { a: T, b: T }
+
+fn f<T>(t1: T, t2: T) -> Pair<T> {
+    let x: Pair<T> = Pair::<T> { a: t1, b: t2 };
+    return g::<Pair<T>>(x);
+}
+
+fn main() -> i32 {
+    let b: Pair<isize> = f::<isize>(10isize, 10isize);
+    assert_eq!(b.a, 10isize);
+    assert_eq!(b.b, 10isize);
+    return 0;
+}

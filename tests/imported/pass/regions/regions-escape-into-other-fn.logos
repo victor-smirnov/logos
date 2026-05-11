@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-escape-into-other-fn.rs
+// Modifications: `Box::new(3)` → plain `let p: usize = 3` — Box isn't
+// in Logos, and the test only needs a value the borrow can point at.
+// `&*p` therefore becomes `&p`. The borrow-through-two-fns shape is
+// preserved.
+package r_regions_escape_into_other_fn;
+
+fn foo(x: &usize) -> &usize { return x; }
+fn bar(x: &usize) -> usize { return *x; }
+
+fn main() -> i32 {
+    let p: usize = 3usize;
+    let r: usize = bar(foo(&p));
+    if r != 3usize { return 1; }
+    return 0;
+}

@@ -138,3 +138,4 @@ honest.
 | B15 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | binding — match-as-expression (basic / panic / panic-all / fat-arrow over enum) (4 tests) |
 | B16 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | expr — return-in-block-tuple (K10-co-04 partial close); match — issue-33498 (tuple pattern arms); functions-closures — fn-bare-{item,assign} (4 tests) |
 | B17 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | structs — drop+destructure (dtor-6344, newtype-struct-with-dtor); match — guard with closure / guard with parenthesised AND / char-range guard arms (5 tests) |
+| B18 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | generics — derived-type (Pair<T> auto-Copy); regions — escape-into-other-fn / nullary-variant (3 tests) |
