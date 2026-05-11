@@ -2225,6 +2225,58 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
         };
         if (is_wild) {
             else_block = arm_entry;
+        } else if (arm_pat_ref.kind() == pc::Code::Tuple &&
+                   lir_view::PatTupleView{arm_pat_ref}.sub_count() > 0) {
+            // Refutable tuple arm in match-as-expression. Mirrors the
+            // match-stmt path: GEP each refutable sub-pat element,
+            // AND-chain equality tests. Scrut may be a value (not a
+            // pointer); spill to alloca for GEP.
+            lir_view::PatTupleView tv{arm_pat_ref};
+            std::vector<lir_view::PatRef> subs;
+            tv.each_sub([&](lir_view::PatRef sp){ subs.push_back(sp); });
+            std::vector<TypeRef> btypes;
+            tv.each_binding_type(pool_impl(), [&](TypeRef t){ btypes.push_back(t); });
+            auto ttype = scrut_le->type ? tuple_llvm_type(scrut_le->type) : mlir::Type();
+            auto* test_block = new mlir::Block();
+            region->push_back(test_block);
+            {
+                mlir::OpBuilder::InsertionGuard ig(builder_);
+                builder_.setInsertionPointToStart(test_block);
+                // Spill scrut to alloca if it's a non-pointer value.
+                mlir::Value tptr;
+                if (scrut.getType() == ptr_type()) {
+                    tptr = scrut;
+                } else if (ttype) {
+                    auto a = create_entry_alloca(ttype);
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, scrut, a);
+                    tptr = a;
+                }
+                mlir::Value cond =
+                    builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 1);
+                for (size_t si = 0; si < subs.size() && ttype && tptr; ++si) {
+                    auto sub = subs[si];
+                    if (!sub || sub.kind() == pc::Code::Wild) continue;
+                    int64_t sub_val = 0;
+                    if (sub.kind() == pc::Code::Int)       sub_val = lir_view::PatIntView{sub}.value();
+                    else if (sub.kind() == pc::Code::Bool) sub_val = lir_view::PatBoolView{sub}.value() ? 1 : 0;
+                    else continue;
+                    auto elem_mlir = si < btypes.size()
+                                     ? logos_to_mlir(btypes[si]) : mlir::Type();
+                    if (!elem_mlir) continue;
+                    llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(si)};
+                    auto fp = builder_.create<mlir::LLVM::GEPOp>(
+                        loc_, ptr_type(), ttype, tptr, fi);
+                    auto ev = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, fp);
+                    auto cv = coerce_int(
+                        builder_.create<mlir::arith::ConstantIntOp>(loc_, sub_val, 64),
+                        elem_mlir);
+                    auto eq = builder_.create<mlir::arith::CmpIOp>(
+                        loc_, mlir::arith::CmpIPredicate::eq, ev, cv);
+                    cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, eq);
+                }
+                builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
+            }
+            else_block = test_block;
         } else if (arm_pat_ref.kind() == pc::Code::Range) {
             // Range arm in match-as-expression. Same shape as the
             // match-stmt path (`lo <= scrut && scrut <= hi`) — was
