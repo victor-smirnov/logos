@@ -968,6 +968,11 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                             } else {
                                 self_type = make_datatype_type(target, dpkg2);
                             }
+                        } else if (auto prim_t = lookup_type_by_name(target)) {
+                            // impl Trait for <primitive> (isize / u32 / …):
+                            // bind Self to the primitive type so default-body
+                            // signatures referencing `&Self` resolve.
+                            self_type = prim_t;
                         }
                     }
                     if (self_type)

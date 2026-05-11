@@ -1,11 +1,12 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/methods/trait-method-resolution-7575.rs
-// Modifications: trait default-bodies dropped (Logos requires trait
-// methods to be declarations only — no default impl on a trait —
-// gap M7-mt-02 still open); both methods get full bodies via
-// `impl Bar/Foo for isize`. Method name `new` un-renamed — gap
-// M7-mt-01 (alias of S8-st-01) closed: trait_method / fn_def /
-// pub_fn_def now admit KW_NEW as method name.
+// Modifications: default-bodies inlined into the per-type `impl Bar /
+// Foo for isize` blocks. Logos *parses* trait default-bodies and Self
+// resolves correctly when an impl-for-primitive has only `self: &Self`
+// methods; but combining a static `fn new()` (no self) and a
+// `self: &Self` default in the same trait, then implementing the
+// trait for a primitive, exposes a second-pass Self-wipe in sema —
+// remains open as M7-mt-02. Method name `new` admitted via Sprint 1.1.
 package trait_method_resolution_7575;
 
 use std.fmt;
