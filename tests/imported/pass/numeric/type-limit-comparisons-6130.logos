@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numeric/type-limit-comparisons-6130.rs
+// Modifications: explicit suffixes; tests that integer-comparison
+// against architecture-sized constants is accepted.
+package type_limit_comparisons_6130;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let u: usize = 0usize;
+    assert!(u <= 4294967295usize);
+
+    let i: isize = 0isize;
+    assert!(i >= -2147483648isize);
+    assert!(i <= 2147483647isize);
+    return 0;
+}

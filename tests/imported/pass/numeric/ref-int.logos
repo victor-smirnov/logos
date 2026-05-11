@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numeric/ref-int.rs
+// Modifications: original `assert_eq!(&x, &y)` requires
+// Display-for-&T blanket impl (Logos doesn't have it). Dereferenced
+// both sides — the test still exercises that `&i32 == &i32` is a
+// valid comparison (auto-deref kicks in at the `==` op).
+package ref_int;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let x: i32 = 1i32;
+    let y: i32 = 1i32;
+    let xr: &i32 = &x;
+    let yr: &i32 = &y;
+    let eq: bool = xr == yr;
+    assert!(eq);
+    return 0;
+}
