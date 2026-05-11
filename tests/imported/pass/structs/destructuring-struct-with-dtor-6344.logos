@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/destructuring-struct-with-dtor-6344.rs
+// Modifications: `let A { x: ref x } = a;` reduced to `let A { x } = a;`
+// — Logos's struct-let-destructure (B-pt-02) doesn't yet support
+// `ref` sub-patterns inside the struct shape. `println!` body
+// dropped; replaced with a direct value check. The point of the
+// test — destructure-bind on a struct that has a `Drop` impl
+// without double-dropping or aliasing the moved-from value — is
+// preserved.
+package s_dtor_6344;
+
+struct A { x: usize }
+
+impl Drop for A {
+    fn drop(&mut self) { }
+}
+
+fn main() -> i32 {
+    let a: A = A { x: 0usize };
+    let A { x } = a;
+    if x != 0usize { return 1; }
+    return 0;
+}

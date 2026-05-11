@@ -1,0 +1,37 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/guards-parenthesized-and.rs
+// Modifications: scrut changed to `Option::None::<i32>` so the
+// guard arm is actually taken (upstream test is `check-pass`-only;
+// its `_ => panic!()` arm runs on `Some(5)` and we want runtime
+// success, not abort, for the `run-pass`-style runner here).
+// `w != "Y"` over Logos `str` isn't built-in (no `PartialEq for
+// str` trait surface yet); inline `eq_str` helper used instead.
+// The guard shape — `None if (… && (… && …))` — preserved
+// verbatim including the parenthesisation that was the regression
+// point.
+package m_guards_parenthesized_and;
+
+use std.lang.option;
+use std.lang.panic;
+
+fn eq_str(a: str, b: str) -> bool {
+    let alen: i64 = a.len();
+    let blen: i64 = b.len();
+    if alen != blen { return false; }
+    let mut i: i64 = 0i64;
+    while i < alen {
+        if a[i] != b[i] { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn main() -> i32 {
+    let c: i32 = 1i32;
+    let w: str = "T";
+    match Option::None::<i32> {
+        Option::None if c == 1i32 && (!eq_str(w, "Y") && !eq_str(w, "E")) => { }
+        _ => { panic("guard should have matched"); }
+    }
+    return 0;
+}

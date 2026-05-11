@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/issue-26251.rs
+// Modifications: hoist the match into a free `pick` fn (Logos's
+// `match`-as-expression typing is firmer when the arms feed a
+// `return` of the fn). `panic!()` → `panic(msg); ""`. The string
+// arm values (`"one"` / `"two"` / `"three"`) preserved verbatim;
+// Logos's `str` is a fat-pointer slice but assigns from string
+// literals just like Rust.
+package m_issue_26251;
+
+use std.lang.panic;
+
+fn pick(x: char) -> str {
+    return match x {
+        'a'..='b' if false => { "one"   }
+        'a'                => { "two"   }
+        'a'..='b'          => { "three" }
+        _                  => { panic("what?"); "" }
+    };
+}
+
+fn main() -> i32 {
+    let _y: str = pick('a');
+    return 0;
+}
