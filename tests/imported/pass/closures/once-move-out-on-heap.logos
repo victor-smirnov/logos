@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/once-move-out-on-heap.rs
+// Modifications: `Arc<bool>` + `*x` Deref chain replaced with a plain
+// `i64` capture — Logos's `Box<T>` (and `Arc<T>`) lacks auto-Deref
+// coercion (tracked elsewhere as B3-bg-06 family). The core point of
+// the import is the `move ||` keyword + FnOnce bound, both of which
+// land cleanly (C5-cl-02 closed 2026-05-11). `drop(x)` is dropped
+// since auto-Drop already happens at closure-scope exit.
+package once_move_out_on_heap;
+
+use std.fmt;
+
+fn foo<F>(blk: F) where F: FnOnce() -> i64 {
+    let r = blk();
+    assert!(r == 42i64);
+}
+
+fn main() -> i32 {
+    let x: i64 = 42i64;
+    foo(move || -> i64 { return x; });
+    return 0;
+}

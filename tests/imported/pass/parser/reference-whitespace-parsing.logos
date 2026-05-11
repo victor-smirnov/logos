@@ -1,19 +1,46 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/parser/reference-whitespace-parsing.rs
-// Modifications: Logos parses `&T` at both expr and type positions.
-// Deeper greedy-`&` stacks (`&&T`, `&&&T`, ...) at type position and
-// the corresponding `&&val` (refer-to-a-reference) expressions are
-// not yet accepted by the grammar — the lexer emits `&&` as a single
-// AND-AND token and the parser doesn't unpick it at type/expr position
-// here. Trimmed to depth 1; deeper depths are a tracked grammar gap.
+// Modifications: literals routed through named lets (C6-cc-04 is a
+// deliberate divergence — Logos rejects `&<literal>` bound to a
+// `let`). Pattern form (`let &x = …`) is exercised separately. The
+// type-position depth-N greedy stack (`& & & & T` / `&&&&T`) now
+// parses (P3-pg-01 closed 2026-05-11 via `ref_pointee <- ref_type / …`).
 package reference_whitespace_parsing;
 
 fn check_expr() {
-    let x: i64 = 1i64;
-    let _: &i64 = &x;
+    let n: usize = 1usize;
+    let r1: &usize             = &n;
+    let r2: &&usize            = &r1;
+    let r3: &&&usize           = &r2;
+    let r4: &&&&usize          = &r3;
+    let r5: &&&&&usize         = &r4;
+
+    let _: & usize             = r1;
+    let _: & & usize           = r2;
+    let _: & & & usize         = r3;
+    let _: & & & & usize       = r4;
+    let _: & & & & & usize     = r5;
+}
+
+fn check_ty() {
+    let n: usize = 1usize;
+    let r1: &usize             = &n;
+    let r2: &&usize            = &r1;
+    let r3: &&&usize           = &r2;
+    let r4: &&&&usize          = &r3;
+    let r5: &&&&&usize         = &r4;
+
+    let _: &usize              = r1;
+    let _: &&usize             = r2;
+    let _: &&&usize            = r3;
+    let _: & &&usize           = r3;
+    let _: &&&&usize           = r4;
+    let _: & &&&usize          = r4;
+    let _: &&&&&usize          = r5;
 }
 
 fn main() -> i32 {
     check_expr();
+    check_ty();
     return 0;
 }

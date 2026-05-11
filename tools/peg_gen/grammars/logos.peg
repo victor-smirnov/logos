@@ -1086,8 +1086,12 @@
               / AND ref_pointee
              => { CODE: DOUBLE_REF_TYPE, POINTEE: $2 }
 
-    // Pointee types for & and &mut: simple types plus tuple and array composites.
-    ref_pointee <- arr_type / tuple_type / unit_type / simple_type
+    // Pointee types for & and &mut: simple types plus tuple and array
+    // composites; ref_type itself allows arbitrary-depth `& & … T` stacks
+    // (whitespace-tolerant) at type position. `&&T` (no whitespace) is
+    // still handled by the DOUBLE_REF_TYPE alts above, which the lexer
+    // routes through the AND token.
+    ref_pointee <- ref_type / arr_type / tuple_type / unit_type / simple_type
 
     // |T1, T2| -> R — closure type (used in function parameter type annotations)
     closure_type_args <- type_ref (COMMA type_ref)*

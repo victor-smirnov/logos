@@ -1,0 +1,26 @@
+// Derived from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// tests/ui/ufcs/ufcs-polymorphic-paths.rs (heavily reduced).
+// Original is ~120 LOC and exercises HRTB / Cow / FromIterator —
+// most of those sit on other open gaps. This minimised port keeps
+// the property M7-mt-04 actually covers: an UFCS-style explicit
+// method call `Foo::bar(&self)` resolves to the inherent method.
+package ufcs_explicit_method_call;
+
+use std.fmt;
+use std.lang.text;
+
+struct Foo { x: i32 }
+
+impl Foo {
+    pub fn get(self: &Foo) -> i32 { return self.x; }
+    pub fn add(self: &Foo, other: i32) -> i32 { return self.x + other; }
+}
+
+fn main() -> i32 {
+    let f: Foo = Foo { x: 5i32 };
+    assert_eq!(Foo::get(&f), 5i32);
+    assert_eq!(Foo::add(&f, 7i32), 12i32);
+    // Method-position form still works in parallel.
+    assert_eq!(f.get(), 5i32);
+    return 0;
+}
