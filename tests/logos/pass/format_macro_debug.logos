@@ -1,0 +1,13 @@
+// Slice 4.3: `{:?}` placeholder dispatches to Debug instead of Display.
+// `Debug for str` wraps the value in quotes, so the rendered output
+// differs from `{}` even though the underlying value is the same.
+package format_macro_debug;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let s: String = format!("a={}, b={:?}", "hi", "hi");
+    println!("{}", s.as_str());
+    return s.len() as i32;
+}
