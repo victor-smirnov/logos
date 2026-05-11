@@ -1353,16 +1353,33 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                         // until the match-lowering supports nested guards.
                         int32_t bc = code_of(bnode);
                         if (bc == la::PAT_UNIT) continue;  // () unit — no binding
-                        if (bc != la::PAT_WILD) {
-                            error(std::format(
-                                "pattern {}::{}: nested patterns inside enum-variant "
-                                "payloads are not yet supported; bind to a name and "
-                                "match in the body",
-                                pename, pvname));
+                        if (bc == la::PAT_WILD) {
+                            if (!bnode.has_key(la::NAME)) continue;
+                            bindings.push_back(std::string(str_of(bnode.get(la::NAME.code))));
                             continue;
                         }
-                        if (!bnode.has_key(la::NAME)) continue;
-                        bindings.push_back(std::string(str_of(bnode.get(la::NAME.code))));
+                        // P4-pm-02: nested struct/tuple pattern inside
+                        // variant payload. Synth a payload slot binding;
+                        // the arm-body builder (which sees
+                        // current_pat_nested_subs_) emits an irrefutable
+                        // destructure `let <sub_pat> = __synth;` as a
+                        // body prologue. Refutable sub-patterns (nested
+                        // variant, range, …) still aren't supported here
+                        // — they need a nested-guard scheme.
+                        bool sub_is_irrefutable =
+                            (bc == la::PAT_STRUCT || bc == la::PAT_TUPLE);
+                        if (sub_is_irrefutable && current_pat_nested_subs_) {
+                            std::string synth = std::format(
+                                "__pat_pld_{}_{}", pvname, tmp_var_count_++);
+                            bindings.push_back(synth);
+                            current_pat_nested_subs_->push_back({synth, bnode});
+                            continue;
+                        }
+                        error(std::format(
+                            "pattern {}::{}: nested patterns inside enum-variant "
+                            "payloads are not yet supported; bind to a name and "
+                            "match in the body",
+                            pename, pvname));
                     }
                 }
             }
@@ -4148,11 +4165,17 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
                 }
             }
 
-            // Build pattern
+            // Build pattern. P4-pm-02: wire side channel so that
+            // nested struct/tuple sub-patterns inside variant payload
+            // register synth payload bindings + body-prologue lets.
             in_match_hermes_ctx_ = has_hermes_pat;
+            std::vector<NestedPatSub> nested_subs;
+            auto* saved_pat_subs = current_pat_nested_subs_;
+            current_pat_nested_subs_ = &nested_subs;
             lir::Pattern pat = arm.has_key(la::LHS)
                 ? build_pattern(map_of(arm.get(la::LHS.code)), scrut_type)
                 : make_pat_wild("_");
+            current_pat_nested_subs_ = saved_pat_subs;
             in_match_hermes_ctx_ = false;
 
             // Build body block — push pattern bindings into scope
@@ -4161,6 +4184,51 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             // Register Hermes @-pattern bindings in scope (visible in body + guard).
             for (const auto& b : body_binds) {
                 define(b.name, anyval_t, /*is_mut=*/false);
+            }
+            // P4-pm-02: for each nested struct sub-pat, emit field-by-
+            // field SLet stmts that destructure the synth payload slot.
+            std::vector<lir::LStmt> nested_destructure_stmts;
+            for (auto& nsub : nested_subs) {
+                TypeRef synth_t = lookup(nsub.synth_name);
+                if (!synth_t) continue;
+                if (code_of(nsub.sub_pat_node) != la::PAT_STRUCT) continue;
+                // Field-by-field destructure: for each {name, optional sub-binding}
+                // emit `let <bind_name> = __synth.<field>;`. Sub-pat
+                // refutability already filtered by build_pattern.
+                if (!nsub.sub_pat_node.has_key(la::ITEMS)) continue;
+                auto fitems_av = nsub.sub_pat_node.get(la::ITEMS.code);
+                if (!fitems_av.is_pointer()) continue;
+                auto fitems_m = map_of(fitems_av);
+                if (!fitems_m.has_key(la::ITEMS)) continue;
+                auto fields = arr_of(fitems_m.get(la::ITEMS.code));
+                // Look up struct info from synth's struct name.
+                std::string sname_s(TypeRef(synth_t).struct_name());
+                auto [_skpkg, sinfo] = find_struct_by_name(sname_s);
+                if (!sinfo) continue;
+                for (uint64_t k = 0; k < fields.size(); ++k) {
+                    auto fnode = map_of(fields.get(k));
+                    if (!fnode.has_key(la::NAME)) continue;
+                    std::string fname(str_of(fnode.get(la::NAME.code)));
+                    // Determine bind name: either NAME (shorthand) or
+                    // sub-pat's NAME (if PAT_WILD with explicit rename).
+                    std::string bind = fname;
+                    if (fnode.has_key(la::VALUE)) {
+                        auto sub = map_of(fnode.get(la::VALUE.code));
+                        if (code_of(sub) == la::PAT_WILD && sub.has_key(la::NAME))
+                            bind = std::string(str_of(sub.get(la::NAME.code)));
+                    }
+                    // Look up field type.
+                    TypeRef ftype = error_t();
+                    for (auto& sf : sinfo->fields)
+                        if (sf.name == fname) { ftype = sf.type; break; }
+                    define(bind, ftype);
+                    auto sref = builder().var_ref(nsub.synth_name, synth_t);
+                    auto fr = builder().field_read(std::move(sref), fname, ftype);
+                    lir::SLet sl;
+                    sl.name = bind; sl.type = ftype; sl.is_mut = false;
+                    sl.value = std::move(fr);
+                    nested_destructure_stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+                }
             }
 
             // Optional guard: `pattern if expr =>`
@@ -4204,6 +4272,15 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
                     lir::SExprStmt es; es.expr = std::move(val);
                     body->stmts.push_back(make_stmt_emit(node_line_, std::move(es)));
                 }
+            }
+            // P4-pm-02: prepend nested-pat destructure stmts so user
+            // body sees the sub-pat bindings.
+            if (!nested_destructure_stmts.empty()) {
+                std::vector<lir::LStmt> merged = std::move(nested_destructure_stmts);
+                merged.insert(merged.end(),
+                              std::make_move_iterator(body->stmts.begin()),
+                              std::make_move_iterator(body->stmts.end()));
+                body->stmts = std::move(merged);
             }
             // Prepend Hermes @-pattern prologue (helper __hp_N lets + user
             // binding lets) to body so bindings are live inside the arm body.
@@ -4469,16 +4546,59 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 }
             }
 
+            // P4-pm-02: wire nested-pat side channel (same as stmt-form
+            // lower_match above).
             in_match_hermes_ctx_ = has_hermes_pat;
+            std::vector<NestedPatSub> nested_subs;
+            auto* saved_pat_subs = current_pat_nested_subs_;
+            current_pat_nested_subs_ = &nested_subs;
             lir::Pattern pat = arm.has_key(la::LHS)
                 ? build_pattern(map_of(arm.get(la::LHS.code)), scrut_type)
                 : make_pat_wild("_");
+            current_pat_nested_subs_ = saved_pat_subs;
             in_match_hermes_ctx_ = false;
 
             push_scope();
             bind_pattern(pat, scrut_type);
             for (const auto& b : body_binds) {
                 define(b.name, anyval_t, /*is_mut=*/false);
+            }
+            // P4-pm-02: nested struct sub-pat destructure stmts.
+            std::vector<lir::LStmt> nested_destructure_stmts;
+            for (auto& nsub : nested_subs) {
+                TypeRef synth_t = lookup(nsub.synth_name);
+                if (!synth_t) continue;
+                if (code_of(nsub.sub_pat_node) != la::PAT_STRUCT) continue;
+                if (!nsub.sub_pat_node.has_key(la::ITEMS)) continue;
+                auto fitems_av = nsub.sub_pat_node.get(la::ITEMS.code);
+                if (!fitems_av.is_pointer()) continue;
+                auto fitems_m = map_of(fitems_av);
+                if (!fitems_m.has_key(la::ITEMS)) continue;
+                auto fields = arr_of(fitems_m.get(la::ITEMS.code));
+                std::string sname_s(TypeRef(synth_t).struct_name());
+                auto [_skpkg, sinfo] = find_struct_by_name(sname_s);
+                if (!sinfo) continue;
+                for (uint64_t k = 0; k < fields.size(); ++k) {
+                    auto fnode = map_of(fields.get(k));
+                    if (!fnode.has_key(la::NAME)) continue;
+                    std::string fname(str_of(fnode.get(la::NAME.code)));
+                    std::string bind = fname;
+                    if (fnode.has_key(la::VALUE)) {
+                        auto sub = map_of(fnode.get(la::VALUE.code));
+                        if (code_of(sub) == la::PAT_WILD && sub.has_key(la::NAME))
+                            bind = std::string(str_of(sub.get(la::NAME.code)));
+                    }
+                    TypeRef ftype = error_t();
+                    for (auto& sf : sinfo->fields)
+                        if (sf.name == fname) { ftype = sf.type; break; }
+                    define(bind, ftype);
+                    auto sref = builder().var_ref(nsub.synth_name, synth_t);
+                    auto fr = builder().field_read(std::move(sref), fname, ftype);
+                    lir::SLet sl;
+                    sl.name = bind; sl.type = ftype; sl.is_mut = false;
+                    sl.value = std::move(fr);
+                    nested_destructure_stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+                }
             }
 
             std::optional<lir::LExprPtr> guard;
@@ -4562,6 +4682,13 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             } else {
                 error("match expression: arm has no body");
                 val = error_expr();
+            }
+            // P4-pm-02: wrap arm value with nested-pat destructure stmts.
+            if (!nested_destructure_stmts.empty()) {
+                auto blk = lir::alloc_block(*cur_prog_);
+                blk->stmts = std::move(nested_destructure_stmts);
+                TypeRef vt = val ? val->type : error_t();
+                val = builder().block_expr(std::move(blk), std::move(val), vt);
             }
             // Wrap arm value with Hermes @-pattern prologue so bindings are
             // live during evaluation.

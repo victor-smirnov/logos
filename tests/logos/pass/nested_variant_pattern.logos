@@ -1,0 +1,18 @@
+// P4-pm-02 regression: `E::Some(Pair { a, b })` — nested struct
+// pattern inside variant payload. Sema synthesizes a payload binding
+// `__pat_pld_*` and emits field-by-field destructure lets in the arm
+// body prologue.
+package nested_variant_pattern;
+
+struct Pair { a: i32, b: i32 }
+enum E { Some(Pair), None }
+
+fn main() -> i32 {
+    let e: E = E::Some(Pair { a: 5i32, b: 7i32 });
+    let r: i32 = match e {
+        E::Some(Pair { a, b }) => a + b,
+        E::None                => 0i32,
+    };
+    if r != 12i32 { return 1; }
+    return 0;
+}

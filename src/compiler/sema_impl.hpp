@@ -1932,6 +1932,17 @@ private:
     // explicitly handled by the caller (desugared to guard). Outside this
     // context, PAT_HERMES_* in build_pattern is a diagnostic.
     bool in_match_hermes_ctx_ = false;
+    // P4-pm-02: side channel for build_pattern to register nested
+    // sub-pats that need irrefutable destructure in the arm-body prologue
+    // (e.g. `Some(A { foo: _x })` → synth `__pat_pld_*` binding for the
+    // payload slot, then `let A { foo: _x } = __pat_pld_*;` at body
+    // start). Caller wires this before build_pattern and consumes the
+    // entries when building the arm body.
+    struct NestedPatSub {
+        std::string                synth_name;
+        hermes::TinyMapView        sub_pat_node;
+    };
+    std::vector<NestedPatSub>* current_pat_nested_subs_ = nullptr;
     void bind_pattern(const lir::Pattern& pat,
                       TypeRef scrut_type = nullptr);
     void bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type);
