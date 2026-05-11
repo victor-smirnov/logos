@@ -992,6 +992,22 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
     if (TypeRef(from).kind() == LogosType::Kind::MutRef && TypeRef(to).kind() == LogosType::Kind::Ref &&
         TypeRef(from).pointee() && TypeRef(to).pointee())
         return types_compatible(TypeRef(from).pointee(), TypeRef(to).pointee());
+    // B3-bg-06: `&Vec<T> → &[T]` / `&mut Vec<T> → &[T]` Deref-like coercion.
+    // In Logos `&[T]` is the Slice fat-pointer type itself (NOT Ref<Slice>),
+    // so the from side is `Ref<Vec<T>>` / `MutRef<Vec<T>>` and the to side
+    // is `Slice<T>`. Vec's `{ptr, len, cap}` layout has `{ptr, len}` (the
+    // slice fat-pointer) as a prefix, so at the LLVM level the pointer is
+    // reused verbatim — no runtime conversion needed. Hardcoded to the
+    // stdlib Vec struct; full `Deref` trait surface is the longer path.
+    if ((TypeRef(from).kind() == LogosType::Kind::Ref || TypeRef(from).kind() == LogosType::Kind::MutRef) &&
+        TypeRef(to).kind() == LogosType::Kind::Slice &&
+        TypeRef(from).pointee() &&
+        TypeRef(from).pointee().kind() == LogosType::Kind::Struct &&
+        TypeRef(from).pointee().struct_name() == "Vec" &&
+        !TypeRef(from).pointee().type_args().empty() &&
+        TypeRef(to).elem())
+        return types_compatible(TypeRef(from).pointee().type_args()[0],
+                                TypeRef(to).elem());
     // &T → &T and &mut T → &mut T with compatible pointees (e.g. &{integer} → &i32)
     if (TypeRef(from).kind() == LogosType::Kind::Ref && TypeRef(to).kind() == LogosType::Kind::Ref &&
         TypeRef(from).pointee() && TypeRef(to).pointee())

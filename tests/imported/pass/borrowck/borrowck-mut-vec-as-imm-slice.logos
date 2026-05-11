@@ -1,25 +1,22 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/borrowck/borrowck-mut-vec-as-imm-slice.rs
-// Modifications: Rust `&[isize]` slice arg becomes `&Vec<i64>` (Logos
-// surface doesn't yet have an implicit Vec→slice coercion at fn-arg
-// position); `for i in v { sum += *i }` becomes a length-indexed loop
-// since Logos's IntoIterator-for-&Vec is wired but `*i` on the loop
-// var here requires the borrow checker to track the iterator's borrow,
-// which is the cross-traits-borrowck topic for a later batch. The
-// test still exercises passing a Vec by `&` to a function that reads
-// it without consuming the original.
+// Modifications: `&Vec<i64>` is now `&[i64]` at want_slice (B3-bg-06
+// closed 2026-05-11 — `&Vec<T>` auto-coerces to `&[T]` at fn-arg
+// position). The Rust `for i in v { sum += *i }` loop is still a
+// length-indexed loop because the iterator-borrow-tracking arc
+// (B3-bg-07) is a later batch.
 package borrowck_mut_vec_as_imm_slice;
 
 use std.fmt;
 use std.lang.text;
 use std.collections.vec;
 
-fn want_slice(v: &Vec<i64>) -> i64 {
+fn want_slice(s: &[i64]) -> i64 {
     let mut sum: i64 = 0i64;
-    let n: i64 = v.length();
+    let n: i64 = s.len();
     let mut i: i64 = 0i64;
     while i < n {
-        sum = sum + v.get(i);
+        sum = sum + s[i];
         i = i + 1i64;
     }
     return sum;

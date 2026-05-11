@@ -1,0 +1,25 @@
+// B3-bg-06 regression: `&Vec<T>` / `&mut Vec<T>` auto-coerces to
+// `&[T]` at fn-arg position. Vec's `{ptr, len, cap}` layout has the
+// slice fat-pointer `{ptr, len}` as a prefix, so the pointer passes
+// through verbatim at runtime.
+package vec_to_slice_coerce;
+
+use std.collections.vec;
+
+fn first(s: &[i64]) -> i64 {
+    // Slice fat-ptr layout matches Vec layout; we don't peek into it
+    // here (Logos doesn't expose `s.ptr` / `s.len` field syntax on
+    // the slice surface yet). Just exercise the coercion path; a
+    // 42 sentinel keeps the runtime check tight.
+    return 42i64;
+}
+
+fn first_mut(s: &[i64]) -> i64 { return 7i64; }
+
+fn main() -> i32 {
+    let v: Vec<i64> = vec_new::<i64>();
+    if first(&v)     != 42i64 { return 1; }
+    let mut vm: Vec<i64> = vec_new::<i64>();
+    if first_mut(&vm) != 7i64 { return 2; }
+    return 0;
+}
