@@ -1,0 +1,38 @@
+// Slice 2 of fn-macros: TokenStream/TokenTree types are stdlib-shaped
+// and walkable. Builds a small token stream by hand
+//   foo + 42
+// then walks it counting tree kinds. No lexer integration yet —
+// slice 3 wires up the real producer side.
+package token_stream_basic;
+
+use std.compiler.tokens;
+use std.collections.vec;
+use std.lang.text;
+
+fn main() -> i32 {
+    let mut ts: TokenStream = token_stream_new();
+
+    let nm: Ident = Ident { ptr: "foo".as_ptr(), len: 3u64 };
+    ts.push(TokenTree::Ident(nm, span_unknown()));
+    ts.push(TokenTree::Punct('+', Spacing::Alone, span_unknown()));
+    ts.push(TokenTree::Literal(LitKind::Int, String::from("42"), span_unknown()));
+
+    let mut idents: i32 = 0i32;
+    let mut puncts: i32 = 0i32;
+    let mut lits:   i32 = 0i32;
+
+    let mut i: i64 = 0i64;
+    while i < ts.length() {
+        let t: TokenTree = ts.trees.get(i);
+        match t {
+            TokenTree::Ident(_, _)        => { idents = idents + 1i32; }
+            TokenTree::Punct(_, _, _)     => { puncts = puncts + 1i32; }
+            TokenTree::Literal(_, _, _)   => { lits   = lits   + 1i32; }
+            TokenTree::Group(_, _, _)     => { }
+        }
+        i = i + 1i64;
+    }
+
+    // Encode counts: idents*100 + puncts*10 + lits.
+    return idents * 100i32 + puncts * 10i32 + lits;
+}

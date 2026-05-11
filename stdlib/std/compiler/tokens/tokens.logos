@@ -1,0 +1,105 @@
+// SPDX-License-Identifier: Apache-2.0
+// std.compiler.tokens — TokenStream / TokenTree (slice 2 of fn-macros).
+//
+// Foundation for `#[token_macro]` callees (slice 3 lands the lexer
+// balanced-capture path that produces these). For now: types only,
+// constructed by hand for round-trip / walk tests.
+//
+// Structure mirrors Rust's proc_macro2 — TokenStream is a flat sequence
+// of TokenTrees; Group nests another TokenStream inside a delimiter
+// pair. Span is a placeholder (file_id+line) — slice 3 will populate
+// it from the lexer.
+
+package std.compiler.tokens;
+
+use std.collections.vec;
+use std.lang.text;
+
+// ── Span ────────────────────────────────────────────────────────────────
+// Source location of a token. Slice 2: scaffolding only. Slice 3 wires
+// it from the lexer; slice 7 (hygiene) extends with scope tags.
+pub struct Span {
+    pub file_id: i32,
+    pub line:    i32,
+    pub col:     i32,
+}
+
+pub fn span_unknown() -> Span {
+    return Span { file_id: -1i32, line: 0i32, col: 0i32 };
+}
+
+// ── Literal kind ────────────────────────────────────────────────────────
+pub enum LitKind {
+    Int,
+    Float,
+    Str,
+    Char,
+    Bool,
+}
+
+// ── Punct spacing ───────────────────────────────────────────────────────
+// `Joint`: this punct directly precedes another punct that is part of a
+// multi-char operator (e.g. `:` in `::`, `=` in `==`).
+// `Alone`: this punct is the last in its run.
+pub enum Spacing {
+    Joint,
+    Alone,
+}
+
+// ── Group delimiter ─────────────────────────────────────────────────────
+pub enum Delim {
+    Paren,    // ( )
+    Bracket,  // [ ]
+    Brace,    // { }
+}
+
+// ── Ident ───────────────────────────────────────────────────────────────
+// Local Ident definition keeps tokens.logos free of an upward dep on
+// std.compiler.metaprog (which is ast_only — wouldn't link here).
+// Layout matches the metaprog Ident — both are interchangeable byte-wise.
+pub struct Ident {
+    pub ptr: *const u8,
+    pub len: u64,
+}
+
+// ── Token tree ──────────────────────────────────────────────────────────
+// A single leaf or a balanced subgroup. Mirrors proc_macro2's TokenTree.
+//   Ident("foo")
+//   Literal(Int, "42")           — text is the original lexeme (incl. suffix)
+//   Punct('+', Alone)
+//   Group(Paren, <inner stream>)
+pub enum TokenTree {
+    Ident(Ident, Span),
+    Literal(LitKind, String, Span),
+    Punct(char, Spacing, Span),
+    Group(Delim, TokenStream, Span),
+}
+
+// ── TokenStream ─────────────────────────────────────────────────────────
+// Flat sequence of TokenTrees. Recursion lives inside Group. Span is
+// the stream's outer span (set by the producer).
+pub struct TokenStream {
+    pub trees: Vec<TokenTree>,
+    pub span:  Span,
+}
+
+pub fn token_stream_new() -> TokenStream {
+    return TokenStream {
+        trees: vec_new::<TokenTree>(),
+        span:  span_unknown(),
+    };
+}
+
+impl TokenStream {
+    pub fn push(&mut self, t: TokenTree) {
+        self.trees.push(t);
+    }
+
+    pub fn length(&self) -> i64 {
+        return self.trees.length();
+    }
+
+    pub fn is_empty(&self) -> bool {
+        return self.trees.is_empty();
+    }
+}
