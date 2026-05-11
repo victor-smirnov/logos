@@ -3083,32 +3083,44 @@ lir::LFunction Mono::clone_fn(const lir::LFunction& fn, const SubstMap& s,
 
 // ── Struct monomorphization ───────────────────────────────────
 
+// Sprint 5.4: populate the trait_engine from current mono tables.
+// Cheap; called on demand. Invalidated by trait_engine_dirty_ when
+// new impls or blankets land mid-pass.
+void Mono::populate_trait_engine_() {
+    trait_engine_ = trait_engine::TraitEngine{};   // fresh
+    // (D) direct impls — concrete_impls_ keys are "trait::type".
+    for (auto& k : concrete_impls_) {
+        auto pos = k.find("::");
+        if (pos == std::string::npos) continue;
+        trait_engine_.add_impl(k.substr(0, pos), k.substr(pos + 2));
+    }
+    // (B) blanket impls — preserve "all bounds in one AND" semantics:
+    // primary bound first, then extras. Empty primary bound +
+    // empty extras is the "unconditional impl-for-all" case, which
+    // mono_has_impl_recursive returned true for. Represent as a
+    // blanket with empty bounds list (engine returns true).
+    for (auto& bi : blanket_impls_) {
+        std::vector<std::string> bounds;
+        if (!bi.bound_trait.empty()) bounds.push_back(bi.bound_trait);
+        for (auto& eb : bi.extra_bounds) bounds.push_back(eb);
+        trait_engine_.add_blanket(bi.trait_name, std::move(bounds));
+    }
+    trait_engine_dirty_ = false;
+}
+
 // L1.4: bound-gate, factored from clone_struct_def's method loop. Returns
 // false when any of method `m`'s impl_type_params bounds is unsatisfied
 // under substitution `s`.
+//
+// Sprint 5.6: implementation now routes through trait_engine_. The
+// `seen` parameter is kept for source compatibility but ignored —
+// the engine has its own per-query cycle guard. Existing call sites
+// pass a StrSet by reference; we don't break them.
 bool Mono::mono_has_impl_recursive(const std::string& trait_name,
                                    const std::string& concrete_name,
-                                   StrSet& seen) {
-    std::string k = trait_name + "::" + concrete_name;
-    if (!seen.insert(k).second) return false;
-    if (concrete_impls_.count(k)) return true;
-    for (auto& bi : blanket_impls_) {
-        if (bi.trait_name != trait_name) continue;
-        if (bi.bound_trait.empty() && bi.extra_bounds.empty()) return true;
-        // Per-attempt copy: a failed sibling must not poison sub-checks
-        // for the next candidate.
-        StrSet attempt = seen;
-        bool ok = bi.bound_trait.empty()
-            || mono_has_impl_recursive(bi.bound_trait, concrete_name, attempt);
-        if (ok) {
-            for (auto& eb : bi.extra_bounds)
-                if (!mono_has_impl_recursive(eb, concrete_name, attempt)) {
-                    ok = false; break;
-                }
-        }
-        if (ok) return true;
-    }
-    return false;
+                                   StrSet& /*seen*/) {
+    if (trait_engine_dirty_) populate_trait_engine_();
+    return trait_engine_.satisfies(trait_name, concrete_name);
 }
 
 bool Mono::method_bound_ok(const lir::LFunction& m, const SubstMap& s) {

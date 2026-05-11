@@ -36,13 +36,14 @@ struct ImplFact {
     ImplId    impl_id = NO_IMPL;
 };
 
-// A blanket impl: forall T satisfying `bound`, `target` is implemented
-// for T. Concrete representation chosen so multiple types can derive
-// the same target trait without enumerating them eagerly.
+// A blanket impl: forall T satisfying every bound in `bounds`,
+// `target` is implemented for T. The AND-conjunction of bounds
+// mirrors Logos's existing `bound_trait + extra_bounds[]` shape
+// in mono_impl.hpp::BlanketImplInfo.
 struct BlanketImplFact {
-    TraitName target_trait;   // trait being implemented
-    TraitName bound_trait;    // bound the impl type must satisfy
-    ImplId    impl_id = NO_IMPL;
+    TraitName              target_trait;   // trait being implemented
+    std::vector<TraitName> bounds;          // must all be satisfied (AND)
+    ImplId                 impl_id = NO_IMPL;
 };
 
 // An auto-trait rule: "all types implement T" (modulo negative
@@ -73,7 +74,12 @@ public:
 
     // ── Facts ────────────────────────────────────────────────────
     ImplId add_impl(TraitName trait, TypeName type_name);
+    // Single-bound blanket: shorthand for the common case.
     ImplId add_blanket(TraitName target_trait, TraitName bound_trait);
+    // Multi-bound blanket (AND): the impl type must satisfy every
+    // trait in `bounds`. Empty `bounds` means an unconditional
+    // impl-for-all (caller should use add_auto_impl instead).
+    ImplId add_blanket(TraitName target_trait, std::vector<TraitName> bounds);
     void   add_auto_impl(TraitName trait);
     void   add_shape_auto_impl(TraitName trait, std::string shape_tag,
                                ShapePredicate pred);

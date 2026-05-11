@@ -11,6 +11,8 @@
 #include <logos/compiler/sema.hpp>
 #include <logos/compiler/str_map.hpp>
 
+#include "trait_engine.hpp"
+
 #include <cstdlib>
 #include <format>
 #include <string>
@@ -158,6 +160,18 @@ private:
     // Populated from out_.impls (non-blanket) so the blanket fallback can
     // verify a concrete type satisfies the bound.
     StrSet concrete_impls_;
+
+    // Sprint 5: side-by-side trait_engine driving the same queries as
+    // mono_has_impl_recursive. Populated lazily from concrete_impls_ +
+    // blanket_impls_ on first use; cleared & repopulated when those
+    // tables change (drain_method_worklist etc.). Once parity is
+    // validated, mono_has_impl_recursive collapses into a thin wrapper.
+    trait_engine::TraitEngine trait_engine_;
+    bool                      trait_engine_dirty_ = true;
+
+    // Populate trait_engine_ from concrete_impls_ + blanket_impls_.
+    // Cheap: a few hundred entries even for medium codebases.
+    void populate_trait_engine_();
 
     // Reverse uid → TypeRef table populated when a metaprog `Type` value
     // is emitted. Drives `reify_type` and (later) `quote_ty!` antiquot

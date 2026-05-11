@@ -58,6 +58,18 @@ static void test_blanket_chain() {
     CHECK(e.satisfies("C", "i32"));
 }
 
+static void test_blanket_multi_bound_and() {
+    TraitEngine e;
+    // impl<T: A + B> C for T — T must satisfy both A and B.
+    e.add_impl("A", "i32");
+    e.add_impl("B", "i32");
+    e.add_impl("A", "u32");
+    // u32 satisfies A but NOT B
+    e.add_blanket("C", std::vector<std::string>{"A", "B"});
+    CHECK(e.satisfies("C", "i32"));
+    CHECK(!e.satisfies("C", "u32"));
+}
+
 static void test_blanket_cycle_does_not_loop() {
     TraitEngine e;
     e.add_blanket("X", "Y");
@@ -136,6 +148,7 @@ int main() {
     test_dedup_direct_impls();
     test_blanket_impl();
     test_blanket_chain();
+    test_blanket_multi_bound_and();
     test_blanket_cycle_does_not_loop();
     test_auto_impl();
     test_shape_auto_impl_closures();

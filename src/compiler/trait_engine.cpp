@@ -37,8 +37,14 @@ ImplId TraitEngine::add_impl(TraitName trait, TypeName type_name) {
 }
 
 ImplId TraitEngine::add_blanket(TraitName target_trait, TraitName bound_trait) {
+    std::vector<TraitName> bounds;
+    bounds.push_back(std::move(bound_trait));
+    return add_blanket(std::move(target_trait), std::move(bounds));
+}
+
+ImplId TraitEngine::add_blanket(TraitName target_trait, std::vector<TraitName> bounds) {
     auto id = next_impl_id_++;
-    blankets_.push_back({std::move(target_trait), std::move(bound_trait), id});
+    blankets_.push_back({std::move(target_trait), std::move(bounds), id});
     memo_.clear();
     ++stats_.blanket_facts;
     return id;
@@ -95,12 +101,20 @@ ImplId TraitEngine::resolve_impl_(const TraitName& trait, const TypeName& type_n
         return dit->second;
     }
 
-    // (B) blanket: walk all blankets targeting `trait`, recursively
-    // check the bound. First match wins (Phase 1 — coherence later).
+    // (B) blanket: walk all blankets targeting `trait`. Every bound
+    // in the AND-conjunction must hold. First fully-satisfied blanket
+    // wins (Phase 1 — coherence checks live elsewhere). Empty
+    // bounds[] means unconditional impl-for-all.
     for (auto& b : blankets_) {
         if (b.target_trait != trait) continue;
-        auto bound_impl = resolve_impl_(b.bound_trait, type_name);
-        if (bound_impl == NO_IMPL) continue;
+        bool all_ok = true;
+        for (auto& bd : b.bounds) {
+            if (resolve_impl_(bd, type_name) == NO_IMPL) {
+                all_ok = false;
+                break;
+            }
+        }
+        if (!all_ok) continue;
         ++stats_.derived_facts;
         memo_[key] = b.impl_id;
         return b.impl_id;
@@ -164,11 +178,22 @@ TraitEngine::trace_satisfies(const TraitName& trait, const TypeName& type_name) 
 
     for (auto& b : blankets_) {
         if (b.target_trait != trait) continue;
-        if (satisfies(b.bound_trait, type_name)) {
-            out.push_back("blanket #" + std::to_string(b.impl_id) +
-                           ": " + trait + " ← " + b.bound_trait);
-            auto inner = trace_satisfies(b.bound_trait, type_name);
-            for (auto& s : inner) out.push_back("  " + s);
+        bool all_ok = true;
+        for (auto& bd : b.bounds) {
+            if (!satisfies(bd, type_name)) { all_ok = false; break; }
+        }
+        if (all_ok) {
+            std::string sig = trait + " ← {";
+            for (size_t i = 0; i < b.bounds.size(); ++i) {
+                if (i) sig += ", ";
+                sig += b.bounds[i];
+            }
+            sig += "}";
+            out.push_back("blanket #" + std::to_string(b.impl_id) + ": " + sig);
+            for (auto& bd : b.bounds) {
+                auto inner = trace_satisfies(bd, type_name);
+                for (auto& s : inner) out.push_back("  " + s);
+            }
             return out;
         }
     }
