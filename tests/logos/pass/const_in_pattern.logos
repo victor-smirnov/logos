@@ -1,0 +1,29 @@
+// P4-pm-06 regression: bare ident in pattern that names a module-const
+// resolves as a *value* pattern (ctfe-eval'd), not as a fresh binding.
+// Int / bool / char scalar consts are supported.
+package const_in_pattern;
+
+pub const N: i32   = 42i32;
+pub const FLAG: bool = true;
+
+fn check_int(x: i32) -> i32 {
+    match x {
+        N => { return 1i32; }
+        _ => { return 0i32; }
+    }
+}
+
+fn check_bool(b: bool) -> i32 {
+    match b {
+        FLAG => { return 1i32; }
+        _    => { return 0i32; }
+    }
+}
+
+fn main() -> i32 {
+    if check_int(42i32)  != 1i32 { return 1; }
+    if check_int(7i32)   != 0i32 { return 2; }
+    if check_bool(true)  != 1i32 { return 3; }
+    if check_bool(false) != 0i32 { return 4; }
+    return 0;
+}

@@ -891,6 +891,11 @@ void SemaChecker::collect_const(TinyMapView node) {
             error(std::format("duplicate const '{}'", name));
         }
         module_consts_[name] = t;
+        if (node.has_key(la::VALUE)) {
+            auto val_av = node.get(la::VALUE.code);
+            if (val_av.is_pointer())
+                module_const_values_[name] = map_of(val_av);
+        }
     }
 
     // Sprint 1.2: detect self-referential const initializer (closes

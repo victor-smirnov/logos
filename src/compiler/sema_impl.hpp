@@ -1326,6 +1326,11 @@ private:
     using SemaLifetimeSubst = logos::compiler::StrMap<std::string>;
     logos::compiler::StrMap<TypeAliasEntry> type_aliases_;
     logos::compiler::StrMap<TypeRef> module_consts_;
+    // P4-pm-06: AST node of each module-const initializer, retained so
+    // `match x { CONST => … }` can ctfe-eval CONST and lower as a value
+    // pattern (PAT_INT/PAT_BOOL/PAT_CHAR) instead of silently binding
+    // the scrutinee to a fresh local named CONST.
+    logos::compiler::StrMap<hermes::TinyMapView> module_const_values_;
     // Generic compile-time consts: `pub const X<T1, T2, …>: HermesStatic =
     // @{ … <type:T1> … };`. Stores the templated value-AST node + type-params
     // declaration. At each use-site `X<concrete1, concrete2>` sema pushes the

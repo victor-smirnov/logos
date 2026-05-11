@@ -1,6 +1,7 @@
 // Logos project — https://github.com/victor-smirnov/logos
 
 #include "sema_impl.hpp"
+#include "ctfe.hpp"
 
 #include <logos/hermes/type_registry.hpp>
 
@@ -1937,6 +1938,42 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
 
     // PAT_WILD or fallback
     auto wname = std::string(str_of(pnode.get(la::NAME.code)));
+    // P4-pm-06: bare ident in pattern that resolves to a module-const ⇒
+    // treat as a value pattern (PAT_INT / PAT_BOOL / PAT_CHAR), not as a
+    // fresh binding. ctfe-eval the const's RHS once; emit the matching
+    // scalar pattern. Non-scalar consts (str, hermes, struct) stay
+    // diagnosed — needs string-pattern codegen, separate slice.
+    if (wname != "_") {
+        auto cvit = module_const_values_.find(wname);
+        if (cvit != module_const_values_.end()) {
+            auto r = ctfe::eval_expr(cvit->second, holder_);
+            if (r) {
+                auto cv = std::move(r).value();
+                using K = LogosType::Kind;
+                if (cv.kind == K::Bool) {
+                    lir::Pattern p_;
+                    p_.mirror_offset_ = lir_mirror_emit_pat_bool(*cur_prog_, cv.b);
+                    return p_;
+                }
+                if (cv.kind == K::I8 || cv.kind == K::I16 || cv.kind == K::I32 ||
+                    cv.kind == K::I64 || cv.kind == K::Isize ||
+                    cv.kind == K::U8 || cv.kind == K::U16 || cv.kind == K::U32 ||
+                    cv.kind == K::U64 || cv.kind == K::Usize ||
+                    cv.kind == K::IntLit || cv.kind == K::Char) {
+                    lir::Pattern p_;
+                    p_.mirror_offset_ = lir_mirror_emit_pat_int(*cur_prog_, cv.i);
+                    return p_;
+                }
+                error(std::format(
+                    "const '{}' has non-scalar type — only int/bool/char "
+                    "consts are supported in patterns today", wname));
+            } else {
+                error(std::format(
+                    "const '{}' in pattern position: initializer is not "
+                    "ctfe-evaluable", wname));
+            }
+        }
+    }
     lir::Pattern p_;
     p_.mirror_offset_ = lir_mirror_emit_pat_wild(*cur_prog_, wname);
     return p_;
