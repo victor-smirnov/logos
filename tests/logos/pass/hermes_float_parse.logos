@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // Test: floating-point parsing in the Hermes text format parser.
 //
 // f32 embedding is dropped in the 4-byte AnyVal format (AnyVal 8→4 shrink).

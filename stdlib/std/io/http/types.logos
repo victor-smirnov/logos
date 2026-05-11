@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Logos standard library — std.http: core types (Method, Headers, Request,
 // Response, HttpError) and small internal helpers shared across the package.
 //

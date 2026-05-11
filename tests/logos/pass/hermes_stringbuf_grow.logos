@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // Test: String growth via realloc — stringify several values into a String
 // starting with small capacity so that grow() is triggered and data is
 // preserved correctly.

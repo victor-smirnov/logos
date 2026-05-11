@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // metacall (<expr>) — arbitrary expression at compile time.
 package metacall_paren_expr;
 

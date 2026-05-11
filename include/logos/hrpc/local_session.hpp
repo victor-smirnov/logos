@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 //
 // Local HRPC transport — zero-copy cross-reactor RPC without TCP.
 //

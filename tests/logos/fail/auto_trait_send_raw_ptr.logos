@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Auto trait fail: struct with a *mut i32 field cannot satisfy T: Send
 // because raw pointers are hardcoded !Send.
 

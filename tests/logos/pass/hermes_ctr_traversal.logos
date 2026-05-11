@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // Test: Hermes traversal API — array_len, array_get, map_get_cstr,
 // get_int, get_bool (Task 3).
 

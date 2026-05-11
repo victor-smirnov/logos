@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // metaprog dispatch loop — JIT-fires #[derive_*] / handler hooks and
 // processes item-position metacalls, splicing synthesised items into
 // the asts vector. Shared between the user-facing main path

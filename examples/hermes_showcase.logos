@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 //
 // Hermes showcase: compile-time literals, runtime capture, typed casts,
 // and the HermesRead/HermesWrite trait API.

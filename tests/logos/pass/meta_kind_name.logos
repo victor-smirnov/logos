@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Spot-check kind_name() for representative kinds.
 
 package meta_kind_name_probe;

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Logos standard library — std.ord
 //
 // Ordering enum + Ord trait (total order).

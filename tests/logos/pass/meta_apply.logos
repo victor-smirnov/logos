@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // type_apply(name, args: [Type; N]) -> Type — runtime composition of Types.
 // MP5 first piece: build Pair<i32, bool> from Type values.
 

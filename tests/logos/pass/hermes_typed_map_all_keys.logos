@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // hermes_typed_map_all_keys.logos — end-to-end stringify coverage for all 4
 // typed Map<K,AnyVal> key types via @<K,AnyVal>{...} literals.
 //

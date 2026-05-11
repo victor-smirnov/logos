@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 //
 // Module-level const definitions used in expressions.
 // EXIT_CODE = 6 * 7 = 42  →  exit code 42.

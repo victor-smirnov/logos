@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // blanket_chain_subst.logos — regression for TypeRef substitution
 // through chained blanket assoc-type bodies.
 //

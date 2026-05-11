@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // logos_argc / logos_argv — argc/argv capture for std.env.
 //
 // Reads /proc/self/cmdline before main() via a constructor function.

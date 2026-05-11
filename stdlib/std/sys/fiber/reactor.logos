@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // Logos stdlib — fiber reactor (async I/O on top of io_uring).
 //
 // Each worker thread owns one Reactor.  A fiber that needs to do I/O:

@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 
 #include <logos/reactor/reactor_engine.hpp>
 #include <logos/verification/assert.hpp>

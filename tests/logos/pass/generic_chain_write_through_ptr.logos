@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // generic_chain_write_through_ptr.logos — regression for chain-writes
 // through `*mut Outer<T>` where the path crosses a nested generic
 // struct field.

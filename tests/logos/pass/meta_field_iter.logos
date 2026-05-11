@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // field_count_of::<T>() + field_types_of/field_names_of indexed iteration.
 
 package meta_field_iter_probe;

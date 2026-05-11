@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // lforge — closure walk over project-level deps. For each dep:
 //   * resolve to a filesystem path (local or git cache)
 //   * detect MVS conflicts via the winners ledger

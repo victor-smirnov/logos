@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Auto trait fail: auto traits must have an empty body.
 // Declaring a method inside one is a compile error.
 

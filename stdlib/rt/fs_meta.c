@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Logos runtime — filesystem metadata helpers.
 //
 // Thin C wrappers over libc so Logos doesn't need to know struct stat

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // `quote_ty! { ($t1, $t2) }` and `quote_ty! { [$t; N] }` — antiquot in
 // tuple- and array-type positions, lowered to __tuple_type_apply__ /
 // __array_type_apply__. MP3 sibling slice.

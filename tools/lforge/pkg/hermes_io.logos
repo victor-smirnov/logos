@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // lforge — typed-field helpers over a Hermes view. Used by the
 // manifest parser, the lockfile parser, and any future SDN reader.
 

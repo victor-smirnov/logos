@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 
 #include <logos/hermes/stringify.hpp>
 #include <logos/hermes/type_ops.hpp>

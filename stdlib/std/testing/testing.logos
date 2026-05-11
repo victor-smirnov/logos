@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Logos standard library -- std.testing
 //
 // Minimal in-process unit-test framework.  Tests accumulate pass/fail

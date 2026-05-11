@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // lforge — small string / I/O / error-construction helpers shared by all
 // sub-packages and the entry-point.
 

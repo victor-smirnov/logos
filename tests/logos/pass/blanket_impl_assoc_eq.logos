@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // ADR 0008: blanket impl gated by associated-type equality.
 // `impl<P: Profile<Order = ByKey>> HasInsertKv for P` matches MapProfile
 // (Order = ByKey) but not ArrayProfile (Order = ByRank).

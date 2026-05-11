@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Logos standard library — std.http: server API (fiber-based).
 //
 // Requires a Reactor installed on the current thread.  `serve_n` accepts

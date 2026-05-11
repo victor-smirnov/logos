@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // hermes_type_lit_parse.logos — component-metaprog slice 1 step A.
 // `<type:T>` parses and lowers inside @-literal at expression position.
 // Real Type-as-value embedding lands in step B.

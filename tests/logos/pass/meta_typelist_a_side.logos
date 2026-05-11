@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // A-layer typelist ops — `length<T...>` / `head<T...>` / `nth<T...>(i)` /
 // `tail<T...>` from `std::compiler::metaprog::meta`. Free-fn wrappers
 // around the `typelist_*` keyword intrinsics; same observable behaviour,

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Sema fail: non-void function with a path that doesn't return.
 package no_return;
 

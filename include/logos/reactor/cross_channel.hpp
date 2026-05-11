@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 //
 // Cross-reactor SPSC channel — fiber-aware message passing between two
 // Reactor instances running on different OS threads.

@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // std.data.persistent.store — Store + IStore + MutSnapshot.
 //
 // Store side of the persistent stack: holds the commit DAG, allocates

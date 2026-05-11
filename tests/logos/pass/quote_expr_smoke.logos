@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Slice 7 of metaprog-quote — `quote_expr! { 1 + 2 }` produces an
 // ExprBlob whose root TOM is the BIN_OP TOM with schema_type_code
 // set to ast(BINOP). The metacall driver splices it; pass-2 sema's

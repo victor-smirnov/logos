@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // Logos stdlib — fiber runtime (step 1: single-thread cooperative scheduler).
 //
 // Native dependency: stdlib/rt/fiber_ctx.S (compiled into liblogos_rt.a).

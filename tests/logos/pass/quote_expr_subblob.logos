@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Step 5c Option B of metaprog-quote — ExprBlob antiquot inside
 // `quote_expr!`. `build_inner` produces an `ExprBlob` carrying the
 // expression `41`; `build_outer` splices it into a larger expression

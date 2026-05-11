@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Logos standard library — std.io.fs (metadata + directory iteration)
 //
 // File metadata predicates, mkdir/rmdir/unlink, and a recursive directory

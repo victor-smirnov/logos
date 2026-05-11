@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Logos standard library — std.rc
 //
 // Rc<T> — single-thread reference-counted smart pointer.

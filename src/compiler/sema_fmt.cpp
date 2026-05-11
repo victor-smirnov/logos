@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // sema_fmt.cpp — format-string parser. See sema_fmt.hpp for the
 // surface and the slice 4.4 design context.
 

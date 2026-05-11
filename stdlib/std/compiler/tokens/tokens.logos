@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // std.compiler.tokens — TokenStream / TokenTree (slice 2 of fn-macros).
 //
 // Foundation for `#[token_macro]` callees (slice 3 lands the lexer

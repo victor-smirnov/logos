@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // Logos project — https://github.com/victor-smirnov/logos
 //
 // __morestack — split-stack overflow handler for green fibers (x86-64).

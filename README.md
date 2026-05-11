@@ -107,4 +107,17 @@ Active implementation. The compiler, runtime, and standard library are in daily 
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE).
+Dual-licensed under Apache 2.0 and MIT — at your option. See
+[LICENSE-APACHE](LICENSE-APACHE), [LICENSE-MIT](LICENSE-MIT), and
+[COPYRIGHT](COPYRIGHT) for the full text and pick-your-licence rule.
+
+The Logos Lang name and project marks are governed separately by
+[TRADEMARKS.md](TRADEMARKS.md) — most descriptive uses are permitted
+without permission. Forks and derivative distributions must rename.
+
+## Contributing
+
+Patches are welcome. Contributions are dual-licensed (Apache 2.0 /
+MIT, same as the codebase) and must include a [DCO](DCO) sign-off
+on each commit (`git commit -s ...`). See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.

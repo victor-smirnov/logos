@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // lforge — per-target build_lib (one .a per lib) and build_bin (link
 // final executable). Both honour the mtime-based incremental skip rule.
 

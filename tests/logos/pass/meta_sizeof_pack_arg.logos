@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Smoke-test for the `[T; sizeof...(P)]` admission in `arr_type` — used
 // at parameter position. Sema lowers the size to
 // `arr_size_var = "__sizeof_pack:T"` and mono substitutes the literal

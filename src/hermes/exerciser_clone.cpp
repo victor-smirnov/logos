@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // Logos project — https://github.com/victor-smirnov/logos
 //
 // Exerciser for hermes::clone() — step-1 dispatch-based deep clone.

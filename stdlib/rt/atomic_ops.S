@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // Logos stdlib — atomic load/store/fetch-add/CAS (x86-64).
 //
 // Split out of fiber_ctx.S so this TU has zero TLS relocations.

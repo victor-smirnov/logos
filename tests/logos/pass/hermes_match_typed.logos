@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Test: typed-container patterns @<T>[..] / @<K,V>{..} match by type_code.
 
 package hermes_match_typed;

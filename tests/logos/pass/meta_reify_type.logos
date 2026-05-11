@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // reify_type(t: Type) -> Type — mono-time uid → TypeRef round-trip.
 // MP2 plumbing for quote_ty! antiquot reification.
 

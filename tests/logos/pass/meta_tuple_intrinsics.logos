@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // tuple_count_of / tuple_elems_of — anonymous-product type reflection.
 
 package meta_tuple_intrinsics_probe;

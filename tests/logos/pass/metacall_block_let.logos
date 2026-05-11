@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // metacall { let x = ...; tail } — block with internal LET binding.
 package metacall_block_let;
 

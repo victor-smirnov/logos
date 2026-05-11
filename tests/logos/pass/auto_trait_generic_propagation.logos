@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Auto trait test: generic propagation.
 // fn wrap<T: Send>(x: T) calls fn inner<T: Send>(x: T).
 // Caller passes i32 — compiler verifies i32: Send at the call site.

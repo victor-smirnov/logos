@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Logos standard library -- std.path
 //
 // Pure path manipulation (no syscalls). Paths are UTF-8 str/String.

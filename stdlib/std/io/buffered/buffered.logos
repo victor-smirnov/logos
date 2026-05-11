@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Logos standard library -- std.io.buffered
 //
 // Buffered I/O generic over Read/Write traits.  Reduces syscall count for

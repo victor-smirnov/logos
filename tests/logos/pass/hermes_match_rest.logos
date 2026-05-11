@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Test: trailing rest pattern `..` in Hermes array patterns.
 
 package hermes_match_rest;

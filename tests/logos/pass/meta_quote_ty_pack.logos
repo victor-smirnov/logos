@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // `quote_ty! { Foo<$ts...> }` — pack-splice antiquot. ts is a runtime
 // `Array<Type>` (typically from `type_refs_of::<U...>()`); sema lowers
 // to `__type_apply__("Foo", ts)` and mono recovers element types by

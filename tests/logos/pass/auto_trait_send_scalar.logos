@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Auto trait test: scalar types (i32, bool, f64) automatically satisfy Send.
 // fn accept<T: Send>(x: T) compiles for all these types → exit 42.
 

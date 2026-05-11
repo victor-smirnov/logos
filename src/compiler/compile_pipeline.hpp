@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // compile_pipeline — shared lowering tail used by main.cpp + emit_module.cpp.
 // Takes a mono'd + borrow-checked LProgram and drives:
 //

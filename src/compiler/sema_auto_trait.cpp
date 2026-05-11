@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // Auto trait satisfaction engine.
 //
 // is_auto_trait_satisfied recursively checks whether a concrete type satisfies

@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // Logos project — https://github.com/victor-smirnov/logos
 //
 // Phase 3c — read-side view types over the L-IR Hermes mirror.

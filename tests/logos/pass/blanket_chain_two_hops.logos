@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // blanket_chain_two_hops.logos — regression for trait-satisfaction
 // transitivity through chained blanket impls.
 //

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Logos standard library -- std.hex
 //
 // Hex encode/decode.  Lowercase on encode; both cases accepted on decode.

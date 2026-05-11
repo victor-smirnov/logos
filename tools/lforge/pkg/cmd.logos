@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // lforge — top-level command handlers (build / update / run / clean /
 // install / test). Each one consumes a parsed Manifest + a profile.
 

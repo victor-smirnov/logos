@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // Logos Hermes stdlib — hermes.objectmap
 //
 // Phase 12: ObjectMap — open-addressing string-keyed hash map over a Hermes zone.

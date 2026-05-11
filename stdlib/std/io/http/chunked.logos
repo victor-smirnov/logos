@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Logos standard library — std.http: chunked transfer-encoding codec
 // (RFC 7230 §4.1).
 

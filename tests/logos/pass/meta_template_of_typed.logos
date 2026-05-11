@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Typed-sugar form `template_of::<X>()` — sema-side intrinsic that
 // resolves X to a top-level item in the current AST and bakes the
 // node's arena offset into a `Template { raw: AnyVal { raw: <off> } }`

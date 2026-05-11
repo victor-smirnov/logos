@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // lforge — topological sort of build targets by their declared deps,
 // plus external_lookup which the sort consults to allow target.deps to
 // reference external lib names.

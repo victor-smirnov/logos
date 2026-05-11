@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // metacall returning HermesStatic — callee builds an @-literal and the
 // driver freezes its blob bytes into rodata, splicing a HERMES_BLOB into
 // the AST. The user-facing type stays HermesStatic.

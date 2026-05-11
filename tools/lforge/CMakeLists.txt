@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: Apache-2.0
 # Build the lforge binary from tools/lforge/main.logos.
 
 if (NOT TARGET logosc)

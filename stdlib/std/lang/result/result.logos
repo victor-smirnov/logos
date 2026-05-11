@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Logos standard library — std.result
 //
 // Result<T, E> — value-or-error type (Ok(T) or Err(E)).

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // `instantiate Foo<T>;` materialises the instance and all its methods even
 // when no Logos code references Foo<T>. Acts as a root pin for monomorphization
 // (C++ `template class Foo<int>;` analog).

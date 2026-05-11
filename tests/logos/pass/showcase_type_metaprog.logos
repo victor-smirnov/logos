@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // showcase_type_metaprog.logos — sampler of Logos's type-level
 // metaprog + embedded Hermes capabilities, circa slice 1G of the
 // component-metaprog bootstrap.

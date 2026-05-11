@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // has_trait_of::<Trait>(t: Type) — Type-method form of has_trait.
 
 package meta_has_trait_of_probe;

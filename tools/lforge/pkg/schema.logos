@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // lforge — schema types: Manifest, Target, dep records, lock state.
 
 package lforge.schema;

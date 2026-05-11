@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // Logos Hermes stdlib — hermes.relptr_traits
 //
 // Generic trait impls for `RelPtr<T>`: resolve-and-delegate.  Makes

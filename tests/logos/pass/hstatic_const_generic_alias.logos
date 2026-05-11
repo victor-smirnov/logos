@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // hstatic_const_generic_alias.logos — bare `type Cfg = @{...};`
 // alias whose rhs is a HermesStatic literal, used as a const-generic
 // argument elsewhere.

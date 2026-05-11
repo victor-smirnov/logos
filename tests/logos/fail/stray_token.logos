@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Parser fail: bare identifier at item position is not valid syntax.
 // Verifies that logosc reports the stray token instead of silently emitting
 // an empty (or broken) object file.

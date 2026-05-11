@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // `fold_to_type<T...>(init, f)` — left fold over a type pack returning
 // a Type. Step 4 of the taxonomy ladder, in the producer-shape we can
 // express today (Type-array producers are blocked on const generics).

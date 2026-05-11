@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // lforge — tool resolution + build-output path helpers + mtime-based
 // freshness check used to skip up-to-date actions.
 

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Logos standard library — std.atomic
 //
 // Atomic types backed by x86-64 assembly primitives in stdlib/rt/fiber_ctx.S.

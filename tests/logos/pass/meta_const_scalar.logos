@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Const-generic scalar value-use: `<const N: T>` referenced in expression
 // position. Sema emits a synthetic `__const_param:N` VarRef of the underlying
 // numeric type; mono lowers to lit_int via the substitution map.

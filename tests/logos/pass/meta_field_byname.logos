@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Locate a struct field by name, then read its size from field_types_of.
 
 package meta_field_byname_probe;

@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 //
 // Layer 8 exerciser: cross-reactor submit_to with P2P SPSC queues.
 

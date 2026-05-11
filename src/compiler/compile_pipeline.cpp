@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Shared MLIR/LLVM lowering tail. See compile_pipeline.hpp for the contract.
 //
 // Body extracted verbatim from the duplicated chunks at the end of

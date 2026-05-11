@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // Logos project — https://github.com/victor-smirnov/logos
 //
 // MLIRGen — lower Logos L-IR to MLIR (func + arith + cf + llvm dialects).

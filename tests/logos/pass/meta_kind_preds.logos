@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Exercises std::meta kind-predicate helpers (is_integer / is_float_kind /
 // is_struct / ...) by feeding them into count_if over diverse packs.
 

@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // Logos Hermes stdlib — hermes.relptr
 //
 // RelPtr<T>: thin intra-zone relative pointer.

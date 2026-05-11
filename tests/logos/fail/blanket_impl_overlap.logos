@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Two distinct blanket impls of the same trait that both match a receiver
 // must be diagnosed instead of silently picking one.
 

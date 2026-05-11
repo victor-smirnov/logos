@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Auto trait test: a plain struct (no raw-pointer fields) automatically
 // satisfies Send because all its fields are scalars.
 

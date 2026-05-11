@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // metacall { ... } — single-tail-expr block at compile time.
 package metacall_block_simple;
 

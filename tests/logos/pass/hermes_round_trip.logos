@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 //
 // hermes_round_trip — parse a non-trivial Hermes document, stringify it,
 // and print the result to stdout.

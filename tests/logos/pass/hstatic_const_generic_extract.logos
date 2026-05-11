@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // hstatic_const_generic_extract.logos — runtime extraction of a
 // HermesStatic const-generic from inside a generic body.
 //

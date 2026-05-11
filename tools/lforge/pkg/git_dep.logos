@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // lforge — git dep resolution: URL canonicalization, ls-remote / clone
 // helpers, and the lockfile-aware closure-walk entrypoint.
 

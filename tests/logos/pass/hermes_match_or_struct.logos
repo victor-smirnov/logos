@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // OR-pattern with structural Hermes alts (including typed-container alts).
 
 package hermes_match_or_struct;

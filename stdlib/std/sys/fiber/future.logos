@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // Logos stdlib — fiber/future: one-shot intra- and inter-thread future.
 //
 // FutureSlot<T> is heap-allocated shared state between producer and consumer.

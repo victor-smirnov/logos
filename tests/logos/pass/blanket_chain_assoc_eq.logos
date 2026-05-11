@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // blanket_chain_assoc_eq.logos — regression for assoc-type-equality
 // satisfaction through chained blanket impls.
 //

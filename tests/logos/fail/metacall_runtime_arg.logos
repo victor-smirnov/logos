@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // metacall arg references a runtime variable: not a compile-time constant.
 package metacall_runtime_arg;
 

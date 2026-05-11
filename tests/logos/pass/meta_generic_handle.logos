@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // generic_of::<X>() + apply_generic(g, [args]) — first-class GenericType
 // value-handle with programmatic application.
 

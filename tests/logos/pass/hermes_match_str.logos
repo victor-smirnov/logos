@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Test: Hermes string pattern — @"str" matches HermesString root.
 
 package hermes_match_str;

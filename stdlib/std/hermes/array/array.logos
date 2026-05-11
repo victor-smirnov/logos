@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // Logos Hermes stdlib — hermes.array
 //
 // Array<T> — dynamic zone-allocated array of T (24-byte header).

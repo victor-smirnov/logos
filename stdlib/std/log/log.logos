@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Logos standard library -- std.log
 //
 // Level-based line logging to stderr.  The minimum level is read from the

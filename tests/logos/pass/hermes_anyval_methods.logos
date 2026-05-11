@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // Test: AnyVal convenience type-check and extraction methods (Task 2).
 
 package hermes_anyval_methods;

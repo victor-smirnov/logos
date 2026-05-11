@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Logos standard library — std.time
 //
 // Monotonic timing (Instant) and wall-clock time (SystemTime).

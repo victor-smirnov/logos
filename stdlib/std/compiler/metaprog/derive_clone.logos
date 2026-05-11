@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // std.compiler.metaprog — derive(Clone) for plain and generic structs.
 //
 // Hook for `#[derive_clone]`. Emits

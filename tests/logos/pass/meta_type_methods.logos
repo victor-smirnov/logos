@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Type-method ergonomics: t.is_struct() / t.is_integer() / etc.
 
 package meta_type_methods_probe;

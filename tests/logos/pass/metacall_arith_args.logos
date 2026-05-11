@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // metacall whose arg is a CTFE arithmetic expression (1u64 + 2u64).
 // CTFE should accept the binop as a compile-time constant.
 package metacall_arith_args;

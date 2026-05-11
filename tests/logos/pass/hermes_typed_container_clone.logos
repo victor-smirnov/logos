@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // hermes_typed_container_clone.logos — verify clone for typed Array<i32> and
 // Map<i32,AnyVal> containers.  Exercises c_typed_array and c_map_i32_anyval
 // C++ clone handlers end-to-end.

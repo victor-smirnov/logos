@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Logos standard library — std.regex
 //
 // Minimal regex engine, backtracking.  Supported syntax:

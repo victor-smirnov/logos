@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Slice 1 of quote_ty! epic — MVP no-antiquot form parses a type
 // expression and lowers to the same Type value as type_of::<T>().
 

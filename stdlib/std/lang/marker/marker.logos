@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // Logos stdlib — std/marker: concurrency safety marker traits.
 //
 // Send — a type is safe to transfer across thread boundaries.

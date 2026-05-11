@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Native float-formatting helpers for std.fmt's Display / Debug /
 // LowerExp / UpperExp impls on f32 and f64. snprintf does the heavy
 // lifting; the Logos side just copies the resulting bytes into its

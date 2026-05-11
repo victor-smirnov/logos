@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Slice 5c of metaprog-quote — `#name` antiquot in `quote_expr!`.
 //
 // `build_expr` constructs an Ident referring to "y" and returns

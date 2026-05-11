@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // metacall { ...while loop... } — control flow inside compile-time block.
 package metacall_block_loop;
 

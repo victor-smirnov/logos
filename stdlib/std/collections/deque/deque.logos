@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Logos standard library — std.deque
 //
 // VecDeque<T> — double-ended queue backed by a ring buffer.

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // sema_fmt.hpp — format-string parser for the `format!()` family of
 // macros (slice 4.4 of fn-macros). Sema parses a format string into a
 // structured sequence of literal text + typed placeholders so that

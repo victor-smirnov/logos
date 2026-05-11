@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // metacall — basic compile-time invocation of a Logos fn with literal args.
 // M.1 first slice: parser + sema only; runtime semantics still match a
 // regular call. Const-fold via JIT thunk lands in the next slice.

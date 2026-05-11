@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 
 #include <logos/reactor/stack_chain.hpp>
 #include <logos/verification/assert.hpp>

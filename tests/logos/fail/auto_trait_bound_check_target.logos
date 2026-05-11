@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Auto trait fail: `unsafe impl<T: Send> Send for Wrap<T> {}` is conditional —
 // querying `Wrap<*mut i32>: Send` must reject because `*mut i32` is !Send.
 

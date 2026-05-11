@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // Logos stdlib — fiber context switch (x86-64 System V ABI).
 //
 // Native dependency of the Logos fiber runtime. Everything else

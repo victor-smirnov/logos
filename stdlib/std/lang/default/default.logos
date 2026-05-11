@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Logos standard library — std.default
 //
 // Default — construct a zero/false/empty value for a type.

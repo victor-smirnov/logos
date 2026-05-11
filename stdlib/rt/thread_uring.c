@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // Wrappers for liburing inline helpers so Logos can extern them.
 // liburing exposes most prep/seen functions as static inline — they can't
 // be linked directly.  These thin C wrappers give them real symbol entries.

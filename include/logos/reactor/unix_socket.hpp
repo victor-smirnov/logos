@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 //
 // Fiber-aware Unix Domain Socket (AF_UNIX, SOCK_STREAM).
 //

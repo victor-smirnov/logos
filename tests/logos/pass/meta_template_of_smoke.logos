@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Step 5 of the typelevel-metaprog taxonomy — Template producer via
 // `OView::find_template_decl`. Inside the metaprog handler we look up
 // the AST decl of `Foo` by name, wrap it in a `Template`, and check

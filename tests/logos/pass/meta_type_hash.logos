@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // type_hash::<T>() — structural FNV-1a-64 hash. Layout-stable: bears no
 // struct/field name; layout-equivalent structs hash equal; layout
 // differences (field type, count) hash differently.

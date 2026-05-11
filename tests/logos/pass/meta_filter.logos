@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // `filter<T...>(pred, out) -> i64` — runtime-length result, so we use the
 // upper-bound buffer + count form: caller pre-allocates [Type; sizeof...(T)],
 // passes &mut buf[0], gets the count of accepted elements packed at the

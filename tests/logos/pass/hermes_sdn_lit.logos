@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // hermes_sdn_lit.logos — @-literals return HermesStatic (C8e); verify via stringify.
 //
 // Each @-literal produces a compile-time Hermes zone blob in rodata with an

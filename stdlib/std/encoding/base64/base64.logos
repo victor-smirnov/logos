@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Logos standard library -- std.base64
 //
 // RFC 4648 base64.  Standard alphabet; pads with '=' to a multiple of 4.

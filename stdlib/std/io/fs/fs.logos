@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Logos standard library — std.fs
 //
 // High-level file I/O built on std.io_uring.

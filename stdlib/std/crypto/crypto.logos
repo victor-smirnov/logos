@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Logos standard library -- std.crypto
 //
 // SHA-256 and MD5 digests.  One-shot API: feed a byte buffer, get the

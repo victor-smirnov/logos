@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // hermes_as_array_variants.logos — &[T] → as <T>[] cast for all 10 typed array element types.
 //
 // Tests the as-cast path for: i8, u8, i16, u16, i32, u32, i64, u64, f32, f64

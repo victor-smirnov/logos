@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Logos standard library — std.pipe
 //
 // Unix pipe: create a connected read/write fd pair.

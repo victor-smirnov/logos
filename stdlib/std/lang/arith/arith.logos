@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // Logos standard library — std.lang.arith
 //
 // Wrapping (silent two's-complement) integer arithmetic. Use these

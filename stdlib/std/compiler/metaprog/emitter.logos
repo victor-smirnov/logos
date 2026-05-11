@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // std.compiler.metaprog — typed Emitter over logos_emit_source.
 //
 // An Emitter buffers a single Logos compilation unit (one `package

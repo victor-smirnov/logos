@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // lforge — Hermes-SDN parser for `lforge.hermes` manifest files.
 
 package lforge.manifest;

@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: Apache-2.0
 # stdlib/rt — native runtime support libraries.
 #
 # Two archives, separated by ORC RuntimeDyld compatibility:

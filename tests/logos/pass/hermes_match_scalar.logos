@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Test: Hermes scalar match patterns — scrutinee is a view.
 
 package hermes_match_scalar;

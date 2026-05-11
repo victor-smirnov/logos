@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Sema fail: undefined variable reference.
 package undef_var;
 

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // metacall returning a struct: M.1 only supports primitive scalar returns.
 package metacall_non_primitive;
 

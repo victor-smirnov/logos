@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Test: bindings inside @{...} / @[...] patterns.
 
 package hermes_match_bind;

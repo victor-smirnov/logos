@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 //
 // ReactorEngine — fixed pool of Reactors with P2P lock-free SPSC queues.
 //

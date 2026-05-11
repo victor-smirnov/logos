@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // std.data.persistent.shuttle — typed B+tree descent components.
 //
 // A "shuttle" is the per-branch step that picks which child to descend

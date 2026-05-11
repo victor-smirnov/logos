@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // Slice 6 of metaprog-quote — typed Item/Ident accessors.
 //
 // `slice6_smoke_hook` fires pre-sema on `#[slice6_smoke] struct Trigger`,

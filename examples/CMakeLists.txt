@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Victor Smirnov
 # Logos examples — compiled to runnable executables.
 

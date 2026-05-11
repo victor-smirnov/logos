@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 //
 // emit_module — build a binary Logos module (.a archive) from a manifest.
 //

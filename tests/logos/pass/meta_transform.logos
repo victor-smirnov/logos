@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
 // `transform<T...>(f) -> [Type; sizeof...(T)]` — map a value-level
 // fn(Type)->Type over a type pack. Pairs `arr_type`'s sizeof_pack
 // admission with the inline `[Struct; N]` layout flip — without either,

@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 //
 // hermes_parser roundtrip test: parses Hermes strings via the generated parser
 // and verifies the resulting AST structure.

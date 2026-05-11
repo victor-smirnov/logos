@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // assembler_last_wins.logos — first slice of the component-metaprog
 // assembler. Two parts (PartA, PartB) implement the Greet trait; the
 // assembler-metafn reads its cfg's "parts" list, picks the LAST one

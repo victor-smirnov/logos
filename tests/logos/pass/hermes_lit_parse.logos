@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 // hermes_lit_parse.logos — @-literals return HermesStatic (C8e).
 // Type is inferred; test just verifies the program compiles and runs.
 

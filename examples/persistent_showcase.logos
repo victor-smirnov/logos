@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
 //
 // std.data.persistent showcase — a tour of the surface as it stands
 // today, plus the rough edges that motivate the next API pass.
