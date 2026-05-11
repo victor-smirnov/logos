@@ -1,11 +1,12 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/generics/generic-fn.rs
-// Modifications: `char` literal path dropped (Logos has no native `char`
-// type with `'a'` literal syntax). `Triple` is passed to `id` by value
-// so the original `id::<Triple>(p)` would consume `p`; we read `p.z`
-// before the call instead. Logos defaults to move semantics for
-// scalar-only structs whereas Rust's `#[derive(Copy)]` opts in — this
-// is a deliberate Logos-vs-Rust divergence (no implicit Copy).
+// Modifications: `char` literal half not yet ported (the original
+// also exercises `'a' as char` which Logos supports — TODO add to a
+// future re-port). `Triple` is passed to `id` by value so the original
+// `id::<Triple>(p)` would consume `p`; we read `p.z` before the call
+// instead. Logos defaults to move semantics for scalar-only structs
+// whereas Rust's `#[derive(Copy)]` opts in — this is a deliberate
+// Logos-vs-Rust divergence (no implicit Copy).
 package generic_fn;
 
 use std.fmt;

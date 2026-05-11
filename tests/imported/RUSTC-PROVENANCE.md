@@ -24,6 +24,7 @@ per-file rows below.
 | B4 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | patterns + match (5 tests; many features deferred — see pattern-match-gaps.md) |
 | B5 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | closures (3 tests; bulk blocked on Fn/FnMut/FnOnce — see closures-gaps.md) |
 | B6 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | coercion + cast (5 tests) |
+| B7 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | methods (3 tests) |
 
 To kick off a batch:
 
@@ -95,6 +96,9 @@ Columns:
 | `pass/cast/cast-region-to-uint.logos` | `tests/ui/cast/cast-region-to-uint.rs` | B6 | `println!("…{:x}…")` dropped (no `{:x}` dispatch on usize yet); cast retained |
 | `pass/cast/constant-expression-cast-9942.logos` | `tests/ui/cast/constant-expression-cast-9942.rs` | B6 | `[0; S]` rejected — top-level `const` not yet a valid array length; inlined literal |
 | `pass/coercion/basic-ptr-coercions.logos` | `tests/ui/coercion/basic-ptr-coercions.rs` | B6 | explicit reborrow + `as`-casts (Logos has no implicit `&mut→&` / `&→*const` / `*mut→*const` at binding sites); `&<literal>` rejected by temp-lifetime check |
+| `pass/methods/inherent-methods-same-name.logos` | `tests/ui/methods/inherent-methods-same-name.rs` | B7 | tuple struct `Foo<T>(T)` rewritten with named field `v` |
+| `pass/methods/method-two-trait-defer-resolution-1.logos` | `tests/ui/methods/method-two-trait-defer-resolution-1.rs` | B7 | `Vec::new()` → `vec_new::<T>()` |
+| `pass/methods/trait-method-resolution-7575.logos` | `tests/ui/methods/trait-method-resolution-7575.rs` | B7 | trait default bodies dropped (no defaults in Logos traits); method name `new` renamed `mk` — `new` rejected by trait-body grammar (gap M7-mt-01) |
 
 ## When upstream changes
 

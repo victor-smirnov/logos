@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/methods/inherent-methods-same-name.rs
+// Modifications: tuple struct `struct Foo<T>(T)` rewritten with a
+// named field — Logos has no tuple structs. The test's headline
+// property — same inherent method-name `bar` on two distinct
+// generic instantiations — is preserved.
+package inherent_methods_same_name;
+
+use std.fmt;
+use std.lang.text;
+
+struct Foo<T> { v: T }
+
+impl Foo<usize> {
+    fn bar(self: &Foo<usize>) -> i32 { return self.v as i32; }
+}
+
+impl Foo<isize> {
+    fn bar(self: &Foo<isize>) -> i32 { return -(self.v as i32); }
+}
+
+fn main() -> i32 {
+    let foo_u: Foo<usize> = Foo { v: 5usize };
+    assert_eq!(foo_u.bar(), 5i32);
+
+    let foo_i: Foo<isize> = Foo { v: 3isize };
+    assert_eq!(foo_i.bar(), -3i32);
+    return 0;
+}
