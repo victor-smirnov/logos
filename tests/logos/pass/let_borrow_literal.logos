@@ -1,0 +1,15 @@
+// C6-cc-04 regression: `let p: &T = &<lit>;` now works — sema
+// synthesizes a hidden `let __lit_temp_N = <lit>;` and rewrites the
+// user's let to `let p = &__lit_temp_N;`, extending the literal's
+// lifetime to the enclosing scope (matches Rust).
+package let_borrow_literal;
+
+fn main() -> i32 {
+    let pi: &isize = &42isize;
+    let pb: &bool  = &true;
+    let pc: &char  = &'X';
+    if *pi != 42isize { return 1; }
+    if *pb != true    { return 2; }
+    if *pc != 'X'     { return 3; }
+    return 0;
+}

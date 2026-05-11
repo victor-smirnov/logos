@@ -666,12 +666,13 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     if (ann && TypeRef(ann).kind() != LogosType::Kind::Error)
         hint_call_return_type_ = ann;
 
-    // B-ex-06: `let p = &<scalar literal>;` borrows an unnamed temporary
-    // whose lifetime ends at the enclosing expression — `p` would dangle
-    // immediately. Reject. The user must bind the literal to a `let` first
-    // (or pass `&literal` directly as a fn argument, where the temp's
-    // lifetime extends across the call). Strings/byte-strings are static
-    // rodata and stay allowed.
+    // C6-cc-04: `let p = &<scalar literal>;` — Rust extends the
+    // temporary's lifetime to the enclosing scope; Logos previously
+    // rejected with a diagnostic, but it's a legitimate pattern.
+    // Synthesize a hidden `let __lit_temp_N = <lit>;` BEFORE the user's
+    // let, then rewrite the user's value to `&__lit_temp_N`. Emit both
+    // as a single SBlock; `define()` at outer scope keeps the user's
+    // binding visible after.
     if (node.has_key(la::VALUE)) {
         auto val_node = map_of(node.get(la::VALUE.code));
         if (code_of(val_node) == la::UNARY && val_node.has_key(la::OP) &&
@@ -682,13 +683,50 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
                 int32_t inner_c = code_of(inner);
                 if (inner_c == la::LIT_INT  || inner_c == la::LIT_BOOL ||
                     inner_c == la::LIT_FLOAT || inner_c == la::LIT_CHAR) {
-                    error(std::format(
-                        "let '{}': '&<literal>' borrows an unnamed temporary "
-                        "whose lifetime ends at the enclosing expression — "
-                        "bind the literal to a separate `let` first "
-                        "(`let v = <lit>; let {} = &v;`) or pass "
-                        "`&<literal>` directly as a fn argument",
-                        std::string(name), std::string(name)));
+                    // Lower the literal expr — its concrete type drives the
+                    // synth let's type. Use the annotation pointee as the
+                    // type hint if present so suffix-less literals widen
+                    // to the right primitive.
+                    TypeRef hint_lit = nullptr;
+                    if (ann && (TypeRef(ann).kind() == LogosType::Kind::Ref ||
+                                TypeRef(ann).kind() == LogosType::Kind::MutRef))
+                        hint_lit = TypeRef(ann).pointee();
+                    auto saved_lit_hint = hint_call_return_type_;
+                    if (hint_lit) hint_call_return_type_ = hint_lit;
+                    auto lit_expr = lower_expr(inner);
+                    hint_call_return_type_ = saved_lit_hint;
+                    if (hint_lit && lit_expr->type &&
+                        TypeRef(lit_expr->type).kind() == LogosType::Kind::IntLit)
+                        builder().retype_expr(lit_expr, hint_lit);
+                    TypeRef lit_type = lit_expr->type;
+
+                    std::string tmp = std::format("__lit_temp_{}", destruct_counter_++);
+                    define(tmp, lit_type);
+                    define(std::string(name), ann ? ann : nullptr);
+
+                    auto blk = lir::alloc_block(*cur_prog_);
+
+                    // synth: `let __lit_temp_N = <lit>;`
+                    lir::SLet sl_tmp;
+                    sl_tmp.name   = tmp;
+                    sl_tmp.type   = lit_type;
+                    sl_tmp.is_mut = false;
+                    sl_tmp.value  = std::move(lit_expr);
+                    blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl_tmp)));
+
+                    // user:  `let name = &__lit_temp_N;`
+                    auto addr = builder().addr_of(tmp, make_ref(false, lit_type));
+                    lir::SLet sl_user;
+                    sl_user.name   = std::string(name);
+                    sl_user.type   = ann ? ann : addr->type;
+                    sl_user.is_mut = is_mut;
+                    sl_user.value  = std::move(addr);
+                    blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl_user)));
+
+                    hint_enum_type_ = saved_hint;
+                    hint_struct_type_ = saved_struct_hint;
+                    hint_call_return_type_ = saved_ret_hint;
+                    return make_stmt_emit(node_line_, lir::SBlock{std::move(blk)});
                 }
             }
         }

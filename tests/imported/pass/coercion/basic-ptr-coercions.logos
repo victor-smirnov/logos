@@ -1,33 +1,30 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/coercion/basic-ptr-coercions.rs
-// Modifications: Logos rejects `&<literal>` bound to a `let` (C6-cc-04,
-// deliberate divergence — bind the literal to a named `let` first).
-// All the implicit coercions tested here — `&mut T → &T`, `& → *const`,
-// `&mut → *const`, `*mut → *const` — work without explicit `as` casts
-// in the current build (B3-bg-05 / C6-cc-05 / C6-cc-06 rescinded
-// after Sprint 2 verification).
+// Modifications: literal suffixes (`42isize`); otherwise the original
+// is faithful — `&<literal>` bound to a `let` lifts the temp into a
+// hidden synth-local (C6-cc-04 closed 2026-05-11). All four implicit
+// coercions tested: `&mut→&`, `&→*const`, `&mut→*const`, `*mut→*const`
+// (B3-bg-05 / C6-cc-05 / C6-cc-06 closed in Sprint 2).
 package basic_ptr_coercions;
 
 fn main() -> i32 {
-    let mut v: isize = 42isize;
-
     // &mut -> &
-    let mx: &mut isize = &mut v;
-    let _x: &isize = mx;
+    let x: &mut isize = &mut 42isize;
+    let _x: &isize    = x;
+    let _x: &isize    = &mut 42isize;
 
-    let v2: isize = 42isize;
     // & -> *const
-    let r: &isize = &v2;
-    let _p: *const isize = r;
+    let x: &isize        = &42isize;
+    let _x: *const isize = x;
+    let _x: *const isize = &42isize;
 
     // &mut -> *const
-    let mut v3: isize = 42isize;
-    let mx2: &mut isize = &mut v3;
-    let _q: *const isize = mx2;
+    let x: &mut isize    = &mut 42isize;
+    let _x: *const isize = x;
+    let _x: *const isize = &mut 42isize;
 
     // *mut -> *const
-    let mut v4: isize = 42isize;
-    let m: *mut isize = &mut v4 as *mut isize;
-    let _c: *const isize = m;
+    let _x: *mut isize   = &mut 42isize;
+    let _x: *const isize = x;
     return 0;
 }

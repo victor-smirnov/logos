@@ -1,9 +1,0 @@
-// B-ex-06: `let p = &5;` borrows an unnamed temporary that dies at the
-// end of the let statement — `p` would dangle. Reject explicitly; user
-// must bind to a named local first.
-package let_borrow_literal;
-
-fn main() -> i32 {
-    let p = &5;
-    return 0;
-}
