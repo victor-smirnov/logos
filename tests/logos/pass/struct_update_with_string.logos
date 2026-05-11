@@ -1,0 +1,31 @@
+// Rust's canonical struct-update example from the book, ported 1:1.
+// Exercises:
+//   - struct literal with all fields named (any order)
+//   - `String::from("...")` (Rust-style str → String constructor)
+//   - struct update `..base` carrying the rest of fields from user1.
+package struct_update_with_string;
+
+use std.lang.text;
+
+pub struct User {
+    active: bool,
+    username: String,
+    email: String,
+    sign_in_count: u64,
+}
+
+fn main() -> i32 {
+    let user1 = User {
+        email: String::from("someone@example.com"),
+        username: String::from("someusername123"),
+        active: true,
+        sign_in_count: 1u64,
+    };
+
+    let user2 = User {
+        email: String::from("another@example.com"),
+        ..user1
+    };
+
+    return user2.sign_in_count as i32;
+}

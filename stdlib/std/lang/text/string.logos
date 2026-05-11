@@ -191,6 +191,11 @@ impl String {
         return out;
     }
 
+    // Copy from a `str` slice (Rust-style `String::from("...")`).
+    pub static fn from(s: str) -> String {
+        unsafe { return String::from_bytes(s.as_ptr(), s.len()); }
+    }
+
     // Ensure capacity for `needed` additional bytes (+ null terminator).
     pub fn grow(&mut self, needed: i64) {
         if needed < 0 as i64 { return; }
