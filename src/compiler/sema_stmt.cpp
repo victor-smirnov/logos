@@ -1376,6 +1376,81 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         p_.mirror_offset_ = lir_mirror_emit_pat_int(*cur_prog_, v);
         return p_;
     }
+    // ── PAT_CHAR / PAT_CHAR_RANGE: 'X' / 'a' ..= 'z' ───────────────────────
+    // Decode CHAR_LIT to its Unicode scalar value and lower as an
+    // integer pattern (Logos char is a 4-byte Unicode scalar so the
+    // u32 equality / range comparison works directly).
+    auto decode_char_lit = [&](std::string_view sv) -> int64_t {
+        if (sv.size() < 3 || sv.front() != '\'' || sv.back() != '\'') {
+            error(std::format("malformed char literal '{}'", sv));
+            return 0;
+        }
+        std::string_view body = sv.substr(1, sv.size() - 2);
+        if (!body.empty() && body[0] == '\\') {
+            if (body.size() < 2) {
+                error(std::format("malformed char literal '{}'", sv));
+                return 0;
+            }
+            switch (body[1]) {
+                case 'n': return '\n';
+                case 't': return '\t';
+                case 'r': return '\r';
+                case '0': return 0;
+                case '\\': return '\\';
+                case '\'': return '\'';
+                case '"': return '"';
+                default:
+                    error(std::format("char literal '{}': unknown escape '\\{}'",
+                          sv, body[1]));
+                    return 0;
+            }
+        }
+        unsigned char c0 = (unsigned char)body[0];
+        if (c0 < 0x80) return (int64_t)c0;
+        int64_t cp = 0;
+        int nbytes = 0;
+        if      ((c0 & 0xE0) == 0xC0) { cp = c0 & 0x1F; nbytes = 2; }
+        else if ((c0 & 0xF0) == 0xE0) { cp = c0 & 0x0F; nbytes = 3; }
+        else if ((c0 & 0xF8) == 0xF0) { cp = c0 & 0x07; nbytes = 4; }
+        else { error(std::format("char literal '{}': invalid UTF-8", sv)); return 0; }
+        if ((int)body.size() < nbytes) {
+            error(std::format("char literal '{}': truncated UTF-8", sv));
+            return 0;
+        }
+        for (int i = 1; i < nbytes; ++i)
+            cp = (cp << 6) | ((unsigned char)body[i] & 0x3F);
+        return cp;
+    };
+    if (pc == la::PAT_CHAR) {
+        auto sv = str_of(pnode.get(la::VALUE.code));
+        int64_t v = decode_char_lit(sv);
+        if (scrut_type && TypeRef(scrut_type).kind() != LogosType::Kind::Error) {
+            auto sk = TypeRef(scrut_type).kind();
+            if (sk != LogosType::Kind::Char && !is_integer(scrut_type))
+                error(std::format("char pattern requires char or integer scrutinee, got '{}'",
+                      type_str(scrut_type)));
+        }
+        lir::Pattern p_;
+        p_.mirror_offset_ = lir_mirror_emit_pat_int(*cur_prog_, v);
+        return p_;
+    }
+    if (pc == la::PAT_CHAR_RANGE) {
+        auto lo_sv = str_of(pnode.get(la::LHS.code));
+        auto hi_sv = str_of(pnode.get(la::RHS.code));
+        int64_t lo = decode_char_lit(lo_sv);
+        int64_t hi = decode_char_lit(hi_sv);
+        if (scrut_type && TypeRef(scrut_type).kind() != LogosType::Kind::Error) {
+            auto sk = TypeRef(scrut_type).kind();
+            if (sk != LogosType::Kind::Char && !is_integer(scrut_type))
+                error(std::format("char range pattern requires char or integer scrutinee, got '{}'",
+                      type_str(scrut_type)));
+        }
+        if (lo > hi)
+            error(std::format("char range pattern: lo ({}) > hi ({})", lo, hi));
+        lir::Pattern p_;
+        p_.mirror_offset_ = lir_mirror_emit_pat_range(*cur_prog_, lo, hi);
+        return p_;
+    }
     if (pc == la::PAT_OR) {
         auto arr = arr_of(pnode.get(la::ITEMS.code));
         // Single-item PAT_OR (no PIPE) — treat as the inner pattern.

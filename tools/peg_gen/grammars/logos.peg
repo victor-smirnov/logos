@@ -272,6 +272,8 @@
     FN_MACRO_CALL               = 225   // `name!(args)` / `name![args]` — function-style macro. CALLEE = ident, ARGS = expr-list. Sema resolves CALLEE against #[fn_macro] fns; arg ASTs become ExprBlobs.
     FN_MACRO_CALL_ITEM          = 226   // `name!{...}` at module item position. Same shape as FN_MACRO_CALL but routes through metacall_item-style splice (callee returns ItemList / QuoteItemBlob).
     FN_MACRO_CALL_ITEM_DONE     = 227   // set by driver after item-macro splice; sema skips.
+    PAT_CHAR                    = 228   // char-literal pattern (`'A'` in match arm). VALUE = original CHAR_LIT text; sema decodes to u32 scalar.
+    PAT_CHAR_RANGE              = 229   // char-range pattern (`'a' ..= 'z'`). LHS / RHS = original CHAR_LIT text for each endpoint.
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -1407,6 +1409,11 @@
         => { CODE: PAT_NEG_INT, VALUE: $2 }
         / INTEGER
         => { CODE: PAT_INT, VALUE: $1 }
+        // char-range / char-literal patterns
+        / CHAR_LIT DOTDOTEQ CHAR_LIT
+        => { CODE: PAT_CHAR_RANGE, LHS: $1, RHS: $3 }
+        / CHAR_LIT
+        => { CODE: PAT_CHAR, VALUE: $1 }
         // Float literal pattern (closes B-pt-06).  Sema rejects with a
         // diagnostic — IEEE equality semantics are deliberately not committed
         // to until the language has a defined story (Rust deprecated this).

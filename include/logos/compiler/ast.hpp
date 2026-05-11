@@ -291,6 +291,8 @@ inline constexpr Code LIT_CHAR             {"LIT_CHAR",           224}; // `'X'`
 inline constexpr Code FN_MACRO_CALL        {"FN_MACRO_CALL",      225}; // `name!(args)` / `name![args]` — function-style macro invocation. CALLEE(8) = ident, ARGS(11) = items array. Sema resolves CALLEE against #[fn_macro] fns and lowers via metacall pipeline with ARGS as ExprBlobs.
 inline constexpr Code FN_MACRO_CALL_ITEM   {"FN_MACRO_CALL_ITEM", 226}; // `name!{...}` at module item position. Same RAW_TEXT capture as FN_MACRO_CALL but routes through the metacall_item pipeline (callee returns ItemList / QuoteItemBlob → items spliced).
 inline constexpr Code FN_MACRO_CALL_ITEM_DONE{"FN_MACRO_CALL_ITEM_DONE", 227}; // Set by the driver after a FN_MACRO_CALL_ITEM has been spliced.
+inline constexpr Code PAT_CHAR             {"PAT_CHAR",           228}; // char-literal pattern (`'A'` in match arm). VALUE = original CHAR_LIT text.
+inline constexpr Code PAT_CHAR_RANGE       {"PAT_CHAR_RANGE",     229}; // char-range pattern (`'a' ..= 'z'`). LHS / RHS = original CHAR_LIT text for each endpoint.
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  META            {"META",               16};   // meta @{...} block node on struct/trait/datatype declarations (reuses PATH_PARTS slot; these node types never co-exist)

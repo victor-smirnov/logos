@@ -1,9 +1,11 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/pattern/inc-range-pat.rs
-// Modifications: Logos accepts only `..=` (new form). char range
-// patterns (`'a' ..= 'z'`) currently trip the pattern parser; the
-// integer half is what's exercised here. `assert!(match {...})` form
-// trips the fn_macro arg parser, so the match is `let`-bound.
+// Modifications: Logos accepts only the `..=` (new) form for
+// inclusive range patterns; the deprecated `...` form is dropped.
+// char-range pattern + range-arm-in-match-as-expression both fixed
+// in Sprint 5 follow-up (grammar PAT_CHAR{_RANGE} + mlir-gen
+// match-expr Range arm). assert!(match {...}) form still trips
+// the fn_macro arg parser, so each match is `let`-bound.
 package inc_range_pat;
 
 use std.fmt;
@@ -12,7 +14,11 @@ use std.lang.text;
 fn main() -> i32 {
     let a: bool = match 42i32 { 0i32 ..= 100i32 => true, _ => false };
     assert!(a);
+    let b: bool = match 'x' { 'a' ..= 'z' => true, _ => false };
+    assert!(b);
     let c: bool = match 200i32 { 0i32 ..= 100i32 => true, _ => false };
     assert!(!c);
+    let d: bool = match 'Z' { 'a' ..= 'z' => true, _ => false };
+    assert!(!d);
     return 0;
 }

@@ -2209,8 +2209,47 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             default: return 0;
             }
         };
+        // Local scrut_unsigned helper — match-as-expression had no
+        // Range-arm handling, so it never needed this. Mirror the
+        // match-stmt version (mlir_gen_stmt.cpp).
+        auto scrut_unsigned = [&]() -> bool {
+            if (!scrut_le->type) return false;
+            switch (TypeRef(scrut_le->type).kind()) {
+                case LogosType::Kind::U8:  case LogosType::Kind::U16:
+                case LogosType::Kind::U24: case LogosType::Kind::U32:
+                case LogosType::Kind::U56: case LogosType::Kind::U64:
+                case LogosType::Kind::U128: case LogosType::Kind::Usize:
+                case LogosType::Kind::Char: return true;
+                default: return false;
+            }
+        };
         if (is_wild) {
             else_block = arm_entry;
+        } else if (arm_pat_ref.kind() == pc::Code::Range) {
+            // Range arm in match-as-expression. Same shape as the
+            // match-stmt path (`lo <= scrut && scrut <= hi`) — was
+            // missing here, so range arms silently fell through to
+            // the wildcard via the `get_disc` default of 0.
+            lir_view::PatRangeView pr{arm_pat_ref};
+            auto pred_ge = scrut_unsigned() ? mlir::arith::CmpIPredicate::uge
+                                            : mlir::arith::CmpIPredicate::sge;
+            auto pred_le = scrut_unsigned() ? mlir::arith::CmpIPredicate::ule
+                                            : mlir::arith::CmpIPredicate::sle;
+            auto* test_block = new mlir::Block();
+            region->push_back(test_block);
+            {
+                mlir::OpBuilder::InsertionGuard ig(builder_);
+                builder_.setInsertionPointToStart(test_block);
+                auto lo_val = coerce_int(
+                    builder_.create<mlir::arith::ConstantIntOp>(loc_, pr.lo(), 64), scrut_type);
+                auto hi_val = coerce_int(
+                    builder_.create<mlir::arith::ConstantIntOp>(loc_, pr.hi(), 64), scrut_type);
+                auto ge = builder_.create<mlir::arith::CmpIOp>(loc_, pred_ge, scrut, lo_val);
+                auto le = builder_.create<mlir::arith::CmpIOp>(loc_, pred_le, scrut, hi_val);
+                auto both = builder_.create<mlir::arith::AndIOp>(loc_, ge, le);
+                builder_.create<mlir::cf::CondBranchOp>(loc_, both, arm_entry, else_block);
+            }
+            else_block = test_block;
         } else if (arm_pat_ref.kind() == pc::Code::Or) {
             std::vector<lir_view::PatRef> alts;
             lir_view::PatOrView{arm_pat_ref}.each_alt([&](lir_view::PatRef a){ alts.push_back(a); });
