@@ -905,6 +905,18 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         }
     } else if (op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>") {
         // Bitwise and shift operators — require integer operands.
+        // Auto-deref `&T` / `&mut T` when T is integer (C6-cc-01).
+        auto deref_if_ref_int = [&](lir::LExprPtr& e, TypeRef& t) {
+            if (TypeRef(t).kind() == LogosType::Kind::Ref) {
+                auto inner = TypeRef(t).pointee();
+                if (is_integer_kind(TypeRef(inner).kind())) {
+                    e = builder().deref(std::move(e), inner);
+                    t = inner;
+                }
+            }
+        };
+        deref_if_ref_int(lhs, lt);
+        deref_if_ref_int(rhs, rt);
         if (!is_integer_kind(TypeRef(lt).kind()) && TypeRef(lt).kind() != LogosType::Kind::IntLit)
             error(std::format("operator '{}': left must be integer, got {}", op, type_str(lt)));
         if (!is_integer_kind(TypeRef(rt).kind()) && TypeRef(rt).kind() != LogosType::Kind::IntLit)

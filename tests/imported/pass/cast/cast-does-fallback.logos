@@ -1,20 +1,21 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/cast/cast-does-fallback.rs
-// Modifications: `(&42u8 >> 4) as usize` becomes `(42u8 >> 4) as usize`
-// — Logos doesn't yet implement auto-deref of `&u8` to `u8` at a
-// shift-op site (tracked as a small surface gap).
+// Modifications: original `&42u8 >> 4` parsed as a literal-borrow
+// — Logos rejects `&<literal>` binding at a let-site (C6-cc-04 still
+// open), so we bind to a named local first. Auto-deref of `&u8` at
+// a shift-op site (C6-cc-01) is now supported (Sprint 1.6).
 package cast_does_fallback;
 
 use std.fmt;
 use std.lang.text;
 
 fn main() -> i32 {
-    let _ = (42u8 >> 4u8) as usize;
-    let _ = (42u8 << 4u8) as usize;
+    let x: u8 = 42u8;
+    let _ = (&x >> 4u8) as usize;
+    let _ = (&x << 4u8) as usize;
 
     let cap: i32 = 512i32 * 512i32;
     let _ = cap as u8;
-    // Assert `cap` did not get inferred to `u8` and overflowed.
     assert_ne!(cap, 0i32);
     return 0;
 }
