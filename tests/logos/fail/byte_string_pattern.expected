@@ -1,1 +1,1 @@
-byte-string patterns are not yet supported in codegen
+byte-string pattern requires `[u8; N]` scrutinee

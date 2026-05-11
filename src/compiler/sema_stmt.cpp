@@ -1420,12 +1420,93 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         return p_;
     }
     if (pc == la::PAT_BYTES) {
-        // B-pt-03: parses now; codegen for `match &[u8] { b"..." => ... }`
-        // (length+memcmp lowering) is a future slice.
-        error("byte-string patterns are not yet supported in codegen "
-              "(parse only — the form now reaches sema cleanly)");
+        // P4-pm-07: `b"foo"` lowers to a PatSlice of PatInt sub-patterns,
+        // reusing the array-prefix slice-pattern codegen. Scrutinee must
+        // be a fixed-size `[u8; N]` array (matches Rust's
+        // `&[u8; N]` const-pattern semantics when the ref-pat layer is
+        // skipped). Dynamic `&[u8]` scrutinees are still future work
+        // (length check + memcmp).
+        auto sv = str_of(pnode.get(la::VALUE.code));
+        std::vector<uint8_t> bytes;
+        if (sv.size() >= 3 && sv.front() == 'b' && sv[1] == '"' && sv.back() == '"') {
+            std::string_view body = sv.substr(2, sv.size() - 3);
+            for (size_t i = 0; i < body.size(); ) {
+                unsigned char c = (unsigned char)body[i];
+                if (c == '\\' && i + 1 < body.size()) {
+                    char e = body[i + 1];
+                    uint8_t b = 0;
+                    switch (e) {
+                        case 'n':  b = '\n'; break;
+                        case 't':  b = '\t'; break;
+                        case 'r':  b = '\r'; break;
+                        case '0':  b = 0;    break;
+                        case '\\': b = '\\'; break;
+                        case '\'': b = '\''; break;
+                        case '"':  b = '"';  break;
+                        case 'x': {
+                            if (i + 3 < body.size()) {
+                                auto hex = [](char c) -> int {
+                                    if (c >= '0' && c <= '9') return c - '0';
+                                    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+                                    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+                                    return -1;
+                                };
+                                int hi = hex(body[i + 2]), lo = hex(body[i + 3]);
+                                if (hi >= 0 && lo >= 0) {
+                                    b = (uint8_t)((hi << 4) | lo);
+                                    bytes.push_back(b);
+                                    i += 4;
+                                    continue;
+                                }
+                            }
+                            error(std::format(
+                                "byte-string pattern: malformed \\x escape in '{}'", sv));
+                            i += 2; continue;
+                        }
+                        default:
+                            error(std::format(
+                                "byte-string pattern: unknown escape '\\{}' in '{}'",
+                                e, sv));
+                            i += 2; continue;
+                    }
+                    bytes.push_back(b);
+                    i += 2;
+                } else {
+                    bytes.push_back(c);
+                    ++i;
+                }
+            }
+        } else {
+            error(std::format("byte-string pattern: malformed literal '{}'", sv));
+        }
+        if (scrut_type && TypeRef(scrut_type).kind() != LogosType::Kind::Error) {
+            auto sk = TypeRef(scrut_type).kind();
+            bool ok = false;
+            if (sk == LogosType::Kind::Array && TypeRef(scrut_type).elem() &&
+                TypeRef(scrut_type).elem().kind() == LogosType::Kind::U8) {
+                ok = true;
+                size_t n = (size_t)TypeRef(scrut_type).arr_size();
+                if (n != bytes.size())
+                    error(std::format(
+                        "byte-string pattern: literal length {} does not match "
+                        "scrutinee array length {}", bytes.size(), n));
+            }
+            if (!ok)
+                error(std::format(
+                    "byte-string pattern requires `[u8; N]` scrutinee, got '{}'",
+                    type_str(scrut_type)));
+        }
+        std::vector<lir::Pattern> prefix;
+        for (auto b : bytes) {
+            lir::Pattern sp;
+            sp.mirror_offset_ = lir_mirror_emit_pat_int(*cur_prog_, (int64_t)b);
+            prefix.push_back(std::move(sp));
+        }
+        std::vector<lir::Pattern> rest;     // empty — exact match, no `..`
+        std::vector<lir::Pattern> suffix;   // empty
+        auto mo = lir_mirror_emit_pat_slice(*cur_prog_, prefix, rest, suffix);
         lir::Pattern p_;
-        p_.mirror_offset_ = lir_mirror_emit_pat_wild(*cur_prog_, "_");
+        p_.mirror_offset_ = mo;
         return p_;
     }
     if (pc == la::PAT_INT || pc == la::PAT_NEG_INT) {

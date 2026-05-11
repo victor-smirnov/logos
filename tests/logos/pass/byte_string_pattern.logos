@@ -1,0 +1,20 @@
+// P4-pm-07 regression: `b"foo"` patterns lower to PatSlice over PatInt
+// byte sub-patterns, reusing the array-prefix slice codegen.
+// Scrutinee must be `[u8; N]` with N == literal length.
+// Dynamic `&[u8]` scrutinees still need length-check + memcmp.
+package byte_string_pattern;
+
+fn classify(x: [u8; 3]) -> i32 {
+    match x {
+        b"foo" => { return 1; }
+        b"bar" => { return 2; }
+        _      => { return 0; }
+    }
+}
+
+fn main() -> i32 {
+    if classify([102u8, 111u8, 111u8]) != 1 { return 1; }  // "foo"
+    if classify([98u8, 97u8, 114u8])   != 2 { return 2; }  // "bar"
+    if classify([97u8, 98u8, 99u8])    != 0 { return 3; }  // "abc"
+    return 0;
+}
