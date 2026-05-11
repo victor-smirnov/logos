@@ -16,9 +16,9 @@ that all files in that batch were sourced from. When a new batch
 starts, a new commit row appears here and is referenced from the
 per-file rows below.
 
-| Batch | rustc commit (SHA) | Date | Imported by |
-|---|---|---|---|
-| _none yet_ |  |  |  |
+| Batch | rustc commit (SHA) | Date | Imported by | Scope |
+|---|---|---|---|---|
+| B1 (pin only — actual imports land in later batches) | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-10 | Victor Smirnov | parser top-level (planned) |
 
 To kick off a batch:
 
