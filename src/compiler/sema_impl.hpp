@@ -811,6 +811,12 @@ private:
                     // parenthesized form carries fn_params / fn_ret
                     // (see read_trait_bound_args).
                     if (b.is_fn_family) continue;
+                    // M7-mt-03: `Sized` is a compiler-builtin marker
+                    // (auto-implemented for every size-known type). Logos
+                    // has no unsized types yet, so `T: Sized` is a no-op
+                    // bound — accept and skip the trait-lookup. `?Sized`
+                    // (opt-out) isn't grammatically expressible yet.
+                    if (b.trait_name == "Sized") continue;
                     auto [_pkg, ti] = find_trait_by_name(b.trait_name);
                     if (!ti) {
                         ctx_ = std::string(ctx);

@@ -490,6 +490,11 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
         }
 
         for (auto& bound : tp.bounds) {
+            // M7-mt-03: `Sized` is a compiler-builtin marker. Logos has no
+            // unsized types yet, so every concrete type satisfies it; the
+            // bound is admitted as a no-op (matches `T: Sized` being
+            // implicit in Rust). `?Sized` opt-out isn't expressible yet.
+            if (bound.trait_name == "Sized") continue;
             // Auto trait: synthesize satisfaction from field types.
             auto trit = traits_.find(bound.trait_name);
             if (trit != traits_.end() && trit->second.is_auto) {
