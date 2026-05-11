@@ -227,7 +227,22 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
 
 void MLIRGenImpl::gen_let(lir_view::SLetView v) {
     auto* val_le = lexpr_of(v.value());
-    if (!val_le) return;
+    if (!val_le) {
+        // B3-bg-01 / B3-bg-02: declare-without-init (`let v: T;`).
+        // Allocate the slot from the annotated type; leave it
+        // uninitialised. Later SAssign writes through scope_[name].
+        std::string nm(v.name());
+        TypeRef ty = v.type(pool_impl());
+        auto mt = ty ? logos_to_mlir(ty) : mlir::Type();
+        if (!mt) return;
+        auto alloca = create_entry_alloca(mt);
+        scope_[nm] = alloca;
+        let_vars_.insert(nm);
+        var_elem_types_[nm] = mt;
+        if (ty && TypeRef(ty).kind() == LogosType::Kind::Struct)
+            var_struct_[nm] = mlir_struct_key(ty);
+        return;
+    }
     struct LetCtx {
         std::string  name;
         TypeRef      type;

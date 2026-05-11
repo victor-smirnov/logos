@@ -120,7 +120,14 @@ logos::expected<Array> HermesView::make_array(uint64_t capacity) noexcept {
 }
 
 logos::expected<Map> HermesView::make_object_map(uint8_t log2_buckets) noexcept {
-    LOGOS_TRY(auto* p, ObjectMap::create(holder_->arena(), log2_buckets));
+    // Argument name promises log2 of buckets; convert to actual capacity.
+    // Previously passed log2_buckets straight to ObjectMap::create whose
+    // signature is `initial_capacity` — so default log2_buckets=3 created
+    // cap=4 (not 8 as the name implies), and a 4-entry action map then
+    // rehash'd 4→8 which exposes a separate bug in ObjectMap::rehash that
+    // segfaults peg_gen whenever a parse_action map has 4+ fields.
+    uint32_t cap = log2_buckets == 0 ? 0 : (1u << log2_buckets);
+    LOGOS_TRY(auto* p, ObjectMap::create(holder_->arena(), cap));
     return Map(offset_of(p), holder_);
 }
 

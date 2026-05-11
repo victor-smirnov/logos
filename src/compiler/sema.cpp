@@ -2627,6 +2627,38 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                      : error_t();
         uint64_t n = 0;
         std::string symbolic;
+        // MP-mc-01: `[T; metacall { <expr> }]` — array length via metacall
+        // splice. Block tail expression evaluated by ctfe and the integer
+        // result becomes the size. Logos's replacement for Rust's
+        // const-eval at this position.
+        if (node.has_key(la::BODY)) {
+            auto blk = map_of(node.get(la::BODY.code));
+            hermes::TinyMapView tail{};
+            bool have_tail = false;
+            if (blk.has_key(la::ITEMS)) {
+                auto items = arr_of(blk.get(la::ITEMS.code));
+                for (uint64_t i = items.size(); i-- > 0; ) {
+                    auto s = map_of(items.get(i));
+                    int32_t sc = code_of(s);
+                    if ((sc == la::TAIL_EXPR || sc == la::EXPR_STMT) && s.has_key(la::VALUE)) {
+                        tail = map_of(s.get(la::VALUE.code));
+                        have_tail = true;
+                        break;
+                    }
+                }
+            }
+            if (!have_tail) {
+                error("metacall in array length must contain a single integer expression");
+                return make_array(elem, 0, symbolic);
+            }
+            auto r = ctfe::eval_expr(tail, holder_);
+            if (!r) {
+                error(std::format("metacall in array length: {}", r.error().msg));
+                return make_array(elem, 0, symbolic);
+            }
+            n = static_cast<uint64_t>(r.value().i);
+            return make_array(elem, n, symbolic);
+        }
         // [T; sizeof...(P)] — grammar's sizeof_pack alt encodes the pack form
         // as OP="sizeof" + NAME=<pack-ident>. Lower to a symbolic arr_size_var
         // "__sizeof_pack:P" that mono_subst resolves once P expands.

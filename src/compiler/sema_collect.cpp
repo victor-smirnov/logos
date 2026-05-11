@@ -1,6 +1,7 @@
 // Logos project — https://github.com/victor-smirnov/logos
 
 #include "sema_impl.hpp"
+#include "ctfe.hpp"
 
 #include <cstdio>
 #include <format>
@@ -786,6 +787,34 @@ void SemaChecker::collect_enum(TinyMapView node) {
                         auto sv = str_of(v.get(la::VALUE.code));
                         vval = parse_int_literal(sv);
                         if (v.has_key(la::LO_NEG)) vval = -vval;
+                    } else if (v.has_key(la::BODY)) {
+                        // MP-mc-01: `Variant = metacall { <expr> }`. Block
+                        // tail expression evaluated via ctfe; integer
+                        // result becomes the discriminant.
+                        auto blk = map_of(v.get(la::BODY.code));
+                        hermes::TinyMapView tail{};
+                        bool have_tail = false;
+                        if (blk.has_key(la::ITEMS)) {
+                            auto sitems = arr_of(blk.get(la::ITEMS.code));
+                            for (uint64_t k = sitems.size(); k-- > 0; ) {
+                                auto s = map_of(sitems.get(k));
+                                int32_t sc = code_of(s);
+                                if ((sc == la::TAIL_EXPR || sc == la::EXPR_STMT) &&
+                                    s.has_key(la::VALUE)) {
+                                    tail = map_of(s.get(la::VALUE.code));
+                                    have_tail = true; break;
+                                }
+                            }
+                        }
+                        if (!have_tail) {
+                            error("metacall in enum discriminant must contain a single integer expression");
+                        } else {
+                            auto r = ctfe::eval_expr(tail, holder_);
+                            if (!r)
+                                error(std::format("metacall in enum discriminant: {}", r.error().msg));
+                            else
+                                vval = r.value().i;
+                        }
                     }
                     if (info.backing_type &&
                         !intlit_fits(vval, TypeRef(info.backing_type).kind()))

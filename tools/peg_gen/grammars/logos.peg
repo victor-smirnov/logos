@@ -596,6 +596,8 @@
                 => { CODE: VARIANT_DEF, NAME: $1, VALUE: $4, LO_NEG: true }
                  / IDENT ASSIGN INTEGER
                 => { CODE: VARIANT_DEF, NAME: $1, VALUE: $3 }
+                 / IDENT ASSIGN KW_METACALL block
+                => { CODE: VARIANT_DEF, NAME: $1, BODY: $4 }
                  / IDENT
                 => { CODE: VARIANT_DEF, NAME: $1 }
 
@@ -1137,6 +1139,8 @@
     // by sema to symbolic arr_size_var "__sizeof_pack:P" and resolved at mono.
     arr_type <- LBRACKET type_ref SEMI IDENT DOTDOTDOT LPAREN IDENT RPAREN RBRACKET
               => { CODE: ARR_TYPE, TYPE: $2, OP: $4, NAME: $7 }
+              / LBRACKET type_ref SEMI KW_METACALL block RBRACKET
+              => { CODE: ARR_TYPE, TYPE: $2, BODY: $5 }
               / LBRACKET type_ref SEMI (INTEGER / IDENT) RBRACKET
               => { CODE: ARR_TYPE, TYPE: $2, SIZE: $4 }
 
@@ -1455,10 +1459,14 @@
              => { CODE: LET_DESTRUCT, NAMES: $3, VALUE: $6 }
               / KW_LET KW_MUT IDENT COLON type_ref ASSIGN expr SEMI
              => { CODE: LET, IS_MUT: true, NAME: $3, TYPE: $5, VALUE: $7 }
+              / KW_LET KW_MUT IDENT COLON type_ref SEMI
+             => { CODE: LET, IS_MUT: true, NAME: $3, TYPE: $5 }
               / KW_LET KW_MUT IDENT ASSIGN expr SEMI
              => { CODE: LET, IS_MUT: true, NAME: $3, VALUE: $5 }
               / KW_LET IDENT COLON type_ref ASSIGN expr SEMI
              => { CODE: LET, NAME: $2, TYPE: $4, VALUE: $6 }
+              / KW_LET IDENT COLON type_ref SEMI
+             => { CODE: LET, NAME: $2, TYPE: $4 }
               / KW_LET IDENT ASSIGN expr SEMI
              => { CODE: LET, NAME: $2, VALUE: $4 }
               // B-pt-02: irrefutable destructure with full pattern

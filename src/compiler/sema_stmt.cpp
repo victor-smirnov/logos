@@ -737,6 +737,17 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     if (node.has_key(la::VALUE)) {
         rhs      = lower_expr(map_of(node.get(la::VALUE.code)));
         rhs_type = rhs->type;
+    } else if (ann) {
+        // B3-bg-01 / B3-bg-02: `let v: T;` / `let mut v: T;` —
+        // declare-without-init. Binding takes the annotated type; value
+        // remains null. The variable must be definitely-assigned before
+        // use; assignment paths register the value (lower_assign), and
+        // reads of an uninitialised binding will surface as either
+        // mlir-gen "use of uninitialised slot" or a borrow-check warn.
+        // (Full definite-assignment analysis is a separate pass; for now
+        // we trust user code or rely on later use-checks.)
+        rhs      = nullptr;
+        rhs_type = ann;
     } else {
         error(std::format("let '{}': missing value", name));
         rhs      = error_expr();
@@ -755,13 +766,14 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     // strict type-equality check; pass-2 will verify compatibility once
     // the HERMES_BLOB has been lowered to a real expr.
     bool rhs_is_expr_blob =
+        rhs &&
         TypeRef(rhs_type).kind() == LogosType::Kind::Struct &&
         is_exprblob(rhs_type);
     if (rhs_is_expr_blob && ann != nullptr) {
         rhs_type = ann;
         if (rhs) rhs->type = ann;
     }
-    if (ann != nullptr) {
+    if (rhs && ann != nullptr) {
         // impl Trait annotation: any concrete struct/class that was returned from an
         // impl-Trait-returning function is acceptable — treat the variable type as the
         // concrete rhs type so method calls work.
@@ -791,7 +803,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
             }
         }
         // Implicit safe integer widening: u32 → i64, i32 → i64, u8 → u32, ...
-        if (ann && is_integer_kind(TypeRef(ann).kind()) && is_integer_kind(TypeRef(rhs_type).kind()) &&
+        if (rhs && ann && is_integer_kind(TypeRef(ann).kind()) && is_integer_kind(TypeRef(rhs_type).kind()) &&
             TypeRef(rhs_type).kind() != LogosType::Kind::IntLit &&
             TypeRef(rhs_type).kind() != LogosType::Kind::Enum &&
             can_widen_int(TypeRef(rhs_type).kind(), TypeRef(ann).kind())) {
