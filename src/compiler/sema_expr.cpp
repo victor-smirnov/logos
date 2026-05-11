@@ -4,6 +4,7 @@
 
 #include "sema_impl.hpp"
 #include "ctfe.hpp"
+#include "logos_parser.hpp"  // re-parse RAW_TEXT for fn-macro args
 
 #include <logos/hermes/type_registry.hpp>
 #include <logos/hermes/type_tag.hpp>
@@ -9612,26 +9613,94 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
         return error_expr();
     }
 
-    // Collect ARG AnyVals.
-    std::vector<AnyVal> arg_avs;
-    if (node.has_key(la::ARGS)) {
-        auto args = arr_of(node.get(la::ARGS.code));
-        for (uint64_t i = 0; i < args.size(); ++i)
-            arg_avs.push_back(args.get(i));
-    }
-    if (sig_single && arg_avs.size() != 1) {
-        error(std::format(
-            "fn_macro: '{}!' expects exactly 1 arg (callee takes ExprBlob), got {}",
-            callee_name, arg_avs.size()));
-        return error_expr();
-    }
     if (!holder_) {
         error("fn_macro: missing AST holder");
         return error_expr();
     }
-
     if (!cur_prog_) {
         error("fn_macro: no current program");
+        return error_expr();
+    }
+
+    // Slice 3 raw-capture: read RAW_TEXT, re-parse as comma-separated
+    // expr-list by wrapping in a synthetic `__c(<raw_text>)` call. The
+    // returned AnyVals point into wrap_doc; the serialisation loop
+    // below uses wrap_doc's base instead of holder_->base().
+    if (!node.has_key(la::RAW_TEXT)) {
+        error("fn_macro: missing RAW_TEXT (grammar regression?)");
+        return error_expr();
+    }
+    std::string raw_text(str_of(node.get(la::RAW_TEXT.code)));
+    std::string wrap_src = std::format(
+        "package __fn_macro_args;\nfn __f() {{ __c({}); }}\n", raw_text);
+    logos::compiler::LogosParser wrap_parser(wrap_src);
+    auto wrap_doc = wrap_parser.parse_module();
+    if (wrap_doc.is_null() || !wrap_parser.at_eof()) {
+        error(std::format(
+            "fn_macro: '{}!' args failed to parse as comma-separated expr list",
+            callee_name));
+        return error_expr();
+    }
+    // Navigate: MODULE → ITEMS[0]=FN_DEF → BODY=BLOCK → ITEMS[0]=stmt
+    //           where stmt is EXPR_STMT/TAIL_EXPR carrying a CALL → CALL.ARGS.
+    const uint8_t* src_base = HermesAccess::base(wrap_doc);
+    auto wrap_root = wrap_doc.root_object().as_tiny_map();
+    if (wrap_root.is_null()) {
+        error("fn_macro: wrap parse produced null module");
+        return error_expr();
+    }
+    auto nav_array_first = [&](TinyObjectMap* tom, uint8_t key) -> TinyObjectMap* {
+        if (!tom->has_key(key)) return nullptr;
+        AnyVal av = tom->get(key, const_cast<uint8_t*>(src_base));
+        if (!av.is_pointer()) return nullptr;
+        auto* arr = reinterpret_cast<logos::hermes::ObjectArray*>(
+            const_cast<uint8_t*>(src_base) + av.to_offset().value());
+        if (arr->size() == 0) return nullptr;
+        AnyVal el = arr->get(0, const_cast<uint8_t*>(src_base));
+        if (!el.is_pointer()) return nullptr;
+        return reinterpret_cast<TinyObjectMap*>(
+            const_cast<uint8_t*>(src_base) + el.to_offset().value());
+    };
+    auto nav_key = [&](TinyObjectMap* tom, uint8_t key) -> TinyObjectMap* {
+        if (!tom->has_key(key)) return nullptr;
+        AnyVal av = tom->get(key, const_cast<uint8_t*>(src_base));
+        if (!av.is_pointer()) return nullptr;
+        return reinterpret_cast<TinyObjectMap*>(
+            const_cast<uint8_t*>(src_base) + av.to_offset().value());
+    };
+    auto* module_tom = const_cast<TinyObjectMap*>(wrap_root.ptr());
+    auto* fn_def    = nav_array_first(module_tom, la::ITEMS.code);
+    auto* fn_body   = fn_def    ? nav_key(fn_def, la::BODY.code) : nullptr;
+    auto* stmt      = fn_body   ? nav_array_first(fn_body, la::ITEMS.code) : nullptr;
+    // stmt is EXPR_STMT or TAIL_EXPR carrying a CALL via VALUE key.
+    TinyObjectMap* call_tom = nullptr;
+    if (stmt) {
+        int32_t sc = 0;
+        if (stmt->has_key(la::CODE.code)) {
+            AnyVal cv = stmt->get(la::CODE.code, const_cast<uint8_t*>(src_base));
+            if (!cv.is_null() && !cv.is_pointer()) sc = cv.as_value<int32_t>();
+        }
+        if (sc == la::EXPR_STMT.code || sc == la::TAIL_EXPR.code) {
+            call_tom = nav_key(stmt, la::VALUE.code);
+        } else if (sc == la::CALL.code) {
+            call_tom = stmt;
+        }
+    }
+    std::vector<AnyVal> arg_avs;  // offsets into wrap_doc
+    if (call_tom && call_tom->has_key(la::ARGS.code)) {
+        AnyVal av = call_tom->get(la::ARGS.code, const_cast<uint8_t*>(src_base));
+        if (av.is_pointer()) {
+            auto* arr = reinterpret_cast<logos::hermes::ObjectArray*>(
+                const_cast<uint8_t*>(src_base) + av.to_offset().value());
+            for (uint64_t i = 0; i < arr->size(); ++i)
+                arg_avs.push_back(arr->get(i, const_cast<uint8_t*>(src_base)));
+        }
+    }
+
+    if (sig_single && arg_avs.size() != 1) {
+        error(std::format(
+            "fn_macro: '{}!' expects exactly 1 arg (callee takes ExprBlob), got {}",
+            callee_name, arg_avs.size()));
         return error_expr();
     }
 
@@ -9644,7 +9713,6 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
     // [u64 size], and store under macro_arg_blobs[site_id][arg_idx].
     auto& blobs = cur_prog_->macro_arg_blobs[site_id];
     blobs.resize(arg_avs.size());
-    const uint8_t* src_base = holder_->base();
     for (size_t i = 0; i < arg_avs.size(); ++i) {
         if (arg_avs[i].is_null() || !arg_avs[i].is_pointer()) {
             error(std::format("fn_macro: arg {} is not an AST node", i));

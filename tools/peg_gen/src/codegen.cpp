@@ -478,6 +478,34 @@ private:
         return false;
     }
 
+    // Raw-group pseudo-tokens: RAW_GROUP_PAREN / RAW_GROUP_BRACKET /
+    // RAW_GROUP_BRACE consume a balanced delimiter pair as raw source
+    // text. Used by function-style macros (`name!(...)`) so the
+    // captured tokens can be re-interpreted per callee marker
+    // (#[fn_macro] re-parses as expr-list; #[token_macro] lexes as
+    // TokenStream). The pseudo-token "returns" a captured string view.
+    static bool is_raw_group_token(std::string_view name) {
+        return name == "RAW_GROUP_PAREN"
+            || name == "RAW_GROUP_BRACKET"
+            || name == "RAW_GROUP_BRACE";
+    }
+    static bool items_use_raw_group(const std::vector<Item>& items) {
+        for (const auto& item : items) {
+            if (item.kind == int32_t(ast::TOKEN_REF)
+                && is_raw_group_token(item.name)) return true;
+            if (items_use_raw_group(item.sub_items)) return true;
+            for (const auto& sa : item.sub_alts)
+                if (items_use_raw_group(sa.seq)) return true;
+        }
+        return false;
+    }
+    static bool grammar_uses_raw_group(const GrammarInfo& g) {
+        for (const auto& rule : g.rules)
+            for (const auto& alt : rule.alts)
+                if (items_use_raw_group(alt.seq)) return true;
+        return false;
+    }
+
     static bool action_has_array_capture(const Action& action) {
         for (const auto& f : action.fields)
             if (f.expr.kind == int32_t(ast::ARRAY_CAPTURE)) return true;
@@ -715,6 +743,11 @@ private:
                 w.line("bool  try_token_gt(); // GT_TYPE pseudo-token: also splits SHR (>>) into two GTs");
             if (grammar_uses_lt_type(g_))
                 w.line("bool  try_token_lt(); // LT_TYPE pseudo-token: also splits SHL (<<) into two LTs");
+            if (grammar_uses_raw_group(g_)) {
+                w.line("bool  try_raw_group_paren(std::string_view& out_text);");
+                w.line("bool  try_raw_group_bracket(std::string_view& out_text);");
+                w.line("bool  try_raw_group_brace(std::string_view& out_text);");
+            }
         }
 
         w.line();
@@ -885,6 +918,77 @@ private:
             w.dedent();
             w.line("}");
             w.line();
+        }
+
+        // Raw-group pseudo-tokens. Each variant consumes its opening
+        // delimiter, then walks tokens with a nested-delim stack until
+        // the matching outer close. Captures raw source bytes (incl.
+        // whitespace/comments) between the delims as a std::string_view
+        // into source_. On mismatch / EOF inside the body, restores
+        // parser state so the alt's fail-label can back-track cleanly.
+        if (grammar_uses_raw_group(g_)) {
+            auto emit_raw_group = [&](const char* fn_name,
+                                      const char* open_tok,
+                                      const char* close_tok) {
+                w.fmt("bool {0}::{1}(std::string_view& out_text) {{",
+                      parser_class_, fn_name);
+                w.indent();
+                w.line("size_t save_pos = pos_; bool save_la = have_la_;");
+                w.line("Token save_tok = la_; uint32_t save_line = line_;");
+                w.fmt("if (peek_token().kind != TK::{}) return false;", open_tok);
+                w.line("next_token();");
+                w.line("size_t start = pos_;  // first byte past the open delim");
+                w.line("std::vector<TK> stack;");
+                w.fmt("stack.push_back(TK::{});", close_tok);
+                w.line("while (!stack.empty()) {");
+                w.indent();
+                w.line("Token t = peek_token();");
+                w.line("if (t.kind == TK::Eof) {");
+                w.indent();
+                w.line("// Unbalanced — restore and reject.");
+                w.line("pos_ = save_pos; have_la_ = save_la; la_ = save_tok; line_ = save_line;");
+                w.line("return false;");
+                w.dedent();
+                w.line("}");
+                w.line("switch (t.kind) {");
+                w.line("case TK::LPAREN:   stack.push_back(TK::RPAREN);   break;");
+                w.line("case TK::LBRACKET: stack.push_back(TK::RBRACKET); break;");
+                w.line("case TK::LBRACE:   stack.push_back(TK::RBRACE);   break;");
+                w.line("case TK::RPAREN:");
+                w.line("case TK::RBRACKET:");
+                w.line("case TK::RBRACE: {");
+                w.indent();
+                w.line("if (stack.back() != t.kind) {");
+                w.indent();
+                w.line("pos_ = save_pos; have_la_ = save_la; la_ = save_tok; line_ = save_line;");
+                w.line("return false;");
+                w.dedent();
+                w.line("}");
+                w.line("stack.pop_back();");
+                w.line("if (stack.empty()) {");
+                w.indent();
+                w.line("size_t end = static_cast<size_t>(t.text.data() - source_.data());");
+                w.line("out_text = source_.substr(start, end - start);");
+                w.line("next_token();");
+                w.line("return true;");
+                w.dedent();
+                w.line("}");
+                w.line("break;");
+                w.dedent();
+                w.line("}");
+                w.line("default: break;");
+                w.line("}");
+                w.line("next_token();");
+                w.dedent();
+                w.line("}");
+                w.line("return false;  // unreachable");
+                w.dedent();
+                w.line("}");
+                w.line();
+            };
+            emit_raw_group("try_raw_group_paren",   "LPAREN",   "RPAREN");
+            emit_raw_group("try_raw_group_bracket", "LBRACKET", "RBRACKET");
+            emit_raw_group("try_raw_group_brace",   "LBRACE",   "RBRACE");
         }
 
         w.fmt("{0}::Token {0}::expect_token(TK kind, std::string_view what) {{", parser_class_);
@@ -1532,6 +1636,23 @@ private:
             if (item.name == "LT_TYPE") {
                 w.fmt("if (!try_token_lt()) goto {};", fail_label);
                 w.fmt("[[maybe_unused]] AnyVal {} = AnyVal{{}};", cap);
+                break;
+            }
+            // Raw-group pseudo-tokens: capture the balanced delimiter
+            // contents as raw source text. The result `cap` is a
+            // string-valued AnyVal (offset to an arena-interned slice
+            // of the original source). Each variant differs only in
+            // the opening delim it expects.
+            if (item.name == "RAW_GROUP_PAREN" ||
+                item.name == "RAW_GROUP_BRACKET" ||
+                item.name == "RAW_GROUP_BRACE") {
+                const char* fn =
+                    item.name == "RAW_GROUP_PAREN"   ? "try_raw_group_paren" :
+                    item.name == "RAW_GROUP_BRACKET" ? "try_raw_group_bracket"
+                                                    : "try_raw_group_brace";
+                w.fmt("std::string_view rg_{0}_text;", cap);
+                w.fmt("if (!{0}(rg_{1}_text)) goto {2};", fn, cap, fail_label);
+                w.fmt("[[maybe_unused]] AnyVal {0} = doc_.make_string(rg_{0}_text).get().to_anyval();", cap);
                 break;
             }
             // Match token, intern text as arena string → AnyVal offset.

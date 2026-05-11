@@ -75,6 +75,7 @@
     PATH           = 22    // sub-node carrying ITEMS=[str,...] for N-deep chain field write (reuses FIELDS slot — chain stmts never carry struct field defs)
     NAME_VAR       = 38    // antiquot var name for `#ident` placeholder inside quote_*! body (reuses WHERE slot — STRUCT/ENUM/FN never have a where_clause AND a NAME_VAR simultaneously: NAME_VAR exists only inside quote_*! bodies, where where_clause is parsed separately)
     META           = 16    // meta @{...} block on struct/datatype/trait declarations (slot 16; reuses PATH_PARTS slot, mutually exclusive node types)
+    RAW_TEXT       = 7     // raw source text captured from a balanced delim group on FN_MACRO_CALL (reuses VALUE slot — fn-macro nodes never carry a literal payload)
     // ── Group: mod ────────────────────────────────────────────────────────
     // Fields scoped to MODULE and USE nodes.  Slot numbers in a group reuse
     // the same 0..51 space as global fields; peg_gen resolves action field
@@ -1734,13 +1735,18 @@
                   / quote_expr_expr
                   / quote_ty_expr
 
-                  // Function-style macros: `name!(args)` / `name![args]`.
-                  // Slice 1 of fn-macros: BANG-prefix disambiguates from
-                  // regular call/struct-lit; sema checks #[fn_macro] marker.
-                  / IDENT BANG LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
-                                     => { CODE: FN_MACRO_CALL, CALLEE: $1, ARGS: $... }
-                  / IDENT BANG LBRACKET (expr (COMMA expr)* COMMA?)? RBRACKET
-                                     => { CODE: FN_MACRO_CALL, CALLEE: $1, ARGS: $... }
+                  // Function-style macros: `name!(...)` / `name![...]` /
+                  // `name!{...}`. Slice 3: raw-capture grammar — contents
+                  // between balanced delimiters are stashed as source text
+                  // and re-interpreted at sema time per callee marker
+                  // (#[fn_macro] re-parses as expr-list; #[token_macro]
+                  // lexes as TokenStream).
+                  / IDENT BANG RAW_GROUP_PAREN
+                                     => { CODE: FN_MACRO_CALL, CALLEE: $1, RAW_TEXT: $3 }
+                  / IDENT BANG RAW_GROUP_BRACKET
+                                     => { CODE: FN_MACRO_CALL, CALLEE: $1, RAW_TEXT: $3 }
+                  / IDENT BANG RAW_GROUP_BRACE
+                                     => { CODE: FN_MACRO_CALL, CALLEE: $1, RAW_TEXT: $3 }
 
                   / call_expr        // IDENT(args) / Type::method(args) — before enum_lit/IDENT
                   / IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE

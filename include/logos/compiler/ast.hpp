@@ -294,6 +294,7 @@ inline constexpr Code FN_MACRO_CALL        {"FN_MACRO_CALL",      225}; // `name
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  META            {"META",               16};   // meta @{...} block node on struct/trait/datatype declarations (reuses PATH_PARTS slot; these node types never co-exist)
+inline constexpr Key  RAW_TEXT        {"RAW_TEXT",            7};   // raw source text captured from a balanced delim group on FN_MACRO_CALL (reuses VALUE slot — fn-macro nodes never carry a literal payload)
 inline constexpr Key  INDEX           {"INDEX",              43};   // integer index (tuple field write)
 
 // Visibility
