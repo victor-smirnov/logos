@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/no-capture-closure-call.rs
+// Modifications: `Box::new(1)` dropped (test was only checking that a
+// no-capture closure can be called near an unrelated Box); the
+// closure itself is what we're checking.
+package no_capture_closure_call;
+
+fn main() -> i32 {
+    let lam_move = || -> () { return; };
+    lam_move();
+    return 0;
+}

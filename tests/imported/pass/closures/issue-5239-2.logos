@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/issue-5239-2.rs
+// Modifications: rust's `|ref x: isize| { *x }` uses `ref` in the
+// closure parameter pattern — Logos doesn't have `ref` in param
+// patterns. The equivalent shape `|x: isize| -> isize { return x; }`
+// preserves the test's headline check (closure with explicit
+// param/return type returns its arg).
+package issue_5239_2;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let f = |x: isize| -> isize { return x; };
+    let foo: isize = 10isize;
+    assert_eq!(f(foo), 10isize);
+    return 0;
+}

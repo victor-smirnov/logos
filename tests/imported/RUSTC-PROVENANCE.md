@@ -22,6 +22,7 @@ per-file rows below.
 | B2 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | borrowck — move/copy/reference (11 tests) |
 | B3 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | generics — generic fn / struct / enum / type-alias / fn-ptr (12 tests) |
 | B4 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | patterns + match (5 tests; many features deferred — see pattern-match-gaps.md) |
+| B5 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | closures (3 tests; bulk blocked on Fn/FnMut/FnOnce — see closures-gaps.md) |
 
 To kick off a batch:
 
@@ -85,6 +86,9 @@ Columns:
 | `pass/match/match-on-negative-integer-ranges.logos` | `tests/ui/match/match-on-negative-integer-ranges.rs` | B4 | `if let` form rewritten as `match` (no `if let` sugar in Logos — gap P4-pm-05) |
 | `pass/pattern/issue-10392.logos` | `tests/ui/pattern/issue-10392.rs` | B4 | nested struct pattern inside Option payload rewritten as bind-then-destructure (gap P4-pm-02); separate mlir-gen GEP crash on struct-by-value destructure (gap P4-pm-08) workaround |
 | `pass/pattern/match-ref-option-pattern.logos` | `tests/ui/match/match-ref-option-pattern.rs` | B4 | `&Some(_)` / `&None` rewritten via auto-deref + qualified path |
+| `pass/closures/issue-5239-2.logos` | `tests/ui/closures/issue-5239-2.rs` | B5 | `ref x` in closure param dropped (gap C5-cl-03); explicit param + ret type |
+| `pass/closures/no-capture-closure-call.logos` | `tests/ui/closures/no-capture-closure-call.rs` | B5 | unrelated `Box::new(1)` dropped; explicit `-> ()` and `return` |
+| `pass/closures/simple-capture-and-call.logos` | `tests/ui/closures/simple-capture-and-call.rs` | B5 | explicit return-type / `return` on the closure |
 
 ## When upstream changes
 

@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/simple-capture-and-call.rs
+// Modifications: Logos closures require explicit return type and `return`.
+package simple_capture_and_call;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let x: usize = 1usize;
+    let y = || -> usize { return x; };
+    let z: usize = y();
+    assert_eq!(z, 1usize);
+    return 0;
+}
