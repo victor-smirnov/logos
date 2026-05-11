@@ -31,6 +31,11 @@ trait Debug {
 impl Debug for i32 { fn dbg(self: i32, buf: &mut String) { self.fmt(buf); } }
 impl Debug for i64 { fn dbg(self: i64, buf: &mut String) { self.fmt(buf); } }
 impl Debug for u64 { fn dbg(self: u64, buf: &mut String) { self.fmt(buf); } }
+impl Debug for u32 { fn dbg(self: u32, buf: &mut String) { self.fmt(buf); } }
+impl Debug for u16 { fn dbg(self: u16, buf: &mut String) { self.fmt(buf); } }
+impl Debug for u8 { fn dbg(self: u8, buf: &mut String) { self.fmt(buf); } }
+impl Debug for i16 { fn dbg(self: i16, buf: &mut String) { self.fmt(buf); } }
+impl Debug for i8 { fn dbg(self: i8, buf: &mut String) { self.fmt(buf); } }
 impl Debug for usize { fn dbg(self: usize, buf: &mut String) { self.fmt(buf); } }
 impl Debug for isize { fn dbg(self: isize, buf: &mut String) { self.fmt(buf); } }
 impl Debug for bool { fn dbg(self: bool, buf: &mut String) { self.fmt(buf); } }

@@ -449,6 +449,40 @@ impl Display for u64 {
     }
 }
 
+impl Display for u32 {
+    fn fmt(self: u32, buf: &mut String) {
+        buf.push_u64(self as u64);
+    }
+}
+
+impl Display for u16 {
+    fn fmt(self: u16, buf: &mut String) {
+        buf.push_u64(self as u64);
+    }
+}
+
+impl Display for u8 {
+    fn fmt(self: u8, buf: &mut String) {
+        buf.push_u64(self as u64);
+    }
+}
+
+impl Display for i16 {
+    fn fmt(self: i16, buf: &mut String) {
+        let ptr: *mut u8 = buf.spare_ptr(8);
+        let n: i64 = write_i32(ptr, 0, self as i32);
+        buf.advance_len(n);
+    }
+}
+
+impl Display for i8 {
+    fn fmt(self: i8, buf: &mut String) {
+        let ptr: *mut u8 = buf.spare_ptr(6);
+        let n: i64 = write_i32(ptr, 0, self as i32);
+        buf.advance_len(n);
+    }
+}
+
 impl Display for usize {
     fn fmt(self: usize, buf: &mut String) {
         buf.push_u64(self as u64);
