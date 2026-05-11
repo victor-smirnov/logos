@@ -13,6 +13,9 @@
 package std.fmt;
 
 use std.lang.text;
+use std.compiler.metaprog;
+use std.collections.vec;
+use std.io;
 
 // ── Debug trait ───────────────────────────────────────────────────────────
 //
@@ -70,11 +73,72 @@ unsafe fn fmt_into<H: Display, T...>(fmt: str, fi: i64, flen: i64,
 
 // ── Public API ────────────────────────────────────────────────────────────
 
-// format::<T...>(pattern, args...) -> String
-// Returns an owned String. Drop frees it automatically.
-pub fn format<T...: Display>(pattern: str, args: T...) -> String {
+// format_args_str::<T...>(pattern, args...) -> String
+// Runtime fn that the `format!()` macro lowers to. Returns an owned
+// String. Drop frees it automatically. Variadic type-arg inference
+// means callers usually write `format_args_str("n={}", n)` without
+// turbofish; the macro shell takes care of any remaining ergonomics.
+pub fn format_args_str<T...: Display>(pattern: str, args: T...) -> String {
     let flen: i64 = pattern.len();
     let mut buf: String = String::new();
     unsafe { fmt_into(pattern, 0 as i64, flen, &mut buf, args...); }
     return buf;
+}
+
+// Back-compat alias: existing callers wrote `format::<T...>("...", args)`
+// before the `format!` macro shell landed. Keep the bare name working
+// so we don't churn unrelated tests on this slice.
+pub fn format<T...: Display>(pattern: str, args: T...) -> String {
+    return format_args_str(pattern, args...);
+}
+
+// ── Macro shells (slice 4.1 of fn-macros) ─────────────────────────────────
+//
+// `format!("pat", args...)` — Rust-style shorthand around `format_args_str`.
+// The macro callee receives every `(args)` element as an `ExprBlob` and
+// splices them back into a single call. Element type and arity of the
+// underlying `format_args_str` are inferred from the spliced AST at the
+// expansion site — same path that lets `format_args_str("...", a, b)`
+// already work without turbofish.
+
+#[fn_macro]
+pub fn format(args: Vec<ExprBlob>) -> ExprBlob {
+    return quote_expr! { format_args_str(#(#args),*) };
+}
+
+// Thin re-exports of std.io print/println so the macro splices resolve
+// at the user's call-site without forcing a separate `use std.io;`.
+// Marked pub so the spliced expression sees them. Inline-trivial — the
+// optimizer collapses the wrapper.
+pub fn __fmt_print(s: str)    { print(s); }
+pub fn __fmt_println(s: str)  { println(s); }
+pub fn __fmt_eprint(s: str)   { eprint(s); }
+pub fn __fmt_eprintln(s: str) { eprintln(s); }
+
+#[fn_macro]
+pub fn print(args: Vec<ExprBlob>) -> ExprBlob {
+    return quote_expr! {
+        { let __s: String = format_args_str(#(#args),*); __fmt_print(__s.as_str()); }
+    };
+}
+
+#[fn_macro]
+pub fn println(args: Vec<ExprBlob>) -> ExprBlob {
+    return quote_expr! {
+        { let __s: String = format_args_str(#(#args),*); __fmt_println(__s.as_str()); }
+    };
+}
+
+#[fn_macro]
+pub fn eprint(args: Vec<ExprBlob>) -> ExprBlob {
+    return quote_expr! {
+        { let __s: String = format_args_str(#(#args),*); __fmt_eprint(__s.as_str()); }
+    };
+}
+
+#[fn_macro]
+pub fn eprintln(args: Vec<ExprBlob>) -> ExprBlob {
+    return quote_expr! {
+        { let __s: String = format_args_str(#(#args),*); __fmt_eprintln(__s.as_str()); }
+    };
 }

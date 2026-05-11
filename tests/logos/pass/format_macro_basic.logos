@@ -1,0 +1,13 @@
+// `format!("pat", args...)` macro shell over the existing variadic
+// format_args_str runtime fn (slice 4.1 of fn-macros). The macro
+// callee splices its ExprBlob args back into a regular call, and
+// sema's variadic-T... inference handles per-arg Display dispatch.
+package format_macro_basic;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let s: String = format!("n={}, m={}", 40i32, 2i32);  // "n=40, m=2"
+    return s.len() as i32;
+}
