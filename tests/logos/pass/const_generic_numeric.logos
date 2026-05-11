@@ -1,0 +1,22 @@
+// Const-generic over numeric type-params: `<T, const N: i64>` accepted
+// at fn declaration, the value is bound at the explicit turbofish call
+// site and is usable inside the body as a normal `i64`. Inference from
+// array-literal length is NOT (yet) wired up — turbofish required.
+package const_generic_numeric;
+
+use std.collections.vec;
+
+pub fn vec_from_arr<T: Copy, const N: i64>(arr: [T; N]) -> Vec<T> {
+    let mut v: Vec<T> = vec_new::<T>();
+    let mut i: i64 = 0i64;
+    while i < N {
+        v.push(arr[i]);
+        i = i + 1i64;
+    }
+    return v;
+}
+
+fn main() -> i32 {
+    let v: Vec<i32> = vec_from_arr::<i32, 3i64>([10i32, 20i32, 13i32]);
+    return v.get(0i64) + v.get(1i64) + v.get(2i64);
+}
