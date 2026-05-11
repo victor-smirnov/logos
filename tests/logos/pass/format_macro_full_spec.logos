@@ -1,0 +1,29 @@
+// Slice 4.4e: full format-spec surface — precision / sign / `#` / `0`
+// composed with the slice 4.4d width+align+fill machinery via the
+// new fmt_pad helper.
+//
+//   `{:.3}`     — truncate "hello" to "hel"
+//   `{:+}`      — force `+` on positive numbers
+//   `{:#x}`     — alt-form prefix "0x"
+//   `{:05}`     — zero-pad shortcut (fill='0', align right)
+//   `{:#06x}`   — prefix + zero-pad combined (Rust convention puts
+//                 zeros AFTER prefix)
+package format_macro_full_spec;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let a: String = format!("{:.3}", "hello");      // "hel"
+    let b: String = format!("{:+}", 42i32);         // "+42"
+    let c: String = format!("{:+}", -42i32);        // "-42"
+    let d: String = format!("{:#x}", 255i32);       // "0xff"
+    let e: String = format!("{:05}", 42i32);        // "00042"
+    let f: String = format!("{:#06x}", 255i32);     // "0x00ff"  (6 wide, 0x + 4)
+    let g: String = format!("{:+05}", 42i32);       // "+0042"
+    println!("[{}][{}][{}][{}][{}][{}][{}]",
+             a.as_str(), b.as_str(), c.as_str(),
+             d.as_str(), e.as_str(), f.as_str(), g.as_str());
+    return (a.len() + b.len() + c.len() + d.len()
+          + e.len() + f.len() + g.len()) as i32;
+}

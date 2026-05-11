@@ -1,1 +1,1 @@
-format!: format spec uses features not yet implemented
+format!: format spec `{:e}` / `{:E}` not yet implemented

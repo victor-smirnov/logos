@@ -198,20 +198,41 @@ pub fn fmt_upper_hex<T: UpperHex>(arg: T, buf: &mut String)  { arg.fmt_upper_hex
 pub fn fmt_octal<T: Octal>(arg: T, buf: &mut String)         { arg.fmt_octal(buf); }
 pub fn fmt_binary<T: Binary>(arg: T, buf: &mut String)       { arg.fmt_binary(buf); }
 
-// Slice 4.4d — pad/align/fill post-processor. Macro lowering routes
-// every padded placeholder through a scratch String, then this helper
-// emits the padding-then-content (or content-then-padding, or both,
-// for center) into the destination buf. align_code mirrors the
-// FormatAlign enum: 0=None/default, 1=Left, 2=Right, 3=Center.
-// `None` defaults to Right (matches Rust for numeric kinds; we'll
-// distinguish per-trait when string left-align defaults land).
-pub fn pad_into(out: &mut String, content: str, width: i64,
-                fill: i32, align_code: i32) {
-    let n: i64 = content.len();
-    let mut left_pad: i64  = 0i64;
+// Slice 4.4d / 4.4e — full format-spec post-processor. Macro lowering
+// routes every spec'd placeholder through a scratch String, then this
+// helper composes prefix + sign + content (precision-truncated) +
+// padding according to the spec parameters:
+//
+//   precision >= 0    — truncate content to N bytes (str-Display) or
+//                       N digits (numeric kinds) before any padding.
+//   prefix            — alt-form prefix ("0x"/"0o"/"0b") for hex/oct/
+//                       bin when `#` is set; empty string otherwise.
+//   sign_plus         — prepend '+' on positive content (`{:+}`).
+//   width, fill,      — width / fill char / align (0=None→Right,
+//   align_code           1=Left, 2=Right, 3=Center). When fill is '0'
+//                       and align defaults to Right, the zero digits
+//                       appear AFTER the sign and prefix — matching
+//                       Rust's `{:05x}` → "000ff" / `{:#05x}` → "0x0ff".
+pub fn fmt_pad(out: &mut String, content: str, prefix: str,
+               sign_plus: bool, precision: i64,
+               width: i64, fill: i32, align_code: i32) {
+    let n_full: i64 = content.len();
+    let n_eff: i64 =
+        if precision >= 0i64 && n_full > precision { precision } else { n_full };
+
+    let mut emit_sign: bool = false;
+    if sign_plus && n_eff > 0i64 {
+        let c0: u8 = content[0i64];
+        if c0 != 45u8 && c0 != 43u8 {  // not '-' or '+'
+            emit_sign = true;
+        }
+    }
+    let body: i64 =
+        (if emit_sign { 1i64 } else { 0i64 }) + prefix.len() + n_eff;
+    let mut left_pad:  i64 = 0i64;
     let mut right_pad: i64 = 0i64;
-    if width > n {
-        let pad: i64 = width - n;
+    if width > body {
+        let pad: i64 = width - body;
         if align_code == 1i32 {
             right_pad = pad;
         } else if align_code == 3i32 {
@@ -221,11 +242,41 @@ pub fn pad_into(out: &mut String, content: str, width: i64,
             left_pad = pad;
         }
     }
+
+    // Zero-pad shape: sign / prefix / zero-fill / content. Otherwise:
+    // fill-left / sign / prefix / content / fill-right.
+    let is_zero_pad: bool = (fill == 48i32) && (align_code != 1i32);
     let mut i: i64 = 0i64;
-    while i < left_pad  { out.push_u8(fill as u8); i = i + 1i64; }
-    out.push_str(content);
+    if !is_zero_pad {
+        while i < left_pad { out.push_u8(fill as u8); i = i + 1i64; }
+    }
+    if emit_sign { out.push_u8(43u8); }
+    out.push_str(prefix);
+    if is_zero_pad {
+        i = 0i64;
+        while i < left_pad { out.push_u8(48u8); i = i + 1i64; }
+    }
+    // Truncated content.
     i = 0i64;
-    while i < right_pad { out.push_u8(fill as u8); i = i + 1i64; }
+    while i < n_eff { out.push_u8(content[i]); i = i + 1i64; }
+    if !is_zero_pad {
+        i = 0i64;
+        while i < right_pad { out.push_u8(fill as u8); i = i + 1i64; }
+    } else {
+        // Left-aligned zero-pad is rare/weird — push right pad with
+        // fill (`0`) to keep numeric semantics consistent.
+        i = 0i64;
+        while i < right_pad { out.push_u8(48u8); i = i + 1i64; }
+    }
+}
+
+// Back-compat shim for slice 4.4d call sites. Drops to fmt_pad with
+// no prefix / no sign / no precision. Sema-resident lowering has
+// already migrated to fmt_pad directly; kept here only to avoid
+// churning external callers (none in tree).
+pub fn pad_into(out: &mut String, content: str, width: i64,
+                fill: i32, align_code: i32) {
+    fmt_pad(out, content, "", false, -1i64, width, fill, align_code);
 }
 
 // ── Macro shells (slice 4.1 of fn-macros) ─────────────────────────────────

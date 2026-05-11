@@ -9818,25 +9818,20 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
                 bool spec_blocked = false;
                 for (auto& s : fmt_result.segments) {
                     if (s.is_literal) continue;
-                    // Slice 4.4d allows width / align / fill in addition
-                    // to the trait kind. Precision / sign / `#` / `0`
-                    // are still gated to later slices.
-                    bool simple_modifiers = s.spec.precision < 0
-                                         && s.spec.sign == FormatSign::None
-                                         && !s.spec.alt && !s.spec.zero;
+                    // Slice 4.4e: full format-spec surface — width /
+                    // align / fill (4.4d) + precision / sign / `#` / `0`
+                    // (4.4e). The only remaining gate is `LowerExp` /
+                    // `UpperExp` (no float Display impls yet).
                     bool trait_ok = s.spec.trait_kind == FormatTrait::Display
                                  || s.spec.trait_kind == FormatTrait::Debug
                                  || s.spec.trait_kind == FormatTrait::LowerHex
                                  || s.spec.trait_kind == FormatTrait::UpperHex
                                  || s.spec.trait_kind == FormatTrait::Octal
                                  || s.spec.trait_kind == FormatTrait::Binary;
-                    if (!simple_modifiers || !trait_ok) {
+                    if (!trait_ok) {
                         error(std::format(
-                            "{}!: format spec uses features not yet "
-                            "implemented (slice 4.4e pending) — supported: "
-                            "`{{}}` `{{:?}}` `{{:x}}` `{{:X}}` `{{:o}}` `{{:b}}` "
-                            "with optional width / align / fill "
-                            "(no precision / sign / `#` / `0` yet)",
+                            "{}!: format spec `{{:e}}` / `{{:E}}` not yet "
+                            "implemented (float Display impls pending)",
                             callee_name));
                         spec_blocked = true;
                         break;
@@ -9920,24 +9915,54 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
                             arg_avs[value_idx].to_offset(), holder_);
                         std::string arg_src = render_expr_src(arg_view);
                         const char* dispatcher = format_trait_dispatcher(seg.spec.trait_kind);
-                        bool needs_pad = seg.spec.width > 0
-                                      || seg.spec.align != FormatAlign::None;
-                        if (needs_pad) {
-                            // Route the trait output through a scratch
-                            // String, then post-process via pad_into.
+                        bool needs_post =
+                               seg.spec.width > 0
+                            || seg.spec.align != FormatAlign::None
+                            || seg.spec.precision >= 0
+                            || seg.spec.sign != FormatSign::None
+                            || seg.spec.alt
+                            || seg.spec.zero;
+                        if (needs_post) {
+                            // Resolve fill / align with the zero-pad
+                            // shortcut: `{:05}` ≡ fill='0' + align=Right
+                            // when neither was explicitly set.
                             int32_t align_code =
                                 seg.spec.align == FormatAlign::Left   ? 1 :
                                 seg.spec.align == FormatAlign::Right  ? 2 :
                                 seg.spec.align == FormatAlign::Center ? 3 : 0;
                             int32_t fill_code = static_cast<int32_t>(
                                 static_cast<unsigned char>(seg.spec.fill));
+                            if (seg.spec.zero && seg.spec.align == FormatAlign::None) {
+                                if (seg.spec.fill == ' ') fill_code = '0';
+                            }
                             int32_t width = seg.spec.width >= 0
                                 ? seg.spec.width : 0;
+                            int32_t precision = seg.spec.precision;
+                            // Alt-form prefix: only meaningful for the
+                            // numeric kinds. Display/Debug ignore `#`.
+                            const char* prefix = "";
+                            if (seg.spec.alt) {
+                                switch (seg.spec.trait_kind) {
+                                case FormatTrait::LowerHex: prefix = "0x"; break;
+                                case FormatTrait::UpperHex: prefix = "0X"; break;
+                                case FormatTrait::Octal:    prefix = "0o"; break;
+                                case FormatTrait::Binary:   prefix = "0b"; break;
+                                default: break;
+                                }
+                            }
+                            bool sign_plus = seg.spec.sign == FormatSign::Plus;
+
                             blk += "{ let mut __tmp: String = String::new(); ";
                             blk += dispatcher;
                             blk += "(";
                             blk += arg_src;
-                            blk += ", &mut __tmp); pad_into(&mut __buf, __tmp.as_str(), ";
+                            blk += ", &mut __tmp); fmt_pad(&mut __buf, __tmp.as_str(), \"";
+                            blk += prefix;
+                            blk += "\", ";
+                            blk += sign_plus ? "true" : "false";
+                            blk += ", ";
+                            blk += std::to_string(precision);
+                            blk += "i64, ";
                             blk += std::to_string(width);
                             blk += "i64, ";
                             blk += std::to_string(fill_code);
