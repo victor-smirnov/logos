@@ -1103,6 +1103,12 @@
                      => { ITEMS: $... }
     fn_ptr_type <- KW_FN LPAREN fn_ptr_type_args RPAREN ARROW type_ref
                 => { CODE: FN_PTR_TYPE, PARAMS: $3, RET_TYPE: $6 }
+                 / KW_FN LPAREN fn_ptr_type_args RPAREN
+                => { CODE: FN_PTR_TYPE, PARAMS: $3 }
+                 / KW_FN LPAREN RPAREN ARROW type_ref
+                => { CODE: FN_PTR_TYPE, RET_TYPE: $5 }
+                 / KW_FN LPAREN RPAREN
+                => { CODE: FN_PTR_TYPE }
                 / KW_FN LPAREN RPAREN ARROW type_ref
                 => { CODE: FN_PTR_TYPE, RET_TYPE: $5 }
 
