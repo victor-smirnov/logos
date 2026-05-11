@@ -5846,8 +5846,41 @@ lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {
         elems.push_back(std::move(fill_val));
         return builder().arr_lit(std::move(elems), arr_t);
     }
-    auto sv = str_of(node.get(la::SIZE.code));
-    int64_t n = parse_int_literal(sv);
+    int64_t n = 0;
+    if (node.has_key(la::BODY)) {
+        // MP-mc-01: `[v; metacall { <expr> }]` — array-fill size via
+        // metacall splice. Tail expression in the block is evaluated by
+        // ctfe (mirrors metacall-arg folding) and the integer result
+        // becomes the array length. Logos's replacement for Rust's
+        // const-eval at this position.
+        auto inner = map_of(node.get(la::BODY.code));
+        hermes::TinyMapView tail{};
+        bool have_tail = false;
+        if (inner.has_key(la::ITEMS)) {
+            auto items = arr_of(inner.get(la::ITEMS.code));
+            for (uint64_t i = items.size(); i-- > 0; ) {
+                auto s = map_of(items.get(i));
+                int32_t sc = code_of(s);
+                if ((sc == la::TAIL_EXPR || sc == la::EXPR_STMT) && s.has_key(la::VALUE)) {
+                    tail = map_of(s.get(la::VALUE.code));
+                    have_tail = true; break;
+                }
+            }
+        }
+        if (!have_tail) {
+            error("array fill literal: metacall must contain an integer expression");
+            return error_expr();
+        }
+        auto r = ctfe::eval_expr(tail, holder_);
+        if (!r) {
+            error(std::format("array fill literal: metacall: {}", r.error().msg));
+            return error_expr();
+        }
+        n = r.value().i;
+    } else {
+        auto sv = str_of(node.get(la::SIZE.code));
+        n = parse_int_literal(sv);
+    }
     if (n <= 0) error(std::format("array fill literal: size must be positive, got {}", n));
     // Keep IntLit unresolved so that struct-literal type inference (hint_struct_type_)
     // can widen the element to the correct concrete type (e.g. i64 for Vec<i64>).

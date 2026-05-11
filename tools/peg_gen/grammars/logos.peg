@@ -584,6 +584,7 @@
     variant_list <- variant_def (COMMA variant_def)* COMMA?
                  => { ITEMS: $... }
 
+
     variant_payload_list <- type_ref (COMMA type_ref)*
                          => { ITEMS: $... }
 
@@ -1909,6 +1910,8 @@
     // mirrors the form admitted by arr_type at the type level.
     arr_fill_lit <- LBRACKET expr SEMI IDENT DOTDOTDOT LPAREN IDENT RPAREN RBRACKET
                  => { CODE: ARR_FILL_LIT, VALUE: $2, OP: $4, NAME: $7 }
+                  / LBRACKET expr SEMI KW_METACALL block RBRACKET
+                 => { CODE: ARR_FILL_LIT, VALUE: $2, BODY: $5 }
                   / LBRACKET expr SEMI INTEGER RBRACKET
                  => { CODE: ARR_FILL_LIT, VALUE: $2, SIZE: $4 }
 

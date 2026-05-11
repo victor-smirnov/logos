@@ -12,6 +12,7 @@
 // sema_expr.cpp, sema_stmt.cpp, sema_decl.cpp respectively.
 
 #include "sema_impl.hpp"
+#include "ctfe.hpp"
 
 #include <logos/compiler/lir_mirror.hpp>
 #include <logos/compiler/sha256.hpp>

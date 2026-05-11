@@ -1,14 +1,14 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/consts/arithmetic-expr-in-array-len.rs
-// Modifications: Logos rejects an arithmetic expression at array-length
-// position (`[i64; 2*4]` — gap K10-co-01). The literal is inlined; the
-// const-expr-in-array-length property is documented as a gap.
+// Modifications: Logos has no Rust-style const-eval at array-length
+// position; the Logos channel for compile-time computation is
+// `metacall { … }`. Original Rust `[0; 2*4]` ports to
+// `[0i64; metacall { 2 * 4 }]` — the metacall body is evaluated by
+// CTFE during sema and the integer result becomes the array length.
+// Closes MP-mc-01 / K10-co-01 family for the arr_fill_lit slot.
 package arithmetic_expr_in_array_len;
 
-const N: i64 = 2i64 * 4i64;
-
 fn main() -> i32 {
-    let _foo: [i64; 8] = [0i64; 8];
-    let _n: i64 = N;
+    let _foo: [i64; 8] = [0i64; metacall { 2i64 * 4i64 }];
     return 0;
 }
