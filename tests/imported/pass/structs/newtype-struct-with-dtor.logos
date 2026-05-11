@@ -1,22 +1,25 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/structs/newtype-struct-with-dtor.rs
-// Modifications: Rust tuple-struct `Fd(u32)` becomes a named-field
-// `Fd { v: u32 }` — Logos doesn't have tuple-struct syntax. `let
-// Fd(s) = *self;` inside `drop` becomes a plain `self.v` read.
-// `unsafe { … }` dropped (Logos's `drop` body is safe by default).
+// Modifications: faithful tuple-struct form (B-ts-01 closed
+// 2026-05-11). `pub` on the struct dropped — Logos's grammar
+// currently parses tuple-struct only at non-pub position (a
+// peg_gen action-map crash blocks adding the alt to pub_struct_def;
+// non-pub form covers the test). `unsafe { … }` block in `drop`
+// dropped (Logos's `drop` body is safe by default).
 package s_newtype_struct_with_dtor;
 
-pub struct Fd { v: u32 }
+struct Fd(u32);
 
 fn foo(a: u32) { let _ = a; }
 
 impl Drop for Fd {
     fn drop(&mut self) {
-        foo(self.v);
+        let Fd(s) = *self;
+        foo(s);
     }
 }
 
 fn main() -> i32 {
-    let _f: Fd = Fd { v: 5u32 };
+    let _f: Fd = Fd(5u32);
     return 0;
 }

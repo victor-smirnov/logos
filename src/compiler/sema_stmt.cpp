@@ -489,10 +489,90 @@ lir::LStmt SemaChecker::lower_let_pat(TinyMapView node) {
     }
     auto pat_node = map_of(pat_av);
     int32_t pc = code_of(pat_node);
-    if (pc != la::PAT_STRUCT) {
+    // B-ts-01: `let Foo(a, b) = …` over a tuple-struct lowers via the
+    // PAT_STRUCT path with synth field names "0", "1", …. Rewrite the
+    // PAT_VARIANT_DATA pat-node's ARGS into an inline pat-field-list
+    // here would require allocating in the prog arena; instead, dispatch
+    // to a parallel block below.
+    bool is_tuple_struct_pat = false;
+    const SemaStructInfo* tsi_let = nullptr;
+    if (pc == la::PAT_VARIANT_DATA) {
+        auto pename_l = std::string(str_of(pat_node.get(la::NAME.code)));
+        auto pvname_l = std::string(str_of(pat_node.get(la::FIELD.code)));
+        if (pvname_l.empty()) {
+            auto [_pkg, _si] = find_struct_by_name(pename_l);
+            if (_si && _si->is_tuple_struct) {
+                is_tuple_struct_pat = true;
+                tsi_let = _si;
+            }
+        }
+    }
+    if (pc != la::PAT_STRUCT && !is_tuple_struct_pat) {
         error("'let <pattern> = expr;' currently supports struct patterns only "
               "(other shapes are refutable; use 'match' or 'let-else')");
         return builder().stmt_expr(std::move(rhs), node_line_);
+    }
+    if (is_tuple_struct_pat) {
+        // Mini destructure path: temp = rhs; let a = temp.0; let b = temp.1; …
+        auto sname = std::string(str_of(pat_node.get(la::NAME.code)));
+        if (TypeRef(rhs_type).kind() != LogosType::Kind::Struct ||
+            TypeRef(rhs_type).struct_name() != sname) {
+            error(std::format("let pattern: struct '{}' does not match rhs type '{}'",
+                  sname, type_str(rhs_type)));
+            return builder().stmt_expr(std::move(rhs), node_line_);
+        }
+        auto blk = lir::alloc_block(*cur_prog_);
+        std::string tmp = std::format("__dst_{}", destruct_counter_++);
+        define(tmp, rhs_type);
+        {
+            lir::SLet sl;
+            sl.name = tmp; sl.type = rhs_type; sl.is_mut = false;
+            sl.value = std::move(rhs);
+            blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+        }
+        size_t arg_n = 0;
+        if (pat_node.has_key(la::ARGS)) {
+            auto aav = pat_node.get(la::ARGS.code);
+            if (!aav.is_null() && aav.is_pointer()) {
+                auto blist = map_of(aav);
+                if (blist.has_key(la::ITEMS)) {
+                    auto bitems = arr_of(blist.get(la::ITEMS.code));
+                    arg_n = bitems.size();
+                    for (uint64_t j = 0; j < bitems.size() && j < tsi_let->fields.size(); ++j) {
+                        auto bnode = map_of(bitems.get(j));
+                        int32_t bc = code_of(bnode);
+                        // PAT_WILD bindings only for now; underscore skips.
+                        if (bc == la::PAT_WILD && bnode.has_key(la::NAME)) {
+                            auto vname = std::string(str_of(bnode.get(la::NAME.code)));
+                            if (vname == "_") continue;
+                            auto ftype = tsi_let->fields[j].type;
+                            lir::SLet sl;
+                            sl.name   = vname;
+                            sl.type   = ftype;
+                            sl.is_mut = false;
+                            sl.value  = builder().field_read(
+                                builder().var_ref(tmp, rhs_type),
+                                std::to_string(j), ftype);
+                            define(vname, ftype);
+                            blk->stmts.push_back(
+                                make_stmt_emit(node_line_, std::move(sl)));
+                        } else {
+                            error(std::format(
+                                "tuple-struct `let` pattern: only plain identifier "
+                                "bindings are supported (got nested pattern at field {})",
+                                j));
+                        }
+                    }
+                }
+            }
+        }
+        if (arg_n != tsi_let->fields.size())
+            error(std::format(
+                "tuple-struct pattern '{}': expected {} fields, got {}",
+                sname, tsi_let->fields.size(), arg_n));
+        lir::SBlock sb;
+        sb.body = std::move(blk);
+        return make_stmt_emit(node_line_, std::move(sb));
     }
     if (TypeRef(rhs_type).kind() != LogosType::Kind::Struct &&
         TypeRef(rhs_type).kind() != LogosType::Kind::ZonedStruct) {
@@ -1325,6 +1405,48 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
     if (pc == la::PAT_VARIANT_DATA) {
         auto pename = std::string(str_of(pnode.get(la::NAME.code)));
         auto pvname = std::string(str_of(pnode.get(la::FIELD.code)));
+        // B-ts-01: bare `Foo(a, b)` (no `::` separator) — pvname is
+        // empty. If `Foo` resolves to a tuple-struct, lower as a
+        // struct destructure with synth field names "0", "1", …
+        // each paired with the user-supplied sub-pattern (binding
+        // names become PatWild sub-pats).
+        if (pvname.empty()) {
+            auto [tspkg_p, tsi_p] = find_struct_by_name(pename);
+            if (tsi_p && tsi_p->is_tuple_struct) {
+                lir::PatStruct ps;
+                ps.struct_name = pename;
+                ps.has_rest    = false;
+                size_t sub_n = 0;
+                if (pnode.has_key(la::ARGS)) {
+                    auto aav = pnode.get(la::ARGS.code);
+                    if (!aav.is_null() && aav.is_pointer()) {
+                        auto blist = map_of(aav);
+                        if (blist.has_key(la::ITEMS)) {
+                            auto bitems = arr_of(blist.get(la::ITEMS.code));
+                            sub_n = bitems.size();
+                            for (uint64_t j = 0; j < bitems.size(); ++j) {
+                                auto bnode = map_of(bitems.get(j));
+                                TypeRef ftype = j < tsi_p->fields.size()
+                                                ? tsi_p->fields[j].type : nullptr;
+                                lir::PatFieldBinding fb;
+                                fb.field_name = std::to_string(j);
+                                fb.sub.push_back(build_pattern(bnode, ftype));
+                                ps.fields.push_back(std::move(fb));
+                            }
+                        }
+                    }
+                }
+                if (sub_n != tsi_p->fields.size())
+                    error(std::format(
+                        "tuple-struct pattern '{}': expected {} fields, got {}",
+                        pename, tsi_p->fields.size(), sub_n));
+                auto mo = lir_mirror_emit_pat_struct(
+                    *cur_prog_, ps.struct_name, ps.fields, ps.has_rest);
+                lir::Pattern p_;
+                p_.mirror_offset_ = mo;
+                return p_;
+            }
+        }
         int32_t disc = 0;
         const SemaVariantInfo* vinfo = nullptr;
         auto [epkg_pvd, esi_pvd] = find_enum_by_name(pename);

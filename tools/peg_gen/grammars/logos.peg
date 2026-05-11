@@ -1413,6 +1413,12 @@
         => { CODE: PAT_VARIANT_DATA, NAME: $1, FIELD: $3, ARGS: $5 }
         / IDENT COLONCOLON IDENT
         => { CODE: PAT_VARIANT, NAME: $1, FIELD: $3 }
+        // B-ts-01: tuple-struct pattern `Foo(a, b)` (no `::` separator).
+        // Emits PAT_VARIANT_DATA with empty FIELD; sema dispatches to
+        // tuple-struct destructure when the name resolves as a
+        // tuple-struct rather than an enum.
+        / IDENT LPAREN pat_variant_args RPAREN
+        => { CODE: PAT_VARIANT_DATA, NAME: $1, ARGS: $3 }
         // struct pattern: Point { field_list } or Point {}
         / IDENT LBRACE pat_field_list RBRACE
         => { CODE: PAT_STRUCT, NAME: $1, ITEMS: $3 }

@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/basic-newtype-pattern.rs
+// Modifications: tuple-struct form `Counter(CounterData)` is now
+// directly supported (B-ts-01 closed 2026-05-11). `#[derive(Copy,
+// Clone)]` dropped — `Counter` and `CounterData` are auto-Copy
+// (no Drop + Copy fields). `(data.compute)(my_counter)` becomes
+// an explicit fn-ptr local + call (Logos's expression grammar
+// doesn't take a parenthesised fn-pointer field in call position).
+// `my_counter` is freshly constructed for the call to satisfy the
+// move-tracker after destructure.
+package s_basic_newtype_pattern;
+
+use std.fmt;
+use std.lang.text;
+
+struct Counter(CounterData);
+
+struct CounterData {
+    compute: fn(Counter) -> isize,
+    val:     isize,
+}
+
+fn compute_value(counter: Counter) -> isize {
+    let Counter(data) = counter;
+    return data.val + 20isize;
+}
+
+fn main() -> i32 {
+    let my_counter: Counter = Counter(CounterData { compute: compute_value, val: 30isize });
+    let Counter(data) = my_counter;
+    let f: fn(Counter) -> isize = data.compute;
+    let again:     Counter = Counter(CounterData { compute: compute_value, val: 30isize });
+    assert_eq!(f(again), 50isize);
+    return 0;
+}
