@@ -12,6 +12,7 @@
 package std.fmt;
 
 use std.lang.text;
+use std.lang.panic;
 use std.compiler.metaprog;
 use std.collections.vec;
 use std.io;
@@ -30,6 +31,8 @@ trait Debug {
 impl Debug for i32 { fn dbg(self: i32, buf: &mut String) { self.fmt(buf); } }
 impl Debug for i64 { fn dbg(self: i64, buf: &mut String) { self.fmt(buf); } }
 impl Debug for u64 { fn dbg(self: u64, buf: &mut String) { self.fmt(buf); } }
+impl Debug for usize { fn dbg(self: usize, buf: &mut String) { self.fmt(buf); } }
+impl Debug for isize { fn dbg(self: isize, buf: &mut String) { self.fmt(buf); } }
 impl Debug for bool { fn dbg(self: bool, buf: &mut String) { self.fmt(buf); } }
 
 // Float Debug — full-precision round-trippable text via libc snprintf
@@ -395,5 +398,83 @@ pub fn eprint(args: Vec<ExprBlob>) -> ExprBlob {
 pub fn eprintln(args: Vec<ExprBlob>) -> ExprBlob {
     return quote_expr! {
         { let __s: String = format_args_str(#(#args),*); __fmt_eprintln(__s.as_str()); }
+    };
+}
+
+// ── Assertion macros (Rust-compatible surface) ───────────────────────────
+//
+// `assert!(cond)` / `assert!(cond, fmt, args...)` and
+// `assert_eq!(a, b)` panic on assertion failure with a Debug-rendered
+// message. Both go through `__fmt_panic` so the splice site only needs
+// `use std.fmt;` — std.lang.panic doesn't have to be in the caller's
+// scope.
+
+pub fn __fmt_panic(msg: str) { panic(msg); }
+
+// All three assertion macros lower to a unit-typed if-expression with
+// non-empty `()`-tailed branches: Logos rejects empty branches in
+// block-as-expression position and the macro emits its block as the
+// invocation's value. `panic` aborts, so the `()` tail in the panic
+// branch is unreachable — type-checker only sees that both branches
+// produce ().
+
+#[fn_macro]
+pub fn assert(args: Vec<ExprBlob>) -> ExprBlob {
+    let n: i64 = args.length();
+    if n == 1i64 {
+        let cond: ExprBlob = args.get(0i64);
+        return quote_expr! {
+            if !(#cond) { __fmt_panic("assertion failed"); () } else { () }
+        };
+    }
+    let cond: ExprBlob = args.get(0i64);
+    let mut tail: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut i: i64 = 1i64;
+    while i < n {
+        tail.push(args.get(i));
+        i = i + 1i64;
+    }
+    return quote_expr! {
+        if !(#cond) {
+            let __m: String = format_args_str(#(#tail),*);
+            __fmt_panic(__m.as_str());
+            ()
+        } else { () }
+    };
+}
+
+#[fn_macro]
+pub fn assert_eq(args: Vec<ExprBlob>) -> ExprBlob {
+    let a: ExprBlob = args.get(0i64);
+    let b: ExprBlob = args.get(1i64);
+    return quote_expr! {
+        {
+            let __a = #a;
+            let __b = #b;
+            if __a != __b {
+                let __m: String = format_args_str(
+                    "assertion failed: {:?} != {:?}", __a, __b);
+                __fmt_panic(__m.as_str());
+                ()
+            } else { () }
+        }
+    };
+}
+
+#[fn_macro]
+pub fn assert_ne(args: Vec<ExprBlob>) -> ExprBlob {
+    let a: ExprBlob = args.get(0i64);
+    let b: ExprBlob = args.get(1i64);
+    return quote_expr! {
+        {
+            let __a = #a;
+            let __b = #b;
+            if __a == __b {
+                let __m: String = format_args_str(
+                    "assertion failed: {:?} == {:?}", __a, __b);
+                __fmt_panic(__m.as_str());
+                ()
+            } else { () }
+        }
     };
 }

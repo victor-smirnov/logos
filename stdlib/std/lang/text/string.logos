@@ -449,6 +449,20 @@ impl Display for u64 {
     }
 }
 
+impl Display for usize {
+    fn fmt(self: usize, buf: &mut String) {
+        buf.push_u64(self as u64);
+    }
+}
+
+impl Display for isize {
+    fn fmt(self: isize, buf: &mut String) {
+        let ptr: *mut u8 = buf.spare_ptr(22);
+        let n: i64 = write_i64(ptr, 0, self as i64);
+        buf.advance_len(n);
+    }
+}
+
 // Display for null-terminated C strings.
 impl Display for *const u8 {
     fn fmt(self: *const u8, buf: &mut String) {

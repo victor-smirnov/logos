@@ -8702,6 +8702,37 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             || cd == la::RETURN.code) {
             return recurse_key(la::VALUE.code);
         }
+        // IF (both expression and statement form): COND / THEN / ELSE
+        // are all carriers for antiquots.
+        if (cd == la::IF.code) {
+            if (!recurse_key(la::COND.code)) return false;
+            if (!recurse_key(la::THEN.code)) return false;
+            if (!recurse_key(la::ELSE.code)) return false;
+            return true;
+        }
+        // WHILE / FOR / LOOP bodies + conditions.
+        if (cd == la::WHILE.code) {
+            if (!recurse_key(la::COND.code)) return false;
+            return recurse_key(la::BODY.code);
+        }
+        if (cd == la::FOR.code) {
+            if (!recurse_key(la::ITER.code)) return false;
+            if (!recurse_key(la::LHS.code)) return false;
+            if (!recurse_key(la::RHS.code)) return false;
+            return recurse_key(la::BODY.code);
+        }
+        if (cd == la::LOOP.code) {
+            return recurse_key(la::BODY.code);
+        }
+        // ASSIGN / COMPOUND_ASSIGN — LHS + RHS.
+        if (cd == la::ASSIGN.code || cd == la::COMPOUND_ASSIGN.code) {
+            if (!recurse_key(la::LHS.code)) return false;
+            return recurse_key(la::RHS.code);
+        }
+        // DEREF — single value child.
+        if (cd == la::DEREF.code) {
+            return recurse_key(la::VALUE.code);
+        }
         return true;
     };
 
