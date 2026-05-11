@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/evec-slice.rs
+// Modifications: only the first part (slice creation + indexing) is
+// imported — slice ordering operators (`<` / `<=` / `>` / `>=`) and
+// `println!("{:?}", …)` over slices are not in Logos's surface (a
+// separate gap; would need a slice-Ord-like trait). The slice
+// creation itself (`&[1,2,3,…]` from a bare array literal) was the
+// initial trip-up — closed 2026-05-11 (`&<arr_lit>` now lowers to a
+// slice value via SliceLit). Original `usize` index → `i64`.
+package evec_slice;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let x: &[isize]     = &[1isize, 2isize, 3isize, 4isize, 5isize];
+    let mut z: &[isize] = &[1isize, 2isize, 3isize, 4isize, 5isize];
+    z = x;
+    assert_eq!(z[0i64], 1isize);
+    assert_eq!(z[4i64], 5isize);
+    return 0;
+}

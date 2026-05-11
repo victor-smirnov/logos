@@ -983,6 +983,22 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
         // &<expr> — temporary materialization: spill rvalue to stack
         auto inner = lower_expr(child);
         if (TypeRef(inner->type).kind() == LogosType::Kind::Error) return error_expr();
+        // B-as-01 / evec-slice: `&[1,2,3,…]` over a bare array literal
+        // produces a slice value, matching the `&array_var` branch above.
+        // Without this, the user writes `let x: &[T] = &[…]` and gets
+        // back a `&[T; N]` (Ref<Array>) instead — type-mismatch.
+        if (TypeRef(inner->type).kind() == LogosType::Kind::Array &&
+            TypeRef(inner->type).elem()) {
+            auto et      = TypeRef(inner->type).elem();
+            auto arr_size = (int64_t)TypeRef(inner->type).arr_size();
+            // Spill the array rvalue to a stack slot first; the addr-of
+            // result becomes the slice ptr field.
+            auto spilled = builder().addr_of_temp(std::move(inner), false,
+                                                   make_ref(false, et));
+            auto len     = builder().lit_int(arr_size, prim(LogosType::Kind::I64));
+            return builder().slice_lit(std::move(spilled), std::move(len),
+                                        make_slice_type(et));
+        }
         auto __ty_inner = make_ref(false, inner->type);
 
         return builder().addr_of_temp(std::move(inner), false, __ty_inner);
