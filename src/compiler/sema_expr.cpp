@@ -6776,7 +6776,11 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                    !node.get(la::IS_MOVE.code).is_null() &&
                    node.get(la::IS_MOVE.code).as_value<int32_t>() != 0;
 
-    // Parse parameters
+    // Parse parameters. C5-cl-03: `|ref x: T|` binds x: &T. The param
+    // itself takes T by value under a synth name; a body prologue let
+    // exposes `x: &T = &__refbind_*` to the user code.
+    struct RefBind { std::string user; std::string synth; TypeRef ty; };
+    std::vector<RefBind> ref_binds;
     std::vector<lir::LParam> params;
     std::vector<TypeRef> param_types;
     if (node.has_key(la::PARAMS)) {
@@ -6790,7 +6794,22 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                     auto pname = std::string(str_of(p.get(la::NAME.code)));
                     TypeRef ptype = p.has_key(la::TYPE)
                         ? resolve_type(map_of(p.get(la::TYPE.code))) : error_t();
-                    params.push_back({pname, ptype});
+                    // C5-cl-03: `|ref x: T|` — grammar emits PARAM with
+                    // IS_REF=true AND a TYPE. `&self` / `&mut self` emit
+                    // IS_REF=true WITHOUT a TYPE (the inner type is
+                    // synthesised from Self), so presence of TYPE alongside
+                    // IS_REF discriminates ref-bind from the self-shorthand.
+                    bool is_ref_bind = p.has_key(la::IS_REF) &&
+                                       p.get(la::IS_REF.code).as_value<uint8_t>() != 0 &&
+                                       p.has_key(la::TYPE);
+                    if (is_ref_bind) {
+                        std::string synth = std::format("__refbind_{}__{}",
+                                                       closure_id, pname);
+                        ref_binds.push_back({pname, synth, ptype});
+                        params.push_back({synth, ptype});
+                    } else {
+                        params.push_back({pname, ptype});
+                    }
                     param_types.push_back(ptype);
                 }
             }
@@ -6804,6 +6823,9 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     push_scope();
     for (auto& p : params)
         define(p.name, p.type);
+    // C5-cl-03: register user-visible `ref`-bound names as &T aliases.
+    for (auto& rb : ref_binds)
+        define(rb.user, make_ref(false, rb.ty));
 
     // Collect current scope variables (for capture detection)
     StrSet param_names;
@@ -6819,6 +6841,22 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         auto body_node = map_of(node.get(la::BODY.code));
         if (code_of(body_node) == la::BLOCK)
             body = lower_block(body_node);
+    }
+    // C5-cl-03: prepend `let user = &synth;` for each ref-bound param.
+    if (!ref_binds.empty()) {
+        std::vector<lir::LStmt> prologue;
+        for (auto& rb : ref_binds) {
+            lir::SLet sl;
+            sl.name   = rb.user;
+            sl.type   = make_ref(false, rb.ty);
+            sl.is_mut = false;
+            sl.value  = builder().addr_of(rb.synth, sl.type);
+            prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
+        }
+        prologue.insert(prologue.end(),
+                        std::make_move_iterator(body.stmts.begin()),
+                        std::make_move_iterator(body.stmts.end()));
+        body.stmts = std::move(prologue);
     }
     ret_type_ = saved_ret;
     inside_unsafe_ = saved_unsafe;

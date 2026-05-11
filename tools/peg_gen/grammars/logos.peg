@@ -970,6 +970,8 @@
           => { CODE: PARAM, NAME: $3, IS_REF: true, IS_MUT: true }
            / AMP IDENT
           => { CODE: PARAM, NAME: $2, IS_REF: true }
+           / KW_REF IDENT COLON type_ref
+          => { CODE: PARAM, NAME: $2, TYPE: $4, IS_REF: true }
            / IDENT COLON type_ref DOTDOTDOT
           => { CODE: PARAM, NAME: $1, TYPE: $3, IS_VARIADIC: true }
            / IDENT COLON type_ref
