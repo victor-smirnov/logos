@@ -1,14 +1,13 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/structs/newtype-struct-with-dtor.rs
-// Modifications: faithful tuple-struct form (B-ts-01 closed
-// 2026-05-11). `pub` on the struct dropped — Logos's grammar
-// currently parses tuple-struct only at non-pub position (a
-// peg_gen action-map crash blocks adding the alt to pub_struct_def;
-// non-pub form covers the test). `unsafe { … }` block in `drop`
-// dropped (Logos's `drop` body is safe by default).
+// Modifications: faithful — `pub struct Fd(u32);` tuple-struct form
+// now supported end-to-end (B-ts-01 closed 2026-05-11, pub-form
+// follow-up: peg_gen multi-chunk arena → single-chunk fix). `unsafe
+// { … }` block in `drop` dropped (Logos's `drop` body is safe by
+// default).
 package s_newtype_struct_with_dtor;
 
-struct Fd(u32);
+pub struct Fd(u32);
 
 fn foo(a: u32) { let _ = a; }
 

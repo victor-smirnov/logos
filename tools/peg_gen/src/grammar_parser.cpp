@@ -243,7 +243,16 @@ class PegParser {
 public:
     PegParser(std::string_view src, std::string_view name)
         : lex_(src, name)
-        , doc_(logos::hermes::make_doc_multi(524288).get()) {}
+        // GrowableSingleChunk: a single contiguous buffer that doubles on
+        // overflow. Required because peg_gen's parsed-grammar IR contains
+        // RelativePtr fields (TinyObjectMap::data_) which can't span chunks
+        // — MultiChunk mode produced wild pointers once the IR grew past
+        // the initial chunk (sign-truncated cross-chunk delta yielded
+        // bogus `vals` addresses; tripped silently as a SIGSEGV in
+        // TinyObjectMap::put for grammars that pushed it over the
+        // initial-chunk boundary, e.g. anything large enough to need
+        // pub_struct_def to grow).
+        , doc_(logos::hermes::make_doc(524288).get()) {}
 
     Hermes parse() {
         // Root is a string-keyed ObjectMap with named sections.

@@ -859,6 +859,8 @@
                    => { CODE: STRUCT, IS_PUB: 1, NAME_VAR: $4, TYPE_PARAMS: $5, FIELDS: $7, ITEMS: $8 }
                     / KW_PUB KW_STRUCT IDENT type_param_list? LBRACE field_def* method_def* RBRACE
                    => { CODE: STRUCT, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, FIELDS: $6, ITEMS: $7 }
+                    / KW_PUB KW_STRUCT IDENT LPAREN tuple_field (COMMA tuple_field)* RPAREN SEMI
+                   => { CODE: STRUCT, IS_PUB: 1, NAME: $3, FIELDS: $... }
 
     struct_def <- KW_STRUCT HASH LPAREN expr RPAREN type_param_list? LBRACE field_def* method_def* RBRACE
                => { CODE: STRUCT, NAME_VAR: $4, TYPE_PARAMS: $6, FIELDS: $8, ITEMS: $9 }
