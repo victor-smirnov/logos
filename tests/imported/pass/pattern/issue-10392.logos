@@ -1,12 +1,12 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/pattern/issue-10392.rs
-// Modifications: trimmed to the destructure-from-fn-return shape; the
-// original's `match Some(mka()) { Some(A { foo: _foo, }) => …}` uses a
-// nested struct pattern inside an enum-variant payload which Logos
-// rejects today (tracked gap P3-pp-01). What's kept exercises the
-// trailing-comma-in-struct-pattern surface, which is the core point of
-// the test (issue 10392). The original `test()` body further trips
-// mlir-gen on a separate codegen issue (P3-pp-02) and is omitted.
+// Modifications: `panic!()` body replaced with a concrete return
+// (Logos has `panic("")` but we'd rather exercise the destructure
+// path itself). The last upstream case — `match Some(mka()) {
+// Some(A { foo: _foo, }) => {} }` — uses a nested struct pattern
+// inside an enum-variant payload (P4-pm-02 still deferred), so it
+// stays out. Everything else, including destructure-from-fn-return
+// (P4-pm-08 closed 2026-05-11) and the trailing-comma form, is in.
 package issue_10392;
 
 use std.lang.option;
@@ -14,15 +14,25 @@ use std.lang.option;
 struct A { foo: isize }
 struct B { a: isize, b: isize, c: isize }
 
-fn main() -> i32 {
-    let a: A = A { foo: 1isize };
-    let A { foo, } = a;
-    let _ = foo;
+fn mka() -> A { return A { foo: 1isize }; }
+fn mkb() -> B { return B { a: 1isize, b: 2isize, c: 3isize }; }
 
-    let b: B = B { a: 1isize, b: 2isize, c: 3isize };
-    let B { a, b, c, } = b;
+fn test() {
+    let A { foo, }     = mka();
+    let _ = foo;
+    let A { foo, }     = mka();
+    let _ = foo;
+    let B { a, b, c, } = mkb();
     let _ = a;
     let _ = b;
     let _ = c;
+
+    match mka() {
+        A { foo: _foo, } => { }
+    }
+}
+
+fn main() -> i32 {
+    if false { test(); }
     return 0;
 }

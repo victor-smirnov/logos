@@ -1973,6 +1973,14 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             const StructInfo& sinfo = sit->second;
             mlir::Value sptr = scrut_ptr ? scrut_ptr : gen_expr(*scrut_le);
             if (!sptr) return;
+            // P4-pm-08: scrut may arrive as a by-value struct (e.g. when
+            // it came directly from a fn return); GEP needs a pointer, so
+            // spill to an alloca first.
+            if (sptr.getType() != ptr_type()) {
+                auto a = create_entry_alloca(sptr.getType());
+                builder_.create<mlir::LLVM::StoreOp>(loc_, sptr, a);
+                sptr = a;
+            }
             ps.each_field([&](lir_view::PatFieldBindingView pfb) {
                 std::string field_name(pfb.field_name());
                 auto bind_struct_field = [&](const std::string& bind_name) {
