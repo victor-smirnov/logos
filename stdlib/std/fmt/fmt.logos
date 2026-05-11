@@ -33,6 +33,30 @@ impl Debug for i64 { fn dbg(self: i64, buf: &mut String) { self.fmt(buf); } }
 impl Debug for u64 { fn dbg(self: u64, buf: &mut String) { self.fmt(buf); } }
 impl Debug for bool { fn dbg(self: bool, buf: &mut String) { self.fmt(buf); } }
 
+// Float Debug — full-precision round-trippable text via libc snprintf
+// "%.17g" (f64) / "%.9g" (f32). Differs from Display ("%g") which
+// drops trailing precision for compactness.
+extern fn logos_fmt_f64_dbg(buf: *mut u8, cap: i32, x: f64) -> i32;
+extern fn logos_fmt_f32_dbg(buf: *mut u8, cap: i32, x: f32) -> i32;
+
+impl Debug for f64 {
+    fn dbg(self: f64, buf: &mut String) {
+        let cap: i32 = 32i32;
+        let ptr: *mut u8 = buf.spare_ptr(cap as i64);
+        let n: i32 = unsafe { logos_fmt_f64_dbg(ptr, cap, self) };
+        buf.advance_len(n as i64);
+    }
+}
+
+impl Debug for f32 {
+    fn dbg(self: f32, buf: &mut String) {
+        let cap: i32 = 32i32;
+        let ptr: *mut u8 = buf.spare_ptr(cap as i64);
+        let n: i32 = unsafe { logos_fmt_f32_dbg(ptr, cap, self) };
+        buf.advance_len(n as i64);
+    }
+}
+
 // Debug for str wraps the content in double quotes (Rust-style). Direct
 // dot-call `"x".dbg(buf)` still trips sema_expr.cpp's slice/str method
 // short-circuit — but trait-bound dispatch from a generic context (the
@@ -179,6 +203,49 @@ impl Binary for u32 { fn fmt_binary(self: u32, buf: &mut String) { write_radix_u
 impl Binary for i64 { fn fmt_binary(self: i64, buf: &mut String) { write_radix_u64(buf, self as u64, 2u64, false); } }
 impl Binary for i32 { fn fmt_binary(self: i32, buf: &mut String) { write_radix_u64(buf, self as u32 as u64, 2u64, false); } }
 
+// LowerExp / UpperExp — scientific notation (`{:e}` / `{:E}`). Floats
+// only; libc snprintf "%e" / "%E" do the conversion.
+trait LowerExp { fn fmt_lower_exp(self: Self, buf: &mut String); }
+trait UpperExp { fn fmt_upper_exp(self: Self, buf: &mut String); }
+
+extern fn logos_fmt_f64_e(buf: *mut u8, cap: i32, x: f64) -> i32;
+extern fn logos_fmt_f64_E(buf: *mut u8, cap: i32, x: f64) -> i32;
+extern fn logos_fmt_f32_e(buf: *mut u8, cap: i32, x: f32) -> i32;
+extern fn logos_fmt_f32_E(buf: *mut u8, cap: i32, x: f32) -> i32;
+
+impl LowerExp for f64 {
+    fn fmt_lower_exp(self: f64, buf: &mut String) {
+        let cap: i32 = 32i32;
+        let ptr: *mut u8 = buf.spare_ptr(cap as i64);
+        let n: i32 = unsafe { logos_fmt_f64_e(ptr, cap, self) };
+        buf.advance_len(n as i64);
+    }
+}
+impl LowerExp for f32 {
+    fn fmt_lower_exp(self: f32, buf: &mut String) {
+        let cap: i32 = 32i32;
+        let ptr: *mut u8 = buf.spare_ptr(cap as i64);
+        let n: i32 = unsafe { logos_fmt_f32_e(ptr, cap, self) };
+        buf.advance_len(n as i64);
+    }
+}
+impl UpperExp for f64 {
+    fn fmt_upper_exp(self: f64, buf: &mut String) {
+        let cap: i32 = 32i32;
+        let ptr: *mut u8 = buf.spare_ptr(cap as i64);
+        let n: i32 = unsafe { logos_fmt_f64_E(ptr, cap, self) };
+        buf.advance_len(n as i64);
+    }
+}
+impl UpperExp for f32 {
+    fn fmt_upper_exp(self: f32, buf: &mut String) {
+        let cap: i32 = 32i32;
+        let ptr: *mut u8 = buf.spare_ptr(cap as i64);
+        let n: i32 = unsafe { logos_fmt_f32_E(ptr, cap, self) };
+        buf.advance_len(n as i64);
+    }
+}
+
 // ── Per-trait dispatch helpers (slice 4.4b) ──────────────────────────────
 //
 // Sema's lower_method_call short-circuits dot-method dispatch on slice
@@ -197,6 +264,8 @@ pub fn fmt_lower_hex<T: LowerHex>(arg: T, buf: &mut String)  { arg.fmt_lower_hex
 pub fn fmt_upper_hex<T: UpperHex>(arg: T, buf: &mut String)  { arg.fmt_upper_hex(buf); }
 pub fn fmt_octal<T: Octal>(arg: T, buf: &mut String)         { arg.fmt_octal(buf); }
 pub fn fmt_binary<T: Binary>(arg: T, buf: &mut String)       { arg.fmt_binary(buf); }
+pub fn fmt_lower_exp<T: LowerExp>(arg: T, buf: &mut String)  { arg.fmt_lower_exp(buf); }
+pub fn fmt_upper_exp<T: UpperExp>(arg: T, buf: &mut String)  { arg.fmt_upper_exp(buf); }
 
 // Slice 4.4d / 4.4e — full format-spec post-processor. Macro lowering
 // routes every spec'd placeholder through a scratch String, then this

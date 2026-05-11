@@ -1,0 +1,18 @@
+// Float Display / Debug / LowerExp / UpperExp via libc snprintf
+// wrapper in stdlib/rt/fmt_native.c. Default Display uses "%g"
+// (shortest round-trippable), Debug uses "%.17g" for f64 (full
+// precision). `{:e}` / `{:E}` get scientific notation.
+package format_macro_float;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let a: String = format!("{}", 3.14f64);             // "3.14"
+    let b: String = format!("{}", 1.5f32);              // "1.5"
+    let c: String = format!("{:e}", 123456.789f64);     // "1.234568e+05"
+    let d: String = format!("{:E}", 0.001f64);          // "1.000000E-03"
+    println!("[{}][{}][{}][{}]", a.as_str(), b.as_str(),
+             c.as_str(), d.as_str());
+    return (a.len() + b.len() + c.len() + d.len()) as i32;
+}

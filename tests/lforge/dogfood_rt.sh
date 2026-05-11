@@ -19,7 +19,7 @@ trap 'rm -rf "$PROJ"' EXIT
 
 mkdir -p "$PROJ/rt"
 # Symlink each native source so we don't fight cmake for the build dir.
-for f in atomic_ops.S env.c fiber_ctx.S fs_meta.c metaprog_stubs.c thread_uring.c; do
+for f in atomic_ops.S env.c fiber_ctx.S fmt_native.c fs_meta.c metaprog_stubs.c thread_uring.c; do
     ln -s "$RT_SRC/$f" "$PROJ/rt/$f"
 done
 
@@ -31,7 +31,7 @@ cat > "$PROJ/lforge.hermes" <<'EOF'
         { kind: "lib", name: "lstdlib_fibers",
           asm_sources: ["rt/fiber_ctx.S"] },
         { kind: "lib", name: "lstdlib_rt",
-          c_sources:   ["rt/env.c", "rt/fs_meta.c", "rt/metaprog_stubs.c", "rt/thread_uring.c"],
+          c_sources:   ["rt/env.c", "rt/fmt_native.c", "rt/fs_meta.c", "rt/metaprog_stubs.c", "rt/thread_uring.c"],
           asm_sources: ["rt/atomic_ops.S"] }
     ]
 }

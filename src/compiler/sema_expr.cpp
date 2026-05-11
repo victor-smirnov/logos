@@ -9815,28 +9815,11 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
                 //
                 // Spec gating: only `{}`/`{:?}` are runtime-supported
                 // today; the rest reject. Slice 4.4c+ adds them.
+                // Slice 4.4f: all eight format-trait kinds are wired.
+                // `spec_blocked` retained as a no-op for symmetry with
+                // the older gate logic in case future slices reintroduce
+                // a deferred kind.
                 bool spec_blocked = false;
-                for (auto& s : fmt_result.segments) {
-                    if (s.is_literal) continue;
-                    // Slice 4.4e: full format-spec surface — width /
-                    // align / fill (4.4d) + precision / sign / `#` / `0`
-                    // (4.4e). The only remaining gate is `LowerExp` /
-                    // `UpperExp` (no float Display impls yet).
-                    bool trait_ok = s.spec.trait_kind == FormatTrait::Display
-                                 || s.spec.trait_kind == FormatTrait::Debug
-                                 || s.spec.trait_kind == FormatTrait::LowerHex
-                                 || s.spec.trait_kind == FormatTrait::UpperHex
-                                 || s.spec.trait_kind == FormatTrait::Octal
-                                 || s.spec.trait_kind == FormatTrait::Binary;
-                    if (!trait_ok) {
-                        error(std::format(
-                            "{}!: format spec `{{:e}}` / `{{:E}}` not yet "
-                            "implemented (float Display impls pending)",
-                            callee_name));
-                        spec_blocked = true;
-                        break;
-                    }
-                }
                 int32_t placeholders = static_cast<int32_t>(fmt_result.segments.size());
                 int32_t lits = 0;
                 for (auto& s : fmt_result.segments) if (s.is_literal) ++lits;

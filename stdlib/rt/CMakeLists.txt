@@ -30,7 +30,7 @@ set_target_properties(logos_fibers PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY ${STDLIB_BIN_DIR}
     OUTPUT_NAME lstdlib_fibers)
 
-add_library(logos_rt STATIC atomic_ops.S thread_uring.c env.c metaprog_stubs.c fs_meta.c)
+add_library(logos_rt STATIC atomic_ops.S thread_uring.c env.c metaprog_stubs.c fs_meta.c fmt_native.c)
 target_include_directories(logos_rt PRIVATE /usr/include)
 set_target_properties(logos_rt PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY ${STDLIB_BIN_DIR}

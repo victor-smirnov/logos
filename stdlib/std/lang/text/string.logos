@@ -465,6 +465,34 @@ impl Display for str {
     }
 }
 
+// ── Float Display ─────────────────────────────────────────────────────────
+//
+// Float-to-decimal correctness is a pile of code (Ryu / Grisu); we
+// forward to libc's snprintf via fmt_native.c — same dependency
+// surface as malloc/free/memcpy that the rest of stdlib already
+// extern's. snprintf's "%g" gives the shortest round-trippable
+// representation, which matches Rust's f64 / f32 default Display.
+extern fn logos_fmt_f64_g(buf: *mut u8, cap: i32, x: f64) -> i32;
+extern fn logos_fmt_f32_g(buf: *mut u8, cap: i32, x: f32) -> i32;
+
+impl Display for f64 {
+    fn fmt(self: f64, buf: &mut String) {
+        let cap: i32 = 32i32;
+        let ptr: *mut u8 = buf.spare_ptr(cap as i64);
+        let n: i32 = unsafe { logos_fmt_f64_g(ptr, cap, self) };
+        buf.advance_len(n as i64);
+    }
+}
+
+impl Display for f32 {
+    fn fmt(self: f32, buf: &mut String) {
+        let cap: i32 = 32i32;
+        let ptr: *mut u8 = buf.spare_ptr(cap as i64);
+        let n: i32 = unsafe { logos_fmt_f32_g(ptr, cap, self) };
+        buf.advance_len(n as i64);
+    }
+}
+
 // ── Predicates and trimming on `str` ───────────────────────────────────────
 // Free functions are prefixed `str_` because `str` is a primitive and cannot
 // host inherent methods. When `impl str { ... }` lands these will move into it.
