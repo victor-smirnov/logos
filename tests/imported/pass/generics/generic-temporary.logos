@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-temporary.rs
+// Modifications: `println!` removed; assertion preserved. fn-pointer
+// types in Logos require an explicit return type — `fn(T)` (no arrow)
+// is rejected by the type-grammar, hence `fn(T) -> ()`.
+package generic_temporary;
+
+use std.fmt;
+use std.lang.text;
+
+fn mk() -> isize { return 1isize; }
+
+fn chk(a: isize) { assert_eq!(a, 1isize); }
+
+fn apply<T>(produce: fn() -> T, consume: fn(T) -> ()) {
+    consume(produce());
+}
+
+fn main() -> i32 {
+    let produce: fn() -> isize = mk;
+    let consume: fn(isize) -> () = chk;
+    apply::<isize>(produce, consume);
+    return 0;
+}

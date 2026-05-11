@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/issue-333.rs
+// Modifications: explicit type annotation on `f` — Logos's
+// GENERIC_REF (`id::<T>` as a fn-pointer) needs the type to be visible
+// at the binding site.
+package issue_333;
+
+use std.fmt;
+use std.lang.text;
+
+fn id<T>(x: T) -> T { return x; }
+
+fn quux<T>(x: T) -> T {
+    let f: fn(T) -> T = id::<T>;
+    return f(x);
+}
+
+fn main() -> i32 {
+    assert_eq!(quux::<isize>(10isize), 10isize);
+    return 0;
+}

@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-tag-values.rs
+// Modifications: turbofish on variant constructor dropped (tracked
+// gap, see generic-tag-local); `Pair` unchanged.
+package generic_tag_values;
+
+use std.fmt;
+use std.lang.text;
+
+enum noption<T> { some(T) }
+
+struct Pair { x: isize, y: isize }
+
+fn main() -> i32 {
+    let nop: noption<isize> = noption::some(5isize);
+    match nop {
+        noption::some(n) => { assert_eq!(n, 5isize); }
+    }
+    let nop2: noption<Pair> = noption::some(Pair { x: 17isize, y: 42isize });
+    match nop2 {
+        noption::some(t) => {
+            assert_eq!(t.x, 17isize);
+            assert_eq!(t.y, 42isize);
+        }
+    }
+    return 0;
+}

@@ -20,6 +20,7 @@ per-file rows below.
 |---|---|---|---|---|
 | B1 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | parser top-level (11 tests) |
 | B2 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | borrowck — move/copy/reference (11 tests) |
+| B3 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | generics — generic fn / struct / enum / type-alias / fn-ptr (12 tests) |
 
 To kick off a batch:
 
@@ -66,6 +67,18 @@ Columns:
 | `pass/borrowck/lazy-init.logos` | `tests/ui/borrowck/lazy-init.rs` | B2 | declare-without-init `let mut x: isize;` not accepted — pre-init to 0 (grammar gap tracked) |
 | `pass/borrowck/pointer-reassignment-after-deref-78192.logos` | `tests/ui/borrowck/pointer-reassignment-after-deref-78192.rs` | B2 | explicit `as *const u32` cast on `c = d` (no implicit `&T → *const T` coercion) |
 | `pass/borrowck/two-phase-baseline.logos` | `tests/ui/borrowck/two-phase-baseline.rs` | B2 | `Vec` via `vec_new::<i64>` + `push`; `assert_eq!` per-element since Logos `Vec` doesn't implement equality vs array literal |
+| `pass/generics/generic-fn.logos` | `tests/ui/generics/generic-fn.rs` | B3 | `char` literals + `Triple` Copy semantics dropped (Logos: no auto-Copy for scalar structs); pre-read `p.z` before move |
+| `pass/generics/generic-fn-infer.logos` | `tests/ui/generics/generic-fn-infer.rs` | B3 | unchanged |
+| `pass/generics/generic-ivec-leak.logos` | `tests/ui/generics/generic-ivec-leak.rs` | B3 | `vec![…]` → `vec_from_arr([…])` (no `vec!` macro yet) |
+| `pass/generics/generic-tag-local.logos` | `tests/ui/generics/generic-tag-local.rs` | B3 | turbofish on variant ctor dropped (gap G3-tg-01) |
+| `pass/generics/generic-tag-match.logos` | `tests/ui/generics/generic-tag-match.rs` | B3 | turbofish on variant ctor in match-pat dropped (same gap) |
+| `pass/generics/generic-tag-values.logos` | `tests/ui/generics/generic-tag-values.rs` | B3 | same — turbofish dropped on variants |
+| `pass/generics/generic-temporary.logos` | `tests/ui/generics/generic-temporary.rs` | B3 | fn-pointer type requires explicit `-> ()` (no bare `fn(T)` form) |
+| `pass/generics/generic-type.logos` | `tests/ui/generics/generic-type.rs` | B3 | unchanged |
+| `pass/generics/generic-type-synonym.logos` | `tests/ui/generics/generic-type-synonym.rs` | B3 | call site exercises the alias |
+| `pass/generics/issue-1112.logos` | `tests/ui/generics/issue-1112.rs` | B3 | explicit literal suffixes |
+| `pass/generics/issue-2936.logos` | `tests/ui/generics/issue-2936.rs` | B3 | rename `fn cbar(...)` → `cbar_new` to avoid name-shadow of struct |
+| `pass/generics/issue-333.logos` | `tests/ui/generics/issue-333.rs` | B3 | explicit `fn(T) -> T` type on the binding for `id::<T>` as fn-ptr |
 
 ## When upstream changes
 

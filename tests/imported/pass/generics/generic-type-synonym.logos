@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-type-synonym.rs
+// Modifications: none semantic — just makes use of the alias.
+package generic_type_synonym;
+
+struct Foo<T> { a: T }
+
+type Bar<T> = Foo<T>;
+
+fn takebar<T>(_b: Bar<T>) {}
+
+fn main() -> i32 {
+    let f: Bar<isize> = Foo { a: 42isize };
+    takebar::<isize>(f);
+    return 0;
+}

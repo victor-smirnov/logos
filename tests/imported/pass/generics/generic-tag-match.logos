@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-tag-match.rs
+// Modifications: enum variants qualified `foo::arm`. Logos rejects
+// turbofish on the variant constructor in the match pattern
+// (`foo::arm::<T>(_x)`) — drop it, the pattern-arg infers from the
+// scrutinee. Same gap is logged in the per-test header for
+// generic-tag-local.
+package generic_tag_match;
+
+use std.fmt;
+use std.lang.text;
+
+enum foo<T> { arm(T) }
+
+fn altfoo<T>(f: foo<T>) {
+    let mut hit: bool = false;
+    match f {
+        foo::arm(_x) => { hit = true; }
+    }
+    assert!(hit);
+}
+
+fn main() -> i32 {
+    altfoo::<isize>(foo::arm(10isize));
+    return 0;
+}

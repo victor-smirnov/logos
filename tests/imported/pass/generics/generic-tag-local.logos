@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-tag-local.rs
+// Modifications: enum variants qualified `clam::a`; Logos rejects a
+// turbofish on the variant constructor itself (`clam::a::<isize>(...)`)
+// — type-argument inference fills it in from the binding's type. The
+// turbofish-on-variant case is a tracked grammar gap.
+package generic_tag_local;
+
+enum clam<T> { a(T) }
+
+fn main() -> i32 {
+    let _c: clam<isize> = clam::a(3isize);
+    return 0;
+}

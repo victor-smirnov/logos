@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-ivec-leak.rs
+// Modifications: `vec![1,2,3,4,5]` → `vec_from_arr([1, 2, 3, 4, 5])`
+// (Logos has no `vec!` macro yet — planned, tracked under macro work).
+package generic_ivec_leak;
+
+use std.collections.vec;
+
+enum wrapper<T> { wrapped(T) }
+
+fn main() -> i32 {
+    let _w: wrapper<Vec<i64>> = wrapper::wrapped(vec_from_arr([1i64, 2i64, 3i64, 4i64, 5i64]));
+    return 0;
+}

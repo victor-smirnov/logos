@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/issue-2936.rs
+// Modifications: explicit `self: &Self` shape on trait methods; the
+// helper `fn cbar(x: isize) -> cbar { … }` is renamed to `cbar_new` to
+// avoid shadowing the struct's type name (Rust permits the shadow,
+// Logos doesn't).
+package issue_2936;
+
+use std.fmt;
+use std.lang.text;
+
+trait bar<T> {
+    fn get_bar(self: &Self) -> T;
+}
+
+struct cbar { x: isize }
+
+impl bar<isize> for cbar {
+    fn get_bar(self: &cbar) -> isize { return self.x; }
+}
+
+fn cbar_new(x: isize) -> cbar { return cbar { x: x }; }
+
+fn foo<T, U: bar<T>>(b: U) -> T {
+    return b.get_bar();
+}
+
+fn main() -> i32 {
+    let x: isize = foo::<isize, cbar>(cbar_new(5isize));
+    assert_eq!(x, 5isize);
+    return 0;
+}
