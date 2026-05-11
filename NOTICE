@@ -5,5 +5,16 @@ This product is dual-licensed under the Apache License, Version 2.0
 and the MIT License. See LICENSE-APACHE, LICENSE-MIT, and COPYRIGHT
 for the full terms.
 
+This product includes test files and stdlib source adapted from the
+Rust project (rust-lang/rust, https://github.com/rust-lang/rust),
+dual-licensed under Apache 2.0 and MIT.
+
+  Copyright (c) The Rust Project Developers
+
+Per-file provenance trails are recorded in
+tests/imported/RUSTC-PROVENANCE.md (test imports) and
+stdlib/imported/RUSTC-PROVENANCE.md (stdlib imports). Attribution
+and licence pointers are in tests/imported/RUST-COPYRIGHT.md.
+
 The "Logos Lang" name and project marks are governed by a separate
 trademark policy — see TRADEMARKS.md.

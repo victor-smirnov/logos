@@ -66,9 +66,23 @@ git config --global user.email "your.email@example.com"
   codebase is intentionally not uniform across languages
   (C++ for compiler, Logos for stdlib, etc.); follow the
   conventions of the file you're in.
-* No file headers / license boilerplate beyond the existing
-  `// SPDX-License-Identifier:` lines (which are being migrated
-  to `MIT OR Apache-2.0` over time).
+* No file headers / license boilerplate. Per-file SPDX identifiers
+  and copyright lines were dropped project-wide; copyright is
+  automatic (Berne Convention), licence terms are covered by the
+  root [LICENSE-APACHE](LICENSE-APACHE) / [LICENSE-MIT](LICENSE-MIT) /
+  [COPYRIGHT](COPYRIGHT) files, and authorship lives in the git
+  history plus [AUTHORS.md](AUTHORS.md). Don't add file headers in
+  new contributions.
+
+  **Exception — imported tests and stdlib:** files under
+  [tests/imported/](tests/imported/) and
+  [stdlib/imported/](stdlib/imported/) DO start with a provenance
+  comment block citing the upstream source, commit, and a one-line
+  summary of modifications. This is required by Apache 2.0 § 4(b)
+  for derivative works and is the only allowed per-file attribution.
+  See [tests/imported/README.md](tests/imported/README.md) and
+  [stdlib/imported/README.md](stdlib/imported/README.md) for the
+  exact format and per-tree workflow.
 
 ## Trademarks
 
