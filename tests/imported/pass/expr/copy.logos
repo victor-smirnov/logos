@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/copy.rs
+// Modifications: `#[derive(Copy, Clone)]` dropped — Logos's auto-Copy
+// rule promotes structs with only scalar fields + no `Drop` impl
+// automatically, so `A { a: isize }` is Copy without an explicit
+// derive. Otherwise faithful.
+package expr_copy;
+
+use std.fmt;
+use std.lang.text;
+
+struct A { a: isize }
+
+fn f(arg: &mut A) {
+    arg.a = 100isize;
+}
+
+fn main() -> i32 {
+    let mut x: A = A { a: 10isize };
+    f(&mut x);
+    assert_eq!(x.a, 100isize);
+    x.a = 20isize;
+    let mut y: A = x;
+    f(&mut y);
+    assert_eq!(x.a, 20isize);
+    return 0;
+}

@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/early-return-in-binop.rs
+// Modifications: stdlib `Add` trait + the generic-T bound are not
+// modelled in Logos; the test is reduced to a monomorphic
+// `i32 + return-divergent block` shape. The core observation —
+// `n + { return n }` runs the early-return *first*, so the outer
+// `+` never executes — is preserved. (`return n` is divergent and
+// hands its value back as the fn result.)
+package expr_early_return_in_binop;
+
+fn add_with_early_return(n: i32) -> i32 {
+    return n + { return n; 0i32 };
+}
+
+fn main() -> i32 {
+    if add_with_early_return(42i32) != 42i32 { return 1; }
+    return 0;
+}

@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/block-generic.rs
+// Modifications: `FnOnce` closure-trait bound on `eq` becomes a bare
+// `fn(T, T) -> bool` parameter (Logos's Fn-family closure-as-
+// trait-object is Sprint 5.8). `Clone` derive dropped — `Pair` is
+// auto-Copy. `expected.clone()` becomes plain `expected` (auto-Copy
+// semantics). Otherwise faithful: a standalone-block-as-expression
+// inside a generic fn.
+package expr_block_generic;
+
+use std.fmt;
+use std.lang.text;
+
+fn test_generic<T>(expected: T, eq: fn(T, T) -> bool) {
+    let actual: T = { expected };
+    assert!(eq(expected, actual));
+}
+
+fn compare_bool(b1: bool, b2: bool) -> bool { return b1 == b2; }
+
+struct Pair { a: isize, b: isize }
+
+fn compare_pair(t1: Pair, t2: Pair) -> bool {
+    return t1.a == t2.a && t1.b == t2.b;
+}
+
+fn main() -> i32 {
+    test_generic::<bool>(true, compare_bool);
+    test_generic::<Pair>(Pair { a: 1isize, b: 2isize }, compare_pair);
+    return 0;
+}
