@@ -1,0 +1,46 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/fn/expr-fn.rs
+// Modifications: nested-fn-inside-fn-body isn't allowed in Logos, so
+// each `test_X` helper's inner fn is hoisted to module scope. `vec!`
+// macro case (`test_vec`) dropped — `vec!` macro isn't wired yet
+// (separate gap). All other variants — int, generic, match, if,
+// block, return — preserved verbatim with explicit isize/i32 typing.
+package fn_expr_fn;
+
+use std.fmt;
+use std.lang.text;
+
+fn ten_int() -> isize { return 10isize; }
+fn test_int() { assert_eq!(ten_int(), 10isize); }
+
+fn gen_id<T>(t: T) -> T { return t; }
+fn test_generic() { assert_eq!(gen_id::<isize>(10isize), 10isize); }
+
+fn pick_match() -> isize { return match true { false => { 10isize } true => { 20isize } }; }
+fn test_alt() { assert_eq!(pick_match(), 20isize); }
+
+fn if_pick() -> isize { return if true { 10isize } else { 20isize }; }
+fn test_if() { assert_eq!(if_pick(), 10isize); }
+
+fn block_pick() -> isize { return { 10isize }; }
+fn test_block() { assert_eq!(block_pick(), 10isize); }
+
+fn ret_ten() -> isize { return 10isize; }
+fn test_ret() { assert_eq!(ret_ten(), 10isize); }
+
+fn ret_372() -> isize { let x: isize = { 3isize }; return x; }
+fn test_372() { assert_eq!(ret_372(), 3isize); }
+
+fn test_nil() { }
+
+fn main() -> i32 {
+    test_int();
+    test_generic();
+    test_alt();
+    test_if();
+    test_block();
+    test_ret();
+    test_372();
+    test_nil();
+    return 0;
+}

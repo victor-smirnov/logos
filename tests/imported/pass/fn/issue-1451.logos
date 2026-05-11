@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/fn/issue-1451.rs
+// Modifications: Rust's `extern "Rust" fn()` becomes plain `fn()`
+// (Logos has no `extern "ABI"` qualifier; the default Logos fn ABI
+// matches Rust's default). Otherwise faithful — exercises storing fn
+// pointers in struct fields.
+package fn_issue_1451;
+
+struct T { f: fn() }
+struct S { f: fn() }
+
+fn fooS(t: S) { }
+fn fooT(t: T) { }
+fn bar() { }
+
+fn main() -> i32 {
+    let x: fn() = bar;
+    fooS(S { f: x });
+    fooS(S { f: bar });
+
+    let y: fn() = bar;
+    fooT(T { f: y });
+    fooT(T { f: bar });
+
+    return 0;
+}
