@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/inference/auto-instantiate.rs
+// Modifications: `println!` dropped; the test exercises type-param
+// inference at the function-call site (no turbofish needed).
+package auto_instantiate;
+
+struct Pair<T, U> { a: T, b: U }
+struct Triple { x: isize, y: isize, z: isize }
+
+fn f<T, U>(x: T, y: U) -> Pair<T, U> {
+    return Pair { a: x, b: y };
+}
+
+fn main() -> i32 {
+    let _p1: Pair<Triple, isize> = f(Triple { x: 3isize, y: 4isize, z: 5isize }, 4isize);
+    let _p2: Pair<isize, isize> = f(5isize, 6isize);
+    return 0;
+}

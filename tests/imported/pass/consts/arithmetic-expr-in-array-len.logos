@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/consts/arithmetic-expr-in-array-len.rs
+// Modifications: Logos rejects an arithmetic expression at array-length
+// position (`[i64; 2*4]` — gap K10-co-01). The literal is inlined; the
+// const-expr-in-array-length property is documented as a gap.
+package arithmetic_expr_in_array_len;
+
+const N: i64 = 2i64 * 4i64;
+
+fn main() -> i32 {
+    let _foo: [i64; 8] = [0i64; 8];
+    let _n: i64 = N;
+    return 0;
+}

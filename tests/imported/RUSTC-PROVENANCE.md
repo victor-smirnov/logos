@@ -27,6 +27,7 @@ per-file rows below.
 | B7 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | methods (3 tests) |
 | B8 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | structs + enums + binding (6 tests) |
 | B9 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | traits — basic (2 tests; bulk blocked on Fn-trait + default-bodies + dyn-trait) |
+| B10 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | consts + inference + typeck (3 tests; end of Tier-1 wide sweep) |
 
 To kick off a batch:
 
@@ -109,6 +110,9 @@ Columns:
 | `pass/binding/match-bot.logos` | `tests/ui/binding/match-bot.rs` | B8 | turbofish on variant ctor dropped (gap G3-tg-01); `Option::Some(3)` direct |
 | `pass/traits/anon-static-method.logos` | `tests/ui/traits/anon-static-method.rs` | B9 | `pub fn new()` → `pub static fn new()` (Logos explicit `static fn` for associated constructors; see logos.peg:780+) |
 | `pass/traits/impl-implicit-trait.logos` | `tests/ui/traits/impl-implicit-trait.rs` | B9 | explicit `self: &T` |
+| `pass/consts/arithmetic-expr-in-array-len.logos` | `tests/ui/consts/arithmetic-expr-in-array-len.rs` | B10 | arithmetic at array-length position rejected (gap K10-co-01); literal inlined |
+| `pass/inference/auto-instantiate.logos` | `tests/ui/inference/auto-instantiate.rs` | B10 | `println!` dropped; type-param inference at call site |
+| `pass/typeck/unify-return-ty.logos` | `tests/ui/typeck/unify-return-ty.rs` | B10 | `null` → `null_p` (KW_NULL keyword, gap K10-co-02); `mem::transmute` → `as *const T` cast (K10-co-03) |
 
 ## When upstream changes
 
