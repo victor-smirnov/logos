@@ -1,0 +1,21 @@
+// Synthesised by Track 3 Sprint 5.9 from rustc closures tests/ui.
+// No exact 1:1 rustc original; Logos-side regression test that an
+// Fn-bound generic function accepts a closure with a captured local.
+// Stresses: Sprint 5.7 Fn-family-bound dispatch + closure capture +
+// monomorphisation through generic F. (rustc's closures/issue-6801
+// covers similar ground but mixes in Box ownership.)
+package fn_bound_capture;
+
+use std.fmt;
+use std.lang.text;
+
+fn invoke<F: FnOnce() -> i32>(f: F) -> i32 {
+    return f();
+}
+
+fn main() -> i32 {
+    let x: i32 = 21i32;
+    let g = || -> i32 { return x * 2i32; };
+    assert_eq!(invoke(g), 42i32);
+    return 0;
+}
