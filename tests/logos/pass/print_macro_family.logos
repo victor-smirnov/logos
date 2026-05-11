@@ -1,0 +1,18 @@
+// Slice 5: print! / eprint! / eprintln! shells. Compile-side validation
+// that they desugar to format_args_str + the right destination wrapper.
+// print! writes to stdout without trailing newline; eprint! / eprintln!
+// go to stderr. The test pipes both streams: stdout into `expected`,
+// stderr stays uncaptured (test runner reads stdout only).
+package print_macro_family;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    print!("A={}", 1i32);          // stdout, no newline
+    print!(",B={}", 2i32);         // continuation on same line
+    print!("\n");                  // explicit terminator
+    eprintln!("err={}", 99i32);    // stderr — invisible to stdout match
+    eprint!("noLF");               // stderr — also invisible
+    return 0;
+}
