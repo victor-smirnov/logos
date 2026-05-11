@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/block-fn.rs
+// Modifications: Logos doesn't permit nested `fn` inside a fn body —
+// `ten` hoisted to top level. Test exercises taking a fn pointer and
+// calling through it.
+package expr_block_fn;
+
+use std.fmt;
+use std.lang.text;
+
+fn ten() -> isize { return 10isize; }
+
+fn test_fn() {
+    let rs: fn() -> isize = ten;
+    assert_eq!(rs(), 10isize);
+}
+
+fn main() -> i32 { test_fn(); return 0; }

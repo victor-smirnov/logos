@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/if-bot.rs
+// Modifications: `panic!()` → `panic("")`; `println!` dropped.
+package if_bot;
+
+use std.lang.panic;
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let i: isize = if false { panic(""); 0isize } else { 5isize };
+    assert!(i == 5isize);
+    return 0;
+}

@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/block.rs
+// Modifications: explicit isize suffixes; `a += 1` → `a = a + 1` (Logos
+// rejects integer compound-assign on `let mut` without explicit type).
+package expr_block;
+
+use std.fmt;
+use std.lang.text;
+
+struct RS { v1: isize, v2: isize }
+
+fn test_basic() { let rs: bool = { true }; assert!(rs); }
+
+fn test_rec() {
+    let rs: RS = { RS { v1: 10isize, v2: 20isize } };
+    assert_eq!(rs.v2, 20isize);
+}
+
+fn test_filled_with_stuff() {
+    let rs: isize = {
+        let mut a: isize = 0isize;
+        while a < 10isize { a = a + 1isize; }
+        a
+    };
+    assert_eq!(rs, 10isize);
+}
+
+fn main() -> i32 {
+    test_basic();
+    test_rec();
+    test_filled_with_stuff();
+    return 0;
+}
