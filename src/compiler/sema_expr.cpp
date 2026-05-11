@@ -6656,6 +6656,15 @@ lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
     auto stmts = arr_of(node.get(la::ITEMS.code));
     auto block = lir::alloc_block(*cur_prog_);
     lir::LExprPtr result = nullptr;
+    // K10-co-04: track divergence — a block whose tail is `return`
+    // never falls through, so its expression-level "type" should be
+    // compatible with any context. We don't have a `!`/never type
+    // yet; instead we adopt the tail-RETURN's value-type as the
+    // block's result type (the value is never actually produced;
+    // codegen still emits the return statement). This unblocks
+    // `({ return 0 },)`-style patterns where a divergent block sits
+    // inside a tuple/struct/etc literal at non-void type.
+    TypeRef divergent_ret_t = nullptr;
     for (uint64_t i = 0; i < stmts.size(); ++i) {
         auto s = map_of(stmts.get(i));
         if (s.is_null()) continue;
@@ -6673,11 +6682,21 @@ lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
                 result = lower_expr(s);
                 continue;
             }
+            if (lc == la::RETURN && s.has_key(la::VALUE)) {
+                // Peek at the return-value's type to use as the
+                // block's divergent type — the RETURN itself is
+                // still lowered as a stmt below.
+                auto val_node = map_of(s.get(la::VALUE.code));
+                auto val_expr = lower_expr(val_node);
+                if (val_expr) divergent_ret_t = val_expr->type;
+            }
         }
         block->stmts.push_back(lower_stmt(s));
     }
     tail_as_return_ = saved_tail;
     pop_scope();
+    if (!result && divergent_ret_t)
+        return builder().block_expr(std::move(block), nullptr, divergent_ret_t);
     if (!result)
         return builder().block_expr(std::move(block), nullptr, void_t());
     TypeRef rt = result->type;

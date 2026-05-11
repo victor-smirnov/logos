@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/return-in-block-tuple.rs
+// Modifications: explicit `: (i32,)` annotation on the let-binding
+// (Rust infers from `_t`; Logos's tuple-element inference is more
+// limited). Otherwise faithful — regression for rust#18110: a
+// block whose tail is `return` is usable at a non-void position
+// inside a tuple literal. Logos pre-2026-05-11 rejected this as
+// "expected (i32), got (void)"; closed by adopting the
+// return-value's type as the block's divergent type (K10-co-04
+// partial).
+package expr_return_in_block_tuple;
+
+fn main() -> i32 {
+    let _t: (i32,) = ({ return 0; },);
+    return 1;
+}
