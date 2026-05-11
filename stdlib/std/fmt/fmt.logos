@@ -190,25 +190,49 @@ fn write_radix_u64(buf: &mut String, n: u64, radix: u64, upper: bool) {
     }
 }
 
-impl LowerHex for u64 { fn fmt_lower_hex(self: u64, buf: &mut String) { write_radix_u64(buf, self, 16u64, false); } }
-impl LowerHex for u32 { fn fmt_lower_hex(self: u32, buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, false); } }
-impl LowerHex for i64 { fn fmt_lower_hex(self: i64, buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, false); } }
-impl LowerHex for i32 { fn fmt_lower_hex(self: i32, buf: &mut String) { write_radix_u64(buf, self as u32 as u64, 16u64, false); } }
+impl LowerHex for u64   { fn fmt_lower_hex(self: u64,   buf: &mut String) { write_radix_u64(buf, self, 16u64, false); } }
+impl LowerHex for u32   { fn fmt_lower_hex(self: u32,   buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, false); } }
+impl LowerHex for i64   { fn fmt_lower_hex(self: i64,   buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, false); } }
+impl LowerHex for i32   { fn fmt_lower_hex(self: i32,   buf: &mut String) { write_radix_u64(buf, self as u32 as u64, 16u64, false); } }
+impl LowerHex for usize { fn fmt_lower_hex(self: usize, buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, false); } }
+impl LowerHex for isize { fn fmt_lower_hex(self: isize, buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, false); } }
+impl LowerHex for u16   { fn fmt_lower_hex(self: u16,   buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, false); } }
+impl LowerHex for u8    { fn fmt_lower_hex(self: u8,    buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, false); } }
+impl LowerHex for i16   { fn fmt_lower_hex(self: i16,   buf: &mut String) { write_radix_u64(buf, self as u16 as u64, 16u64, false); } }
+impl LowerHex for i8    { fn fmt_lower_hex(self: i8,    buf: &mut String) { write_radix_u64(buf, self as u8 as u64, 16u64, false); } }
 
-impl UpperHex for u64 { fn fmt_upper_hex(self: u64, buf: &mut String) { write_radix_u64(buf, self, 16u64, true); } }
-impl UpperHex for u32 { fn fmt_upper_hex(self: u32, buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, true); } }
-impl UpperHex for i64 { fn fmt_upper_hex(self: i64, buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, true); } }
-impl UpperHex for i32 { fn fmt_upper_hex(self: i32, buf: &mut String) { write_radix_u64(buf, self as u32 as u64, 16u64, true); } }
+impl UpperHex for u64   { fn fmt_upper_hex(self: u64,   buf: &mut String) { write_radix_u64(buf, self, 16u64, true); } }
+impl UpperHex for u32   { fn fmt_upper_hex(self: u32,   buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, true); } }
+impl UpperHex for i64   { fn fmt_upper_hex(self: i64,   buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, true); } }
+impl UpperHex for i32   { fn fmt_upper_hex(self: i32,   buf: &mut String) { write_radix_u64(buf, self as u32 as u64, 16u64, true); } }
+impl UpperHex for usize { fn fmt_upper_hex(self: usize, buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, true); } }
+impl UpperHex for isize { fn fmt_upper_hex(self: isize, buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, true); } }
+impl UpperHex for u16   { fn fmt_upper_hex(self: u16,   buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, true); } }
+impl UpperHex for u8    { fn fmt_upper_hex(self: u8,    buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, true); } }
+impl UpperHex for i16   { fn fmt_upper_hex(self: i16,   buf: &mut String) { write_radix_u64(buf, self as u16 as u64, 16u64, true); } }
+impl UpperHex for i8    { fn fmt_upper_hex(self: i8,    buf: &mut String) { write_radix_u64(buf, self as u8 as u64, 16u64, true); } }
 
-impl Octal for u64 { fn fmt_octal(self: u64, buf: &mut String) { write_radix_u64(buf, self, 8u64, false); } }
-impl Octal for u32 { fn fmt_octal(self: u32, buf: &mut String) { write_radix_u64(buf, self as u64, 8u64, false); } }
-impl Octal for i64 { fn fmt_octal(self: i64, buf: &mut String) { write_radix_u64(buf, self as u64, 8u64, false); } }
-impl Octal for i32 { fn fmt_octal(self: i32, buf: &mut String) { write_radix_u64(buf, self as u32 as u64, 8u64, false); } }
+impl Octal for u64   { fn fmt_octal(self: u64,   buf: &mut String) { write_radix_u64(buf, self, 8u64, false); } }
+impl Octal for u32   { fn fmt_octal(self: u32,   buf: &mut String) { write_radix_u64(buf, self as u64, 8u64, false); } }
+impl Octal for i64   { fn fmt_octal(self: i64,   buf: &mut String) { write_radix_u64(buf, self as u64, 8u64, false); } }
+impl Octal for i32   { fn fmt_octal(self: i32,   buf: &mut String) { write_radix_u64(buf, self as u32 as u64, 8u64, false); } }
+impl Octal for usize { fn fmt_octal(self: usize, buf: &mut String) { write_radix_u64(buf, self as u64, 8u64, false); } }
+impl Octal for isize { fn fmt_octal(self: isize, buf: &mut String) { write_radix_u64(buf, self as u64, 8u64, false); } }
+impl Octal for u16   { fn fmt_octal(self: u16,   buf: &mut String) { write_radix_u64(buf, self as u64, 8u64, false); } }
+impl Octal for u8    { fn fmt_octal(self: u8,    buf: &mut String) { write_radix_u64(buf, self as u64, 8u64, false); } }
+impl Octal for i16   { fn fmt_octal(self: i16,   buf: &mut String) { write_radix_u64(buf, self as u16 as u64, 8u64, false); } }
+impl Octal for i8    { fn fmt_octal(self: i8,    buf: &mut String) { write_radix_u64(buf, self as u8 as u64, 8u64, false); } }
 
-impl Binary for u64 { fn fmt_binary(self: u64, buf: &mut String) { write_radix_u64(buf, self, 2u64, false); } }
-impl Binary for u32 { fn fmt_binary(self: u32, buf: &mut String) { write_radix_u64(buf, self as u64, 2u64, false); } }
-impl Binary for i64 { fn fmt_binary(self: i64, buf: &mut String) { write_radix_u64(buf, self as u64, 2u64, false); } }
-impl Binary for i32 { fn fmt_binary(self: i32, buf: &mut String) { write_radix_u64(buf, self as u32 as u64, 2u64, false); } }
+impl Binary for u64   { fn fmt_binary(self: u64,   buf: &mut String) { write_radix_u64(buf, self, 2u64, false); } }
+impl Binary for u32   { fn fmt_binary(self: u32,   buf: &mut String) { write_radix_u64(buf, self as u64, 2u64, false); } }
+impl Binary for i64   { fn fmt_binary(self: i64,   buf: &mut String) { write_radix_u64(buf, self as u64, 2u64, false); } }
+impl Binary for i32   { fn fmt_binary(self: i32,   buf: &mut String) { write_radix_u64(buf, self as u32 as u64, 2u64, false); } }
+impl Binary for usize { fn fmt_binary(self: usize, buf: &mut String) { write_radix_u64(buf, self as u64, 2u64, false); } }
+impl Binary for isize { fn fmt_binary(self: isize, buf: &mut String) { write_radix_u64(buf, self as u64, 2u64, false); } }
+impl Binary for u16   { fn fmt_binary(self: u16,   buf: &mut String) { write_radix_u64(buf, self as u64, 2u64, false); } }
+impl Binary for u8    { fn fmt_binary(self: u8,    buf: &mut String) { write_radix_u64(buf, self as u64, 2u64, false); } }
+impl Binary for i16   { fn fmt_binary(self: i16,   buf: &mut String) { write_radix_u64(buf, self as u16 as u64, 2u64, false); } }
+impl Binary for i8    { fn fmt_binary(self: i8,    buf: &mut String) { write_radix_u64(buf, self as u8 as u64, 2u64, false); } }
 
 // LowerExp / UpperExp — scientific notation (`{:e}` / `{:E}`). Floats
 // only; libc snprintf "%e" / "%E" do the conversion.
