@@ -8878,7 +8878,9 @@ lir::LExprPtr SemaChecker::lower_hermes_blob(TinyMapView node) {
                         || code == la::PAREN_EXPR.code || code == la::UNARY.code
                         || code == la::FIELD_READ.code || code == la::METHOD_CALL.code
                         || code == la::CAST.code || code == la::INDEX_READ.code
-                        || code == la::STRUCT_LIT.code) {
+                        || code == la::STRUCT_LIT.code || code == la::ARR_LIT.code
+                        || code == la::TUPLE_LIT.code || code == la::BLOCK.code
+                        || code == la::BLOCK_STMT.code || code == la::IF.code) {
                         // Stash the doc so its arena outlives sema (mirror
                         // back-fill may read from it). holder_ is swapped
                         // for the recursion only.
@@ -9468,15 +9470,26 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
         return error_expr();
     }
 
-    // Slice 1 MVP: signature must be `(ExprBlob) -> ExprBlob`. Multi-arg
-    // (Vec<ExprBlob>) lands in slice 1.5 once Vec-packing in the thunk
-    // is wired up. Validate before we serialise anything.
-    if (macro_info->param_types.size() != 1 ||
-        !is_exprblob(macro_info->param_types[0]) ||
-        !is_exprblob(macro_info->ret_type)) {
+    // Two accepted signatures (slice 1 of fn-macros):
+    //   (a) (ExprBlob) -> ExprBlob              — exactly one ARG
+    //   (b) (Vec<ExprBlob>) -> ExprBlob         — N ARGs, packed in a Vec
+    // Validate before we serialise anything.
+    auto is_vec_exprblob = [](TypeRef t) -> bool {
+        if (TypeRef(t).kind() != LogosType::Kind::Struct) return false;
+        if (TypeRef(t).struct_name() != "Vec") return false;
+        auto args = TypeRef(t).type_args();
+        return args.size() == 1 && is_exprblob(args[0]);
+    };
+    bool sig_single = macro_info->param_types.size() == 1
+                   && is_exprblob(macro_info->param_types[0])
+                   && is_exprblob(macro_info->ret_type);
+    bool sig_vec    = macro_info->param_types.size() == 1
+                   && is_vec_exprblob(macro_info->param_types[0])
+                   && is_exprblob(macro_info->ret_type);
+    if (!sig_single && !sig_vec) {
         error(std::format(
             "fn_macro: '{}' must have signature `(ExprBlob) -> ExprBlob` "
-            "(slice 1 MVP — multi-arg variants land later)",
+            "or `(Vec<ExprBlob>) -> ExprBlob`",
             callee_name));
         return error_expr();
     }
@@ -9488,9 +9501,9 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
         for (uint64_t i = 0; i < args.size(); ++i)
             arg_avs.push_back(args.get(i));
     }
-    if (arg_avs.size() != 1) {
+    if (sig_single && arg_avs.size() != 1) {
         error(std::format(
-            "fn_macro: '{}!' expects 1 arg (slice 1 MVP), got {}",
+            "fn_macro: '{}!' expects exactly 1 arg (callee takes ExprBlob), got {}",
             callee_name, arg_avs.size()));
         return error_expr();
     }
@@ -9569,22 +9582,41 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
         std::memcpy(blobs[i].data() + 8, data, used);
     }
 
-    // Synthesise thunk: single-arg form.
-    //   fn __metacall_thunk_N() -> ExprBlob {
-    //       let e0: ExprBlob = ExprBlob { ptr: unsafe { logos_macro_arg(N, 0) } };
-    //       return <callee>(e0);
-    //   }
+    // Synthesise thunk. Two shapes per signature:
+    //   single-arg: pass ExprBlob directly.
+    //   Vec form: vec_new::<ExprBlob>() + N v.push(...) + return callee(v).
     std::string pkg = cur_package_.empty() ? "__metacall_thunks" : cur_package_;
     std::string thunk_name = std::format("__metacall_thunk_{}", site_id);
-    std::string thunk_src = std::format(
-        "package {};\n"
-        "use std.compiler.metaprog;\n"
-        "use std.hermes.view;\n"
-        "fn {}() -> ExprBlob {{\n"
-        "    let e0: ExprBlob = ExprBlob {{ ptr: unsafe {{ logos_macro_arg({}u64, 0u64) }} }};\n"
-        "    return {}(e0);\n"
-        "}}\n",
-        pkg, thunk_name, site_id, macro_info->base_name);
+    std::string thunk_src;
+    if (sig_single) {
+        thunk_src = std::format(
+            "package {};\n"
+            "use std.compiler.metaprog;\n"
+            "use std.hermes.view;\n"
+            "fn {}() -> ExprBlob {{\n"
+            "    let e0: ExprBlob = ExprBlob {{ ptr: unsafe {{ logos_macro_arg({}u64, 0u64) }} }};\n"
+            "    return {}(e0);\n"
+            "}}\n",
+            pkg, thunk_name, site_id, macro_info->base_name);
+    } else {
+        std::string body;
+        for (size_t i = 0; i < arg_avs.size(); ++i) {
+            body += std::format(
+                "    v.push(ExprBlob {{ ptr: unsafe {{ logos_macro_arg({}u64, {}u64) }} }});\n",
+                site_id, i);
+        }
+        thunk_src = std::format(
+            "package {};\n"
+            "use std.compiler.metaprog;\n"
+            "use std.hermes.view;\n"
+            "use std.collections.vec;\n"
+            "fn {}() -> ExprBlob {{\n"
+            "    let mut v: Vec<ExprBlob> = vec_new::<ExprBlob>();\n"
+            "{}"
+            "    return {}(v);\n"
+            "}}\n",
+            pkg, thunk_name, body, macro_info->base_name);
+    }
 
     lir::LProgram::MetacallSite site;
     site.ast_idx = cur_ast_idx_;

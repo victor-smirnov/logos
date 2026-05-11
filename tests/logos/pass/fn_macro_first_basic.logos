@@ -1,0 +1,17 @@
+// Validates the Vec<ExprBlob> arg-packing path of fn_macros (slice 1.5).
+// `first_macro!(a, b, c)` returns the first arg unchanged through the
+// generated Vec, exercising vec_new + push + dispatch + ExprBlob splice.
+package fn_macro_first_basic;
+
+use std.compiler.metaprog;
+use std.collections.vec;
+
+#[fn_macro]
+pub fn first_macro(elems: Vec<ExprBlob>) -> ExprBlob {
+    return elems.get(0i64);
+}
+
+fn main() -> i32 {
+    let v: i32 = first_macro!(7, 99, 100);
+    return v;
+}
