@@ -1,0 +1,18 @@
+// arr_macro!(a, b, c) lowers to [a, b, c] via quote_expr! repetition
+// over the Vec<ExprBlob> arg. Validates the slice-1.6 quote-cursor path:
+//   FN_MACRO_CALL  →  Vec<ExprBlob> packing  →  quote_expr! { [#(#elems),*] }
+//   →  ExprBlob splice (kind=2 cursor) →  re-sema as ARR_LIT.
+package fn_macro_arr_basic;
+
+use std.compiler.metaprog;
+use std.collections.vec;
+
+#[fn_macro]
+pub fn arr_macro(elems: Vec<ExprBlob>) -> ExprBlob {
+    return quote_expr! { [#(#elems),*] };
+}
+
+fn main() -> i32 {
+    let xs: [i32; 3] = arr_macro!(10, 20, 13);
+    return xs[0] + xs[1] + xs[2];
+}

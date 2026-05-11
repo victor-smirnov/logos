@@ -1432,6 +1432,9 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                 if (idx >= 0
                     && static_cast<uint64_t>(idx) < idents_count) {
                     auto sp = get_span(idx);
+                    // kind=1 (scalar ExprBlob) — never a cursor.
+                    // kind=0 (Ident scalar/cursor) and kind=2 (Vec<ExprBlob>
+                    // cursor) — only contribute when count > 1.
                     if (sp.kind != 1 && sp.count > 1) return sp.count;
                 }
             }
@@ -1613,9 +1616,10 @@ extern "C" const uint8_t* logos_quote_expr_subst(
 
         // 5c Option B: ExprBlob splice. Detect VAR_REF placeholders whose
         // span kind=1 BEFORE allocating a TOM — we replace the entire node
-        // with a deep copy of the blob's root expr. Cursor expansion of
-        // ExprBlob (e.g. `[ExprBlob; N]`) is not yet supported; the blob
-        // is always a scalar splice.
+        // with a deep copy of the blob's root expr.
+        // Slice 1.6: kind=2 is the Vec<ExprBlob> cursor flavor — slots
+        // is a contiguous *const u8 array (8-byte stride), and we pick
+        // the cursor_i-th element per `#(...)*` iteration.
         if (cd == la::VAR_REF.code && src_tom->has_key(la::NAME_VAR.code)) {
             AnyVal iv0 = src_tom->get(la::NAME_VAR.code,
                                       const_cast<uint8_t*>(src_base));
@@ -1624,9 +1628,26 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                 if (idx0 >= 0
                     && static_cast<uint64_t>(idx0) < idents_count) {
                     SpanView sp0 = get_span(idx0);
-                    if (sp0.kind == 1) {
-                        const uint8_t* blob_data =
-                            reinterpret_cast<const uint8_t*>(sp0.slots);
+                    if (sp0.kind == 1 || sp0.kind == 2) {
+                        const uint8_t* blob_data = nullptr;
+                        if (sp0.kind == 1) {
+                            blob_data = reinterpret_cast<const uint8_t*>(sp0.slots);
+                        } else {
+                            uint64_t i = (sp0.count == 1) ? 0
+                                : (cursor_i >= 0
+                                   ? static_cast<uint64_t>(cursor_i) : 0);
+                            if (i >= sp0.count) {
+                                std::fprintf(stderr,
+                                    "logos_quote_expr_subst: ExprBlob cursor "
+                                    "i=%llu out of range (count=%llu)\n",
+                                    (unsigned long long)i,
+                                    (unsigned long long)sp0.count);
+                                return 0;
+                            }
+                            const uint8_t* const* arr =
+                                reinterpret_cast<const uint8_t* const*>(sp0.slots);
+                            blob_data = arr[i];
+                        }
                         if (!blob_data) {
                             std::fprintf(stderr,
                                 "logos_quote_expr_subst: ExprBlob splice — null ptr\n");

@@ -8412,6 +8412,16 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
         if (args.size() != 1) return false;
         return is_ident_type(args[0]);
     };
+    // Slice 1.6 of fn-macros: Vec<ExprBlob> cursor in `#(...)*`. Backed
+    // by a span with kind=2 at runtime — slots is a contiguous array of
+    // 8-byte `*const u8` blob_ptrs (Vec<ExprBlob>.ptr layout); no IdentPod
+    // stride. The splice path reads slots[cursor_i] per iteration.
+    auto is_vec_exprblob_type = [&](TypeRef t) -> bool {
+        if (TypeRef(t).kind() != LogosType::Kind::Struct) return false;
+        if (TypeRef(t).struct_name() != "Vec") return false;
+        auto args = TypeRef(t).type_args();
+        return args.size() == 1 && is_exprblob(args[0]);
+    };
 
     int repeat_depth = 0;
     // Per-group cursor count (validated for consistency within a group).
@@ -8449,9 +8459,16 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             count = ident_array_len(vt);
             if (count == 0 && is_vec_ident_type(vt)) {
                 is_vec_cursor = true;
+            } else if (count == 0 && is_vec_exprblob_type(vt)) {
+                // Vec<ExprBlob> cursor (slice 1.6 of fn-macros): mark both
+                // is_vec_cursor and is_expr_blob so the codegen branch
+                // emits an 8-byte-stride span (kind=2).
+                is_vec_cursor = true;
+                is_expr_blob = true;
             } else if (count == 0) {
                 error("quote_expr!: `#" + vname
-                      + "` inside repeat — expected [Ident; N] or Vec<Ident>");
+                      + "` inside repeat — expected [Ident; N], Vec<Ident>, "
+                      "or Vec<ExprBlob>");
                 return false;
             }
             if (is_vec_cursor) {
@@ -8598,6 +8615,24 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
         if (cd == la::FIELD_SHORTHAND.code) {
             return true;
         }
+        // Slice 1.6: ARR_LIT / TUPLE_LIT — iterate ITEMS so REPEAT_GROUP
+        // and ExprBlob antiquots inside `[...]` / `(...)` get registered.
+        if (cd == la::ARR_LIT.code || cd == la::TUPLE_LIT.code) {
+            auto* b = HermesAccess::base(doc);
+            auto* t = reinterpret_cast<TinyObjectMap*>(b + tom_off);
+            if (!t->has_key(la::ITEMS.code)) return true;
+            AnyVal av = t->get(la::ITEMS.code, b);
+            if (!av.is_pointer()) return true;
+            auto* arr = reinterpret_cast<ObjectArray*>(
+                b + av.to_offset().value());
+            for (uint64_t i = 0; i < arr->size(); ++i) {
+                AnyVal el = arr->get(i, b);
+                if (!el.is_pointer()) continue;
+                if (!walk(static_cast<uint32_t>(el.to_offset().value())))
+                    return false;
+            }
+            return true;
+        }
         return true;
     };
 
@@ -8723,7 +8758,19 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
     for (auto& ph : placeholders) {
         lir::LExprPtr ptr_v;
         uint64_t kind = 0;
-        if (ph.is_expr_blob) {
+        if (ph.is_cursor && ph.is_vec_cursor && ph.is_expr_blob) {
+            // Slice 1.6: Vec<ExprBlob> cursor. Each iteration of `#(...)*`
+            // splices one ExprBlob. Span layout: kind=2, slots = Vec.ptr
+            // (8-byte stride array of *const u8 blob_ptrs — same as
+            // Vec<ExprBlob>'s inline storage), count = Vec.len.
+            kind = 2;
+            TypeRef vec_eb_t = make_generic_struct("Vec", {eb_struct_t});
+            auto v_ref = builder().var_ref(ph.var_name, vec_eb_t);
+            TypeRef eb_mut_ptr_t = make_ptr(true, eb_struct_t);
+            auto raw_ptr = builder().field_read(
+                std::move(v_ref), "ptr", eb_mut_ptr_t);
+            ptr_v = builder().cast(std::move(raw_ptr), ident_ptr_t);
+        } else if (ph.is_expr_blob) {
             // 5c Option B: read `<var>.ptr` (`*const u8`), cast to
             // `*const Ident` for the IdentSpan.ptr field. The shim
             // detects kind=1 and reads size from `ptr - 8`.
@@ -8768,9 +8815,11 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
         }
         lir::LExprPtr cnt_v;
         if (ph.is_vec_cursor) {
-            // count = xs.len cast to u64
-            TypeRef vec_ident_t2 = make_generic_struct("Vec", {ident_t});
-            auto v_ref2 = builder().var_ref(ph.var_name, vec_ident_t2);
+            // count = xs.len cast to u64. Element type matches the cursor
+            // flavor: Vec<ExprBlob> for kind=2, Vec<Ident> for kind=0.
+            TypeRef vec_elem_t = ph.is_expr_blob ? eb_struct_t : ident_t;
+            TypeRef vec_t2 = make_generic_struct("Vec", {vec_elem_t});
+            auto v_ref2 = builder().var_ref(ph.var_name, vec_t2);
             auto raw_len = builder().field_read(
                 std::move(v_ref2), "len", prim(LogosType::Kind::I64));
             cnt_v = builder().cast(std::move(raw_len), u64_ty);
