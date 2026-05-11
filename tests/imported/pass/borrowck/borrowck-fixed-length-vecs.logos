@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/borrowck/borrowck-fixed-length-vecs.rs
+// Modifications: explicit array type `[i64; 1]`; `&x[0]` reads work
+// in Logos via the standard indexing.
+package borrowck_fixed_length_vecs;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let x: [i64; 1] = [22i64];
+    let y: &i64 = &x[0];
+    assert_eq!(*y, 22i64);
+    return 0;
+}

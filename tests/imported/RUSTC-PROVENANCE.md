@@ -19,6 +19,7 @@ per-file rows below.
 | Batch | rustc commit (SHA) | Date | Imported by | Scope |
 |---|---|---|---|---|
 | B1 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | parser top-level (11 tests) |
+| B2 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | borrowck — move/copy/reference (11 tests) |
 
 To kick off a batch:
 
@@ -54,6 +55,17 @@ Columns:
 | `pass/parser/parse-panic.logos` | `tests/ui/parser/parse-panic.rs` | B1 | `panic!()` / `println!()` → `panic("")` / `let _ = 1;` (function is never called) |
 | `pass/parser/reference-whitespace-parsing.logos` | `tests/ui/parser/reference-whitespace-parsing.rs` | B1 | trimmed to `&T` depth 1 (Logos `&&T` / whitespace-tolerant `&` stacking at type position is a tracked grammar gap, see `docs/track3-gaps/parser-gaps.md`) |
 | `pass/parser/super-fast-paren-parsing.logos` | `tests/ui/parser/super-fast-paren-parsing.rs` | B1 | `static a: isize = (...)` → `const A: isize = (...)` |
+| `pass/borrowck/borrowck-assign-to-subfield.logos` | `tests/ui/borrowck/borrowck-assign-to-subfield.rs` | B2 | nested struct decls hoisted to top level (Logos doesn't permit struct decls inside fn bodies) |
+| `pass/borrowck/borrowck-borrow-of-mut-base-ptr-safe.logos` | `tests/ui/borrowck/borrowck-borrow-of-mut-base-ptr-safe.rs` | B2 | trimmed: `let t2: &&mut isize = &t0;` step crashes mlir-gen at runtime (`&&mut T` codegen partial) — tracked gap |
+| `pass/borrowck/borrowck-closures-two-imm.logos` | `tests/ui/borrowck/borrowck-closures-two-imm.rs` | B2 | trimmed to fn `a()`: cases `b/c` use `&x` inside closure body (capture-by-ref / addr-of-captured-local) — mlir-gen "& undefined 'x'", tracked gap |
+| `pass/borrowck/borrowck-fixed-length-vecs.logos` | `tests/ui/borrowck/borrowck-fixed-length-vecs.rs` | B2 | explicit array type `[i64; 1]` |
+| `pass/borrowck/borrowck-mut-vec-as-imm-slice.logos` | `tests/ui/borrowck/borrowck-mut-vec-as-imm-slice.rs` | B2 | `&[isize]` slice arg → `&Vec<i64>` (no implicit Vec→slice coercion); for-loop unrolled to index loop (tracked gap on borrowed for-iter pattern) |
+| `pass/borrowck/borrowck-pat-reassign-no-binding.logos` | `tests/ui/borrowck/borrowck-pat-reassign-no-binding.rs` | B2 | `Option::Some` / `Option::None` qualified |
+| `pass/borrowck/borrowck-rvalues-mutable.logos` | `tests/ui/borrowck/borrowck-rvalues-mutable.rs` | B2 | explicit lifetime `<'a>` dropped from `inc` — Logos elides |
+| `pass/borrowck/borrowck-scope-of-deref-issue-4666.logos` | `tests/ui/borrowck/borrowck-scope-of-deref-issue-4666.rs` | B2 | rust user-struct `Box` renamed `MyBox`; `fun1` (declare-then-init for immut binding) dropped — grammar gap |
+| `pass/borrowck/lazy-init.logos` | `tests/ui/borrowck/lazy-init.rs` | B2 | declare-without-init `let mut x: isize;` not accepted — pre-init to 0 (grammar gap tracked) |
+| `pass/borrowck/pointer-reassignment-after-deref-78192.logos` | `tests/ui/borrowck/pointer-reassignment-after-deref-78192.rs` | B2 | explicit `as *const u32` cast on `c = d` (no implicit `&T → *const T` coercion) |
+| `pass/borrowck/two-phase-baseline.logos` | `tests/ui/borrowck/two-phase-baseline.rs` | B2 | `Vec` via `vec_new::<i64>` + `push`; `assert_eq!` per-element since Logos `Vec` doesn't implement equality vs array literal |
 
 ## When upstream changes
 

@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/borrowck/borrowck-pat-reassign-no-binding.rs
+// Modifications: Logos `Option` lives in `std.lang.option` and variants
+// are qualified `Option::Some` / `Option::None`. Outer reassignment
+// inside the match arm is the borrowck property under test.
+package borrowck_pat_reassign_no_binding;
+
+use std.lang.option;
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let mut x: Option<i32> = Option::None;
+    match x {
+        Option::None => {
+            // ok to reassign x here: no outstanding loan.
+            x = Option::Some(0i32);
+        }
+        Option::Some(_) => {}
+    }
+    let v: i32 = match x {
+        Option::Some(n) => n,
+        Option::None => -1i32,
+    };
+    assert_eq!(v, 0i32);
+    return 0;
+}

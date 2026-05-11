@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/borrowck/two-phase-baseline.rs
+// Modifications: Logos Vec uses `vec_new::<T>()` constructor + `push`;
+// `assert_eq!(v, [0, 1, 2, 3])` becomes per-element checks since Logos
+// Vec doesn't implement equality against array literals.
+package two_phase_baseline;
+
+use std.fmt;
+use std.lang.text;
+use std.collections.vec;
+
+fn main() -> i32 {
+    let mut v: Vec<i64> = vec_new::<i64>();
+    v.push(0i64);
+    v.push(1i64);
+    v.push(2i64);
+    // This is the "two-phase borrow" use-case: `v.push(v.len())`
+    // — `&mut v` for `push` is conceptually active only after the
+    // value of `v.len()` is computed.
+    v.push(v.length());
+    assert_eq!(v.length(), 4i64);
+    assert_eq!(v.get(0i64), 0i64);
+    assert_eq!(v.get(1i64), 1i64);
+    assert_eq!(v.get(2i64), 2i64);
+    assert_eq!(v.get(3i64), 3i64);
+    return 0;
+}

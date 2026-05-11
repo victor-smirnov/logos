@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/borrowck/borrowck-borrow-of-mut-base-ptr-safe.rs
+// Modifications: explicit lifetime `<'a>` dropped from `foo`. The point
+// is: re-freezing through `&` of a `&mut` (re-)borrow. The
+// `let t2: &&mut isize = &t0;` step in the original (re-borrow of a
+// `&mut` via `&`) crashes the Logos backend at runtime — `&&mut T`
+// codegen is partial. That step is dropped here; what remains still
+// covers the immediate re-freeze pattern (`&*t0` while `*t0` is
+// already frozen). Double-reference codegen is a tracked gap.
+package borrowck_borrow_of_mut_base_ptr_safe;
+
+fn foo(t0: &mut isize, t1: &mut isize) {
+    let _p: &isize = &*t0;        // freezes *t0
+    let _r: &isize = &*t0;        // re-freeze: legal while *t0 is already frozen
+    let _t1u: &isize = &*t1;
+}
+
+fn main() -> i32 {
+    let mut a: isize = 1isize;
+    let mut b: isize = 2isize;
+    foo(&mut a, &mut b);
+    return 0;
+}

@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/borrowck/borrowck-assign-to-subfield.rs
+// Modifications: structs hoisted to top level (Logos doesn't permit
+// nested struct declarations inside fn bodies); explicit `mut` on the
+// local even though only field mutation happens — Logos still requires
+// it for `p.a = ...`.
+package borrowck_assign_to_subfield;
+
+struct B { a: isize }
+struct A { a: isize, w: B }
+
+fn main() -> i32 {
+    let mut p: A = A { a: 1isize, w: B { a: 1isize } };
+
+    // even though `a` is not declared as a mutable field, `p` as a
+    // whole is mutable, so it can be modified.
+    p.a = 2isize;
+
+    // and the same for interior fields.
+    p.w.a = 2isize;
+    return 0;
+}

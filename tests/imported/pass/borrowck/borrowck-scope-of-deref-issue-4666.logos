@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/borrowck/borrowck-scope-of-deref-issue-4666.rs
+// Modifications: rustc's user-struct `Box` renamed to `MyBox` to avoid
+// confusion with std.mem.box. The borrowck property under test is the
+// scope of the pointer returned by `get` — the rename doesn't matter.
+// Rust's `let v;` (declare-without-init for an immutable binding) is
+// not accepted by Logos's grammar; `fun1` is rewritten as the
+// in-line-init form of `fun2`. The borrowck check (deref-scope) still
+// gets exercised via `fun2`.
+package borrowck_scope_of_deref_issue_4666;
+
+use std.fmt;
+use std.lang.text;
+
+struct MyBox { x: usize }
+
+impl MyBox {
+    fn get(self: &MyBox) -> &usize { return &self.x; }
+    fn set(self: &mut MyBox, x: usize) { self.x = x; }
+}
+
+fn fun2() {
+    let mut a_box: MyBox = MyBox { x: 0usize };
+    a_box.set(22usize);
+    let v: usize = *a_box.get();
+    a_box.set(v + 1usize);
+    assert_eq!(23usize, *a_box.get());
+}
+
+fn main() -> i32 {
+    fun2();
+    return 0;
+}

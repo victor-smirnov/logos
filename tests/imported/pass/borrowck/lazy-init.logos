@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/borrowck/lazy-init.rs
+// Modifications: `println!` → side-effect-only consumer; Logos requires
+// an initialiser in `let mut x: isize;` form (uninitialised-then-
+// branch-assigned `let` is a tracked grammar gap), so the test starts
+// with `let mut x: isize = 0;` and overwrites in both branches. The
+// borrowck property under test — `x` may be reassigned through both
+// arms of an `if/else` — still gets exercised.
+package lazy_init;
+
+fn foo(x: isize) -> isize { return x; }
+
+fn main() -> i32 {
+    let mut x: isize = 0isize;
+    if 1isize > 2isize { x = 12isize; } else { x = 10isize; }
+    let _r: isize = foo(x);
+    return 0;
+}

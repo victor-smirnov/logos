@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/borrowck/pointer-reassignment-after-deref-78192.rs
+// Modifications: `c = d` where `d: &u32` is rewritten to `c = d as *const u32`
+// — Logos requires the cast at the assignment site (no implicit &T → *const T).
+package pointer_reassignment_after_deref_78192;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let a: u32 = 1u32;
+    let b: u32 = 2u32;
+
+    let mut c: *const u32 = &a as *const u32;
+    let d: &u32 = &b;
+
+    let x: &u32 = unsafe { &*c };
+    c = d as *const u32;
+    let z: u32 = *x;
+
+    assert_eq!(1u32, z);
+    return 0;
+}
