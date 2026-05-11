@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/inference/fnonce-closure-call.rs
+// Modifications: closures need explicit return type / body in Logos.
+package fnonce_closure_call;
+
+fn f<F: FnOnce() -> ()>(p: F) {
+    p();
+}
+
+fn main() -> i32 {
+    let p = || -> () { return; };
+    f(p);
+    return 0;
+}
