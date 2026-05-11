@@ -1585,8 +1585,21 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
             unify_types(formal.pointee(), actual_norm.pointee(), bindings);
         break;
     case LogosType::Kind::Array:
-        if (actual_norm.kind() == LogosType::Kind::Array)
+        if (actual_norm.kind() == LogosType::Kind::Array) {
             unify_types(formal.elem(), actual_norm.elem(), bindings);
+            // Const-generic length: when formal is `[T; N]` with N a
+            // const-generic param (carried in arr_size_var) and actual is
+            // a concrete `[U; M]`, bind N → IntLit(const_val=M). The
+            // substitution path already understands IntLit-as-arr_size.
+            std::string asv(formal.arr_size_var());
+            if (!asv.empty() && actual_norm.arr_size() > 0
+                && !bindings.count(asv)) {
+                LogosTypeBuilder lt;
+                lt.kind = LogosType::Kind::IntLit;
+                lt.const_val = static_cast<int64_t>(actual_norm.arr_size());
+                bindings[asv] = pool_->alloc(std::move(lt));
+            }
+        }
         break;
     case LogosType::Kind::Slice:
         if (actual_norm.kind() == LogosType::Kind::Slice)
