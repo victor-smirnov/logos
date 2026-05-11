@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum-discriminant/issue-51582.rs
+// Modifications: `#[repr(i8)]` dropped (Logos has different repr
+// attribute spelling — `enum E : i8 { ... }`); the explicit backing
+// type is preserved via the `: i8` syntax. `std::intrinsics::
+// discriminant_value` dropped (Logos has no equivalent intrinsic).
+// The headline check — `make_b() as <int>` produces the variant's
+// integer value 1 — is preserved.
+package enum_discriminant_issue_51582;
+
+use std.fmt;
+use std.lang.text;
+
+pub enum Enum : i8 {
+    VariantA = 0,
+    VariantB = 1,
+}
+
+fn make_b() -> Enum { return Enum::VariantB; }
+
+fn main() -> i32 {
+    assert_eq!(1i8, make_b() as i8);
+    assert_eq!(1u8, make_b() as u8);
+    assert_eq!(1i32, make_b() as i32);
+    assert_eq!(1u32, make_b() as u32);
+    return 0;
+}
