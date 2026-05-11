@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/parser/generics-rangle-eq-15043.rs
+// Modifications: Rust's tuple-struct `struct S<T>(T)` is not in Logos —
+// use a named field `S<T> { v: T }` instead, which preserves what the
+// test is really checking: parsing `S<S<usize>> = S { ... }` and
+// `S<usize> = S { ... }` (the `>>` token boundary near `=`).
+package generics_rangle_eq_15043;
+
+struct S<T> { v: T }
+
+fn main() -> i32 {
+    let _foo1: S<S<usize>> = S::<S<usize>> { v: S::<usize> { v: 0usize } };
+    let _foo2: S<usize> = S::<usize> { v: 0usize };
+    return 0;
+}

@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/parser/operator-precedence-braces-exprs.rs
+// Modifications: explicit i64 suffixes; Logos has block-as-expression so
+// `{ 1 + { 2 } * { 3 } }` evaluates as in Rust.
+package operator_precedence_braces_exprs;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let v1: i64 = { 1i64 + { 2i64 } * { 3i64 } };
+    let v2: i64 = 1i64 + { 2i64 } * { 3i64 };
+
+    assert_eq!(7i64, v1);
+    assert_eq!(7i64, v2);
+
+    let v3: i64 = { 1i64 + { 2i64 } * { 3i64 } };
+    let v4: i64 = 1i64 + { 2i64 } * { 3i64 };
+    assert_eq!(7i64, v3);
+    assert_eq!(7i64, v4);
+
+    let v5: i64 = { 1i64 + { 2i64 } * 3i64 };
+    assert_eq!(7i64, v5);
+
+    let v9: i64 = { 1i64 + if 1i64 > 2i64 { 1i64 } else { 2i64 } * { 3i64 } };
+    assert_eq!(7i64, v9);
+    return 0;
+}

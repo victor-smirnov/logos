@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/parser/nested-block-comments.rs
+// Modifications: `pub fn main()` → `fn main() -> i32`; `let _x` etc.
+// remain valid Logos.
+package nested_block_comments;
+
+/* This test checks that nested comments are supported
+
+   /* This is a nested comment
+      /* And this is even more deeply nested */
+      Back to the first level of nesting
+   */
+
+   /* Another nested comment at the same level */
+*/
+
+/* Additional test cases for nested comments */
+
+/*
+    /* Level 1
+        /* Level 2
+            /* Level 3 */
+         */
+    */
+*/
+
+fn main() -> i32 {
+    let _x: i64 = 42i64;
+
+    /* Even inline /* nested */ comments work */
+    let _y: i64 = /* nested /* comment */ test */ 100i64;
+    return 0;
+}

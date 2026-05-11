@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/parser/as-precedence.rs
+// Modifications: ports as-is via the Logos `assert_eq!` macro; integer
+// literals carry explicit suffixes since Logos doesn't infer the integer
+// type for unsuffixed literals the way rustc does.
+package as_precedence;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    assert_eq!(3i64 as usize * 3usize, 9usize);
+    assert_eq!((3i64 as usize) * 3usize, 9usize);
+    assert_eq!((3i64 as usize) / 3usize, 1usize);
+    assert_eq!(3i64 as usize + 3usize, 6usize);
+    assert_eq!((3i64 as usize) + 3usize, 6usize);
+    return 0;
+}

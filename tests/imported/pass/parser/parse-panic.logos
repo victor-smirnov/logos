@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/parser/parse-panic.rs
+// Modifications: rust `panic!()` + `println!("{}", 1)` ports as `panic("")`
+// (no formatted message). The function is never called, so reachability
+// doesn't matter — point is that the parser accepts the construct.
+package parse_panic;
+
+use std.lang.panic;
+use std.fmt;
+use std.lang.text;
+
+fn dont_call_me() {
+    panic("");
+    let _: i64 = 1i64;
+}
+
+fn main() -> i32 {
+    return 0;
+}

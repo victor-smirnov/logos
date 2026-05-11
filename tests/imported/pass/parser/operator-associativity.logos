@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/parser/operator-associativity.rs
+// Modifications: integer literals carry explicit i64 suffix.
+package operator_associativity;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    assert_eq!(3i64 * 5i64 / 2i64, 7i64);
+    return 0;
+}

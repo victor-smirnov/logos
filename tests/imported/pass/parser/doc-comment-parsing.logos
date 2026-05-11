@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/parser/doc-comment-parsing.rs
+// Modifications: `pub fn main()` → `fn main() -> i32`; semicolon-only
+// expression statement `5;` translated as `let _ = 5i64;` since Logos
+// doesn't accept bare integer literals as statements.
+package doc_comment_parsing;
+
+fn main() -> i32 {
+    //// I am not a doc comment!
+    ////////////////// still not a doc comment
+    /////**** nope, me neither */
+    /*** And neither am I! */
+    let _: i64 = 5i64;
+    /*****! certainly not I */
+    return 0;
+}

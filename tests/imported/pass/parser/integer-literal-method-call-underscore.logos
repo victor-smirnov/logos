@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/parser/integer-literal-method-call-underscore.rs
+// Modifications: trait method on i32 invoked directly on the literal
+// `42i32._method_on_numbers()`; tests that the lexer doesn't fold the
+// underscore into the literal suffix.
+package integer_literal_method_call_underscore;
+
+trait Tr {
+    fn _method_on_numbers(self: Self);
+}
+
+impl Tr for i32 {
+    fn _method_on_numbers(self: i32) {}
+}
+
+fn main() -> i32 {
+    42i32._method_on_numbers();
+    return 0;
+}

@@ -18,7 +18,7 @@ per-file rows below.
 
 | Batch | rustc commit (SHA) | Date | Imported by | Scope |
 |---|---|---|---|---|
-| B1 (pin only — actual imports land in later batches) | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-10 | Victor Smirnov | parser top-level (planned) |
+| B1 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | parser top-level (11 tests) |
 
 To kick off a batch:
 
@@ -43,7 +43,17 @@ Columns:
 
 | Our path | rustc path | Commit | Modifications |
 |---|---|---|---|
-| _no imports yet_ |  |  |  |
+| `pass/parser/as-precedence.logos` | `tests/ui/parser/as-precedence.rs` | B1 | suffixed integer literals; ports as-is via `assert_eq!` |
+| `pass/parser/doc-comment-parsing.logos` | `tests/ui/parser/doc-comment-parsing.rs` | B1 | `pub fn main()` → `fn main() -> i32`; bare `5;` → `let _: i64 = 5;` |
+| `pass/parser/generics-rangle-eq-15043.logos` | `tests/ui/parser/generics-rangle-eq-15043.rs` | B1 | tuple-struct `S<T>(T)` → named-field `S<T> { v: T }` (Logos has no tuple structs) |
+| `pass/parser/integer-literal-method-call-underscore.logos` | `tests/ui/parser/integer-literal-method-call-underscore.rs` | B1 | trait method signature carries explicit `self: Self` |
+| `pass/parser/multiline-comments-basic.logos` | `tests/ui/parser/multiline-comments-basic.rs` | B1 | `pub fn main()` → `fn main() -> i32` |
+| `pass/parser/nested-block-comments.logos` | `tests/ui/parser/nested-block-comments.rs` | B1 | `pub fn main()` → `fn main() -> i32` |
+| `pass/parser/operator-associativity.logos` | `tests/ui/parser/operator-associativity.rs` | B1 | suffixed literals; uses `assert_eq!` |
+| `pass/parser/operator-precedence-braces-exprs.logos` | `tests/ui/parser/operator-precedence-braces-exprs.rs` | B1 | suffixed literals; relies on Logos block-as-expression |
+| `pass/parser/parse-panic.logos` | `tests/ui/parser/parse-panic.rs` | B1 | `panic!()` / `println!()` → `panic("")` / `let _ = 1;` (function is never called) |
+| `pass/parser/reference-whitespace-parsing.logos` | `tests/ui/parser/reference-whitespace-parsing.rs` | B1 | trimmed to `&T` depth 1 (Logos `&&T` / whitespace-tolerant `&` stacking at type position is a tracked grammar gap, see `docs/track3-gaps/parser-gaps.md`) |
+| `pass/parser/super-fast-paren-parsing.logos` | `tests/ui/parser/super-fast-paren-parsing.rs` | B1 | `static a: isize = (...)` → `const A: isize = (...)` |
 
 ## When upstream changes
 

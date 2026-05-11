@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/parser/multiline-comments-basic.rs
+// Modifications: Logos `pub fn main()` becomes `fn main() -> i32` with
+// explicit zero return.
+package multiline_comments_basic;
+
+/*
+ * This is a multi-line comment.
+ */
+fn main() -> i32 {
+    return 0;
+}

@@ -349,10 +349,15 @@ function(logos_add_grouped_test MODE BASE EXP_FILE LOGOS_FILE SUITE)
 endfunction()
 
 # ── Pass tests ────────────────────────────────────────────────────────────────
-# Both .logos and .expected live in tests/logos/pass/.
+# Both .logos and .expected live in tests/logos/pass/ (native suite).
+# Imported rust-derived tests live in tests/imported/{pass,fail}/<category>/
+# and are discovered with GLOB_RECURSE under their category subtrees.
 
 file(GLOB LOCAL_PASS_EXPECTED CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/pass/*.expected)
+file(GLOB_RECURSE IMPORTED_PASS_EXPECTED CONFIGURE_DEPENDS
+    ${CMAKE_SOURCE_DIR}/tests/imported/pass/*.expected)
+list(APPEND LOCAL_PASS_EXPECTED ${IMPORTED_PASS_EXPECTED})
 list(SORT LOCAL_PASS_EXPECTED)
 
 # ── Fail tests ────────────────────────────────────────────────────────────────
@@ -360,13 +365,16 @@ list(SORT LOCAL_PASS_EXPECTED)
 
 file(GLOB FAIL_EXPECTED CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/fail/*.expected)
+file(GLOB_RECURSE IMPORTED_FAIL_EXPECTED CONFIGURE_DEPENDS
+    ${CMAKE_SOURCE_DIR}/tests/imported/fail/*.expected)
+list(APPEND FAIL_EXPECTED ${IMPORTED_FAIL_EXPECTED})
 list(SORT FAIL_EXPECTED)
 
 # Register tests in suite order so plain `ctest` runs them in grouped batches.
 foreach(SUITE IN LISTS LOGOS_SUITE_ORDER)
     foreach(EXP_FILE IN LISTS LOCAL_PASS_EXPECTED)
         get_filename_component(BASE ${EXP_FILE} NAME_WE)
-        set(LOGOS_FILE ${CMAKE_CURRENT_SOURCE_DIR}/pass/${BASE}.logos)
+        string(REGEX REPLACE "\\.expected$" ".logos" LOGOS_FILE ${EXP_FILE})
 
         if (NOT EXISTS ${LOGOS_FILE})
             message(WARNING "logos test: no .logos for ${EXP_FILE}, skipping")
@@ -381,7 +389,7 @@ foreach(SUITE IN LISTS LOGOS_SUITE_ORDER)
 
     foreach(EXP_FILE IN LISTS FAIL_EXPECTED)
         get_filename_component(BASE ${EXP_FILE} NAME_WE)
-        set(LOGOS_FILE ${CMAKE_CURRENT_SOURCE_DIR}/fail/${BASE}.logos)
+        string(REGEX REPLACE "\\.expected$" ".logos" LOGOS_FILE ${EXP_FILE})
 
         if (NOT EXISTS ${LOGOS_FILE})
             message(WARNING "logos test: no .logos for ${EXP_FILE}, skipping")
