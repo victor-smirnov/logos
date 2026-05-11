@@ -9755,6 +9755,94 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
         }
     }
 
+    // Slice 4.2 — sema-time format-string validation. For the canonical
+    // format-family macros (format/print/println/eprint/eprintln) we
+    // peek at args[0]: when it's a string literal, count `{}` placeholders
+    // (with `{{` / `}}` escape) and validate against (arg count - 1).
+    // Non-literal first args (e.g. `format!(s, x)` for variable s) skip
+    // the check — same as Rust's `format_args!` macro.
+    bool is_format_family =
+        callee_name == "format"   || callee_name == "print"   ||
+        callee_name == "println"  || callee_name == "eprint"  ||
+        callee_name == "eprintln";
+    if (is_format_family && !arg_avs.empty() && arg_avs[0].is_pointer()) {
+        auto* fmt_tom = reinterpret_cast<TinyObjectMap*>(
+            const_cast<uint8_t*>(src_base) + arg_avs[0].to_offset().value());
+        int32_t fc = 0;
+        if (fmt_tom->has_key(la::CODE.code)) {
+            AnyVal cv = fmt_tom->get(la::CODE.code, const_cast<uint8_t*>(src_base));
+            if (!cv.is_null() && !cv.is_pointer()) fc = cv.as_value<int32_t>();
+        }
+        if (fc == la::LIT_STR.code && fmt_tom->has_key(la::VALUE.code)) {
+            // Read VALUE via wrap_doc's base — the global str_of() uses
+            // the main holder_, which would mis-read here.
+            AnyVal vav = fmt_tom->get(la::VALUE.code,
+                                      const_cast<uint8_t*>(src_base));
+            std::string_view raw;
+            if (!vav.is_null() && vav.is_pointer()) {
+                const auto* as = reinterpret_cast<const logos::hermes::ArenaString*>(
+                    src_base + vav.to_offset().value());
+                raw = as->view();
+            }
+            // Strip surrounding quotes (lex preserves them).
+            std::string_view body = raw;
+            if (body.size() >= 2 && body.front() == '"' && body.back() == '"')
+                body = body.substr(1, body.size() - 2);
+            // Count placeholders, honour `{{` / `}}` escapes.
+            int64_t placeholders = 0;
+            int64_t open_unmatched = -1;
+            int64_t close_unmatched = -1;
+            for (size_t i = 0; i < body.size(); ++i) {
+                char c = body[i];
+                if (c == '{') {
+                    if (i + 1 < body.size() && body[i + 1] == '{') {
+                        ++i;  // escape
+                        continue;
+                    }
+                    // Find closing '}'.
+                    size_t j = i + 1;
+                    while (j < body.size() && body[j] != '}') ++j;
+                    if (j >= body.size()) {
+                        open_unmatched = static_cast<int64_t>(i);
+                        break;
+                    }
+                    ++placeholders;
+                    i = j;
+                } else if (c == '}') {
+                    if (i + 1 < body.size() && body[i + 1] == '}') {
+                        ++i;  // escape
+                        continue;
+                    }
+                    close_unmatched = static_cast<int64_t>(i);
+                    break;
+                }
+            }
+            if (open_unmatched >= 0) {
+                error(std::format(
+                    "{}!: unmatched `{{` at format-string offset {}",
+                    callee_name, open_unmatched));
+            } else if (close_unmatched >= 0) {
+                error(std::format(
+                    "{}!: unmatched `}}` at format-string offset {} "
+                    "(use `}}}}` to escape)",
+                    callee_name, close_unmatched));
+            } else {
+                int64_t args_provided = static_cast<int64_t>(arg_avs.size()) - 1;
+                if (placeholders != args_provided) {
+                    error(std::format(
+                        "{}!: format string has {} placeholder{} but "
+                        "{} argument{} provided",
+                        callee_name,
+                        placeholders, (placeholders == 1 ? "" : "s"),
+                        args_provided, (args_provided == 1 ? "" : "s")));
+                }
+            }
+        } else if (arg_avs.size() < 1) {
+            error(std::format(
+                "{}!: requires a format-string argument", callee_name));
+        }
+    }
+
     if (sig_single && arg_avs.size() != 1) {
         error(std::format(
             "fn_macro: '{}!' expects exactly 1 arg (callee takes ExprBlob), got {}",

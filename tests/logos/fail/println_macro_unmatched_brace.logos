@@ -1,0 +1,10 @@
+// Slice 4.2: unmatched `}` in format string — sema must diag with
+// the byte-offset of the offending close-brace.
+package println_macro_unmatched_brace;
+
+use std.fmt;
+
+fn main() -> i32 {
+    println!("hello } world");
+    return 0;
+}

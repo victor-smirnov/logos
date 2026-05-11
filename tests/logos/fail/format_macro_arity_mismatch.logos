@@ -1,0 +1,12 @@
+// Slice 4.2: sema-time format-string validation. The format string
+// has 2 placeholders but only 1 arg is provided after it — sema must
+// diag the mismatch before the macro JIT runs.
+package format_macro_arity_mismatch;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let s: String = format!("n={}, m={}", 40i32);
+    return s.len() as i32;
+}
