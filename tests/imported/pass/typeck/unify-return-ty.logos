@@ -1,15 +1,16 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/typeck/unify-return-ty.rs
 // Modifications: `mem::transmute` → explicit `as *const T` cast
-// (Logos has no `mem::transmute`); fn name `null` → `null_p`
-// because `null` is a Logos keyword (KW_NULL in logos.peg).
+// (Logos has no `mem::transmute` — K10-co-03). Fn name `null` is now
+// admitted (K10-co-02 closed via fn_def's KW_NULL alternative in
+// logos.peg).
 package unify_return_ty;
 
-fn null_p<T>() -> *const T {
+fn null<T>() -> *const T {
     return 0usize as *const T;
 }
 
 fn main() -> i32 {
-    let _p: *const isize = null_p::<isize>();
+    let _p: *const isize = null::<isize>();
     return 0;
 }

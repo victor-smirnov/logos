@@ -690,6 +690,22 @@
                  => { CODE: FN, NAME: $2, PARAMS: $4, BODY: $6 }
                   / KW_FN IDENT LPAREN param_list? RPAREN SEMI
                  => { CODE: FN, NAME: $2, PARAMS: $4 }
+                  / KW_FN KW_NEW LPAREN param_list? RPAREN ARROW type_ref block
+                 => { CODE: FN, NAME: $2, PARAMS: $4, RET_TYPE: $7, BODY: $8 }
+                  / KW_FN KW_NEW LPAREN param_list? RPAREN ARROW type_ref SEMI
+                 => { CODE: FN, NAME: $2, PARAMS: $4, RET_TYPE: $7 }
+                  / KW_FN KW_NEW LPAREN param_list? RPAREN block
+                 => { CODE: FN, NAME: $2, PARAMS: $4, BODY: $6 }
+                  / KW_FN KW_NEW LPAREN param_list? RPAREN SEMI
+                 => { CODE: FN, NAME: $2, PARAMS: $4 }
+                  / KW_FN KW_NULL LPAREN param_list? RPAREN ARROW type_ref block
+                 => { CODE: FN, NAME: $2, PARAMS: $4, RET_TYPE: $7, BODY: $8 }
+                  / KW_FN KW_NULL LPAREN param_list? RPAREN ARROW type_ref SEMI
+                 => { CODE: FN, NAME: $2, PARAMS: $4, RET_TYPE: $7 }
+                  / KW_FN KW_NULL LPAREN param_list? RPAREN block
+                 => { CODE: FN, NAME: $2, PARAMS: $4, BODY: $6 }
+                  / KW_FN KW_NULL LPAREN param_list? RPAREN SEMI
+                 => { CODE: FN, NAME: $2, PARAMS: $4 }
                   / KW_TYPE IDENT type_param_list (COLON trait_bound (PLUS trait_bound)*)? SEMI
                  => { CODE: ASSOC_TYPE_DEF, NAME: $2, TYPE_PARAMS: $3, ITEMS: $... }
                   / KW_TYPE IDENT (COLON trait_bound (PLUS trait_bound)*)? SEMI
@@ -856,7 +872,15 @@
               => { CODE: FIELD_DEF, NAME_VAR: $2, TYPE: $4 }
                / KW_PUB IDENT COLON type_ref COMMA?
               => { CODE: FIELD_DEF, IS_PUB: 1, NAME: $2, TYPE: $4 }
+               / KW_PUB KW_NEW COLON type_ref COMMA?
+              => { CODE: FIELD_DEF, IS_PUB: 1, NAME: $2, TYPE: $4 }
+               / KW_PUB KW_NULL COLON type_ref COMMA?
+              => { CODE: FIELD_DEF, IS_PUB: 1, NAME: $2, TYPE: $4 }
                / IDENT COLON type_ref COMMA?
+              => { CODE: FIELD_DEF, NAME: $1, TYPE: $3 }
+               / KW_NEW COLON type_ref COMMA?
+              => { CODE: FIELD_DEF, NAME: $1, TYPE: $3 }
+               / KW_NULL COLON type_ref COMMA?
               => { CODE: FIELD_DEF, NAME: $1, TYPE: $3 }
                / IDENT DOTDOTDOT COLON type_ref COMMA?
               => { CODE: FIELD_DEF, NAME: $1, TYPE: $4, IS_VARIADIC: 1 }
@@ -895,6 +919,14 @@
                => { CODE: FN, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, WHERE: $10, BODY: $11 }
                 / KW_PUB KW_FN IDENT type_param_list? LPAREN param_list? RPAREN where_clause? block
                => { CODE: FN, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8, BODY: $9 }
+                / KW_PUB KW_FN KW_NEW type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
+               => { CODE: FN, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, WHERE: $10, BODY: $11 }
+                / KW_PUB KW_FN KW_NEW type_param_list? LPAREN param_list? RPAREN where_clause? block
+               => { CODE: FN, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8, BODY: $9 }
+                / KW_PUB KW_FN KW_NULL type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
+               => { CODE: FN, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, WHERE: $10, BODY: $11 }
+                / KW_PUB KW_FN KW_NULL type_param_list? LPAREN param_list? RPAREN where_clause? block
+               => { CODE: FN, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8, BODY: $9 }
 
     // ── Private function ─────────────────────────────────────────
     fn_def <- KW_UNSAFE KW_FN HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
@@ -913,9 +945,13 @@
            => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RET_TYPE: $8, WHERE: $9, BODY: $10 }
             / KW_FN KW_NEW type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
            => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RET_TYPE: $8, WHERE: $9, BODY: $10 }
+            / KW_FN KW_NULL type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
+           => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RET_TYPE: $8, WHERE: $9, BODY: $10 }
             / KW_FN IDENT  type_param_list? LPAREN param_list? RPAREN where_clause? block
            => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, WHERE: $7, BODY: $8 }
             / KW_FN KW_NEW type_param_list? LPAREN param_list? RPAREN where_clause? block
+           => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, WHERE: $7, BODY: $8 }
+            / KW_FN KW_NULL type_param_list? LPAREN param_list? RPAREN where_clause? block
            => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, WHERE: $7, BODY: $8 }
 
     // Trailing comma allowed except when followed by `...` (variadic
@@ -1570,6 +1606,10 @@
                    => { CODE: METHOD_CALL, RECEIVER: $0, NAME: $2, TYPE_PARAMS: $5, ARGS: $8 }
                / DOT IDENT LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
                    => { CODE: METHOD_CALL, RECEIVER: $0, NAME: $2, ARGS: $... }
+               / DOT KW_NEW LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
+                   => { CODE: METHOD_CALL, RECEIVER: $0, NAME: $2, ARGS: $... }
+               / DOT KW_NULL LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
+                   => { CODE: METHOD_CALL, RECEIVER: $0, NAME: $2, ARGS: $... }
                / DOT INTEGER
                    => { CODE: TUPLE_INDEX, RECEIVER: $0, FIELD: $2 }
                / DOT HASH LPAREN expr RPAREN
@@ -1577,6 +1617,10 @@
                / DOT HASH IDENT
                    => { CODE: FIELD_READ, RECEIVER: $0, NAME_VAR: $3 }
                / DOT IDENT
+                   => { CODE: FIELD_READ, RECEIVER: $0, FIELD: $2 }
+               / DOT KW_NEW
+                   => { CODE: FIELD_READ, RECEIVER: $0, FIELD: $2 }
+               / DOT KW_NULL
                    => { CODE: FIELD_READ, RECEIVER: $0, FIELD: $2 }
                / LBRACKET expr RBRACKET
                    => { CODE: INDEX_READ, RECEIVER: $0, VALUE: $2 }
@@ -1696,6 +1740,10 @@
                 => { CODE: METHOD_CALL, RECEIVER: $0, NAME: $2, TYPE_PARAMS: $5, ARGS: $8 }
             / DOT IDENT LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
                 => { CODE: METHOD_CALL, RECEIVER: $0, NAME: $2, ARGS: $... }
+            / DOT KW_NEW LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
+                => { CODE: METHOD_CALL, RECEIVER: $0, NAME: $2, ARGS: $... }
+            / DOT KW_NULL LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
+                => { CODE: METHOD_CALL, RECEIVER: $0, NAME: $2, ARGS: $... }
             / DOT INTEGER
                 => { CODE: TUPLE_INDEX, RECEIVER: $0, FIELD: $2 }
             / DOT HASH LPAREN expr RPAREN
@@ -1703,6 +1751,10 @@
             / DOT HASH IDENT
                 => { CODE: FIELD_READ, RECEIVER: $0, NAME_VAR: $3 }
             / DOT IDENT
+                => { CODE: FIELD_READ, RECEIVER: $0, FIELD: $2 }
+            / DOT KW_NEW
+                => { CODE: FIELD_READ, RECEIVER: $0, FIELD: $2 }
+            / DOT KW_NULL
                 => { CODE: FIELD_READ, RECEIVER: $0, FIELD: $2 }
             / LBRACKET expr RBRACKET
                 => { CODE: INDEX_READ, RECEIVER: $0, VALUE: $2 }
@@ -1816,6 +1868,10 @@
               / HASH IDENT COLON expr
                => { CODE: FIELD_INIT, NAME_VAR: $2, VALUE: $4 }
               / IDENT COLON expr
+               => { CODE: FIELD_INIT, NAME: $1, VALUE: $3 }
+              / KW_NEW COLON expr
+               => { CODE: FIELD_INIT, NAME: $1, VALUE: $3 }
+              / KW_NULL COLON expr
                => { CODE: FIELD_INIT, NAME: $1, VALUE: $3 }
               / IDENT
                => { CODE: FIELD_SHORTHAND, NAME: $1 }
@@ -2043,6 +2099,10 @@
               => { CODE: STATIC_CALL, RECEIVER: $1, TYPE_PARAMS: $4, NAME: $7, ARGS: $9 }
                / IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE LPAREN call_arg_list? RPAREN
               => { CODE: GENERIC_CALL, CALLEE: $1, TYPE_PARAMS: $4, ARGS: $7 }
+               / KW_NEW COLONCOLON LT_TYPE type_arg_list GT_TYPE LPAREN call_arg_list? RPAREN
+              => { CODE: GENERIC_CALL, CALLEE: $1, TYPE_PARAMS: $4, ARGS: $7 }
+               / KW_NULL COLONCOLON LT_TYPE type_arg_list GT_TYPE LPAREN call_arg_list? RPAREN
+              => { CODE: GENERIC_CALL, CALLEE: $1, TYPE_PARAMS: $4, ARGS: $7 }
                / IDENT COLONCOLON IDENT  LPAREN call_arg_list? RPAREN
               => { CODE: STATIC_CALL, RECEIVER: $1, NAME: $3, ARGS: $5 }
                / IDENT COLONCOLON KW_NEW LPAREN call_arg_list? RPAREN
@@ -2056,5 +2116,9 @@
                / HASH LPAREN expr RPAREN LPAREN expr (COMMA expr)* COMMA? RPAREN
               => { CODE: CALL, NAME_VAR: $3, ARGS: $... }
                / IDENT LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
+              => { CODE: CALL, CALLEE: $1, ARGS: $... }
+               / KW_NEW LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
+              => { CODE: CALL, CALLEE: $1, ARGS: $... }
+               / KW_NULL LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
               => { CODE: CALL, CALLEE: $1, ARGS: $... }
 }

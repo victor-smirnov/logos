@@ -1,20 +1,18 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/structs/struct-new-as-field-name.rs
-// Modifications: `new` is a Logos keyword (KW_NEW in logos.peg). The
-// grammar permits it as a method name (logos.peg:788 comment) but not
-// as a struct field name. Renamed to `new_field` here. The test's
-// headline property — a struct uses an arbitrary identifier as field
-// name — is preserved. Closing the keyword-as-ident gap (S8-st-01)
-// lets us un-rename.
+// Modifications: none. Logos now accepts `new` (and `null`) as struct
+// field names — gap S8-st-01 closed by extending the field_def /
+// field_init / field_read productions in logos.peg with KW_NEW and
+// KW_NULL alternatives.
 package struct_new_as_field_name;
 
 use std.fmt;
 use std.lang.text;
 
-struct Foo { new_field: isize }
+struct Foo { new: isize }
 
 fn main() -> i32 {
-    let foo: Foo = Foo { new_field: 3isize };
-    assert_eq!(foo.new_field, 3isize);
+    let foo: Foo = Foo { new: 3isize };
+    assert_eq!(foo.new, 3isize);
     return 0;
 }

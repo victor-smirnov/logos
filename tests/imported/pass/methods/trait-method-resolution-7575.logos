@@ -1,37 +1,36 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/methods/trait-method-resolution-7575.rs
 // Modifications: trait default-bodies dropped (Logos requires trait
-// methods to be declarations only — no default impl on a trait); both
-// methods get full bodies via `impl Bar/Foo for isize`. Method name
-// `new` rejected by Logos's trait-body grammar specifically (tracked
-// gap M7-mt-01) — renamed to `mk` here. The test's headline property
-// — `x.mk()` resolves to `Bar::mk` (the `&self` variant) rather than
-// `Foo::mk_static` (the static one) — is preserved.
+// methods to be declarations only — no default impl on a trait —
+// gap M7-mt-02 still open); both methods get full bodies via
+// `impl Bar/Foo for isize`. Method name `new` un-renamed — gap
+// M7-mt-01 (alias of S8-st-01) closed: trait_method / fn_def /
+// pub_fn_def now admit KW_NEW as method name.
 package trait_method_resolution_7575;
 
 use std.fmt;
 use std.lang.text;
 
 trait Foo {
-    fn mk_static() -> bool;
+    fn new() -> bool;
     fn dummy(self: &Self);
 }
 
 trait Bar {
-    fn mk(self: &Self) -> bool;
+    fn new(self: &Self) -> bool;
 }
 
 impl Bar for isize {
-    fn mk(self: &isize) -> bool { return true; }
+    fn new(self: &isize) -> bool { return true; }
 }
 
 impl Foo for isize {
-    fn mk_static() -> bool { return false; }
+    fn new() -> bool { return false; }
     fn dummy(self: &isize) {}
 }
 
 fn main() -> i32 {
     let x: isize = 1isize;
-    assert!(x.mk());
+    assert!(x.new());
     return 0;
 }
