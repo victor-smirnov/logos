@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/recursion/recursive-struct-with-raw-pointer-field.rs
+// Modifications: `core::ptr::null_mut()` → `0usize as *mut [Loopy; 1]`
+// (Logos has no `core::ptr::null_mut()` shim).
+package recursive_struct_with_raw_pointer_field;
+
+struct Loopy { ptr: *mut [Loopy; 1] }
+
+fn main() -> i32 {
+    let _t: Loopy = Loopy { ptr: 0usize as *mut [Loopy; 1] };
+    return 0;
+}
