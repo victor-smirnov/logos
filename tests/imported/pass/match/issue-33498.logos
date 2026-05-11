@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/issue-33498.rs
+// Modifications: explicit `(i32, i32)` annotation + i32 suffixes.
+// Rust's `ref y` binding becomes plain `y` (Logos tuple-pattern
+// elements don't support `ref` binding inside the tuple shape yet;
+// the original arms only exercise that pattern compiles, the
+// bound names are unused).
+package m_issue_33498;
+
+fn main() -> i32 {
+    let x: (i32, i32) = (0i32, 2i32);
+    match x {
+        (0i32, y) => { let _ = y; }
+        (y, 0i32) => { let _ = y; }
+        _         => { }
+    }
+    return 0;
+}
