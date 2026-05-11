@@ -1,7 +1,7 @@
-// vec![a, b, c] via fn-macros + block-as-expression. Emits
-// `{ let mut v: Vec<_>... = vec_new(); v.push(a); v.push(b); v.push(c); v }`
-// — the user's let annotation `let v: Vec<i32> = vec![...]` flows through
-// the block tail expression so T = i32 falls out without turbofish.
+// vec!(a, b, c) → vec_from_arr([a, b, c]) — single-call lowering.
+// Both element type and array length flow through unify_types' array
+// branches; the user's `let v: Vec<T> = ...` annotation is the only
+// type hint needed.
 package fn_macro_vec_basic;
 
 use std.compiler.metaprog;
@@ -9,13 +9,7 @@ use std.collections.vec;
 
 #[fn_macro]
 pub fn vec(elems: Vec<ExprBlob>) -> ExprBlob {
-    return quote_expr! {
-        {
-            let mut __v = vec_new();
-            #(__v.push(#elems);)*
-            __v
-        }
-    };
+    return quote_expr! { vec_from_arr([#(#elems),*]) };
 }
 
 fn main() -> i32 {

@@ -26,6 +26,20 @@ pub fn vec_new<T>() -> Vec<T> {
     return Vec { ptr: ptr, len: 0, cap: init_cap };
 }
 
+// `vec_from_arr([1, 2, 3])` — build a Vec from a fixed-size array,
+// inferring both element type and length from the argument shape (no
+// turbofish needed). Works hand-in-hand with the `vec!` fn-macro:
+// `vec!(1, 2, 3)` lowers to exactly this call.
+pub fn vec_from_arr<T: Copy, const N: i64>(arr: [T; N]) -> Vec<T> {
+    let mut v: Vec<T> = vec_new::<T>();
+    let mut i: i64 = 0i64;
+    while i < N {
+        v.push(arr[i]);
+        i = i + 1i64;
+    }
+    return v;
+}
+
 impl<T> Vec<T> {
     pub fn push(&mut self, val: T) {
         unsafe {
