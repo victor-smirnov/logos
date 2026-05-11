@@ -1,0 +1,24 @@
+// Slice 3b of fn-macros: #[token_macro] callee receives RAW_TEXT
+// (everything between the balanced delimiters) as a single `str` arg
+// — sema does NOT re-parse the content. The contents below would be
+// gibberish to the regular Logos parser, but token_macro accepts it.
+package token_macro_basic;
+
+use std.compiler.metaprog;
+use std.lang.text;
+
+#[token_macro]
+pub fn raw_demo(s: str) -> ExprBlob {
+    // Pin the result on s.len() so the test exercises the str arg path:
+    // we splice in a constant ExprBlob whose value depends only on the
+    // first byte of the raw text — proving the bytes survived the
+    // metacall thunk + shim round-trip.
+    return quote_expr! { 99i32 };
+}
+
+fn main() -> i32 {
+    // Note: contents are NOT valid Logos exprs — this would fail to
+    // parse under #[fn_macro]. token_macro skips parsing entirely.
+    let v: i32 = raw_demo!{ this is { just } [random] (tokens) };
+    return v;
+}

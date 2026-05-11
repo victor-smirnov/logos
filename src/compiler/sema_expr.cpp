@@ -9576,40 +9576,54 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
     for (const auto& sym : ovit->second) {
         auto fit = funcs_.find(sym);
         if (fit == funcs_.end()) continue;
-        if (fit->second.is_fn_macro) {
+        if (fit->second.is_fn_macro || fit->second.is_token_macro) {
             macro_info = &fit->second;
             break;
         }
     }
     if (!macro_info) {
         error(std::format(
-            "fn_macro: '{}' is not marked #[fn_macro]; only #[fn_macro] fns "
-            "are callable via name!(...) syntax",
+            "fn_macro: '{}' is not marked #[fn_macro] or #[token_macro]; "
+            "only macro-annotated fns are callable via name!(...) syntax",
             callee_name));
         return error_expr();
     }
 
-    // Two accepted signatures (slice 1 of fn-macros):
-    //   (a) (ExprBlob) -> ExprBlob              — exactly one ARG
-    //   (b) (Vec<ExprBlob>) -> ExprBlob         — N ARGs, packed in a Vec
-    // Validate before we serialise anything.
+    // Accepted signatures:
+    //   #[fn_macro]:
+    //     (a) (ExprBlob) -> ExprBlob              — exactly one ARG
+    //     (b) (Vec<ExprBlob>) -> ExprBlob         — N ARGs, packed in a Vec
+    //   #[token_macro] (slice 3b):
+    //     (c) (str) -> ExprBlob                   — raw bytes as `str`
     auto is_vec_exprblob = [](TypeRef t) -> bool {
         if (TypeRef(t).kind() != LogosType::Kind::Struct) return false;
         if (TypeRef(t).struct_name() != "Vec") return false;
         auto args = TypeRef(t).type_args();
         return args.size() == 1 && is_exprblob(args[0]);
     };
-    bool sig_single = macro_info->param_types.size() == 1
+    auto is_str_type = [](TypeRef t) -> bool {
+        return TypeRef(t).kind() == LogosType::Kind::Slice
+            && TypeRef(t).elem()
+            && TypeRef(t).elem().kind() == LogosType::Kind::U8;
+    };
+    bool sig_single = macro_info->is_fn_macro
+                   && macro_info->param_types.size() == 1
                    && is_exprblob(macro_info->param_types[0])
                    && is_exprblob(macro_info->ret_type);
-    bool sig_vec    = macro_info->param_types.size() == 1
+    bool sig_vec    = macro_info->is_fn_macro
+                   && macro_info->param_types.size() == 1
                    && is_vec_exprblob(macro_info->param_types[0])
                    && is_exprblob(macro_info->ret_type);
-    if (!sig_single && !sig_vec) {
-        error(std::format(
-            "fn_macro: '{}' must have signature `(ExprBlob) -> ExprBlob` "
-            "or `(Vec<ExprBlob>) -> ExprBlob`",
-            callee_name));
+    bool sig_str    = macro_info->is_token_macro
+                   && macro_info->param_types.size() == 1
+                   && is_str_type(macro_info->param_types[0])
+                   && is_exprblob(macro_info->ret_type);
+    if (!sig_single && !sig_vec && !sig_str) {
+        const char* expected = macro_info->is_token_macro
+            ? "`(str) -> ExprBlob`"
+            : "`(ExprBlob) -> ExprBlob` or `(Vec<ExprBlob>) -> ExprBlob`";
+        error(std::format("fn_macro: '{}' must have signature {}",
+                          callee_name, expected));
         return error_expr();
     }
 
@@ -9631,6 +9645,50 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
         return error_expr();
     }
     std::string raw_text(str_of(node.get(la::RAW_TEXT.code)));
+
+    // ── Slice 3b token-macro path ─────────────────────────────────────
+    // For #[token_macro] callees: skip the re-parse / per-arg
+    // serialisation pipeline entirely. The full RAW_TEXT bytes go into
+    // arg-blob slot 0 as a `[u64 size][bytes]` payload, and the thunk
+    // calls `str_from_raw(ptr, len)` before forwarding to the callee.
+    if (sig_str) {
+        uint64_t site_id = cur_prog_->metacall_sites.size();
+        auto& blobs = cur_prog_->macro_arg_blobs[site_id];
+        blobs.resize(1);
+        uint64_t sz = static_cast<uint64_t>(raw_text.size());
+        blobs[0].resize(8 + raw_text.size());
+        std::memcpy(blobs[0].data(), &sz, 8);
+        if (!raw_text.empty())
+            std::memcpy(blobs[0].data() + 8, raw_text.data(), raw_text.size());
+
+        std::string pkg = cur_package_.empty() ? "__metacall_thunks" : cur_package_;
+        std::string thunk_name = std::format("__metacall_thunk_{}", site_id);
+        std::string thunk_src = std::format(
+            "package {};\n"
+            "use std.compiler.metaprog;\n"
+            "use std.lang.text;\n"
+            "fn {}() -> ExprBlob {{\n"
+            "    let p: *const u8 = unsafe {{ logos_macro_arg({}u64, 0u64) }};\n"
+            "    let s: str = unsafe {{ str_from_raw(p, {}i64) }};\n"
+            "    return {}(s);\n"
+            "}}\n",
+            pkg, thunk_name, site_id,
+            static_cast<int64_t>(raw_text.size()),
+            macro_info->base_name);
+
+        lir::LProgram::MetacallSite site;
+        site.ast_idx = cur_ast_idx_;
+        site.expr_offset = static_cast<uint32_t>(node.offset().value());
+        site.thunk_name = thunk_name;
+        site.thunk_source = std::move(thunk_src);
+        site.ret_tag = lir::LProgram::MetacallSite::RetTag::ExprBlob;
+        site.callee_name = macro_info->base_name;
+        cur_prog_->metacall_sites.push_back(std::move(site));
+
+        lir::EHermesLit lit;
+        return builder().hermes_lit_v(std::move(lit), macro_info->ret_type);
+    }
+
     std::string wrap_src = std::format(
         "package __fn_macro_args;\nfn __f() {{ __c({}); }}\n", raw_text);
     logos::compiler::LogosParser wrap_parser(wrap_src);

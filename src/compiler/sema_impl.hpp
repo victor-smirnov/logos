@@ -695,6 +695,7 @@ private:
         if (name == "metaprog_handler")return bit(AttrTarget::Fn);
         if (name == "no_mangle")       return bit(AttrTarget::Fn);
         if (name == "fn_macro")        return bit(AttrTarget::Fn);
+        if (name == "token_macro")     return bit(AttrTarget::Fn);
         return 0u;  // not a builtin
     }
 
@@ -1190,6 +1191,7 @@ private:
                             bool is_pub = false; bool is_unsafe = false;
                             bool is_extern = false;
                             bool is_fn_macro = false;  // #[fn_macro] callee for name!(...)
+                            bool is_token_macro = false; // #[token_macro] callee (str RAW_TEXT)
                             std::string base_name;
                             std::string signature_key;
                             std::string symbol_name;
@@ -1267,6 +1269,11 @@ private:
     // collect_fn consumes it onto SemaFuncInfo.is_fn_macro. Function-style
     // macros `name!(...)` resolve only callees with this flag set.
     bool pending_fn_macro_ = false;
+    // Set when the upcoming collect_fn carries `#[token_macro]`. Reset
+    // after collect_fn consumes it. Token-macros receive their raw
+    // source text directly as a `str` arg (slice 3b of fn-macros);
+    // future slice 3c lifts this to a structured TokenStream.
+    bool pending_token_macro_ = false;
     // Set true when the trait being collected has a `#[type_code]` annotation.
     // collect_trait reads + clears it; SemaTraitInfo.is_hermes carries the
     // result through to reflect::<T>() dispatch.

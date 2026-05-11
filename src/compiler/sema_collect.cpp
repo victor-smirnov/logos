@@ -666,10 +666,12 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                 // name in symbol_name (program entry / inline-asm callees).
                 pending_no_mangle_ = false;
                 pending_fn_macro_ = false;
+                pending_token_macro_ = false;
                 for (auto& ann : pending_annots) {
                     auto nm = str_of(ann.get(la::NAME.code));
-                    if (nm == "no_mangle")  pending_no_mangle_ = true;
-                    if (nm == "fn_macro")   pending_fn_macro_  = true;
+                    if (nm == "no_mangle")    pending_no_mangle_ = true;
+                    if (nm == "fn_macro")     pending_fn_macro_  = true;
+                    if (nm == "token_macro")  pending_token_macro_ = true;
                 }
                 // Phase 7 slice 12: record `#[metaprog_handler("trigger")]`
                 // hooks. The annotation's first positional arg is the
@@ -2395,7 +2397,9 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
         info.is_unsafe = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
     }
     info.is_fn_macro = pending_fn_macro_;
+    info.is_token_macro = pending_token_macro_;
     pending_fn_macro_ = false;
+    pending_token_macro_ = false;
     pop_type_params(info.type_params);
     if (!impl_type_params_.empty()) {
         auto combined = impl_type_params_;
