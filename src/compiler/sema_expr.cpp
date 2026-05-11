@@ -5931,14 +5931,27 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
         return error_expr();
     }
 
-    // Lower payload arguments
+    // Lower payload arguments. ARGS is either a direct array (legacy
+    // `enum_lit` alt with `$...`) or a { ITEMS: [...] } map (turbofish
+    // alt routes through enum_lit_args sub-production). Accept both.
     std::vector<lir::LExprPtr> payload;
     if (node.has_key(la::ARGS)) {
-        auto args = arr_of(node.get(la::ARGS.code));
-        for (uint64_t i = 0; i < args.size(); ++i) {
-            auto e = lower_expr(map_of(args.get(i)));
-            if (TypeRef(e->type).kind() == LogosType::Kind::Void) continue;  // skip () unit args
-            payload.push_back(std::move(e));
+        AnyVal args_av = node.get(la::ARGS.code);
+        auto run = [&](auto items) {
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                auto e = lower_expr(map_of(items.get(i)));
+                if (TypeRef(e->type).kind() == LogosType::Kind::Void) continue;
+                payload.push_back(std::move(e));
+            }
+        };
+        if (!args_av.is_null()) {
+            if (args_av.is_pointer()) {
+                auto m = map_of(args_av);
+                if (m.has_key(la::ITEMS)) run(arr_of(m.get(la::ITEMS.code)));
+                else                       run(arr_of(args_av));
+            } else {
+                run(arr_of(args_av));
+            }
         }
     }
 

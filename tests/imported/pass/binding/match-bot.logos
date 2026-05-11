@@ -1,8 +1,7 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/binding/match-bot.rs
-// Modifications: `Option::Some::<isize>(3)` → `Option::Some(3isize)`
-// (turbofish on variant ctor not parsed; gap G3-tg-01); `println!`
-// dropped; assert via direct comparison.
+// Modifications: `println!` dropped; assert via direct comparison.
+// Turbofish on enum variant ctor (G3-tg-01) un-trimmed 2026-05-11.
 package match_bot;
 
 use std.fmt;
@@ -10,7 +9,7 @@ use std.lang.text;
 use std.lang.option;
 
 fn main() -> i32 {
-    let i: isize = match Option::Some(3isize) {
+    let i: isize = match Option::Some::<isize>(3isize) {
         Option::None => { return 99; }
         Option::Some(_) => 5isize,
     };

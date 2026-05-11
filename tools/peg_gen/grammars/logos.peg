@@ -1848,7 +1848,14 @@
                   / IDENT    => { CODE: VAR_REF,  NAME: $1 }
 
     // ── Enum variant literal: Color::Red or Option::Some(42) ──────
-    enum_lit <- IDENT COLONCOLON IDENT LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
+    enum_lit_args <- LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
+                  => { ITEMS: $... }
+
+    enum_lit <- IDENT COLONCOLON IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE enum_lit_args
+             => { CODE: ENUM_LIT_DATA, NAME: $1, FIELD: $3, TYPE_PARAMS: $6, ARGS: $8 }
+              / IDENT COLONCOLON IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE
+             => { CODE: ENUM_LIT, NAME: $1, FIELD: $3, TYPE_PARAMS: $6 }
+              / IDENT COLONCOLON IDENT LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
              => { CODE: ENUM_LIT_DATA, NAME: $1, FIELD: $3, ARGS: $... }
               / IDENT COLONCOLON IDENT
              => { CODE: ENUM_LIT, NAME: $1, FIELD: $3 }
