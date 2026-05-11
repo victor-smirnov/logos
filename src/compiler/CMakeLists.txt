@@ -70,9 +70,22 @@ add_executable(logosc
     sema_render.cpp
     sema_stmt.cpp
     sema_decl.cpp
+    trait_engine.cpp
     ctfe.cpp
     ${LOGOS_PARSER_CPP}
 )
+
+# ---------------------------------------------------------------------------
+# trait_engine_test — Phase 1 unit tests for the trait resolver engine.
+# Pure-data engine, no compiler integration; runs as a standalone bin.
+# ---------------------------------------------------------------------------
+add_executable(trait_engine_test
+    trait_engine.cpp
+    trait_engine_test.cpp
+)
+add_test(NAME trait_engine_test COMMAND trait_engine_test
+         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+set_tests_properties(trait_engine_test PROPERTIES LABELS "trait_engine;cpp")
 
 target_include_directories(logosc PRIVATE
     ${CMAKE_SOURCE_DIR}/include
