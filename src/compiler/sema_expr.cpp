@@ -6916,6 +6916,16 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 scan_captures_v(v.receiver()); scan_captures_v(v.index()); break;
             }
             case EC::Deref:        scan_captures_v(lir_view::EDerefView{e}.operand()); break;
+            // B3-bg-04 / C5-cl-05: `&x` / `&mut x` inside a closure body
+            // captures `x` from the enclosing scope just like a plain
+            // VarRef. mlir-gen-side EAddrOf reads scope_[name]; if name
+            // isn't listed as a capture the unpack-captures loop skips
+            // it and the alloca/load never happens, leaving scope_
+            // empty for `x`. Wiring the scanner to recognise AddrOf
+            // means the capture is collected and the closure body's
+            // `&x` resolves to the address of the unpacked capture
+            // alloca — same as if it had been read directly.
+            case EC::AddrOf:       add_capture(std::string(lir_view::EAddrOfView{e}.var_name())); break;
             case EC::Cast:         scan_captures_v(lir_view::ECastView{e}.operand()); break;
             case EC::EnumLitData:
                 lir_view::EEnumLitDataView{e}.each_payload([&](lir_view::ExprRef p){ scan_captures_v(p); });

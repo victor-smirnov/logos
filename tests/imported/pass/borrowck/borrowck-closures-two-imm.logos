@@ -2,12 +2,10 @@
 // Original path: tests/ui/borrowck/borrowck-closures-two-imm.rs
 // Modifications: Logos closures require explicit parameter / return
 // types and an explicit `return` (no bare-expression body); Rust's
-// trailing-expression `fn` returns become explicit `return`. The `b`
-// and `c` cases (which take `&x` inside a closure body, after `x` has
-// been captured by value) currently crash Logos's mlir-gen with
-// "mlir_gen: & undefined 'x'" — closure capture by reference / addr-of
-// a captured local is a tracked gap. Only the by-value-capture case
-// `fn a` is imported. Original test variant `a()` returns 1280.
+// trailing-expression `fn` returns become explicit `return`. The
+// `&x` inside a closure body case is now supported (B3-bg-04 /
+// C5-cl-05 closed 2026-05-11 — closure capture scanner now
+// recognises AddrOf expressions), so `b` and `c` are restored.
 package borrowck_closures_two_imm;
 
 use std.fmt;
@@ -21,7 +19,29 @@ fn a() -> i32 {
     return c1() * c2() * x;
 }
 
+fn get(x: &i32) -> i32 {
+    return *x * 4i32;
+}
+
+fn b() -> i32 {
+    let mut x: i32 = 3i32;
+    x = x + 1i32;
+    let c1 = || -> i32 { return get(&x); };
+    let c2 = || -> i32 { return get(&x); };
+    return c1() * c2() * x;
+}
+
+fn c() -> i32 {
+    let mut x: i32 = 3i32;
+    x = x + 1i32;
+    let c1 = || -> i32 { return x * 5i32; };
+    let c2 = || -> i32 { return get(&x); };
+    return c1() * c2() * x;
+}
+
 fn main() -> i32 {
     assert_eq!(a(), 1280i32);
+    assert_eq!(b(), 1024i32);
+    assert_eq!(c(), 1280i32);
     return 0;
 }

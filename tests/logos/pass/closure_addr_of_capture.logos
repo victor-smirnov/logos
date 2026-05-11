@@ -1,0 +1,21 @@
+// B3-bg-04 / C5-cl-05 regression: `&x` / `&mut x` inside a closure
+// body captures `x` from the enclosing scope. Without this, the
+// capture scanner missed AddrOf expressions and the unpack-captures
+// loop never bound `x` in the closure's local scope, so mlir-gen
+// emitted `& undefined 'x'`.
+package closure_addr_of_capture;
+
+fn get(p: &i32) -> i32 { return *p; }
+fn get_mut(p: &mut i32) -> i32 { return *p; }
+
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    let c = || -> i32 { return get(&x); };
+    if c() != 5i32 { return 1; }
+
+    let mut y: i32 = 7i32;
+    let d = || -> i32 { return get_mut(&mut y); };
+    if d() != 7i32 { return 2; }
+
+    return 0;
+}
