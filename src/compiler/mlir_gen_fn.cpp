@@ -267,8 +267,20 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
 
     gen_block(block_ref_of(fn.body));
 
-    if (!is_terminated(builder_.getBlock()))
-        builder_.create<mlir::func::ReturnOp>(loc_);
+    if (!is_terminated(builder_.getBlock())) {
+        if (ret_types.empty()) {
+            builder_.create<mlir::func::ReturnOp>(loc_);
+        } else {
+            // Non-void fn whose body fell through. Sema's reachability
+            // pass should have rejected genuinely missing returns; the
+            // fall-through here means sema accepted the path (e.g.
+            // exhaustive tuple/struct match without an explicit `_`
+            // arm) but mlir-gen's dispatch lowering doesn't know that
+            // and left the merge block live. Emit unreachable so the
+            // function verifies; dead code, never executed.
+            builder_.create<mlir::LLVM::UnreachableOp>(loc_);
+        }
+    }
 
     return true;
 }

@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original: derived test exercising tail-position `match (x, y) { ... }`
+// where each arm yields the function's return value. Closes a mlir-gen
+// gap where merge_block stayed live for non-exhaustive-looking tuple
+// dispatch and produced a returnless func.return in a non-void fn.
+package match_tuple_tail;
+
+use std.fmt;
+
+fn classify(x: bool, y: bool) -> u32 {
+    match (x, y) {
+        (false, _)   => 0u32,
+        (_, false)   => 1u32,
+        (true, true) => 2u32,
+        _            => 99u32,
+    }
+}
+
+fn main() -> i32 {
+    assert!(classify(false, true)  == 0u32);
+    assert!(classify(false, false) == 0u32);
+    assert!(classify(true,  false) == 1u32);
+    assert!(classify(true,  true)  == 2u32);
+    return 0;
+}
