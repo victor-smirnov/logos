@@ -5,6 +5,7 @@
 #include "sema_impl.hpp"
 #include "ctfe.hpp"
 #include "logos_parser.hpp"  // re-parse RAW_TEXT for fn-macro args
+#include "sema_fmt.hpp"      // format-string parser (slice 4.4)
 
 #include <logos/hermes/type_registry.hpp>
 #include <logos/hermes/type_tag.hpp>
@@ -9755,12 +9756,13 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
         }
     }
 
-    // Slice 4.2 — sema-time format-string validation. For the canonical
-    // format-family macros (format/print/println/eprint/eprintln) we
-    // peek at args[0]: when it's a string literal, count `{}` placeholders
-    // (with `{{` / `}}` escape) and validate against (arg count - 1).
-    // Non-literal first args (e.g. `format!(s, x)` for variable s) skip
-    // the check — same as Rust's `format_args!` macro.
+    // Slice 4.2 + 4.4a — sema-time format-string parse + validation
+    // for the canonical format-family (format/print/println/eprint/
+    // eprintln). The parser produces a structured segment list (slice
+    // 4.4b will lower each placeholder to an explicit trait call);
+    // here we just check arity + brace balance and surface diagnostics.
+    // Non-literal first args (e.g. `format!(s, x)` for variable s)
+    // skip the check — same fallback as Rust's `format_args!`.
     bool is_format_family =
         callee_name == "format"   || callee_name == "print"   ||
         callee_name == "println"  || callee_name == "eprint"  ||
@@ -9784,56 +9786,69 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
                     src_base + vav.to_offset().value());
                 raw = as->view();
             }
-            // Strip surrounding quotes (lex preserves them).
             std::string_view body = raw;
             if (body.size() >= 2 && body.front() == '"' && body.back() == '"')
                 body = body.substr(1, body.size() - 2);
-            // Count placeholders, honour `{{` / `}}` escapes.
-            int64_t placeholders = 0;
-            int64_t open_unmatched = -1;
-            int64_t close_unmatched = -1;
-            for (size_t i = 0; i < body.size(); ++i) {
-                char c = body[i];
-                if (c == '{') {
-                    if (i + 1 < body.size() && body[i + 1] == '{') {
-                        ++i;  // escape
-                        continue;
-                    }
-                    // Find closing '}'.
-                    size_t j = i + 1;
-                    while (j < body.size() && body[j] != '}') ++j;
-                    if (j >= body.size()) {
-                        open_unmatched = static_cast<int64_t>(i);
+
+            FormatParseResult fmt_result;
+            parse_format_string(body, fmt_result,
+                [&](std::string msg) {
+                    error(std::format("{}!: {}", callee_name, msg));
+                });
+            if (fmt_result.ok) {
+                // Slice 4.4a gate: only `{}` (Display) and `{:?}` (Debug)
+                // are wired through the runtime today. The parser accepts
+                // the full Rust spec grammar so the structured form is
+                // ready for slice 4.4b lowering, but anything beyond
+                // trait_kind=Display/Debug with no width/precision/fill
+                // would silently misbehave at runtime — reject loudly.
+                for (auto& s : fmt_result.segments) {
+                    if (s.is_literal) continue;
+                    bool only_kind = s.spec.width < 0
+                                  && s.spec.precision < 0
+                                  && s.spec.align == FormatAlign::None
+                                  && s.spec.sign == FormatSign::None
+                                  && !s.spec.alt && !s.spec.zero;
+                    bool trait_ok = s.spec.trait_kind == FormatTrait::Display
+                                 || s.spec.trait_kind == FormatTrait::Debug;
+                    if (!only_kind || !trait_ok) {
+                        error(std::format(
+                            "{}!: format spec uses features not yet "
+                            "implemented at runtime (slice 4.4b pending) — "
+                            "only `{{}}` and `{{:?}}` work for now",
+                            callee_name));
                         break;
                     }
-                    ++placeholders;
-                    i = j;
-                } else if (c == '}') {
-                    if (i + 1 < body.size() && body[i + 1] == '}') {
-                        ++i;  // escape
-                        continue;
-                    }
-                    close_unmatched = static_cast<int64_t>(i);
-                    break;
                 }
-            }
-            if (open_unmatched >= 0) {
-                error(std::format(
-                    "{}!: unmatched `{{` at format-string offset {}",
-                    callee_name, open_unmatched));
-            } else if (close_unmatched >= 0) {
-                error(std::format(
-                    "{}!: unmatched `}}` at format-string offset {} "
-                    "(use `}}}}` to escape)",
-                    callee_name, close_unmatched));
-            } else {
-                int64_t args_provided = static_cast<int64_t>(arg_avs.size()) - 1;
-                if (placeholders != args_provided) {
+                int32_t placeholders = static_cast<int32_t>(fmt_result.segments.size());
+                int32_t lits = 0;
+                for (auto& s : fmt_result.segments) if (s.is_literal) ++lits;
+                placeholders -= lits;
+                int32_t args_provided = static_cast<int32_t>(arg_avs.size()) - 1;
+                // Required slots = max(positional auto-count, highest
+                // explicit `{N}` index + 1). Named placeholders extend
+                // this in slice 4.4-named.
+                int32_t needed = fmt_result.positional_count;
+                if (fmt_result.max_explicit_plus_one > needed)
+                    needed = fmt_result.max_explicit_plus_one;
+                // Arity diagnostic — preserved wording from slice 4.2:
+                // "K placeholders but M arguments provided" so existing
+                // tests stay green. Only fires when no explicit-index
+                // form is in use (which would re-use args differently).
+                if (fmt_result.max_explicit_plus_one == 0) {
+                    if (placeholders != args_provided) {
+                        error(std::format(
+                            "{}!: format string has {} placeholder{} but "
+                            "{} argument{} provided",
+                            callee_name,
+                            placeholders, (placeholders == 1 ? "" : "s"),
+                            args_provided, (args_provided == 1 ? "" : "s")));
+                    }
+                } else if (args_provided < needed) {
                     error(std::format(
-                        "{}!: format string has {} placeholder{} but "
-                        "{} argument{} provided",
-                        callee_name,
-                        placeholders, (placeholders == 1 ? "" : "s"),
+                        "{}!: format string references arg index up to {} "
+                        "but only {} argument{} provided",
+                        callee_name, needed - 1,
                         args_provided, (args_provided == 1 ? "" : "s")));
                 }
             }

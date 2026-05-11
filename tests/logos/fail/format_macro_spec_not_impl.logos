@@ -1,0 +1,12 @@
+// Slice 4.4a: sema accepts the full Rust format-spec grammar in the
+// parser, but the runtime only wires up `{}` and `{:?}`. Anything
+// beyond that (hex/oct/bin, width, precision, align, sign, fill) must
+// be diagnosed up-front rather than silently misbehaving at runtime.
+package format_macro_spec_not_impl;
+
+use std.fmt;
+
+fn main() -> i32 {
+    let s = format!("{:x}", 255);
+    return 0;
+}
