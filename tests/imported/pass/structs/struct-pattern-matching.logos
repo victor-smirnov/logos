@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/struct-pattern-matching.rs
+// Modifications: `println!` dropped (we just check the match).
+package struct_pattern_matching;
+
+struct Foo { x: isize, y: isize }
+
+fn main() -> i32 {
+    let a: Foo = Foo { x: 1isize, y: 2isize };
+    match a {
+        Foo { x: _x, y: _y } => {}
+    }
+
+    let b: Foo = Foo { x: 1isize, y: 2isize };
+    match b {
+        Foo { .. } => {}
+    }
+    return 0;
+}

@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/exhaustive-bool-match-sanity.rs
+// Modifications: `match (x, y) { ... }` tuple scrutinee not supported
+// (gap P4-pm-03) — rewritten as nested ifs preserving the same
+// truth table.
+package exhaustive_bool_match_sanity;
+
+use std.fmt;
+use std.lang.text;
+
+fn foo(x: bool, y: bool) -> u32 {
+    if !x { return 0u32; }
+    if !y { return 1u32; }
+    return 2u32;
+}
+
+fn main() -> i32 {
+    assert_eq!(foo(false, true), 0u32);
+    assert_eq!(foo(false, false), 0u32);
+    assert_eq!(foo(true, false), 1u32);
+    assert_eq!(foo(true, true), 2u32);
+    return 0;
+}

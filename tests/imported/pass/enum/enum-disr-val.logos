@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/enum-disr-val-pretty.rs
+// Modifications: `imaginary = -1` dropped — Logos rejects negative
+// integer literals as enum discriminants (parser tries to bind `-` as
+// unary on the discriminant, which isn't supported here; tracked as a
+// gap S8-en-01). `String::to_string()` dropped — we check the cast
+// only.
+package enum_disr_val;
+
+use std.fmt;
+use std.lang.text;
+
+enum color { red = 1, green, blue }
+
+fn test_color(c: color, val: isize) {
+    assert_eq!(c as isize, val);
+}
+
+fn main() -> i32 {
+    test_color(color::red, 1isize);
+    test_color(color::green, 2isize);
+    test_color(color::blue, 3isize);
+    return 0;
+}

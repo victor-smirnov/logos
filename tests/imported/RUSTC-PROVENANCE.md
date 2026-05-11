@@ -25,6 +25,7 @@ per-file rows below.
 | B5 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | closures (3 tests; bulk blocked on Fn/FnMut/FnOnce — see closures-gaps.md) |
 | B6 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | coercion + cast (5 tests) |
 | B7 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | methods (3 tests) |
+| B8 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | structs + enums + binding (6 tests) |
 
 To kick off a batch:
 
@@ -99,6 +100,12 @@ Columns:
 | `pass/methods/inherent-methods-same-name.logos` | `tests/ui/methods/inherent-methods-same-name.rs` | B7 | tuple struct `Foo<T>(T)` rewritten with named field `v` |
 | `pass/methods/method-two-trait-defer-resolution-1.logos` | `tests/ui/methods/method-two-trait-defer-resolution-1.rs` | B7 | `Vec::new()` → `vec_new::<T>()` |
 | `pass/methods/trait-method-resolution-7575.logos` | `tests/ui/methods/trait-method-resolution-7575.rs` | B7 | trait default bodies dropped (no defaults in Logos traits); method name `new` renamed `mk` — `new` rejected by trait-body grammar (gap M7-mt-01) |
+| `pass/structs/large-records.logos` | `tests/ui/structs/large-records.rs` | B8 | unchanged shape — 12-field struct |
+| `pass/structs/struct-new-as-field-name.logos` | `tests/ui/structs/struct-new-as-field-name.rs` | B8 | `new` field renamed `new_field` — KW_NEW reserved (gap S8-st-01) |
+| `pass/structs/struct-pattern-matching.logos` | `tests/ui/structs/struct-pattern-matching.rs` | B8 | `println!` dropped; match shapes preserved |
+| `pass/enum/enum-disr-val.logos` | `tests/ui/enum/enum-disr-val-pretty.rs` | B8 | `imaginary = -1` dropped — negative discriminants not parsed (gap S8-en-01); `String::to_string()` not exercised |
+| `pass/binding/exhaustive-bool-match-sanity.logos` | `tests/ui/binding/exhaustive-bool-match-sanity.rs` | B8 | tuple scrutinee `match (x, y)` not supported (gap P4-pm-03) — rewritten as if-chain preserving the truth table |
+| `pass/binding/match-bot.logos` | `tests/ui/binding/match-bot.rs` | B8 | turbofish on variant ctor dropped (gap G3-tg-01); `Option::Some(3)` direct |
 
 ## When upstream changes
 
