@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/old-closure-arg-call-as.rs
+// Modifications: Logos's bound form is direct (`<F: FnOnce() -> usize>`);
+// where-clause syntax not exercised here. Otherwise the test ports
+// verbatim — Sprint 5.7 closed the Fn-family bound gap.
+package old_closure_arg_call_as;
+
+use std.fmt;
+use std.lang.text;
+
+fn asBlock<F: FnOnce() -> usize>(f: F) -> usize {
+    return f();
+}
+
+fn main() -> i32 {
+    let x: usize = asBlock(|| -> usize { return 22usize; });
+    assert_eq!(x, 22usize);
+    return 0;
+}

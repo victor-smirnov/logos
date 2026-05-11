@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/basic-closure-syntax.rs
+// Modifications: Logos uses direct bound `<F: FnOnce(isize) -> isize>`
+// in lieu of `where`-clauses; closures require explicit `return` and
+// param/ret type. Sprint 5.7 closed the Fn-family bound gap.
+package basic_closure_syntax;
+
+use std.fmt;
+use std.lang.text;
+
+fn f<F: FnOnce(isize) -> isize>(i: isize, f: F) -> isize {
+    return f(i);
+}
+
+fn g<G: FnOnce() -> ()>(g: G) {
+    g();
+}
+
+fn main() -> i32 {
+    assert_eq!(f(10isize, |a: isize| -> isize { return a; }), 10isize);
+    g(|| -> () { return; });
+    assert_eq!(f(10isize, |a: isize| -> isize { return a; }), 10isize);
+    g(|| -> () { return; });
+    return 0;
+}
