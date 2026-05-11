@@ -1121,28 +1121,12 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                             cname = type_str(T);
                         if (auto p = cname.find("$G"); p != std::string::npos)
                             cname = cname.substr(0, p);
-                        std::function<bool(const std::string&,
-                                           const std::string&,
-                                           StrSet&)> has_impl;
-                        has_impl = [&](const std::string& tr,
-                                       const std::string& cn,
-                                       StrSet& seen) -> bool {
-                            std::string k = tr + "::" + cn;
-                            if (!seen.insert(k).second) return false;
-                            if (concrete_impls_.count(k)) return true;
-                            for (auto& bi : blanket_impls_) {
-                                if (bi.trait_name != tr) continue;
-                                if (bi.bound_trait.empty() && bi.extra_bounds.empty()) return true;
-                                bool all = !bi.bound_trait.empty()
-                                    ? has_impl(bi.bound_trait, cn, seen) : true;
-                                for (auto& eb : bi.extra_bounds)
-                                    if (!has_impl(eb, cn, seen)) { all = false; break; }
-                                if (all) return true;
-                            }
-                            return false;
-                        };
-                        StrSet seen;
-                        answer = has_impl(trait, cname, seen);
+                        // Sprint 5.7: route through trait_engine (same
+                        // semantics as the inlined walker that used to
+                        // live here). Engine populates lazily from
+                        // concrete_impls_ + blanket_impls_.
+                        StrSet unused;
+                        answer = mono_has_impl_recursive(trait, cname, unused);
                     }
                 }
                 LogosTypeBuilder b_b; b_b.kind = LogosType::Kind::Bool;
@@ -1208,28 +1192,11 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         cname = type_str(T);
                     if (auto p = cname.find("$G"); p != std::string::npos)
                         cname = cname.substr(0, p);
-                    std::function<bool(const std::string&,
-                                       const std::string&,
-                                       StrSet&)> has_impl;
-                    has_impl = [&](const std::string& tr,
-                                   const std::string& cn,
-                                   StrSet& seen) -> bool {
-                        std::string k = tr + "::" + cn;
-                        if (!seen.insert(k).second) return false;
-                        if (concrete_impls_.count(k)) return true;
-                        for (auto& bi : blanket_impls_) {
-                            if (bi.trait_name != tr) continue;
-                            if (bi.bound_trait.empty() && bi.extra_bounds.empty()) return true;
-                            bool all = !bi.bound_trait.empty()
-                                ? has_impl(bi.bound_trait, cn, seen) : true;
-                            for (auto& eb : bi.extra_bounds)
-                                if (!has_impl(eb, cn, seen)) { all = false; break; }
-                            if (all) return true;
-                        }
-                        return false;
-                    };
-                    StrSet seen;
-                    answer = has_impl(trait, cname, seen);
+                    // Sprint 5.7: route through trait_engine. Same
+                    // semantics as the inlined walker that used to
+                    // live here.
+                    StrSet unused;
+                    answer = mono_has_impl_recursive(trait, cname, unused);
                 }
                 LogosTypeBuilder b_b; b_b.kind = LogosType::Kind::Bool;
                 TypeRef bool_t = out_.type_pool.alloc(std::move(b_b));
@@ -3105,6 +3072,18 @@ void Mono::populate_trait_engine_() {
         for (auto& eb : bi.extra_bounds) bounds.push_back(eb);
         trait_engine_.add_blanket(bi.trait_name, std::move(bounds));
     }
+    // (S) shape-auto: closure types satisfy Fn / FnMut / FnOnce.
+    // Sprint 5.5 keystone — the engine can answer
+    // `satisfies("Fn", "|i32| -> i32")` etc. without requiring an
+    // explicit `impl Fn for <every closure>` in stdlib. Canonical
+    // closure type name is "|T1, ...| -> R" (see type_str in
+    // sema.cpp). Sema's bound-resolver picks this up in Sprint 5.7.
+    auto is_closure_typename = [](std::string_view n) {
+        return !n.empty() && n.front() == '|';
+    };
+    trait_engine_.add_shape_auto_impl("Fn",     "closure", is_closure_typename);
+    trait_engine_.add_shape_auto_impl("FnMut",  "closure", is_closure_typename);
+    trait_engine_.add_shape_auto_impl("FnOnce", "closure", is_closure_typename);
     trait_engine_dirty_ = false;
 }
 
