@@ -1,0 +1,24 @@
+// vec![a, b, c] via fn-macros + block-as-expression. Emits
+// `{ let mut v: Vec<_>... = vec_new(); v.push(a); v.push(b); v.push(c); v }`
+// — the user's let annotation `let v: Vec<i32> = vec![...]` flows through
+// the block tail expression so T = i32 falls out without turbofish.
+package fn_macro_vec_basic;
+
+use std.compiler.metaprog;
+use std.collections.vec;
+
+#[fn_macro]
+pub fn vec(elems: Vec<ExprBlob>) -> ExprBlob {
+    return quote_expr! {
+        {
+            let mut __v = vec_new();
+            #(__v.push(#elems);)*
+            __v
+        }
+    };
+}
+
+fn main() -> i32 {
+    let v: Vec<i32> = vec!(1i32, 2i32, 3i32, 4i32);
+    return v.get(0i64) + v.get(1i64) + v.get(2i64) + v.get(3i64);
+}

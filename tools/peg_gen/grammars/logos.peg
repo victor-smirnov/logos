@@ -1126,7 +1126,9 @@
                  => { CODE: UNSAFE_BLOCK, BODY: $2 }
 
     // ── Statements ───────────────────────────────────────────────
-    stmt <- labeled_loop_stmt
+    stmt <- HASH LPAREN stmt RPAREN STAR
+             => { CODE: REPEAT_GROUP, VALUE: $3, OP: 0 }
+          / labeled_loop_stmt
           / let_else_stmt
           / let_stmt
           / for_stmt
@@ -1715,6 +1717,7 @@
                                      // (common case in deeply nested `as`-cast chains).
                   / tuple_lit        // (a, b, ...)
                   / closure_expr     // |x: i32| -> i32 { ... }
+                  / block            // { stmts; tail_expr }  — block-as-expression
                   / unsafe_block     // unsafe { ... }  — as expression
                   / loop_expr        // loop { ... }  — as expression (break value)
                   / if_expr          // if cond { ... } else { ... }  — as expression

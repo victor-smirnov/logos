@@ -1773,6 +1773,9 @@ private:
     // fn-macros). Resolves CALLEE against #[fn_macro] fns; ARGs are
     // captured as ExprBlobs and passed through the metacall JIT thunk.
     lir::LExprPtr lower_fn_macro_call(hermes::TinyMapView node);
+    // Bare `{ stmts; tail_expr }` as expression — lowers a BLOCK AST node
+    // as an expr whose value is the tail expression (or void if absent).
+    lir::LExprPtr lower_block_expr(hermes::TinyMapView node);
     // Item-position metacall (MC1.1). Synthesises a void thunk that wraps
     // the inner callee — `let __b = call(); logos_emit_item_blob_subst(&__b);`
     // — and registers a MetacallSite with ret_tag = ItemBlob. Caller

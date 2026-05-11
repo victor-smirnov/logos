@@ -627,6 +627,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::ENUM_LIT:    return lower_enum_lit(expr);
     case la::ENUM_LIT_DATA: return lower_enum_lit_data(expr);
     case la::IF:          return lower_if_expr(expr);
+    case la::BLOCK:       return lower_block_expr(expr);
     case la::MATCH:       return lower_match_expr(expr);
     case la::CLOSURE_EXPR: return lower_closure_expr(expr);
 
@@ -6501,6 +6502,52 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
     return builder().call(fi.symbol_name.empty() ? mangled : fi.symbol_name, {}, std::move(arg_exprs), fi.ret_type);
 }
 
+// Bare `{ stmts; tail_expr }` at expression position. The tail expression
+// (TAIL_EXPR or a trailing expression-shape stmt) becomes the block's value;
+// the block evaluates as void if the last stmt is a let/return/etc.
+//
+// Mirrors the local `lower_block_last_expr` lambda in lower_if_expr; the
+// two paths could be unified once block-as-expression is settled.
+lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
+    if (!node.has_key(la::ITEMS)) {
+        // Empty block evaluates to void.
+        auto block = lir::alloc_block(*cur_prog_);
+        return builder().block_expr(std::move(block), nullptr, void_t());
+    }
+    push_scope();
+    bool saved_tail = tail_as_return_;
+    tail_as_return_ = false;
+    auto stmts = arr_of(node.get(la::ITEMS.code));
+    auto block = lir::alloc_block(*cur_prog_);
+    lir::LExprPtr result = nullptr;
+    for (uint64_t i = 0; i < stmts.size(); ++i) {
+        auto s = map_of(stmts.get(i));
+        if (s.is_null()) continue;
+        bool is_last = (i == stmts.size() - 1);
+        int32_t lc = code_of(s);
+        if (is_last) {
+            if ((lc == la::EXPR_STMT || lc == la::TAIL_EXPR)
+                && s.has_key(la::VALUE)) {
+                result = lower_expr(map_of(s.get(la::VALUE.code)));
+                continue;
+            }
+            if (lc != la::EXPR_STMT && lc != la::TAIL_EXPR
+                && lc != la::LET && lc != la::LET_DESTRUCT
+                && lc != la::RETURN) {
+                result = lower_expr(s);
+                continue;
+            }
+        }
+        block->stmts.push_back(lower_stmt(s));
+    }
+    tail_as_return_ = saved_tail;
+    pop_scope();
+    if (!result)
+        return builder().block_expr(std::move(block), nullptr, void_t());
+    TypeRef rt = result->type;
+    return builder().block_expr(std::move(block), std::move(result), rt);
+}
+
 lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
     lir::LExprPtr cond = nullptr;
     if (node.has_key(la::COND)) {
@@ -8615,9 +8662,11 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
         if (cd == la::FIELD_SHORTHAND.code) {
             return true;
         }
-        // Slice 1.6: ARR_LIT / TUPLE_LIT — iterate ITEMS so REPEAT_GROUP
-        // and ExprBlob antiquots inside `[...]` / `(...)` get registered.
-        if (cd == la::ARR_LIT.code || cd == la::TUPLE_LIT.code) {
+        // Slice 1.6: ARR_LIT / TUPLE_LIT / BLOCK — iterate ITEMS so
+        // REPEAT_GROUP and ExprBlob antiquots inside `[...]`, `(...)`,
+        // and `{ stmts; tail }` get registered.
+        if (cd == la::ARR_LIT.code || cd == la::TUPLE_LIT.code
+            || cd == la::BLOCK.code) {
             auto* b = HermesAccess::base(doc);
             auto* t = reinterpret_cast<TinyObjectMap*>(b + tom_off);
             if (!t->has_key(la::ITEMS.code)) return true;
@@ -8632,6 +8681,13 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
                     return false;
             }
             return true;
+        }
+        // Stmt-shaped containers inside a BLOCK body — recurse into the
+        // payload expression where `#name` / `#(expr)*` may live.
+        if (cd == la::LET.code || cd == la::LET_DESTRUCT.code
+            || cd == la::EXPR_STMT.code || cd == la::TAIL_EXPR.code
+            || cd == la::RETURN.code) {
+            return recurse_key(la::VALUE.code);
         }
         return true;
     };
