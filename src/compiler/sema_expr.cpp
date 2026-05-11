@@ -1081,27 +1081,29 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     // F is a TypeVar bounded by Fn / FnMut / FnOnce. The bound
     // carries `fn_params` / `fn_ret`; treat the call exactly like a
     // closure call against that signature. At mono time F resolves
-    // to a concrete closure type and the call rewrites accordingly.
+    // to a concrete closure or fn-pointer type and the LIR
+    // ClosureCall op rewrites to FnPtrCall when needed (handled in
+    // mono_clone.cpp by inspecting the substituted callee type).
     bool is_fn_bound = false;
     TypeRef synth_closure_t = nullptr;
+    TypeRef original_typevar_t = nullptr;
     if (callee_type && TypeRef(callee_type).kind() == LogosType::Kind::TypeVar) {
         std::string tvname(TypeRef(callee_type).type_var_name());
         auto bit = current_type_bounds_.find(tvname);
         if (bit != current_type_bounds_.end()) {
             for (auto& b : bit->second) {
                 if (!b.is_fn_family) continue;
-                // Synthesize a closure-shaped type so the existing
-                // closure_call path applies. fn_ret may be null (=> unit).
                 std::vector<TypeRef> ps = b.fn_params;
                 TypeRef ret = b.fn_ret ? b.fn_ret : void_t();
                 synth_closure_t = make_closure_type(std::move(ps), ret);
+                original_typevar_t = callee_type;  // keep F for var_ref
                 is_fn_bound = true;
                 break;
             }
         }
     }
     if (is_fn_bound) {
-        // Rebind callee_type for the closure-call path below.
+        // Use synth_closure_t for arity / arg-type checks below…
         callee_type = synth_closure_t;
         is_closure  = true;
     }
@@ -1132,7 +1134,12 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 }
             }
         }
-        auto callee_expr = builder().var_ref(std::string(callee), callee_type);
+        // …but the var_ref carries the *original* TypeVar so mono's
+        // type-substitution rewrites it to the concrete (Closure or
+        // FnPtr) type at instantiation time. mono_clone's ClosureCall
+        // case inspects that and switches to FnPtrCall when needed.
+        TypeRef vr_type = is_fn_bound ? original_typevar_t : callee_type;
+        auto callee_expr = builder().var_ref(std::string(callee), vr_type);
         TypeRef ret = TypeRef(callee_type).closure_ret() ? TypeRef(callee_type).closure_ret() : void_t();
         if (is_fn_ptr)
             return builder().fn_ptr_call(std::move(callee_expr), std::move(arg_exprs), ret);

@@ -546,10 +546,13 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 if (impls_.count(key3)) continue;
             }
             // Sprint 5.7c: Fn-family bound (`F: FnOnce(args) -> R`)
-            // satisfied by any closure type. Arity / arg-type / ret-type
-            // compatibility is enforced at the call site (lower_call
-            // synthesises a closure type from the bound and re-checks).
-            if (bound.is_fn_family && cv.kind() == LogosType::Kind::Closure)
+            // satisfied by any closure or fn-pointer type. Arity /
+            // arg-type / ret-type compatibility is enforced at the
+            // call site (lower_call synthesises a callable type from
+            // the bound). When F resolves to FnPtr at mono time, the
+            // ClosureCall LIR op rewrites to FnPtrCall in mono_clone.
+            if (bound.is_fn_family && (cv.kind() == LogosType::Kind::Closure ||
+                                       cv.kind() == LogosType::Kind::FnPtr))
                 continue;
             error(std::format("'{}': type '{}' does not implement trait '{}' required by parameter '{}'",
                   target_name, concrete_str, bound.trait_name, tp.name));

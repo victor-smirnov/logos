@@ -599,8 +599,22 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             auto callee = subst_child_expr(v.callee());
             std::vector<lir::LExprPtr> args;
             v.each_arg([&](lir_view::ExprRef er) { args.push_back(subst_child_expr(er)); });
-            result->mirror_offset_ = lir_mirror_emit_closure_call(
-                out_, result->type, callee, args);
+            // Sprint 5.7 follow-up: if the synth-closure path in
+            // sema_expr::lower_call emitted ClosureCall for a generic
+            // `F: FnOnce(args) -> R` and mono substituted F to a
+            // concrete FnPtr type, switch the call kind. The callee
+            // var-ref now carries the substituted type (sema emitted
+            // var_ref with TypeVar F; mono's subst_type rewrites it
+            // to the concrete instantiation).
+            bool route_to_fn_ptr = callee && callee->type &&
+                TypeRef(callee->type).kind() == LogosType::Kind::FnPtr;
+            if (route_to_fn_ptr) {
+                result->mirror_offset_ = lir_mirror_emit_fn_ptr_call(
+                    out_, result->type, callee, args);
+            } else {
+                result->mirror_offset_ = lir_mirror_emit_closure_call(
+                    out_, result->type, callee, args);
+            }
             break;
         }
         case C::FnPtrCall: {
