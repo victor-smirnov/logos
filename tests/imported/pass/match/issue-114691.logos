@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust tests/ui/match/issue-114691.rs
+// Modifications: `Option<LoadOp>` / `Some` / `None` substitution to
+// concrete return-code checks; `[f32; 4]` clear_color simplified to
+// `i32` (the test value is unused); `assert!` / `println!` dropped;
+// `#[inline(never)]` attributes dropped. Otherwise faithful —
+// exercises P4-pm-25 (or-pattern at arm LHS with mixed-shape alts:
+// struct-shape variant with refutable inner literal `|` unit variant)
+// alongside P4-pm-01 (struct-shape enum variants).
+package issue_114691;
+
+enum Pass {
+    Opaque { clear_color: i32, with_depth_pre_pass: bool },
+    Transparent,
+}
+
+fn test(mode: Pass) -> i32 {
+    match mode {
+        Pass::Opaque { with_depth_pre_pass: true, .. } | Pass::Transparent => { return 0i32; }
+        _ => { return 1i32; }
+    }
+}
+
+fn main() -> i32 {
+    if test(Pass::Transparent) != 0i32 { return 1; }
+    if test(Pass::Opaque { clear_color: 0i32, with_depth_pre_pass: true }) != 0i32 { return 2; }
+    if test(Pass::Opaque { clear_color: 0i32, with_depth_pre_pass: false }) != 1i32 { return 3; }
+    return 0;
+}

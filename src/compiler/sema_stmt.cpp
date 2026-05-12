@@ -2178,33 +2178,41 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             por.alts.push_back(build_pattern(map_of(arr.get(i)), scrut_type));
         // NG4: validate that all alternatives bind the exact same set of names.
         namespace ps = lir_schema::pat;
+        // P4-pm-25: skip synth bindings introduced by P4-pm-01's refutable
+        // inner mechanism (`__refut_*`) and P4-pm-02's nested-pat synth
+        // (`__pat_pld_*`). They're per-alt unique by construction and would
+        // spuriously fail the same-name-set check.
+        auto is_synth = [](std::string_view n) {
+            return n.starts_with("__refut_") || n.starts_with("__pat_pld_") ||
+                   n.starts_with("__sve_");
+        };
         std::function<void(lir_view::PatRef, std::vector<std::string>&)> collect_names;
         collect_names = [&](lir_view::PatRef pr, std::vector<std::string>& out) {
             if (!pr) return;
             auto k = pr.kind();
             if (k == ps::Code::Wild) {
                 lir_view::PatWildView v{pr}; auto n = v.name();
-                if (n != "_") out.emplace_back(n);
+                if (n != "_" && !is_synth(n)) out.emplace_back(n);
             } else if (k == ps::Code::At) {
                 lir_view::PatAtView v{pr}; auto n = v.name();
-                if (n != "_") out.emplace_back(n);
+                if (n != "_" && !is_synth(n)) out.emplace_back(n);
                 if (auto sub = v.sub()) collect_names(sub, out);
             } else if (k == ps::Code::Tuple) {
                 lir_view::PatTupleView v{pr};
                 v.each_binding([&](std::string_view n) {
-                    if (n != "_") out.emplace_back(n);
+                    if (n != "_" && !is_synth(n)) out.emplace_back(n);
                 });
             } else if (k == ps::Code::Struct) {
                 lir_view::PatStructView v{pr};
                 v.each_field([&](lir_view::PatFieldBindingView fv) {
                     auto sub = fv.sub();
                     if (sub) collect_names(sub, out);
-                    else out.emplace_back(fv.field_name());
+                    else if (!is_synth(fv.field_name())) out.emplace_back(fv.field_name());
                 });
             } else if (k == ps::Code::VariantData) {
                 lir_view::PatVariantDataView v{pr};
                 v.each_binding([&](std::string_view n) {
-                    if (n != "_") out.emplace_back(n);
+                    if (n != "_" && !is_synth(n)) out.emplace_back(n);
                 });
             } else if (k == ps::Code::Or) {
                 lir_view::PatOrView v{pr};
@@ -2324,8 +2332,20 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                        sc == la::PAT_BOOL.code || sc == la::PAT_RANGE.code) {
                 pt.bindings.push_back("_");
                 pt.subs.push_back(build_pattern(sub, elem_ty));
+            } else if (sc == la::PAT_VARIANT_DATA.code) {
+                // P4-pm-24: variant pattern at tuple-pattern element
+                // (e.g. `(Enum::Foo {..}, Enum::Bar { bar: _ })`).
+                // Recurse to build a full PatVariantData sub; mlir-gen
+                // tuple-arm dispatch emits a disc check against the
+                // tuple element (auto-derefs through the enum-pointer
+                // layout). Bindings inside the variant sub are propagated
+                // to outer scope by bind_pattern_ref's recursive Tuple
+                // case below.
+                pt.bindings.push_back("_");
+                pt.subs.push_back(build_pattern(sub, elem_ty));
             } else {
-                error("tuple pattern element: only _, name, integer, bool, or range patterns are supported");
+                error("tuple pattern element: only _, name, integer, bool, range, "
+                      "or variant patterns are supported");
                 pt.bindings.push_back("_");
                 pt.subs.push_back(make_pat_wild("_"));
             }
@@ -3116,6 +3136,17 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         for (size_t i = 0; i < names.size() && i < types.size(); ++i)
             if (names[i] != "_")
                 define(std::string(names[i]), types[i]);
+        // P4-pm-24: recurse into refutable variant sub-patterns so any
+        // payload bindings inside (`(E::Foo { x }, _)`) reach the outer
+        // arm scope.
+        size_t idx = 0;
+        v.each_sub([&](lir_view::PatRef sp) {
+            if (sp && sp.kind() == ps::Code::VariantData) {
+                TypeRef sub_t = idx < types.size() ? types[idx] : error_t();
+                bind_pattern_ref(sp, sub_t);
+            }
+            ++idx;
+        });
     } else if (k == ps::Code::Wild) {
         lir_view::PatWildView v{pr};
         auto n = v.name();
@@ -4877,8 +4908,57 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
         auto pre_moves = moved_vars_;
         std::set<std::string> post_moves;
         bool any_non_diverging = false;
+        // P4-pm-25: fan out or-pattern arms whose alternatives have
+        // differing variant discriminants. The existing PatOr mlir-gen
+        // extracts payload from alt[0] only, which is wrong for
+        // mixed-shape alts (e.g. `Pass::Opaque {with: true, ..} |
+        // Pass::Transparent`). Fan-out lets each alt go through the
+        // normal single-arm path with its own refutable-inner guard
+        // and payload extraction. Scalar-only or-patterns (`1 | 2 | 3`)
+        // and same-variant-with-bindings or-patterns stay merged.
+        struct EffArm { hermes::TinyMapView arm; int32_t alt_idx; };
+        auto or_needs_fanout = [&](hermes::TinyMapView lhs) -> bool {
+            if (code_of(lhs) != la::PAT_OR) return false;
+            if (!lhs.has_key(la::ITEMS)) return false;
+            auto a = arr_of(lhs.get(la::ITEMS.code));
+            if (a.size() < 2) return false;
+            // Need fan-out if at least one alt is a variant pattern
+            // (PAT_VARIANT/PAT_VARIANT_DATA), since payload extraction
+            // differs per disc. Scalar-only alts are handled correctly
+            // by the existing merged PatOr.
+            for (uint64_t k = 0; k < a.size(); ++k) {
+                int32_t c = code_of(map_of(a.get(k)));
+                if (c == la::PAT_VARIANT || c == la::PAT_VARIANT_DATA) return true;
+            }
+            return false;
+        };
+        std::vector<EffArm> eff_arms;
         for (uint64_t i = 0; i < arms.size(); ++i) {
             auto arm = map_of(arms.get(i));
+            if (code_of(arm) != la::MATCH_ARM) {
+                eff_arms.push_back({arm, -1});
+                continue;
+            }
+            if (arm.has_key(la::LHS)) {
+                auto lhs = map_of(arm.get(la::LHS.code));
+                if (or_needs_fanout(lhs)) {
+                    auto a = arr_of(lhs.get(la::ITEMS.code));
+                    for (uint64_t k = 0; k < a.size(); ++k)
+                        eff_arms.push_back({arm, (int32_t)k});
+                    continue;
+                }
+            }
+            eff_arms.push_back({arm, -1});
+        }
+        auto effective_lhs = [&](hermes::TinyMapView arm, int32_t alt_idx) {
+            if (alt_idx < 0) return map_of(arm.get(la::LHS.code));
+            auto lhs = map_of(arm.get(la::LHS.code));
+            return map_of(arr_of(lhs.get(la::ITEMS.code)).get((uint64_t)alt_idx));
+        };
+        (void)effective_lhs;
+        for (uint64_t i = 0; i < eff_arms.size(); ++i) {
+            auto arm = eff_arms[i].arm;
+            int32_t alt_idx = eff_arms[i].alt_idx;
             if (code_of(arm) != la::MATCH_ARM) continue;
 
             // Reset moves to pre-match state at each arm boundary.
@@ -4892,7 +4972,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
                 std::vector<lir::LStmt> g_stmts;
                 std::vector<HermesPatBinding> g_binds;
                 auto raw = build_hermes_pat_guard(
-                    map_of(arm.get(la::LHS.code)), root_var, anyval_t, base_var,
+                    effective_lhs(arm, alt_idx), root_var, anyval_t, base_var,
                     g_stmts, g_binds);
                 if (!g_stmts.empty() && raw) {
                     auto blk = lir::alloc_block(*cur_prog_);
@@ -4907,7 +4987,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
                 // body_prologue.
                 if (!g_binds.empty()) {
                     (void)build_hermes_pat_guard(
-                        map_of(arm.get(la::LHS.code)), root_var, anyval_t,
+                        effective_lhs(arm, alt_idx), root_var, anyval_t,
                         base_var, body_prologue, body_binds);
                 }
             }
@@ -4928,7 +5008,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             auto* saved_pat_refut = current_pat_refutable_guards_;
             current_pat_refutable_guards_ = &refut_guards;
             lir::Pattern pat = arm.has_key(la::LHS)
-                ? build_pattern(map_of(arm.get(la::LHS.code)), scrut_type)
+                ? build_pattern(effective_lhs(arm, alt_idx), scrut_type)
                 : make_pat_wild("_");
             current_pat_nested_subs_ = saved_pat_subs;
             current_pat_refutable_guards_ = saved_pat_refut;

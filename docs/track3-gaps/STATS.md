@@ -66,6 +66,7 @@ silently un-trim earlier imports don't count here (logged in
 | B50  | 2026-05-12 |  2 |     0 | 0.00 | 207 | 106 |
 | B51  | 2026-05-12 |  1 |     0 | 0.00 | 208 | 106 |
 | B52  | 2026-05-12 |  3 |     0 | 0.00 | 211 | 106 |
+| B53  | 2026-05-12 |  2 |     0 | 0.00 | 213 | 106 |
 
 (Phase-1 counts are estimates — pre-batch gap-as-code triage gave coarse
 totals only; precise per-batch arrival-order numbers weren't recorded.
@@ -116,6 +117,16 @@ un-trimmed: `issue-8351-1`, `issue-8351-2`, `issue-11577`.
 IS_STRUCT_SHAPE moved into the new `variant` key group
 (slot 47, sibling of `mod`) for cleaner slot documentation.
 ctest 1442 → 1445. Catalog: P4-pm-01 Partial → ✅ Closed.
+B53 closed two P4-pm-01 follow-ups: P4-pm-24 (variant pattern
+as tuple-pattern element — sema allow-list extension + per-element
+disc-check in mlir-gen tuple-arm dispatch, both stmt and expr
+forms) and P4-pm-25 (or-patterns in match arm LHS — sema
+fan-out when any alt is a variant pattern, so each alt goes
+through the normal single-arm path with its own refutable
+guard and payload extraction; mixed-shape `Opaque {with: true, ..}
+| Transparent` now works correctly). Two more rustc tests
+un-trimmed: `issue-5530`, `issue-114691`. ctest 1445 → 1447.
+Catalog: P4-pm-24 Open → ✅ Closed, P4-pm-25 Open → ✅ Closed.
 
 Phase 4 (B38–B49): "autonomous bulk-import" run. Single overnight
 session through under-imported dirs (binding, match, for-loop-while,

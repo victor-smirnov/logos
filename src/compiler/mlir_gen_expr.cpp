@@ -2423,6 +2423,30 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                         cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, both);
                         continue;
                     }
+                    if (sub.kind() == pc::Code::VariantData) {
+                        // P4-pm-24 (expr form): same disc-check shape as
+                        // the stmt path. fp is the tuple-slot ptr (holds
+                        // an enum ptr); load through to the enum struct
+                        // and compare its disc.
+                        lir_view::PatVariantDataView vv{sub};
+                        auto* te_t = resolve_tagged_enum(
+                            std::string(vv.enum_name()),
+                            si < btypes.size() ? btypes[si] : TypeRef());
+                        if (!te_t) continue;
+                        auto enum_ptr = builder_.create<mlir::LLVM::LoadOp>(
+                            loc_, ptr_type(), fp);
+                        llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
+                        auto dp = builder_.create<mlir::LLVM::GEPOp>(
+                            loc_, ptr_type(), te_t->llvm_type, enum_ptr, di);
+                        auto dv = builder_.create<mlir::LLVM::LoadOp>(
+                            loc_, builder_.getI32Type(), dp);
+                        auto dc = builder_.create<mlir::arith::ConstantIntOp>(
+                            loc_, vv.disc(), 32);
+                        auto eq = builder_.create<mlir::arith::CmpIOp>(
+                            loc_, mlir::arith::CmpIPredicate::eq, dv, dc);
+                        cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, eq);
+                        continue;
+                    }
                     int64_t sub_val = 0;
                     if (sub.kind() == pc::Code::Int)       sub_val = lir_view::PatIntView{sub}.value();
                     else if (sub.kind() == pc::Code::Bool) sub_val = lir_view::PatBoolView{sub}.value() ? 1 : 0;

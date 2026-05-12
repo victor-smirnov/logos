@@ -1,0 +1,43 @@
+// Imported from rust-lang/rust tests/ui/match/issue-5530.rs
+// Modifications: `&Enum` borrows → by-value to fit Logos enum heap-ptr
+// ABI; `usize` → `i64`; `assert_eq!` → conditional return codes;
+// `println!` dropped. Otherwise faithful — exercises P4-pm-24
+// (variant pattern as tuple-pattern element) over struct-shape
+// enum variants (P4-pm-01).
+package issue_5530;
+
+enum Enum {
+    Foo { foo: i64 },
+    Bar { bar: i64 },
+}
+
+fn fun1(e1: Enum, e2: Enum) -> i64 {
+    match (e1, e2) {
+        (Enum::Foo { foo: _ }, Enum::Foo { foo: _ }) => { return 0i64; }
+        (Enum::Foo { foo: _ }, Enum::Bar { bar: _ }) => { return 1i64; }
+        (Enum::Bar { bar: _ }, Enum::Bar { bar: _ }) => { return 2i64; }
+        (Enum::Bar { bar: _ }, Enum::Foo { foo: _ }) => { return 3i64; }
+    }
+}
+
+fn fun2(e1: Enum, e2: Enum) -> i64 {
+    match (e1, e2) {
+        (Enum::Foo { foo: _ }, Enum::Foo { foo: _ }) => { return 0i64; }
+        (Enum::Foo { foo: _ }, _                  ) => { return 1i64; }
+        (Enum::Bar { bar: _ }, Enum::Bar { bar: _ }) => { return 2i64; }
+        (Enum::Bar { bar: _ }, _                  ) => { return 3i64; }
+    }
+}
+
+fn main() -> i32 {
+    if fun1(Enum::Foo { foo: 1i64 }, Enum::Foo { foo: 1i64 }) != 0i64 { return 1; }
+    if fun1(Enum::Foo { foo: 1i64 }, Enum::Bar { bar: 1i64 }) != 1i64 { return 2; }
+    if fun1(Enum::Bar { bar: 1i64 }, Enum::Bar { bar: 1i64 }) != 2i64 { return 3; }
+    if fun1(Enum::Bar { bar: 1i64 }, Enum::Foo { foo: 1i64 }) != 3i64 { return 4; }
+
+    if fun2(Enum::Foo { foo: 1i64 }, Enum::Foo { foo: 1i64 }) != 0i64 { return 5; }
+    if fun2(Enum::Foo { foo: 1i64 }, Enum::Bar { bar: 1i64 }) != 1i64 { return 6; }
+    if fun2(Enum::Bar { bar: 1i64 }, Enum::Bar { bar: 1i64 }) != 2i64 { return 7; }
+    if fun2(Enum::Bar { bar: 1i64 }, Enum::Foo { foo: 1i64 }) != 3i64 { return 8; }
+    return 0;
+}
