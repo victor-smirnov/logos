@@ -507,3 +507,12 @@ pub fn assert_ne(args: Vec<ExprBlob>) -> ExprBlob {
         }
     };
 }
+
+// `panic!(...)` macro — landed in a follow-up. Naming collision with the
+// stdlib `panic(str)` fn breaks direct-call resolution in files that
+// import `std.fmt` without `std.lang.panic` (since the macro lives in
+// std.fmt's visibility scope but the fn does not). Closing it cleanly
+// needs either (a) ergonomic macro/fn overload split (e.g. fn_macros
+// not entering the same `func_overloads_` set as regular fns) or (b)
+// move the macro into std.lang.panic so import paths align. Both are
+// larger surface changes than this batch.

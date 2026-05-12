@@ -6884,7 +6884,8 @@ lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
                 // codegen emits the panic call so the unreachable
                 // dummy value never executes. Mirrors the tail-RETURN
                 // treatment below.
-                if (code_of(val_node) == la::CALL.code &&
+                if ((code_of(val_node) == la::CALL.code ||
+                     code_of(val_node) == la::FN_MACRO_CALL.code) &&
                     str_of(val_node.get(la::CALLEE.code)) == "panic") {
                     block->stmts.push_back(lower_stmt(s));
                     divergent_ret_t = error_t();
@@ -6963,7 +6964,8 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
                 int32_t lc = code_of(s);
                 if ((lc == la::EXPR_STMT || lc == la::TAIL_EXPR) && s.has_key(la::VALUE)) {
                     auto val_node = map_of(s.get(la::VALUE.code));
-                    if (code_of(val_node) == la::CALL.code &&
+                    if ((code_of(val_node) == la::CALL.code ||
+                         code_of(val_node) == la::FN_MACRO_CALL.code) &&
                         str_of(val_node.get(la::CALLEE.code)) == "panic") {
                         block->stmts.push_back(lower_stmt(s));
                         divergent_t = error_t();

@@ -30,9 +30,16 @@ bool SemaChecker::stmt_always_returns(TinyMapView stmt) {
     // `!`/Never type kind. Returning true from stmt_always_returns makes
     // the fn-body return-reachability check accept a `panic(msg)` tail.
     auto is_divergent_call = [&](hermes::TinyMapView node) -> bool {
-        if (code_of(node) != la::CALL.code) return false;
-        auto callee = str_of(node.get(la::CALLEE.code));
-        return callee == "panic";
+        int32_t cc = code_of(node);
+        // Direct call `panic(...)` or macro-style `panic!(...)`. The macro
+        // shape parses to FN_MACRO_CALL with CALLEE = "panic" before
+        // expansion; reachability runs on the un-expanded AST so it sees
+        // both forms by the same callee name.
+        if (cc == la::CALL.code || cc == la::FN_MACRO_CALL.code) {
+            auto callee = str_of(node.get(la::CALLEE.code));
+            return callee == "panic";
+        }
+        return false;
     };
     if ((c == la::EXPR_STMT || c == la::TAIL_EXPR) && stmt.has_key(la::VALUE)) {
         auto e = map_of(stmt.get(la::VALUE.code));
