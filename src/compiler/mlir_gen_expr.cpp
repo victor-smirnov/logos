@@ -160,6 +160,16 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ELitIntView v, TypeRef type) {
         case LogosType::Kind::U56: width = 56; break;
         case LogosType::Kind::I128:
         case LogosType::Kind::U128: width = 128; break;
+        case LogosType::Kind::Usize:
+        case LogosType::Kind::Isize:
+            // K10-co-05: pointer-sized integers — match the target ABI
+            // bit-width so an `Nusize` suffixed literal lowers as i64
+            // (on a 64-bit target) instead of falling to the default
+            // i32 path. Critical for `&3usize` temp-materialisation:
+            // alloca x i64 with c3_i32 stored leaves high bits
+            // uninitialised; downstream `load i64` returns garbage.
+            width = ::logos::compiler::g_target_pointer_bits;
+            break;
         case LogosType::Kind::Bool: width = 1; break;
         case LogosType::Kind::IntLit:
             // Untyped literal: use i64 if value doesn't fit in i32.
