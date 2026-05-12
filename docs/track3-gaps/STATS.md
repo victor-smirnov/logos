@@ -41,6 +41,14 @@ silently un-trim earlier imports don't count here (logged in
 | B25  | 2026-05-11 |  2 |     0 | 0.00 | 135 | 106 |
 | B26  | 2026-05-11 |  4 |     0 | 0.00 | 139 | 106 |
 | B27  | 2026-05-11 |  2 |     0 | 0.00 | 141 | 106 |
+| B28  | 2026-05-11 |  1 |     0 | 0.00 | 142 | 106 |
+| B29  | 2026-05-11 |  2 |     0 | 0.00 | 144 | 106 |
+| B30  | 2026-05-11 |  1 |     0 | 0.00 | 145 | 106 |
+| B31  | 2026-05-11 |  1 |     0 | 0.00 | 146 | 106 |
+| B32  | 2026-05-11 |  1 |     0 | 0.00 | 147 | 106 |
+| B33  | 2026-05-11 |  1 |     0 | 0.00 | 148 | 106 |
+| B34  | 2026-05-11 |  2 |     0 | 0.00 | 150 | 106 |
+| B35  | 2026-05-12 |  1 |     0 | 0.00 | 151 | 106 |
 
 (Phase-1 counts are estimates — pre-batch gap-as-code triage gave coarse
 totals only; precise per-batch arrival-order numbers weren't recorded.
@@ -57,5 +65,12 @@ surfaces close. New gaps are mostly narrow codegen issues (e.g.
 P4-pm-17 ref-bind deref chain) or specialised patterns (tuple-rest,
 exclusive ranges). Single gap can block multiple tests, so total
 unblocked-tests-per-gap-closure is also worth eyeballing.
+
+Phase 3 (B29–B35): "arc closure" batches — work was gap-closure-driven,
+not import-driven. Each batch lands a slice of the Sprint 5.8 dyn-arc
+(C6-cc-09 / C6-cc-08 / C5-cl-04 / C5-cl-08) and re-instates the rustc
+test that originally surfaced the gap. Zero net new catalog entries
+since every closure here re-fills an "Open" status flipped earlier.
+The Sprint 5.8 dyn-arc is fully closed at B35.
 
 Update this table whenever a numbered batch lands.
