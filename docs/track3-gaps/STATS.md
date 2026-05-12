@@ -137,6 +137,25 @@ Open / deferred (lifetime epic):
   Becomes substantive only when NLL ships and trait satisfaction
   starts consulting regions. Return to it in the same slice as NLL
   (Phase 9 of the lifetime epic).
+- **Variance enforcement** — currently effectively covariant
+  everywhere via lifetime-erased type identity (TypeUID collapses
+  lifetimes; `Foo<&'static T>` and `Foo<&'a T>` are interchangeable
+  in dispatch/assignment). Rust's variance computation algorithm +
+  subtype rule come into play only when lifetimes constrain trait
+  dispatch (NLL). Until then, our model accepts strictly more
+  programs (potentially unsound but consistent with lifetime
+  erasure). Verified end-to-end by `variance-iterators-in-libcore`
+  (imported B57): `fn f<'a, I>(iter: Fuse<&'static I>) -> Fuse<&'a I>`
+  compiles without ceremony. Return to variance computation in the
+  same slice as NLL (Phase 9).
+- **NLL — flow-sensitive borrow checking** — biggest remaining
+  lifetime-epic chunk. Requires CFG construction (MLIR can back
+  this), per-borrow region inference, per-point liveness analysis,
+  conflict detection. Estimated 5-7 days focused work. Triggers:
+  when imported tests start tripping on incorrect-acceptance of
+  programs Rust would reject, OR when stdlib needs real borrow-
+  scope reasoning. Currently neither pressure visible — defer
+  until either arrives.
 
 Closed in B59:
 - **L4** ✅ — multi-input-ref elision: borrow check's
