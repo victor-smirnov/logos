@@ -973,6 +973,18 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
             if (!types_compatible(TypeRef(from).tuple_elems()[i], TypeRef(to).tuple_elems()[i])) return false;
         return true;
     }
+    // C5-cl-04 slice: `&Closure → Closure` / `&mut Closure → Closure`. Users
+    // typically spell the boxable-closure surface as `&dyn FnMut(…)`, which
+    // sema resolves to bare Closure (since `dyn Fn*` IS already fat-ptr-like
+    // — the `&` carries no extra meaning). To make `take_ref(&cl)` type-check
+    // against `f: &dyn FnMut(…)` (parsed as `Closure`), accept a reference
+    // over a Closure as a Closure value.
+    if (TypeRef(to).kind() == LogosType::Kind::Closure &&
+        (TypeRef(from).kind() == LogosType::Kind::Ref ||
+         TypeRef(from).kind() == LogosType::Kind::MutRef) &&
+        TypeRef(from).pointee() &&
+        TypeRef(from).pointee().kind() == LogosType::Kind::Closure)
+        return types_compatible(TypeRef(from).pointee(), to);
     // Struct → &dyn Trait coercion (impl check deferred to codegen).
     // Also accept `&T` / `&mut T` over a struct (the natural unsize-coercion
     // source form): `foo(&b)` where `foo` expects `&dyn Trait` and `b: T`.
@@ -2554,6 +2566,29 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
 
     if (tc == la::DYN_TYPE) {
         auto tname = std::string(str_of(node.get(la::NAME.code)));
+        // C5-cl-04 slice: `dyn Fn(…)` / `dyn FnMut(…)` / `dyn FnOnce(…)` —
+        // Logos's Fn-family isn't a registered trait (it's a bound-check
+        // shortcut), but the trait-object layout for these matches the
+        // existing Closure type exactly: {fn_ptr, env_ptr}. So we resolve
+        // `dyn Fn*(...) -> R` directly to Kind::Closure, which gets the
+        // existing call-via-fat-pointer dispatch + Box<Closure> layout for
+        // free.
+        if (tname == "Fn" || tname == "FnMut" || tname == "FnOnce") {
+            LogosTypeBuilder t;
+            t.kind = LogosType::Kind::Closure;
+            if (node.has_key(la::PARAMS)) {
+                auto params_node = map_of(node.get(la::PARAMS.code));
+                if (params_node.has_key(la::ITEMS)) {
+                    auto items = arr_of(params_node.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < items.size(); ++i)
+                        t.closure_params.push_back(resolve_type(map_of(items.get(i))));
+                }
+            }
+            t.closure_ret = node.has_key(la::RET_TYPE)
+                ? resolve_type(map_of(node.get(la::RET_TYPE.code)))
+                : void_t();
+            return pool_->alloc(std::move(t));
+        }
         if (!traits_.count(tname))
             error(std::format("unknown trait '{}' in &dyn type", tname));
         // Optional type-args: &dyn Trait<T,…> — same shape as Struct<T,…>.

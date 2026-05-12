@@ -1,0 +1,23 @@
+// C5-cl-04 first slice: `&dyn FnMut() -> R` parameter type accepts a
+// closure value, and calling it dispatches through the existing
+// closure fat-ptr indirect-call path.
+//
+// `dyn Fn*`-family resolves to Kind::Closure at sema (the layout
+// matches — `{fn_ptr, env_ptr}` for both), so `&dyn FnMut() -> i32`
+// is just an alias for the closure type; the `&cl` arg coerces via
+// the new `&Closure → Closure` rule.
+//
+// Box<dyn FnMut()> is the next slice (needs Box-deref auto-call on
+// boxed closures).
+package cl_dyn_fnmut_basic;
+
+fn take_ref(f: &dyn FnMut() -> i32) -> i32 {
+    return f();
+}
+
+fn main() -> i32 {
+    let cl = || -> i32 { return 42i32; };
+    let r = take_ref(&cl);
+    if r != 42i32 { return 1i32; }
+    return 0i32;
+}

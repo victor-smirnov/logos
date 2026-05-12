@@ -1096,10 +1096,26 @@
     // The TARGS form is needed for traits with type / const-generic params
     // (e.g. `&dyn BTreeNode<StoreCfg>`); type-args use the LT_TYPE/GT_TYPE
     // pair like other type-position generic instances.
-    dyn_type <- AMP KW_MUT KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE (PLUS LIFETIME)?
+    dyn_type <- AMP KW_MUT KW_DYN IDENT LPAREN closure_type_args RPAREN ARROW type_ref (PLUS LIFETIME)?
+             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, PARAMS: $6, RET_TYPE: $9 }
+              / AMP KW_MUT KW_DYN IDENT LPAREN RPAREN ARROW type_ref (PLUS LIFETIME)?
+             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, RET_TYPE: $8 }
+              / AMP KW_MUT KW_DYN IDENT LPAREN closure_type_args RPAREN (PLUS LIFETIME)?
+             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, PARAMS: $6 }
+              / AMP KW_MUT KW_DYN IDENT LPAREN RPAREN (PLUS LIFETIME)?
+             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true }
+              / AMP KW_MUT KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE (PLUS LIFETIME)?
              => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, ITEMS: $... }
               / AMP KW_MUT KW_DYN IDENT (PLUS LIFETIME)?
              => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true }
+              / AMP KW_DYN IDENT LPAREN closure_type_args RPAREN ARROW type_ref (PLUS LIFETIME)?
+             => { CODE: DYN_TYPE, NAME: $3, PARAMS: $5, RET_TYPE: $8 }
+              / AMP KW_DYN IDENT LPAREN RPAREN ARROW type_ref (PLUS LIFETIME)?
+             => { CODE: DYN_TYPE, NAME: $3, RET_TYPE: $7 }
+              / AMP KW_DYN IDENT LPAREN closure_type_args RPAREN (PLUS LIFETIME)?
+             => { CODE: DYN_TYPE, NAME: $3, PARAMS: $5 }
+              / AMP KW_DYN IDENT LPAREN RPAREN (PLUS LIFETIME)?
+             => { CODE: DYN_TYPE, NAME: $3 }
               / AMP KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE (PLUS LIFETIME)?
              => { CODE: DYN_TYPE, NAME: $3, ITEMS: $... }
               / AMP KW_DYN IDENT (PLUS LIFETIME)?
