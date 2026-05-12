@@ -6915,7 +6915,15 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         }
     }
 
-    TypeRef ret_type = node.has_key(la::RET_TYPE)
+    // C5-cl-06: closure return-type inference. When no `-> R`
+    // annotation is supplied, defer to body inspection — `ret_type_`
+    // is set to nullptr during body lowering so `return X;` skips its
+    // strict ret-type check, then after the body is lowered we walk
+    // SReturn stmts and adopt the first non-void return type. Falls
+    // back to void if the body has no `return val` (matches Rust's
+    // unit-return inference).
+    bool has_annot = node.has_key(la::RET_TYPE);
+    TypeRef ret_type = has_annot
         ? resolve_type(map_of(node.get(la::RET_TYPE.code))) : void_t();
 
     // Push a new scope with closure params
@@ -6933,7 +6941,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // Lower body — closure body is its own unsafe scope, does NOT inherit enclosing context.
     auto saved_ret = ret_type_;
     bool saved_unsafe = inside_unsafe_;
-    ret_type_ = ret_type;
+    ret_type_ = has_annot ? ret_type : nullptr;
     inside_unsafe_ = false;
     lir::LBlock body;
     if (node.has_key(la::BODY)) {
@@ -6960,6 +6968,54 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     ret_type_ = saved_ret;
     inside_unsafe_ = saved_unsafe;
     pop_scope();
+
+    // C5-cl-06: if no `-> R` annotation, scan body stmts (via the
+    // lir_view mirrors that were eager-emitted by the builder) and
+    // adopt the first non-void return type as the closure's
+    // ret_type. Falls back to void.
+    if (!has_annot) {
+        using SC = lir_schema::stmt::Code;
+        TypeRef inferred = nullptr;
+        std::function<void(lir_view::StmtRef)> scan_stmt;
+        auto scan_block = [&](lir_view::BlockRef b) {
+            if (!b || inferred) return;
+            b.each_stmt([&](lir_view::StmtRef s) {
+                if (!inferred) scan_stmt(s);
+            });
+        };
+        scan_stmt = [&](lir_view::StmtRef s) {
+            if (!s || inferred) return;
+            switch (s.kind()) {
+                case SC::Return: {
+                    auto vr = lir_view::SReturnView{s}.value();
+                    if (vr) {
+                        auto* le = lexpr_of(vr);
+                        if (le && le->type &&
+                            TypeRef(le->type).kind() != LogosType::Kind::Void &&
+                            TypeRef(le->type).kind() != LogosType::Kind::Error) {
+                            inferred = le->type;
+                        }
+                    }
+                    break;
+                }
+                case SC::If: {
+                    auto v = lir_view::SIfView{s};
+                    scan_block(v.then_block());
+                    scan_block(v.else_block());
+                    break;
+                }
+                case SC::While: scan_block(lir_view::SWhileView{s}.body()); break;
+                case SC::Loop:  scan_block(lir_view::SLoopView{s}.body());  break;
+                case SC::Block: scan_block(lir_view::SBlockView{s}.body()); break;
+                default: break;
+            }
+        };
+        for (auto& s : body.stmts) {
+            if (inferred) break;
+            scan_stmt(stmt_ref_of(s));
+        }
+        if (inferred) ret_type = inferred;
+    }
 
     // Capture detection: find variables used anywhere in the closure body
     // that are not params and still resolve in the enclosing scope.
