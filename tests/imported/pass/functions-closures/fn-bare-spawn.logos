@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/fn-bare-spawn.rs
+// Modifications: `T: Send` bound dropped — Logos has no Send trait
+// surface (its concurrency model is fibers, no marker traits).
+package fc_fn_bare_spawn;
+
+use std.fmt;
+use std.lang.text;
+
+fn spawn<T>(val: T, f: fn(T)) { f(val); }
+
+fn f(i: isize) { assert_eq!(i, 100isize); }
+
+fn main() -> i32 {
+    spawn::<isize>(100isize, f);
+    return 0;
+}

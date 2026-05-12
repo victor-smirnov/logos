@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/closure-immediate.rs
+// Modifications: third param renamed `c` → `cc` to avoid clashing
+// with the closure-named local; closure-return-type inference
+// covers the unit body (C5-cl-06).
+package fc_closure_immediate;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let c = |a: u8, b: u16, cc: u8| {
+        assert_eq!(a, 1u8);
+        assert_eq!(b, 2u16);
+        assert_eq!(cc, 3u8);
+    };
+    c(1u8, 2u16, 3u8);
+    return 0;
+}
