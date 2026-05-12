@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/tuple/nested-index.rs
+// Modifications: `0.0..1.1` range arm dropped (Logos has no
+// float-range expression). Tuple-index chaining kept faithful;
+// assert_eq! → if-return.
+package tup_nested_index;
+
+fn main() -> i32 {
+    let n: i64 = (1i64, (2i64, 3i64)).1.1;
+    if n != 3i64 { return 1i32; }
+    let n2: i64 = (1i64, (2i64, (3i64, 4i64))).1.1.1;
+    if n2 != 4i64 { return 2i32; }
+    return 0i32;
+}
