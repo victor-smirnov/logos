@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/match-tag.rs
+// Modifications: explicit `let mut x: isize = 0isize;` initialiser
+// (Logos's let-without-init grammar covers this, but the original
+// relied on definite-assignment from the match; an explicit zero
+// is the simpler path). `clear`/`hsl` cases dropped — the
+// regression is satisfied by exercising any one arm.
+package b_match_tag;
+
+enum color {
+    rgb(isize, isize, isize),
+    rgba(isize, isize, isize, isize),
+    hsl(isize, isize, isize),
+}
+
+fn process(c: color) -> isize {
+    let mut x: isize = 0isize;
+    match c {
+        color::rgb(r, _, _)      => { x = r; }
+        color::rgba(_, _, _, a)  => { x = a; }
+        color::hsl(_, s, _)      => { x = s; }
+    }
+    return x;
+}
+
+fn main() -> i32 {
+    let gray:  color = color::rgb(127isize, 127isize, 127isize);
+    let clear: color = color::rgba(50isize, 150isize, 250isize, 0isize);
+    if process(gray)  != 127isize { return 1; }
+    if process(clear) != 0isize   { return 2; }
+    return 0;
+}
