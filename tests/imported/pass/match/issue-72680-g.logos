@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust tests/ui/match/issue-72680.rs (g function only)
+// Modifications: subset import — only fn `g` (bool-tuple match with
+// or-patterns inside tuple elements). The original test also has fn
+// `f` (requires str patterns at tuple elements — separate slice) and
+// fn `h` (1-tuples `(z,)` — Logos has no 1-tuple syntax). Otherwise
+// faithful — `usize` → `i32` and `assert!` → conditional return.
+// Exercises P4-pm-03 (tuple-type match scrutinees) + or-patterns at
+// tuple-element position (`true | false`).
+package issue_72680_g;
+
+fn g(x: bool, y: bool, z: bool) -> bool {
+    match (x, y, x, z) {
+        (true | false, false, true, false) => { return true; }
+        (false, true | false, true | false, false) => { return true; }
+        (true | false, true | false, true | false, true) => { return false; }
+        (true, true | false, true | false, false) => { return false; }
+    }
+}
+
+fn main() -> i32 {
+    if g(false, true, false) != true  { return 1; }
+    if g(true,  false, false) != true  { return 2; }
+    if g(false, false, false) != true  { return 3; }
+
+    if g(true,  true,  true)  != false { return 4; }
+    if g(false, true,  true)  != false { return 5; }
+    if g(true,  false, true)  != false { return 6; }
+    if g(false, false, true)  != false { return 7; }
+    if g(true,  true,  false) != false { return 8; }
+    return 0;
+}

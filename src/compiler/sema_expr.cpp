@@ -170,6 +170,74 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
         return builder().lit_str(std::string(sv), make_slice_type(u8_t()));
     }
 
+    case la::LIT_BYTES: {
+        // P4-pm-07: `b"…"` at expression position. Decode escapes
+        // (parity with PAT_BYTES decoder above) and emit an `[u8; N]`
+        // ArrLit. Suitable for `let x: [u8; N] = b"…";` and for const
+        // initializers `const X: [u8; N] = b"…";` which downstream
+        // match-pattern code (PAT_BYTES on [u8; N]) consumes.
+        auto sv = str_of(expr.get(la::VALUE.code));
+        std::vector<uint8_t> bytes;
+        if (sv.size() >= 3 && sv.front() == 'b' && sv[1] == '"' && sv.back() == '"') {
+            std::string_view body = sv.substr(2, sv.size() - 3);
+            for (size_t i = 0; i < body.size(); ) {
+                unsigned char c = (unsigned char)body[i];
+                if (c == '\\' && i + 1 < body.size()) {
+                    char e = body[i + 1];
+                    uint8_t b = 0;
+                    switch (e) {
+                        case 'n':  b = '\n'; break;
+                        case 't':  b = '\t'; break;
+                        case 'r':  b = '\r'; break;
+                        case '0':  b = 0;    break;
+                        case '\\': b = '\\'; break;
+                        case '\'': b = '\''; break;
+                        case '"':  b = '"';  break;
+                        case 'x': {
+                            if (i + 3 < body.size()) {
+                                auto hex = [](char c) -> int {
+                                    if (c >= '0' && c <= '9') return c - '0';
+                                    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+                                    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+                                    return -1;
+                                };
+                                int hi = hex(body[i + 2]), lo = hex(body[i + 3]);
+                                if (hi >= 0 && lo >= 0) {
+                                    b = (uint8_t)((hi << 4) | lo);
+                                    bytes.push_back(b);
+                                    i += 4;
+                                    continue;
+                                }
+                            }
+                            error(std::format(
+                                "byte-string literal: malformed \\x escape in '{}'", sv));
+                            i += 2; continue;
+                        }
+                        default:
+                            error(std::format(
+                                "byte-string literal: unknown escape '\\{}' in '{}'",
+                                e, sv));
+                            i += 2; continue;
+                    }
+                    bytes.push_back(b);
+                    i += 2;
+                } else {
+                    bytes.push_back(c);
+                    ++i;
+                }
+            }
+        } else {
+            error(std::format("byte-string literal: malformed '{}'", sv));
+        }
+        auto u8t = u8_t();
+        std::vector<lir::LExprPtr> elems;
+        elems.reserve(bytes.size());
+        for (auto b : bytes)
+            elems.push_back(builder().lit_int((int64_t)b, u8t));
+        auto arr_t = make_array(u8t, (uint64_t)bytes.size());
+        return builder().arr_lit(std::move(elems), arr_t);
+    }
+
     case la::VAR_REF: {
         auto name = str_of(expr.get(la::NAME.code));
         auto t = lookup(name);

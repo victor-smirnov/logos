@@ -286,6 +286,7 @@
     BREAK_EXPR                  = 231   // `break` in expression position (P3-pg-04). Rust-style `!`/Never; sema lowers as a SBreak stmt + Error-typed sentinel expression so surrounding type-checks accept.
     CONTINUE_EXPR               = 232   // `continue` in expression position (P3-pg-04). Same shape as BREAK_EXPR.
     RETURN_EXPR                 = 233   // `return` in expression position (P3-pg-04). Same shape — bare form only (no value).
+    LIT_BYTES                   = 234   // P4-pm-07: `b"..."` byte-string literal at expression position. VALUE = raw token text including the `b"…"` quotes; sema decodes escapes and lowers to an `[u8; N]` array literal.
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -1439,7 +1440,11 @@
     // its fixed-arity layout.
     pat_tuple_elem <- DOTDOT
                    => { CODE: PAT_REST }
-                    / pat_single
+                    // P4-pm-03: or-pattern as tuple element
+                    // (`(true | false, …)`). Always emit PAT_OR; sema
+                    // already unwraps single-alt PAT_OR transparently.
+                    / pat_single (PIPE pat_single)*
+                   => { CODE: PAT_OR, ITEMS: $... }
 
     // Hermes map/array pattern entry lists.
     pat_hermes_map_entry <- STRING COLON pat_single
@@ -1851,6 +1856,7 @@
                      / enum_lit
                      / RAW_STRING => { CODE: LIT_STR, VALUE: $1 }
                      / STRING   => { CODE: LIT_STR,  VALUE: $1 }
+                     / BYTE_STRING => { CODE: LIT_BYTES, VALUE: $1 }
                      / CHAR_LIT => { CODE: LIT_CHAR, VALUE: $1 }
                      / KW_TRUE  => { CODE: LIT_BOOL, VALUE: true }
                      / KW_FALSE => { CODE: LIT_BOOL, VALUE: false }
@@ -2013,6 +2019,11 @@
                   / enum_lit         // IDENT::VARIANT     — after call_expr (no parens)
                   / RAW_STRING => { CODE: LIT_STR, VALUE: $1 }
                   / STRING   => { CODE: LIT_STR,  VALUE: $1 }
+                  // P4-pm-07: byte-string as expression. Sema lowers
+                  // to an `[u8; N]` array literal using the decoded
+                  // bytes (escapes \n/\t/\r/\0/\\/\"/\x.. supported,
+                  // matching the PAT_BYTES decoder).
+                  / BYTE_STRING => { CODE: LIT_BYTES, VALUE: $1 }
                   / CHAR_LIT => { CODE: LIT_CHAR, VALUE: $1 }
                   / KW_TRUE  => { CODE: LIT_BOOL, VALUE: true }
                   / KW_FALSE => { CODE: LIT_BOOL, VALUE: false }

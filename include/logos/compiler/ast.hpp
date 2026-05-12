@@ -81,6 +81,7 @@ inline constexpr Code VAR_REF     {"VAR_REF",     32};
 inline constexpr Code LIT_INT     {"LIT_INT",     33};
 inline constexpr Code LIT_BOOL    {"LIT_BOOL",    34};
 inline constexpr Code LIT_STR     {"LIT_STR",     35};   // string literal
+inline constexpr Code LIT_BYTES   {"LIT_BYTES",  234};   // P4-pm-07: `b"..."` byte-string literal at expression position; sema decodes escapes and lowers to an `[u8; N]` array literal.
 
 // Type references
 inline constexpr Code TYPE_REF    {"TYPE_REF",    40};

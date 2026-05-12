@@ -2343,6 +2343,45 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                 // case below.
                 pt.bindings.push_back("_");
                 pt.subs.push_back(build_pattern(sub, elem_ty));
+            } else if (sc == la::PAT_OR.code) {
+                // P4-pm-03: or-pattern as tuple element. Grammar always
+                // emits PAT_OR (even for a single sub-pattern with no
+                // PIPE); unwrap the trivial case so a bare `n` /
+                // `_`-shape is treated as a normal binding/wildcard
+                // (the multi-alt path drops bindings — alts must be
+                // scalar). Multi-alt: emit PatOr LIR; mlir-gen
+                // tuple-arm dispatch OR-chains the per-alt disc tests.
+                bool single = false;
+                if (sub.has_key(la::ITEMS)) {
+                    auto arr = arr_of(sub.get(la::ITEMS.code));
+                    if (arr.size() == 1) {
+                        auto inner = map_of(arr.get(0));
+                        int32_t isc = code_of(inner);
+                        if (isc == la::PAT_WILD.code) {
+                            auto nm = inner.has_key(la::NAME)
+                                ? std::string(str_of(inner.get(la::NAME.code)))
+                                : std::string("_");
+                            pt.bindings.push_back(nm);
+                            pt.subs.push_back(make_pat_wild(nm));
+                            single = true;
+                        } else if (isc == la::PAT_INT.code ||
+                                   isc == la::PAT_NEG_INT.code ||
+                                   isc == la::PAT_BOOL.code ||
+                                   isc == la::PAT_RANGE.code) {
+                            pt.bindings.push_back("_");
+                            pt.subs.push_back(build_pattern(inner, elem_ty));
+                            single = true;
+                        } else if (isc == la::PAT_VARIANT_DATA.code) {
+                            pt.bindings.push_back("_");
+                            pt.subs.push_back(build_pattern(inner, elem_ty));
+                            single = true;
+                        }
+                    }
+                }
+                if (!single) {
+                    pt.bindings.push_back("_");
+                    pt.subs.push_back(build_pattern(sub, elem_ty));
+                }
             } else {
                 error("tuple pattern element: only _, name, integer, bool, range, "
                       "or variant patterns are supported");
@@ -2682,9 +2721,94 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                     p_.mirror_offset_ = lir_mirror_emit_pat_int(*cur_prog_, cv.i);
                     return p_;
                 }
+                // P4-pm-06 str-typed const-pattern. CtfeValue reports
+                // `K::Slice` for str literals (str == Slice<u8>).
+                // Synthesize a `__str_<n>` binding + push
+                // `str_eq(__str_<n>, CONST)` into the refutable-guard
+                // side channel. The arm builder ANDs it into the arm's
+                // guard.
+                bool scrut_is_str =
+                    TypeRef(scrut_type).kind() == LogosType::Kind::Slice &&
+                    TypeRef(scrut_type).elem() &&
+                    TypeRef(scrut_type).elem().kind() == LogosType::Kind::U8;
+                // P4-pm-07: byte-array const pattern. ctfe doesn't yet
+                // produce array values, but we can still match against
+                // the const by name. Detect `[u8; N]`-typed consts via
+                // `module_consts_` lookup; synth a `__byte_<n>` binding
+                // + emit element-wise AND-chain `__byte_<n>[i] == CONST[i]`
+                // as the refutable-inner guard.
+                if (TypeRef(scrut_type).kind() == LogosType::Kind::Array &&
+                    TypeRef(scrut_type).elem() &&
+                    TypeRef(scrut_type).elem().kind() == LogosType::Kind::U8 &&
+                    current_pat_refutable_guards_) {
+                    auto cit = module_consts_.find(wname);
+                    if (cit != module_consts_.end() &&
+                        TypeRef(cit->second).kind() == LogosType::Kind::Array &&
+                        TypeRef(cit->second).elem().kind() == LogosType::Kind::U8 &&
+                        TypeRef(cit->second).arr_size() ==
+                            TypeRef(scrut_type).arr_size()) {
+                        size_t arr_n = (size_t)TypeRef(scrut_type).arr_size();
+                        std::string syn = std::format(
+                            "__byte_{}", tmp_var_count_++);
+                        auto u8t = prim(LogosType::Kind::U8);
+                        auto i64t = prim(LogosType::Kind::I64);
+                        lir::LExprPtr guard;
+                        for (size_t k = 0; k < arr_n; ++k) {
+                            auto lhs = builder().slice_index(
+                                builder().var_ref(syn, scrut_type),
+                                builder().lit_int((int64_t)k, i64t), u8t);
+                            auto rhs = builder().slice_index(
+                                builder().var_ref(wname, scrut_type),
+                                builder().lit_int((int64_t)k, i64t), u8t);
+                            auto eq = builder().bin_op(
+                                "==", std::move(lhs), std::move(rhs), bool_t());
+                            if (!guard) {
+                                guard = std::move(eq);
+                            } else {
+                                guard = builder().bin_op(
+                                    "&&", std::move(guard), std::move(eq), bool_t());
+                            }
+                        }
+                        if (!guard) guard = builder().lit_bool(true, bool_t());
+                        current_pat_refutable_guards_->push_back(std::move(guard));
+                        lir::Pattern p_;
+                        p_.mirror_offset_ = lir_mirror_emit_pat_wild(*cur_prog_, syn);
+                        return p_;
+                    }
+                }
+                if (cv.kind == K::Slice && scrut_is_str &&
+                    current_pat_refutable_guards_) {
+                    auto cands = find_func_candidates("str_eq");
+                    const SemaFuncInfo* fi = nullptr;
+                    for (auto* c : cands)
+                        if (c->param_types.size() == 2) { fi = c; break; }
+                    if (!fi) {
+                        error("str-const pattern needs stdlib `str_eq`; "
+                              "`use std.lang.text.string;` (or rely on the "
+                              "default prelude)");
+                    } else {
+                        std::string syn = std::format(
+                            "__str_{}", tmp_var_count_++);
+                        auto vref = builder().var_ref(syn, scrut_type);
+                        auto cref = builder().var_ref(wname, scrut_type);
+                        std::vector<lir::LExprPtr> args;
+                        args.push_back(std::move(vref));
+                        args.push_back(std::move(cref));
+                        std::string sym = fi->symbol_name.empty()
+                            ? std::string("str_eq") : fi->symbol_name;
+                        auto guard = builder().call(
+                            sym, {}, std::move(args), bool_t());
+                        current_pat_refutable_guards_->push_back(std::move(guard));
+                        lir::Pattern p_;
+                        p_.mirror_offset_ = lir_mirror_emit_pat_wild(*cur_prog_, syn);
+                        return p_;
+                    }
+                }
                 error(std::format(
                     "const '{}' has non-scalar type — only int/bool/char "
-                    "consts are supported in patterns today", wname));
+                    "consts are supported in patterns today (or `str` with "
+                    "P4-pm-06 — needs `current_pat_refutable_guards_` channel)",
+                    wname));
             } else {
                 error(std::format(
                     "const '{}' in pattern position: initializer is not "

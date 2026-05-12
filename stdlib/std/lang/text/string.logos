@@ -544,6 +544,34 @@ impl Display for f32 {
 // Free functions are prefixed `str_` because `str` is a primitive and cannot
 // host inherent methods. When `impl str { ... }` lands these will move into it.
 
+// P4-pm-07: byte-array equality used by const-pattern match arms over
+// `[u8; N]` consts. Generic over the array length via the `len` const-
+// parameter so a single fn covers every const-typed array literal.
+pub fn bytes_arr_eq<const N: i64>(a: [u8; N], b: [u8; N]) -> bool {
+    let mut i: i64 = 0 as i64;
+    while i < N {
+        if a[i] != b[i] { return false; }
+        i = i + 1 as i64;
+    }
+    return true;
+}
+
+// True iff `a` and `b` have the same length and byte content. Used by
+// P4-pm-06 (str-typed const-pattern match arms) — sema synthesizes a
+// `__str_<n> == CONST` guard that lowers to a call here.
+pub fn str_eq(a: str, b: str) -> bool {
+    let n: i64 = a.len();
+    if n != b.len() { return false; }
+    let mut i: i64 = 0 as i64;
+    unsafe {
+        while i < n {
+            if a.as_ptr()[i] != b.as_ptr()[i] { return false; }
+            i = i + 1 as i64;
+        }
+    }
+    return true;
+}
+
 pub fn str_starts_with(s: str, prefix: str) -> bool {
     if s.len() < prefix.len() { return false; }
     let n: i64 = prefix.len();

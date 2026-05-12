@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust tests/ui/match/issue-11940.rs
+// Modifications: `&'static str` → `str` (Logos's str primitive is
+// the &str-shape); `unreachable!()` → conditional return; package
+// declaration added. Exercises P4-pm-06 (str-typed const-pattern in
+// match arm) — sema synthesizes a `__str_<n> == CONST` guard via
+// stdlib `str_eq`.
+package issue_11940;
+
+use std.lang.text;
+
+const TEST_STR: str = "abcd";
+
+fn main() -> i32 {
+    let s: str = "abcd";
+    match s {
+        TEST_STR => { return 0; }
+        _ => { return 1; }
+    }
+}

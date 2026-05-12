@@ -67,6 +67,7 @@ silently un-trim earlier imports don't count here (logged in
 | B51  | 2026-05-12 |  1 |     0 | 0.00 | 208 | 106 |
 | B52  | 2026-05-12 |  3 |     0 | 0.00 | 211 | 106 |
 | B53  | 2026-05-12 |  2 |     0 | 0.00 | 213 | 106 |
+| B54  | 2026-05-12 |  3 |     0 | 0.00 | 216 | 106 |
 
 (Phase-1 counts are estimates — pre-batch gap-as-code triage gave coarse
 totals only; precise per-batch arrival-order numbers weren't recorded.
@@ -127,6 +128,23 @@ guard and payload extraction; mixed-shape `Opaque {with: true, ..}
 | Transparent` now works correctly). Two more rustc tests
 un-trimmed: `issue-5530`, `issue-114691`. ctest 1445 → 1447.
 Catalog: P4-pm-24 Open → ✅ Closed, P4-pm-25 Open → ✅ Closed.
+B54 closes the last three Partials in pattern-match-gaps: P4-pm-03
+(or-pattern at tuple element via grammar + sema dispatch + mlir-gen
+OR-chain — single-alt PAT_OR unwraps so existing tuple-elem
+binding/scalar shapes still parse identically), P4-pm-06 (str-typed
+const-pattern via synth `__str_<n>` binding + `str_eq(__str_<n>, CONST)`
+guard pushed to refutable-guard side channel; new `pub fn str_eq` in
+`std.lang.text.string`, parallel private copy in `std.sys.args`
+deleted to avoid mangling collision), and P4-pm-07 (`b"…"` at
+expression position via new LIT_BYTES AST code that decodes escapes
+parity-with-PAT_BYTES and emits `[u8; N]` ArrLit; const-init allow-list
+extended). Three more rustc ports un-trimmed: `issue-11940` (str-const
+pattern), `issue-72680-g` (or-pat inside 4-element bool tuple), and a
+homegrown `byte_string_expr` regression. ctest 1447 → 1449 (plus the
+72680-g import → 1450). Catalog: P4-pm-03 / P4-pm-06 / P4-pm-07 all
+Partial → ✅ Closed. **All pattern-match-gaps now Closed**, and
+the only remaining cross-catalog open work is small follow-ups
+documented inline.
 
 Phase 4 (B38–B49): "autonomous bulk-import" run. Single overnight
 session through under-imported dirs (binding, match, for-loop-while,

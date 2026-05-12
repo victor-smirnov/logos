@@ -49,20 +49,6 @@ fn is_dash_dash(s: str) -> bool {
     }
 }
 
-// Compare str a with str b for equality.
-fn str_eq(a: str, b: str) -> bool {
-    if a.len() != b.len() { return false; }
-    let n: i64 = a.len();
-    let mut i: i64 = 0 as i64;
-    unsafe {
-        while i < n {
-            if a.as_ptr()[i] != b.as_ptr()[i] { return false; }
-            i = i + 1 as i64;
-        }
-    }
-    return true;
-}
-
 // Prefix-compare: does str `s` start with str `prefix`?
 fn starts_with(s: str, prefix: str) -> bool {
     if s.len() < prefix.len() { return false; }

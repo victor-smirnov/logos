@@ -2404,6 +2404,32 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                         cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, eq);
                         continue;
                     }
+                    if (sub.kind() == pc::Code::Or) {
+                        // P4-pm-03: or-pattern at tuple element —
+                        // OR-chain each alt's eq check, AND into cond.
+                        mlir::Value alt_or =
+                            builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 1);
+                        bool any_alt = false;
+                        lir_view::PatOrView{sub}.each_alt([&](lir_view::PatRef alt) {
+                            int64_t av = 0;
+                            if (alt.kind() == pc::Code::Int) {
+                                av = lir_view::PatIntView{alt}.value();
+                            } else if (alt.kind() == pc::Code::Bool) {
+                                av = lir_view::PatBoolView{alt}.value() ? 1 : 0;
+                            } else {
+                                return;  // skip unsupported alt kind
+                            }
+                            auto cv = coerce_int(
+                                builder_.create<mlir::arith::ConstantIntOp>(loc_, av, 64),
+                                elem_mlir);
+                            auto eq = builder_.create<mlir::arith::CmpIOp>(
+                                loc_, mlir::arith::CmpIPredicate::eq, ev, cv);
+                            alt_or = builder_.create<mlir::arith::OrIOp>(loc_, alt_or, eq);
+                            any_alt = true;
+                        });
+                        if (any_alt) cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, alt_or);
+                        continue;
+                    }
                     int64_t sub_val = 0;
                     if (sub.kind() == pc::Code::Int)       sub_val = lir_view::PatIntView{sub}.value();
                     else if (sub.kind() == pc::Code::Bool) sub_val = lir_view::PatBoolView{sub}.value() ? 1 : 0;

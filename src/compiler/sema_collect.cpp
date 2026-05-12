@@ -1019,7 +1019,8 @@ void SemaChecker::collect_const(TinyMapView node) {
                 int32_t vc = code_of(v);
                 if (vc == la::LIT_INT  || vc == la::LIT_BOOL ||
                     vc == la::LIT_STR  || vc == la::LIT_FLOAT ||
-                    vc == la::LIT_CHAR || vc == la::LIT_HSTATIC)
+                    vc == la::LIT_CHAR || vc == la::LIT_HSTATIC ||
+                    vc == la::LIT_BYTES)
                     return true;
                 if (vc == la::HERMES_MAP.code  || vc == la::HERMES_ARRAY.code ||
                     vc == la::HERMES_STR.code  || vc == la::HERMES_INT.code  ||
