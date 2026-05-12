@@ -793,10 +793,48 @@ void SemaChecker::collect_enum(TinyMapView node) {
                         vval = parse_int_literal(sv);
                         if (v.has_key(la::LO_NEG)) vval = -vval;
                     } else if (v.has_key(la::BODY)) {
+                        auto blk = map_of(v.get(la::BODY.code));
+                        // S8-en-02: `Variant = OtherEnum::OtherVariant (as T)?`.
+                        // The grammar emits a CODE-less sub-map with NAME and
+                        // FIELD slots — distinguishable from a metacall BLOCK
+                        // (which carries CODE=BLOCK). Resolve the referent in
+                        // already-collected enums and use its discriminant
+                        // value verbatim. Optional `as T` cast is dropped —
+                        // width is governed by the enclosing enum's
+                        // backing_type / repr.
+                        if (code_of(blk) != la::BLOCK &&
+                            blk.has_key(la::NAME) && blk.has_key(la::FIELD)) {
+                            auto ref_enum    = std::string(str_of(blk.get(la::NAME.code)));
+                            auto ref_variant = std::string(str_of(blk.get(la::FIELD.code)));
+                            auto [rpkg, rinfo] = find_enum_by_name(ref_enum);
+                            if (!rinfo) {
+                                auto rit = enums_.find(ref_enum);
+                                if (rit != enums_.end()) rinfo = &rit->second;
+                            }
+                            if (!rinfo) {
+                                error(std::format("enum disc: unknown enum '{}'", ref_enum));
+                            } else {
+                                bool got = false;
+                                for (auto& rv : rinfo->variants) {
+                                    if (rv.name == ref_variant) {
+                                        vval = (int64_t)rv.value;
+                                        got = true;
+                                        break;
+                                    }
+                                }
+                                if (!got)
+                                    error(std::format(
+                                        "enum disc: variant '{}::{}' not found",
+                                        ref_enum, ref_variant));
+                            }
+                            // payload check skipped — xref node has no payload list
+                            info.variants.push_back({vname, vval, {}, false});
+                            next_val = vval + 1;
+                            continue;
+                        }
                         // MP-mc-01: `Variant = metacall { <expr> }`. Block
                         // tail expression evaluated via ctfe; integer
                         // result becomes the discriminant.
-                        auto blk = map_of(v.get(la::BODY.code));
                         hermes::TinyMapView tail{};
                         bool have_tail = false;
                         if (blk.has_key(la::ITEMS)) {

@@ -588,6 +588,11 @@
     variant_payload_list <- type_ref (COMMA type_ref)*
                          => { ITEMS: $... }
 
+    // S8-en-02: `X::Y` reference at enum-discriminant position.
+    // Carries NAME=enum, FIELD=variant; consumer reads BODY sub-map.
+    enum_xref <- IDENT COLONCOLON IDENT
+              => { NAME: $1, FIELD: $3 }
+
     variant_def <- IDENT LPAREN DOTDOTDOT type_ref RPAREN
                 => { CODE: VARIANT_DEF, NAME: $1, IS_VARIADIC: 1, ITEMS: $4 }
                  / IDENT LPAREN variant_payload_list RPAREN
@@ -598,6 +603,16 @@
                 => { CODE: VARIANT_DEF, NAME: $1, VALUE: $3 }
                  / IDENT ASSIGN KW_METACALL block
                 => { CODE: VARIANT_DEF, NAME: $1, BODY: $4 }
+                 // S8-en-02: cross-enum disc reference — `X::Variant (as T)?`.
+                 // Stored as a sub-map under BODY with NAME=enum, FIELD=variant
+                 // so the disc lowerer can look it up in the already-collected
+                 // enums. The `as T` cast suffix is consumed but the type
+                 // dropped — width is governed by the enclosing enum's
+                 // backing_type / repr.
+                 / IDENT ASSIGN enum_xref KW_AS type_ref
+                => { CODE: VARIANT_DEF, NAME: $1, BODY: $3 }
+                 / IDENT ASSIGN enum_xref
+                => { CODE: VARIANT_DEF, NAME: $1, BODY: $3 }
                  / IDENT
                 => { CODE: VARIANT_DEF, NAME: $1 }
 

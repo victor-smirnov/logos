@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/zero-variant-enum-pattern-matching-3037.rs
+// Modifications: original returned `String`; we return `i32` (Logos
+// has no String primitive). The `match x {}` on an uninhabited
+// scrutinee is the regression point — codegen for an empty match
+// arm.
+package e_zero_variant_enum_3037;
+
+enum what { }
+
+fn what_to_string(x: what) -> i32 {
+    match x { }
+}
+
+fn main() -> i32 { return 0; }

@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/enum-disr-val-pretty.rs
+// Modifications: `test_color(color, isize, String)` reduced to a
+// `c as isize == val` check (String not in Logos's primitive
+// surface and the `_name` was unused even in the original).
+// Auto-increment of discriminants (`green, blue` after `red = 1`)
+// preserved verbatim.
+package e_enum_disr_val;
+
+enum color { red = 1, green, blue, imaginary = -1 }
+
+fn main() -> i32 {
+    if color::red       as isize !=  1isize { return 1; }
+    if color::green     as isize !=  2isize { return 2; }
+    if color::blue      as isize !=  3isize { return 3; }
+    if color::imaginary as isize != -1isize { return 4; }
+    return 0;
+}

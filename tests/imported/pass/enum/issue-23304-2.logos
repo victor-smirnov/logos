@@ -1,14 +1,13 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/enum/issue-23304-2.rs
-// Modifications: Rust `enum Y { A = X::A as isize }` (using another
-// enum variant as the discriminant expression) reduced to the
-// literal value `42` — Logos's enum-discriminant grammar accepts
-// integer literals but not arbitrary constant expressions. The
-// resulting numeric assertion is preserved.
+// Modifications: faithful — `enum Y { A = X::A as isize }` now
+// supported (S8-en-02 closed 2026-05-11). `as isize` cast suffix
+// recognised but ignored — width is governed by the enclosing
+// enum's repr.
 package e_issue_23304_2;
 
 enum X { A = 42 }
-enum Y { A = 42 }
+enum Y { A = X::A as isize }
 
 fn main() -> i32 {
     let x: X = X::A;
