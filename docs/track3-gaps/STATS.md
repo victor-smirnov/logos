@@ -84,6 +84,14 @@ Counted *at the time the batch landed*.
 | B58  | 2026-05-12 |  3 |     0 |  3 | 0.00 | 309 | 112 |  5 |
 | B59  | 2026-05-12 |  2 |     0 |  2 | 0.00 | 311 | 112 |  7 |
 | B60  | 2026-05-12 |  2 |     0 |  1 | 0.00 | 313 | 112 |  8 |
+| B61  | 2026-05-12 |  0 |     0 |  1 |  —   | 313 | 112 |  9 |
+| B62  | 2026-05-12 |  0 |     0 |  1 |  —   | 313 | 112 | 10 |
+| B63  | 2026-05-12 |  0 |     0 |  1 |  —   | 313 | 112 | 11 |
+| B63.2| 2026-05-12 |  0 |     0 |  1 |  —   | 313 | 112 | 12 |
+| B63.3| 2026-05-12 |  0 |     0 |  1 |  —   | 313 | 112 | 13 |
+| B65  | 2026-05-12 |  0 |     0 |  2 |  —   | 313 | 112 | 15 |
+| B64  | 2026-05-12 |  0 |     0 |  1 |  —   | 313 | 112 | 16 |
+| B64.2| 2026-05-12 |  0 |     0 |  0 |  —   | 313 | 112 | 16 |
 
 (Phase-1 gap counts are estimates — pre-batch gap-as-code triage gave
 coarse totals only; precise per-batch arrival-order numbers weren't
@@ -285,33 +293,20 @@ Closed in B65 (lifetime epic Phase 7):
     subtype) and will later feed region inference if/when a real
     region-based borrow analyser replaces the min-viable NLL.
 
-Open / deferred (lifetime epic):
-- **HRTB skolemization (B63)** — current B62 check is structural:
-  reject impl with concrete region against bound with generic
-  region. Full skolem-based check (fresh `'!N` per binder, unify
-  through impl) deferred — needed when bounds carry mixed regions
-  (`for<'a> Trait<&'a T, &'static U>`) or nested HRTB. Track in
-  `~/.claude/plans/lifetime-real-hrtb-variance.md`.
-- **Variance enforcement** — currently effectively covariant
-  everywhere via lifetime-erased type identity (TypeUID collapses
-  lifetimes). Per-type variance computation + subtype rule lands
-  in B64.
-- (Stale paragraph kept for reference:) **HRTB real binder substitution** — currently parse-and-capture
-  (TraitBound.lifetime_args from B58); trait dispatch is lifetime-
-  erased so `for<'a> Fn(&'a T)` and `Fn(&T)` resolve identically.
-  Becomes substantive only when trait satisfaction starts
-  consulting regions. The NLL min-viable shipped (B61) does *not*
-  consult regions — it operates purely on holder last-use lines —
-  so HRTB still has no substantive work. Revisit if/when a real
-  region-based borrow analyser lands.
-- **Variance enforcement** — currently effectively covariant
-  everywhere via lifetime-erased type identity (TypeUID collapses
-  lifetimes; `Foo<&'static T>` and `Foo<&'a T>` are interchangeable
-  in dispatch/assignment). Same gating as HRTB: substantive only
-  with a region-based borrow analyser. Verified end-to-end by
-  `variance-iterators-in-libcore` (imported B57):
-  `fn f<'a, I>(iter: Fuse<&'static I>) -> Fuse<&'a I>` compiles
-  without ceremony.
+Lifetime epic — current status:
+- HRTB binder semantics (B62/B63/B63.2/B63.3) ✅
+- Outlives reasoning (B65) ✅
+- Variance + variance-aware subtype (B64/B64.2) ✅
+- NLL min-viable (B61) ✅
+
+Genuinely deferred (orthogonal — separate phase):
+- **Region-based borrow analyser** — current B61 NLL operates on
+  holder last-use lines, not regions. A real Polonius-style
+  analyser with region inference is a separate multi-week project
+  driven by NLL-shaped tests that escape the min-viable's
+  resolution. Re-open when imported `tests/ui/nll/*` start
+  surfacing acceptance/rejection divergence beyond what B64's
+  variance check catches.
 
 Closed in B59:
 - **L4** ✅ — multi-input-ref elision: borrow check's
