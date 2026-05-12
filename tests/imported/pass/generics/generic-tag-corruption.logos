@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-tag-corruption.rs
+// Modifications: `"hi".to_string()` → bare `str` literal. Test point:
+// constructing a generic enum variant doesn't corrupt the payload
+// (was a stage-0 codegen bug).
+package g_generic_tag_corruption;
+
+enum thing<K> { some(K) }
+
+fn main() -> i32 {
+    let _x: thing<str> = thing::some::<str>("hi");
+    return 0i32;
+}
