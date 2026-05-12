@@ -1,0 +1,27 @@
+// C6-cc-08 follow-up — third block of rust-lang/rust tests/ui/cast/
+// fat-ptr-cast-rpass.rs. `*mut dyn Trait` (16-byte fat ptr {data,
+// vtable}) cast to `*mut ()` / `*const ()` should yield just the
+// data pointer (vtable discarded). Both casts must produce the same
+// address, and that address must match `&bar`.
+//
+// In Logos `()` resolves to `void_t()`, so `*mut ()` / `*const ()`
+// are `Ptr<Void>` — the cast extracts the data pointer field of the
+// dyn-pair.
+package c_fat_ptr_dyn_as_thin;
+
+trait Foo { fn foo(&self) -> i64 { return 0i64; } }
+
+struct Bar {}
+
+impl Foo for Bar {}
+
+fn main() -> i32 {
+    let mut bar: Bar = Bar {};
+    let a: *mut dyn Foo = &mut bar as *mut dyn Foo;
+    let b: usize = a as *mut () as usize;
+    let c: usize = a as *const () as usize;
+    if b != c { return 1i32; }
+    let bar_addr: usize = &mut bar as *mut Bar as usize;
+    if b != bar_addr { return 2i32; }
+    return 0i32;
+}

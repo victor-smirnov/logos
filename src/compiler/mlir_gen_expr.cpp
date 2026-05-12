@@ -934,7 +934,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EDerefView v, TypeRef type) {
                  // {data,vtable} lives in memory and dispatch reads fields
                  // through a pointer to it, so `*p` for `*const dyn T`
                  // should yield the same pointer (no double-load).
-                 TypeRef(type).kind() == LogosType::Kind::TraitObject))
+                 TypeRef(type).kind() == LogosType::Kind::TraitObject ||
+                 // C6-cc-08 follow-up: `*p` for `p: *const [T; N]` — the array
+                 // value is too large to "load by value"; we keep it pointer-
+                 // represented so subsequent `(*p)[i]` indexing GEPs into it.
+                 TypeRef(type).kind() == LogosType::Kind::Array))
         return ptr;
     auto pointee = logos_to_mlir(type);
     if (!pointee) pointee = builder_.getI32Type();
@@ -1796,6 +1800,79 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         if (auto alloca = coerce_to_dyn(val, trait, src_struct)) return alloca;
     }
 
+    // C6-cc-08 follow-up: fat-pointer → thin-pointer cast.
+    //
+    //   * `*mut dyn Trait` / `*const dyn Trait` (Ptr<TraitObject>) → `*mut ()`
+    //     / `*const ()` (Ptr<Void>): extract data field of the dyn fat pair,
+    //     vtable discarded. Restricted to Void target so `*mut dyn T as *mut
+    //     Node` raw-reinterpret casts (used in persistent) keep their no-op
+    //     semantics.
+    //
+    //   * `*const [T]` / `*mut [T]` (Slice) → any thin pointer (Ptr<X>) or
+    //     Ptr<Array>: extract data field of the slice {ptr,len} pair. Slice's
+    //     grammar is an intentional fat-ptr declaration (no raw-reinterpret
+    //     overload exists), so widening the source target permits both `as
+    //     *const [T; N]` and `as *const ()` from a raw slice.
+    //
+    // Both MLIR types are `ptr` so the identity check below would short-
+    // circuit and emit a no-op cast yielding the fat-pair address instead
+    // of the contained data ptr — must run before it.
+    bool fat_to_thin = false;
+    auto fk = TypeRef(op_le->type).kind();
+    auto tk = TypeRef(type).kind();
+    if (val.getType() == ptr_type() && target == ptr_type() && op_le->type && type) {
+        bool src_is_dyn_ptr =
+            fk == LogosType::Kind::Ptr &&
+            TypeRef(op_le->type).pointee() &&
+            (TypeRef(op_le->type).pointee().kind() == LogosType::Kind::TraitObject ||
+             TypeRef(op_le->type).pointee().kind() == LogosType::Kind::Closure);
+        bool src_is_slice = fk == LogosType::Kind::Slice;
+        bool dst_is_void_ptr =
+            tk == LogosType::Kind::Ptr &&
+            TypeRef(type).pointee() &&
+            TypeRef(type).pointee().kind() == LogosType::Kind::Void;
+        bool dst_is_thin_ptr =
+            tk == LogosType::Kind::Ptr &&
+            TypeRef(type).pointee() &&
+            TypeRef(type).pointee().kind() != LogosType::Kind::TraitObject &&
+            TypeRef(type).pointee().kind() != LogosType::Kind::Closure &&
+            TypeRef(type).pointee().kind() != LogosType::Kind::Slice;
+        if (src_is_dyn_ptr && dst_is_void_ptr) fat_to_thin = true;
+        if (src_is_slice  && dst_is_thin_ptr) fat_to_thin = true;
+    }
+    if (fat_to_thin) {
+        auto fat_t = mlir::LLVM::LLVMStructType::getLiteral(
+            builder_.getContext(), {ptr_type(), ptr_type()});
+        llvm::SmallVector<mlir::LLVM::GEPArg> data_idx{int32_t(0), int32_t(0)};
+        auto dp = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), fat_t, val, data_idx);
+        return builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), dp);
+    }
+    // C6-cc-08 follow-up: thin → fat-slice cast. `*const [T; N]` / `*mut
+    // [T; N]` (Ptr<Array>) cast to `*const [T]` / `*mut [T]` (Slice)
+    // synthesises a `{ptr, len=N}` fat pair on the stack. Without this the
+    // cast was a no-op (both ptr at MLIR), so a subsequent fat→thin
+    // extraction read the array contents as if they were the data field of
+    // a phantom slice pair.
+    if (val.getType() == ptr_type() && target == ptr_type() && op_le->type && type &&
+        fk == LogosType::Kind::Ptr &&
+        TypeRef(op_le->type).pointee() &&
+        TypeRef(op_le->type).pointee().kind() == LogosType::Kind::Array &&
+        tk == LogosType::Kind::Slice) {
+        auto slice_t = slice_llvm_type();
+        auto alloca = create_entry_alloca(slice_t);
+        llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
+        auto dp = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), slice_t, alloca, di);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, val, dp);
+        llvm::SmallVector<mlir::LLVM::GEPArg> li{int32_t(0), int32_t(1)};
+        auto lp = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), slice_t, alloca, li);
+        auto len = builder_.create<mlir::arith::ConstantIntOp>(
+            loc_, int64_t(TypeRef(op_le->type).pointee().arr_size()), 64);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, len, lp);
+        return alloca;
+    }
     if (val.getType() == target) return val;
 
     auto fi = mlir::dyn_cast<mlir::IntegerType>(val.getType());

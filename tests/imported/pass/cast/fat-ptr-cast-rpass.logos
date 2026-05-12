@@ -1,0 +1,41 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cast/fat-ptr-cast-rpass.rs
+// Modifications: `to_raw_parts().0` (rust-specific intrinsic on raw
+// fat pointers) folded into the `a as *mut () as usize` cast — both
+// extract the data field of the dyn fat pair; the assertion that
+// they match holds in Logos via the same code path. `assert_eq!` →
+// explicit if-return. `&[1, 2, 3]` lifted to a `let arr =
+// [1i32, 2i32, 3i32]; &arr` since Logos doesn't auto-promote array
+// literals to `&[T]` in let-binding position.
+package c_fat_ptr_cast_rpass;
+
+trait Foo { fn foo(&self) -> i64 { return 0i64; } }
+
+struct Bar {}
+
+impl Foo for Bar {}
+
+fn main() -> i32 {
+    // 1. fat-ptr array → thin array ptr
+    let arr1: [i32; 3] = [1i32, 2i32, 3i32];
+    let a1: *const [i32] = &arr1;
+    let b1: *const [i32; 2] = a1 as *const [i32; 2];
+    unsafe {
+        if (*b1)[0usize] != 1i32 { return 1i32; }
+        if (*b1)[1usize] != 2i32 { return 2i32; }
+    }
+    // 2. thin array ptr → fat slice ptr → usize address round-trip
+    let arr2: [i32; 3] = [1i32, 2i32, 3i32];
+    let a2: *const [i32; 3] = (&arr2) as *const [i32; 3];
+    let b2: *const [i32] = a2 as *const [i32];
+    if (a2 as usize) != (b2 as *const () as usize) { return 3i32; }
+    // 3. void-ptr / address split of `*mut dyn Trait` matches direct &bar
+    let mut bar: Bar = Bar {};
+    let a: *mut dyn Foo = &mut bar as *mut dyn Foo;
+    let b: usize = a as *mut () as usize;
+    let c: usize = a as *const () as usize;
+    let bar_addr: usize = &mut bar as *mut Bar as usize;
+    if b != c { return 4i32; }
+    if b != bar_addr { return 5i32; }
+    return 0i32;
+}
