@@ -6203,8 +6203,8 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
     // `enum_lit` alt with `$...`) or a { ITEMS: [...] } map (turbofish
     // alt routes through enum_lit_args sub-production). Accept both.
     std::vector<lir::LExprPtr> payload;
-    bool is_struct_shape_lit = node.has_key(la::IS_STRUCT_SHAPE) &&
-        node.get(la::IS_STRUCT_SHAPE.code).as_value<int32_t>() != 0;
+    bool is_struct_shape_lit = node.has_key(la::variant::IS_STRUCT_SHAPE) &&
+        node.get(la::variant::IS_STRUCT_SHAPE.code).as_value<int32_t>() != 0;
     if (is_struct_shape_lit) {
         // P4-pm-01: `E::V { name: expr, ... }` — items list of
         // FIELD_INIT / FIELD_SHORTHAND. Resolve names → variant

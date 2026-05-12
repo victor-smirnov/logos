@@ -1584,8 +1584,8 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                 error(std::format("pattern: enum '{}' has no variant '{}'", pename, pvname));
         }
         std::vector<std::string> bindings;
-        bool pat_is_struct_shape = pnode.has_key(la::IS_STRUCT_SHAPE) &&
-            pnode.get(la::IS_STRUCT_SHAPE.code).as_value<int32_t>() != 0;
+        bool pat_is_struct_shape = pnode.has_key(la::variant::IS_STRUCT_SHAPE) &&
+            pnode.get(la::variant::IS_STRUCT_SHAPE.code).as_value<int32_t>() != 0;
         if (pat_is_struct_shape) {
             // P4-pm-01: `E::V { x, y: pat, .. }` — read ITEMS as PAT_FIELD
             // list. Each entry carries NAME (+ optional VALUE sub-pat) or

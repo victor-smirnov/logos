@@ -69,7 +69,6 @@
     LO_NEG         = 49
     HI_NEG         = 50
     KEY            = 51    // map key in HERMES_ENTRY
-    IS_STRUCT_SHAPE = 47   // P4-pm-01: enum struct-shape variant marker on VARIANT_DEF / ENUM_LIT_DATA / PAT_VARIANT_DATA; reuses LABEL slot (these nodes never carry a loop label)
     IS_NEGATIVE    = 43    // negative impl marker (impl !Trait for X {}); reuses INDEX slot — IMPL_BLOCK never has INDEX
     PATH           = 22    // sub-node carrying ITEMS=[str,...] for N-deep chain field write (reuses FIELDS slot — chain stmts never carry struct field defs)
     NAME_VAR       = 38    // antiquot var name for `#ident` placeholder inside quote_*! body (reuses WHERE slot — STRUCT/ENUM/FN never have a where_clause AND a NAME_VAR simultaneously: NAME_VAR exists only inside quote_*! bodies, where where_clause is parsed separately)
@@ -81,6 +80,14 @@
     // names to this group when the rule is tagged `:group mod:`.
     group mod {
         PATH_PARTS = 16    // array of sub-nodes (one per component after NAME)
+    }
+    // ── Group: variant ────────────────────────────────────────────────────
+    // Fields scoped to VARIANT_DEF / ENUM_LIT_DATA / PAT_VARIANT_DATA nodes.
+    // These nodes never carry a loop label, so slot 47 (global LABEL) is
+    // safe to reuse here. Grouping the key documents the intent and keeps
+    // the global slot space clean.
+    group variant {
+        IS_STRUCT_SHAPE = 47   // P4-pm-01: struct-shape variant marker
     }
 }
 
@@ -610,7 +617,7 @@
     variant_struct_field_list <- variant_struct_field+
                               => { ITEMS: $... }
 
-    variant_def <- IDENT LPAREN DOTDOTDOT type_ref RPAREN
+    variant_def :group variant: <- IDENT LPAREN DOTDOTDOT type_ref RPAREN
                 => { CODE: VARIANT_DEF, NAME: $1, IS_VARIADIC: 1, ITEMS: $4 }
                  / IDENT LPAREN variant_payload_list RPAREN
                 => { CODE: VARIANT_DEF, NAME: $1, ITEMS: $3 }
@@ -1450,10 +1457,9 @@
                          => { ITEMS: $... }
 
     // ── pat_single: all pattern alternatives ─────────────────────────────
-    pat_single
-        // @ binding: must come before bare IDENT to capture "name @ sub"
-        // G1: use pat_single (not pat_single_base) so n @ ref x and n @ &pat work.
-        <- IDENT AT pat_single
+    // @ binding: must come before bare IDENT to capture "name @ sub"
+    // G1: use pat_single (not pat_single_base) so n @ ref x and n @ &pat work.
+    pat_single :group variant: <- IDENT AT pat_single
         => { CODE: PAT_AT, NAME: $1, VALUE: $3 }
         // ref mut binding
         / KW_REF KW_MUT IDENT
@@ -1475,11 +1481,10 @@
         // everything else
         / pat_single_base
 
-    pat_single_base
-        // Unit pattern `()` (Sprint 4.2 — needed when generalising
-        // pat_variant_args to pat_single, since `Result::Ok(())` previously
-        // relied on pat_binding's LPAREN RPAREN alt).
-        <- LPAREN RPAREN
+    // Unit pattern `()` (Sprint 4.2 — needed when generalising
+    // pat_variant_args to pat_single, since `Result::Ok(())` previously
+    // relied on pat_binding's LPAREN RPAREN alt).
+    pat_single_base :group variant: <- LPAREN RPAREN
         => { CODE: PAT_UNIT }
         // Hermes scalar patterns: @null / @true / @false / @42 / @-42
         // Must precede other alternatives that could also consume AT via PAT_AT
@@ -2029,7 +2034,7 @@
     enum_lit_args <- LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
                   => { ITEMS: $... }
 
-    enum_lit <- IDENT COLONCOLON IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE enum_lit_args
+    enum_lit :group variant: <- IDENT COLONCOLON IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE enum_lit_args
              => { CODE: ENUM_LIT_DATA, NAME: $1, FIELD: $3, TYPE_PARAMS: $6, ARGS: $8 }
               / IDENT COLONCOLON IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE
              => { CODE: ENUM_LIT, NAME: $1, FIELD: $3, TYPE_PARAMS: $6 }

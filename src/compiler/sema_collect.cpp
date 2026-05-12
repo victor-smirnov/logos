@@ -870,8 +870,8 @@ void SemaChecker::collect_enum(TinyMapView node) {
                     bool is_var = false;
                     bool is_struct_shape = false;
                     if (v.has_key(la::IS_VARIADIC)) is_var = v.get(la::IS_VARIADIC.code).as_value<int32_t>() != 0;
-                    if (v.has_key(la::IS_STRUCT_SHAPE))
-                        is_struct_shape = v.get(la::IS_STRUCT_SHAPE.code).as_value<int32_t>() != 0;
+                    if (v.has_key(la::variant::IS_STRUCT_SHAPE))
+                        is_struct_shape = v.get(la::variant::IS_STRUCT_SHAPE.code).as_value<int32_t>() != 0;
 
                     if (v.has_key(la::ITEMS)) {
                         auto av = v.get(la::ITEMS.code);
