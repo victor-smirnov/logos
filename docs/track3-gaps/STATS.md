@@ -65,6 +65,7 @@ silently un-trim earlier imports don't count here (logged in
 | B49  | 2026-05-12 |  5 |     0 | 0.00 | 205 | 106 |
 | B50  | 2026-05-12 |  2 |     0 | 0.00 | 207 | 106 |
 | B51  | 2026-05-12 |  1 |     0 | 0.00 | 208 | 106 |
+| B52  | 2026-05-12 |  3 |     0 | 0.00 | 211 | 106 |
 
 (Phase-1 counts are estimates — pre-batch gap-as-code triage gave coarse
 totals only; precise per-batch arrival-order numbers weren't recorded.
@@ -89,7 +90,7 @@ test that originally surfaced the gap. Zero net new catalog entries
 since every closure here re-fills an "Open" status flipped earlier.
 The Sprint 5.8 dyn-arc is fully closed at B35.
 
-Phase 5 (B50–B51): targeted gap-closure run. B50 closed
+Phase 5 (B50–B52): targeted gap-closure run. B50 closed
 P4-pm-15 (array destructure Drop case — slice_index struct-element
 fast path + move-track temp/RHS) and P3-pg-04 (break-as-expression
 codegen — EBlockExpr + SBreak + terminated-block tolerance in
@@ -103,7 +104,18 @@ gains `payload_field_names` parallel to `payload_types`. mlir-gen
 unchanged — sema resolves names → positions, downstream stays
 positional. Still open: refutable inner patterns + let-destructure
 with single-variant enum. ctest 1439 → 1442. Catalog flips: 2
-Partial → ✅ Closed, 1 Deferred → Partial.
+Partial → ✅ Closed, 1 Deferred → Partial. B52 fully closed
+P4-pm-01 — refutable inner literal patterns (PAT_INT,
+PAT_NEG_INT, PAT_BOOL, PAT_CHAR) now lower via synthesized
+`__refut_* == <value>` arm guards in BOTH tuple-shape and
+struct-shape variant payloads (so `Option::Some(1)` works
+alongside `E::V { f: 1 }`); single-variant struct-shape
+let-destructure (`let E::V { f } = e;`) lowers as a temp
+plus per-binding match-as-expression. Three rustc tests
+un-trimmed: `issue-8351-1`, `issue-8351-2`, `issue-11577`.
+IS_STRUCT_SHAPE moved into the new `variant` key group
+(slot 47, sibling of `mod`) for cleaner slot documentation.
+ctest 1442 → 1445. Catalog: P4-pm-01 Partial → ✅ Closed.
 
 Phase 4 (B38–B49): "autonomous bulk-import" run. Single overnight
 session through under-imported dirs (binding, match, for-loop-while,

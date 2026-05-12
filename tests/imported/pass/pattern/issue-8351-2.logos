@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust tests/ui/pattern/issue-8351-2.rs
+// Modifications: `panic!()` arms replaced with concrete return codes;
+// `isize` → `i64`; explicit literal suffixes added. Otherwise faithful
+// — exercises P4-pm-01 struct-shape variants + refutable inner literal
+// pattern on multiple fields (`E::Foo { f: 1, b: true }`), including
+// out-of-declaration order field listing in the second arm
+// (`{ b: false, f: 0 }`).
+package issue_8351_2;
+
+enum E {
+    Foo { f: i64, b: bool },
+    Bar,
+}
+
+fn main() -> i32 {
+    let e = E::Foo { f: 0i64, b: false };
+    match e {
+        E::Foo { f: 1i64, b: true } => { return 1; }
+        E::Foo { b: false, f: 0i64 } => {}
+        _ => { return 2; }
+    }
+    return 0;
+}

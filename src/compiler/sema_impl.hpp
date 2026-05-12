@@ -1976,6 +1976,13 @@ private:
     // build_pattern_impl appends to this side-channel and
     // bind_pattern_ref re-defines the binding as mutable.
     logos::compiler::StrSet* current_pat_mut_names_ = nullptr;
+    // P4-pm-01 (refutable inner): synthesized `binding == value`
+    // predicates collected from refutable sub-patterns inside variant
+    // payloads (`E::Foo { f: 1 }`, `Option::Some(2)`). Each entry is a
+    // ready-to-AND-combine boolean expression that uses the synth
+    // binding name `build_pattern` chose for that payload slot. Match
+    // arm builder consumes the list, AND-combines into the arm's guard.
+    std::vector<lir::LExprPtr>* current_pat_refutable_guards_ = nullptr;
     void bind_pattern(const lir::Pattern& pat,
                       TypeRef scrut_type = nullptr);
     void bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type);

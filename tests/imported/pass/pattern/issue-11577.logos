@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust tests/ui/pattern/issue-11577.rs
+// Modifications: `assert_eq!` replaced with conditional return codes;
+// `isize` → `i64`. Otherwise faithful — exercises P4-pm-01
+// let-destructure over a single-variant struct-shape enum, alongside
+// the existing struct destructure form.
+package issue_11577;
+
+enum Foo { VBar { num: i64 } }
+
+struct SBar { num: i64, }
+
+fn main() -> i32 {
+    let vbar = Foo::VBar { num: 1i64 };
+    let Foo::VBar { num } = vbar;
+    if num != 1i64 { return 1; }
+
+    let sbar = SBar { num: 2i64 };
+    let SBar { num: num2 } = sbar;
+    if num2 != 2i64 { return 2; }
+
+    return 0;
+}
