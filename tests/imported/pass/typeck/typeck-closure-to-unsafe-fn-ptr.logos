@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/typeck/typeck-closure-to-unsafe-fn-ptr.rs
+// Modifications: `unsafe fn` → bare `fn` (Logos's fn-ptr doesn't
+// model unsafe). Closure annotated `|| -> ()`.
+package tck_typeck_closure_to_unsafe_fn_ptr;
+
+fn call_fn(func: fn()) { func(); }
+
+fn main() -> i32 {
+    call_fn(|| -> () { });
+    return 0i32;
+}

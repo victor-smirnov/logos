@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/typeck/typeck-fn-to-unsafe-fn-ptr.rs
+// Modifications: `unsafe fn` qualifier dropped (Logos's fn-ptr
+// type doesn't model `unsafe`; every fn-ptr is callable). The
+// safe→unsafe-fn reification the rust test verifies is folded
+// into the bare `fn()` identity pass-through that's the core
+// codegen path.
+package tck_typeck_fn_to_unsafe_fn_ptr;
+
+fn do_nothing() { }
+
+fn call_fn(func: fn()) { func(); }
+
+fn main() -> i32 {
+    call_fn(do_nothing);
+    return 0i32;
+}
