@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/old-closure-fn-coerce.rs
+// Modifications: `FnOnce()` bound on `force` becomes a bare
+// `fn() -> isize` parameter (Logos's Fn-family closure-as-trait-
+// object is Sprint 5.8); the regression — passing a fn item to a
+// callable param and through a nested closure — is preserved.
+// `g = {||force(f)}` extra braces simplified to `g = || -> isize
+// { return force(f); }` (Logos closures require explicit return
+// type + return statement).
+package c_old_closure_fn_coerce;
+
+use std.fmt;
+use std.lang.text;
+
+fn force(f: fn() -> isize) -> isize { return f(); }
+
+fn f() -> isize { return 7isize; }
+
+fn main() -> i32 {
+    assert_eq!(force(f), 7isize);
+    let g = || -> isize { return force(f); };
+    assert_eq!(g(), 7isize);
+    return 0;
+}
