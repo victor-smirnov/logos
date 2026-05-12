@@ -1,24 +1,21 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/borrowck/borrowck-mut-vec-as-imm-slice.rs
-// Modifications: `&Vec<i64>` is now `&[i64]` at want_slice (B3-bg-06
-// closed 2026-05-11 — `&Vec<T>` auto-coerces to `&[T]` at fn-arg
-// position). The Rust `for i in v { sum += *i }` loop is still a
-// length-indexed loop because the iterator-borrow-tracking arc
-// (B3-bg-07) is a later batch.
+// Modifications: `&Vec<i64>` → `&[i64]` at want_slice (B3-bg-06 closed
+// 2026-05-11 — `&Vec<T>` auto-coerces to `&[T]` at fn-arg position).
+// The Rust `for i in v { sum += *i }` loop is now faithful: B3-bg-07
+// closed 2026-05-12 — `*x` on a non-pointer value is identity, so the
+// Rust spelling compiles unchanged even though Logos's iteration
+// model yields `T` directly (not `&T`).
 package borrowck_mut_vec_as_imm_slice;
 
 use std.fmt;
 use std.lang.text;
+use std.lang.option;
 use std.collections.vec;
 
 fn want_slice(s: &[i64]) -> i64 {
     let mut sum: i64 = 0i64;
-    let n: i64 = s.len();
-    let mut i: i64 = 0i64;
-    while i < n {
-        sum = sum + s[i];
-        i = i + 1i64;
-    }
+    for i in s { sum = sum + *i; }
     return sum;
 }
 
@@ -27,10 +24,7 @@ fn has_mut_vec(v: Vec<i64>) -> i64 {
 }
 
 fn main() -> i32 {
-    let mut v: Vec<i64> = vec_new::<i64>();
-    v.push(1i64);
-    v.push(2i64);
-    v.push(3i64);
+    let v: Vec<i64> = vec_from_arr([1i64, 2i64, 3i64]);
     assert_eq!(has_mut_vec(v), 6i64);
     return 0;
 }

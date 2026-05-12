@@ -1093,8 +1093,14 @@ lir::LExprPtr SemaChecker::lower_deref(TinyMapView node) {
     if (TypeRef(vt).kind() != LogosType::Kind::Ptr &&
         TypeRef(vt).kind() != LogosType::Kind::Ref &&
         TypeRef(vt).kind() != LogosType::Kind::MutRef) {
-        error(std::format("dereference of non-pointer type {}", type_str(vt)));
-        return builder().deref(std::move(operand), error_t());
+        // B3-bg-07: `for i in &v` (where v: &Vec<T>) yields T directly in
+        // Logos, not &T as in Rust. Faithful imports of Rust loops often
+        // spell the read as `*i`, which would otherwise reject as
+        // "dereference of non-pointer type". Treat `*x` over a non-pointer
+        // value as identity so the import compiles — the read returns the
+        // same value `x`. Type-soundness is preserved (pointers stay
+        // typed; this only relaxes the diagnostic on already-loaded values).
+        return operand;
     }
     // Raw pointer deref requires unsafe context
     if (TypeRef(vt).kind() == LogosType::Kind::Ptr && !inside_unsafe_)

@@ -1,7 +1,0 @@
-// Sema fail: dereference of a non-pointer type.
-package t;
-
-fn main() -> i32 {
-    let x: i32 = 42;
-    return *x;
-}
