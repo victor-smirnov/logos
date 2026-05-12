@@ -1,0 +1,38 @@
+// P3-pg-04 regression: `break` at expression position.
+// Lowers to SBreak (cf.br to loop exit) wrapped in EBlockExpr
+// with a dummy result value that's never materialised since the
+// block is already terminated.
+package break_as_expr;
+
+fn int_id(x: i32) -> i32 { x }
+
+fn main() -> i32 {
+    let mut i: i32 = 0i32;
+    let mut found: i32 = 0i32;
+    loop {
+        if i == 3i32 {
+            // break-as-expression: dropped on the floor (call never runs)
+            let _ = int_id(break);
+        }
+        i = i + 1i32;
+        found = found + 1i32;
+    }
+    // Loop exit: i==3, found==3
+    if found != 3i32 { return 1; }
+    if i != 3i32 { return 2; }
+
+    // Second shape: `if cond { val } else { break }` — divergent
+    // else-branch through gen_if_expr. gen_if_expr now skips the
+    // merge cf.br when a branch is already terminated.
+    let mut j: i32 = 0i32;
+    let mut sum: i32 = 0i32;
+    loop {
+        let x: i32 = if j < 5i32 { j } else { break };
+        sum = sum + x;
+        j = j + 1i32;
+    }
+    if sum != 10i32 { return 3; }
+    if j != 5i32 { return 4; }
+
+    return 0;
+}

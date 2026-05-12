@@ -1,0 +1,26 @@
+// P4-pm-15 Drop case: `let [a, b, c] = arr;` where elements impl Drop.
+// Previously double-dropped: per-element bindings ran Drop, then the
+// __dst_* temp's [T;N] tail-drop ran each element's Drop again →
+// SIGSEGV. Sema now marks the temp moved + marks the RHS expression
+// moved, suppressing both extra drop sweeps. Each element's Drop fires
+// exactly once via the per-binding scope-end drop.
+package let_array_destructure_drop;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(v: i32) { unsafe { printf("d%d ".as_ptr(), v); } }
+
+trait Drop { fn drop(self: Self); }
+
+struct Res { id: i32, }
+
+impl Drop for Res {
+    fn drop(self: Res) { printi(self.id); }
+}
+
+unsafe fn main() -> i32 {
+    let arr: [Res; 3] = [Res { id: 1 }, Res { id: 2 }, Res { id: 3 }];
+    let [a, b, c] = arr;
+    // Expect: each of a, b, c dropped exactly once at scope end.
+    // No drop on the original arr or the synthetic __dst_* temp.
+    return 0;
+}

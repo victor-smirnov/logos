@@ -578,12 +578,19 @@ lir::LStmt SemaChecker::lower_let_pat(TinyMapView node) {
         auto blk = lir::alloc_block(*cur_prog_);
         std::string tmp = std::format("__dst_{}", destruct_counter_++);
         define(tmp, rhs_type);
+        // P4-pm-15 Drop case: when element type carries Drop, the bytewise
+        // slice_index reads below copy the bytes but transfer ownership
+        // into the per-element bindings. Suppress the temp's drop and
+        // also any source-var drop, otherwise the array's [T;N] tail-drop
+        // double-frees the same payload.
+        if (rhs) mark_moved_expr(expr_ref_of(*rhs));
         {
             lir::SLet sl;
             sl.name = tmp; sl.type = rhs_type; sl.is_mut = false;
             sl.value = std::move(rhs);
             blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
         }
+        mark_moved(tmp);
         for (size_t j = 0; j < sub_pats.size(); ++j) {
             auto en = sub_pats[j];
             int32_t ec = code_of(en);

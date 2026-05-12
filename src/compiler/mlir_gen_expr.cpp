@@ -2033,26 +2033,34 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIfExprView v, TypeRef type) {
 
     builder_.setInsertionPointToStart(then_block);
     auto then_val = gen_expr(*then_l);
-    if (!then_val) then_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
-    then_val = coerce_numeric(then_val, result_type);
-    // Branches may return a struct by-value (function call) while the merge
-    // slot expects a pointer (struct values are normally pointer-aliased).
-    // Spill aggregate values so both branches store a pointer.
-    if (result_type == ptr_type() &&
-        mlir::isa<mlir::LLVM::LLVMStructType>(then_val.getType()))
-        then_val = spill_to_alloca(then_val);
-    builder_.create<mlir::LLVM::StoreOp>(loc_, then_val, result_alloca);
-    builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+    // P3-pg-04: branch may diverge (e.g. `break` as expression) and
+    // already cf.br'd the block. Skip the store+merge cf.br in that
+    // case — the block is terminated and merge_block's predecessors
+    // simply omit this edge.
+    if (!is_terminated(builder_.getBlock())) {
+        if (!then_val) then_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+        then_val = coerce_numeric(then_val, result_type);
+        // Branches may return a struct by-value (function call) while the merge
+        // slot expects a pointer (struct values are normally pointer-aliased).
+        // Spill aggregate values so both branches store a pointer.
+        if (result_type == ptr_type() &&
+            mlir::isa<mlir::LLVM::LLVMStructType>(then_val.getType()))
+            then_val = spill_to_alloca(then_val);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, then_val, result_alloca);
+        builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+    }
 
     builder_.setInsertionPointToStart(else_block);
     auto else_val = gen_expr(*else_l);
-    if (!else_val) else_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
-    else_val = coerce_numeric(else_val, result_type);
-    if (result_type == ptr_type() &&
-        mlir::isa<mlir::LLVM::LLVMStructType>(else_val.getType()))
-        else_val = spill_to_alloca(else_val);
-    builder_.create<mlir::LLVM::StoreOp>(loc_, else_val, result_alloca);
-    builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+    if (!is_terminated(builder_.getBlock())) {
+        if (!else_val) else_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+        else_val = coerce_numeric(else_val, result_type);
+        if (result_type == ptr_type() &&
+            mlir::isa<mlir::LLVM::LLVMStructType>(else_val.getType()))
+            else_val = spill_to_alloca(else_val);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, else_val, result_alloca);
+        builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+    }
 
     builder_.setInsertionPointToStart(merge_block);
     return builder_.create<mlir::LLVM::LoadOp>(loc_, result_type, result_alloca);
@@ -2744,6 +2752,25 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceIndexView v, TypeRef type
         gep_idx = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), index);
     else
         gep_idx = index;
+    // P4-pm-15: struct/ZonedStruct elements lay out inline in arrays
+    // (stride = sizeof(struct)) but logos_to_mlir resolves them to
+    // ptr_type. Using ptr_type as GEP stride strides by 8B and then
+    // load-as-ptr re-dereferences into garbage. Detect struct elements
+    // and switch to the actual aggregate LLVM type for stride, and
+    // return the element ptr (the caller will memcpy by-value for
+    // aggregate values).
+    if (TypeRef rt(type); rt && (rt.kind() == LogosType::Kind::Struct ||
+                                  rt.kind() == LogosType::Kind::ZonedStruct)) {
+        auto cname = concrete_struct_name(rt);
+        auto sit   = struct_types_.find(cname);
+        if (sit != struct_types_.end()) {
+            auto agg_t = sit->second.llvm_type;
+            llvm::SmallVector<mlir::LLVM::GEPArg> di{gep_idx};
+            auto elem_ptr = builder_.create<mlir::LLVM::GEPOp>(
+                loc_, ptr_type(), agg_t, data_ptr, di);
+            return elem_ptr;
+        }
+    }
     llvm::SmallVector<mlir::LLVM::GEPArg> di{gep_idx};
     auto elem_ptr = builder_.create<mlir::LLVM::GEPOp>(
         loc_, ptr_type(), elem_type, data_ptr, di);

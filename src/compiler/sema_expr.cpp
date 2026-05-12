@@ -593,18 +593,34 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::GENERIC_REF:  return lower_generic_ref(expr);
     case la::METHOD_CALL:  return lower_method_call(expr);
     case la::INVOKE_EXPR:  return lower_invoke_expr(expr);
-    case la::BREAK_EXPR:
-        // P3-pg-04: grammar admits bare `break` at expression position so
-        // faithful Rust ports (e.g. `int_id(break)`) parse. Codegen is a
-        // separate arc (needs Never/Bot type modelling so the surrounding
-        // expression's value-flow can be skipped cleanly through MLIR's
-        // strict block-terminator rules). Sema rejects for now with a
-        // clear diagnostic; the grammar parse is the user-visible
-        // half-step that distinguishes "syntax error" from "needs work".
-        error("`break` as expression not yet implemented (P3-pg-04 — "
-              "grammar lands, codegen needs Never-type / MLIR dead-block "
-              "handling)");
-        return builder().lit_int(0, error_t());
+    case la::BREAK_EXPR: {
+        // P3-pg-04: `break` in expression position (e.g. `int_id(break)`
+        // or `let x = if cond { val } else { break };`). Logos lacks a
+        // Never (`!`) type, so we can't propagate divergent typing
+        // through the expression chain. Instead, lower to an EBlockExpr
+        // wrapping a real SBreak stmt + a dummy result value:
+        //   - The SBreak emits a `cf.br` to the nearest loop exit at
+        //     mlir-gen time, terminating the current block.
+        //   - gen_expr_kind(EBlockExpr) checks is_terminated() and
+        //     returns nullptr — the dummy result is never materialised.
+        //   - Callers tolerate nullptr (gen_let early-returns,
+        //     gen_call drops the call), and the outer gen_block stops
+        //     iterating once the block is terminated. Control reaches
+        //     the loop exit block, then the post-loop fn body.
+        // The dummy literal carries error_t() so sema's downstream
+        // type checks treat it as a propagated error (no spurious
+        // mismatch diagnostics on the surrounding expression).
+        if (loop_depth_ == 0) {
+            error("'break' outside loop");
+            return builder().lit_int(0, error_t());
+        }
+        auto blk = lir::alloc_block(*cur_prog_);
+        auto br_stmt = builder().stmt_break(/*value=*/nullptr, /*label=*/"",
+                                            node_line_);
+        blk->stmts.push_back(std::move(br_stmt));
+        auto dummy = builder().lit_int(0, error_t());
+        return builder().block_expr(blk, std::move(dummy), error_t());
+    }
     case la::STATIC_CALL:  return lower_static_call(expr);
     case la::METACALL:     return lower_metacall(expr);
     case la::FN_MACRO_CALL: return lower_fn_macro_call(expr);
