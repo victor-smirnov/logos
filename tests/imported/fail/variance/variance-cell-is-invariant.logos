@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust tests/ui/variance/variance-cell-is-invariant.rs
+// Modifications: `Cell<T>` from std::cell isn't available in Logos's
+// stdlib — substituted a hand-rolled stand-in struct that holds a
+// `*mut T` field, which (like UnsafeCell) makes the wrapper invariant
+// in T via the raw-pointer Inv rule of B64's variance fixed-point.
+// `isize` → `i64`. Exercises B64: assigning `Foo<'short>` to
+// `Foo<'long>` is rejected when Foo's lifetime arg appears inside an
+// invariant position.
+package variance_cell_is_invariant;
+
+// Stand-in for Cell<T>: raw-ptr field → Inv in T per B64 variance.
+struct Cell<T> { p: *mut T }
+
+struct Foo<'a> {
+    x: Cell<&'a i64>,
+}
+
+fn use_<'short, 'long>(c: Foo<'short>) -> Foo<'long> {
+    return c;  // Rust: "lifetime may not live long enough"
+               // Logos B64: variance mismatch (Cell invariant in T)
+}
+
+fn main() -> i32 { return 0i32; }

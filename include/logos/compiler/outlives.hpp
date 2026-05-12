@@ -50,16 +50,22 @@ outlives_adj(const std::vector<std::pair<std::string, std::string>>& pairs) {
 }
 
 // Decide whether `longer` outlives `shorter` given the graph.
-// Reflexive, static-is-top, with BFS for transitive paths.
+// Reflexive, static-is-top, with BFS for transitive paths. When
+// `permissive_empty` is true, an empty (elided) lifetime on the sub side
+// is treated as compatible with any named region — appropriate at
+// variance/subtype coercion sites where call-site region inference will
+// pick a unification. The borrow-check return path passes `false` to
+// keep elided sources from silently satisfying a named return.
 inline bool outlives(
     std::string_view longer,
     std::string_view shorter,
-    const std::unordered_map<std::string, std::unordered_set<std::string>>& adj)
+    const std::unordered_map<std::string, std::unordered_set<std::string>>& adj,
+    bool permissive_empty = true)
 {
     auto L = outlives_norm(longer);
     auto S = outlives_norm(shorter);
     if (S.empty()) return true;             // unconstrained short side
-    if (L.empty()) return true;             // unconstrained sub side — region inference deferred
+    if (permissive_empty && L.empty()) return true;  // see comment above
     if (outlives_is_static(L)) return true; // 'static outlives all
     if (L == S) return true;                // reflexive
 
@@ -77,23 +83,33 @@ inline bool outlives(
             if (seen.insert(nb).second) q.push(nb);
         }
     }
-    // Permissive default for two named generic lifetimes (neither static) when
-    // no outlives constraint connects them: assume the caller's region
-    // inference will pick a unification that satisfies the relation. Without
-    // a real region inference engine, this is the right "do not over-reject"
-    // behavior — concrete violations (e.g. anything-vs-'static, or invariant
-    // positions) still produce the correct rejections via dedicated checks.
-    if (!outlives_is_static(S)) return true;
-    return false;
+    // Permissive default for two named generic lifetimes (neither static)
+    // when NEITHER appears anywhere in the explicit outlives graph: assume
+    // the caller's region inference will pick a unification. Gated by
+    // `permissive_empty` — strict-mode callers (e.g. borrow_check return
+    // path) opt out and get conservative-reject.
+    if (outlives_is_static(S)) return false;
+    if (!permissive_empty) return false;
+    auto mentioned = [&](const std::string& lt) {
+        if (adj.count(lt)) return true;
+        for (auto& [k, v] : adj) {
+            (void)k;
+            if (v.count(lt)) return true;
+        }
+        return false;
+    };
+    if (mentioned(L) || mentioned(S)) return false;
+    return true;
 }
 
 // Convenience: build + query in one shot.
 inline bool outlives(
     std::string_view longer,
     std::string_view shorter,
-    const std::vector<std::pair<std::string, std::string>>& pairs)
+    const std::vector<std::pair<std::string, std::string>>& pairs,
+    bool permissive_empty = true)
 {
-    return outlives(longer, shorter, outlives_adj(pairs));
+    return outlives(longer, shorter, outlives_adj(pairs), permissive_empty);
 }
 
 } // namespace logos::compiler

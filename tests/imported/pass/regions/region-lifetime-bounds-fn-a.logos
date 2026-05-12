@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust tests/ui/regions/region-lifetime-bounds-on-fns-where-clause.rs
+// (split: function `a` — the legal half with `where 'b: 'a` declaration.
+// The illegal `b`, `c`, `d` halves are separate files / skipped pending
+// region-inference work.)
+//
+// Modifications: `isize` → `i64`; only fn `a` retained. Exercises B65:
+// `where 'b: 'a` is parsed, validated, and stored on the fn's
+// lifetime_outlives graph. Logos accepts this signature.
+package region_lifetime_bounds_fn_a;
+
+fn a<'a, 'b>(x: &mut &'a i64, y: &mut &'b i64) where 'b: 'a {
+    *x = *y;
+}
+
+fn main() -> i32 {
+    let v1: i64 = 1i64;
+    let v2: i64 = 2i64;
+    let mut r1: &i64 = &v1;
+    let mut r2: &i64 = &v2;
+    a(&mut r1, &mut r2);
+    return 0i32;
+}

@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust tests/ui/variance/variance-use-invariant-struct-1.rs
+// Modifications: tuple-struct → named-field struct (Logos has tuple
+// structs but `*mut T` is invariant either way); `()` → `i32`. Kept
+// the `foo` direction (shortening lifetime through Inv struct is
+// rejected); the symmetric `bar` (lengthening) is a separate file
+// not imported here.
+//
+// Exercises B64: when the struct's field is `*mut T`, T is Inv, so
+// SomeStruct<&'max> ↛ SomeStruct<&'min> regardless of outlives.
+package variance_use_invariant_struct_1;
+
+struct SomeStruct<T> { p: *mut T }
+
+fn foo<'min, 'max>(v: SomeStruct<&'max i32>) -> SomeStruct<&'min i32>
+    where 'max: 'min
+{
+    return v;
+}
+
+fn main() -> i32 { return 0i32; }

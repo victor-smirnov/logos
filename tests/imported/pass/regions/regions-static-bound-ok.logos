@@ -1,0 +1,10 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-static-bound.rs
+// (split: legal half — fn `static_id` with `where 'a: 'static`.)
+// Modifications: `()` → `i32`. Logos accepts: `'a: 'static` declared in
+// the where clause means 'a IS 'static (or outlives it), so returning a
+// `&'static i32` from `&'a i32` input is legal.
+package regions_static_bound_ok;
+
+fn static_id<'a, 'b>(t: &'a i32) -> &'static i32 where 'a: 'static { return t; }
+
+fn main() -> i32 { return 0i32; }

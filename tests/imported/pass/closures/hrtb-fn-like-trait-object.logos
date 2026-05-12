@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust tests/ui/higher-ranked/trait-bounds/hrtb-fn-like-trait-object.rs
+// Modifications: `isize` → `i64`; unit struct `struct Identity;` →
+// `struct Identity { _x: i32 }`; `type FnObject<'b> = ...` alias
+// inlined at the use site; `assert_eq!` → conditional return.
+// Exercises B63.3 (HRTB at dyn-trait type position): the
+// `&dyn for<'a> FnLike<&'a i64, &'a i64>` parameter type parses and
+// the `impl<'a, T> FnLike<&'a T, &'a T> for Identity` impl satisfies
+// the binder.
+package hrtb_fn_like_trait_object;
+
+trait FnLike<A, R> { fn call(self: Self, arg: A) -> R; }
+
+struct Identity { _x: i32 }
+impl<'a, T> FnLike<&'a T, &'a T> for Identity {
+    fn call(self: Identity, arg: &'a T) -> &'a T { return arg; }
+}
+
+fn call_repeatedly(_f: &dyn for<'a> FnLike<&'a i64, &'a i64>) -> i32 {
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let id = Identity{ _x: 0i32 };
+    return call_repeatedly(&id);
+}

@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust tests/ui/variance/variance-use-covariant-struct-1.rs
+// Modifications: `()` → `i32`, no other changes.
+//
+// Tests that a covariant struct does not permit the lifetime of a
+// reference to be enlarged. `SomeStruct<&'min i32>` cannot become
+// `SomeStruct<&'max i32>` when `'max : 'min` (max is longer than min) —
+// covariance allows shortening, not lengthening. Logos's variance pass
+// gives SomeStruct<T> = Co in T, then the subtype check needs
+// outlives('min, 'max) which is FALSE under `'max : 'min`.
+//
+// NB: Logos's outlives query is currently permissive on unrelated
+// named lifetimes (returns true by default). With the EXPLICIT
+// `'max : 'min` constraint in the graph, the check should still pin
+// the outlives direction. (This may surface as a B66 acceptance gap
+// to investigate — if so, file a follow-up.)
+package variance_use_covariant_struct_1;
+
+struct SomeStruct<T> { v: T }
+
+fn foo<'min, 'max>(v: SomeStruct<&'min i32>) -> SomeStruct<&'max i32>
+    where 'max: 'min
+{
+    return v;
+}
+
+fn main() -> i32 { return 0i32; }

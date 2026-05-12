@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust tests/ui/higher-ranked/trait-bounds/hrtb-parse.rs
+// Modifications: `isize` → `i64`; dropped `Box<>` wrapper around dyn (use
+// `&dyn` references instead); dropped `unsafe fn` / `extern "C" fn`
+// variants — Logos accepts them as separate fn types but they aren't
+// relevant to the HRTB parse surface. Bodies are no-ops.
+//
+// Exercises B63 / B63.2 / B63.3: `for<>` parses in
+//   - inline `T: for<'a> Trait<...>` bound
+//   - where-clause `where T: for<'a> Trait<...>` bound
+//   - `&dyn for<'a> Trait<...>` type position
+//   - `for<'a> fn(...) -> ...` type position
+package hrtb_parse;
+
+trait Get<A, R> { fn get(self: Self, arg: A) -> R; }
+
+fn foo00<T>(_t: T) where T: for<'a> Get<&'a i32, &'a i32> {}
+fn foo01<T: for<'a> Get<&'a i32, &'a i32>>(_t: T) {}
+fn foo10(_t: &dyn for<'a> Get<i32, i32>) {}
+fn foo20(_t: for<'a> fn(i32) -> i32) {}
+
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust tests/ui/variance/variance-use-contravariant-struct-2.rs
+// Modifications: tuple struct → named field; `()` → `i32`.
+//
+// Exercises B64: contravariant struct permits *lengthening* the inner
+// lifetime — `&'min` → `&'max` under `'max: 'min` is OK because contra
+// reverses the direction (we effectively check `'max: 'min` which holds).
+package variance_use_contravariant_struct_2;
+
+struct SomeStruct<T> { f: fn(T) -> i32 }
+
+fn bar<'min, 'max>(v: SomeStruct<&'min i32>) -> SomeStruct<&'max i32>
+    where 'max: 'min
+{
+    return v;
+}
+
+fn main() -> i32 { return 0i32; }

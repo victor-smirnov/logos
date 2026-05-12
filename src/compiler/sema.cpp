@@ -4403,8 +4403,18 @@ void SemaChecker::compute_variances() {
             m["@" + std::to_string(i)] = Variance::BiVar;
         variance_table_[key] = std::move(m);
     };
-    auto qkey = [](const std::string& pkg, const std::string& name) {
-        return pkg.empty() ? name : pkg + "." + name;
+    // structs_/datatypes_/enums_ are keyed by "pkg::Name" (sema_key). Subtype
+    // lookup uses "pkg.Name". Strip the "pkg::" prefix from the map key and
+    // re-join with "." to match what subtype expects.
+    auto qkey = [](const std::string& pkg, const std::string& map_key) {
+        std::string name = map_key;
+        if (!pkg.empty()) {
+            std::string prefix = pkg + "::";
+            if (name.compare(0, prefix.size(), prefix) == 0)
+                name = name.substr(prefix.size());
+            return pkg + "." + name;
+        }
+        return name;
     };
     for (auto& [k, si] : structs_)
         seed(qkey(si.package, k), si.type_params, si.lifetime_params);

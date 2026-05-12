@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust tests/ui/variance/variance-use-contravariant-struct-1.rs
+// Modifications: tuple struct → named field; `()` → `i32`; fn-pointer
+// field shape `fn(T)` retained so SomeStruct<T> is Contra in T.
+//
+// Exercises B64: contravariant struct does NOT permit shortening
+// (`&'max → &'min`) — contra reverses the relation, and outlives
+// graph has `'max: 'min`, so the reversed direction `'min: 'max`
+// does not hold. Reject.
+package variance_use_contravariant_struct_1;
+
+struct SomeStruct<T> { f: fn(T) -> i32 }
+
+fn foo<'min, 'max>(v: SomeStruct<&'max i32>) -> SomeStruct<&'min i32>
+    where 'max: 'min
+{
+    return v;
+}
+
+fn main() -> i32 { return 0i32; }

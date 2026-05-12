@@ -40,15 +40,25 @@ namespace detail {
 // Structural-equality including lifetime fragments. Stronger than TypeUID
 // (which is lifetime-erased). Used for invariant positions where subtype
 // must collapse to equality.
+//
+// Elision rule: an empty lifetime on either side is treated as a wildcard
+// (region inference will resolve it). So `&mut &i32` and `&mut &'a i32`
+// equal here — Logos doesn't fix elided lifetimes until call-site
+// inference, and we don't want to reject signatures Rust would accept.
+// Two NON-EMPTY lifetimes still require literal-string equality (Inv
+// catches `&mut &'static` vs `&mut &'a`).
 inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b) {
     if (!a || !b) return a == b;
     if (a.kind() != b.kind()) return false;
+    auto lt_eq = [](std::string_view x, std::string_view y) {
+        if (x.empty() || y.empty()) return true;
+        return x == y;
+    };
     using K = LogosType::Kind;
     switch (a.kind()) {
         case K::Ref:
         case K::MutRef: {
-            if (std::string(a.lifetime()) != std::string(b.lifetime()))
-                return false;
+            if (!lt_eq(a.lifetime(), b.lifetime())) return false;
             return types_equal_with_lifetimes(a.pointee(), b.pointee());
         }
         case K::Ptr:
@@ -79,7 +89,7 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b) {
             auto blts = b.lifetime_args();
             if (alts.size() != blts.size()) return false;
             for (size_t i = 0; i < alts.size(); ++i)
-                if (std::string(alts[i]) != std::string(blts[i])) return false;
+                if (!lt_eq(alts[i], blts[i])) return false;
             return true;
         }
         default:

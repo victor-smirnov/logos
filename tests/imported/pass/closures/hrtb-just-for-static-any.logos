@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust tests/ui/higher-ranked/trait-bounds/hrtb-just-for-static.rs
+// (split: AnyInt case — the `give_any()` half that Rust accepts.)
+// Modifications: `isize` → `i64`; unit struct `struct AnyInt;` →
+// `struct AnyInt { _x: i32 }`; only the universal-impl half is kept
+// (the static-pinned and 'a-pinned halves are imported as fail tests
+// in this batch).
+//
+// Exercises B62: `impl<'a> Foo<&'a i64> for AnyInt` correctly
+// satisfies a `for<'a> Foo<&'a i64>` bound at sema-time.
+package hrtb_just_for_static_any;
+
+trait Foo<X> { fn foo(self: Self, x: X) -> i32 { return 0i32; } }
+
+fn want_hrtb<T>() where T: for<'a> Foo<&'a i64> {}
+
+struct AnyInt { _x: i32 }
+impl<'a> Foo<&'a i64> for AnyInt {}
+
+fn main() -> i32 {
+    want_hrtb::<AnyInt>();
+    return 0i32;
+}

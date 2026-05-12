@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust tests/ui/higher-ranked/trait-bounds/hrtb-just-for-static.rs
+// (split: StaticInt case — the `give_static()` half that Rust rejects with
+// "implementation of `Foo` is not general enough".)
+// Modifications: `isize` → `i64`; unit struct `struct StaticInt;` →
+// `struct StaticInt { _x: i32 }`. Exercises B62: an impl that pins to
+// `'static` is rejected against a `for<'a>` HRTB bound.
+package hrtb_just_for_static_static;
+
+trait Foo<X> { fn foo(self: Self, x: X) -> i32 { return 0i32; } }
+
+fn want_hrtb<T>() where T: for<'a> Foo<&'a i64> {}
+
+struct StaticInt { _x: i32 }
+impl Foo<&'static i64> for StaticInt {}
+
+fn main() -> i32 {
+    want_hrtb::<StaticInt>();
+    return 0i32;
+}

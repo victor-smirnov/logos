@@ -27,6 +27,7 @@
 #include <logos/compiler/lir_mirror.hpp>
 #include <logos/compiler/lir_view.hpp>
 #include <logos/compiler/sema.hpp>
+#include <logos/compiler/outlives.hpp>
 
 #include <format>
 #include <optional>
@@ -190,6 +191,10 @@ class BorrowChecker {
     std::unordered_map<std::string, std::string> param_lifetimes_;
     // Declared lifetime parameters of the current function (e.g. ["'a", "'b"]).
     std::vector<std::string>             fn_lifetime_params_;
+    // B66: outlives graph from fn.lifetime_outlives — used to accept the
+    // return-lifetime check when an explicit `where 'src: 'ret` (or
+    // transitive) covers the case.
+    std::unordered_map<std::string, std::unordered_set<std::string>> outlives_adj_;
     // Phase 3/4: return type of current function.
     TypeRef         ret_type_ = nullptr;
     // Phase 9 (NLL): max line at which each local variable is read.
@@ -468,11 +473,18 @@ class BorrowChecker {
                 // the FieldRead's lifetime matches the return type.
                 if (it == param_lifetimes_.end()) continue;
                 const std::string& src_lt = it->second;
-                if (src_lt != ret_lt)
-                    report(line, std::format(
-                        "lifetime mismatch: return type has lifetime {} "
-                        "but '{}' has lifetime {}",
-                        ret_lt, src, src_lt.empty() ? "(elided)" : src_lt));
+                // B66: equality OR src lt outlives ret lt (an explicit
+                // `where 'src: 'ret` covers the case, as does 'static src
+                // for any named ret).
+                if (src_lt == ret_lt) continue;
+                // Strict mode (no permissive-empty) — an elided source
+                // lifetime cannot silently match a declared return lifetime.
+                if (outlives(src_lt, ret_lt, outlives_adj_, /*permissive_empty=*/false))
+                    continue;
+                report(line, std::format(
+                    "lifetime mismatch: return type has lifetime {} "
+                    "but '{}' has lifetime {}",
+                    ret_lt, src, src_lt.empty() ? "(elided)" : src_lt));
             }
             return;
         }
@@ -1153,6 +1165,7 @@ public:
         param_lifetimes_.clear();
         last_use_line_.clear();
         fn_lifetime_params_ = fn.lifetime_params;
+        outlives_adj_ = outlives_adj(fn.lifetime_outlives);
         ret_type_ = fn.ret_type;
 
         scan_uses_block(fn.body);

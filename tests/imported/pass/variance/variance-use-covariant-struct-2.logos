@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust tests/ui/variance/variance-use-covariant-struct-2.rs
+// Modifications: tuple struct → named-field; `()` → `i32`.
+//
+// Exercises B64+B65: SomeStruct<T> is covariant in T; under
+// `where 'max: 'min` we may shorten `&'max i32` to `&'min i32`
+// through the covariant wrapper.
+package variance_use_covariant_struct_2;
+
+struct SomeStruct<T> { v: T }
+
+fn foo<'min, 'max>(v: SomeStruct<&'max i32>) -> SomeStruct<&'min i32>
+    where 'max: 'min
+{
+    return v;
+}
+
+fn main() -> i32 { return 0i32; }

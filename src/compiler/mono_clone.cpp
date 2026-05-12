@@ -3059,6 +3059,11 @@ lir::LFunction Mono::clone_fn(const lir::LFunction& fn, const SubstMap& s,
     // present in the binary archive. The archive contains only the pre-compiled
     // non-generic originals (identified via LProgram::binary_symbols in mlir_gen).
     nf.ret_type  = subst_type(fn.ret_type, s);
+    // B65: lifetime params + outlives bounds are preserved verbatim through
+    // mono. Lifetime substitution is identity (lifetimes are not in the
+    // SubstMap), so the original pairs remain valid on the cloned signature.
+    nf.lifetime_params   = fn.lifetime_params;
+    nf.lifetime_outlives = fn.lifetime_outlives;
     for (auto& p : fn.params) {
         if (p.is_variadic) {
             // Expand variadic param into N concrete params.
