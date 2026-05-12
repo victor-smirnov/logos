@@ -2184,6 +2184,14 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             }
         }
     }
+    // P4-pm-12: `mut x` pattern — record the name in the side-channel
+    // so `bind_pattern_ref` redefines it as mutable. PatWild's LIR
+    // mirror doesn't carry the mut flag yet.
+    if (current_pat_mut_names_ && wname != "_" && pnode.has_key(la::IS_MUT)) {
+        AnyVal mv = pnode.get(la::IS_MUT.code);
+        if (!mv.is_null() && mv.is_value() && mv.as_value<uint8_t>() != 0)
+            current_pat_mut_names_->insert(wname);
+    }
     lir::Pattern p_;
     p_.mirror_offset_ = lir_mirror_emit_pat_wild(*cur_prog_, wname);
     return p_;
@@ -2623,8 +2631,12 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
     } else if (k == ps::Code::Wild) {
         lir_view::PatWildView v{pr};
         auto n = v.name();
-        if (n != "_" && scrut_type)
-            define(std::string(n), scrut_type);
+        if (n != "_" && scrut_type) {
+            // P4-pm-12: `mut x` patterns flagged via current_pat_mut_names_.
+            bool is_mut = current_pat_mut_names_ &&
+                          current_pat_mut_names_->count(std::string(n));
+            define(std::string(n), scrut_type, is_mut);
+        }
     } else if (k == ps::Code::RefBind) {
         lir_view::PatRefBindView v{pr};
         define(std::string(v.name()), v.bind_type(pool));
@@ -4419,6 +4431,9 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             std::vector<NestedPatSub> nested_subs;
             auto* saved_pat_subs = current_pat_nested_subs_;
             current_pat_nested_subs_ = &nested_subs;
+            logos::compiler::StrSet mut_names;
+            auto* saved_pat_muts = current_pat_mut_names_;
+            current_pat_mut_names_ = &mut_names;
             lir::Pattern pat = arm.has_key(la::LHS)
                 ? build_pattern(map_of(arm.get(la::LHS.code)), scrut_type)
                 : make_pat_wild("_");
@@ -4428,6 +4443,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             // Build body block — push pattern bindings into scope
             push_scope();
             bind_pattern(pat, scrut_type);
+            current_pat_mut_names_ = saved_pat_muts;
             // Register Hermes @-pattern bindings in scope (visible in body + guard).
             for (const auto& b : body_binds) {
                 define(b.name, anyval_t, /*is_mut=*/false);
@@ -4799,6 +4815,9 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             std::vector<NestedPatSub> nested_subs;
             auto* saved_pat_subs = current_pat_nested_subs_;
             current_pat_nested_subs_ = &nested_subs;
+            logos::compiler::StrSet mut_names;
+            auto* saved_pat_muts = current_pat_mut_names_;
+            current_pat_mut_names_ = &mut_names;
             lir::Pattern pat = arm.has_key(la::LHS)
                 ? build_pattern(map_of(arm.get(la::LHS.code)), scrut_type)
                 : make_pat_wild("_");
@@ -4807,6 +4826,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
 
             push_scope();
             bind_pattern(pat, scrut_type);
+            current_pat_mut_names_ = saved_pat_muts;
             for (const auto& b : body_binds) {
                 define(b.name, anyval_t, /*is_mut=*/false);
             }

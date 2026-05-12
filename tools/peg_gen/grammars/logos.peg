@@ -1382,6 +1382,11 @@
         // ref binding
         / KW_REF IDENT
         => { CODE: PAT_WILD, NAME: $2, IS_REF: true }
+        // P4-pm-12: `mut x` re-bindable identifier pattern (used by
+        // `match x { mut z => z = …; }` to introduce a fresh mutable
+        // local from the scrutinee).
+        / KW_MUT IDENT
+        => { CODE: PAT_WILD, NAME: $2, IS_MUT: true }
         // reference pattern: &mut pat or &pat
         // NG1: use pat_single (not pat_single_base) so &ref x, &n@42, etc. work.
         / AMP KW_MUT pat_single

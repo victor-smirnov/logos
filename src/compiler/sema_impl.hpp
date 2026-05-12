@@ -1963,6 +1963,11 @@ private:
         hermes::TinyMapView        sub_pat_node;
     };
     std::vector<NestedPatSub>* current_pat_nested_subs_ = nullptr;
+    // P4-pm-12: names from `mut x` patterns (`match scrut { mut z =>
+    // … }`). PatWild's LIR mirror doesn't carry the mut flag, so
+    // build_pattern_impl appends to this side-channel and
+    // bind_pattern_ref re-defines the binding as mutable.
+    logos::compiler::StrSet* current_pat_mut_names_ = nullptr;
     void bind_pattern(const lir::Pattern& pat,
                       TypeRef scrut_type = nullptr);
     void bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type);

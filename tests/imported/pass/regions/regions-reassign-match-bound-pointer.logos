@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-reassign-match-bound-pointer.rs
+// Modifications: faithful — `match x { mut z => z = &a; }` mut-binding
+// pattern now parses + binds as mutable (P4-pm-12 closed
+// 2026-05-11). The test originally relied on the type-checker letting
+// `z` be reassigned to a shorter-lived borrow within the arm.
+package r_regions_reassign_match_bound_pointer;
+
+fn foo(x: &isize) {
+    let a: isize = 1isize;
+    match x {
+        mut z => {
+            z = &a;
+            let _ = z;
+        }
+    }
+}
+
+fn main() -> i32 {
+    let v: isize = 1isize;
+    foo(&v);
+    return 0;
+}
