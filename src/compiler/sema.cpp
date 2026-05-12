@@ -2629,8 +2629,17 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         std::vector<TypeRef> args;
         if (node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));
-            for (uint64_t i = 0; i < items.size(); ++i)
-                args.push_back(resolve_type(map_of(items.get(i))));
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                auto item = map_of(items.get(i));
+                int32_t ic = code_of(item);
+                // B63.3: HRTB binder sub-node (from `for<...>` prefix) gets
+                // collected by $...; it has no CODE. Skip.
+                if (ic < 0) continue;
+                // L1: skip LIFETIME_PARAM at trait-arg position; lifetimes
+                // aren't part of TypeUID for trait dispatch.
+                if (ic == la::LIFETIME_PARAM) continue;
+                args.push_back(resolve_type(item));
+            }
         }
         return make_trait_object(tname, std::move(args));
     }

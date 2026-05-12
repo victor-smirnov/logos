@@ -1,0 +1,17 @@
+// B63.3: `&dyn for<'a> Foo<&'a T>` — HRTB on dyn-trait type. Logos
+// parses the binder prefix and resolves the trait object normally.
+package hrtb_dyn_trait_type;
+
+trait Foo<T> { fn r(self: Self, x: T) -> i32; }
+
+struct S { _x: i32 }
+impl<'a> Foo<&'a i64> for S {
+    fn r(self: S, x: &'a i64) -> i32 { return 0i32; }
+}
+
+fn take_dyn(_b: &dyn for<'a> Foo<&'a i64>) -> i32 { return 0i32; }
+
+fn main() -> i32 {
+    let s = S{ _x: 0i32 };
+    return take_dyn(&s);
+}

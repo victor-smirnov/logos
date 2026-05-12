@@ -1,0 +1,17 @@
+// B63.3: `for<'a> fn(&'a T) -> &'a T` — HRTB on fn-pointer type.
+// Logos parses and accepts the binder; sema treats the type like a plain
+// fn-pointer for dispatch (binders captured for future region inference).
+package hrtb_fn_ptr_type;
+
+fn apply(f: for<'a> fn(&'a i32) -> &'a i32, v: &i32) -> i32 {
+    let r: &i32 = f(v);
+    return *r;
+}
+
+fn id(x: &i32) -> &i32 { return x; }
+
+fn main() -> i32 {
+    let v: i32 = 42i32;
+    let n = apply(id, &v);
+    return n - 42i32;
+}

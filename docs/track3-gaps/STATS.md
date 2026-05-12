@@ -204,16 +204,21 @@ Polished in B63.2:
   because impl-side `'static` isn't in `impl_lifetime_params`).
   Calibration: `pass/hrtb_static_bound_static_impl.logos`.
 
+Polished in B63.3:
+- **HRTB at fn-ptr / dyn-trait type position** ✅ — grammar now
+  admits `for<'a> fn(&'a T) -> R` and `dyn for<'a> Trait<&'a T>`
+  (plus `&dyn`, `&mut dyn` variants). `HRTB_BINDERS` field
+  captured on FN_PTR_TYPE / DYN_TYPE nodes. Sema's DYN_TYPE
+  resolution skips the binder sub-node (no CODE) and
+  LIFETIME_PARAM entries when walking ITEMS. Regression:
+  `pass/hrtb_fn_ptr_type.logos`, `pass/hrtb_dyn_trait_type.logos`.
+
 Genuinely deferred (orthogonal to HRTB):
 - Region inference / outlives subtyping (B65). Without it, a
   `'static`-impl can't satisfy a fn-scope-lifetime bound even if
   the caller's region happens to be `'static`. Conservative
   rejection is sound; a fully-permissive accept needs region
   inference at call sites.
-- Nested HRTB via `for<>` inside fn-ptr / dyn types (e.g.
-  `for<'a> fn(&'a T)`). Logos grammar doesn't admit `for<>` at
-  type position currently. Add at grammar level if/when imported
-  tests require it.
 
 Open / deferred (lifetime epic):
 - **HRTB skolemization (B63)** — current B62 check is structural:
