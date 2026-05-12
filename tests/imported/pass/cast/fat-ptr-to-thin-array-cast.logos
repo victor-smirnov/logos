@@ -1,0 +1,16 @@
+// C6-cc-08 first slice: `*const [T]` raw-slice-ptr type + cast to
+// thin array ptr. Loosely modelled on the first block of
+// rust-lang/rust tests/ui/cast/fat-ptr-cast-rpass.rs (the rest of
+// that test needs `*mut dyn Trait` raw-ptr split which is the
+// larger arc). Logos `*const [T]` parses via new ptr_type alt and
+// lowers to the same fat-ptr {ptr, len} ABI as `&[T]`.
+package c_fat_ptr_to_thin_array_cast;
+
+fn main() -> i32 {
+    let arr: [i32; 3] = [1i32, 2i32, 3i32];
+    let a: *const [i32] = &arr;
+    let _b: *const [i32; 2] = a as *const [i32; 2];
+    let a2: *const [i32; 3] = (&arr) as *const [i32; 3];
+    let _b2: *const [i32] = a2 as *const [i32];
+    return 0i32;
+}

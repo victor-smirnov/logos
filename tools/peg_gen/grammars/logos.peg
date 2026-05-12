@@ -1172,7 +1172,16 @@
                / LPAREN type_ref COMMA RPAREN
                => { CODE: TUPLE_TYPE, ITEMS: $... }
 
-    ptr_type <- STAR KW_CONST type_ref
+    // Raw fat-pointer to a slice: `*const [T]` / `*mut [T]`. Same fat
+    // ptr ABI (`{*const T, usize}`) as `&[T]` — the type just drops
+    // the borrow-check guarantees. Must precede the plain `ptr_type`
+    // alts since arr_type requires `[T; N]` (with size); a bare
+    // `[T]` would otherwise fail to parse.
+    ptr_type <- STAR KW_CONST LBRACKET type_ref RBRACKET
+             => { CODE: SLICE_TYPE, TYPE: $4 }
+              / STAR KW_MUT LBRACKET type_ref RBRACKET
+             => { CODE: SLICE_TYPE, TYPE: $4, MUTPTR: true }
+              / STAR KW_CONST type_ref
              => { CODE: PTR_TYPE, POINTEE: $3, MUTPTR: false }
               / STAR KW_MUT type_ref
              => { CODE: PTR_TYPE, POINTEE: $3, MUTPTR: true }
