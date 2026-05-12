@@ -2851,6 +2851,23 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
             // or just error if we can't find it.
         }
 
+        // Phase 6: check the current impl's trait first. When `Self::Item<X>`
+        // appears inside an impl method body (or signature), `Self` resolves
+        // to the impl's target type (concrete struct, not TypeVar), and the
+        // impl itself isn't yet in impls_ when collect_impl is still walking
+        // method signatures. Look up the assoc-type definition on the
+        // impl's trait directly.
+        if (trait_for_assoc.empty() && !current_impl_trait_name_.empty()) {
+            auto tit = traits_.find(current_impl_trait_name_);
+            if (tit != traits_.end()) {
+                for (auto& at : tit->second.assoc_types) {
+                    if (at.name == assoc) {
+                        trait_for_assoc = current_impl_trait_name_;
+                        break;
+                    }
+                }
+            }
+        }
         if (trait_for_assoc.empty()) {
             // Check all traits for ANY type that might have this assoc type (last resort lookup).
             // Try both the full concrete name (e.g. "Box<i32>") and the base struct name ("Box")

@@ -1,0 +1,24 @@
+// Phase 6 regression: `Self::Item<X>` projection in impl method
+// body/signature. Previously failed with "no associated type 'Item'
+// found for 'Wrapper'" because impls_["Container::Wrapper"] isn't
+// populated until collect_impl finishes — and the method signature
+// is type-checked DURING collect_impl. Fix: scope
+// `current_impl_trait_name_` from lower_impl_block + collect_impl
+// so resolve_type for ASSOC_TYPE_REF looks up the assoc-type
+// definition on the impl's trait directly when the base resolved to
+// a concrete type (rather than TypeVar(Self)).
+package gat_self_item_projection;
+
+trait Container { type Item<U>; fn make(self: Self) -> Self::Item<i32>; }
+
+struct Wrapper { v: i32 }
+
+impl Container for Wrapper {
+    type Item<U> = U;   // GAT — Item<X> resolves to X
+    fn make(self: Wrapper) -> Self::Item<i32> { return self.v; }
+}
+
+fn main() -> i32 {
+    let w = Wrapper { v: 42i32 };
+    return w.make() - 42i32;
+}

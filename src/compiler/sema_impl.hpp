@@ -1388,6 +1388,12 @@ private:
 
     // Current trait being defined (set during collect_trait for Self::Item resolution)
     std::string current_trait_name_;
+    // Phase 6 (GAT projection): current impl's trait name, set during
+    // collect_impl + lower_impl_block. Lets `Self::Item<X>` inside an
+    // impl method body resolve through the impl's trait (the impl
+    // itself isn't yet in impls_ when method signatures are being
+    // type-checked during collect_impl).
+    std::string current_impl_trait_name_;
     // Bounds per type param name (set alongside current_type_params_ during push_type_params)
     logos::compiler::StrMap<std::vector<TraitBound>> current_type_bounds_;
 

@@ -1492,6 +1492,9 @@ void SemaChecker::collect_impl(TinyMapView node) {
     if (!trait_name.empty() && trait_name != "Copy" && trait_name != "Drop"
         && !traits_.count(trait_name))
         error(std::format("impl: unknown trait '{}'", trait_name));
+    // Phase 6: scope the impl's trait name so `Self::Item<X>` inside
+    // method bodies / signatures resolves before impls_ is populated.
+    current_impl_trait_name_ = trait_name;
     // Resolve trait type args (e.g. impl Into<i32> for Celsius → T=i32)
     // and push them into current_type_params_ so method sigs resolve correctly.
     std::vector<TypeRef> trait_type_args;

@@ -1,0 +1,17 @@
+// Phase 6 regression: `Self::Item<'_>` projection with GAT lifetime
+// arg. Exercises the lifetime-arg branch of the GAT projection path.
+package gat_self_item_lifetime;
+
+trait LendingIter { type Item<'a>; fn first(self: Self) -> Self::Item<'_>; }
+
+struct VRef { v: i64 }
+
+impl LendingIter for VRef {
+    type Item<'a> = i64;
+    fn first(self: VRef) -> Self::Item<'_> { return self.v; }
+}
+
+fn main() -> i32 {
+    let r = VRef { v: 7i64 };
+    return (r.first() as i32) - 7i32;
+}

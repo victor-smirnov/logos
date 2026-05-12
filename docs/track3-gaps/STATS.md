@@ -83,6 +83,7 @@ Counted *at the time the batch landed*.
 | B57  | 2026-05-12 | 53 |     5 |  0 | 0.09 | 306 | 112 |  2 |
 | B58  | 2026-05-12 |  3 |     0 |  3 | 0.00 | 309 | 112 |  5 |
 | B59  | 2026-05-12 |  2 |     0 |  2 | 0.00 | 311 | 112 |  7 |
+| B60  | 2026-05-12 |  2 |     0 |  1 | 0.00 | 313 | 112 |  8 |
 
 (Phase-1 gap counts are estimates — pre-batch gap-as-code triage gave
 coarse totals only; precise per-batch arrival-order numbers weren't
@@ -116,6 +117,26 @@ Gaps observed in B57 (lifetime/HRTB/GAT sweep):
   (fat-ptr vs by-value). Not lifetime-related; surfaced by
   `regions-return-interior-of-option`. Worked around in B57 by
   switching the imported test to by-value scrutinee.
+
+Closed in B60 (lifetime epic Phase 6):
+- **GAT projection `Self::Item<X>` in impl method body/signature** —
+  previously failed with "no associated type 'Item' found for 'X'"
+  because `impls_["Trait::Target"]` isn't populated until
+  collect_impl finishes, but the method signature is type-checked
+  DURING collect_impl. Fix: new `current_impl_trait_name_` scope on
+  SemaChecker, set by both collect_impl + lower_impl_block via an
+  RAII restore guard. resolve_type's ASSOC_TYPE_REF path consults
+  it directly to find the assoc-type definition on the impl's
+  trait — bypassing the chicken-and-egg impls_ lookup. Works for
+  both type-arg (`Item<U>`) and lifetime-arg (`Item<'a>`) GATs.
+
+Open / deferred (lifetime epic):
+- **HRTB real binder substitution** — currently parse-and-capture
+  (TraitBound.lifetime_args from B58); trait dispatch is lifetime-
+  erased so `for<'a> Fn(&'a T)` and `Fn(&T)` resolve identically.
+  Becomes substantive only when NLL ships and trait satisfaction
+  starts consulting regions. Return to it in the same slice as NLL
+  (Phase 9 of the lifetime epic).
 
 Closed in B59:
 - **L4** ✅ — multi-input-ref elision: borrow check's

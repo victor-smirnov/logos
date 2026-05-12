@@ -705,6 +705,16 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     std::string trait_name;
     if (node.has_key(la::NAME))
         trait_name = std::string(str_of(node.get(la::NAME.code)));
+    // Phase 6 (GAT projection): scope the impl's trait name so
+    // `Self::Item<X>` in method body / signature resolves through
+    // the trait's assoc_types directly (Self already substituted to
+    // the concrete target type by current_type_params_["Self"]).
+    std::string saved_impl_trait_name = current_impl_trait_name_;
+    current_impl_trait_name_ = trait_name;
+    struct ImplTraitNameRestore {
+        std::string& dst; std::string saved;
+        ~ImplTraitNameRestore() { dst = std::move(saved); }
+    } _restore_itn{current_impl_trait_name_, std::move(saved_impl_trait_name)};
     // Push impl's own type params: either from IMPL_TYPE_PARAMS (new generic trait impl
     // form: impl<T> Trait for Struct<T>) or from TYPE_PARAMS (standalone: impl<T> Pair<T>).
     std::vector<TypeParam> impl_tps;

@@ -187,14 +187,17 @@ the `__has_trait__` intrinsic for ergonomic per-call tracing).
    engine has no `assoc_type(Trait, Type, AssocName, Resolved)`
    relation yet — the original design listed it but Phase 1
    didn't need it.
-5. **HRTB binder is parsed but dropped.** Grammar admits
-   `for<'a (, 'b)*>` in every trait-bound alt (commit landing
-   T9-tr-06); sema discards the binder since Logos doesn't track
-   lifetimes structurally — `for<'a> Fn(&'a T)` ≡ `Fn(&T)` in our
-   model. The engine sees the resolved bound either way and never
-   quantifies over lifetimes. If Logos ever picks up region
-   inference, the binder will need to flow into a real substitution
-   step here.
+5. **HRTB binder is parsed + captured (real-as-it-can-be).** Grammar
+   admits `for<'a (, 'b)*>` in every trait-bound alt (T9-tr-06, B56);
+   `TraitBound.lifetime_args` captures the binder + lifetime args at
+   the bound (B58, L1 fix). Trait dispatch via the Datalog engine
+   stays lifetime-erased (UID-level), so `for<'a> Fn(&'a T)` and
+   `Fn(&T)` resolve to the same impl. This is correct semantics
+   under Logos's "lifetimes are structural in types, dispatch is
+   lifetime-erased" model: substitution-aware matching would only
+   matter if trait satisfaction consulted regions — which it does
+   not until NLL ships (Phase 9 of the lifetime epic). Binder
+   validation and substitution upgrade defer to that NLL slice.
 6. **No coherence checks.** First matching derivation wins.
    Coherence (no two impls overlap) lives in sema's collection
    phase, before facts reach the engine.
