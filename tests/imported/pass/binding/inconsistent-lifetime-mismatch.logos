@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/inconsistent-lifetime-mismatch.rs
+// Modifications: `&str` → `str` (Logos's `str` is itself a slice fat-
+// pointer, so `&str` is double-borrow). `&[&str]` → `&[str]`. The
+// original test was check-pass on lifetime inference; we add a
+// runtime call to exercise the path.
+package b_inconsistent_lifetime_mismatch;
+
+fn foo(s: &[str]) { let _ = s; }
+
+fn good(a: str, b: str) {
+    let arr: [str; 2] = [a, b];
+    foo(&arr);
+}
+
+fn main() -> i32 {
+    good("a", "b");
+    return 0;
+}
