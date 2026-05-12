@@ -52,6 +52,17 @@ silently un-trim earlier imports don't count here (logged in
 | B36  | 2026-05-12 |  1 |     0 | 0.00 | 152 | 106 |
 | B37  | 2026-05-12 |  0 |     0 | 0.00 | 152 | 106 |
 | B38  | 2026-05-12 |  2 |     0 | 0.00 | 154 | 106 |
+| B39  | 2026-05-12 | 13 |     0 | 0.00 | 167 | 106 |
+| B40  | 2026-05-12 |  5 |     0 | 0.00 | 172 | 106 |
+| B41  | 2026-05-12 |  3 |     0 | 0.00 | 175 | 106 |
+| B42  | 2026-05-12 |  5 |     0 | 0.00 | 180 | 106 |
+| B43  | 2026-05-12 |  2 |     0 | 0.00 | 182 | 106 |
+| B44  | 2026-05-12 |  3 |     0 | 0.00 | 185 | 106 |
+| B45  | 2026-05-12 |  6 |     0 | 0.00 | 191 | 106 |
+| B46  | 2026-05-12 |  3 |     0 | 0.00 | 194 | 106 |
+| B47  | 2026-05-12 |  3 |     0 | 0.00 | 197 | 106 |
+| B48  | 2026-05-12 |  3 |     0 | 0.00 | 200 | 106 |
+| B49  | 2026-05-12 |  5 |     0 | 0.00 | 205 | 106 |
 
 (Phase-1 counts are estimates — pre-batch gap-as-code triage gave coarse
 totals only; precise per-batch arrival-order numbers weren't recorded.
@@ -75,5 +86,14 @@ not import-driven. Each batch lands a slice of the Sprint 5.8 dyn-arc
 test that originally surfaced the gap. Zero net new catalog entries
 since every closure here re-fills an "Open" status flipped earlier.
 The Sprint 5.8 dyn-arc is fully closed at B35.
+
+Phase 4 (B38–B49): "autonomous bulk-import" run. Single overnight
+session through under-imported dirs (binding, match, for-loop-while,
+typeck, drop, mir, moves, attributes, inference, tuple, generics,
+binop, enum, coercion, closures, issues). 50+ tests added, zero new
+gaps catalogued — Phase 2/3 had already drained the easy surface,
+so the remaining stalls were variants of known gaps (struct enum
+variants, Box/Vec ABI corners, FnMut indirection edge-cases) which
+the batch silently skips. ctest 1389 → 1439.
 
 Update this table whenever a numbered batch lands.

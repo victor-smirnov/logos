@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/inference/simple-infer.rs
+// Modifications: `let mut n;` (Logos rejects uninit) → explicit
+// `let mut n: i64 = 0i64;` and subsequent assignment. `println!`
+// dropped.
+package inf_simple_infer;
+
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    n = 1i64;
+    if n != 1i64 { return 1i32; }
+    return 0i32;
+}

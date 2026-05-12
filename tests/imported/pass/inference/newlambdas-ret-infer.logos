@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/inference/newlambdas-ret-infer.rs
+// Modifications: `FnMut() + 'static` → `FnMut() -> i32` (Logos
+// fn-family bound requires `-> R`; `'static` accepted+dropped).
+// `Box::new` → `box_new`. Closure body returns `0i32`.
+package inf_newlambdas_ret_infer;
+
+use std.mem.box;
+
+fn unique() -> Box<dyn FnMut() -> i32> {
+    return box_new(|| -> i32 { return 0i32; });
+}
+
+fn main() -> i32 { let _u = unique(); return 0i32; }

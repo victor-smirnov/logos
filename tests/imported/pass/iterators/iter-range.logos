@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/iterators/iter-range.rs
+// Modifications: `isize` → `i64`. `FnMut(isize)` (no return) →
+// `FnMut(i64) -> i32` (Logos requires `-> R`). `mut it: F` rebind
+// as local for invocation (Logos rejects `mut F` on a fn param).
+// Sum check uses 0+1+...+99 = 4950. `println!` dropped.
+package iter_iter_range;
+
+fn range_<F: FnMut(i64) -> i32>(a: i64, b: i64, it: F) {
+    let mut local = it;
+    let mut i: i64 = a;
+    while i < b { local(i); i = i + 1i64; }
+}
+
+fn main() -> i32 {
+    let mut sum: i64 = 0i64;
+    range_(0i64, 100i64, |x: i64| -> i32 { sum = sum + x; return 0i32; });
+    if sum != 4950i64 { return 1i32; }
+    return 0i32;
+}

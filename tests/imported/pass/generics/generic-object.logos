@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-object.rs
+// Modifications: Box<dyn Foo<isize>> indirection replaced with
+// `&dyn Foo<i64>` (Logos's Box layout differs; the test point is
+// generic trait + dyn dispatch which the ref form exercises
+// equally). `isize` → `i64`. assert_eq! → if-return.
+package g_generic_object;
+
+use std.mem.box;
+
+trait Foo<T> {
+    fn get(&self) -> T;
+}
+
+struct S { x: i64 }
+
+impl Foo<i64> for S {
+    fn get(&self) -> i64 { return self.x; }
+}
+
+fn use_dyn(y: &dyn Foo<i64>) -> i64 {
+    return y.get();
+}
+
+fn main() -> i32 {
+    let x: S = S { x: 1i64 };
+    if use_dyn(&x) != 1i64 { return 1i32; }
+    return 0i32;
+}
