@@ -187,10 +187,14 @@ the `__has_trait__` intrinsic for ergonomic per-call tracing).
    engine has no `assoc_type(Trait, Type, AssocName, Resolved)`
    relation yet — the original design listed it but Phase 1
    didn't need it.
-5. **No HRTB scope.** `for<'a> Fn(&'a T)` parses but the engine
-   doesn't quantify over lifetimes. Each closure type name carries
-   no lifetime info today, so the question doesn't arise in
-   practice.
+5. **HRTB binder is parsed but dropped.** Grammar admits
+   `for<'a (, 'b)*>` in every trait-bound alt (commit landing
+   T9-tr-06); sema discards the binder since Logos doesn't track
+   lifetimes structurally — `for<'a> Fn(&'a T)` ≡ `Fn(&T)` in our
+   model. The engine sees the resolved bound either way and never
+   quantifies over lifetimes. If Logos ever picks up region
+   inference, the binder will need to flow into a real substitution
+   step here.
 6. **No coherence checks.** First matching derivation wins.
    Coherence (no two impls overlap) lives in sema's collection
    phase, before facts reach the engine.

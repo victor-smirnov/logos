@@ -2269,7 +2269,29 @@
     type_param_list <- LT type_param (COMMA type_param)* COMMA? GT
                     => { ITEMS: $... }
 
-    trait_bound <- IDENT LT bound_arg_list GT_TYPE
+    // HRTB: `for<'a (, 'b)*> Trait<...>`. Logos doesn't track
+    // lifetimes structurally, so the binder is parsed-then-dropped —
+    // semantically `for<'a> Fn(&'a T)` ≡ `Fn(&T)` here. We accept the
+    // prefix in every trait_bound alt below by parsing it into a
+    // disposable head.
+    hrtb_binder <- KW_FOR LT LIFETIME (COMMA LIFETIME)* COMMA? GT_TYPE
+                =>  { ITEMS: $... }
+    hrtb_opt <- hrtb_binder?
+             =>  { ITEMS: $... }
+
+    trait_bound <- hrtb_binder IDENT LT bound_arg_list GT_TYPE
+                => { CODE: TRAIT_BOUND, NAME: $2, TYPE_PARAMS: $4 }
+                 / hrtb_binder IDENT LPAREN closure_type_args RPAREN ARROW type_ref
+                => { CODE: TRAIT_BOUND, NAME: $2, PARAMS: $4, RET_TYPE: $7 }
+                 / hrtb_binder IDENT LPAREN RPAREN ARROW type_ref
+                => { CODE: TRAIT_BOUND, NAME: $2, RET_TYPE: $6 }
+                 / hrtb_binder IDENT LPAREN closure_type_args RPAREN
+                => { CODE: TRAIT_BOUND, NAME: $2, PARAMS: $4 }
+                 / hrtb_binder IDENT LPAREN RPAREN
+                => { CODE: TRAIT_BOUND, NAME: $2 }
+                 / hrtb_binder IDENT
+                => { CODE: TRAIT_BOUND, NAME: $2 }
+                 / IDENT LT bound_arg_list GT_TYPE
                 => { CODE: TRAIT_BOUND, NAME: $1, TYPE_PARAMS: $3 }
                  // Fn-family parenthesized form: `Fn(T1, ...) -> R` /
                  // `FnMut(T)` / `FnOnce()`. The arg-type list lives in

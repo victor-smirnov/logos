@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust tests/ui/higher-ranked/trait-bounds/hrtb-fn-like-trait.rs
+// Modifications: `isize` → `i64`; `println!` dropped; unit struct
+// `struct Identity;` → `struct Identity { _x: i32 }` (Logos doesn't
+// admit unit structs at this exact shape); `assert_eq!` → conditional
+// return. Otherwise faithful — exercises the new HRTB parser surface:
+// the `where F: for<'a> FnLike<&'a i64, &'a i64>` clause + the
+// `impl<'a, T> FnLike<&'a T, &'a T> for Identity` impl-with-lifetime
+// shape. Logos doesn't track lifetimes structurally, so the
+// `for<'a>` binder is parsed and dropped at sema-time.
+package hrtb_fn_like_trait;
+
+trait FnLike<A, R> { fn call(self: Self, arg: A) -> R; }
+
+struct Identity { _x: i32 }
+
+impl<'a, T> FnLike<&'a T, &'a T> for Identity {
+    fn call(self: Identity, arg: &'a T) -> &'a T { return arg; }
+}
+
+fn call_repeatedly<F>(f: F) -> i32
+    where F: for<'a> FnLike<&'a i64, &'a i64>
+{
+    let x: i64 = 3i64;
+    let y: &i64 = f.call(&x);
+    return (*y) as i32;
+}
+
+fn main() -> i32 {
+    let r = call_repeatedly::<Identity>(Identity{ _x: 0i32 });
+    return r - 3i32;
+}
