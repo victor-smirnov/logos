@@ -311,6 +311,11 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
         // *const T is read-only; only *mut T or &mut T can be written through
         if (TypeRef(pt).kind() == LogosType::Kind::Ptr && !TypeRef(pt).mut_ptr())
             error("deref-write: cannot write through *const pointer (use *mut)");
+        // B68: variance check at *ptr = val. The pointee must Inv-match the
+        // value's type. Strict mode (fn-scope-fixed lifetimes).
+        if (val && TypeRef(pt).pointee())
+            check_variance(val->type, TypeRef(pt).pointee(),
+                           "deref-write '*ptr = …'", /*permissive=*/false);
         track_write_move(val);
         return builder().stmt_deref_write(std::move(ptr), std::move(val), node_line_);
     }

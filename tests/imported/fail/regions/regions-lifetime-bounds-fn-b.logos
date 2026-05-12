@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-lifetime-bounds-on-fns.rs
+// (split: fn `b` — illegal without `where 'b: 'a` declaration.)
+// Modifications: `isize` → `i64`. Exercises B64 + B65: `*x = *y` where
+// `x: &mut &'a i64` and `y: &mut &'b i64`. The assignment writes a
+// `&'b` reference through a `&mut &'a` cell — requires `'b: 'a` so the
+// inner ref doesn't dangle. Without the constraint, variance rejects.
+package regions_lifetime_bounds_fn_b;
+
+fn b<'a, 'b>(x: &mut &'a i64, y: &mut &'b i64) {
+    *x = *y;
+}
+
+fn main() -> i32 { return 0i32; }
