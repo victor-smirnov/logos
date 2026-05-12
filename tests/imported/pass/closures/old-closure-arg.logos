@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/old-closure-arg.rs
+// Modifications: `vec![…]` → `vec_from_arr([…])`. `println!` calls
+// dropped (test point is the `for i in &v` iteration, not output).
+// `assert_eq!` against a counter substitutes for visual inspection.
+package cl_old_closure_arg;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.option;
+use std.collections.vec;
+
+fn main() -> i32 {
+    let v: Vec<f64> = vec_from_arr([-1.0f64, 0.0f64, 1.0f64, 2.0f64, 3.0f64]);
+    let mut count: i32 = 0i32;
+    for i in &v {
+        count = count + 1i32;
+    }
+    if count != 5i32 { return 1i32; }
+    return 0i32;
+}

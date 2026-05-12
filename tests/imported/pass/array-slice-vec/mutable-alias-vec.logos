@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/mutable-alias-vec.rs
+// Modifications: `Vec::new()` → `vec_new::<i64>()`; `v.len()` →
+// `v.length()` (stdlib Vec method); `isize` → `i64`. `println!`
+// dropped. Counter assertion preserved via if-return.
+package asv_mutable_alias_vec;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.option;
+use std.collections.vec;
+
+fn grow(v: &mut Vec<i64>) {
+    v.push(1i64);
+}
+
+fn main() -> i32 {
+    let mut v: Vec<i64> = vec_new::<i64>();
+    grow(&mut v);
+    grow(&mut v);
+    grow(&mut v);
+    let len: i64 = v.length();
+    if len != 3i64 { return 1i32; }
+    return 0i32;
+}

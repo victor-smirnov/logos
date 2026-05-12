@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/loops/issue-1974.rs
+// Modifications: `"hej".to_string()` → `str` literal; `s != ""` over
+// `str` isn't built-in (no `PartialEq for str` trait surface), so an
+// inline `eq_str` helper is used (same shape as
+// match/guards-parenthesized-and). The test point — `while cond {
+// return; }` and not double-freeing the cond allocation on return —
+// is preserved as a runtime-success check.
+package l_issue_1974;
+
+use std.fmt;
+use std.lang.text;
+
+fn eq_str(a: str, b: str) -> bool {
+    let alen: i64 = a.len();
+    let blen: i64 = b.len();
+    if alen != blen { return false; }
+    let mut i: i64 = 0i64;
+    while i < alen {
+        if a[i] != b[i] { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn main() -> i32 {
+    let s: str = "hej";
+    while !eq_str(s, "") {
+        return 0i32;
+    }
+    return 1i32;
+}

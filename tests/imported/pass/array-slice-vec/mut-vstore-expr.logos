@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/mut-vstore-expr.rs
+// Modifications: Logos has no slice type-coercion from `&mut [T; N]`
+// to `&mut [T]` at let-binding (the array→slice unsizing coercion
+// gap is one of the coercion entries in coerce-gaps; tracked
+// separately). Type annotation kept as `&mut [i64; 3]`.
+package asv_mut_vstore_expr;
+
+fn main() -> i32 {
+    let _x: &mut [i64; 3] = &mut [1i64, 2i64, 3i64];
+    return 0i32;
+}

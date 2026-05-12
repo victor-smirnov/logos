@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/old-closure-expr-precedence.rs
+// Modifications: only the `if-expr - num` / `num - if-expr` form is
+// preserved (test point is RHS-precedence of `if`-as-expr in a
+// binop). The trailing-semis exploration (`if (...) {12;};;; -num;`)
+// is dropped since Logos doesn't surface the same parse-divergence
+// concern: leading `-num;` after `if {}` becomes a fresh stmt in
+// Logos's stmt-vs-expr split. `assert_eq!` → explicit if-return.
+package cl_old_closure_expr_precedence;
+
+fn main() -> i32 {
+    let num: i32 = 12i32;
+    let r1: i32 = if true { 12i32 } else { 12i32 } - num;
+    if r1 != 0i32 { return 1i32; }
+    let r2: i32 = 12i32 - if true { 12i32 } else { 12i32 };
+    if r2 != 0i32 { return 2i32; }
+    return 0i32;
+}
