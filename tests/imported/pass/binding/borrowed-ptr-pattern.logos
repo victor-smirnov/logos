@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/borrowed-ptr-pattern.rs
+// Modifications: `T: Clone` bound + `(*a).clone()` body reduced to
+// `*a` — `clone()` requires the trait surface that Logos's `Clone`
+// auto-impl covers for scalars. The `&ref a` pattern shape is the
+// regression point and is preserved verbatim (P4-pm-17 closed
+// 2026-05-11: PatRefBind no longer adds an extra spill-then-store-
+// addr indirection when scrut is already a pointer).
+package b_borrowed_ptr_pattern;
+
+use std.fmt;
+use std.lang.text;
+
+fn foo_i32(x: &i32) -> i32 {
+    match x { &ref a => { return *a; } }
+}
+
+fn foo_char(x: &char) -> char {
+    match x { &ref a => { return *a; } }
+}
+
+fn main() -> i32 {
+    if foo_i32(&3i32) != 3i32 { return 1; }
+    if foo_char(&'a') != 'a'  { return 2; }
+    return 0;
+}

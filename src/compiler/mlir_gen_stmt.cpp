@@ -2087,19 +2087,23 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
         case pc::Code::RefBind: {
             std::string prbn(lir_view::PatRefBindView{p}.name());
             if (!prbn.empty() && prbn != "_") {
-                // We need a pointer to the scrutinee. If scrut_ptr is available
-                // (enum scrutinee on stack), use it directly. Otherwise spill the
-                // value to a fresh alloca to obtain an address.
-                mlir::Value sv_ptr;
+                // P4-pm-17: if scrut is itself a pointer (e.g. `&T` from
+                // an outer PatRefPat over a borrowed scrutinee), the
+                // binding `a` aliases the pointer value directly — no
+                // extra spill-then-store-addr indirection. Otherwise we
+                // need to spill the scrut value to get an address.
+                mlir::Value bind_val;
                 if (scrut_ptr) {
-                    sv_ptr = scrut_ptr;
+                    bind_val = scrut_ptr;
+                } else if (scrut.getType() == ptr_type()) {
+                    bind_val = scrut;
                 } else {
                     auto tmp = create_entry_alloca(scrut.getType());
                     builder_.create<mlir::LLVM::StoreOp>(loc_, scrut, tmp);
-                    sv_ptr = tmp;
+                    bind_val = tmp;
                 }
                 auto alloca = create_entry_alloca(ptr_type());
-                builder_.create<mlir::LLVM::StoreOp>(loc_, sv_ptr, alloca);
+                builder_.create<mlir::LLVM::StoreOp>(loc_, bind_val, alloca);
                 scope_[prbn] = alloca;
                 let_vars_.insert(prbn);
                 var_elem_types_[prbn] = ptr_type();
