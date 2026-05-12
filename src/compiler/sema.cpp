@@ -1707,6 +1707,40 @@ std::vector<std::string> SemaChecker::read_lifetime_params(TinyMapView node) {
     return result;
 }
 
+// B65: extract `'long: 'short` clauses from a node's TYPE_PARAMS items.
+// LIFETIME_PARAM nodes with non-empty ITEMS encode outlives bounds:
+//   `'long: 'a + 'b + 'c` → ('long, 'a), ('long, 'b), ('long, 'c)
+// Each ITEMS entry is a LIFETIME_PARAM sub-node with NAME = shorter lifetime.
+std::vector<std::pair<std::string, std::string>>
+SemaChecker::read_lifetime_outlives_from(TinyMapView node, int32_t field_code) {
+    std::vector<std::pair<std::string, std::string>> result;
+    if (!node.has_key(field_code)) return result;
+    AnyVal tpav = node.get(field_code);
+    if (tpav.is_null()) return result;
+    auto tplist = map_of(tpav);
+    if (!tplist.has_key(la::ITEMS)) return result;
+    auto tpitems = arr_of(tplist.get(la::ITEMS.code));
+    for (uint64_t i = 0; i < tpitems.size(); ++i) {
+        auto tpnode = map_of(tpitems.get(i));
+        if (code_of(tpnode) != la::LIFETIME_PARAM) continue;
+        if (!tpnode.has_key(la::ITEMS)) continue;
+        std::string longer(str_of(tpnode.get(la::NAME.code)));
+        auto inner = arr_of(tpnode.get(la::ITEMS.code));
+        for (uint64_t j = 0; j < inner.size(); ++j) {
+            auto inode = map_of(inner.get(j));
+            if (code_of(inode) != la::LIFETIME_PARAM) continue;
+            std::string shorter(str_of(inode.get(la::NAME.code)));
+            result.emplace_back(longer, shorter);
+        }
+    }
+    return result;
+}
+
+std::vector<std::pair<std::string, std::string>>
+SemaChecker::read_lifetime_outlives(TinyMapView node) {
+    return read_lifetime_outlives_from(node, la::TYPE_PARAMS.code);
+}
+
 bool SemaChecker::assoc_eqs_satisfied(
     const std::string& trait_name,
     const std::string& concrete_name,
@@ -1901,6 +1935,10 @@ std::vector<TypeParam> SemaChecker::read_type_params_from(TinyMapView node, int3
                     tb.trait_name = std::string(str_of(bnode.get(la::NAME.code)));
                     read_trait_bound_args(bnode, tb);
                     tp.bounds.push_back(std::move(tb));
+                } else if (code_of(bnode) == la::LIFETIME_PARAM) {
+                    // B65: `T: 'a (+ 'b)*` — type-outlives bounds.
+                    tp.lifetime_outlives.push_back(
+                        std::string(str_of(bnode.get(la::NAME.code))));
                 }
             }
         }

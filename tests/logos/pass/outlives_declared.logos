@@ -1,0 +1,13 @@
+// B65: outlives bounds with all lifetimes declared. Captures `'b: 'a`
+// and `T: 'a` correctly and accepts the program.
+package outlives_declared;
+
+fn f<'a, 'b: 'a, T>(_x: &'a T, _y: &'b T) -> i32 where T: 'a {
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let a: i32 = 1i32;
+    let b: i32 = 2i32;
+    return f::<i32>(&a, &b);
+}

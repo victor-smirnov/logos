@@ -2386,8 +2386,14 @@
               => { CODE: ASSOC_EQ_BIND, NAME: $1, TYPE: $3 }
                / type_or_lt_arg
 
+    // B65: outlives lifetime — wraps LIFETIME so $... in lifetime_param /
+    // type_param actually captures the outlives names (bare LIFETIME tokens
+    // don't flow into the rule-captures array). Same shape as hrtb_lt.
+    outlives_lt <- LIFETIME
+                => { CODE: LIFETIME_PARAM, NAME: $1 }
+
     // Lifetime parameter: 'a; with outlives bound: 'a: 'b (+ 'c)*
-    lifetime_param <- LIFETIME COLON LIFETIME (PLUS LIFETIME)*
+    lifetime_param <- LIFETIME COLON outlives_lt (PLUS outlives_lt)*
                    => { CODE: LIFETIME_PARAM, NAME: $1, ITEMS: $... }
                     / LIFETIME
                    => { CODE: LIFETIME_PARAM, NAME: $1 }

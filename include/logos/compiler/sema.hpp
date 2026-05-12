@@ -283,6 +283,10 @@ struct TypeParam {
     bool                     is_variadic = false;  // T... variadic pack
     bool                     is_const    = false;  // const N: T
     TypeRef         const_type  = nullptr;
+    // B65: type-outlives bounds — `T: 'a` declares that T's data lives for
+    // at least 'a. Stored as a list of lifetime names (with apostrophe).
+    // Empty when the type param has no outlives bound.
+    std::vector<std::string> lifetime_outlives;
 };
 
 // Structural equality (pointer-to-pointer not checked — use value comparison).

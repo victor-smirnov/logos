@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <format>
 #include <functional>
+#include <unordered_set>
 
 namespace logos::compiler {
 
@@ -264,6 +265,113 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     check_unique_names(fn.lifetime_params,
                        [](auto& lt) -> std::string_view { return lt; },
                        "lifetime parameter", "fn " + mangled);
+    // B65: implied bounds — `&'a &'b T` (or any nested ref) means the inner
+    // region must outlive the outer one, else the outer borrow would point
+    // to a dangling reference. Walks fn param types + ret_type and emits
+    // (inner, outer) pairs to be unioned with explicit outlives below.
+    auto walk_implied = [&](TypeRef t, std::string outer,
+                            std::vector<std::pair<std::string, std::string>>& out,
+                            auto& recur) -> void {
+        if (!t) return;
+        auto kind = t.kind();
+        if (kind == LogosType::Kind::Ref || kind == LogosType::Kind::MutRef) {
+            std::string my_lt(t.lifetime());
+            if (!outer.empty() && !my_lt.empty() && my_lt != outer)
+                out.emplace_back(my_lt, outer);
+            recur(t.pointee(), my_lt.empty() ? outer : my_lt, out, recur);
+            return;
+        }
+        if (kind == LogosType::Kind::Struct || kind == LogosType::Kind::ZonedStruct ||
+            kind == LogosType::Kind::Enum) {
+            for (auto& lt : t.lifetime_args()) {
+                std::string s(lt);
+                if (!outer.empty() && !s.empty() && s != outer)
+                    out.emplace_back(s, outer);
+            }
+            for (auto a : t.type_args()) recur(a, outer, out, recur);
+            return;
+        }
+        if (kind == LogosType::Kind::Tuple) {
+            for (auto e : t.tuple_elems()) recur(e, outer, out, recur);
+            return;
+        }
+        if (kind == LogosType::Kind::Slice || kind == LogosType::Kind::Array) {
+            recur(t.elem(), outer, out, recur);
+            return;
+        }
+        if (kind == LogosType::Kind::Ptr) {
+            recur(t.pointee(), outer, out, recur);
+            return;
+        }
+    };
+    // B65: capture `'long: 'short` outlives bounds declared in fn header.
+    fn.lifetime_outlives = read_lifetime_outlives(node);
+    // Plus implied bounds from param / ret types.
+    for (auto& p : fn.params) walk_implied(p.type, "", fn.lifetime_outlives, walk_implied);
+    walk_implied(fn.ret_type, "", fn.lifetime_outlives, walk_implied);
+    // …and also in the where clause.
+    {
+        auto where_outlives = read_lifetime_outlives_from(node, la::WHERE.code);
+        for (auto& p : where_outlives) fn.lifetime_outlives.push_back(std::move(p));
+    }
+    // B65: merge type-outlives bounds (`T: 'a`) from the where clause into
+    // each TypeParam's lifetime_outlives list. WHERE.ITEMS is a flat list of
+    // type_param results; entries with code TYPE_PARAM that carry LIFETIME_PARAM
+    // children encode `Name: 'lt` bounds.
+    if (node.has_key(la::WHERE)) {
+        AnyVal wav = node.get(la::WHERE.code);
+        if (!wav.is_null()) {
+            auto wmap = map_of(wav);
+            if (wmap.has_key(la::ITEMS)) {
+                auto witems = arr_of(wmap.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < witems.size(); ++i) {
+                    auto witem = map_of(witems.get(i));
+                    if (code_of(witem) != la::TYPE_PARAM) continue;
+                    if (!witem.has_key(la::ITEMS)) continue;
+                    std::string tname(str_of(witem.get(la::NAME.code)));
+                    auto inner = arr_of(witem.get(la::ITEMS.code));
+                    // Find matching TypeParam to attach lifetime bounds to.
+                    TypeParam* target = nullptr;
+                    for (auto& tp : fn.type_params)
+                        if (tp.name == tname) { target = &tp; break; }
+                    if (!target) continue;  // unknown type name; sema'll error elsewhere
+                    for (uint64_t j = 0; j < inner.size(); ++j) {
+                        auto inode = map_of(inner.get(j));
+                        if (code_of(inode) != la::LIFETIME_PARAM) continue;
+                        target->lifetime_outlives.push_back(
+                            std::string(str_of(inode.get(la::NAME.code))));
+                    }
+                }
+            }
+        }
+    }
+    // Validate: every lifetime mentioned in an outlives clause must be
+    // declared on the fn (or be 'static). Closes the "undeclared lifetime
+    // name" gap that Rust catches.
+    {
+        std::unordered_set<std::string> declared(fn.lifetime_params.begin(),
+                                                 fn.lifetime_params.end());
+        auto known = [&](std::string_view lt) {
+            if (lt.empty()) return true;
+            if (lt == "'static" || lt == "static") return true;
+            return declared.count(std::string(lt)) > 0;
+        };
+        for (auto& [lng, sht] : fn.lifetime_outlives) {
+            if (!known(lng))
+                error(std::format("fn '{}': use of undeclared lifetime name '{}' in outlives clause",
+                                  fn.name, lng));
+            if (!known(sht))
+                error(std::format("fn '{}': use of undeclared lifetime name '{}' in outlives clause",
+                                  fn.name, sht));
+        }
+        for (auto& tp : fn.type_params) {
+            for (auto& lt : tp.lifetime_outlives) {
+                if (!known(lt))
+                    error(std::format("fn '{}': use of undeclared lifetime name '{}' in `{}: {}` bound",
+                                      fn.name, lt, tp.name, lt));
+            }
+        }
+    }
     // Robust associated type resolution: call subst_type_sema even if subst is empty
     // to simplify concrete AssocType nodes (e.g. i32::Item -> bool).
     fn.ret_type    = subst_type_sema(fi_ptr->ret_type, {});
@@ -552,6 +660,32 @@ lir::LStructDef SemaChecker::lower_struct_def(TinyMapView node) {
     }
     sd.type_params = sinfo->type_params;
     sd.lifetime_params = sinfo->lifetime_params;
+    // B65: outlives bounds from `struct Foo<'a, 'b: 'a>` + validate names.
+    sd.lifetime_outlives = read_lifetime_outlives(node);
+    {
+        std::unordered_set<std::string> declared(sd.lifetime_params.begin(),
+                                                 sd.lifetime_params.end());
+        auto known = [&](std::string_view lt) {
+            if (lt.empty()) return true;
+            if (lt == "'static" || lt == "static") return true;
+            return declared.count(std::string(lt)) > 0;
+        };
+        for (auto& [lng, sht] : sd.lifetime_outlives) {
+            if (!known(lng))
+                error(std::format("struct '{}': use of undeclared lifetime name '{}' in outlives clause",
+                                  sname, lng));
+            if (!known(sht))
+                error(std::format("struct '{}': use of undeclared lifetime name '{}' in outlives clause",
+                                  sname, sht));
+        }
+        for (auto& tp : sd.type_params) {
+            for (auto& lt : tp.lifetime_outlives) {
+                if (!known(lt))
+                    error(std::format("struct '{}': use of undeclared lifetime name '{}' in `{}: {}` bound",
+                                      sname, lt, tp.name, lt));
+            }
+        }
+    }
     push_type_params(sd.type_params);
     // Type-param uniqueness (closes B-gn-01)
     check_unique_names(sd.type_params,
@@ -595,6 +729,34 @@ lir::LEnumDef SemaChecker::lower_enum_def(TinyMapView node) {
     auto& einfo = eit_led->second;
     ed.type_params = einfo.type_params;
     ed.backing_type = einfo.backing_type;
+    // B65: capture outlives bounds. Enum lifetime_params lives on einfo;
+    // outlives bounds re-read from the node.
+    ed.lifetime_params = einfo.lifetime_params;
+    ed.lifetime_outlives = read_lifetime_outlives(node);
+    {
+        std::unordered_set<std::string> declared(ed.lifetime_params.begin(),
+                                                 ed.lifetime_params.end());
+        auto known = [&](std::string_view lt) {
+            if (lt.empty()) return true;
+            if (lt == "'static" || lt == "static") return true;
+            return declared.count(std::string(lt)) > 0;
+        };
+        for (auto& [lng, sht] : ed.lifetime_outlives) {
+            if (!known(lng))
+                error(std::format("enum '{}': use of undeclared lifetime name '{}' in outlives clause",
+                                  ename, lng));
+            if (!known(sht))
+                error(std::format("enum '{}': use of undeclared lifetime name '{}' in outlives clause",
+                                  ename, sht));
+        }
+        for (auto& tp : ed.type_params) {
+            for (auto& lt : tp.lifetime_outlives) {
+                if (!known(lt))
+                    error(std::format("enum '{}': use of undeclared lifetime name '{}' in `{}: {}` bound",
+                                      ename, lt, tp.name, lt));
+            }
+        }
+    }
     // Type-param uniqueness on enum (B-gn-01 family)
     check_unique_names(ed.type_params,
                        [](auto& tp) -> std::string_view { return tp.name; },
@@ -803,6 +965,23 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             ib.trait_type_args      = it->second.trait_type_args;
             ib.trait_lifetime_args  = it->second.trait_lifetime_args;
             ib.impl_lifetime_params = it->second.impl_lifetime_params;
+            ib.lifetime_outlives    = it->second.impl_lifetime_outlives;  // B65
+            // Validate impl-level outlives names against declared impl_lifetime_params.
+            std::unordered_set<std::string> declared(ib.impl_lifetime_params.begin(),
+                                                     ib.impl_lifetime_params.end());
+            auto known = [&](std::string_view lt) {
+                if (lt.empty()) return true;
+                if (lt == "'static" || lt == "static") return true;
+                return declared.count(std::string(lt)) > 0;
+            };
+            for (auto& [lng, sht] : ib.lifetime_outlives) {
+                if (!known(lng))
+                    error(std::format("impl {} for {}: use of undeclared lifetime name '{}' in outlives clause",
+                                      trait_name, target, lng));
+                if (!known(sht))
+                    error(std::format("impl {} for {}: use of undeclared lifetime name '{}' in outlives clause",
+                                      trait_name, target, sht));
+            }
         }
     }
     // Propagate genos type_code: `impl Varchar for HermesString` on a

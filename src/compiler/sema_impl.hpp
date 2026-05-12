@@ -1226,6 +1226,7 @@ private:
     struct SemaEnumInfo   {
         std::vector<SemaVariantInfo> variants;
         std::vector<TypeParam> type_params;  // for generic enums
+        std::vector<std::string> lifetime_params;  // B65: enum lifetime params
         TypeRef backing_type = nullptr;  // null = default (i32)
     };
 
@@ -1284,6 +1285,9 @@ private:
         // whose lifetime string is in this set is "generic" (universally quantified
         // at impl site) and can satisfy a HRTB-bound generic lifetime.
         std::vector<std::string>    impl_lifetime_params;
+        // B65: outlives bounds on impl-level lifetime params, e.g.
+        // `impl<'a, 'b: 'a> ...` → [("'b", "'a")].
+        std::vector<std::pair<std::string, std::string>> impl_lifetime_outlives;
     };
 
     // Type params in scope for the function/struct currently being processed.
@@ -1540,6 +1544,13 @@ private:
     // ── Type parameter helpers ────────────────────────────────────
 
     std::vector<std::string> read_lifetime_params(hermes::TinyMapView node);
+    // B65: read declared outlives bounds. Returns (long, short) pairs from
+    // `'long: 'short` clauses (in fn/struct/enum/impl header or where).
+    // Scans node.TYPE_PARAMS items (LIFETIME_PARAM with non-empty ITEMS).
+    std::vector<std::pair<std::string, std::string>>
+        read_lifetime_outlives(hermes::TinyMapView node);
+    std::vector<std::pair<std::string, std::string>>
+        read_lifetime_outlives_from(hermes::TinyMapView node, int32_t field_code);
     std::vector<TypeParam> read_type_params_from(hermes::TinyMapView node, int32_t field_code);
     std::vector<TypeParam> read_type_params(hermes::TinyMapView node);
     // Read type_args + assoc_eqs from a TRAIT_BOUND node's TYPE_PARAMS slot.

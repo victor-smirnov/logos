@@ -873,6 +873,7 @@ void SemaChecker::collect_enum(TinyMapView node) {
     // patterns, etc.). No diagnostic.
     SemaEnumInfo info;
     info.type_params = read_type_params(node);
+    info.lifetime_params = read_lifetime_params(node);  // B65
     push_type_params(info.type_params);
     // Optional backing type: `enum Foo : u64 { ... }`.  Must be an integer kind.
     if (node.has_key(la::TYPE)) {
@@ -1434,6 +1435,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
     // B62: impl-level lifetime params from `impl<'a, T>` — used to recognize
     // when a trait-arg lifetime is universally quantified at impl site.
     std::vector<std::string> impl_lt_params;
+    // B65: outlives bounds from `impl<'a, 'b: 'a> ...`.
+    std::vector<std::pair<std::string, std::string>> impl_lt_outlives;
     auto extract_impl_lt = [&](int32_t field_code) {
         if (!node.has_key(field_code)) return;
         AnyVal tpav = node.get(field_code);
@@ -1452,11 +1455,13 @@ void SemaChecker::collect_impl(TinyMapView node) {
         push_type_params(impl_tps);
         impl_type_params_ = impl_tps;
         extract_impl_lt(la::IMPL_TYPE_PARAMS.code);
+        impl_lt_outlives = read_lifetime_outlives_from(node, la::IMPL_TYPE_PARAMS.code);
     } else if (trait_name.empty() && node.has_key(la::TYPE_PARAMS)) {
         impl_tps = read_type_params(node);
         push_type_params(impl_tps);
         impl_type_params_ = impl_tps;  // so collect_fn includes them in fn.type_params
         extract_impl_lt(la::TYPE_PARAMS.code);
+        impl_lt_outlives = read_lifetime_outlives(node);
     }
     // TYPE is the target type (simple_type, ptr_type, or GENERIC_INST)
     std::string target;
@@ -2005,7 +2010,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
     if (!trait_name.empty()) {
         SemaImplInfo info{trait_name, target, impl_is_unsafe, impl_is_negative,
                           target_resolved, impl_tps,
-                          trait_type_args, trait_lt_args, impl_lt_params};
+                          trait_type_args, trait_lt_args, impl_lt_params,
+                          impl_lt_outlives};
         impls_[trait_name + "::" + target] = info;
         // `str` is a built-in that resolves to Slice<u8>; type_str() produces
         // "&[u8]" for Slice<u8>, so trait-bound checks look for "Trait::&[u8]".
@@ -2013,7 +2019,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
         if (target == "str") {
             SemaImplInfo alias{trait_name, "&[u8]", impl_is_unsafe, impl_is_negative,
                                target_resolved, impl_tps,
-                               trait_type_args, trait_lt_args, impl_lt_params};
+                               trait_type_args, trait_lt_args, impl_lt_params,
+                               impl_lt_outlives};
             impls_[trait_name + "::&[u8]"] = alias;
         }
     }

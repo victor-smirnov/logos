@@ -676,6 +676,10 @@ struct LFunction {
     std::string              package;
     std::vector<TypeParam>   type_params;    // TypeVar names (generic def, empty otherwise)
     std::vector<std::string> lifetime_params; // Lifetime param names, e.g. ["'a", "'b"]
+    // B65: outlives bounds declared in the function header or where clause.
+    // Each pair (long, short) means "'long: 'short" (i.e. 'long lives at least
+    // as long as 'short). Built into a transitive outlives graph at query time.
+    std::vector<std::pair<std::string, std::string>> lifetime_outlives;
     std::vector<LParam>      params;
     TypeRef         ret_type  = nullptr;
     LBlock                   body;
@@ -750,6 +754,9 @@ struct LStructDef {
     std::string              pkg;            // package that declares this struct/datatype
     std::vector<TypeParam>   type_params;    // empty for non-generic structs
     std::vector<std::string> lifetime_params; // e.g. ["'a", "'z"]; erased at codegen
+    // B65: outlives bounds on the struct's lifetime params, e.g.
+    // `struct Foo<'a, 'b: 'a>` → [("'b", "'a")].
+    std::vector<std::pair<std::string, std::string>> lifetime_outlives;
     std::vector<LField>       fields;
     std::vector<LFunctionPtr> methods;
     bool                     is_pub        = false;
@@ -782,6 +789,9 @@ struct LEnumDef {
     std::string              name;
     std::string              pkg;            // package that declares this enum
     std::vector<TypeParam>   type_params;   // empty for non-generic enums
+    std::vector<std::string> lifetime_params;
+    // B65: outlives bounds on the enum's lifetime params.
+    std::vector<std::pair<std::string, std::string>> lifetime_outlives;
     std::vector<LVariant>    variants;
     TypeRef         backing_type = nullptr;  // null = default (i32)
     bool has_payload() const {
@@ -851,6 +861,8 @@ struct LImplBlock {
     std::vector<TypeRef>          trait_type_args;
     std::vector<std::string>      trait_lifetime_args;
     std::vector<std::string>      impl_lifetime_params;
+    // B65: outlives bounds from `impl<'a, 'b: 'a> ...`.
+    std::vector<std::pair<std::string, std::string>> lifetime_outlives;
 };
 
 struct LConst {

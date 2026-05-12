@@ -213,12 +213,33 @@ Polished in B63.3:
   LIFETIME_PARAM entries when walking ITEMS. Regression:
   `pass/hrtb_fn_ptr_type.logos`, `pass/hrtb_dyn_trait_type.logos`.
 
-Genuinely deferred (orthogonal to HRTB):
-- Region inference / outlives subtyping (B65). Without it, a
-  `'static`-impl can't satisfy a fn-scope-lifetime bound even if
-  the caller's region happens to be `'static`. Conservative
-  rejection is sound; a fully-permissive accept needs region
-  inference at call sites.
+Closed in B65 (lifetime epic Phase 7):
+- **Outlives reasoning** ✅ — explicit `'a: 'b` clauses (header
+  and where), implied bounds from nested refs, type-outlives
+  bounds (`T: 'a`), and the transitive outlives query land
+  end-to-end.
+  - Grammar: `outlives_lt` sub-rule wraps each outlives lifetime
+    so `$...` captures them (previously dropped on the floor).
+  - Schema: `LFunction/LStructDef/LEnumDef/LImplBlock` gain
+    `lifetime_outlives: vec<(longer, shorter)>`. `TypeParam`
+    gains `lifetime_outlives: vec<string>` for `T: 'a` bounds.
+  - Capture: `read_lifetime_outlives_from(node, slot)` (works for
+    both TYPE_PARAMS and WHERE slots). Implied bounds inferred by
+    walking fn param / ret types and emitting (inner, outer)
+    pairs whenever a Ref or Struct lifetime arg appears under
+    another lifetime context.
+  - Query: `include/logos/compiler/outlives.hpp` — BFS over the
+    declared graph with `'static` as top, reflexive, transitive.
+  - Validation: every lifetime mentioned in an outlives clause
+    must be declared (or `'static`); else "use of undeclared
+    lifetime name" — same diagnostic Rust produces. Closes the
+    silent-accept gap for `fn f<'a>() where 'a: 'b`.
+  - Calibration: `fail/outlives_undecl_lt.logos`,
+    `fail/outlives_undecl_type_lt.logos`,
+    `pass/outlives_declared.logos`. 1559/1559.
+  - Hookpoints ready: the query is consumed by B64 (variance +
+    subtype) and will later feed region inference if/when a real
+    region-based borrow analyser replaces the min-viable NLL.
 
 Open / deferred (lifetime epic):
 - **HRTB skolemization (B63)** — current B62 check is structural:

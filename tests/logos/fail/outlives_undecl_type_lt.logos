@@ -1,0 +1,7 @@
+// B65: `where T: 'b` with 'b not declared. Rust rejects with
+// "use of undeclared lifetime name 'b". Logos must reject.
+package outlives_undecl_type_lt;
+
+fn f<'a, T>(_x: T) -> i32 where T: 'b { return 0i32; }
+
+fn main() -> i32 { return f::<i32>(0i32); }
