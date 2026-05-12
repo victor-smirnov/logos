@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/guard-pattern-ordering-14865.rs
+// Modifications: `X::Foo(..)` shorthand → `X::Foo(_)` (Logos's
+// variant pattern doesn't yet take `..` rest inside a payload arg
+// list); `panic!()` → `panic(str); 0i32` (no `!`/never-type
+// propagation; arm must produce an i32).
+package m_guard_pattern_ordering_14865;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.panic;
+
+enum X { Foo(usize), Bar(bool) }
+
+fn main() -> i32 {
+    let x: i32 = match X::Foo(42usize) {
+        X::Foo(_)  => { 1i32 }
+        _ if true  => { 0i32 }
+        X::Bar(_)  => { panic("Oh dear"); 0i32 }
+    };
+    assert_eq!(x, 1i32);
+
+    let y: i32 = match X::Foo(42usize) {
+        _ if true  => { 0i32 }
+        X::Foo(_)  => { 1i32 }
+        X::Bar(_)  => { panic("Oh dear"); 0i32 }
+    };
+    assert_eq!(y, 0i32);
+    return 0;
+}
