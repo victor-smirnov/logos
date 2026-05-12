@@ -1,10 +1,9 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/binding/match-range.rs
-// Modifications: half-open ranges (`1_usize..5_usize`, no `=`)
-// dropped — Logos's pattern grammar accepts `..=` (inclusive) but
-// not the exclusive `..` form (would conflict with tuple-rest, see
-// P4-pm-20). The inclusive cases are preserved and `panic!()`
-// becomes `panic(str)`.
+// Modifications: faithful — both inclusive (`..=`) and exclusive
+// (`..`) integer range patterns supported (P4-pm-22 closed
+// 2026-05-11; exclusive `lo..hi` lowers as inclusive `lo..=(hi-1)`).
+// `panic!()` becomes `panic(str)`.
 package b_match_range;
 
 use std.lang.panic;
@@ -14,8 +13,16 @@ fn main() -> i32 {
         1usize..=5usize => { }
         _               => { panic("should match range"); }
     }
-    match 6usize {
-        1usize..=5usize => { panic("should not match"); }
+    match 1usize {
+        1usize..5usize  => { }
+        _               => { panic("should match range start (exclusive)"); }
+    }
+    match 5usize {
+        6usize..=7usize => { panic("shouldn't match range"); }
+        _               => { }
+    }
+    match 7usize {
+        6usize..7usize  => { panic("shouldn't match range end (exclusive)"); }
         _               => { }
     }
     match 5usize {

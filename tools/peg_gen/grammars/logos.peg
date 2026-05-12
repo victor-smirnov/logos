@@ -1453,13 +1453,24 @@
         => { CODE: PAT_SLICE }
         // range patterns (inclusive ..=): must come before bare INTEGER
         / MINUS INTEGER DOTDOTEQ MINUS INTEGER
-        => { CODE: PAT_RANGE, LHS: $2, RHS: $5, LO_NEG: true, HI_NEG: true }
+        => { CODE: PAT_RANGE, LHS: $2, RHS: $5, LO_NEG: true, HI_NEG: true, INCLUSIVE: true }
         / MINUS INTEGER DOTDOTEQ INTEGER
-        => { CODE: PAT_RANGE, LHS: $2, RHS: $4, LO_NEG: true }
+        => { CODE: PAT_RANGE, LHS: $2, RHS: $4, LO_NEG: true, INCLUSIVE: true }
         / INTEGER DOTDOTEQ MINUS INTEGER
-        => { CODE: PAT_RANGE, LHS: $1, RHS: $4, HI_NEG: true }
+        => { CODE: PAT_RANGE, LHS: $1, RHS: $4, HI_NEG: true, INCLUSIVE: true }
         / INTEGER DOTDOTEQ INTEGER
-        => { CODE: PAT_RANGE, LHS: $1, RHS: $3 }
+        => { CODE: PAT_RANGE, LHS: $1, RHS: $3, INCLUSIVE: true }
+        // P4-pm-22: exclusive integer-range patterns (`lo..hi`). Same
+        // shape as the inclusive form but INCLUSIVE=false. Codegen
+        // adjusts the upper-bound predicate accordingly.
+        / MINUS INTEGER DOTDOT MINUS INTEGER
+        => { CODE: PAT_RANGE, LHS: $2, RHS: $5, LO_NEG: true, HI_NEG: true, INCLUSIVE: false }
+        / MINUS INTEGER DOTDOT INTEGER
+        => { CODE: PAT_RANGE, LHS: $2, RHS: $4, LO_NEG: true, INCLUSIVE: false }
+        / INTEGER DOTDOT MINUS INTEGER
+        => { CODE: PAT_RANGE, LHS: $1, RHS: $4, HI_NEG: true, INCLUSIVE: false }
+        / INTEGER DOTDOT INTEGER
+        => { CODE: PAT_RANGE, LHS: $1, RHS: $3, INCLUSIVE: false }
         / MINUS INTEGER
         => { CODE: PAT_NEG_INT, VALUE: $2 }
         / INTEGER

@@ -1994,8 +1994,25 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                 error(std::format("range pattern: hi ({}) does not fit in '{}'",
                       hi, type_str(scrut_type)));
         }
-        if (lo > hi)
+        // P4-pm-22: exclusive range `lo..hi` lowers as inclusive
+        // `lo..=(hi-1)` since the PatRange mirror has no inclusive
+        // flag. The grammar tags inclusive arms with INCLUSIVE: true,
+        // exclusive arms with INCLUSIVE: false; default (no key) is
+        // treated as inclusive for backwards compat.
+        bool inclusive = true;
+        if (pnode.has_key(la::INCLUSIVE)) {
+            AnyVal av = pnode.get(la::INCLUSIVE.code);
+            if (!av.is_null() && av.is_value()) inclusive = av.as_value<uint8_t>() != 0;
+        }
+        if (!inclusive) {
+            if (lo >= hi) {
+                error(std::format("exclusive range pattern: lo ({}) >= hi ({}) (empty range)",
+                      lo, hi));
+            }
+            hi = hi - 1;
+        } else if (lo > hi) {
             error(std::format("range pattern: lo ({}) > hi ({})", lo, hi));
+        }
         lir::Pattern p_;
         p_.mirror_offset_ = lir_mirror_emit_pat_range(*cur_prog_, lo, hi);
         return p_;
