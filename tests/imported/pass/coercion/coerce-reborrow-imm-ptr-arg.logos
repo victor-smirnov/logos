@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/coerce-reborrow-imm-ptr-arg.rs
+// Modifications: original `main()` was empty (test was check-pass on
+// compilation); added runtime calls + value checks so the regression
+// is exercised end-to-end.
+package c_coerce_reborrow_imm_ptr_arg;
+
+fn negate(x: &isize) -> isize { return -*x; }
+
+fn negate_mut(y: &mut isize) -> isize { return negate(y); }
+fn negate_imm(y: &isize) -> isize { return negate(y); }
+
+fn main() -> i32 {
+    let mut v: isize = 5isize;
+    if negate(&v)         != -5isize { return 1; }
+    if negate_mut(&mut v) != -5isize { return 2; }
+    if negate_imm(&v)     != -5isize { return 3; }
+    return 0;
+}

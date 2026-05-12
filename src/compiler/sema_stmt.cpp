@@ -1523,6 +1523,13 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                 binding_types.push_back(ct);
             }
         }
+        // S8-en-03: a single `_` placeholder against a unit-payload
+        // variant (`Either::Right(_)` where `U == ()`) is accepted as
+        // the bare-variant form. `binding_types` filters Void out, so
+        // a `Right<U=()>` ends up with 0 expected bindings; if the
+        // user supplied exactly one `_`, drop it silently.
+        if (binding_types.empty() && bindings.size() == 1 && bindings[0] == "_")
+            bindings.clear();
         if (bindings.size() != binding_types.size())
             error(std::format("pattern {}::{}: expected {} bindings, got {}",
                   pename, pvname, binding_types.size(), bindings.size()));

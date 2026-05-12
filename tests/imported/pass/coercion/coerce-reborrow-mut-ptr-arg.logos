@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/coerce-reborrow-mut-ptr-arg.rs
+// Modifications: explicit type annotations; final value check added
+// since the original relied on the absence of borrow-checker errors
+// to detect regression (we want a runtime signal here too).
+package c_coerce_reborrow_mut_ptr_arg;
+
+struct SpeechMaker { speeches: usize }
+
+fn talk(x: &mut SpeechMaker) { x.speeches = x.speeches + 1usize; }
+
+fn give_a_few_speeches(speaker: &mut SpeechMaker) {
+    talk(speaker);
+    talk(speaker);
+    talk(speaker);
+}
+
+fn main() -> i32 {
+    let mut lincoln: SpeechMaker = SpeechMaker { speeches: 22usize };
+    give_a_few_speeches(&mut lincoln);
+    if lincoln.speeches != 25usize { return 1; }
+    return 0;
+}

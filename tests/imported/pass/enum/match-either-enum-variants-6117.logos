@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/match-either-enum-variants-6117.rs
+// Modifications: `Box::new(17)` → bare `17i64` (Box not in Logos);
+// `Either<isize, ()>` retained with unit payload — S8-en-03 closed
+// 2026-05-11 (a single `_` placeholder against a unit-payload
+// variant is now accepted, matching Rust's shorthand).
+package e_match_either_enum_variants;
+
+enum Either<T, U> { Left(T), Right(U) }
+
+fn main() -> i32 {
+    let e: Either<i64, ()> = Either::Left::<i64, ()>(17i64);
+    match e {
+        Either::Right(_) => { return 1; }
+        _                => { }
+    }
+    return 0;
+}
