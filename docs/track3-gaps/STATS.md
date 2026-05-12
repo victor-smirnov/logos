@@ -6,72 +6,99 @@ something new). The trend should fall as Logos's surface grows.
 
 ## Per-batch ledger
 
-Counted *at the time the batch landed*. "Gaps" = new catalog entries
-(any status — Closed, Partial, Open, Divergence) emitted between the
-previous batch's commit and this batch's commit. Retroactive fixes that
-silently un-trim earlier imports don't count here (logged in
-`docs/track3-gaps/*-gaps.md` instead).
+Counted *at the time the batch landed*.
 
-| Batch | Date | Tests | New gaps | gaps / test | Cumulative tests | Cumulative gaps |
-|---|---|---|---|---|---|---|
-| B1   | 2026-05-11 | 11 |  ≈ 18 | 1.6 | 11  | 18  |
-| B2   | 2026-05-11 | 11 |  ≈ 14 | 1.3 | 22  | 32  |
-| B3   | 2026-05-11 | 12 |  ≈ 15 | 1.3 | 34  | 47  |
-| B4   | 2026-05-11 |  5 |  ≈ 11 | 2.2 | 39  | 58  |
-| B5   | 2026-05-11 |  3 |  ≈  5 | 1.7 | 42  | 63  |
-| B6   | 2026-05-11 |  5 |  ≈  9 | 1.8 | 47  | 72  |
-| B7   | 2026-05-11 |  3 |  ≈  4 | 1.3 | 50  | 76  |
-| B8   | 2026-05-11 |  6 |  ≈  6 | 1.0 | 56  | 82  |
-| B9   | 2026-05-11 |  2 |  ≈  5 | 2.5 | 58  | 87  |
-| B10  | 2026-05-11 |  3 |  ≈  3 | 1.0 | 61  | 90  |
-| B11  | 2026-05-11 |  3 |  ≈  3 | 1.0 | 64  | 93  |
-| B12  | 2026-05-11 |  6 |     1 | 0.17 | 70  | 94  |
-| B13  | 2026-05-11 |  4 |     0 | 0.00 | 74  | 94  |
-| B14  | 2026-05-11 |  4 |     1 | 0.25 | 78  | 95  |
-| B15  | 2026-05-11 |  4 |     0 | 0.00 | 82  | 95  |
-| B16  | 2026-05-11 |  3 |     1 | 0.33 | 85  | 96  |
-| B17  | 2026-05-11 |  5 |     0 | 0.00 | 90  | 96  |
-| B18  | 2026-05-11 |  3 |     0 | 0.00 | 93  | 96  |
-| B19  | 2026-05-11 |  5 |     2 | 0.40 | 98  | 98  |
-| B20  | 2026-05-11 | 12 |     6 | 0.50 | 110 | 104 |
-| B21  | 2026-05-11 |  9 |     0 | 0.00 | 119 | 104 |
-| B22  | 2026-05-11 |  4 |     2 | 0.50 | 123 | 106 |
-| B23  | 2026-05-11 |  7 |     0 | 0.00 | 130 | 106 |
-| B24  | 2026-05-11 |  3 |     0 | 0.00 | 133 | 106 |
-| B25  | 2026-05-11 |  2 |     0 | 0.00 | 135 | 106 |
-| B26  | 2026-05-11 |  4 |     0 | 0.00 | 139 | 106 |
-| B27  | 2026-05-11 |  2 |     0 | 0.00 | 141 | 106 |
-| B28  | 2026-05-11 |  1 |     0 | 0.00 | 142 | 106 |
-| B29  | 2026-05-11 |  2 |     0 | 0.00 | 144 | 106 |
-| B30  | 2026-05-11 |  1 |     0 | 0.00 | 145 | 106 |
-| B31  | 2026-05-11 |  1 |     0 | 0.00 | 146 | 106 |
-| B32  | 2026-05-11 |  1 |     0 | 0.00 | 147 | 106 |
-| B33  | 2026-05-11 |  1 |     0 | 0.00 | 148 | 106 |
-| B34  | 2026-05-11 |  2 |     0 | 0.00 | 150 | 106 |
-| B35  | 2026-05-12 |  1 |     0 | 0.00 | 151 | 106 |
-| B36  | 2026-05-12 |  1 |     0 | 0.00 | 152 | 106 |
-| B37  | 2026-05-12 |  0 |     0 | 0.00 | 152 | 106 |
-| B38  | 2026-05-12 |  2 |     0 | 0.00 | 154 | 106 |
-| B39  | 2026-05-12 | 13 |     0 | 0.00 | 167 | 106 |
-| B40  | 2026-05-12 |  5 |     0 | 0.00 | 172 | 106 |
-| B41  | 2026-05-12 |  3 |     0 | 0.00 | 175 | 106 |
-| B42  | 2026-05-12 |  5 |     0 | 0.00 | 180 | 106 |
-| B43  | 2026-05-12 |  2 |     0 | 0.00 | 182 | 106 |
-| B44  | 2026-05-12 |  3 |     0 | 0.00 | 185 | 106 |
-| B45  | 2026-05-12 |  6 |     0 | 0.00 | 191 | 106 |
-| B46  | 2026-05-12 |  3 |     0 | 0.00 | 194 | 106 |
-| B47  | 2026-05-12 |  3 |     0 | 0.00 | 197 | 106 |
-| B48  | 2026-05-12 |  3 |     0 | 0.00 | 200 | 106 |
-| B49  | 2026-05-12 |  5 |     0 | 0.00 | 205 | 106 |
-| B50  | 2026-05-12 |  2 |     0 | 0.00 | 207 | 106 |
-| B51  | 2026-05-12 |  1 |     0 | 0.00 | 208 | 106 |
-| B52  | 2026-05-12 |  3 |     0 | 0.00 | 211 | 106 |
-| B53  | 2026-05-12 |  2 |     0 | 0.00 | 213 | 106 |
-| B54  | 2026-05-12 |  3 |     0 | 0.00 | 216 | 106 |
+- **Gaps** = new catalog entries (any status — Closed, Partial, Open,
+  Divergence) emitted between the previous batch's commit and this
+  batch's commit. Retroactive fixes that silently un-trim earlier
+  imports don't count here (logged in `docs/track3-gaps/*-gaps.md`
+  instead).
+- **Bugs** = fixes landing in this batch that do *not* show up in
+  any gap catalog: silent miscompiles, codegen ABI bugs, parser
+  off-by-ones, mono regressions, mangling collisions, stdlib
+  inconsistencies, etc. Counted per *root cause* (one logical
+  fix = one bug, even if it took multiple commits or touched
+  multiple files). Use `—` when the count couldn't be reconstructed
+  reliably from the batch's commit/history (early batches were
+  import-only and didn't track this).
 
-(Phase-1 counts are estimates — pre-batch gap-as-code triage gave coarse
-totals only; precise per-batch arrival-order numbers weren't recorded.
-Phase-2 onward — from B12 — counts are exact.)
+| Batch | Date | Tests | New gaps | Bugs fixed | gaps / test | Cumulative tests | Cumulative gaps | Cum bugs |
+|---|---|---|---|---|---|---|---|---|
+| B1   | 2026-05-11 | 11 |  ≈ 18 | — | 1.6 | 11  | 18  | — |
+| B2   | 2026-05-11 | 11 |  ≈ 14 | — | 1.3 | 22  | 32  | — |
+| B3   | 2026-05-11 | 12 |  ≈ 15 | — | 1.3 | 34  | 47  | — |
+| B4   | 2026-05-11 |  5 |  ≈ 11 | — | 2.2 | 39  | 58  | — |
+| B5   | 2026-05-11 |  3 |  ≈  5 | — | 1.7 | 42  | 63  | — |
+| B6   | 2026-05-11 |  5 |  ≈  9 | — | 1.8 | 47  | 72  | — |
+| B7   | 2026-05-11 |  3 |  ≈  4 | — | 1.3 | 50  | 76  | — |
+| B8   | 2026-05-11 |  6 |  ≈  6 | — | 1.0 | 56  | 82  | — |
+| B9   | 2026-05-11 |  2 |  ≈  5 | — | 2.5 | 58  | 87  | — |
+| B10  | 2026-05-11 |  3 |  ≈  3 | — | 1.0 | 61  | 90  | — |
+| B11  | 2026-05-11 |  3 |  ≈  3 | — | 1.0 | 64  | 93  | — |
+| B12  | 2026-05-11 |  6 |     1 | — | 0.17 | 70  | 94  | — |
+| B13  | 2026-05-11 |  4 |     0 | — | 0.00 | 74  | 94  | — |
+| B14  | 2026-05-11 |  4 |     1 | — | 0.25 | 78  | 95  | — |
+| B15  | 2026-05-11 |  4 |     0 | — | 0.00 | 82  | 95  | — |
+| B16  | 2026-05-11 |  3 |     1 | — | 0.33 | 85  | 96  | — |
+| B17  | 2026-05-11 |  5 |     0 | — | 0.00 | 90  | 96  | — |
+| B18  | 2026-05-11 |  3 |     0 | — | 0.00 | 93  | 96  | — |
+| B19  | 2026-05-11 |  5 |     2 | — | 0.40 | 98  | 98  | — |
+| B20  | 2026-05-11 | 12 |     6 | — | 0.50 | 110 | 104 | — |
+| B21  | 2026-05-11 |  9 |     0 | — | 0.00 | 119 | 104 | — |
+| B22  | 2026-05-11 |  4 |     2 | — | 0.50 | 123 | 106 | — |
+| B23  | 2026-05-11 |  7 |     0 | — | 0.00 | 130 | 106 | — |
+| B24  | 2026-05-11 |  3 |     0 | — | 0.00 | 133 | 106 | — |
+| B25  | 2026-05-11 |  2 |     0 | — | 0.00 | 135 | 106 | — |
+| B26  | 2026-05-11 |  4 |     0 | — | 0.00 | 139 | 106 | — |
+| B27  | 2026-05-11 |  2 |     0 | — | 0.00 | 141 | 106 | — |
+| B28  | 2026-05-11 |  1 |     0 | — | 0.00 | 142 | 106 | — |
+| B29  | 2026-05-11 |  2 |     0 | — | 0.00 | 144 | 106 | — |
+| B30  | 2026-05-11 |  1 |     0 | — | 0.00 | 145 | 106 | — |
+| B31  | 2026-05-11 |  1 |     0 | — | 0.00 | 146 | 106 | — |
+| B32  | 2026-05-11 |  1 |     0 | — | 0.00 | 147 | 106 | — |
+| B33  | 2026-05-11 |  1 |     0 | — | 0.00 | 148 | 106 | — |
+| B34  | 2026-05-11 |  2 |     0 | — | 0.00 | 150 | 106 | — |
+| B35  | 2026-05-12 |  1 |     0 | — | 0.00 | 151 | 106 | — |
+| B36  | 2026-05-12 |  1 |     0 | — | 0.00 | 152 | 106 | — |
+| B37  | 2026-05-12 |  0 |     0 | — | 0.00 | 152 | 106 | — |
+| B38  | 2026-05-12 |  2 |     0 | — | 0.00 | 154 | 106 | — |
+| B39  | 2026-05-12 | 13 |     0 | — | 0.00 | 167 | 106 | — |
+| B40  | 2026-05-12 |  5 |     0 | — | 0.00 | 172 | 106 | — |
+| B41  | 2026-05-12 |  3 |     0 | — | 0.00 | 175 | 106 | — |
+| B42  | 2026-05-12 |  5 |     0 | — | 0.00 | 180 | 106 | — |
+| B43  | 2026-05-12 |  2 |     0 | — | 0.00 | 182 | 106 | — |
+| B44  | 2026-05-12 |  3 |     0 | — | 0.00 | 185 | 106 | — |
+| B45  | 2026-05-12 |  6 |     0 | — | 0.00 | 191 | 106 | — |
+| B46  | 2026-05-12 |  3 |     0 | — | 0.00 | 194 | 106 | — |
+| B47  | 2026-05-12 |  3 |     0 | — | 0.00 | 197 | 106 | — |
+| B48  | 2026-05-12 |  3 |     0 | — | 0.00 | 200 | 106 | — |
+| B49  | 2026-05-12 |  5 |     0 | — | 0.00 | 205 | 106 | — |
+| B50  | 2026-05-12 |  2 |     0 |  1 | 0.00 | 207 | 106 |  1 |
+| B51  | 2026-05-12 |  1 |     0 |  0 | 0.00 | 208 | 106 |  1 |
+| B52  | 2026-05-12 |  3 |     0 |  0 | 0.00 | 211 | 106 |  1 |
+| B53  | 2026-05-12 |  2 |     0 |  0 | 0.00 | 213 | 106 |  1 |
+| B54  | 2026-05-12 |  3 |     0 |  1 | 0.00 | 216 | 106 |  2 |
+
+(Phase-1 gap counts are estimates — pre-batch gap-as-code triage gave
+coarse totals only; precise per-batch arrival-order numbers weren't
+recorded. Phase-2 onward — from B12 — gap counts are exact. **Bug
+counts** start from B50 — earlier batches were import-driven and
+incidental bug fixes weren't separated from gap-closure commits;
+backfilling reliably isn't possible. From B50 onward each batch's
+commit message lists the bugs it touched, and the column counts
+root-cause fixes.)
+
+Bugs counted so far:
+- **B50** — `slice_index` struct-element ABI: GEP stride was
+  `logos_to_mlir(Struct) == ptr_type()` (8B) instead of the
+  aggregate's actual `sizeof(Struct)`. Affected `[Struct;N]` array
+  destructure (P4-pm-15 close surfaced it). Fix: detect struct/
+  ZonedStruct element type and GEP with the LLVM struct type.
+- **B54** — duplicate `str_eq` mangling collision: stdlib's
+  `std.sys.args` carried a private `fn str_eq(a: str, b: str)`
+  that mangled identically to the new `pub fn str_eq` in
+  `std.lang.text.string`; mlir-gen rejected "duplicate function
+  body for symbol …". Fix: delete the private copy.
 
 ## Reading
 
