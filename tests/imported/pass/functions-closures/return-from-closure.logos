@@ -1,0 +1,34 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/return-from-closure.rs
+// Modifications: `static mut calls: usize` (interior-mutable global) →
+// `&mut i32` parameter routed through a helper `fn run`. The test
+// point — `return` inside a closure returns only from the closure,
+// not the surrounding fn — is preserved: the early `return 0;` for
+// `n >= 0` means the panic arm is never reached, and the closure
+// runs twice, incrementing the counter to 2 each time. `panic!()`
+// arm becomes a sentinel `return 99i32;` (would propagate out of
+// the closure if reached). `usize`/`isize` → `i32`/`i64`.
+package fc_return_from_closure;
+
+fn run(out: &mut i32) {
+    let mut helper = |n: i64| -> i32 {
+        *out = *out + 1i32;
+        if n >= 0i64 { return 0i32; }
+        return 99i32;
+    };
+    helper(10i64);
+    helper(20i64);
+    let mut helper2 = |n: i64| -> i32 {
+        *out = *out + 1i32;
+        if n >= 0i64 { return 0i32; }
+        return 99i32;
+    };
+    helper2(10i64);
+}
+
+fn main() -> i32 {
+    let mut calls: i32 = 0i32;
+    run(&mut calls);
+    if calls != 3i32 { return 1i32; }
+    return 0i32;
+}

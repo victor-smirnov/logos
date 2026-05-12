@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/fn-lval.rs
+// Modifications: `isize` → `i64`; main returns i32 exit code.
+package fc_fn_lval;
+
+fn foo(_f: fn(i64) -> i64) { }
+fn id(x: i64) -> i64 { return x; }
+
+fn main() -> i32 {
+    foo(id);
+    return 0i32;
+}

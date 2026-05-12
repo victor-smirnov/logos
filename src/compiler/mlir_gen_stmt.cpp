@@ -2332,17 +2332,40 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 for (size_t si = 0; si < subs.size() && ttype; ++si) {
                     auto sub = subs[si];
                     if (!sub || sub.kind() == pc::Code::Wild) continue;
-                    int64_t sub_val = 0;
-                    if (sub.kind() == pc::Code::Int)       sub_val = lir_view::PatIntView{sub}.value();
-                    else if (sub.kind() == pc::Code::Bool) sub_val = lir_view::PatBoolView{sub}.value() ? 1 : 0;
-                    else continue;
                     auto elem_mlir = si < btypes.size()
                                      ? logos_to_mlir(btypes[si]) : mlir::Type();
                     if (!elem_mlir) continue;
+                    bool elem_unsigned = si < btypes.size() && btypes[si] &&
+                        (TypeRef(btypes[si]).kind() == LogosType::Kind::U8  ||
+                         TypeRef(btypes[si]).kind() == LogosType::Kind::U16 ||
+                         TypeRef(btypes[si]).kind() == LogosType::Kind::U32 ||
+                         TypeRef(btypes[si]).kind() == LogosType::Kind::U64 ||
+                         TypeRef(btypes[si]).kind() == LogosType::Kind::Usize ||
+                         TypeRef(btypes[si]).kind() == LogosType::Kind::Char);
                     llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(si)};
                     auto fp = builder_.create<mlir::LLVM::GEPOp>(
                         loc_, ptr_type(), ttype, tptr, fi);
                     auto ev = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, fp);
+                    if (sub.kind() == pc::Code::Range) {
+                        lir_view::PatRangeView pr{sub};
+                        auto pred_ge = elem_unsigned ? mlir::arith::CmpIPredicate::uge
+                                                     : mlir::arith::CmpIPredicate::sge;
+                        auto pred_le = elem_unsigned ? mlir::arith::CmpIPredicate::ule
+                                                     : mlir::arith::CmpIPredicate::sle;
+                        auto lo_v = coerce_int(
+                            builder_.create<mlir::arith::ConstantIntOp>(loc_, pr.lo(), 64), elem_mlir);
+                        auto hi_v = coerce_int(
+                            builder_.create<mlir::arith::ConstantIntOp>(loc_, pr.hi(), 64), elem_mlir);
+                        auto ge = builder_.create<mlir::arith::CmpIOp>(loc_, pred_ge, ev, lo_v);
+                        auto le = builder_.create<mlir::arith::CmpIOp>(loc_, pred_le, ev, hi_v);
+                        auto both = builder_.create<mlir::arith::AndIOp>(loc_, ge, le);
+                        cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, both);
+                        continue;
+                    }
+                    int64_t sub_val = 0;
+                    if (sub.kind() == pc::Code::Int)       sub_val = lir_view::PatIntView{sub}.value();
+                    else if (sub.kind() == pc::Code::Bool) sub_val = lir_view::PatBoolView{sub}.value() ? 1 : 0;
+                    else continue;
                     auto cv = coerce_int(
                         builder_.create<mlir::arith::ConstantIntOp>(loc_, sub_val, 64),
                         elem_mlir);

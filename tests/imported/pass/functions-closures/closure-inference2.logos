@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/closure-inference2.rs
+// Modifications: Logos closures need explicit `|i: T| -> R` annotations
+// (no Hindley-Milner inference). Underlying behaviour — closure
+// captured into a local and called twice with different args — is
+// preserved. `assert_eq!` → explicit if-return.
+package fc_closure_inference2;
+
+fn main() -> i32 {
+    let f = |i: i32| -> i32 { return i; };
+    if f(2i32) != 2i32 { return 1i32; }
+    if f(5i32) != 5i32 { return 2i32; }
+    return 0i32;
+}

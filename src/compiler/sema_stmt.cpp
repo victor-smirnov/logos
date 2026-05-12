@@ -1978,11 +1978,11 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                 pt.bindings.push_back(nm);
                 pt.subs.push_back(make_pat_wild(nm));
             } else if (sc == la::PAT_INT.code || sc == la::PAT_NEG_INT.code ||
-                       sc == la::PAT_BOOL.code) {
+                       sc == la::PAT_BOOL.code || sc == la::PAT_RANGE.code) {
                 pt.bindings.push_back("_");
                 pt.subs.push_back(build_pattern(sub, elem_ty));
             } else {
-                error("tuple pattern element: only _, name, integer, or bool literals are supported");
+                error("tuple pattern element: only _, name, integer, bool, or range patterns are supported");
                 pt.bindings.push_back("_");
                 pt.subs.push_back(make_pat_wild("_"));
             }
