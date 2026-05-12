@@ -1,0 +1,40 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/pat-tuple-1.rs
+// Modifications: faithful — `..` rest in tuple patterns at any
+// single position now supported (P4-pm-20 closed 2026-05-11; sema
+// expands `..` into PAT_WILD `_` skips so the underlying PatTuple
+// LIR keeps its fixed-arity layout).
+package b_pat_tuple_1;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let x: (i32, i32, i32) = (1i32, 2i32, 3i32);
+    match x {
+        (a, b, ..) => {
+            assert_eq!(a, 1i32);
+            assert_eq!(b, 2i32);
+        }
+    }
+    match x {
+        (.., b, c) => {
+            assert_eq!(b, 2i32);
+            assert_eq!(c, 3i32);
+        }
+    }
+    match x {
+        (a, .., c) => {
+            assert_eq!(a, 1i32);
+            assert_eq!(c, 3i32);
+        }
+    }
+    match x {
+        (a, b, c) => {
+            assert_eq!(a, 1i32);
+            assert_eq!(b, 2i32);
+            assert_eq!(c, 3i32);
+        }
+    }
+    return 0;
+}

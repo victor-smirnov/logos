@@ -1365,6 +1365,15 @@
     pat_slice_elems <- pat_slice_elem (COMMA pat_slice_elem)* COMMA?
                     => { ITEMS: $... }
 
+    // P4-pm-20: tuple-pattern element — either `..` rest skip or a
+    // regular pat_single binding. Reuses the slice-elem PAT_REST node
+    // shape; tuple-pat builder converts each rest position into
+    // PAT_WILD(name="_") skips so the underlying PatTuple LIR keeps
+    // its fixed-arity layout.
+    pat_tuple_elem <- DOTDOT
+                   => { CODE: PAT_REST }
+                    / pat_single
+
     // Hermes map/array pattern entry lists.
     pat_hermes_map_entry <- STRING COLON pat_single
                          => { CODE: PAT_HERMES_MAP_ENTRY, KEY: $1, VALUE: $3 }
@@ -1503,7 +1512,10 @@
         => { CODE: PAT_BOOL, VALUE: true }
         / KW_FALSE
         => { CODE: PAT_BOOL, VALUE: false }
-        / LPAREN pat_single COMMA pat_single (COMMA pat_single)* RPAREN
+        // P4-pm-20: tuple pattern with optional `..` rest at any
+        // single position. `pat_tuple_elem` admits either PAT_REST
+        // (the `..` skip-marker) or a regular pat_single.
+        / LPAREN pat_tuple_elem COMMA pat_tuple_elem (COMMA pat_tuple_elem)* RPAREN
         => { CODE: PAT_TUPLE, ITEMS: $... }
         / IDENT
         => { CODE: PAT_WILD, NAME: $1 }

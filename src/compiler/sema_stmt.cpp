@@ -1921,44 +1921,76 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             pw_.mirror_offset_ = lir_mirror_emit_pat_wild(*cur_prog_, "_");
             return pw_;
         }
-        // ITEMS holds an array of pat_single nodes (peg $... collects all captures).
-        // Filter: only PAT_WILD nodes are the actual sub-patterns; LPAREN/RPAREN/COMMA
-        // are not emitted as sub-nodes by the grammar (they are terminals that get
-        // captured into rcap_0 as string tokens, not as sub-maps).
-        // Actually the grammar captures ALL non-terminals into $... so each pat_single
-        // is in ITEMS. Walk the ITEMS array and collect each sub-pattern's binding name.
+        // P4-pm-20: tuple pattern may contain a single `..` (PAT_REST)
+        // skip-marker. We expand it into the appropriate number of
+        // PAT_WILD `_` skip entries so the underlying PatTuple LIR
+        // keeps its fixed-arity layout: `(a, b, ..)` over `(T1, T2,
+        // T3)` becomes `(a, b, _)`; `(.., b, c)` becomes `(_, b, c)`;
+        // `(a, .., c)` with arity 4 becomes `(a, _, _, c)`.
+        size_t tuple_arity = TypeRef(scrut_type).tuple_elems().size();
         AnyVal items_av = pnode.get(la::ITEMS.code);
+        std::vector<hermes::TinyMapView> raw_elems;
+        size_t rest_pos = SIZE_MAX;
         if (!items_av.is_null() && items_av.is_pointer()) {
             auto items_arr = arr_of(items_av);
             for (uint64_t i = 0; i < items_arr.size(); ++i) {
                 auto sub = map_of(items_arr.get(i));
-                int32_t sc = code_of(sub);
-                // Each element in a tuple pattern must be a simple binding (PAT_WILD = identifier)
-                // or _ (wildcard). Nested patterns aren't supported yet.
-                // Element type for this position, used by recursive build_pattern for type-checking.
-                TypeRef elem_ty = nullptr;
-                if (scrut_type && TypeRef(scrut_type).kind() == LogosType::Kind::Tuple &&
-                    i < TypeRef(scrut_type).tuple_elems().size())
-                    elem_ty = TypeRef(scrut_type).tuple_elems()[i];
-                if (sc == la::PAT_WILD.code) {
-                    auto nm = std::string(str_of(sub.get(la::NAME.code)));
-                    pt.bindings.push_back(nm);
-                    pt.subs.push_back(make_pat_wild(nm));
-                } else if (sc == la::PAT_INT.code || sc == la::PAT_NEG_INT.code ||
-                           sc == la::PAT_BOOL.code) {
-                    pt.bindings.push_back("_");
-                    pt.subs.push_back(build_pattern(sub, elem_ty));
-                } else {
-                    error("tuple pattern element: only _, name, integer, or bool literals are supported");
-                    pt.bindings.push_back("_");
-                    pt.subs.push_back(make_pat_wild("_"));
+                if (code_of(sub) == la::PAT_REST) {
+                    if (rest_pos != SIZE_MAX) {
+                        error("tuple pattern: only one `..` rest allowed");
+                        continue;
+                    }
+                    rest_pos = raw_elems.size();
+                    continue;
                 }
+                raw_elems.push_back(sub);
+            }
+        }
+        // Build the final element list. If rest is present, pad with
+        // PAT_WILD("_") at rest_pos to reach tuple_arity.
+        std::vector<std::optional<hermes::TinyMapView>> expanded;
+        if (rest_pos == SIZE_MAX) {
+            for (auto& e : raw_elems) expanded.push_back(e);
+        } else {
+            if (raw_elems.size() > tuple_arity)
+                error(std::format(
+                    "tuple pattern: {} explicit elements + `..` exceed "
+                    "tuple arity {}", raw_elems.size(), tuple_arity));
+            size_t pad = tuple_arity > raw_elems.size() ? tuple_arity - raw_elems.size() : 0;
+            for (size_t i = 0; i < rest_pos; ++i)        expanded.push_back(raw_elems[i]);
+            for (size_t i = 0; i < pad; ++i)             expanded.push_back(std::nullopt);
+            for (size_t i = rest_pos; i < raw_elems.size(); ++i) expanded.push_back(raw_elems[i]);
+        }
+        for (size_t i = 0; i < expanded.size(); ++i) {
+            TypeRef elem_ty = nullptr;
+            if (i < tuple_arity)
+                elem_ty = TypeRef(scrut_type).tuple_elems()[i];
+            if (!expanded[i].has_value()) {
+                // Synth `_` skip from rest expansion.
+                pt.bindings.push_back("_");
+                pt.subs.push_back(make_pat_wild("_"));
+                continue;
+            }
+            auto sub = *expanded[i];
+            int32_t sc = code_of(sub);
+            if (sc == la::PAT_WILD.code) {
+                auto nm = std::string(str_of(sub.get(la::NAME.code)));
+                pt.bindings.push_back(nm);
+                pt.subs.push_back(make_pat_wild(nm));
+            } else if (sc == la::PAT_INT.code || sc == la::PAT_NEG_INT.code ||
+                       sc == la::PAT_BOOL.code) {
+                pt.bindings.push_back("_");
+                pt.subs.push_back(build_pattern(sub, elem_ty));
+            } else {
+                error("tuple pattern element: only _, name, integer, or bool literals are supported");
+                pt.bindings.push_back("_");
+                pt.subs.push_back(make_pat_wild("_"));
             }
         }
         // Verify count matches tuple arity.
-        if (pt.bindings.size() != TypeRef(scrut_type).tuple_elems().size())
+        if (pt.bindings.size() != tuple_arity)
             error(std::format("tuple pattern: expected {} elements, got {}",
-                  TypeRef(scrut_type).tuple_elems().size(), pt.bindings.size()));
+                  tuple_arity, pt.bindings.size()));
         // Fill binding types from tuple elements.
         for (size_t i = 0; i < TypeRef(scrut_type).tuple_elems().size(); ++i)
             pt.binding_types.push_back(TypeRef(scrut_type).tuple_elems()[i]);
