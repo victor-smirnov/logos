@@ -2373,6 +2373,33 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                 builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
             }
             else_block = test_block;
+        } else if (arm_pat_ref.kind() == pc::Code::RefPat &&
+                   scrut_le->type &&
+                   (TypeRef(scrut_le->type).kind() == LogosType::Kind::Ref ||
+                    TypeRef(scrut_le->type).kind() == LogosType::Kind::MutRef) &&
+                   TypeRef(scrut_le->type).pointee()) {
+            // P4-pm-18 (match-as-expr): `match &T { &<scalar> => … }`.
+            // Deref scrut and cmp against the inner disc.
+            auto inner = lir_view::PatRefPatView{arm_pat_ref}.inner();
+            int64_t disc = inner ? get_disc(inner) : 0;
+            auto* test_block = new mlir::Block();
+            region->push_back(test_block);
+            {
+                mlir::OpBuilder::InsertionGuard ig(builder_);
+                builder_.setInsertionPointToStart(test_block);
+                auto pointee_t = TypeRef(scrut_le->type).pointee();
+                auto elem_mlir = logos_to_mlir(pointee_t);
+                if (!elem_mlir) elem_mlir = builder_.getI32Type();
+                auto loaded = builder_.create<mlir::LLVM::LoadOp>(
+                    loc_, elem_mlir, scrut);
+                auto disc_val = coerce_int(
+                    builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 64),
+                    elem_mlir);
+                auto eq = builder_.create<mlir::arith::CmpIOp>(
+                    loc_, mlir::arith::CmpIPredicate::eq, loaded, disc_val);
+                builder_.create<mlir::cf::CondBranchOp>(loc_, eq, arm_entry, else_block);
+            }
+            else_block = test_block;
         } else {
             int64_t disc = get_disc(arm_pat_ref);
 

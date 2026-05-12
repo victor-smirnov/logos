@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/borrowed-ptr-pattern-3.rs
+// Modifications: `match s { &3 => true, _ => false }` over a `&usize`
+// scrut now dispatches via auto-deref + scalar disc cmp (P4-pm-18
+// closed 2026-05-11). The original passed `&3` directly as the
+// fn arg; Logos's `&<scalar-lit>` temp-materialisation has a
+// separate pre-existing usize-suffix bug (drops the suffix and
+// stores i32 into an i64 slot — see new gap K10-co-05), so we
+// route through a let-bound `usize` local instead.
+package b_borrowed_ptr_pattern_3;
+
+fn foo(s: &usize) -> bool {
+    return match s {
+        &3usize => { true  }
+        _       => { false }
+    };
+}
+
+fn main() -> i32 {
+    let three: usize = 3usize;
+    let four:  usize = 4usize;
+    if !foo(&three) { return 1; }
+    if  foo(&four)  { return 2; }
+    return 0;
+}
