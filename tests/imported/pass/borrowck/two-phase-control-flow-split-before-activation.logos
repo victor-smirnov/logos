@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/borrowck/two-phase-control-flow-split-before-activation.rs
+// Modifications: i64/usize widened from isize/i32; the
+// generic `fn use_<T>` is called with explicit turbofish since
+// Logos doesn't infer a generic-T's binding from context.
+package b_two_phase_control_flow_split_before_activation;
+
+fn maybe() -> bool { return false; }
+fn use_<T>(t: T) { }
+
+fn main() -> i32 {
+    let mut a: i64 = 0i64;
+    let mut b: i64 = 0i64;
+    let p: &mut i64 = if maybe() {
+        &mut a
+    } else {
+        &mut b
+    };
+    use_::<&mut i64>(p);
+    return 0i32;
+}
