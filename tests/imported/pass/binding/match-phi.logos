@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/match-phi.rs
+// Modifications: `FnOnce(isize)` bound reduced to bare `fn(isize)`
+// (Logos's Fn-family closure-as-trait-object is Sprint 5.8); the
+// arm passes a free `marker` fn instead of an inline closure.
+package b_match_phi;
+
+enum thing { a, b, c }
+
+fn marker(i: isize) { let _ = i; }
+
+fn foo(it: fn(isize)) { it(10isize); }
+
+fn main() -> i32 {
+    let mut x: bool = true;
+    match thing::a {
+        thing::a => { x = true;  foo(marker); }
+        thing::b => { x = false; }
+        thing::c => { x = false; }
+    }
+    if !x { return 1; }
+    return 0;
+}
