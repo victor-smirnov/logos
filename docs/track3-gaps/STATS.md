@@ -92,6 +92,11 @@ Counted *at the time the batch landed*.
 | B65  | 2026-05-12 |  0 |     0 |  2 |  —   | 313 | 112 | 15 |
 | B64  | 2026-05-12 |  0 |     0 |  1 |  —   | 313 | 112 | 16 |
 | B64.2| 2026-05-12 |  0 |     0 |  0 |  —   | 313 | 112 | 16 |
+| B66  | 2026-05-12 | 12 |     0 |  3 | 0.00 | 325 | 112 | 19 |
+| B66.1| 2026-05-12 |  1 |     0 |  0 |  —   | 326 | 112 | 19 |
+| B67  | 2026-05-12 |  0 |     0 |  1 |  —   | 326 | 112 | 20 |
+| B68  | 2026-05-12 |  2 |     0 |  1 |  —   | 328 | 112 | 21 |
+| B68.1| 2026-05-12 |  1 |     0 |  1 |  —   | 329 | 112 | 22 |
 
 (Phase-1 gap counts are estimates — pre-batch gap-as-code triage gave
 coarse totals only; precise per-batch arrival-order numbers weren't
