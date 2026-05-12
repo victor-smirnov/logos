@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/moves/move-arg.rs
+// Modifications: `isize` → `i64`. `assert_eq!` → if-return early
+// (no panic on failure, but the fn is called with `10` so the
+// check passes).
+package mv_move_arg;
+
+fn test(foo: i64) {
+    if foo != 10i64 { return; }
+}
+
+fn main() -> i32 {
+    let x: i64 = 10i64;
+    test(x);
+    return 0i32;
+}

@@ -1,0 +1,8 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/attributes/inline-main.rs
+// Modifications: `#[inline]` unknown to Logos but ignored as
+// warning. Faithful structure preserved.
+package attr_inline_main;
+
+#[inline]
+fn main() -> i32 { return 0i32; }

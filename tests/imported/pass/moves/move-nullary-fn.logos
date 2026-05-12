@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/moves/move-nullary-fn.rs
+// Modifications: `FnOnce()` → `FnOnce() -> ()` (Logos requires
+// explicit `-> R` on bound forms). Closure annotated `|| -> ()`.
+package mv_move_nullary_fn;
+
+fn f2<F: FnOnce() -> ()>(_thing: F) { }
+
+fn f<F: FnOnce() -> ()>(thing: F) {
+    f2(thing);
+}
+
+fn main() -> i32 {
+    f(|| -> () { });
+    return 0i32;
+}
