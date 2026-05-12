@@ -1,0 +1,22 @@
+// L5 regression: `match &Option<T>` with `Option::Some(ref v) => *v`
+// shape. Auto-deref through `&Enum<T>` for type-arg propagation in
+// pattern binding types — previously `v` ended up typed `T` (typevar)
+// instead of concrete after auto-deref + ref-bind, leading to a
+// codegen ABI mismatch at runtime. Now the binding resolves to `T`'s
+// concrete instantiation (e.g. `i64` here).
+package lifetime_match_ref_option;
+
+use std.lang.option;
+
+fn get(opt: &Option<i64>) -> i64 {
+    match opt {
+        Option::Some(ref v) => { return *v; }
+        Option::None => { return 0i64; }
+    }
+}
+
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some::<i64>(42i64);
+    let r = get(&o);
+    return (r as i32) - 42i32;
+}

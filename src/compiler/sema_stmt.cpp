@@ -1949,12 +1949,26 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         std::vector<TypeRef> binding_types;
         if (vinfo) {
             SemaSubst subst;
-            if (TypeRef(scrut_type).kind() == LogosType::Kind::Enum &&
-                !TypeRef(scrut_type).type_args().empty()) {
+            // L5: auto-deref `&Enum<T>` / `&mut Enum<T>` / `*const/mut Enum<T>`
+            // to the inner Enum for type-arg substitution. The match scrut
+            // already gets auto-deref'd at codegen; the type-arg propagation
+            // for binding types needs the same unwrap so `match &opt {
+            // Some(ref v) => *v }` over `&Option<i64>` binds `v: &i64`
+            // (and `*v` → `i64`) instead of `v: T` (typevar).
+            TypeRef enum_scrut = scrut_type;
+            if (enum_scrut &&
+                (TypeRef(enum_scrut).kind() == LogosType::Kind::Ref ||
+                 TypeRef(enum_scrut).kind() == LogosType::Kind::MutRef ||
+                 TypeRef(enum_scrut).kind() == LogosType::Kind::Ptr) &&
+                TypeRef(enum_scrut).pointee())
+                enum_scrut = TypeRef(enum_scrut).pointee();
+            if (enum_scrut &&
+                TypeRef(enum_scrut).kind() == LogosType::Kind::Enum &&
+                !TypeRef(enum_scrut).type_args().empty()) {
                 auto& einfo = eit->second;
                 for (size_t k = 0; k < einfo.type_params.size() &&
-                                    k < TypeRef(scrut_type).type_args().size(); ++k)
-                    subst[einfo.type_params[k].name] = TypeRef(scrut_type).type_args()[k];
+                                    k < TypeRef(enum_scrut).type_args().size(); ++k)
+                    subst[einfo.type_params[k].name] = TypeRef(enum_scrut).type_args()[k];
             }
             for (auto pt : vinfo->payload_types) {
                 auto ct = subst.empty() ? pt : subst_type_sema(pt, subst);

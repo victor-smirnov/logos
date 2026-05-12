@@ -439,15 +439,24 @@ class BorrowChecker {
         // 2. Explicit lifetime on return type — check sources match.
         const std::string ret_lt(TypeRef(ret_type_).lifetime());
         if (!ret_lt.empty() && ret_lt != "'_") {
-            if (prov.params.empty()) {
-                report(line, std::format(
-                    "cannot determine provenance of returned reference "
-                    "(expected lifetime {})", ret_lt));
-                return;
-            }
+            // L4: When provenance traces to a param that's NOT a ref
+            // (e.g. a struct param `x: Foo<'a, 'b>` whose field is
+            // returned: `x.y` with `y: &'b u8`), `prov.params` is
+            // empty because the param-source is the struct itself,
+            // not a ref. The type checker has already verified the
+            // returned expression's type matches `&'b u8` against
+            // the declared return — trust it. We only error here on
+            // detectable mismatches: prov.params non-empty AND each
+            // traced param's declared lifetime ≠ ret_lt.
+            if (prov.params.empty()) return;
             for (auto& src : prov.params) {
                 auto it = param_lifetimes_.find(src);
-                const std::string src_lt = (it != param_lifetimes_.end()) ? it->second : "";
+                // L4: param is NOT a ref (e.g. struct holding refs that
+                // we returned a field of) — not in param_lifetimes_ at
+                // all. Trust the type checker; it has already verified
+                // the FieldRead's lifetime matches the return type.
+                if (it == param_lifetimes_.end()) continue;
+                const std::string& src_lt = it->second;
                 if (src_lt != ret_lt)
                     report(line, std::format(
                         "lifetime mismatch: return type has lifetime {} "

@@ -82,6 +82,7 @@ Counted *at the time the batch landed*.
 | B56  | 2026-05-12 |  1 |     1 |  0 | 1.00 | 253 | 107 |  2 |
 | B57  | 2026-05-12 | 53 |     5 |  0 | 0.09 | 306 | 112 |  2 |
 | B58  | 2026-05-12 |  3 |     0 |  3 | 0.00 | 309 | 112 |  5 |
+| B59  | 2026-05-12 |  2 |     0 |  2 | 0.00 | 311 | 112 |  7 |
 
 (Phase-1 gap counts are estimates — pre-batch gap-as-code triage gave
 coarse totals only; precise per-batch arrival-order numbers weren't
@@ -115,6 +116,28 @@ Gaps observed in B57 (lifetime/HRTB/GAT sweep):
   (fat-ptr vs by-value). Not lifetime-related; surfaced by
   `regions-return-interior-of-option`. Worked around in B57 by
   switching the imported test to by-value scrutinee.
+
+Closed in B59:
+- **L4** ✅ — multi-input-ref elision: borrow check's
+  `check_return_value` was rejecting `fn f<'a, 'b>(x: Foo2<'a, 'b>)
+  -> &'b u8` because prov_of(`x.y`) traces to param `x`, but `x`
+  itself isn't a ref (struct param) so `param_lifetimes_` has no
+  entry. Fix: when the traced param is missing from `param_lifetimes_`,
+  trust the type checker — it already verified the FieldRead's
+  declared lifetime matches the return annotation. Ref params with
+  empty (elided) lifetime still produce the original "(elided)
+  mismatch" error.
+- **L5** ✅ — `&Option<T>` + `ref v` binding + `*v`: two-part fix.
+  (sema) `build_pattern`'s binding-type substitution now auto-derefs
+  Ref/MutRef/Ptr to the inner Enum so the pattern binding gets the
+  concrete payload type instead of a TypeVar — previously `v` was
+  typed `T` (typevar) instead of `i64`, leading to a type-check
+  diagnostic. (codegen) `gen_addr_of` for a tagged-enum non-mut let
+  spills the enum-struct ptr to a stack slot on first `&o` and
+  marks the var as slot-backed; subsequent reads load through the
+  slot. Previously the var held the enum-ptr SSA value directly,
+  and `&o` returned that SSA value as if it were a ptr-to-ptr —
+  match's via_ref load then dereferenced garbage and SIGSEGV'd.
 
 Closed in B58:
 - **L1** ✅ — `Trait<'a>` bound: TraitBound gains `lifetime_args`;

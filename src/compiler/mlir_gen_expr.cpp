@@ -787,6 +787,25 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfView v, TypeRef) {
         ref_param_names_.erase(var_name);
         return alloca;
     }
+    // L5: tagged-enum non-mut let stores the enum ptr directly in scope_
+    // (no surrounding alloca slot). `&o` for `o: Option<i64>` would then
+    // hand back the enum-struct ptr instead of a real ptr-to-ptr — match
+    // call sites expecting `&Enum` to be ptr-to-ptr (via_ref load in
+    // gen_match) then dereference garbage and SIGSEGV. Spill once on
+    // first `&o` so the slot exists; replace the scope binding with the
+    // slot (subsequent reads load through it). Mutable enum lets already
+    // have a slot via var_tagged_enum_ptr_.
+    if (it->second && var_tagged_enum_.count(var_name) &&
+        !var_tagged_enum_ptr_.count(var_name)) {
+        auto alloca = create_entry_alloca(ptr_type());
+        builder_.create<mlir::LLVM::StoreOp>(loc_, it->second, alloca);
+        // Replace scope entry with the slot so future reads load
+        // through it (and future `&` calls return this same slot).
+        it->second = alloca;
+        // Mark as "slot-backed" so subsequent reads know to load.
+        var_tagged_enum_ptr_.insert(var_name);
+        return alloca;
+    }
     return it->second;
 }
 

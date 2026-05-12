@@ -1,0 +1,24 @@
+// L4 regression: returned ref's lifetime can be ambiguous w.r.t.
+// non-ref params that carry refs internally. Previously the borrow
+// checker rejected `fn f<'a, 'b>(x: Foo2<'a, 'b>) -> &'b u8` because
+// it couldn't trace `x.y`'s provenance back to a ref param (x itself
+// is a struct, not a ref). Now: when prov tracing yields a non-ref
+// source param, trust the type checker — it has already verified
+// the FieldRead's lifetime matches the return annotation.
+package lifetime_l4_multi_input_elision;
+
+struct Foo2<'a, 'b> { x: &'a i32, y: &'b u8 }
+
+fn pick_b<'a, 'b>(foo: Foo2<'a, 'b>) -> &'b u8 { return foo.y; }
+fn pick_a<'a, 'b>(foo: Foo2<'a, 'b>) -> &'a i32 { return foo.x; }
+
+fn main() -> i32 {
+    let i: i32 = 7i32;
+    let b: u8 = 9u8;
+    let f: Foo2 = Foo2 { x: &i, y: &b };
+    let r1: &i32 = pick_a(f);
+    let r2: &u8 = pick_b(f);
+    if *r1 != 7i32 { return 1; }
+    if *r2 != 9u8 { return 2; }
+    return 0;
+}
