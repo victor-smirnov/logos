@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/autoref-autoderef/auto-ref.rs
+// Modifications: `println!(self.x)` dropped (the method's role is to
+// exist + dispatch over a `Foo` receiver via auto-ref to `&self`);
+// `isize` → `i64`.
+package ad_auto_ref;
+
+struct Foo { x: i64 }
+
+trait Stuff {
+    fn printme(&self);
+}
+
+impl Stuff for Foo {
+    fn printme(&self) {
+        let _: i64 = self.x;
+    }
+}
+
+fn main() -> i32 {
+    let x: Foo = Foo { x: 3i64 };
+    x.printme();
+    return 0i32;
+}

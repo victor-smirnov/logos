@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/unsafe-coercion.rs
+// Modifications: `unsafe fn(i32) -> i32` return type → bare
+// `fn(i32) -> i32`. Logos doesn't track `unsafe` as a function-type
+// component (every fn-ptr is callable); the safe→unsafe-fn coercion
+// the Rust test verifies is therefore folded into the identity
+// pass-through that's the test point's core. `unsafe { f(2) }` block
+// dropped.
+package c_unsafe_coercion;
+
+fn foo(x: i32) -> i32 {
+    return x * 22i32;
+}
+
+fn bar(x: fn(i32) -> i32) -> fn(i32) -> i32 {
+    return x;
+}
+
+fn main() -> i32 {
+    let f: fn(i32) -> i32 = bar(foo);
+    let x: i32 = f(2i32);
+    if x != 44i32 { return 1i32; }
+    return 0i32;
+}
