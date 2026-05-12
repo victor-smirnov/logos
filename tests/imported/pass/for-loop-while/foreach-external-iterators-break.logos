@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/foreach-external-iterators-break.rs
+// Modifications: `&x[..]` slice subscript dropped — Logos's `for x
+// in &arr` over a fixed-size array works directly. `isize` → `i64`.
+package fl_foreach_external_iterators_break;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.option;
+use std.collections.vec;
+
+fn main() -> i32 {
+    let x: [i64; 100] = [1i64; 100];
+    let mut y: i64 = 0i64;
+    for i in &x {
+        if y > 10i64 { break; }
+        y = y + *i;
+    }
+    if y != 11i64 { return 1i32; }
+    return 0i32;
+}

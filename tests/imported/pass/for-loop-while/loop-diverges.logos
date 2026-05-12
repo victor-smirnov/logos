@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/loop-diverges.rs
+// Modifications: `fn forever() -> !` returns Never in rust; Logos
+// has no Never kind so the fn is typed `-> i32` and main calls it
+// only inside an unreachable branch (`1 == 2`). The test point —
+// `loop {}` as a tail expr in a function — is preserved.
+package fl_loop_diverges;
+
+fn forever() -> i32 { loop {} }
+
+fn main() -> i32 {
+    if 1i32 == 2i32 { return forever(); }
+    return 0i32;
+}

@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/loop-label-shadowing.rs
+// Modifications: `Vec::new()` → `vec_new::<i32>()`. `*i` works via
+// the B3-bg-07 deref-as-identity shim.
+package fl_loop_label_shadowing;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.option;
+use std.collections.vec;
+
+fn main() -> i32 {
+    let mut foo: Vec<i32> = vec_new::<i32>();
+    'foo: for i in &[1i32, 2i32, 3i32] {
+        foo.push(*i);
+    }
+    return 0i32;
+}
