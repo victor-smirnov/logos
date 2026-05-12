@@ -1096,7 +1096,11 @@
     // The TARGS form is needed for traits with type / const-generic params
     // (e.g. `&dyn BTreeNode<StoreCfg>`); type-args use the LT_TYPE/GT_TYPE
     // pair like other type-position generic instances.
-    dyn_type <- AMP KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE
+    dyn_type <- AMP KW_MUT KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE
+             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, ITEMS: $... }
+              / AMP KW_MUT KW_DYN IDENT
+             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true }
+              / AMP KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE
              => { CODE: DYN_TYPE, NAME: $3, ITEMS: $... }
               / AMP KW_DYN IDENT
              => { CODE: DYN_TYPE, NAME: $3 }

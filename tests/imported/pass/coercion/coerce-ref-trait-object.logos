@@ -1,0 +1,27 @@
+// C6-cc-09 first-slice regression: `&T → &dyn Trait` unsize coercion
+// at call site. Not directly mapped to a rustc test (the corpus's
+// natural analogue, coercion/coerce-mut-trait-object-8248, exercises
+// the `&mut T → &mut dyn Trait` form). This minimal probe pins the
+// shared-ref form so the coercion path stays exercised.
+package c_coerce_ref_trait_object;
+
+trait Greet {
+    fn hi(&self) -> i64;
+}
+
+struct B { v: i64 }
+
+impl Greet for B {
+    fn hi(&self) -> i64 { return self.v; }
+}
+
+fn call_hi(g: &dyn Greet) -> i64 {
+    return g.hi();
+}
+
+fn main() -> i32 {
+    let b: B = B { v: 7i64 };
+    let r = call_hi(&b);
+    if r != 7i64 { return 1i32; }
+    return 0i32;
+}

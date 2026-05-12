@@ -1228,10 +1228,29 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
             if (param_lt && TypeRef(param_lt).kind() == LogosType::Kind::TraitObject &&
                 arg_lt && TypeRef(arg_lt).kind() != LogosType::Kind::TraitObject) {
                 TypeRef vt_type = arg_lt;
+                // C6-cc-09: `&T` / `&mut T` over a struct → &dyn Trait. The
+                // ref value is already a data pointer at the LLVM level; unwrap
+                // the pointee to look up the impl on T (not &T).
+                if (TypeRef(vt_type).kind() == LogosType::Kind::Ref ||
+                    TypeRef(vt_type).kind() == LogosType::Kind::MutRef)
+                    vt_type = TypeRef(vt_type).pointee();
                 if (TypeRef(vt_type).kind() == LogosType::Kind::Struct &&
                     TypeRef(vt_type).struct_name() == "Box" &&
                     TypeRef(vt_type).type_args().size() == 1)
                     vt_type = TypeRef(vt_type).type_args()[0];
+                // If the source is a struct value (not a pointer) — applies to
+                // bare-struct → &dyn (the original C6-cc-09 surface) — spill
+                // so coerce_to_dyn has something to store as data ptr. Existing
+                // Box-source path: the Box value is already a 1-field struct
+                // whose payload is the data pointer, so the underlying LLVM
+                // value flows verbatim; only spill when the source isn't a
+                // ref/Box (i.e. genuine struct value).
+                if (v.getType() != ptr_type() &&
+                    TypeRef(arg_lt).kind() != LogosType::Kind::Ref &&
+                    TypeRef(arg_lt).kind() != LogosType::Kind::MutRef &&
+                    !(TypeRef(arg_lt).kind() == LogosType::Kind::Struct &&
+                      TypeRef(arg_lt).struct_name() == "Box"))
+                    v = spill_to_alloca(v);
                 v = coerce_to_dyn(v, std::string(TypeRef(param_lt).trait_name()), type_str(vt_type));
             }
         }

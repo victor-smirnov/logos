@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/coerce-mut-trait-object-8248.rs
+// Modifications: trait `dummy()` body kept as a non-trivial return so
+// the impl on B is exercised. `&mut b as &mut dyn A` cast spelled
+// as plain `&mut b` arg (Logos auto-coerces `&mut Struct → &mut dyn
+// Trait` at the call site — C6-cc-09 first slice).
+package c_coerce_mut_trait_object_8248;
+
+trait A {
+    fn dummy(&self) -> i64;
+}
+
+struct B {}
+
+impl A for B {
+    fn dummy(&self) -> i64 { return 17i64; }
+}
+
+fn foo(x: &mut dyn A) -> i64 {
+    return x.dummy();
+}
+
+fn main() -> i32 {
+    let mut b: B = B {};
+    let r = foo(&mut b);
+    if r != 17i64 { return 1i32; }
+    return 0i32;
+}

@@ -973,10 +973,16 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
             if (!types_compatible(TypeRef(from).tuple_elems()[i], TypeRef(to).tuple_elems()[i])) return false;
         return true;
     }
-    // Struct → &dyn Trait coercion (impl check deferred to codegen)
+    // Struct → &dyn Trait coercion (impl check deferred to codegen).
+    // Also accept `&T` / `&mut T` over a struct (the natural unsize-coercion
+    // source form): `foo(&b)` where `foo` expects `&dyn Trait` and `b: T`.
     if (TypeRef(to).kind() == LogosType::Kind::TraitObject &&
         (TypeRef(from).kind() == LogosType::Kind::Struct ||
-         (TypeRef(from).kind() == LogosType::Kind::Ptr && TypeRef(from).pointee())))
+         (TypeRef(from).kind() == LogosType::Kind::Ptr && TypeRef(from).pointee()) ||
+         ((TypeRef(from).kind() == LogosType::Kind::Ref ||
+           TypeRef(from).kind() == LogosType::Kind::MutRef) &&
+          TypeRef(from).pointee() &&
+          TypeRef(from).pointee().kind() == LogosType::Kind::Struct)))
         return true;
     // &T / &mut T → *const T / *mut T coercions (for backward compat with existing raw-ptr code)
     if ((TypeRef(from).kind() == LogosType::Kind::Ref || TypeRef(from).kind() == LogosType::Kind::MutRef) &&
