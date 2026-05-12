@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/enum_u8_variant.rs
+// Modifications: `#[repr(u8)]` warned by Logos (no equivalent
+// attribute model) but the test point is pattern matching on a
+// u8-payload variant, which works regardless of repr.
+package e_enum_u8_variant;
+
+enum Foo { Foo(u8) }
+
+fn main() -> i32 {
+    match Foo::Foo(1u8) {
+        _ => { }
+    }
+    return 0i32;
+}

@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/enum-variants.rs
+// Modifications: struct-variant arm (`Cat { name, weight }`)
+// dropped — Logos has tuple-variant enums only (P4-pm-01). The
+// tuple-variant arm (`Dog("Cocoa", 37.2)`) preserves the core test
+// point: building an enum value of a payload-carrying variant.
+// `String` → `str`.
+package e_enum_variants;
+
+use std.fmt;
+use std.lang.text;
+
+enum Animal {
+    Dog(str, f64),
+}
+
+fn main() -> i32 {
+    let _a: Animal = Animal::Dog("Cocoa", 37.2f64);
+    return 0i32;
+}

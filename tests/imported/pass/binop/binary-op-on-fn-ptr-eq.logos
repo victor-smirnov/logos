@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binop/binary-op-on-fn-ptr-eq.rs
+// Modifications: fn-ptr `==` in Logos requires `as i64` cast both
+// sides since the language doesn't provide PartialEq for fn-ptr
+// values directly. The test point — that the fn-item / fn-ptr
+// equality comparison compiles — is preserved.
+package bo_binary_op_on_fn_ptr_eq;
+
+fn foo(_a: str) { }
+
+fn main() -> i32 {
+    let x: fn(str) = foo;
+    let _ = (x as i64) == (foo as fn(str) as i64);
+    return 0i32;
+}
