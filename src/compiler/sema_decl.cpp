@@ -873,11 +873,17 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             if (tplist.has_key(la::ITEMS)) {
                 auto items = arr_of(tplist.get(la::ITEMS.code));
                 auto tit = traits_.find(trait_name);
+                size_t type_arg_idx = 0;
                 for (uint64_t i = 0; i < items.size(); ++i) {
-                    auto resolved = resolve_type(map_of(items.get(i)));
+                    auto item = map_of(items.get(i));
+                    // L1: skip LIFETIME_PARAM at trait-arg position; Logos
+                    // doesn't track regions structurally for trait dispatch.
+                    if (code_of(item) == la::LIFETIME_PARAM) continue;
+                    auto resolved = resolve_type(item);
                     impl_trait_args.push_back(resolved);
-                    if (tit != traits_.end() && i < tit->second.type_params.size())
-                        current_type_params_[tit->second.type_params[i].name] = resolved;
+                    if (tit != traits_.end() && type_arg_idx < tit->second.type_params.size())
+                        current_type_params_[tit->second.type_params[type_arg_idx].name] = resolved;
+                    ++type_arg_idx;
                 }
             }
         }

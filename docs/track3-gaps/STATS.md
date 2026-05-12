@@ -81,6 +81,7 @@ Counted *at the time the batch landed*.
 | B55  | 2026-05-12 | 36 |     0 |  0 | 0.00 | 252 | 106 |  2 |
 | B56  | 2026-05-12 |  1 |     1 |  0 | 1.00 | 253 | 107 |  2 |
 | B57  | 2026-05-12 | 53 |     5 |  0 | 0.09 | 306 | 112 |  2 |
+| B58  | 2026-05-12 |  3 |     0 |  3 | 0.00 | 309 | 112 |  5 |
 
 (Phase-1 gap counts are estimates — pre-batch gap-as-code triage gave
 coarse totals only; precise per-batch arrival-order numbers weren't
@@ -114,6 +115,21 @@ Gaps observed in B57 (lifetime/HRTB/GAT sweep):
   (fat-ptr vs by-value). Not lifetime-related; surfaced by
   `regions-return-interior-of-option`. Worked around in B57 by
   switching the imported test to by-value scrutinee.
+
+Closed in B58:
+- **L1** ✅ — `Trait<'a>` bound: TraitBound gains `lifetime_args`;
+  `read_trait_bound_args` (sema.cpp) routes LIFETIME_PARAM there
+  instead of resolve_type. `lower_impl_block` (sema_decl.cpp) +
+  `impl_collect`'s trait-type-args walker (sema_collect.cpp) skip
+  LIFETIME_PARAM entries. Logos's trait dispatch ignores lifetime
+  args at the resolver (consistent with lifetime-erasure-for-dispatch).
+- **L2** ✅ — `&'a [T]` / `&'a mut [T]` slice with explicit lifetime:
+  grammar `slice_type` adds two leading alts that capture LIFETIME
+  in the SLICE_TYPE node.
+- **L3** ✅ — `'_` underscore-lifetime: peg_gen lexer template
+  (codegen.cpp) extended to admit underscore as the first char
+  after `'` when the LIFETIME regex char-class includes `_`. LIFETIME
+  regex updated to `'[a-z_][a-z0-9_]*`.
 
 Bugs counted so far:
 - **B50** — `slice_index` struct-element ABI: GEP stride was

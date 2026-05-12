@@ -1,0 +1,10 @@
+// L2 regression: &'a [T] slice type with explicit lifetime parses.
+// We only exercise the type-position parse (call-site slice expression
+// syntax `&a[..]` is a separate gap).
+package lifetime_slice;
+
+fn first<'a>(x: &'a [i32]) -> i32 { return x[0]; }
+fn count<'a>(_x: &'a [i32]) -> i32 { return 0i32; }
+fn count_mut<'a>(_x: &'a mut [i32]) -> i32 { return 0i32; }
+
+fn main() -> i32 { return 0; }

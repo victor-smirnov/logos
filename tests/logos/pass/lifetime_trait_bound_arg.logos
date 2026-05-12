@@ -1,0 +1,15 @@
+// L1 regression: Trait<'a> as bound + impl<'a> Trait<'a> for T<'a>.
+// Lifetime arg captured in TraitBound.lifetime_args; trait dispatch
+// ignores it (Logos doesn't track regions structurally for dispatch).
+package lifetime_trait_bound_arg;
+
+trait Foo<'a> { fn id(self: Self) -> i32; }
+struct S<'a> { v: &'a i32 }
+impl<'a> Foo<'a> for S<'a> { fn id(self: S<'a>) -> i32 { return *self.v; } }
+fn use_<'a, T: Foo<'a>>(x: T) -> i32 { return x.id(); }
+
+fn main() -> i32 {
+    let v: i32 = 7i32;
+    let s: S = S { v: &v };
+    return use_::<S>(s) - 7i32;
+}

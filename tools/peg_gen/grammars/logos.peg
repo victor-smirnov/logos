@@ -411,7 +411,7 @@
     // hand-coded matcher in tools/peg_gen/src/codegen.cpp consumes the full
     // codepoint). Sema decodes the body back into the scalar value.
     CHAR_LIT    = /'(\\.|[^'\\])'/
-    LIFETIME    = /'[a-z][a-z0-9_]*/
+    LIFETIME    = /'[a-z_][a-z0-9_]*/
     IDENT       = /[a-zA-Z_][a-zA-Z0-9_]*/
 
     // Skip
@@ -1164,8 +1164,15 @@
               / KW_DYN IDENT (PLUS LIFETIME)?
              => { CODE: DYN_TYPE, NAME: $2 }
 
-    // &[T] and &mut [T] — slice types (fat pointer: ptr + len)
-    slice_type <- AMP KW_MUT LBRACKET type_ref RBRACKET
+    // &[T] and &mut [T] — slice types (fat pointer: ptr + len).
+    // L2: with explicit lifetime — `&'a [T]` / `&'a mut [T]`. Lifetime
+    // captured in LIFETIME slot; downstream sema currently doesn't
+    // enforce slice-with-lifetime distinctly from plain &[T].
+    slice_type <- AMP LIFETIME KW_MUT LBRACKET type_ref RBRACKET
+               => { CODE: SLICE_TYPE, TYPE: $5, MUTPTR: true, LIFETIME: $2 }
+               / AMP LIFETIME LBRACKET type_ref RBRACKET
+               => { CODE: SLICE_TYPE, TYPE: $4, LIFETIME: $2 }
+               / AMP KW_MUT LBRACKET type_ref RBRACKET
                => { CODE: SLICE_TYPE, TYPE: $4, MUTPTR: true }
                / AMP LBRACKET type_ref RBRACKET
                => { CODE: SLICE_TYPE, TYPE: $3 }

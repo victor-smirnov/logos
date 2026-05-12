@@ -1501,8 +1501,15 @@ void SemaChecker::collect_impl(TinyMapView node) {
             auto tplist = map_of(tpav);
             if (tplist.has_key(la::ITEMS)) {
                 auto items = arr_of(tplist.get(la::ITEMS.code));
-                for (uint64_t i = 0; i < items.size(); ++i)
-                    trait_type_args.push_back(resolve_type(map_of(items.get(i))));
+                for (uint64_t i = 0; i < items.size(); ++i) {
+                    auto item = map_of(items.get(i));
+                    // L1: skip LIFETIME_PARAM entries — they're lifetime
+                    // arg position in `impl Foo<'a> for ...`. Logos doesn't
+                    // track regions structurally for trait dispatch, and
+                    // resolve_type would error on code 131 (LIFETIME_PARAM).
+                    if (code_of(item) == la::LIFETIME_PARAM) continue;
+                    trait_type_args.push_back(resolve_type(item));
+                }
             }
         }
         auto tit = traits_.find(trait_name);

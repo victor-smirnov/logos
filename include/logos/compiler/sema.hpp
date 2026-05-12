@@ -253,6 +253,11 @@ struct LogosTypeBuilder {
 struct TraitBound {
     std::string                   trait_name;  // e.g. "Into", "Add"
     std::vector<TypeRef> type_args;   // e.g. Into<i32> -> [i32]
+    // L1: lifetime args at trait-bound position (e.g. `Foo<'a>` → ["a"]).
+    // Parsed but not enforced (no region inference); needed so the
+    // trait-bound resolver doesn't try to resolve LIFETIME_PARAM
+    // nodes as types.
+    std::vector<std::string> lifetime_args;
     // Associated-type equality clauses: `Trait<Item = i32>` → [{ "Item", i32 }].
     // Only populated when the bound includes `Name = Type` arguments.
     std::vector<std::pair<std::string, TypeRef>> assoc_eqs;

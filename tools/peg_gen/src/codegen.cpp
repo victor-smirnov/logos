@@ -1419,10 +1419,17 @@ private:
             // after it, then advance pos_ past the apostrophe before the while loop.
             else if (pat.size() >= 2 && pat.front() == '\'' && pat[1] == '[') {
                 bool lower_start = pat.find("[a-z") != std::string::npos;
+                // `'_` underscore-lifetime support: any "[a-z_…" char class
+                // in the start position admits underscore as a valid first
+                // character (L3, P4-pm-X follow-up).
+                bool underscore_start = pat.find("[a-z_") != std::string::npos
+                                     || pat.find("[_a-z") != std::string::npos;
                 bool alnum_rest  = pat.find("[a-z0-9_]") != std::string::npos
                                 || pat.find("[a-zA-Z0-9_]") != std::string::npos;
                 w.fmt("// {} = /{}/", t.name, pat);
-                if (lower_start) {
+                if (underscore_start) {
+                    w.line("if (c == '\\'' && pos_ + 1 < source_.size() && (std::islower(source_[pos_ + 1]) || source_[pos_ + 1] == '_')) {");
+                } else if (lower_start) {
                     w.line("if (c == '\\'' && pos_ + 1 < source_.size() && std::islower(source_[pos_ + 1])) {");
                 } else {
                     w.line("if (c == '\\'' && pos_ + 1 < source_.size() && std::isalpha(source_[pos_ + 1])) {");

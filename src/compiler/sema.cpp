@@ -1805,12 +1805,21 @@ void SemaChecker::read_trait_bound_args(TinyMapView bnode, TraitBound& tb) {
     auto items = arr_of(tamap.get(la::ITEMS.code));
     for (uint64_t i = 0; i < items.size(); ++i) {
         auto item = map_of(items.get(i));
-        if (code_of(item) == la::ASSOC_EQ_BIND) {
+        int32_t ic = code_of(item);
+        if (ic == la::ASSOC_EQ_BIND) {
             std::string aname(str_of(item.get(la::NAME.code)));
             TypeRef rhs = nullptr;
             if (item.has_key(la::TYPE))
                 rhs = resolve_type(map_of(item.get(la::TYPE.code)));
             tb.assoc_eqs.emplace_back(std::move(aname), rhs);
+        } else if (ic == la::LIFETIME_PARAM) {
+            // L1: lifetime arg at trait-bound TYPE_PARAMS position
+            // (e.g. `Foo<'a>` bound). Logos doesn't track regions
+            // structurally for bound dispatch — capture for record
+            // (lifetime_args) and skip the resolve_type path that
+            // would otherwise error "unexpected type node 131".
+            if (item.has_key(la::NAME))
+                tb.lifetime_args.push_back(std::string(str_of(item.get(la::NAME.code))));
         } else {
             tb.type_args.push_back(resolve_type(item));
         }
