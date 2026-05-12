@@ -3669,11 +3669,43 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             }
             TypeRef ret_type = subst_type_sema(chosen_method->ret_type, self_subst);
 
+            // T9-tr-02: auto-ref the receiver if the impl method expects
+            // `&self` / `&mut self`. For TypeVar receivers, recv is just the
+            // variable's value (e.g. `x: B = i64` after mono). Without the
+            // addr-of wrap, mono substitutes the i64 value directly into the
+            // ref-parameter slot and mlir-gen blows up with `operand type
+            // mismatch: expected !llvm.ptr, got i64`.
+            if (!chosen_method->param_types.empty()) {
+                auto formal0 = chosen_method->param_types[0];
+                if (formal0 && is_ref_like(TypeRef(formal0).kind()) && recv->type &&
+                    !is_ref_like(TypeRef(recv->type).kind()) &&
+                    TypeRef(recv->type).kind() != LogosType::Kind::Ptr) {
+                    bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
+                    auto ref_ty = make_ref(is_mut, recv->type);
+                    recv = builder().addr_of_temp(std::move(recv), is_mut, ref_ty);
+                }
+            }
+
             // Use EMethodCall — mono will resolve to concrete impl.
             lir::EMethodCall mc;
             mc.receiver = std::move(recv);
             mc.method   = std::string(method_name);
             mc.type_args = {};
+            // T9-tr-02: propagate the trait's type-args first (impl method's
+            // mangling includes them because impl_type_params are prepended
+            // onto each fn's type_params at collect-time). Without this, a
+            // method body like `fn foo(&self) -> Option<A>` (no method-level
+            // params, A from the trait/impl) loses the binding for A at the
+            // call site and mono emits the un-monomorphised generic name.
+            {
+                auto tit = traits_.find(chosen_trait);
+                if (tit != traits_.end()) {
+                    for (auto& tp : tit->second.type_params) {
+                        auto it = self_subst.find(tp.name);
+                        mc.type_args.push_back(it != self_subst.end() ? it->second : nullptr);
+                    }
+                }
+            }
             // Propagate method-level type params (e.g. H in `hash<H>`) inferred above.
             if (!chosen_method->type_params.empty()) {
                 StrMap<TypeRef> bindings(
@@ -3848,12 +3880,22 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             // method-level type args and route through finish_generic_call so
             // mono emits a concrete specialization.
             if (!fi_ptr->type_params.empty()) {
-                SemaSubst seed;
-                seed["Self"] = recv->type;
                 std::vector<TypeRef> m_type_args;
-                if (!infer_type_args(*fi_ptr, arg_exprs, m_type_args, seed, 1)) {
-                    error(std::format("could not infer type arguments for generic method '{}'",
-                                      mangled_prim));
+                // T9-tr-02 slice: turbofish on method call (`x.foo::<A>()`)
+                // supplies the type args directly. Use them verbatim;
+                // inference is needed only when no turbofish was given.
+                if (!user_type_args.empty()) {
+                    for (size_t i = 0; i < fi_ptr->type_params.size() && i < user_type_args.size(); ++i)
+                        m_type_args.push_back(user_type_args[i]);
+                    while (m_type_args.size() < fi_ptr->type_params.size())
+                        m_type_args.push_back(error_t());
+                } else {
+                    SemaSubst seed;
+                    seed["Self"] = recv->type;
+                    if (!infer_type_args(*fi_ptr, arg_exprs, m_type_args, seed, 1)) {
+                        error(std::format("could not infer type arguments for generic method '{}'",
+                                          mangled_prim));
+                    }
                 }
                 // Auto-ref receiver if method expects &Self / &mut Self.
                 if (!fi_ptr->param_types.empty()) {

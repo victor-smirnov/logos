@@ -2413,6 +2413,24 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         }
                         nc.type_args.push_back(subst_type(ta, s));
                     }
+                    // T9-tr-02: only mangle when the impl method is itself
+                    // generic. Sema's TypeVar-receiver path stashes the
+                    // trait's type-args on the call so we can mangle for
+                    // generic-impl methods (`impl<A> Trait<A> for T`), but
+                    // for concrete impls (`impl Trait<isize> for T`) the
+                    // template's type_params is empty and we must drop the
+                    // sema-stashed args — otherwise we'd mangle a non-
+                    // generic symbol into a non-existent suffix.
+                    size_t tmpl_tparam_count = 0;
+                    if (auto tit = templates_.find(tmpl_key); tit != templates_.end()) {
+                        tmpl_tparam_count = tit->second->type_params.size();
+                    } else if (auto sit = specs_.find(tmpl_key);
+                               sit != specs_.end() && !sit->second.empty()) {
+                        tmpl_tparam_count = sit->second.front()->type_params.size();
+                    }
+                    if (tmpl_tparam_count == 0) nc.type_args.clear();
+                    else if (nc.type_args.size() > tmpl_tparam_count)
+                        nc.type_args.resize(tmpl_tparam_count);
                     if (!nc.type_args.empty())
                         nc.callee = mangle(tmpl_key, nc.type_args);
                     result->mirror_offset_ = lir_mirror_emit_call(

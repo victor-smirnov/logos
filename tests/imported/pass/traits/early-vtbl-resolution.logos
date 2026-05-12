@@ -1,0 +1,40 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/early-vtbl-resolution.rs
+// Modifications: `isize` → `i64`. Inference-from-binding for
+// `let _x: Option<f64> = foo_func(0)` not supported in Logos, so
+// the explicit turbofish `foo_func::<f64, i64>(0i64)` is supplied.
+// `None` is spelt `Option::None::<A>` (Logos's variant lit syntax;
+// generic enum needs an explicit type arg in the literal). `struct
+// A { a: isize }` from the upstream test is dropped — it's dead in
+// the original too, just a `#[allow(dead_code)]` filler.
+//
+// Test point — generic-impl method dispatch through a TypeVar
+// receiver bounded by a trait (`<B: thing<A>>(x: B)` calling
+// `x.foo()`) — exercises T9-tr-02: the impl method is generic over
+// the trait's type-arg `A`, so mono must mangle the call with the
+// substituted A. Sema's TypeVar method-resolution path now stashes
+// the trait's type-args on the EMethodCall; mono only mangles when
+// the resolved impl template's type_params is non-empty, so
+// concrete-impl call sites stay un-mangled.
+package t_early_vtbl_resolution;
+
+use std.lang.option;
+
+trait thing<A> {
+    fn foo(&self) -> Option<A>;
+}
+
+impl<A> thing<A> for i64 {
+    fn foo(&self) -> Option<A> {
+        return Option::None::<A>;
+    }
+}
+
+fn foo_func<A, B: thing<A>>(x: B) -> Option<A> {
+    return x.foo();
+}
+
+fn main() -> i32 {
+    let _x: Option<f64> = foo_func::<f64, i64>(0i64);
+    return 0i32;
+}
