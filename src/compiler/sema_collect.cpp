@@ -519,31 +519,71 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             }
             auto key1 = bound.trait_name + "::" + concrete_str;
             auto key2 = unwrapped_name.empty() ? "" : bound.trait_name + "::" + unwrapped_name;
-            // B62: region check — bound's universally-quantified lifetimes
-            // must be satisfied by impl-level lifetime params. An impl that
-            // pins a trait-arg to a concrete region (e.g. 'static) doesn't
-            // satisfy a `for<'a> Trait<&'a T>` style bound.
+            // B62/B63: region check — bound's universally-quantified lifetimes
+            // must satisfy two properties when matched against an impl's
+            // trait-arg lifetimes:
+            //   (a) Universal-position: each bound lifetime (non-empty, non-
+            //       'static) must align with an impl lifetime that is a free
+            //       impl-level param, not a concrete region pinned at the impl.
+            //   (b) Impl-tie injectivity: if the impl uses the same lifetime
+            //       in two trait-arg positions, the bound must use the same
+            //       binder in those positions. (Forward direction is allowed
+            //       to be non-injective: bound binders may collapse to the
+            //       same impl lifetime — impl is strictly more general than
+            //       bound. Reverse direction is enforced: impl-tied slots
+            //       can't be satisfied by independent bound binders.)
+            // Walks Ref/MutRef pointee + Struct/Enum type_args recursively.
             auto region_ok = [&](const SemaImplInfo& info) {
                 if (bound.type_args.empty() || info.trait_type_args.empty())
                     return true;
-                size_t n = std::min(bound.type_args.size(),
-                                    info.trait_type_args.size());
-                for (size_t i = 0; i < n; ++i) {
-                    TypeRef bt(bound.type_args[i]);
-                    TypeRef it(info.trait_type_args[i]);
-                    if (!bt || !it) continue;
+                std::unordered_map<std::string, std::string> impl_to_skolem;
+                auto univ_at_impl = [&](const std::string& lt) {
+                    for (auto& nm : info.impl_lifetime_params)
+                        if (nm == lt) return true;
+                    return false;
+                };
+                auto unify = [&](const std::string& blt, const std::string& ilt) -> bool {
+                    if (blt.empty() || blt == "static") return true;
+                    if (!univ_at_impl(ilt)) return false;
+                    auto br2 = impl_to_skolem.emplace(ilt, blt);
+                    if (!br2.second && br2.first->second != blt) return false;
+                    return true;
+                };
+                std::function<bool(TypeRef, TypeRef)> walk =
+                    [&](TypeRef bt, TypeRef it) -> bool {
+                    if (!bt || !it) return true;
                     bool br = bt.kind() == LogosType::Kind::Ref ||
                               bt.kind() == LogosType::Kind::MutRef;
                     bool ir = it.kind() == LogosType::Kind::Ref ||
                               it.kind() == LogosType::Kind::MutRef;
-                    if (!br || !ir) continue;
-                    std::string blt(bt.lifetime());
-                    std::string ilt(it.lifetime());
-                    if (blt.empty() || blt == "static") continue;
-                    bool universal = false;
-                    for (auto& nm : info.impl_lifetime_params)
-                        if (nm == ilt) { universal = true; break; }
-                    if (!universal) return false;
+                    if (br && ir) {
+                        if (!unify(std::string(bt.lifetime()),
+                                   std::string(it.lifetime()))) return false;
+                        return walk(bt.pointee(), it.pointee());
+                    }
+                    if (bt.kind() != it.kind()) return true;
+                    if (bt.kind() == LogosType::Kind::Struct ||
+                        bt.kind() == LogosType::Kind::ZonedStruct ||
+                        bt.kind() == LogosType::Kind::Enum) {
+                        auto blts = bt.lifetime_args();
+                        auto ilts = it.lifetime_args();
+                        size_t nl = std::min(blts.size(), ilts.size());
+                        for (size_t i = 0; i < nl; ++i)
+                            if (!unify(blts[i], ilts[i])) return false;
+                        auto bts = bt.type_args();
+                        auto its = it.type_args();
+                        size_t nt = std::min(bts.size(), its.size());
+                        for (size_t i = 0; i < nt; ++i)
+                            if (!walk(bts[i], its[i])) return false;
+                    }
+                    return true;
+                };
+                size_t n = std::min(bound.type_args.size(),
+                                    info.trait_type_args.size());
+                for (size_t i = 0; i < n; ++i) {
+                    if (!walk(TypeRef(bound.type_args[i]),
+                              TypeRef(info.trait_type_args[i])))
+                        return false;
                 }
                 return true;
             };
@@ -559,8 +599,10 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                     if (region_ok(*found)) continue;
                     error(std::format(
                         "'{}': type '{}' does not satisfy `{}` bound: "
-                        "impl provides a concrete lifetime where the bound "
-                        "demands a universally-quantified one (HRTB)",
+                        "impl's trait-arg lifetimes are incompatible with the "
+                        "bound's universal quantification (HRTB: either impl "
+                        "pins to a concrete region, or independent binders "
+                        "collapse to a single impl param)",
                         target_name, concrete_str, bound.trait_name));
                     continue;
                 }

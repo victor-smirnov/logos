@@ -1,0 +1,20 @@
+// B63: bound and impl agree on lifetime structure (both tie the two
+// slots to the same lifetime via one binder/param). Logos accepts.
+package hrtb_uniform_binder_satisfies;
+
+trait Foo<X, Y> { fn foo(self: Self, x: X, y: Y) -> i32; }
+
+struct S { _x: i32 }
+impl<'a> Foo<&'a i64, &'a i64> for S {
+    fn foo(self: S, x: &'a i64, y: &'a i64) -> i32 { return 0i32; }
+}
+
+fn want_one<T>(t: T) -> i32 where T: for<'z> Foo<&'z i64, &'z i64> {
+    let a: i64 = 1i64;
+    let b: i64 = 2i64;
+    return t.foo(&a, &b);
+}
+
+fn main() -> i32 {
+    return want_one::<S>(S{ _x: 0i32 });
+}

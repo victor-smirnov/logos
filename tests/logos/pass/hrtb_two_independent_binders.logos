@@ -1,0 +1,22 @@
+// B63: impl<'a,'b> with two independent regions correctly satisfies
+// a `for<'a,'b>` bound with two independent regions.
+package hrtb_two_independent_binders;
+
+trait Foo<X, Y> { fn foo(self: Self, x: X, y: Y) -> i32; }
+
+struct S { _x: i32 }
+impl<'a, 'b> Foo<&'a i64, &'b i64> for S {
+    fn foo(self: S, x: &'a i64, y: &'b i64) -> i32 { return 0i32; }
+}
+
+fn want_two<T>(t: T) -> i32
+    where T: for<'a, 'b> Foo<&'a i64, &'b i64>
+{
+    let a: i64 = 1i64;
+    let b: i64 = 2i64;
+    return t.foo(&a, &b);
+}
+
+fn main() -> i32 {
+    return want_two::<S>(S{ _x: 0i32 });
+}

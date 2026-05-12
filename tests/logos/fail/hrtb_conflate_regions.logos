@@ -1,0 +1,24 @@
+// B63: impl<'a> Foo<&'a, &'a> pins both trait-arg slots to the SAME
+// lifetime; it cannot satisfy a bound `for<'a,'b> Foo<&'a, &'b>` that
+// demands independent regions. Rust rejects; Logos must reject.
+// Source: rust-lang/rust tests/ui/higher-ranked/trait-bounds/hrtb-conflate-regions.rs
+package hrtb_conflate_regions;
+
+trait Foo<X, Y> { fn foo(self: Self, x: X, y: Y) -> i32; }
+
+struct SomeStruct { _x: i32 }
+impl<'a> Foo<&'a i64, &'a i64> for SomeStruct {
+    fn foo(self: SomeStruct, x: &'a i64, y: &'a i64) -> i32 { return 0i32; }
+}
+
+// OK — one binder, used twice — matches impl shape.
+fn want_one<T>() where T: for<'z> Foo<&'z i64, &'z i64> {}
+
+// FAIL — two independent binders, impl provides only one.
+fn want_two<T>() where T: for<'a, 'b> Foo<&'a i64, &'b i64> {}
+
+fn main() -> i32 {
+    want_one::<SomeStruct>();
+    want_two::<SomeStruct>();
+    return 0i32;
+}

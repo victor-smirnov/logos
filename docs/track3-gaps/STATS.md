@@ -151,8 +151,8 @@ Closed in B61 (lifetime epic Phase 9):
   the holder after the offending line so it remains a real fail-
   test. Regression: `pass/nll_mut_then_shared.logos`. 1547/1547.
 
-Closed in B62 (lifetime epic Phase 5 — first substantive slice):
-- **Bound-shape region match** ✅ — at sema-time, when checking
+Closed in B62/B63 (lifetime epic Phase 5 — substantive):
+- **Bound-shape region match** ✅ (B62) — at sema-time, when checking
   `T: SomeTrait<&'a U>` against `impl SomeTrait<&'X U> for T`, the
   trait-arg region must be compatible. Impl-side concrete regions
   (e.g. `'static`) no longer satisfy a bound whose trait-arg uses
@@ -162,15 +162,43 @@ Closed in B62 (lifetime epic Phase 5 — first substantive slice):
   `trait_lifetime_args`, `impl_lifetime_params`; populated in
   `collect_impl`. The sema bound-check site
   (`sema_collect.cpp::check_type_bounds`) gains an inline
-  `region_ok` predicate: for each ref-typed trait-arg, if the
-  bound's lifetime is generic (non-empty, non-`'static`), the
-  impl's matching lifetime must appear in the impl's own
-  `impl_lifetime_params`. Mirrored onto `LImplBlock` and into
-  Mono's `method_bound_ok` so struct-method clones see the same
-  rule. Calibration test:
-  `fail/hrtb_concrete_impl_universal_bound.logos` — `impl
-  Trait<&'static i64> for OnlyStatic` no longer satisfies
-  `F: for<'a> Trait<&'a i64>`. 1548/1548.
+  `region_ok` predicate; mirrored onto `LImplBlock` + Mono's
+  `method_bound_ok` for struct-method clones.
+- **Impl-tie injectivity (B63)** ✅ — the region_ok walk now
+  recurses through Ref/MutRef pointees and Struct/Enum
+  `type_args`, building an impl-region → bound-region map.
+  Reverse-direction injectivity: if the impl uses the SAME
+  lifetime in two trait-arg positions, the bound must use the
+  same binder there — else bound binders collapse to a single
+  impl param and the impl is too restrictive to satisfy
+  independent binders. Forward direction is intentionally not
+  enforced: a tied bound `for<'z> Foo<&'z, &'z>` IS satisfied
+  by an independent impl `impl<'a,'b> Foo<&'a, &'b>` (impl is
+  strictly more general — set 'a='b=z).
+
+  Calibration tests:
+  - `fail/hrtb_concrete_impl_universal_bound.logos` — concrete-
+    region impl vs generic-region bound.
+  - `fail/hrtb_conflate_regions.logos` (rustc-derived) —
+    `impl<'a> Foo<&'a, &'a>` rejects `for<'a,'b> Foo<&'a, &'b>`.
+  - `pass/hrtb_uniform_binder_satisfies.logos` — uniform shape
+    matches.
+  - `pass/hrtb_two_independent_binders.logos` — independent
+    binders + independent impl params.
+  - `pass/hrtb_tied_bound_indep_impl.logos` — tied bound, more-
+    general impl.
+
+  Source: rust-lang/rust `tests/ui/higher-ranked/trait-bounds/
+  hrtb-conflate-regions.rs`. 1553/1553.
+
+Known limitations (deferred to future HRTB work):
+- Bound binders not distinguished from outer-scope fn lifetime
+  params: any non-empty, non-`'static` lifetime in a bound's
+  trait-args is treated as a binder. Edge case rare in practice
+  (would only matter when a fn lifetime param is reused at
+  bound-arg position without `for<...>`).
+- Nested HRTB binders (`for<'a> Foo<for<'b> Bar<...>>`) not
+  separately skolemized. Rare in stdlib-shaped code.
 
 Open / deferred (lifetime epic):
 - **HRTB skolemization (B63)** — current B62 check is structural:

@@ -3173,11 +3173,11 @@ bool Mono::method_bound_ok(const lir::LFunction& m, const SubstMap& s) {
                 continue;
             }
             if (!has_impl(tb.trait_name, cname)) return false;
-            // B62: HRTB satisfaction — if the bound's type_args carry a
-            // generic-named lifetime (anything other than "static" or empty),
-            // the matching impl must also provide that lifetime as one of its
-            // own impl-level lifetime params. An impl that pins to 'static
-            // doesn't satisfy a universally-quantified `for<'a>` bound.
+            // B62/B63: HRTB satisfaction — universal-position + bijectivity
+            // checks. Bound binders (any non-empty, non-'static lifetime in
+            // type_args) must align with impl-level lifetime params, and the
+            // skolem↔impl-region mapping must be 1-1. See sema_collect.cpp's
+            // region_ok for the full rule.
             if (!tb.type_args.empty()) {
                 const lir::LImplBlock* ib = nullptr;
                 for (auto& cand : out_.impls) {
@@ -3185,29 +3185,54 @@ bool Mono::method_bound_ok(const lir::LFunction& m, const SubstMap& s) {
                         cand.target_type == cname) { ib = &cand; break; }
                 }
                 if (ib && !ib->trait_type_args.empty()) {
+                    std::unordered_map<std::string, std::string> i2s;
+                    auto univ = [&](const std::string& lt) {
+                        for (auto& nm : ib->impl_lifetime_params)
+                            if (nm == lt) return true;
+                        return false;
+                    };
+                    auto unify = [&](const std::string& blt,
+                                     const std::string& ilt) -> bool {
+                        if (blt.empty() || blt == "static") return true;
+                        if (!univ(ilt)) return false;
+                        auto b = i2s.emplace(ilt, blt);
+                        if (!b.second && b.first->second != blt) return false;
+                        return true;
+                    };
+                    std::function<bool(TypeRef, TypeRef)> walk =
+                        [&](TypeRef bt, TypeRef it) -> bool {
+                        if (!bt || !it) return true;
+                        bool b_ref = bt.kind() == LogosType::Kind::Ref ||
+                                     bt.kind() == LogosType::Kind::MutRef;
+                        bool i_ref = it.kind() == LogosType::Kind::Ref ||
+                                     it.kind() == LogosType::Kind::MutRef;
+                        if (b_ref && i_ref) {
+                            if (!unify(std::string(bt.lifetime()),
+                                       std::string(it.lifetime()))) return false;
+                            return walk(bt.pointee(), it.pointee());
+                        }
+                        if (bt.kind() != it.kind()) return true;
+                        if (bt.kind() == LogosType::Kind::Struct ||
+                            bt.kind() == LogosType::Kind::ZonedStruct ||
+                            bt.kind() == LogosType::Kind::Enum) {
+                            auto blts = bt.lifetime_args();
+                            auto ilts = it.lifetime_args();
+                            size_t nl = std::min(blts.size(), ilts.size());
+                            for (size_t i = 0; i < nl; ++i)
+                                if (!unify(blts[i], ilts[i])) return false;
+                            auto bts = bt.type_args();
+                            auto its = it.type_args();
+                            size_t nt = std::min(bts.size(), its.size());
+                            for (size_t i = 0; i < nt; ++i)
+                                if (!walk(bts[i], its[i])) return false;
+                        }
+                        return true;
+                    };
                     size_t n = std::min(tb.type_args.size(),
                                         ib->trait_type_args.size());
-                    bool ok = true;
-                    for (size_t i = 0; i < n && ok; ++i) {
-                        TypeRef bt(tb.type_args[i]);
-                        TypeRef it(ib->trait_type_args[i]);
-                        if (!bt || !it) continue;
-                        bool b_is_ref = bt.kind() == LogosType::Kind::Ref ||
-                                        bt.kind() == LogosType::Kind::MutRef;
-                        bool i_is_ref = it.kind() == LogosType::Kind::Ref ||
-                                        it.kind() == LogosType::Kind::MutRef;
-                        if (!b_is_ref || !i_is_ref) continue;
-                        std::string blt(bt.lifetime());
-                        std::string ilt(it.lifetime());
-                        if (blt.empty() || blt == "static") continue;
-                        // bound demands a generic-position lifetime.
-                        // impl must provide it as one of its own lifetime params.
-                        bool impl_is_universal = false;
-                        for (auto& nm : ib->impl_lifetime_params)
-                            if (nm == ilt) { impl_is_universal = true; break; }
-                        if (!impl_is_universal) { ok = false; break; }
-                    }
-                    if (!ok) return false;
+                    for (size_t i = 0; i < n; ++i)
+                        if (!walk(TypeRef(tb.type_args[i]),
+                                  TypeRef(ib->trait_type_args[i]))) return false;
                 }
             }
         }
