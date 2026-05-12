@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/issue-74739.rs
+// Modifications: faithful — &mut to struct field, mutate, then
+// re-bind whole struct. assert_eq! → if-return.
+package mir_issue_74739;
+
+struct Foo { x: i32 }
+
+fn main() -> i32 {
+    let mut foo: Foo = Foo { x: 42i32 };
+    let x: &mut i32 = &mut foo.x;
+    *x = 13i32;
+    let y: Foo = foo;
+    if y.x != 13i32 { return 1i32; }
+    return 0i32;
+}

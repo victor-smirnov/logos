@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/mir_codegen_array.rs
+// Modifications: `let mut x = 10 + 20` made explicit as `30u64`
+// (Logos's array-fill `[expr; N]` needs a const-known value).
+// `&[30; 1024]` slice comparison rewritten as element-by-element
+// loop since Logos has no slice-equality op.
+package mir_mir_codegen_array;
+
+fn into_inner() -> [u64; 1024] {
+    let x: u64 = 30u64;
+    return [x; 1024];
+}
+
+fn main() -> i32 {
+    let result: [u64; 1024] = into_inner();
+    let mut i: i64 = 0i64;
+    while i < 1024i64 {
+        if result[i] != 30u64 { return 1i32; }
+        i = i + 1i64;
+    }
+    return 0i32;
+}
