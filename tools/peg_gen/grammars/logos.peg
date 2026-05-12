@@ -999,6 +999,16 @@
           => { CODE: PARAM, NAME: $2, IS_REF: true }
            / KW_REF IDENT COLON type_ref
           => { CODE: PARAM, NAME: $2, TYPE: $4, IS_REF: true }
+           // P4-pm-19 / C5-cl-07: `(a, b, ...): (T1, T2, ...)` tuple-
+           // destructure parameter. Reuses `pat_binding_list` (which
+           // emits an `{ITEMS: [PAT_WILD{NAME}…]}` sub-map already used
+           // by LET_DESTRUCT). Sema fn-collect / closure-expr detects
+           // NAMES presence, generates a synth tuple-typed parameter
+           // `__tup_param_<N>` and prepends a body-prologue
+           // `let user_k = __tup_param_<N>.k;` for each binding so the
+           // user-visible names see the destructured tuple elements.
+           / LPAREN pat_binding_list RPAREN COLON type_ref
+          => { CODE: PARAM, NAMES: $2, TYPE: $5 }
            / IDENT COLON type_ref DOTDOTDOT
           => { CODE: PARAM, NAME: $1, TYPE: $3, IS_VARIADIC: true }
            / IDENT COLON type_ref

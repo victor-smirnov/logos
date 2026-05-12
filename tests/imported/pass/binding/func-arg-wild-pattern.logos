@@ -1,16 +1,17 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/binding/func-arg-wild-pattern.rs
-// Modifications: Rust `fn foo((x, _): (isize, isize))` — tuple
-// destructure with wildcard in a fn-parameter position — isn't
-// accepted by Logos's grammar (new gap C5-cl-08, parallel to
-// C5-cl-07 for closures). Rewritten to take a single tuple param
-// `t` and access via `t.0`.
+// Modifications: faithful — `fn foo((x, _): (isize, isize)) -> isize`
+// tuple-destructure with wildcard in fn-parameter position now
+// supported (P4-pm-19 closed 2026-05-11; uses synth tuple-typed
+// param + body-prologue `let user_k = synth.k;` for each binding).
 package b_func_arg_wild_pattern;
 
 use std.fmt;
 use std.lang.text;
 
-fn foo(t: (isize, isize)) -> isize { return t.0; }
+fn foo((x, _): (isize, isize)) -> isize {
+    return x;
+}
 
 fn main() -> i32 {
     assert_eq!(foo((22isize, 23isize)), 22isize);

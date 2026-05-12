@@ -304,6 +304,17 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     scope_.clear();
     push_scope();
 
+    // P4-pm-19: tuple-destructure parameters. Track synth-name +
+    // user-name list for each; after the body is lowered, prepend
+    // `let user_k = synth.k;` for each element (parallel to closure
+    // C5-cl-07).
+    struct TupleFnParam {
+        std::vector<std::string> users;
+        std::string              synth;
+        TypeRef                  ty;
+    };
+    std::vector<TupleFnParam> fn_tuple_params;
+
     // Parameters
     if (node.has_key(la::PARAMS)) {
         auto params_av = node.get(la::PARAMS.code);
@@ -314,6 +325,45 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                 for (uint64_t i = 0; i < arr.size(); ++i) {
                     auto p = map_of(arr.get(i));
                     if (code_of(p) != la::PARAM) continue;
+                    auto ptype = (i < fi_ptr->param_types.size())
+                        ? fi_ptr->param_types[i] : error_t();
+                    TypeRef pt = subst_type_sema(ptype, {});
+
+                    // P4-pm-19: tuple-destructure form
+                    // `(a, b): (T1, T2)` — synth a name + register the
+                    // user-bindings for body-prologue rewrite.
+                    if (p.has_key(la::NAMES)) {
+                        auto nav = p.get(la::NAMES.code);
+                        if (!nav.is_null() && nav.is_pointer()) {
+                            auto nmap = map_of(nav);
+                            if (nmap.has_key(la::ITEMS)) {
+                                auto narr = arr_of(nmap.get(la::ITEMS.code));
+                                std::vector<std::string> users;
+                                for (uint64_t k = 0; k < narr.size(); ++k) {
+                                    auto sub = map_of(narr.get(k));
+                                    if (code_of(sub) == la::PAT_WILD &&
+                                        sub.has_key(la::NAME))
+                                        users.emplace_back(
+                                            str_of(sub.get(la::NAME.code)));
+                                    else
+                                        users.emplace_back("_");
+                                }
+                                std::string synth = std::format(
+                                    "__tup_param_{}__{}", mangled, i);
+                                define(synth, pt);
+                                if (TypeRef(pt).kind() == LogosType::Kind::Tuple) {
+                                    auto elems = TypeRef(pt).tuple_elems();
+                                    for (size_t k = 0; k < users.size() && k < elems.size(); ++k)
+                                        if (users[k] != "_")
+                                            define(users[k], elems[k]);
+                                }
+                                fn_tuple_params.push_back({std::move(users), synth, pt});
+                                fn.params.push_back({synth, pt, false});
+                                continue;
+                            }
+                        }
+                    }
+
                     auto pname = str_of(p.get(la::NAME.code));
                     // B-fn-10: reject `self` as a parameter name outside of
                     // impl-block context.  Inside an impl, `self` (typically
@@ -323,15 +373,11 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                               "method receivers; use a different name in a "
                               "standalone function");
                     }
-                    auto ptype = (i < fi_ptr->param_types.size())
-                        ? fi_ptr->param_types[i] : error_t();
                     bool p_variadic = false;
                     if (p.has_key(la::IS_VARIADIC)) {
                         AnyVal av = p.get(la::IS_VARIADIC.code);
                         p_variadic = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
                     }
-                    // Simplify parameter type too
-                    TypeRef pt = subst_type_sema(ptype, {});
                     // DataNode enforcement: DataNode datatypes (has relative-pointer fields)
                     // cannot be passed by bare value — the relative pointers require a base
                     // pointer that is not available without zone context.  Use DataRef<T>.
@@ -425,6 +471,30 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
         fn.body = lower_block(body_node);
         tail_as_return_ = saved_tail_as_return;
         match_in_tail_position_ = false;
+        // P4-pm-19: prepend `let user_k = synth.k;` for each tuple-
+        // destructure parameter so body sees the user-visible names.
+        if (!fn_tuple_params.empty()) {
+            std::vector<lir::LStmt> prologue;
+            for (auto& tp : fn_tuple_params) {
+                if (TypeRef(tp.ty).kind() != LogosType::Kind::Tuple) continue;
+                auto elems = TypeRef(tp.ty).tuple_elems();
+                for (size_t k = 0; k < tp.users.size() && k < elems.size(); ++k) {
+                    if (tp.users[k] == "_") continue;
+                    lir::SLet sl;
+                    sl.name   = tp.users[k];
+                    sl.type   = elems[k];
+                    sl.is_mut = false;
+                    sl.value  = builder().tuple_index(
+                        builder().var_ref(tp.synth, tp.ty),
+                        (uint32_t)k, elems[k]);
+                    prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
+                }
+            }
+            prologue.insert(prologue.end(),
+                            std::make_move_iterator(fn.body.stmts.begin()),
+                            std::make_move_iterator(fn.body.stmts.end()));
+            fn.body.stmts = std::move(prologue);
+        }
         // Resolve impl Trait return type to the concrete type inferred from returns.
         if (fn.ret_type && TypeRef(fn.ret_type).kind() == LogosType::Kind::ImplTrait) {
             if (impl_ret_type_inferred_) {

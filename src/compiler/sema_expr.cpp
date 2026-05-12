@@ -6880,6 +6880,12 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // exposes `x: &T = &__refbind_*` to the user code.
     struct RefBind { std::string user; std::string synth; TypeRef ty; };
     std::vector<RefBind> ref_binds;
+    // C5-cl-07: `|(a, b, …): (T1, T2, …)|` tuple-destructure parameter.
+    // The param itself takes a synth tuple-typed name; a body prologue
+    // emits `let (a, b, …) = __tup_param_*;` so user code sees the
+    // destructured names.
+    struct TupleParam { std::vector<std::string> users; std::string synth; TypeRef ty; };
+    std::vector<TupleParam> tuple_params;
     std::vector<lir::LParam> params;
     std::vector<TypeRef> param_types;
     if (node.has_key(la::PARAMS)) {
@@ -6893,6 +6899,38 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                     auto pname = std::string(str_of(p.get(la::NAME.code)));
                     TypeRef ptype = p.has_key(la::TYPE)
                         ? resolve_type(map_of(p.get(la::TYPE.code))) : error_t();
+                    // C5-cl-07: tuple-destructure param `(a, b): (T1, T2)`.
+                    // Grammar emits PARAM with NAMES = {ITEMS: [name, …]}
+                    // and TYPE = tuple type. Synthesise a single param,
+                    // collect the binding names + tuple type for the
+                    // body-prologue rewrite below.
+                    if (p.has_key(la::NAMES)) {
+                        auto nav = p.get(la::NAMES.code);
+                        if (!nav.is_null() && nav.is_pointer()) {
+                            auto nmap = map_of(nav);
+                            if (nmap.has_key(la::ITEMS)) {
+                                auto narr = arr_of(nmap.get(la::ITEMS.code));
+                                std::vector<std::string> users;
+                                for (uint64_t k = 0; k < narr.size(); ++k) {
+                                    // Each sub-node is a PAT_WILD with
+                                    // NAME (or PAT_UNIT for `()`).
+                                    auto sub = map_of(narr.get(k));
+                                    if (code_of(sub) == la::PAT_WILD &&
+                                        sub.has_key(la::NAME))
+                                        users.emplace_back(
+                                            str_of(sub.get(la::NAME.code)));
+                                    else
+                                        users.emplace_back("_");
+                                }
+                                std::string synth = std::format(
+                                    "__tup_param_{}__{}", closure_id, i);
+                                tuple_params.push_back({std::move(users), synth, ptype});
+                                params.push_back({synth, ptype});
+                                param_types.push_back(ptype);
+                                continue;
+                            }
+                        }
+                    }
                     // C5-cl-03: `|ref x: T|` — grammar emits PARAM with
                     // IS_REF=true AND a TYPE. `&self` / `&mut self` emit
                     // IS_REF=true WITHOUT a TYPE (the inner type is
@@ -6933,6 +6971,15 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // C5-cl-03: register user-visible `ref`-bound names as &T aliases.
     for (auto& rb : ref_binds)
         define(rb.user, make_ref(false, rb.ty));
+    // C5-cl-07: register tuple-destructure parameter user-names with
+    // their element types.
+    for (auto& tp : tuple_params) {
+        if (TypeRef(tp.ty).kind() == LogosType::Kind::Tuple) {
+            auto elems = TypeRef(tp.ty).tuple_elems();
+            for (size_t k = 0; k < tp.users.size() && k < elems.size(); ++k)
+                define(tp.users[k], elems[k]);
+        }
+    }
 
     // Collect current scope variables (for capture detection)
     StrSet param_names;
@@ -6950,7 +6997,9 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             body = lower_block(body_node);
     }
     // C5-cl-03: prepend `let user = &synth;` for each ref-bound param.
-    if (!ref_binds.empty()) {
+    // C5-cl-07: prepend `let user_k = __tup_param_*.k;` for each
+    // tuple-destructure param's element.
+    if (!ref_binds.empty() || !tuple_params.empty()) {
         std::vector<lir::LStmt> prologue;
         for (auto& rb : ref_binds) {
             lir::SLet sl;
@@ -6959,6 +7008,21 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             sl.is_mut = false;
             sl.value  = builder().addr_of(rb.synth, sl.type);
             prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
+        }
+        for (auto& tp : tuple_params) {
+            if (TypeRef(tp.ty).kind() != LogosType::Kind::Tuple) continue;
+            auto elems = TypeRef(tp.ty).tuple_elems();
+            for (size_t k = 0; k < tp.users.size() && k < elems.size(); ++k) {
+                if (tp.users[k] == "_") continue;
+                lir::SLet sl;
+                sl.name   = tp.users[k];
+                sl.type   = elems[k];
+                sl.is_mut = false;
+                sl.value  = builder().tuple_index(
+                    builder().var_ref(tp.synth, tp.ty),
+                    (uint32_t)k, elems[k]);
+                prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
+            }
         }
         prologue.insert(prologue.end(),
                         std::make_move_iterator(body.stmts.begin()),

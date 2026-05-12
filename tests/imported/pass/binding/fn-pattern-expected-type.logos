@@ -1,20 +1,18 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/binding/fn-pattern-expected-type.rs
-// Modifications: Rust's `|(x, y): (isize, isize)| { … }` tuple-
-// destructure in closure-parameter position isn't accepted by Logos's
-// grammar (new gap C5-cl-07). Rewritten to take a single tuple
-// parameter `t` and index it via `t.0` / `t.1`. The closure-return-
-// type inference path (C5-cl-06 closed 2026-05-11) makes the
-// annotation-less form usable here; the body is unit-returning.
+// Modifications: faithful — tuple-destructure in closure parameter
+// (`|(x, y): (isize, isize)| { … }`) now supported (C5-cl-07 closed
+// 2026-05-11). Closure-return-type inference (C5-cl-06) makes the
+// annotation-less unit-returning body work.
 package b_fn_pattern_expected_type;
 
 use std.fmt;
 use std.lang.text;
 
 fn main() -> i32 {
-    let f = |t: (isize, isize)| {
-        assert_eq!(t.0, 1isize);
-        assert_eq!(t.1, 2isize);
+    let f = |(x, y): (isize, isize)| {
+        assert_eq!(x, 1isize);
+        assert_eq!(y, 2isize);
     };
     f((1isize, 2isize));
     return 0;
