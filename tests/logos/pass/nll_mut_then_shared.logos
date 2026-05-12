@@ -1,0 +1,13 @@
+// Phase 9 (NLL): a mutable borrow whose holder is no longer used must be
+// released before its lexical scope ends, allowing a subsequent shared
+// borrow of the same source.
+package nll_mut_then_shared;
+
+fn main() -> i32 {
+    let mut x: i32 = 1i32;
+    let r: &mut i32 = &mut x;
+    *r = 2i32;
+    // last use of `r` above — borrow released here under NLL.
+    let s: &i32 = &x;
+    return *s - 2i32;
+}

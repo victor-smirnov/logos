@@ -7,6 +7,8 @@ fn test() -> i32 {
     let mut x: i32 = 5;
     let mut r: &mut i32 = &mut x;  // mut borrow of x
     let q: &i32 = &x;              // error: x is mutably borrowed
+    *r = 7i32;
+    let _ = read(q);
     return 0;
 }
 

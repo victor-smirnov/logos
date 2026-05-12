@@ -9,5 +9,7 @@ fn consume(b: Buf) -> i32 { return b.data; }
 fn main() -> i32 {
     let mut b = Buf { data: 7 };
     let r: &mut Buf = &mut b;
-    return consume(b);   // error: cannot move while borrowed
+    let n: i32 = consume(b);   // error: cannot move while borrowed
+    (*r).data = 0i32;
+    return n;
 }

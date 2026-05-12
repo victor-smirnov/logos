@@ -130,32 +130,44 @@ Closed in B60 (lifetime epic Phase 6):
   trait — bypassing the chicken-and-egg impls_ lookup. Works for
   both type-arg (`Item<U>`) and lifetime-arg (`Item<'a>`) GATs.
 
+Closed in B61 (lifetime epic Phase 9):
+- **NLL — flow-sensitive borrow check (minimum viable)** ✅ —
+  borrows now release at the holder's last use, not at lexical
+  scope end. Implementation: `BorrowRecord.holder` records the
+  let/assign LHS that binds a `&x`/`&mut x`; a pre-pass walks the
+  fn body computing `last_use_line_[v]` for every named local;
+  `release_dead_borrows(cur_line)` runs after each statement in
+  every block and erases borrows whose holder's max-use line is
+  ≤ cur_line (un-flipping `mut_borrowed` / decrementing
+  `shared_borrows`). Repro:
+  ```
+  let mut x = 1; let r = &mut x; *r = 2; let s = &x; *s
+  ```
+  Six legacy fail-tests (double_mut_borrow, cond_ref_borrow,
+  mut_borrow_blocks_move, shared_then_mut_borrow,
+  shared_while_mut_borrowed, use_while_mut_borrowed) had unused
+  holders — under NLL their borrows die immediately and the
+  conflicts are *correctly* accepted. Updated each test to use
+  the holder after the offending line so it remains a real fail-
+  test. Regression: `pass/nll_mut_then_shared.logos`. 1547/1547.
+
 Open / deferred (lifetime epic):
 - **HRTB real binder substitution** — currently parse-and-capture
   (TraitBound.lifetime_args from B58); trait dispatch is lifetime-
   erased so `for<'a> Fn(&'a T)` and `Fn(&T)` resolve identically.
-  Becomes substantive only when NLL ships and trait satisfaction
-  starts consulting regions. Return to it in the same slice as NLL
-  (Phase 9 of the lifetime epic).
+  Becomes substantive only when trait satisfaction starts
+  consulting regions. The NLL min-viable shipped (B61) does *not*
+  consult regions — it operates purely on holder last-use lines —
+  so HRTB still has no substantive work. Revisit if/when a real
+  region-based borrow analyser lands.
 - **Variance enforcement** — currently effectively covariant
   everywhere via lifetime-erased type identity (TypeUID collapses
   lifetimes; `Foo<&'static T>` and `Foo<&'a T>` are interchangeable
-  in dispatch/assignment). Rust's variance computation algorithm +
-  subtype rule come into play only when lifetimes constrain trait
-  dispatch (NLL). Until then, our model accepts strictly more
-  programs (potentially unsound but consistent with lifetime
-  erasure). Verified end-to-end by `variance-iterators-in-libcore`
-  (imported B57): `fn f<'a, I>(iter: Fuse<&'static I>) -> Fuse<&'a I>`
-  compiles without ceremony. Return to variance computation in the
-  same slice as NLL (Phase 9).
-- **NLL — flow-sensitive borrow checking** — biggest remaining
-  lifetime-epic chunk. Requires CFG construction (MLIR can back
-  this), per-borrow region inference, per-point liveness analysis,
-  conflict detection. Estimated 5-7 days focused work. Triggers:
-  when imported tests start tripping on incorrect-acceptance of
-  programs Rust would reject, OR when stdlib needs real borrow-
-  scope reasoning. Currently neither pressure visible — defer
-  until either arrives.
+  in dispatch/assignment). Same gating as HRTB: substantive only
+  with a region-based borrow analyser. Verified end-to-end by
+  `variance-iterators-in-libcore` (imported B57):
+  `fn f<'a, I>(iter: Fuse<&'static I>) -> Fuse<&'a I>` compiles
+  without ceremony.
 
 Closed in B59:
 - **L4** ✅ — multi-input-ref elision: borrow check's

@@ -151,8 +151,14 @@ static bool is_mut_ref(TypeRef t) {
 }
 
 struct BorrowRecord {
-    std::string target;
+    std::string target;   // the var being borrowed FROM
     bool        is_mut;
+    // Phase 9 (NLL): the var being borrowed INTO (the let/assign LHS that
+    // holds the resulting reference). Empty when the borrow is transient
+    // (call-site `&x` in an arg, not bound). After each stmt, if
+    // `holder`'s last_use_line < current stmt line, the borrow is
+    // released — making the borrow non-lexical.
+    std::string holder;
 };
 
 struct ScopeFrame {
@@ -186,6 +192,10 @@ class BorrowChecker {
     std::vector<std::string>             fn_lifetime_params_;
     // Phase 3/4: return type of current function.
     TypeRef         ret_type_ = nullptr;
+    // Phase 9 (NLL): max line at which each local variable is read.
+    // Populated by scan_uses_block over the entire fn body before checking.
+    // A borrow with non-empty holder is released once cur_line >= last_use_line_[holder].
+    std::unordered_map<std::string, uint32_t> last_use_line_;
 
     void report(uint32_t line, std::string msg) {
         Diag d;
@@ -229,7 +239,8 @@ class BorrowChecker {
     // ── Borrow operations ─────────────────────────────────────────────────
 
     // Take a borrow of 'target'. Registers it in the current scope for cleanup.
-    void take_borrow(const std::string& target, bool is_mut, uint32_t line) {
+    void take_borrow(const std::string& target, bool is_mut, uint32_t line,
+                     const std::string& holder = "") {
         auto it = states_.find(target);
         if (it == states_.end()) return;  // unknown / extern
         if (it->second.moved) {
@@ -259,7 +270,7 @@ class BorrowChecker {
             ++it->second.shared_borrows;
         }
         if (!scopes_.empty())
-            scopes_.back().borrows.push_back({target, is_mut});
+            scopes_.back().borrows.push_back({target, is_mut, holder});
     }
 
     // ── Ownership operations ───────────────────────────────────────────────
@@ -507,7 +518,8 @@ class BorrowChecker {
     //   let r = match tag { A => &x, _ => &y };      borrowed for the scope.
     // For non-borrow sub-expressions (condition of if, scrutinee of match,
     // function calls, etc.) we fall through to a regular visit().
-    void take_ref_borrows(lir_view::ExprRef e, uint32_t line) {
+    void take_ref_borrows(lir_view::ExprRef e, uint32_t line,
+                           const std::string& holder = "") {
         if (!e) return;
         using namespace lir_view;
         using Code = lir_schema::expr::Code;
@@ -516,14 +528,15 @@ class BorrowChecker {
         switch (e.kind()) {
             case Code::AddrOf: {
                 EAddrOfView v{e};
-                take_borrow(std::string(v.var_name()), is_mut_ref(e.type(pool)), line);
+                take_borrow(std::string(v.var_name()), is_mut_ref(e.type(pool)),
+                             line, holder);
                 break;
             }
             case Code::IfExpr: {
                 EIfExprView v{e};
                 visit(v.cond(), /*consuming=*/true, line);
-                take_ref_borrows(v.then_val(), line);
-                take_ref_borrows(v.else_val(), line);
+                take_ref_borrows(v.then_val(), line, holder);
+                take_ref_borrows(v.else_val(), line, holder);
                 break;
             }
             case Code::MatchExpr: {
@@ -531,7 +544,7 @@ class BorrowChecker {
                 visit(v.scrut(), /*consuming=*/false, line);
                 v.each_arm([&](EMatchArmRef arm) {
                     if (auto g = arm.guard()) visit(g, /*consuming=*/true, line);
-                    take_ref_borrows(arm.value(), line);
+                    take_ref_borrows(arm.value(), line, holder);
                 });
                 break;
             }
@@ -543,7 +556,7 @@ class BorrowChecker {
                     if (it != prog_.mirror_table->block_by_offset.end())
                         visit_block(*it->second);
                 }
-                take_ref_borrows(v.result(), line);
+                take_ref_borrows(v.result(), line, holder);
                 break;
             }
             default:
@@ -552,16 +565,332 @@ class BorrowChecker {
                 break;
         }
     }
-    void take_ref_borrows(const LExprPtr& e, uint32_t line) {
+    void take_ref_borrows(const LExprPtr& e, uint32_t line,
+                           const std::string& holder = "") {
         if (!e) return;
-        take_ref_borrows(expr_ref(e), line);
+        take_ref_borrows(expr_ref(e), line, holder);
     }
 
     // ── Statement visitor ─────────────────────────────────────────────────
 
+    // Phase 9 (NLL): pre-pass over fn body computing the max line at which
+    // each named local is read. The borrow checker uses this to release
+    // borrows whose holder's last use has passed — making borrows non-lexical.
+    void note_use(std::string name, uint32_t line) {
+        if (name.empty()) return;
+        auto& slot = last_use_line_[name];
+        if (line > slot) slot = line;
+    }
+
+    void scan_uses_expr(lir_view::ExprRef e, uint32_t line) {
+        if (!e) return;
+        using namespace lir_view;
+        using Code = lir_schema::expr::Code;
+        switch (e.kind()) {
+            case Code::VarRef:
+                note_use(std::string(EVarRefView{e}.name()), line);
+                break;
+            case Code::AddrOf:
+                note_use(std::string(EAddrOfView{e}.var_name()), line);
+                break;
+            case Code::AddrOfTemp:
+                scan_uses_expr(EAddrOfTempView{e}.inner(), line);
+                break;
+            case Code::Unary:
+                scan_uses_expr(EUnaryView{e}.operand(), line);
+                break;
+            case Code::Deref:
+                scan_uses_expr(EDerefView{e}.operand(), line);
+                break;
+            case Code::Cast:
+                scan_uses_expr(ECastView{e}.operand(), line);
+                break;
+            case Code::Try:
+                scan_uses_expr(ETryView{e}.inner(), line);
+                break;
+            case Code::FieldRead:
+                scan_uses_expr(EFieldReadView{e}.receiver(), line);
+                break;
+            case Code::TupleIndex:
+                scan_uses_expr(ETupleIndexView{e}.receiver(), line);
+                break;
+            case Code::SliceLen:
+                scan_uses_expr(ESliceLenView{e}.slice(), line);
+                break;
+            case Code::SlicePtr:
+                scan_uses_expr(ESlicePtrView{e}.slice(), line);
+                break;
+            case Code::BinOp: {
+                EBinOpView v{e};
+                scan_uses_expr(v.lhs(), line);
+                scan_uses_expr(v.rhs(), line);
+                break;
+            }
+            case Code::IndexRead: {
+                EIndexReadView v{e};
+                scan_uses_expr(v.receiver(), line);
+                scan_uses_expr(v.index(), line);
+                break;
+            }
+            case Code::SliceLit: {
+                ESliceLitView v{e};
+                scan_uses_expr(v.base(), line);
+                scan_uses_expr(v.len(),  line);
+                break;
+            }
+            case Code::SliceIndex: {
+                ESliceIndexView v{e};
+                scan_uses_expr(v.slice(), line);
+                scan_uses_expr(v.index(), line);
+                break;
+            }
+            case Code::IfExpr: {
+                EIfExprView v{e};
+                scan_uses_expr(v.cond(),     line);
+                scan_uses_expr(v.then_val(), line);
+                scan_uses_expr(v.else_val(), line);
+                break;
+            }
+            case Code::MatchExpr: {
+                EMatchExprView v{e};
+                scan_uses_expr(v.scrut(), line);
+                v.each_arm([&](EMatchArmRef arm) {
+                    if (auto g = arm.guard()) scan_uses_expr(g, line);
+                    scan_uses_expr(arm.value(), line);
+                });
+                break;
+            }
+            case Code::BlockExpr: {
+                EBlockExprView v{e};
+                if (auto br = v.block()) {
+                    auto it = prog_.mirror_table->block_by_offset.find(br.offset().value());
+                    if (it != prog_.mirror_table->block_by_offset.end())
+                        scan_uses_block(*it->second);
+                }
+                if (auto r = v.result()) scan_uses_expr(r, line);
+                break;
+            }
+            case Code::Call:
+                ECallView{e}.each_arg([&](ExprRef a){ scan_uses_expr(a, line); });
+                break;
+            case Code::MethodCall: {
+                EMethodCallView v{e};
+                scan_uses_expr(v.receiver(), line);
+                v.each_arg([&](ExprRef a){ scan_uses_expr(a, line); });
+                break;
+            }
+            case Code::ClosureCall: {
+                EClosureCallView v{e};
+                scan_uses_expr(v.callee(), line);
+                v.each_arg([&](ExprRef a){ scan_uses_expr(a, line); });
+                break;
+            }
+            case Code::FnPtrCall: {
+                EFnPtrCallView v{e};
+                scan_uses_expr(v.callee(), line);
+                v.each_arg([&](ExprRef a){ scan_uses_expr(a, line); });
+                break;
+            }
+            case Code::FormatCall: {
+                EFormatCallView v{e};
+                scan_uses_expr(v.fmt(), line);
+                v.each_arg([&](ExprRef a){ scan_uses_expr(a, line); });
+                break;
+            }
+            case Code::StructLit:
+                EStructLitView{e}.each_field_value([&](ExprRef fv){ scan_uses_expr(fv, line); });
+                break;
+            case Code::New:
+                ENewView{e}.each_field_value([&](ExprRef fv){ scan_uses_expr(fv, line); });
+                break;
+            case Code::ArrLit:
+                EArrLitView{e}.each_elem([&](ExprRef el){ scan_uses_expr(el, line); });
+                break;
+            case Code::TupleLit:
+                ETupleLitView{e}.each_elem([&](ExprRef el){ scan_uses_expr(el, line); });
+                break;
+            case Code::EnumLitData:
+                EEnumLitDataView{e}.each_payload([&](ExprRef pl){ scan_uses_expr(pl, line); });
+                break;
+            case Code::ClosureBox:
+                EClosureBoxView{e}.each_capture_name([&](std::string_view cap){
+                    note_use(std::string(cap), line);
+                });
+                break;
+            case Code::PtrArith: {
+                EPtrArithView v{e};
+                scan_uses_expr(v.ptr(),    line);
+                scan_uses_expr(v.offset(), line);
+                break;
+            }
+            case Code::PtrDiff: {
+                EPtrDiffView v{e};
+                scan_uses_expr(v.lhs(), line);
+                scan_uses_expr(v.rhs(), line);
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    void scan_uses_stmt(const LStmt& s) {
+        using namespace lir_view;
+        using Code = lir_schema::stmt::Code;
+        auto sr = stmt_ref(s);
+        if (!sr) return;
+        uint32_t ln = s.line;
+        switch (sr.kind()) {
+            case Code::Let:
+                scan_uses_expr(SLetView{sr}.value(), ln);
+                break;
+            case Code::Assign:
+                scan_uses_expr(SAssignView{sr}.value(), ln);
+                break;
+            case Code::Return:
+                scan_uses_expr(SReturnView{sr}.value(), ln);
+                break;
+            case Code::ExprStmt:
+                scan_uses_expr(SExprStmtView{sr}.expr(), ln);
+                break;
+            case Code::FieldWrite: {
+                SFieldWriteView v{sr};
+                note_use(std::string(v.receiver()), ln);
+                scan_uses_expr(v.value(), ln);
+                break;
+            }
+            case Code::IndexWrite: {
+                SIndexWriteView v{sr};
+                note_use(std::string(v.arr()), ln);
+                scan_uses_expr(v.index(), ln);
+                scan_uses_expr(v.value(), ln);
+                break;
+            }
+            case Code::FieldIndexWrite: {
+                SFieldIndexWriteView v{sr};
+                note_use(std::string(v.receiver()), ln);
+                scan_uses_expr(v.index(), ln);
+                scan_uses_expr(v.value(), ln);
+                break;
+            }
+            case Code::ChainFieldWrite: {
+                SChainFieldWriteView v{sr};
+                note_use(std::string(v.receiver()), ln);
+                scan_uses_expr(v.value(), ln);
+                break;
+            }
+            case Code::DerefFieldWrite: {
+                SDerefFieldWriteView v{sr};
+                note_use(std::string(v.receiver()), ln);
+                scan_uses_expr(v.value(), ln);
+                break;
+            }
+            case Code::DerefWrite: {
+                SDerefWriteView v{sr};
+                scan_uses_expr(v.ptr(),   ln);
+                scan_uses_expr(v.value(), ln);
+                break;
+            }
+            case Code::TupleWrite: {
+                STupleWriteView v{sr};
+                note_use(std::string(v.receiver()), ln);
+                scan_uses_expr(v.value(), ln);
+                break;
+            }
+            case Code::Delete:
+                scan_uses_expr(SDeleteView{sr}.expr(), ln);
+                break;
+            case Code::If: {
+                SIfView v{sr};
+                scan_uses_expr(v.cond(), ln);
+                if (auto b = block_ptr(v.then_block())) scan_uses_block(*b);
+                if (auto b = block_ptr(v.else_block())) scan_uses_block(*b);
+                break;
+            }
+            case Code::While: {
+                SWhileView v{sr};
+                scan_uses_expr(v.cond(), ln);
+                if (auto b = block_ptr(v.body())) scan_uses_block(*b);
+                break;
+            }
+            case Code::For: {
+                SForView v{sr};
+                scan_uses_expr(v.lo(), ln);
+                scan_uses_expr(v.hi(), ln);
+                if (auto b = block_ptr(v.body())) scan_uses_block(*b);
+                break;
+            }
+            case Code::Loop:
+                if (auto b = block_ptr(SLoopView{sr}.body())) scan_uses_block(*b);
+                break;
+            case Code::Block:
+                if (auto b = block_ptr(SBlockView{sr}.body())) scan_uses_block(*b);
+                break;
+            case Code::ForEach: {
+                SForEachView v{sr};
+                scan_uses_expr(v.iter(), ln);
+                if (auto b = block_ptr(v.body())) scan_uses_block(*b);
+                break;
+            }
+            case Code::Match: {
+                SMatchView v{sr};
+                scan_uses_expr(v.scrut(), ln);
+                v.each_arm([&](EMatchArmRef arm) {
+                    if (auto g = arm.guard()) scan_uses_expr(g, ln);
+                    if (auto b = block_ptr(arm.body())) scan_uses_block(*b);
+                });
+                break;
+            }
+            case Code::LetElse: {
+                SLetElseView v{sr};
+                scan_uses_expr(v.scrut(), ln);
+                if (auto b = block_ptr(v.else_block())) scan_uses_block(*b);
+                break;
+            }
+            case Code::Break:
+                scan_uses_expr(SBreakView{sr}.value(), ln);
+                break;
+            default:
+                break;
+        }
+    }
+
+    void scan_uses_block(const LBlock& blk) {
+        for (auto& s : blk.stmts) scan_uses_stmt(s);
+    }
+
+    // Phase 9 (NLL): release borrows whose holder is no longer live.
+    // Called after each statement in a block: if holder's max-use line is at or
+    // before the current statement, the borrow has expired textually.
+    void release_dead_borrows(uint32_t cur_line) {
+        if (scopes_.empty()) return;
+        auto& frame = scopes_.back();
+        auto it = frame.borrows.begin();
+        while (it != frame.borrows.end()) {
+            if (it->holder.empty()) { ++it; continue; }
+            uint32_t lu = 0;
+            auto luit = last_use_line_.find(it->holder);
+            if (luit != last_use_line_.end()) lu = luit->second;
+            if (lu <= cur_line) {
+                auto sit = states_.find(it->target);
+                if (sit != states_.end()) {
+                    if (it->is_mut) sit->second.mut_borrowed = false;
+                    else if (sit->second.shared_borrows > 0)
+                        --sit->second.shared_borrows;
+                }
+                it = frame.borrows.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
     void visit_block(const LBlock& blk) {
         push_scope();
-        for (auto& s : blk.stmts) visit_stmt(s);
+        for (auto& s : blk.stmts) {
+            visit_stmt(s);
+            release_dead_borrows(s.line);
+        }
         pop_scope();
     }
 
@@ -603,7 +932,7 @@ class BorrowChecker {
                 auto t   = v.type(pool);
                 std::string name(v.name());
                 if (val && is_ref_kind(t)) {
-                    take_ref_borrows(val, ln);
+                    take_ref_borrows(val, ln, name);
                 } else if (val) {
                     visit(val, /*consuming=*/true, ln);
                 }
@@ -625,7 +954,7 @@ class BorrowChecker {
                 bool is_ref_assign = val &&
                     (prov_.count(name) || is_ref_kind(val.type(pool)));
                 if (is_ref_assign) {
-                    take_ref_borrows(val, ln);
+                    take_ref_borrows(val, ln, name);
                 } else if (val) {
                     visit(val, /*consuming=*/true, ln);
                 }
@@ -822,8 +1151,11 @@ public:
         prov_.clear();
         param_names_.clear();
         param_lifetimes_.clear();
+        last_use_line_.clear();
         fn_lifetime_params_ = fn.lifetime_params;
         ret_type_ = fn.ret_type;
+
+        scan_uses_block(fn.body);
 
         push_scope();  // function scope
         for (auto& p : fn.params) {
