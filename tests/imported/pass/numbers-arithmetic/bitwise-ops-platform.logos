@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust tests/ui/numbers-arithmetic/bitwise-ops-platform.rs
+// Modifications: dropped platform-conditional `target()` block (Logos
+// has no cfg() target-width arc) — only the general() block is ported.
+// isize -> i64; explicit suffixes; main returns i32.
+package bitwise_ops_platform_test;
+
+use std.fmt;
+use std.lang.text;
+
+fn general() {
+    let mut a: i64 = 1i64;
+    let mut b: i64 = 2i64;
+    a ^= b;
+    b ^= a;
+    a = a ^ b;
+    assert_eq!(b, 1i64);
+    assert_eq!(a, 2i64);
+    assert_eq!(!0xf0i64 & 0xffi64, 0xfi64);
+    assert_eq!(0xf0i64 | 0xfi64, 0xffi64);
+    assert_eq!(0xfi64 << 4i64, 0xf0i64);
+    assert_eq!(0xf0i64 >> 4i64, 0xfi64);
+    assert_eq!(-16i64 >> 2i64, -4i64);
+    assert_eq!(0b10101010i64 | 0b01010101i64, 0xffi64);
+}
+
+fn main() -> i32 {
+    general();
+    return 0;
+}

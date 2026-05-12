@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust tests/ui/mir/mir_temp_promotions.rs
+// Modifications: is_nan/is_infinite -> manual checks (f != f for NaN,
+// f == 1.0/0.0 for inf); main returns i32.
+package mir_temp_promotions_test;
+
+use std.fmt;
+use std.lang.text;
+
+fn test1(f: f32) -> bool {
+    let is_nan: bool = f != f;
+    let inf: f32 = 1.0f32 / 0.0f32;
+    let neg_inf: f32 = -1.0f32 / 0.0f32;
+    let is_inf: bool = f == inf || f == neg_inf;
+    return !(is_nan || is_inf);
+}
+
+fn main() -> i32 {
+    assert_eq!(test1(0.0f32), true);
+    return 0;
+}

@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust tests/ui/expr/if/if-check.rs
+// Modifications: usize -> u64; panic! becomes return non-zero;
+// println! dropped; main returns i32.
+package if_check_test;
+
+fn even(x: u64) -> bool {
+    if x < 2u64 {
+        return false;
+    } else if x == 2u64 { return true; } else { return even(x - 2u64); }
+}
+
+fn foo(x: u64) -> i32 {
+    if even(x) {
+        return 0;
+    } else {
+        return 1;
+    }
+}
+
+fn main() -> i32 {
+    return foo(2u64);
+}

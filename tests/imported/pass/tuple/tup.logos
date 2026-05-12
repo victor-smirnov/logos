@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust tests/ui/tuple/tup.rs
+// Modifications: isize -> i64; main returns i32; type alias dropped
+// (Logos has type aliases but inline (i64,i64) is simpler).
+package tup_test;
+
+use std.fmt;
+use std.lang.text;
+
+fn f(p: (i64, i64), x: i64, y: i64) {
+    let (a, b) = p;
+    assert_eq!(a, x);
+    assert_eq!(b, y);
+}
+
+fn main() -> i32 {
+    let p: (i64, i64) = (10i64, 20i64);
+    let (a, b) = p;
+    assert_eq!(a, 10i64);
+    assert_eq!(b, 20i64);
+    let p2: (i64, i64) = p;
+    f(p, 10i64, 20i64);
+    f(p2, 10i64, 20i64);
+    return 0;
+}

@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust tests/ui/for-loop-while/loop-scope.rs
+// Modifications: vec![] -> vec_new + push (Logos free-fn factory);
+// isize -> i64; main returns i32.
+package loop_scope_test;
+
+use std.fmt;
+use std.lang.text;
+use std.collections.vec;
+
+fn main() -> i32 {
+    let mut x: Vec<i64> = vec_new::<i64>();
+    x.push(10i64);
+    x.push(20i64);
+    x.push(30i64);
+    let mut sum: i64 = 0i64;
+    let mut k: i64 = 0i64;
+    while k < x.length() { sum += x.get(k); k = k + 1i64; }
+    assert_eq!(sum, 60i64);
+    return 0;
+}

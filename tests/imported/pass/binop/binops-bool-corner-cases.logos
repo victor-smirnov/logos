@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust tests/ui/binop/binops.rs
+// Modifications: subset only — bool ordering. Pointer transmute test,
+// tuple-struct PartialEq test, and bitwise-on-bool test all dropped
+// (Logos doesn't implement `&`/`|`/`^` for bool — divergence). Unit-
+// comparison block also dropped.
+package binops_bool_corner_cases_test;
+
+use std.fmt;
+use std.lang.text;
+
+fn test_bool() {
+    assert!(!(true < false));
+    assert!(!(true <= false));
+    assert!(true > false);
+    assert!(true >= false);
+
+    assert!(false < true);
+    assert!(false <= true);
+    assert!(!(false > true));
+    assert!(!(false >= true));
+
+}
+
+fn main() -> i32 {
+    test_bool();
+    return 0;
+}

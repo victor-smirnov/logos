@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust tests/ui/functions-closures/fn-bare-coerce-to-block.rs
+// Modifications: main returns i32.
+package fn_bare_coerce_to_block_test;
+
+fn bare() {}
+
+fn likes_block<F: FnOnce()>(f: F) { f(); }
+
+fn main() -> i32 {
+    likes_block(bare);
+    return 0;
+}

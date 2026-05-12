@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust tests/ui/numbers-arithmetic/i32-sub.rs
+// Modifications: Logos main returns i32; added explicit suffixes.
+package i32_sub_test;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let mut x: i32 = -400i32;
+    x = 0i32 - x;
+    assert_eq!(x, 400i32);
+    return 0;
+}

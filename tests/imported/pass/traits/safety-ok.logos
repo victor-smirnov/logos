@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust tests/ui/traits/safety-ok.rs
+// Modifications: `unsafe trait`/`unsafe impl` dropped (Logos has no
+// unsafe-trait marker — Foo is just a trait); isize -> i64.
+package safety_ok_test;
+
+use std.fmt;
+use std.lang.text;
+
+trait Foo {
+    fn foo(&self) -> i64;
+}
+
+impl Foo for i64 {
+    fn foo(&self) -> i64 { return *self; }
+}
+
+fn take_foo<F: Foo>(f: &F) -> i64 { return f.foo(); }
+
+fn main() -> i32 {
+    let x: i64 = 22i64;
+    assert_eq!(22i64, take_foo(&x));
+    return 0;
+}

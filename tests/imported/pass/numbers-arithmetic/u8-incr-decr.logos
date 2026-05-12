@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust tests/ui/numbers-arithmetic/u8-incr-decr.rs
+// Modifications: assert_eq! retained via std.fmt prelude.
+package u8_incr_decr;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let mut x: u8 = 19u8;
+    let mut y: u8 = 35u8;
+    x = x + 7u8;
+    y = y - 9u8;
+    assert_eq!(x, y);
+    return 0;
+}

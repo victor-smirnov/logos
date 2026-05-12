@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust tests/ui/pattern/ignore-all-the-things.rs
+// Modifications: isize -> i64; explicit suffixes; trimmed to the
+// subset of patterns Logos accepts (tuple structs + named structs
+// + plain tuples + slice patterns). dropped trailing `..` tuple
+// patterns and inner-let bind-and-ignore variants beyond what parses.
+package ignore_all_the_things_test;
+
+struct Foo(i64, i64, i64, i64);
+struct Bar { a: i64, b: i64, c: i64, d: i64 }
+
+fn main() -> i32 {
+    let Foo(_, _, _, _) = Foo(5i64, 5i64, 5i64, 5i64);
+    let Bar { a: _, b: _, c: _, d: _ } = Bar { a: 5i64, b: 5i64, c: 5i64, d: 5i64 };
+    let (_, _, _, _) = (5i64, 5i64, 5i64, 5i64);
+    return 0;
+}

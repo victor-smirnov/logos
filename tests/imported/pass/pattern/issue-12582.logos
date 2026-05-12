@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust tests/ui/pattern/issue-12582.rs
+// Modifications: explicit i32 suffixes; main returns i32; dropped
+// nested-tuple match arm — Logos's parser doesn't accept the
+// single-element-tuple pattern `((x,y),)`.
+package issue_12582_test;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let x: i32 = 1i32;
+    let y: i32 = 2i32;
+
+    let r = match (x, y) {
+        (1i32, 1i32) => 1i32,
+        (2i32, 2i32) => 2i32,
+        (1..=2, 2i32) => 3i32,
+        _ => 4i32,
+    };
+    assert_eq!(3i32, r);
+    return 0;
+}

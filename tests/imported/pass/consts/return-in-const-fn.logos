@@ -1,0 +1,10 @@
+// Imported from rust-lang/rust tests/ui/consts/return-in-const-fn.rs
+// Modifications: const-fn -> metacall block (Logos's CTFE channel).
+// Original tested `return` inside const-fn; metacall body uses the
+// final-expression convention, which is equivalent.
+package return_in_const_fn;
+
+fn main() -> i32 {
+    let _ = [0i64; metacall { 2i64 }];
+    return 0;
+}

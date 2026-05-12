@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust tests/ui/moves/move-2.rs
+// Modifications: Box<_> dropped — Logos move semantics work on stack
+// structs directly; isize -> i64.
+package move_2_test;
+
+use std.fmt;
+use std.lang.text;
+
+struct X { x: i64, y: i64, z: i64 }
+
+fn main() -> i32 {
+    let x: X = X { x: 1i64, y: 2i64, z: 3i64 };
+    let y = x;
+    assert_eq!(y.y, 2i64);
+    return 0;
+}

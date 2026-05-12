@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust tests/ui/numbers-arithmetic/u8-incr.rs
+// Modifications: explicit u8 suffixes; main returns i32.
+package u8_incr_test;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let mut x: u8 = 12u8;
+    let y: u8 = 12u8;
+    x = x + 1u8;
+    x = x - 1u8;
+    assert_eq!(x, y);
+    return 0;
+}

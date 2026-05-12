@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust tests/ui/consts/issue-29927.rs
+// Modifications: Logos const-fn surface is `metacall { ... }` — the
+// `[0; f()]` repeat becomes `[0i64; metacall { 5i64 }]`.
+package issue_29927_const;
+
+struct A {
+    field: u64,
+}
+
+fn main() -> i32 {
+    let _ = [0i64; metacall { 5i64 }];
+    return 0;
+}

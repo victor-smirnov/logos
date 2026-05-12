@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust tests/ui/numbers-arithmetic/float-literal-inference.rs
+// Modifications: println! dropped; main returns i32; explicit suffixes.
+package float_literal_inference_test;
+
+struct S {
+    z: f64,
+}
+
+fn main() -> i32 {
+    let x: f32 = 4.0f32;
+    let _ = x;
+    let y: f64 = 64.0f64;
+    let _ = y;
+    let z = S { z: 1.0f64 };
+    let _ = z.z;
+    return 0;
+}

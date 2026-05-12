@@ -1,0 +1,9 @@
+// Imported from rust-lang/rust tests/ui/array-slice-vec/vec-repeat-with-cast.rs
+// Modifications: Logos const-fn channel is `metacall`; `as usize` cast
+// of literal becomes a literal-i64 (Logos's array-length type).
+package vec_repeat_with_cast_test;
+
+fn main() -> i32 {
+    let _a = [0i32; 1i64];
+    return 0;
+}

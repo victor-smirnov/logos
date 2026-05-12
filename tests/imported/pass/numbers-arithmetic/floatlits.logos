@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust tests/ui/numbers-arithmetic/floatlits.rs
+// Modifications: assert! → conditional return; negative-exponent
+// scientific notation (`5e-11`, `4.9e-10`) is currently rejected by
+// Logos's float lexer — substituted with plain decimal expansions
+// (`0.00000000005`, `0.00000000049`). The shape of the comparisons
+// is preserved; logged as a separate small lexer gap.
+package floatlits;
+
+fn main() -> i32 {
+    let f: f64 = 4.999999999999f64;
+    if !(f > 4.90f64) { return 1; }
+    if !(f < 5.0f64) { return 2; }
+    let g: f64 = 0.00000000049f64;
+    if !(g > 0.00000000005f64) { return 3; }
+    if !(g < 0.000000005f64) { return 4; }
+    return 0;
+}

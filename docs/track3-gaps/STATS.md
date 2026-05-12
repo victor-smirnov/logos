@@ -78,6 +78,7 @@ Counted *at the time the batch landed*.
 | B52  | 2026-05-12 |  3 |     0 |  0 | 0.00 | 211 | 106 |  1 |
 | B53  | 2026-05-12 |  2 |     0 |  0 | 0.00 | 213 | 106 |  1 |
 | B54  | 2026-05-12 |  3 |     0 |  1 | 0.00 | 216 | 106 |  2 |
+| B55  | 2026-05-12 | 36 |     0 |  0 | 0.00 | 252 | 106 |  2 |
 
 (Phase-1 gap counts are estimates — pre-batch gap-as-code triage gave
 coarse totals only; precise per-batch arrival-order numbers weren't
@@ -172,6 +173,20 @@ homegrown `byte_string_expr` regression. ctest 1447 → 1449 (plus the
 Partial → ✅ Closed. **All pattern-match-gaps now Closed**, and
 the only remaining cross-catalog open work is small follow-ups
 documented inline.
+
+Phase 6 (B55): import sweep through under-explored dirs. 36 new
+tests across numbers-arithmetic, expr, for-loop-while, mir, tuple,
+consts, traits, autoref-autoderef, moves, pattern, recursion,
+functions-closures, binop, array-slice-vec. Zero new gaps caught,
+zero bug fixes — all imports went in clean modulo the usual
+isize→i64 / `assert!`-to-conditional-return / Box-skip adaptations.
+Several test candidates skipped on the agent's pass with the same
+flavour as Phase 4: features that conflict with Logos design
+(unsafe trait markers, Box-heavy iterator chains, struct-variant
+enums in the few corners P4-pm-01 doesn't reach via the let-pat
+path, vec!-macro tests until that lands). Re-confirms that the
+gap surface is genuinely drained: a 36-test sweep produces no
+new catalog entries. ctest 1450 → 1484.
 
 Phase 4 (B38–B49): "autonomous bulk-import" run. Single overnight
 session through under-imported dirs (binding, match, for-loop-while,

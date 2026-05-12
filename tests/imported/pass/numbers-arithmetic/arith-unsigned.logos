@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust tests/ui/numbers-arithmetic/arith-unsigned.rs
+// Modifications: `assert!(...)` calls converted to conditional returns
+// (Logos `assert!` requires fmt context); assert_eq! kept via std.fmt
+// prelude. Comparisons on unsigned types exercise the unsigned-aware
+// codegen (uge / ule predicates).
+package arith_unsigned;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    if !(0u8 < 255u8) { return 1; }
+    if !(0u8 <= 255u8) { return 2; }
+    if !(255u8 > 0u8) { return 3; }
+    if !(255u8 >= 0u8) { return 4; }
+    assert_eq!(250u8 / 10u8, 25u8);
+    assert_eq!(255u8 % 10u8, 5u8);
+    if !(0u16 < 60000u16) { return 5; }
+    if !(0u16 <= 60000u16) { return 6; }
+    if !(60000u16 > 0u16) { return 7; }
+    if !(60000u16 >= 0u16) { return 8; }
+    assert_eq!(60000u16 / 10u16, 6000u16);
+    assert_eq!(60005u16 % 10u16, 5u16);
+    if !(0u32 < 4000000000u32) { return 9; }
+    if !(0u32 <= 4000000000u32) { return 10; }
+    if !(4000000000u32 > 0u32) { return 11; }
+    if !(4000000000u32 >= 0u32) { return 12; }
+    assert_eq!(4000000000u32 / 10u32, 400000000u32);
+    assert_eq!(4000000005u32 % 10u32, 5u32);
+    return 0;
+}

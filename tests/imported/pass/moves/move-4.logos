@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust tests/ui/moves/move-4.rs
+// Modifications: Box<Triple> -> Triple (stack value, move chain unchanged);
+// isize -> i64.
+package move_4_test;
+
+use std.fmt;
+use std.lang.text;
+
+struct Triple { a: i64, b: i64, c: i64 }
+
+fn test(foo: Triple) -> Triple {
+    let foo = foo;
+    let bar = foo;
+    let baz = bar;
+    let quux = baz;
+    return quux;
+}
+
+fn main() -> i32 {
+    let x = Triple { a: 1i64, b: 2i64, c: 3i64 };
+    let y = test(x);
+    assert_eq!(y.c, 3i64);
+    return 0;
+}

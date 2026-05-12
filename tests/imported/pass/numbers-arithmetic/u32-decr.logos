@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust tests/ui/numbers-arithmetic/u32-decr.rs
+// Modifications: explicit u32 suffixes; main returns i32.
+package u32_decr_test;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let mut word: u32 = 200000u32;
+    word = word - 1u32;
+    assert_eq!(word, 199999u32);
+    return 0;
+}

@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust tests/ui/pattern/match-constant-and-byte-literal.rs
+// Modifications: const X via Logos const; byte literal b'\t' rewritten
+// as decimal 9u8 (Logos's parser doesn't accept byte-char literals at
+// pattern position); explicit u8 suffixes.
+package match_constant_and_byte_literal_test;
+
+use std.fmt;
+use std.lang.text;
+
+const X: u8 = 0u8;
+
+fn main() -> i32 {
+    let out: u8 = match 0u8 {
+        X => 99u8,
+        9u8 => 1u8,
+        1u8 => 2u8,
+        _ => 3u8,
+    };
+    assert_eq!(out, 99u8);
+    return 0;
+}

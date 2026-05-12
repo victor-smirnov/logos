@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust tests/ui/mir/mir_const_prop_identity.rs
+// Modifications: assert!(b) via stdlib; main returns i32.
+package mir_const_prop_identity_test;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let a = true;
+    let _ = &a;
+    let mut b = false;
+    b = b || a;
+    assert!(b);
+    return 0;
+}

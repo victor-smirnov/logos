@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust tests/ui/numbers-arithmetic/i8-incr.rs
+// Modifications: explicit i8 suffixes; main returns i32.
+package i8_incr_test;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let mut x: i8 = -12i8;
+    let y: i8 = -12i8;
+    x = x + 1i8;
+    x = x - 1i8;
+    assert_eq!(x, y);
+    return 0;
+}

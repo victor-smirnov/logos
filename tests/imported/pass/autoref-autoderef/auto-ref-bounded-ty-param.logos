@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust tests/ui/autoref-autoderef/auto-ref-bounded-ty-param.rs
+// Modifications: isize -> i64; println! dropped; main returns i32.
+package auto_ref_bounded_ty_param_test;
+
+trait Foo {
+    fn f(&self);
+}
+
+struct Bar {
+    x: i64,
+}
+
+trait Baz {
+    fn g(&self);
+}
+
+impl<T: Baz> Foo for T {
+    fn f(&self) {
+        self.g();
+    }
+}
+
+impl Baz for Bar {
+    fn g(&self) {
+        let _ = self.x;
+    }
+}
+
+fn main() -> i32 {
+    let y = Bar { x: 42i64 };
+    y.f();
+    return 0;
+}

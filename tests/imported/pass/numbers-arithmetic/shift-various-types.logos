@@ -1,0 +1,43 @@
+// Imported from rust-lang/rust tests/ui/numbers-arithmetic/shift-various-types.rs
+// Modifications: isize/usize handled; pass struct by value (Logos &Struct
+// reference + auto-deref into fields covered by separate ref-bind tests).
+// Tests that `>>` accepts every integer kind as the rhs.
+package shift_various_types;
+
+use std.fmt;
+use std.lang.text;
+
+struct Panolpy {
+    i8_: i8,
+    i16_: i16,
+    i32_: i32,
+    i64_: i64,
+    isize_: i64,
+    u8_: u8,
+    u16_: u16,
+    u32_: u32,
+    u64_: u64,
+    usize_: u64,
+}
+
+fn foo(p: Panolpy) {
+    assert_eq!(22i32 >> p.i8_, 11i32);
+    assert_eq!(22i32 >> p.i16_, 11i32);
+    assert_eq!(22i32 >> p.i32_, 11i32);
+    assert_eq!(22i32 >> p.i64_, 11i32);
+    assert_eq!(22i32 >> p.isize_, 11i32);
+    assert_eq!(22i32 >> p.u8_, 11i32);
+    assert_eq!(22i32 >> p.u16_, 11i32);
+    assert_eq!(22i32 >> p.u32_, 11i32);
+    assert_eq!(22i32 >> p.u64_, 11i32);
+    assert_eq!(22i32 >> p.usize_, 11i32);
+}
+
+fn main() -> i32 {
+    let p = Panolpy {
+        i8_: 1i8, i16_: 1i16, i32_: 1i32, i64_: 1i64, isize_: 1i64,
+        u8_: 1u8, u16_: 1u16, u32_: 1u32, u64_: 1u64, usize_: 1u64,
+    };
+    foo(p);
+    return 0;
+}

@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust tests/ui/numbers-arithmetic/integer-literal-radix.rs
+// Modifications: explicit isize suffixes on rhs of assert_eq.
+package integer_literal_radix;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let a = 0xBEEFisize;
+    let b = 0o755isize;
+    let c = 0b10101isize;
+    let d = -0xBEEFisize;
+    let e = -0o755isize;
+    let f = -0b10101isize;
+
+    assert_eq!(a, 48879isize);
+    assert_eq!(b, 493isize);
+    assert_eq!(c, 21isize);
+    assert_eq!(d, -48879isize);
+    assert_eq!(e, -493isize);
+    assert_eq!(f, -21isize);
+    return 0;
+}

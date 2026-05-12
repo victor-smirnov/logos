@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust tests/ui/numbers-arithmetic/float-signature.rs
+// Modifications: fn-in-fn lifted to module scope; println! dropped;
+// main returns i32.
+package float_signature_test;
+
+fn foo(n: f64) -> f64 { return n + 0.12345f64; }
+
+fn main() -> i32 {
+    let n: f64 = 0.1f64;
+    let _m: f64 = foo(n);
+    return 0;
+}
