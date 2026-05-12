@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust tests/ui/higher-ranked/trait-bounds/hrtb-type-outlives.rs
+// Modifications: `isize` → `i64`, `usize` → `u64`; dropped the
+// `where X: 'a` type-outlives clause on the impl (Logos grammar
+// currently allows where-clauses only on fn signatures, not on
+// impl blocks). The HRTB acceptance path is unchanged either way.
+//
+// Exercises B62 + B63: HRTB bound `for<'a> Foo<&'a i64>` satisfied
+// by `impl<'a, X> Foo<&'a i64> for SomeStruct<X>`.
+package hrtb_type_outlives;
+
+trait Foo<X> { fn foo(self: Self, x: X) -> i32 { return 0i32; } }
+
+fn want_foo<T>() where T: for<'a> Foo<&'a i64> {}
+
+struct SomeStruct<X> { x: X }
+
+impl<'a, X> Foo<&'a i64> for SomeStruct<X> {}
+
+fn main() -> i32 {
+    want_foo::<SomeStruct<u64>>();
+    return 0i32;
+}
