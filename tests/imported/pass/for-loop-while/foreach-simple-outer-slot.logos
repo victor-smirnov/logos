@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/foreach-simple-outer-slot.rs
+// Modifications: `FnMut(isize)` (no return) → `FnMut(i64) -> i32`
+// (Logos's Fn-family bound grammar requires explicit `-> R`; the
+// closure returns 0i32 as a unit-substitute). `mut it: F` rejected on
+// a generic-T parameter, so the closure is moved into a local before
+// invocation. The closure mutates the captured outer `sum` — this
+// test originally surfaced C5-cl-08 (mutation through `<F: FnMut>`
+// indirection silently dropped) and now exercises the by-ref capture
+// path. `println!` calls dropped.
+package fl_foreach_simple_outer_slot;
+
+use std.fmt;
+use std.lang.text;
+
+fn first_ten<F: FnMut(i64) -> i32>(it: F) {
+    let mut local = it;
+    let mut i: i64 = 0i64;
+    while i < 10i64 {
+        local(i);
+        i = i + 1i64;
+    }
+}
+
+fn main() -> i32 {
+    let mut sum: i64 = 0i64;
+    first_ten(|i: i64| -> i32 { sum = sum + i; return 0i32; });
+    if sum != 45i64 { return 1i32; }
+    return 0i32;
+}

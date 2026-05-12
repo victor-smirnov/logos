@@ -2543,6 +2543,10 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 [&](std::string_view, TypeRef ct) {
                     nc->capture_types.push_back(subst_type(ct, s));
                 });
+            // C5-cl-08: carry per-capture mut-flag across substitution.
+            nc->mut_captures.resize(nc->captures.size(), false);
+            for (size_t i = 0; i < nc->captures.size(); ++i)
+                nc->mut_captures[i] = v.capture_is_mut(i);
             result->mirror_offset_ = lir_mirror_emit_closure_box(
                 out_, result->type, nc);
             break;

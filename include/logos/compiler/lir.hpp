@@ -652,6 +652,12 @@ struct EClosure {
     bool                            is_move = false;
     std::vector<std::string>        captures;
     std::vector<TypeRef>   capture_types;
+    // C5-cl-08: per-capture flag — set when the closure body mutates the
+    // captured outer variable (Assign / CompoundAssign / DerefWrite of an
+    // address-of-capture). True entries are stored in the env struct as a
+    // raw pointer to the outer alloca instead of a value copy, so mutations
+    // round-trip back. Size matches `captures` once sema finishes the scan.
+    std::vector<bool>               mut_captures;
     // When true: non-capturing closure coerced to fn ptr; emitted without env_ptr.
     bool                            as_fn_ptr = false;
 };

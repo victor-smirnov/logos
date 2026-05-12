@@ -1455,8 +1455,11 @@ hermes::arena_offset_t LirMirrorEmitter::emit_closure(const EClosure& c) {
         param_types_av = hermes::AnyVal::from_offset(t_off);
     }
 
+    // 10 keys (block, name, cap-types, cap-names, param-names, param-types,
+    // ret-type, is-move, as-fn-ptr, mut-captures) — default cap=8 overflows.
     auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::ClosureBox)
-                            | (1ULL << 47));  // closure marker bit (synthetic)
+                            | (1ULL << 47),
+                            /*cap=*/12);
     put(map_off, ck::BLOCK,         hermes::AnyVal::from_offset(body_off));
     if (!c.closure_id.empty())
         put(map_off, ck::NAME, put_string(c.closure_id));
@@ -1467,6 +1470,19 @@ hermes::arena_offset_t LirMirrorEmitter::emit_closure(const EClosure& c) {
     if (c.ret_type) put(map_off, ck::RET_TYPE, type_av(c.ret_type));
     put(map_off, ck::IS_MOVE,   put_bool(c.is_move));
     put(map_off, ck::AS_FN_PTR, put_bool(c.as_fn_ptr));
+    // C5-cl-08: per-capture mut flag — emit as parallel Array<u8> only when
+    // at least one capture is mutated, so untouched closures keep the
+    // existing schema footprint.
+    bool any_mut = false;
+    for (auto m : c.mut_captures) if (m) { any_mut = true; break; }
+    if (any_mut && c.mut_captures.size() == c.captures.size()) {
+        std::vector<hermes::AnyVal> m_elems;
+        m_elems.reserve(c.mut_captures.size());
+        for (bool m : c.mut_captures) m_elems.push_back(put_bool(m));
+        auto m_off = make_array(m_elems.size());
+        for (auto av : m_elems) array_push(m_off, av);
+        put(map_off, ck::MUT_CAPTURES, hermes::AnyVal::from_offset(m_off));
+    }
     return map_off;
 }
 

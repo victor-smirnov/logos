@@ -764,6 +764,21 @@ public:
         }
     }
 
+    // C5-cl-08: per-capture mut-flag — true if the captured variable is
+    // mutated inside the closure body. Missing key (e.g. closures with no
+    // mutated captures) returns false for all indices.
+    bool capture_is_mut(uint64_t i) const noexcept {
+        auto* m = cl_map();
+        if (!m) return false;
+        auto av = m->get(lir_schema::closure_keys::MUT_CAPTURES.code, self.base());
+        if (av.is_null()) return false;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
+        if (i >= arr->size()) return false;
+        auto el = arr->get(i, self.base());
+        if (el.is_null()) return false;
+        return el.as_value<uint8_t>() != 0;
+    }
+
     // Iterate (name, type) pairs from CL_CAPTURE_NAMES + CL_CAPTURE_TYPES.
     template <class F>
     void each_capture(const TypePoolImpl* pool, F&& f) const noexcept {

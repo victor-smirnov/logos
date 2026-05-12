@@ -1216,6 +1216,20 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     std::vector<bool> capture_is_enum(captures.size(), false);
     std::vector<bool> capture_is_dyn(captures.size(), false);
     std::vector<bool> capture_is_pointer_repr(captures.size(), false);
+    // C5-cl-08: per-capture by-ref flag. True for captures whose value is
+    // mutated inside the closure body AND the source variable is a let-bound
+    // scalar (alloca'd). The env field stores the outer alloca pointer
+    // instead of a value copy, so mutations round-trip back.
+    std::vector<bool> capture_is_mut_ref(captures.size(), false);
+    for (size_t i = 0; i < captures.size(); ++i) {
+        const auto& name = captures[i];
+        if (!v.capture_is_mut(i)) continue;
+        // Only meaningful for scalar (let-bound) captures: the existing
+        // pointer-repr categories (struct/class/etc.) already store a
+        // pointer, so mutations propagate without extra plumbing.
+        if (!let_vars_.count(name)) continue;
+        capture_is_mut_ref[i] = true;
+    }
     for (size_t i = 0; i < captures.size(); ++i) {
         const auto& name = captures[i];
         capture_is_struct[i] = var_struct_.count(name);
@@ -1231,15 +1245,24 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
 
     // Build capture struct type.
     llvm::SmallVector<mlir::Type> cap_fields;
+    // For mut-ref captures we also remember the scalar value-type so the
+    // closure body can load/store through the pointer with the right load
+    // result type.
+    std::vector<mlir::Type> cap_value_types(captures.size());
     for (size_t i = 0; i < capture_types.size(); ++i) {
         auto ct = capture_types[i];
         mlir::Type ft;
-        if (capture_is_pointer_repr[i])
+        if (capture_is_pointer_repr[i] || capture_is_mut_ref[i])
             ft = ptr_type();
         else
             ft = logos_to_mlir(ct);
         if (!ft) ft = builder_.getI32Type();
         cap_fields.push_back(ft);
+        if (capture_is_mut_ref[i]) {
+            auto vt = logos_to_mlir(ct);
+            if (!vt) vt = builder_.getI32Type();
+            cap_value_types[i] = vt;
+        }
     }
     auto cap_struct = cap_fields.empty()
         ? mlir::LLVM::LLVMStructType::getLiteral(builder_.getContext(), {builder_.getI8Type()})
@@ -1321,6 +1344,13 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
                 var_tagged_enum_.insert(captures[i]);
             else if (is_dyn_cap && ct)
                 var_dyn_trait_[captures[i]] = std::string(TypeRef(ct).trait_name());
+        } else if (capture_is_mut_ref[i]) {
+            // val is a pointer to the outer alloca. Alias scope_[name] to it
+            // directly so reads/writes inside the body go through the same
+            // pointer the env was constructed with — mutations escape.
+            scope_[captures[i]] = val;
+            let_vars_.insert(captures[i]);
+            var_elem_types_[captures[i]] = cap_value_types[i];
         } else {
             auto alloca = create_entry_alloca(cap_fields[i]);
             builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
@@ -1367,8 +1397,13 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         if (it == scope_.end()) continue;
         mlir::Value cap_val;
         bool pointer_repr = capture_is_pointer_repr[i];
+        bool mut_ref      = capture_is_mut_ref[i];
         auto eit = var_elem_types_.find(captures[i]);
         if (pointer_repr)
+            cap_val = it->second;
+        else if (mut_ref)
+            // Outer alloca pointer goes verbatim into the env field; the
+            // closure body reads/writes through it.
             cap_val = it->second;
         else if (let_vars_.count(captures[i]) && eit != var_elem_types_.end())
             cap_val = builder_.create<mlir::LLVM::LoadOp>(loc_, eit->second, it->second);

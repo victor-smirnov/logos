@@ -7111,6 +7111,20 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     std::vector<std::string> captures;
     std::vector<TypeRef> capture_types;
     StrSet seen;
+    // C5-cl-08: track which capture names are mutated inside the body
+    // (Assign / FieldWrite / IndexWrite / DerefWrite targeting the capture
+    // var). Captures in this set are emitted by-reference so mutations
+    // propagate to the outer alloca instead of staying local to the env.
+    StrSet mut_captures_set;
+    auto mark_mut_capture = [&](std::string_view target_name) {
+        if (target_name.empty() || param_names.count(std::string(target_name)))
+            return;
+        // Only mark if it would (or already does) appear as a capture —
+        // i.e. it resolves in an enclosing scope.
+        if (!lookup(std::string(target_name)))
+            return;
+        mut_captures_set.insert(std::string(target_name));
+    };
     auto add_capture = [&](const std::string& name) {
         if (param_names.count(name) || seen.count(name))
             return;
@@ -7251,7 +7265,12 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         if (!s) return;
         switch (s.kind()) {
             case SC::Let:        scan_captures_v(lir_view::SLetView{s}.value()); break;
-            case SC::Assign:     scan_captures_v(lir_view::SAssignView{s}.value()); break;
+            case SC::Assign: {
+                auto v = lir_view::SAssignView{s};
+                mark_mut_capture(v.name());
+                scan_captures_v(v.value());
+                break;
+            }
             case SC::Return:     scan_captures_v(lir_view::SReturnView{s}.value()); break;
             case SC::If: {
                 auto v = lir_view::SIfView{s};
@@ -7271,9 +7290,15 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             case SC::Loop:       scan_block_v(lir_view::SLoopView{s}.body()); break;
             case SC::Break:      scan_captures_v(lir_view::SBreakView{s}.value()); break;
             case SC::Block:      scan_block_v(lir_view::SBlockView{s}.body()); break;
-            case SC::FieldWrite: scan_captures_v(lir_view::SFieldWriteView{s}.value()); break;
+            case SC::FieldWrite: {
+                auto v = lir_view::SFieldWriteView{s};
+                mark_mut_capture(v.receiver());
+                scan_captures_v(v.value());
+                break;
+            }
             case SC::IndexWrite: {
                 auto v = lir_view::SIndexWriteView{s};
+                mark_mut_capture(v.arr());
                 scan_captures_v(v.index()); scan_captures_v(v.value()); break;
             }
             case SC::FieldIndexWrite: {
@@ -7324,6 +7349,9 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     }
     ec->captures      = std::move(captures);
     ec->capture_types = std::move(capture_types);
+    ec->mut_captures.resize(ec->captures.size(), false);
+    for (size_t i = 0; i < ec->captures.size(); ++i)
+        ec->mut_captures[i] = mut_captures_set.count(ec->captures[i]) > 0;
 
     if (is_move) {
         for (size_t i = 0; i < ec->captures.size(); ++i) {
