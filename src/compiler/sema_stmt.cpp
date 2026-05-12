@@ -507,10 +507,89 @@ lir::LStmt SemaChecker::lower_let_pat(TinyMapView node) {
             }
         }
     }
-    if (pc != la::PAT_STRUCT && !is_tuple_struct_pat) {
+    // P4-pm-15: `let [a, b, c] = arr;` array destructure. Treated as
+    // irrefutable when scrut is a fixed-size array whose length
+    // matches the pattern's element count, and the pattern has no
+    // `..` rest (rest-form is refutable for slices and isn't useful
+    // for fixed arrays since shape is known). Lowered as a temp +
+    // per-index field-read sequence (parallel to the tuple-struct
+    // destructure path above).
+    bool is_array_slice_pat =
+        pc == la::PAT_SLICE &&
+        TypeRef(rhs_type).kind() == LogosType::Kind::Array &&
+        TypeRef(rhs_type).elem();
+    if (pc != la::PAT_STRUCT && !is_tuple_struct_pat && !is_array_slice_pat) {
         error("'let <pattern> = expr;' currently supports struct patterns only "
               "(other shapes are refutable; use 'match' or 'let-else')");
         return builder().stmt_expr(std::move(rhs), node_line_);
+    }
+    if (is_array_slice_pat) {
+        auto elem_t = TypeRef(rhs_type).elem();
+        size_t arr_n = (size_t)TypeRef(rhs_type).arr_size();
+        std::vector<hermes::TinyMapView> sub_pats;
+        bool has_rest = false;
+        if (pat_node.has_key(la::ITEMS)) {
+            auto items_av = pat_node.get(la::ITEMS.code);
+            if (!items_av.is_null() && items_av.is_pointer()) {
+                auto elist = map_of(items_av);
+                if (elist.has_key(la::ITEMS)) {
+                    auto eitems = arr_of(elist.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < eitems.size(); ++i) {
+                        auto en = map_of(eitems.get(i));
+                        if (code_of(en) == la::PAT_REST) { has_rest = true; continue; }
+                        sub_pats.push_back(en);
+                    }
+                }
+            }
+        }
+        if (has_rest) {
+            error("`let [..]` pattern: `..` rest at let-position is "
+                  "currently not supported (refutable shape — use a "
+                  "fully-enumerated pattern that covers the array's "
+                  "length)");
+            return builder().stmt_expr(std::move(rhs), node_line_);
+        }
+        if (sub_pats.size() != arr_n) {
+            error(std::format(
+                "let array pattern: expected {} elements, got {}",
+                arr_n, sub_pats.size()));
+            return builder().stmt_expr(std::move(rhs), node_line_);
+        }
+        auto blk = lir::alloc_block(*cur_prog_);
+        std::string tmp = std::format("__dst_{}", destruct_counter_++);
+        define(tmp, rhs_type);
+        {
+            lir::SLet sl;
+            sl.name = tmp; sl.type = rhs_type; sl.is_mut = false;
+            sl.value = std::move(rhs);
+            blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+        }
+        for (size_t j = 0; j < sub_pats.size(); ++j) {
+            auto en = sub_pats[j];
+            int32_t ec = code_of(en);
+            if (ec == la::PAT_WILD && en.has_key(la::NAME)) {
+                auto vname = std::string(str_of(en.get(la::NAME.code)));
+                if (vname == "_") continue;
+                lir::SLet sl;
+                sl.name   = vname;
+                sl.type   = elem_t;
+                sl.is_mut = false;
+                sl.value  = builder().slice_index(
+                    builder().var_ref(tmp, rhs_type),
+                    builder().lit_int((int64_t)j, prim(LogosType::Kind::I64)),
+                    elem_t);
+                define(vname, elem_t);
+                blk->stmts.push_back(
+                    make_stmt_emit(node_line_, std::move(sl)));
+            } else {
+                error(std::format(
+                    "let array pattern: only plain identifier bindings "
+                    "are supported at element {} (got non-PAT_WILD)", j));
+            }
+        }
+        lir::SBlock sb;
+        sb.body = std::move(blk);
+        return make_stmt_emit(node_line_, std::move(sb));
     }
     if (is_tuple_struct_pat) {
         // Mini destructure path: temp = rhs; let a = temp.0; let b = temp.1; …

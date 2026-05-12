@@ -1,0 +1,28 @@
+// P4-pm-15 regression: `let [a, b, c] = arr;` over a fixed-size array.
+// Lowers via the let-destructure path with a temp + per-index
+// field-read sequence (parallel to tuple-struct destructure).
+// Refutable shapes (with `..` rest) still rejected — that's a
+// separate slice (P4-pm-20 + slice-pattern at let-position with
+// length flexibility).
+package let_array_destructure;
+
+fn main() -> i32 {
+    let arr: [i32; 3] = [10i32, 20i32, 30i32];
+    let [a, b, c] = arr;
+    if a != 10i32 { return 1; }
+    if b != 20i32 { return 2; }
+    if c != 30i32 { return 3; }
+
+    let pair: [i64; 2] = [100i64, 200i64];
+    let [x, y] = pair;
+    if x != 100i64 { return 4; }
+    if y != 200i64 { return 5; }
+
+    // Wildcard skips
+    let mix: [i32; 4] = [1i32, 2i32, 3i32, 4i32];
+    let [_, second, _, fourth] = mix;
+    if second != 2i32 { return 6; }
+    if fourth != 4i32 { return 7; }
+
+    return 0;
+}
