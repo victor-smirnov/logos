@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/closure-inference.rs
+// Modifications: `FnOnce` bound on `apply` reduced to bare
+// `fn(isize) -> isize`; closure `|i| foo(i)` annotated with
+// explicit param + return type (Logos's parameter-type inference
+// from context is limited). `apply(f, 2)` passes a real fn-pointer
+// `g = foo` to match the bare-fn signature.
+package fc_closure_inference;
+
+use std.fmt;
+use std.lang.text;
+
+fn foo(i: isize) -> isize { return i + 1isize; }
+
+fn apply(f: fn(isize) -> isize, v: isize) -> isize { return f(v); }
+
+fn main() -> i32 {
+    let f = |i: isize| -> isize { return foo(i); };
+    let g: fn(isize) -> isize = foo;
+    assert_eq!(apply(g, 2isize), 3isize);
+    assert_eq!(f(5isize), 6isize);
+    return 0;
+}
