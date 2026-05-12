@@ -519,7 +519,52 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             }
             auto key1 = bound.trait_name + "::" + concrete_str;
             auto key2 = unwrapped_name.empty() ? "" : bound.trait_name + "::" + unwrapped_name;
-            if (impls_.count(key1) || (!key2.empty() && impls_.count(key2))) continue;
+            // B62: region check — bound's universally-quantified lifetimes
+            // must be satisfied by impl-level lifetime params. An impl that
+            // pins a trait-arg to a concrete region (e.g. 'static) doesn't
+            // satisfy a `for<'a> Trait<&'a T>` style bound.
+            auto region_ok = [&](const SemaImplInfo& info) {
+                if (bound.type_args.empty() || info.trait_type_args.empty())
+                    return true;
+                size_t n = std::min(bound.type_args.size(),
+                                    info.trait_type_args.size());
+                for (size_t i = 0; i < n; ++i) {
+                    TypeRef bt(bound.type_args[i]);
+                    TypeRef it(info.trait_type_args[i]);
+                    if (!bt || !it) continue;
+                    bool br = bt.kind() == LogosType::Kind::Ref ||
+                              bt.kind() == LogosType::Kind::MutRef;
+                    bool ir = it.kind() == LogosType::Kind::Ref ||
+                              it.kind() == LogosType::Kind::MutRef;
+                    if (!br || !ir) continue;
+                    std::string blt(bt.lifetime());
+                    std::string ilt(it.lifetime());
+                    if (blt.empty() || blt == "static") continue;
+                    bool universal = false;
+                    for (auto& nm : info.impl_lifetime_params)
+                        if (nm == ilt) { universal = true; break; }
+                    if (!universal) return false;
+                }
+                return true;
+            };
+            {
+                const SemaImplInfo* found = nullptr;
+                auto i1 = impls_.find(key1);
+                if (i1 != impls_.end()) found = &i1->second;
+                else if (!key2.empty()) {
+                    auto i2 = impls_.find(key2);
+                    if (i2 != impls_.end()) found = &i2->second;
+                }
+                if (found) {
+                    if (region_ok(*found)) continue;
+                    error(std::format(
+                        "'{}': type '{}' does not satisfy `{}` bound: "
+                        "impl provides a concrete lifetime where the bound "
+                        "demands a universally-quantified one (HRTB)",
+                        target_name, concrete_str, bound.trait_name));
+                    continue;
+                }
+            }
             // Blanket-impl satisfaction: a `impl<T: X> bound.trait for T`
             // makes every `T: X` automatically implement the bound trait.
             bool via_blanket = false;
@@ -1324,14 +1369,32 @@ void SemaChecker::collect_impl(TinyMapView node) {
     // Push impl's own type params: either from IMPL_TYPE_PARAMS (new generic trait impl
     // form: impl<T> Trait for Struct<T>) or from TYPE_PARAMS (standalone: impl<T> Pair<T>).
     std::vector<TypeParam> impl_tps;
+    // B62: impl-level lifetime params from `impl<'a, T>` — used to recognize
+    // when a trait-arg lifetime is universally quantified at impl site.
+    std::vector<std::string> impl_lt_params;
+    auto extract_impl_lt = [&](int32_t field_code) {
+        if (!node.has_key(field_code)) return;
+        AnyVal tpav = node.get(field_code);
+        if (tpav.is_null()) return;
+        auto tplist = map_of(tpav);
+        if (!tplist.has_key(la::ITEMS)) return;
+        auto items = arr_of(tplist.get(la::ITEMS.code));
+        for (uint64_t i = 0; i < items.size(); ++i) {
+            auto it = map_of(items.get(i));
+            if (code_of(it) != la::LIFETIME_PARAM) continue;
+            impl_lt_params.push_back(std::string(str_of(it.get(la::NAME.code))));
+        }
+    };
     if (node.has_key(la::IMPL_TYPE_PARAMS)) {
         impl_tps = read_type_params_from(node, la::IMPL_TYPE_PARAMS.code);
         push_type_params(impl_tps);
         impl_type_params_ = impl_tps;
+        extract_impl_lt(la::IMPL_TYPE_PARAMS.code);
     } else if (trait_name.empty() && node.has_key(la::TYPE_PARAMS)) {
         impl_tps = read_type_params(node);
         push_type_params(impl_tps);
         impl_type_params_ = impl_tps;  // so collect_fn includes them in fn.type_params
+        extract_impl_lt(la::TYPE_PARAMS.code);
     }
     // TYPE is the target type (simple_type, ptr_type, or GENERIC_INST)
     std::string target;
@@ -1498,6 +1561,10 @@ void SemaChecker::collect_impl(TinyMapView node) {
     // Resolve trait type args (e.g. impl Into<i32> for Celsius → T=i32)
     // and push them into current_type_params_ so method sigs resolve correctly.
     std::vector<TypeRef> trait_type_args;
+    // B62: parallel collection of lifetime args at trait position
+    // (`impl Trait<'a, T>` → ["a"]). Skipped from type_args resolution but
+    // captured for HRTB satisfaction check at bound time.
+    std::vector<std::string> trait_lt_args;
     if (!trait_name.empty() && node.has_key(la::TYPE_PARAMS)) {
         AnyVal tpav = node.get(la::TYPE_PARAMS.code);
         if (!tpav.is_null()) {
@@ -1510,7 +1577,11 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     // arg position in `impl Foo<'a> for ...`. Logos doesn't
                     // track regions structurally for trait dispatch, and
                     // resolve_type would error on code 131 (LIFETIME_PARAM).
-                    if (code_of(item) == la::LIFETIME_PARAM) continue;
+                    if (code_of(item) == la::LIFETIME_PARAM) {
+                        trait_lt_args.push_back(
+                            std::string(str_of(item.get(la::NAME.code))));
+                        continue;
+                    }
                     trait_type_args.push_back(resolve_type(item));
                 }
             }
@@ -1871,14 +1942,16 @@ void SemaChecker::collect_impl(TinyMapView node) {
     // Register the impl mapping (only for trait impls)
     if (!trait_name.empty()) {
         SemaImplInfo info{trait_name, target, impl_is_unsafe, impl_is_negative,
-                          target_resolved, impl_tps};
+                          target_resolved, impl_tps,
+                          trait_type_args, trait_lt_args, impl_lt_params};
         impls_[trait_name + "::" + target] = info;
         // `str` is a built-in that resolves to Slice<u8>; type_str() produces
         // "&[u8]" for Slice<u8>, so trait-bound checks look for "Trait::&[u8]".
         // Register an alias entry so satisfaction checks find the impl.
         if (target == "str") {
             SemaImplInfo alias{trait_name, "&[u8]", impl_is_unsafe, impl_is_negative,
-                               target_resolved, impl_tps};
+                               target_resolved, impl_tps,
+                               trait_type_args, trait_lt_args, impl_lt_params};
             impls_[trait_name + "::&[u8]"] = alias;
         }
     }

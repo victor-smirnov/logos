@@ -1275,6 +1275,15 @@ private:
         // with bounds. Both empty for non-generic impls.
         TypeRef                target_typeref = nullptr;
         std::vector<TypeParam> impl_type_params;
+        // B62: trait-arg lifetimes from `impl Trait<&'a T> for X` — needed at
+        // bound-check time to detect HRTB satisfaction mismatch (impl provides
+        // concrete region where bound demands universal).
+        std::vector<TypeRef>        trait_type_args;
+        std::vector<std::string>    trait_lifetime_args;
+        // B62: impl-level lifetime params from `impl<'a, T> ...`. A trait_type_arg
+        // whose lifetime string is in this set is "generic" (universally quantified
+        // at impl site) and can satisfy a HRTB-bound generic lifetime.
+        std::vector<std::string>    impl_lifetime_params;
     };
 
     // Type params in scope for the function/struct currently being processed.

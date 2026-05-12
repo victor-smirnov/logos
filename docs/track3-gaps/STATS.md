@@ -151,8 +151,39 @@ Closed in B61 (lifetime epic Phase 9):
   the holder after the offending line so it remains a real fail-
   test. Regression: `pass/nll_mut_then_shared.logos`. 1547/1547.
 
+Closed in B62 (lifetime epic Phase 5 — first substantive slice):
+- **Bound-shape region match** ✅ — at sema-time, when checking
+  `T: SomeTrait<&'a U>` against `impl SomeTrait<&'X U> for T`, the
+  trait-arg region must be compatible. Impl-side concrete regions
+  (e.g. `'static`) no longer satisfy a bound whose trait-arg uses
+  a generic-position lifetime — i.e. an impl that pins to one
+  region cannot stand in for a `for<'a>`-style universal bound.
+  Implementation: `SemaImplInfo` extended with `trait_type_args`,
+  `trait_lifetime_args`, `impl_lifetime_params`; populated in
+  `collect_impl`. The sema bound-check site
+  (`sema_collect.cpp::check_type_bounds`) gains an inline
+  `region_ok` predicate: for each ref-typed trait-arg, if the
+  bound's lifetime is generic (non-empty, non-`'static`), the
+  impl's matching lifetime must appear in the impl's own
+  `impl_lifetime_params`. Mirrored onto `LImplBlock` and into
+  Mono's `method_bound_ok` so struct-method clones see the same
+  rule. Calibration test:
+  `fail/hrtb_concrete_impl_universal_bound.logos` — `impl
+  Trait<&'static i64> for OnlyStatic` no longer satisfies
+  `F: for<'a> Trait<&'a i64>`. 1548/1548.
+
 Open / deferred (lifetime epic):
-- **HRTB real binder substitution** — currently parse-and-capture
+- **HRTB skolemization (B63)** — current B62 check is structural:
+  reject impl with concrete region against bound with generic
+  region. Full skolem-based check (fresh `'!N` per binder, unify
+  through impl) deferred — needed when bounds carry mixed regions
+  (`for<'a> Trait<&'a T, &'static U>`) or nested HRTB. Track in
+  `~/.claude/plans/lifetime-real-hrtb-variance.md`.
+- **Variance enforcement** — currently effectively covariant
+  everywhere via lifetime-erased type identity (TypeUID collapses
+  lifetimes). Per-type variance computation + subtype rule lands
+  in B64.
+- (Stale paragraph kept for reference:) **HRTB real binder substitution** — currently parse-and-capture
   (TraitBound.lifetime_args from B58); trait dispatch is lifetime-
   erased so `for<'a> Fn(&'a T)` and `Fn(&T)` resolve identically.
   Becomes substantive only when trait satisfaction starts

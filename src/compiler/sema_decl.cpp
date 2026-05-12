@@ -795,6 +795,16 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     lir::LImplBlock ib;
     ib.trait_name   = trait_name;
     ib.target_type  = target;
+    // B62: copy trait-arg region info captured by collect_impl, so mono's
+    // method_bound_ok can detect HRTB satisfaction mismatch.
+    if (!trait_name.empty()) {
+        auto it = impls_.find(trait_name + "::" + target);
+        if (it != impls_.end()) {
+            ib.trait_type_args      = it->second.trait_type_args;
+            ib.trait_lifetime_args  = it->second.trait_lifetime_args;
+            ib.impl_lifetime_params = it->second.impl_lifetime_params;
+        }
+    }
     // Propagate genos type_code: `impl Varchar for HermesString` on a
     // trait that carries #[type_code=N] sets the target struct's type_code
     // (if the struct hasn't got one already).  This is how eide inherit

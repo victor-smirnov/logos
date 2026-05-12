@@ -844,6 +844,13 @@ struct LImplBlock {
     // impls (those use bound_trait/extra_bounds above).
     TypeRef                target_typeref = nullptr;
     std::vector<TypeParam> impl_type_params;
+    // B62: trait-position args from `impl Trait<&'a U> for X` plus the
+    // impl's own lifetime params (`'a` in `impl<'a, T>`). Used by
+    // method_bound_ok to detect HRTB satisfaction mismatch (impl provides
+    // concrete region where bound demands universal).
+    std::vector<TypeRef>          trait_type_args;
+    std::vector<std::string>      trait_lifetime_args;
+    std::vector<std::string>      impl_lifetime_params;
 };
 
 struct LConst {

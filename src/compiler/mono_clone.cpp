@@ -3173,6 +3173,43 @@ bool Mono::method_bound_ok(const lir::LFunction& m, const SubstMap& s) {
                 continue;
             }
             if (!has_impl(tb.trait_name, cname)) return false;
+            // B62: HRTB satisfaction — if the bound's type_args carry a
+            // generic-named lifetime (anything other than "static" or empty),
+            // the matching impl must also provide that lifetime as one of its
+            // own impl-level lifetime params. An impl that pins to 'static
+            // doesn't satisfy a universally-quantified `for<'a>` bound.
+            if (!tb.type_args.empty()) {
+                const lir::LImplBlock* ib = nullptr;
+                for (auto& cand : out_.impls) {
+                    if (cand.trait_name == tb.trait_name &&
+                        cand.target_type == cname) { ib = &cand; break; }
+                }
+                if (ib && !ib->trait_type_args.empty()) {
+                    size_t n = std::min(tb.type_args.size(),
+                                        ib->trait_type_args.size());
+                    bool ok = true;
+                    for (size_t i = 0; i < n && ok; ++i) {
+                        TypeRef bt(tb.type_args[i]);
+                        TypeRef it(ib->trait_type_args[i]);
+                        if (!bt || !it) continue;
+                        bool b_is_ref = bt.kind() == LogosType::Kind::Ref ||
+                                        bt.kind() == LogosType::Kind::MutRef;
+                        bool i_is_ref = it.kind() == LogosType::Kind::Ref ||
+                                        it.kind() == LogosType::Kind::MutRef;
+                        if (!b_is_ref || !i_is_ref) continue;
+                        std::string blt(bt.lifetime());
+                        std::string ilt(it.lifetime());
+                        if (blt.empty() || blt == "static") continue;
+                        // bound demands a generic-position lifetime.
+                        // impl must provide it as one of its own lifetime params.
+                        bool impl_is_universal = false;
+                        for (auto& nm : ib->impl_lifetime_params)
+                            if (nm == ilt) { impl_is_universal = true; break; }
+                        if (!impl_is_universal) { ok = false; break; }
+                    }
+                    if (!ok) return false;
+                }
+            }
         }
     }
     return true;
