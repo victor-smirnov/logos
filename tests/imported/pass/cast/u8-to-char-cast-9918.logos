@@ -1,0 +1,11 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cast/u8-to-char-cast-9918.rs
+// Modifications: `assert_eq!` → explicit if-return; literals
+// typed. `'\0'` (null char) preserved.
+package c_u8_to_char_cast_9918;
+
+fn main() -> i32 {
+    let c: char = (0i32 + 0i32) as char;
+    if c != '\0' { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/borrowck/borrowck-move-by-capture-ok.rs
+// Modifications: `Box::new(3)` + closure `*bar` → bare `i64` and
+// closure returns the captured scalar directly. Test point — that
+// the borrow checker permits capturing a moved local in a `||`
+// closure body — is preserved at the source level (closure
+// captures `bar` by-value).
+package b_borrowck_move_by_capture_ok;
+
+fn main() -> i32 {
+    let bar: i64 = 3i64;
+    let h = || -> i64 { return bar; };
+    if h() != 3i64 { return 1i32; }
+    return 0i32;
+}

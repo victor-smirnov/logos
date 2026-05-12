@@ -37,6 +37,7 @@ silently un-trim earlier imports don't count here (logged in
 | B21  | 2026-05-11 |  9 |     0 | 0.00 | 119 | 104 |
 | B22  | 2026-05-11 |  4 |     2 | 0.50 | 123 | 106 |
 | B23  | 2026-05-11 |  7 |     0 | 0.00 | 130 | 106 |
+| B24  | 2026-05-11 |  3 |     0 | 0.00 | 133 | 106 |
 
 (Phase-1 counts are estimates — pre-batch gap-as-code triage gave coarse
 totals only; precise per-batch arrival-order numbers weren't recorded.
