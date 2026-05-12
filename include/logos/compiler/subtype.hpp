@@ -30,10 +30,15 @@ using OutlivesAdj =
     std::unordered_map<std::string, std::unordered_set<std::string>>;
 
 // Forward decl — definition below.
+// `permissive_empty` is forwarded to outlives() queries: true at call-site
+// coercions where the caller's region inference fills in unresolved
+// lifetimes; false at fn-body coercions (return, let with annotation)
+// where the lifetimes are fn-scope-fixed.
 bool subtype(TypeRef sub, TypeRef sup,
              const OutlivesAdj& adj,
              const DefVarianceTable& vars,
-             int depth = 0);
+             int depth = 0,
+             bool permissive_empty = true);
 
 namespace detail {
 
@@ -42,38 +47,42 @@ namespace detail {
 // must collapse to equality.
 //
 // Elision rule: an empty lifetime on either side is treated as a wildcard
-// (region inference will resolve it). So `&mut &i32` and `&mut &'a i32`
-// equal here — Logos doesn't fix elided lifetimes until call-site
-// inference, and we don't want to reject signatures Rust would accept.
-// Two NON-EMPTY lifetimes still require literal-string equality (Inv
-// catches `&mut &'static` vs `&mut &'a`).
-inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b) {
+// (region inference will resolve it). Mutual outlives via the supplied
+// graph also counts as equality — `'a: 'static, 'static: 'a` implies
+// `'a == 'static` for Inv comparison purposes, so `&'static T` and
+// `&'a T` are equal at an Inv position when both directions hold.
+inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
+                                       const OutlivesAdj* adj = nullptr) {
     if (!a || !b) return a == b;
     if (a.kind() != b.kind()) return false;
-    auto lt_eq = [](std::string_view x, std::string_view y) {
+    auto lt_eq = [&](std::string_view x, std::string_view y) {
         if (x.empty() || y.empty()) return true;
-        return x == y;
+        if (x == y) return true;
+        if (!adj) return false;
+        // Mutual outlives → treated as equal.
+        return outlives(x, y, *adj, /*permissive_empty=*/false) &&
+               outlives(y, x, *adj, /*permissive_empty=*/false);
     };
     using K = LogosType::Kind;
     switch (a.kind()) {
         case K::Ref:
         case K::MutRef: {
             if (!lt_eq(a.lifetime(), b.lifetime())) return false;
-            return types_equal_with_lifetimes(a.pointee(), b.pointee());
+            return types_equal_with_lifetimes(a.pointee(), b.pointee(), adj);
         }
         case K::Ptr:
-            return types_equal_with_lifetimes(a.pointee(), b.pointee());
+            return types_equal_with_lifetimes(a.pointee(), b.pointee(), adj);
         case K::Tuple: {
             auto ae = a.tuple_elems();
             auto be = b.tuple_elems();
             if (ae.size() != be.size()) return false;
             for (size_t i = 0; i < ae.size(); ++i)
-                if (!types_equal_with_lifetimes(ae[i], be[i])) return false;
+                if (!types_equal_with_lifetimes(ae[i], be[i], adj)) return false;
             return true;
         }
         case K::Array:
         case K::Slice:
-            return types_equal_with_lifetimes(a.elem(), b.elem());
+            return types_equal_with_lifetimes(a.elem(), b.elem(), adj);
         case K::Struct:
         case K::ZonedStruct:
         case K::Enum: {
@@ -84,7 +93,7 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b) {
             auto bta = b.type_args();
             if (ata.size() != bta.size()) return false;
             for (size_t i = 0; i < ata.size(); ++i)
-                if (!types_equal_with_lifetimes(ata[i], bta[i])) return false;
+                if (!types_equal_with_lifetimes(ata[i], bta[i], adj)) return false;
             auto alts = a.lifetime_args();
             auto blts = b.lifetime_args();
             if (alts.size() != blts.size()) return false;
@@ -100,20 +109,17 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b) {
 }
 
 // Subtype a position with variance v.
-//   Co     → subtype(sub, sup)
-//   Contra → subtype(sup, sub)
-//   Inv    → equal-with-lifetimes
-//   BiVar  → trivially OK
 inline bool subtype_at(Variance v, TypeRef sub, TypeRef sup,
                        const OutlivesAdj& adj,
                        const DefVarianceTable& vars,
-                       int depth)
+                       int depth,
+                       bool permissive_empty)
 {
     switch (v) {
         case Variance::BiVar:  return true;
-        case Variance::Co:     return subtype(sub, sup, adj, vars, depth + 1);
-        case Variance::Contra: return subtype(sup, sub, adj, vars, depth + 1);
-        case Variance::Inv:    return types_equal_with_lifetimes(sub, sup);
+        case Variance::Co:     return subtype(sub, sup, adj, vars, depth + 1, permissive_empty);
+        case Variance::Contra: return subtype(sup, sub, adj, vars, depth + 1, permissive_empty);
+        case Variance::Inv:    return types_equal_with_lifetimes(sub, sup, &adj);
     }
     return false;
 }
@@ -121,12 +127,13 @@ inline bool subtype_at(Variance v, TypeRef sub, TypeRef sup,
 inline bool lifetime_at(Variance v,
                         std::string_view sub_lt,
                         std::string_view sup_lt,
-                        const OutlivesAdj& adj)
+                        const OutlivesAdj& adj,
+                        bool permissive_empty)
 {
     switch (v) {
         case Variance::BiVar: return true;
-        case Variance::Co:    return outlives(sub_lt, sup_lt, adj);
-        case Variance::Contra: return outlives(sup_lt, sub_lt, adj);
+        case Variance::Co:    return outlives(sub_lt, sup_lt, adj, permissive_empty);
+        case Variance::Contra: return outlives(sup_lt, sub_lt, adj, permissive_empty);
         case Variance::Inv:
             return outlives_norm(sub_lt) == outlives_norm(sup_lt);
     }
@@ -148,12 +155,13 @@ inline bool lifetime_at(Variance v,
 inline bool subtype(TypeRef sub, TypeRef sup,
                     const OutlivesAdj& adj,
                     const DefVarianceTable& vars,
-                    int depth)
+                    int depth,
+                    bool permissive_empty)
 {
     if (depth > 64) return true;  // give up gracefully — caller has compat
     if (!sub || !sup) return true;
     using K = LogosType::Kind;
-    if (detail::types_equal_with_lifetimes(sub, sup)) return true;
+    if (detail::types_equal_with_lifetimes(sub, sup, &adj)) return true;
 
     // Different kinds: caller's compat check handles legitimate cross-kind
     // coercions (e.g. IntLit → i32, &mut → &, Vec → slice). Don't impose a
@@ -163,15 +171,15 @@ inline bool subtype(TypeRef sub, TypeRef sup,
     switch (sub.kind()) {
         case K::Ref: {
             // Co in lifetime, Co in pointee.
-            if (!detail::lifetime_at(Variance::Co, sub.lifetime(), sup.lifetime(), adj))
+            if (!detail::lifetime_at(Variance::Co, sub.lifetime(), sup.lifetime(), adj, permissive_empty))
                 return false;
-            return subtype(sub.pointee(), sup.pointee(), adj, vars, depth + 1);
+            return subtype(sub.pointee(), sup.pointee(), adj, vars, depth + 1, permissive_empty);
         }
         case K::MutRef: {
             // Co in lifetime, Inv in pointee.
-            if (!detail::lifetime_at(Variance::Co, sub.lifetime(), sup.lifetime(), adj))
+            if (!detail::lifetime_at(Variance::Co, sub.lifetime(), sup.lifetime(), adj, permissive_empty))
                 return false;
-            return detail::types_equal_with_lifetimes(sub.pointee(), sup.pointee());
+            return detail::types_equal_with_lifetimes(sub.pointee(), sup.pointee(), &adj);
         }
         case K::Ptr:
             // Raw pointers: Inv in pointee, but no lifetime tracking either.
@@ -182,21 +190,16 @@ inline bool subtype(TypeRef sub, TypeRef sup,
             auto pe = sup.tuple_elems();
             if (se.size() != pe.size()) return true;  // shape diff → compat
             for (size_t i = 0; i < se.size(); ++i)
-                if (!subtype(se[i], pe[i], adj, vars, depth + 1)) return false;
+                if (!subtype(se[i], pe[i], adj, vars, depth + 1, permissive_empty)) return false;
             return true;
         }
         case K::Array:
         case K::Slice:
-            return subtype(sub.elem(), sup.elem(), adj, vars, depth + 1);
+            return subtype(sub.elem(), sup.elem(), adj, vars, depth + 1, permissive_empty);
         case K::Struct:
         case K::ZonedStruct: {
             if (sub.struct_name() != sup.struct_name()) return true;
             if (sub.pkg_name() != sup.pkg_name()) return true;
-            // Variance lookup keyed by "pkg.Name". `vars` may carry an
-            // ordered variance list under the same key (one entry per param)
-            // when compute_variances has populated it. Default per-param =
-            // Co (matches Rust default for most container-like types; INV
-            // cases like Cell<T> need explicit per-param entries).
             std::string key = std::string(sub.pkg_name()) + (sub.pkg_name().empty() ? "" : ".")
                             + std::string(sub.struct_name());
             auto vit = vars.find(key);
@@ -204,8 +207,6 @@ inline bool subtype(TypeRef sub, TypeRef sup,
             auto var_for = [&](size_t i, bool is_lifetime) -> Variance {
                 (void)i; (void)is_lifetime;
                 if (!vm) return Variance::Co;
-                // No name → fall back to Co. compute_variances may key by
-                // synthetic "#0", "#1" indices; check for those.
                 std::string ikey = (is_lifetime ? "@" : "#") + std::to_string(i);
                 auto it = vm->find(ikey);
                 if (it != vm->end()) return it->second;
@@ -215,14 +216,14 @@ inline bool subtype(TypeRef sub, TypeRef sup,
             auto pta = sup.type_args();
             if (sta.size() != pta.size()) return true;
             for (size_t i = 0; i < sta.size(); ++i) {
-                if (!detail::subtype_at(var_for(i, false), sta[i], pta[i], adj, vars, depth + 1))
+                if (!detail::subtype_at(var_for(i, false), sta[i], pta[i], adj, vars, depth + 1, permissive_empty))
                     return false;
             }
             auto sl = sub.lifetime_args();
             auto pl = sup.lifetime_args();
             if (sl.size() != pl.size()) return true;
             for (size_t i = 0; i < sl.size(); ++i) {
-                if (!detail::lifetime_at(var_for(i, true), sl[i], pl[i], adj))
+                if (!detail::lifetime_at(var_for(i, true), sl[i], pl[i], adj, permissive_empty))
                     return false;
             }
             return true;
@@ -233,7 +234,7 @@ inline bool subtype(TypeRef sub, TypeRef sup,
             auto pta = sup.type_args();
             if (sta.size() != pta.size()) return true;
             for (size_t i = 0; i < sta.size(); ++i)
-                if (!subtype(sta[i], pta[i], adj, vars, depth + 1)) return false;
+                if (!subtype(sta[i], pta[i], adj, vars, depth + 1, permissive_empty)) return false;
             return true;
         }
         case K::FnPtr: {
@@ -242,8 +243,8 @@ inline bool subtype(TypeRef sub, TypeRef sup,
             auto pp = sup.closure_params();
             if (sp.size() != pp.size()) return true;
             for (size_t i = 0; i < sp.size(); ++i)
-                if (!subtype(pp[i], sp[i], adj, vars, depth + 1)) return false;
-            return subtype(sub.closure_ret(), sup.closure_ret(), adj, vars, depth + 1);
+                if (!subtype(pp[i], sp[i], adj, vars, depth + 1, permissive_empty)) return false;
+            return subtype(sub.closure_ret(), sup.closure_ret(), adj, vars, depth + 1, permissive_empty);
         }
         default:
             return true;

@@ -1135,8 +1135,10 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
             }
         }
         // B64: variance-aware subtype check at let-init coercion site.
+        // Strict mode — let annotation is fn-scope-fixed.
         if (rhs && ann && !rhs_is_expr_blob)
-            check_variance(rhs_type, ann, std::format("let '{}'", name));
+            check_variance(rhs_type, ann, std::format("let '{}'", name),
+                           /*permissive=*/false);
         // Implicit safe integer widening: u32 → i64, i32 → i64, u8 → u32, ...
         if (rhs && ann && is_integer_kind(TypeRef(ann).kind()) && is_integer_kind(TypeRef(rhs_type).kind()) &&
             TypeRef(rhs_type).kind() != LogosType::Kind::IntLit &&
@@ -1478,7 +1480,8 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
                 error(std::format("return type mismatch — expected {}, got {}",
                       es, gs));
             } else if (ret_type_) {
-                check_variance(val->type, ret_type_, "return type mismatch");
+                check_variance(val->type, ret_type_, "return type mismatch",
+                               /*permissive=*/false);
             }
             // Retype float literal to concrete return type.
             if (ret_type_ && TypeRef(val->type).kind() == LogosType::Kind::FloatLit &&

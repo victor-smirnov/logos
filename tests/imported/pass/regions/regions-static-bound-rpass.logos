@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-static-bound-rpass.rs
+// Modifications: `()` → `i32` everywhere; dropped `static UNIT` and
+// the calls in main (Logos has `pub const`, not `pub static`; the
+// shape of the regions test is preserved through the signatures).
+//
+// Exercises B65 + B67: `where 'a: 'static`, `where 'a: 'b, 'b: 'static`,
+// and `where 'static: 'a` (reverse direction). Logos accepts each
+// signature; borrow-check's return-lifetime path consults outlives.
+package regions_static_bound_rpass;
+
+fn invariant_id<'a, 'b>(t: &'b mut &'static i32) -> &'b mut &'a i32
+    where 'a: 'static { return t; }
+
+fn static_id<'a>(t: &'a i32) -> &'static i32 where 'a: 'static { return t; }
+
+fn static_id_indirect<'a, 'b>(t: &'a i32) -> &'static i32
+    where 'a: 'b, 'b: 'static { return t; }
+
+fn ref_id<'a>(t: &'a i32) -> &'a i32 where 'static: 'a { return t; }
+
+fn main() -> i32 { return 0i32; }

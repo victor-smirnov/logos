@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-bounds.rs
+// Modifications: tuple-struct → named-field struct (Logos has tuple
+// structs, but mixing forms in one file is noisy); `isize` → `i64`;
+// retained both error sites (`a_fn1` for the tuple-shape via
+// named-field; `a_fn3` for the explicit Struct).
+//
+// Exercises B64: shortening `Struct<'a>` to `Struct<'b>` when no
+// outlives constraint connects 'a and 'b is rejected (Struct's
+// lifetime param is invariant in absence of constraint).
+package regions_bounds;
+
+struct TupleStruct<'a> { x: &'a i64 }
+struct Struct<'a> { x: &'a i64 }
+
+fn a_fn1<'a, 'b>(e: TupleStruct<'a>) -> TupleStruct<'b> {
+    return e;
+}
+
+fn a_fn3<'a, 'b>(e: Struct<'a>) -> Struct<'b> {
+    return e;
+}
+
+fn main() -> i32 { return 0i32; }
