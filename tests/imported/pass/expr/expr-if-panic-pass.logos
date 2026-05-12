@@ -1,0 +1,40 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/if/expr-if-panic-pass.rs
+// Modifications: `panic!()` → `panic(msg)`; explicit i32 types on
+// the 10 literals. `assert_eq!` → if-return. Else-arm-panic and
+// elseif-arm-panic patterns work after K10-co-04 close: a tail
+// `panic(...)` in a block-expression branch propagates as Error
+// type so the if-expr unifier picks the non-divergent arm's type.
+package expr_if_panic_pass;
+
+use std.lang.panic;
+
+fn test_if_panic() -> i32 {
+    let x: i32 = if false { panic("never") } else { 10i32 };
+    if x != 10i32 { return 1i32; }
+    return 0i32;
+}
+
+fn test_else_panic() -> i32 {
+    let x: i32 = if true { 10i32 } else { panic("never") };
+    if x != 10i32 { return 2i32; }
+    return 0i32;
+}
+
+fn test_elseif_panic() -> i32 {
+    let x: i32 = if false { 0i32 }
+                 else if false { panic("never") }
+                 else { 10i32 };
+    if x != 10i32 { return 3i32; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let r1 = test_if_panic();
+    if r1 != 0i32 { return r1; }
+    let r2 = test_else_panic();
+    if r2 != 0i32 { return r2; }
+    let r3 = test_elseif_panic();
+    if r3 != 0i32 { return r3; }
+    return 0i32;
+}

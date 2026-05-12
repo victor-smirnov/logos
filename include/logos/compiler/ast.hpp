@@ -293,6 +293,10 @@ inline constexpr Code FN_MACRO_CALL_ITEM   {"FN_MACRO_CALL_ITEM", 226}; // `name
 inline constexpr Code FN_MACRO_CALL_ITEM_DONE{"FN_MACRO_CALL_ITEM_DONE", 227}; // Set by the driver after a FN_MACRO_CALL_ITEM has been spliced.
 inline constexpr Code PAT_CHAR             {"PAT_CHAR",           228}; // char-literal pattern (`'A'` in match arm). VALUE = original CHAR_LIT text.
 inline constexpr Code PAT_CHAR_RANGE       {"PAT_CHAR_RANGE",     229}; // char-range pattern (`'a' ..= 'z'`). LHS / RHS = original CHAR_LIT text for each endpoint.
+inline constexpr Code INVOKE_EXPR          {"INVOKE_EXPR",        230}; // `(expr)(args)` — IIFE / expression-as-callee (P4-pm-16). RECEIVER = callee expression, ARGS = arg-list. Sema routes through closure-call / fn-ptr-call.
+inline constexpr Code BREAK_EXPR           {"BREAK_EXPR",         231}; // `break` in expression position (P3-pg-04). Sema lowers as SBreak stmt + Error-typed sentinel so type-checks accept.
+inline constexpr Code CONTINUE_EXPR        {"CONTINUE_EXPR",      232}; // `continue` in expression position (P3-pg-04). Same shape as BREAK_EXPR.
+inline constexpr Code RETURN_EXPR          {"RETURN_EXPR",        233}; // `return` in expression position (P3-pg-04). Same shape — bare form only.
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  META            {"META",               16};   // meta @{...} block node on struct/trait/datatype declarations (reuses PATH_PARTS slot; these node types never co-exist)

@@ -1,9 +1,11 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/expr/if-panic-all.rs
-// Modifications: `panic!()` becomes `panic(msg)` (Logos has a free
-// fn `panic(str)`, not a macro); a trailing `0i32` follows each
-// panic call so the arm's type is i32 (Logos has no `!` /never type
-// inference, so divergent expressions don't satisfy a non-void arm).
+// Modifications: `panic!()` → `panic(msg)` (Logos has a free fn
+// `panic(str)`, not a macro). The faithful Rust form is now intact —
+// no `0i32` dummy after panic (K10-co-04 close: sema treats a tail
+// `panic(...)` in a block-expression as divergent, so the
+// block-expr's type adapts via Error and the if-expr unifier picks
+// the non-divergent arm's type).
 package expr_if_panic_all;
 
 use std.lang.panic;
@@ -12,7 +14,7 @@ fn main() -> i32 {
     let _x: i32 = if true {
         10i32
     } else {
-        if true { panic("never"); 0i32 } else { panic("never"); 0i32 }
+        if true { panic("never") } else { panic("never") }
     };
     return 0;
 }

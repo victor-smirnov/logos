@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/match-ref-binding.rs
+// Modifications: `isize` → `i64`, explicit `Option::Some/None::<i64>`.
+// `match` arms as `return`-statements (Logos's match-as-expression
+// path is fine here too; the explicit returns just shorten the
+// function body). `Some(ref v) => *v` parses and runs after
+// P4-pm-21 close — sema accepts `ref v` inside the variant payload,
+// and the B3-bg-07 deref-as-identity shim makes `*v` resolve as
+// the value read.
+package b_match_ref_binding;
+
+use std.lang.option;
+
+fn destructure(x: Option<i64>) -> i64 {
+    match x {
+        Option::None => return 0i64,
+        Option::Some(ref v) => return *v,
+    }
+}
+
+fn main() -> i32 {
+    if destructure(Option::Some::<i64>(22i64)) != 22i64 { return 1i32; }
+    return 0i32;
+}

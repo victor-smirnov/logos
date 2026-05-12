@@ -1,20 +1,17 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/match/closure-in-match-guard.rs
-// Modifications: Rust's bare-IIFE form `(|| { e == 0 })()` in the
-// guard isn't accepted at parse-time in Logos — closures must
-// flow through a `let`-bound name. The shape was the regression
-// point (debuginfo crash from codegen'ing the closure twice when
-// inside a match guard); using a named closure preserves that
-// codegen path while staying within Logos's grammar.
+// Modifications: closure annotated with explicit return type
+// `|| -> bool { return e == 0i32 }` (Logos requires explicit
+// param/ret types on closures; the rust test relies on inference).
+// `0` typed as `0i32`. The IIFE shape `(|| body)()` parses +
+// compiles after P4-pm-16 close (faithful Rust form restored).
 package m_closure_in_match_guard;
 
 fn main() -> i32 {
-    let x: i32 = 0i32;
-    let f = |e: i32| -> bool { return e == 0i32; };
-    match x {
-        e if f(e) => { }
-        1i32      => { }
-        _         => { }
+    match 0i32 {
+        e if (|| -> bool { return e == 0i32; })() => { }
+        1i32 => { }
+        _ => { }
     }
-    return 0;
+    return 0i32;
 }

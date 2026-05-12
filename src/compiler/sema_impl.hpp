@@ -1773,6 +1773,7 @@ private:
     lir::LExprPtr lower_generic_call(hermes::TinyMapView node);
     lir::LExprPtr lower_generic_ref(hermes::TinyMapView node);
     lir::LExprPtr lower_method_call(hermes::TinyMapView node);
+    lir::LExprPtr lower_invoke_expr(hermes::TinyMapView node);
     lir::LExprPtr lower_field_read(hermes::TinyMapView node);
     lir::LExprPtr lower_struct_lit(hermes::TinyMapView node);
     lir::LExprPtr lower_index_read(hermes::TinyMapView node);

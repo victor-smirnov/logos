@@ -274,6 +274,10 @@
     FN_MACRO_CALL_ITEM_DONE     = 227   // set by driver after item-macro splice; sema skips.
     PAT_CHAR                    = 228   // char-literal pattern (`'A'` in match arm). VALUE = original CHAR_LIT text; sema decodes to u32 scalar.
     PAT_CHAR_RANGE              = 229   // char-range pattern (`'a' ..= 'z'`). LHS / RHS = original CHAR_LIT text for each endpoint.
+    INVOKE_EXPR                 = 230   // `(expr)(args)` — IIFE / expression-as-callee (P4-pm-16). RECEIVER = callee expression, ARGS = arg-list. Sema routes through closure-call / fn-ptr-call.
+    BREAK_EXPR                  = 231   // `break` in expression position (P3-pg-04). Rust-style `!`/Never; sema lowers as a SBreak stmt + Error-typed sentinel expression so surrounding type-checks accept.
+    CONTINUE_EXPR               = 232   // `continue` in expression position (P3-pg-04). Same shape as BREAK_EXPR.
+    RETURN_EXPR                 = 233   // `return` in expression position (P3-pg-04). Same shape — bare form only (no value).
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -1795,6 +1799,14 @@
                      / loop_expr
                      / if_expr
                      / match_stmt
+                     // P3-pg-04: break as expression (Rust typing it as
+                     // `!`/Never). Only the bare form — labeled / value-
+                     // carrying variants greedily eat following tokens.
+                     // `continue` / `return` deliberately excluded since
+                     // adding them to primary_expr_ns shadows the
+                     // stmt-level forms (`return *v;` would parse as
+                     // bare RETURN_EXPR followed by orphan `*v`).
+                     / KW_BREAK    => { CODE: BREAK_EXPR }
                      / KW_METACALL block
                                         => { CODE: METACALL, VALUE: $2 }
                      / KW_METACALL LPAREN expr RPAREN
@@ -1891,6 +1903,13 @@
     atom <- primary_expr
             ( DOT IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE LPAREN call_arg_list? RPAREN
                 => { CODE: METHOD_CALL, RECEIVER: $0, NAME: $2, TYPE_PARAMS: $5, ARGS: $8 }
+            // P4-pm-16: bare-IIFE / expression-as-callee — `(|| body)(args)`,
+            // `(get_fn())(args)`. INVOKE_EXPR with RECEIVER = callee
+            // expression and ARGS = arg-list. Sema routes through the
+            // existing closure-call / fn-ptr-call path. Postfix grouping
+            // so chained `(…)(a)(b)` works.
+            / LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
+                => { CODE: INVOKE_EXPR, RECEIVER: $0, ARGS: $... }
             / DOT IDENT LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
                 => { CODE: METHOD_CALL, RECEIVER: $0, NAME: $2, ARGS: $... }
             / DOT KW_NEW LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
@@ -1935,6 +1954,7 @@
                   / loop_expr        // loop { ... }  — as expression (break value)
                   / if_expr          // if cond { ... } else { ... }  — as expression
                   / match_stmt       // match expr { ... }  — as expression
+                  / KW_BREAK    => { CODE: BREAK_EXPR }      // P3-pg-04 (bare only)
                   / KW_METACALL block
                                      => { CODE: METACALL, VALUE: $2 }
                   / KW_METACALL LPAREN expr RPAREN

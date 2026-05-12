@@ -25,6 +25,19 @@ using hermes::MemHolder;
 bool SemaChecker::stmt_always_returns(TinyMapView stmt) {
     int32_t c = code_of(stmt);
     if (c == la::RETURN) return true;
+    // K10-co-04: a call to `panic(...)` is divergent — control never falls
+    // through. Hand-recognised by callee name today since Logos has no
+    // `!`/Never type kind. Returning true from stmt_always_returns makes
+    // the fn-body return-reachability check accept a `panic(msg)` tail.
+    auto is_divergent_call = [&](hermes::TinyMapView node) -> bool {
+        if (code_of(node) != la::CALL.code) return false;
+        auto callee = str_of(node.get(la::CALLEE.code));
+        return callee == "panic";
+    };
+    if ((c == la::EXPR_STMT || c == la::TAIL_EXPR) && stmt.has_key(la::VALUE)) {
+        auto e = map_of(stmt.get(la::VALUE.code));
+        if (is_divergent_call(e)) return true;
+    }
     // B-fn-06: TAIL_EXPR (no-SEMI trailing expression) is treated as an
     // implicit return ONLY at fn-body context, signalled by tail_as_return_.
     // In match-arm-body / unsafe-block-as-expr contexts the same node is the

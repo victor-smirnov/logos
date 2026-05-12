@@ -592,6 +592,19 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::GENERIC_CALL: return lower_generic_call(expr);
     case la::GENERIC_REF:  return lower_generic_ref(expr);
     case la::METHOD_CALL:  return lower_method_call(expr);
+    case la::INVOKE_EXPR:  return lower_invoke_expr(expr);
+    case la::BREAK_EXPR:
+        // P3-pg-04: grammar admits bare `break` at expression position so
+        // faithful Rust ports (e.g. `int_id(break)`) parse. Codegen is a
+        // separate arc (needs Never/Bot type modelling so the surrounding
+        // expression's value-flow can be skipped cleanly through MLIR's
+        // strict block-terminator rules). Sema rejects for now with a
+        // clear diagnostic; the grammar parse is the user-visible
+        // half-step that distinguishes "syntax error" from "needs work".
+        error("`break` as expression not yet implemented (P3-pg-04 — "
+              "grammar lands, codegen needs Never-type / MLIR dead-block "
+              "handling)");
+        return builder().lit_int(0, error_t());
     case la::STATIC_CALL:  return lower_static_call(expr);
     case la::METACALL:     return lower_metacall(expr);
     case la::FN_MACRO_CALL: return lower_fn_macro_call(expr);
@@ -3183,9 +3196,62 @@ lir::LExprPtr SemaChecker::lower_generic_ref(TinyMapView node) {
     return builder().generic_ref(base, std::move(type_args), fn_type);
 }
 
+// P4-pm-16: IIFE / expression-as-callee — `(expr)(args)`. Routes through
+// the existing closure-call / fn-ptr-call paths. The grammar emits this
+// as INVOKE_EXPR with RECEIVER = callee expression + ARGS = arg-list.
+lir::LExprPtr SemaChecker::lower_invoke_expr(TinyMapView node) {
+    auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
+    std::vector<lir::LExprPtr> arg_exprs;
+    if (node.has_key(la::ARGS)) {
+        auto args = arr_of(node.get(la::ARGS.code));
+        for (uint64_t i = 0; i < args.size(); ++i)
+            arg_exprs.push_back(lower_expr(map_of(args.get(i))));
+    }
+    auto rt = recv ? recv->type : nullptr;
+    if (rt && TypeRef(rt).kind() == LogosType::Kind::Closure) {
+        uint64_t n_args   = arg_exprs.size();
+        uint64_t n_params = TypeRef(rt).closure_params().size();
+        if (n_args != n_params) {
+            error(std::format("closure call: expected {} args, got {}",
+                              n_params, n_args));
+        } else {
+            for (uint64_t i = 0; i < n_args; ++i) {
+                widen_int_expr(arg_exprs[i],
+                               TypeRef(rt).closure_params()[i], builder());
+                auto pt = TypeRef(rt).closure_params()[i];
+                auto at = arg_exprs[i]->type;
+                if (TypeRef(at).kind() != LogosType::Kind::Error &&
+                    TypeRef(pt).kind() != LogosType::Kind::Error &&
+                    !types_compatible(at, pt)) {
+                    auto [es, gs] = type_str_pair(pt, at);
+                    error(std::format(
+                        "closure call arg {}: expected {}, got {}",
+                        i + 1, es, gs));
+                }
+            }
+        }
+        auto ret = TypeRef(rt).closure_ret()
+            ? TypeRef(rt).closure_ret() : void_t();
+        return builder().closure_call(std::move(recv),
+                                      std::move(arg_exprs), ret);
+    }
+    if (rt && TypeRef(rt).kind() == LogosType::Kind::FnPtr) {
+        auto ret = TypeRef(rt).closure_ret()
+            ? TypeRef(rt).closure_ret() : void_t();
+        return builder().fn_ptr_call(std::move(recv),
+                                     std::move(arg_exprs), ret);
+    }
+    error(std::format(
+        "expression-as-callee: receiver type '{}' is not callable",
+        rt ? type_str(rt) : "?"));
+    return builder().method_call(std::move(recv), "", "", {},
+                                 std::move(arg_exprs), -1, error_t());
+}
+
 lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     auto method_name = str_of(node.get(la::NAME.code));
     auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
+
 
     // Helper: mark by-value move-type args as moved so scope-end Drops do
     // not fire on locals whose ownership has been transferred. Apply
@@ -6810,7 +6876,21 @@ lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
         if (is_last) {
             if ((lc == la::EXPR_STMT || lc == la::TAIL_EXPR)
                 && s.has_key(la::VALUE)) {
-                result = lower_expr(map_of(s.get(la::VALUE.code)));
+                auto val_node = map_of(s.get(la::VALUE.code));
+                // K10-co-04 follow-up: a tail `panic(...)` makes the
+                // block adapt to any expected context. Adopt Error as
+                // the block-expression type — if-expr / match-arm
+                // unification will let the non-divergent arm win, and
+                // codegen emits the panic call so the unreachable
+                // dummy value never executes. Mirrors the tail-RETURN
+                // treatment below.
+                if (code_of(val_node) == la::CALL.code &&
+                    str_of(val_node.get(la::CALLEE.code)) == "panic") {
+                    block->stmts.push_back(lower_stmt(s));
+                    divergent_ret_t = error_t();
+                    continue;
+                }
+                result = lower_expr(val_node);
                 continue;
             }
             if (lc != la::EXPR_STMT && lc != la::TAIL_EXPR
@@ -6871,13 +6951,25 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
         bool saved_tail = tail_as_return_;
         tail_as_return_ = false;
         lir::LExprPtr result = nullptr;
+        // K10-co-04 follow-up: same divergent-tail-as-Error logic as
+        // lower_block_expr — a tail `panic(...)` makes the branch's
+        // expression type adapt via Error so the if-expression unifier
+        // picks the non-divergent arm's type.
+        TypeRef divergent_t = nullptr;
         auto block = lir::alloc_block(*cur_prog_);
         for (uint64_t i = 0; i < stmts.size(); ++i) {
             auto s = map_of(stmts.get(i));
             if (i == stmts.size() - 1) {
                 int32_t lc = code_of(s);
                 if ((lc == la::EXPR_STMT || lc == la::TAIL_EXPR) && s.has_key(la::VALUE)) {
-                    result = lower_expr(map_of(s.get(la::VALUE.code)));
+                    auto val_node = map_of(s.get(la::VALUE.code));
+                    if (code_of(val_node) == la::CALL.code &&
+                        str_of(val_node.get(la::CALLEE.code)) == "panic") {
+                        block->stmts.push_back(lower_stmt(s));
+                        divergent_t = error_t();
+                    } else {
+                        result = lower_expr(val_node);
+                    }
                 } else if (lc != la::EXPR_STMT && lc != la::TAIL_EXPR && lc != la::LET && lc != la::LET_DESTRUCT && lc != la::RETURN) {
                     result = lower_expr(s);
                 } else {
@@ -6888,6 +6980,8 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
             }
         }
         tail_as_return_ = saved_tail;
+        if (!result && divergent_t)
+            return builder().block_expr(std::move(block), nullptr, divergent_t);
         if (!result) return builder().block_expr(std::move(block), nullptr, void_t());
         TypeRef rt = result->type;
         return builder().block_expr(std::move(block), std::move(result), rt);
