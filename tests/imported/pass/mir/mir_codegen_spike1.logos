@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/mir_codegen_spike1.rs
+// Modifications: assert_eq! → if-return; println dropped.
+package mir_mir_codegen_spike1;
+
+fn sum(x: i32, y: i32) -> i32 { return x + y; }
+
+fn main() -> i32 {
+    let x = sum(22i32, 44i32);
+    if x != 66i32 { return 1i32; }
+    return 0i32;
+}

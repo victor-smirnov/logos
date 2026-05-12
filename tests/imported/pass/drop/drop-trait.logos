@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/drop-trait.rs
+// Modifications: `impl Drop for Foo { fn drop(&mut self) }` →
+// inherent `fn drop` on the struct. Logos auto-dispatches a
+// struct's drop on scope-end without needing a separate Drop
+// trait. `println!` side-effect dropped. `isize` → `i64`.
+package d_drop_trait;
+
+struct Foo { x: i64 }
+
+impl Foo {
+    fn drop(self: &mut Foo) { }
+}
+
+fn main() -> i32 {
+    let _x: Foo = Foo { x: 3i64 };
+    return 0i32;
+}

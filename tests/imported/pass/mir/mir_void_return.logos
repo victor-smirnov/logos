@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/mir_void_return.rs
+// Modifications: `isize` → `i64`.
+package mir_mir_void_return;
+
+fn mir() {
+    let x: i64 = 1i64;
+    let mut y: i64 = 0i64;
+    while y < x { y = y + 1i64; }
+}
+
+fn main() -> i32 { mir(); return 0i32; }
