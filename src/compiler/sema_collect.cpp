@@ -828,7 +828,7 @@ void SemaChecker::collect_enum(TinyMapView node) {
                                         ref_enum, ref_variant));
                             }
                             // payload check skipped — xref node has no payload list
-                            info.variants.push_back({vname, vval, {}, false});
+                            info.variants.push_back({vname, vval, {}, {}, false, false});
                             next_val = vval + 1;
                             continue;
                         }
@@ -866,14 +866,45 @@ void SemaChecker::collect_enum(TinyMapView node) {
                             ename, std::string(vname), vval, type_str(info.backing_type)));
                     // Read payload types for tagged union variants
                     std::vector<TypeRef> payload;
+                    std::vector<std::string> payload_names;
                     bool is_var = false;
+                    bool is_struct_shape = false;
                     if (v.has_key(la::IS_VARIADIC)) is_var = v.get(la::IS_VARIADIC.code).as_value<int32_t>() != 0;
+                    if (v.has_key(la::IS_STRUCT_SHAPE))
+                        is_struct_shape = v.get(la::IS_STRUCT_SHAPE.code).as_value<int32_t>() != 0;
 
                     if (v.has_key(la::ITEMS)) {
                         auto av = v.get(la::ITEMS.code);
                         if (is_var) {
                             // Single type_ref map (variadic variant: ITEMS: $4)
                             payload.push_back(resolve_type(map_of(av)));
+                        } else if (is_struct_shape) {
+                            // P4-pm-01: struct-shape variant — ITEMS is a
+                            // sub-record { ITEMS: [FIELD_DEF*] }, each
+                            // carrying NAME + TYPE. Walk in declaration
+                            // order; that order becomes the canonical
+                            // positional layout downstream.
+                            TinyMapView tm(av.to_offset(), holder_);
+                            ArrayView fitems;
+                            if (tm.has_key(la::ITEMS)) {
+                                fitems = arr_of(tm.get(la::ITEMS.code));
+                            } else {
+                                fitems = arr_of(av);
+                            }
+                            for (uint64_t j = 0; j < fitems.size(); ++j) {
+                                auto fnode = map_of(fitems.get(j));
+                                std::string fname = std::string(str_of(fnode.get(la::NAME.code)));
+                                TypeRef ftype = fnode.has_key(la::TYPE)
+                                    ? resolve_type(map_of(fnode.get(la::TYPE.code)))
+                                    : nullptr;
+                                payload.push_back(ftype);
+                                payload_names.push_back(std::move(fname));
+                            }
+                            check_unique_names(payload_names,
+                                               [](auto& n) -> std::string_view { return n; },
+                                               "field",
+                                               std::format("variant {}::{}", ename,
+                                                           std::string(vname)));
                         } else {
                             // Nested record { ITEMS: [...] } (normal variant: ITEMS: $3)
                             // or raw array (old grammar/other paths)
@@ -888,7 +919,9 @@ void SemaChecker::collect_enum(TinyMapView node) {
                                 payload.push_back(resolve_type(map_of(pitems.get(j))));
                         }
                     }
-                    info.variants.push_back({vname, vval, std::move(payload), is_var});
+                    info.variants.push_back({vname, vval, std::move(payload),
+                                             std::move(payload_names),
+                                             is_var, is_struct_shape});
                     next_val = vval + 1;
                 }
             }

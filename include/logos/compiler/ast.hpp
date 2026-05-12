@@ -305,6 +305,7 @@ inline constexpr Key  INDEX           {"INDEX",              43};   // integer i
 
 // Visibility
 inline constexpr Key IS_PUB    {"IS_PUB",    33};           // visibility flag (1 = pub)
+inline constexpr Key IS_STRUCT_SHAPE {"IS_STRUCT_SHAPE", 47};  // P4-pm-01: enum struct-shape variant marker (VARIANT_DEF + ENUM_LIT_DATA + PAT_VARIANT_DATA); reuses LABEL slot
 inline constexpr Key PAT       {"PAT",       34};            // pattern for if let / while let
 inline constexpr Key GUARD     {"GUARD",     35};            // guard condition in match arm
 inline constexpr Key EXPR      {"EXPR",      36};            // expression-body match arm value

@@ -1,0 +1,37 @@
+package struct_enum2;
+
+enum Foo {
+    VBar { num: i64, name: i32 },
+    Baz,
+}
+
+fn main() -> i32 {
+    let v = Foo::VBar { num: 100i64, name: 7i32 };
+    match v {
+        Foo::VBar { num, name } => {
+            if num != 100i64 { return 1; }
+            if name != 7i32  { return 2; }
+        }
+        Foo::Baz => { return 3; }
+    }
+
+    // Rest skip
+    let v2 = Foo::VBar { num: 9i64, name: 42i32 };
+    match v2 {
+        Foo::VBar { num, .. } => {
+            if num != 9i64 { return 4; }
+        }
+        Foo::Baz => { return 5; }
+    }
+
+    // Wildcard rename
+    let v3 = Foo::VBar { num: 88i64, name: 1i32 };
+    match v3 {
+        Foo::VBar { num: m, name: _ } => {
+            if m != 88i64 { return 6; }
+        }
+        Foo::Baz => { return 7; }
+    }
+
+    return 0;
+}

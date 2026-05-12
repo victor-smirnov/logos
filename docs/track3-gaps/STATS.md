@@ -64,6 +64,7 @@ silently un-trim earlier imports don't count here (logged in
 | B48  | 2026-05-12 |  3 |     0 | 0.00 | 200 | 106 |
 | B49  | 2026-05-12 |  5 |     0 | 0.00 | 205 | 106 |
 | B50  | 2026-05-12 |  2 |     0 | 0.00 | 207 | 106 |
+| B51  | 2026-05-12 |  1 |     0 | 0.00 | 208 | 106 |
 
 (Phase-1 counts are estimates — pre-batch gap-as-code triage gave coarse
 totals only; precise per-batch arrival-order numbers weren't recorded.
@@ -88,16 +89,21 @@ test that originally surfaced the gap. Zero net new catalog entries
 since every closure here re-fills an "Open" status flipped earlier.
 The Sprint 5.8 dyn-arc is fully closed at B35.
 
-Phase 5 (B50): targeted gap-closure batch — P4-pm-15 array
-destructure Drop case (slice_index struct-element fast path +
-move-track temp/RHS) and P3-pg-04 break-as-expression codegen
-(EBlockExpr + SBreak + terminated-block tolerance in EBlockExpr /
-EIfExpr branches). 2 new regression tests; ctest 1439 → 1441.
-Catalog flips: 2 Partial → ✅ Closed. P4-pm-01 (struct-shape enum
-variants, ~1 week per docs) explicitly remains Deferred — touches
-grammar + SemaVariantInfo (no field-name slot today) + construction
-syntax + pattern path + mlir-gen union layout; no partial close
-because each layer is independently load-bearing.
+Phase 5 (B50–B51): targeted gap-closure run. B50 closed
+P4-pm-15 (array destructure Drop case — slice_index struct-element
+fast path + move-track temp/RHS) and P3-pg-04 (break-as-expression
+codegen — EBlockExpr + SBreak + terminated-block tolerance in
+EBlockExpr / EIfExpr branches). B51 partial-closed P4-pm-01
+(struct-shape enum variants) — declaration, construction, and
+irrefutable struct-shape match patterns land end-to-end, including
+shorthand, rename, `..` rest, and missing/duplicate/unknown-field
+diagnostics. New IS_STRUCT_SHAPE flag (slot 47, reuses LABEL) on
+VARIANT_DEF / ENUM_LIT_DATA / PAT_VARIANT_DATA; SemaVariantInfo
+gains `payload_field_names` parallel to `payload_types`. mlir-gen
+unchanged — sema resolves names → positions, downstream stays
+positional. Still open: refutable inner patterns + let-destructure
+with single-variant enum. ctest 1439 → 1442. Catalog flips: 2
+Partial → ✅ Closed, 1 Deferred → Partial.
 
 Phase 4 (B38–B49): "autonomous bulk-import" run. Single overnight
 session through under-imported dirs (binding, match, for-loop-while,

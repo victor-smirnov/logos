@@ -1214,7 +1214,14 @@ private:
     struct SemaVariantInfo{
         std::string_view name; int64_t value;
         std::vector<TypeRef> payload_types;  // empty = no payload
+        // P4-pm-01: struct-shape variant `V { x: T, y: U }` — parallel
+        // names array (same size as payload_types). Empty for
+        // tuple-shape and unit variants. Downstream callers can detect
+        // struct-shape via `!payload_field_names.empty()` and resolve
+        // user-written field names → positional indices.
+        std::vector<std::string> payload_field_names;
         bool is_variadic = false;                     // variadic pack payload (...T)
+        bool is_struct_shape = false;                 // P4-pm-01: marker for struct-shape variants
     };
     struct SemaEnumInfo   {
         std::vector<SemaVariantInfo> variants;

@@ -69,6 +69,7 @@
     LO_NEG         = 49
     HI_NEG         = 50
     KEY            = 51    // map key in HERMES_ENTRY
+    IS_STRUCT_SHAPE = 47   // P4-pm-01: enum struct-shape variant marker on VARIANT_DEF / ENUM_LIT_DATA / PAT_VARIANT_DATA; reuses LABEL slot (these nodes never carry a loop label)
     IS_NEGATIVE    = 43    // negative impl marker (impl !Trait for X {}); reuses INDEX slot — IMPL_BLOCK never has INDEX
     PATH           = 22    // sub-node carrying ITEMS=[str,...] for N-deep chain field write (reuses FIELDS slot — chain stmts never carry struct field defs)
     NAME_VAR       = 38    // antiquot var name for `#ident` placeholder inside quote_*! body (reuses WHERE slot — STRUCT/ENUM/FN never have a where_clause AND a NAME_VAR simultaneously: NAME_VAR exists only inside quote_*! bodies, where where_clause is parsed separately)
@@ -597,10 +598,24 @@
     enum_xref <- IDENT COLONCOLON IDENT
               => { NAME: $1, FIELD: $3 }
 
+    // P4-pm-01: struct-shape variant `Foo { x: T, y: U }`.
+    // Reuses variant_struct_field_list to collect FIELD_DEF entries
+    // (each carries NAME + TYPE). Sema sets payload_types[] in
+    // declaration order and parallel payload_field_names[].
+    variant_struct_field <- KW_PUB IDENT COLON type_ref COMMA?
+                         => { CODE: FIELD_DEF, IS_PUB: 1, NAME: $2, TYPE: $4 }
+                          / IDENT COLON type_ref COMMA?
+                         => { CODE: FIELD_DEF, NAME: $1, TYPE: $3 }
+
+    variant_struct_field_list <- variant_struct_field+
+                              => { ITEMS: $... }
+
     variant_def <- IDENT LPAREN DOTDOTDOT type_ref RPAREN
                 => { CODE: VARIANT_DEF, NAME: $1, IS_VARIADIC: 1, ITEMS: $4 }
                  / IDENT LPAREN variant_payload_list RPAREN
                 => { CODE: VARIANT_DEF, NAME: $1, ITEMS: $3 }
+                 / IDENT LBRACE variant_struct_field_list RBRACE
+                => { CODE: VARIANT_DEF, NAME: $1, IS_STRUCT_SHAPE: 1, ITEMS: $3 }
                  / IDENT ASSIGN MINUS INTEGER
                 => { CODE: VARIANT_DEF, NAME: $1, VALUE: $4, LO_NEG: true }
                  / IDENT ASSIGN INTEGER
@@ -1497,6 +1512,13 @@
         => { CODE: PAT_HERMES_ARR }
         / IDENT COLONCOLON IDENT LPAREN pat_variant_args? RPAREN
         => { CODE: PAT_VARIANT_DATA, NAME: $1, FIELD: $3, ARGS: $5 }
+        // P4-pm-01: struct-shape variant pattern `E::V { x, y: pat, .. }`.
+        // Reuses pat_field_list (used by PAT_STRUCT). Sema resolves
+        // field names → variant payload indices via payload_field_names.
+        / IDENT COLONCOLON IDENT LBRACE pat_field_list RBRACE
+        => { CODE: PAT_VARIANT_DATA, NAME: $1, FIELD: $3, IS_STRUCT_SHAPE: 1, ITEMS: $5 }
+        / IDENT COLONCOLON IDENT LBRACE RBRACE
+        => { CODE: PAT_VARIANT_DATA, NAME: $1, FIELD: $3, IS_STRUCT_SHAPE: 1 }
         / IDENT COLONCOLON IDENT
         => { CODE: PAT_VARIANT, NAME: $1, FIELD: $3 }
         // B-ts-01: tuple-struct pattern `Foo(a, b)` (no `::` separator).
@@ -2013,6 +2035,14 @@
              => { CODE: ENUM_LIT, NAME: $1, FIELD: $3, TYPE_PARAMS: $6 }
               / IDENT COLONCOLON IDENT LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
              => { CODE: ENUM_LIT_DATA, NAME: $1, FIELD: $3, ARGS: $... }
+              // P4-pm-01: struct-shape variant ctor `E::V { x: e, y: e }`.
+              // Reuses field_init (used by struct literals); sema looks
+              // up the variant, resolves field names → positional
+              // indices via payload_field_names, type-checks, and
+              // builds an EEnumLitData with the canonical positional
+              // payload.
+              / IDENT COLONCOLON IDENT LBRACE (field_init (COMMA field_init)* COMMA?)? RBRACE
+             => { CODE: ENUM_LIT_DATA, NAME: $1, FIELD: $3, IS_STRUCT_SHAPE: 1, ITEMS: $... }
               / IDENT COLONCOLON IDENT
              => { CODE: ENUM_LIT, NAME: $1, FIELD: $3 }
 

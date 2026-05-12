@@ -1584,7 +1584,103 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                 error(std::format("pattern: enum '{}' has no variant '{}'", pename, pvname));
         }
         std::vector<std::string> bindings;
-        if (pnode.has_key(la::ARGS)) {
+        bool pat_is_struct_shape = pnode.has_key(la::IS_STRUCT_SHAPE) &&
+            pnode.get(la::IS_STRUCT_SHAPE.code).as_value<int32_t>() != 0;
+        if (pat_is_struct_shape) {
+            // P4-pm-01: `E::V { x, y: pat, .. }` — read ITEMS as PAT_FIELD
+            // list. Each entry carries NAME (+ optional VALUE sub-pat) or
+            // is PAT_REST (`..`). Resolve names → positions in the
+            // variant's payload_field_names; build positional `bindings`
+            // (length = payload arity). Missing fields without `..` are
+            // an error; with `..` they're skipped (bound to "_").
+            if (vinfo && vinfo->payload_field_names.empty() && !vinfo->payload_types.empty()) {
+                error(std::format("{}::{} is a tuple-shape variant — use parentheses",
+                                  pename, pvname));
+            }
+            size_t arity = vinfo ? vinfo->payload_field_names.size() : 0;
+            std::vector<std::string> by_pos(arity, "_");
+            std::vector<bool> seen(arity, false);
+            bool has_rest = false;
+            if (pnode.has_key(la::ITEMS)) {
+                AnyVal iav = pnode.get(la::ITEMS.code);
+                if (!iav.is_null() && iav.is_pointer()) {
+                    auto fl = map_of(iav);
+                    ArrayView fitems;
+                    if (fl.has_key(la::ITEMS)) fitems = arr_of(fl.get(la::ITEMS.code));
+                    else                        fitems = arr_of(iav);
+                    for (uint64_t i = 0; i < fitems.size(); ++i) {
+                        auto fnode = map_of(fitems.get(i));
+                        int32_t fcode = code_of(fnode);
+                        if (fcode == la::PAT_REST) { has_rest = true; continue; }
+                        std::string fname = fnode.has_key(la::NAME)
+                            ? std::string(str_of(fnode.get(la::NAME.code)))
+                            : std::string();
+                        size_t idx = arity;
+                        if (vinfo) {
+                            for (size_t k = 0; k < arity; ++k)
+                                if (vinfo->payload_field_names[k] == fname) { idx = k; break; }
+                        }
+                        if (idx == arity) {
+                            if (vinfo)
+                                error(std::format("pattern {}::{}: no field named '{}'",
+                                      pename, pvname, fname));
+                            continue;
+                        }
+                        if (seen[idx]) {
+                            error(std::format("pattern {}::{}: field '{}' specified more than once",
+                                  pename, pvname, fname));
+                            continue;
+                        }
+                        seen[idx] = true;
+                        // Inner pattern handling. Supported irrefutable shapes:
+                        //   - no VALUE → shorthand: binding name = field name
+                        //   - VALUE is PAT_WILD with NAME → bind to that name (or "_")
+                        //   - VALUE is PAT_WILD without NAME → "_" skip
+                        // Refutable inner (PAT_INT, PAT_VARIANT, ranges, …)
+                        // is not yet supported here — parity with the
+                        // tuple-shape PAT_VARIANT_DATA arm.
+                        if (!fnode.has_key(la::VALUE)) {
+                            by_pos[idx] = fname;  // shorthand
+                            continue;
+                        }
+                        auto sub = map_of(fnode.get(la::VALUE.code));
+                        int32_t sc = code_of(sub);
+                        if (sc == la::PAT_WILD) {
+                            std::string bn = sub.has_key(la::NAME)
+                                ? std::string(str_of(sub.get(la::NAME.code)))
+                                : std::string("_");
+                            by_pos[idx] = bn;
+                        } else {
+                            error(std::format(
+                                "pattern {}::{} field '{}': refutable inner "
+                                "pattern not yet supported in struct-shape "
+                                "variant patterns (use bind + body match)",
+                                pename, pvname, fname));
+                            by_pos[idx] = "_";
+                        }
+                    }
+                }
+            }
+            if (vinfo && !has_rest) {
+                std::vector<std::string> missing;
+                for (size_t k = 0; k < arity; ++k)
+                    if (!seen[k])
+                        missing.push_back(vinfo->payload_field_names[k]);
+                if (!missing.empty()) {
+                    std::string list;
+                    for (size_t k = 0; k < missing.size(); ++k) {
+                        if (k) list += ", ";
+                        list += "'" + missing[k] + "'";
+                    }
+                    error(std::format(
+                        "pattern {}::{}: missing field(s): {} (use `..` to "
+                        "skip remaining fields)",
+                        pename, pvname, list));
+                }
+            }
+            for (auto& s : by_pos) bindings.push_back(std::move(s));
+        }
+        if (!pat_is_struct_shape && pnode.has_key(la::ARGS)) {
             AnyVal aav = pnode.get(la::ARGS.code);
             if (!aav.is_null() && aav.is_pointer()) {
                 auto blist = map_of(aav);

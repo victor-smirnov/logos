@@ -6203,7 +6203,96 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
     // `enum_lit` alt with `$...`) or a { ITEMS: [...] } map (turbofish
     // alt routes through enum_lit_args sub-production). Accept both.
     std::vector<lir::LExprPtr> payload;
-    if (node.has_key(la::ARGS)) {
+    bool is_struct_shape_lit = node.has_key(la::IS_STRUCT_SHAPE) &&
+        node.get(la::IS_STRUCT_SHAPE.code).as_value<int32_t>() != 0;
+    if (is_struct_shape_lit) {
+        // P4-pm-01: `E::V { name: expr, ... }` — items list of
+        // FIELD_INIT / FIELD_SHORTHAND. Resolve names → variant
+        // payload positions via the variant's payload_field_names,
+        // produce positional `payload` in declaration order.
+        if (vinfo->payload_field_names.empty()) {
+            error(std::format(
+                "{}::{} is not a struct-shape variant — use `{}::{}({{args...}})` or no payload",
+                ename, vname, ename, vname));
+        }
+        size_t arity = vinfo->payload_field_names.size();
+        std::vector<lir::LExprPtr> by_pos(arity);
+        std::vector<bool> seen(arity, false);
+        std::vector<std::string> provided;
+        if (node.has_key(la::ITEMS)) {
+            auto items_av = node.get(la::ITEMS.code);
+            ArrayView fitems;
+            if (!items_av.is_null()) {
+                if (items_av.is_pointer()) {
+                    auto m = map_of(items_av);
+                    if (m.has_key(la::ITEMS)) fitems = arr_of(m.get(la::ITEMS.code));
+                    else                       fitems = arr_of(items_av);
+                } else {
+                    fitems = arr_of(items_av);
+                }
+            }
+            for (uint64_t i = 0; i < fitems.size(); ++i) {
+                auto fnode = map_of(fitems.get(i));
+                std::string fname;
+                if (fnode.has_key(la::NAME))
+                    fname = std::string(str_of(fnode.get(la::NAME.code)));
+                // Locate field index in variant declaration order.
+                size_t idx = arity;
+                for (size_t k = 0; k < arity; ++k)
+                    if (vinfo->payload_field_names[k] == fname) { idx = k; break; }
+                if (idx == arity) {
+                    error(std::format("{}::{}: no field named '{}'",
+                          ename, vname, fname));
+                    continue;
+                }
+                if (seen[idx]) {
+                    error(std::format("{}::{}: field '{}' specified more than once",
+                          ename, vname, fname));
+                    continue;
+                }
+                // FIELD_INIT carries VALUE; FIELD_SHORTHAND is `name` only —
+                // synthesise an EVarRef of the same name.
+                lir::LExprPtr val;
+                int32_t fcode = code_of(fnode);
+                if (fnode.has_key(la::VALUE)) {
+                    val = lower_expr(map_of(fnode.get(la::VALUE.code)));
+                } else if (fcode == la::FIELD_SHORTHAND) {
+                    TypeRef rt = lookup(fname);
+                    if (!rt) {
+                        error(std::format("{}::{}: shorthand '{}' — name not in scope",
+                              ename, vname, fname));
+                        val = error_expr();
+                    } else {
+                        val = builder().var_ref(fname, rt);
+                    }
+                } else {
+                    error(std::format("{}::{}: internal — field-init missing VALUE", ename, vname));
+                    val = error_expr();
+                }
+                by_pos[idx] = std::move(val);
+                seen[idx] = true;
+                provided.push_back(fname);
+            }
+        }
+        (void)provided;
+        // Missing-field diagnostics — report all in one shot.
+        std::vector<std::string> missing;
+        for (size_t k = 0; k < arity; ++k)
+            if (!seen[k])
+                missing.push_back(vinfo->payload_field_names[k]);
+        if (!missing.empty()) {
+            std::string list;
+            for (size_t k = 0; k < missing.size(); ++k) {
+                if (k) list += ", ";
+                list += "'" + missing[k] + "'";
+            }
+            error(std::format("{}::{}: missing field(s): {}", ename, vname, list));
+        }
+        for (auto& p : by_pos) {
+            if (!p) p = error_expr();
+            payload.push_back(std::move(p));
+        }
+    } else if (node.has_key(la::ARGS)) {
         AnyVal args_av = node.get(la::ARGS.code);
         auto run = [&](auto items) {
             for (uint64_t i = 0; i < items.size(); ++i) {
