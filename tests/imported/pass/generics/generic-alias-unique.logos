@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-alias-unique.rs
+// Modifications: `Send` bound dropped (Logos doesn't have auto-traits
+// like `Send`/`Sync` modelled yet; this is one of the generics/
+// std-trait shims tracked as Divergence). `Box<isize>` → bare `i64`.
+// `expected.clone()` is the test point in Rust (clone-and-return);
+// Logos's generic `id::<T>` over a non-Drop scalar is the analogue.
+package g_generic_alias_unique;
+
+fn id<T>(t: T) -> T { return t; }
+
+fn main() -> i32 {
+    let actual: i64 = id::<i64>(100i64);
+    if actual != 100i64 { return 1i32; }
+    return 0i32;
+}

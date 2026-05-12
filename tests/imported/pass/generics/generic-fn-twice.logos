@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-fn-twice.rs
+// Modifications: `mod foomod { … }` dropped to module scope (Logos
+// doesn't have nested `mod` blocks); `isize` → `i64`. Test point —
+// monomorphisation of the same generic fn at two distinct call
+// sites — preserved by calling `foo::<i64>()` twice.
+package g_generic_fn_twice;
+
+fn foo<T>() { }
+
+fn main() -> i32 {
+    foo::<i64>();
+    foo::<i64>();
+    return 0i32;
+}

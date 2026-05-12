@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-exterior-unique.rs
+// Modifications: `Box<T>` field dropped — Logos's `Recbox<T> { x: T }`
+// suffices for the test (a generic struct around a generic param);
+// the original's `Box::new(t)` was just heap-allocating; we keep the
+// value inline since the test point is generic-struct lifting.
+// `isize` → `i64`.
+package g_generic_exterior_unique;
+
+struct Recbox<T> { x: T }
+
+fn reclift<T>(t: T) -> Recbox<T> {
+    return Recbox::<T> { x: t };
+}
+
+fn main() -> i32 {
+    let foo: i64 = 17i64;
+    let rbfoo: Recbox<i64> = reclift::<i64>(foo);
+    if rbfoo.x != foo { return 1i32; }
+    return 0i32;
+}

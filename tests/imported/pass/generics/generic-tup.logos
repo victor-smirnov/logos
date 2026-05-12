@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-tup.rs
+// Modifications: `assert_eq!` → explicit if-return; explicit
+// turbofish on each `get_third` call so the tuple type is resolved
+// from the generic parameter rather than inferred. `println!`
+// dropped.
+package g_generic_tup;
+
+fn get_third<T>(t: (T, T, T)) -> T {
+    let (_, _, x): (T, T, T) = t;
+    return x;
+}
+
+fn main() -> i32 {
+    if get_third::<i32>((1i32, 2i32, 3i32)) != 3i32 { return 1i32; }
+    if get_third::<u8>((5u8, 6u8, 7u8)) != 7u8 { return 2i32; }
+    return 0i32;
+}
