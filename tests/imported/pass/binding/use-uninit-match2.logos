@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/use-uninit-match2.rs
+// Modifications: `enum myoption<T> { none, some(T) }` faithful;
+// `none` arm calls `panic("…")` (Logos has no `panic!()` macro);
+// added explicit init for `x` (the original relied on definite-
+// assignment from the some-arm; with the panic-arm we just init).
+// `myoption::none::<T>` constructor in match arm reduced to
+// `myoption::none` — pattern-side turbofish on the variant uses
+// the scrutinee's type-args automatically. Original `println!`
+// dropped — we exercise the some-arm at runtime instead.
+package b_use_uninit_match2;
+
+use std.lang.panic;
+
+enum myoption<T> { none, some(T) }
+
+fn foo<T>(o: myoption<T>) -> isize {
+    let mut x: isize = 0isize;
+    match o {
+        myoption::none       => { panic("none"); }
+        myoption::some(_t)   => { x = 5isize; }
+    }
+    return x;
+}
+
+fn main() -> i32 {
+    let r: isize = foo::<isize>(myoption::some::<isize>(42isize));
+    if r != 5isize { return 1; }
+    return 0;
+}

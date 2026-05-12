@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/match-naked-record-expr.rs
+// Modifications: explicit `: isize` annotation on the let binding;
+// `match 0` → `match 0i32` (Logos needs the scrut typed for the
+// arm dispatch). The regression — a struct-literal expression with
+// a field-access trailer as a match arm body — is preserved.
+package b_match_naked_record_expr;
+
+struct X { x: isize }
+
+fn main() -> i32 {
+    let r: isize = match 0i32 { _ => X { x: 0isize }.x };
+    if r != 0isize { return 1; }
+    return 0;
+}

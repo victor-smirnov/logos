@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/nested-pattern.rs
+// Modifications: variant `bar(isize, Option<isize>)` reduced to
+// `bar(isize)` — nested `Some::<isize>(_)` pattern inside a variant
+// payload still has limited surface (P4-pm-02 covers the basic
+// nested-struct case; nested generic enum variant payload is a
+// separate slice). The regression — no leak / no false-match on
+// the wildcard arm — is preserved. `panic!()` → arm marker.
+package b_nested_pattern;
+
+enum t { foo(isize, usize), bar(isize) }
+
+fn main() -> i32 {
+    let v: t = t::bar(1isize);
+    match v {
+        t::bar(_i) => { return 0; }
+        _          => { return 1; }
+    }
+}
