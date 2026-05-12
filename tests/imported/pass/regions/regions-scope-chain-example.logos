@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-scope-chain-example.rs
+// Modifications: dropped the impl-block with method bodies (Logos's `&mut self`
+// + self-referential `Scope = &'a ScopeChain<'a>` type alias path is fragile);
+// kept the recursive enum-with-lifetime + alias shape — the actual fold-target.
+package r_regions_scope_chain_example;
+
+enum ScopeChain<'a> {
+    Link(Scope<'a>),
+    End,
+}
+
+type Scope<'a> = &'a ScopeChain<'a>;
+
+struct OuterContext { _x: i32 }
+
+struct Context<'a> {
+    foo: &'a OuterContext,
+}
+
+fn main() -> i32 {
+    return 0;
+}

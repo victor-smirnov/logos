@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust tests/ui/borrowck/borrowck-lend-args.rs
+// Modifications: removed Box (no Box in Logos); plain `&i64` args.
+package r_borrowck_lend_args;
+
+fn borrow(_v: &i64) {}
+
+fn borrow_from_arg_imm_ref(v: &i64) {
+    borrow(v);
+}
+
+fn borrow_from_arg_mut_ref(v: &mut i64) {
+    borrow(&*v);
+}
+
+fn main() -> i32 {
+    return 0;
+}

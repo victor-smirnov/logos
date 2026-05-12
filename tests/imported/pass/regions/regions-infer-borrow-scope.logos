@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-infer-borrow-scope.rs
+// Modifications: isize→i64, dropped Box, stack value.
+package r_regions_infer_borrow_scope;
+
+struct Point { x: i64, y: i64 }
+
+fn x_coord(p: &Point) -> &i64 { return &p.x; }
+
+fn main() -> i32 {
+    let p = Point { x: 3i64, y: 4i64 };
+    let xc = x_coord(&p);
+    if *xc != 3i64 { return 1; }
+    return 0;
+}

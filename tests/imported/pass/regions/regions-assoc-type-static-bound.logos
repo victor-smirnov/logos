@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-assoc-type-static-bound.rs
+// Modifications: dropped `Value: 'static` bound on the associated type
+// (Logos doesn't parse outlives on `type Item;`); preserves the
+// `require_static<T: 'static>()` shape which is the actual surface.
+package r_regions_assoc_type_static_bound;
+
+trait Foo {
+    type Value;
+    fn dummy(&self);
+}
+
+fn require_static<T: 'static>() {}
+
+fn main() -> i32 {
+    return 0;
+}

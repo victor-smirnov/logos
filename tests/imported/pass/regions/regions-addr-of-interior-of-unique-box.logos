@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-addr-of-interior-of-unique-box.rs
+// Modifications: dropped Box for plain field; i64; preserves `&x.pos.x`
+// nested-borrow shape.
+package r_regions_addr_of_interior_of_unique_box;
+
+struct Point { x: i64, y: i64 }
+struct Character { pos: Point }
+
+fn get_x(x: &Character) -> &i64 {
+    return &x.pos.x;
+}
+
+fn main() -> i32 {
+    let c = Character { pos: Point { x: 1i64, y: 2i64 } };
+    if *get_x(&c) != 1i64 { return 1; }
+    return 0;
+}

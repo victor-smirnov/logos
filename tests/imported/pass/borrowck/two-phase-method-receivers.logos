@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust tests/ui/borrowck/two-phase-method-receivers.rs
+// Modifications: i32; explicit `self: &mut Foo<'_>` (Logos rejects
+// the `&mut self` shorthand inside impl<'a> Foo<'a>); preserves
+// two-phase-borrow on method receiver shape.
+package r_two_phase_method_receivers;
+
+struct Foo<'a> { x: &'a i32 }
+
+impl<'a> Foo<'a> {
+    fn method(self: &mut Foo<'a>, _y: &i32) {}
+}
+
+fn main() -> i32 {
+    let v: i32 = 22i32;
+    let mut foo = Foo { x: &v };
+    let a = &mut foo;
+    Foo::method(a, a.x);
+    return 0;
+}

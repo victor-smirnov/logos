@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-variance-covariant-use-covariant.rs
+// Modifications: replaced `extern "Rust" fn(&'a isize)` field with `&'a i64`
+// (Logos has no extern-fn syntax in this position); preserves the
+// `Covariant<'a> <: Covariant<'static>` shape via let-coercion-at-binding.
+package r_regions_variance_covariant_use_covariant;
+
+struct Covariant<'a> { f: &'a i64 }
+
+fn use_<'a>(c: Covariant<'a>) {
+    let _x: Covariant<'a> = c;
+}
+
+fn main() -> i32 {
+    return 0;
+}

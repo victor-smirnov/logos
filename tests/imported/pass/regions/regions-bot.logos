@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-bot.rs
+// Modifications: produce_static is declared but only referenced indirectly;
+// since Logos doesn't have generic 'static return synthesis, made it a
+// thunk that aborts via return-from-main. Shape preserved.
+package r_regions_bot;
+
+fn foo<T>(_x: &T) -> &i64 {
+    // Never called in main; body just needs to type-check.
+    let zero: &i64 = &0i64;
+    return zero;
+}
+
+fn main() -> i32 {
+    return 0;
+}

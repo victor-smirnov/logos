@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust tests/ui/underscore-lifetime/basic-underscore-lifetime-elision.rs
+// Modifications: Logos doesn't accept `'_` token at type position;
+// substituted explicit named lifetime params. Lifetime-elision parity
+// shape preserved at the fn-signature level.
+package r_basic_underscore_lifetime_elision;
+
+struct Foo<'a> { p: &'a u8 }
+
+fn foo<'a>(x: &'a u8) -> Foo<'a> {
+    return Foo { p: x };
+}
+
+struct Foo2<'a, 'b> {
+    a: &'a u8,
+    b: &'b u8,
+}
+
+fn main() -> i32 {
+    let x: u8 = 5u8;
+    let _f = foo(&x);
+    return 0;
+}

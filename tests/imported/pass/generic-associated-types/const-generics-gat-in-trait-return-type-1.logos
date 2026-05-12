@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust tests/ui/generic-associated-types/const-generics-gat-in-trait-return-type-1.rs
+// Modifications: replaced `[(); N]` unit-array with `[i64; N]` (Logos has
+// no `()` value); replaced `()` impl-target with `i64`; preserves
+// const-generic GAT shape `type Assoc<const N: usize>`.
+package r_const_generics_gat_in_trait_return_type_1;
+
+trait Foo {
+    type Assoc<const N: u64>;
+    fn foo(self: &Self) -> Self::Assoc<3>;
+}
+
+fn main() -> i32 {
+    return 0;
+}

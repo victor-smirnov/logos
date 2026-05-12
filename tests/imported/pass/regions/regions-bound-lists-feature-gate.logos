@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-bound-lists-feature-gate.rs
+// Modifications: dropped `Box<dyn Foo + 'a>` arg (no Box); kept the
+// `T: 'a` bound shape via `fn bar<'a, T: 'a>()`.
+package r_regions_bound_lists_feature_gate;
+
+trait Foo {
+    fn dummy(&self);
+}
+
+fn bar<'a, T: 'a>() {}
+
+fn main() -> i32 {
+    return 0;
+}

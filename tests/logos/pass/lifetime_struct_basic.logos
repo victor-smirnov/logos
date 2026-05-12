@@ -1,0 +1,9 @@
+package lt4;
+struct R<'a, T> { inner: &'a T }
+fn make<'a>(p: &'a i32) -> R<'a, i32> { return R { inner: p }; }
+fn use_r<'b>(r: R<'b, i32>) -> i32 { return *r.inner; }
+fn main() -> i32 {
+    let v: i32 = 99i32;
+    let r = make(&v);
+    return use_r(r) - 99i32;
+}

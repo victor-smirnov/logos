@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-creating-enums2.rs
+// Modifications: usize→u64, exit-code main; preserves the self-
+// referential enum-with-lifetime `enum ast<'a> { num(u64), add(&'a ast<'a>, ...) }`.
+package r_regions_creating_enums2;
+
+enum ast<'a> {
+    num(u64),
+    add(&'a ast<'a>, &'a ast<'a>),
+}
+
+fn mk_add_ok<'r>(x: &'r ast<'r>, y: &'r ast<'r>) -> ast<'r> {
+    return ast::add(x, y);
+}
+
+fn main() -> i32 {
+    return 0;
+}

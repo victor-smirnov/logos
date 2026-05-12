@@ -1,0 +1,11 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-borrow-at.rs
+// Modifications: dropped Box (no Box in Logos); use stack variable.
+package r_regions_borrow_at;
+
+fn foo(x: &u64) -> u64 { return *x; }
+
+fn main() -> i32 {
+    let p: u64 = 22u64;
+    if foo(&p) != 22u64 { return 1; }
+    return 0;
+}

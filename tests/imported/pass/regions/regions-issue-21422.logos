@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-issue-21422.rs
+// Modifications: dropped the `PartialEq` impl (Logos doesn't have it in
+// scope); kept the raw-pointer-to-ref-with-lifetime field shape.
+package r_regions_issue_21422;
+
+struct P<'a> {
+    _ptr: *const &'a u8,
+}
+
+fn main() -> i32 {
+    return 0;
+}

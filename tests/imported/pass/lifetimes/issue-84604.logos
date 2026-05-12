@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust tests/ui/lifetimes/issue-84604.rs
+// Modifications: dropped the dyn-Frob call sites (no `dyn Trait<arg>` body
+// support in Logos); kept the `?Sized`-equivalent T type-param trait.
+package r_issue_84604;
+
+trait Frob<T> {}
+
+fn f<T>() {}
+
+fn main() -> i32 {
+    return 0;
+}

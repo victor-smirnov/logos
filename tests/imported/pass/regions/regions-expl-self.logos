@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-expl-self.rs
+// Modifications: explicit self with lifetime: Logos doesn't parse
+// `&'a self` shorthand, so the method signature is written long-form
+// `self: &'a Foo`. Preserves the explicit-lifetime-on-self shape.
+package r_regions_expl_self;
+
+struct Foo {
+    f: u64,
+}
+
+impl Foo {
+    fn foo<'a>(self: &'a Foo) {}
+}
+
+fn main() -> i32 {
+    return 0;
+}

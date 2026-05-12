@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-reassign-let-bound-pointer.rs
+// Modifications: isize→i64, exit-code main.
+package r_regions_reassign_let_bound_pointer;
+
+fn foo(x: &i64) {
+    let a: i64 = 1i64;
+    let mut z = x;
+    z = &a;
+}
+
+fn main() -> i32 {
+    let one: i64 = 1i64;
+    foo(&one);
+    return 0;
+}

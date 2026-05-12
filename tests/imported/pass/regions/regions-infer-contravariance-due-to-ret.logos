@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-infer-contravariance-due-to-ret.rs
+// Modifications: i64; exit-code main.
+package r_regions_infer_contravariance_due_to_ret;
+
+struct boxed_int<'a> { f: &'a i64 }
+
+fn max<'r>(bi: &'r boxed_int, f: &'r i64) -> i64 {
+    if *bi.f > *f { return *bi.f; }
+    return *f;
+}
+
+fn with(bi: &boxed_int) -> i64 {
+    let i: i64 = 22i64;
+    return max(bi, &i);
+}
+
+fn main() -> i32 {
+    let g: i64 = 21i64;
+    let foo = boxed_int { f: &g };
+    if with(&foo) != 22i64 { return 1; }
+    return 0;
+}

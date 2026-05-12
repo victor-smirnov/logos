@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-infer-borrow-scope-within-loop-ok.rs
+// Modifications: dropped Box; stack value; isize→i64.
+package r_regions_infer_borrow_scope_within_loop_ok;
+
+fn borrow<T>(x: &T) -> &T { return x; }
+
+fn main() -> i32 {
+    let x: i64 = 3i64;
+    loop {
+        let y = borrow(&x);
+        if *y != x { return 1; }
+        break;
+    }
+    return 0;
+}

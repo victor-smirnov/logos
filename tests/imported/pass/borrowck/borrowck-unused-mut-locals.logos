@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust tests/ui/borrowck/borrowck-unused-mut-locals.rs
+// Modifications: dropped derive(Debug); exit-code main; preserves the
+// chained `&'a mut T` lifetime-param struct shape.
+package r_borrowck_unused_mut_locals;
+
+struct A { _f: i32 }
+
+fn init_a() -> A { return A { _f: 0 }; }
+
+struct B<'a> { ed: &'a mut A }
+fn init_b<'a>(ed: &'a mut A) -> B<'a> { return B { ed: ed }; }
+
+struct C<'a> { pd: &'a mut B<'a> }
+fn init_c<'a>(pd: &'a mut B<'a>) -> C<'a> { return C { pd: pd }; }
+
+fn main() -> i32 {
+    let mut a = init_a();
+    let mut b = init_b(&mut a);
+    let _c = init_c(&mut b);
+    return 0;
+}

@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust tests/ui/variance/variance-iterators-in-libcore.rs
+// Modifications: replaced std Fuse/Zip with local stand-ins (no std iterators
+// in Logos); still exercises 'static → 'a covariance of a wrapper type
+// holding `&I` references.
+package r_variance_iterators_in_libcore;
+
+struct Fuse<I> { inner: I }
+struct Zip<A, B> { a: A, b: B }
+
+fn fuse_covariant<'a, I>(iter: Fuse<&'static I>) -> Fuse<&'a I> { return iter; }
+fn zip_covariant<'a, A, B>(iter: Zip<&'static A, &'static B>) -> Zip<&'a A, &'a B> { return iter; }
+
+fn main() -> i32 {
+    return 0;
+}

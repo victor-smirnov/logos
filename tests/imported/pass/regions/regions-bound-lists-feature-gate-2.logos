@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-bound-lists-feature-gate-2.rs
+// Modifications: trait Foo dropped fn dummy default body; preserves
+// the multi-lifetime-param + outlives shape `'c: 'a + 'b`.
+package r_regions_bound_lists_feature_gate_2;
+
+trait Foo {
+    fn dummy(&self);
+}
+
+fn foo<'a, 'b, 'c: 'a + 'b, 'd>() {}
+
+fn main() -> i32 {
+    return 0;
+}

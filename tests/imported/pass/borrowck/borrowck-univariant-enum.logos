@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust tests/ui/borrowck/borrowck-univariant-enum.rs
+// Modifications: replaced `Cell<T>` (no Cell in Logos) with plain locals.
+// Preserves single-variant enum + match-and-bind shape.
+package r_borrowck_univariant_enum;
+
+enum newtype {
+    newvar(i64),
+}
+
+fn main() -> i32 {
+    let mut x: i64 = 5i64;
+    let y = newtype::newvar(3i64);
+    let z: i64 = match y {
+        newtype::newvar(b) => {
+            x = x + 1i64;
+            x * b
+        }
+    };
+    if z != 18i64 { return 1; }
+    return 0;
+}

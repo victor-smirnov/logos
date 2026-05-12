@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-early-bound-used-in-type-param.rs
+// Modifications: i64; explicit self; renamed `Box` to `MyBox` to avoid
+// Logos stdlib `Box` collision; no Clone bound (Logos auto-copies plain values).
+package r_regions_early_bound_used_in_type_param;
+
+trait Get<T> {
+    fn get(self: &Self) -> T;
+}
+
+struct MyBox<T> { t: T }
+
+impl<T> Get<T> for MyBox<T> {
+    fn get(self: &MyBox<T>) -> T { return self.t; }
+}
+
+fn add<'a, G: Get<&'a i64>>(g1: G, g2: G) -> i64 {
+    return *g1.get() + *g2.get();
+}
+
+fn main() -> i32 {
+    return 0;
+}

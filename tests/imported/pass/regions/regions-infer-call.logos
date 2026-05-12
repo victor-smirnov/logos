@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-infer-call.rs
+// Modifications: isize→i64, exit-code main.
+package r_regions_infer_call;
+
+fn takes_two(x: &i64, y: &i64) -> i64 { return *x + *y; }
+
+fn has_two<'a, 'b>(x: &'a i64, y: &'b i64) -> i64 {
+    return takes_two(x, y);
+}
+
+fn main() -> i32 {
+    let a: i64 = 20i64;
+    let b: i64 = 2i64;
+    if has_two(&a, &b) != 22i64 { return 1; }
+    return 0;
+}

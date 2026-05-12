@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-dependent-addr-of.rs
+// Modifications: dropped Box/Vec/Option fields; kept the nested-struct
+// scalar + fixed-array reborrow shape — the lifetime-inference target.
+package r_regions_dependent_addr_of;
+
+struct C { f: i64 }
+struct B {
+    v1: i64,
+    v2: [i64; 3],
+    v4: C,
+}
+struct A { value: B }
+
+fn get_v1(a: &A) -> &i64 {
+    let foo = &a.value;
+    return &foo.v1;
+}
+
+fn get_v2(a: &A, i: u64) -> &i64 {
+    let foo = &a.value;
+    return &foo.v2[i];
+}
+
+fn get_v4(a: &A) -> &i64 {
+    let foo = &a.value;
+    return &foo.v4.f;
+}
+
+fn main() -> i32 {
+    let a = A { value: B { v1: 1i64, v2: [10i64, 20i64, 30i64], v4: C { f: 4i64 } } };
+    if *get_v1(&a) != 1i64 { return 1; }
+    if *get_v2(&a, 1u64) != 20i64 { return 1; }
+    if *get_v4(&a) != 4i64 { return 1; }
+    return 0;
+}

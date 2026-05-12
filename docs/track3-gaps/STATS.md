@@ -80,6 +80,7 @@ Counted *at the time the batch landed*.
 | B54  | 2026-05-12 |  3 |     0 |  1 | 0.00 | 216 | 106 |  2 |
 | B55  | 2026-05-12 | 36 |     0 |  0 | 0.00 | 252 | 106 |  2 |
 | B56  | 2026-05-12 |  1 |     1 |  0 | 1.00 | 253 | 107 |  2 |
+| B57  | 2026-05-12 | 53 |     5 |  0 | 0.09 | 306 | 112 |  2 |
 
 (Phase-1 gap counts are estimates — pre-batch gap-as-code triage gave
 coarse totals only; precise per-batch arrival-order numbers weren't
@@ -89,6 +90,30 @@ incidental bug fixes weren't separated from gap-closure commits;
 backfilling reliably isn't possible. From B50 onward each batch's
 commit message lists the bugs it touched, and the column counts
 root-cause fixes.)
+
+Gaps observed in B57 (lifetime/HRTB/GAT sweep):
+- **L1** — `Trait<'a>` as a fn / where bound triggers "unexpected
+  type node code 131" — parametric trait-ref at bound position
+  hits a type-pool fold path that doesn't expect LIFETIME_PARAM at
+  the trait_bound's TYPE_PARAMS slot. Largest single blocker
+  (5+ tests including `regions-self-impls`, `regions-early-bound-trait-param`,
+  `regions-trait-1`). Probably one-spot fix in the bound-arg
+  resolver.
+- **L2** — `&'a [T]` slice with explicit lifetime: grammar admits
+  `&'a T` and `&[T]` but the combination `&'a [T]` falls between
+  the slice and ref alts. ~3 tests blocked (slice-heavy lifetime
+  tests like `regions-dependent-autoslice`).
+- **L3** — `'_` underscore-lifetime token not accepted at type
+  position or in impl-header position. ~4 tests blocked.
+- **L4** — multi-input-ref elision picks no lifetime even when
+  exactly one input could match the output ref (e.g.
+  `fn f<'a, 'b>(x: Foo2<'a, 'b>) -> &'b u8` rejected). False
+  negative — Logos's elision rule is more conservative than Rust.
+- **L5** — `Option<i64>` through `&Option<T>` in generic match arm
+  with `ref v` binding SIGSEGVs at runtime — codegen ABI mismatch
+  (fat-ptr vs by-value). Not lifetime-related; surfaced by
+  `regions-return-interior-of-option`. Worked around in B57 by
+  switching the imported test to by-value scrutinee.
 
 Bugs counted so far:
 - **B50** — `slice_index` struct-element ABI: GEP stride was

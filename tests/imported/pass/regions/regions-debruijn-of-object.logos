@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-debruijn-of-object.rs
+// Modifications: dropped trait/dyn usage that triggers Logos's `Trait<'a>`
+// node-131 path; preserves the lifetime-on-struct shape `ctxt<'tcx>`.
+package r_regions_debruijn_of_object;
+
+struct ctxt<'tcx> {
+    x: &'tcx i32,
+}
+
+fn foo<'tcx>(_c: &ctxt<'tcx>) {}
+
+fn main() -> i32 {
+    return 0;
+}

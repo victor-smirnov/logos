@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust tests/ui/regions/issue-5243.rs
+// Modifications: isize → i64; package wrapper.
+package issue_5243;
+
+struct S<'a> { v: &'a i64 }
+fn f<'lt>(_s: &'lt S<'lt>) {}
+
+fn main() -> i32 {
+    let v: i64 = 42i64;
+    let s: S = S { v: &v };
+    f(&s);
+    return 0;
+}

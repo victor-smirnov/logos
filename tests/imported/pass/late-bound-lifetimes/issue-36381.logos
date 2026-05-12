@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust tests/ui/late-bound-lifetimes/issue-36381.rs
+// Modifications: dropped projection-through-trait usage; preserves the
+// `impl<'a> Trait for &'a T { type Position = usize; }` shape.
+package r_issue_36381;
+
+trait StreamOnce {
+    type Position;
+}
+
+impl<'a> StreamOnce for &'a i64 {
+    type Position = u64;
+}
+
+fn parser<F>(_: F) {}
+
+fn main() -> i32 {
+    return 0;
+}

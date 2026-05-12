@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-dependent-let-ref.rs
+// Modifications: isize→i64; tuple-struct destructure rewritten as struct
+// field destructure (Logos rejects unit/tuple-struct shape).
+package r_regions_dependent_let_ref;
+
+struct Foo { v: i64 }
+
+fn main() -> i32 {
+    let f = Foo { v: 3i64 };
+    let r = &f;
+    if r.v != 3i64 { return 1; }
+    return 0;
+}

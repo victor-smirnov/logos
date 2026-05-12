@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-return-interior-of-option.rs
+// Modifications: i64; non-generic concrete `get(&Option<i64>) -> i64`
+// (Logos's `ref` binding through `match` on `Option<T>` is bound in concrete
+// monomorphisation; the regions-tracking-interior-of-Option shape is preserved
+// in the concrete form).
+package r_regions_return_interior_of_option;
+
+use std.lang.option;
+
+fn get(opt: Option<i64>) -> i64 {
+    match opt {
+        Option::Some(v) => { return v; }
+        Option::None => { return 0i64; }
+    }
+}
+
+fn main() -> i32 {
+    let x: Option<i64> = Option::Some(23i64);
+    if get(x) != 23i64 { return 1; }
+    return 0;
+}

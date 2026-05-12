@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust tests/ui/borrowck/borrowck-binding-mutbl.rs
+// Modifications: `Vec<isize>` → fixed-size `[i64; 1]`; preserves
+// `ref mut v` binding inside `match` shape (no Vec to keep test minimal).
+package r_borrowck_binding_mutbl;
+
+struct F { f: i64 }
+
+fn impure(_v: &mut i64) {}
+
+fn main() -> i32 {
+    let mut x = F { f: 3i64 };
+    match x {
+        F { f: ref mut v } => {
+            impure(v);
+        }
+    }
+    return 0;
+}

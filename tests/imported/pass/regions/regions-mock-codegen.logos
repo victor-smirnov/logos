@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-mock-codegen.rs
+// Modifications: dropped allocator-API / `unsafe`/Global; kept nested
+// lifetime-struct shape `Bcx<'a> { fcx: &'a Fcx<'a> }`.
+package r_regions_mock_codegen;
+
+struct arena { _f: i32 }
+
+struct Ccx { x: i64 }
+
+struct Fcx<'a> {
+    arena: &'a arena,
+    ccx: &'a Ccx,
+}
+
+struct Bcx<'a> {
+    fcx: &'a Fcx<'a>,
+}
+
+fn g(fcx: &Fcx) {
+    let _bcx = Bcx { fcx: fcx };
+}
+
+fn f(ccx: &Ccx) {
+    let a = arena { _f: 0 };
+    let fcx = Fcx { arena: &a, ccx: ccx };
+    g(&fcx);
+}
+
+fn main() -> i32 {
+    let ccx = Ccx { x: 0i64 };
+    f(&ccx);
+    return 0;
+}

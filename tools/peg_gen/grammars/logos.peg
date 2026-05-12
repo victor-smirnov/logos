@@ -2317,13 +2317,23 @@
               => { CODE: ASSOC_EQ_BIND, NAME: $1, TYPE: $3 }
                / type_or_lt_arg
 
-    // Lifetime parameter: 'a
-    lifetime_param <- LIFETIME
+    // Lifetime parameter: 'a; with outlives bound: 'a: 'b (+ 'c)*
+    lifetime_param <- LIFETIME COLON LIFETIME (PLUS LIFETIME)*
+                   => { CODE: LIFETIME_PARAM, NAME: $1, ITEMS: $... }
+                    / LIFETIME
                    => { CODE: LIFETIME_PARAM, NAME: $1 }
 
     type_param <- HASH LPAREN type_param RPAREN COMMA STAR
                => { CODE: REPEAT_GROUP, VALUE: $3, OP: 1 }
                 / lifetime_param
+                // Type outlives bound: T: 'a (+ 'b)*  — must come before
+                // the trait-bound form below so the `'` lookahead resolves.
+                // Stored as TYPE_PARAM where every ITEMS element is a
+                // LIFETIME_PARAM (vs trait_bound for the regular trait-
+                // bound case). Sema's bound-walker distinguishes the two
+                // shapes via the ITEMS element code.
+                / IDENT COLON lifetime_param (PLUS lifetime_param)*
+               => { CODE: TYPE_PARAM, NAME: $1, ITEMS: $... }
                 / ptr_type
                 / arr_type
                 / KW_CONST IDENT DOTDOTDOT COLON type_ref

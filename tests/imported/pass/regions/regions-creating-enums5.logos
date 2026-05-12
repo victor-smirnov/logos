@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-creating-enums5.rs
+// Modifications: usize→u64, exit-code main, `&ast` extra arg dropped (Logos
+// has no elision-with-3-refs case — keep two refs to preserve the binder).
+package r_regions_creating_enums5;
+
+enum ast<'a> {
+    num(u64),
+    add(&'a ast<'a>, &'a ast<'a>),
+}
+
+fn mk_add_ok<'a>(x: &'a ast<'a>, y: &'a ast<'a>) -> ast<'a> {
+    return ast::add(x, y);
+}
+
+fn main() -> i32 {
+    return 0;
+}

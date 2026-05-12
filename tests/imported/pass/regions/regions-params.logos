@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-params.rs
+// Modifications: usize→u64, replaced `apply<T, F: FnOnce(T)->T>` with direct
+// call (closures here just thread the value); preserves identity-through-borrow.
+package r_regions_params;
+
+fn region_identity(x: &u64) -> &u64 { return x; }
+
+fn parameterized(x: &u64) -> u64 {
+    let z = region_identity(x);
+    return *z;
+}
+
+fn main() -> i32 {
+    let x: u64 = 3u64;
+    if parameterized(&x) != 3u64 { return 1; }
+    return 0;
+}

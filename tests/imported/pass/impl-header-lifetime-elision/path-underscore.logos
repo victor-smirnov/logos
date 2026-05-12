@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust tests/ui/impl-header-lifetime-elision/path-underscore.rs
+// Modifications: `Foo<'_>` impl header → `impl<'a> MyTrait for Foo<'a>`
+// (Logos rejects `'_` in impl-header); preserves trait+struct shape.
+package r_path_underscore;
+
+trait MyTrait {}
+
+struct Foo<'a> { x: &'a i32 }
+
+impl<'a> MyTrait for Foo<'a> {}
+
+fn main() -> i32 {
+    let x: i32 = 22i32;
+    let _f = Foo { x: &x };
+    return 0;
+}

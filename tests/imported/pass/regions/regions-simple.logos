@@ -1,0 +1,11 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-simple.rs
+// Modifications: isize→i64, dropped println!, exit-code main.
+package r_regions_simple;
+
+fn main() -> i32 {
+    let mut x: i64 = 3i64;
+    let y: &mut i64 = &mut x;
+    *y = 5i64;
+    if *y != 5i64 { return 1; }
+    return 0;
+}

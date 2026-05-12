@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-addr-of-ret.rs
+// Modifications: isize→i64, dropped println!, exit-code main.
+package r_regions_addr_of_ret;
+
+fn f(x: &i64) -> &i64 {
+    return &*x;
+}
+
+fn main() -> i32 {
+    let three: i64 = 3i64;
+    let r = f(&three);
+    if *r != 3i64 { return 1; }
+    return 0;
+}

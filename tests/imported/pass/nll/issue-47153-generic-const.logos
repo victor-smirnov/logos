@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust tests/ui/nll/issue-47153-generic-const.rs
+// Modifications: dropped `const B: bool = true;` in trait/impl (Logos has
+// no inherent `const ITEM:` in traits/impls in this position). Kept the
+// trait + generic impl shape.
+package r_nll_issue_47153_generic_const;
+
+trait Foo {}
+
+struct Bar<T> { x: T }
+
+impl<T> Bar<T> {
+    fn id(self: &Bar<T>) -> bool { return true; }
+}
+
+fn main() -> i32 {
+    return 0;
+}

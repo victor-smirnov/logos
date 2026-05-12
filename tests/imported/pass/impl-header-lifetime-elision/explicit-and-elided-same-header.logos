@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust tests/ui/impl-header-lifetime-elision/explicit-and-elided-same-header.rs
+// Modifications: replaced `&str` with `&i64` (Logos `str` is slice<u8> and
+// mixing it inside `Foo<T>` complicates substitution); the test is about
+// header-elision parity, which the i64 substitution preserves.
+package r_explicit_and_elided_same_header;
+
+trait Foo<T> {}
+
+fn foo<'a>(_x: &i64, _y: &'a i64) {}
+
+impl<'a> Foo<&i64> for &'a i64 {}
+
+fn main() -> i32 {
+    return 0;
+}

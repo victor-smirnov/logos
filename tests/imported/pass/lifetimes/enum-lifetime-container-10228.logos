@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust tests/ui/lifetimes/enum-lifetime-container-10228.rs
+// Modifications: slices `&'a [T]` replaced with single `&'a T` (Logos
+// doesn't parse slice-with-explicit-lifetime); preserves enum + struct-
+// with-lifetime-param shape.
+package r_enum_lifetime_container_10228;
+
+enum StdioContainer {
+    CreatePipe(bool),
+}
+
+struct Test<'a> {
+    args: &'a i64,
+    io: &'a StdioContainer,
+}
+
+fn main() -> i32 {
+    let v: i64 = 42i64;
+    let c = StdioContainer::CreatePipe(true);
+    let _t = Test { args: &v, io: &c };
+    return 0;
+}

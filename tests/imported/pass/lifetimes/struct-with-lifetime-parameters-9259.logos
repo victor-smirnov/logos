@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust tests/ui/lifetimes/struct-with-lifetime-parameters-9259.rs
+// Modifications: `&'a [String]` → `&'a i64` (Logos doesn't parse the
+// slice-with-explicit-lifetime form); preserves the
+// `Option<&'a T>` field shape.
+package r_struct_with_lifetime_parameters_9259;
+
+use std.lang.option;
+
+struct A<'a> {
+    a: &'a i64,
+    b: Option<&'a i64>,
+}
+
+fn main() -> i32 {
+    let v: i64 = 42i64;
+    let _a = A { a: &v, b: Option::Some(&v) };
+    return 0;
+}

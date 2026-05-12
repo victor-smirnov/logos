@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-infer-borrow-scope-addr-of.rs
+// Modifications: replaced `std::mem::swap` with manual tmp swap; i64.
+package r_regions_infer_borrow_scope_addr_of;
+
+fn main() -> i32 {
+    let mut x: i64 = 4i64;
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        match i {
+            j => {
+                let y = &x;
+                if j >= *y { return 1; }
+            }
+        }
+        let mut y: i64 = 4i64;
+        let tmp = y; y = x; x = tmp;
+        i = i + 1i64;
+    }
+    return 0;
+}

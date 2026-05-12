@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-variance-contravariant-use-contravariant.rs
+// Modifications: lifted nested fn `collapse` to module scope (Logos has no
+// nested fns); i64.
+package r_regions_variance_contravariant_use_contravariant;
+
+struct Contravariant<'a> { f: &'a i64 }
+
+fn collapse<'b>(_x: &'b i64, _c: Contravariant<'b>) {}
+
+fn use_<'a>(c: Contravariant<'a>) {
+    let x: i64 = 3i64;
+    collapse(&x, c);
+}
+
+fn main() -> i32 {
+    return 0;
+}

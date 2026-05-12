@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust tests/ui/borrowck/borrowck-uniq-via-ref.rs
+// Modifications: dropped Box (use plain i64 fields); preserves
+// recursive nested-struct + reborrow `&mut → &imm` shape.
+package r_borrowck_uniq_via_ref;
+
+struct Rec { f: i64 }
+struct Innermost { h: i64 }
+struct Inner { g: Innermost }
+struct Outer { f: Inner }
+
+fn borrow(_v: &i64) {}
+
+fn box_mut_rec(v: &mut Rec) {
+    borrow(&v.f);
+}
+
+fn box_mut_recs(v: &mut Outer) {
+    borrow(&v.f.g.h);
+}
+
+fn box_imm_rec(v: &Rec) {
+    borrow(&v.f);
+}
+
+fn box_imm_recs(v: &Outer) {
+    borrow(&v.f.g.h);
+}
+
+fn main() -> i32 {
+    return 0;
+}
