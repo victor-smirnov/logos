@@ -1,0 +1,11 @@
+// B64.2: variance check at arg-pass site. Passing `&mut &'static T` where
+// `&mut &'a T` is expected violates &mut invariance — Rust rejects, Logos
+// must reject.
+package variance_arg_mut_inv;
+
+fn takes<'a>(_p: &mut &'a i32) -> i32 { return 0i32; }
+
+fn main() -> i32 {
+    let mut s: &'static i32 = &42i32;
+    return takes(&mut s);  // &mut &'static → expected &mut &'a — Inv rejects
+}

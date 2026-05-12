@@ -1248,6 +1248,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                         "tuple-struct '{}' field {}: expected {}, got {}",
                         callee, i, es, gs));
                 }
+                check_variance(at, pt, std::format("tuple-struct '{}' field {}", callee, i));
                 fields.emplace_back(std::to_string(i), std::move(arg_exprs[i]));
             }
             return builder().struct_lit(std::string(callee), std::move(fields),
@@ -1331,6 +1332,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                       error(std::format("{} arg {}: expected {}, got {}",
                           kind_str, i + 1, es, gs)); }
                 }
+                check_variance(at, pt, std::format("{} arg {}", kind_str, i + 1));
             }
         }
         // …but the var_ref carries the *original* TypeVar so mono's
@@ -1479,6 +1481,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                         { auto [es, gs] = type_str_pair(pt, at);
                           error(std::format("call to '{}' arg {}: expected {}, got {}",
                               callee, i + 1, es, gs)); }
+                    check_variance(at, pt, std::format("call to '{}' arg {}", callee, i + 1));
                     if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                         if (auto v = get_intlit_value(arg_exprs[i]))
                             if (!intlit_fits(*v, TypeRef(pt).kind()))
@@ -1501,6 +1504,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                     { auto [es, gs] = type_str_pair(pt, at);
                       error(std::format("call to '{}' arg {}: expected {}, got {}",
                           callee, i + 1, es, gs)); }
+                check_variance(at, pt, std::format("call to '{}' arg {}", callee, i + 1));
                 if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                     if (auto v = get_intlit_value(arg_exprs[i]))
                         if (!intlit_fits(*v, TypeRef(pt).kind()))
@@ -1694,6 +1698,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                     { auto [es, gs] = type_str_pair(pt, at);
                       error(std::format("call to '{}' arg {}: expected {}, got {}",
                           callee, i + 1, es, gs)); }
+                check_variance(at, pt, std::format("call to '{}' arg {}", callee, i + 1));
                 if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                     if (auto v = get_intlit_value(arg_exprs[i]))
                         if (!intlit_fits(*v, TypeRef(pt).kind()))
@@ -1716,6 +1721,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 { auto [es, gs] = type_str_pair(pt, at);
                   error(std::format("call to '{}' arg {}: expected {}, got {}",
                       callee, i + 1, es, gs)); }
+            check_variance(at, pt, std::format("call to '{}' arg {}", callee, i + 1));
             if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                 if (auto v = get_intlit_value(arg_exprs[i]))
                     if (!intlit_fits(*v, TypeRef(pt).kind()))
@@ -2067,6 +2073,8 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                 { auto [es, gs] = type_str_pair(pt, at);
                   error(std::format("call to '{}' arg {}: expected {}, got {}",
                       callee_diag, i + 1, es, gs)); }
+            if (TypeRef(pt).kind() != LogosType::Kind::TypeVar)
+                check_variance(at, pt, std::format("call to '{}' arg {}", callee_diag, i + 1));
             if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error &&
                 TypeRef(pt).kind() != LogosType::Kind::TypeVar)
                 if (auto v = get_intlit_value(arg_exprs[i]))
@@ -2092,6 +2100,9 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                     { auto [es, gs] = type_str_pair(pt, at);
                       error(std::format("call to '{}' arg {}: expected {}, got {}",
                           callee_diag, i + 1, es, gs)); }
+                if (TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
+                    TypeRef(pt).kind() != LogosType::Kind::AssocType)
+                    check_variance(at, pt, std::format("call to '{}' arg {}", callee_diag, i + 1));
                 if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error &&
                     TypeRef(pt).kind() != LogosType::Kind::TypeVar)
                     if (auto v = get_intlit_value(arg_exprs[i]))
@@ -3312,6 +3323,7 @@ lir::LExprPtr SemaChecker::lower_invoke_expr(TinyMapView node) {
                         "closure call arg {}: expected {}, got {}",
                         i + 1, es, gs));
                 }
+                check_variance(at, pt, std::format("closure call arg {}", i + 1));
             }
         }
         auto ret = TypeRef(rt).closure_ret()
@@ -3486,6 +3498,10 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                   error(std::format("method '{}' arg {}: expected {}, got {}",
                                                   std::string(method_name), i + 1,
                                                   es, gs)); }
+                            if (TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
+                                TypeRef(pt).kind() != LogosType::Kind::AssocType)
+                                check_variance(at, pt, std::format("method '{}' arg {}",
+                                                                   std::string(method_name), i + 1));
                             if (TypeRef(at).kind() == LogosType::Kind::IntLit &&
                                 TypeRef(pt).kind() != LogosType::Kind::Error &&
                                 TypeRef(pt).kind() != LogosType::Kind::TypeVar)

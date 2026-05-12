@@ -1134,6 +1134,9 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
                       name, es, gs));
             }
         }
+        // B64: variance-aware subtype check at let-init coercion site.
+        if (rhs && ann && !rhs_is_expr_blob)
+            check_variance(rhs_type, ann, std::format("let '{}'", name));
         // Implicit safe integer widening: u32 → i64, i32 → i64, u8 → u32, ...
         if (rhs && ann && is_integer_kind(TypeRef(ann).kind()) && is_integer_kind(TypeRef(rhs_type).kind()) &&
             TypeRef(rhs_type).kind() != LogosType::Kind::IntLit &&
@@ -1474,20 +1477,8 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
                 auto [es, gs] = type_str_pair(ret_type_, val->type);
                 error(std::format("return type mismatch — expected {}, got {}",
                       es, gs));
-            } else if (ret_type_ && TypeRef(ret_type_).kind() != LogosType::Kind::Error &&
-                       TypeRef(val->type).kind() != LogosType::Kind::Error) {
-                // B64: variance-aware lifetime subtype check. Catches cases
-                // where TypeUID-erased compat() accepts but Rust's variance
-                // rejects (e.g. &mut &'static T ↛ &mut &'a T due to invariance
-                // of MutRef in its pointee).
-                auto adj = outlives_adj(current_outlives_);
-                if (!subtype(val->type, ret_type_, adj, variance_table_)) {
-                    auto [es, gs] = type_str_pair(ret_type_, val->type);
-                    error(std::format("return type mismatch (variance): "
-                                      "expected {}, got {} — lifetime structure incompatible "
-                                      "(check &mut invariance / contravariance rules)",
-                                      es, gs));
-                }
+            } else if (ret_type_) {
+                check_variance(val->type, ret_type_, "return type mismatch");
             }
             // Retype float literal to concrete return type.
             if (ret_type_ && TypeRef(val->type).kind() == LogosType::Kind::FloatLit &&

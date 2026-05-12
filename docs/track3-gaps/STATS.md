@@ -213,6 +213,22 @@ Polished in B63.3:
   LIFETIME_PARAM entries when walking ITEMS. Regression:
   `pass/hrtb_fn_ptr_type.logos`, `pass/hrtb_dyn_trait_type.logos`.
 
+B64.2 — extended subtype gate to all coercion sites:
+- `check_variance(from, to, ctx)` helper on SemaChecker emits a
+  uniform "variance mismatch" error after `types_compatible`
+  accepts but `subtype` rejects.
+- Wired at: return statement, let-init with annotation,
+  argument-pass for free fns / generic fns / methods / closure
+  calls / tuple-struct ctor / fn-ptr calls.
+- Outlives permissiveness: when both lifetimes are named
+  generic regions and no constraint connects them, accept (caller's
+  region inference would pick a unification). The check still
+  rejects concrete-vs-named-static violations and any &mut /
+  raw-ptr invariance failures.
+- Calibration: `fail/variance_arg_mut_inv.logos` — passing
+  `&mut &'static i32` to a fn expecting `&mut &'a i32` rejects.
+  1562/1562.
+
 Closed in B64 (lifetime epic Phase 8 — substantive):
 - **Variance computation + variance-aware subtype** ✅ — per
   struct / enum / datatype, variance per type-param and per-

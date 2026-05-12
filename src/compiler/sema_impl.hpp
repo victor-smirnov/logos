@@ -17,6 +17,8 @@
 #include <logos/compiler/lir_mirror.hpp>
 #include <logos/compiler/ast.hpp>
 #include <logos/compiler/variance.hpp>
+#include <logos/compiler/outlives.hpp>
+#include <logos/compiler/subtype.hpp>
 #include <logos/compiler/sha256.hpp>
 #include <logos/compiler/str_map.hpp>
 #include <logos/hermes/view.hpp>
@@ -1634,6 +1636,31 @@ private:
     // ── Compatibility ────────────────────────────────────────────
     bool compat(TypeRef from, TypeRef to) const {
         return types_compatible(from, to);
+    }
+    // B64: post-compat variance gate. Returns true when `from` is variance-
+    // compatible with `to` given the currently-lowering fn's outlives graph
+    // and the program-wide variance table. Caller has already confirmed
+    // structural compat via types_compatible; this only catches lifetime
+    // structure mismatches that the lifetime-erased TypeUID misses.
+    bool variance_ok(TypeRef from, TypeRef to) const {
+        if (!from || !to) return true;
+        auto adj = outlives_adj(current_outlives_);
+        return subtype(from, to, adj, variance_table_);
+    }
+    // Emit an "X: variance mismatch …" error if from ↛ to under variance.
+    // No-op when either side is Error or when types_compatible would already
+    // have errored. Used at coercion sites (return / let-init / arg).
+    void check_variance(TypeRef from, TypeRef to, const std::string& ctx) {
+        if (!from || !to) return;
+        if (TypeRef(from).kind() == LogosType::Kind::Error ||
+            TypeRef(to).kind() == LogosType::Kind::Error) return;
+        if (!types_compatible(from, to)) return;  // outer check handles it
+        if (variance_ok(from, to)) return;
+        auto [es, gs] = type_str_pair(to, from);
+        error(std::format("{}: variance mismatch — expected {}, got {} — "
+                          "lifetime structure incompatible "
+                          "(check &mut invariance / contravariance rules)",
+                          ctx, es, gs));
     }
 
     // ── Type resolution ──────────────────────────────────────────
