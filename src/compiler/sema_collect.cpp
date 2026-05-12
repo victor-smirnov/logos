@@ -1463,6 +1463,37 @@ void SemaChecker::collect_impl(TinyMapView node) {
         extract_impl_lt(la::TYPE_PARAMS.code);
         impl_lt_outlives = read_lifetime_outlives(node);
     }
+    // B67: pick up the where-clause's outlives + type-outlives bounds too.
+    {
+        auto where_outlives = read_lifetime_outlives_from(node, la::WHERE.code);
+        for (auto& p : where_outlives) impl_lt_outlives.push_back(std::move(p));
+        if (node.has_key(la::WHERE)) {
+            AnyVal wav = node.get(la::WHERE.code);
+            if (!wav.is_null()) {
+                auto wmap = map_of(wav);
+                if (wmap.has_key(la::ITEMS)) {
+                    auto witems = arr_of(wmap.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < witems.size(); ++i) {
+                        auto witem = map_of(witems.get(i));
+                        if (code_of(witem) != la::TYPE_PARAM) continue;
+                        if (!witem.has_key(la::ITEMS)) continue;
+                        std::string tname(str_of(witem.get(la::NAME.code)));
+                        auto inner = arr_of(witem.get(la::ITEMS.code));
+                        TypeParam* target = nullptr;
+                        for (auto& tp : impl_tps)
+                            if (tp.name == tname) { target = &tp; break; }
+                        if (!target) continue;
+                        for (uint64_t j = 0; j < inner.size(); ++j) {
+                            auto inode = map_of(inner.get(j));
+                            if (code_of(inode) != la::LIFETIME_PARAM) continue;
+                            target->lifetime_outlives.push_back(
+                                std::string(str_of(inode.get(la::NAME.code))));
+                        }
+                    }
+                }
+            }
+        }
+    }
     // TYPE is the target type (simple_type, ptr_type, or GENERIC_INST)
     std::string target;
     TypeRef target_resolved = nullptr;  // concrete resolved type (for Self)
