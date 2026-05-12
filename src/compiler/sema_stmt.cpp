@@ -813,11 +813,28 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         }
     }
 
+    // P4-pm-14: `let ref y = x;` (or `let ref y: T = x;`) is sugar for
+    // `let y = &x;`. Detect IS_REF here and rewrite the lowered RHS as
+    // an addr-of-expr; the binding's type adopts the addr-of's result.
+    bool is_ref_bind = false;
+    if (node.has_key(la::IS_REF)) {
+        AnyVal av = node.get(la::IS_REF.code);
+        if (!av.is_null() && av.is_value()) is_ref_bind = av.as_value<uint8_t>() != 0;
+    }
+
     lir::LExprPtr rhs = nullptr;
     TypeRef rhs_type;
     if (node.has_key(la::VALUE)) {
         rhs      = lower_expr(map_of(node.get(la::VALUE.code)));
         rhs_type = rhs->type;
+        if (is_ref_bind) {
+            // Wrap the lowered RHS in an addr-of-temp so it produces
+            // `&rhs` with type `&T` (matches `let y = &x;` semantics).
+            auto inner_t = rhs->type;
+            rhs      = builder().addr_of_temp(std::move(rhs), /*is_mut=*/false,
+                                              make_ref(false, inner_t));
+            rhs_type = rhs->type;
+        }
     } else if (ann) {
         // B3-bg-01 / B3-bg-02: `let v: T;` / `let mut v: T;` —
         // declare-without-init. Binding takes the annotated type; value

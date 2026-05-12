@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/let-destruct-ref.rs
+// Modifications: faithful — `let ref y = x;` now parses + lowers
+// (P4-pm-14 closed 2026-05-11; emitted as sugar for `let y = &x;`).
+package b_let_destruct_ref;
+
+use std.fmt;
+use std.lang.text;
+
+fn main() -> i32 {
+    let x: usize = 3usize;
+    let ref y = x;
+    assert_eq!(x, *y);
+    return 0;
+}

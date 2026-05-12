@@ -1497,6 +1497,13 @@
 
     let_stmt <- KW_LET LPAREN pat_binding_list RPAREN ASSIGN expr SEMI
              => { CODE: LET_DESTRUCT, NAMES: $3, VALUE: $6 }
+              // P4-pm-14: `let ref y = x;` — `ref`-binding sugar for
+              // `let y = &x;`. Sema detects IS_REF and wraps the lowered
+              // RHS in an addr-of.
+              / KW_LET KW_REF IDENT COLON type_ref ASSIGN expr SEMI
+             => { CODE: LET, IS_REF: true, NAME: $3, TYPE: $5, VALUE: $7 }
+              / KW_LET KW_REF IDENT ASSIGN expr SEMI
+             => { CODE: LET, IS_REF: true, NAME: $3, VALUE: $5 }
               / KW_LET KW_MUT IDENT COLON type_ref ASSIGN expr SEMI
              => { CODE: LET, IS_MUT: true, NAME: $3, TYPE: $5, VALUE: $7 }
               / KW_LET KW_MUT IDENT COLON type_ref SEMI
