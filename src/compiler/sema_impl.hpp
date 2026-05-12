@@ -16,6 +16,7 @@
 #include <logos/compiler/lir_view.hpp>
 #include <logos/compiler/lir_mirror.hpp>
 #include <logos/compiler/ast.hpp>
+#include <logos/compiler/variance.hpp>
 #include <logos/compiler/sha256.hpp>
 #include <logos/compiler/str_map.hpp>
 #include <logos/hermes/view.hpp>
@@ -1543,6 +1544,11 @@ private:
 
     // ── Type parameter helpers ────────────────────────────────────
 
+    // B64: compute per-struct/enum variance via fixed-point over field types.
+    // Populates variance_table_ keyed by "pkg.Name" with VarianceMap entries
+    // using `#i` (type param i) and `@i` (lifetime param i) as keys.
+    void compute_variances();
+
     std::vector<std::string> read_lifetime_params(hermes::TinyMapView node);
     // B65: read declared outlives bounds. Returns (long, short) pairs from
     // `'long: 'short` clauses (in fn/struct/enum/impl header or where).
@@ -1713,6 +1719,12 @@ private:
     std::vector<std::string> active_loop_labels_;
     bool inside_unsafe_ = false;
     TypeRef ret_type_ = nullptr;
+    // B64/B65: outlives graph of the currently-lowering fn, used by the
+    // variance-aware subtype check at coercion sites.
+    std::vector<std::pair<std::string, std::string>> current_outlives_;
+    // B64: per-struct/enum variance table, computed once via fixed-point
+    // over the program's user defs and consulted by the subtype check.
+    DefVarianceTable variance_table_;
     TypeRef break_value_type_ = nullptr;  // type yielded by break <expr>
     bool break_without_value_ = false;
     std::string pending_loop_label_;  // set by LABELED_LOOP before lowering inner loop

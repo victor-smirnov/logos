@@ -1,0 +1,7 @@
+// B64: `&mut T` is invariant in T. Rust rejects shortening the inner
+// lifetime through a `&mut` outer ref; Logos must reject too.
+package variance_mut_ref_inv;
+
+fn shorten<'a>(p: &mut &'static i32) -> &mut &'a i32 { return p; }
+
+fn main() -> i32 { return 0; }

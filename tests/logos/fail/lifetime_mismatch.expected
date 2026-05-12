@@ -1,1 +1,1 @@
-lifetime mismatch: return type has lifetime 'a but 'y' has lifetime (elided)
+return type mismatch

@@ -3568,6 +3568,9 @@ TypeRef SemaChecker::field_type_of_for_type(TypeRef struct_t,
 
 void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LProgram& prog) {
     using namespace ast;
+    // B64: variance fixed-point — runs after collect_*, before any lower_fn
+    // (the subtype check at return / arg / let-init sites consults the table).
+    compute_variances();
     for (size_t i = 0; i < asts.size(); ++i) {
         cur_ast_idx_ = i;
         holder_ = asts[i].holder();
@@ -4284,6 +4287,189 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
         }
         else if (c == la::IMPL_BLOCK) lower_impl_block(item, prog);
         pending_annots.clear();
+    }
+}
+
+// ── B64: per-struct/enum variance via fixed-point ─────────────────────────────
+
+namespace {
+
+// Compute the variance with which `target` (a type-param or lifetime-param
+// name, e.g. "T" or "'a") appears in `t`, given the in-progress variance
+// table for other user defs and an `ambient` variance context (the variance
+// at which `t`'s containing position is held).
+Variance variance_in_type(TypeRef t,
+                          const std::string& target,
+                          bool target_is_lifetime,
+                          const DefVarianceTable& table,
+                          Variance ambient = Variance::Co)
+{
+    if (!t) return Variance::BiVar;
+    using K = LogosType::Kind;
+    switch (t.kind()) {
+        case K::TypeVar:
+            if (!target_is_lifetime && std::string(t.type_var_name()) == target)
+                return ambient;
+            return Variance::BiVar;
+        case K::Ref: {
+            Variance v = Variance::BiVar;
+            if (target_is_lifetime && std::string(t.lifetime()) == target)
+                v = variance_meet(v, ambient);  // Ref is Co in lt
+            v = variance_meet(v, variance_in_type(t.pointee(), target,
+                                                  target_is_lifetime, table, ambient));
+            return v;
+        }
+        case K::MutRef: {
+            Variance v = Variance::BiVar;
+            if (target_is_lifetime && std::string(t.lifetime()) == target)
+                v = variance_meet(v, ambient);  // MutRef is Co in lt
+            // Inv in pointee.
+            v = variance_meet(v, variance_in_type(t.pointee(), target,
+                                                  target_is_lifetime, table,
+                                                  variance_compose(ambient, Variance::Inv)));
+            return v;
+        }
+        case K::Ptr:
+            // Raw pointers: Inv in pointee.
+            return variance_in_type(t.pointee(), target, target_is_lifetime, table,
+                                    variance_compose(ambient, Variance::Inv));
+        case K::Tuple: {
+            Variance v = Variance::BiVar;
+            for (auto e : t.tuple_elems())
+                v = variance_meet(v, variance_in_type(e, target,
+                                                       target_is_lifetime, table, ambient));
+            return v;
+        }
+        case K::Array:
+        case K::Slice:
+            return variance_in_type(t.elem(), target, target_is_lifetime, table, ambient);
+        case K::Struct:
+        case K::ZonedStruct:
+        case K::Enum: {
+            std::string key = std::string(t.pkg_name()) +
+                              (t.pkg_name().empty() ? "" : ".") +
+                              std::string(t.kind() == K::Enum ? t.enum_name() : t.struct_name());
+            auto it = table.find(key);
+            const VarianceMap* vm = (it == table.end()) ? nullptr : &it->second;
+            auto var_for = [&](size_t i, bool is_lt) -> Variance {
+                if (!vm) return Variance::Co;
+                std::string ikey = (is_lt ? "@" : "#") + std::to_string(i);
+                auto vit = vm->find(ikey);
+                return (vit == vm->end()) ? Variance::Co : vit->second;
+            };
+            Variance v = Variance::BiVar;
+            size_t i = 0;
+            for (auto a : t.type_args()) {
+                Variance inner_ambient = variance_compose(ambient, var_for(i++, false));
+                v = variance_meet(v, variance_in_type(a, target,
+                                                       target_is_lifetime, table,
+                                                       inner_ambient));
+            }
+            i = 0;
+            for (auto& lt : t.lifetime_args()) {
+                if (target_is_lifetime && std::string(lt) == target) {
+                    Variance inner_ambient = variance_compose(ambient, var_for(i, true));
+                    v = variance_meet(v, inner_ambient);
+                }
+                ++i;
+            }
+            return v;
+        }
+        case K::FnPtr: {
+            Variance v = Variance::BiVar;
+            for (auto p : t.closure_params())
+                v = variance_meet(v, variance_in_type(p, target, target_is_lifetime, table,
+                                                       variance_compose(ambient, Variance::Contra)));
+            v = variance_meet(v, variance_in_type(t.closure_ret(), target,
+                                                   target_is_lifetime, table, ambient));
+            return v;
+        }
+        default:
+            return Variance::BiVar;
+    }
+}
+
+} // anonymous namespace
+
+void SemaChecker::compute_variances() {
+    variance_table_.clear();
+    auto seed = [&](const std::string& key,
+                    const std::vector<TypeParam>& tps,
+                    const std::vector<std::string>& lts) {
+        VarianceMap m;
+        for (size_t i = 0; i < tps.size(); ++i)
+            m["#" + std::to_string(i)] = Variance::BiVar;
+        for (size_t i = 0; i < lts.size(); ++i)
+            m["@" + std::to_string(i)] = Variance::BiVar;
+        variance_table_[key] = std::move(m);
+    };
+    auto qkey = [](const std::string& pkg, const std::string& name) {
+        return pkg.empty() ? name : pkg + "." + name;
+    };
+    for (auto& [k, si] : structs_)
+        seed(qkey(si.package, k), si.type_params, si.lifetime_params);
+    for (auto& [k, si] : datatypes_)
+        seed(qkey(si.package, k), si.type_params, si.lifetime_params);
+    for (auto& [k, ei] : enums_)
+        seed(k, ei.type_params, ei.lifetime_params);
+
+    bool changed = true;
+    int rounds = 0;
+    const int MAX_ROUNDS = 32;
+    while (changed && rounds++ < MAX_ROUNDS) {
+        changed = false;
+        auto update_def =
+            [&](const std::string& key,
+                const std::vector<TypeParam>& tps,
+                const std::vector<std::string>& lts,
+                auto field_types_fn) {
+            VarianceMap& vm = variance_table_[key];
+            for (size_t i = 0; i < tps.size(); ++i) {
+                Variance v = Variance::BiVar;
+                for (auto ft : field_types_fn()) {
+                    v = variance_meet(v,
+                        variance_in_type(ft, tps[i].name, /*lt=*/false,
+                                         variance_table_, Variance::Co));
+                }
+                std::string ikey = "#" + std::to_string(i);
+                if (vm[ikey] != v) { vm[ikey] = v; changed = true; }
+            }
+            for (size_t i = 0; i < lts.size(); ++i) {
+                Variance v = Variance::BiVar;
+                for (auto ft : field_types_fn()) {
+                    v = variance_meet(v,
+                        variance_in_type(ft, lts[i], /*lt=*/true,
+                                         variance_table_, Variance::Co));
+                }
+                std::string ikey = "@" + std::to_string(i);
+                if (vm[ikey] != v) { vm[ikey] = v; changed = true; }
+            }
+        };
+        for (auto& [k, si] : structs_) {
+            update_def(qkey(si.package, k), si.type_params, si.lifetime_params,
+                       [&]() {
+                           std::vector<TypeRef> ts;
+                           for (auto& f : si.fields) ts.push_back(f.type);
+                           return ts;
+                       });
+        }
+        for (auto& [k, si] : datatypes_) {
+            update_def(qkey(si.package, k), si.type_params, si.lifetime_params,
+                       [&]() {
+                           std::vector<TypeRef> ts;
+                           for (auto& f : si.fields) ts.push_back(f.type);
+                           return ts;
+                       });
+        }
+        for (auto& [k, ei] : enums_) {
+            update_def(k, ei.type_params, ei.lifetime_params,
+                       [&]() {
+                           std::vector<TypeRef> ts;
+                           for (auto& v : ei.variants)
+                               for (auto pt : v.payload_types) ts.push_back(pt);
+                           return ts;
+                       });
+        }
     }
 }
 

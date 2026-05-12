@@ -2,6 +2,7 @@
 
 #include "sema_impl.hpp"
 #include "ctfe.hpp"
+#include "logos/compiler/subtype.hpp"
 
 #include <logos/hermes/type_registry.hpp>
 
@@ -1473,6 +1474,20 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
                 auto [es, gs] = type_str_pair(ret_type_, val->type);
                 error(std::format("return type mismatch — expected {}, got {}",
                       es, gs));
+            } else if (ret_type_ && TypeRef(ret_type_).kind() != LogosType::Kind::Error &&
+                       TypeRef(val->type).kind() != LogosType::Kind::Error) {
+                // B64: variance-aware lifetime subtype check. Catches cases
+                // where TypeUID-erased compat() accepts but Rust's variance
+                // rejects (e.g. &mut &'static T ↛ &mut &'a T due to invariance
+                // of MutRef in its pointee).
+                auto adj = outlives_adj(current_outlives_);
+                if (!subtype(val->type, ret_type_, adj, variance_table_)) {
+                    auto [es, gs] = type_str_pair(ret_type_, val->type);
+                    error(std::format("return type mismatch (variance): "
+                                      "expected {}, got {} — lifetime structure incompatible "
+                                      "(check &mut invariance / contravariance rules)",
+                                      es, gs));
+                }
             }
             // Retype float literal to concrete return type.
             if (ret_type_ && TypeRef(val->type).kind() == LogosType::Kind::FloatLit &&

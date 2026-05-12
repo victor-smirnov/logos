@@ -213,6 +213,34 @@ Polished in B63.3:
   LIFETIME_PARAM entries when walking ITEMS. Regression:
   `pass/hrtb_fn_ptr_type.logos`, `pass/hrtb_dyn_trait_type.logos`.
 
+Closed in B64 (lifetime epic Phase 8 — substantive):
+- **Variance computation + variance-aware subtype** ✅ — per
+  struct / enum / datatype, variance per type-param and per-
+  lifetime-param computed via fixed-point over field types
+  (`Variance` lattice: BiVar < Co | Contra < Inv, with compose
+  for nesting and meet for join). Lives in
+  `include/logos/compiler/variance.hpp` (lattice + table) and
+  `SemaChecker::compute_variances()` (sema.cpp) — single pass
+  over `structs_` / `datatypes_` / `enums_` iterated to fixed
+  point (capped at 32 rounds).
+  - Subtype check (`include/logos/compiler/subtype.hpp`):
+    Co on `&T` and tuple/slice/array elements; Inv on `&mut T`
+    pointee and raw ptr; Contra on fn-ptr params, Co on fn-ptr
+    ret; per-struct variance from the computed table (default
+    Co when entry missing — matches Rust's most-common case).
+    Lifetime positions consult the outlives query from B65.
+  - Wired at the return statement coercion site: if
+    `types_compatible` accepts but `subtype` rejects, emit a
+    "return type mismatch (variance)" error.
+  - Calibration: `fail/variance_mut_ref_inv.logos` —
+    `&mut &'static i32` ↛ `&mut &'a i32` (MutRef invariance);
+    `pass/variance_ref_covariant.logos` — `&&'static i32` →
+    `&&'a i32` legal. Existing
+    `imported/pass/variance/variance-iterators-in-libcore.logos`
+    continues to pass via the variance fixed-point on wrapper
+    structs.
+  1561/1561.
+
 Closed in B65 (lifetime epic Phase 7):
 - **Outlives reasoning** ✅ — explicit `'a: 'b` clauses (header
   and where), implied bounds from nested refs, type-outlives
