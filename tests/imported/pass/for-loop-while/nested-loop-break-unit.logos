@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/nested-loop-break-unit.rs
+// Modifications: `let _x: usize = loop {…}` (loop-as-expr at let-
+// position) dropped since Logos's loop-as-expression typing requires
+// a `break <value>` to settle the type. The nested-loop-break-shape
+// is preserved as a void fn body, which was the regression point
+// (loop nesting with inner-break).
+package fl_nested_loop_break_unit;
+
+fn f() {
+    loop { loop { break; } break; }
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

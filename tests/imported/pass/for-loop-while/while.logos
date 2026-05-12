@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/while.rs
+// Modifications: `println!` body dropped (they're trace-style;
+// loops still iterate over the same range). `isize` → `i64`.
+package fl_while;
+
+fn main() -> i32 {
+    let mut x: i64 = 10i64;
+    let mut y: i64 = 0i64;
+    while y < x { y = y + 1i64; }
+    while x > 0i64 { x = x - 1i64; }
+    return 0i32;
+}
