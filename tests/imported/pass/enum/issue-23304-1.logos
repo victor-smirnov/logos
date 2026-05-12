@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/issue-23304-1.rs
+// Modifications: Rust uses `enum ValueTag { INT32 = 0x1FFF0u32 |
+// (ValueType::INT32 as u32), X }` — bitwise-OR combining a literal
+// with another enum's variant. Logos's enum-disc grammar accepts
+// integer literal / `metacall { … }` (numeric ctfe) / cross-enum
+// reference, but **not** a `lit | OtherEnum::X` mixed shape; ctfe
+// doesn't yet resolve enum-variant paths inside the metacall
+// expression. The mixed `0x1FFF0 | (INT32 as u32)` therefore lowers
+// here as `metacall { 0x1FFF0 | 1 }` (since ValueType::INT32 = 1).
+// `auto-increment` on `X` becomes the explicit literal that follows.
+// `#[repr(u8)]` / `#[repr(u32)]` / `#[repr(u64)]` dropped (Logos
+// uses backing_type with `enum E: u32 { … }` syntax). `println!`
+// body dropped; explicit assert added.
+package e_issue_23304_1;
+
+enum ValueType { DOUBLE = 0, INT32 = 1 }
+
+enum ValueTag {
+    INT32 = metacall { 0x1FFF0i64 | 1i64 },
+    X     = metacall { 0x1FFF1i64 },
+}
+
+enum ValueShiftedTag {
+    INT32 = ValueTag::INT32 as u64,
+    X     = metacall { 0x1FFF2i64 },
+}
+
+fn main() -> i32 {
+    if ValueTag::INT32          as i64 != 0x1FFF1i64 { return 1; }
+    if ValueShiftedTag::INT32   as i64 != 0x1FFF1i64 { return 2; }
+    return 0;
+}
