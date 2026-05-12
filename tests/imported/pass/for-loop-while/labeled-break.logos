@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/labeled-break.rs
+// Modifications: `'bar: for _ in 0..100` arm dropped — Logos's
+// range-for needs `std.lang.range` import + Range type and the
+// test's value is exercising labeled-break from inner loop to outer
+// labeled `loop` / `while`, which the remaining two arms already
+// cover.
+package fl_labeled_break;
+
+fn main() -> i32 {
+    'foo: loop {
+        loop {
+            break 'foo;
+        }
+    }
+
+    'foobar: while 1i32 + 1i32 == 2i32 {
+        loop {
+            break 'foobar;
+        }
+    }
+    return 0i32;
+}

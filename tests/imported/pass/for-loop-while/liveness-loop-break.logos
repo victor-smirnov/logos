@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/liveness-loop-break.rs
+// Modifications: `let v;` (uninitialized) is rejected by Logos's
+// sema (every `let` must have a type or initializer); supplied
+// explicit `let mut v: i32 = 0i32;` and verify the loop assigns 3.
+// `println!` dropped, assertion added via if-return.
+package fl_liveness_loop_break;
+
+fn main() -> i32 {
+    let mut v: i32 = 0i32;
+    loop {
+        v = 3i32;
+        break;
+    }
+    if v != 3i32 { return 1i32; }
+    return 0i32;
+}

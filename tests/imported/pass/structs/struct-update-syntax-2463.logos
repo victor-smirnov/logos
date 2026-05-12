@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/struct-update-syntax-2463.rs
+// Modifications: `isize` → `i64`.
+package s_struct_update_syntax_2463;
+
+struct Pair { f: i64, g: i64 }
+
+fn main() -> i32 {
+    let x: Pair = Pair { f: 0i64, g: 0i64 };
+    let _y: Pair = Pair { f: 1i64, g: 1i64, ..x };
+    let _z: Pair = Pair { f: 1i64, ..x };
+    return 0i32;
+}

@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/or-pattern.rs
+// Modifications: `isize` → `i64`, `usize` → `u64`; `assert_eq!` →
+// if-return.
+package b_or_pattern;
+
+enum blah { a(i64, i64, u64), b(i64, i64), c }
+
+fn or_alt(q: blah) -> i64 {
+    match q {
+        blah::a(x, y, _) | blah::b(x, y) => return x + y,
+        blah::c => return 0i64,
+    }
+}
+
+fn main() -> i32 {
+    if or_alt(blah::c) != 0i64 { return 1i32; }
+    if or_alt(blah::a(10i64, 100i64, 0u64)) != 110i64 { return 2i32; }
+    if or_alt(blah::b(20i64, 200i64)) != 220i64 { return 3i32; }
+    return 0i32;
+}

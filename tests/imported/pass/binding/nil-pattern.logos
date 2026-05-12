@@ -1,0 +1,6 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/nil-pattern.rs
+// Modifications: faithful.
+package b_nil_pattern;
+
+fn main() -> i32 { let x = (); match x { () => { } } return 0i32; }

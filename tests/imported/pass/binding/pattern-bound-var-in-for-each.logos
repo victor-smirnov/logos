@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/pattern-bound-var-in-for-each.rs
+// Modifications: `usize` → `i64`. `Some` → `Option::Some::<i64>`.
+// `for _i in 0..10` → `while i < 10` (Logos's range-for uses
+// stdlib `std.lang.range` syntax; the test point is using the
+// pattern-bound var inside a loop body, which is captured equally
+// by the while-loop). `assert_eq!` → if-return.
+package b_pattern_bound_var_in_for_each;
+
+use std.lang.option;
+
+fn foo(src: i64) {
+    match Option::Some::<i64>(src) {
+      Option::Some(src_id) => {
+        let mut i: i64 = 0i64;
+        while i < 10i64 {
+            let yyy = src_id;
+            if yyy != 0i64 { return; }
+            i = i + 1i64;
+        }
+      }
+      Option::None => { }
+    }
+}
+
+fn main() -> i32 {
+    foo(0i64);
+    return 0i32;
+}

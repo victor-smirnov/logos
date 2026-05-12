@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/match-pattern-no-type-params.rs
+// Modifications: `isize` → `i64`. `println!` dropped.
+package b_match_pattern_no_type_params;
+
+enum maybe<T> { nothing, just(T) }
+
+fn foo(x: maybe<i64>) {
+    match x {
+        maybe::nothing => { }
+        maybe::just(_a) => { }
+    }
+}
+
+fn main() -> i32 {
+    foo(maybe::just::<i64>(5i64));
+    return 0i32;
+}

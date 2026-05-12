@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/long-while.rs
+// Modifications: `isize` → `i64`.
+package fl_long_while;
+
+fn main() -> i32 {
+    let mut i: i64 = 0i64;
+    while i < 1000000i64 {
+        i = i + 1i64;
+        let _x: i64 = 3i64;
+    }
+    return 0i32;
+}

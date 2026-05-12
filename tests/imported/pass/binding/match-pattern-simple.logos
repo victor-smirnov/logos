@@ -1,0 +1,11 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/match-pattern-simple.rs
+// Modifications: `isize` → `i64`.
+package b_match_pattern_simple;
+
+fn altsimple(f: i64) { match f { _x => { } } }
+
+fn main() -> i32 {
+    altsimple(0i64);
+    return 0i32;
+}

@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/while-cont.rs
+// Modifications: `isize` → `i64`. `assert!` / `println!` dropped.
+package fl_while_cont;
+
+fn main() -> i32 {
+    let mut i: i64 = 1i64;
+    while i > 0i64 {
+        i = i - 1i64;
+        continue;
+    }
+    return 0i32;
+}
