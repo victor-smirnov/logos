@@ -1,0 +1,25 @@
+// C6-cc-09 / C6-cc-08 follow-up: `*const dyn Trait` raw fat-pointer
+// to a trait object. Cast from `&T` lifts to the dyn fat ptr (data +
+// vtable); reading through `(*p).method()` dispatches via vtable.
+//
+// No direct rustc twin in the corpus — the most overlapping test,
+// cast/fat-ptr-cast-rpass.rs, additionally needs `*mut dyn Trait`
+// raw-ptr splitting via `to_raw_parts` which is a separate dyn arc.
+package c_raw_ptr_dyn_trait;
+
+trait T { fn h(&self) -> i64; }
+struct B { v: i64 }
+impl T for B { fn h(&self) -> i64 { return self.v; } }
+
+fn use_const(p: *const dyn T) -> i64 {
+    unsafe {
+        return (*p).h();
+    }
+}
+
+fn main() -> i32 {
+    let b: B = B { v: 9i64 };
+    let p: *const dyn T = &b as *const dyn T;
+    if use_const(p) != 9i64 { return 1i32; }
+    return 0i32;
+}

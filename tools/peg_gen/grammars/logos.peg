@@ -1096,17 +1096,29 @@
     // The TARGS form is needed for traits with type / const-generic params
     // (e.g. `&dyn BTreeNode<StoreCfg>`); type-args use the LT_TYPE/GT_TYPE
     // pair like other type-position generic instances.
-    dyn_type <- AMP KW_MUT KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE
+    dyn_type <- AMP KW_MUT KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE (PLUS LIFETIME)?
              => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, ITEMS: $... }
-              / AMP KW_MUT KW_DYN IDENT
+              / AMP KW_MUT KW_DYN IDENT (PLUS LIFETIME)?
              => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true }
-              / AMP KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE
+              / AMP KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE (PLUS LIFETIME)?
              => { CODE: DYN_TYPE, NAME: $3, ITEMS: $... }
-              / AMP KW_DYN IDENT
+              / AMP KW_DYN IDENT (PLUS LIFETIME)?
              => { CODE: DYN_TYPE, NAME: $3 }
-              / KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE
+              // Fn-family forms with parens — `dyn Fn(T1,…) -> R` / `dyn FnMut()` /
+              // `dyn FnOnce()`. Arg-type list goes into PARAMS; optional `-> R`
+              // into RET_TYPE. Optional `+ 'lt` lifetime bound accepted and
+              // ignored by sema (Logos's lifetime model is elision-based).
+              / KW_DYN IDENT LPAREN closure_type_args RPAREN ARROW type_ref (PLUS LIFETIME)?
+             => { CODE: DYN_TYPE, NAME: $2, PARAMS: $4, RET_TYPE: $7 }
+              / KW_DYN IDENT LPAREN RPAREN ARROW type_ref (PLUS LIFETIME)?
+             => { CODE: DYN_TYPE, NAME: $2, RET_TYPE: $6 }
+              / KW_DYN IDENT LPAREN closure_type_args RPAREN (PLUS LIFETIME)?
+             => { CODE: DYN_TYPE, NAME: $2, PARAMS: $4 }
+              / KW_DYN IDENT LPAREN RPAREN (PLUS LIFETIME)?
+             => { CODE: DYN_TYPE, NAME: $2 }
+              / KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE (PLUS LIFETIME)?
              => { CODE: DYN_TYPE, NAME: $2, ITEMS: $... }
-              / KW_DYN IDENT
+              / KW_DYN IDENT (PLUS LIFETIME)?
              => { CODE: DYN_TYPE, NAME: $2 }
 
     // &[T] and &mut [T] — slice types (fat pointer: ptr + len)

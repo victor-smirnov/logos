@@ -929,7 +929,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EDerefView v, TypeRef type) {
     // the load branch, producing a bogus double-load through pass-by-ptr
     // parameters: `*const V3` was treated as `ptr-to-ptr-to-V3`.)
     if (type && (TypeRef(type).kind() == LogosType::Kind::Struct ||
-                 TypeRef(type).kind() == LogosType::Kind::ZonedStruct))
+                 TypeRef(type).kind() == LogosType::Kind::ZonedStruct ||
+                 // Trait objects are fat-pointer-represented; the dyn-pair
+                 // {data,vtable} lives in memory and dispatch reads fields
+                 // through a pointer to it, so `*p` for `*const dyn T`
+                 // should yield the same pointer (no double-load).
+                 TypeRef(type).kind() == LogosType::Kind::TraitObject))
         return ptr;
     auto pointee = logos_to_mlir(type);
     if (!pointee) pointee = builder_.getI32Type();
@@ -1763,13 +1768,31 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         type && TypeRef(type).kind() == LogosType::Kind::Ptr &&
         TypeRef(TypeRef(type).pointee()).kind() == LogosType::Kind::TraitObject &&
         op_le->type &&
-        TypeRef(op_le->type).kind() == LogosType::Kind::Ptr) {
+        (TypeRef(op_le->type).kind() == LogosType::Kind::Ptr ||
+         TypeRef(op_le->type).kind() == LogosType::Kind::Ref ||
+         TypeRef(op_le->type).kind() == LogosType::Kind::MutRef)) {
         auto pointee = TypeRef(op_le->type).pointee();
         std::string src_struct;
         if (pointee && (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
                         TypeRef(pointee).kind() == LogosType::Kind::ZonedStruct))
             src_struct = concrete_struct_name(pointee);
         std::string trait = std::string(TypeRef(TypeRef(type).pointee()).trait_name());
+        if (auto alloca = coerce_to_dyn(val, trait, src_struct)) return alloca;
+    }
+    // `&T` / `&mut T` (over a struct) `as &dyn Trait` / `&mut dyn Trait` — the
+    // target type is bare TraitObject (no Ptr wrap, since `&dyn` is one node
+    // at sema). Same fat-ptr synthesis as the Ptr case above.
+    if (val.getType() == ptr_type() && target == ptr_type() &&
+        type && TypeRef(type).kind() == LogosType::Kind::TraitObject &&
+        op_le->type &&
+        (TypeRef(op_le->type).kind() == LogosType::Kind::Ref ||
+         TypeRef(op_le->type).kind() == LogosType::Kind::MutRef)) {
+        auto pointee = TypeRef(op_le->type).pointee();
+        std::string src_struct;
+        if (pointee && (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
+                        TypeRef(pointee).kind() == LogosType::Kind::ZonedStruct))
+            src_struct = concrete_struct_name(pointee);
+        std::string trait = std::string(TypeRef(type).trait_name());
         if (auto alloca = coerce_to_dyn(val, trait, src_struct)) return alloca;
     }
 
