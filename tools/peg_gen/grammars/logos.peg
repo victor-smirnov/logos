@@ -1495,7 +1495,9 @@
     let_else_stmt <- KW_LET pattern ASSIGN expr KW_ELSE block SEMI
                   => { CODE: LET_ELSE, PAT: $2, VALUE: $4, BODY: $6 }
 
-    let_stmt <- KW_LET LPAREN pat_binding_list RPAREN ASSIGN expr SEMI
+    let_stmt <- KW_LET LPAREN pat_binding_list RPAREN COLON type_ref ASSIGN expr SEMI
+             => { CODE: LET_DESTRUCT, NAMES: $3, TYPE: $6, VALUE: $8 }
+              / KW_LET LPAREN pat_binding_list RPAREN ASSIGN expr SEMI
              => { CODE: LET_DESTRUCT, NAMES: $3, VALUE: $6 }
               // P4-pm-14: `let ref y = x;` — `ref`-binding sugar for
               // `let y = &x;`. Sema detects IS_REF and wraps the lowered

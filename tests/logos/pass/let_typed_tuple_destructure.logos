@@ -1,0 +1,19 @@
+// P4-pm-13 regression: `let (a, b): (T1, T2) = …;` — type-annotated
+// tuple destructure at let-position. The bare form
+// `let (a, b) = (1, 2);` already worked via LET_DESTRUCT; the
+// type-annotated form needed a separate let_stmt grammar alt that
+// admits `COLON type_ref` between the pat list and ASSIGN.
+package let_typed_tuple_destructure;
+
+fn main() -> i32 {
+    let (a, b): (i32, i32) = (1i32, 2i32);
+    if a != 1i32 { return 1; }
+    if b != 2i32 { return 2; }
+
+    let (x, y, z): (i64, i64, isize) = (10i64, 20i64, 30isize);
+    if x != 10i64 { return 3; }
+    if y != 20i64 { return 4; }
+    if z != 30isize { return 5; }
+
+    return 0;
+}
