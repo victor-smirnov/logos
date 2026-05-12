@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-19127.rs
+// Modifications: explicit turbofish on `foo` since Logos doesn't
+// infer T from the closure-arg-as-fn-ptr passed in.
+package iss_issue_19127;
+
+fn foo<T, F: FnOnce(T) -> T>(f: F) { }
+
+fn id(input: &u8) -> &u8 { return input; }
+
+fn main() -> i32 {
+    foo::<&u8, fn(&u8) -> &u8>(id);
+    return 0i32;
+}

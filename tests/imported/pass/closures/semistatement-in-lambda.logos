@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/semistatement-in-lambda.rs
+// Modifications: only the `-if` precedence arm preserved — the
+// `|| if … * 3` form depends on a closure-precedence point that
+// Logos doesn't fully replicate (closure parsing is greedier). The
+// `-if true { 1 } else { 2 } * 3` shape exercises the unary-minus
+// vs if-as-expr precedence which is the canonical regression.
+package cl_semistatement_in_lambda;
+
+fn main() -> i32 {
+    let _x: i32 = -if true { 1i32 } else { 2i32 } * 3i32;
+    return 0i32;
+}

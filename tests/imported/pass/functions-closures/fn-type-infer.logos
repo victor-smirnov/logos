@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/fn-type-infer.rs
+// Modifications: closure annotated `|| -> ()` (Logos requires
+// explicit ret-type on every closure); body's `let i = 10`
+// annotated `let _i: i32 = 10i32`.
+package fc_fn_type_infer;
+
+fn main() -> i32 {
+    let _f = || -> () {
+        let _i: i32 = 10i32;
+    };
+    return 0i32;
+}
