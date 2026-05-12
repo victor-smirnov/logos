@@ -2823,6 +2823,18 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESizeOfView v, TypeRef) {
         if (sit != struct_types_.end())
             elem_mlir = sit->second.llvm_type;
     }
+    // C5-cl-04 follow-up: fat-pointer kinds (Closure / Slice / TraitObject) also
+    // pass by ptr at the ABI layer, but their underlying storage is 16 bytes
+    // (`{ptr, ptr}`). Without this, `sizeof::<Closure>()` returns 8 from the
+    // gep-null trick on a single ptr, which truncates Box<Closure>'s heap
+    // allocation and breaks Box<dyn FnMut(…)> dispatch.
+    if (!elem_mlir && elem_type &&
+        (elem_type.kind() == LogosType::Kind::Closure ||
+         elem_type.kind() == LogosType::Kind::Slice ||
+         elem_type.kind() == LogosType::Kind::TraitObject)) {
+        elem_mlir = mlir::LLVM::LLVMStructType::getLiteral(
+            builder_.getContext(), {ptr_type(), ptr_type()});
+    }
     if (!elem_mlir) elem_mlir = logos_to_mlir(elem_type);
     if (!elem_mlir) {
         return builder_.create<mlir::arith::ConstantIntOp>(loc_, 8, 64);

@@ -1156,6 +1156,22 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     auto callee_type = lookup(callee);
     bool is_closure = callee_type && TypeRef(callee_type).kind() == LogosType::Kind::Closure;
     bool is_fn_ptr  = callee_type && TypeRef(callee_type).kind() == LogosType::Kind::FnPtr;
+    // C5-cl-04 slice: `b()` where `b: Box<dyn FnMut(…)>` (i.e. Box<Closure>).
+    // Logos's Box layout is `{ *mut T }`, so the box's value is the heap
+    // pointer to the inner Closure {fn_ptr, env_ptr}. ClosureCall expects
+    // exactly that — a pointer to the dyn-pair. We retype the callee to
+    // the inner Closure; the codegen path (see EClosureCallView handler)
+    // notices the var was originally a Box<Closure> and loads through it.
+    bool callee_is_box_closure = false;
+    if (callee_type &&
+        TypeRef(callee_type).kind() == LogosType::Kind::Struct &&
+        TypeRef(callee_type).struct_name() == "Box" &&
+        TypeRef(callee_type).type_args().size() == 1 &&
+        TypeRef(TypeRef(callee_type).type_args()[0]).kind() == LogosType::Kind::Closure) {
+        callee_type = TypeRef(callee_type).type_args()[0];
+        is_closure  = true;
+        callee_is_box_closure = true;
+    }
 
     // Sprint 5.7c: callee is a generic-typed local `f: F` where
     // F is a TypeVar bounded by Fn / FnMut / FnOnce. The bound
@@ -1219,7 +1235,16 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         // FnPtr) type at instantiation time. mono_clone's ClosureCall
         // case inspects that and switches to FnPtrCall when needed.
         TypeRef vr_type = is_fn_bound ? original_typevar_t : callee_type;
-        auto callee_expr = builder().var_ref(std::string(callee), vr_type);
+        // For Box<Closure>, keep the var_ref typed as the (concrete) inner
+        // Closure but mark the callee with an extra Deref so mlir-gen loads
+        // the heap-Closure pointer out of the Box before fat-ptr GEPing.
+        auto callee_expr =
+            callee_is_box_closure
+            ? builder().deref(
+                  builder().var_ref(std::string(callee),
+                                    make_ptr(/*is_mut=*/true, callee_type)),
+                  callee_type)
+            : builder().var_ref(std::string(callee), vr_type);
         TypeRef ret = TypeRef(callee_type).closure_ret() ? TypeRef(callee_type).closure_ret() : void_t();
         if (is_fn_ptr)
             return builder().fn_ptr_call(std::move(callee_expr), std::move(arg_exprs), ret);

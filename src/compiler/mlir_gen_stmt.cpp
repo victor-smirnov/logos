@@ -1553,6 +1553,21 @@ void MLIRGenImpl::gen_index_write(lir_view::SIndexWriteView v) {
             return;
         }
     }
+    // C5-cl-04 follow-up: fat-pointer-valued rvalues (Closure / Slice /
+    // TraitObject) pass by pointer at the ABI but their backing storage is
+    // 16 bytes ({ptr, ptr}). `p[0] = val` over such a type must memcpy 16
+    // bytes, not store the 8-byte ptr itself — otherwise Box<dyn FnMut(…)>'s
+    // `box_new(cl)` only copies half the fat pointer.
+    if (val_t && val.getType() == ptr_type() &&
+        (TypeRef(val_t).kind() == LogosType::Kind::Closure ||
+         TypeRef(val_t).kind() == LogosType::Kind::Slice ||
+         TypeRef(val_t).kind() == LogosType::Kind::TraitObject)) {
+        auto sz = builder_.create<mlir::LLVM::ConstantOp>(
+            loc_, builder_.getI64Type(),
+            builder_.getI64IntegerAttr(16));
+        builder_.create<mlir::LLVM::MemcpyOp>(loc_, gep, val, sz, /*isVolatile=*/false);
+        return;
+    }
 
     builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
 }

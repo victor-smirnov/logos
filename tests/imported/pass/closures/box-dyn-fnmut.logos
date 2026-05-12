@@ -1,0 +1,17 @@
+// C5-cl-04 second slice: `Box<dyn FnMut() -> R>` parameter + direct
+// invocation via `b()`. Builds on the dyn-Fn-family-as-Closure
+// machinery from closures/dyn-fnmut-basic. Auto-deref-and-call at
+// sema (`b()` over `Box<Closure>` retypes through a Deref to inner
+// Closure); sizeof::<Closure>() corrected to 16 (was 8 because
+// closures pass by ptr at the surface ABI but the storage is fat).
+package cl_box_dyn_fnmut;
+
+use std.mem.box;
+
+fn main() -> i32 {
+    let cl = || -> i32 { return 42i32; };
+    let b: Box<dyn FnMut() -> i32> = box_new(cl);
+    let r: i32 = b();
+    if r != 42i32 { return 1i32; }
+    return 0i32;
+}
