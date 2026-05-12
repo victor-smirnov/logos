@@ -543,7 +543,16 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                     return false;
                 };
                 auto unify = [&](const std::string& blt, const std::string& ilt) -> bool {
-                    if (blt.empty() || blt == "static") return true;
+                    // LIFETIME terminal includes the leading apostrophe; check
+                    // both forms defensively.
+                    if (blt.empty() || blt == "static" || blt == "'static") {
+                        // Bound concrete; impl must match exactly OR be a free
+                        // impl-level param (which is more general than static).
+                        if (ilt == blt) return true;
+                        if (univ_at_impl(ilt)) return true;
+                        // 'static at bound, impl is anything else concrete: reject.
+                        return false;
+                    }
                     if (!univ_at_impl(ilt)) return false;
                     auto br2 = impl_to_skolem.emplace(ilt, blt);
                     if (!br2.second && br2.first->second != blt) return false;
@@ -597,13 +606,24 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 }
                 if (found) {
                     if (region_ok(*found)) continue;
+                    std::string binders_str;
+                    if (!bound.hrtb_binders.empty()) {
+                        binders_str = " for<";
+                        for (size_t k = 0; k < bound.hrtb_binders.size(); ++k) {
+                            if (k) binders_str += ", ";
+                            // LIFETIME terminal already includes the apostrophe.
+                            binders_str += bound.hrtb_binders[k];
+                        }
+                        binders_str += ">";
+                    }
                     error(std::format(
-                        "'{}': type '{}' does not satisfy `{}` bound: "
-                        "impl's trait-arg lifetimes are incompatible with the "
-                        "bound's universal quantification (HRTB: either impl "
-                        "pins to a concrete region, or independent binders "
-                        "collapse to a single impl param)",
-                        target_name, concrete_str, bound.trait_name));
+                        "'{}': type '{}' does not satisfy `{}{}` bound: "
+                        "impl's trait-arg lifetimes are incompatible with "
+                        "the bound's quantification (either impl pins to a "
+                        "concrete region, or independent binders collapse to "
+                        "a single impl param)",
+                        target_name, concrete_str, bound.trait_name,
+                        binders_str));
                     continue;
                 }
             }

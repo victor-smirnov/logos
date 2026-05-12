@@ -1,0 +1,17 @@
+// B63: a bound that pins a trait-arg to 'static is satisfied by an
+// impl that also pins to 'static (exact-region match).
+package hrtb_static_bound_static_impl;
+
+trait Trait<T> { fn r(self: Self, x: T) -> i32; }
+
+struct S { _x: i32 }
+impl Trait<&'static i64> for S {
+    fn r(self: S, x: &'static i64) -> i32 { return (*x) as i32; }
+}
+
+fn want_static<T>() where T: Trait<&'static i64> {}
+
+fn main() -> i32 {
+    want_static::<S>();
+    return 0i32;
+}

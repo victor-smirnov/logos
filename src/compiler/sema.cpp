@@ -1797,6 +1797,31 @@ void SemaChecker::read_trait_bound_args(TinyMapView bnode, TraitBound& tb) {
         if (!rav.is_null()) tb.fn_ret = resolve_type(map_of(rav));
     }
 
+    // B63 limit-1: capture `for<'a, 'b>` binders from HRTB_BINDERS slot.
+    // Items may be raw LIFETIME terminals (strings) or LIFETIME_PARAM maps
+    // depending on grammar action shape — accept both defensively.
+    if (bnode.has_key(la::HRTB_BINDERS)) {
+        auto hav = bnode.get(la::HRTB_BINDERS.code);
+        if (!hav.is_null()) {
+            auto hmap = map_of(hav);
+            if (hmap.has_key(la::ITEMS)) {
+                auto hitems = arr_of(hmap.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < hitems.size(); ++i) {
+                    auto av = hitems.get(i);
+                    if (av.is_null()) continue;
+                    if (av.is_value()) {
+                        tb.hrtb_binders.push_back(std::string(str_of(av)));
+                    } else {
+                        auto m = map_of(av);
+                        if (m.has_key(la::NAME))
+                            tb.hrtb_binders.push_back(
+                                std::string(str_of(m.get(la::NAME.code))));
+                    }
+                }
+            }
+        }
+    }
+
     if (!bnode.has_key(la::TYPE_PARAMS)) return;
     auto tpav = bnode.get(la::TYPE_PARAMS.code);
     if (tpav.is_null()) return;

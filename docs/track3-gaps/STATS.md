@@ -191,14 +191,29 @@ Closed in B62/B63 (lifetime epic Phase 5 — substantive):
   Source: rust-lang/rust `tests/ui/higher-ranked/trait-bounds/
   hrtb-conflate-regions.rs`. 1553/1553.
 
-Known limitations (deferred to future HRTB work):
-- Bound binders not distinguished from outer-scope fn lifetime
-  params: any non-empty, non-`'static` lifetime in a bound's
-  trait-args is treated as a binder. Edge case rare in practice
-  (would only matter when a fn lifetime param is reused at
-  bound-arg position without `for<...>`).
-- Nested HRTB binders (`for<'a> Foo<for<'b> Bar<...>>`) not
-  separately skolemized. Rare in stdlib-shaped code.
+Polished in B63.2:
+- **Explicit `for<>` binder capture** ✅ — grammar's `hrtb_binder`
+  wraps each lifetime in a sub-rule `hrtb_lt → LIFETIME` so the
+  parent's `$...` collector records them; ast.hpp gains
+  `HRTB_BINDERS` (slot 41, reuses IMPL_TYPE_PARAMS since trait
+  bounds never carry impl-type-params); `read_trait_bound_args`
+  populates `TraitBound.hrtb_binders`. Error messages now name
+  the binder list explicitly: `Trait for<'a, 'b>` bound …
+- **Exact-region match** ✅ — a `'static`-pinned bound with a
+  `'static`-pinned impl is correctly accepted (previously rejected
+  because impl-side `'static` isn't in `impl_lifetime_params`).
+  Calibration: `pass/hrtb_static_bound_static_impl.logos`.
+
+Genuinely deferred (orthogonal to HRTB):
+- Region inference / outlives subtyping (B65). Without it, a
+  `'static`-impl can't satisfy a fn-scope-lifetime bound even if
+  the caller's region happens to be `'static`. Conservative
+  rejection is sound; a fully-permissive accept needs region
+  inference at call sites.
+- Nested HRTB via `for<>` inside fn-ptr / dyn types (e.g.
+  `for<'a> fn(&'a T)`). Logos grammar doesn't admit `for<>` at
+  type position currently. Add at grammar level if/when imported
+  tests require it.
 
 Open / deferred (lifetime epic):
 - **HRTB skolemization (B63)** — current B62 check is structural:

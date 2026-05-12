@@ -70,6 +70,7 @@
     HI_NEG         = 50
     KEY            = 51    // map key in HERMES_ENTRY
     IS_NEGATIVE    = 43    // negative impl marker (impl !Trait for X {}); reuses INDEX slot — IMPL_BLOCK never has INDEX
+    HRTB_BINDERS   = 41    // `for<'a, 'b>` binder list on a TRAIT_BOUND (reuses IMPL_TYPE_PARAMS slot — trait bounds never carry impl-type-params). Value is a sub-node with ITEMS=[LIFETIME_PARAM...].
     PATH           = 22    // sub-node carrying ITEMS=[str,...] for N-deep chain field write (reuses FIELDS slot — chain stmts never carry struct field defs)
     NAME_VAR       = 38    // antiquot var name for `#ident` placeholder inside quote_*! body (reuses WHERE slot — STRUCT/ENUM/FN never have a where_clause AND a NAME_VAR simultaneously: NAME_VAR exists only inside quote_*! bodies, where where_clause is parsed separately)
     META           = 16    // meta @{...} block on struct/datatype/trait declarations (slot 16; reuses PATH_PARTS slot, mutually exclusive node types)
@@ -2281,23 +2282,28 @@
     // semantically `for<'a> Fn(&'a T)` ≡ `Fn(&T)` here. We accept the
     // prefix in every trait_bound alt below by parsing it into a
     // disposable head.
-    hrtb_binder <- KW_FOR LT LIFETIME (COMMA LIFETIME)* COMMA? GT_TYPE
+    // Each binder lifetime wraps in a LIFETIME_PARAM sub-node so the parent's
+    // $... collector (which only picks up rule results, not bare terminals)
+    // actually records the names.
+    hrtb_lt <- LIFETIME
+            => { CODE: LIFETIME_PARAM, NAME: $1 }
+    hrtb_binder <- KW_FOR LT hrtb_lt (COMMA hrtb_lt)* COMMA? GT_TYPE
                 =>  { ITEMS: $... }
     hrtb_opt <- hrtb_binder?
              =>  { ITEMS: $... }
 
     trait_bound <- hrtb_binder IDENT LT bound_arg_list GT_TYPE
-                => { CODE: TRAIT_BOUND, NAME: $2, TYPE_PARAMS: $4 }
+                => { CODE: TRAIT_BOUND, NAME: $2, HRTB_BINDERS: $1, TYPE_PARAMS: $4 }
                  / hrtb_binder IDENT LPAREN closure_type_args RPAREN ARROW type_ref
-                => { CODE: TRAIT_BOUND, NAME: $2, PARAMS: $4, RET_TYPE: $7 }
+                => { CODE: TRAIT_BOUND, NAME: $2, HRTB_BINDERS: $1, PARAMS: $4, RET_TYPE: $7 }
                  / hrtb_binder IDENT LPAREN RPAREN ARROW type_ref
-                => { CODE: TRAIT_BOUND, NAME: $2, RET_TYPE: $6 }
+                => { CODE: TRAIT_BOUND, NAME: $2, HRTB_BINDERS: $1, RET_TYPE: $6 }
                  / hrtb_binder IDENT LPAREN closure_type_args RPAREN
-                => { CODE: TRAIT_BOUND, NAME: $2, PARAMS: $4 }
+                => { CODE: TRAIT_BOUND, NAME: $2, HRTB_BINDERS: $1, PARAMS: $4 }
                  / hrtb_binder IDENT LPAREN RPAREN
-                => { CODE: TRAIT_BOUND, NAME: $2 }
+                => { CODE: TRAIT_BOUND, NAME: $2, HRTB_BINDERS: $1 }
                  / hrtb_binder IDENT
-                => { CODE: TRAIT_BOUND, NAME: $2 }
+                => { CODE: TRAIT_BOUND, NAME: $2, HRTB_BINDERS: $1 }
                  / IDENT LT bound_arg_list GT_TYPE
                 => { CODE: TRAIT_BOUND, NAME: $1, TYPE_PARAMS: $3 }
                  // Fn-family parenthesized form: `Fn(T1, ...) -> R` /

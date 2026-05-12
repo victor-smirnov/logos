@@ -3193,7 +3193,11 @@ bool Mono::method_bound_ok(const lir::LFunction& m, const SubstMap& s) {
                     };
                     auto unify = [&](const std::string& blt,
                                      const std::string& ilt) -> bool {
-                        if (blt.empty() || blt == "static") return true;
+                        if (blt.empty() || blt == "static" || blt == "'static") {
+                            if (ilt == blt) return true;
+                            if (univ(ilt)) return true;
+                            return false;
+                        }
                         if (!univ(ilt)) return false;
                         auto b = i2s.emplace(ilt, blt);
                         if (!b.second && b.first->second != blt) return false;

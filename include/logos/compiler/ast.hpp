@@ -328,6 +328,7 @@ inline constexpr Key NAME_VAR  {"NAME_VAR",  38};            // antiquot var nam
 // HERMES_ENTRY reuses LO_NEG (49) as "negation flag" (hermes entries never have LO_NEG).
 // HERMES_TYPED_MAP reuses TYPE (3) for key type and RET_TYPE (6) for val type.
 inline constexpr Key IMPL_TYPE_PARAMS{"IMPL_TYPE_PARAMS", 41}; // impl<T> own type params
+inline constexpr Key HRTB_BINDERS    {"HRTB_BINDERS",     41}; // `for<'a, 'b>` binder list on a TRAIT_BOUND (reuses IMPL_TYPE_PARAMS slot — trait bounds never carry impl-type-params). Value is a sub-node {ITEMS:[LIFETIME str,...]}.
 inline constexpr int32_t VIS_PRIVATE = 0;
 inline constexpr int32_t VIS_PUBLIC  = 1;
 

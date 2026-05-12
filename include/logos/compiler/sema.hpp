@@ -258,6 +258,11 @@ struct TraitBound {
     // trait-bound resolver doesn't try to resolve LIFETIME_PARAM
     // nodes as types.
     std::vector<std::string> lifetime_args;
+    // B63 limit-1: explicit `for<'a, 'b>` HRTB binder list. Lifetimes in
+    // type_args that appear here are universally quantified at bound
+    // satisfaction time. Lifetimes NOT here (and not "static") refer to
+    // outer-scope fn lifetime params and are not skolems.
+    std::vector<std::string> hrtb_binders;
     // Associated-type equality clauses: `Trait<Item = i32>` → [{ "Item", i32 }].
     // Only populated when the bound includes `Name = Type` arguments.
     std::vector<std::pair<std::string, TypeRef>> assoc_eqs;
