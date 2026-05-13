@@ -471,6 +471,24 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         }
     }
 
+    // Drain deferred method enqueues from the non-generic-fn scan above
+    // exactly once now that line-426 instantiate_struct_templates() has
+    // populated concrete_struct_types_. Each resolvable entry promotes to
+    // method_worklist_; the rest stay in deferred for later drain inside
+    // the fixpoint loop below. One-shot to avoid the loop spinning on
+    // entries whose concrete struct is never produced.
+    if (!deferred_method_enqueues_.empty()) {
+        std::vector<std::pair<std::string, std::string>> still;
+        for (auto& [cname, mname] : deferred_method_enqueues_) {
+            auto cit = concrete_struct_types_.find(cname);
+            if (cit != concrete_struct_types_.end())
+                enqueue_method_inst(cit->second, mname);
+            else
+                still.emplace_back(std::move(cname), std::move(mname));
+        }
+        deferred_method_enqueues_ = std::move(still);
+    }
+
     // L1.1: lazy-method drain fixpoint. No-op in eager mode (default) since
     // method_worklist_ stays empty. When LOGOS_LAZY_METHODS=1, scan_fn enqueues
     // method instances on the receiver's concrete struct; draining clones each

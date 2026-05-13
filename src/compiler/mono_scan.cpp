@@ -467,7 +467,6 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
     std::string base{TypeRef(concrete_struct_t).struct_name()};
     if (auto p = base.find("$G"); p != std::string::npos)
         base = base.substr(0, p);
-
     // Prefer pkg-qualified lookup so cross-pkg same-named structs use
     // the correct template. If the struct exists in this pkg but has no
     // methods, don't fall back to bare (would leak other pkg's methods).

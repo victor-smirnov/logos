@@ -1,5 +1,23 @@
-// GAP: static fn on generic struct `impl<T> V<T> { static fn new(x: T) -> V<T> }`
-// causes mlir-gen verification failure: mangled symbol references invalid fn.
-// Mono mangling for static-fn on generic struct is broken.
+// CLOSED 2026-05-13: `static fn new(x: T) -> V<T>` on a generic struct
+// now lowers end-to-end. Fix: mono's lazy-method drain loop only ran
+// when method_worklist_ / worklist_ / needed_struct_insts_ were non-
+// empty at loop entry. For a non-generic caller (e.g. main) doing
+// `V::<i32>::new(7)`, the call gets rewritten to its concrete name in
+// clone_fn (type_args cleared), then scan_fn pushes the (V$G1$i32, new)
+// pair to deferred_method_enqueues_ because V<i32> hadn't been
+// instantiated yet. Line-426 instantiate_struct_templates() ran later
+// and populated concrete_struct_types_, but the deferred drain lives
+// inside the while-loop, which never entered (all queues empty). Add
+// deferred_method_enqueues_ to the loop condition — first iteration
+// processes the deferred entry, enqueues the method, drain_method_-
+// worklist clones it with the right concrete name (`V$G1$i32__new__
+// g__T`), matching the call site.
 package static_fn_gen_gap;
-fn main() -> i32 { return 0i32; }
+struct V<T> { x: T }
+impl<T> V<T> {
+    static fn new(x: T) -> V<T> { return V { x: x }; }
+}
+fn main() -> i32 {
+    let v: V<i32> = V::<i32>::new(7i32);
+    return v.x - 7i32;
+}
