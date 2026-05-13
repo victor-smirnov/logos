@@ -1,0 +1,15 @@
+// B72: shared borrow inside each arm; regions live only locally.
+package nll_borrow_each_arm;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let cond: bool = true;
+    if cond {
+        let r: &i32 = &x;
+        let _v: i32 = *r;
+    } else {
+        let s: &mut i32 = &mut x;
+        *s = 1i32;
+    }
+    return x;
+}

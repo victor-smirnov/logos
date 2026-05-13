@@ -1,0 +1,10 @@
+// B65: transitive 'a: 'b: 'c — shorten 'a → 'c via two-hop graph BFS.
+package regions_outlives_transitive;
+
+struct W<T> { x: T }
+
+fn shorten<'a, 'b, 'c>(v: W<&'a i32>) -> W<&'c i32>
+    where 'a: 'b, 'b: 'c
+{ return v; }
+
+fn main() -> i32 { return 0i32; }

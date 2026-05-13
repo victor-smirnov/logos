@@ -1,0 +1,11 @@
+// B62: two-arg trait, impl pins second to 'static — rejected against for<'a>.
+package hrtb_pinned_multi_arg;
+
+trait Two<A, B> { fn t(self: Self, a: A, b: B) -> i32 { return 0i32; } }
+
+struct M { _x: i32 }
+impl Two<i32, &'static i64> for M {}
+
+fn want<T>() where T: for<'a> Two<i32, &'a i64> {}
+
+fn main() -> i32 { want::<M>(); return 0i32; }

@@ -1,0 +1,13 @@
+// B76 GAP: borrow/move check does not currently fire for this pattern.
+// Pinned as gap-regression — file moves to fail/ when fix lands.
+// B61: simple use-after-move on a non-Copy struct.
+package borrowck_use_after_move;
+
+struct S { a: i64, b: i64 }
+
+fn main() -> i32 {
+    let x: S = S { a: 1i64, b: 2i64 };
+    let y: S = x;       // move
+    let z: S = x;       // use-after-move
+    return 0i32;
+}

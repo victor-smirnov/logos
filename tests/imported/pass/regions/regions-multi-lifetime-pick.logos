@@ -1,0 +1,9 @@
+// B65: multi-input multi-lifetime fn returning one input.
+package regions_multi_lifetime_pick;
+
+fn pick<'a, 'b>(x: &'a i32, y: &'b i32) -> &'b i32 { return y; }
+
+fn main() -> i32 {
+    let a: i32 = 1i32; let b: i32 = 2i32;
+    return *pick(&a, &b) - 2i32;
+}

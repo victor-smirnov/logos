@@ -1,0 +1,14 @@
+// B65/B67: struct decl carrying 'a: 'b — usage type-checks.
+package regions_struct_with_bound;
+
+struct Pair<'a, 'b> where 'a: 'b { x: &'a i32, y: &'b i32 }
+
+fn make<'a, 'b>(x: &'a i32, y: &'b i32) -> Pair<'a, 'b>
+    where 'a: 'b
+{ return Pair { x: x, y: y }; }
+
+fn main() -> i32 {
+    let a: i32 = 1i32; let b: i32 = 2i32;
+    let p: Pair = make(&a, &b);
+    return *p.x + *p.y - 3i32;
+}

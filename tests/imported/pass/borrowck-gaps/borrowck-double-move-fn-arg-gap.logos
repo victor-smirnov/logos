@@ -1,0 +1,15 @@
+// B76 GAP: borrow/move check does not currently fire for this pattern.
+// Pinned as gap-regression — file moves to fail/ when fix lands.
+// B61: passing moved value twice to fns.
+package borrowck_double_move_fn_arg;
+
+struct S { v: i64 }
+
+fn take(s: S) -> i32 { return s.v as i32; }
+
+fn main() -> i32 {
+    let x: S = S { v: 7i64 };
+    let _a: i32 = take(x);
+    let _b: i32 = take(x);  // use-after-move
+    return 0i32;
+}

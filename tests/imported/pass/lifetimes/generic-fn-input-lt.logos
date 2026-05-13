@@ -1,0 +1,9 @@
+// B65: generic fn over T+'a, returning &'a T.
+package generic_fn_input_lt;
+
+fn id_ref<'a, T>(x: &'a T) -> &'a T { return x; }
+
+fn main() -> i32 {
+    let v: i32 = 6i32;
+    return *id_ref::<i32>(&v) - 6i32;
+}

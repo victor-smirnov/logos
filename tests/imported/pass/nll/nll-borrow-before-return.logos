@@ -1,0 +1,9 @@
+// B72: shared borrow used and dropped before return.
+package nll_borrow_before_return;
+
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    let r: &i32 = &x;
+    let v: i32 = *r;
+    return v - 5i32;
+}

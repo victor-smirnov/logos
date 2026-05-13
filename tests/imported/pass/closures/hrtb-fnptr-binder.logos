@@ -1,0 +1,12 @@
+// B63: fn-ptr type accepts for<'a> binder.
+package hrtb_fnptr_binder;
+
+fn ident<'a>(x: &'a i32) -> &'a i32 { return x; }
+
+fn pass_through(f: for<'a> fn(&'a i32) -> &'a i32) -> i32 {
+    let v: i32 = 4i32;
+    let r: &i32 = f(&v);
+    return *r - 4i32;
+}
+
+fn main() -> i32 { return pass_through(ident); }

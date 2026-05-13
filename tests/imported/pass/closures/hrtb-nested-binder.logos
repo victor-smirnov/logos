@@ -1,0 +1,18 @@
+// B63: HRTB binder applies under generic struct args.
+package hrtb_nested_binder;
+
+trait FnLike<A, R> { fn call(self: Self, a: A) -> R; }
+
+struct Id { _x: i32 }
+
+impl<'a, T> FnLike<&'a T, &'a T> for Id {
+    fn call(self: Id, a: &'a T) -> &'a T { return a; }
+}
+
+fn run<F>(f: F) -> i32 where F: for<'a> FnLike<&'a i32, &'a i32> {
+    let v: i32 = 7i32;
+    let r: &i32 = f.call(&v);
+    return *r - 7i32;
+}
+
+fn main() -> i32 { return run::<Id>(Id { _x: 0i32 }); }

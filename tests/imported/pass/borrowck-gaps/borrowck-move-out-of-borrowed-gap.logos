@@ -1,0 +1,16 @@
+// B76 GAP: borrow/move check does not currently fire for this pattern.
+// Pinned as gap-regression — file moves to fail/ when fix lands.
+// B61: cannot move out of a borrowed value.
+package borrowck_move_out_of_borrowed;
+
+struct S { v: i64 }
+
+fn take(s: S) -> i32 { return s.v as i32; }
+
+fn main() -> i32 {
+    let mut x: S = S { v: 9i64 };
+    let r: &S = &x;
+    let _y: i32 = take(x);  // move out while r holds borrow
+    let _z: i64 = (*r).v;
+    return 0i32;
+}

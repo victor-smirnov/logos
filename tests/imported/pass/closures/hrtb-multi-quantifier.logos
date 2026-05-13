@@ -1,0 +1,13 @@
+// B62/B63: for<'a, 'b> binder quantifies both lifetimes; bound matched by
+// generic impl with two lifetime parameters.
+package hrtb_multi_quantifier;
+
+trait Pair<A, B> { fn p(self: Self, a: A, b: B) -> i32 { return 0i32; } }
+
+struct Id { _x: i32 }
+
+impl<'a, 'b, T, U> Pair<&'a T, &'b U> for Id {}
+
+fn want<F>() where F: for<'a, 'b> Pair<&'a i32, &'b i64> {}
+
+fn main() -> i32 { want::<Id>(); return 0i32; }

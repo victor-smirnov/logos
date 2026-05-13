@@ -1,0 +1,13 @@
+// B63: HRTB binder quantifies 'a; bound is parametric in the witnesses.
+package hrtb_generic_with_lt;
+
+trait Echo<X> { fn e(self: Self, x: X) -> i32; }
+
+struct G { _x: i32 }
+impl<'a, T> Echo<&'a T> for G { fn e(self: G, x: &'a T) -> i32 { return 0i32; } }
+
+fn run<F>(f: F) -> i32 where F: for<'a> Echo<&'a i32> {
+    return 0i32;
+}
+
+fn main() -> i32 { return run::<G>(G { _x: 0i32 }); }

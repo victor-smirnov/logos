@@ -1,0 +1,17 @@
+// B62: HRTB bound on method position; concrete impl fails.
+package hrtb_method_bound_unsat;
+
+trait Mk<A> { fn mk(self: Self, a: A) -> i32 { return 0i32; } }
+
+struct M { _x: i32 }
+impl Mk<&'static i32> for M {}
+
+struct Runner { _x: i32 }
+impl Runner {
+    fn run<F>(self: Runner) -> i32 where F: for<'a> Mk<&'a i32> { return 0i32; }
+}
+
+fn main() -> i32 {
+    let r: Runner = Runner { _x: 0i32 };
+    return r.run::<M>();
+}

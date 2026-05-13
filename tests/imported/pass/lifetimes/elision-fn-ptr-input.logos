@@ -1,0 +1,10 @@
+// B66/B67: elision in fn-ptr type — single input lifetime applies to output.
+package elision_fn_ptr_input;
+
+fn id(x: &i32) -> &i32 { return x; }
+
+fn main() -> i32 {
+    let f: fn(&i32) -> &i32 = id;
+    let v: i32 = 12i32;
+    return *f(&v) - 12i32;
+}

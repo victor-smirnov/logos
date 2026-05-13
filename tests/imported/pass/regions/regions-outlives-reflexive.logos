@@ -1,0 +1,9 @@
+// B65: every region outlives itself — identity is always valid.
+package regions_outlives_reflexive;
+
+fn id<'a>(r: &'a i32) -> &'a i32 { return r; }
+
+fn main() -> i32 {
+    let v: i32 = 5i32;
+    return *id(&v) - 5i32;
+}

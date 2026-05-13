@@ -1,0 +1,6 @@
+// B65: &'a mut &'static cannot widen inner (Inv inner).
+package regions_shorten_mut_ref_of_static;
+
+fn bad<'a, 'b>(r: &'a mut &'b i32) -> &'a mut &'static i32 { return r; }
+
+fn main() -> i32 { return 0i32; }

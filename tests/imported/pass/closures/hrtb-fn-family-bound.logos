@@ -1,0 +1,13 @@
+// Sprint 5: F: for<'a> FnOnce(&'a i32) -> &'a i32 — Fn-family syntactic sugar
+// composed with HRTB binder, currently lowered to fn-ptr trait.
+package hrtb_fn_family_bound;
+
+fn ident(x: &i32) -> &i32 { return x; }
+
+fn run<F>(f: F) -> i32 where F: for<'a> Fn(&'a i32) -> &'a i32 {
+    let v: i32 = 8i32;
+    let r: &i32 = f(&v);
+    return *r - 8i32;
+}
+
+fn main() -> i32 { return run::<fn(&i32) -> &i32>(ident); }

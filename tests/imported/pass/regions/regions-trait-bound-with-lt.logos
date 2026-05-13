@@ -1,0 +1,13 @@
+// B65/B68: trait with 'a parameter type-checked through impl.
+package regions_trait_bound_with_lt;
+
+trait Get<'a> { fn g(self: &'a Self) -> &'a i32; }
+
+struct H<'a> { r: &'a i32 }
+impl<'a> Get<'a> for H<'a> { fn g(self: &'a H<'a>) -> &'a i32 { return self.r; } }
+
+fn main() -> i32 {
+    let v: i32 = 21i32;
+    let h: H = H { r: &v };
+    return *h.g() - 21i32;
+}

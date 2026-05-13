@@ -1,0 +1,13 @@
+// B72: two mut borrows of same struct simultaneously.
+package borrowck_aliasing_mut_field;
+
+struct S { v: i32 }
+
+fn main() -> i32 {
+    let mut s: S = S { v: 0i32 };
+    let a: &mut S = &mut s;
+    let b: &mut S = &mut s;
+    (*a).v = 1i32;
+    (*b).v = 2i32;
+    return 0i32;
+}

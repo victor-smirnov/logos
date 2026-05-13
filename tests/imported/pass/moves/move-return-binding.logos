@@ -1,0 +1,11 @@
+// Returning a local moves it out — caller binds fresh.
+package move_return_binding;
+
+struct S { v: i64 }
+
+fn make() -> S { let s: S = S { v: 11i64 }; return s; }
+
+fn main() -> i32 {
+    let s: S = make();
+    return (s.v - 11i64) as i32;
+}

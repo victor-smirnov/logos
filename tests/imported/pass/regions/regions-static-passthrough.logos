@@ -1,0 +1,11 @@
+// B65: 'static-typed value flows into 'a-bounded API repeatedly.
+package regions_static_passthrough;
+
+fn take<'a>(r: &'a i32) -> i32 { return *r; }
+
+fn main() -> i32 {
+    let v: i32 = 8i32;
+    let a: i32 = take(&v);
+    let b: i32 = take(&v);
+    return a + b - 16i32;
+}

@@ -1,0 +1,14 @@
+// B66/B67: elided lifetimes in impl-block; methods work.
+package regions_impl_elided_lt;
+
+struct H<'a> { r: &'a i32 }
+
+impl<'a> H<'a> {
+    fn get(self: &H<'a>) -> &i32 { return self.r; }
+}
+
+fn main() -> i32 {
+    let v: i32 = 4i32;
+    let h: H = H { r: &v };
+    return *h.get() - 4i32;
+}

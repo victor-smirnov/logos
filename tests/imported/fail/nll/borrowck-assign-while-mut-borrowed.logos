@@ -1,0 +1,10 @@
+// B75: cannot assign to x while &mut x is alive.
+package borrowck_assign_while_mut_borrowed;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let r: &mut i32 = &mut x;
+    x = 5i32;       // illegal while r live
+    *r = 6i32;
+    return *r;
+}

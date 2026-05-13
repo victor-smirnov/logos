@@ -1,0 +1,13 @@
+// B62: passing a longer-lived ref to a for<'a>-quantified fn-ptr param —
+// the binder accepts any 'a, including the caller's local scope.
+package hrtb_call_with_static_arg;
+
+fn id<'a>(x: &'a i32) -> &'a i32 { return x; }
+
+fn run(f: for<'a> fn(&'a i32) -> &'a i32) -> i32 {
+    let v: i32 = 42i32;
+    let r: &i32 = f(&v);
+    return *r - 42i32;
+}
+
+fn main() -> i32 { return run(id); }

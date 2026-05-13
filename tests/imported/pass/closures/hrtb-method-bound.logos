@@ -1,0 +1,22 @@
+// B63: HRTB bound declared on an impl method.
+package hrtb_method_bound;
+
+trait Mk<A> { fn mk(self: Self, a: A) -> i32; }
+
+struct H { _x: i32 }
+impl<'a> Mk<&'a i32> for H { fn mk(self: H, a: &'a i32) -> i32 { return *a; } }
+
+struct Runner { _x: i32 }
+impl Runner {
+    fn run<F>(self: Runner, f: F) -> i32
+        where F: for<'a> Mk<&'a i32>
+    {
+        let v: i32 = 9i32;
+        return f.mk(&v);
+    }
+}
+
+fn main() -> i32 {
+    let r: Runner = Runner { _x: 0i32 };
+    return r.run::<H>(H { _x: 0i32 }) - 9i32;
+}

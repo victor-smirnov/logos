@@ -1,0 +1,11 @@
+// B72: aliasing mut borrow via direct take.
+package borrowck_mut_borrow_via_reborrow;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let r: &mut i32 = &mut x;
+    let s: &mut i32 = &mut x;  // direct second mut borrow — region overlaps r
+    *r = 1i32;
+    *s = 2i32;
+    return *r + *s;
+}

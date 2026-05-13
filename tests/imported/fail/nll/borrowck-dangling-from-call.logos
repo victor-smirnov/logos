@@ -1,0 +1,8 @@
+// B75: returning &call() — call result is a temp.
+package borrowck_dangling_from_call;
+
+fn make_val() -> i32 { return 7i32; }
+
+fn dangling() -> &i32 { return &make_val(); }
+
+fn main() -> i32 { return *dangling(); }

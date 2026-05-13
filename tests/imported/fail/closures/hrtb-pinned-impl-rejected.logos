@@ -1,0 +1,11 @@
+// B62: impl pinned to a concrete region rejected when bound has for<'a>.
+package hrtb_pinned_impl_rejected;
+
+trait Foo<X> { fn foo(self: Self, x: X) -> i32 { return 0i32; } }
+
+struct S { _x: i32 }
+impl Foo<&'static i32> for S {}
+
+fn want<T>() where T: for<'a> Foo<&'a i32> {}
+
+fn main() -> i32 { want::<S>(); return 0i32; }

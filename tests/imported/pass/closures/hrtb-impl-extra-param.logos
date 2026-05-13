@@ -1,0 +1,12 @@
+// B62: impl with extra lifetime parameters beyond binder; mapping must
+// align. Binder for<'a>; impl impl<'a, T, U> matches by injecting 'a.
+package hrtb_impl_extra_param;
+
+trait Two<A, B> { fn t(self: Self, a: A, b: B) -> i32 { return 0i32; } }
+
+struct E { _x: i32 }
+impl<'a, T, U> Two<&'a T, U> for E {}
+
+fn want<X>() where X: for<'a> Two<&'a i32, i64> {}
+
+fn main() -> i32 { want::<E>(); return 0i32; }

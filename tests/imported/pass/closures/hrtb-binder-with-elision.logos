@@ -1,0 +1,17 @@
+// B66/B67: lifetime elision in fn body interacts with explicit HRTB
+// quantifier in the bound; binder dominates.
+package hrtb_binder_with_elision;
+
+trait F<A, R> { fn c(self: Self, a: A) -> R; }
+
+struct I { _x: i32 }
+impl<'a> F<&'a i32, &'a i32> for I {
+    fn c(self: I, a: &'a i32) -> &'a i32 { return a; }
+}
+
+fn want<G>(g: G) -> i32 where G: for<'a> F<&'a i32, &'a i32> {
+    let n: i32 = 17i32;
+    return *(g.c(&n)) - 17i32;
+}
+
+fn main() -> i32 { return want::<I>(I { _x: 0i32 }); }

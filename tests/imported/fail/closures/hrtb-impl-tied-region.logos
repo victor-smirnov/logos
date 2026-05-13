@@ -1,0 +1,12 @@
+// B62: impl uses tied region 'static across two arg positions; bound has
+// independent for<'a, 'b> — rejection by binder injectivity.
+package hrtb_impl_tied_region;
+
+trait Pair<A, B> { fn p(self: Self, a: A, b: B) -> i32 { return 0i32; } }
+
+struct R { _x: i32 }
+impl Pair<&'static i32, &'static i32> for R {}
+
+fn want<T>() where T: for<'a, 'b> Pair<&'a i32, &'b i32> {}
+
+fn main() -> i32 { want::<R>(); return 0i32; }

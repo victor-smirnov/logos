@@ -1,0 +1,9 @@
+// B66/B67: elision rule — single input lifetime is reused for output.
+package regions_elision_single_input;
+
+fn first(s: &i32) -> &i32 { return s; }
+
+fn main() -> i32 {
+    let v: i32 = 3i32;
+    return *first(&v) - 3i32;
+}

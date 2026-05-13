@@ -1,0 +1,15 @@
+// B63: dyn trait with for<'a> binder parses + lowers; usage is via Box.
+package hrtb_dyn_parses;
+
+trait Apply<T> { fn ap(self: &Self, t: T) -> i32; }
+
+struct Z { _x: i32 }
+impl<'a> Apply<&'a i32> for Z {
+    fn ap(self: &Z, t: &'a i32) -> i32 { return *t; }
+}
+
+fn main() -> i32 {
+    let z: Z = Z { _x: 0i32 };
+    let v: i32 = 11i32;
+    return z.ap(&v) - 11i32;
+}

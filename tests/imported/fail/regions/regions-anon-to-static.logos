@@ -1,0 +1,6 @@
+// B65: &'a → &'static needs 'a: 'static (false).
+package regions_anon_to_static;
+
+fn bad<'a>(r: &'a i32) -> &'static i32 { return r; }
+
+fn main() -> i32 { return 0i32; }

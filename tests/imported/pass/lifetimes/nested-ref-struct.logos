@@ -1,0 +1,12 @@
+// B65: struct holding two co-living references.
+package nested_ref_struct;
+
+struct W<'a> { x: &'a i32, y: &'a i32 }
+
+fn make<'a>(x: &'a i32, y: &'a i32) -> W<'a> { return W { x: x, y: y }; }
+
+fn main() -> i32 {
+    let a: i32 = 1i32; let b: i32 = 2i32;
+    let w: W = make(&a, &b);
+    return *w.x + *w.y - 3i32;
+}

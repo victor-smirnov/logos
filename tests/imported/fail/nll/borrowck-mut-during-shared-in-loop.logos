@@ -1,0 +1,14 @@
+// B72: shared borrow alive across loop body; mut borrow inside rejected.
+package borrowck_mut_during_shared_in_loop;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let r: &i32 = &x;
+    let mut i: i32 = 0i32;
+    while i < 3i32 {
+        let s: &mut i32 = &mut x;
+        *s = 1i32;
+        i = i + 1i32;
+    }
+    return *r;
+}

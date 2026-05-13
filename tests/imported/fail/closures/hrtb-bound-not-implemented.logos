@@ -1,0 +1,10 @@
+// B62: type does not implement trait at all under HRTB bound.
+package hrtb_bound_not_implemented;
+
+trait Foo<X> { fn foo(self: Self, x: X) -> i32 { return 0i32; } }
+
+struct N { _x: i32 }
+
+fn want<T>() where T: for<'a> Foo<&'a i32> {}
+
+fn main() -> i32 { want::<N>(); return 0i32; }

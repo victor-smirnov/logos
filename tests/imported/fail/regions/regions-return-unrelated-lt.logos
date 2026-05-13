@@ -1,0 +1,6 @@
+// B65: returning &'b when sig promises &'a, with no outlives constraint.
+package regions_return_unrelated_lt;
+
+fn bad<'a, 'b>(x: &'a i32, y: &'b i32) -> &'a i32 { return y; }
+
+fn main() -> i32 { return 0i32; }

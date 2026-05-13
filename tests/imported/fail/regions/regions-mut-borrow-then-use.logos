@@ -1,0 +1,12 @@
+// B65/B72: &'a mut and concurrent shared borrow rejected via region overlap.
+package regions_mut_borrow_then_use;
+
+fn bad() -> i32 {
+    let mut x: i32 = 1i32;
+    let r: &mut i32 = &mut x;
+    let s: &i32 = &x;       // overlap with `r`
+    *r = 2i32;
+    return *s;
+}
+
+fn main() -> i32 { return bad(); }
