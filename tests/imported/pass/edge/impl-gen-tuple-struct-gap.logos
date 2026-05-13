@@ -1,4 +1,24 @@
-// GAP: generic tuple-struct `struct W<T>(T);` triggers
-// "unexpected type node code -1" — generic tuple-struct decl path broken.
+// CLOSED 2026-05-13: generic tuple-struct `struct W<T>(T);` now parses,
+// constructs, and reads back its positional field with T substituted.
+// Three stacked fixes:
+//   1. Grammar (logos.peg, struct_def tuple alt) — emit TYPE_PARAMS: $3.
+//      The $... rcap-collector folds in non-FIELD_DEF rule results too
+//      (notably the type_param_list), so sema-side filters them out.
+//   2. sema_collect.collect_struct — skip non-FIELD_DEF entries in the
+//      FIELDS array (from #1's contamination) before treating each as a
+//      field. Tuple-struct synth-name index advances only for real fields.
+//   3. sema_expr — tuple-struct constructor `W(7i32)` infers the struct's
+//      type-args by unifying arg types with declared field types, then
+//      substitutes through field types and produces a generic struct lit
+//      type. Tuple field-read (`w.0`) substitutes the receiver's concrete
+//      type-args into the declared field type so the result type is `T`'s
+//      substitution (i32 here), not the symbolic TypeVar.
 package impl_gen_tuple_struct_gap;
-fn main() -> i32 { return 0i32; }
+struct W<T>(T);
+impl<T> W<T> {
+    fn get(self: &W<T>) -> *const T { return &self.0; }
+}
+fn main() -> i32 {
+    let w: W<i32> = W(7i32);
+    return w.0 - 7i32;
+}

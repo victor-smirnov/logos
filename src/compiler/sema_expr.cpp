@@ -846,8 +846,20 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                     return error_expr();
                 }
                 auto fname = std::string(tsinfo->fields[idx].type ? std::to_string(idx) : "");
-                return builder().field_read(std::move(recv), fname,
-                                             tsinfo->fields[idx].type);
+                TypeRef ft = tsinfo->fields[idx].type;
+                // Substitute struct type-params with the receiver's concrete
+                // type-args so `w.0` for `w: W<i32>` (struct W<T>(T)) returns
+                // i32, not the symbolic T.
+                if (ft && !tsinfo->type_params.empty()) {
+                    auto rargs = TypeRef(recv_struct_type).type_args();
+                    if (!rargs.empty()) {
+                        SemaSubst sb;
+                        for (size_t i = 0; i < tsinfo->type_params.size() && i < rargs.size(); ++i)
+                            sb[tsinfo->type_params[i].name] = rargs[i];
+                        ft = subst_type_sema(ft, sb);
+                    }
+                }
+                return builder().field_read(std::move(recv), fname, ft);
             }
         }
         if (TypeRef(recv_tuple_type).kind() != LogosType::Kind::Tuple) {
@@ -1235,13 +1247,25 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                     callee, tsinfo->fields.size(), arg_exprs.size()));
                 return error_expr();
             }
+            // Generic tuple-struct: infer struct type-args from arg types
+            // by matching arg type against the declared field type (which
+            // may reference the struct's type-params). Without inference,
+            // `W(7i32)` for `struct W<T>(T)` types pt=TypeVar(T) and the
+            // compat check fails (i32 vs T).
+            SemaSubst subst;
+            if (!tsinfo->type_params.empty()) {
+                for (size_t i = 0; i < arg_exprs.size(); ++i)
+                    unify_types(tsinfo->fields[i].type, arg_exprs[i]->type, subst);
+            }
             std::vector<std::pair<std::string, lir::LExprPtr>> fields;
             for (size_t i = 0; i < arg_exprs.size(); ++i) {
-                widen_int_expr(arg_exprs[i], tsinfo->fields[i].type, builder());
-                auto at = arg_exprs[i]->type;
                 auto pt = tsinfo->fields[i].type;
+                if (!subst.empty()) pt = subst_type_sema(pt, subst);
+                widen_int_expr(arg_exprs[i], pt, builder());
+                auto at = arg_exprs[i]->type;
                 if (TypeRef(at).kind() != LogosType::Kind::Error &&
                     TypeRef(pt).kind() != LogosType::Kind::Error &&
+                    TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
                     !types_compatible(at, pt)) {
                     auto [es, gs] = type_str_pair(pt, at);
                     error(std::format(
@@ -1251,8 +1275,18 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 check_variance(at, pt, std::format("tuple-struct '{}' field {}", callee, i));
                 fields.emplace_back(std::to_string(i), std::move(arg_exprs[i]));
             }
-            return builder().struct_lit(std::string(callee), std::move(fields),
-                                         make_struct_type(callee, tspkg));
+            TypeRef lit_type;
+            if (!tsinfo->type_params.empty()) {
+                std::vector<TypeRef> tas;
+                for (auto& tp : tsinfo->type_params) {
+                    auto it = subst.find(tp.name);
+                    tas.push_back(it != subst.end() ? it->second : make_typevar(tp.name));
+                }
+                lit_type = make_generic_struct(std::string(callee), tas, {}, std::string(tspkg));
+            } else {
+                lit_type = make_struct_type(callee, tspkg);
+            }
+            return builder().struct_lit(std::string(callee), std::move(fields), lit_type);
         }
     }
 

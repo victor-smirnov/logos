@@ -2274,16 +2274,31 @@ void SemaChecker::collect_struct(TinyMapView node) {
         info.is_pub = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
     }
     push_type_params(info.type_params);
+    // For generic tuple-struct (`struct W<T>(T);`) the grammar's $... rule-
+    // capture also folds the type_param_list result into FIELDS, since the
+    // outer rcap_ has no way to exclude rules used for other named slots.
+    // Filter: a real field is a FIELD_DEF node — anything else (notably
+    // type_param_list emitting `{ITEMS: ...}`) is dropped here.
+    auto is_field_def = [&](TinyMapView fnode) {
+        return code_of(fnode) == la::FIELD_DEF;
+    };
     // B-ts-01: detect tuple-struct shape — first FIELD_DEF has no NAME slot.
     if (node.has_key(la::FIELDS)) {
         auto fs0 = arr_of(node.get(la::FIELDS.code));
-        if (fs0.size() > 0 && !map_of(fs0.get(0)).has_key(la::NAME))
-            info.is_tuple_struct = true;
+        for (uint64_t i = 0; i < fs0.size(); ++i) {
+            auto f0 = map_of(fs0.get(i));
+            if (!is_field_def(f0)) continue;
+            if (!f0.has_key(la::NAME)) info.is_tuple_struct = true;
+            break;
+        }
     }
     if (node.has_key(la::FIELDS)) {
         auto fields = arr_of(node.get(la::FIELDS.code));
+        uint64_t synth_idx = 0;
         for (uint64_t i = 0; i < fields.size(); ++i) {
             auto fnode = map_of(fields.get(i));
+            if (!is_field_def(fnode)) continue;
+            const uint64_t i_for_synth = synth_idx++;
             // B-ts-01: tuple-struct fields have no NAME slot; synthesise
             // "0", "1", … so member access (`foo.0`) and pattern shape
             // (`Foo(a, b)`) reuse the named-field machinery uniformly.
@@ -2296,7 +2311,7 @@ void SemaChecker::collect_struct(TinyMapView node) {
             // class-level pool below so the string_view stays valid
             // for the SemaFieldInfo's lifetime.
             if (fname.empty())
-                fname = intern_synth_field_name(i);
+                fname = intern_synth_field_name(i_for_synth);
             auto ftype = resolve_type(map_of(fnode.get(la::TYPE.code)));
             bool fpub = fnode.has_key(la::IS_PUB) &&
                         fnode.get(la::IS_PUB.code).is_value() &&

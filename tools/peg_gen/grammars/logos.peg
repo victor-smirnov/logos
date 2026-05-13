@@ -920,7 +920,7 @@
                 / KW_STRUCT HASH IDENT type_param_list? LBRACE field_def* method_def* RBRACE
                => { CODE: STRUCT, NAME_VAR: $3, TYPE_PARAMS: $4, FIELDS: $6, ITEMS: $7 }
                 / KW_STRUCT IDENT type_param_list? LPAREN tuple_field (COMMA tuple_field)* RPAREN SEMI
-               => { CODE: STRUCT, NAME: $2, FIELDS: $... }
+               => { CODE: STRUCT, NAME: $2, TYPE_PARAMS: $3, FIELDS: $... }
                 / KW_STRUCT IDENT type_param_list? where_clause? LBRACE field_def* method_def* RBRACE
                => { CODE: STRUCT, NAME: $2, TYPE_PARAMS: $3, WHERE: $4, FIELDS: $6, ITEMS: $7 }
 
@@ -931,6 +931,7 @@
                 => { CODE: FIELD_DEF, IS_PUB: 1, TYPE: $2 }
                  / type_ref
                 => { CODE: FIELD_DEF, TYPE: $1 }
+
 
     field_def <- HASH LPAREN field_def RPAREN COMMA STAR
               => { CODE: REPEAT_GROUP, VALUE: $3, OP: 1 }
