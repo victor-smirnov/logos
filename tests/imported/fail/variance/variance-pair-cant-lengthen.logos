@@ -1,0 +1,10 @@
+// B76: Pair Co in both — lengthening one rejected.
+package variance_pair_cant_lengthen;
+
+struct Pair<'a, 'b> { x: &'a i32, y: &'b i32 }
+
+fn bad<'a, 'short, 'long>(p: Pair<'short, 'a>) -> Pair<'long, 'a>
+    where 'long: 'short
+{ return p; }
+
+fn main() -> i32 { return 0i32; }

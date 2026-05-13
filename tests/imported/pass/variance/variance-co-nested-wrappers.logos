@@ -1,0 +1,10 @@
+// B76: Co<Co<T>> remains Co; transitively shortenable.
+package variance_co_nested_wrappers;
+
+struct W<T> { x: T }
+
+fn wco<'short, 'long>(v: W<W<&'long i32>>) -> W<W<&'short i32>>
+    where 'long: 'short
+{ return v; }
+
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,10 @@
+// B76: struct with Co field + Inv field — T meets Inv. Reject either direction.
+package variance_co_plus_inv_is_inv;
+
+struct Mixed<T> { c: T, i: *mut T }
+
+fn bad<'short, 'long>(v: Mixed<&'long i32>) -> Mixed<&'short i32>
+    where 'long: 'short
+{ return v; }
+
+fn main() -> i32 { return 0i32; }

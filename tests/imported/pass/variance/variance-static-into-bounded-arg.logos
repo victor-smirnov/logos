@@ -1,0 +1,12 @@
+// B76: 'static is bottom of variance; coerces to any 'a in Co position.
+package variance_static_into_bounded_arg;
+
+struct Holder<'a> { r: &'a i32 }
+
+fn take<'a>(h: Holder<'a>) -> i32 { return 0i32; }
+
+fn main() -> i32 {
+    let v: i32 = 7i32;
+    let h: Holder<'static> = Holder { r: &v };
+    return take(h);
+}

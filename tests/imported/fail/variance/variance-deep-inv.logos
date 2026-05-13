@@ -1,0 +1,11 @@
+// B76: outer struct Co, but inner has *mut T → Inv chain wins.
+package variance_deep_inv;
+
+struct Inner<T> { p: *mut T }
+struct Outer<T> { i: Inner<T> }
+
+fn bad<'short, 'long>(v: Outer<&'long i32>) -> Outer<&'short i32>
+    where 'long: 'short
+{ return v; }
+
+fn main() -> i32 { return 0i32; }

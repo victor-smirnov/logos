@@ -1,0 +1,8 @@
+// B76: plain &T is Co in T — shortening 'long → 'short OK under 'long: 'short.
+package variance_co_ref_shorten;
+
+fn shorten<'short, 'long>(r: &'long i32) -> &'short i32
+    where 'long: 'short
+{ return r; }
+
+fn main() -> i32 { return 0i32; }

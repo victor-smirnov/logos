@@ -1,0 +1,10 @@
+// B76: struct Cb { f: fn(T) } Contra in T — cannot shorten.
+package variance_contra_struct_cant_shorten;
+
+struct Cb<T> { f: fn(T) -> i32 }
+
+fn bad<'short, 'long>(c: Cb<&'long i32>) -> Cb<&'short i32>
+    where 'long: 'short
+{ return c; }
+
+fn main() -> i32 { return 0i32; }

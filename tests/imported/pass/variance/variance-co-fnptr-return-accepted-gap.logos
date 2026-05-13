@@ -1,0 +1,12 @@
+// B76 GAP: bare fn-ptr type at fn-signature position currently bypasses
+// variance subtype check at return — Rust rejects lengthening of Co return
+// lifetime in fn() -> &T. Wrap fn-ptr in a struct field (see
+// variance-co-tuple-cant-lengthen) and the check fires correctly.
+// File kept as gap regression: ensure compile remains accepted until fix lands.
+package variance_co_fnptr_return_gap;
+
+fn maybe<'short, 'long>(f: fn() -> &'short i32) -> fn() -> &'long i32
+    where 'long: 'short
+{ return f; }
+
+fn main() -> i32 { return 0i32; }

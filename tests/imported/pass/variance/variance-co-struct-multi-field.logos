@@ -1,0 +1,10 @@
+// B76: multiple Co fields meet to Co; shortenable.
+package variance_co_struct_multi_field;
+
+struct Three<T> { a: T, b: T, c: T }
+
+fn shorten<'short, 'long>(v: Three<&'long i32>) -> Three<&'short i32>
+    where 'long: 'short
+{ return v; }
+
+fn main() -> i32 { return 0i32; }

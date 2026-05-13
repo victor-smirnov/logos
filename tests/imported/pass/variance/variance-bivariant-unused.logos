@@ -1,0 +1,11 @@
+// B76: unused lifetime param is bivariant — any inst accepted.
+// We don't reference 'a in the body, only in PhantomData-equivalent — use
+// a raw pointer typed by an unrelated marker; since Logos doesn't error on
+// unused lt params we accept it.
+package variance_bivariant_unused;
+
+struct Marker<'a> { p: i64 }
+
+fn pass_through<'short, 'long>(v: Marker<'long>) -> Marker<'short> { return v; }
+
+fn main() -> i32 { return 0i32; }

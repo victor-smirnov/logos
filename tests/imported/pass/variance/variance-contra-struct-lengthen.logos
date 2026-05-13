@@ -1,0 +1,10 @@
+// B76: struct with fn(T) field → Contra in T. Lengthening 'short → 'long OK.
+package variance_contra_struct_lengthen;
+
+struct Cb<T> { f: fn(T) -> i32 }
+
+fn lengthen<'short, 'long>(c: Cb<&'short i32>) -> Cb<&'long i32>
+    where 'long: 'short
+{ return c; }
+
+fn main() -> i32 { return 0i32; }

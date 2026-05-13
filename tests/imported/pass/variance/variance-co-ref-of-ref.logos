@@ -1,0 +1,8 @@
+// B76: &&T is Co in both layers when only outer shortens; inner pinned.
+package variance_co_ref_of_ref;
+
+fn shorten_outer<'short, 'long, 'inner>(r: &'long &'inner i32) -> &'short &'inner i32
+    where 'long: 'short
+{ return r; }
+
+fn main() -> i32 { return 0i32; }

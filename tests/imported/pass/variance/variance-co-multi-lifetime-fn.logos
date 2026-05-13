@@ -1,0 +1,11 @@
+// B76: fn returning one of two refs; that return is Co in chosen lt.
+package variance_co_multi_lifetime_fn;
+
+fn first<'a, 'b>(x: &'a i32, y: &'b i32) -> &'a i32 { return x; }
+
+fn main() -> i32 {
+    let a: i32 = 1i32;
+    let b: i32 = 2i32;
+    let r: &i32 = first(&a, &b);
+    return *r - 1i32;
+}

@@ -1,0 +1,10 @@
+// B76: *mut T direct invariance — cannot vary T's lifetime.
+package variance_raw_mut_ptr_inv;
+
+struct P<T> { x: *mut T }
+
+fn bad<'short, 'long>(p: P<&'long i32>) -> P<&'short i32>
+    where 'long: 'short
+{ return p; }
+
+fn main() -> i32 { return 0i32; }

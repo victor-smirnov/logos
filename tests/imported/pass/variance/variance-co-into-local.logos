@@ -1,0 +1,12 @@
+// B76: Co wrapper accepting longer lifetime, used to call shorter-lifetime fn.
+package variance_co_into_local;
+
+struct W<T> { x: T }
+
+fn use_short<'a>(w: W<&'a i32>) -> i32 { return *(w.x); }
+
+fn main() -> i32 {
+    let v: i32 = 5i32;
+    let w: W<&'static i32> = W { x: &v };  // 'static field — should coerce to 'a
+    return use_short(w) - 5i32;
+}

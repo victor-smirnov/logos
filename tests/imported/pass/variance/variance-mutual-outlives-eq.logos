@@ -1,0 +1,10 @@
+// B76: 'a: 'b and 'b: 'a → effectively equal; even Inv positions accept.
+package variance_mutual_outlives_eq;
+
+struct Cell<T> { p: *mut T }
+
+fn swap_<'a, 'b>(v: Cell<&'a i32>) -> Cell<&'b i32>
+    where 'a: 'b, 'b: 'a
+{ return v; }
+
+fn main() -> i32 { return 0i32; }

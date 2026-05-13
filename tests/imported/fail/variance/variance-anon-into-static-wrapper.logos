@@ -1,0 +1,8 @@
+// B76: Wrap<&'a T> → Wrap<&'static T> needs 'a: 'static. Reject.
+package variance_anon_into_static_wrapper;
+
+struct Wrap<T> { x: T }
+
+fn bad<'a>(v: Wrap<&'a i32>) -> Wrap<&'static i32> { return v; }
+
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,13 @@
+// B76: a where-clause bound on T does not change variance of the struct.
+// Wrap<T> Co in T (single Co field) — shortenable regardless of bound.
+package variance_trait_bound_doesnt_matter;
+
+trait Marker {}
+
+struct Wrap<T> { x: T }
+
+fn shorten<'short, 'long, T>(v: Wrap<&'long T>) -> Wrap<&'short T>
+    where 'long: 'short
+{ return v; }
+
+fn main() -> i32 { return 0i32; }

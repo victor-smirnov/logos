@@ -1,0 +1,8 @@
+// B76: &'a mut T — outer 'a is Co; T is Inv. Shortening the outer is OK.
+package variance_mut_ref_outer_co;
+
+fn shorten_outer<'short, 'long>(r: &'long mut i32) -> &'short mut i32
+    where 'long: 'short
+{ return r; }
+
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,10 @@
+// B76: Co in both K and V — Pair<&'long K, &'long V> shortens to Pair<&'s K, &'s V>.
+package variance_co_multi_generic;
+
+struct Pair<K, V> { k: K, v: V }
+
+fn shorten_both<'short, 'long>(p: Pair<&'long i32, &'long i64>) -> Pair<&'short i32, &'short i64>
+    where 'long: 'short
+{ return p; }
+
+fn main() -> i32 { return 0i32; }

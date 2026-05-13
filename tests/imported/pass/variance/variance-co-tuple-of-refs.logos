@@ -1,0 +1,10 @@
+// B76: tuple-struct holding two refs — Co in both.
+package variance_co_tuple_of_refs;
+
+struct Two<'a, 'b> { x: &'a i32, y: &'b i32 }
+
+fn shorten_both<'short, 'long>(t: Two<'long, 'long>) -> Two<'short, 'short>
+    where 'long: 'short
+{ return t; }
+
+fn main() -> i32 { return 0i32; }

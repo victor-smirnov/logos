@@ -1,0 +1,6 @@
+// B76: &'a → &'static requires 'a: 'static, which is false.
+package variance_anon_to_static;
+
+fn bad<'a>(r: &'a i32) -> &'static i32 { return r; }
+
+fn main() -> i32 { return 0i32; }

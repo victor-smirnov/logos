@@ -1,0 +1,6 @@
+// B76: 'static → 'a covariance: 'static outlives everything.
+package variance_co_static_to_anon;
+
+fn s2a<'a>(r: &'static i32) -> &'a i32 { return r; }
+
+fn main() -> i32 { return 0i32; }

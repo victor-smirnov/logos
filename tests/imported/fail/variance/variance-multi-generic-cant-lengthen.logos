@@ -1,0 +1,10 @@
+// B76: Pair<K,V> Co in both — cannot lengthen.
+package variance_multi_generic_cant_lengthen;
+
+struct Pair<K, V> { k: K, v: V }
+
+fn bad<'short, 'long>(p: Pair<&'short i32, &'short i64>) -> Pair<&'long i32, &'long i64>
+    where 'long: 'short
+{ return p; }
+
+fn main() -> i32 { return 0i32; }

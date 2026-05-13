@@ -1,0 +1,8 @@
+// B76: multiple Co args shorten independently.
+package variance_co_multi_arg_fn;
+
+fn shorten<'short, 'long>(x: &'long i32, y: &'long i32) -> &'short i32
+    where 'long: 'short
+{ return x; }
+
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,10 @@
+// B76: Res<T,E> Co in T (Ok variant) — cannot lengthen.
+package variance_co_result_cant_lengthen;
+
+enum Res<T, E> { Ok(T), Err(E) }
+
+fn bad<'short, 'long>(v: Res<&'short i32, i64>) -> Res<&'long i32, i64>
+    where 'long: 'short
+{ return v; }
+
+fn main() -> i32 { return 0i32; }

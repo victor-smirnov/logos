@@ -1,0 +1,8 @@
+// B76: &mut T is Inv in T — inner lifetime cannot vary.
+package variance_mut_ref_inner_inv;
+
+fn bad<'a, 'short, 'long>(r: &'a mut &'long i32) -> &'a mut &'short i32
+    where 'long: 'short
+{ return r; }
+
+fn main() -> i32 { return 0i32; }

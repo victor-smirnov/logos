@@ -1,0 +1,8 @@
+// B76: fn() -> &T is Co in T (return position).
+package variance_co_fnptr_return;
+
+fn shorten<'short, 'long>(f: fn() -> &'long i32) -> fn() -> &'short i32
+    where 'long: 'short
+{ return f; }
+
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,8 @@
+// B76: &'a mut T outer 'a is Co — cannot lengthen.
+package variance_mut_ref_outer_cant_lengthen;
+
+fn bad<'short, 'long>(r: &'short mut i32) -> &'long mut i32
+    where 'long: 'short
+{ return r; }
+
+fn main() -> i32 { return 0i32; }

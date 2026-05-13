@@ -1,0 +1,10 @@
+// B76: Co tuple-struct cannot lengthen.
+package variance_co_tuple_cant_lengthen;
+
+struct Wrap<T> { x: T }
+
+fn bad<'short, 'long>(v: Wrap<&'short i32>) -> Wrap<&'long i32>
+    where 'long: 'short
+{ return v; }
+
+fn main() -> i32 { return 0i32; }

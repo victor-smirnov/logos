@@ -1,0 +1,9 @@
+// B76: fn(&T) is Contra in T — lengthening the argument lifetime is OK.
+// (Caller passes a longer-lived ref; fn-ptr accepting shorter accepts longer.)
+package variance_contra_fnptr_arg;
+
+fn lengthen<'short, 'long>(f: fn(&'short i32) -> i32) -> fn(&'long i32) -> i32
+    where 'long: 'short
+{ return f; }
+
+fn main() -> i32 { return 0i32; }

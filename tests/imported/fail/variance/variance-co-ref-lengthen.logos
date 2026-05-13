@@ -1,0 +1,8 @@
+// B76: &T is Co — cannot lengthen 'short → 'long under 'long: 'short.
+package variance_co_ref_lengthen;
+
+fn lengthen<'short, 'long>(r: &'short i32) -> &'long i32
+    where 'long: 'short
+{ return r; }
+
+fn main() -> i32 { return 0i32; }

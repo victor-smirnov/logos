@@ -1,0 +1,10 @@
+// B76: two Co lifetimes; shorten one, leave other.
+package variance_co_pair_shorten_one;
+
+struct Pair<'a, 'b> { x: &'a i32, y: &'b i32 }
+
+fn shorten_first<'a, 'short, 'long>(p: Pair<'long, 'a>) -> Pair<'short, 'a>
+    where 'long: 'short
+{ return p; }
+
+fn main() -> i32 { return 0i32; }
