@@ -32,15 +32,156 @@ void RegionInferer::analyze(const lir::LFunction& fn, const lir::LProgram& prog)
     next_region_id_ = 1;
 
     cfg_.blocks.emplace_back();
+    // Build CFG iteratively: walk_block returns the block id of the
+    // "after" point (where successor flow lands after exiting the
+    // current block). Branch / loop statements split into nested
+    // blocks and stitch them together with successor edges.
     walk_block(fn.body, /*blk_id=*/0, prog);
+}
+
+namespace {
+// Block-builder helpers. Each CFG block grows by appending statements.
+// Branch statements emit nested sub-blocks and connect them via
+// successors. Successor list of a block is "where control may go after
+// the LAST statement of this block" — empty for terminators (return,
+// break, continue) that jump elsewhere.
+} // namespace
+
+uint32_t RegionInferer_alloc_block(CFG& cfg) {
+    cfg.blocks.emplace_back();
+    return static_cast<uint32_t>(cfg.blocks.size() - 1);
 }
 
 void RegionInferer::walk_block(const lir::LBlock& blk, uint32_t blk_id,
                                 const lir::LProgram& prog) {
-    auto& B = cfg_.blocks[blk_id];
-    B.n_stmts = static_cast<uint32_t>(blk.stmts.size());
-    for (uint32_t i = 0; i < blk.stmts.size(); ++i)
-        walk_stmt(blk.stmts[i], blk_id, i, prog);
+    using namespace lir_view;
+    using SCode = lir_schema::stmt::Code;
+
+    uint32_t cur = blk_id;
+    for (uint32_t i = 0; i < blk.stmts.size(); ++i) {
+        auto& s = blk.stmts[i];
+        // Statement index within the current CFG block.
+        uint32_t local_idx = cfg_.blocks[cur].n_stmts;
+        cfg_.blocks[cur].n_stmts = local_idx + 1;
+
+        // Default: walk for borrow sites at this point.
+        walk_stmt(s, cur, local_idx, prog);
+
+        // Detect branching / loop statements that need sub-blocks.
+        if (s.mirror_offset_ == hermes::arena_offset_t{}) continue;
+        StmtRef sr(prog.type_pool.arena(), s.mirror_offset_);
+        if (!sr) continue;
+
+        auto block_ptr_of = [&](BlockRef br) -> const lir::LBlock* {
+            if (!br) return nullptr;
+            auto& m = prog.mirror_table->block_by_offset;
+            auto it = m.find(br.offset().value());
+            return it == m.end() ? nullptr : it->second;
+        };
+
+        switch (sr.kind()) {
+            case SCode::If: {
+                SIfView v{sr};
+                // Allocate then-block + else-block + after-block.
+                uint32_t then_id  = RegionInferer_alloc_block(cfg_);
+                uint32_t else_id  = RegionInferer_alloc_block(cfg_);
+                uint32_t after_id = RegionInferer_alloc_block(cfg_);
+                cfg_.blocks[cur].successors = {then_id, else_id};
+                if (auto b = block_ptr_of(v.then_block())) walk_block(*b, then_id, prog);
+                if (auto b = block_ptr_of(v.else_block())) walk_block(*b, else_id, prog);
+                cfg_.blocks[then_id].successors.push_back(after_id);
+                cfg_.blocks[else_id].successors.push_back(after_id);
+                cur = after_id;
+                break;
+            }
+            case SCode::While: {
+                SWhileView v{sr};
+                uint32_t body_id  = RegionInferer_alloc_block(cfg_);
+                uint32_t after_id = RegionInferer_alloc_block(cfg_);
+                cfg_.blocks[cur].successors = {body_id, after_id};
+                if (auto b = block_ptr_of(v.body())) walk_block(*b, body_id, prog);
+                cfg_.blocks[body_id].successors.push_back(cur);  // back-edge
+                cur = after_id;
+                break;
+            }
+            case SCode::For: {
+                SForView v{sr};
+                uint32_t body_id  = RegionInferer_alloc_block(cfg_);
+                uint32_t after_id = RegionInferer_alloc_block(cfg_);
+                cfg_.blocks[cur].successors = {body_id, after_id};
+                if (auto b = block_ptr_of(v.body())) walk_block(*b, body_id, prog);
+                cfg_.blocks[body_id].successors.push_back(cur);  // back-edge
+                cur = after_id;
+                break;
+            }
+            case SCode::ForEach: {
+                SForEachView v{sr};
+                uint32_t body_id  = RegionInferer_alloc_block(cfg_);
+                uint32_t after_id = RegionInferer_alloc_block(cfg_);
+                cfg_.blocks[cur].successors = {body_id, after_id};
+                if (auto b = block_ptr_of(v.body())) walk_block(*b, body_id, prog);
+                cfg_.blocks[body_id].successors.push_back(cur);
+                cur = after_id;
+                break;
+            }
+            case SCode::Loop: {
+                SLoopView v{sr};
+                uint32_t body_id  = RegionInferer_alloc_block(cfg_);
+                uint32_t after_id = RegionInferer_alloc_block(cfg_);
+                cfg_.blocks[cur].successors = {body_id};
+                if (auto b = block_ptr_of(v.body())) walk_block(*b, body_id, prog);
+                cfg_.blocks[body_id].successors.push_back(body_id);  // back to body
+                // `break` inside body wires to after via separate edge;
+                // tracked when liveness lands in B71.1. Empty successors
+                // on body for now.
+                cur = after_id;
+                break;
+            }
+            case SCode::Block: {
+                SBlockView v{sr};
+                uint32_t inner_id = RegionInferer_alloc_block(cfg_);
+                uint32_t after_id = RegionInferer_alloc_block(cfg_);
+                cfg_.blocks[cur].successors = {inner_id};
+                if (auto b = block_ptr_of(v.body())) walk_block(*b, inner_id, prog);
+                cfg_.blocks[inner_id].successors.push_back(after_id);
+                cur = after_id;
+                break;
+            }
+            case SCode::Match: {
+                SMatchView v{sr};
+                std::vector<uint32_t> arm_ids;
+                v.each_arm([&](EMatchArmRef arm) {
+                    uint32_t arm_id = RegionInferer_alloc_block(cfg_);
+                    arm_ids.push_back(arm_id);
+                    if (auto b = block_ptr_of(arm.body())) walk_block(*b, arm_id, prog);
+                });
+                uint32_t after_id = RegionInferer_alloc_block(cfg_);
+                for (auto id : arm_ids) {
+                    cfg_.blocks[cur].successors.push_back(id);
+                    cfg_.blocks[id].successors.push_back(after_id);
+                }
+                cur = after_id;
+                break;
+            }
+            case SCode::LetElse: {
+                SLetElseView v{sr};
+                uint32_t else_id  = RegionInferer_alloc_block(cfg_);
+                uint32_t after_id = RegionInferer_alloc_block(cfg_);
+                cfg_.blocks[cur].successors = {else_id, after_id};
+                if (auto b = block_ptr_of(v.else_block())) walk_block(*b, else_id, prog);
+                // else block diverges; no edge to after.
+                cur = after_id;
+                break;
+            }
+            case SCode::Return:
+            case SCode::Break:
+            case SCode::Continue:
+                // Terminators — successors stay empty.
+                break;
+            default:
+                break;
+        }
+    }
 }
 
 void RegionInferer::walk_stmt(const lir::LStmt& s,
@@ -286,6 +427,14 @@ void RegionInferer::dump(const std::string& fn_name) const {
                  fn_name.c_str(), region_count(),
                  borrows_.size(), constraints_.size(),
                  cfg_.blocks.size());
+    for (size_t bi = 0; bi < cfg_.blocks.size(); ++bi) {
+        auto& B = cfg_.blocks[bi];
+        std::string succ;
+        for (auto s : B.successors) succ += std::to_string(s) + " ";
+        std::fprintf(stderr,
+            "  block %zu: n_stmts=%u successors=[%s]\n",
+            bi, B.n_stmts, succ.c_str());
+    }
     for (auto& b : borrows_) {
         std::fprintf(stderr,
             "  borrow #%u from '%s' to '%s' is_mut=%d at (%u, %u)\n",
