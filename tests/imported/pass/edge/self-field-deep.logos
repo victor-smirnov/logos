@@ -1,0 +1,13 @@
+// B97.3: chain field write through &mut self.
+package self_field_deep;
+struct Inner { v: i32 }
+struct Outer { i: Inner }
+impl Outer {
+    fn read(self: &Outer) -> i32 { return self.i.v; }
+    fn write(self: &mut Outer, n: i32) { self.i.v = n; }
+}
+fn main() -> i32 {
+    let mut o: Outer = Outer { i: Inner { v: 0i32 } };
+    o.write(7i32);
+    return o.read() - 7i32;
+}

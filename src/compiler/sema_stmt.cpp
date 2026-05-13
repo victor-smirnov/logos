@@ -4195,7 +4195,11 @@ lir::LStmt SemaChecker::lower_chain_field_write(TinyMapView node) {
     auto recv_type = lookup(recv_name);
     if (recv_type && TypeRef(recv_type).kind() == LogosType::Kind::Ref)
         error(std::format("chain field write '{}': receiver is &T (shared reference)", recv_name));
-    else if (recv_type && TypeRef(recv_type).kind() != LogosType::Kind::Ptr && !lookup_is_mut(recv_name))
+    // B97.3: `&mut self`-typed receivers carry mutability via the ref kind,
+    // not via `let mut`. Skip the binding-mutability check for them.
+    else if (recv_type && TypeRef(recv_type).kind() != LogosType::Kind::Ptr
+             && TypeRef(recv_type).kind() != LogosType::Kind::MutRef
+             && !lookup_is_mut(recv_name))
         error(std::format("chain field write to immutable variable '{}'", recv_name));
     if (recv_type && TypeRef(recv_type).kind() == LogosType::Kind::Ptr && !TypeRef(recv_type).mut_ptr())
         error(std::format("chain field write '{}': receiver is *const pointer", recv_name));
