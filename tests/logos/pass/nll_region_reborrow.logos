@@ -1,0 +1,15 @@
+// B72 region-based NLL: after a borrow's holder is no longer live,
+// a fresh borrow of the same target succeeds. The region of the
+// first borrow doesn't extend past its holder's liveness window,
+// so the regions don't overlap.
+package nll_region_reborrow;
+
+fn main() -> i32 {
+    let mut x: i32 = 1i32;
+    let r: &mut i32 = &mut x;
+    *r = 2i32;
+    // r is dead after this point — region 1 contains only (0,1)..(0,2)
+    let s: &mut i32 = &mut x;
+    *s = 3i32;
+    return x - 3i32;
+}

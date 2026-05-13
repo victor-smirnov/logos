@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust tests/ui/nll/borrow-use-issue-46875.rs
+// Modifications: `vec!` / `Vec` dropped (replaced with i32 scalars
+// only); `'c'` → `0i32`. The NLL-relevant shape is preserved: a
+// borrow followed by an unused holder, then reassignment of the
+// borrowed variable. Rust NLL accepts (the borrow is dead at the
+// reassignment point); Logos B72 should accept the same.
+package nll_borrow_use_46875;
+
+fn int() -> i32 {
+    let mut _x: i32 = 5i32;
+    let _y: &i32 = &_x;
+    _x = 7i32;
+    return _x;
+}
+
+fn main() -> i32 {
+    return int() - 7i32;
+}
