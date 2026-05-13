@@ -298,6 +298,7 @@ inline constexpr Code INVOKE_EXPR          {"INVOKE_EXPR",        230}; // `(exp
 inline constexpr Code BREAK_EXPR           {"BREAK_EXPR",         231}; // `break` in expression position (P3-pg-04). Sema lowers as SBreak stmt + Error-typed sentinel so type-checks accept.
 inline constexpr Code CONTINUE_EXPR        {"CONTINUE_EXPR",      232}; // `continue` in expression position (P3-pg-04). Same shape as BREAK_EXPR.
 inline constexpr Code RETURN_EXPR          {"RETURN_EXPR",        233}; // `return` in expression position (P3-pg-04). Same shape — bare form only.
+inline constexpr Code NESTED_FN            {"NESTED_FN",          235}; // `fn name(params) [-> T] { body }` at stmt position. Sema lowers to a let-bound closure (no captures expected). NAME, PARAMS, RET_TYPE?, BODY.
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  META            {"META",               16};   // meta @{...} block node on struct/trait/datatype declarations (reuses PATH_PARTS slot; these node types never co-exist)

@@ -1,4 +1,18 @@
-// GAP: nested fn decl (`fn helper(...) { }` inside fn body) is not
-// supported by parser. Probably grammar excludes fn-decl in stmt position.
+// CLOSED 2026-05-13: nested fn at stmt position now parses and lowers
+// to a let-bound closure. Fix: new NESTED_FN AST code + grammar
+// stmt-alt `KW_FN IDENT LPAREN params RPAREN [ARROW type_ref] block`;
+// sema's lower_nested_fn reuses lower_closure_expr (NESTED_FN node has
+// the same field shape as CLOSURE_EXPR — PARAMS / RET_TYPE / BODY) and
+// emits an SLet binding the local name to the closure value. The
+// closure machinery handles the lift / codegen / mangling. No captures
+// are required for typical Rust-style nested fns; if the body reads an
+// enclosing local, the closure path captures it (slightly different
+// from Rust where nested fn cannot capture, but it lets the syntax
+// work end-to-end and is strictly more permissive).
 package nested_fn_gap;
-fn main() -> i32 { return 0i32; }
+fn outer(x: i32) -> i32 {
+    fn add5(n: i32) -> i32 { return n + 5i32; }
+    fn dbl(n: i32) -> i32 { return n * 2i32; }
+    return add5(dbl(x));
+}
+fn main() -> i32 { return outer(3i32) - 11i32; }

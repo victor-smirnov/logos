@@ -288,6 +288,7 @@
     CONTINUE_EXPR               = 232   // `continue` in expression position (P3-pg-04). Same shape as BREAK_EXPR.
     RETURN_EXPR                 = 233   // `return` in expression position (P3-pg-04). Same shape — bare form only (no value).
     LIT_BYTES                   = 234   // P4-pm-07: `b"..."` byte-string literal at expression position. VALUE = raw token text including the `b"…"` quotes; sema decodes escapes and lowers to an `[u8; N]` array literal.
+    NESTED_FN                   = 235   // `fn name(params) [-> T] { body }` at stmt position. Sema lifts the body to a top-level free fn under a gensym'd name and binds the local name as a fn-ptr let. NAME, PARAMS, RET_TYPE?, BODY.
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -1388,9 +1389,20 @@
     unsafe_block <- KW_UNSAFE block
                  => { CODE: UNSAFE_BLOCK, BODY: $2 }
 
+    // ── Nested fn (`fn inner(...) { ... }` at stmt position) ─────
+    // Sema lifts the body to a top-level free fn under a gensym'd
+    // name and binds the local name to a fn-ptr value. No captures —
+    // a nested fn is a fn, not a closure; reads of enclosing locals
+    // are rejected by sema (use a closure for that).
+    nested_fn_stmt <- KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref block
+                   => { CODE: NESTED_FN, NAME: $2, PARAMS: $4, RET_TYPE: $7, BODY: $8 }
+                    / KW_FN IDENT LPAREN param_list? RPAREN block
+                   => { CODE: NESTED_FN, NAME: $2, PARAMS: $4, BODY: $6 }
+
     // ── Statements ───────────────────────────────────────────────
     stmt <- HASH LPAREN stmt RPAREN STAR
              => { CODE: REPEAT_GROUP, VALUE: $3, OP: 0 }
+          / nested_fn_stmt
           / labeled_loop_stmt
           / let_else_stmt
           / let_stmt

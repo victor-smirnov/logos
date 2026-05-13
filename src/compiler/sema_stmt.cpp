@@ -161,6 +161,7 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
     if (c == la::LET_ELSE)     return lower_let_else(stmt);
     if (c == la::LET_DESTRUCT) return lower_let_destruct(stmt);
     if (c == la::LET_PAT)      return lower_let_pat(stmt);
+    if (c == la::NESTED_FN)    return lower_nested_fn(stmt);
     if (c == la::ASSIGN)          return lower_assign(stmt);
     if (c == la::COMPOUND_ASSIGN) return lower_compound_assign(stmt);
     if (c == la::RETURN)       return lower_return(stmt);
@@ -1001,6 +1002,26 @@ lir::LStmt SemaChecker::lower_let_else(TinyMapView node) {
     sle.scrut      = std::move(scrut);
     sle.else_block = lir::alloc_block(*cur_prog_, std::move(else_blk));
     return make_stmt_emit(node_line_, std::move(sle));
+}
+
+// `fn inner(params) [-> T] { body }` at stmt position. Lower as a let-bound
+// closure: `let inner = |params| -> T { body }`. The closure machinery
+// handles codegen / lifting / mangling. The NESTED_FN AST node carries the
+// same field shape as CLOSURE_EXPR (PARAMS / RET_TYPE / BODY), so we can
+// pass the node directly to lower_closure_expr. The local binding is
+// emitted as an SLet with the closure value; the variable's type comes
+// from the closure's own inferred type.
+lir::LStmt SemaChecker::lower_nested_fn(TinyMapView node) {
+    auto name = std::string(str_of(node.get(la::NAME.code)));
+    auto value = lower_closure_expr(node);
+    auto var_type = value ? value->type : error_t();
+    define(name, var_type, /*is_mut=*/false);
+    lir::SLet sl;
+    sl.name   = name;
+    sl.type   = var_type;
+    sl.is_mut = false;
+    sl.value  = std::move(value);
+    return make_stmt_emit(node_line_, std::move(sl));
 }
 
 lir::LStmt SemaChecker::lower_let(TinyMapView node) {
