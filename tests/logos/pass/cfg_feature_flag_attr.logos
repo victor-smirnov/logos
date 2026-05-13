@@ -1,0 +1,16 @@
+package x;
+
+// Phase 2-4: feature flag mechanism. Without --cfg feature=foo flag,
+// alloc_absent stays and alloc_present is dropped. This test verifies
+// the default-no-features path.
+
+#[cfg(feature = "alloc")]
+fn alloc_present() -> i32 { return 999; }
+
+#[cfg(not_a_feature_we_set)]
+fn random_absent() -> i32 { return 999; }
+
+unsafe fn main() -> i32 {
+    // Both gated fns are absent — no calls.
+    return 0;
+}

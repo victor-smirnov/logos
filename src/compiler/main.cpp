@@ -2181,6 +2181,10 @@ int run_metaprog_dispatch(
     SemaOptions meta_opts;
     meta_opts.metaprog_mode = true;
     meta_opts.entry_ast_idx = entry_ast_idx;
+    // Phase 2-4: propagate cfg flags into the sema_lower calls inside
+    // this dispatcher. cfg_flags come from MetaprogDispatchOpts (the
+    // caller — main() — populates them from argv).
+    meta_opts.cfg_flags = opts.cfg_flags;
 
     lir::LProgram prog;
     for (int iter = 0; ; ++iter) {
@@ -2425,6 +2429,7 @@ int main(int argc, char** argv) {
     std::string only_file;                       // --only-file <path>: per-file emit (B1.7)
     std::string dump_metaprog_dir;                // --dump-metaprog <dir>: write metafn-emitted ASTs as Logos source under <dir>/<callee>__<file>_<line>/post_quote.logos
     std::string dump_metaprog_filter;             // --dump-metaprog-filter <pat>: comma-separated patterns (`*` / callee substring / `file:line`); empty or `*` = match all
+    std::vector<std::string> cfg_flags;            // --cfg flag=val | --cfg flag — Phase 2-4 cfg/feature flags
     std::vector<std::string> search_paths;
     // Subset of search_paths populated only from explicit -L / --libs.
     // Used to scope `binary_symbols` collection: only user-explicit
@@ -2558,6 +2563,18 @@ int main(int argc, char** argv) {
         else if (arg == "-O1") { opt_level = 1; }
         else if (arg == "-O2") { opt_level = 2; }
         else if (arg == "-O3") { opt_level = 3; }
+        // Phase 2-4: cfg feature flags. `--cfg feature=foo` sets feature
+        // `foo`; multiple flags accumulate. Also accepts bare flag form
+        // `--cfg key_or_bare_name` (currently no-op — cfg-key flags like
+        // `unix` come from compile-target metadata, not user args). The
+        // form `--cfg key=value` (non-feature) is reserved for future
+        // use (e.g. `--cfg target_pointer_width=32` cross-compilation).
+        else if (arg == "--cfg" && i + 1 < argc) {
+            cfg_flags.push_back(argv[++i]);
+        }
+        else if (arg.rfind("--cfg=", 0) == 0) {
+            cfg_flags.push_back(std::string(arg).substr(6));
+        }
         else if (arg[0] != '-' && !input_path) { input_path = argv[i]; }
     }
 
@@ -2731,6 +2748,7 @@ int main(int argc, char** argv) {
         mopts.dump_filter    = dump_metaprog_filter;
         mopts.archive_paths  = archive_paths;
         mopts.provenance_out = &ast_provenance;
+        mopts.cfg_flags      = cfg_flags;  // Phase 2-4
         if (logos::compiler::run_metaprog_dispatch(
                 asts, filenames, from_binary, pre_dispatch_entry_idx, mopts) != 0)
             return 1;
@@ -2891,7 +2909,11 @@ int main(int argc, char** argv) {
     // visited in the loop above). Sites carry synthesised thunk source;
     // we run a small inner loop here to compile + invoke + splice the
     // thunks, then re-run sema until no METACALL remains.
-    prog = logos::compiler::sema_lower(asts, filenames, from_binary);
+    // Phase 2-4: build a default SemaOptions carrying cfg_flags, shared
+    // across the remaining sema_lower call sites in main().
+    logos::compiler::SemaOptions default_opts;
+    default_opts.cfg_flags = cfg_flags;
+    prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts);
     prog.print_diags(stderr);
     if (!prog.ok()) return 1;
 
@@ -2918,13 +2940,13 @@ int main(int argc, char** argv) {
             }
             if (emitted_any_thunk) {
                 // Re-sema so the JIT module below picks up the new thunks.
-                prog = logos::compiler::sema_lower(asts, filenames, from_binary);
+                prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts);
                 prog.print_diags(stderr);
                 if (!prog.ok()) return 1;
             }
 
             // Step 2: full pipeline through JIT for the metacall thunks.
-            auto mc_prog = logos::compiler::sema_lower(asts, filenames, from_binary);
+            auto mc_prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts);
             if (!mc_prog.ok()) { mc_prog.print_diags(stderr); return 1; }
             mc_prog = logos::compiler::reflection_emit(std::move(mc_prog));
             mc_prog = logos::compiler::mono_pass(std::move(mc_prog));
@@ -3258,7 +3280,7 @@ int main(int argc, char** argv) {
             // Step 4: re-run sema. Sites should disappear (METACALL→LIT_INT).
             // Loop continues only if new sites somehow appeared.
             (void)any_spliced;
-            prog = logos::compiler::sema_lower(asts, filenames, from_binary);
+            prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts);
             prog.print_diags(stderr);
             if (!prog.ok()) return 1;
         }

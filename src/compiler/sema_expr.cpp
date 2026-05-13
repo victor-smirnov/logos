@@ -11395,6 +11395,15 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
     }
     std::string callee_name(str_of(node.get(la::CALLEE.code)));
 
+    // Phase 2-1: cfg!() compile-time built-in. Evaluates configuration
+    // predicate to a bool literal at sema time. Supports built-in target
+    // keys + boolean combinators (all/any/not) + user feature flags
+    // (resolved via cfg_features_ populated by --cfg flags).
+    if (callee_name == "cfg") {
+        bool result = evaluate_cfg_predicate(node);
+        return builder().lit_int(result ? 1LL : 0LL, prim(LogosType::Kind::Bool));
+    }
+
     // Resolve against funcs_ (non-generic) only — generic fn_macro is
     // out of scope for slice 1. Look up by base name across overloads.
     auto ovit = func_overloads_.find(callee_name);

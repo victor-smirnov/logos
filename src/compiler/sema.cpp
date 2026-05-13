@@ -1863,6 +1863,222 @@ bool SemaChecker::assoc_eqs_satisfied(
     return true;
 }
 
+// ── Phase 2-1: cfg!() predicate evaluation ────────────────────────────────
+//
+// cfg!() syntax is restricted to a fixed grammar (IDENT / IDENT="str" /
+// all(...) / any(...) / not(...)). A full re-parse via the main Logos
+// parser would be overkill; the mini-parser below tokenises the raw
+// text directly. Builtin keys resolve against compile-target metadata;
+// `feature = "name"` resolves against the `cfg_features_` set populated
+// from --cfg flags / lforge manifest.
+
+namespace {
+
+struct CfgLexer {
+    std::string_view src;
+    size_t pos = 0;
+    void skip_ws() { while (pos < src.size() && std::isspace(static_cast<unsigned char>(src[pos]))) ++pos; }
+    bool eof() { skip_ws(); return pos >= src.size(); }
+    char peek() { skip_ws(); return pos < src.size() ? src[pos] : '\0'; }
+    bool consume(char c) { skip_ws(); if (pos < src.size() && src[pos] == c) { ++pos; return true; } return false; }
+    std::string read_ident() {
+        skip_ws();
+        size_t start = pos;
+        while (pos < src.size()) {
+            char c = src[pos];
+            if (std::isalnum(static_cast<unsigned char>(c)) || c == '_') ++pos;
+            else break;
+        }
+        return std::string(src.substr(start, pos - start));
+    }
+    std::string read_string_lit() {
+        skip_ws();
+        if (pos >= src.size() || src[pos] != '"') return {};
+        ++pos;
+        size_t start = pos;
+        while (pos < src.size() && src[pos] != '"') ++pos;
+        std::string s(src.substr(start, pos - start));
+        if (pos < src.size()) ++pos;  // closing quote
+        return s;
+    }
+};
+
+}  // namespace
+
+// Compile-target metadata. For the current Logos runtime these match the
+// platform the compiler is built for. Eventually a `--target` flag would
+// override; for now we expose host-platform values.
+static const char* k_target_arch =
+#if defined(__x86_64__)
+    "x86_64"
+#elif defined(__aarch64__)
+    "aarch64"
+#elif defined(__i386__)
+    "x86"
+#else
+    "unknown"
+#endif
+    ;
+static const char* k_target_os =
+#if defined(__linux__)
+    "linux"
+#elif defined(__APPLE__)
+    "macos"
+#elif defined(_WIN32)
+    "windows"
+#else
+    "unknown"
+#endif
+    ;
+static const char* k_target_endian =
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    "big"
+#else
+    "little"
+#endif
+    ;
+static const char* k_target_family =
+#if defined(__unix__) || defined(__APPLE__)
+    "unix"
+#elif defined(_WIN32)
+    "windows"
+#else
+    ""
+#endif
+    ;
+static const char* k_target_pointer_width = sizeof(void*) == 8 ? "64" : "32";
+
+static bool match_cfg_key_value(std::string_view key, std::string_view val,
+                                const logos::compiler::StrSet& features) {
+    if (key == "target_arch")          return val == k_target_arch;
+    if (key == "target_os")            return val == k_target_os;
+    if (key == "target_endian")        return val == k_target_endian;
+    if (key == "target_family")        return val == k_target_family;
+    if (key == "target_pointer_width") return val == k_target_pointer_width;
+    if (key == "feature")              return features.count(std::string(val)) != 0;
+    // Unknown key — match Rust: silently false.
+    return false;
+}
+
+static bool match_cfg_flag(std::string_view name,
+                           const logos::compiler::StrSet& features) {
+    // Bare identifiers: `unix`, `windows`, `test`, `debug_assertions`, etc.
+    if (name == "unix")               return std::string_view(k_target_family) == "unix";
+    if (name == "windows")            return std::string_view(k_target_family) == "windows";
+    if (name == "test")               return features.count("test") != 0;
+    if (name == "debug_assertions")   return features.count("debug_assertions") != 0;
+    // Otherwise treat as a feature-like flag, checked against features set.
+    return features.count(std::string(name)) != 0;
+}
+
+static bool parse_and_eval_cfg(CfgLexer& lex,
+                               const logos::compiler::StrSet& features);
+
+static bool parse_cfg_combinator_args(CfgLexer& lex,
+                                      const logos::compiler::StrSet& features,
+                                      std::vector<bool>& out) {
+    // Already past '('. Read predicates separated by commas until ')'.
+    while (true) {
+        if (lex.eof()) return false;
+        if (lex.peek() == ')') { lex.consume(')'); return true; }
+        bool v = parse_and_eval_cfg(lex, features);
+        out.push_back(v);
+        lex.skip_ws();
+        if (lex.consume(',')) continue;
+        if (lex.consume(')')) return true;
+        return false;
+    }
+}
+
+static bool parse_and_eval_cfg(CfgLexer& lex,
+                               const logos::compiler::StrSet& features) {
+    std::string ident = lex.read_ident();
+    if (ident.empty()) return false;
+    if (lex.consume('(')) {
+        // Combinator: all(...) / any(...) / not(...).
+        std::vector<bool> children;
+        if (!parse_cfg_combinator_args(lex, features, children)) return false;
+        if (ident == "all") {
+            for (bool b : children) if (!b) return false;
+            return true;
+        }
+        if (ident == "any") {
+            for (bool b : children) if (b) return true;
+            return false;
+        }
+        if (ident == "not") {
+            if (children.size() != 1) return false;
+            return !children[0];
+        }
+        // Unknown combinator → false (treat as no-match).
+        return false;
+    }
+    if (lex.consume('=')) {
+        std::string val = lex.read_string_lit();
+        return match_cfg_key_value(ident, val, features);
+    }
+    // Bare ident.
+    return match_cfg_flag(ident, features);
+}
+
+bool SemaChecker::evaluate_cfg_node(hermes::TinyMapView /*pred_node*/) {
+    // Currently unused — cfg!() ARGS go through evaluate_cfg_predicate
+    // which parses RAW_TEXT directly. Keeping the prototype for the
+    // forthcoming #[cfg(...)] attribute path which has parsed-AST args.
+    return false;
+}
+
+bool SemaChecker::evaluate_cfg_predicate(hermes::TinyMapView node) {
+    if (!node.has_key(la::RAW_TEXT)) return false;
+    std::string raw(str_of(node.get(la::RAW_TEXT.code)));
+    CfgLexer lex{raw};
+    return parse_and_eval_cfg(lex, cfg_features_);
+}
+
+bool SemaChecker::match_cfg_predicate_kv(std::string_view key, std::string_view val) {
+    return match_cfg_key_value(key, val, cfg_features_);
+}
+bool SemaChecker::match_cfg_predicate_flag(std::string_view name) {
+    return match_cfg_flag(name, cfg_features_);
+}
+
+bool SemaChecker::evaluate_cfg_annotation(hermes::TinyMapView ann) {
+    // ARGS is an array of ANNOT_KV / ANNOT_POS / bare-NAME nodes. The
+    // attribute form lacks combinator support (the annotation grammar
+    // doesn't model `all(...)`); multi-arg list is treated as an
+    // implicit conjunction. Single-arg form is the common case
+    // (`#[cfg(target_os = "linux")]` / `#[cfg(unix)]`).
+    if (!ann.has_key(la::ARGS)) return true;  // `#[cfg]` with no args — match
+    auto args_av = ann.get(la::ARGS.code);
+    if (args_av.is_null()) return true;
+    auto args_list = map_of(args_av);
+    if (!args_list.has_key(la::ITEMS)) return true;
+    auto items = arr_of(args_list.get(la::ITEMS.code));
+    for (uint64_t i = 0; i < items.size(); ++i) {
+        auto arg = map_of(items.get(i));
+        int32_t code = code_of(arg);
+        bool match = false;
+        if (code == la::ANNOT_KV && arg.has_key(la::NAME) && arg.has_key(la::VALUE)) {
+            std::string key(str_of(arg.get(la::NAME.code)));
+            auto val_node = map_of(arg.get(la::VALUE.code));
+            std::string val;
+            if (code_of(val_node) == la::LIT_STR && val_node.has_key(la::VALUE)) {
+                val = std::string(str_of(val_node.get(la::VALUE.code)));
+                // Strip enclosing quotes if present (LIT_STR retains them).
+                if (val.size() >= 2 && val.front() == '"' && val.back() == '"')
+                    val = val.substr(1, val.size() - 2);
+            }
+            match = match_cfg_key_value(key, val, cfg_features_);
+        } else if (arg.has_key(la::NAME)) {
+            // Bare ident form: `#[cfg(unix)]` etc.
+            std::string name(str_of(arg.get(la::NAME.code)));
+            match = match_cfg_flag(name, cfg_features_);
+        }
+        if (!match) return false;
+    }
+    return true;
+}
+
 bool SemaChecker::is_effective_dst(TypeRef t) {
     if (!t) return false;
     auto k = t.kind();
@@ -4933,6 +5149,19 @@ lir::LProgram sema_lower(const std::vector<logos::hermes::Hermes>& asts,
     SemaChecker checker;
     checker.set_metaprog_options(opts.metaprog_mode, opts.entry_ast_idx);
     checker.set_metaprog_keep_fns(opts.metaprog_keep_fns);
+    // Phase 2-4: ingest cfg flags. `feature=name` adds `name` to the
+    // feature set; bare `flag` is reserved (future use). Equal sign is
+    // the discriminator.
+    for (auto& f : opts.cfg_flags) {
+        auto eq = f.find('=');
+        if (eq != std::string::npos) {
+            auto key = f.substr(0, eq);
+            auto val = f.substr(eq + 1);
+            if (key == "feature") checker.add_cfg_feature(val);
+        }
+        // bare flags (no `=`) are placeholder for future target-key
+        // overrides like `--cfg target_pointer_width=32`. No-op for now.
+    }
     return checker.run(asts, filenames, from_binary);
 }
 

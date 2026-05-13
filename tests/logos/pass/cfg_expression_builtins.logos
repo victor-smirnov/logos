@@ -1,0 +1,18 @@
+package x;
+unsafe fn main() -> i32 {
+    let a: bool = cfg!(target_pointer_width = "64");
+    let b: bool = cfg!(target_pointer_width = "32");
+    let c: bool = cfg!(all(target_os = "linux", target_arch = "x86_64"));
+    let d: bool = cfg!(any(target_os = "macos", target_os = "linux"));
+    let e: bool = cfg!(not(target_os = "windows"));
+    let f: bool = cfg!(unix);
+    // a=true, b=false, c=true (on x86_64 linux), d=true, e=true, f=true → 5 true
+    let mut count: i32 = 0;
+    if a { count = count + 1; }
+    if b { count = count + 100; }
+    if c { count = count + 1; }
+    if d { count = count + 1; }
+    if e { count = count + 1; }
+    if f { count = count + 1; }
+    return count - 5;
+}

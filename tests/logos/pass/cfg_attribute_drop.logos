@@ -1,0 +1,15 @@
+package x;
+
+#[cfg(target_os = "linux")]
+fn linux_only() -> i32 { return 42; }
+
+#[cfg(target_os = "windows")]
+fn windows_only() -> i32 { return 99; }
+
+#[cfg(unix)]
+fn unix_fn() -> i32 { return 7; }
+
+unsafe fn main() -> i32 {
+    // linux_only and unix_fn should exist; windows_only should be dropped.
+    return linux_only() + unix_fn() - 49;
+}

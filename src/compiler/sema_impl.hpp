@@ -358,6 +358,39 @@ private:
     // mismatches). Cycle-guarded via `seen` set keyed by struct name.
     uint64_t sema_abi_byte_size(TypeRef t,
                                 logos::compiler::StrSet& seen);
+    // Phase 2-1: cfg!() compile-time predicate evaluation. Walks the
+    // ARGS items of a FN_MACRO_CALL with callee="cfg" and returns the
+    // boolean truth value. Recursive on `all(...)`/`any(...)`/`not(...)`
+    // combinators. Built-in keys (target_pointer_width, target_arch,
+    // target_os, target_endian, target_family) resolved against
+    // compile-target metadata. `feature = "name"` resolved against
+    // `cfg_features_` (populated from --cfg flags / lforge manifest).
+    bool evaluate_cfg_predicate(hermes::TinyMapView fn_macro_call_node);
+    // The single ARG of the cfg!() call is a predicate AST node — could
+    // be a parenthesised IDENT (`target_os`), a key=value (e.g.
+    // `target_os = "linux"`), or a combinator call (`all(...)`).
+    // This helper interprets one predicate node.
+    bool evaluate_cfg_node(hermes::TinyMapView pred_node);
+    // Phase 2-2: evaluate `#[cfg(...)]` attached to an item. Annotation
+    // args parsed by the annotation grammar (ANNOT_KV / bare IDENT only
+    // for MVP — combinators like `all(...)` not supported in attribute
+    // form yet). Multi-arg list treats as conjunction.
+    bool evaluate_cfg_annotation(hermes::TinyMapView annotation_node);
+    // Phase 2-3: predicate match against the active cfg-key set + features.
+    // Lightweight wrappers around the file-static match_cfg_key_value /
+    // match_cfg_flag so sema_collect's cfg_attr handling can call them
+    // without exposing the file-static functions directly.
+    bool match_cfg_predicate_kv(std::string_view key, std::string_view val);
+    bool match_cfg_predicate_flag(std::string_view name);
+
+    // Phase 2-1: feature flag set populated from `--cfg feature=foo`
+    // CLI args. Initialised in SemaChecker ctor / main flag parsing.
+    logos::compiler::StrSet cfg_features_;
+    // Public mutator for cfg features (called by sema_lower entry).
+public:
+    void add_cfg_feature(const std::string& name) { cfg_features_.insert(name); }
+private:
+
     // Phase 1B-15: returns true when the struct type `t` is custom-DST
     // either directly (template flagged is_dst at decl time) or after
     // generic instantiation (template's `?Sized` last-field TypeVar
@@ -771,6 +804,13 @@ private:
         if (name == "no_mangle")       return bit(AttrTarget::Fn);
         if (name == "fn_macro")        return bit(AttrTarget::Fn);
         if (name == "token_macro")     return bit(AttrTarget::Fn);
+        // Phase 2: conditional compilation. cfg applies to all item kinds
+        // (drops the item when predicate is false). cfg_attr applies a
+        // wrapped attribute when predicate is true.
+        if (name == "cfg" || name == "cfg_attr")
+            return bit(AttrTarget::Struct) | bit(AttrTarget::Datatype) |
+                   bit(AttrTarget::Enum)   | bit(AttrTarget::Trait) |
+                   bit(AttrTarget::Fn)     | bit(AttrTarget::Const);
         return 0u;  // not a builtin
     }
 

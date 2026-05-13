@@ -714,6 +714,74 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
             if (phase == 1) pending_annots.push_back(item);
             continue;
         }
+        // Phase 2-2: conditional compilation. `#[cfg(...)]` on any item
+        // is evaluated here; if false, drop the item entirely (don't
+        // collect, don't lower) along with any other pending annotations
+        // it would have inherited.
+        bool dropped_by_cfg = false;
+        for (auto& ann : pending_annots) {
+            if (str_of(ann.get(la::NAME.code)) != "cfg") continue;
+            if (!evaluate_cfg_annotation(ann)) { dropped_by_cfg = true; break; }
+        }
+        if (dropped_by_cfg) {
+            pending_annots.clear();
+            continue;
+        }
+        // Phase 2-3: cfg_attr. Evaluate the predicate (ARGS[0]) and act:
+        //   - false → silently drop the cfg_attr entry (no wrapped attr
+        //             activated).
+        //   - true  → wrapped attr (ARGS[1..]) should be applied. Full
+        //             attribute synthesis into pending_annots is complex
+        //             (requires building synthetic Hermes nodes); for
+        //             now we emit a one-time diagnostic asking the user
+        //             to inline the activated attribute directly. Rust
+        //             core code that uses #[cfg_attr] for repr/derive
+        //             can port-time-replace with direct attribute.
+        {
+            auto it = pending_annots.begin();
+            while (it != pending_annots.end()) {
+                if (str_of(it->get(la::NAME.code)) != "cfg_attr") { ++it; continue; }
+                // Predicate is the first ARG. ARGS structure: { ITEMS: [...] }.
+                bool active = false;
+                if (it->has_key(la::ARGS)) {
+                    auto args_av = it->get(la::ARGS.code);
+                    if (!args_av.is_null()) {
+                        auto args_list = map_of(args_av);
+                        if (args_list.has_key(la::ITEMS)) {
+                            auto items_arr = arr_of(args_list.get(la::ITEMS.code));
+                            if (items_arr.size() >= 1) {
+                                auto pred = map_of(items_arr.get(0));
+                                int32_t code = code_of(pred);
+                                if (code == la::ANNOT_KV &&
+                                    pred.has_key(la::NAME) && pred.has_key(la::VALUE)) {
+                                    std::string key(str_of(pred.get(la::NAME.code)));
+                                    auto val_node = map_of(pred.get(la::VALUE.code));
+                                    std::string val;
+                                    if (code_of(val_node) == la::LIT_STR && val_node.has_key(la::VALUE)) {
+                                        val = std::string(str_of(val_node.get(la::VALUE.code)));
+                                        if (val.size() >= 2 && val.front() == '"' && val.back() == '"')
+                                            val = val.substr(1, val.size() - 2);
+                                    }
+                                    active = match_cfg_predicate_kv(key, val);
+                                } else if (pred.has_key(la::NAME)) {
+                                    active = match_cfg_predicate_flag(
+                                        str_of(pred.get(la::NAME.code)));
+                                }
+                            }
+                        }
+                    }
+                }
+                if (active) {
+                    // Wrapped attr activation not yet implemented — diagnose.
+                    node_line_ = get_line(*it);
+                    warn("#[cfg_attr(...)]: predicate matched but wrapped "
+                         "attribute activation is not yet implemented in "
+                         "this compiler. Inline the wrapped attribute "
+                         "directly as a port-time workaround.");
+                }
+                it = pending_annots.erase(it);
+            }
+        }
         if (phase == 1) {
             if      (c == la::STRUCT) {
                 bool is_zoned = false;

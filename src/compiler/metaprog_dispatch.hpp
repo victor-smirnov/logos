@@ -35,6 +35,9 @@ struct MetaprogDispatchOpts {
     // appends provenance entries for each metaprog-emitted AST. Caller
     // owns the vector and reads it after dispatch returns.
     std::vector<std::optional<EmitProvenance>>* provenance_out = nullptr;
+    // Phase 2-4: cfg flags propagated to every sema_lower call inside the
+    // dispatch loop. Each entry is `feature=name` or a bare flag.
+    std::vector<std::string> cfg_flags;
 };
 
 // Run the metaprog discovery loop:

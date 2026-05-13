@@ -1156,6 +1156,11 @@ struct SemaOptions {
     // skip decision — their bodies ARE lowered. Driver populates this on the
     // second pass with callees of item-position metacall sites.
     std::vector<std::string> metaprog_keep_fns;
+    // Phase 2-4: configuration flags from `--cfg` CLI args. Each entry is
+    // either `feature=name` (adds name to the feature set) or a bare
+    // `flag` (placeholder for future use). Populated by main.cpp from
+    // argv and propagated into SemaChecker.cfg_features_ during sema_lower.
+    std::vector<std::string> cfg_flags;
 };
 
 // Run semantic analysis and produce L-IR from all parsed module ASTs.
