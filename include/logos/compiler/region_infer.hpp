@@ -125,6 +125,14 @@ public:
     }
     uint32_t region_count() const noexcept { return next_region_id_ - 1; }
 
+    // B71.1: per-statement liveness. live_in(P) = vars whose value
+    // must be available on entry to P; live_out(P) = ditto on exit.
+    using LiveSet = std::unordered_set<std::string>;
+    const std::unordered_map<StmtPoint, LiveSet, StmtPointHash>&
+        live_in() const noexcept { return live_in_; }
+    const std::unordered_map<StmtPoint, LiveSet, StmtPointHash>&
+        live_out() const noexcept { return live_out_; }
+
 private:
     RegionId fresh_region() noexcept {
         return RegionId{next_region_id_++};
@@ -134,10 +142,25 @@ private:
     void walk_stmt(const lir::LStmt& s, uint32_t blk_id, uint32_t idx,
                    const lir::LProgram& prog);
 
+    // B71.1: per-statement use/def + live-in/live-out, computed by
+    // a backward dataflow pass over the CFG.
+    void compute_liveness();
+    void use_def_for_stmt(const lir::LStmt& s,
+                          uint32_t blk_id, uint32_t idx,
+                          const lir::LProgram& prog,
+                          LiveSet& use, LiveSet& def) const;
+
     uint32_t next_region_id_ = 1;  // 0 reserved for NO_REGION
     CFG cfg_;
     std::vector<BorrowSite> borrows_;
     std::vector<RegionConstraint> constraints_;
+    std::unordered_map<StmtPoint, LiveSet, StmtPointHash> live_in_;
+    std::unordered_map<StmtPoint, LiveSet, StmtPointHash> live_out_;
+    std::unordered_map<StmtPoint, LiveSet, StmtPointHash> use_;
+    std::unordered_map<StmtPoint, LiveSet, StmtPointHash> def_;
+    // We keep a pointer to the program for liveness's use/def gather
+    // helper which needs the type-pool arena to materialize views.
+    const lir::LProgram* prog_for_liveness_ = nullptr;
 };
 
 } // namespace logos::compiler

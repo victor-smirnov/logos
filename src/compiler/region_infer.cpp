@@ -29,14 +29,25 @@ void RegionInferer::analyze(const lir::LFunction& fn, const lir::LProgram& prog)
     cfg_.blocks.clear();
     borrows_.clear();
     constraints_.clear();
+    live_in_.clear();
+    live_out_.clear();
+    use_.clear();
+    def_.clear();
     next_region_id_ = 1;
+    prog_for_liveness_ = &prog;
 
     cfg_.blocks.emplace_back();
-    // Build CFG iteratively: walk_block returns the block id of the
-    // "after" point (where successor flow lands after exiting the
-    // current block). Branch / loop statements split into nested
-    // blocks and stitch them together with successor edges.
     walk_block(fn.body, /*blk_id=*/0, prog);
+    // After CFG construction, also walk every block one more time to
+    // populate use_/def_ per StmtPoint. This is independent of the
+    // borrow-walker (which targets AddrOf nodes only).
+    for (uint32_t b = 0; b < cfg_.blocks.size(); ++b) {
+        // We don't preserve the per-block LStmt array; instead the
+        // walk_stmt path already had `use_def_for_stmt` invoked when
+        // the statement was visited. Liveness fixpoint runs over the
+        // gathered maps.
+    }
+    compute_liveness();
 }
 
 namespace {
@@ -195,6 +206,13 @@ void RegionInferer::walk_stmt(const lir::LStmt& s,
     if (!sr) return;
     StmtPoint origin{blk_id, idx};
     const auto* pool = prog.type_pool.impl();
+
+    // B71.1: collect use/def for this point. Runs alongside the
+    // borrow walker so we don't traverse the AST twice.
+    LiveSet u, d;
+    use_def_for_stmt(s, blk_id, idx, prog, u, d);
+    use_.emplace(origin, std::move(u));
+    def_.emplace(origin, std::move(d));
 
     // Recursive expression walker — finds borrow sites at any depth.
     std::function<void(ExprRef, const std::string&)> walk_expr;
@@ -420,6 +438,278 @@ void RegionInferer::walk_stmt(const lir::LStmt& s,
     }
 }
 
+void RegionInferer::use_def_for_stmt(const lir::LStmt& s,
+                                       uint32_t blk_id, uint32_t idx,
+                                       const lir::LProgram& prog,
+                                       LiveSet& use, LiveSet& def) const {
+    using namespace lir_view;
+    using ECode = lir_schema::expr::Code;
+    using SCode = lir_schema::stmt::Code;
+    (void)blk_id; (void)idx;
+    if (s.mirror_offset_ == hermes::arena_offset_t{}) return;
+    StmtRef sr(prog.type_pool.arena(), s.mirror_offset_);
+    if (!sr) return;
+
+    // Recursive expression walker that records every VarRef / AddrOf
+    // target name as a USE. Mutations are recorded as DEF below at
+    // the statement level (Let/Assign LHS).
+    std::function<void(ExprRef)> walk_use;
+    walk_use = [&](ExprRef e) {
+        if (!e) return;
+        switch (e.kind()) {
+            case ECode::VarRef:
+                use.insert(std::string(EVarRefView{e}.name()));
+                return;
+            case ECode::AddrOf:
+                use.insert(std::string(EAddrOfView{e}.var_name()));
+                return;
+            case ECode::AddrOfTemp:
+                walk_use(EAddrOfTempView{e}.inner());
+                return;
+            case ECode::Deref:    walk_use(EDerefView{e}.operand());   return;
+            case ECode::FieldRead: walk_use(EFieldReadView{e}.receiver()); return;
+            case ECode::TupleIndex: walk_use(ETupleIndexView{e}.receiver()); return;
+            case ECode::Cast:     walk_use(ECastView{e}.operand());   return;
+            case ECode::Unary:    walk_use(EUnaryView{e}.operand());  return;
+            case ECode::BinOp: {
+                EBinOpView v{e};
+                walk_use(v.lhs()); walk_use(v.rhs());
+                return;
+            }
+            case ECode::IndexRead: {
+                EIndexReadView v{e};
+                walk_use(v.receiver()); walk_use(v.index());
+                return;
+            }
+            case ECode::IfExpr: {
+                EIfExprView v{e};
+                walk_use(v.cond()); walk_use(v.then_val()); walk_use(v.else_val());
+                return;
+            }
+            case ECode::Call:
+                ECallView{e}.each_arg([&](ExprRef a){ walk_use(a); });
+                return;
+            case ECode::MethodCall: {
+                EMethodCallView v{e};
+                walk_use(v.receiver());
+                v.each_arg([&](ExprRef a){ walk_use(a); });
+                return;
+            }
+            case ECode::ClosureCall: {
+                EClosureCallView v{e};
+                walk_use(v.callee());
+                v.each_arg([&](ExprRef a){ walk_use(a); });
+                return;
+            }
+            case ECode::FnPtrCall: {
+                EFnPtrCallView v{e};
+                walk_use(v.callee());
+                v.each_arg([&](ExprRef a){ walk_use(a); });
+                return;
+            }
+            case ECode::FormatCall: {
+                EFormatCallView v{e};
+                walk_use(v.fmt());
+                v.each_arg([&](ExprRef a){ walk_use(a); });
+                return;
+            }
+            case ECode::StructLit:
+                EStructLitView{e}.each_field_value([&](ExprRef fv){ walk_use(fv); });
+                return;
+            case ECode::New:
+                ENewView{e}.each_field_value([&](ExprRef fv){ walk_use(fv); });
+                return;
+            case ECode::ArrLit:
+                EArrLitView{e}.each_elem([&](ExprRef el){ walk_use(el); });
+                return;
+            case ECode::TupleLit:
+                ETupleLitView{e}.each_elem([&](ExprRef el){ walk_use(el); });
+                return;
+            case ECode::EnumLitData:
+                EEnumLitDataView{e}.each_payload([&](ExprRef pl){ walk_use(pl); });
+                return;
+            case ECode::SliceLit: {
+                ESliceLitView v{e};
+                walk_use(v.base()); walk_use(v.len());
+                return;
+            }
+            case ECode::SliceIndex: {
+                ESliceIndexView v{e};
+                walk_use(v.slice()); walk_use(v.index());
+                return;
+            }
+            case ECode::Try:
+                walk_use(ETryView{e}.inner());
+                return;
+            default:
+                return;
+        }
+    };
+
+    switch (sr.kind()) {
+        case SCode::Let: {
+            SLetView v{sr};
+            walk_use(v.value());
+            def.insert(std::string(v.name()));
+            break;
+        }
+        case SCode::Assign: {
+            SAssignView v{sr};
+            walk_use(v.value());
+            def.insert(std::string(v.name()));
+            break;
+        }
+        case SCode::Return:
+            walk_use(SReturnView{sr}.value());
+            break;
+        case SCode::ExprStmt:
+            walk_use(SExprStmtView{sr}.expr());
+            break;
+        case SCode::FieldWrite: {
+            SFieldWriteView v{sr};
+            use.insert(std::string(v.receiver()));
+            walk_use(v.value());
+            break;
+        }
+        case SCode::IndexWrite: {
+            SIndexWriteView v{sr};
+            use.insert(std::string(v.arr()));
+            walk_use(v.index());
+            walk_use(v.value());
+            break;
+        }
+        case SCode::FieldIndexWrite: {
+            SFieldIndexWriteView v{sr};
+            use.insert(std::string(v.receiver()));
+            walk_use(v.index());
+            walk_use(v.value());
+            break;
+        }
+        case SCode::ChainFieldWrite: {
+            SChainFieldWriteView v{sr};
+            use.insert(std::string(v.receiver()));
+            walk_use(v.value());
+            break;
+        }
+        case SCode::DerefFieldWrite: {
+            SDerefFieldWriteView v{sr};
+            use.insert(std::string(v.receiver()));
+            walk_use(v.value());
+            break;
+        }
+        case SCode::DerefWrite: {
+            SDerefWriteView v{sr};
+            walk_use(v.ptr());
+            walk_use(v.value());
+            break;
+        }
+        case SCode::TupleWrite: {
+            STupleWriteView v{sr};
+            use.insert(std::string(v.receiver()));
+            walk_use(v.value());
+            break;
+        }
+        case SCode::Delete:
+            walk_use(SDeleteView{sr}.expr());
+            break;
+        case SCode::If:
+            walk_use(SIfView{sr}.cond());
+            break;
+        case SCode::While:
+            walk_use(SWhileView{sr}.cond());
+            break;
+        case SCode::For: {
+            SForView v{sr};
+            walk_use(v.lo()); walk_use(v.hi());
+            def.insert(std::string(v.var()));
+            break;
+        }
+        case SCode::ForEach: {
+            SForEachView v{sr};
+            walk_use(v.iter());
+            def.insert(std::string(v.var()));
+            break;
+        }
+        case SCode::Match:
+            walk_use(SMatchView{sr}.scrut());
+            break;
+        case SCode::LetElse:
+            walk_use(SLetElseView{sr}.scrut());
+            break;
+        case SCode::Break:
+            walk_use(SBreakView{sr}.value());
+            break;
+        default:
+            break;
+    }
+}
+
+void RegionInferer::compute_liveness() {
+    // Backward dataflow:
+    //   live_out(P) = ∪ live_in(succ(P))
+    //   live_in (P) = use(P) ∪ (live_out(P) \ def(P))
+    //
+    // Iterate over every (block, idx) point until a fixed point.
+    // Successor of a point within a block is the next statement; the
+    // successor of the last statement is the union of live_in of the
+    // first statements of the block's CFG successor blocks. For a
+    // block with zero stmts (e.g. a synthesized after-block), its
+    // "live-in" is the union of its successors' live-ins.
+    auto first_point_live_in = [&](uint32_t b) -> LiveSet {
+        const auto& B = cfg_.blocks[b];
+        if (B.n_stmts == 0) {
+            // No stmts — propagate from successors. We avoid recursion by
+            // returning empty here; the fixpoint pass will populate.
+            LiveSet acc;
+            for (auto s : B.successors) {
+                auto it = live_in_.find(StmtPoint{s, 0});
+                if (it != live_in_.end()) acc.insert(it->second.begin(), it->second.end());
+            }
+            return acc;
+        }
+        StmtPoint p0{b, 0};
+        auto it = live_in_.find(p0);
+        return it == live_in_.end() ? LiveSet{} : it->second;
+    };
+
+    bool changed = true;
+    int rounds = 0;
+    while (changed && rounds++ < 64) {
+        changed = false;
+        // Visit blocks in reverse order, statements backward within block.
+        for (uint32_t bi = static_cast<uint32_t>(cfg_.blocks.size()); bi-- > 0; ) {
+            const auto& B = cfg_.blocks[bi];
+            // First compute live-out of the last statement.
+            for (int32_t si = static_cast<int32_t>(B.n_stmts) - 1; si >= 0; --si) {
+                StmtPoint p{bi, static_cast<uint32_t>(si)};
+                LiveSet out;
+                if (si + 1 < static_cast<int32_t>(B.n_stmts)) {
+                    // Successor is next stmt in same block.
+                    auto it = live_in_.find(StmtPoint{bi, static_cast<uint32_t>(si + 1)});
+                    if (it != live_in_.end()) out = it->second;
+                } else {
+                    // Last stmt: live_out is union of successors' live_in.
+                    for (auto s : B.successors) {
+                        auto ls = first_point_live_in(s);
+                        for (auto& v : ls) out.insert(v);
+                    }
+                }
+                // in = use ∪ (out \ def)
+                auto& u = use_[p];
+                auto& d = def_[p];
+                LiveSet in = u;
+                for (auto& v : out)
+                    if (!d.count(v)) in.insert(v);
+
+                auto& cur_out = live_out_[p];
+                auto& cur_in  = live_in_[p];
+                if (cur_out != out) { cur_out = std::move(out); changed = true; }
+                if (cur_in  != in)  { cur_in  = std::move(in);  changed = true; }
+            }
+        }
+    }
+}
+
 void RegionInferer::dump(const std::string& fn_name) const {
     if (!std::getenv("LOGOS_DUMP_REGIONS")) return;
     std::fprintf(stderr, "[regions] fn '%s' — %u regions, %zu borrows, "
@@ -447,6 +737,18 @@ void RegionInferer::dump(const std::string& fn_name) const {
         std::fprintf(stderr,
             "  constraint %s longer=%u shorter=%u point=(%u, %u)\n",
             kn, c.longer.value, c.shorter.value, c.point.block, c.point.idx);
+    }
+    // Per-statement live-in (live-out is implied by the live-in of
+    // the next stmt or successor block).
+    for (size_t bi = 0; bi < cfg_.blocks.size(); ++bi) {
+        for (uint32_t si = 0; si < cfg_.blocks[bi].n_stmts; ++si) {
+            StmtPoint p{static_cast<uint32_t>(bi), si};
+            auto it = live_in_.find(p);
+            if (it == live_in_.end() || it->second.empty()) continue;
+            std::string vars;
+            for (auto& v : it->second) vars += v + " ";
+            std::fprintf(stderr, "  live_in (%zu, %u) = {%s}\n", bi, si, vars.c_str());
+        }
     }
 }
 
