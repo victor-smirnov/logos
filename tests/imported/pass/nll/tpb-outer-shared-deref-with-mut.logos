@@ -1,0 +1,12 @@
+// B82: shared borrow `s` of x is dereferenced as arg value; the dereffed
+// value is what's passed (Copy primitive copy). After the deref, `s` is
+// dead (NLL), so the `&mut x` reservation can activate safely.
+package tpb_outer_shared_deref_with_mut;
+
+fn f(m: &mut i32, v: i32) -> i32 { *m = v; return *m; }
+
+fn main() -> i32 {
+    let mut x: i32 = 3i32;
+    let s: &i32 = &x;
+    return f(&mut x, *s) - 3i32;
+}

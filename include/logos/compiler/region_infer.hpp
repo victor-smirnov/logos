@@ -70,6 +70,10 @@ struct BorrowSite {
     std::string holder;    // let/assign LHS that binds the borrow; empty = transient (e.g. call-arg)
     std::string target;    // the variable being borrowed FROM
     bool        is_mut = false;
+    // B82: this borrow was taken as a `&mut` argument in a fn-call
+    // (two-phase reservation). Conflict-finder treats it as compatible
+    // with concurrent shared reads of the same target.
+    bool        is_tpb_reservation = false;
     uint32_t    origin_line = 0;  // B73: source line for diagnostics
 };
 

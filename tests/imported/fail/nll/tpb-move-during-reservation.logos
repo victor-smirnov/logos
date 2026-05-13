@@ -1,0 +1,9 @@
+// B82: cannot move target while a mut reservation is in flight.
+package tpb_move_during_reservation;
+struct S { v: i64 }
+impl Drop for S { fn drop(self: &mut S) { } }
+fn take(_r: &mut S, _s: S) -> i64 { return 0i64; }
+fn main() -> i32 {
+    let mut s: S = S { v: 1i64 };
+    return take(&mut s, s) as i32;
+}

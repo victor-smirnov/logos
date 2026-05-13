@@ -1,0 +1,9 @@
+// B82: three args; one &mut, two shared reads of same target.
+package tpb_three_args;
+
+fn use3(m: &mut i32, a: i32, b: i32) -> i32 { *m = a + b; return *m; }
+
+fn main() -> i32 {
+    let mut x: i32 = 5i32;
+    return use3(&mut x, x, x) - 10i32;
+}

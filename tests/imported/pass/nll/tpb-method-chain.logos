@@ -1,0 +1,11 @@
+// B82: method call on Copy struct with self.field arg.
+package tpb_method_chain;
+
+struct C { n: i32 }
+impl C { fn add(self: &mut C, v: i32) { (*self).n = (*self).n + v; } }
+
+fn main() -> i32 {
+    let mut c: C = C { n: 3i32 };
+    c.add(c.n);  // &mut c reserved while reading c.n
+    return c.n - 6i32;
+}

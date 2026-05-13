@@ -267,6 +267,9 @@ void RegionInferer::walk_stmt(const lir::LStmt& s,
     def_.emplace(origin, std::move(d));
 
     // Recursive expression walker — finds borrow sites at any depth.
+    // B82: depth of nested fn-call arg evaluation. Borrows taken with
+    // depth > 0 are flagged as two-phase reservations.
+    int in_call_args_depth = 0;
     std::function<void(ExprRef, const std::string&)> walk_expr;
     walk_expr = [&](ExprRef e, const std::string& holder) {
         if (!e) return;
@@ -279,6 +282,7 @@ void RegionInferer::walk_stmt(const lir::LStmt& s,
                 bs.holder = holder;
                 bs.target = std::string(v.var_name());
                 bs.is_mut = is_mut_ref_type(e.type(pool));
+                bs.is_tpb_reservation = bs.is_mut && in_call_args_depth > 0;
                 bs.origin_line = s.line;
                 borrows_.push_back(std::move(bs));
                 RegionConstraint c;
@@ -302,6 +306,7 @@ void RegionInferer::walk_stmt(const lir::LStmt& s,
                 // temp-borrows into a single phantom variable.
                 bs.target = "<temp#" + std::to_string(bs.region.value) + ">";
                 bs.is_mut = v.is_mut();
+                bs.is_tpb_reservation = bs.is_mut && in_call_args_depth > 0;
                 bs.origin_line = s.line;
                 borrows_.push_back(std::move(bs));
                 RegionConstraint c;
@@ -348,30 +353,40 @@ void RegionInferer::walk_stmt(const lir::LStmt& s,
                 return;
             }
             case ECode::Call:
+                in_call_args_depth++;
                 ECallView{e}.each_arg([&](ExprRef a){ walk_expr(a, ""); });
+                in_call_args_depth--;
                 return;
             case ECode::MethodCall: {
                 EMethodCallView v{e};
                 walk_expr(v.receiver(), "");
+                in_call_args_depth++;
                 v.each_arg([&](ExprRef a){ walk_expr(a, ""); });
+                in_call_args_depth--;
                 return;
             }
             case ECode::ClosureCall: {
                 EClosureCallView v{e};
                 walk_expr(v.callee(), "");
+                in_call_args_depth++;
                 v.each_arg([&](ExprRef a){ walk_expr(a, ""); });
+                in_call_args_depth--;
                 return;
             }
             case ECode::FnPtrCall: {
                 EFnPtrCallView v{e};
                 walk_expr(v.callee(), "");
+                in_call_args_depth++;
                 v.each_arg([&](ExprRef a){ walk_expr(a, ""); });
+                in_call_args_depth--;
                 return;
             }
             case ECode::FormatCall: {
                 EFormatCallView v{e};
                 walk_expr(v.fmt(), "");
+                in_call_args_depth++;
                 v.each_arg([&](ExprRef a){ walk_expr(a, ""); });
+                in_call_args_depth--;
                 return;
             }
             case ECode::StructLit:
@@ -780,6 +795,12 @@ RegionInferer::find_conflicts() const {
             if (a.target != b.target) continue;
             // At least one must be mut for a conflict.
             if (!a.is_mut && !b.is_mut) continue;
+            // B82: a mut-reservation taken as a call argument is compatible
+            // with concurrent shared reads of the same target (TPB).
+            // A reservation still conflicts with another mut or reservation.
+            if ((a.is_tpb_reservation && !b.is_mut) ||
+                (b.is_tpb_reservation && !a.is_mut))
+                continue;
             auto ait = region_points_.find(a.region.value);
             auto bit = region_points_.find(b.region.value);
             if (ait == region_points_.end() || bit == region_points_.end()) continue;

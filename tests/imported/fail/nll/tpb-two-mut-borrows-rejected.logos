@@ -1,0 +1,7 @@
+// B82: two reservations to same target still rejected.
+package tpb_two_mut_borrows_rejected;
+fn f(_a: &mut i32, _b: &mut i32) -> i32 { return 0i32; }
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    return f(&mut x, &mut x);
+}

@@ -1,0 +1,9 @@
+// B82: `f(&mut x, x)` — &mut x reserved while reading Copy x value.
+package tpb_mut_with_copy_read;
+
+fn write_then_read(m: &mut i32, v: i32) -> i32 { *m = v; return *m; }
+
+fn main() -> i32 {
+    let mut x: i32 = 5i32;
+    return write_then_read(&mut x, x) - 5i32;
+}

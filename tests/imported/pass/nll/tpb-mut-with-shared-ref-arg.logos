@@ -1,0 +1,9 @@
+// B82: `f(&mut x, &x)` — &mut reservation + shared ref to same target.
+package tpb_mut_with_shared_ref_arg;
+
+fn write_then_read(m: &mut i32, r: &i32) -> i32 { *m = *r; return *m; }
+
+fn main() -> i32 {
+    let mut x: i32 = 7i32;
+    return write_then_read(&mut x, &x) - 7i32;
+}

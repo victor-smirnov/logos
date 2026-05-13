@@ -1,0 +1,11 @@
+// B82: classic TPB — `&mut self` for push reserved during arg eval
+// of `self.length()` (shared borrow of same target).
+package tpb_vec_push_len;
+use std.collections.vec;
+
+fn main() -> i32 {
+    let mut v: Vec<i32> = vec_new::<i32>();
+    v.push(0i32);
+    v.push(v.length() as i32);
+    return (v.length() - 2i64) as i32;
+}

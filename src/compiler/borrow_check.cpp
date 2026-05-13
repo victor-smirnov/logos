@@ -112,7 +112,12 @@ struct VarState {
     uint32_t moved_line     = 0;
     // Phase 2 — borrow tracking
     int      shared_borrows = 0;     // # active &T borrows on this var
-    bool     mut_borrowed   = false; // has an active &mut borrow
+    bool     mut_borrowed   = false; // has an active (activated) &mut borrow
+    // B82: two-phase borrows — a `&mut x` taken as a fn-call argument is
+    // *reserved* during the rest of the arg evaluation, then *activated*
+    // at call entry. Reservations behave like the absence of an exclusive
+    // borrow w.r.t. concurrent shared reads, but block other mut borrows.
+    int      mut_reservations = 0;
     // Phase 3 — binding mutability (`let mut x` vs `let x`).
     // Required for rejecting `&mut x` and `x = ...` against immutable bindings.
     bool     is_mut_binding = false;
@@ -194,6 +199,10 @@ class BorrowChecker {
     // Phase 4: provenance tracking for reference-typed variables.
     ProvMap                              prov_;
     std::unordered_set<std::string>      param_names_;
+    // B82: depth of nested call-arg evaluation. While >0, new &mut borrows
+    // are taken as reservations (don't conflict with shared reads of the
+    // same target during the remaining arg evaluation).
+    int                                  in_call_args_ = 0;
     // param name → lifetime annotation of that param's type (e.g. "'a", "")
     std::unordered_map<std::string, std::string> param_lifetimes_;
     // Declared lifetime parameters of the current function (e.g. ["'a", "'b"]).
@@ -229,8 +238,14 @@ class BorrowChecker {
         for (auto& br : frame.borrows) {
             auto it = states_.find(br.target);
             if (it != states_.end()) {
-                if (br.is_mut)
-                    it->second.mut_borrowed = false;
+                if (br.is_mut) {
+                    // B82: release either an activated mut borrow or an
+                    // outstanding reservation taken via in_call_args_.
+                    if (it->second.mut_borrowed)
+                        it->second.mut_borrowed = false;
+                    else if (it->second.mut_reservations > 0)
+                        it->second.mut_reservations--;
+                }
                 else if (it->second.shared_borrows > 0)
                     --it->second.shared_borrows;
             }
@@ -275,6 +290,24 @@ class BorrowChecker {
                     "cannot borrow '{}' as mutable: already mutably borrowed", target));
                 return;
             }
+            // B82: another mut reservation in flight is still a conflict —
+            // Rust rejects f(&mut x, &mut x) too.
+            if (it->second.mut_reservations > 0) {
+                report(line, std::format(
+                    "cannot borrow '{}' as mutable: already mutably borrowed", target));
+                return;
+            }
+            // B82: inside fn-call arg evaluation, take the mut borrow as a
+            // *reservation*. Shared reads of the same target in subsequent
+            // args remain legal; the reservation is activated at call entry
+            // (logically — we just leave it as reservation since the scope
+            // pops after the call returns).
+            if (in_call_args_ > 0) {
+                it->second.mut_reservations++;
+                if (!scopes_.empty())
+                    scopes_.back().borrows.push_back({target, is_mut, holder});
+                return;
+            }
             if (it->second.shared_borrows > 0) {
                 report(line, std::format(
                     "cannot borrow '{}' as mutable: {} shared borrow(s) active",
@@ -315,7 +348,8 @@ class BorrowChecker {
                 report(line, std::format("use of moved value '{}'", name));
             return false;
         }
-        if (it->second.mut_borrowed || it->second.shared_borrows > 0) {
+        if (it->second.mut_borrowed || it->second.shared_borrows > 0 ||
+            it->second.mut_reservations > 0) {
             report(line, std::format("cannot move '{}' while it is borrowed", name));
             return false;
         }
@@ -1292,10 +1326,12 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
     // borrows released when the scope pops after the call.
     auto visit_args = [&](auto&& view) {
         push_scope();  // call-site borrow scope
+        in_call_args_++;
         view.each_arg([&](ExprRef a) {
             if (a && is_ref_kind(a.type(pool))) take_ref_borrows(a, line);
             else                                visit(a, /*consuming=*/true, line);
         });
+        in_call_args_--;
         pop_scope();
     };
 
