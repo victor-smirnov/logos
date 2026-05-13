@@ -1,0 +1,10 @@
+// B90: `&'a dyn Trait` parameter.
+package dyn_lt_fn_param;
+trait Shape { fn area(self: &Self) -> i32; }
+struct B { _x: i32 }
+impl Shape for B { fn area(self: &B) -> i32 { return 4i32; } }
+fn area_of<'a>(s: &'a dyn Shape) -> i32 { return s.area(); }
+fn main() -> i32 {
+    let b: B = B { _x: 0i32 };
+    return area_of(&b) - 4i32;
+}

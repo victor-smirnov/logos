@@ -1,0 +1,17 @@
+// B88: GAT with two lifetime args.
+package gat_two_lt_args;
+trait Two {
+    type Pair<'a, 'b>;
+    fn make<'a, 'b>(self: &'a Self, _r: &'b i32) -> Self::Pair<'a, 'b>;
+}
+struct K { _x: i32 }
+impl Two for K {
+    type Pair<'a, 'b> = &'a i32;
+    fn make<'a, 'b>(self: &'a K, _r: &'b i32) -> &'a i32 { return &(*self)._x; }
+}
+fn main() -> i32 {
+    let k: K = K { _x: 0i32 };
+    let y: i32 = 5i32;
+    let _r: &i32 = k.make(&y);
+    return 0i32;
+}

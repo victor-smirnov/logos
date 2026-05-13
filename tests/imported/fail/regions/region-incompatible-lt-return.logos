@@ -1,0 +1,4 @@
+// B65: return &'a from &'b without outlives — rejected.
+package region_incompatible_lt_return;
+fn bad<'a, 'b>(_x: &'a i32, y: &'b i32) -> &'a i32 { return y; }
+fn main() -> i32 { return 0i32; }

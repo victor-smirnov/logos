@@ -1,0 +1,8 @@
+// B91: three impls — only one is the original; both extras flagged.
+package coherence_three_same;
+trait T { fn x(self: &Self) -> i32; }
+struct S { _x: i32 }
+impl T for S { fn x(self: &S) -> i32 { return 1i32; } }
+impl T for S { fn x(self: &S) -> i32 { return 2i32; } }
+impl T for S { fn x(self: &S) -> i32 { return 3i32; } }
+fn main() -> i32 { return 0i32; }

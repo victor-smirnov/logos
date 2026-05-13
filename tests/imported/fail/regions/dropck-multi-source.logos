@@ -1,0 +1,15 @@
+// B87: multiple source vars — any one dying triggers error.
+package dropck_multi_source;
+struct W<'a> { x: &'a i32, y: &'a i32 }
+impl<'a> Drop for W<'a> {
+    fn drop(self: &mut W<'a>) { let _v: i32 = *(self.x); }
+}
+fn main() -> i32 {
+    let a: i32 = 0i32;
+    let mut w: W;
+    {
+        let b: i32 = 0i32;
+        w = W { x: &a, y: &b };
+    }
+    return 0i32;
+}

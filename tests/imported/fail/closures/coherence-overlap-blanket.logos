@@ -1,0 +1,10 @@
+// B91: two non-generic impls collide; blanket impl OR'd separately - skip.
+// This focused test: two concrete impls.
+package coherence_overlap_blanket;
+trait T { fn x(self: &Self) -> i32; }
+struct A { _x: i32 }
+struct B { _x: i32 }
+impl T for A { fn x(self: &A) -> i32 { return 1i32; } }
+impl T for B { fn x(self: &B) -> i32 { return 2i32; } }
+impl T for A { fn x(self: &A) -> i32 { return 3i32; } }
+fn main() -> i32 { return 0i32; }

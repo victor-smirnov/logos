@@ -1,0 +1,11 @@
+// B83: mut on two cross-nested fields.
+package df_cross_nested_mut;
+struct Inner { v: i32 }
+struct Outer { a: Inner, b: Inner }
+fn main() -> i32 {
+    let mut o: Outer = Outer { a: Inner { v: 0i32 }, b: Inner { v: 0i32 } };
+    let ra: &mut i32 = &mut o.a.v;
+    let rb: &mut i32 = &mut o.b.v;
+    *ra = 5i32; *rb = 7i32;
+    return o.a.v + o.b.v - 12i32;
+}

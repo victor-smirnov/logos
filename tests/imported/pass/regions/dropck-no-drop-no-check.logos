@@ -1,0 +1,11 @@
+// B87: struct with lifetime but NO Drop impl — no dropck obligation.
+package dropck_no_drop_no_check;
+struct R<'a> { r: &'a i32 }
+fn main() -> i32 {
+    let mut r: R;
+    {
+        let v: i32 = 5i32;
+        r = R { r: &v };
+    }
+    return 0i32;
+}

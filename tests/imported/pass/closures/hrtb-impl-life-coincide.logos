@@ -1,0 +1,7 @@
+// B85: impl with 'a == 'b reduces — accepted when binder is single.
+package hrtb_impl_life_coincide;
+trait T<X> { fn t(self: &Self, x: X) -> i32 { return 0i32; } }
+struct K { _x: i32 }
+impl<'a> T<&'a i32> for K {}
+fn want<F>() where F: for<'a> T<&'a i32> {}
+fn main() -> i32 { want::<K>(); return 0i32; }

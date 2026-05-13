@@ -1,0 +1,7 @@
+// B65: 'a: 'b + 'b: 'a → effective equality.
+package region_mutual_outlives_equiv;
+struct W<T> { p: *mut T }
+fn swap_<'a, 'b>(v: W<&'a i32>) -> W<&'b i32>
+    where 'a: 'b, 'b: 'a
+{ return v; }
+fn main() -> i32 { return 0i32; }

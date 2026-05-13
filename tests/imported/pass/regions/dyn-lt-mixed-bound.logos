@@ -1,0 +1,10 @@
+// B90: `&'a dyn Trait + 'a` mixed bounds.
+package dyn_lt_mixed_bound;
+trait Marker { fn id(self: &Self) -> i32; }
+struct V { _x: i32 }
+impl Marker for V { fn id(self: &V) -> i32 { return 7i32; } }
+fn use_<'a>(m: &'a dyn Marker + 'a) -> i32 { return m.id(); }
+fn main() -> i32 {
+    let v: V = V { _x: 0i32 };
+    return use_(&v) - 7i32;
+}

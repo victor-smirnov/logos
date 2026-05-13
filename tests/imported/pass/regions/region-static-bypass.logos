@@ -1,0 +1,8 @@
+// B65: 'static used as any 'a in elided context.
+package region_static_bypass;
+fn take<'a>(_r: &'a i32) -> i32 { return 0i32; }
+fn main() -> i32 {
+    let v: i32 = 0i32;
+    let _r: i32 = take(&v);
+    return 0i32;
+}

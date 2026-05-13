@@ -1,0 +1,14 @@
+// B82: c.set(c.next()) — `&mut c` reservation while c.next() runs.
+package tpb_mut_receiver_with_self_method;
+
+struct C { n: i32 }
+impl C {
+    fn set(self: &mut C, v: i32) { (*self).n = v; }
+    fn next(self: &C) -> i32 { return (*self).n + 1i32; }
+}
+
+fn main() -> i32 {
+    let mut c: C = C { n: 5i32 };
+    c.set(c.next());
+    return c.n - 6i32;
+}

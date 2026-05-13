@@ -1,0 +1,18 @@
+// T4b: break 'outer from 3-deep nested.
+package label_nested_three_levels;
+fn main() -> i32 {
+    let mut sum: i32 = 0i32;
+    'outer: loop {
+        let mut i: i32 = 0i32;
+        while i < 3i32 {
+            let mut j: i32 = 0i32;
+            while j < 3i32 {
+                if j == 2i32 { break 'outer; }
+                sum = sum + 1i32;
+                j = j + 1i32;
+            }
+            i = i + 1i32;
+        }
+    }
+    return sum - 2i32;
+}

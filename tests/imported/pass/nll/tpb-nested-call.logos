@@ -1,0 +1,12 @@
+// B82: nested call — outer `&mut` reserved through entire arg-eval, inner
+// call evaluates fully before activation.
+package tpb_nested_call;
+
+fn inner(x: i32) -> i32 { return x * 2i32; }
+
+fn outer(m: &mut i32, v: i32) -> i32 { *m = v; return *m; }
+
+fn main() -> i32 {
+    let mut x: i32 = 5i32;
+    return outer(&mut x, inner(x)) - 10i32;
+}

@@ -1,0 +1,13 @@
+// B88: GAT lt-arg correctly propagates through method substitution.
+package gat_lt_propagated;
+trait It { type Item<'a>; fn get<'a>(self: &'a Self) -> Self::Item<'a>; }
+struct W { v: i32 }
+impl It for W {
+    type Item<'a> = &'a i32;
+    fn get<'a>(self: &'a W) -> &'a i32 { return &(*self).v; }
+}
+fn caller<'a, T: It>(t: &'a T) -> T::Item<'a> { return t.get(); }
+fn main() -> i32 {
+    let w: W = W { v: 9i32 };
+    return *caller::<W>(&w) - 9i32;
+}

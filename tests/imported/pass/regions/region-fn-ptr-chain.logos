@@ -1,0 +1,7 @@
+// B65: fn-ptr field with Co return, shortenable inside Co struct wrapper.
+package region_fn_ptr_chain;
+struct W<T> { p: T }
+fn shorten<'short, 'long>(w: W<&'long i32>) -> W<&'short i32>
+    where 'long: 'short
+{ return w; }
+fn main() -> i32 { return 0i32; }

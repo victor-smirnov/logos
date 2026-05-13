@@ -1,0 +1,15 @@
+// B83: method call on different field doesn't conflict.
+package df_method_on_other_field;
+
+struct Inner { v: i32 }
+impl Inner { fn read(self: &Inner) -> i32 { return (*self).v; } }
+
+struct Outer { a: Inner, b: i32 }
+
+fn main() -> i32 {
+    let mut o: Outer = Outer { a: Inner { v: 5i32 }, b: 0i32 };
+    let rb: &mut i32 = &mut o.b;
+    let v: i32 = o.a.read();
+    *rb = v;
+    return o.b - 5i32;
+}

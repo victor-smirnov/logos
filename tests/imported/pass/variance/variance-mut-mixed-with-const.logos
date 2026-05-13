@@ -1,0 +1,4 @@
+// B84: struct holding both *const and *mut — variance meets to Inv.
+package variance_mut_mixed_with_const;
+struct M<T> { c: *const T, m: *mut T }
+fn main() -> i32 { return 0i32; }

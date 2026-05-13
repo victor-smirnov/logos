@@ -1,0 +1,14 @@
+// B62: HRTB bound + simple Self projection.
+package hrtb_on_self_bound;
+trait Mapper<X> { fn map(self: Self, x: X) -> i32; }
+struct Id { _x: i32 }
+impl<'a> Mapper<&'a i32> for Id {
+    fn map(self: Id, x: &'a i32) -> i32 { return *x; }
+}
+fn drive<F>(f: F, x: &i32) -> i32 where F: for<'a> Mapper<&'a i32> {
+    return f.map(x);
+}
+fn main() -> i32 {
+    let v: i32 = 13i32;
+    return drive::<Id>(Id { _x: 0i32 }, &v) - 13i32;
+}

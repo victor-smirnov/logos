@@ -1,0 +1,11 @@
+// B91: same trait impl'd on differently-instantiated generic structs.
+package coherence_generic_instances;
+trait T { fn x(self: &Self) -> i32; }
+struct W<X> { v: X }
+impl T for W<i32> { fn x(self: &W<i32>) -> i32 { return 1i32; } }
+impl T for W<i64> { fn x(self: &W<i64>) -> i32 { return 2i32; } }
+fn main() -> i32 {
+    let a: W<i32> = W { v: 0i32 };
+    let b: W<i64> = W { v: 0i64 };
+    return a.x() + b.x() - 3i32;
+}

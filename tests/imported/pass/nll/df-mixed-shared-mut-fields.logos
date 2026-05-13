@@ -1,0 +1,10 @@
+// B83: shared one field + mut another.
+package df_mixed_shared_mut_fields;
+struct Pair { x: i32, y: i32 }
+fn main() -> i32 {
+    let mut p: Pair = Pair { x: 10i32, y: 0i32 };
+    let rx: &i32 = &p.x;
+    let ry: &mut i32 = &mut p.y;
+    *ry = *rx;
+    return p.y - 10i32;
+}

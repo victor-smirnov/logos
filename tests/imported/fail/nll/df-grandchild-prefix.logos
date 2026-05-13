@@ -1,0 +1,11 @@
+// B83: prefix conflict at 3-deep — `&mut o.a` blocks `&mut o.a.v`.
+package df_grandchild_prefix;
+struct Inner { v: i32 }
+struct Outer { a: Inner }
+fn main() -> i32 {
+    let mut o: Outer = Outer { a: Inner { v: 0i32 } };
+    let r: &mut Inner = &mut o.a;
+    let s: &mut i32 = &mut o.a.v;
+    (*r).v = 1i32; *s = 2i32;
+    return 0i32;
+}

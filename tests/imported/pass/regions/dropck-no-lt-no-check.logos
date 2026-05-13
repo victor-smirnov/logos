@@ -1,0 +1,13 @@
+// B87: Drop struct WITHOUT lifetime params — no dropck obligation.
+package dropck_no_lt_no_check;
+struct W { v: i32 }
+impl Drop for W { fn drop(self: &mut W) { } }
+fn main() -> i32 {
+    let mut w: W;
+    {
+        let _x: i32 = 5i32;
+        w = W { v: 7i32 };
+    }
+    let _z: i32 = w.v;
+    return 0i32;
+}

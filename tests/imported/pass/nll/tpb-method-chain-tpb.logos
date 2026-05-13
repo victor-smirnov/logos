@@ -1,0 +1,14 @@
+// B82: chained calls — `c.set(c.next() + c.n);` works under TPB.
+package tpb_method_chain_tpb;
+
+struct C { n: i32 }
+impl C {
+    fn set(self: &mut C, v: i32) { (*self).n = v; }
+    fn next(self: &C) -> i32 { return (*self).n + 1i32; }
+}
+
+fn main() -> i32 {
+    let mut c: C = C { n: 3i32 };
+    c.set(c.next() + c.n);  // both args read c shared while &mut c reserved
+    return c.n - 7i32;
+}

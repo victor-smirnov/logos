@@ -1,0 +1,12 @@
+// B82: outer args read struct fields while &mut struct reserved.
+package tpb_with_field_args;
+
+struct P { a: i32, b: i32 }
+
+fn writeA(p: &mut P, v: i32) { (*p).a = v; }
+
+fn main() -> i32 {
+    let mut p: P = P { a: 0i32, b: 5i32 };
+    writeA(&mut p, p.b);
+    return p.a - 5i32;
+}

@@ -1,0 +1,14 @@
+// B82: counter.update(counter.value() + 1) — classic builder pattern.
+package tpb_counter_increment;
+
+struct Counter { v: i32 }
+impl Counter {
+    fn update(self: &mut Counter, n: i32) { (*self).v = n; }
+    fn value(self: &Counter) -> i32 { return (*self).v; }
+}
+
+fn main() -> i32 {
+    let mut c: Counter = Counter { v: 10i32 };
+    c.update(c.value() + 1i32);
+    return c.v - 11i32;
+}

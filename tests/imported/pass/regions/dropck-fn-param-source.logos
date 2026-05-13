@@ -1,0 +1,12 @@
+// B87: borrow source is fn param (outlives any local) — OK.
+package dropck_fn_param_source;
+struct W<'a> { r: &'a i32 }
+impl<'a> Drop for W<'a> { fn drop(self: &mut W<'a>) { } }
+fn ctor<'a>(r: &'a i32) -> i32 {
+    let _w: W<'a> = W { r: r };
+    return 0i32;
+}
+fn main() -> i32 {
+    let v: i32 = 5i32;
+    return ctor(&v);
+}

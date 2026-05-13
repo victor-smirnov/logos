@@ -1,0 +1,11 @@
+// B83: three disjoint mut field borrows.
+package df_three_fields_mut;
+struct Three { a: i32, b: i32, c: i32 }
+fn main() -> i32 {
+    let mut t: Three = Three { a: 0i32, b: 0i32, c: 0i32 };
+    let ra: &mut i32 = &mut t.a;
+    let rb: &mut i32 = &mut t.b;
+    let rc: &mut i32 = &mut t.c;
+    *ra = 1i32; *rb = 2i32; *rc = 3i32;
+    return t.a + t.b + t.c - 6i32;
+}

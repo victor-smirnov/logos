@@ -1,0 +1,9 @@
+// B65: three-lifetime fn with full outlives chain.
+package region_three_lifetime_where;
+fn step<'a, 'b, 'c>(x: &'a i32, _y: &'b i32, _z: &'c i32) -> &'c i32
+    where 'a: 'b, 'b: 'c
+{ return x; }
+fn main() -> i32 {
+    let a: i32 = 7i32; let b: i32 = 0i32; let c: i32 = 0i32;
+    return *step(&a, &b, &c) - 7i32;
+}

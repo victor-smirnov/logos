@@ -1,0 +1,13 @@
+// B83: field borrows released when scope ends; subsequent whole-value OK.
+package df_borrows_released_on_scope;
+struct P { a: i32, b: i32 }
+fn main() -> i32 {
+    let mut p: P = P { a: 0i32, b: 0i32 };
+    {
+        let r: &mut i32 = &mut p.a;
+        *r = 1i32;
+    }
+    let q: &mut P = &mut p;  // OK: field borrow released
+    (*q).b = 2i32;
+    return p.a + p.b - 3i32;
+}

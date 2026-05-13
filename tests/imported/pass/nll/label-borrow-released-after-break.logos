@@ -1,0 +1,14 @@
+// T4b: borrow in labeled body dead after break.
+package label_borrow_released_after_break;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    'outer: loop {
+        {
+            let r: &mut i32 = &mut x;
+            *r = 5i32;
+        }
+        break 'outer;
+    }
+    let s: &i32 = &x;
+    return *s - 5i32;
+}

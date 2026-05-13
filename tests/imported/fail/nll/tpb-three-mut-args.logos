@@ -1,0 +1,7 @@
+// B82: three &mut to same target — reservations conflict with each other.
+package tpb_three_mut_args;
+fn triple(_a: &mut i32, _b: &mut i32, _c: &mut i32) -> i32 { return 0i32; }
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    return triple(&mut x, &mut x, &mut x);
+}

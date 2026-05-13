@@ -1,0 +1,10 @@
+// B90: `&'a mut dyn Trait` + method-mut.
+package dyn_lt_mut_method;
+trait Bumper { fn bump(self: &mut Self) -> i32; }
+struct C { n: i32 }
+impl Bumper for C { fn bump(self: &mut C) -> i32 { (*self).n = (*self).n + 1i32; return (*self).n; } }
+fn driver<'a>(b: &'a mut dyn Bumper) -> i32 { return b.bump(); }
+fn main() -> i32 {
+    let mut c: C = C { n: 0i32 };
+    return driver(&mut c) - 1i32;
+}

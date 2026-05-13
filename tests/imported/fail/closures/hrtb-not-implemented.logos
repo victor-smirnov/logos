@@ -1,0 +1,6 @@
+// B62: no impl for type — bound not satisfied.
+package hrtb_not_implemented;
+trait T<X> { fn t(self: &Self, x: X) -> i32 { return 0i32; } }
+struct K { _x: i32 }
+fn want<F>() where F: for<'a> T<&'a i32> {}
+fn main() -> i32 { want::<K>(); return 0i32; }

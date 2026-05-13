@@ -1,0 +1,10 @@
+// B83: shared + mut on same field rejected.
+package df_shared_mut_same_field;
+struct P { x: i32 }
+fn main() -> i32 {
+    let mut p: P = P { x: 0i32 };
+    let r: &i32 = &p.x;
+    let m: &mut i32 = &mut p.x;
+    *m = 1i32;
+    return *r;
+}

@@ -1,0 +1,16 @@
+// B88: LendingIter-style GAT pattern.
+package gat_iter_pattern;
+trait LIter {
+    type Item<'a>;
+    fn next<'a>(self: &'a mut Self) -> Self::Item<'a>;
+}
+struct C { v: i32 }
+impl LIter for C {
+    type Item<'a> = &'a i32;
+    fn next<'a>(self: &'a mut C) -> &'a i32 { return &(*self).v; }
+}
+fn main() -> i32 {
+    let mut c: C = C { v: 5i32 };
+    let r: &i32 = c.next();
+    return *r - 5i32;
+}
