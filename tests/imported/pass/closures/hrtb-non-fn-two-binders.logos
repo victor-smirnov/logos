@@ -1,0 +1,11 @@
+// T4a: HRTB with two binders on a user trait.
+package hrtb_non_fn_two_binders;
+
+trait Both<A, B> { fn both(self: &Self, a: A, b: B) -> i32 { return 0i32; } }
+
+struct K { _x: i32 }
+impl<'a, 'b> Both<&'a i32, &'b i64> for K {}
+
+fn run<T: for<'a, 'b> Both<&'a i32, &'b i64>>() {}
+
+fn main() -> i32 { run::<K>(); return 0i32; }

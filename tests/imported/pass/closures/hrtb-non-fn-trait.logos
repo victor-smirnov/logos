@@ -1,0 +1,11 @@
+// T4a: HRTB `for<'a>` on a user-defined non-Fn trait — accepted.
+package hrtb_non_fn_trait;
+
+trait Visitor<X> { fn visit(self: &Self, x: X) -> i32 { return 0i32; } }
+
+struct V { _x: i32 }
+impl<'a> Visitor<&'a i32> for V {}
+
+fn run<T>() where T: for<'a> Visitor<&'a i32> {}
+
+fn main() -> i32 { run::<V>(); return 0i32; }
