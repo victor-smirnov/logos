@@ -1,0 +1,14 @@
+// B89: shared reborrow then mut access after reborrow is dead.
+package poll_reborrow_then_remut;
+
+fn flow<'a>(v: &'a mut i32) -> &'a i32 {
+    let m: &mut i32 = v;
+    *m = 1i32;
+    // m dead here.
+    return v;
+}
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    return *flow(&mut x) - 1i32;
+}

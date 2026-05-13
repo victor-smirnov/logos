@@ -1,0 +1,21 @@
+// B89: loop body with mut access in one arm, shared in other.
+package poll_loop_disjoint_arms;
+
+fn loop_disjoint(v: &mut i32, n: i32) -> i32 {
+    let mut sum: i32 = 0i32;
+    let mut i: i32 = 0i32;
+    while i < n {
+        if i == 0i32 {
+            *v = i;
+        } else {
+            sum = sum + *v;
+        }
+        i = i + 1i32;
+    }
+    return sum;
+}
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    return loop_disjoint(&mut x, 3i32);
+}

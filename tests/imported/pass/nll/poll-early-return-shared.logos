@@ -1,0 +1,16 @@
+// B89: shared borrow returned early; subsequent mut OK along the
+// other CFG path.
+package poll_early_return_shared;
+
+fn flow<'a>(v: &'a mut i32, cond: bool) -> &'a i32 {
+    if cond {
+        return v;
+    }
+    *v = 99i32;
+    return v;
+}
+
+fn main() -> i32 {
+    let mut x: i32 = 5i32;
+    return *flow(&mut x, true) - 5i32;
+}

@@ -1,0 +1,16 @@
+// B89: NLL RFC Problem Case #3 — shared borrow alive in else arm only.
+package poll_problem_case_3;
+
+fn p3(v: &mut i32, cond: bool) -> i32 {
+    let first: &i32 = v;
+    if cond {
+        *v = 5i32;
+        return 0i32;
+    }
+    return *first;
+}
+
+fn main() -> i32 {
+    let mut x: i32 = 7i32;
+    return p3(&mut x, false) - 7i32;
+}
