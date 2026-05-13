@@ -468,7 +468,8 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
         return t.trait_name == r.trait_name() &&
                t.assoc_type_name == r.assoc_type_name() &&
                t.assoc_base == r.assoc_base() &&
-               vec_ptr_eq(t.gat_args, r.gat_args());
+               vec_ptr_eq(t.gat_args, r.gat_args()) &&
+               t.lifetime_args == r.lifetime_args();  // B88
     case K::CfgSlotType:
         return t.type_var_name == r.type_var_name() &&
                t.assoc_type_name == r.assoc_type_name();
@@ -2388,10 +2389,19 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
                 return subst_type_sema(bait->second.type, bsubst);
             }
         }
-        if (subbed_base != t.assoc_base() || gat_changed) {
+        // B88: substitute GAT lifetime args.
+        std::vector<std::string> subbed_lt_args;
+        bool lt_changed = false;
+        for (auto& lt : t.lifetime_args()) {
+            auto it = ls.find(lt);
+            if (it != ls.end()) { subbed_lt_args.push_back(it->second); lt_changed = true; }
+            else                  subbed_lt_args.push_back(lt);
+        }
+        if (subbed_base != t.assoc_base() || gat_changed || lt_changed) {
             LogosTypeBuilder nt = t.to_builder();
-            nt.assoc_base = subbed_base;
-            nt.gat_args   = std::move(subbed_gat_args);
+            nt.assoc_base    = subbed_base;
+            nt.gat_args      = std::move(subbed_gat_args);
+            nt.lifetime_args = std::move(subbed_lt_args);
             return pool_->alloc(std::move(nt));
         }
         return t;
@@ -2854,6 +2864,10 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         auto assoc      = std::string(str_of(node.get(la::FIELD.code)));  // "Item"
         // Read GAT type args if present (e.g. T::Item<i32>)
         std::vector<TypeRef> gat_args;
+        // B88: GAT lifetime args (e.g. T::Item<'a>) — separate from gat_args
+        // (which holds type-position args) so they can be matched against
+        // the trait's GAT lt-params at use-site validation.
+        std::vector<std::string> gat_lt_args;
         if (node.has_key(la::TYPE_PARAMS)) {
             auto tpav = node.get(la::TYPE_PARAMS.code);
             if (!tpav.is_null()) {
@@ -2862,7 +2876,14 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                     auto items = arr_of(tplist.get(la::ITEMS.code));
                     for (uint64_t i = 0; i < items.size(); ++i) {
                         auto item = map_of(items.get(i));
-                        if (code_of(item) == la::LIFETIME_PARAM) continue;
+                        if (code_of(item) == la::LIFETIME_PARAM) {
+                            auto name_av = item.get(la::NAME.code);
+                            if (!name_av.is_null()) {
+                                std::string lt(str_of(name_av));
+                                gat_lt_args.push_back(std::move(lt));
+                            }
+                            continue;
+                        }
                         gat_args.push_back(resolve_type(item));
                     }
                 }
@@ -2990,6 +3011,11 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         t.trait_name      = trait_for_assoc;
         t.assoc_type_name = assoc;
         t.gat_args        = std::move(gat_args);
+        // B88: stash GAT lifetime args on lifetime_args field — distinct
+        // from struct lt args (AssocType doesn't have struct lt_args
+        // semantics) so reusing the slot is safe and lets the existing
+        // lifetime_args mirror accessor read them.
+        t.lifetime_args   = std::move(gat_lt_args);
 
         auto result = pool_->alloc(std::move(t));
         // Propagate bounds for T::Item back into the context

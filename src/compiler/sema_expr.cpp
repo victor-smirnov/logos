@@ -3843,7 +3843,40 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     }
                 }
             }
-            TypeRef ret_type = subst_type_sema(chosen_method->ret_type, self_subst);
+            // B88: build lt_subst by pairing chosen_method's param types vs
+            // recv+arg actual types — same algorithm as line ~4700.
+            SemaLifetimeSubst lt_subst_tv;
+            {
+                auto record = [&](std::string_view ml, std::string_view cl) {
+                    if (ml.empty() || cl.empty()) return;
+                    std::string mk(ml), ck(cl);
+                    if (!lt_subst_tv.count(mk)) lt_subst_tv.emplace(mk, ck);
+                };
+                std::function<void(TypeRef, TypeRef)> walk = [&](TypeRef mt, TypeRef at) {
+                    if (!mt || !at) return;
+                    using K = LogosType::Kind;
+                    auto mk = mt.kind();
+                    if ((mk == K::Ref || mk == K::MutRef) &&
+                        (at.kind() == K::Ref || at.kind() == K::MutRef)) {
+                        record(mt.lifetime(), at.lifetime());
+                        walk(mt.pointee(), at.pointee());
+                        return;
+                    }
+                    if ((mk == K::Struct || mk == K::ZonedStruct || mk == K::Enum)
+                        && at.kind() == mk) {
+                        auto ml = mt.lifetime_args(); auto al = at.lifetime_args();
+                        for (size_t i = 0; i < ml.size() && i < al.size(); ++i)
+                            record(ml[i], al[i]);
+                        return;
+                    }
+                };
+                if (!chosen_method->param_types.empty() && recv)
+                    walk(chosen_method->param_types[0], recv->type);
+                for (size_t i = 0; i + 1 < chosen_method->param_types.size()
+                                  && i < arg_exprs.size(); ++i)
+                    if (arg_exprs[i]) walk(chosen_method->param_types[i + 1], arg_exprs[i]->type);
+            }
+            TypeRef ret_type = subst_type_sema(chosen_method->ret_type, self_subst, lt_subst_tv);
 
             // T9-tr-02: auto-ref the receiver if the impl method expects
             // `&self` / `&mut self`. For TypeVar receivers, recv is just the
@@ -4688,9 +4721,58 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         }
     }
 
-    // Substitute TypeVars in return type using the combined substitution.
-    TypeRef ret = struct_subst.empty()
-        ? fi.ret_type : subst_type_sema(fi.ret_type, struct_subst);
+    // B88: build a lifetime substitution by walking method's formal param
+    // types vs actual receiver/arg types. Each pair contributes a binding
+    // method-lt → caller-lt. Propagates through subst_type_sema into the
+    // return type — so a method `fn get<'a>(self: &'a T) -> Self::Item<'a>`
+    // called with `t: &'b T` yields return type `Self::Item<'b>` (not the
+    // literal `Self::Item<'a>` that would name-collide with the caller's
+    // own 'a).
+    SemaLifetimeSubst lt_subst;
+    {
+        auto record = [&](std::string_view ml, std::string_view cl) {
+            if (ml.empty() || cl.empty()) return;
+            std::string mk(ml), ck(cl);
+            auto it = lt_subst.find(mk);
+            if (it == lt_subst.end()) lt_subst.emplace(mk, ck);
+        };
+        std::function<void(TypeRef, TypeRef)> walk = [&](TypeRef mt, TypeRef at) {
+            if (!mt || !at) return;
+            using K = LogosType::Kind;
+            auto mk = mt.kind();
+            if ((mk == K::Ref || mk == K::MutRef) &&
+                (at.kind() == K::Ref || at.kind() == K::MutRef)) {
+                record(mt.lifetime(), at.lifetime());
+                walk(mt.pointee(), at.pointee());
+                return;
+            }
+            if ((mk == K::Struct || mk == K::ZonedStruct || mk == K::Enum)
+                && at.kind() == mk) {
+                auto ml = mt.lifetime_args(); auto al = at.lifetime_args();
+                for (size_t i = 0; i < ml.size() && i < al.size(); ++i)
+                    record(ml[i], al[i]);
+                auto ma = mt.type_args(); auto aa = at.type_args();
+                for (size_t i = 0; i < ma.size() && i < aa.size(); ++i)
+                    walk(ma[i], aa[i]);
+                return;
+            }
+            if (mk == K::Tuple && at.kind() == K::Tuple) {
+                auto me = mt.tuple_elems(); auto ae = at.tuple_elems();
+                for (size_t i = 0; i < me.size() && i < ae.size(); ++i)
+                    walk(me[i], ae[i]);
+                return;
+            }
+        };
+        // Pair method's param0 with recv->type; param[i+1] with arg_exprs[i].
+        if (!fi.param_types.empty() && recv) walk(fi.param_types[0], recv->type);
+        for (size_t i = 0; i + 1 < fi.param_types.size() && i < arg_exprs.size(); ++i)
+            if (arg_exprs[i]) walk(fi.param_types[i + 1], arg_exprs[i]->type);
+    }
+
+    // Substitute TypeVars + lifetimes in return type.
+    TypeRef ret = (struct_subst.empty() && lt_subst.empty())
+        ? fi.ret_type
+        : subst_type_sema(fi.ret_type, struct_subst, lt_subst);
 
     track_args_moved(arg_exprs);
     lir::EMethodCall mc;

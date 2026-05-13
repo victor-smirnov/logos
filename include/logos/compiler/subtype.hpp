@@ -83,6 +83,27 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
         case K::Array:
         case K::Slice:
             return types_equal_with_lifetimes(a.elem(), b.elem(), adj);
+        case K::AssocType: {
+            // B88: AssocType (e.g. T::Item<'a>) — compare trait/name/base
+            // plus GAT lifetime_args. Two `T::Item<'a>` and `T::Item<'b>`
+            // are NOT equal under lifetimes; the existing TypeUID erases
+            // them.
+            if (a.trait_name() != b.trait_name()) return false;
+            if (a.assoc_type_name() != b.assoc_type_name()) return false;
+            if (!types_equal_with_lifetimes(a.assoc_base(), b.assoc_base(), adj))
+                return false;
+            auto ag = a.gat_args();
+            auto bg = b.gat_args();
+            if (ag.size() != bg.size()) return false;
+            for (size_t i = 0; i < ag.size(); ++i)
+                if (!types_equal_with_lifetimes(ag[i], bg[i], adj)) return false;
+            auto alts = a.lifetime_args();
+            auto blts = b.lifetime_args();
+            if (alts.size() != blts.size()) return false;
+            for (size_t i = 0; i < alts.size(); ++i)
+                if (!lt_eq(alts[i], blts[i])) return false;
+            return true;
+        }
         case K::FnPtr:
         case K::Closure: {
             // B81: types_equal_with_lifetimes must recurse through FnPtr to
@@ -278,6 +299,26 @@ inline bool subtype(TypeRef sub, TypeRef sup,
             for (size_t i = 0; i < sp.size(); ++i)
                 if (!subtype(pp[i], sp[i], adj, vars, depth + 1, permissive_empty)) return false;
             return subtype(sub.closure_ret(), sup.closure_ret(), adj, vars, depth + 1, permissive_empty);
+        }
+        case K::AssocType: {
+            // B88: GAT lifetime args must match (Inv by default — GAT lt
+            // variance isn't user-controllable). Type args follow Co.
+            if (sub.trait_name() != sup.trait_name()) return true;
+            if (sub.assoc_type_name() != sup.assoc_type_name()) return true;
+            if (!subtype(sub.assoc_base(), sup.assoc_base(), adj, vars, depth + 1, permissive_empty))
+                return false;
+            auto sg = sub.gat_args();
+            auto pg = sup.gat_args();
+            if (sg.size() != pg.size()) return true;
+            for (size_t i = 0; i < sg.size(); ++i)
+                if (!subtype(sg[i], pg[i], adj, vars, depth + 1, permissive_empty)) return false;
+            auto sl = sub.lifetime_args();
+            auto pl = sup.lifetime_args();
+            if (sl.size() != pl.size()) return true;
+            for (size_t i = 0; i < sl.size(); ++i)
+                if (!detail::lifetime_at(Variance::Inv, sl[i], pl[i], adj, permissive_empty))
+                    return false;
+            return true;
         }
         default:
             return true;

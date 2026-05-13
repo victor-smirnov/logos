@@ -1,0 +1,22 @@
+// B88: GAT lifetime propagation works for the legitimate case where
+// declared return lt matches the method-call-substituted lt.
+package gat_lt_correct;
+
+trait It {
+    type Item<'a>;
+    fn get<'a>(self: &'a Self) -> Self::Item<'a>;
+}
+
+struct W { v: i32 }
+impl It for W {
+    type Item<'a> = &'a i32;
+    fn get<'a>(self: &'a W) -> &'a i32 { return &(*self).v; }
+}
+
+fn caller<'a, T: It>(t: &'a T) -> T::Item<'a> { return t.get(); }
+
+fn main() -> i32 {
+    let w: W = W { v: 7i32 };
+    let r: &i32 = caller::<W>(&w);
+    return *r - 7i32;
+}

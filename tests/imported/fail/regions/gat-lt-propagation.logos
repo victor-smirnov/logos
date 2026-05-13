@@ -1,0 +1,19 @@
+// B88: GAT lifetime propagation — `T::Item<'a>` at return position vs
+// method body returning `T::Item<'b>` (resolved through `&'b T`) is
+// now correctly rejected via lt-substitution at method-call site.
+package gat_lt_propagation;
+
+trait It {
+    type Item<'a>;
+    fn get<'a>(self: &'a Self) -> Self::Item<'a>;
+}
+
+struct W { v: i32 }
+impl It for W {
+    type Item<'a> = &'a i32;
+    fn get<'a>(self: &'a W) -> &'a i32 { return &(*self).v; }
+}
+
+fn bad<'a, 'b, T: It>(t: &'b T) -> T::Item<'a> { return t.get(); }
+
+fn main() -> i32 { return 0i32; }
