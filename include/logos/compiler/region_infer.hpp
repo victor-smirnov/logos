@@ -1,0 +1,143 @@
+#pragma once
+// B70: region inference scaffolding — per-borrow region variables, CFG
+// over LFunction body, borrow-site collection. Standalone analysis: at
+// this slice it builds the data structures and runs an empty solver
+// hook (B71 will populate the solver, B72 will replace min-viable NLL
+// with the conflict checker driven by these regions).
+//
+// Design notes:
+//   - Each `&x` / `&mut x` (LIR AddrOf, AddrOfTemp) in the fn body is
+//     assigned a fresh `RegionId`. The region's "live set" is the set
+//     of CFG points where the borrow is required to be valid — the
+//     statement that creates it plus everywhere a value flowing from
+//     it is used.
+//   - The CFG is statement-granular. Each statement gets a unique
+//     `StmtPoint`. Successor edges encode sequential flow, if/else
+//     join, loop back-edges, returns/breaks/continues.
+//   - Existing min-viable NLL (B61) stays active until B72 replaces it.
+
+#include <cstdint>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+namespace logos::compiler::lir {
+    struct LFunction; struct LBlock; struct LStmt; struct LExpr;
+    struct LProgram;
+}
+
+namespace logos::compiler {
+
+// Stable id for a region. Zero is the no-region sentinel.
+struct RegionId {
+    uint32_t value = 0;
+    bool operator==(RegionId o) const noexcept { return value == o.value; }
+    bool operator!=(RegionId o) const noexcept { return value != o.value; }
+    bool valid() const noexcept { return value != 0; }
+};
+
+struct RegionIdHash {
+    std::size_t operator()(RegionId r) const noexcept {
+        return std::hash<uint32_t>{}(r.value);
+    }
+};
+
+constexpr RegionId NO_REGION{0};
+
+// A point in the function's CFG. `block` is the depth-first block id
+// (per RegionInferer's internal numbering), `idx` is the statement
+// index within that block.
+struct StmtPoint {
+    uint32_t block = 0;
+    uint32_t idx   = 0;
+    bool operator==(StmtPoint o) const noexcept {
+        return block == o.block && idx == o.idx;
+    }
+};
+
+struct StmtPointHash {
+    std::size_t operator()(StmtPoint p) const noexcept {
+        return (std::size_t(p.block) << 32) ^ p.idx;
+    }
+};
+
+// A borrow site — one `&x` / `&mut x` occurrence in the fn body.
+struct BorrowSite {
+    RegionId    region;    // freshly assigned
+    StmtPoint   origin;    // where the borrow was created
+    std::string holder;    // let/assign LHS that binds the borrow; empty = transient (e.g. call-arg)
+    std::string target;    // the variable being borrowed FROM
+    bool        is_mut = false;
+};
+
+// A region constraint. The solver propagates region-membership across
+// constraints to find a fixed point.
+struct RegionConstraint {
+    enum class Kind : uint8_t {
+        Outlives,   // longer ⊇ shorter (longer outlives shorter)
+        Contains,   // region must contain the point
+    };
+    Kind kind;
+    RegionId longer;
+    RegionId shorter;
+    StmtPoint point;
+};
+
+// Per-function CFG. Block ids are dense [0..n_blocks). Each block has
+// a list of statement indices [0..stmts.size()) and successor block
+// ids (multiple for branches, single for sequential, empty for
+// terminators).
+struct CFG {
+    struct Block {
+        // For each statement in this block: a StmtPoint (block, idx).
+        // Stored implicitly — `block=this_id, idx=0..n-1`.
+        uint32_t n_stmts = 0;
+        std::vector<uint32_t> successors;  // block ids
+    };
+    std::vector<Block> blocks;
+};
+
+// Front-end of the inference. Walks an LFunction body once: assigns
+// RegionIds to every borrow expression, builds the CFG, collects
+// borrow sites and seed constraints (containment at origin, declared
+// outlives bounds from fn.lifetime_outlives mapped onto named regions).
+class RegionInferer {
+public:
+    RegionInferer() = default;
+
+    // Run the analysis pass over `fn`. Populates `cfg_`, `borrows_`,
+    // and `constraints_`. `prog` supplies the type-pool arena needed
+    // to materialize lir_view::{ExprRef, StmtRef} from each LStmt's
+    // and LExpr's `mirror_offset_`.
+    void analyze(const lir::LFunction& fn, const lir::LProgram& prog);
+
+    // Dump everything to stderr in a stable, grep-friendly format.
+    // Triggered by env var LOGOS_DUMP_REGIONS.
+    void dump(const std::string& fn_name) const;
+
+    // Accessors for the solver (B71) and conflict checker (B72).
+    const CFG& cfg() const noexcept { return cfg_; }
+    const std::vector<BorrowSite>& borrows() const noexcept { return borrows_; }
+    const std::vector<RegionConstraint>& constraints() const noexcept {
+        return constraints_;
+    }
+    uint32_t region_count() const noexcept { return next_region_id_ - 1; }
+
+private:
+    RegionId fresh_region() noexcept {
+        return RegionId{next_region_id_++};
+    }
+    void walk_block(const lir::LBlock& blk, uint32_t blk_id,
+                    const lir::LProgram& prog);
+    void walk_stmt(const lir::LStmt& s, uint32_t blk_id, uint32_t idx,
+                   const lir::LProgram& prog);
+
+    uint32_t next_region_id_ = 1;  // 0 reserved for NO_REGION
+    CFG cfg_;
+    std::vector<BorrowSite> borrows_;
+    std::vector<RegionConstraint> constraints_;
+};
+
+} // namespace logos::compiler

@@ -45,6 +45,7 @@ add_custom_command(
 add_executable(logosc
     main.cpp
     borrow_check.cpp
+    region_infer.cpp
     mlir_gen.cpp
     mlir_gen_types.cpp
     mlir_gen_fn.cpp

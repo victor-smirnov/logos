@@ -28,6 +28,7 @@
 #include <logos/compiler/lir_view.hpp>
 #include <logos/compiler/sema.hpp>
 #include <logos/compiler/outlives.hpp>
+#include <logos/compiler/region_infer.hpp>
 
 #include <format>
 #include <optional>
@@ -1447,6 +1448,15 @@ lir::LProgram borrow_check(lir::LProgram prog) {
         if (fn.is_extern)             return;
         if (!fn.type_params.empty())  return;
         BorrowChecker(prog.diags, "fn " + std::string(bare_fn_name(fn.name)), prog, ts).check(fn);
+        // B70: run the region-inference scaffolding alongside the
+        // existing min-viable NLL. Currently behind LOGOS_DUMP_REGIONS;
+        // B71 grows the solver and B72 wires it as the canonical
+        // conflict checker (replacing the min-viable path).
+        if (std::getenv("LOGOS_DUMP_REGIONS")) {
+            RegionInferer ri;
+            ri.analyze(fn, prog);
+            ri.dump(std::string(bare_fn_name(fn.name)));
+        }
     };
 
     for (auto& fn : prog.functions)       check(*fn);
