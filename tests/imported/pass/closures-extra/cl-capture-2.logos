@@ -1,0 +1,6 @@
+package cl_capture_2;
+fn main() -> i32 {
+    let n: i32 = 2i32;
+    let f = || -> i32 { return n; };
+    return f() - 2i32;
+}

@@ -1,0 +1,6 @@
+package ref_shared_2;
+fn main() -> i32 {
+    let x: i32 = 2i32;
+    let r: &i32 = &x;
+    return *r - 2i32;
+}

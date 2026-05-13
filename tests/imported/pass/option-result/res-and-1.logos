@@ -1,0 +1,18 @@
+package res_and_1;
+enum Res<T, E> { Ok(T), Err(E) }
+fn both(a: Res<i32, i32>, b: Res<i32, i32>) -> i32 {
+    match a {
+        Res::Ok(_)  => {
+            match b {
+                Res::Ok(y)  => return y,
+                Res::Err(_) => return 0i32,
+            }
+        }
+        Res::Err(_) => return -1i32,
+    }
+}
+fn main() -> i32 {
+    let a: Res<i32, i32> = Res::Ok(1i32);
+    let b: Res<i32, i32> = Res::Ok(1i32);
+    return both(a, b) - 1i32;
+}

@@ -1,0 +1,6 @@
+package cast_u32_to_u8;
+fn main() -> i32 {
+    let x: u32 = 1u32;
+    let _y: u8 = x as u8;
+    return 0i32;
+}

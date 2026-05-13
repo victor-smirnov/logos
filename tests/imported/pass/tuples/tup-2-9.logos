@@ -1,0 +1,5 @@
+package tup_2_9;
+fn main() -> i32 {
+    let t: (i32, i32) = (9i32, 18i32);
+    return t.1 - t.0*2i32;
+}

@@ -1,0 +1,5 @@
+package f64_div_3_5_1_5;
+fn main() -> i32 {
+    let r: f64 = 3.5f64 / 1.5f64;
+    return 0i32;
+}

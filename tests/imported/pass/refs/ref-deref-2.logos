@@ -1,0 +1,6 @@
+package ref_deref_2;
+fn read(r: &i32) -> i32 { return *r; }
+fn main() -> i32 {
+    let v: i32 = 2i32;
+    return read(&v) - 2i32;
+}

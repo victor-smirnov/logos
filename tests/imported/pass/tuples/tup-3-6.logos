@@ -1,0 +1,5 @@
+package tup_3_6;
+fn main() -> i32 {
+    let t: (i32, i32, i32) = (6i32, 12i32, 18i32);
+    return t.2 - t.1 - t.0;
+}

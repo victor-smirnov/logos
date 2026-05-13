@@ -1,0 +1,6 @@
+package cast_i32_to_i64;
+fn main() -> i32 {
+    let x: i32 = 1i32;
+    let _y: i64 = x as i64;
+    return 0i32;
+}

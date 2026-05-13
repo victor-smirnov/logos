@@ -1,0 +1,5 @@
+package f64_mul_1_0_2_0;
+fn main() -> i32 {
+    let r: f64 = 1.0f64 * 2.0f64;
+    return 0i32;
+}

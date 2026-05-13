@@ -1,0 +1,6 @@
+package lt_elision_10;
+fn f(s: &i32) -> &i32 { return s; }
+fn main() -> i32 {
+    let v: i32 = 10i32;
+    return *f(&v) - 10i32;
+}

@@ -1,0 +1,5 @@
+package tup_3_7;
+fn main() -> i32 {
+    let t: (i32, i32, i32) = (7i32, 14i32, 21i32);
+    return t.2 - t.1 - t.0;
+}

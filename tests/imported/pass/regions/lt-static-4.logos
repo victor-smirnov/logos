@@ -1,0 +1,6 @@
+package lt_static_4;
+fn take<'a>(r: &'a i32) -> i32 { return *r; }
+fn main() -> i32 {
+    let v: i32 = 4i32;
+    return take(&v) - 4i32;
+}

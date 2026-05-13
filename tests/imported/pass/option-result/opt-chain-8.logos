@@ -1,0 +1,12 @@
+package opt_chain_8;
+enum Opt<T> { Some(T), None }
+fn unwrap_or(o: Opt<i32>, d: i32) -> i32 {
+    match o {
+        Opt::Some(x) => return x,
+        Opt::None    => return d,
+    }
+}
+fn main() -> i32 {
+    let o: Opt<i32> = Opt::Some(8i32);
+    return unwrap_or(o, 0i32) - 8i32;
+}

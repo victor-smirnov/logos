@@ -1,0 +1,8 @@
+package trait_generic_3;
+trait Adder<T> { fn add(self: &Self, x: T) -> T; }
+struct S { v: i32 }
+impl Adder<i32> for S { fn add(self: &S, x: i32) -> i32 { return (*self).v + x; } }
+fn main() -> i32 {
+    let s: S = S { v: 3i32 };
+    return s.add(3i32) - 6i32;
+}

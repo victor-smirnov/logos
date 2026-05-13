@@ -1,0 +1,5 @@
+package f32_div_10_0_0_5;
+fn main() -> i32 {
+    let r: f32 = 10.0f32 / 0.5f32;
+    return 0i32;
+}

@@ -1,0 +1,8 @@
+package lt_struct_method_5;
+struct H<'a> { r: &'a i32 }
+impl<'a> H<'a> { fn get(self: &H<'a>) -> &'a i32 { return self.r; } }
+fn main() -> i32 {
+    let v: i32 = 5i32;
+    let h: H = H { r: &v };
+    return *h.get() - 5i32;
+}

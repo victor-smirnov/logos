@@ -1,0 +1,8 @@
+package trait_basic_8;
+trait T { fn x(self: &Self) -> i32; }
+struct S { v: i32 }
+impl T for S { fn x(self: &S) -> i32 { return (*self).v; } }
+fn main() -> i32 {
+    let s: S = S { v: 8i32 };
+    return s.x() - 8i32;
+}

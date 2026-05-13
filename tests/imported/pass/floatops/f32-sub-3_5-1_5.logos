@@ -1,0 +1,5 @@
+package f32_sub_3_5_1_5;
+fn main() -> i32 {
+    let r: f32 = 3.5f32 - 1.5f32;
+    return 0i32;
+}

@@ -1,0 +1,9 @@
+package ref_mut_3;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    {
+        let m: &mut i32 = &mut x;
+        *m = 3i32;
+    }
+    return x - 3i32;
+}

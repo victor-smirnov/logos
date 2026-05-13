@@ -1,0 +1,5 @@
+package cl_id_5;
+fn main() -> i32 {
+    let f = |x: i32| -> i32 { return x; };
+    return f(5i32) - 5i32;
+}

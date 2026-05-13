@@ -1,0 +1,5 @@
+package cl_2arg_5;
+fn main() -> i32 {
+    let add = |a: i32, b: i32| -> i32 { return a + b; };
+    return add(5i32, 5i32) - 10i32;
+}

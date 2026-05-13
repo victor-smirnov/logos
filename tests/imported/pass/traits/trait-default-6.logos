@@ -1,0 +1,8 @@
+package trait_default_6;
+trait T { fn x(self: &Self) -> i32 { return 6i32; } }
+struct S { _x: i32 }
+impl T for S {}
+fn main() -> i32 {
+    let s: S = S { _x: 0i32 };
+    return s.x() - 6i32;
+}

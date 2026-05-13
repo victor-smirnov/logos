@@ -1,0 +1,6 @@
+package tup_fn_3;
+fn swap(t: (i32, i32)) -> (i32, i32) { return (t.1, t.0); }
+fn main() -> i32 {
+    let s: (i32, i32) = swap((3i32, 6i32));
+    return s.0 - 6i32;
+}

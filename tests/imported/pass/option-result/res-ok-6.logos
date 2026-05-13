@@ -1,0 +1,10 @@
+package res_ok_6;
+enum Res<T, E> { Ok(T), Err(E) }
+fn main() -> i32 {
+    let r: Res<i32, i32> = Res::Ok(6i32);
+    let v: i32 = match r {
+        Res::Ok(x)  => x,
+        Res::Err(e) => e,
+    };
+    return v - 6i32;
+}

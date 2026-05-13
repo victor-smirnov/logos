@@ -1,0 +1,6 @@
+package int_add_6_2;
+fn main() -> i32 {
+    let r: i32 = 6i32 + 2i32;
+    let r2: i32 = 6i32 + 2i32;
+    return r - r2;
+}

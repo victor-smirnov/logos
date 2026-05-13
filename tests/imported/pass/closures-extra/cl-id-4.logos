@@ -1,0 +1,5 @@
+package cl_id_4;
+fn main() -> i32 {
+    let f = |x: i32| -> i32 { return x; };
+    return f(4i32) - 4i32;
+}

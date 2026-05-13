@@ -1,0 +1,6 @@
+package int_shl_12_3;
+fn main() -> i32 {
+    let r: i32 = 12i32 << 3i32;
+    let r2: i32 = 12i32 << 3i32;
+    return r - r2;
+}

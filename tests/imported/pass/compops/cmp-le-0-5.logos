@@ -1,0 +1,6 @@
+package cmp_le_0_5;
+fn main() -> i32 {
+    let r: bool = 0i32 <= 5i32;
+    if r { return 0i32; }
+    return 0i32;
+}

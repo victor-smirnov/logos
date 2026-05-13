@@ -1,0 +1,9 @@
+package trait_bound_5;
+trait Marker { fn val(self: &Self) -> i32; }
+struct S { v: i32 }
+impl Marker for S { fn val(self: &S) -> i32 { return (*self).v; } }
+fn run<T: Marker>(t: &T) -> i32 { return t.val(); }
+fn main() -> i32 {
+    let s: S = S { v: 5i32 };
+    return run::<S>(&s) - 5i32;
+}

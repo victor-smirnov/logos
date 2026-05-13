@@ -1,0 +1,6 @@
+package cl_higher_1;
+fn apply<F: FnOnce(i32) -> i32>(x: i32, f: F) -> i32 { return f(x); }
+fn main() -> i32 {
+    let f = |x: i32| -> i32 { return x * 2i32; };
+    return apply(1i32, f) - 2i32;
+}

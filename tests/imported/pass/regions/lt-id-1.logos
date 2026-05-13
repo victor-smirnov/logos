@@ -1,0 +1,6 @@
+package lt_id_1;
+fn id<'a>(r: &'a i32) -> &'a i32 { return r; }
+fn main() -> i32 {
+    let v: i32 = 1i32;
+    return *id(&v) - 1i32;
+}

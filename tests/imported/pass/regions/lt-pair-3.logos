@@ -1,0 +1,9 @@
+package lt_pair_3;
+struct P<'a> { x: &'a i32, y: &'a i32 }
+fn make<'a>(x: &'a i32, y: &'a i32) -> P<'a> { return P { x: x, y: y }; }
+fn main() -> i32 {
+    let a: i32 = 3i32;
+    let b: i32 = 3i32;
+    let p: P = make(&a, &b);
+    return *p.x + *p.y - 6i32;
+}

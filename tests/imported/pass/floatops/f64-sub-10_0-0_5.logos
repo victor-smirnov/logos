@@ -1,0 +1,5 @@
+package f64_sub_10_0_0_5;
+fn main() -> i32 {
+    let r: f64 = 10.0f64 - 0.5f64;
+    return 0i32;
+}

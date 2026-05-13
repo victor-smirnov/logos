@@ -1,0 +1,21 @@
+// GAP: binding an inner enum from a nested-enum match and re-matching
+// causes a runtime fault (exit 255). Codegen for nested-payload-bind
+// needs investigation. Pinned regression.
+package opt_nested_bind_gap;
+enum Opt<T> { Some(T), None }
+fn unwrap_2(o: Opt<Opt<i32>>) -> i32 {
+    match o {
+        Opt::Some(inner) => {
+            match inner {
+                Opt::Some(x) => return x,
+                Opt::None    => return 0i32,
+            }
+        }
+        Opt::None => return 0i32,
+    }
+}
+fn main() -> i32 {
+    let o: Opt<Opt<i32>> = Opt::Some(Opt::Some(5i32));
+    let _r: i32 = unwrap_2(o);
+    return 0i32;
+}
