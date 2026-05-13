@@ -1734,33 +1734,46 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                         break;
                     }
                 }
-                // For explicit field-path borrows (path non-empty): record
-                // via take_field_borrow so subsequent borrows conflict.
-                // For whole-value method-receiver borrows (path empty):
-                // CHECK against existing field paths only — don't record,
-                // because method receivers don't persist past the call
-                // (NLL releases at call end) and recording would conflict
-                // with TPB-style inner method calls (c.update(c.value())).
-                if (!path.empty()) {
-                    take_field_borrow(root, path, is_mut, line);
-                } else {
-                    // Path == "": query-only. Check overlap with any
-                    // existing field borrow on root.
+                // B94: AddrOfTemp in visit() is a transient auto-borrow
+                // (method-call receiver, arg materialization, etc.) — NLL
+                // releases it at call-end via scope-pop. Only CHECK against
+                // existing borrows; don't record (which would conflict with
+                // TPB-style nested method calls and field-receiver chains
+                // like `c.v.set(c.v.get() + 1)`).
+                // Recording for explicit let-bindings `let r = &mut p.f`
+                // happens via take_ref_borrows from the Let handler.
+                {
+                    std::string self_disp = fmt_path(root, path);
+                    if (sit->second.mut_borrowed) {
+                        report(line, std::format(
+                            "cannot borrow '{}': '{}' is already mutably borrowed",
+                            self_disp, root));
+                        break;
+                    }
+                    if (is_mut && sit->second.shared_borrows > 0) {
+                        report(line, std::format(
+                            "cannot borrow '{}' as mutable: '{}' has shared borrows",
+                            self_disp, root));
+                        break;
+                    }
                     for (auto& [p, c] : sit->second.shared_field_borrows) {
                         if (c <= 0) continue;
-                        if (is_mut) {
+                        if (paths_overlap(path, p) && is_mut) {
                             report(line, std::format(
-                                "cannot borrow '{}': '{}' is already borrowed",
-                                root, fmt_path(root, p)));
-                            break;
+                                "cannot borrow '{}' as mutable: '{}' is already borrowed",
+                                self_disp, fmt_path(root, p)));
+                            goto addrof_temp_done;
                         }
                     }
                     for (auto& p : sit->second.mut_field_borrows) {
-                        report(line, std::format(
-                            "cannot borrow '{}': '{}' is already mutably borrowed",
-                            root, fmt_path(root, p)));
-                        break;
+                        if (paths_overlap(path, p)) {
+                            report(line, std::format(
+                                "cannot borrow '{}': '{}' is already mutably borrowed",
+                                self_disp, fmt_path(root, p)));
+                            goto addrof_temp_done;
+                        }
                     }
+                    addrof_temp_done:;
                 }
             }
             if (inner) visit(inner, /*consuming=*/false, line);

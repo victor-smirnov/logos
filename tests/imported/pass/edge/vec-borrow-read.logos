@@ -1,0 +1,8 @@
+package vec_borrow_read;
+use std.collections.vec;
+fn main() -> i32 {
+    let mut v: Vec<i32> = vec_new::<i32>();
+    v.push(5i32);
+    let r: i32 = v.get(0i64);
+    return r - 5i32;
+}

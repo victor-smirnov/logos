@@ -1,0 +1,9 @@
+package cmp_chain;
+fn main() -> i32 {
+    let a: i32 = 1i32;
+    let b: i32 = 2i32;
+    let c: i32 = 3i32;
+    let r: bool = (a < b) && (b < c);
+    if r { return 0i32; }
+    return 1i32;
+}

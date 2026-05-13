@@ -1,0 +1,7 @@
+package gen_of_gen;
+struct Wrap<T> { v: T }
+fn double_wrap<T>(x: T) -> Wrap<Wrap<T>> { return Wrap { v: Wrap { v: x } }; }
+fn main() -> i32 {
+    let w: Wrap<Wrap<i32>> = double_wrap::<i32>(5i32);
+    return w.v.v - 5i32;
+}

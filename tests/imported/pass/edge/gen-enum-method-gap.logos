@@ -1,0 +1,13 @@
+// GAP: impl<T> on generic enum, method matches on self → runtime segfault.
+// Likely discriminant-read through &Bag<T> with generic T payload.
+package gen_enum_method_gap;
+enum Bag<T> { Some(T), None }
+impl<T> Bag<T> {
+    fn is_some(self: &Bag<T>) -> bool {
+        match self {
+            Bag::Some(_) => return true,
+            Bag::None    => return false,
+        }
+    }
+}
+fn main() -> i32 { return 0i32; }

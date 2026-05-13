@@ -1,0 +1,4 @@
+package gen_fn_calls_gen_fn;
+fn id<T>(x: T) -> T { return x; }
+fn dbl<T>(x: T) -> T { return id::<T>(id::<T>(x)); }
+fn main() -> i32 { return dbl::<i32>(5i32) - 5i32; }

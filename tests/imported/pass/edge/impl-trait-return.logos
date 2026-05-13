@@ -1,0 +1,9 @@
+package impl_trait_return;
+trait Speak { fn speak(self: &Self) -> i32; }
+struct Cat { v: i32 }
+impl Speak for Cat { fn speak(self: &Cat) -> i32 { return self.v; } }
+fn make() -> Cat { return Cat { v: 9i32 }; }
+fn main() -> i32 {
+    let c: Cat = make();
+    return c.speak() - 9i32;
+}

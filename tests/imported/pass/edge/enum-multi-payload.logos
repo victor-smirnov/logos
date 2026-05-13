@@ -1,0 +1,11 @@
+package enum_multi_payload;
+enum Many { Pair(i32, i32), Single(i32), None_ }
+fn main() -> i32 {
+    let m: Many = Many::Pair(5i32, 3i32);
+    let r: i32 = match m {
+        Many::Pair(a, b) => a + b,
+        Many::Single(x)  => x,
+        Many::None_      => 0i32,
+    };
+    return r - 8i32;
+}

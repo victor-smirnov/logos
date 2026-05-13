@@ -1,0 +1,9 @@
+package dyn_arg_call;
+trait Show { fn show(self: &Self) -> i32; }
+struct A { v: i32 }
+impl Show for A { fn show(self: &A) -> i32 { return self.v; } }
+fn print_<'a>(s: &'a dyn Show) -> i32 { return s.show(); }
+fn main() -> i32 {
+    let a: A = A { v: 11i32 };
+    return print_(&a) - 11i32;
+}

@@ -1,0 +1,8 @@
+package struct_hrtb_fnptr_field;
+struct H { f: for<'a> fn(&'a i32) -> &'a i32 }
+fn id<'a>(x: &'a i32) -> &'a i32 { return x; }
+fn main() -> i32 {
+    let h: H = H { f: id };
+    let v: i32 = 11i32;
+    return *(h.f)(&v) - 11i32;
+}

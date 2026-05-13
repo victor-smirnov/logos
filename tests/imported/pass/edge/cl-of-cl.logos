@@ -1,0 +1,6 @@
+package cl_of_cl;
+fn main() -> i32 {
+    let inner = |x: i32| -> i32 { return x + 1i32; };
+    let outer = |x: i32| -> i32 { return inner(x) + 1i32; };
+    return outer(3i32) - 5i32;
+}

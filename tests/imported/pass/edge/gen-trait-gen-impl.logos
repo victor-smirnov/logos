@@ -1,0 +1,8 @@
+package gen_trait_gen_impl;
+trait Conv<T> { fn conv(self: Self) -> T; }
+struct From { v: i32 }
+impl Conv<i32> for From { fn conv(self: From) -> i32 { return self.v; } }
+fn main() -> i32 {
+    let f: From = From { v: 8i32 };
+    return f.conv() - 8i32;
+}

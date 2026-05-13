@@ -1,0 +1,9 @@
+package impl_two_type_params;
+struct Pair<A, B> { a: A, b: B }
+impl<A, B> Pair<A, B> {
+    fn first(self: &Pair<A, B>) -> &A { return &self.a; }
+}
+fn main() -> i32 {
+    let p: Pair<i32, i64> = Pair { a: 5i32, b: 9i64 };
+    return *p.first() - 5i32;
+}

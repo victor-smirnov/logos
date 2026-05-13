@@ -1,0 +1,10 @@
+package mut_self_ret_ref;
+struct B { v: i32 }
+impl B {
+    fn bump(self: &mut B) -> &B { (*self).v = (*self).v + 1i32; return self; }
+}
+fn main() -> i32 {
+    let mut b: B = B { v: 0i32 };
+    let r: &B = b.bump();
+    return r.v - 1i32;
+}

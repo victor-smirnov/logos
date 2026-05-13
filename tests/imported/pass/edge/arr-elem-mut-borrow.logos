@@ -1,0 +1,9 @@
+package arr_elem_mut_borrow;
+fn main() -> i32 {
+    let mut a: [i32; 3] = [0i32, 0i32, 0i32];
+    {
+        let r: &mut i32 = &mut a[1];
+        *r = 5i32;
+    }
+    return a[1] - 5i32;
+}

@@ -1,0 +1,12 @@
+package deep_nested_struct;
+struct L1 { v: i32 }
+struct L2 { l1: L1 }
+struct L3 { l2: L2 }
+struct L4 { l3: L3 }
+impl L4 {
+    fn read(self: &L4) -> i32 { return self.l3.l2.l1.v; }
+}
+fn main() -> i32 {
+    let l: L4 = L4 { l3: L3 { l2: L2 { l1: L1 { v: 42i32 } } } };
+    return l.read() - 42i32;
+}

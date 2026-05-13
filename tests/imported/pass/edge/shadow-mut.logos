@@ -1,0 +1,7 @@
+package shadow_mut;
+fn main() -> i32 {
+    let x: i32 = 1i32;
+    let mut x: i32 = x;
+    x = x + 4i32;
+    return x - 5i32;
+}

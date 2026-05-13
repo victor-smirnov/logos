@@ -1,0 +1,7 @@
+package let_else_none;
+enum Opt<T> { Some(T), None }
+fn main() -> i32 {
+    let o: Opt<i32> = Opt::None;
+    let Opt::Some(_x) = o else { return 0i32; };
+    return 1i32;
+}

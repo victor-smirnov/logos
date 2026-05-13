@@ -1,0 +1,14 @@
+// Edge: nested enum, check discriminant only — no inner binding.
+package enum_nested_discriminant;
+enum Opt<T> { Some(T), None }
+fn is_double_some<T>(o: &Opt<Opt<T>>) -> bool {
+    match o {
+        Opt::Some(_) => return true,
+        Opt::None    => return false,
+    }
+}
+fn main() -> i32 {
+    let o: Opt<Opt<i32>> = Opt::Some(Opt::None);
+    if is_double_some::<i32>(&o) { return 0i32; }
+    return 1i32;
+}

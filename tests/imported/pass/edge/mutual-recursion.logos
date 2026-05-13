@@ -1,0 +1,13 @@
+package mutual_recursion;
+fn is_even(n: i32) -> bool {
+    if n == 0i32 { return true; }
+    return is_odd(n - 1i32);
+}
+fn is_odd(n: i32) -> bool {
+    if n == 0i32 { return false; }
+    return is_even(n - 1i32);
+}
+fn main() -> i32 {
+    if is_even(10i32) { return 0i32; }
+    return 1i32;
+}

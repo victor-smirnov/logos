@@ -1,0 +1,8 @@
+package vec_drop;
+use std.collections.vec;
+fn main() -> i32 {
+    let mut v: Vec<i32> = vec_new::<i32>();
+    v.push(1i32);
+    v.push(2i32);
+    return v.length() as i32 - 2i32;
+}

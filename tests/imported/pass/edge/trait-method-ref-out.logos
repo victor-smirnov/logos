@@ -1,0 +1,8 @@
+package trait_method_ref_out;
+trait Lookup { fn val(self: &Self) -> &i32; }
+struct S { x: i32 }
+impl Lookup for S { fn val(self: &S) -> &i32 { return &self.x; } }
+fn main() -> i32 {
+    let s: S = S { x: 11i32 };
+    return *s.val() - 11i32;
+}

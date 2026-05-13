@@ -1,0 +1,11 @@
+// GAP: `self.i.v = n` (chain field write through &mut self) rejected with
+// "chain field write to immutable variable 'self'". Probably the chain-
+// field-write path requires self be a `let mut` binding, but `&mut self`
+// is its OWN form of mut access through deref.
+package self_field_deep_gap;
+struct Inner { v: i32 }
+struct Outer { i: Inner }
+impl Outer {
+    fn read(self: &Outer) -> i32 { return self.i.v; }
+}
+fn main() -> i32 { return 0i32; }

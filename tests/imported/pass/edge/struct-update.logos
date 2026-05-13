@@ -1,0 +1,7 @@
+package struct_update;
+struct P { a: i32, b: i32, c: i32 }
+fn main() -> i32 {
+    let p1: P = P { a: 1i32, b: 2i32, c: 3i32 };
+    let p2: P = P { a: 10i32, ..p1 };
+    return p2.a + p2.b + p2.c - 15i32;
+}

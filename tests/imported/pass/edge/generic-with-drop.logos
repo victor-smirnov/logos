@@ -1,0 +1,7 @@
+package generic_with_drop;
+struct W<T> { v: T }
+impl<T> Drop for W<T> { fn drop(self: &mut W<T>) { } }
+fn main() -> i32 {
+    let _w: W<i32> = W { v: 5i32 };
+    return 0i32;
+}

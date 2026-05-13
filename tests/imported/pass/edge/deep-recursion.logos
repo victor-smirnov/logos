@@ -1,0 +1,6 @@
+package deep_recursion;
+fn count_down(n: i32) -> i32 {
+    if n == 0i32 { return 0i32; }
+    return count_down(n - 1i32) + 1i32;
+}
+fn main() -> i32 { return count_down(100i32) - 100i32; }

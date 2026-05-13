@@ -1,0 +1,6 @@
+package recursive_enum;
+enum List { Cons(i32, *mut List), Nil }
+fn main() -> i32 {
+    let _l: List = List::Nil;
+    return 0i32;
+}

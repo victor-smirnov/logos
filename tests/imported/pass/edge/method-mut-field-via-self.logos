@@ -1,0 +1,14 @@
+package method_mut_field_via_self;
+struct S { v: i32 }
+impl S {
+    fn set(self: &mut S, n: i32) { (*self).v = n; }
+    fn double_set(self: &mut S, n: i32) {
+        self.set(n);
+        self.set(n * 2i32);
+    }
+}
+fn main() -> i32 {
+    let mut s: S = S { v: 0i32 };
+    s.double_set(3i32);
+    return s.v - 6i32;
+}

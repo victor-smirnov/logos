@@ -1,0 +1,8 @@
+package cl_arg_mut_ref;
+fn apply<F: FnOnce(&mut i32)>(r: &mut i32, f: F) { f(r); }
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let f = |r: &mut i32| { *r = 9i32; };
+    apply(&mut x, f);
+    return x - 9i32;
+}

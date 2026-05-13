@@ -1,0 +1,5 @@
+package variance_multi_arg_co;
+struct W<T, U> { t: T, u: U }
+fn shorten<'s, 'l>(w: W<&'l i32, &'l i64>) -> W<&'s i32, &'s i64>
+    where 'l: 's { return w; }
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,3 @@
+package const_decl;
+const N: i32 = 42i32;
+fn main() -> i32 { return N - 42i32; }

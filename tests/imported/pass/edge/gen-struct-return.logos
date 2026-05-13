@@ -1,0 +1,7 @@
+package gen_struct_return;
+struct W<T> { v: T }
+fn wrap<T>(x: T) -> W<T> { return W { v: x }; }
+fn main() -> i32 {
+    let w: W<i32> = wrap::<i32>(7i32);
+    return w.v - 7i32;
+}

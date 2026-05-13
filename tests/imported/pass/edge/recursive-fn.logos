@@ -1,0 +1,6 @@
+package recursive_fn;
+fn fact(n: i32) -> i32 {
+    if n <= 1i32 { return 1i32; }
+    return n * fact(n - 1i32);
+}
+fn main() -> i32 { return fact(5i32) - 120i32; }

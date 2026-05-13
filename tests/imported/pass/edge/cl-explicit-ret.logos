@@ -1,0 +1,5 @@
+package cl_explicit_ret;
+fn main() -> i32 {
+    let f: fn(i32) -> i32 = |x: i32| -> i32 { return x + 1i32; };
+    return f(4i32) - 5i32;
+}

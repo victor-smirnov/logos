@@ -1,0 +1,6 @@
+package const_gen_arr;
+struct A<const N: usize> { v: i32 }
+fn main() -> i32 {
+    let _a: A<4> = A { v: 0i32 };
+    return 0i32;
+}

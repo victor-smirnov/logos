@@ -1,0 +1,8 @@
+package cl_mut_capture;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let r: &mut i32 = &mut x;
+    let bump = || -> i32 { *r = *r + 1i32; return *r; };
+    let v: i32 = bump();
+    return v - 1i32;
+}

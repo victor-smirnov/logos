@@ -1,0 +1,11 @@
+package empty_gen_enum;
+enum Never<T> { Var(T) }
+fn never_call<T>(n: Never<T>) -> T {
+    match n {
+        Never::Var(x) => return x,
+    }
+}
+fn main() -> i32 {
+    let n: Never<i32> = Never::Var(5i32);
+    return never_call::<i32>(n) - 5i32;
+}

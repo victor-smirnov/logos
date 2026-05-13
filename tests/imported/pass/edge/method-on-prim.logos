@@ -1,0 +1,7 @@
+package method_on_prim;
+trait Square { fn sq(self: &Self) -> i32; }
+impl Square for i32 { fn sq(self: &i32) -> i32 { return (*self) * (*self); } }
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    return x.sq() - 25i32;
+}

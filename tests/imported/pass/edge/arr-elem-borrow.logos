@@ -1,0 +1,6 @@
+package arr_elem_borrow;
+fn main() -> i32 {
+    let a: [i32; 3] = [1i32, 2i32, 3i32];
+    let r: &i32 = &a[1];
+    return *r - 2i32;
+}

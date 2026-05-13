@@ -1,0 +1,7 @@
+package const_expr;
+const A: i32 = 5i32;
+const B: i32 = 3i32;
+fn main() -> i32 {
+    let s: i32 = A + B;
+    return s - 8i32;
+}

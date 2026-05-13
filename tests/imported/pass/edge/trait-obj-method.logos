@@ -1,0 +1,9 @@
+package trait_obj_method;
+trait Shape { fn area(self: &Self) -> i32; }
+struct Circle { r: i32 }
+impl Shape for Circle { fn area(self: &Circle) -> i32 { return self.r * self.r; } }
+fn dispatch(s: &dyn Shape) -> i32 { return s.area(); }
+fn main() -> i32 {
+    let c: Circle = Circle { r: 5i32 };
+    return dispatch(&c) - 25i32;
+}

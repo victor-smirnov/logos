@@ -1,0 +1,11 @@
+package opt_of_ref;
+enum Opt<T> { Some(T), None }
+fn main() -> i32 {
+    let v: i32 = 5i32;
+    let o: Opt<&i32> = Opt::Some(&v);
+    let r: i32 = match o {
+        Opt::Some(r) => *r,
+        Opt::None    => 0i32,
+    };
+    return r - 5i32;
+}

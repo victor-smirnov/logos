@@ -1,0 +1,10 @@
+package supertrait;
+trait A { fn a(self: &Self) -> i32; }
+trait B : A { fn b(self: &Self) -> i32 { return self.a() + 1i32; } }
+struct S { v: i32 }
+impl A for S { fn a(self: &S) -> i32 { return self.v; } }
+impl B for S {}
+fn main() -> i32 {
+    let s: S = S { v: 5i32 };
+    return s.b() - 6i32;
+}

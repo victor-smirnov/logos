@@ -1,0 +1,9 @@
+// GAP: const generic N in struct field type doesn't propagate at instantiation.
+// `let _b: Buf<3> = Buf { v: [...; 3] }` is rejected because Buf<3>'s field
+// type is reported as `[i32; 0]` (N not substituted).
+package const_gen_struct_gap;
+struct Buf<const N: usize> { v: i32 }  // workaround: no const-gen array
+fn main() -> i32 {
+    let _b: Buf<3> = Buf { v: 0i32 };
+    return 0i32;
+}

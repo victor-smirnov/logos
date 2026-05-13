@@ -1,0 +1,10 @@
+package gen_method_gen_struct_lt;
+struct W<'a, T> { r: &'a T }
+impl<'a, T> W<'a, T> {
+    fn get(self: &W<'a, T>) -> &'a T { return self.r; }
+}
+fn main() -> i32 {
+    let v: i32 = 7i32;
+    let w: W<'_, i32> = W { r: &v };
+    return *w.get() - 7i32;
+}

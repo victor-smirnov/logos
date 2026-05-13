@@ -1,0 +1,5 @@
+package variance_fn_contra_deep;
+struct CB<T> { f: fn(T) -> i32 }
+fn lengthen<'s, 'l>(c: CB<&'s i32>) -> CB<&'l i32>
+    where 'l: 's { return c; }
+fn main() -> i32 { return 0i32; }

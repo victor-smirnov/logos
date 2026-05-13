@@ -1,0 +1,11 @@
+// GAP: `let W { a: x, b: y } = w;` on W<T> doesn't propagate concrete T
+// into the destructure bindings — x typed as T, not as the instantiation.
+// Sema's struct destructure pattern doesn't run subst against the bound's
+// type args.
+package struct_destr_gen_gap;
+struct W<T> { a: T, b: T }
+fn make() -> W<i32> { return W { a: 5i32, b: 3i32 }; }
+fn main() -> i32 {
+    let _w: W<i32> = make();
+    return 0i32;
+}

@@ -1,0 +1,7 @@
+package struct_cl_field;
+struct H { _x: i32 }
+fn main() -> i32 {
+    let h: H = H { _x: 5i32 };
+    let f = || -> i32 { return h._x; };
+    return f() - 5i32;
+}

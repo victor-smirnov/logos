@@ -1,0 +1,10 @@
+package cl_fnmut_stateful;
+fn main() -> i32 {
+    let mut n: i32 = 0i32;
+    let r: &mut i32 = &mut n;
+    let mut bump = || -> i32 { *r = *r + 1i32; return *r; };
+    let _a: i32 = bump();
+    let _b: i32 = bump();
+    let _c: i32 = bump();
+    return n - 3i32;
+}

@@ -1,0 +1,13 @@
+// Method-receiver via field with TPB-style arg eval.
+package tpb_field_receiver;
+struct V { vals: i32 }
+impl V {
+    fn set(self: &mut V, v: i32) { (*self).vals = v; }
+    fn get(self: &V) -> i32 { return (*self).vals; }
+}
+struct C { v: V }
+fn main() -> i32 {
+    let mut c: C = C { v: V { vals: 3i32 } };
+    c.v.set(c.v.get() + 1i32);
+    return c.v.vals - 4i32;
+}

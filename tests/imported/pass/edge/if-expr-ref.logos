@@ -1,0 +1,7 @@
+package if_expr_ref;
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    let y: i32 = 10i32;
+    let r: &i32 = if true { &x } else { &y };
+    return *r - 5i32;
+}
