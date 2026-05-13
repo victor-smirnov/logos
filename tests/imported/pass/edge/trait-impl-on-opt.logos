@@ -1,0 +1,9 @@
+// B97.5: trait method static call on enum target (not variant).
+package trait_impl_on_opt;
+enum Opt<T> { Some(T), None }
+trait Default_ { fn default_() -> Self; }
+impl Default_ for Opt<i32> { fn default_() -> Opt<i32> { return Opt::None; } }
+fn main() -> i32 {
+    let _o: Opt<i32> = Opt::<i32>::default_();
+    return 0i32;
+}

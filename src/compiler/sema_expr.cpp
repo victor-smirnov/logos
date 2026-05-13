@@ -6969,15 +6969,28 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
     auto class_name = str_of(node.get(la::RECEIVER.code));
     auto method_name = str_of(node.get(la::NAME.code));
 
-    // If "class_name" is actually an enum, redirect to enum lit with data.
+    // If "class_name" is actually an enum, redirect to enum lit with data —
+    // but only when method_name is a variant. Otherwise it's a static method
+    // call on the enum (trait impl), which falls through to the regular
+    // static-call resolution below.
     {
         auto [epkg_sc, esi_sc] = find_enum_by_name(class_name);
         bool is_enum = esi_sc != nullptr;
         if (!is_enum) is_enum = enums_.count(std::string(class_name)) > 0;
         if (is_enum) {
-            // Reinterpret as ENUM_LIT_DATA: NAME=class_name, FIELD=method_name
-            // Build a fake node view... or just inline the logic.
-            return lower_enum_lit_data_from_static(node, class_name, method_name);
+            bool is_variant = false;
+            auto eit = esi_sc ? enums_.find(sema_key(epkg_sc, std::string(class_name)))
+                              : enums_.end();
+            if (eit == enums_.end()) eit = enums_.find(std::string(class_name));
+            if (eit != enums_.end())
+                for (auto& v : eit->second.variants)
+                    if (v.name == method_name) { is_variant = true; break; }
+            if (is_variant) {
+                return lower_enum_lit_data_from_static(node, class_name, method_name);
+            }
+            // B97.5: not a variant — fall through. lower_static_call will
+            // look up the method via fn mangle paths (which include trait-
+            // impl-on-enum mangles).
         }
     }
 
