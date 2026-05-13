@@ -2274,11 +2274,14 @@ void SemaChecker::collect_struct(TinyMapView node) {
         info.is_pub = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
     }
     push_type_params(info.type_params);
-    // For generic tuple-struct (`struct W<T>(T);`) the grammar's $... rule-
-    // capture also folds the type_param_list result into FIELDS, since the
-    // outer rcap_ has no way to exclude rules used for other named slots.
-    // Filter: a real field is a FIELD_DEF node — anything else (notably
-    // type_param_list emitting `{ITEMS: ...}`) is dropped here.
+    // Generic tuple-struct (`struct W<T>(T);`) grammar uses `$...` to
+    // collect tuple_field results into FIELDS; the same `$...` collector
+    // also folds in the rule-call result of `type_param_list?` (peg_gen
+    // rcap_var_ has no opt-out for named slots). Filter: real fields are
+    // FIELD_DEF nodes; anything else (notably the type_param_list map
+    // emitting `{ITEMS: ...}`) is dropped here. TODO: peg_gen-side fix
+    // would let an action mark $N positions as "exclude from $..." and
+    // remove this workaround.
     auto is_field_def = [&](TinyMapView fnode) {
         return code_of(fnode) == la::FIELD_DEF;
     };

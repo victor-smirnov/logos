@@ -1,8 +1,13 @@
-// GAP: Box<T> doesn't auto-deref via `*b` to inner T value in
-// arithmetic / let-init context. Probably needs Deref trait wiring.
+// CLOSED 2026-05-13: Box<T> now auto-derefs via `*b` in expression
+// position. Fix: lower_deref special-cases stdlib `Box<T>` —
+// synthesises field-read of `.ptr` (yielding `*mut T`) and a
+// pointer-deref to T, without requiring user-level unsafe (Box
+// abstracts over its inner raw pointer). No full Deref-trait
+// machinery yet — direct lowering for the stdlib Box; sister-fix in
+// lower_field_read handles `b.field` (boxed-struct-gap).
 package box_gen_gap;
 use std.mem.box;
 fn main() -> i32 {
-    let _b: Box<i32> = box_new(7i32);
-    return 0i32;
+    let b: Box<i32> = box_new(7i32);
+    return *b - 7i32;
 }

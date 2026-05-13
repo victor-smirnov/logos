@@ -1,9 +1,12 @@
-// GAP: Box<S> doesn't auto-deref for field access (b.v fails).
-// Same family as box-gen-gap. Needs Deref trait wiring.
+// CLOSED 2026-05-13: Box<S> now auto-derefs for field access — `b.v`
+// for `b: Box<S>` rewrites internally to `(*b).v`. Fix: lower_field_read
+// detects Box<S> recv (struct inner) and replaces recv with a field-read
+// of `.ptr` (`*mut S`), then the existing Ptr-recv branch threads through
+// without requiring user-level unsafe (Box abstracts its raw pointer).
 package boxed_struct_gap;
 use std.mem.box;
 struct S { v: i32 }
 fn main() -> i32 {
-    let _b: Box<S> = box_new(S { v: 5i32 });
-    return 0i32;
+    let b: Box<S> = box_new(S { v: 5i32 });
+    return b.v - 5i32;
 }

@@ -1199,6 +1199,18 @@ lir::LExprPtr SemaChecker::lower_deref(TinyMapView node) {
     auto vt = operand->type;
     if (TypeRef(vt).kind() == LogosType::Kind::Error)
         return builder().deref(std::move(operand), error_t());
+    // Box<T> auto-deref: `*b` for `b: Box<T>` yields T by routing through the
+    // box's `.ptr` field (which is *mut T) and dereferencing it. Box hides
+    // unsafe behind the abstraction, so don't require unsafe context here.
+    // No full Deref trait machinery — direct lowering for the stdlib Box.
+    if (TypeRef(vt).kind() == LogosType::Kind::Struct &&
+        TypeRef(vt).struct_name() == "Box" &&
+        TypeRef(vt).type_args().size() == 1) {
+        auto inner = TypeRef(vt).type_args()[0];
+        auto ptr_t = make_ptr(true, inner);
+        auto ptr_read = builder().field_read(std::move(operand), "ptr", ptr_t);
+        return builder().deref(std::move(ptr_read), inner);
+    }
     if (TypeRef(vt).kind() != LogosType::Kind::Ptr &&
         TypeRef(vt).kind() != LogosType::Kind::Ref &&
         TypeRef(vt).kind() != LogosType::Kind::MutRef) {
@@ -4847,7 +4859,21 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
     if (field_name.empty()) field_name = str_of(node.get(la::NAME.code));
     auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
     TypeRef recv_base_t = recv->type;
-    if (recv_base_t && TypeRef(recv_base_t).kind() == LogosType::Kind::Ptr) {
+    // Box<S> auto-deref for field access: `b.v` for `b: Box<S>` rewrites to
+    // `(*b).v`. We unwrap by replacing recv with `recv.ptr` (a `*mut S`) and
+    // keep the Ptr branch below to surface the struct without requiring
+    // unsafe at the user site — Box abstracts over its inner pointer.
+    if (recv_base_t && TypeRef(recv_base_t).kind() == LogosType::Kind::Struct &&
+        TypeRef(recv_base_t).struct_name() == "Box" &&
+        TypeRef(recv_base_t).type_args().size() == 1) {
+        TypeRef inner = TypeRef(recv_base_t).type_args()[0];
+        if (inner && (TypeRef(inner).kind() == LogosType::Kind::Struct ||
+                      TypeRef(inner).kind() == LogosType::Kind::ZonedStruct)) {
+            auto ptr_t = make_ptr(true, inner);
+            recv = builder().field_read(std::move(recv), "ptr", ptr_t);
+            recv_base_t = inner;
+        }
+    } else if (recv_base_t && TypeRef(recv_base_t).kind() == LogosType::Kind::Ptr) {
         if (!inside_unsafe_)
             error("field read through raw pointer requires unsafe context");
         recv_base_t = TypeRef(recv_base_t).pointee();
