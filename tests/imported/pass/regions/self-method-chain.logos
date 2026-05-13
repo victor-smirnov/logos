@@ -1,0 +1,15 @@
+// B86: method chain through Self.
+package self_method_chain;
+
+struct Container<'a> { r: &'a i32 }
+
+impl<'a> Container<'a> {
+    fn inner(self: &Self) -> &'a i32 { return self.r; }
+    fn outer(self: &Self) -> i32 { return *self.inner(); }
+}
+
+fn main() -> i32 {
+    let v: i32 = 8i32;
+    let c: Container = Container { r: &v };
+    return c.outer() - 8i32;
+}

@@ -1,0 +1,12 @@
+// B86: anonymous `'_` in return position parses + lowers.
+package anon_lt_return_type;
+
+struct H<'a> { r: &'a i32 }
+
+fn make<'a>(r: &'a i32) -> H<'_> { return H { r: r }; }
+
+fn main() -> i32 {
+    let v: i32 = 4i32;
+    let _h: H = make(&v);
+    return 0i32;
+}

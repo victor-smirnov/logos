@@ -222,6 +222,11 @@ class BorrowChecker {
     int                                  in_call_args_ = 0;
     // param name → lifetime annotation of that param's type (e.g. "'a", "")
     std::unordered_map<std::string, std::string> param_lifetimes_;
+    // B86: per-param inner-struct lifetime_args. Populated for ref-typed
+    // params whose pointee is a Struct/Enum carrying explicit lt_args.
+    // Used by check_return_value to accept `self: &Self` -> &'a T when 'a
+    // is one of Self's struct lt_args (Self<'a> shape).
+    std::unordered_map<std::string, std::vector<std::string>> param_inner_lifetimes_;
     // Declared lifetime parameters of the current function (e.g. ["'a", "'b"]).
     std::vector<std::string>             fn_lifetime_params_;
     // B66: outlives graph from fn.lifetime_outlives — used to accept the
@@ -676,6 +681,20 @@ class BorrowChecker {
                 // lifetime cannot silently match a declared return lifetime.
                 if (outlives(src_lt, ret_lt, outlives_adj_, /*permissive_empty=*/false))
                     continue;
+                // B86: if outer ref lt is elided AND the param points to an
+                // aggregate, defer to type-checker. The lt structure of
+                // fields is verified there; we'd otherwise reject valid
+                // `self: &Self` -> &'a T where Self<'a> shapes (Self type
+                // resolution doesn't carry impl-level lt_args forward yet).
+                if (src_lt.empty()) {
+                    auto inner = param_inner_lifetimes_.find(src);
+                    if (inner != param_inner_lifetimes_.end()) {
+                        bool found = inner->second.empty();  // aggregate w/o lt_args: trust
+                        for (auto& ilt : inner->second)
+                            if (ilt == ret_lt) { found = true; break; }
+                        if (found) continue;
+                    }
+                }
                 report(line, std::format(
                     "lifetime mismatch: return type has lifetime {} "
                     "but '{}' has lifetime {}",
@@ -1435,8 +1454,24 @@ public:
         for (auto& p : fn.params) {
             declare_var(p.name);
             param_names_.insert(p.name);
-            if (is_ref_kind(p.type))
+            if (is_ref_kind(p.type)) {
                 param_lifetimes_[p.name] = std::string(TypeRef(p.type).lifetime());
+                // B86: capture inner-struct lifetime_args.
+                auto pointee = TypeRef(p.type).pointee();
+                if (pointee && (pointee.kind() == LogosType::Kind::Struct ||
+                                pointee.kind() == LogosType::Kind::ZonedStruct ||
+                                pointee.kind() == LogosType::Kind::Enum)) {
+                    // B86: capture the pointee's explicit lt_args if any.
+                    // Even when empty (e.g. `&Self` where Self isn't yet
+                    // resolved with impl-level lt_args), record an empty
+                    // vector — its presence signals "param points to an
+                    // aggregate; trust type-checker for inner lifetime
+                    // structure" in check_return_value.
+                    std::vector<std::string> lts;
+                    for (auto& lt : pointee.lifetime_args()) lts.push_back(lt);
+                    param_inner_lifetimes_[p.name] = std::move(lts);
+                }
+            }
         }
 
         visit_block(fn.body);

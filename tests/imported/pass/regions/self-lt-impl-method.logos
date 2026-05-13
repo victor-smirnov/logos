@@ -1,0 +1,15 @@
+// B86: `impl<'a> H<'a> { fn get(self: &Self) -> &'a T }` — Self carries
+// impl-level lifetime via permissive elided-outer-ref check.
+package self_lt_impl_method;
+
+struct H<'a> { r: &'a i32 }
+
+impl<'a> H<'a> {
+    fn get(self: &Self) -> &'a i32 { return self.r; }
+}
+
+fn main() -> i32 {
+    let v: i32 = 11i32;
+    let h: H = H { r: &v };
+    return *h.get() - 11i32;
+}
