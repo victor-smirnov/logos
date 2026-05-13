@@ -1,9 +1,13 @@
-// GAP: const generic N in struct field type doesn't propagate at instantiation.
-// `let _b: Buf<3> = Buf { v: [...; 3] }` is rejected because Buf<3>'s field
-// type is reported as `[i32; 0]` (N not substituted).
+// CLOSED 2026-05-13: const-generic N in struct field type now propagates
+// at struct-literal use sites. Fix: in lower_struct_lit, after looking up
+// field type ft from the effective definition, substitute the struct's
+// type-params (sinfo.type_params) with the literal's args via
+// subst_type_sema before the type-compatibility check. subst_type_sema
+// already knew how to resolve symbolic array-size vars (arr_size_var) —
+// the call site just wasn't applying the subst.
 package const_gen_struct_gap;
-struct Buf<const N: usize> { v: i32 }  // workaround: no const-gen array
+struct Buf<const N: usize> { v: [i32; N] }
 fn main() -> i32 {
-    let _b: Buf<3> = Buf { v: 0i32 };
-    return 0i32;
+    let b: Buf<3> = Buf { v: [5i32, 0i32, 0i32] };
+    return b.v[0] - 5i32;
 }

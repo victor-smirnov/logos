@@ -5167,6 +5167,18 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 TypeRef ft = nullptr;
                 for (auto& ef : effective->fields)
                     if (ef.name == fname) { ft = ef.type; break; }
+                // Substitute struct type-params into ft so const-generic
+                // array lengths (`[T; N]` with `struct Buf<const N: usize>`)
+                // resolve to concrete sizes at the use site. Without this,
+                // ft stays `[T; <symbolic N>]` and the validator fires
+                // "expected [T; 0] got [T; K]". Type-params and args are
+                // index-aligned from the struct definition.
+                if (ft && !sinfo.type_params.empty() && !args.empty()) {
+                    SemaSubst sb;
+                    for (size_t i = 0; i < sinfo.type_params.size() && i < args.size(); ++i)
+                        sb[sinfo.type_params[i].name] = args[i];
+                    ft = subst_type_sema(ft, sb);
+                }
                 // Recursively detect a typevar anywhere inside ft (e.g. `*mut Inner<K>`
                 // for generic field declared as `*mut Inner<K>` — sema doesn't substitute
                 // type params here, so any typevar means we can't compare ft to fval->type
@@ -5469,8 +5481,17 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
     if (TypeRef(arr_type).kind() == LogosType::Kind::Array && TypeRef(arr_type).elem())  elem = TypeRef(arr_type).elem();
     if ((TypeRef(arr_type).kind() == LogosType::Kind::Ptr ||
          TypeRef(arr_type).kind() == LogosType::Kind::Ref ||
-         TypeRef(arr_type).kind() == LogosType::Kind::MutRef) && TypeRef(arr_type).pointee())
-        elem = TypeRef(arr_type).pointee();
+         TypeRef(arr_type).kind() == LogosType::Kind::MutRef) && TypeRef(arr_type).pointee()) {
+        // For `&[T; N]` / `&mut [T; N]` / `*const [T; N]`, indexing through
+        // the ref auto-derefs and yields the element type. Without this
+        // step `a[0]` for `a: &[i32; N]` returns the whole array (with N
+        // unresolved → "expected i32, got [i32; 0]").
+        TypeRef pointee = TypeRef(arr_type).pointee();
+        if (pointee.kind() == LogosType::Kind::Array && pointee.elem())
+            elem = pointee.elem();
+        else
+            elem = pointee;
+    }
 
     return builder().index_read(std::move(recv), std::move(idx), elem);
 }

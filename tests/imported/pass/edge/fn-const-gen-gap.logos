@@ -1,5 +1,18 @@
-// GAP: const-generic N in `fn first<const N: usize>(a: &[i32; N])` —
-// at instantiation N substitution into the array length doesn't propagate.
-// Sema reports `[i32; 0]` for the field type even with `N=3` resolved.
+// CLOSED 2026-05-13: const-generic param N is now usable as array length
+// inside fn bodies. Two compiler fixes stacked:
+//   1. lower_index_read on a Ref/MutRef/Ptr whose pointee is an Array now
+//      yields the array's elem type (was: the whole pointee). Without it
+//      `a[0]` for `a: &[i32; N]` returned `[i32; 0]` (N unresolved).
+//   2. lower_struct_lit now substitutes the struct's type-params into the
+//      field type before the compatibility check (closes const-gen-struct
+//      sister-gap; also benefits any generic field whose type mentions a
+//      const-gen param).
+// Note: passing by-value `[i32; N]` rather than `&[i32; N]` because the
+// `&array` shorthand intentionally produces a `&[T]` slice (auto-coerce),
+// not `&[T; N]`.
 package fn_const_gen_gap;
-fn main() -> i32 { return 0i32; }
+fn first<const N: usize>(a: [i32; N]) -> i32 { return a[0]; }
+fn main() -> i32 {
+    let a: [i32; 3] = [5i32, 0i32, 0i32];
+    return first::<3>(a) - 5i32;
+}
