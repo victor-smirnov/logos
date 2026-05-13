@@ -268,6 +268,32 @@ private:
         t.closure_ret = ret ? ret : void_t();
         return pool_->alloc(std::move(t));
     }
+    // Phase 1B-12: unsize coercion `&[T; N]` / `&mut [T; N]` / `*const [T; N]`
+    // / `*mut [T; N]` → `&[T]` (Kind::Slice). Builds the fat-pointer payload
+    // from the array reference's data ptr and the compile-time-known length N.
+    // Returns true if coercion was applied.
+    bool try_coerce_array_ref_to_slice(lir::LExprPtr& arg, TypeRef expected) {
+        if (!arg || !expected) return false;
+        TypeRef et(expected);
+        if (et.kind() != LogosType::Kind::Slice) return false;
+        TypeRef at(arg->type);
+        if (!at) return false;
+        bool is_ref_or_ptr =
+            at.kind() == LogosType::Kind::Ref ||
+            at.kind() == LogosType::Kind::MutRef ||
+            at.kind() == LogosType::Kind::Ptr;
+        if (!is_ref_or_ptr) return false;
+        TypeRef pointee = at.pointee();
+        if (!pointee || pointee.kind() != LogosType::Kind::Array) return false;
+        if (!types_compatible(pointee.elem(), et.elem())) return false;
+        int64_t n = static_cast<int64_t>(pointee.arr_size());
+        // Build a slice_lit using the ref/ptr value as the data ptr and N as
+        // the length. arg holds the address expression; reuse it directly.
+        auto len = builder().lit_int(n, prim(LogosType::Kind::I64));
+        arg = builder().slice_lit(std::move(arg), std::move(len),
+                                  make_slice_type(et.elem()));
+        return true;
+    }
     // Coerce a non-capturing closure to fn ptr when target type is FnPtr.
     // Returns true if coercion was applied (arg's type is changed to FnPtr).
     bool try_coerce_closure_to_fnptr(lir::LExprPtr& arg, TypeRef expected) {
@@ -289,6 +315,23 @@ private:
     TypeRef make_slice_type(TypeRef elem) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Slice;
         t.elem = elem;
+        return pool_->alloc(std::move(t));
+    }
+    // Phase 1B: bare `[T]` — the unsized form, distinct from `&[T]` (Slice).
+    // Cannot appear as a value type; only behind a reference (where it
+    // canonicalises back to Kind::Slice) or as a `T: ?Sized` substitution.
+    TypeRef make_unsized_slice_type(TypeRef elem) {
+        LogosTypeBuilder t; t.kind = LogosType::Kind::UnsizedSlice;
+        t.elem = elem;
+        return pool_->alloc(std::move(t));
+    }
+    // Phase 1B-4: bare `dyn Trait` — the unsized trait-object form. Mirror
+    // of make_unsized_slice_type for dyn. Args may be empty.
+    TypeRef make_unsized_dyn_type(std::string_view tname,
+                                  std::vector<TypeRef> args = {}) {
+        LogosTypeBuilder t; t.kind = LogosType::Kind::UnsizedDyn;
+        t.trait_name = std::string(tname);
+        t.type_args = std::move(args);
         return pool_->alloc(std::move(t));
     }
     TypeRef make_trait_object(std::string_view tname,
@@ -1200,6 +1243,13 @@ private:
                             bool is_data_plain = true;  // false if any field is Kind::ZonedStruct
                             bool is_annotation_type = false;  // #[annotation] datatype (see LStructDef::is_annotation_type)
                             bool is_tuple_struct = false;  // B-ts-01: `struct Foo(T1, T2);` — positional fields, ctor is `Foo(a, b)` and pattern is `Foo(x, y)`
+                            // Phase 1B-13: custom DST — the LAST field has
+                            // unsized type (`[T]` / `dyn Trait` / nested DST).
+                            // The struct itself becomes unsized; can only
+                            // appear behind `&`/`&mut`/`*const`/`*mut` /
+                            // `Box`. Construction goes through unsafe raw-
+                            // parts assembly (no by-value).
+                            bool is_dst = false;
                             // Partial-spec support: when this is a specialization,
                             // base_name is the generic template (e.g. "Map") and
                             // spec_patterns holds one entry per type-param slot
@@ -1421,6 +1471,12 @@ private:
     std::string current_impl_trait_name_;
     // Bounds per type param name (set alongside current_type_params_ during push_type_params)
     logos::compiler::StrMap<std::vector<TraitBound>> current_type_bounds_;
+    // Phase 1B-9: names of currently-in-scope type params that carry `?Sized`
+    // (i.e. have implicit_sized=false). Consulted at substitution-time
+    // sized-enforcement: when a `T` in this set is passed as a type-arg to
+    // a callee that requires Sized on the corresponding param, emit the
+    // same diagnostic as for explicit unsized substitutions.
+    logos::compiler::StrSet current_type_relaxed_sized_;
 
     // Blanket impls: `impl<T: Bound> Trait for T { fn method(…) … }`.  Stored
     // here during collect; consulted at method-call sites when direct lookup
@@ -1573,6 +1629,15 @@ private:
     // Read type_args + assoc_eqs from a TRAIT_BOUND node's TYPE_PARAMS slot.
     // ASSOC_EQ_BIND items go to assoc_eqs; everything else is resolved as a type.
     void read_trait_bound_args(hermes::TinyMapView bnode, TraitBound& tb);
+    // Phase 1: post-process collected bounds. Walks `tp.bounds` and:
+    //   - for each bound with `is_relaxed=true`, validates `trait_name=="Sized"`
+    //     (otherwise emits an error: only `?Sized` is permitted);
+    //   - clears `tp.implicit_sized` when `?Sized` was seen;
+    //   - removes the relaxed entries from `tp.bounds` so downstream code
+    //     sees only positive bounds.
+    // Call this once per type param after all bounds (including `where`
+    // clause additions) have been collected.
+    void finalize_relaxed_bounds(TypeParam& tp);
 
     // ADR 0008: check that a `Trait<Assoc = Type>` clause holds for `concrete`.
     // `concrete_name` is type_str(concrete); `base_name` is its struct base name
@@ -1593,6 +1658,10 @@ private:
         bool had_type = false;
         std::vector<TraitBound> old_bounds;
         bool had_bounds = false;
+        // Phase 1B-9: shadow the `?Sized` flag too — without this, popping
+        // a frame whose param had relaxed-Sized would leave the outer
+        // binding (if any) clobbered.
+        bool was_relaxed_sized = false;
     };
     std::vector<std::vector<ShadowFrame>> type_param_shadow_stack_;
 
@@ -1607,6 +1676,7 @@ private:
             if (it != current_type_params_.end()) { f.had_type = true; f.old_type = it->second; }
             auto bit = current_type_bounds_.find(tp.name);
             if (bit != current_type_bounds_.end()) { f.had_bounds = true; f.old_bounds = bit->second; }
+            f.was_relaxed_sized = current_type_relaxed_sized_.count(tp.name) != 0;
             frames.push_back(std::move(f));
             if (tp.is_const) {
                 LogosTypeBuilder c; c.kind = LogosType::Kind::ConstVar;
@@ -1621,6 +1691,13 @@ private:
             } else {
                 current_type_bounds_.erase(tp.name);
             }
+            // Phase 1B-9: track `?Sized` opt-out per name. `implicit_sized`
+            // was cleared by finalize_relaxed_bounds when `T: ?Sized` is
+            // parsed.
+            if (!tp.implicit_sized)
+                current_type_relaxed_sized_.insert(tp.name);
+            else
+                current_type_relaxed_sized_.erase(tp.name);
         }
     }
     void pop_type_params(const std::vector<TypeParam>& /*tps*/) {
@@ -1631,6 +1708,8 @@ private:
             else               current_type_params_.erase(rit->name);
             if (rit->had_bounds) current_type_bounds_[rit->name] = rit->old_bounds;
             else                 current_type_bounds_.erase(rit->name);
+            if (rit->was_relaxed_sized) current_type_relaxed_sized_.insert(rit->name);
+            else                        current_type_relaxed_sized_.erase(rit->name);
         }
         type_param_shadow_stack_.pop_back();
     }
@@ -1933,6 +2012,12 @@ private:
     // to mlir-gen).
     std::vector<std::string> active_loop_labels_;
     bool inside_unsafe_ = false;
+    // Phase 1B: when resolving a type AST node, only contexts that genuinely
+    // permit an unsized result set this flag (e.g. a turbofish type argument
+    // bound for a `T: ?Sized` parameter, or an impl-self-type at a `?Sized`
+    // position). Default OFF: bare `[T]` / `dyn Trait` standalone produce
+    // an error so unsized types never slip into value positions silently.
+    bool unsized_ok_ = false;
     TypeRef ret_type_ = nullptr;
     // B64/B65: outlives graph of the currently-lowering fn, used by the
     // variance-aware subtype check at coercion sites.

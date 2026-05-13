@@ -1,0 +1,16 @@
+// Phase 1B-3: explicit turbofish `::<str>` resolves `str` to UnsizedSlice<u8>
+// at unsized-ok position. The substitution canonicalises `&T` back to the
+// existing Slice<u8> fat-pointer (which is also the value type of a string
+// literal in Logos), so the call site type-checks.
+
+package relaxed_sized_str_turbofish;
+
+fn unsized_id<T: ?Sized>(x: &T) -> i32 {
+    return 11;
+}
+
+unsafe fn main() -> i32 {
+    let s: str = "hello";
+    let r: i32 = unsized_id::<str>(s);
+    return r - 11;
+}

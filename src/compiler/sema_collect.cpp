@@ -1520,6 +1520,36 @@ void SemaChecker::collect_impl(TinyMapView node) {
             // *const T or *mut T → resolve full type string
             auto resolved = resolve_type(tnode);
             target = type_str(resolved);
+        } else if (code_of(tnode) == la::UNSIZED_SLICE_TYPE) {
+            // Phase 1B-10: `impl Trait for [T]` — bare unsized-slice
+            // self-type. Resolve under `unsized_ok_=true` so the bare
+            // `[T]` produces Kind::UnsizedSlice. Mangle:
+            //   - `[T]` with TypeVar element → `$slice$T` (generic blanket).
+            //   - `[u8]` with concrete element → `$slice$u8` (concrete).
+            // Dispatch (sema_expr) matches by recv's Slice<elem> kind.
+            bool was_ok = unsized_ok_;
+            unsized_ok_ = true;
+            auto resolved = resolve_type(tnode);
+            unsized_ok_ = was_ok;
+            target_resolved = resolved;
+            TypeRef elem = resolved ? TypeRef(resolved).elem() : TypeRef(nullptr);
+            if (elem && TypeRef(elem).kind() == LogosType::Kind::TypeVar) {
+                target = "$slice$T";
+            } else {
+                target = "$slice$" + (elem ? type_str(elem) : std::string("?"));
+            }
+        } else if (code_of(tnode) == la::DYN_TYPE) {
+            // Phase 1B-10: `impl Trait for dyn Foo` — bare dyn-trait
+            // self-type. Resolve under `unsized_ok_=true` so the bare
+            // `dyn Foo` produces Kind::UnsizedDyn (Phase 1B-4). Mangle:
+            //   - `$dyn$Foo` for concrete trait.
+            bool was_ok = unsized_ok_;
+            unsized_ok_ = true;
+            auto resolved = resolve_type(tnode);
+            unsized_ok_ = was_ok;
+            target_resolved = resolved;
+            target = "$dyn$" + (resolved ? std::string(TypeRef(resolved).trait_name())
+                                         : std::string("?"));
         } else if (code_of(tnode) == la::REF_TYPE ||
                    code_of(tnode) == la::MUT_REF_TYPE) {
             // &T or &mut T → "$ref_Foo" / "$mut_ref_Foo" (base) for generic
@@ -1540,6 +1570,13 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 } else {
                     target = prefix + concrete_struct_name(pointee);
                 }
+            } else if (pointee && TypeRef(pointee).kind() == LogosType::Kind::TypeVar) {
+                // Phase 1B-8: generic ref-blanket `impl<T> Trait for &T` /
+                // `impl<T> Trait for &mut T`. Use a fixed sentinel name so
+                // dispatch can find the impl by trait-receiver shape
+                // regardless of the typevar's source name. Coherence rules
+                // (one such impl per trait/ref-shape) keep this unambiguous.
+                target = prefix + "$T";
             } else {
                 target = prefix + type_str(resolved);
             }
@@ -1657,6 +1694,26 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     }
                 }
             }
+        }
+        // Phase 1B-11: when target_resolved is set to an unsized self-type
+        // kind (UnsizedSlice / UnsizedDyn from the 1B-10 grammar paths),
+        // prefer it over the name-based lookup so method signatures see
+        // Self = UnsizedSlice<...> / UnsizedDyn<...>. `&Self` then
+        // canonicalises to the existing fat-pointer kind at resolve time
+        // (Phase 1B-11 resolve_type canonicalisation).
+        if (target_resolved &&
+            (TypeRef(target_resolved).kind() == LogosType::Kind::UnsizedSlice ||
+             TypeRef(target_resolved).kind() == LogosType::Kind::UnsizedDyn)) {
+            self_type = target_resolved;
+        }
+        // `impl Trait for str` falls through to the primitive lookup which
+        // returns Slice<u8> (Logos's fat-ptr alias). For method-body
+        // semantics we want Self = UnsizedSlice<u8> so `&Self` canonicalises
+        // to Slice<u8> rather than nesting to `&&[u8]`.
+        if (target == "str") {
+            LogosTypeBuilder us; us.kind = LogosType::Kind::UnsizedSlice;
+            us.elem = u8_t();
+            self_type = pool_->alloc(std::move(us));
         }
         if (self_type)
             current_type_params_["Self"] = self_type;
@@ -2297,6 +2354,13 @@ void SemaChecker::collect_struct(TinyMapView node) {
     }
     if (node.has_key(la::FIELDS)) {
         auto fields = arr_of(node.get(la::FIELDS.code));
+        // Phase 1B-13: identify the LAST real FIELD_DEF (custom-DST support
+        // permits an unsized type only at this position).
+        uint64_t last_field_idx = UINT64_MAX;
+        for (uint64_t i = 0; i < fields.size(); ++i) {
+            auto fnode = map_of(fields.get(i));
+            if (is_field_def(fnode)) last_field_idx = i;
+        }
         uint64_t synth_idx = 0;
         for (uint64_t i = 0; i < fields.size(); ++i) {
             auto fnode = map_of(fields.get(i));
@@ -2315,7 +2379,20 @@ void SemaChecker::collect_struct(TinyMapView node) {
             // for the SemaFieldInfo's lifetime.
             if (fname.empty())
                 fname = intern_synth_field_name(i_for_synth);
-            auto ftype = resolve_type(map_of(fnode.get(la::TYPE.code)));
+            // Phase 1B-13: at the LAST field position, allow `[T]` (custom
+            // DST with slice tail). Narrower than generic unsized_ok_:
+            // only flips for UNSIZED_SLICE_TYPE node specifically, so
+            // existing DYN_TYPE field semantics (legacy TraitObject form)
+            // stay unchanged. Bare `dyn Trait` as DST tail would need
+            // separate handling.
+            auto ftype_node = map_of(fnode.get(la::TYPE.code));
+            bool is_slice_tail = (i == last_field_idx) &&
+                                  code_of(ftype_node) == la::UNSIZED_SLICE_TYPE;
+            bool was_ok = unsized_ok_;
+            if (is_slice_tail) unsized_ok_ = true;
+            auto ftype = resolve_type(ftype_node);
+            unsized_ok_ = was_ok;
+            if (is_slice_tail) info.is_dst = true;
             bool fpub = fnode.has_key(la::IS_PUB) &&
                         fnode.get(la::IS_PUB.code).is_value() &&
                         fnode.get(la::IS_PUB.code).as_value<uint8_t>() != 0;

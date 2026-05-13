@@ -1,0 +1,23 @@
+// Phase 1B-12: implicit unsize coercion `&[T; N]` / `&mut [T; N]` /
+// `*const [T; N]` → `&[T]` (Kind::Slice). Triggered at fn-arg site by
+// try_coerce_array_ref_to_slice. The `&` / `&mut` operator on a var-ref
+// of array type already produces a slice directly; the explicit
+// `as *const [T; N]` cast path takes the ref/ptr through fn-arg with
+// no eager slice synthesis.
+
+package unsize_coerce_array_to_slice;
+
+fn takes_slice(s: &[i32]) -> i64 { return s.len(); }
+fn takes_mut_slice(s: &mut [i32]) -> i64 { return s.len(); }
+fn takes_const_ptr_slice(p: *const [i32]) -> i64 { return 0 as i64; }
+
+unsafe fn main() -> i32 {
+    let buf: [i32; 3] = [1, 2, 3];
+    // &arr / &mut arr already coerce via the operator's array-→-slice path.
+    let n1: i64 = takes_slice(&buf);
+    let n2: i64 = takes_mut_slice(&mut [10, 20, 30, 40]);
+    // *const [T; N] → *const [T] coercion at fn-arg.
+    let p: *const [i32; 3] = &buf as *const [i32; 3];
+    let _n3: i64 = takes_const_ptr_slice(p);
+    return (n1 + n2 - 7 as i64) as i32;
+}

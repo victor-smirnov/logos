@@ -73,6 +73,18 @@ struct LogosType {
         Usize,                    // pointer-sized unsigned int (u32 on 32-bit, u64 on 64-bit). Distinct from u32/u64 — explicit `as` to/from fixed-width.
         Isize,                    // pointer-sized signed int. Distinct from i32/i64.
         Char,                     // 4-byte Unicode scalar (Rust-style). Distinct from u32; cast required.
+        UnsizedSlice,             // Phase 1B: bare `[T]` — unsized slice type. Cannot appear by value
+                                  //          (no locals, no by-value params/returns, no plain fields).
+                                  //          Valid only behind `&` / `&mut` / `*const` / `*mut`, or as
+                                  //          a `T: ?Sized` substitution. `Ref<UnsizedSlice<T>>` is
+                                  //          canonicalised to existing Kind::Slice at resolve time.
+                                  //          `elem()` carries the element type T.
+        UnsizedDyn,               // Phase 1B-4: bare `dyn Trait` — unsized trait-object type.
+                                  //            Mirror of UnsizedSlice but for the dyn dispatch side.
+                                  //            Cannot appear by value. `Ref<UnsizedDyn<Trait>>` is
+                                  //            canonicalised to existing Kind::TraitObject at
+                                  //            resolve time. `trait_name()` + `type_args()` carry
+                                  //            the trait identity and parameters.
         Error                     // sentinel for ill-typed expressions
     };
 
@@ -273,6 +285,11 @@ struct TraitBound {
     std::vector<TypeRef> fn_params;
     TypeRef              fn_ret = nullptr;
     bool                 is_fn_family = false;  // trait is one of Fn / FnMut / FnOnce
+    // Phase 1: `?Trait` relaxed-bound marker. Only `?Sized` is accepted by
+    // sema; any other relaxed trait is a hard error at bound-collection time.
+    // When set, the bound does NOT add a positive bound on the type param —
+    // it removes the implicit Sized bound that would otherwise apply.
+    bool                 is_relaxed = false;
 };
 
 // ── Type parameter ────────────────────────────────────────────────────────
@@ -287,6 +304,13 @@ struct TypeParam {
     // at least 'a. Stored as a list of lifetime names (with apostrophe).
     // Empty when the type param has no outlives bound.
     std::vector<std::string> lifetime_outlives;
+    // Phase 1: every type param has an implicit `Sized` bound. Writing
+    // `T: ?Sized` (a relaxed bound) clears this flag, permitting the
+    // param to be bound to an unsized type. Currently no per-type
+    // sizedness tracking exists, so the flag is recorded but its
+    // enforcement is partial — full enforcement lands when standalone
+    // unsized types (`str`, `[T]`, `dyn Trait`) gain first-class status.
+    bool                     implicit_sized = true;
 };
 
 // Structural equality (pointer-to-pointer not checked — use value comparison).

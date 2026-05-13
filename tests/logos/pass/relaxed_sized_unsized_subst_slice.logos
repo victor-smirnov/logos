@@ -1,0 +1,22 @@
+// Phase 1B-2: `?Sized` opt-out + bare `[T]` substitution. T binds to an
+// unsized slice element via turbofish; `&T` in the signature canonicalises
+// to the existing fat-pointer kind (Slice<T>) after substitution.
+
+package relaxed_sized_unsized_subst_slice;
+
+fn ref_len<T: ?Sized>(x: &T) -> i64 {
+    // T is unsized — body cannot operate on T by value. It receives a
+    // fat-pointer reference; here we only return a constant so the test
+    // doesn't depend on any unsized-aware method lookup.
+    return 42 as i64;
+}
+
+unsafe fn main() -> i32 {
+    let buf: [i32; 3] = [1, 2, 3];
+    // Take an &[i32] from the array, then call the unsized-bound fn with
+    // explicit turbofish `[i32]` — the substitution canonicalises &[i32]
+    // (Kind::Ref(UnsizedSlice<i32>) before canonicalisation) back to the
+    // existing Slice<i32> fat-pointer kind, so the call site type-checks.
+    let r: i64 = ref_len::<[i32]>(&buf);
+    return (r - 42 as i64) as i32;
+}

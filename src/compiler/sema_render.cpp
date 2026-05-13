@@ -1320,7 +1320,8 @@ std::string SemaChecker::render_item_src(TinyMapView node) {
                     || cc == la::TYPE_REF.code || cc == la::GENERIC_INST.code
                     || cc == la::PTR_TYPE.code || cc == la::REF_TYPE.code
                     || cc == la::MUT_REF_TYPE.code || cc == la::ARR_TYPE.code
-                    || cc == la::SLICE_TYPE.code || cc == la::TUPLE_TYPE.code
+                    || cc == la::SLICE_TYPE.code || cc == la::UNSIZED_SLICE_TYPE.code
+                    || cc == la::TUPLE_TYPE.code
                     || cc == la::IMPL_TYPE.code || cc == la::DYN_TYPE.code
                     || cc == la::FN_PTR_TYPE.code
                     || cc == la::TRAIT_BOUND.code || cc == la::TYPE_PARAM.code) continue;
@@ -1619,6 +1620,8 @@ std::string SemaChecker::render_type_src_syntactic_(TinyMapView node) {
     }
     case la::SLICE_TYPE:
         return "&[" + recur(map_of(node.get(la::TYPE.code))) + "]";
+    case la::UNSIZED_SLICE_TYPE:
+        return "[" + recur(map_of(node.get(la::TYPE.code))) + "]";
     case la::TUPLE_TYPE: {
         std::string s = "(";
         if (node.has_key(la::ITEMS)) {

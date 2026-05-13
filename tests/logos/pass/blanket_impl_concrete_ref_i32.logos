@@ -1,0 +1,12 @@
+package x;
+trait Show { fn show(self: &Self) -> i32; }
+impl Show for i32 { fn show(self: &i32) -> i32 { return *self; } }
+
+// Concrete impl-for-&T — does it work today (without generic)?
+impl Show for &i32 { fn show(self: &&i32) -> i32 { return **self + 100; } }
+
+unsafe fn main() -> i32 {
+    let x: i32 = 7;
+    let r: &i32 = &x;
+    return r.show() - 107;
+}

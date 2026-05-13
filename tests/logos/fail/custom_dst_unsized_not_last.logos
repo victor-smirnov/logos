@@ -1,0 +1,10 @@
+package custom_dst_unsized_not_last;
+
+// Phase 1B-13: unsized field at non-last position is rejected.
+
+struct Bad {
+    tail: [u8],
+    after: i64,
+}
+
+unsafe fn main() -> i32 { return 0; }

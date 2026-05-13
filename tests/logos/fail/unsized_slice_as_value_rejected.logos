@@ -1,0 +1,16 @@
+package unsized_slice_as_value_rejected;
+
+// Phase 1B: bare `[T]` is unsized. It cannot appear as a value type —
+// no locals, no by-value params, no by-value returns. This test
+// confirms the unsized form is *parsed* (so the diagnostic kicks in
+// on the value-type rejection, not on grammar). When Phase 1B-2
+// adds the explicit Sizedness check, this diagnostic may sharpen;
+// for now we accept whichever rejection fires first.
+
+fn takes_unsized(xs: [i32]) -> i32 {
+    return 0;
+}
+
+unsafe fn main() -> i32 {
+    return 0;
+}

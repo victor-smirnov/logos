@@ -1,0 +1,28 @@
+// Phase 1B-4: `?Sized` substitution for `dyn Trait`. The `unsized_ok_`
+// context activated by the `T: ?Sized` parameter lets a bare `dyn Area`
+// turbofish resolve to UnsizedDyn; substitution canonicalises `&T` back
+// to the existing TraitObject fat-pointer kind. Inference path also
+// works without turbofish — actual `&dyn Area` (Kind::TraitObject)
+// unifies with formal `&T` by pretending it came as Ref(UnsizedDyn).
+
+package relaxed_sized_unsized_subst_dyn;
+
+trait Area { fn area(self: Self) -> i32; }
+struct Square { s: i32, }
+impl Area for Square {
+    fn area(self: Square) -> i32 { return self.s * self.s; }
+}
+
+fn pass_through<T: ?Sized>(x: &T) -> i32 {
+    return 100;
+}
+
+unsafe fn main() -> i32 {
+    let sq: Square = Square { s: 4 };
+    let obj: &dyn Area = sq;
+    // Explicit turbofish (uses Phase 1B-4 DYN_TYPE-at-unsized_ok path)
+    let a: i32 = pass_through::<dyn Area>(obj);
+    // Inference path (uses Phase 1B-4 unify TraitObject → UnsizedDyn)
+    let b: i32 = pass_through(obj);
+    return a + b - 200;
+}

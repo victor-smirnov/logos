@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/unsized/maybe-bounds-where-cpass.rs
+// Original copyright: The Rust Project Developers (Apache 2.0 / MIT).
+// Modifications: tuple-struct `S<T>(*const T)` → named-field `S<T> { p: *const T }`
+// (Logos uses named-field structs throughout). `vec![1,2,3]` → fixed-size
+// array `[1u8, 2u8, 3u8]` (Logos has no vec! macro). `&u[..]` slice-from-
+// array → `&buf` then explicit cast to `*const [u8]` for the field type.
+// `let u = vec![1,2,3]` (untyped) → `let buf: [u8; 3] = [...]` (Logos
+// requires the array element type to be explicit at this granularity).
+// Test surface stays the same: a generic `?Sized` struct field of type
+// `*const T` accepts an unsized type-arg `[u8]` at instantiation, with
+// the field receiving a fat-pointer pointing into a sized array.
+
+package imported_maybe_bounds_where_cpass;
+
+// Logos accepts `?Sized` as an in-bracket bound `<T: ?Sized>`; the where-
+// clause form `where T: ?Sized` also parses (Phase 1A) but at struct decl
+// the in-bracket form is more idiomatic. Equivalent semantics.
+struct S<T: ?Sized> { p: *const T }
+
+unsafe fn main() -> i32 {
+    let buf: [u8; 3] = [1u8, 2u8, 3u8];
+    let _s: S<[u8]> = S { p: &buf as *const [u8] };
+    return 0;
+}

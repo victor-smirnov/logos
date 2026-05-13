@@ -1,0 +1,10 @@
+package x;
+struct Foo { v: i32 }
+trait Show { fn show(self: &Self) -> i32; }
+impl Show for &Foo { fn show(self: &&Foo) -> i32 { return (**self).v + 100; } }
+
+unsafe fn main() -> i32 {
+    let f: Foo = Foo { v: 7 };
+    let r: &Foo = &f;
+    return r.show() - 107;
+}

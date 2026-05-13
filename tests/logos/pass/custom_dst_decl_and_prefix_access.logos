@@ -1,0 +1,31 @@
+// Phase 1B-13: custom DST (struct with `[T]` tail).
+//
+// Scope landed: declaration accepts; the LAST field may be `[T]`;
+// `info.is_dst` flag set on SemaStructInfo; `&Foo` carries the struct
+// reference (codegen-level fat-pointer layout deferred — Logos's
+// current `Ref<Struct>` representation lacks the tail-length carried
+// in real Rust custom-DST fat pointers).
+//
+// What works (this batch):
+//   - Declaration `struct Foo { header: H, tail: [T] }` parses + collects.
+//   - Sized-prefix field access via `&Foo` (`f.header`).
+//   - Non-last-field unsized → rejected with clear diagnostic.
+//
+// Deferred (Phase 1B-14+):
+//   - Tail field access `f.tail` yielding `&[T]` with the fat-pointer's
+//     length (needs codegen integration with fat-pointer layout).
+//   - By-value construction (`Foo { ... }`) — Rust requires unsafe
+//     raw-parts assembly; same in Logos when implemented.
+//   - DST inheritance through generic struct: `Wrap<T:?Sized>(T)` where
+//     T is unsized → Wrap becomes DST; requires propagation.
+
+package custom_dst_decl_and_prefix_access;
+
+struct Foo {
+    header: i64,
+    tail: [u8],
+}
+
+fn get_header(f: &Foo) -> i64 { return f.header; }
+
+unsafe fn main() -> i32 { return 0; }

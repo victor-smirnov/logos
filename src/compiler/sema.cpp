@@ -334,6 +334,13 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
     case K::Slice:
         put_sub(buf, impl, t.elem);
         break;
+    case K::UnsizedSlice:
+        put_sub(buf, impl, t.elem);
+        break;
+    case K::UnsizedDyn:
+        put_str(buf, t.trait_name);
+        for (auto a : t.type_args) put_sub(buf, impl, a);
+        break;
     case K::Closure:
     case K::FnPtr:
         for (auto p : t.closure_params) put_sub(buf, impl, p);
@@ -448,7 +455,11 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
     case K::Tuple:
         return vec_ptr_eq(t.tuple_elems, r.tuple_elems());
     case K::Slice:
+    case K::UnsizedSlice:
         return t.elem == r.elem();
+    case K::UnsizedDyn:
+        return t.trait_name == r.trait_name() &&
+               vec_ptr_eq(t.type_args, r.type_args());
     case K::Closure:
     case K::FnPtr:
         return vec_ptr_eq(t.closure_params, r.closure_params()) &&
@@ -701,6 +712,10 @@ static std::string mangle_type_for_name(TypeRef t) {
     }
     case LogosType::Kind::Slice:
         return "slice_" + mangle_type_for_name(TypeRef(t).elem());
+    case LogosType::Kind::UnsizedSlice:
+        return "uslice_" + mangle_type_for_name(TypeRef(t).elem());
+    case LogosType::Kind::UnsizedDyn:
+        return "udyn_" + std::string(TypeRef(t).trait_name());
     case LogosType::Kind::AssocType:
         return mangle_type_for_name(TypeRef(t).assoc_base()) + "::" + std::string(TypeRef(t).assoc_type_name());
     case LogosType::Kind::HStaticLit: {
@@ -1121,6 +1136,10 @@ std::string type_str(TypeRef t) {
         return r + ")"; }
     case LogosType::Kind::Slice:
         return std::format("&[{}]", type_str(TypeRef(t).elem()));
+    case LogosType::Kind::UnsizedSlice:
+        return std::format("[{}]", type_str(TypeRef(t).elem()));
+    case LogosType::Kind::UnsizedDyn:
+        return std::format("dyn {}", TypeRef(t).trait_name());
     case LogosType::Kind::Closure: {
         std::string r = "|";
         for (size_t i = 0; i < TypeRef(t).closure_params().size(); ++i) {
@@ -1363,7 +1382,16 @@ TypeRef SemaChecker::lookup_type_by_name(std::string_view name) {
     if (name == "isize") return prim(LogosType::Kind::Isize);
     if (name == "char")  return prim(LogosType::Kind::Char);
     if (name == "void") return prim(LogosType::Kind::Void);
-    if (name == "str")  return make_slice_type(u8_t());
+    if (name == "str") {
+        // Phase 1B-3: `str` keyword. Default meaning is the existing
+        // fat-pointer form Slice<u8> (Rust's `&str` shape). When the
+        // surrounding context explicitly permits an unsized result
+        // (e.g. turbofish for a `T: ?Sized` parameter), produce the
+        // unsized form so the substitution canonicalisation can route
+        // `&T` to the same Slice<u8> ABI without double-wrapping.
+        if (unsized_ok_) return make_unsized_slice_type(u8_t());
+        return make_slice_type(u8_t());
+    }
     auto tvit = current_type_params_.find(std::string(name));
     if (tvit != current_type_params_.end()) return tvit->second;
     // Type alias: check current package and imports too
@@ -1807,7 +1835,39 @@ bool SemaChecker::assoc_eqs_satisfied(
     return true;
 }
 
+void SemaChecker::finalize_relaxed_bounds(TypeParam& tp) {
+    // Walk in-place: keep positive bounds, consume `?Trait` markers.
+    // `?Sized` clears the implicit Sized bound; any other relaxed name
+    // is a hard error. The relaxed bound itself is not propagated as a
+    // positive bound — downstream code (mono, bound-check) should never
+    // see one in tp.bounds.
+    auto it = tp.bounds.begin();
+    while (it != tp.bounds.end()) {
+        if (!it->is_relaxed) { ++it; continue; }
+        if (it->trait_name == "Sized") {
+            tp.implicit_sized = false;
+        } else {
+            error(std::format(
+                "type parameter '{}': relaxed bound '?{}' is not permitted "
+                "(only `?Sized` is supported)",
+                tp.name, it->trait_name));
+        }
+        it = tp.bounds.erase(it);
+    }
+}
+
 void SemaChecker::read_trait_bound_args(TinyMapView bnode, TraitBound& tb) {
+    // Phase 1: `?Trait` relaxed-bound marker. Grammar emits RELAXED=true
+    // for the `?IDENT` form. Only `?Sized` is semantically valid; other
+    // relaxed names are rejected when bound list is finalized on the
+    // parent type-param. Stored on the bound itself so the post-parse
+    // sweep can find it.
+    if (bnode.has_key(la::RELAXED)) {
+        auto rav = bnode.get(la::RELAXED.code);
+        if (!rav.is_null() && rav.is_value()) {
+            tb.is_relaxed = (rav.as_value<uint8_t>() != 0);
+        }
+    }
     // Sprint 5.7: Fn-family parenthesized form `Fn(args) -> ret`.
     // PARAMS holds the arg-type list; RET_TYPE holds the return type
     // (both optional). Distinct slots from TYPE_PARAMS so the two
@@ -1944,6 +2004,7 @@ std::vector<TypeParam> SemaChecker::read_type_params_from(TinyMapView node, int3
                 }
             }
         }
+        finalize_relaxed_bounds(tp);
         result.push_back(std::move(tp));
     }
     // Remove temp typevars added in pre-pass (push_type_params will re-add them properly).
@@ -2013,6 +2074,8 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
         // Validate: variadic param must be last
         if (tp.is_variadic && i + 1 < tpitems.size())
             error("variadic type parameter must be last in the type parameter list");
+        // Note: relaxed-bound finalization happens after `where`-clause
+        // merge below, so a `where T: ?Sized` clause is also honored.
         result.push_back(std::move(tp));
     }
     // Remove temp typevars added in pre-pass.
@@ -2055,6 +2118,10 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
             }
         }
     }
+    // Phase 1: finalize relaxed bounds (`?Sized`) after all bounds —
+    // including those from `where` clauses — have been merged. This is
+    // the canonical post-parse point for type-param invariants.
+    for (auto& tp : result) finalize_relaxed_bounds(tp);
     return result;
 }
 
@@ -2090,6 +2157,18 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
     }
     case LogosType::Kind::Ptr: {
         auto inner = subst_type_sema(t.pointee(), s, ls);
+        // Phase 1B-2: `*const [T]` / `*mut [T]` after substitution are fat
+        // pointers. When substitution lands an UnsizedSlice<U> inside a
+        // raw pointer, canonicalise to the existing Kind::Slice so the
+        // type matches the SLICE_TYPE grammar route (which also lowers
+        // `*const [T]` directly to Slice).
+        if (inner && inner.kind() == LogosType::Kind::UnsizedSlice)
+            return make_slice_type(inner.elem());
+        // Phase 1B-4: same canonicalisation for UnsizedDyn → TraitObject.
+        if (inner && inner.kind() == LogosType::Kind::UnsizedDyn)
+            return make_trait_object(inner.trait_name(),
+                                     std::vector<TypeRef>(inner.type_args().begin(),
+                                                          inner.type_args().end()));
         if (inner == t.pointee()) return t;
         return make_ptr(t.mut_ptr(), inner);
     }
@@ -2098,6 +2177,19 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         auto inner = subst_type_sema(t.pointee(), s, ls);
         std::string lt{t.lifetime()};
         if (!lt.empty()) { auto it = ls.find(lt); if (it != ls.end()) lt = it->second; }
+        // Phase 1B-2: `&[T]` / `&mut [T]` after substitution are fat
+        // pointers. When substitution lands an UnsizedSlice<U> inside a
+        // safe reference, canonicalise to the existing Kind::Slice — the
+        // same kind produced by the `&[T]` grammar route. Lifetime info
+        // is dropped here because Kind::Slice does not carry per-instance
+        // lifetimes (Logos lifetime model is elision-based at this layer).
+        if (inner && inner.kind() == LogosType::Kind::UnsizedSlice)
+            return make_slice_type(inner.elem());
+        // Phase 1B-4: same canonicalisation for UnsizedDyn → TraitObject.
+        if (inner && inner.kind() == LogosType::Kind::UnsizedDyn)
+            return make_trait_object(inner.trait_name(),
+                                     std::vector<TypeRef>(inner.type_args().begin(),
+                                                          inner.type_args().end()));
         if (inner == t.pointee() && lt == t.lifetime()) return t;
         return make_ref(t.kind() == LogosType::Kind::MutRef, inner, lt);
     }
@@ -2167,6 +2259,23 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         auto elem = subst_type_sema(t.elem(), s, ls);
         if (elem == t.elem()) return t;
         return make_slice_type(elem);
+    }
+    case LogosType::Kind::UnsizedSlice: {
+        auto elem = subst_type_sema(t.elem(), s, ls);
+        if (elem == t.elem()) return t;
+        return make_unsized_slice_type(elem);
+    }
+    case LogosType::Kind::UnsizedDyn: {
+        if (t.type_args().empty()) return t;
+        std::vector<TypeRef> new_args;
+        bool changed = false;
+        for (auto a : t.type_args()) {
+            auto na = subst_type_sema(a, s, ls);
+            changed |= (na != a);
+            new_args.push_back(na);
+        }
+        if (!changed) return t;
+        return make_unsized_dyn_type(t.trait_name(), std::move(new_args));
     }
     case LogosType::Kind::TraitObject: {
         if (t.type_args().empty()) return t;
@@ -2596,6 +2705,18 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         std::string lt;
         if (node.has_key(la::LIFETIME))
             lt = std::string(str_of(node.get(la::LIFETIME.code)));
+        // Phase 1B-11: canonicalise `&UnsizedSlice<T>` → `Slice<T>` and
+        // `&UnsizedDyn<Trait>` → `TraitObject<Trait>` at resolve time too
+        // (not only at substitution per 1B-2). This is needed when an
+        // impl-on-unsized method body refers to `&Self` literally — the
+        // resolved type must be the canonical fat-pointer form, not a
+        // nested Ref<Unsized>.
+        if (inner && inner.kind() == LogosType::Kind::UnsizedSlice)
+            return make_slice_type(inner.elem());
+        if (inner && inner.kind() == LogosType::Kind::UnsizedDyn)
+            return make_trait_object(inner.trait_name(),
+                                     std::vector<TypeRef>(inner.type_args().begin(),
+                                                          inner.type_args().end()));
         return make_ref(false, inner, std::move(lt));
     }
 
@@ -2606,6 +2727,13 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         std::string lt;
         if (node.has_key(la::LIFETIME))
             lt = std::string(str_of(node.get(la::LIFETIME.code)));
+        // Phase 1B-11: same canonicalisation for `&mut`.
+        if (inner && inner.kind() == LogosType::Kind::UnsizedSlice)
+            return make_slice_type(inner.elem());
+        if (inner && inner.kind() == LogosType::Kind::UnsizedDyn)
+            return make_trait_object(inner.trait_name(),
+                                     std::vector<TypeRef>(inner.type_args().begin(),
+                                                          inner.type_args().end()));
         return make_ref(true, inner, std::move(lt));
     }
 
@@ -2628,6 +2756,32 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
             ? resolve_type(map_of(node.get(la::TYPE.code)))
             : error_t();
         return make_slice_type(elem);
+    }
+
+    if (tc == la::UNSIZED_SLICE_TYPE) {
+        // Phase 1B: bare `[T]` — unsized slice type. Valid only when the
+        // surrounding context explicitly opts in via `unsized_ok_` (e.g. a
+        // turbofish type argument bound for a `T: ?Sized` parameter — Phase
+        // 1B-2). Any other position (function param/return type, local-var
+        // type ascription, struct/enum field, type alias RHS, etc.) is a
+        // hard error: unsized types have no size and cannot occupy value
+        // positions. The `&[T]` / `*const [T]` / `*mut [T]` syntaxes are
+        // handled by SLICE_TYPE above and never reach this branch.
+        auto elem = node.has_key(la::TYPE)
+            ? resolve_type(map_of(node.get(la::TYPE.code)))
+            : error_t();
+        if (!unsized_ok_) {
+            error(std::format(
+                "the type `[{}]` is unsized: it cannot be used by value. "
+                "Wrap it in a reference (`&[{}]`) or pointer "
+                "(`*const [{}]` / `*mut [{}]`).",
+                type_str(elem), type_str(elem),
+                type_str(elem), type_str(elem)));
+            // Continue with the unsized type so downstream type-checking
+            // can still produce useful diagnostics; the error above is the
+            // load-bearing signal.
+        }
+        return make_unsized_slice_type(elem);
     }
 
     if (tc == la::PAREN_TYPE) {
@@ -2690,6 +2844,16 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                 args.push_back(resolve_type(item));
             }
         }
+        // Phase 1B-4: at unsized-ok positions (turbofish for `T: ?Sized`),
+        // bare `dyn Trait` is the unsized form — distinct from the existing
+        // fat-pointer Kind::TraitObject which represents `&dyn Trait`.
+        // Substitution canonicalises `&UnsizedDyn` back to TraitObject,
+        // matching the `&dyn Trait` grammar route. Outside unsized-ok
+        // context, behaviour is unchanged (legacy: bare `dyn Trait` and
+        // `&dyn Trait` both produce TraitObject; downstream sema rejects
+        // bare-by-value when it matters).
+        if (unsized_ok_)
+            return make_unsized_dyn_type(tname, std::move(args));
         return make_trait_object(tname, std::move(args));
     }
 
@@ -3270,17 +3434,65 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // Resolve each type arg (TypeVars in current scope are expanded).
         // Collect LIFETIME_PARAM items ('a) separately — erased at codegen but
         // tracked for borrow checking (struct fields that borrow through a lifetime).
+        // Phase 1B-5: when the target type-param at index i has
+        // `implicit_sized=false` (declared with `?Sized`), enable unsized_ok_
+        // for that arg's resolution so bare `[T]` / `dyn Trait` parse without
+        // the unsized-by-value diagnostic. The Sized-enforcement check below
+        // catches the inverse case (unsized arg at sized param).
+        const std::vector<TypeParam>* target_params =
+            ssi ? &ssi->type_params :
+            dsi ? &dsi->type_params :
+            esi ? &esi->type_params : nullptr;
         std::vector<TypeRef> args;
         std::vector<std::string> lt_args;
         if (node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));
+            size_t type_arg_idx = 0;  // separate index — lifetimes don't consume a param slot
             for (uint64_t i = 0; i < items.size(); ++i) {
                 auto item = map_of(items.get(i));
                 if (code_of(item) == la::LIFETIME_PARAM) {
                     lt_args.push_back(std::string(str_of(item.get(la::NAME.code))));
                     continue;
                 }
+                bool was_ok = unsized_ok_;
+                if (target_params && type_arg_idx < target_params->size() &&
+                    !(*target_params)[type_arg_idx].implicit_sized) {
+                    unsized_ok_ = true;
+                }
                 args.push_back(resolve_type(item));
+                unsized_ok_ = was_ok;
+                ++type_arg_idx;
+            }
+        }
+        // Phase 1B-5/10: Sized-enforcement at struct/enum/datatype generic
+        // instantiation. Parallel to the fn-call path in finish_generic_call.
+        // Phase 1B-10 adds the TypeVar→Sized propagation check too.
+        if (target_params) {
+            for (size_t i = 0; i < args.size() && i < target_params->size(); ++i) {
+                if (!(*target_params)[i].implicit_sized) continue;
+                auto t = args[i];
+                if (!t) continue;
+                auto k = t.kind();
+                if (k == LogosType::Kind::UnsizedSlice ||
+                    k == LogosType::Kind::UnsizedDyn) {
+                    error(std::format(
+                        "generic '{}': type argument '{}' has unsized type `{}` "
+                        "but the type parameter '{}' requires `Sized` "
+                        "(add `T: ?Sized` to relax the bound)",
+                        name, type_str(t), type_str(t),
+                        (*target_params)[i].name));
+                } else if (k == LogosType::Kind::TypeVar) {
+                    std::string tvname(t.type_var_name());
+                    if (current_type_relaxed_sized_.count(tvname)) {
+                        error(std::format(
+                            "generic '{}': type argument '{}' is a `?Sized` "
+                            "outer type parameter; cannot be passed to '{}' "
+                            "which requires `Sized` (add `?Sized` to the "
+                            "target's bound or constrain the outer parameter "
+                            "to `Sized`)",
+                            name, tvname, (*target_params)[i].name));
+                    }
+                }
             }
         }
         if (is_enum) {

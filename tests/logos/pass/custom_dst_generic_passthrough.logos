@@ -1,0 +1,9 @@
+package x;
+struct Wrap<T: ?Sized> { v: T }
+
+// Phase 1B-13: generic struct with `?Sized` T propagates through type-system.
+// `Wrap<[u8]>` accepted as a type; can be passed through function signatures.
+// Reading `.v` not supported (would need custom-DST codegen).
+fn passthrough(w: *const Wrap<[u8]>) -> *const Wrap<[u8]> { return w; }
+
+unsafe fn main() -> i32 { return 0; }

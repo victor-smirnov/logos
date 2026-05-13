@@ -1,0 +1,12 @@
+package relaxed_non_sized_bound_rejected;
+
+// Phase 1: only `?Sized` is a permitted relaxed bound. `?Send` is
+// syntactically parseable but semantically rejected.
+
+fn bad<T: ?Send>(x: T) -> T {
+    return x;
+}
+
+unsafe fn main() -> i32 {
+    return bad::<i32>(0);
+}

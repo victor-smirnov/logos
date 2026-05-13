@@ -1,0 +1,1 @@
+the type `[i32]` is unsized: it cannot be used by value. Wrap it in a reference (`&[i32]`) or pointer (`*const [i32]` / `*mut [i32]`).

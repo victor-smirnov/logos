@@ -71,6 +71,7 @@
     KEY            = 51    // map key in HERMES_ENTRY
     IS_NEGATIVE    = 43    // negative impl marker (impl !Trait for X {}); reuses INDEX slot — IMPL_BLOCK never has INDEX
     HRTB_BINDERS   = 41    // `for<'a, 'b>` binder list on a TRAIT_BOUND (reuses IMPL_TYPE_PARAMS slot — trait bounds never carry impl-type-params). Value is a sub-node with ITEMS=[LIFETIME_PARAM...].
+    RELAXED        = 39    // `?Trait` relaxed-bound marker on TRAIT_BOUND (Phase 1: only `?Sized` valid). Reuses IS_CONST slot — trait_bound never carries IS_CONST.
     PATH           = 22    // sub-node carrying ITEMS=[str,...] for N-deep chain field write (reuses FIELDS slot — chain stmts never carry struct field defs)
     NAME_VAR       = 38    // antiquot var name for `#ident` placeholder inside quote_*! body (reuses WHERE slot — STRUCT/ENUM/FN never have a where_clause AND a NAME_VAR simultaneously: NAME_VAR exists only inside quote_*! bodies, where where_clause is parsed separately)
     META           = 16    // meta @{...} block on struct/datatype/trait declarations (slot 16; reuses PATH_PARTS slot, mutually exclusive node types)
@@ -289,6 +290,7 @@
     RETURN_EXPR                 = 233   // `return` in expression position (P3-pg-04). Same shape — bare form only (no value).
     LIT_BYTES                   = 234   // P4-pm-07: `b"..."` byte-string literal at expression position. VALUE = raw token text including the `b"…"` quotes; sema decodes escapes and lowers to an `[u8; N]` array literal.
     NESTED_FN                   = 235   // `fn name(params) [-> T] { body }` at stmt position. Sema lifts the body to a top-level free fn under a gensym'd name and binds the local name as a fn-ptr let. NAME, PARAMS, RET_TYPE?, BODY.
+    UNSIZED_SLICE_TYPE          = 236   // Phase 1B: bare `[T]` — unsized slice type. TYPE = element. Sema produces Kind::UnsizedSlice; cannot appear by value, only behind `&` / `*const` / `*mut` (canonicalised back to SLICE_TYPE / Kind::Slice at resolve time) or as a `T: ?Sized` substitution.
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -814,6 +816,16 @@
                => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE: $5, WHERE: $6, ITEMS: $... }
                 / KW_IMPL type_param_list IDENT KW_FOR simple_type where_clause? LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE: $5, WHERE: $6, ITEMS: $... }
+                // Phase 1B-10: bare unsized self-types — `impl<T> Trait for [T]`
+                // and `impl Trait for dyn Foo`. arr_type matches bare `[T]`
+                // (Phase 1B-1 UNSIZED_SLICE_TYPE node); dyn_type matches bare
+                // `dyn Trait` (legacy DYN_TYPE). These alts come BEFORE the
+                // simple_type fallback so bare-bracket/dyn shapes match here
+                // instead of being mis-parsed as IDENTs.
+                / KW_IMPL type_param_list IDENT KW_FOR arr_type where_clause? LBRACE impl_item* RBRACE
+               => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE: $5, WHERE: $6, ITEMS: $... }
+                / KW_IMPL type_param_list IDENT KW_FOR dyn_type where_clause? LBRACE impl_item* RBRACE
+               => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE: $5, WHERE: $6, ITEMS: $... }
                 / KW_IMPL IDENT LT type_arg_list GT_TYPE KW_FOR simple_type where_clause? LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE_PARAMS: $4, TYPE: $7, WHERE: $8, ITEMS: $... }
                 / KW_IMPL IDENT LT type_arg_list GT_TYPE KW_FOR ref_type where_clause? LBRACE impl_item* RBRACE
@@ -821,6 +833,10 @@
                 / KW_IMPL IDENT KW_FOR ptr_type where_clause? LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE: $4, WHERE: $5, ITEMS: $... }
                 / KW_IMPL IDENT KW_FOR ref_type where_clause? LBRACE impl_item* RBRACE
+               => { CODE: IMPL_BLOCK, NAME: $2, TYPE: $4, WHERE: $5, ITEMS: $... }
+                / KW_IMPL IDENT KW_FOR arr_type where_clause? LBRACE impl_item* RBRACE
+               => { CODE: IMPL_BLOCK, NAME: $2, TYPE: $4, WHERE: $5, ITEMS: $... }
+                / KW_IMPL IDENT KW_FOR dyn_type where_clause? LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE: $4, WHERE: $5, ITEMS: $... }
                 / KW_IMPL IDENT KW_FOR simple_type where_clause? LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE: $4, WHERE: $5, ITEMS: $... }
@@ -1340,12 +1356,17 @@
     // [T; N] — fixed-size array type
     // First alt: [T; sizeof...(P)] — size from variadic pack length, lowered
     // by sema to symbolic arr_size_var "__sizeof_pack:P" and resolved at mono.
+    // Last alt: bare `[T]` is the unsized slice form (Phase 1B). The size-
+    // bearing alts come first so `[T; N]` always matches before the unsized
+    // fallback. Order matters: PEG tries left-to-right.
     arr_type <- LBRACKET type_ref SEMI IDENT DOTDOTDOT LPAREN IDENT RPAREN RBRACKET
               => { CODE: ARR_TYPE, TYPE: $2, OP: $4, NAME: $7 }
               / LBRACKET type_ref SEMI KW_METACALL block RBRACKET
               => { CODE: ARR_TYPE, TYPE: $2, BODY: $5 }
               / LBRACKET type_ref SEMI (INTEGER / IDENT) RBRACKET
               => { CODE: ARR_TYPE, TYPE: $2, SIZE: $4 }
+              / LBRACKET type_ref RBRACKET
+              => { CODE: UNSIZED_SLICE_TYPE, TYPE: $2 }
 
     // type_or_lt_arg: a type argument that may be a lifetime annotation or a type.
     // Lifetimes (e.g. 'a) in generic type args are stored as LIFETIME_PARAM nodes
@@ -2395,7 +2416,12 @@
     hrtb_opt <- hrtb_binder?
              =>  { ITEMS: $... }
 
-    trait_bound <- hrtb_binder IDENT LT bound_arg_list GT_TYPE
+    // Relaxed bound: `?Sized` opts out of the implicit Sized bound on a
+    // type parameter. Grammatically `?<IDENT>` is accepted; sema rejects
+    // anything other than `?Sized`.
+    trait_bound <- QUESTION IDENT
+                => { CODE: TRAIT_BOUND, NAME: $2, RELAXED: true }
+                 / hrtb_binder IDENT LT bound_arg_list GT_TYPE
                 => { CODE: TRAIT_BOUND, NAME: $2, HRTB_BINDERS: $1, TYPE_PARAMS: $4 }
                  / hrtb_binder IDENT LPAREN closure_type_args RPAREN ARROW type_ref
                 => { CODE: TRAIT_BOUND, NAME: $2, HRTB_BINDERS: $1, PARAMS: $4, RET_TYPE: $7 }

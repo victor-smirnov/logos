@@ -1,0 +1,20 @@
+// Phase 1B-3: inference auto-binds T = UnsizedSlice<U> when arg is a
+// fat-pointer Slice<U> and the formal is `&T` with T: ?Sized — no
+// turbofish required.
+
+package relaxed_sized_inference_slice;
+
+fn ref_first_byte<T: ?Sized>(x: &T) -> i32 {
+    // Body just returns a constant; this test exercises the call-site
+    // inference + substitution path, not the body.
+    return 7;
+}
+
+unsafe fn main() -> i32 {
+    let buf: [i32; 3] = [10, 20, 30];
+    let s: &[i32] = &buf;
+    // No turbofish — inference must bind T = UnsizedSlice<i32> so the
+    // signature substitutes to `(x: &[i32]) -> i32`.
+    let r: i32 = ref_first_byte(s);
+    return r - 7;
+}

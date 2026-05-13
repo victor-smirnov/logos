@@ -299,6 +299,7 @@ inline constexpr Code BREAK_EXPR           {"BREAK_EXPR",         231}; // `brea
 inline constexpr Code CONTINUE_EXPR        {"CONTINUE_EXPR",      232}; // `continue` in expression position (P3-pg-04). Same shape as BREAK_EXPR.
 inline constexpr Code RETURN_EXPR          {"RETURN_EXPR",        233}; // `return` in expression position (P3-pg-04). Same shape — bare form only.
 inline constexpr Code NESTED_FN            {"NESTED_FN",          235}; // `fn name(params) [-> T] { body }` at stmt position. Sema lowers to a let-bound closure (no captures expected). NAME, PARAMS, RET_TYPE?, BODY.
+inline constexpr Code UNSIZED_SLICE_TYPE   {"UNSIZED_SLICE_TYPE", 236}; // Phase 1B: bare `[T]` — unsized slice type. TYPE = element. Resolves to Kind::UnsizedSlice.
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  META            {"META",               16};   // meta @{...} block node on struct/trait/datatype declarations (reuses PATH_PARTS slot; these node types never co-exist)
@@ -330,6 +331,7 @@ inline constexpr Key NAME_VAR  {"NAME_VAR",  38};            // antiquot var nam
 // HERMES_TYPED_MAP reuses TYPE (3) for key type and RET_TYPE (6) for val type.
 inline constexpr Key IMPL_TYPE_PARAMS{"IMPL_TYPE_PARAMS", 41}; // impl<T> own type params
 inline constexpr Key HRTB_BINDERS    {"HRTB_BINDERS",     41}; // `for<'a, 'b>` binder list on a TRAIT_BOUND (reuses IMPL_TYPE_PARAMS slot — trait bounds never carry impl-type-params). Value is a sub-node {ITEMS:[LIFETIME str,...]}.
+inline constexpr Key RELAXED         {"RELAXED",          39}; // `?Trait` relaxed-bound marker on TRAIT_BOUND (Phase 1: only `?Sized` accepted; opts out of implicit Sized bound on the parent type param).
 inline constexpr int32_t VIS_PRIVATE = 0;
 inline constexpr int32_t VIS_PUBLIC  = 1;
 

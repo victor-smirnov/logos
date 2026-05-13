@@ -1,0 +1,10 @@
+package x;
+trait Show { fn show(self: &Self) -> i32; }
+impl Show for i32 { fn show(self: &i32) -> i32 { return *self; } }
+impl<T: ?Sized + Show> Show for &T { fn show(self: &&T) -> i32 { return (**self).show() + 100; } }
+
+unsafe fn main() -> i32 {
+    let x: i32 = 7;
+    let r: &i32 = &x;
+    return r.show() - 107;
+}

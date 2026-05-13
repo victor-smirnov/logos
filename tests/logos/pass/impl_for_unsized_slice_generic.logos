@@ -1,0 +1,9 @@
+package x;
+trait Len { fn len_of(self: &Self) -> i64; }
+impl<T> Len for [T] { fn len_of(self: &[T]) -> i64 { return self.len(); } }
+
+unsafe fn main() -> i32 {
+    let buf: [i32; 3] = [1, 2, 3];
+    let s: &[i32] = &buf;
+    return (s.len_of() - 3 as i64) as i32;
+}

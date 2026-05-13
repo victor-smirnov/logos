@@ -1,0 +1,14 @@
+package sized_propagation_typevar;
+
+// Phase 1B-9: a `?Sized` outer TypeVar cannot be passed to a Sized-bound
+// callee param. Soundness gap: at the outer call site, `T` may bind to
+// an unsized type; relaying that into `needs_sized<T>` (Sized-required)
+// would smuggle an unsized type into a Sized position.
+
+fn needs_sized<T>(x: T) -> i32 { return 0; }
+
+fn outer<T: ?Sized>(x: &T) -> i32 {
+    return needs_sized::<T>(*x);
+}
+
+unsafe fn main() -> i32 { return 0; }

@@ -95,6 +95,16 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
     case LogosType::Kind::Slice:
         // Slices are fat pointers {ptr, i64}, passed by pointer (like structs/tuples).
         return ptr_type();
+    case LogosType::Kind::UnsizedSlice:
+        // Phase 1B: bare `[T]` is unsized — it has no by-value MLIR
+        // representation. Reaching this case at codegen indicates that
+        // canonicalisation `&[T]` / `*const [T]` failed somewhere in
+        // sema; treat as a sentinel pointer so the surrounding diagnostic
+        // path can report the misuse rather than crash here.
+        return ptr_type();
+    case LogosType::Kind::UnsizedDyn:
+        // Phase 1B-4: bare `dyn Trait` is unsized — same sentinel.
+        return ptr_type();
     case LogosType::Kind::Tuple: {
         // Tuples are anonymous LLVM struct types, passed by pointer (like structs).
         llvm::SmallVector<mlir::Type> fields;
@@ -299,6 +309,13 @@ uint64_t MLIRGenImpl::logos_abi_byte_size(TypeRef t,
     case LogosType::Kind::Slice:
     case LogosType::Kind::Closure:
     case LogosType::Kind::TraitObject:  return 16;
+    case LogosType::Kind::UnsizedSlice:
+    case LogosType::Kind::UnsizedDyn:
+        // Phase 1B: unsized — has no by-value ABI size. Report 0 so any
+        // accidental layout query produces an obvious zero-size payload
+        // (rather than corrupting an aggregate). Borrow check + sema
+        // reject unsized values from positions where size matters.
+        return 0;
     case LogosType::Kind::Tuple: {
         uint64_t offset = 0, max_align = 1;
         for (auto e : tv.tuple_elems()) {

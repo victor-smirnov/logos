@@ -113,6 +113,8 @@ Columns:
 | `pass/consts/arithmetic-expr-in-array-len.logos` | `tests/ui/consts/arithmetic-expr-in-array-len.rs` | B10 | arithmetic at array-length position rejected (gap K10-co-01); literal inlined |
 | `pass/inference/auto-instantiate.logos` | `tests/ui/inference/auto-instantiate.rs` | B10 | `println!` dropped; type-param inference at call site |
 | `pass/typeck/unify-return-ty.logos` | `tests/ui/typeck/unify-return-ty.rs` | B10 | `null` → `null_p` (KW_NULL keyword, gap K10-co-02); `mem::transmute` → `as *const T` cast (K10-co-03) |
+| `pass/unsized/unsized.logos` | `tests/ui/unsized/unsized.rs` | B21 | PhantomData removed (Logos has no PhantomData and doesn't need it here); `type TT<T:?Sized> = T;` dropped (Logos type-aliases don't allow bare unsized on RHS yet) |
+| `pass/unsized/maybe-bounds-where-cpass.logos` | `tests/ui/unsized/maybe-bounds-where-cpass.rs` | B22 | tuple-struct → named-field (Logos uses named fields throughout); `vec![1,2,3]` → fixed-size array (no vec! macro); `&u[..]` slice-from-array → explicit cast `&buf as *const [u8]`; `where T:?Sized` placed in-bracket as `<T:?Sized>` (Logos accepts both forms; in-bracket is idiomatic) |
 
 ## When upstream changes
 
@@ -141,3 +143,5 @@ honest.
 | B18 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | generics — derived-type (Pair<T> auto-Copy); regions — escape-into-other-fn / nullary-variant (3 tests) |
 | B19 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | coercion — 3 reborrow tests (mut-ptr-arg, imm-ptr-arg, imm-ptr-rcvr); enum — issue-23304-2 (disc literal), match-either-enum-variants-6117 (S8-en-03 close: `_` shorthand for unit-payload variant) (5 tests) |
 | B20 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | grab-bag — enum/issue-23304-1 (cross-enum disc), closures/old-closure-fn-coerce, regions/regions-reassign-match-bound-pointer (P4-pm-12 close `mut z`), binding/let-destruct-ref (P4-pm-14 close `let ref y`), binding/fn-pattern-expected-type (C5-cl-06 close closure-ret-infer), binding × 5 (borrowed-ptr-pattern P4-pm-17 close, match-tag, nullary-or-pattern, match-naked-record-expr, nested-pattern, use-uninit-match2, match-phi, match-range, inconsistent-lifetime-mismatch), binding/func-arg-wild-pattern (12 tests) |
+| B21 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-13 | Victor Smirnov | unsized — `?Sized` syntax-coverage smoke (Phase 1B-6 validation of trait / struct / enum / impl / fn declaration sites with `?Sized`) (1 test) |
+| B22 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-13 | Victor Smirnov | unsized — maybe-bounds-where-cpass (Phase 1B-8 validation: generic struct with `?Sized` field of `*const T` instantiated with bare `[u8]`) (1 test) |

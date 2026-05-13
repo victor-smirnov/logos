@@ -539,7 +539,12 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                 error(std::format("'&mut': undefined variable '{}'", var_name));
                 return error_expr();
             }
-            // For arrays, produce &mut elem (reference to first element)
+            // For arrays, produce &mut elem (reference to first element).
+            // Asymmetric with `&arr` (which produces a slice fat-pointer)
+            // for backward compatibility; tests / stdlib rely on the
+            // thin-pointer form here. Phase 1B-12 unsize coercion at
+            // fn-arg site (try_coerce_array_ref_to_slice) lifts this to
+            // a `&mut [T]` slice when needed.
             if (TypeRef(vt).kind() == LogosType::Kind::Array)
                 return builder().addr_of(std::string(var_name), make_ref(true, TypeRef(vt).elem()));
             return builder().addr_of(std::string(var_name), make_ref(true, vt));
@@ -1541,6 +1546,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         } else {
             for (uint64_t i = 0; i < n_args; ++i) {
                 try_coerce_closure_to_fnptr(arg_exprs[i], exact_fi->param_types[i]);
+                try_coerce_array_ref_to_slice(arg_exprs[i], exact_fi->param_types[i]);
                 widen_int_expr(arg_exprs[i], exact_fi->param_types[i], builder());
                 auto at = arg_exprs[i]->type;
                 auto pt = exact_fi->param_types[i];
@@ -1762,6 +1768,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     } else {
         for (uint64_t i = 0; i < n_args; ++i) {
             try_coerce_closure_to_fnptr(arg_exprs[i], fi.param_types[i]);
+            try_coerce_array_ref_to_slice(arg_exprs[i], fi.param_types[i]);
             widen_int_expr(arg_exprs[i], fi.param_types[i], builder());
             auto at = arg_exprs[i]->type;
             auto pt = fi.param_types[i];
@@ -1908,6 +1915,35 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
             actual_norm.kind() == LogosType::Kind::MutRef ||
             actual_norm.kind() == LogosType::Kind::Ptr)
             unify_types(formal.pointee(), actual_norm.pointee(), bindings);
+        else if (actual_norm.kind() == LogosType::Kind::Slice) {
+            // Phase 1B-3: unify `&T` against an actual fat-pointer slice
+            // value. Currently in Logos `&[U]` and `*const [U]` are
+            // Kind::Slice (not `Ref/Ptr` wrapping a separate slice
+            // element). For `T: ?Sized` inference, pretend the actual
+            // came as `Ref(UnsizedSlice<U>)` and recurse. If formal's
+            // pointee is a TypeVar, the TypeVar case binds T to
+            // UnsizedSlice<U>; on substitution the Ref/MutRef/Ptr
+            // canonicalisation collapses back to Kind::Slice — same
+            // ABI as the original argument.
+            LogosTypeBuilder unb;
+            unb.kind = LogosType::Kind::UnsizedSlice;
+            unb.elem = actual_norm.elem();
+            TypeRef us = pool_->alloc(std::move(unb));
+            unify_types(formal.pointee(), us, bindings);
+        }
+        else if (actual_norm.kind() == LogosType::Kind::TraitObject) {
+            // Phase 1B-4: same trick for dyn. Actual `&dyn Trait` is
+            // Kind::TraitObject — pretend it came as Ref(UnsizedDyn<Trait>).
+            // TypeVar formal pointee binds to UnsizedDyn; substitution
+            // canonicalises back to TraitObject.
+            LogosTypeBuilder unb;
+            unb.kind = LogosType::Kind::UnsizedDyn;
+            unb.trait_name = std::string(actual_norm.trait_name());
+            unb.type_args = std::vector<TypeRef>(actual_norm.type_args().begin(),
+                                                 actual_norm.type_args().end());
+            TypeRef ud = pool_->alloc(std::move(unb));
+            unify_types(formal.pointee(), ud, bindings);
+        }
         break;
     case LogosType::Kind::Array:
         if (actual_norm.kind() == LogosType::Kind::Array) {
@@ -2086,6 +2122,42 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
         subst[std::string("__sizeof_pack:") + fi.type_params.back().name] = pack_size_t;
     }
 
+    // Phase 1B-5/9: Sized-enforcement at substitution. Every type param has
+    // an implicit `Sized` bound unless it carries `?Sized` (which clears
+    // `implicit_sized` during finalize_relaxed_bounds). Reject unsized type
+    // arguments at sized positions before bound-check, so the diagnostic is
+    // specific ("requires `Sized`") rather than a downstream type-mismatch.
+    //
+    // Phase 1B-9 propagation: when the type-arg is a TypeVar of the outer
+    // scope, consult `current_type_relaxed_sized_` to decide. A `?Sized`
+    // outer TypeVar can bind to an unsized type at the outer call site,
+    // so passing it to a Sized-required callee param is unsound.
+    for (size_t i = 0; i < non_variadic_count && i < type_args.size(); ++i) {
+        if (!fi.type_params[i].implicit_sized) continue;
+        auto t = type_args[i];
+        if (!t) continue;
+        auto k = t.kind();
+        if (k == LogosType::Kind::UnsizedSlice ||
+            k == LogosType::Kind::UnsizedDyn) {
+            error(std::format(
+                "call to '{}': type argument '{}' has unsized type `{}` "
+                "but the type parameter '{}' requires `Sized` "
+                "(add `T: ?Sized` to relax the bound)",
+                callee_diag, type_str(t), type_str(t),
+                fi.type_params[i].name));
+        } else if (k == LogosType::Kind::TypeVar) {
+            std::string tvname(t.type_var_name());
+            if (current_type_relaxed_sized_.count(tvname)) {
+                error(std::format(
+                    "call to '{}': type argument '{}' is a `?Sized` outer "
+                    "type parameter; cannot be passed to '{}' which requires "
+                    "`Sized` (add `?Sized` to the callee's bound or "
+                    "constrain the outer parameter to `Sized`)",
+                    callee_diag, tvname, fi.type_params[i].name));
+            }
+        }
+    }
+
     // Validate trait bounds for all type params (including variadic pack elements)
     check_type_bounds(callee_diag, fi.type_params, type_args);
 
@@ -2140,6 +2212,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
             for (uint64_t i = 0; i < n_args; ++i) {
                 auto pt = subst_type_sema(fi.param_types[i], subst);
                 try_coerce_closure_to_fnptr(arg_exprs[i], pt);
+                try_coerce_array_ref_to_slice(arg_exprs[i], pt);
                 widen_int_expr(arg_exprs[i], pt, builder());
                 auto at = arg_exprs[i]->type;
                 if (TypeRef(at).kind() != LogosType::Kind::Error &&
@@ -3231,7 +3304,11 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
     }
     check_pub_access(fi_ptr->is_pub, fi_ptr->package, callee);
 
-    // Resolve explicit type arguments from TYPE_PARAMS
+    // Resolve explicit type arguments from TYPE_PARAMS.
+    // Phase 1B-2: when the i-th target type param has `implicit_sized=false`
+    // (i.e. was declared with `?Sized`), enable `unsized_ok_` for that
+    // resolution so a bare `[T]` / `dyn Trait` standalone type at this
+    // position parses without triggering the unsized-by-value diagnostic.
     std::vector<TypeRef> type_args;
     if (node.has_key(la::TYPE_PARAMS)) {
         AnyVal tpav = node.get(la::TYPE_PARAMS.code);
@@ -3239,8 +3316,15 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             auto tplist = map_of(tpav);
             if (tplist.has_key(la::ITEMS)) {
                 auto items = arr_of(tplist.get(la::ITEMS.code));
-                for (uint64_t i = 0; i < items.size(); ++i)
+                for (uint64_t i = 0; i < items.size(); ++i) {
+                    bool was_ok = unsized_ok_;
+                    if (i < fi_ptr->type_params.size() &&
+                        !fi_ptr->type_params[i].implicit_sized) {
+                        unsized_ok_ = true;
+                    }
                     type_args.push_back(resolve_type(map_of(items.get(i))));
+                    unsized_ok_ = was_ok;
+                }
             }
         }
     }
@@ -3276,16 +3360,19 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
 lir::LExprPtr SemaChecker::lower_generic_ref(TinyMapView node) {
     auto callee = str_of(node.get(la::CALLEE.code));
 
-    // Resolve type args
-    std::vector<TypeRef> type_args;
+    // Determine type-arg count without resolving (so we can look up the fn
+    // first and then resolve each arg with `?Sized`-awareness from the
+    // target type-param's `implicit_sized` flag).
+    size_t type_arg_count = 0;
+    uint64_t items_size = 0;
     if (node.has_key(la::TYPE_PARAMS)) {
         AnyVal tpav = node.get(la::TYPE_PARAMS.code);
         if (!tpav.is_null()) {
             auto tplist = map_of(tpav);
             if (tplist.has_key(la::ITEMS)) {
                 auto items = arr_of(tplist.get(la::ITEMS.code));
-                for (uint64_t i = 0; i < items.size(); ++i)
-                    type_args.push_back(resolve_type(map_of(items.get(i))));
+                items_size = items.size();
+                type_arg_count = items_size;
             }
         }
     }
@@ -3293,7 +3380,7 @@ lir::LExprPtr SemaChecker::lower_generic_ref(TinyMapView node) {
     // Find generic fn (or single non-generic candidate as a degenerate case).
     SemaFuncInfo* fi_ptr = nullptr;
     {
-        auto git = find_generic_func(callee, type_args.size());
+        auto git = find_generic_func(callee, type_arg_count);
         if (git) fi_ptr = const_cast<SemaFuncInfo*>(git);
         else if (auto cands = find_func_candidates(callee); cands.size() == 1)
             fi_ptr = const_cast<SemaFuncInfo*>(cands[0]);
@@ -3303,6 +3390,23 @@ lir::LExprPtr SemaChecker::lower_generic_ref(TinyMapView node) {
         return error_expr();
     }
     check_pub_access(fi_ptr->is_pub, fi_ptr->package, callee);
+
+    // Phase 1B-6: now resolve type args with per-arg unsized_ok_ based on
+    // the target fn's type-param bounds.
+    std::vector<TypeRef> type_args;
+    if (items_size > 0) {
+        auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+        auto items = arr_of(tplist.get(la::ITEMS.code));
+        for (uint64_t i = 0; i < items_size; ++i) {
+            bool was_ok = unsized_ok_;
+            if (i < fi_ptr->type_params.size() &&
+                !fi_ptr->type_params[i].implicit_sized) {
+                unsized_ok_ = true;
+            }
+            type_args.push_back(resolve_type(map_of(items.get(i))));
+            unsized_ok_ = was_ok;
+        }
+    }
 
     bool has_variadic = !fi_ptr->type_params.empty() && fi_ptr->type_params.back().is_variadic;
     if (has_variadic) {
@@ -3326,6 +3430,24 @@ lir::LExprPtr SemaChecker::lower_generic_ref(TinyMapView node) {
         if (TypeRef(t).kind() == LogosType::Kind::TypeVar) { any_typevar = true; break; }
     if (!any_typevar)
         check_type_bounds(std::string(callee), fi_ptr->type_params, type_args);
+
+    // Phase 1B-6: Sized-enforcement at GENERIC_REF substitution. Parallel to
+    // the fn-call path in finish_generic_call.
+    for (size_t i = 0; i < type_args.size() && i < fi_ptr->type_params.size(); ++i) {
+        if (!fi_ptr->type_params[i].implicit_sized) continue;
+        auto t = type_args[i];
+        if (!t) continue;
+        auto k = t.kind();
+        if (k == LogosType::Kind::UnsizedSlice ||
+            k == LogosType::Kind::UnsizedDyn) {
+            error(std::format(
+                "generic-ref '{}': type argument '{}' has unsized type `{}` "
+                "but the type parameter '{}' requires `Sized` "
+                "(add `T: ?Sized` to relax the bound)",
+                std::string(callee), type_str(t), type_str(t),
+                fi_ptr->type_params[i].name));
+        }
+    }
 
     // Substitute fn signature → FnPtr type. Where TARGS contain TypeVars,
     // closure_params / closure_ret will themselves carry TypeVars; mono's
@@ -3418,13 +3540,24 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // (same shape as GENERIC_CALL / STATIC_CALL); the legacy alt keeps ARGS
     // as a flat array. user_type_args is non-empty iff the caller used
     // turbofish; downstream type-param inference is bypassed in that case.
+    //
+    // Phase 1B-3: the method is not resolved yet at this point, so we
+    // cannot per-arg consult `implicit_sized`. Set `unsized_ok_` broadly
+    // for the whole turbofish — if the user supplies an unsized type for
+    // a sized method param, downstream type-checking still rejects the
+    // mismatch (with a "type mismatch" diagnostic instead of the more
+    // specific "[T] is unsized" message). Safety invariant is preserved:
+    // unsized types still can't sneak into value positions.
     std::vector<TypeRef> user_type_args;
     if (node.has_key(la::TYPE_PARAMS)) {
         auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
         if (tplist.has_key(la::ITEMS)) {
             auto items = arr_of(tplist.get(la::ITEMS.code));
+            bool was_ok = unsized_ok_;
+            unsized_ok_ = true;
             for (uint64_t i = 0; i < items.size(); ++i)
                 user_type_args.push_back(resolve_type(map_of(items.get(i))));
+            unsized_ok_ = was_ok;
         }
     }
 
@@ -3435,6 +3568,70 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         }
         if (method_name == "as_ptr") {
             return builder().slice_ptr(std::move(recv), make_ptr(false, u8_t()));
+        }
+        // Phase 1B-10: user-defined `impl Trait for [T]` methods. Dispatch
+        // path mirrors the `$ref$T` blanket from 1B-8 but keyed by the
+        // slice-impl sentinel `$slice$T` (generic) / `$slice$<elem>` (concrete).
+        // Parse args inline here — the outer arg_exprs vector isn't built
+        // until later in lower_method_call. Receiver is already Kind::Slice;
+        // no autoref needed since the impl method's `self: &Self` (=
+        // &UnsizedSlice<T>) canonicalises to the same Kind::Slice ABI.
+        std::vector<lir::LExprPtr> slc_args;
+        if (node.has_key(la::ARGS)) {
+            auto args_av = node.get(la::ARGS.code);
+            if (!args_av.is_null()) {
+                auto args_list = map_of(args_av);
+                if (args_list.has_key(la::ITEMS)) {
+                    auto items = arr_of(args_list.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < items.size(); ++i)
+                        slc_args.push_back(lower_expr(map_of(items.get(i))));
+                } else if (args_av.is_pointer()) {
+                    // Legacy flat-array shape (no turbofish).
+                    auto arr = arr_of(args_av);
+                    for (uint64_t i = 0; i < arr.size(); ++i)
+                        slc_args.push_back(lower_expr(map_of(arr.get(i))));
+                }
+            }
+        }
+        std::string elem_name = type_str(TypeRef(recv->type).elem());
+        std::vector<std::string> keys;
+        keys.push_back("$slice$" + elem_name + "__" + std::string(method_name));
+        keys.push_back("$slice$T__" + std::string(method_name));  // generic blanket
+        // Phase 1B-11: when receiver is `&str` (== Slice<u8> in Logos), also
+        // try the `str__method` mangling produced by `impl Trait for str`.
+        // Same dispatch path; the existing `target == "str"` collection
+        // (sema_collect.cpp ~2124) registers methods under this name.
+        if (TypeRef(recv->type).elem() &&
+            TypeRef(TypeRef(recv->type).elem()).kind() == LogosType::Kind::U8) {
+            keys.push_back("str__" + std::string(method_name));
+        }
+        for (auto& key : keys) {
+            const SemaFuncInfo* fi_ptr = nullptr;
+            std::vector<TypeRef> mtypes;
+            mtypes.push_back(recv->type);
+            for (auto& a : slc_args) mtypes.push_back(a->type);
+            if (auto fit = find_func_by_base_and_signature(key, mtypes, false)) {
+                fi_ptr = fit;
+            } else if (auto git = find_generic_func(key)) {
+                fi_ptr = git;
+            }
+            if (!fi_ptr) continue;
+            std::vector<lir::LExprPtr> pargs;
+            pargs.push_back(std::move(recv));
+            for (auto& a : slc_args) pargs.push_back(std::move(a));
+            if (!fi_ptr->type_params.empty()) {
+                std::vector<TypeRef> m_type_args;
+                for (auto& tp : fi_ptr->type_params) {
+                    if (tp.name == "T") m_type_args.push_back(TypeRef(pargs[0]->type).elem());
+                    else m_type_args.push_back(error_t());
+                }
+                return finish_generic_call(
+                    fi_ptr->symbol_name.empty() ? key : fi_ptr->symbol_name,
+                    *fi_ptr, std::move(m_type_args), std::move(pargs));
+            }
+            return builder().call(
+                fi_ptr->symbol_name.empty() ? key : fi_ptr->symbol_name,
+                {}, std::move(pargs), fi_ptr->ret_type);
         }
         error(std::format("slice has no method '{}'", method_name));
         return error_expr();
@@ -3512,6 +3709,58 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // &dyn Trait method call: look up trait method, emit EMethodCall with vtable dispatch.
     if (TypeRef rt(recv->type); rt && rt.kind() == LogosType::Kind::TraitObject) {
         auto tname = std::string(rt.trait_name());
+        // Phase 1B-11: inherent `impl Trait for dyn Foo` methods. Mangled
+        // as `$dyn$Foo__method` (Phase 1B-10 collection). Try this path
+        // BEFORE vtable dispatch so impls override / extend trait-method
+        // resolution. Parse args inline (the outer arg_exprs vector isn't
+        // built until further below in this function).
+        {
+            std::string dyn_key = "$dyn$" + tname + "__" + std::string(method_name);
+            std::vector<lir::LExprPtr> d_args;
+            if (node.has_key(la::ARGS)) {
+                auto args_av = node.get(la::ARGS.code);
+                if (!args_av.is_null()) {
+                    auto args_list = map_of(args_av);
+                    if (args_list.has_key(la::ITEMS)) {
+                        auto items = arr_of(args_list.get(la::ITEMS.code));
+                        for (uint64_t i = 0; i < items.size(); ++i)
+                            d_args.push_back(lower_expr(map_of(items.get(i))));
+                    } else if (args_av.is_pointer()) {
+                        auto arr = arr_of(args_av);
+                        for (uint64_t i = 0; i < arr.size(); ++i)
+                            d_args.push_back(lower_expr(map_of(arr.get(i))));
+                    }
+                }
+            }
+            std::vector<TypeRef> mtypes;
+            mtypes.push_back(recv->type);
+            for (auto& a : d_args) mtypes.push_back(a->type);
+            const SemaFuncInfo* dfi = nullptr;
+            if (auto fit = find_func_by_base_and_signature(dyn_key, mtypes, false))
+                dfi = fit;
+            else if (auto git = find_generic_func(dyn_key))
+                dfi = git;
+            if (dfi) {
+                std::vector<lir::LExprPtr> pargs;
+                pargs.push_back(std::move(recv));
+                for (auto& a : d_args) pargs.push_back(std::move(a));
+                if (!dfi->type_params.empty()) {
+                    SemaSubst seed; seed["Self"] = mtypes[0];
+                    std::vector<TypeRef> m_type_args;
+                    if (!infer_type_args(*dfi, d_args, m_type_args, seed, 1)) {
+                        // Fall through to vtable dispatch on inference failure.
+                    } else {
+                        return finish_generic_call(
+                            dfi->symbol_name.empty() ? dyn_key : dfi->symbol_name,
+                            *dfi, std::move(m_type_args), std::move(pargs));
+                    }
+                } else {
+                    return builder().call(
+                        dfi->symbol_name.empty() ? dyn_key : dfi->symbol_name,
+                        {}, std::move(pargs), dfi->ret_type);
+                }
+            }
+        }
         auto tit = traits_.find(tname);
         if (tit != traits_.end()) {
             for (size_t mi = 0; mi < tit->second.methods.size(); ++mi) {
@@ -4131,6 +4380,62 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 if (auto pfit = find_func_by_base_and_signature(mangled_prim, types_mptr, false))
                     fi_ptr = pfit;
             }
+            // Phase 1B-7: receiver of type `&T` / `&mut T` where T is a
+            // primitive — try `$ref_<recv_type_str>__method` /
+            // `$mut_ref_<...>` mangling. This is how sema_collect registers
+            // `impl Trait for &T` (and `&mut T`) when the pointee is not a
+            // struct (sema_collect.cpp:1544). Mirrors the struct-pointee
+            // ref_keys block further down for non-struct cases.
+            std::string rprefix;
+            if (!fi_ptr && recv->type && is_ref_like(TypeRef(recv->type).kind())) {
+                rprefix =
+                    (TypeRef(recv->type).kind() == LogosType::Kind::MutRef)
+                        ? "$mut_ref_" : "$ref_";
+                std::string rkey = rprefix + tname + "__" + std::string(method_name);
+                // Try with recv->type as-is, then with &recv / &mut recv for
+                // methods whose `self: &Self` adds an extra reference level.
+                if (auto pfit = find_func_by_base_and_signature(rkey, types, false)) {
+                    fi_ptr = pfit;
+                } else {
+                    auto types_ref = types; types_ref[0] = make_ref(false, recv->type);
+                    if (auto pfit = find_func_by_base_and_signature(rkey, types_ref, false)) {
+                        fi_ptr = pfit;
+                        auto ty = make_ref(false, recv->type);
+                        recv = builder().addr_of_temp(std::move(recv), false, ty);
+                    } else {
+                        auto types_mut = types; types_mut[0] = make_ref(true, recv->type);
+                        if (auto pfit = find_func_by_base_and_signature(rkey, types_mut, false)) {
+                            fi_ptr = pfit;
+                            auto ty = make_ref(true, recv->type);
+                            recv = builder().addr_of_temp(std::move(recv), true, ty);
+                        }
+                    }
+                }
+                if (fi_ptr) mangled_prim = rkey;
+            }
+            // Phase 1B-8: generic ref-blanket dispatch. `impl<T> Trait for
+            // &T` registers under sentinel `$ref$T__method`. Bind T to
+            // recv's pointee, autoref recv, route through finish_generic_call.
+            if (!fi_ptr && recv->type && is_ref_like(TypeRef(recv->type).kind())) {
+                std::string blanket_key =
+                    rprefix + "$T__" + std::string(method_name);
+                if (auto git = find_generic_func(blanket_key)) {
+                    auto T_bound = TypeRef(recv->type).pointee();
+                    auto ty = make_ref(false, recv->type);
+                    auto autoref_recv = builder().addr_of_temp(std::move(recv), false, ty);
+                    std::vector<TypeRef> m_type_args;
+                    for (auto& tp : git->type_params) {
+                        if (tp.name == "T") m_type_args.push_back(T_bound);
+                        else m_type_args.push_back(error_t());
+                    }
+                    std::vector<lir::LExprPtr> pargs;
+                    pargs.push_back(std::move(autoref_recv));
+                    for (auto& a : arg_exprs) pargs.push_back(std::move(a));
+                    return finish_generic_call(
+                        git->symbol_name.empty() ? blanket_key : git->symbol_name,
+                        *git, std::move(m_type_args), std::move(pargs));
+                }
+            }
             if (!fi_ptr) {
                 if (auto pfit = find_generic_func(mangled_prim)) {
                     fi_ptr = pfit;
@@ -4255,17 +4560,55 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             }
             ref_keys.push_back(prefix + std::string(TypeRef(pointee).struct_name())
                                + "__" + std::string(method_name));
+        } else if (pointee) {
+            // Phase 1B-7: primitive / non-struct pointee. Match sema_collect's
+            // mangling convention `target = prefix + type_str(resolved)` —
+            // the receiver TYPE for the impl, not the pointee. E.g.
+            // `impl Show for &i32` registers methods under "$ref_&i32__show".
+            ref_keys.push_back(prefix + type_str(recv->type)
+                               + "__" + std::string(method_name));
         }
-        std::vector<TypeRef> types;
-        types.push_back(recv->type);
-        for (auto& a : arg_exprs) types.push_back(a->type);
+        // Phase 1B-7: an `impl<T> Trait for &T` method's `fn show(self: &Self)`
+        // has param[0]=&&T (because Self=&T). When called as `r.show()` with
+        // `r: &Foo`, the actual receiver type is `&Foo` — one ref short of
+        // what the method expects. Try the lookup with `recv->type`, then
+        // with `&recv->type` and `&mut recv->type` as types[0] so the
+        // autoref-ladder finds the matching impl.
+        std::vector<TypeRef> types_direct;
+        types_direct.push_back(recv->type);
+        for (auto& a : arg_exprs) types_direct.push_back(a->type);
+        std::vector<TypeRef> types_autoref = types_direct;
+        types_autoref[0] = make_ref(false, recv->type);
+        std::vector<TypeRef> types_automut = types_direct;
+        types_automut[0] = make_ref(true, recv->type);
+        // `auto_ref_kind`: 0 = no autoref (recv passed as-is), 1 = `&recv`,
+        // 2 = `&mut recv`. Captured per-match so we wrap recv correctly.
+        int matched_auto_ref = 0;
         for (auto& key : ref_keys) {
             const SemaFuncInfo* pfit = nullptr;
-            if (auto fit = find_func_by_base_and_signature(key, types, false))
-                pfit = fit;
+            if (auto fit = find_func_by_base_and_signature(key, types_direct, false)) {
+                pfit = fit; matched_auto_ref = 0;
+            }
+            else if (auto fit = find_func_by_base_and_signature(key, types_autoref, false)) {
+                pfit = fit; matched_auto_ref = 1;
+            }
+            else if (auto fit = find_func_by_base_and_signature(key, types_automut, false)) {
+                pfit = fit; matched_auto_ref = 2;
+            }
             else if (auto git = find_generic_func(key))
                 pfit = git;
             if (!pfit) continue;
+            // Apply autoref to the receiver if matched against the autoref'd
+            // signature variant. `&recv` (or `&mut recv`) becomes the new
+            // recv passed to the call site; codegen materialises an
+            // addr-of-temp wrapping the original ref value.
+            if (matched_auto_ref == 1) {
+                auto ty = make_ref(false, recv->type);
+                recv = builder().addr_of_temp(std::move(recv), false, ty);
+            } else if (matched_auto_ref == 2) {
+                auto ty = make_ref(true, recv->type);
+                recv = builder().addr_of_temp(std::move(recv), true, ty);
+            }
             // Build subst: bind impl/struct type params to pointee's type args
             // so generic ref-impls (`impl<T> Foo for &Pair<T>`) get T → i32 etc.
             SemaSubst ref_subst;

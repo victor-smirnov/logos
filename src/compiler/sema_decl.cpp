@@ -962,6 +962,29 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         if (code_of(tnode) == la::PTR_TYPE) {
             auto resolved = resolve_type(tnode);
             target = type_str(resolved);
+        } else if (code_of(tnode) == la::UNSIZED_SLICE_TYPE) {
+            // Phase 1B-10: parallel to sema_collect — unsized-slice impl
+            // self-type. Same mangling so collection + lowering agree.
+            bool was_ok = unsized_ok_;
+            unsized_ok_ = true;
+            auto resolved = resolve_type(tnode);
+            unsized_ok_ = was_ok;
+            target_resolved = resolved;
+            TypeRef elem = resolved ? TypeRef(resolved).elem() : TypeRef(nullptr);
+            if (elem && TypeRef(elem).kind() == LogosType::Kind::TypeVar) {
+                target = "$slice$T";
+            } else {
+                target = "$slice$" + (elem ? type_str(elem) : std::string("?"));
+            }
+        } else if (code_of(tnode) == la::DYN_TYPE) {
+            // Phase 1B-10: parallel to sema_collect — dyn-trait impl self-type.
+            bool was_ok = unsized_ok_;
+            unsized_ok_ = true;
+            auto resolved = resolve_type(tnode);
+            unsized_ok_ = was_ok;
+            target_resolved = resolved;
+            target = "$dyn$" + (resolved ? std::string(TypeRef(resolved).trait_name())
+                                         : std::string("?"));
         } else if (code_of(tnode) == la::REF_TYPE ||
                    code_of(tnode) == la::MUT_REF_TYPE) {
             // Mirror sema_collect: "$ref_Foo" / "$mut_ref_Foo" (symbol-safe,
@@ -981,6 +1004,11 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 } else {
                     target = prefix + concrete_struct_name(pointee);
                 }
+            } else if (pointee && TypeRef(pointee).kind() == LogosType::Kind::TypeVar) {
+                // Phase 1B-8: parallel to sema_collect.cpp — `impl<T> Trait
+                // for &T` uses sentinel `$ref$T` / `$mut_ref$T` so lowering
+                // emits the same mangled name as collection.
+                target = prefix + "$T";
             } else {
                 target = prefix + type_str(resolved);
             }
@@ -1234,6 +1262,26 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     std::string lower_target = ib.is_blanket
         ? ("$blanket$" + trait_name + "$" + ib.bound_trait + "$" + target)
         : target;
+    // Phase 1B-11: when target_resolved holds an unsized self-type kind
+    // (UnsizedSlice / UnsizedDyn), seed `Self` before lower_fn so the
+    // method body's `self: &Self` / `&Self` references resolve correctly.
+    // For sized targets, lower_fn falls back to its own lookup_type_by_name
+    // path which works on struct/datatype/primitive names.
+    if (target_resolved &&
+        (TypeRef(target_resolved).kind() == LogosType::Kind::UnsizedSlice ||
+         TypeRef(target_resolved).kind() == LogosType::Kind::UnsizedDyn) &&
+        !current_type_params_.count("Self")) {
+        current_type_params_["Self"] = target_resolved;
+    }
+    // `impl Trait for str` falls through to the simple_type branch which
+    // sets target="str" but doesn't set target_resolved. For the unsized
+    // Self semantics ( so `&Self` canonicalises to Slice<u8> at lowering),
+    // seed Self with UnsizedSlice<u8>.
+    if (target == "str" && !current_type_params_.count("Self")) {
+        LogosTypeBuilder us; us.kind = LogosType::Kind::UnsizedSlice;
+        us.elem = u8_t();
+        current_type_params_["Self"] = pool_->alloc(std::move(us));
+    }
     if (node.has_key(la::ITEMS)) {
         auto items = arr_of(node.get(la::ITEMS.code));
         for (uint64_t i = 0; i < items.size(); ++i) {

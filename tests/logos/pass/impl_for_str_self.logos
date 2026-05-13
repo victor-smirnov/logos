@@ -1,0 +1,12 @@
+package x;
+trait Yell { fn yell(self: &Self) -> i64; }
+impl Yell for str {
+    // `&Self` where Self=UnsizedSlice<u8> canonicalises to Slice<u8> via
+    // Phase 1B-11 resolve-time canonicalisation. Don't write `self: &str`
+    // — that lexically produces &(Slice<u8>) = &&[u8], not what's wanted.
+    fn yell(self: &Self) -> i64 { return self.len(); }
+}
+unsafe fn main() -> i32 {
+    let s: str = "hello";
+    return (s.yell() - 5 as i64) as i32;
+}

@@ -1,0 +1,33 @@
+// Phase 1: `?Sized` relaxed-bound syntax is accepted on type parameters.
+// Currently no unsized types are first-class, so the substitution still
+// uses a sized type — this test only verifies that the syntax parses
+// and compiles. Real unsized-T substitution lands in a later Phase 1
+// batch.
+
+package relaxed_sized_bound_basic;
+
+use std.lang.marker;
+
+fn identity<T: ?Sized>(x: T) -> T {
+    return x;
+}
+
+fn use_with_extra_bound<T: ?Sized + Send>(x: T) -> T {
+    return x;
+}
+
+fn use_with_relaxed_after<T: Send + ?Sized>(x: T) -> T {
+    return x;
+}
+
+fn use_where_clause<T>(x: T) -> T where T: ?Sized {
+    return x;
+}
+
+unsafe fn main() -> i32 {
+    let a = identity::<i32>(7);
+    let b = use_with_extra_bound::<i32>(11);
+    let c = use_with_relaxed_after::<i32>(13);
+    let d = use_where_clause::<i32>(17);
+    return a + b + c + d - 48;
+}

@@ -54,6 +54,24 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
     case LogosType::Kind::Ref:
     case LogosType::Kind::MutRef: {
         auto inner = subst_type(tv.pointee(), s);
+        // Phase 1B-2: when a `T: ?Sized` substitution lands an UnsizedSlice<U>
+        // inside `&T` / `&mut T` / `*const T` / `*mut T`, canonicalise to
+        // the existing Kind::Slice (fat-pointer ABI). Mirrors the sema-side
+        // subst_type_sema canonicalisation; mono operates over the same
+        // type-pool but with its own allocator/recorder.
+        if (inner && inner.kind() == LogosType::Kind::UnsizedSlice) {
+            LogosTypeBuilder snt; snt.kind = LogosType::Kind::Slice;
+            snt.elem = inner.elem();
+            return out_.type_pool.alloc(std::move(snt));
+        }
+        // Phase 1B-4: same canonicalisation for UnsizedDyn → TraitObject.
+        if (inner && inner.kind() == LogosType::Kind::UnsizedDyn) {
+            LogosTypeBuilder tnt; tnt.kind = LogosType::Kind::TraitObject;
+            tnt.trait_name = std::string(inner.trait_name());
+            tnt.type_args = std::vector<TypeRef>(inner.type_args().begin(),
+                                                 inner.type_args().end());
+            return out_.type_pool.alloc(std::move(tnt));
+        }
         if (inner == tv.pointee()) return tv;
         LogosTypeBuilder nt = tv.to_builder(); nt.pointee = inner;
         return out_.type_pool.alloc(nt);
@@ -104,6 +122,34 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         if (elem == tv.elem()) return tv;
         LogosTypeBuilder nt; nt.kind = LogosType::Kind::Slice;
         nt.elem = elem;
+        return out_.type_pool.alloc(std::move(nt));
+    }
+    case LogosType::Kind::UnsizedSlice: {
+        // Phase 1B-2: substitute the element. The UnsizedSlice kind survives
+        // here only when it appears outside a `&` / `*` wrapper (caught by
+        // the Ptr/Ref/MutRef canonicalisation above). At MLIR-gen time
+        // reaching this kind is a sentinel for an unsized value position.
+        auto elem = subst_type(tv.elem(), s);
+        if (elem == tv.elem()) return tv;
+        LogosTypeBuilder nt; nt.kind = LogosType::Kind::UnsizedSlice;
+        nt.elem = elem;
+        return out_.type_pool.alloc(std::move(nt));
+    }
+    case LogosType::Kind::UnsizedDyn: {
+        // Phase 1B-4: substitute trait type args. Same survival pattern as
+        // UnsizedSlice — only reachable outside a `&` / `*` wrapper.
+        if (tv.type_args().empty()) return tv;
+        std::vector<TypeRef> new_args;
+        bool changed = false;
+        for (auto a : tv.type_args()) {
+            auto na = subst_type(a, s);
+            changed |= (na != a);
+            new_args.push_back(na);
+        }
+        if (!changed) return tv;
+        LogosTypeBuilder nt; nt.kind = LogosType::Kind::UnsizedDyn;
+        nt.trait_name = std::string(tv.trait_name());
+        nt.type_args = std::move(new_args);
         return out_.type_pool.alloc(std::move(nt));
     }
     case LogosType::Kind::TraitObject: {

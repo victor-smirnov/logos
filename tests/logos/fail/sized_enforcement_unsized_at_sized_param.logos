@@ -1,0 +1,14 @@
+package sized_enforcement_unsized_at_sized_param;
+
+// Phase 1B-5: passing an unsized type ([u8]) to a Sized parameter is
+// rejected at substitution time with a specific diagnostic.
+
+fn needs_sized<T>(_: T) -> i32 { return 0; }
+
+unsafe fn main() -> i32 {
+    let buf: [u8; 4] = [1, 2, 3, 4];
+    let s: &[u8] = &buf;
+    // ::<[u8]> — would substitute T = UnsizedSlice<u8>, but T is Sized
+    // (no `?Sized` opt-out). Rejected.
+    return needs_sized::<[u8]>(s);
+}

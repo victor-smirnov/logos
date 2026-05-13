@@ -1,0 +1,20 @@
+// Phase 1B-5: generic struct instantiation accepts unsized type args when
+// the corresponding struct type-param has `?Sized` opt-out.
+
+package relaxed_sized_struct_inst;
+
+struct Holder<T: ?Sized> {
+    // Holder doesn't physically materialise T — it only carries the type
+    // identity (this test focuses on parse + substitution, not layout).
+    // The `*const T` field would canonicalise to a fat ptr after subst.
+    p: *const T,
+}
+
+unsafe fn main() -> i32 {
+    let buf: [u8; 3] = [1, 2, 3];
+    // Generic instantiation with bare `[u8]` — unsized turbofish slot is
+    // open because `T` has `?Sized`. *const T canonicalises to *const [u8]
+    // = fat-ptr Slice<u8> after substitution.
+    let _h: Holder<[u8]> = Holder { p: &buf as *const [u8] };
+    return 0;
+}

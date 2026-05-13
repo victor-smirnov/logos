@@ -1,0 +1,18 @@
+package x;
+trait Area { fn area(self: Self) -> i32; }
+struct Square { s: i32 }
+impl Area for Square {
+    fn area(self: Square) -> i32 { return self.s * self.s; }
+}
+
+// Inherent impl on `dyn Area`: a free method `name_of_dyn` (NOT a method of Area).
+trait Tag { fn name_id(self: &Self) -> i32; }
+impl Tag for dyn Area {
+    fn name_id(self: &Self) -> i32 { return 42; }
+}
+
+unsafe fn main() -> i32 {
+    let sq: Square = Square { s: 4 };
+    let obj: &dyn Area = sq;
+    return obj.name_id() - 42;
+}
