@@ -2060,7 +2060,23 @@ void SemaChecker::collect_impl(TinyMapView node) {
                           target_resolved, impl_tps,
                           trait_type_args, trait_lt_args, impl_lt_params,
                           impl_lt_outlives};
-        impls_[trait_name + "::" + target] = info;
+        // B91: coherence — reject a second impl of the same trait for the
+        // same target type. Only fires for NON-GENERIC impls (no impl type
+        // params and no impl lifetime params): two `impl<T> ... for Map<K,V>`
+        // forms with different specialization patterns are legitimate and
+        // disambiguated downstream. Negative impls (`impl !T for X {}`)
+        // are coherence markers, not impls — skip.
+        std::string key = trait_name + "::" + target;
+        bool is_generic_impl = !impl_tps.empty() || !impl_lt_params.empty();
+        if (!impl_is_negative && !is_generic_impl && impls_.count(key)) {
+            auto& prev = impls_.at(key);
+            bool prev_generic = !prev.impl_type_params.empty() ||
+                                !prev.impl_lifetime_params.empty();
+            if (!prev_generic)
+                error(std::format("conflicting implementations of trait '{}' for type '{}'",
+                                  trait_name, target));
+        }
+        impls_[key] = info;
         // `str` is a built-in that resolves to Slice<u8>; type_str() produces
         // "&[u8]" for Slice<u8>, so trait-bound checks look for "Trait::&[u8]".
         // Register an alias entry so satisfaction checks find the impl.

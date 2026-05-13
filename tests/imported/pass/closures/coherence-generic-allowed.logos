@@ -1,0 +1,14 @@
+// B91: two impls with different generic patterns are allowed.
+package coherence_generic_allowed;
+
+trait T { fn x(self: &Self) -> i32; }
+struct Wrap<X> { v: X }
+
+impl T for Wrap<i32> { fn x(self: &Wrap<i32>) -> i32 { return 1i32; } }
+impl T for Wrap<i64> { fn x(self: &Wrap<i64>) -> i32 { return 2i32; } }
+
+fn main() -> i32 {
+    let a: Wrap<i32> = Wrap { v: 0i32 };
+    let b: Wrap<i64> = Wrap { v: 0i64 };
+    return a.x() + b.x() - 3i32;
+}

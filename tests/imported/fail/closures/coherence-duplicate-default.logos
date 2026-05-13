@@ -1,0 +1,10 @@
+// B91: even when the trait has a default body, duplicate impl blocks
+// for the same non-generic type are rejected.
+package coherence_duplicate_default;
+
+trait T { fn x(self: &Self) -> i32 { return 0i32; } }
+struct S { _x: i32 }
+impl T for S {}
+impl T for S {}
+
+fn main() -> i32 { return 0i32; }
