@@ -6,10 +6,10 @@ fn main() -> i32 {
     let arr: [i32; 5] = [1, 2, 3, 4, 5];
 
     // Bare list comprehension: array iteration
-    let doubled = [x * 2 for x in arr];
+    let mut doubled = [x * 2 for x in arr];
 
     // With guard: keep only evens, square them
-    let even_sq = [x * x for x in arr if (x % 2) == 0];
+    let mut even_sq = [x * x for x in arr if (x % 2) == 0];
 
     unsafe {
         let pd: *mut Vec<i32> = &mut doubled;

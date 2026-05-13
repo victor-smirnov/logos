@@ -32,13 +32,13 @@ unsafe fn holder_hi(h: *mut Holder) -> i32 {
 }
 
 unsafe fn main() -> i32 {
-    let h: Hello = Hello { v: 7 };
+    let mut h: Hello = Hello { v: 7 };
     let hp: *mut Hello = &mut h as *mut Hello;
     let dh: *mut dyn Greet = hp as *mut dyn Greet;
     if dh.hi() != 7 { return 1; }
     if dispatch(dh) != 7 { return 2; }
 
-    let w: World = World { w: 5 };
+    let mut w: World = World { w: 5 };
     let wp: *mut World = &mut w as *mut World;
     let dw: *mut dyn Greet = wp as *mut dyn Greet;
     if dw.hi() != 50 { return 3; }

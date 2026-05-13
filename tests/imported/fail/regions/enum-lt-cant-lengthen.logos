@@ -1,6 +1,4 @@
-// B79 GAP: enum-with-lifetime variance check does not currently fire.
-// Pinned as gap-regression; Rust rejects this case.
-// B64: enum Co in 'a — lengthening rejected.
+// B81: enum with 'a is Co — lengthening rejected via variance + lt_args.
 package enum_lt_cant_lengthen;
 
 enum Opt<'a> { Some(&'a i32), None }

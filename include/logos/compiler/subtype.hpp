@@ -83,6 +83,20 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
         case K::Array:
         case K::Slice:
             return types_equal_with_lifetimes(a.elem(), b.elem(), adj);
+        case K::FnPtr:
+        case K::Closure: {
+            // B81: types_equal_with_lifetimes must recurse through FnPtr to
+            // see the inner Ref's lifetime. Previously fell through to the
+            // default (TypeUID), which is lifetime-erased — so two FnPtrs
+            // differing only by an inner Ref's lifetime were collapsed,
+            // and the surrounding subtype check skipped the variance.
+            auto ap = a.closure_params();
+            auto bp = b.closure_params();
+            if (ap.size() != bp.size()) return false;
+            for (size_t i = 0; i < ap.size(); ++i)
+                if (!types_equal_with_lifetimes(ap[i], bp[i], adj)) return false;
+            return types_equal_with_lifetimes(a.closure_ret(), b.closure_ret(), adj);
+        }
         case K::Struct:
         case K::ZonedStruct:
         case K::Enum: {
@@ -230,11 +244,22 @@ inline bool subtype(TypeRef sub, TypeRef sup,
         }
         case K::Enum: {
             if (sub.enum_name() != sup.enum_name()) return true;
+            if (sub.pkg_name() != sup.pkg_name()) return true;
             auto sta = sub.type_args();
             auto pta = sup.type_args();
             if (sta.size() != pta.size()) return true;
+            // B81: enum is currently treated as Co in every type-arg + lt-arg
+            // position. Variance-table per enum def isn't wired up yet (same
+            // as Struct, conservatively: fall back to Co — matches the
+            // Co-shape of Option/Result/Box). Lifetime arg variance follows.
             for (size_t i = 0; i < sta.size(); ++i)
                 if (!subtype(sta[i], pta[i], adj, vars, depth + 1, permissive_empty)) return false;
+            auto sl = sub.lifetime_args();
+            auto pl = sup.lifetime_args();
+            if (sl.size() != pl.size()) return true;
+            for (size_t i = 0; i < sl.size(); ++i)
+                if (!detail::lifetime_at(Variance::Co, sl[i], pl[i], adj, permissive_empty))
+                    return false;
             return true;
         }
         case K::FnPtr:

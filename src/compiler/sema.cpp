@@ -443,7 +443,8 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
     case K::Enum:
         return t.enum_name == r.enum_name() &&
                t.pkg_name == r.pkg_name() &&
-               vec_ptr_eq(t.type_args, r.type_args());
+               vec_ptr_eq(t.type_args, r.type_args()) &&
+               t.lifetime_args == r.lifetime_args();
     case K::Tuple:
         return vec_ptr_eq(t.tuple_elems, r.tuple_elems());
     case K::Slice:

@@ -1,0 +1,8 @@
+// B81: bare fn-ptr at fn-sig position — Contra arg cannot shorten.
+package variance_contra_fnptr_arg;
+
+fn bad<'short, 'long>(f: fn(&'long i32) -> i32) -> fn(&'short i32) -> i32
+    where 'long: 'short
+{ return f; }
+
+fn main() -> i32 { return 0i32; }

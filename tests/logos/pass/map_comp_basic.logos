@@ -6,10 +6,10 @@ fn main() -> i32 {
     let arr: [i32; 5] = [1, 2, 3, 4, 5];
 
     // Map comp: keys = value, vals = value*value.
-    let sq = {x: x * x for x in arr};
+    let mut sq = {x: x * x for x in arr};
 
     // With guard: only evens.
-    let ev = {x: x * 10 for x in arr if (x % 2) == 0};
+    let mut ev = {x: x * 10 for x in arr if (x % 2) == 0};
 
     unsafe {
         let ps: *mut HashMap<i32, i32> = &mut sq;

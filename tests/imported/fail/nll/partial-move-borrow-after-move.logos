@@ -1,7 +1,5 @@
-// B78 GAP: borrowing a moved field (`&o.i` after `take(o.i)`) does NOT
-// currently fire — AddrOf path on FieldRead bypasses moved_fields check.
-// Pinned as gap-regression; Rust rejects this case.
-package partial_move_borrow_after_move_gap;
+// B81: borrowing a moved field is rejected via AddrOfTemp(FieldRead) path.
+package partial_move_borrow_after_move;
 
 struct Inner { v: i64 }
 impl Drop for Inner { fn drop(self: &mut Inner) { } }

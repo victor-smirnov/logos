@@ -1,0 +1,8 @@
+// B81: bare fn-ptr at fn-sig position — Co return cannot lengthen.
+package variance_co_fnptr_return;
+
+fn bad<'short, 'long>(f: fn() -> &'short i32) -> fn() -> &'long i32
+    where 'long: 'short
+{ return f; }
+
+fn main() -> i32 { return 0i32; }

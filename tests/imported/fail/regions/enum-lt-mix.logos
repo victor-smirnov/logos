@@ -1,0 +1,8 @@
+// B81: enum lt-substitution check via enum-lit inference + variance.
+package enum_lt_mix;
+
+enum E<'a, 'b> { L(&'a i32), R(&'b i32) }
+
+fn bad<'a, 'b>(x: &'a i32) -> E<'b, 'a> { return E::L(x); }
+
+fn main() -> i32 { return 0i32; }

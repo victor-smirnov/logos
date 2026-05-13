@@ -6433,6 +6433,43 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
     auto& einfo = eit->second;
     std::vector<TypeRef> resolved_payload_types = vinfo->payload_types;
 
+    // B81: infer enum's lifetime args from paired payload types. Walk each
+    // (declared payload type, actual value type) pair extracting lifetimes
+    // from Refs and mapping back to einfo.lifetime_params. Used to populate
+    // lifetime_args on the constructed enum type so the variance check at
+    // return-site / let-init can compare lifetimes.
+    std::unordered_map<std::string, std::string> lt_subst;
+    {
+        std::function<void(TypeRef, TypeRef)> walk = [&](TypeRef pt, TypeRef at) {
+            if (!pt || !at) return;
+            using K = LogosType::Kind;
+            auto pk = pt.kind();
+            if ((pk == K::Ref || pk == K::MutRef) && (at.kind() == K::Ref || at.kind() == K::MutRef)) {
+                std::string pl(pt.lifetime()), al(at.lifetime());
+                if (!pl.empty() && !al.empty() && !lt_subst.count(pl)) lt_subst[pl] = al;
+                walk(pt.pointee(), at.pointee());
+                return;
+            }
+            if (pk == K::Tuple && at.kind() == K::Tuple) {
+                auto pe = pt.tuple_elems(); auto ae = at.tuple_elems();
+                for (size_t i = 0; i < pe.size() && i < ae.size(); ++i) walk(pe[i], ae[i]);
+                return;
+            }
+            if ((pk == K::Struct || pk == K::ZonedStruct || pk == K::Enum) && at.kind() == pk) {
+                auto pl = pt.lifetime_args(); auto al = at.lifetime_args();
+                for (size_t i = 0; i < pl.size() && i < al.size(); ++i) {
+                    if (!pl[i].empty() && !al[i].empty() && !lt_subst.count(pl[i]))
+                        lt_subst[pl[i]] = al[i];
+                }
+                auto pa = pt.type_args(); auto aa = at.type_args();
+                for (size_t i = 0; i < pa.size() && i < aa.size(); ++i) walk(pa[i], aa[i]);
+                return;
+            }
+        };
+        for (size_t i = 0; i < vinfo->payload_types.size() && i < payload.size(); ++i)
+            if (payload[i]) walk(vinfo->payload_types[i], payload[i]->type);
+    }
+
     // Build the enum type (may be generic, e.g. Option<i32>)
     // For now, if the enum has type params, we need to infer them from payload types.
     // Simple inference: match payload args to payload type params.
@@ -6465,10 +6502,25 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
             type_args.push_back(sit != subst.end() ? sit->second : error_t());
         }
         check_type_bounds(std::string(ename), einfo.type_params, type_args);
-        result_type = make_generic_enum(ename, std::move(type_args));
+        // B81: emit lifetime_args from lt_subst (enum's lifetime_params
+        // → inferred caller lifetimes). Use empty string for unresolved.
+        std::vector<std::string> lt_args;
+        for (auto& lp : einfo.lifetime_params) {
+            auto it = lt_subst.find(lp);
+            lt_args.push_back(it != lt_subst.end() ? it->second : std::string{});
+        }
+        result_type = make_generic_enum(ename, std::move(type_args), std::move(lt_args));
         // Resolve payload types with substitution
         for (size_t i = 0; i < resolved_payload_types.size(); ++i)
             resolved_payload_types[i] = subst_type_sema(resolved_payload_types[i], subst);
+    } else if (!einfo.lifetime_params.empty()) {
+        // Non-generic enum but has lifetime params — emit lt_args still.
+        std::vector<std::string> lt_args;
+        for (auto& lp : einfo.lifetime_params) {
+            auto it = lt_subst.find(lp);
+            lt_args.push_back(it != lt_subst.end() ? it->second : std::string{});
+        }
+        result_type = make_generic_enum(ename, {}, std::move(lt_args));
     }
 
     // Type-check payload args against expected types
@@ -6614,6 +6666,39 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
     // Build result type + type-check (same logic as lower_enum_lit_data)
     auto& einfo = eit->second;
     std::vector<TypeRef> resolved_payload_types = vinfo->payload_types;
+
+    // B81: lifetime-arg inference (mirror of lower_enum_lit_data path).
+    std::unordered_map<std::string, std::string> lt_subst;
+    {
+        std::function<void(TypeRef, TypeRef)> walk = [&](TypeRef pt, TypeRef at) {
+            if (!pt || !at) return;
+            using K = LogosType::Kind;
+            auto pk = pt.kind();
+            if ((pk == K::Ref || pk == K::MutRef) && (at.kind() == K::Ref || at.kind() == K::MutRef)) {
+                std::string pl(pt.lifetime()), al(at.lifetime());
+                if (!pl.empty() && !al.empty() && !lt_subst.count(pl)) lt_subst[pl] = al;
+                walk(pt.pointee(), at.pointee());
+                return;
+            }
+            if (pk == K::Tuple && at.kind() == K::Tuple) {
+                auto pe = pt.tuple_elems(); auto ae = at.tuple_elems();
+                for (size_t i = 0; i < pe.size() && i < ae.size(); ++i) walk(pe[i], ae[i]);
+                return;
+            }
+            if ((pk == K::Struct || pk == K::ZonedStruct || pk == K::Enum) && at.kind() == pk) {
+                auto pl = pt.lifetime_args(); auto al = at.lifetime_args();
+                for (size_t i = 0; i < pl.size() && i < al.size(); ++i)
+                    if (!pl[i].empty() && !al[i].empty() && !lt_subst.count(pl[i]))
+                        lt_subst[pl[i]] = al[i];
+                auto pa = pt.type_args(); auto aa = at.type_args();
+                for (size_t i = 0; i < pa.size() && i < aa.size(); ++i) walk(pa[i], aa[i]);
+                return;
+            }
+        };
+        for (size_t i = 0; i < vinfo->payload_types.size() && i < payload.size(); ++i)
+            if (payload[i]) walk(vinfo->payload_types[i], payload[i]->type);
+    }
+
     TypeRef result_type = make_enum_type(ename);
     if (!einfo.type_params.empty()) {
         SemaSubst subst;
@@ -6641,9 +6726,21 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
             type_args.push_back(sit != subst.end() ? sit->second : error_t());
         }
         check_type_bounds(std::string(ename), einfo.type_params, type_args);
-        result_type = make_generic_enum(ename, std::move(type_args));
+        std::vector<std::string> lt_args;
+        for (auto& lp : einfo.lifetime_params) {
+            auto it = lt_subst.find(lp);
+            lt_args.push_back(it != lt_subst.end() ? it->second : std::string{});
+        }
+        result_type = make_generic_enum(ename, std::move(type_args), std::move(lt_args));
         for (size_t i = 0; i < resolved_payload_types.size(); ++i)
             resolved_payload_types[i] = subst_type_sema(resolved_payload_types[i], subst);
+    } else if (!einfo.lifetime_params.empty()) {
+        std::vector<std::string> lt_args;
+        for (auto& lp : einfo.lifetime_params) {
+            auto it = lt_subst.find(lp);
+            lt_args.push_back(it != lt_subst.end() ? it->second : std::string{});
+        }
+        result_type = make_generic_enum(ename, {}, std::move(lt_args));
     }
     if (!vinfo->is_variadic && payload.size() != vinfo->payload_types.size()) {
         error(std::format("{}::{} expects {} args, got {}",

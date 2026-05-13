@@ -599,6 +599,33 @@ class BorrowChecker {
                              line, holder);
                 break;
             }
+            // B81: `&o.field` lowers to AddrOfTemp(FieldRead(o, f)). The
+            // existing default (visit consuming=true) doesn't consult
+            // moved_fields on the receiver. Walk down the chain and report
+            // if a field was moved out, then defer the rest to visit.
+            case Code::AddrOfTemp: {
+                EAddrOfTempView v{e};
+                auto inner = v.inner();
+                if (inner && inner.kind() == Code::FieldRead) {
+                    EFieldReadView fv{inner};
+                    auto recv = fv.receiver();
+                    if (recv && recv.kind() == Code::VarRef) {
+                        std::string rname(EVarRefView{recv}.name());
+                        std::string fname(fv.field());
+                        if (auto it = states_.find(rname); it != states_.end()) {
+                            if (auto mit = it->second.moved_fields.find(fname);
+                                mit != it->second.moved_fields.end()) {
+                                report(line, std::format(
+                                    "use of moved field '{}.{}' (moved on line {})",
+                                    rname, fname, mit->second));
+                                break;
+                            }
+                        }
+                    }
+                }
+                visit(e, /*consuming=*/true, line);
+                break;
+            }
             case Code::IfExpr: {
                 EIfExprView v{e};
                 visit(v.cond(), /*consuming=*/true, line);
@@ -1286,10 +1313,38 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
 
         // ── Address-of: &x or &mut x ──────────────────────────────────
         // When EAddrOf appears directly in visit (not as SLet/SAssign RHS),
-        // this is a transient borrow — caller handles scope. We just verify
-        // the source is alive.
+        // this is a transient borrow — caller handles scope. We verify the
+        // source is alive AND, for `&mut x`, that the binding was declared mut.
         case Code::AddrOf: {
-            check_live(std::string(EAddrOfView{e}.var_name()), line);
+            std::string vname(EAddrOfView{e}.var_name());
+            check_live(vname, line);
+            if (is_mut_ref(e.type(pool))) {
+                if (auto it = states_.find(vname); it != states_.end()) {
+                    if (!it->second.is_mut_binding && !param_names_.count(vname))
+                        report(line, std::format(
+                            "cannot borrow '{}' as mutable: not declared as mut",
+                            vname));
+                }
+            }
+            break;
+        }
+        // B81: method-call receivers are wrapped in `addr_of_temp(c, mut)` —
+        // the AddrOfTemp path was previously falling through to default, so
+        // the mut-binding check never fired. Mirror the AddrOf rule.
+        case Code::AddrOfTemp: {
+            EAddrOfTempView v{e};
+            auto inner = v.inner();
+            if (inner && inner.kind() == Code::VarRef && is_mut_ref(e.type(pool))) {
+                std::string vname(EVarRefView{inner}.name());
+                if (auto it = states_.find(vname); it != states_.end()) {
+                    if (!it->second.is_mut_binding && !param_names_.count(vname))
+                        report(line, std::format(
+                            "cannot borrow '{}' as mutable: not declared as mut",
+                            vname));
+                }
+            }
+            // Defer to inner expression visit for the rest of the analysis.
+            if (inner) visit(inner, /*consuming=*/false, line);
             break;
         }
 

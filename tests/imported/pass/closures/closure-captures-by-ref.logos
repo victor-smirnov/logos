@@ -1,0 +1,15 @@
+// B81: closure capturing a Move struct by-ref (only reads `s.v`) is
+// correct behavior — matches Rust's auto-borrow capture-mode inference.
+// The struct remains owned by main; the borrow is scoped to the closure
+// literal's lifetime.
+package closure_captures_by_ref;
+
+struct S { v: i64 }
+impl Drop for S { fn drop(self: &mut S) { } }
+
+fn main() -> i32 {
+    let s: S = S { v: 7i64 };
+    let f = || -> i64 { return s.v; };
+    let r: i64 = f();
+    return (r - 7i64) as i32;
+}
