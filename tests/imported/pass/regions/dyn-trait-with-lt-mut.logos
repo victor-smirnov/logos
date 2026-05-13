@@ -1,0 +1,13 @@
+// B90: `&'a mut dyn Trait` accepted.
+package dyn_trait_with_lt_mut;
+
+trait Bumper { fn bump(self: &mut Self) -> i32; }
+struct C { n: i32 }
+impl Bumper for C { fn bump(self: &mut C) -> i32 { (*self).n = (*self).n + 1i32; return (*self).n; } }
+
+fn pass<'a>(s: &'a mut dyn Bumper) -> i32 { return s.bump(); }
+
+fn main() -> i32 {
+    let mut c: C = C { n: 0i32 };
+    return pass(&mut c) - 1i32;
+}

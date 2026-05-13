@@ -1,0 +1,13 @@
+// B90: `&'a dyn Trait + 'b` outer-and-inner lifetime annotations.
+package dyn_trait_lt_plus_bound;
+
+trait Shape { fn area(self: &Self) -> i32; }
+struct B { _x: i32 }
+impl Shape for B { fn area(self: &B) -> i32 { return 9i32; } }
+
+fn pass<'a>(s: &'a dyn Shape + 'a) -> i32 { return s.area(); }
+
+fn main() -> i32 {
+    let b: B = B { _x: 0i32 };
+    return pass(&b) - 9i32;
+}

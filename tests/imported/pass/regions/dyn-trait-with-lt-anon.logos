@@ -1,0 +1,13 @@
+// B90: `&'a dyn Trait` accepted by grammar.
+package dyn_trait_with_lt_anon;
+
+trait Shape { fn area(self: &Self) -> i32; }
+struct B { _x: i32 }
+impl Shape for B { fn area(self: &B) -> i32 { return 4i32; } }
+
+fn pass<'a>(s: &'a dyn Shape) -> i32 { return s.area(); }
+
+fn main() -> i32 {
+    let b: B = B { _x: 0i32 };
+    return pass(&b) - 4i32;
+}

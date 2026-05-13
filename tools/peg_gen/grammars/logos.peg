@@ -1139,7 +1139,27 @@
     // Listed FIRST so the parser tries them before the binderless alts
     // (PEG ordered choice: HRTB binders are syntactic prefix and only
     // present in these forms).
-    dyn_type <- AMP KW_MUT KW_DYN hrtb_binder IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE (PLUS LIFETIME)?
+    // B90: `&'a dyn Trait` / `&'a mut dyn Trait` — lifetime-annotated outer ref.
+    // Captured into LIFETIME slot; downstream sema is currently elision-based
+    // so the slot is informational. Position FIRST so PEG tries it before
+    // the no-lifetime variants below.
+    dyn_type <- AMP LIFETIME KW_MUT KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE (PLUS LIFETIME)?
+             => { CODE: DYN_TYPE, NAME: $5, LIFETIME: $2, IS_MUT: true, ITEMS: $... }
+              / AMP LIFETIME KW_MUT KW_DYN IDENT (PLUS LIFETIME)?
+             => { CODE: DYN_TYPE, NAME: $5, LIFETIME: $2, IS_MUT: true }
+              / AMP LIFETIME KW_DYN IDENT LPAREN closure_type_args RPAREN ARROW type_ref (PLUS LIFETIME)?
+             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2, PARAMS: $6, RET_TYPE: $9 }
+              / AMP LIFETIME KW_DYN IDENT LPAREN RPAREN ARROW type_ref (PLUS LIFETIME)?
+             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2, RET_TYPE: $8 }
+              / AMP LIFETIME KW_DYN IDENT LPAREN closure_type_args RPAREN (PLUS LIFETIME)?
+             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2, PARAMS: $6 }
+              / AMP LIFETIME KW_DYN IDENT LPAREN RPAREN (PLUS LIFETIME)?
+             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2 }
+              / AMP LIFETIME KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE (PLUS LIFETIME)?
+             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2, ITEMS: $... }
+              / AMP LIFETIME KW_DYN IDENT (PLUS LIFETIME)?
+             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2 }
+              / AMP KW_MUT KW_DYN hrtb_binder IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE (PLUS LIFETIME)?
              => { CODE: DYN_TYPE, NAME: $5, IS_MUT: true, HRTB_BINDERS: $4, ITEMS: $... }
               / AMP KW_MUT KW_DYN hrtb_binder IDENT LPAREN closure_type_args RPAREN ARROW type_ref (PLUS LIFETIME)?
              => { CODE: DYN_TYPE, NAME: $5, IS_MUT: true, HRTB_BINDERS: $4, PARAMS: $7, RET_TYPE: $10 }
