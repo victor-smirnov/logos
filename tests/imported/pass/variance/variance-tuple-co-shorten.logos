@@ -1,0 +1,4 @@
+package variance_tuple_co_shorten;
+fn s<'short, 'long>(t: (&'long i32, &'long i32)) -> (&'short i32, &'short i32)
+    where 'long: 'short { return t; }
+fn main() -> i32 { return 0i32; }

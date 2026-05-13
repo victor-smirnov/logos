@@ -1,0 +1,4 @@
+// Static source → 'a output: OK.
+package region_static_source_ok;
+fn pass<'a>(r: &'static i32) -> &'a i32 { return r; }
+fn main() -> i32 { return 0i32; }

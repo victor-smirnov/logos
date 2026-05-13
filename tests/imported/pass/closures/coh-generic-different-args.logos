@@ -1,0 +1,10 @@
+package coh_generic_different_args;
+trait T { fn x(self: &Self) -> i32; }
+struct W<X> { v: X }
+impl T for W<i32> { fn x(self: &W<i32>) -> i32 { return 1i32; } }
+impl T for W<u8> { fn x(self: &W<u8>) -> i32 { return 2i32; } }
+fn main() -> i32 {
+    let a: W<i32> = W { v: 0i32 };
+    let b: W<u8> = W { v: 0u8 };
+    return a.x() + b.x() - 3i32;
+}

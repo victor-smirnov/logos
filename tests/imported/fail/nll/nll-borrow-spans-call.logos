@@ -1,0 +1,9 @@
+// Borrow used after fn call that requires mut.
+package nll_borrow_spans_call;
+fn write(_m: &mut i32, _v: i32) { }
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let r: &i32 = &x;
+    write(&mut x, 1i32);
+    return *r;
+}

@@ -1,0 +1,14 @@
+// Loop body declares local; binding in outer scope borrows from it.
+package dropck_loop_borrow_of_iter_local;
+struct W<'a> { r: &'a i32 }
+impl<'a> Drop for W<'a> { fn drop(self: &mut W<'a>) { } }
+fn main() -> i32 {
+    let mut w: W;
+    let mut i: i32 = 0i32;
+    while i < 1i32 {
+        let local: i32 = 5i32;
+        w = W { r: &local };
+        i = i + 1i32;
+    }
+    return 0i32;
+}

@@ -1,0 +1,8 @@
+// &self → output lifetime.
+package region_elision_method_self;
+struct B { v: i32 }
+impl B { fn get(self: &B) -> &i32 { return &self.v; } }
+fn main() -> i32 {
+    let b: B = B { v: 9i32 };
+    return *b.get() - 9i32;
+}

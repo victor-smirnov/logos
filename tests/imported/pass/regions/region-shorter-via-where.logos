@@ -1,0 +1,9 @@
+// 'a: 'b, accept return &'b from &'a struct field.
+package region_shorter_via_where;
+struct W<'a> { r: &'a i32 }
+fn shorten<'a, 'b>(w: W<'a>) -> &'b i32 where 'a: 'b { return w.r; }
+fn main() -> i32 {
+    let v: i32 = 3i32;
+    let w: W = W { r: &v };
+    return *shorten(w) - 3i32;
+}

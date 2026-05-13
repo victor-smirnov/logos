@@ -1,0 +1,7 @@
+// Three lt + chain of where bounds.
+package region_multi_lt_where;
+fn step<'a, 'b, 'c>(x: &'a i32) -> &'c i32 where 'a: 'b, 'b: 'c { return x; }
+fn main() -> i32 {
+    let v: i32 = 9i32;
+    return *step(&v) - 9i32;
+}

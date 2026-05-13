@@ -1,0 +1,7 @@
+// One ref param → output elided lifetime.
+package region_elision_output;
+fn first(s: &i32) -> &i32 { return s; }
+fn main() -> i32 {
+    let v: i32 = 7i32;
+    return *first(&v) - 7i32;
+}

@@ -1,0 +1,13 @@
+// GAT with Self: 'a constraint
+package gat_with_where_self;
+trait It { type Item<'a>; fn get<'a>(self: &'a Self) -> Self::Item<'a>; }
+struct W { v: i32 }
+impl It for W {
+    type Item<'a> = &'a i32;
+    fn get<'a>(self: &'a W) -> &'a i32 { return &(*self).v; }
+}
+fn main() -> i32 {
+    let w: W = W { v: 6i32 };
+    let r: &i32 = w.get();
+    return *r - 6i32;
+}

@@ -1,0 +1,7 @@
+// fn returning a shared borrow of its param.
+package borrow_fn_returns;
+fn first<'a>(r: &'a i32) -> &'a i32 { return r; }
+fn main() -> i32 {
+    let v: i32 = 11i32;
+    return *first(&v) - 11i32;
+}

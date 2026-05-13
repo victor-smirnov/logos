@@ -1,0 +1,11 @@
+// Binding+source both inner scope — OK, both die together.
+package dropck_binding_and_source_both_inner;
+struct W<'a> { r: &'a i32 }
+impl<'a> Drop for W<'a> { fn drop(self: &mut W<'a>) { } }
+fn main() -> i32 {
+    {
+        let v: i32 = 5i32;
+        let _w: W = W { r: &v };
+    }
+    return 0i32;
+}

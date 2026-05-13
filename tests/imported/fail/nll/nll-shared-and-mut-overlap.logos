@@ -1,0 +1,8 @@
+// Shared borrow alive past mut access.
+package nll_shared_and_mut_overlap;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let r: &i32 = &x;
+    x = 5i32;
+    return *r;
+}

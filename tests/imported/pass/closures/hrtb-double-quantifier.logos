@@ -1,0 +1,6 @@
+package hrtb_double_quantifier;
+trait P<A, B> { fn p(self: Self, a: A, b: B) -> i32 { return 0i32; } }
+struct K { _x: i32 }
+impl<'a, 'b, X, Y> P<&'a X, &'b Y> for K {}
+fn want<F>() where F: for<'a, 'b> P<&'a i32, &'b i64> {}
+fn main() -> i32 { want::<K>(); return 0i32; }

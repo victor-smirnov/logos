@@ -1,0 +1,10 @@
+// rustc ui/borrowck/borrowck-mut-borrow-of-mut-base-ptr — &mut behind &mut.
+package borrow_of_mut_base_ptr;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let p: &mut i32 = &mut x;
+    let q: &mut i32 = &mut x;
+    *p = 1i32;
+    *q = 2i32;
+    return 0i32;
+}

@@ -1,0 +1,7 @@
+// rustc ui/borrowck/assign-imm-local-twice — assignment to immutable var.
+package assign_twice_immut;
+fn main() -> i32 {
+    let v: i32 = 1i32;
+    v = 2i32;
+    return 0i32;
+}

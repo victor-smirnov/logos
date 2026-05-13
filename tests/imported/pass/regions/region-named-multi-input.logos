@@ -1,0 +1,7 @@
+// Multi-input fn with explicit named lifetimes.
+package region_named_multi_input;
+fn pick<'a, 'b>(x: &'a i32, _y: &'b i32) -> &'a i32 { return x; }
+fn main() -> i32 {
+    let a: i32 = 5i32; let b: i32 = 0i32;
+    return *pick(&a, &b) - 5i32;
+}

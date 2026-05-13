@@ -496,6 +496,32 @@ class BorrowChecker {
             // (logically — we just leave it as reservation since the scope
             // pops after the call returns).
             if (in_call_args_ > 0) {
+                // B82+: TPB reservation is compatible with shared borrows
+                // taken *during* the same arg evaluation but NOT with
+                // shared borrows pre-existing from outer scope. Detect
+                // the latter: the current scope frame is the call-args
+                // frame (pushed by visit_args); if shared_borrows > 0
+                // and any of them was registered in an OUTER scope (not
+                // current frame), reject.
+                if (it->second.shared_borrows > 0) {
+                    bool outer_shared = false;
+                    if (!scopes_.empty()) {
+                        // Count shared borrows recorded in the top frame.
+                        int in_top = 0;
+                        for (auto& br : scopes_.back().borrows)
+                            if (br.target == target && !br.is_mut) ++in_top;
+                        if (in_top < it->second.shared_borrows)
+                            outer_shared = true;
+                    } else {
+                        outer_shared = true;
+                    }
+                    if (outer_shared) {
+                        report(line, std::format(
+                            "cannot borrow '{}' as mutable: {} shared borrow(s) active",
+                            target, it->second.shared_borrows));
+                        return;
+                    }
+                }
                 it->second.mut_reservations++;
                 if (!scopes_.empty())
                     scopes_.back().borrows.push_back({target, is_mut, holder});

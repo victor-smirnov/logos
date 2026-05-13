@@ -1,0 +1,14 @@
+// GAP: method-call `p.bump()` (implicit `&mut p`) doesn't check against an
+// active `&mut p.a` field-path borrow. Rust rejects (whole-value blocked
+// by field path). Logos accepts; needs cross-wiring between method-call
+// receiver auto-borrow and the field-borrow table. Pinned regression.
+package df_method_vs_field_borrow_gap;
+struct P { a: i32, b: i32 }
+impl P { fn bump(self: &mut P) { (*self).b = (*self).b + 1i32; } }
+fn main() -> i32 {
+    let mut p: P = P { a: 5i32, b: 0i32 };
+    let r: &mut i32 = &mut p.a;
+    p.bump();
+    *r = 1i32;
+    return 0i32;
+}

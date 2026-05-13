@@ -1,0 +1,4 @@
+// 'b: 'a but return &'b from &'a — wrong direction.
+package region_where_bound_wrong_dir;
+fn bad<'a, 'b>(x: &'a i32) -> &'b i32 where 'b: 'a { return x; }
+fn main() -> i32 { return 0i32; }

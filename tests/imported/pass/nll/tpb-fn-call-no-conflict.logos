@@ -1,0 +1,7 @@
+// Reservation + arg evaluating shared on the SAME var inside the call.
+package tpb_fn_call_no_conflict;
+fn f(m: &mut i32, v: i32) -> i32 { *m = v; return *m; }
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    return f(&mut x, x);
+}

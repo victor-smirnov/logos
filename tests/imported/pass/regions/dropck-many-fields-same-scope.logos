@@ -1,0 +1,10 @@
+// Drop-lt struct with multiple ref fields, all sources in same scope.
+package dropck_many_fields_same_scope;
+struct W<'a> { x: &'a i32, y: &'a i32 }
+impl<'a> Drop for W<'a> { fn drop(self: &mut W<'a>) { } }
+fn main() -> i32 {
+    let a: i32 = 1i32;
+    let b: i32 = 2i32;
+    let _w: W = W { x: &a, y: &b };
+    return 0i32;
+}

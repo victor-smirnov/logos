@@ -1,0 +1,10 @@
+// Conditional assignment in same scope — OK.
+package dropck_conditional_fresh_borrow;
+struct W<'a> { r: &'a i32 }
+impl<'a> Drop for W<'a> { fn drop(self: &mut W<'a>) { } }
+fn main() -> i32 {
+    let v: i32 = 5i32;
+    let cond: bool = true;
+    let _w: W = if cond { W { r: &v } } else { W { r: &v } };
+    return 0i32;
+}

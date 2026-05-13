@@ -1,0 +1,12 @@
+// Mut borrow taken+released per loop iteration.
+package nll_loop_mut_each_iter;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let mut i: i32 = 0i32;
+    while i < 5i32 {
+        let m: &mut i32 = &mut x;
+        *m = *m + 1i32;
+        i = i + 1i32;
+    }
+    return x - 5i32;
+}

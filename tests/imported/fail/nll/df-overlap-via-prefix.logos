@@ -1,0 +1,10 @@
+package df_overlap_via_prefix;
+struct Inner { v: i32 }
+struct Outer { i: Inner }
+fn main() -> i32 {
+    let mut o: Outer = Outer { i: Inner { v: 0i32 } };
+    let r1: &mut Inner = &mut o.i;
+    let r2: &mut i32 = &mut o.i.v;
+    (*r1).v = 1i32; *r2 = 2i32;
+    return 0i32;
+}

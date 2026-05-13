@@ -1,0 +1,12 @@
+// Borrow then move-by-value through call.
+package borrow_then_move_by_value;
+struct S { v: i64 }
+impl Drop for S { fn drop(self: &mut S) { } }
+fn read(_r: &S) -> i32 { return 0i32; }
+fn take(_s: S) -> i32 { return 0i32; }
+fn main() -> i32 {
+    let s: S = S { v: 0i64 };
+    let r: &S = &s;
+    let _t: i32 = take(s);
+    return read(r);
+}

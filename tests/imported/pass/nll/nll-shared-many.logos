@@ -1,0 +1,10 @@
+// Many simultaneous shared borrows.
+package nll_shared_many;
+fn main() -> i32 {
+    let x: i32 = 1i32;
+    let a: &i32 = &x;
+    let b: &i32 = &x;
+    let c: &i32 = &x;
+    let d: &i32 = &x;
+    return *a + *b + *c + *d - 4i32;
+}

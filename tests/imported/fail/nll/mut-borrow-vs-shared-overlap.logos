@@ -1,0 +1,9 @@
+// Classic mut+shared overlap.
+package mut_borrow_vs_shared_overlap;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let m: &mut i32 = &mut x;
+    let s: &i32 = &x;
+    *m = 1i32;
+    return *s;
+}

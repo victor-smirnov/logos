@@ -1,0 +1,11 @@
+package gat_chained_call;
+trait It { type Item<'a>; fn get<'a>(self: &'a Self) -> Self::Item<'a>; }
+struct W { v: i32 }
+impl It for W {
+    type Item<'a> = &'a i32;
+    fn get<'a>(self: &'a W) -> &'a i32 { return &(*self).v; }
+}
+fn main() -> i32 {
+    let w: W = W { v: 21i32 };
+    return *(w.get()) - 21i32;
+}

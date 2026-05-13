@@ -1,0 +1,9 @@
+// Borrow as fn arg released after call.
+package nll_borrow_as_fn_arg_released;
+fn read(_r: &i32) -> i32 { return 0i32; }
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let _r: i32 = read(&x);
+    x = 5i32;
+    return x - 5i32;
+}

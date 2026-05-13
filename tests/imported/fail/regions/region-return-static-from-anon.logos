@@ -1,0 +1,4 @@
+// Anon → static: rejected.
+package region_return_static_from_anon;
+fn bad<'a>(r: &'a i32) -> &'static i32 { return r; }
+fn main() -> i32 { return 0i32; }

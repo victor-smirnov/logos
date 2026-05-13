@@ -1,0 +1,9 @@
+package label_break_with_shared_borrow;
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    'outer: loop {
+        let r: &i32 = &x;
+        if *r > 0i32 { break 'outer; }
+    }
+    return x - 5i32;
+}

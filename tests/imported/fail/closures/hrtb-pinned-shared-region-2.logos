@@ -1,0 +1,7 @@
+// Two independent binders, impl shares one concrete — reject.
+package hrtb_pinned_shared_region_2;
+trait Pair<A, B> { fn p(self: Self, a: A, b: B) -> i32 { return 0i32; } }
+struct K { _x: i32 }
+impl Pair<&'static i32, &'static i32> for K {}
+fn want<F>() where F: for<'a, 'b> Pair<&'a i32, &'b i32> {}
+fn main() -> i32 { want::<K>(); return 0i32; }

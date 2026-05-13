@@ -1,0 +1,5 @@
+package variance_co_multi_args_lengthen;
+struct P<K, V> { k: K, v: V }
+fn b<'short, 'long>(p: P<&'short i32, &'short i64>) -> P<&'long i32, &'long i64>
+    where 'long: 'short { return p; }
+fn main() -> i32 { return 0i32; }

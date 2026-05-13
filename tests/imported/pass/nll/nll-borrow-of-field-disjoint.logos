@@ -1,0 +1,10 @@
+// Field borrows + whole field write.
+package nll_borrow_of_field_disjoint;
+struct P { a: i32, b: i32 }
+fn main() -> i32 {
+    let mut p: P = P { a: 0i32, b: 0i32 };
+    let ra: &mut i32 = &mut p.a;
+    *ra = 1i32;
+    p.b = 2i32;
+    return p.a + p.b - 3i32;
+}

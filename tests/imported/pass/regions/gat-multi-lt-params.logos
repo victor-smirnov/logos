@@ -1,0 +1,12 @@
+package gat_multi_lt_params;
+trait T2 { type P<'a, 'b>; fn p<'a, 'b>(self: &'a Self, _r: &'b i32) -> Self::P<'a, 'b>; }
+struct W { v: i32 }
+impl T2 for W {
+    type P<'a, 'b> = &'a i32;
+    fn p<'a, 'b>(self: &'a W, _r: &'b i32) -> &'a i32 { return &(*self).v; }
+}
+fn main() -> i32 {
+    let w: W = W { v: 5i32 };
+    let y: i32 = 0i32;
+    return *w.p(&y) - 5i32;
+}

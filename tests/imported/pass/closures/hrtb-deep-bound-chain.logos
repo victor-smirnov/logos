@@ -1,0 +1,8 @@
+package hrtb_deep_bound_chain;
+trait OK {}
+struct K { _x: i32 }
+impl OK for K {}
+fn run<F>(f: F) -> i32 where F: for<'a> Fn(&'a i32) -> &'a i32, F: OK {
+    let v: i32 = 1i32;
+    return *f(&v);
+}

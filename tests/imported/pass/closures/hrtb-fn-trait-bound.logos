@@ -1,0 +1,7 @@
+package hrtb_fn_trait_bound;
+fn run<F>(f: F) -> i32 where F: for<'a> Fn(&'a i32) -> &'a i32 {
+    let v: i32 = 5i32;
+    return *f(&v);
+}
+fn id(x: &i32) -> &i32 { return x; }
+fn main() -> i32 { return run::<fn(&i32) -> &i32>(id) - 5i32; }

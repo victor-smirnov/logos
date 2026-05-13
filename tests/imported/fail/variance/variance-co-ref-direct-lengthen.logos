@@ -1,0 +1,3 @@
+package variance_co_ref_direct_lengthen;
+fn b<'short, 'long>(r: &'short i32) -> &'long i32 where 'long: 'short { return r; }
+fn main() -> i32 { return 0i32; }

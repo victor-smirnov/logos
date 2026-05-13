@@ -1,0 +1,12 @@
+// Conditional mut, then shared after — NLL handles.
+package conditional_mut_then_shared;
+fn main() -> i32 {
+    let mut x: i32 = 5i32;
+    let cond: bool = true;
+    if cond {
+        let m: &mut i32 = &mut x;
+        *m = 7i32;
+    }
+    let r: &i32 = &x;
+    return *r - 7i32;
+}

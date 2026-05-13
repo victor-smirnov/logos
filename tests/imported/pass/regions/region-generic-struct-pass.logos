@@ -1,0 +1,9 @@
+// Generic struct over T + 'a.
+package region_generic_struct_pass;
+struct W<'a, T> { r: &'a T }
+fn make<'a, T>(r: &'a T) -> W<'a, T> { return W { r: r }; }
+fn main() -> i32 {
+    let v: i32 = 5i32;
+    let w: W<i32> = make::<i32>(&v);
+    return *(w.r) - 5i32;
+}

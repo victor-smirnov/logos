@@ -1,0 +1,13 @@
+// Logos's TPB is conservative: a pre-existing shared borrow (taken
+// before the fn-call) cannot coexist with a new &mut at the call site
+// even when only `*s` (deref-to-value) is used at the arg position.
+// Rust's full Polonius+TPB accepts this; Logos rejects soundly.
+package tpb_outer_shared_deref_with_mut;
+
+fn f(m: &mut i32, v: i32) -> i32 { *m = v; return *m; }
+
+fn main() -> i32 {
+    let mut x: i32 = 3i32;
+    let s: &i32 = &x;
+    return f(&mut x, *s);
+}

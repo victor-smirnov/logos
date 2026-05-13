@@ -1,0 +1,14 @@
+package label_loop_multiple;
+fn main() -> i32 {
+    let mut sum: i32 = 0i32;
+    'l1: loop {
+        let mut i: i32 = 0i32;
+        'l2: while i < 5i32 {
+            if i == 2i32 { break 'l2; }
+            sum = sum + 1i32;
+            i = i + 1i32;
+        }
+        break 'l1;
+    }
+    return sum - 2i32;
+}

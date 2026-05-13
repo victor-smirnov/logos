@@ -1,0 +1,10 @@
+// Tuple-struct disjoint field mut.
+package df_tuple_disjoint;
+struct T { a: i32, b: i32, c: i32 }
+fn main() -> i32 {
+    let mut t: T = T { a: 0i32, b: 0i32, c: 0i32 };
+    let r1: &mut i32 = &mut t.a;
+    let r2: &mut i32 = &mut t.c;
+    *r1 = 1i32; *r2 = 3i32;
+    return t.a + t.c - 4i32;
+}

@@ -1,0 +1,13 @@
+// Block exit releases nested field borrows.
+package df_borrow_released_on_block_exit;
+struct P { a: i32 }
+fn main() -> i32 {
+    let mut p: P = P { a: 0i32 };
+    {
+        let r: &mut i32 = &mut p.a;
+        *r = 5i32;
+    }
+    let q: &mut P = &mut p;
+    (*q).a = 7i32;
+    return p.a - 7i32;
+}

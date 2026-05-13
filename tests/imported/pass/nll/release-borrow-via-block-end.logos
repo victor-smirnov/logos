@@ -1,0 +1,11 @@
+// Block-end releases all borrows.
+package release_borrow_via_block_end;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    {
+        let r: &mut i32 = &mut x;
+        *r = 5i32;
+    }
+    x = 7i32;
+    return x - 7i32;
+}

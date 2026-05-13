@@ -1,0 +1,11 @@
+// Use-after-move via shared borrow.
+package use_of_moved_then_borrow;
+struct S { v: i64 }
+impl Drop for S { fn drop(self: &mut S) { } }
+fn take(s: S) -> i64 { return s.v; }
+fn main() -> i32 {
+    let s: S = S { v: 5i64 };
+    let _v: i64 = take(s);
+    let r: &S = &s;
+    return (*r).v as i32;
+}

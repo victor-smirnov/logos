@@ -1,0 +1,10 @@
+// &mut T outer 'a is Co — shorten OK.
+package region_mut_ref_outer_shorten;
+fn shorten<'short, 'long>(r: &'long mut i32) -> &'short mut i32
+    where 'long: 'short
+{ return r; }
+fn main() -> i32 {
+    let mut v: i32 = 0i32;
+    *shorten(&mut v) = 5i32;
+    return v - 5i32;
+}

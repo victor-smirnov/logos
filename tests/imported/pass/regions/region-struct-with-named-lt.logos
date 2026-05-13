@@ -1,0 +1,9 @@
+// Struct with named lt; method returns &'a T from &'a self.
+package region_struct_with_named_lt;
+struct H<'a> { r: &'a i32 }
+impl<'a> H<'a> { fn get(self: &'a H<'a>) -> &'a i32 { return self.r; } }
+fn main() -> i32 {
+    let v: i32 = 3i32;
+    let h: H = H { r: &v };
+    return *h.get() - 3i32;
+}

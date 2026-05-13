@@ -1,0 +1,8 @@
+package hrtb_multi_bound;
+trait Mark {}
+trait Use<X> { fn u(self: &Self, x: X) -> i32 { return 0i32; } }
+struct K { _x: i32 }
+impl Mark for K {}
+impl<'a> Use<&'a i32> for K {}
+fn run<T>() where T: Mark, T: for<'a> Use<&'a i32> {}
+fn main() -> i32 { run::<K>(); return 0i32; }

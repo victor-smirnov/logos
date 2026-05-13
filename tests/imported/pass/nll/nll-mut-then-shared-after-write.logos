@@ -1,0 +1,11 @@
+// Mut borrow used to write, then dies; shared after.
+package nll_mut_then_shared_after_write;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    {
+        let m: &mut i32 = &mut x;
+        *m = 5i32;
+    }
+    let s: &i32 = &x;
+    return *s - 5i32;
+}

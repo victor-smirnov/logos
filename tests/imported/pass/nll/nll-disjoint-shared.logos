@@ -1,0 +1,9 @@
+// NLL: many shared borrows of different vars are fine.
+package nll_disjoint_shared;
+fn main() -> i32 {
+    let x: i32 = 1i32;
+    let y: i32 = 2i32;
+    let rx: &i32 = &x;
+    let ry: &i32 = &y;
+    return *rx + *ry - 3i32;
+}

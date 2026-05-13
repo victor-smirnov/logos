@@ -1,0 +1,10 @@
+// rustc ui/borrowck/mut-borrow-outside-loop — concrete-name borrows that get used.
+package two_mut_borrows_outside_loop;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let a: &mut i32 = &mut x;
+    let b: &mut i32 = &mut x;
+    *a = 1i32;
+    *b = 2i32;
+    return 0i32;
+}

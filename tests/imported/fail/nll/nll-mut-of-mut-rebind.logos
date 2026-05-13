@@ -1,0 +1,9 @@
+// Direct &mut twice via fresh let.
+package nll_mut_of_mut_rebind;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let r: &mut i32 = &mut x;
+    let s: &mut i32 = &mut x;
+    *r = 1i32; *s = 2i32;
+    return 0i32;
+}

@@ -1,0 +1,13 @@
+// Reassign w from inner scope.
+package dropck_reassign_from_inner;
+struct W<'a> { r: &'a i32 }
+impl<'a> Drop for W<'a> { fn drop(self: &mut W<'a>) { } }
+fn main() -> i32 {
+    let v0: i32 = 1i32;
+    let mut w: W = W { r: &v0 };
+    {
+        let v1: i32 = 2i32;
+        w = W { r: &v1 };
+    }
+    return 0i32;
+}

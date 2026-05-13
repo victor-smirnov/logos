@@ -1,0 +1,5 @@
+package variance_fn_ptr_contra_cant_shorten;
+struct W<T> { f: fn(T) -> i32 }
+fn b<'short, 'long>(w: W<&'long i32>) -> W<&'short i32>
+    where 'long: 'short { return w; }
+fn main() -> i32 { return 0i32; }

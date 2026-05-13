@@ -1,0 +1,6 @@
+package hrtb_static_impl_rejected;
+trait Foo<X> { fn foo(self: Self, x: X) -> i32 { return 0i32; } }
+struct K { _x: i32 }
+impl Foo<&'static i32> for K {}
+fn want<F>() where F: for<'a> Foo<&'a i32> {}
+fn main() -> i32 { want::<K>(); return 0i32; }

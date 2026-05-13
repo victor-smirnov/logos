@@ -1,0 +1,14 @@
+// 3-level nested scope; source dies in innermost.
+package dropck_nested_three_deep;
+struct W<'a> { r: &'a i32 }
+impl<'a> Drop for W<'a> { fn drop(self: &mut W<'a>) { } }
+fn main() -> i32 {
+    let mut w: W;
+    {
+        {
+            let v: i32 = 5i32;
+            w = W { r: &v };
+        }
+    }
+    return 0i32;
+}

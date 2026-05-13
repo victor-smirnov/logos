@@ -1,0 +1,7 @@
+// 'a: 'b where bound, return &'b from &'a.
+package region_where_bound_flow;
+fn flow<'a, 'b>(x: &'a i32) -> &'b i32 where 'a: 'b { return x; }
+fn main() -> i32 {
+    let v: i32 = 11i32;
+    return *flow(&v) - 11i32;
+}

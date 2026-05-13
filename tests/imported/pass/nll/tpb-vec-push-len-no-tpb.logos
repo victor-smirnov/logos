@@ -1,0 +1,11 @@
+// Same target but order-flipped: read first, write second — non-TPB, OK.
+package tpb_vec_push_len_no_tpb;
+use std.collections.vec;
+fn main() -> i32 {
+    let mut v: Vec<i32> = vec_new::<i32>();
+    v.push(0i32);
+    v.push(1i32);
+    let l: i64 = v.length();
+    v.push(l as i32);
+    return v.length() as i32 - 3i32;
+}

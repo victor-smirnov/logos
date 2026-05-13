@@ -1,0 +1,6 @@
+package coh_same_trait_target_pkg;
+trait T { fn x(self: &Self) -> i32; }
+struct K { _x: i32 }
+impl T for K { fn x(self: &K) -> i32 { return 1i32; } }
+impl T for K { fn x(self: &K) -> i32 { return 2i32; } }
+fn main() -> i32 { return 0i32; }

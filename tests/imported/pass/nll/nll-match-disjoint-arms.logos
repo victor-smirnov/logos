@@ -1,0 +1,11 @@
+// Disjoint match arms — borrows independent.
+package nll_match_disjoint_arms;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let c: i32 = 0i32;
+    match c {
+        0i32 => { x = 1i32; }
+        _    => { let _r: &i32 = &x; }
+    }
+    return x - 1i32;
+}

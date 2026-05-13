@@ -1,0 +1,11 @@
+// Deep mut on one field, shallow shared on a sibling.
+package df_deep_then_shallow;
+struct L { x: i32 }
+struct N { l: L, k: i32 }
+fn main() -> i32 {
+    let mut n: N = N { l: L { x: 0i32 }, k: 5i32 };
+    let r1: &mut i32 = &mut n.l.x;
+    let r2: &i32 = &n.k;
+    *r1 = 1i32;
+    return n.l.x + *r2 - 6i32;
+}

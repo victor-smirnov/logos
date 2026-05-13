@@ -1,0 +1,8 @@
+// Shared &x permitted multiple times.
+package borrow_of_imm_base_ptr_safe;
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    let a: &i32 = &x;
+    let b: &i32 = &x;
+    return *a + *b - 10i32;
+}

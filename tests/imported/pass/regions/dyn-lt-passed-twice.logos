@@ -1,0 +1,9 @@
+package dyn_lt_passed_twice;
+trait T { fn x(self: &Self) -> i32; }
+struct S { _x: i32 }
+impl T for S { fn x(self: &S) -> i32 { return 1i32; } }
+fn use_<'a>(o: &'a dyn T) -> i32 { return o.x(); }
+fn main() -> i32 {
+    let s: S = S { _x: 0i32 };
+    return use_(&s) + use_(&s) - 2i32;
+}

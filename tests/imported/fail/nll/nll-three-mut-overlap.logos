@@ -1,0 +1,10 @@
+// Three mut borrows all alive.
+package nll_three_mut_overlap;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let a: &mut i32 = &mut x;
+    let b: &mut i32 = &mut x;
+    let c: &mut i32 = &mut x;
+    *a = 1i32; *b = 2i32; *c = 3i32;
+    return 0i32;
+}
