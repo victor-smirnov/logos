@@ -594,6 +594,23 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                               TypeRef(info.trait_type_args[i])))
                         return false;
                 }
+                // B85: HRTB skolemization — if the impl declares a where-clause
+                // outlives `'a: 'b` between two impl-side lifetime params that
+                // BOTH map to bound binders (skolems), the constraint is
+                // unsatisfiable under universal quantification. Reject.
+                auto is_binder_lt = [&](const std::string& lt) -> bool {
+                    for (auto& b : bound.hrtb_binders)
+                        if (b == lt) return true;
+                    return false;
+                };
+                for (auto& [longi, shorti] : info.impl_lifetime_outlives) {
+                    auto lit = impl_to_skolem.find(longi);
+                    auto sit = impl_to_skolem.find(shorti);
+                    if (lit == impl_to_skolem.end() || sit == impl_to_skolem.end()) continue;
+                    if (lit->second == sit->second) continue;  // reflexive
+                    if (is_binder_lt(lit->second) && is_binder_lt(sit->second))
+                        return false;
+                }
                 return true;
             };
             {

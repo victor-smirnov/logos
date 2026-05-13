@@ -1,0 +1,11 @@
+// B85: impl without where-clause satisfies for<'a, 'b> bound.
+package hrtb_impl_without_where;
+
+trait T<X, Y> { fn t(self: &Self, x: X, y: Y) -> i32 { return 0i32; } }
+
+struct K { _x: i32 }
+impl<'a, 'b> T<&'a i32, &'b i32> for K {}
+
+fn want<X>() where X: for<'a, 'b> T<&'a i32, &'b i32> {}
+
+fn main() -> i32 { want::<K>(); return 0i32; }

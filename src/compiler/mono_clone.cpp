@@ -3242,6 +3242,28 @@ bool Mono::method_bound_ok(const lir::LFunction& m, const SubstMap& s) {
                     for (size_t i = 0; i < n; ++i)
                         if (!walk(TypeRef(tb.type_args[i]),
                                   TypeRef(ib->trait_type_args[i]))) return false;
+                    // B85: skolemization-aware impl-where check. After the
+                    // unify pass, i2s maps each impl-lt that's bound to a
+                    // bound-side lifetime. If the impl has a where-clause
+                    // outlives `'a: 'b` and BOTH 'a and 'b are mapped to
+                    // bound-side binder lifetimes (i.e. skolems), the
+                    // constraint is unsatisfiable under universal quant —
+                    // reject. (If one side is mapped to 'static or to a
+                    // caller-named lifetime, the outlives may be discharged
+                    // elsewhere; conservatively allow.)
+                    auto is_binder_lt = [&](const std::string& lt) -> bool {
+                        for (auto& b : tb.hrtb_binders)
+                            if (b == lt) return true;
+                        return false;
+                    };
+                    for (auto& [longi, shorti] : ib->lifetime_outlives) {
+                        auto lit = i2s.find(longi);
+                        auto sit = i2s.find(shorti);
+                        if (lit == i2s.end() || sit == i2s.end()) continue;
+                        if (lit->second == sit->second) continue;  // refl
+                        if (is_binder_lt(lit->second) && is_binder_lt(sit->second))
+                            return false;
+                    }
                 }
             }
         }

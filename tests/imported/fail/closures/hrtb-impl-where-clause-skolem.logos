@@ -1,0 +1,13 @@
+// B85: HRTB skolemization rejects impl with where-clause outlives between
+// two binder-bound lifetimes — the constraint is unsatisfiable under
+// universal quantification.
+package hrtb_impl_where_clause_skolem;
+
+trait T<X, Y> { fn t(self: &Self, x: X, y: Y) -> i32 { return 0i32; } }
+
+struct K { _x: i32 }
+impl<'a, 'b> T<&'a i32, &'b i32> for K where 'a: 'b {}
+
+fn want<X>() where X: for<'a, 'b> T<&'a i32, &'b i32> {}
+
+fn main() -> i32 { want::<K>(); return 0i32; }
