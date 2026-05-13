@@ -1,0 +1,18 @@
+// B72: shared borrow in one arm, mut in other — disjoint iterations.
+package loop_shared_then_mut_each_arm;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let mut i: i32 = 0i32;
+    while i < 4i32 {
+        if i % 2i32 == 0i32 {
+            let r: &i32 = &x;
+            let _v: i32 = *r;
+        } else {
+            let m: &mut i32 = &mut x;
+            *m = *m + 1i32;
+        }
+        i = i + 1i32;
+    }
+    return x - 2i32;
+}

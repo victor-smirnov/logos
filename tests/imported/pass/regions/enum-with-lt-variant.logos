@@ -1,0 +1,10 @@
+// B65: enum variants carrying &'a refs; Co covariance in 'a.
+package enum_with_lt_variant;
+
+enum Opt<'a> { Some(&'a i32), None }
+
+fn shorten<'short, 'long>(v: Opt<'long>) -> Opt<'short>
+    where 'long: 'short
+{ return v; }
+
+fn main() -> i32 { return 0i32; }

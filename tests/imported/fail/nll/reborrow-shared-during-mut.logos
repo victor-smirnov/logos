@@ -1,0 +1,10 @@
+// Shared deref while mut borrow alive.
+package reborrow_shared_during_mut;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let m: &mut i32 = &mut x;
+    let s: &i32 = &x;
+    *m = 1i32;
+    return *s;
+}

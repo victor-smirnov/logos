@@ -1,0 +1,8 @@
+// B64: array element type is Co — shorten through array.
+package array_of_refs_shorten;
+
+fn shorten<'short, 'long>(a: [&'long i32; 1]) -> [&'short i32; 1]
+    where 'long: 'short
+{ return a; }
+
+fn main() -> i32 { return 0i32; }

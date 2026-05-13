@@ -1,0 +1,9 @@
+// Closure body mutates through `&` (non-mut) ref — invalid.
+package closure_mut_borrow_shared_ref;
+
+fn main() -> i32 {
+    let x: i32 = 0i32;
+    let r: &i32 = &x;
+    let _f = || -> i32 { *r = 5i32; return *r; };  // *r write
+    return 0i32;
+}

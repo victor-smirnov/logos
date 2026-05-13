@@ -1,0 +1,9 @@
+// B65: `T: 'static` bound; passing 'static-typed T satisfies it.
+package type_outlives_static;
+
+fn take<T>(t: T) -> i32 where T: 'static { return 0i32; }
+
+fn main() -> i32 {
+    let _r: i32 = take::<i32>(5i32);
+    return 0i32;
+}

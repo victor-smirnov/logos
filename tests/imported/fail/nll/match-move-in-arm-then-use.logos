@@ -1,0 +1,18 @@
+// Moving Drop struct in an arm then using after match — invalid.
+package match_move_in_arm_then_use;
+
+struct S { v: i64 }
+impl Drop for S { fn drop(self: &mut S) { } }
+
+fn take(s: S) -> i64 { return s.v; }
+
+fn main() -> i32 {
+    let s: S = S { v: 7i64 };
+    let c: i32 = 0i32;
+    match c {
+        0i32 => { let _r: i64 = take(s); }
+        _    => { }
+    }
+    let _v: i64 = s.v;
+    return 0i32;
+}

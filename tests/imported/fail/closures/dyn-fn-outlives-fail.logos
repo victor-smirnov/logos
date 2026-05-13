@@ -1,0 +1,9 @@
+// Returning a closure ref capturing local — dangling.
+package dyn_fn_outlives_fail;
+
+fn make() -> &i32 {
+    let v: i32 = 5i32;
+    return &v;
+}
+
+fn main() -> i32 { return *make(); }

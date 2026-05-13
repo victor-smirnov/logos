@@ -1,0 +1,12 @@
+// B65: constructing enum variant carrying &'a ref.
+package enum_lt_construct;
+
+enum Opt<'a> { Some(&'a i32), None }
+
+fn make<'a>(r: &'a i32) -> Opt<'a> { return Opt::Some(r); }
+
+fn main() -> i32 {
+    let v: i32 = 5i32;
+    let _o: Opt = make(&v);
+    return 0i32;
+}

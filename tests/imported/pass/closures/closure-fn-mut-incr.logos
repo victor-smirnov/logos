@@ -1,0 +1,10 @@
+// FnMut: closure mutates captured local through &mut ref.
+package closure_fn_mut_incr;
+
+fn main() -> i32 {
+    let mut n: i32 = 0i32;
+    let r: &mut i32 = &mut n;
+    let f = || -> i32 { *r = *r + 1i32; return *r; };
+    let _v: i32 = f();
+    return n - 1i32;
+}

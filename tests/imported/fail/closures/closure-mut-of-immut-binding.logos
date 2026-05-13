@@ -1,0 +1,9 @@
+// Closure captures &mut to non-mut binding — rejected.
+package closure_mut_of_immut_binding;
+
+fn main() -> i32 {
+    let x: i32 = 0i32;
+    let r: &mut i32 = &mut x;
+    let _f = || -> i32 { *r = 1i32; return *r; };
+    return 0i32;
+}

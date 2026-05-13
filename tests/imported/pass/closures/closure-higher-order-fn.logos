@@ -1,0 +1,10 @@
+// FnOnce: higher-order fn taking closure.
+package closure_higher_order_fn;
+
+fn apply<F: FnOnce(i32) -> i32>(x: i32, f: F) -> i32 { return f(x); }
+
+fn main() -> i32 {
+    let cl = |y: i32| -> i32 { return y * 2i32; };
+    let r: i32 = apply(3i32, cl);
+    return r - 6i32;
+}

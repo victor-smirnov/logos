@@ -1,0 +1,9 @@
+// `&dyn Fn() -> &T` style — closure returning ref.
+package dyn_fn_with_lt_ref;
+
+fn main() -> i32 {
+    let v: i32 = 4i32;
+    let cl = || -> i32 { return v; };
+    let r: i32 = cl();
+    return r - 4i32;
+}

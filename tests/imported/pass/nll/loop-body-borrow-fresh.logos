@@ -1,0 +1,13 @@
+// B72: each iteration fresh borrow; ends at iteration boundary.
+package loop_body_borrow_fresh;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let mut i: i32 = 0i32;
+    while i < 5i32 {
+        let r: &mut i32 = &mut x;
+        *r = *r + 1i32;
+        i = i + 1i32;
+    }
+    return x - 5i32;
+}

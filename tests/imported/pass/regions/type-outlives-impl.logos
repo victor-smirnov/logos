@@ -1,0 +1,13 @@
+// B65: impl method with where T: 'a on self lifetime.
+package type_outlives_impl;
+
+struct Box_T<T> { v: T }
+
+impl<T> Box_T<T> {
+    fn get<'a>(self: &'a Box_T<T>) -> &'a T { return &(*self).v; }
+}
+
+fn main() -> i32 {
+    let b: Box_T<i32> = Box_T { v: 9i32 };
+    return *b.get() - 9i32;
+}

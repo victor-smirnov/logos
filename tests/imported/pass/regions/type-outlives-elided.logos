@@ -1,0 +1,12 @@
+// B66/B67: elision in struct definition: `Holder<'a, T>` where T's outlives implied.
+package type_outlives_elided;
+
+struct Holder<'a, T> { r: &'a T }
+
+fn read<'a, T>(h: Holder<'a, T>) -> &'a T { return h.r; }
+
+fn main() -> i32 {
+    let v: i32 = 3i32;
+    let h: Holder<i32> = Holder { r: &v };
+    return *read::<i32>(h) - 3i32;
+}

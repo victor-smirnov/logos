@@ -1,0 +1,11 @@
+// Reborrow `&mut *m` from existing &mut.
+package reborrow_mut_of_mut;
+
+fn use_mut(r: &mut i32) -> i32 { *r = *r + 1i32; return *r; }
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let m: &mut i32 = &mut x;
+    let v: i32 = use_mut(m);
+    return v - 1i32;
+}

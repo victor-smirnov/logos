@@ -1,0 +1,8 @@
+// B64: tuple of two refs is Co — shortenable.
+package tuple_of_refs_shorten;
+
+fn shorten<'short, 'long>(t: (&'long i32, &'long i32)) -> (&'short i32, &'short i32)
+    where 'long: 'short
+{ return t; }
+
+fn main() -> i32 { return 0i32; }

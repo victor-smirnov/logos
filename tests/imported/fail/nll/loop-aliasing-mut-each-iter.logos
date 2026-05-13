@@ -1,0 +1,15 @@
+// B72: two mut borrows in same iteration overlap.
+package loop_aliasing_mut_each_iter;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let mut i: i32 = 0i32;
+    while i < 3i32 {
+        let a: &mut i32 = &mut x;
+        let b: &mut i32 = &mut x;
+        *a = 1i32;
+        *b = 2i32;
+        i = i + 1i32;
+    }
+    return 0i32;
+}

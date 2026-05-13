@@ -1,0 +1,11 @@
+// Sprint 5: Fn-family bound + simple where outlives on signature.
+package fn_bound_with_where_outlives;
+
+fn ident<'a>(x: &'a i32) -> &'a i32 { return x; }
+
+fn run<F>(f: F) -> i32 where F: for<'a> Fn(&'a i32) -> &'a i32 {
+    let v: i32 = 6i32;
+    return *f(&v) - 6i32;
+}
+
+fn main() -> i32 { return run::<fn(&i32) -> &i32>(ident); }

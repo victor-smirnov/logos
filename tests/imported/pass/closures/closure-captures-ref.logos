@@ -1,0 +1,9 @@
+// B62: closure captures by reference.
+package closure_captures_ref;
+
+fn main() -> i32 {
+    let x: i32 = 7i32;
+    let r: &i32 = &x;
+    let f = || -> i32 { return *r; };
+    return f() - 7i32;
+}

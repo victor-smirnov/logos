@@ -1,0 +1,13 @@
+// Method chain returning &T through &self.
+package method_chain_ref_return;
+
+struct Outer { i: Inner }
+struct Inner { v: i32 }
+
+impl Outer { fn inner(self: &Outer) -> &Inner { return &(*self).i; } }
+impl Inner { fn val(self: &Inner) -> &i32 { return &(*self).v; } }
+
+fn main() -> i32 {
+    let o: Outer = Outer { i: Inner { v: 12i32 } };
+    return *o.inner().val() - 12i32;
+}

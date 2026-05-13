@@ -1,0 +1,9 @@
+// FnMut closure body writes via mut ref into immut binding.
+package dyn_fn_with_mut_of_immut;
+
+fn main() -> i32 {
+    let x: i32 = 0i32;
+    let r: &mut i32 = &mut x;
+    let _cl = || -> i32 { *r = 1i32; return *r; };
+    return 0i32;
+}

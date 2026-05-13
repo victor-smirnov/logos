@@ -1,0 +1,9 @@
+// Reborrow `&*r` from a shared ref — yields another shared.
+package reborrow_shared_via_deref;
+
+fn main() -> i32 {
+    let x: i32 = 7i32;
+    let r: &i32 = &x;
+    let s: &i32 = &*r;
+    return *s - 7i32;
+}

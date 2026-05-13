@@ -1,0 +1,12 @@
+// Each arm has independent borrow scope.
+package match_arm_disjoint_borrows;
+
+fn main() -> i32 {
+    let mut x: i32 = 1i32;
+    let c: i32 = 0i32;
+    match c {
+        0i32 => { let r: &i32 = &x; let _v: i32 = *r; }
+        _    => { let m: &mut i32 = &mut x; *m = 9i32; }
+    }
+    return x - 1i32;
+}

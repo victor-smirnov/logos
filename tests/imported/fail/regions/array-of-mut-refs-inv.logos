@@ -1,0 +1,8 @@
+// B64: array of &mut T — inv in T; lifetime change rejected.
+package array_of_mut_refs_inv;
+
+fn bad<'a, 'short, 'long>(a: [&'a mut &'long i32; 1]) -> [&'a mut &'short i32; 1]
+    where 'long: 'short
+{ return a; }
+
+fn main() -> i32 { return 0i32; }

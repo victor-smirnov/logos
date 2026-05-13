@@ -1,0 +1,12 @@
+// Binding an enum variant payload by value (copy primitive); borrow OK.
+package match_enum_bind_by_ref;
+
+enum E { A(i32), B(i32) }
+
+fn main() -> i32 {
+    let e: E = E::A(7i32);
+    match e {
+        E::A(v) => { return v - 7i32; }
+        E::B(v) => { return v; }
+    }
+}

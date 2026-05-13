@@ -1,0 +1,8 @@
+// B64: tuple Co — cannot lengthen.
+package tuple_of_refs_cant_lengthen;
+
+fn bad<'short, 'long>(t: (&'short i32, &'short i32)) -> (&'long i32, &'long i32)
+    where 'long: 'short
+{ return t; }
+
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,13 @@
+// Shared borrow taken before match held across; arm mutation conflicts.
+package match_borrow_spans_arm_mutate;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let r: &i32 = &x;
+    let c: i32 = 0i32;
+    match c {
+        0i32 => { x = 1i32; }
+        _    => { }
+    }
+    return *r;
+}

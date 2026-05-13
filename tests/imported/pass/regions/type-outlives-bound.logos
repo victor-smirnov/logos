@@ -1,0 +1,12 @@
+// B65: explicit `T: 'a` bound — caller's region inference covers it.
+package type_outlives_bound;
+
+struct Holder<'a, T> where T: 'a { r: &'a T }
+
+fn make<'a, T>(r: &'a T) -> Holder<'a, T> where T: 'a { return Holder { r: r }; }
+
+fn main() -> i32 {
+    let v: i32 = 8i32;
+    let h: Holder<i32> = make::<i32>(&v);
+    return *(h.r) - 8i32;
+}

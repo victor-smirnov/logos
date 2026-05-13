@@ -1,0 +1,14 @@
+// B65: multiple type params each with outlives bound.
+package multi_type_outlives;
+
+struct W<'a, T, U> where T: 'a, U: 'a { x: &'a T, y: &'a U }
+
+fn make<'a, T, U>(x: &'a T, y: &'a U) -> W<'a, T, U> where T: 'a, U: 'a {
+    return W { x: x, y: y };
+}
+
+fn main() -> i32 {
+    let a: i32 = 1i32; let b: i64 = 2i64;
+    let _w: W<i32, i64> = make::<i32, i64>(&a, &b);
+    return 0i32;
+}

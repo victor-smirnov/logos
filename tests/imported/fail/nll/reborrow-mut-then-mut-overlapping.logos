@@ -1,0 +1,11 @@
+// Two reborrows of the same &mut overlap.
+package reborrow_mut_then_mut_overlapping;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let m: &mut i32 = &mut x;
+    let n: &mut i32 = &mut x;
+    *m = 1i32;
+    *n = 2i32;
+    return 0i32;
+}

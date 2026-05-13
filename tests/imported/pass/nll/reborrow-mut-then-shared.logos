@@ -1,0 +1,12 @@
+// Mut borrow dies; subsequent shared on same var.
+package reborrow_mut_then_shared;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    {
+        let m: &mut i32 = &mut x;
+        *m = 5i32;
+    }
+    let r: &i32 = &x;
+    return *r - 5i32;
+}

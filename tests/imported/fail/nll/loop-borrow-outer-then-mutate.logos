@@ -1,0 +1,13 @@
+// B72: borrow alive across whole loop; inner mutation rejected.
+package loop_borrow_outer_then_mutate;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let r: &i32 = &x;
+    let mut i: i32 = 0i32;
+    while i < 3i32 {
+        x = x + 1i32;       // conflicts with outer r
+        i = i + 1i32;
+    }
+    return *r;
+}

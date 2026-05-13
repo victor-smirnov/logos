@@ -1,0 +1,16 @@
+// Method chain with &mut self.
+package method_chain_mut_self;
+
+struct C { n: i32 }
+impl C {
+    fn bump(self: &mut C) -> &mut C { (*self).n = (*self).n + 1i32; return self; }
+    fn get(self: &C) -> i32 { return (*self).n; }
+}
+
+fn main() -> i32 {
+    let mut c: C = C { n: 0i32 };
+    c.bump();
+    c.bump();
+    c.bump();
+    return c.get() - 3i32;
+}

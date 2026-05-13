@@ -1,0 +1,10 @@
+// Two closures capturing disjoint locals coexist.
+package closure_two_disjoint_captures;
+
+fn main() -> i32 {
+    let a: i32 = 1i32;
+    let b: i32 = 2i32;
+    let f = || -> i32 { return a; };
+    let g = || -> i32 { return b; };
+    return (f() + g()) - 3i32;
+}

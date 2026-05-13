@@ -1,0 +1,15 @@
+// B79 GAP: closure capture of a Move struct currently happens by-ref
+// (no move). Rust by default chooses by-ref capture for non-consuming
+// reads, so this MAY be correct; pinned as awareness regression.
+// `s.v` after the closure also reads through the capture, no error.
+package closure_captures_by_ref_gap;
+
+struct S { v: i64 }
+impl Drop for S { fn drop(self: &mut S) { } }
+
+fn main() -> i32 {
+    let s: S = S { v: 7i64 };
+    let f = || -> i64 { return s.v; };
+    let r: i64 = f();
+    return (r - 7i64) as i32;
+}

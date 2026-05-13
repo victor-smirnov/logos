@@ -1,0 +1,9 @@
+// B61: closure captures Copy primitive — original still usable.
+package closure_captures_i32_by_copy;
+
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    let f = || -> i32 { return x; };
+    let r: i32 = f();
+    return (x + r) - 10i32;
+}

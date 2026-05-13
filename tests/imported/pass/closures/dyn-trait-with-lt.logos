@@ -1,0 +1,11 @@
+// `dyn Trait + 'a` parses + lowers.
+package dyn_trait_with_lt;
+
+trait Get { fn g(self: &Self) -> i32; }
+struct X { v: i32 }
+impl Get for X { fn g(self: &X) -> i32 { return (*self).v; } }
+
+fn main() -> i32 {
+    let x: X = X { v: 6i32 };
+    return x.g() - 6i32;
+}
