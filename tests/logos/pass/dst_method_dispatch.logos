@@ -1,0 +1,14 @@
+package x;
+struct Foo { hdr: i64, tail: [u8] }
+
+trait Reset { fn reset(self: &mut Self) -> i64; }
+impl Reset for Foo {
+    fn reset(self: &mut Foo) -> i64 { return 42 as i64; }
+}
+
+unsafe fn main() -> i32 {
+    let buf: [u8; 10] = [0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 1u8, 2u8];
+    let raw: *const u8 = &buf as *const [u8] as *const u8;
+    let f: &mut Foo = dst_from_raw_parts_mut::<Foo>(raw, 2 as i64);
+    return (f.reset() - 42 as i64) as i32;
+}

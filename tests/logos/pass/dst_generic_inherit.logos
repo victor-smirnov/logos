@@ -1,0 +1,16 @@
+package x;
+struct Wrap<T: ?Sized> { v: T }
+
+unsafe fn use_wrap(w: &Wrap<[u8]>) -> i64 {
+    // Wrap<[u8]> should be DST (tail field becomes UnsizedSlice after subst).
+    // &Wrap<[u8]> should be DstRef.
+    let s: &[u8] = w.v;
+    return s.len();
+}
+
+unsafe fn main() -> i32 {
+    let buf: [u8; 4] = [1u8, 2u8, 3u8, 4u8];
+    let raw: *const u8 = &buf as *const [u8] as *const u8;
+    let w: &Wrap<[u8]> = dst_from_raw_parts::<Wrap<[u8]>>(raw, 4 as i64);
+    return (use_wrap(w) - 4 as i64) as i32;
+}

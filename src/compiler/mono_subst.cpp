@@ -68,8 +68,7 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         if (inner && inner.kind() == LogosType::Kind::UnsizedDyn) {
             LogosTypeBuilder tnt; tnt.kind = LogosType::Kind::TraitObject;
             tnt.trait_name = std::string(inner.trait_name());
-            tnt.type_args = std::vector<TypeRef>(inner.type_args().begin(),
-                                                 inner.type_args().end());
+            tnt.type_args = inner.type_args();
             return out_.type_pool.alloc(std::move(tnt));
         }
         // Phase 1B-14: when substitution lands a custom-DST struct as the
@@ -82,12 +81,19 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
             auto sit = struct_templates_.find(sn);
             if (sit == struct_templates_.end() && !inner.pkg_name().empty())
                 sit = struct_templates_.find(std::string(inner.pkg_name()) + "." + sn);
+            // Phase 1B-14: trust the template's is_dst flag. For generic
+            // DST instantiations (post-subst last field unsized), sema's
+            // canonicalisation already produced DstRef at type-resolution
+            // time; we don't repeat the recursive check here (it would
+            // re-walk the struct's field type, potentially deep into
+            // self-referential generic types).
             if (sit != struct_templates_.end() && sit->second->is_dst) {
                 LogosTypeBuilder dn; dn.kind = LogosType::Kind::DstRef;
                 dn.struct_name = sn;
                 dn.pkg_name = std::string(inner.pkg_name());
                 dn.mut_ptr = (tv.kind() == LogosType::Kind::MutRef) ||
                              (tv.kind() == LogosType::Kind::Ptr && tv.mut_ptr());
+                dn.type_args = inner.type_args();
                 return out_.type_pool.alloc(std::move(dn));
             }
         }
@@ -171,9 +177,25 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         nt.type_args = std::move(new_args);
         return out_.type_pool.alloc(std::move(nt));
     }
-    case LogosType::Kind::DstRef:
-        // Phase 1B-14: struct identity fixed; no substitutable components.
-        return tv;
+    case LogosType::Kind::DstRef: {
+        // Phase 1B-15: substitute type-args so DstRef<Wrap<T>> can be
+        // monomorphised through outer scopes.
+        if (tv.type_args().empty()) return tv;
+        std::vector<TypeRef> new_args;
+        bool changed = false;
+        for (auto a : tv.type_args()) {
+            auto na = subst_type(a, s);
+            changed |= (na != a);
+            new_args.push_back(na);
+        }
+        if (!changed) return tv;
+        LogosTypeBuilder dn; dn.kind = LogosType::Kind::DstRef;
+        dn.struct_name = std::string(tv.struct_name());
+        dn.pkg_name = std::string(tv.pkg_name());
+        dn.mut_ptr = tv.mut_ptr();
+        dn.type_args = std::move(new_args);
+        return out_.type_pool.alloc(std::move(dn));
+    }
     case LogosType::Kind::TraitObject: {
         if (tv.type_args().empty()) return tv;
         std::vector<TypeRef> new_args;

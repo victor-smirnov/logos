@@ -3281,6 +3281,7 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
     nd.name = new_name;
     nd.pkg  = tmpl.pkg;
     nd.is_zoned = tmpl.is_zoned;
+    nd.is_dst   = tmpl.is_dst;  // Phase 1B-15: preserved; possibly upgraded below.
     // type_params cleared: result is monomorphic.
     // B87: preserve lifetime_params + lifetime_outlives so post-mono
     // dropck can identify "this struct had a lifetime parameter in its
@@ -3302,6 +3303,17 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
             }
         } else {
             nd.fields.push_back({f.name, subst_type(f.type, s)});
+        }
+    }
+    // Phase 1B-15: DST inheritance through generic instantiation. If the
+    // post-substitution LAST field has UnsizedSlice / UnsizedDyn type
+    // (i.e. T bound to an unsized form for the `?Sized` template), the
+    // cloned struct becomes a custom-DST.
+    if (!nd.fields.empty()) {
+        auto last_t = TypeRef(nd.fields.back().type);
+        if (last_t && (last_t.kind() == LogosType::Kind::UnsizedSlice ||
+                       last_t.kind() == LogosType::Kind::UnsizedDyn)) {
+            nd.is_dst = true;
         }
     }
     // L1.4: in lazy mode, skip eager method cloning. drain_method_worklist

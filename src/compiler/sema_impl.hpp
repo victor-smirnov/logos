@@ -340,13 +340,31 @@ private:
     // `&` vs `&mut`/`*mut` for borrow-checker purposes.
     TypeRef make_dst_ref(std::string_view struct_name,
                          std::string_view pkg_name,
-                         bool is_mut) {
+                         bool is_mut,
+                         std::vector<TypeRef> type_args = {}) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::DstRef;
         t.struct_name = std::string(struct_name);
         t.pkg_name = std::string(pkg_name);
         t.mut_ptr = is_mut;
+        t.type_args = std::move(type_args);
         return pool_->alloc(std::move(t));
     }
+    // Phase 1B-15: recursive sema-side ABI byte-size computation. Mirrors
+    // mlir_gen_types.cpp::logos_abi_byte_size but operates over SemaStructInfo /
+    // SemaEnumInfo / SemaDatatypeInfo. Used by tail-field-access codegen
+    // (Phase 1B-14) to compute the prefix offset for ANY field-shape mix,
+    // not just primitives. Returns 8 for unknown/unresolvable types (a
+    // conservative pointer-size guess; later layout passes catch real
+    // mismatches). Cycle-guarded via `seen` set keyed by struct name.
+    uint64_t sema_abi_byte_size(TypeRef t,
+                                logos::compiler::StrSet& seen);
+    // Phase 1B-15: returns true when the struct type `t` is custom-DST
+    // either directly (template flagged is_dst at decl time) or after
+    // generic instantiation (template's `?Sized` last-field TypeVar
+    // bound to an unsized type via t.type_args()). Used for `&S` →
+    // DstRef canonicalisation at REF/PTR resolve time and for the
+    // dst_from_raw_parts intrinsic check.
+    bool is_effective_dst(TypeRef t);
     TypeRef make_trait_object(std::string_view tname,
                               std::vector<TypeRef> args = {}) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::TraitObject;

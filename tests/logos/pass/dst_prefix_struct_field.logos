@@ -1,0 +1,23 @@
+package x;
+struct Header { a: i32, b: i32 }  // 8 bytes
+struct Foo { hdr: Header, tail: [u8] }
+
+unsafe fn read_a(p: &Foo) -> i32 { return p.hdr.a; }
+unsafe fn read_b(p: &Foo) -> i32 { return p.hdr.b; }
+unsafe fn sum_tail(p: &Foo) -> i64 {
+    let s: &[u8] = p.tail;
+    return s.len();
+}
+
+unsafe fn main() -> i32 {
+    // 8 bytes header (a=0x42, b=0x99) + 4 bytes tail
+    let buf: [u8; 12] = [0x42u8, 0u8, 0u8, 0u8,
+                         0x99u8, 0u8, 0u8, 0u8,
+                         11u8, 22u8, 33u8, 44u8];
+    let raw: *const u8 = &buf as *const [u8] as *const u8;
+    let f: &Foo = dst_from_raw_parts::<Foo>(raw, 4 as i64);
+    let a = read_a(f);
+    let b = read_b(f);
+    let n = sum_tail(f);
+    return (a + b + n as i32) - (0x42 + 0x99 + 4);
+}
