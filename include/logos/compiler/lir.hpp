@@ -718,6 +718,9 @@ struct LFunction {
     // Each entry: bound on struct's type-param at position `index` within the
     // struct's type_params.  Empty when no impl-level type params.
     std::vector<TypeParam>        impl_type_params;
+    // Outer doc-comment (`/// ...`) lines joined with '\n', leading `/// ` (or
+    // `///`) stripped from each. Empty when the fn has no doc-comment.
+    std::string                   doc;
 };
 
 struct LField {
@@ -779,6 +782,8 @@ struct LStructDef {
     // Specialisation support (mirrors LFunction).
     bool                          is_specialization = false;
     std::vector<TypeRef> spec_patterns;
+    // Outer doc-comment (`/// ...`) on the struct/datatype declaration.
+    std::string                   doc;
 };
 
 
@@ -803,6 +808,8 @@ struct LEnumDef {
             if (!v.payload_types.empty()) return true;
         return false;
     }
+    // Outer doc-comment on the enum declaration.
+    std::string doc;
 };
 
 // ── Trait definition ──────────────────────────────────────────────────────
@@ -828,6 +835,8 @@ struct LTraitDef {
     uint64_t                       type_code = 0;       // #[type_code=N] — Hermes-tagged trait identity;
                                                         // propagates to each eidos via `impl Trait for Eidos`
     bool                           is_auto   = false;   // declared with `auto trait` (compiler-synthesized impls)
+    // Outer doc-comment on the trait declaration.
+    std::string                    doc;
 };
 
 struct LImplBlock {
@@ -867,17 +876,23 @@ struct LImplBlock {
     std::vector<std::string>      impl_lifetime_params;
     // B65: outlives bounds from `impl<'a, 'b: 'a> ...`.
     std::vector<std::pair<std::string, std::string>> lifetime_outlives;
+    // Outer doc-comment on the impl block.
+    std::string doc;
 };
 
 struct LConst {
     std::string      name;
     TypeRef type;
     LExprPtr         value = nullptr;
+    // Outer doc-comment on the const declaration.
+    std::string      doc;
 };
 
 struct LTypeAlias {
     std::string      name;
     TypeRef type;
+    // Outer doc-comment on the type alias.
+    std::string      doc;
 };
 
 // ── Program ───────────────────────────────────────────────────────────────

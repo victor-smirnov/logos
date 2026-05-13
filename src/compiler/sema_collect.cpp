@@ -714,6 +714,18 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
             if (phase == 1) pending_annots.push_back(item);
             continue;
         }
+        if (c == la::DOC_LINE_LIT) {
+            // Strip `/// ` (or `///`) prefix; one optional space.
+            // Both phases accumulate so the buffer is consistent when the
+            // next non-doc item arrives in either pass.
+            std::string_view raw = str_of(item.get(la::VALUE.code));
+            std::string_view stripped = raw.size() >= 3 ? raw.substr(3) : std::string_view{};
+            if (!stripped.empty() && stripped.front() == ' ')
+                stripped.remove_prefix(1);
+            if (!pending_doc_.empty()) pending_doc_.push_back('\n');
+            pending_doc_.append(stripped);
+            continue;
+        }
         // Phase 2-2: conditional compilation. `#[cfg(...)]` on any item
         // is evaluated here; if false, drop the item entirely (don't
         // collect, don't lower) along with any other pending annotations
@@ -947,6 +959,9 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
             else if (c == la::CONST_DEF)                  collect_const(item);
         }
         pending_annots.clear();
+        // Defensive: items that didn't consume the doc buffer shouldn't
+        // leak it into the next item.
+        pending_doc_.clear();
     }
 }
 
@@ -957,6 +972,7 @@ void SemaChecker::collect_enum(TinyMapView node) {
     // marker types (used by stdlib meta_variant_intrinsics, generic-anchor
     // patterns, etc.). No diagnostic.
     SemaEnumInfo info;
+    info.doc = take_pending_doc();
     info.type_params = read_type_params(node);
     info.lifetime_params = read_lifetime_params(node);  // B65
     push_type_params(info.type_params);
@@ -1346,6 +1362,7 @@ void SemaChecker::collect_trait(TinyMapView node) {
     current_trait_name_ = tname;
     SemaTraitInfo info;
     info.name = tname;
+    info.doc = take_pending_doc();
     info.is_hermes = pending_trait_is_hermes_;
     pending_trait_is_hermes_ = false;
     // Read auto marker
@@ -1501,6 +1518,7 @@ void SemaChecker::collect_trait(TinyMapView node) {
 }
 
 void SemaChecker::collect_impl(TinyMapView node) {
+    std::string impl_doc = take_pending_doc();
     std::string trait_name;
     if (node.has_key(la::NAME))
         trait_name = std::string(str_of(node.get(la::NAME.code)));
@@ -2188,7 +2206,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
         SemaImplInfo info{trait_name, target, impl_is_unsafe, impl_is_negative,
                           target_resolved, impl_tps,
                           trait_type_args, trait_lt_args, impl_lt_params,
-                          impl_lt_outlives};
+                          impl_lt_outlives, impl_doc};
         // B91: coherence — reject a second impl of the same trait for the
         // same target type. Only fires for NON-GENERIC impls (no impl type
         // params and no impl lifetime params): two `impl<T> ... for Map<K,V>`
@@ -2213,7 +2231,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
             SemaImplInfo alias{trait_name, "&[u8]", impl_is_unsafe, impl_is_negative,
                                target_resolved, impl_tps,
                                trait_type_args, trait_lt_args, impl_lt_params,
-                               impl_lt_outlives};
+                               impl_lt_outlives, impl_doc};
             impls_[trait_name + "::&[u8]"] = alias;
         }
     }
@@ -2291,6 +2309,7 @@ void SemaChecker::collect_datatype(TinyMapView node, bool is_annotation_type) {
     auto dname = std::string(str_of(node.get(la::NAME.code)));
     ctx_ = std::format("datatype {}", dname);
     SemaStructInfo info;
+    info.doc = take_pending_doc();
     info.type_params = read_type_params(node);
     info.lifetime_params = read_lifetime_params(node);
     info.package = cur_package_;
@@ -2386,6 +2405,7 @@ void SemaChecker::collect_struct(TinyMapView node) {
     auto sname = std::string(str_of(node.get(la::NAME.code)));
     ctx_ = std::format("struct {}", sname);
     SemaStructInfo info;
+    info.doc = take_pending_doc();
     info.type_params = read_type_params(node);
     info.lifetime_params = read_lifetime_params(node);
     info.lifetime_outlives = read_lifetime_outlives(node);
@@ -2860,6 +2880,11 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
     }
 
     SemaFuncInfo info;
+    // Free fn: pending_doc_ holds module-level doc. Methods (collect_fn called
+    // from collect_impl/collect_trait/collect_struct method loops) — caller
+    // has already cleared pending_doc_ via take_pending_doc(), so this is a
+    // no-op there. Method-level docs are Phase A.2.
+    info.doc = take_pending_doc();
     info.type_params = read_type_params(node);
     info.lifetime_params = read_lifetime_params(node);
     // B69: capture fn's declared outlives bounds (header + where) so

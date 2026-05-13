@@ -1327,6 +1327,7 @@ private:
                             // (either concrete types or TypeVars for partial specs).
                             std::string base_name;
                             std::vector<TypeRef> spec_patterns;
+                            std::string doc;     // outer `///` doc-comment
                           };
     struct SemaFuncInfo   { std::vector<TypeRef> param_types; TypeRef ret_type;
                             std::vector<TypeParam> type_params; bool is_vararg = false;
@@ -1343,7 +1344,9 @@ private:
                             std::string base_name;
                             std::string signature_key;
                             std::string symbol_name;
-                            std::string source_file; std::string package; };
+                            std::string source_file; std::string package;
+                            std::string doc;     // outer `///` doc-comment
+                          };
     struct SemaVariantInfo{
         std::string_view name; int64_t value;
         std::vector<TypeRef> payload_types;  // empty = no payload
@@ -1361,6 +1364,7 @@ private:
         std::vector<TypeParam> type_params;  // for generic enums
         std::vector<std::string> lifetime_params;  // B65: enum lifetime params
         TypeRef backing_type = nullptr;  // null = default (i32)
+        std::string doc;     // outer `///` doc-comment
     };
 
     // ── Trait info ───────────────────────────────────────────────
@@ -1397,7 +1401,7 @@ private:
                                               // Hermes-tagged datatype family;
                                               // reflect::<T>() routes through
                                               // Hermes path
-
+        std::string doc;     // outer `///` doc-comment
     };
     struct SemaImplInfo {
         std::string trait_name;
@@ -1421,6 +1425,7 @@ private:
         // B65: outlives bounds on impl-level lifetime params, e.g.
         // `impl<'a, 'b: 'a> ...` → [("'b", "'a")].
         std::vector<std::pair<std::string, std::string>> impl_lifetime_outlives;
+        std::string doc;     // outer `///` doc-comment on the impl block
     };
 
     // Type params in scope for the function/struct currently being processed.
@@ -1442,6 +1447,17 @@ private:
     // source text directly as a `str` arg (slice 3b of fn-macros);
     // future slice 3c lifts this to a structured TokenStream.
     bool pending_token_macro_ = false;
+    // Outer doc-comment buffer accumulated from `///` lines preceding the
+    // next real item. Cleared by each collect_* after consuming. Joined with
+    // '\n'; each line has had its leading `/// ` (or `///`) stripped.
+    std::string pending_doc_;
+    // Consume the accumulated outer doc-comment buffer: move it out and
+    // clear the buffer so the next collect_*/lower_* call starts fresh.
+    std::string take_pending_doc() {
+        std::string d = std::move(pending_doc_);
+        pending_doc_.clear();
+        return d;
+    }
     // Set true when the trait being collected has a `#[type_code]` annotation.
     // collect_trait reads + clears it; SemaTraitInfo.is_hermes carries the
     // result through to reflect::<T>() dispatch.

@@ -1,0 +1,46 @@
+// Phase A.1 doc-comment plumbing: `///` outer doc-comments are lexically
+// accepted and attach to the next top-level item via the DOC_LINE_LIT AST
+// node + sema's pending_doc_ buffer. No language-visible effect yet (no
+// rustdoc-style extraction wired up); this test pins down lexer + grammar +
+// sema-collect acceptance so doc-comment-rich ports compile cleanly.
+
+package x;
+
+/// Outer doc on a struct.
+/// Second line of the struct doc.
+pub struct DocStruct {
+    pub x: i64,
+}
+
+/// Outer doc on a free fn.
+pub fn doc_fn(n: i64) -> i64 { n + 1 }
+
+/// Doc on a trait.
+pub trait DocTrait {
+    fn id(&self) -> i64;
+}
+
+/// Doc on an impl block.
+impl DocTrait for DocStruct {
+    fn id(&self) -> i64 { self.x }
+}
+
+/// Doc on a const.
+pub const DOC_K: i64 = 42;
+
+/// Doc on a type alias.
+type DocAlias = i64;
+
+//// not a doc-comment — four slashes
+//! inner doc — silently skipped in Phase A.1
+
+/// Doc on main itself.
+unsafe fn main() -> i32 {
+    let s = DocStruct { x: 41 };
+    let r1: i64 = doc_fn(s.x);
+    let r2: i64 = s.id();
+    let _a: DocAlias = 0;
+    // r1 must be 42, r2 must be 41, DOC_K must be 42 → exit code 0.
+    let d: i64 = (r1 - 42) + (r2 - 41) + (DOC_K - 42);
+    return d as i32;
+}

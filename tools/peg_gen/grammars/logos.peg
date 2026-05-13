@@ -76,6 +76,7 @@
     NAME_VAR       = 38    // antiquot var name for `#ident` placeholder inside quote_*! body (reuses WHERE slot — STRUCT/ENUM/FN never have a where_clause AND a NAME_VAR simultaneously: NAME_VAR exists only inside quote_*! bodies, where where_clause is parsed separately)
     META           = 16    // meta @{...} block on struct/datatype/trait declarations (slot 16; reuses PATH_PARTS slot, mutually exclusive node types)
     RAW_TEXT       = 7     // raw source text captured from a balanced delim group on FN_MACRO_CALL (reuses VALUE slot — fn-macro nodes never carry a literal payload)
+    DOC            = 50    // doc-comment text on item-level decls (reuses HI_NEG slot — PAT_RANGE never appears at item level)
     // ── Group: mod ────────────────────────────────────────────────────────
     // Fields scoped to MODULE and USE nodes.  Slot numbers in a group reuse
     // the same 0..51 space as global fields; peg_gen resolves action field
@@ -291,6 +292,7 @@
     LIT_BYTES                   = 234   // P4-pm-07: `b"..."` byte-string literal at expression position. VALUE = raw token text including the `b"…"` quotes; sema decodes escapes and lowers to an `[u8; N]` array literal.
     NESTED_FN                   = 235   // `fn name(params) [-> T] { body }` at stmt position. Sema lifts the body to a top-level free fn under a gensym'd name and binds the local name as a fn-ptr let. NAME, PARAMS, RET_TYPE?, BODY.
     UNSIZED_SLICE_TYPE          = 236   // Phase 1B: bare `[T]` — unsized slice type. TYPE = element. Sema produces Kind::UnsizedSlice; cannot appear by value, only behind `&` / `*const` / `*mut` (canonicalised back to SLICE_TYPE / Kind::Slice at resolve time) or as a `T: ?Sized` substitution.
+    DOC_LINE_LIT                = 237   // `/// text` outer doc-comment line. VALUE = raw token text (still includes the leading `///`). Sema-collect strips the prefix, joins consecutive DOC_LINE_LIT siblings, and attaches the joined string to the next real item via the DOC AST slot.
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -401,6 +403,12 @@
     AT          = "@"
     DOLLAR      = "$"
 
+    // Outer doc-comment line (`/// ...`). Lexer-emitted as a real token so
+    // grammar-level rules can attach the text to the following item via a
+    // tiny DOC_LINE_LIT wrapper node. Skip-rule below explicitly excludes
+    // `///` so this matcher (hand-coded in codegen.cpp) wins.
+    DOC_LINE    = /\/\/\/[^\n]*/
+
     // Literals & identifiers
     RAW_STRING  = /r"[^"]*"/
     BYTE_STRING = /b"([^"\\]|\\.)*"/
@@ -445,7 +453,15 @@
     path_dot_ident <- DOT IDENT
                    => { NAME: $2 }
 
-    item <- template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / metacall_item_decl / fn_macro_item_decl / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
+    item <- doc_line_decl / template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / metacall_item_decl / fn_macro_item_decl / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
+
+    // Outer doc-comment line — captured as a tiny VALUE-only node so it can
+    // sit in the item stream alongside annotations. sema_collect accumulates
+    // a `pending_doc` buffer from consecutive DOC_LINE_LIT siblings (same
+    // pattern as `pending_annots_`) and attaches the joined text to the
+    // next real item.
+    doc_line_decl <- DOC_LINE
+                  => { CODE: DOC_LINE_LIT, VALUE: $1 }
 
     // Slice 6 of fn-macros — item-position macro invocation. Brace
     // delimiter only (parens / brackets stay at expression position).

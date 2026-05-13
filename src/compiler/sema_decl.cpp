@@ -932,6 +932,7 @@ lir::LTraitDef SemaChecker::lower_trait_def(TinyMapView node) {
 }
 
 void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
+    std::string impl_doc = take_pending_doc();
     std::string trait_name;
     if (node.has_key(la::NAME))
         trait_name = std::string(str_of(node.get(la::NAME.code)));
@@ -1427,6 +1428,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             }
         }
     }
+    ib.doc = std::move(impl_doc);
     prog.impls.push_back(std::move(ib));
 
     // ── Tag-dispatch: emit LDispatchEntry records ─────────────────────────

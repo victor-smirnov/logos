@@ -1025,11 +1025,30 @@ private:
             return sv;
         };
         // Line comment skip: pattern inner starts with // or \/\/ (escaped-slash pair).
+        // If the grammar also defines a DOC_LINE regex token (matching `///[^\n]*`),
+        // restrict the skip so `///` and `//!` are passed through to the token matcher
+        // below. Four-slash `////` and beyond stay as ordinary comments.
+        bool has_doc_line = false;
+        for (const auto& t : g_.tokens) {
+            if (t.kind == int32_t(ast::TOKEN_REGEX) && t.name == "DOC_LINE") {
+                has_doc_line = true; break;
+            }
+        }
         for (const auto& t : g_.tokens) {
             if (t.kind != skip_code) continue;
             auto inner = regex_inner(t.pattern);
             if (inner.starts_with("//") || inner.starts_with("\\/\\/")) {
-                w.line("if (c == '/' && pos_+1 < source_.size() && source_[pos_+1] == '/') {");
+                if (has_doc_line) {
+                    // Skip `//` line-comments EXCEPT outer-doc `///` (followed
+                    // by non-`/`). `////+` is a normal comment again per Rust
+                    // rules. Inner-doc `//!` is treated as a normal comment for
+                    // now (Phase A.2 will surface it as a separate token).
+                    w.line("if (c == '/' && pos_+1 < source_.size() && source_[pos_+1] == '/' &&");
+                    w.line("    !(pos_+2 < source_.size() && source_[pos_+2] == '/' &&");
+                    w.line("      !(pos_+3 < source_.size() && source_[pos_+3] == '/'))) {");
+                } else {
+                    w.line("if (c == '/' && pos_+1 < source_.size() && source_[pos_+1] == '/') {");
+                }
                 w.line(R"(    while (pos_ < source_.size() && source_[pos_] != '\n') ++pos_;)");
                 w.line("    continue; }");
                 break;
@@ -1065,6 +1084,25 @@ private:
         w.line("char     c           = source_[pos_];");
         w.line("(void)c;");
         w.line();
+
+        // DOC_LINE outer doc-comment — must run BEFORE the keyword/punctuation
+        // literal block so the matcher sees `///foo` before the bare `/`
+        // SLASH literal claims the leading slash.
+        for (const auto& t : g_.tokens) {
+            if (t.kind != int32_t(ast::TOKEN_REGEX) || t.name != "DOC_LINE") continue;
+            w.line("// DOC_LINE = /\\/\\/\\/[^\\n]*/ (outer doc-comment, runs before SLASH literal)");
+            w.line("if (c == '/' && pos_+2 < source_.size() &&");
+            w.line("    source_[pos_+1] == '/' && source_[pos_+2] == '/' &&");
+            w.line("    !(pos_+3 < source_.size() && source_[pos_+3] == '/')) {");
+            w.indent();
+            w.line("pos_ += 3;");
+            w.line("while (pos_ < source_.size() && source_[pos_] != '\\n') ++pos_;");
+            w.fmt("return {{TK::{}, source_.substr(start, pos_ - start), start_line_}};", safe_tok_name(t.name));
+            w.dedent();
+            w.line("}");
+            w.line();
+            break;
+        }
 
         // Keyword literals — longest match first, sorted by length desc.
         std::vector<const TokenDecl*> literals;
@@ -1184,6 +1222,10 @@ private:
             // Strip /.../ delimiters.
             if (pat.size() >= 2 && pat.front() == '/' && pat.back() == '/')
                 pat = pat.substr(1, pat.size() - 2);
+
+            // DOC_LINE is emitted earlier in lex_one (before keyword literals)
+            // so the bare `/` SLASH literal doesn't claim the leading slash.
+            if (t.name == "DOC_LINE") continue;
 
             // IDENT-like: [a-zA-Z_][a-zA-Z0-9_]*
             if (pat == "[a-zA-Z_][a-zA-Z0-9_]*" || pat == "[a-zA-Z_]\\w*") {

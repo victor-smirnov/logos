@@ -300,10 +300,12 @@ inline constexpr Code CONTINUE_EXPR        {"CONTINUE_EXPR",      232}; // `cont
 inline constexpr Code RETURN_EXPR          {"RETURN_EXPR",        233}; // `return` in expression position (P3-pg-04). Same shape — bare form only.
 inline constexpr Code NESTED_FN            {"NESTED_FN",          235}; // `fn name(params) [-> T] { body }` at stmt position. Sema lowers to a let-bound closure (no captures expected). NAME, PARAMS, RET_TYPE?, BODY.
 inline constexpr Code UNSIZED_SLICE_TYPE   {"UNSIZED_SLICE_TYPE", 236}; // Phase 1B: bare `[T]` — unsized slice type. TYPE = element. Resolves to Kind::UnsizedSlice.
+inline constexpr Code DOC_LINE_LIT         {"DOC_LINE_LIT",       237}; // `/// text` outer doc-comment line. VALUE = raw token text including the leading `///`. sema_collect strips prefix and accumulates into pending_doc_ for attachment to the next item.
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  META            {"META",               16};   // meta @{...} block node on struct/trait/datatype declarations (reuses PATH_PARTS slot; these node types never co-exist)
 inline constexpr Key  RAW_TEXT        {"RAW_TEXT",            7};   // raw source text captured from a balanced delim group on FN_MACRO_CALL (reuses VALUE slot — fn-macro nodes never carry a literal payload)
+inline constexpr Key  DOC             {"DOC",                50};   // joined `///` outer-doc text on item-level decls (reuses HI_NEG slot — PAT_RANGE never appears at item level)
 inline constexpr Key  INDEX           {"INDEX",              43};   // integer index (tuple field write)
 
 // Visibility

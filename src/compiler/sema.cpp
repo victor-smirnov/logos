@@ -4516,6 +4516,17 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             pending_annots.push_back(item);
             continue;
         }
+        if (c == la::DOC_LINE_LIT) {
+            // Mirror collect-phase doc accumulation: strip `/// ` prefix and
+            // join with '\n'. Consumed by the next LXxx via take_pending_doc().
+            std::string_view raw = str_of(item.get(la::VALUE.code));
+            std::string_view stripped = raw.size() >= 3 ? raw.substr(3) : std::string_view{};
+            if (!stripped.empty() && stripped.front() == ' ')
+                stripped.remove_prefix(1);
+            if (!pending_doc_.empty()) pending_doc_.push_back('\n');
+            pending_doc_.append(stripped);
+            continue;
+        }
         if (c == la::INSTANTIATE_DECL) {
             // `instantiate Foo<T>;` / `pub instantiate Foo<T>;` — pre-instantiation
             // root pin (C++ `template class Foo<int>;` analog). Pushes an
@@ -4683,12 +4694,14 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                 auto aname = std::string(str_of(ann.get(la::NAME.code)));
                 if (aname == "zoned") { has_zoned = true; break; }
             }
+            std::string struct_doc = take_pending_doc();
             if (is_specialization_struct(item)) {
                 auto sd = lower_spec_struct(item);
                 if (has_zoned) {
                     sd.is_zoned = true;
                     apply_annots_to_struct(sd);
                 }
+                sd.doc = std::move(struct_doc);
                 prog.struct_specializations.push_back(std::move(sd));
             } else if (has_zoned) {
                 auto sd = lower_struct_def(item);
@@ -4704,10 +4717,12 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                         sd.type_code = (raw < 128) ? (raw + 128) : raw;
                     }
                 }
+                sd.doc = std::move(struct_doc);
                 prog.structs.push_back(std::move(sd));
             } else {
                 auto sd = lower_struct_def(item);
                 sd.pkg = std::string(cur_package_);
+                sd.doc = std::move(struct_doc);
                 prog.structs.push_back(std::move(sd));
             }
         }
@@ -4787,12 +4802,14 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                         }
                     }
                 }
+                sd.doc = take_pending_doc();
                 prog.struct_specializations.push_back(std::move(sd));
             } else {
                 // Normal datatype definition.
                 auto sd = lower_struct_def(item);
                 sd.is_zoned = true;
                 sd.pkg = std::string(cur_package_);
+                sd.doc = take_pending_doc();
                 // Propagate is_data_plain only for datatypes (not regular structs).
                 { auto [pkg, dsi] = find_datatype_by_name(sd.name); if (dsi) sd.is_data_plain = dsi->is_data_plain; }
                 apply_annots_to_struct(sd);
@@ -4811,15 +4828,32 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                 prog.structs.push_back(std::move(sd));
             }
         }
-        else if (c == la::ENUM)       prog.enums.push_back(lower_enum_def(item));
-        else if (c == la::FN || c == la::EXTERN_FN) {
-            if (is_specialization_fn(item))
-                prog.specializations.push_back(std::make_unique<lir::LFunction>(lower_spec_fn(item)));
-            else
-                prog.functions.push_back(std::make_unique<lir::LFunction>(lower_fn(item)));
+        else if (c == la::ENUM) {
+            auto ed = lower_enum_def(item);
+            ed.doc = take_pending_doc();
+            prog.enums.push_back(std::move(ed));
         }
-        else if (c == la::CONST_DEF)  prog.consts.push_back(lower_const_def(item));
-        else if (c == la::TYPE_ALIAS) prog.type_aliases.push_back(lower_type_alias_def(item));
+        else if (c == la::FN || c == la::EXTERN_FN) {
+            if (is_specialization_fn(item)) {
+                auto fp = std::make_unique<lir::LFunction>(lower_spec_fn(item));
+                fp->doc = take_pending_doc();
+                prog.specializations.push_back(std::move(fp));
+            } else {
+                auto fp = std::make_unique<lir::LFunction>(lower_fn(item));
+                fp->doc = take_pending_doc();
+                prog.functions.push_back(std::move(fp));
+            }
+        }
+        else if (c == la::CONST_DEF) {
+            auto cd = lower_const_def(item);
+            cd.doc = take_pending_doc();
+            prog.consts.push_back(std::move(cd));
+        }
+        else if (c == la::TYPE_ALIAS) {
+            auto ta = lower_type_alias_def(item);
+            ta.doc = take_pending_doc();
+            prog.type_aliases.push_back(std::move(ta));
+        }
         else if (c == la::TRAIT_DEF) {
             // Explicit genos specialization decl: `#[type_code=N] pub genos Array<i32>;`.
             // No NAME on the decl (name lives inside TYPE node); type_ref is
@@ -4938,10 +4972,13 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                                           "(e.g. `#[type_code=N] genos {}<T>;`)",
                                           td.name, td.name));
                 }
+                td.doc = take_pending_doc();
                 prog.traits.push_back(std::move(td));
             }
         }
         else if (c == la::IMPL_BLOCK) lower_impl_block(item, prog);
+        // Defensive: clear any unused doc from items that didn't consume it.
+        pending_doc_.clear();
         pending_annots.clear();
     }
 }
