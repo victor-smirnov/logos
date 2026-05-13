@@ -1,0 +1,11 @@
+package arr_sum_5;
+fn main() -> i32 {
+    let a: [i32; 3] = [5i32, 5i32, 5i32];
+    let mut s: i32 = 0i32;
+    let mut i: i32 = 0i32;
+    while i < 3i32 {
+        s = s + a[i as usize];
+        i = i + 1i32;
+    }
+    return s - 15i32;
+}

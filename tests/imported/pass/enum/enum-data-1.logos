@@ -1,0 +1,10 @@
+package enum_data_1;
+enum E { I(i32), F(i32) }
+fn main() -> i32 {
+    let e: E = E::I(1i32);
+    let v: i32 = match e {
+        E::I(x) => x,
+        E::F(_) => 0i32,
+    };
+    return v - 1i32;
+}

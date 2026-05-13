@@ -1,0 +1,6 @@
+package gen_id_i16;
+fn id<T>(x: T) -> T { return x; }
+fn main() -> i32 {
+    let _v: i16 = id::<i16>(0i16);
+    return 0i32;
+}

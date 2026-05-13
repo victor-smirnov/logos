@@ -1,0 +1,6 @@
+package pat_tuple_2_3;
+fn main() -> i32 {
+    let t: (i32, i32) = (3i32, 6i32);
+    let (a, b): (i32, i32) = t;
+    return b - a*2i32;
+}

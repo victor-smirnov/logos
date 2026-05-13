@@ -1,0 +1,8 @@
+package pat_wildcard_4;
+fn main() -> i32 {
+    let x: i32 = 4i32;
+    let r: i32 = match x {
+        _ => x,
+    };
+    return r - 4i32;
+}

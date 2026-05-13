@@ -1,0 +1,6 @@
+package arr_index_5;
+fn main() -> i32 {
+    let a: [i32; 5] = [1i32, 2i32, 3i32, 4i32, 5i32];
+    let i: i32 = 5 % 5;
+    return a[i as usize] - (i + 1i32);
+}

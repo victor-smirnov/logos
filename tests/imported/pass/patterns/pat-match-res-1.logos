@@ -1,0 +1,10 @@
+package pat_match_res_1;
+enum Res<T, E> { Ok(T), Err(E) }
+fn main() -> i32 {
+    let r: Res<i32, i32> = Res::Ok(1i32);
+    let v: i32 = match r {
+        Res::Ok(x)  => x,
+        Res::Err(_) => -1i32,
+    };
+    return v - 1i32;
+}

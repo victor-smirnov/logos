@@ -1,0 +1,5 @@
+package arr_decl_2;
+fn main() -> i32 {
+    let a: [i32; 2] = [2i32; 2];
+    return a[0] - 2i32;
+}

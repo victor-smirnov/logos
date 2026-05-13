@@ -1,0 +1,11 @@
+package enum_c_style_4;
+enum Color { Red, Green, Blue }
+fn main() -> i32 {
+    let c: Color = Color::Green;
+    let v: i32 = match c {
+        Color::Red   => 0i32,
+        Color::Green => 1i32,
+        Color::Blue  => 2i32,
+    };
+    return v - 1i32;
+}

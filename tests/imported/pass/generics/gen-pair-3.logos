@@ -1,0 +1,7 @@
+package gen_pair_3;
+struct Pair<T> { a: T, b: T }
+fn make<T>(x: T, y: T) -> Pair<T> { return Pair { a: x, b: y }; }
+fn main() -> i32 {
+    let p: Pair<i32> = make::<i32>(3i32, 4i32);
+    return p.b - p.a - 1i32;
+}

@@ -1,0 +1,7 @@
+package struct_mut_9;
+struct S { v: i32 }
+fn main() -> i32 {
+    let mut s: S = S { v: 0i32 };
+    s.v = 9i32;
+    return s.v - 9i32;
+}

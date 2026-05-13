@@ -1,0 +1,6 @@
+package if_bool_3;
+fn main() -> i32 {
+    let x: i32 = 3i32;
+    if x > 0i32 { return x - 3i32; }
+    return -1i32;
+}

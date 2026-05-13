@@ -1,0 +1,10 @@
+package while_4;
+fn main() -> i32 {
+    let mut i: i32 = 0i32;
+    let mut sum: i32 = 0i32;
+    while i < 4i32 {
+        sum = sum + i;
+        i = i + 1i32;
+    }
+    return sum - 6i32;
+}

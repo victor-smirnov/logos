@@ -1,0 +1,7 @@
+package pat_struct_destr_2;
+struct P { a: i32, b: i32 }
+fn main() -> i32 {
+    let p: P = P { a: 2i32, b: 4i32 };
+    let P { a: x, b: y } = p;
+    return y - x*2i32;
+}

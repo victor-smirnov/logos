@@ -1,0 +1,9 @@
+package struct_method_8;
+struct S { v: i32 }
+impl S {
+    fn dbl(self: &S) -> i32 { return (*self).v * 2i32; }
+}
+fn main() -> i32 {
+    let s: S = S { v: 8i32 };
+    return s.dbl() - 16i32;
+}

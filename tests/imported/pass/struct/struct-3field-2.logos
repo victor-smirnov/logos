@@ -1,0 +1,6 @@
+package struct_3field_2;
+struct S { a: i32, b: i32, c: i32 }
+fn main() -> i32 {
+    let s: S = S { a: 2i32, b: 4i32, c: 6i32 };
+    return s.c - s.b - s.a;
+}

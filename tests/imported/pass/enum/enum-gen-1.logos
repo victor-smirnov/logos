@@ -1,0 +1,10 @@
+package enum_gen_1;
+enum Box<T> { Filled(T), Empty }
+fn main() -> i32 {
+    let b: Box<i32> = Box::Filled(1i32);
+    let v: i32 = match b {
+        Box::Filled(x) => x,
+        Box::Empty     => 0i32,
+    };
+    return v - 1i32;
+}

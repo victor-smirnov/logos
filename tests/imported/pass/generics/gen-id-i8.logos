@@ -1,0 +1,6 @@
+package gen_id_i8;
+fn id<T>(x: T) -> T { return x; }
+fn main() -> i32 {
+    let _v: i8 = id::<i8>(0i8);
+    return 0i32;
+}

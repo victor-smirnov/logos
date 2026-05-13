@@ -1,0 +1,6 @@
+package gen_id_bool;
+fn id<T>(x: T) -> T { return x; }
+fn main() -> i32 {
+    let _v: bool = id::<bool>(true);
+    return 0i32;
+}

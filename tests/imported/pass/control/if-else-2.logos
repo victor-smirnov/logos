@@ -1,0 +1,9 @@
+package if_else_2;
+fn pick(x: i32) -> i32 {
+    if x > 5i32 { return x - 5i32; }
+    return x + 5i32;
+}
+fn main() -> i32 {
+    let r: i32 = pick(2i32);
+    return r - r;
+}

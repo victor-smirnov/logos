@@ -1,0 +1,6 @@
+package gen_id_f32;
+fn id<T>(x: T) -> T { return x; }
+fn main() -> i32 {
+    let _v: f32 = id::<f32>(1.0f32);
+    return 0i32;
+}

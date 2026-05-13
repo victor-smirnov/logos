@@ -1,0 +1,6 @@
+package gen_id_u64;
+fn id<T>(x: T) -> T { return x; }
+fn main() -> i32 {
+    let _v: u64 = id::<u64>(0u64);
+    return 0i32;
+}
