@@ -1,0 +1,16 @@
+// T4b: labeled continue.
+package label_continue;
+fn main() -> i32 {
+    let mut count: i32 = 0i32;
+    let mut i: i32 = 0i32;
+    'outer: while i < 3i32 {
+        let mut j: i32 = 0i32;
+        while j < 3i32 {
+            if j == 1i32 { i = i + 1i32; continue 'outer; }
+            count = count + 1i32;
+            j = j + 1i32;
+        }
+        i = i + 1i32;
+    }
+    return count - 3i32;
+}

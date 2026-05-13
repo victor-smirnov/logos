@@ -1421,7 +1421,9 @@
     loop_stmt     <- KW_LOOP block
                   => { CODE: LOOP, BODY: $2 }
 
-    loop_expr     <- KW_LOOP block
+    loop_expr     <- LIFETIME COLON KW_LOOP block
+                  => { CODE: LABELED_LOOP, LABEL: $1, BODY: $4 }
+                   / KW_LOOP block
                   => { CODE: LOOP, BODY: $2 }
 
     // Labeled loop: 'label: for/while/loop { }

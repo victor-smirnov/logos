@@ -1,0 +1,13 @@
+// T4b: borrow inside labeled loop, broke out — borrow dead at break point.
+package label_borrow_in_labeled;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    'outer: loop {
+        let r: &mut i32 = &mut x;
+        *r = 5i32;
+        if *r > 0i32 { break 'outer; }
+    }
+    // After labeled break: mut borrow dead → shared borrow OK.
+    let s: &i32 = &x;
+    return *s - 5i32;
+}
