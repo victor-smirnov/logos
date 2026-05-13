@@ -2657,6 +2657,14 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
     SemaFuncInfo info;
     info.type_params = read_type_params(node);
     info.lifetime_params = read_lifetime_params(node);
+    // B69: capture fn's declared outlives bounds (header + where) so
+    // call-site cross-check can validate caller satisfies callee's
+    // where-clauses under arg-type lifetime substitution.
+    info.lifetime_outlives = read_lifetime_outlives(node);
+    {
+        auto w = read_lifetime_outlives_from(node, la::WHERE.code);
+        for (auto& p : w) info.lifetime_outlives.push_back(std::move(p));
+    }
     info.base_name = base_name;
     info.source_file = file_;
     info.package = cur_package_;

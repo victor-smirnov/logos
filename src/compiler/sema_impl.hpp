@@ -1206,6 +1206,11 @@ private:
     struct SemaFuncInfo   { std::vector<TypeRef> param_types; TypeRef ret_type;
                             std::vector<TypeParam> type_params; bool is_vararg = false;
                             std::vector<std::string> lifetime_params;  // for B-gn-09 lint
+                            // B69: declared `where 'a: 'b` outlives pairs.
+                            // Used by call-site cross-check: caller must
+                            // satisfy callee's where-bounds under the lifetime
+                            // substitution induced by arg-type matching.
+                            std::vector<std::pair<std::string, std::string>> lifetime_outlives;
                             bool is_pub = false; bool is_unsafe = false;
                             bool is_extern = false;
                             bool is_fn_macro = false;  // #[fn_macro] callee for name!(...)
@@ -1645,6 +1650,94 @@ private:
         auto adj = outlives_adj(current_outlives_);
         return subtype(from, to, adj, variance_table_, /*depth=*/0, permissive);
     }
+    // B69: caller cross-check of callee's `where 'a: 'b` bounds.
+    // Walks param_types parallel to arg_types and extracts a callee→caller
+    // lifetime substitution map. For each pair in callee_outlives,
+    // substitutes via the map and verifies the caller's current_outlives_
+    // graph satisfies the resulting (caller_long, caller_short) relation.
+    // Permissive on empty source lifetimes (caller may elide).
+    void check_call_outlives(
+        const std::string& callee_name,
+        const std::vector<TypeRef>& callee_param_types,
+        const std::vector<lir::LExprPtr>& arg_exprs,
+        const std::vector<std::pair<std::string, std::string>>& callee_outlives) {
+        if (callee_outlives.empty()) return;
+        // Build callee_lt → caller_lt substitution by walking matched
+        // param/arg type pairs.
+        std::unordered_map<std::string, std::string> subst;
+        auto record = [&](std::string_view callee_lt, std::string_view caller_lt) {
+            if (callee_lt.empty() || caller_lt.empty()) return;
+            std::string ck = outlives_norm(callee_lt);
+            std::string vk = outlives_norm(caller_lt);
+            auto it = subst.find(ck);
+            if (it == subst.end()) subst.emplace(ck, vk);
+            // If already present and different — conflict, but caller-region
+            // inference would unify; skip strict enforcement here.
+        };
+        std::function<void(TypeRef, TypeRef)> walk =
+            [&](TypeRef pt, TypeRef at) {
+            if (!pt || !at) return;
+            using K = LogosType::Kind;
+            auto pk = pt.kind();
+            if ((pk == K::Ref || pk == K::MutRef) &&
+                (at.kind() == K::Ref || at.kind() == K::MutRef)) {
+                record(pt.lifetime(), at.lifetime());
+                walk(pt.pointee(), at.pointee());
+                return;
+            }
+            if (pk == K::Struct || pk == K::ZonedStruct || pk == K::Enum) {
+                if (at.kind() == pk) {
+                    auto pl = pt.lifetime_args(); auto al = at.lifetime_args();
+                    for (size_t i = 0; i < pl.size() && i < al.size(); ++i)
+                        record(pl[i], al[i]);
+                    auto pa = pt.type_args(); auto aa = at.type_args();
+                    for (size_t i = 0; i < pa.size() && i < aa.size(); ++i)
+                        walk(pa[i], aa[i]);
+                }
+                return;
+            }
+            if (pk == K::Tuple && at.kind() == K::Tuple) {
+                auto pe = pt.tuple_elems(); auto ae = at.tuple_elems();
+                for (size_t i = 0; i < pe.size() && i < ae.size(); ++i)
+                    walk(pe[i], ae[i]);
+                return;
+            }
+            if ((pk == K::Slice || pk == K::Array) && at.kind() == pk) {
+                walk(pt.elem(), at.elem());
+                return;
+            }
+            if (pk == K::Ptr && at.kind() == K::Ptr) {
+                walk(pt.pointee(), at.pointee());
+                return;
+            }
+        };
+        size_t n = std::min(callee_param_types.size(), arg_exprs.size());
+        for (size_t i = 0; i < n; ++i)
+            if (arg_exprs[i]) walk(callee_param_types[i], arg_exprs[i]->type);
+        auto adj = outlives_adj(current_outlives_);
+        for (auto& [c_long, c_short] : callee_outlives) {
+            // 'static is reserved — always satisfies; skip checking.
+            if (outlives_is_static(c_long)) continue;
+            auto it_l = subst.find(outlives_norm(c_long));
+            auto it_s = subst.find(outlives_norm(c_short));
+            // Only enforce when BOTH callee lifetimes are visible at arg
+            // positions and mapped to concrete caller lifetimes. Otherwise
+            // the lifetime is either internal to the callee or elided at
+            // the call site — caller's region inference handles it.
+            if (it_l == subst.end() || it_s == subst.end()) continue;
+            const std::string& caller_long  = it_l->second;
+            const std::string& caller_short = it_s->second;
+            if (caller_long == caller_short) continue;
+            if (!outlives(caller_long, caller_short, adj, /*permissive_empty=*/false)) {
+                error(std::format(
+                    "call to '{}': caller does not satisfy callee's "
+                    "outlives bound `{}: {}` (under arg-type substitution: "
+                    "`{}: {}` required)",
+                    callee_name, c_long, c_short, caller_long, caller_short));
+            }
+        }
+    }
+
     // Emit an "X: variance mismatch …" error if from ↛ to under variance.
     // `permissive` should be false at body sites (return / let-init) where
     // both lifetimes are fn-scope-fixed; true at call-site arg-pass where

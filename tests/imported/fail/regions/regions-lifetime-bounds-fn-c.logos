@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-lifetime-bounds-on-fns.rs
+// (split: fn `c` — illegal call from a context without `where 'b: 'a`.)
+// Modifications: `isize` → `i64`. Exercises B69 (call-site cross-check):
+// fn `a` declares `where 'b: 'a`. fn `c` calls `a(x, y)` without
+// declaring the same constraint, so caller doesn't satisfy. Rust
+// rejects with "lifetime may not live long enough".
+package regions_lifetime_bounds_fn_c;
+
+fn a<'a, 'b>(x: &mut &'a i64, y: &mut &'b i64) where 'b: 'a {
+    *x = *y;
+}
+
+fn c<'a, 'b>(x: &mut &'a i64, y: &mut &'b i64) {
+    a(x, y);
+}
+
+fn main() -> i32 { return 0i32; }

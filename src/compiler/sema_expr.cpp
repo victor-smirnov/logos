@@ -1573,6 +1573,10 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             }
         }
 
+        // B69: caller cross-check of callee's `where 'a: 'b` bounds.
+        check_call_outlives(std::string(callee), exact_fi->param_types,
+                            arg_exprs, exact_fi->lifetime_outlives);
+
         for (auto& a : arg_exprs) {
             if (is_move_type(a->type))
                 mark_moved_expr(expr_ref_of(*a));
