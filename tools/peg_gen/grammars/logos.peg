@@ -2110,6 +2110,8 @@
                                      => { CODE: FN_MACRO_CALL, CALLEE: $1, RAW_TEXT: $3 }
 
                   / call_expr        // IDENT(args) / Type::method(args) — before enum_lit/IDENT
+                  / IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE COLONCOLON IDENT
+                                     => { CODE: STATIC_CALL, RECEIVER: $1, TYPE_PARAMS: $4, NAME: $7 }
                   / IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE
                                      => { CODE: GENERIC_REF, CALLEE: $1, TYPE_PARAMS: $4 }
                   / enum_lit         // IDENT::VARIANT     — after call_expr (no parens)

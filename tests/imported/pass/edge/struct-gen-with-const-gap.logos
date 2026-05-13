@@ -1,4 +1,12 @@
-// GAP: turbofish `W::<T>::CONST` syntax for accessing assoc const on
-// generic struct fails parse.
+// CLOSED 2026-05-13: turbofish `W::<T>::CONST` now parses and resolves
+// to the inherent assoc-const value. Fix: added a new expr-atom alt in
+// the grammar — `IDENT::<T>::IDENT` emits STATIC_CALL with TYPE_PARAMS
+// and no ARGS, ranked before GENERIC_REF so the dot-suffix wins; the
+// lower_static_call assoc-const fallback gained the inherent::<T>::<C>
+// key lookup that lower_enum_lit already had.
 package struct_gen_with_const_gap;
-fn main() -> i32 { return 0i32; }
+struct W<T> { v: T }
+impl<T> W<T> { const NAME: i32 = 42i32; }
+fn main() -> i32 {
+    return W::<i32>::NAME - 42i32;
+}

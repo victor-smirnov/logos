@@ -7113,6 +7113,21 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         // Look through all traits implemented by class_name for a matching constant.
         std::string cname_str = std::string(class_name);
         std::string mname_str = std::string(method_name);
+        // B97: try inherent assoc-const first (`impl S { const C: T = ... }`).
+        // For turbofish path `S::<T>::C`, the type-args don't change the lookup
+        // key — inherent consts aren't per-instantiation, they're per-type-name.
+        {
+            std::string ikey = "inherent::" + cname_str + "::" + mname_str;
+            auto cit = assoc_const_impls_.find(ikey);
+            if (cit != assoc_const_impls_.end()) {
+                if (!cit->second.cached_value) {
+                    auto val = lower_expr(map_of(cit->second.value_ast));
+                    if (cit->second.type) builder().retype_expr(val, cit->second.type);
+                    cit->second.cached_value = val;
+                }
+                return cit->second.cached_value;
+            }
+        }
         for (auto& [tname, tinfo] : traits_) {
             if (!impls_.count(tname + "::" + cname_str)) continue;
             std::string key = tname + "::" + cname_str + "::" + mname_str;
