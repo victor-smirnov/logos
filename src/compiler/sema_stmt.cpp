@@ -868,6 +868,20 @@ lir::LStmt SemaChecker::lower_let_pat(TinyMapView node) {
                 error(std::format("struct '{}': unknown field '{}'", sname, fname));
                 continue;
             }
+            // B97.4: substitute the struct's type params with the concrete
+            // type_args from rhs_type so e.g. `W<i32>` destructure binds `a`
+            // as i32, not as T.
+            {
+                auto [pkg, si] = find_struct_by_name(TypeRef(rhs_type).struct_name());
+                (void)pkg;
+                if (si && !si->type_params.empty()) {
+                    SemaSubst subst;
+                    auto tas = TypeRef(rhs_type).type_args();
+                    for (size_t k = 0; k < si->type_params.size() && k < tas.size(); ++k)
+                        subst[si->type_params[k].name] = tas[k];
+                    ft = subst_type_sema(ft, subst);
+                }
+            }
             define(bind_name, ft);
             auto recv = builder().var_ref(tmp, rhs_type);
             auto fr   = builder().field_read(std::move(recv), fname, ft);

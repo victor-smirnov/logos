@@ -1,0 +1,8 @@
+// B97.4: let-destructure on generic struct propagates concrete type args.
+package struct_destr_gen;
+struct W<T> { a: T, b: T }
+fn main() -> i32 {
+    let w: W<i32> = W { a: 5i32, b: 3i32 };
+    let W { a: x, b: y } = w;
+    return x - y - 2i32;
+}
