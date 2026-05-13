@@ -834,64 +834,92 @@ lir::LStmt SemaChecker::lower_let_pat(TinyMapView node) {
         sl.value = std::move(rhs);
         blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
     }
-    if (pat_node.has_key(la::ITEMS)) {
-        auto items_av = pat_node.get(la::ITEMS.code);
-        if (!items_av.is_pointer()) goto post_fields;
+    // B98: helper that destructures a struct-pattern into the block.
+    // Recursive (handles nested PAT_STRUCT in field values).
+    std::function<void(TinyMapView, const std::string&, TypeRef)> emit_destruct;
+    emit_destruct = [&](TinyMapView pat, const std::string& recv_var, TypeRef recv_type) {
+        if (!pat.has_key(la::ITEMS)) return;
+        auto items_av = pat.get(la::ITEMS.code);
+        if (!items_av.is_pointer()) return;
         auto fitems = map_of(items_av);
-        if (!fitems.has_key(la::ITEMS)) goto post_fields;
+        if (!fitems.has_key(la::ITEMS)) return;
         auto fields = arr_of(fitems.get(la::ITEMS.code));
-        std::vector<std::string> seen;
+        std::string recv_sname(TypeRef(recv_type).struct_name());
         for (uint64_t i = 0; i < fields.size(); ++i) {
             auto fav = fields.get(i);
             if (!fav.is_pointer()) continue;
             auto fnode = map_of(fav);
             int32_t fc = code_of(fnode);
-            if (fc == la::PAT_REST) continue;  // `..` rest in struct pat — skip
+            if (fc == la::PAT_REST) continue;
             if (fc != la::PAT_FIELD) continue;
             auto fname = std::string(str_of(fnode.get(la::NAME.code)));
             std::string bind_name = fname;
-            // Rebound: `Foo { x: alias, ... }` — VALUE carries an inner pattern.
+            // Pattern variants in field value: PAT_WILD (alias name),
+            // PAT_STRUCT (nested struct destructure), else error.
+            TinyMapView sub{};
+            bool has_sub = false;
             if (fnode.has_key(la::VALUE)) {
-                auto sub = map_of(fnode.get(la::VALUE.code));
-                if (code_of(sub) == la::PAT_WILD && sub.has_key(la::NAME)) {
-                    bind_name = std::string(str_of(sub.get(la::NAME.code)));
-                } else if (code_of(sub) != la::PAT_WILD) {
-                    error(std::format(
-                        "let struct-pattern field '{}': nested patterns not yet "
-                        "supported; bind to a name", fname));
-                    continue;
-                }
+                sub = map_of(fnode.get(la::VALUE.code));
+                has_sub = true;
             }
-            seen.push_back(fname);
-            auto ft = field_type_of(std::string(TypeRef(rhs_type).struct_name()), fname);
+            if (has_sub && code_of(sub) == la::PAT_WILD && sub.has_key(la::NAME)) {
+                bind_name = std::string(str_of(sub.get(la::NAME.code)));
+                has_sub = false;  // simple alias — treat as name bind
+            }
+            auto ft = field_type_of(recv_sname, fname);
             if (!ft) {
-                error(std::format("struct '{}': unknown field '{}'", sname, fname));
+                error(std::format("struct '{}': unknown field '{}'", recv_sname, fname));
                 continue;
             }
-            // B97.4: substitute the struct's type params with the concrete
-            // type_args from rhs_type so e.g. `W<i32>` destructure binds `a`
-            // as i32, not as T.
+            // Substitute generic type-args.
             {
-                auto [pkg, si] = find_struct_by_name(TypeRef(rhs_type).struct_name());
+                auto [pkg, si] = find_struct_by_name(TypeRef(recv_type).struct_name());
                 (void)pkg;
                 if (si && !si->type_params.empty()) {
                     SemaSubst subst;
-                    auto tas = TypeRef(rhs_type).type_args();
+                    auto tas = TypeRef(recv_type).type_args();
                     for (size_t k = 0; k < si->type_params.size() && k < tas.size(); ++k)
                         subst[si->type_params[k].name] = tas[k];
                     ft = subst_type_sema(ft, subst);
                 }
             }
-            define(bind_name, ft);
-            auto recv = builder().var_ref(tmp, rhs_type);
-            auto fr   = builder().field_read(std::move(recv), fname, ft);
-            lir::SLet sl;
-            sl.name = bind_name; sl.type = ft; sl.is_mut = false;
-            sl.value = std::move(fr);
-            blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+            // Emit a let with the field value.
+            std::string fvar = has_sub
+                ? std::format("__dst_{}_{}", destruct_counter_, fname)
+                : bind_name;
+            if (has_sub) ++destruct_counter_;
+            define(fvar, ft);
+            {
+                auto recv = builder().var_ref(recv_var, recv_type);
+                auto fr   = builder().field_read(std::move(recv), fname, ft);
+                lir::SLet sl;
+                sl.name = fvar; sl.type = ft; sl.is_mut = false;
+                sl.value = std::move(fr);
+                blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+            }
+            // If sub is a nested struct pattern, recurse.
+            if (has_sub && code_of(sub) == la::PAT_STRUCT) {
+                // The nested struct name must match `ft`'s struct.
+                auto sub_sname = str_of(sub.get(la::NAME.code));
+                if (TypeRef(ft).kind() != LogosType::Kind::Struct &&
+                    TypeRef(ft).kind() != LogosType::Kind::ZonedStruct) {
+                    error(std::format("nested pattern: field '{}' is not a struct", fname));
+                    continue;
+                }
+                if (sub_sname != std::string_view(TypeRef(ft).struct_name())) {
+                    error(std::format("nested pattern: expected '{}', got '{}'",
+                        std::string_view(TypeRef(ft).struct_name()), sub_sname));
+                    continue;
+                }
+                emit_destruct(sub, fvar, ft);
+            } else if (has_sub) {
+                error(std::format(
+                    "let struct-pattern field '{}': nested patterns of this kind not "
+                    "yet supported; bind to a name", fname));
+            }
         }
-    }
-    post_fields:
+    };
+    emit_destruct(pat_node, tmp, rhs_type);
     lir::SBlock sb;
     sb.body = std::move(blk);
     return make_stmt_emit(node_line_, std::move(sb));

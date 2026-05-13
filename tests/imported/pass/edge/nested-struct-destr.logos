@@ -1,0 +1,9 @@
+// B98: nested struct destructure pattern.
+package nested_struct_destr;
+struct Inner { v: i32 }
+struct Outer { i: Inner, k: i32 }
+fn main() -> i32 {
+    let o: Outer = Outer { i: Inner { v: 5i32 }, k: 3i32 };
+    let Outer { i: Inner { v: x }, k: y } = o;
+    return x + y - 8i32;
+}
