@@ -47,7 +47,57 @@ void RegionInferer::analyze(const lir::LFunction& fn, const lir::LProgram& prog)
         // the statement was visited. Liveness fixpoint runs over the
         // gathered maps.
     }
+    region_points_.clear();
     compute_liveness();
+    // B71.2: emit region-growth constraints from holder liveness.
+    // A borrow's region must contain every CFG point where the
+    // holder (let/assign LHS that binds the `&x`) is live.
+    for (auto& b : borrows_) {
+        if (b.holder.empty()) continue;
+        for (uint32_t bi = 0; bi < cfg_.blocks.size(); ++bi) {
+            for (uint32_t si = 0; si < cfg_.blocks[bi].n_stmts; ++si) {
+                StmtPoint p{bi, si};
+                auto it = live_in_.find(p);
+                if (it == live_in_.end()) continue;
+                if (!it->second.count(b.holder)) continue;
+                RegionConstraint c;
+                c.kind    = RegionConstraint::Kind::Contains;
+                c.longer  = b.region;
+                c.shorter = NO_REGION;
+                c.point   = p;
+                constraints_.push_back(c);
+            }
+        }
+    }
+    solve();
+}
+
+void RegionInferer::solve() {
+    // Fixed-point: each region = set of CFG points.
+    //   Contains(r, P)       → r.points.insert(P)
+    //   Outlives(longer, shorter)
+    //     → longer.points |= shorter.points
+    //   (i.e. longer must contain everything shorter contains)
+    // Iterate until stable. Bound iterations to (regions * constraints)
+    // for safety on pathological inputs.
+    bool changed = true;
+    int rounds = 0;
+    int cap = static_cast<int>(constraints_.size() * region_count() + 16);
+    while (changed && rounds++ < cap) {
+        changed = false;
+        for (auto& c : constraints_) {
+            if (!c.longer.valid()) continue;
+            auto& dst = region_points_[c.longer.value];
+            if (c.kind == RegionConstraint::Kind::Contains) {
+                if (dst.insert(c.point).second) changed = true;
+            } else if (c.kind == RegionConstraint::Kind::Outlives) {
+                if (!c.shorter.valid()) continue;
+                auto& src = region_points_[c.shorter.value];
+                for (auto& p : src)
+                    if (dst.insert(p).second) changed = true;
+            }
+        }
+    }
 }
 
 namespace {
@@ -737,6 +787,13 @@ void RegionInferer::dump(const std::string& fn_name) const {
         std::fprintf(stderr,
             "  constraint %s longer=%u shorter=%u point=(%u, %u)\n",
             kn, c.longer.value, c.shorter.value, c.point.block, c.point.idx);
+    }
+    // Solved region point sets.
+    for (auto& [rid, pts] : region_points_) {
+        std::string ps;
+        for (auto& p : pts)
+            ps += "(" + std::to_string(p.block) + "," + std::to_string(p.idx) + ") ";
+        std::fprintf(stderr, "  region %u live at {%s}\n", rid, ps.c_str());
     }
     // Per-statement live-in (live-out is implied by the live-in of
     // the next stmt or successor block).

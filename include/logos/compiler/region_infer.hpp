@@ -133,6 +133,14 @@ public:
     const std::unordered_map<StmtPoint, LiveSet, StmtPointHash>&
         live_out() const noexcept { return live_out_; }
 
+    // B71.3: solved region → set of CFG points it spans. Populated by
+    // analyze() after constraint generation. A region is in scope at
+    // every point in its point set; B72's conflict checker reads
+    // this to decide whether two borrows overlap.
+    using PointSet = std::unordered_set<StmtPoint, StmtPointHash>;
+    const std::unordered_map<uint32_t, PointSet>&
+        region_points() const noexcept { return region_points_; }
+
 private:
     RegionId fresh_region() noexcept {
         return RegionId{next_region_id_++};
@@ -145,6 +153,11 @@ private:
     // B71.1: per-statement use/def + live-in/live-out, computed by
     // a backward dataflow pass over the CFG.
     void compute_liveness();
+    // B71.3: solve the constraint set into per-region point sets.
+    // Contains constraints add a single point; Outlives constraints
+    // propagate the shorter region's point set into the longer's.
+    // Fixed-point iteration.
+    void solve();
     void use_def_for_stmt(const lir::LStmt& s,
                           uint32_t blk_id, uint32_t idx,
                           const lir::LProgram& prog,
@@ -158,6 +171,7 @@ private:
     std::unordered_map<StmtPoint, LiveSet, StmtPointHash> live_out_;
     std::unordered_map<StmtPoint, LiveSet, StmtPointHash> use_;
     std::unordered_map<StmtPoint, LiveSet, StmtPointHash> def_;
+    std::unordered_map<uint32_t, PointSet> region_points_;
     // We keep a pointer to the program for liveness's use/def gather
     // helper which needs the type-pool arena to materialize views.
     const lir::LProgram* prog_for_liveness_ = nullptr;
