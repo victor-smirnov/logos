@@ -1,0 +1,13 @@
+// Hand-derived from rust-lang/rust tests/ui/borrowck/borrowck-mut-borrow-of-mut-base-ptr.rs:
+// while a shared borrow is live, a mutable borrow of the same
+// variable is rejected. B72 catches via overlapping regions on x.
+package nll_mut_while_shared;
+
+fn main() -> i32 {
+    let mut x: i32 = 1i32;
+    let r: &i32 = &x;
+    let s: &mut i32 = &mut x;
+    let _a = *r;
+    *s = 2i32;
+    return 0i32;
+}

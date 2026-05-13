@@ -1,0 +1,19 @@
+// Two consecutive loops, each with mut borrow of x. Regions don't
+// overlap (loops are sequential).
+package nll_loop_borrow_then_loop_again;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let mut i: i32 = 0i32;
+    while i < 2i32 {
+        let r: &mut i32 = &mut x;
+        *r = i;
+        i = i + 1i32;
+    }
+    let mut j: i32 = 0i32;
+    while j < 2i32 {
+        let s: &mut i32 = &mut x;
+        *s = j + 10i32;
+        j = j + 1i32;
+    }
+    return x - 11i32;
+}

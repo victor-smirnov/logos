@@ -1,0 +1,10 @@
+// Mut borrow's holder dies at its last use; shared borrow after that.
+package nll_shared_after_mut_released;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let r: &mut i32 = &mut x;
+    *r = 5i32;
+    *r = 7i32;
+    let s: &i32 = &x;
+    return *s - 7i32;
+}

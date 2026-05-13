@@ -1,0 +1,12 @@
+// Conditionally-taken shared borrow; outside the if, the borrow
+// is gone — mut access of x is legal.
+package nll_shared_conditional;
+fn main() -> i32 {
+    let mut x: i32 = 5i32;
+    if true {
+        let r: &i32 = &x;
+        let _a = *r;
+    }
+    x = 10i32;
+    return x - 10i32;
+}

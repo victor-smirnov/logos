@@ -1,0 +1,18 @@
+// Multiple nested scopes each take and release a mut borrow.
+package nll_deep_nested_borrow;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    {
+        let a: &mut i32 = &mut x;
+        *a = 1i32;
+    }
+    {
+        let b: &mut i32 = &mut x;
+        *b = 2i32;
+    }
+    {
+        let c: &mut i32 = &mut x;
+        *c = 3i32;
+    }
+    return x - 3i32;
+}

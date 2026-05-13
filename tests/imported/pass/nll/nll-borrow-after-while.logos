@@ -1,0 +1,12 @@
+// Shared borrow of x after loop body completes.
+package nll_borrow_after_while;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let mut i: i32 = 0i32;
+    while i < 3i32 {
+        x = x + i;
+        i = i + 1i32;
+    }
+    let r: &i32 = &x;
+    return *r - 3i32;
+}

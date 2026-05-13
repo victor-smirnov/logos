@@ -1,0 +1,7 @@
+// Multiple shared borrows of x passed as args to fn — legal.
+package nll_borrow_as_arg_many;
+fn sum3(a: &i32, b: &i32, c: &i32) -> i32 { return *a + *b + *c; }
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    return sum3(&x, &x, &x) - 15i32;
+}

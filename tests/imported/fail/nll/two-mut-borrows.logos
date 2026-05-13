@@ -1,0 +1,17 @@
+// Hand-derived from the classic NLL example pattern in
+// rust-lang/rust tests/ui/borrowck/two-phase-multi-mut.rs and
+// reference §6.2 of the Rust book: a variable cannot be `&mut`-
+// borrowed twice simultaneously.
+//
+// B72 region check: regions of r and s overlap (both live at the
+// same CFG point), so the conflict fires.
+package nll_two_mut_borrows;
+
+fn main() -> i32 {
+    let mut x: i32 = 1i32;
+    let r: &mut i32 = &mut x;
+    let s: &mut i32 = &mut x;
+    *r = 2i32;
+    *s = 3i32;
+    return 0i32;
+}

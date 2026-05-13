@@ -1,0 +1,10 @@
+// Return reference to local defined in an inner block — local
+// goes out of scope before return.
+package nll_return_ref_borrow_in_inner_block;
+fn dangling() -> &i32 {
+    {
+        let x: i32 = 5i32;
+        return &x;
+    }
+}
+fn main() -> i32 { return *dangling(); }

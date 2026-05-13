@@ -1,0 +1,15 @@
+// Three overlapping &mut borrows of the same var — multiple
+// pairwise conflicts. B72 finds at least one and reports;
+// subsequent conflicts surface as additional diagnostics.
+package nll_three_mut_borrows;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let a: &mut i32 = &mut x;
+    let b: &mut i32 = &mut x;
+    let c: &mut i32 = &mut x;
+    *a = 1i32;
+    *b = 2i32;
+    *c = 3i32;
+    return 0i32;
+}

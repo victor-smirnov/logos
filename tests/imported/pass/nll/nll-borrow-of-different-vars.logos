@@ -1,0 +1,14 @@
+// Two overlapping mut borrows of DIFFERENT variables are legal —
+// regions overlap in CFG points but target different vars, so
+// no conflict.
+package nll_borrow_of_different_vars;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let mut y: i32 = 0i32;
+    let r: &mut i32 = &mut x;
+    let s: &mut i32 = &mut y;
+    *r = 1i32;
+    *s = 2i32;
+    return (x - 1i32) + (y - 2i32);
+}

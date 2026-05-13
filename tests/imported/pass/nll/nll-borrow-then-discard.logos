@@ -1,0 +1,10 @@
+// A shared borrow whose holder is never used is dead immediately;
+// subsequent mut access of the borrowed variable is legal.
+package nll_borrow_then_discard;
+
+fn main() -> i32 {
+    let mut x: i32 = 5i32;
+    let _r: &i32 = &x;
+    x = 10i32;
+    return x - 10i32;
+}

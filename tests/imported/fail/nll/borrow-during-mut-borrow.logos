@@ -1,0 +1,10 @@
+// Shared borrow created while a mut borrow is still live.
+package nll_borrow_during_mut_borrow;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let r: &mut i32 = &mut x;
+    let s: &i32 = &x;
+    *r = 1i32;
+    let _a = *s;
+    return 0i32;
+}

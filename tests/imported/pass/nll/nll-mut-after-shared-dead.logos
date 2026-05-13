@@ -1,0 +1,10 @@
+// Shared borrow holder dead after one use; mut borrow legal.
+package nll_mut_after_shared_dead;
+fn main() -> i32 {
+    let mut x: i32 = 1i32;
+    let r: &i32 = &x;
+    let _v = *r;
+    let s: &mut i32 = &mut x;
+    *s = 2i32;
+    return x - 2i32;
+}

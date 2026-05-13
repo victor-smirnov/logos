@@ -1,0 +1,15 @@
+// A mut borrow created before an if-stmt remains live across both
+// arms (until last-use after the if). A second mut borrow inside
+// an arm overlaps. Rejected.
+package nll_borrow_spans_arms;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let r: &mut i32 = &mut x;
+    if true {
+        let s: &mut i32 = &mut x;
+        *s = 1i32;
+    }
+    *r = 2i32;
+    return 0i32;
+}

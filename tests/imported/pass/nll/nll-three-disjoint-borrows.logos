@@ -1,0 +1,15 @@
+// Three sequential &mut borrows of the same var, each disjoint
+// (each holder dies before the next borrow). Region inference
+// recognizes the gaps and accepts.
+package nll_three_disjoint_borrows;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let a: &mut i32 = &mut x;
+    *a = 1i32;
+    let b: &mut i32 = &mut x;
+    *b = 2i32;
+    let c: &mut i32 = &mut x;
+    *c = 3i32;
+    return x - 3i32;
+}

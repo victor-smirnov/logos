@@ -1,0 +1,11 @@
+// Imported from rust-lang/rust tests/ui/nll/nll-anon-to-static.rs
+// (regression for issue #46983). Returning a `&u32` (elided source
+// lifetime) as `&'static u32` is rejected: caller picks the input's
+// region, which may not be 'static.
+package nll_anon_to_static;
+
+fn foo(x: &u32) -> &'static u32 {
+    return x;
+}
+
+fn main() -> i32 { return 0i32; }

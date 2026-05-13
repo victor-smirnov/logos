@@ -1,0 +1,13 @@
+// Cannot return a reference to a local variable — the local goes
+// out of scope as the function returns. Existing borrow_check
+// dangling-reference detection catches this.
+package nll_return_ref_to_local;
+
+fn dangling() -> &i32 {
+    let x: i32 = 5i32;
+    return &x;
+}
+
+fn main() -> i32 {
+    return *dangling();
+}

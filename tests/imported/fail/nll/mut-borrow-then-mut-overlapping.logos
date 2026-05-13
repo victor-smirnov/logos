@@ -1,0 +1,12 @@
+// Two mut borrows whose holders both have uses overlapping each
+// other on consecutive statements.
+package nll_mut_borrow_then_mut_overlapping;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let r: &mut i32 = &mut x;
+    *r = 1i32;
+    let s: &mut i32 = &mut x;
+    *r = 2i32;
+    *s = 3i32;
+    return 0i32;
+}

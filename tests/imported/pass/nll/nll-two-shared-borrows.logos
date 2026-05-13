@@ -1,0 +1,10 @@
+// Two overlapping `&T` (shared) borrows of the same var are legal:
+// neither is mutable, so no exclusivity to violate.
+package nll_two_shared_borrows;
+
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    let r: &i32 = &x;
+    let s: &i32 = &x;
+    return *r + *s - 10i32;
+}

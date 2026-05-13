@@ -1,0 +1,12 @@
+// Borrow inside a nested block dies at the block exit; subsequent
+// access of the borrowed variable is legal.
+package nll_borrow_in_nested_block;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    {
+        let r: &mut i32 = &mut x;
+        *r = 5i32;
+    }
+    x = x + 1i32;
+    return x - 6i32;
+}

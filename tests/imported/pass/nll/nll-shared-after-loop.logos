@@ -1,0 +1,13 @@
+// Mut borrow inside a loop body; after the loop, shared borrow legal.
+package nll_shared_after_loop;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let mut i: i32 = 0i32;
+    while i < 3i32 {
+        let r: &mut i32 = &mut x;
+        *r = i;
+        i = i + 1i32;
+    }
+    let s: &i32 = &x;
+    return *s - 2i32;
+}

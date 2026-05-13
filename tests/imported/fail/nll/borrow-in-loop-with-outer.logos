@@ -1,0 +1,15 @@
+// Mut borrow created outside a loop spans every iteration; an
+// additional mut borrow inside the loop body conflicts.
+package nll_borrow_in_loop_with_outer;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let r: &mut i32 = &mut x;
+    let mut i: i32 = 0i32;
+    while i < 2i32 {
+        let s: &mut i32 = &mut x;
+        *s = i;
+        i = i + 1i32;
+    }
+    *r = 5i32;
+    return 0i32;
+}

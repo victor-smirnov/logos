@@ -1,0 +1,10 @@
+// Two mut borrows declared back-to-back, both used later.
+package nll_two_mut_borrows_sequential_use;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let a: &mut i32 = &mut x;
+    let b: &mut i32 = &mut x;
+    *a = 1i32;
+    *b = 2i32;
+    return 0i32;
+}

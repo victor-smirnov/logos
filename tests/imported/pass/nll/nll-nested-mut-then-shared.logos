@@ -1,0 +1,12 @@
+// Nested scope: inner mut borrow ends at block close; outer shared
+// borrow then takes over.
+package nll_nested_mut_then_shared;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    {
+        let r: &mut i32 = &mut x;
+        *r = 7i32;
+    }
+    let s: &i32 = &x;
+    return *s - 7i32;
+}

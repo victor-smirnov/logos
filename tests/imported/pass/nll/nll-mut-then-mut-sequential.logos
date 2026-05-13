@@ -1,0 +1,15 @@
+// Two sequential mut borrows where each holder dies before the
+// next. Region-based NLL accepts.
+package nll_mut_then_mut_sequential;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    {
+        let a: &mut i32 = &mut x;
+        *a = 1i32;
+    }
+    {
+        let b: &mut i32 = &mut x;
+        *b = 2i32;
+    }
+    return x - 2i32;
+}

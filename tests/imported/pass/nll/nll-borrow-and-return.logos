@@ -1,0 +1,12 @@
+// Borrow used as return value; the holder is the return value
+// itself. NLL accepts: region covers the let, the use, and return.
+package nll_borrow_and_return;
+fn pick<'a>(a: &'a i32, b: &'a i32, which: bool) -> &'a i32 {
+    if which { return a; } else { return b; }
+}
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    let y: i32 = 6i32;
+    let r: &i32 = pick(&x, &y, true);
+    return *r - 5i32;
+}

@@ -1,0 +1,17 @@
+// The canonical NLL acceptance pattern from "Non-Lexical Lifetimes"
+// RFC 2094 §2.1. A mutable borrow ends at last-use, not scope-end;
+// a subsequent borrow of the same variable is therefore legal.
+//
+// B72 region check: region 1 (r) live at the first borrow's last
+// use; region 2 (s) live at the second borrow. The two regions
+// don't overlap, so no conflict.
+package nll_shorten_mut_borrow;
+
+fn main() -> i32 {
+    let mut x: i32 = 1i32;
+    let r: &mut i32 = &mut x;
+    *r = 2i32;
+    let s: &mut i32 = &mut x;
+    *s = 3i32;
+    return x - 3i32;
+}

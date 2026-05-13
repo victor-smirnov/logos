@@ -1,0 +1,13 @@
+// Two shared borrows of x are fine; a third mut borrow conflicts
+// with both.
+package nll_two_shared_and_mut;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let r: &i32 = &x;
+    let s: &i32 = &x;
+    let t: &mut i32 = &mut x;
+    let _a = *r;
+    let _b = *s;
+    *t = 1i32;
+    return 0i32;
+}

@@ -1,0 +1,11 @@
+// A shared borrow of x doesn't prevent moving y.
+package nll_shared_borrow_then_move_other;
+fn consume(_y: i32) {}
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    let y: i32 = 6i32;
+    let r: &i32 = &x;
+    consume(y);
+    let _a = *r;
+    return 0i32;
+}

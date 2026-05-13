@@ -1,0 +1,10 @@
+// Shared borrow passed to fn doesn't conflict with subsequent
+// shared borrow.
+package nll_shared_borrow_through_call;
+fn observe(_r: &i32) -> i32 { return 0i32; }
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    let _a = observe(&x);
+    let _b = observe(&x);
+    return 0i32;
+}

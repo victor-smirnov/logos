@@ -1,0 +1,10 @@
+// Fn takes shared borrow as arg, returns nothing; caller continues
+// using the var after.
+package nll_fn_takes_shared_then_uses;
+fn observe(_r: &i32) {}
+fn main() -> i32 {
+    let mut x: i32 = 5i32;
+    observe(&x);
+    x = 10i32;
+    return x - 10i32;
+}

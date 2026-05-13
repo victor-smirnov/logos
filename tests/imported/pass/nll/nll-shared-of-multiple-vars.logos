@@ -1,0 +1,11 @@
+// Shared borrows of multiple distinct vars, all live simultaneously.
+package nll_shared_of_multiple_vars;
+fn main() -> i32 {
+    let a: i32 = 1i32;
+    let b: i32 = 2i32;
+    let c: i32 = 3i32;
+    let ra: &i32 = &a;
+    let rb: &i32 = &b;
+    let rc: &i32 = &c;
+    return *ra + *rb + *rc - 6i32;
+}

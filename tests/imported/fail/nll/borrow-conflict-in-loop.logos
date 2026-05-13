@@ -1,0 +1,17 @@
+// Borrow conflict inside a loop body. Both region 1 (r) and region 2
+// (s) span the back-edge of the while, so they're considered live
+// at every body point — overlapping mut borrows of x fire.
+package nll_borrow_conflict_in_loop;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let mut i: i32 = 0i32;
+    while i < 3i32 {
+        let r: &mut i32 = &mut x;
+        let s: &mut i32 = &mut x;
+        *r = i;
+        *s = i + 1i32;
+        i = i + 1i32;
+    }
+    return 0i32;
+}

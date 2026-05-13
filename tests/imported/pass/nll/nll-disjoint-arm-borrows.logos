@@ -1,0 +1,17 @@
+// Mutable borrows in disjoint if-arms are legal — exactly one arm
+// runs at a time, so the regions don't overlap on any CFG path.
+// B72 sees region 1 (then-arm r) and region 2 (else-arm s) on
+// separate blocks; intersection is empty.
+package nll_disjoint_arm_borrows;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    if true {
+        let r: &mut i32 = &mut x;
+        *r = 1i32;
+    } else {
+        let s: &mut i32 = &mut x;
+        *s = 2i32;
+    }
+    return x - 1i32;
+}

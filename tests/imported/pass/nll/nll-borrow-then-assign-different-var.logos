@@ -1,0 +1,10 @@
+// Borrow of x doesn't prevent assignment to y (different var).
+package nll_borrow_then_assign_different_var;
+fn main() -> i32 {
+    let x: i32 = 1i32;
+    let mut y: i32 = 0i32;
+    let r: &i32 = &x;
+    y = 5i32;
+    let _ = *r;
+    return y - 5i32;
+}

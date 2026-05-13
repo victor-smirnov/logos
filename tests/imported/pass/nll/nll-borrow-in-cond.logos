@@ -1,0 +1,13 @@
+// A shared borrow in a condition expression: its region lives only
+// for the condition evaluation; the body is free to take its own
+// borrows of the same variable.
+package nll_borrow_in_cond;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    if (&x as *const i32) as i64 != 0i64 {
+        let r: &mut i32 = &mut x;
+        *r = 1i32;
+    }
+    return x - 1i32;
+}

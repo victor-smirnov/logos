@@ -1,0 +1,15 @@
+// NLL through conditional: the holder of a borrow is dead after
+// the if-branch consumes it; a subsequent borrow of the same
+// variable is legal. Exercises the multi-block CFG B71.0 wired
+// in B72.
+package nll_shorten_via_cond;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let r: &mut i32 = &mut x;
+    if true { *r = 2i32; } else { *r = 3i32; }
+    // r dead after the if — region 1 covers the if's two arms only
+    let s: &mut i32 = &mut x;
+    *s = 4i32;
+    return x - 4i32;
+}

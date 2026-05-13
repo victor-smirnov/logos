@@ -1,0 +1,15 @@
+// NLL across loop iterations: a borrow taken inside a loop body
+// dies at the back-edge of the iteration. A different borrow of
+// the same variable in the next iteration is legal.
+package nll_loop_borrow_then_reborrow;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let mut i: i32 = 0i32;
+    while i < 3i32 {
+        let r: &mut i32 = &mut x;
+        *r = i;
+        i = i + 1i32;
+    }
+    return x - 2i32;
+}

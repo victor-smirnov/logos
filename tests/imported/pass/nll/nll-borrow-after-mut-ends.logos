@@ -1,0 +1,11 @@
+// Long-running mut borrow ends; subsequent borrow of same var legal.
+package nll_borrow_after_mut_ends;
+fn main() -> i32 {
+    let mut x: i32 = 1i32;
+    let r: &mut i32 = &mut x;
+    *r = 2i32;
+    *r = 3i32;
+    *r = 4i32;
+    let s: &i32 = &x;
+    return *s - 4i32;
+}

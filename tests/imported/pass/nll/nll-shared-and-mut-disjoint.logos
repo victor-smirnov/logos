@@ -1,0 +1,13 @@
+// Shared borrow ends before mut borrow begins. NLL-style:
+// region of shared `r` lives only through `let _a = *r;`, then
+// `&mut x` is legal because the regions don't overlap.
+package nll_shared_and_mut_disjoint;
+
+fn main() -> i32 {
+    let mut x: i32 = 1i32;
+    let r: &i32 = &x;
+    let _a: i32 = *r;
+    let s: &mut i32 = &mut x;
+    *s = 2i32;
+    return x - 2i32;
+}

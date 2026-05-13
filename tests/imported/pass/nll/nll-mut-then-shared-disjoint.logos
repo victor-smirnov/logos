@@ -1,0 +1,11 @@
+// Mut borrow then shared borrow, holders disjoint. NLL accepts:
+// region of `r` ends before region of `s` begins.
+package nll_mut_then_shared_disjoint;
+
+fn main() -> i32 {
+    let mut x: i32 = 1i32;
+    let r: &mut i32 = &mut x;
+    *r = 2i32;
+    let s: &i32 = &x;
+    return *s - 2i32;
+}

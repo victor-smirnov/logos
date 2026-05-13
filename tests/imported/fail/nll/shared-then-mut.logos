@@ -1,0 +1,13 @@
+// Shared borrow precedes mut borrow with overlap. Rejected:
+// while a shared borrow is in scope, a mut borrow violates
+// exclusivity.
+package nll_shared_then_mut;
+
+fn main() -> i32 {
+    let mut x: i32 = 1i32;
+    let r: &i32 = &x;
+    let s: &mut i32 = &mut x;
+    let _a = *r;
+    *s = 2i32;
+    return 0i32;
+}

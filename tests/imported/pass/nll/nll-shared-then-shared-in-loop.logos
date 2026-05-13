@@ -1,0 +1,16 @@
+// Multiple shared borrows of x inside a loop. All shared, so no
+// exclusivity conflict — region overlap is irrelevant for shared/
+// shared pairs.
+package nll_shared_then_shared_in_loop;
+fn main() -> i32 {
+    let x: i32 = 7i32;
+    let mut acc: i32 = 0i32;
+    let mut i: i32 = 0i32;
+    while i < 3i32 {
+        let r: &i32 = &x;
+        let s: &i32 = &x;
+        acc = acc + *r + *s;
+        i = i + 1i32;
+    }
+    return acc - 42i32;
+}
