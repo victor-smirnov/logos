@@ -1,0 +1,12 @@
+package x;
+
+struct Foo { header: i64, tail: [u8] }
+
+unsafe fn read_header(p: &Foo) -> i64 { return p.header; }
+
+unsafe fn main() -> i32 {
+    let buf: [u8; 8] = [1u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8];
+    let raw: *const u8 = &buf as *const [u8] as *const u8;
+    let f: &Foo = dst_from_raw_parts::<Foo>(raw, 0 as i64);
+    return (read_header(f) - 1 as i64) as i32;
+}

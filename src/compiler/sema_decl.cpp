@@ -664,6 +664,8 @@ lir::LStructDef SemaChecker::lower_struct_def(TinyMapView node) {
     }
     sd.type_params = sinfo->type_params;
     sd.lifetime_params = sinfo->lifetime_params;
+    // Phase 1B-14: propagate custom-DST flag from sema info to LIR.
+    sd.is_dst = sinfo->is_dst;
     // B65: outlives bounds from `struct Foo<'a, 'b: 'a>` + validate names.
     sd.lifetime_outlives = read_lifetime_outlives(node);
     // B68.3: also pick up where-clause outlives + type-outlives bounds.

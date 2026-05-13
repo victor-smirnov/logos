@@ -341,6 +341,11 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         put_str(buf, t.trait_name);
         for (auto a : t.type_args) put_sub(buf, impl, a);
         break;
+    case K::DstRef:
+        put_str(buf, t.pkg_name);
+        put_str(buf, t.struct_name);
+        put_byte(buf, t.mut_ptr ? 1 : 0);
+        break;
     case K::Closure:
     case K::FnPtr:
         for (auto p : t.closure_params) put_sub(buf, impl, p);
@@ -460,6 +465,10 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
     case K::UnsizedDyn:
         return t.trait_name == r.trait_name() &&
                vec_ptr_eq(t.type_args, r.type_args());
+    case K::DstRef:
+        return t.struct_name == r.struct_name() &&
+               t.pkg_name == r.pkg_name() &&
+               t.mut_ptr == r.mut_ptr();
     case K::Closure:
     case K::FnPtr:
         return vec_ptr_eq(t.closure_params, r.closure_params()) &&
@@ -716,6 +725,9 @@ static std::string mangle_type_for_name(TypeRef t) {
         return "uslice_" + mangle_type_for_name(TypeRef(t).elem());
     case LogosType::Kind::UnsizedDyn:
         return "udyn_" + std::string(TypeRef(t).trait_name());
+    case LogosType::Kind::DstRef:
+        return (TypeRef(t).mut_ptr() ? "dstmutref_" : "dstref_") +
+               std::string(TypeRef(t).struct_name());
     case LogosType::Kind::AssocType:
         return mangle_type_for_name(TypeRef(t).assoc_base()) + "::" + std::string(TypeRef(t).assoc_type_name());
     case LogosType::Kind::HStaticLit: {
@@ -1140,6 +1152,10 @@ std::string type_str(TypeRef t) {
         return std::format("[{}]", type_str(TypeRef(t).elem()));
     case LogosType::Kind::UnsizedDyn:
         return std::format("dyn {}", TypeRef(t).trait_name());
+    case LogosType::Kind::DstRef:
+        return std::format("{}{}",
+            TypeRef(t).mut_ptr() ? "&mut " : "&",
+            TypeRef(t).struct_name());
     case LogosType::Kind::Closure: {
         std::string r = "|";
         for (size_t i = 0; i < TypeRef(t).closure_params().size(); ++i) {
@@ -2169,6 +2185,15 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             return make_trait_object(inner.trait_name(),
                                      std::vector<TypeRef>(inner.type_args().begin(),
                                                           inner.type_args().end()));
+        // Phase 1B-14: `*const DstStruct` / `*mut DstStruct` → DstRef.
+        if (inner && (inner.kind() == LogosType::Kind::Struct ||
+                      inner.kind() == LogosType::Kind::ZonedStruct)) {
+            std::string sn(inner.struct_name());
+            auto [spkg, ssi] = find_struct_by_name(sn);
+            if (!ssi) { auto [dpkg, dsi] = find_datatype_by_name(sn); ssi = dsi; if (dsi) spkg = dpkg; }
+            if (ssi && ssi->is_dst)
+                return make_dst_ref(sn, spkg, t.mut_ptr());
+        }
         if (inner == t.pointee()) return t;
         return make_ptr(t.mut_ptr(), inner);
     }
@@ -2190,6 +2215,15 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             return make_trait_object(inner.trait_name(),
                                      std::vector<TypeRef>(inner.type_args().begin(),
                                                           inner.type_args().end()));
+        // Phase 1B-14: `&DstStruct` / `&mut DstStruct` → DstRef.
+        if (inner && (inner.kind() == LogosType::Kind::Struct ||
+                      inner.kind() == LogosType::Kind::ZonedStruct)) {
+            std::string sn(inner.struct_name());
+            auto [spkg, ssi] = find_struct_by_name(sn);
+            if (!ssi) { auto [dpkg, dsi] = find_datatype_by_name(sn); ssi = dsi; if (dsi) spkg = dpkg; }
+            if (ssi && ssi->is_dst)
+                return make_dst_ref(sn, spkg, t.kind() == LogosType::Kind::MutRef);
+        }
         if (inner == t.pointee() && lt == t.lifetime()) return t;
         return make_ref(t.kind() == LogosType::Kind::MutRef, inner, lt);
     }
@@ -2277,6 +2311,9 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         if (!changed) return t;
         return make_unsized_dyn_type(t.trait_name(), std::move(new_args));
     }
+    case LogosType::Kind::DstRef:
+        // No substitutable components in current MVP — struct identity is fixed.
+        return t;
     case LogosType::Kind::TraitObject: {
         if (t.type_args().empty()) return t;
         std::vector<TypeRef> new_args;
@@ -2695,6 +2732,16 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         auto inner = node.has_key(la::POINTEE)
                       ? resolve_type(map_of(node.get(la::POINTEE.code)))
                       : error_t();
+        // Phase 1B-14: `*const DstStruct` / `*mut DstStruct` → DstRef
+        // (fat pointer). Same canonicalisation as REF_TYPE for DST.
+        if (inner && (inner.kind() == LogosType::Kind::Struct ||
+                      inner.kind() == LogosType::Kind::ZonedStruct)) {
+            std::string sn(inner.struct_name());
+            auto [spkg, ssi] = find_struct_by_name(sn);
+            if (!ssi) { auto [dpkg, dsi] = find_datatype_by_name(sn); ssi = dsi; if (dsi) spkg = dpkg; }
+            if (ssi && ssi->is_dst)
+                return make_dst_ref(sn, spkg, mut);
+        }
         return make_ptr(mut, inner);
     }
 
@@ -2717,6 +2764,17 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
             return make_trait_object(inner.trait_name(),
                                      std::vector<TypeRef>(inner.type_args().begin(),
                                                           inner.type_args().end()));
+        // Phase 1B-14: `&DstStruct` → Kind::DstRef (fat pointer to the
+        // custom-DST struct). is_dst is on SemaStructInfo, looked up
+        // by struct name.
+        if (inner && (inner.kind() == LogosType::Kind::Struct ||
+                      inner.kind() == LogosType::Kind::ZonedStruct)) {
+            std::string sn(inner.struct_name());
+            auto [spkg, ssi] = find_struct_by_name(sn);
+            if (!ssi) { auto [dpkg, dsi] = find_datatype_by_name(sn); ssi = dsi; if (dsi) spkg = dpkg; }
+            if (ssi && ssi->is_dst)
+                return make_dst_ref(sn, spkg, /*is_mut=*/false);
+        }
         return make_ref(false, inner, std::move(lt));
     }
 
@@ -2734,6 +2792,15 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
             return make_trait_object(inner.trait_name(),
                                      std::vector<TypeRef>(inner.type_args().begin(),
                                                           inner.type_args().end()));
+        // Phase 1B-14: `&mut DstStruct` → Kind::DstRef with is_mut=true.
+        if (inner && (inner.kind() == LogosType::Kind::Struct ||
+                      inner.kind() == LogosType::Kind::ZonedStruct)) {
+            std::string sn(inner.struct_name());
+            auto [spkg, ssi] = find_struct_by_name(sn);
+            if (!ssi) { auto [dpkg, dsi] = find_datatype_by_name(sn); ssi = dsi; if (dsi) spkg = dpkg; }
+            if (ssi && ssi->is_dst)
+                return make_dst_ref(sn, spkg, /*is_mut=*/true);
+        }
         return make_ref(true, inner, std::move(lt));
     }
 

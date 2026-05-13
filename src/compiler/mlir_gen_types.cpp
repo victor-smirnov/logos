@@ -105,6 +105,12 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
     case LogosType::Kind::UnsizedDyn:
         // Phase 1B-4: bare `dyn Trait` is unsized — same sentinel.
         return ptr_type();
+    case LogosType::Kind::DstRef:
+        // Phase 1B-14: `&DstStruct` / `*const DstStruct` — fat pointer
+        // {data, tail_len}. Same ABI as Kind::Slice: the value lives in
+        // memory as a 2-pointer-wide pair; the MLIR-level handle is a
+        // pointer to that pair.
+        return ptr_type();
     case LogosType::Kind::Tuple: {
         // Tuples are anonymous LLVM struct types, passed by pointer (like structs).
         llvm::SmallVector<mlir::Type> fields;
@@ -308,7 +314,8 @@ uint64_t MLIRGenImpl::logos_abi_byte_size(TypeRef t,
     // arm only kept the .ptr field; .len was lost on extraction).
     case LogosType::Kind::Slice:
     case LogosType::Kind::Closure:
-    case LogosType::Kind::TraitObject:  return 16;
+    case LogosType::Kind::TraitObject:
+    case LogosType::Kind::DstRef:       return 16;  // Phase 1B-14: same fat-pair size as Slice
     case LogosType::Kind::UnsizedSlice:
     case LogosType::Kind::UnsizedDyn:
         // Phase 1B: unsized — has no by-value ABI size. Report 0 so any

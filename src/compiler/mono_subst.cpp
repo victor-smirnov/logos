@@ -72,6 +72,25 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
                                                  inner.type_args().end());
             return out_.type_pool.alloc(std::move(tnt));
         }
+        // Phase 1B-14: when substitution lands a custom-DST struct as the
+        // pointee (is_dst on its LStructDef), canonicalise to DstRef.
+        // Mirror of sema_decl's resolve_type canonicalisation, applied at
+        // mono substitution time when T binds to a DST struct.
+        if (inner && (inner.kind() == LogosType::Kind::Struct ||
+                      inner.kind() == LogosType::Kind::ZonedStruct)) {
+            std::string sn(inner.struct_name());
+            auto sit = struct_templates_.find(sn);
+            if (sit == struct_templates_.end() && !inner.pkg_name().empty())
+                sit = struct_templates_.find(std::string(inner.pkg_name()) + "." + sn);
+            if (sit != struct_templates_.end() && sit->second->is_dst) {
+                LogosTypeBuilder dn; dn.kind = LogosType::Kind::DstRef;
+                dn.struct_name = sn;
+                dn.pkg_name = std::string(inner.pkg_name());
+                dn.mut_ptr = (tv.kind() == LogosType::Kind::MutRef) ||
+                             (tv.kind() == LogosType::Kind::Ptr && tv.mut_ptr());
+                return out_.type_pool.alloc(std::move(dn));
+            }
+        }
         if (inner == tv.pointee()) return tv;
         LogosTypeBuilder nt = tv.to_builder(); nt.pointee = inner;
         return out_.type_pool.alloc(nt);
@@ -152,6 +171,9 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         nt.type_args = std::move(new_args);
         return out_.type_pool.alloc(std::move(nt));
     }
+    case LogosType::Kind::DstRef:
+        // Phase 1B-14: struct identity fixed; no substitutable components.
+        return tv;
     case LogosType::Kind::TraitObject: {
         if (tv.type_args().empty()) return tv;
         std::vector<TypeRef> new_args;

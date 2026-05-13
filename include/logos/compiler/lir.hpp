@@ -764,6 +764,10 @@ struct LStructDef {
     uint64_t                 type_code     = 0;      // explicit #[type_code=N]; 0 = auto-assign
     bool                     is_data_plain = true;   // no relative-ptr fields → value-copyable
     bool                     from_binary_module = false;  // loaded from binary archive
+    // Phase 1B-14: custom DST — the last field has unsized type ([T] / dyn).
+    // The struct itself is unsized; `&Self` / `*const Self` etc. are fat
+    // pointers `{*const u8, i64 tail_len}` (same shape as Slice fat-ptr).
+    bool                     is_dst        = false;
     // SHA-256 of canonical type string, truncated to 23 bytes; all-zero = not yet computed
     // (zero for generic templates — hashed at instantiation time in mono_pass).
     std::array<uint8_t, 23>  type_hash     = {};

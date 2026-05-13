@@ -2370,6 +2370,64 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         return builder().call("__type_hash_of__", std::move(ts), {},
                               prim(LogosType::Kind::U64));
     }
+    // Phase 1B-14: `dst_from_raw_parts::<DstStruct>(ptr, len)` — unsafe
+    // builtin that materialises a `*const DstStruct` fat pointer from a
+    // raw data pointer and an i64 tail length. DstStruct must be a
+    // struct with `[T]` as its last field (info.is_dst). The result is
+    // a slice_lit-shaped value carrying (ptr, len) — same ABI as
+    // Kind::Slice so existing fat-pointer machinery handles passing,
+    // returning, and storing. Tail-field reads on the result use the
+    // length to synthesise an `&[T]` slice; sized-prefix reads use the
+    // data pointer as the struct base.
+    if (callee == "dst_from_raw_parts") {
+        auto ts = collect_type_args();
+        if (ts.size() != 1 || !ts[0]) {
+            error("dst_from_raw_parts::<S>(ptr, len) requires exactly one type argument");
+            return error_expr();
+        }
+        if (!inside_unsafe_) {
+            error("dst_from_raw_parts requires unsafe context");
+        }
+        TypeRef S = ts[0];
+        // Validate S is a struct flagged is_dst.
+        bool ok_kind = S && (S.kind() == LogosType::Kind::Struct ||
+                             S.kind() == LogosType::Kind::ZonedStruct);
+        if (!ok_kind) {
+            error(std::format("dst_from_raw_parts::<S>: '{}' is not a struct type",
+                              type_str(S)));
+            return error_expr();
+        }
+        std::string sn(S.struct_name());
+        auto [spkg, ssi] = find_struct_by_name(sn);
+        if (!ssi) { auto [dpkg, dsi] = find_datatype_by_name(sn); ssi = dsi; }
+        if (!ssi || !ssi->is_dst) {
+            error(std::format("dst_from_raw_parts::<S>: '{}' is not a custom-DST struct "
+                              "(last field must be `[T]`)", sn));
+            return error_expr();
+        }
+        // Lower the two value arguments — ptr and len.
+        std::vector<lir::LExprPtr> rargs;
+        if (node.has_key(la::ARGS)) {
+            AnyVal av = node.get(la::ARGS.code);
+            if (!av.is_null()) {
+                auto args_list = map_of(av);
+                if (args_list.has_key(la::ITEMS)) {
+                    auto items = arr_of(args_list.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < items.size(); ++i)
+                        rargs.push_back(lower_expr(map_of(items.get(i))));
+                }
+            }
+        }
+        if (rargs.size() != 2) {
+            error("dst_from_raw_parts::<S>(ptr, len): expected 2 args");
+            return error_expr();
+        }
+        widen_int_expr(rargs[1], prim(LogosType::Kind::I64), builder());
+        // Result is Kind::DstRef — same {data, len} ABI as Kind::Slice
+        // (slice_lit codegen produces the right MLIR fat-pair).
+        auto dst_ref_t = make_dst_ref(sn, spkg, /*is_mut=*/false);
+        return builder().slice_lit(std::move(rargs[0]), std::move(rargs[1]), dst_ref_t);
+    }
     if (callee == "is_ptr" || callee == "is_ref" || callee == "is_mut_ref" ||
         callee == "is_struct" || callee == "is_zoned" || callee == "is_enum" ||
         callee == "is_tuple" || callee == "is_slice" || callee == "is_array" ||
@@ -5222,6 +5280,104 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
         recv_base_t = TypeRef(recv_base_t).pointee();
     } else if (recv_base_t && is_ref_like(TypeRef(recv_base_t).kind())) {
         recv_base_t = TypeRef(recv_base_t).pointee();
+    } else if (recv_base_t && TypeRef(recv_base_t).kind() == LogosType::Kind::DstRef) {
+        // Phase 1B-14: `f.field` on a DstRef receiver. The receiver is a
+        // fat pointer {data, len}. The struct name + pkg are carried in
+        // the DstRef type's struct_name / pkg_name slots.
+        if (!inside_unsafe_)
+            error("field read through `&DstStruct` requires unsafe context "
+                  "(custom-DST field access is raw-pointer-shaped)");
+        auto sname_dst = std::string(TypeRef(recv_base_t).struct_name());
+        auto spkg_dst = std::string(TypeRef(recv_base_t).pkg_name());
+        // Look up the struct info to find the tail field (the last one,
+        // whose type is the unsized form).
+        auto [spkg_lookup, ssi_dst] = find_struct_by_name(sname_dst);
+        if (!ssi_dst) { auto [dpkg, dsi] = find_datatype_by_name(sname_dst); ssi_dst = dsi; }
+        bool is_tail_access = false;
+        TypeRef tail_elem_t;
+        size_t prefix_byte_size = 0;
+        if (ssi_dst && !ssi_dst->fields.empty()) {
+            auto& tail = ssi_dst->fields.back();
+            if (tail.name == field_name &&
+                tail.type &&
+                TypeRef(tail.type).kind() == LogosType::Kind::UnsizedSlice) {
+                is_tail_access = true;
+                tail_elem_t = TypeRef(tail.type).elem();
+                // Compute prefix size from preceding sized fields. ABI:
+                // each sized field has size known from its kind. Tail
+                // begins right after the last sized field (no alignment
+                // padding modelling for MVP — sized fields packed).
+                for (size_t i = 0; i + 1 < ssi_dst->fields.size(); ++i) {
+                    auto& f = ssi_dst->fields[i];
+                    // Reuse the codegen-side size helper via builder
+                    // accessor? — sema doesn't have direct access. For
+                    // primitives use kind-based size; struct fields not
+                    // common in DST prefix so MVP-ok to fail back.
+                    auto k = TypeRef(f.type).kind();
+                    switch (k) {
+                        case LogosType::Kind::I8:
+                        case LogosType::Kind::U8:
+                        case LogosType::Kind::Bool:        prefix_byte_size += 1; break;
+                        case LogosType::Kind::I16:
+                        case LogosType::Kind::U16:         prefix_byte_size += 2; break;
+                        case LogosType::Kind::I32:
+                        case LogosType::Kind::U32:
+                        case LogosType::Kind::F32:
+                        case LogosType::Kind::Char:        prefix_byte_size += 4; break;
+                        case LogosType::Kind::I64:
+                        case LogosType::Kind::U64:
+                        case LogosType::Kind::F64:
+                        case LogosType::Kind::Usize:
+                        case LogosType::Kind::Isize:
+                        case LogosType::Kind::Ptr:
+                        case LogosType::Kind::Ref:
+                        case LogosType::Kind::MutRef:
+                        case LogosType::Kind::FnPtr:       prefix_byte_size += 8; break;
+                        default:
+                            // Conservative: complex prefix fields not
+                            // modelled in this MVP. Surface a clean error
+                            // rather than silently produce wrong offset.
+                            error(std::format(
+                                "DstStruct '{}': tail-field access requires "
+                                "all sized prefix fields to be primitive "
+                                "(got non-primitive '{}'); use port-time "
+                                "workaround with explicit `(ptr, len)` fields",
+                                sname_dst, f.name));
+                            return builder().field_read(std::move(recv),
+                                std::string(field_name), error_t());
+                    }
+                }
+            }
+        }
+        if (is_tail_access) {
+            // Synthesise `Slice { ptr: data_ptr + prefix_size, len: len }`.
+            // LExprPtr is a raw pointer; passing it twice is safe — slice_ptr
+            // and slice_len each build a new expression node referencing
+            // the same fat-pair source. The std::move idiom elsewhere is
+            // for syntactic uniformity, not actual ownership transfer.
+            auto data_ptr = builder().slice_ptr(recv, make_ptr(false, u8_t()));
+            auto len      = builder().slice_len(recv, prim(LogosType::Kind::I64));
+            // Pointer arithmetic: data_ptr.byte_add(prefix_byte_size).
+            auto offset_lit = builder().lit_int(static_cast<int64_t>(prefix_byte_size),
+                                                prim(LogosType::Kind::I64));
+            auto tail_ptr = builder().ptr_arith(lir::EPtrArith::Op::ByteAdd,
+                                                std::move(data_ptr),
+                                                std::move(offset_lit),
+                                                make_ptr(false, u8_t()));
+            // Cast u8-ptr → elem-ptr (slice_lit expects element-typed ptr).
+            auto tail_ptr_elem = builder().cast(std::move(tail_ptr),
+                                                make_ptr(false, tail_elem_t));
+            return builder().slice_lit(std::move(tail_ptr_elem), std::move(len),
+                                       make_slice_type(tail_elem_t));
+        }
+        // Non-tail field: reinterpret data ptr as *const Struct and route
+        // through the standard pointer-field-read path.
+        TypeRef struct_t = make_struct_type(sname_dst, spkg_dst);
+        auto data_ptr_u8 = builder().slice_ptr(std::move(recv), make_ptr(false, u8_t()));
+        auto data_ptr_struct = builder().cast(std::move(data_ptr_u8),
+                                              make_ptr(false, struct_t));
+        recv = std::move(data_ptr_struct);
+        recv_base_t = struct_t;
     }
 
     // DataRef<T> ergonomic read: p.field → p.ptr().field

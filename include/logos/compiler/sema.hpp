@@ -85,6 +85,15 @@ struct LogosType {
                                   //            canonicalised to existing Kind::TraitObject at
                                   //            resolve time. `trait_name()` + `type_args()` carry
                                   //            the trait identity and parameters.
+        DstRef,                   // Phase 1B-14: `&DstStruct` / `*const DstStruct` — fat pointer
+                                  //              {data_ptr, i64 tail_len}. Represents a reference
+                                  //              to a custom-DST struct (struct with `[T]` last
+                                  //              field). ABI mirrors Kind::Slice (fat pair stored
+                                  //              in memory, addressed by pointer). `struct_name`
+                                  //              / `pkg_name` carry the DST struct identity;
+                                  //              `mut_ptr` flags `&mut` vs `&`. Mono substitutes
+                                  //              `&Wrap<T>` to DstRef when Wrap is_dst at
+                                  //              instantiation time.
         Error                     // sentinel for ill-typed expressions
     };
 

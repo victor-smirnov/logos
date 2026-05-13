@@ -1,0 +1,25 @@
+package x;
+
+struct Foo { header: i64, tail: [u8] }
+
+unsafe fn sum_tail(p: &Foo) -> i64 {
+    let s: &[u8] = p.tail;
+    let n: i64 = s.len();
+    let mut acc: i64 = 0 as i64;
+    let mut i: i64 = 0 as i64;
+    while i < n {
+        let pp: *const u8 = s.as_ptr();
+        acc = acc + (*((pp as i64 + i) as *const u8)) as i64;
+        i = i + 1 as i64;
+    }
+    return acc;
+}
+
+unsafe fn main() -> i32 {
+    // Build a struct-in-memory: 8 bytes header (i64=0) + 4 bytes tail [1,2,3,4]
+    let buf: [u8; 12] = [0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
+                         1u8, 2u8, 3u8, 4u8];
+    let raw: *const u8 = &buf as *const [u8] as *const u8;
+    let f: &Foo = dst_from_raw_parts::<Foo>(raw, 4 as i64);
+    return (sum_tail(f) - 10 as i64) as i32;
+}

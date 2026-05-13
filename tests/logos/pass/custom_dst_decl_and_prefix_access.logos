@@ -26,6 +26,8 @@ struct Foo {
     tail: [u8],
 }
 
-fn get_header(f: &Foo) -> i64 { return f.header; }
+// Phase 1B-14: `&Foo` for is_dst Foo is a fat pointer (DstRef); field
+// access lowers through the raw-pointer path and requires `unsafe`.
+unsafe fn get_header(f: &Foo) -> i64 { return f.header; }
 
 unsafe fn main() -> i32 { return 0; }

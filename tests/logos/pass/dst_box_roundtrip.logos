@@ -1,0 +1,26 @@
+package x;
+struct Foo { hdr: i64, tail: [u8] }
+
+struct MyBox<T: ?Sized> { ptr: *mut T }
+
+unsafe fn box_new(f: *mut Foo) -> MyBox<Foo> {
+    return MyBox { ptr: f };
+}
+
+unsafe fn read_through_box(b: &MyBox<Foo>) -> i64 {
+    let p: *mut Foo = b.ptr;
+    return p.hdr;
+}
+
+unsafe fn main() -> i32 {
+    let buf: [u8; 12] = [42u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
+                         1u8, 2u8, 3u8, 4u8];
+    let raw: *const u8 = &buf as *const [u8] as *const u8;
+    let f_ref: &Foo = dst_from_raw_parts::<Foo>(raw, 4 as i64);
+    // Can we put a DstRef into a Box's *mut T slot?
+    // Hmm — &Foo is DstRef but the Box.ptr is *mut Foo which also canonicalizes
+    // to DstRef. Let's see if this round-trips.
+    let mb: MyBox<Foo> = box_new(f_ref as *mut Foo);
+    let mb_ref: &MyBox<Foo> = &mb;
+    return (read_through_box(mb_ref) - 42 as i64) as i32;
+}

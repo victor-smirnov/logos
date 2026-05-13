@@ -334,6 +334,19 @@ private:
         t.type_args = std::move(args);
         return pool_->alloc(std::move(t));
     }
+    // Phase 1B-14: `&DstStruct` / `&mut DstStruct` / `*const DstStruct` —
+    // fat pointer to a custom-DST struct. Stored as {data_ptr, tail_len}
+    // and passed by pointer (same ABI as Kind::Slice). is_mut differentiates
+    // `&` vs `&mut`/`*mut` for borrow-checker purposes.
+    TypeRef make_dst_ref(std::string_view struct_name,
+                         std::string_view pkg_name,
+                         bool is_mut) {
+        LogosTypeBuilder t; t.kind = LogosType::Kind::DstRef;
+        t.struct_name = std::string(struct_name);
+        t.pkg_name = std::string(pkg_name);
+        t.mut_ptr = is_mut;
+        return pool_->alloc(std::move(t));
+    }
     TypeRef make_trait_object(std::string_view tname,
                               std::vector<TypeRef> args = {}) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::TraitObject;
