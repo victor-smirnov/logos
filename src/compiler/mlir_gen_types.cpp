@@ -166,7 +166,7 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
              fv.kind() == LogosType::Kind::Struct) &&
             type_str(fv) == "AnyVal") {
             ft = logos_to_mlir(f.type);
-            info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {}, false});
+            info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {}, {}, false});
             field_types.push_back(ft);
             continue;
         }
@@ -203,7 +203,31 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
             // it; mark is_pointer so the auto-Drop pass skips it.
             ft = ptr_type();
             fsname = mlir_struct_key(fv.pointee());
-            info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), fsname, /*is_pointer=*/true});
+            info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), fsname, {}, /*is_pointer=*/true});
+            field_types.push_back(ft);
+            continue;
+        } else if (fv.kind() == LogosType::Kind::TraitObject) {
+            // Bare `&dyn Trait` field — sema may flatten `&dyn Trait` to a single
+            // TraitObject node (no Ref wrapper). Storage is an 8-byte handle.
+            ft = ptr_type();
+            info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {},
+                                   std::string(fv.trait_name()),
+                                   /*is_pointer=*/true});
+            field_types.push_back(ft);
+            continue;
+        } else if ((fv.kind() == LogosType::Kind::Ptr ||
+                    fv.kind() == LogosType::Kind::Ref ||
+                    fv.kind() == LogosType::Kind::MutRef) &&
+                   fv.pointee() &&
+                   fv.pointee().kind() == LogosType::Kind::TraitObject) {
+            // &dyn Trait / *const dyn Trait / *mut dyn Trait field — handle is
+            // an 8-byte ptr to a heap-allocated {data,vtable} fat slot. Record
+            // trait_name so struct-lit init can fat-pointer-coerce a concrete
+            // `&T` value before storing into the field.
+            ft = ptr_type();
+            info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {},
+                                   std::string(fv.pointee().trait_name()),
+                                   /*is_pointer=*/true});
             field_types.push_back(ft);
             continue;
         } else {
@@ -213,7 +237,7 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
                 return false;
             }
         }
-        info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), fsname, false});
+        info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), fsname, {}, false});
         field_types.push_back(ft);
     }
     if (mlir::failed(struct_type.setBody(field_types, false))) {

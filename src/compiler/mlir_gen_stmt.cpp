@@ -450,7 +450,10 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
     // an 8-byte handle pointing at a 16-byte {data, vtable} slot. Peel the
     // Ptr to expose the inner TraitObject and route to the same path.
     TypeRef _peeled_st(s.type);
-    if (_peeled_st && _peeled_st.kind() == LogosType::Kind::Ptr &&
+    if (_peeled_st &&
+        (_peeled_st.kind() == LogosType::Kind::Ptr ||
+         _peeled_st.kind() == LogosType::Kind::Ref ||
+         _peeled_st.kind() == LogosType::Kind::MutRef) &&
         TypeRef(_peeled_st.pointee()).kind() == LogosType::Kind::TraitObject) {
         _peeled_st = _peeled_st.pointee();
     }
@@ -474,7 +477,10 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
             // For &dyn T from `new Foo {}`, value type is *mut Foo — strip the pointer.
             // Box<T> is { *mut T } so the value *is* the data ptr; unwrap to T for vtable.
             TypeRef src_logos_type = s.value->type;
-            if (src_logos_type && TypeRef(src_logos_type).kind() == LogosType::Kind::Ptr &&
+            if (src_logos_type &&
+                (TypeRef(src_logos_type).kind() == LogosType::Kind::Ptr ||
+                 TypeRef(src_logos_type).kind() == LogosType::Kind::Ref ||
+                 TypeRef(src_logos_type).kind() == LogosType::Kind::MutRef) &&
                 TypeRef(src_logos_type).pointee())
                 src_logos_type = TypeRef(src_logos_type).pointee();
             if (src_logos_type &&

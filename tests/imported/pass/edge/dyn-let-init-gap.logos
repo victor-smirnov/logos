@@ -1,8 +1,14 @@
-// GAP: `let r: &dyn Speak = &s;` (let-binding of dyn-trait ref) +
-// dispatch via r.val() → segfault. Related to dyn-in-struct gap;
-// dyn-trait ref let-init doesn't construct vtable correctly.
+// CLOSED 2026-05-13: `let r: &dyn Speak = &s;` now builds the
+// {data,vtable} fat slot and dispatch through r.val() works.
+// Fix: mlir_gen_stmt let-init peeled Ptr only for both the destination
+// TraitObject detection and the source-type peel feeding coerce_to_dyn's
+// vtable lookup key — extended to Ref/MutRef.
 package dyn_let_init_gap;
 trait Speak { fn val(self: &Self) -> i32; }
 struct S { v: i32 }
 impl Speak for S { fn val(self: &S) -> i32 { return self.v; } }
-fn main() -> i32 { return 0i32; }
+fn main() -> i32 {
+    let s: S = S { v: 7i32 };
+    let r: &dyn Speak = &s;
+    return r.val() - 7i32;
+}

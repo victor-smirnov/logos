@@ -1,5 +1,9 @@
-// GAP: impl<T> on generic enum, method matches on self → runtime segfault.
-// Likely discriminant-read through &Bag<T> with generic T payload.
+// CLOSED 2026-05-13: generic-enum method dispatch (`b.is_some()` for
+// `b: Bag<i32>` with `fn is_some(self: &Bag<T>)`) now auto-refs the
+// receiver. Fix: sema_expr generic-enum dispatch path forgot the
+// formal0-vs-recv ref/ptr auto-addr logic that the primitive/struct
+// branches already had — added it (substituted formal type through
+// the enum type-arg subst before comparison).
 package gen_enum_method_gap;
 enum Bag<T> { Some(T), None }
 impl<T> Bag<T> {
@@ -10,4 +14,7 @@ impl<T> Bag<T> {
         }
     }
 }
-fn main() -> i32 { return 0i32; }
+fn main() -> i32 {
+    let b: Bag<i32> = Bag::Some(7i32);
+    if b.is_some() { return 0i32; } else { return 1i32; }
+}

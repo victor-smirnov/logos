@@ -4025,6 +4025,26 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                         bare = std::string(sym);
                     callee_name = fn_pkg.empty() ? bare : fn_pkg + "." + bare;
                 }
+                // Auto-ref receiver if method expects &Self / &mut Self.
+                if (!fi_ptr->param_types.empty()) {
+                    auto formal0 = subst_type_sema(fi_ptr->param_types[0], subst);
+                    if (formal0 && is_ref_like(TypeRef(formal0).kind()) && recv->type &&
+                        !is_ref_like(TypeRef(recv->type).kind()) &&
+                        TypeRef(recv->type).kind() != LogosType::Kind::Ptr) {
+                        bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
+                        auto __ty_recv = make_ref(is_mut, recv->type);
+                        auto addr = builder().addr_of_temp(std::move(recv), is_mut, __ty_recv);
+                        recv = std::move(addr);
+                    } else if (formal0 && TypeRef(formal0).kind() == LogosType::Kind::Ptr &&
+                               recv->type &&
+                               TypeRef(recv->type).kind() != LogosType::Kind::Ptr &&
+                               !is_ref_like(TypeRef(recv->type).kind())) {
+                        bool is_mut = TypeRef(formal0).mut_ptr();
+                        auto __ty_recv = make_ptr(is_mut, recv->type);
+                        auto addr = builder().addr_of_temp(std::move(recv), is_mut, __ty_recv);
+                        recv = std::move(addr);
+                    }
+                }
                 std::vector<lir::LExprPtr> pargs;
                 pargs.push_back(std::move(recv));
                 for (auto& a : arg_exprs) pargs.push_back(std::move(a));
@@ -7902,6 +7922,12 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 break;
             case EC::ClosureCall: {
                 auto v = lir_view::EClosureCallView{e};
+                scan_captures_v(v.callee());
+                v.each_arg([&](lir_view::ExprRef a){ scan_captures_v(a); });
+                break;
+            }
+            case EC::FnPtrCall: {
+                auto v = lir_view::EFnPtrCallView{e};
                 scan_captures_v(v.callee());
                 v.each_arg([&](lir_view::ExprRef a){ scan_captures_v(a); });
                 break;

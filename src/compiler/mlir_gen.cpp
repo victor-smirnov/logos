@@ -567,6 +567,27 @@ mlir::Value MLIRGenImpl::gen_struct_lit(lir_view::EStructLitView v) {
         auto* fle = lexpr_of(fval); if (!fle) { ok = false; return; }
         auto val = gen_expr(*fle);
         if (!val) { ok = false; return; }
+        // &dyn Trait field — value may be a concrete `&S` / `&mut S`; build the
+        // fat-pointer slot (data+vtable) before storing the handle into the field.
+        if (fi && !fi->trait_name.empty() && val.getType() == ptr_type()) {
+            TypeRef vt(fle->type);
+            if (vt && vt.kind() != LogosType::Kind::TraitObject) {
+                TypeRef pointee = vt;
+                if (pointee && (pointee.kind() == LogosType::Kind::Ref ||
+                                pointee.kind() == LogosType::Kind::MutRef ||
+                                pointee.kind() == LogosType::Kind::Ptr) &&
+                    pointee.pointee())
+                    pointee = pointee.pointee();
+                std::string src_struct;
+                if (pointee && (pointee.kind() == LogosType::Kind::Struct ||
+                                pointee.kind() == LogosType::Kind::ZonedStruct))
+                    src_struct = concrete_struct_name(pointee);
+                if (!src_struct.empty()) {
+                    if (auto fat = coerce_to_dyn(val, fi->trait_name, src_struct))
+                        val = fat;
+                }
+            }
+        }
         // Coerce scalar literals to the field's declared type (e.g. IntLit→i64, FloatLit→f32).
         if (fi && fi->type && !mlir::isa<mlir::LLVM::LLVMArrayType>(fi->type)) {
             if (mlir::isa<mlir::LLVM::LLVMStructType>(fi->type) &&

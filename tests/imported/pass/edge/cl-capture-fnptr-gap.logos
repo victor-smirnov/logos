@@ -1,9 +1,12 @@
-// GAP: closure capturing a fn-pointer from outer scope → mlir-gen
-// "undefined 'f'" + missing return operand. Codegen for fn-ptr capture
-// in closure environment broken.
+// CLOSED 2026-05-13: closure capturing a fn-pointer local now lowers
+// correctly. Fix: sema_expr closure capture scanner had no case for
+// EC::FnPtrCall, so a body like `f(y)` (FnPtrCall on a local fn-ptr
+// var) didn't register `f` as a capture; mlir-gen then emitted the
+// closure body with `f` undefined. Added FnPtrCall to scan_captures_v.
 package cl_capture_fnptr_gap;
 fn dbl(x: i32) -> i32 { return x * 2i32; }
 fn main() -> i32 {
-    let _f: fn(i32) -> i32 = dbl;
-    return 0i32;
+    let f: fn(i32) -> i32 = dbl;
+    let c = |y: i32| -> i32 { return f(y) + 1i32; };
+    return c(3i32) - 7i32;
 }

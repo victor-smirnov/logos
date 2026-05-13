@@ -1,11 +1,15 @@
-// GAP: storing `&dyn Trait` in a struct field then dispatching via it →
-// runtime segfault. Likely vtable construction issue when dyn-trait
-// reference is held in a struct.
+// CLOSED 2026-05-13: storing `&dyn Trait` in a struct field and
+// dispatching via it now works. Fix: register_struct now sees bare
+// TraitObject (and Ref/MutRef/Ptr to TraitObject) field types and
+// records the trait name in FieldInfo; gen_struct_lit fat-pointer-
+// coerces concrete `&S` values via coerce_to_dyn before storing.
 package dyn_in_struct_gap;
 trait Speak { fn val(self: &Self) -> i32; }
 struct A { v: i32 }
 impl Speak for A { fn val(self: &A) -> i32 { return self.v; } }
+struct Holder { sp: &dyn Speak }
 fn main() -> i32 {
-    let a: A = A { v: 7i32 };
-    return a.val() - 7i32;
+    let a: A = A { v: 9i32 };
+    let h: Holder = Holder { sp: &a };
+    return h.sp.val() - 9i32;
 }

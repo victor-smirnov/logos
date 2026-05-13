@@ -45,6 +45,8 @@ struct FieldInfo {
     mlir::Type  type;
     uint32_t    index;
     std::string struct_name;   // non-empty if field is struct, *struct, &struct, &mut struct.
+    std::string trait_name;    // non-empty if field is &dyn Trait / *const dyn Trait / *mut dyn Trait;
+                               // signals struct-lit init to fat-pointer-coerce (B-dyn-field).
     bool        is_pointer = false;  // true for *T / &T / &mut T fields. The struct_name
                                      // is still populated (so chain-field access via the
                                      // pointer can resolve), but auto-Drop must skip these
