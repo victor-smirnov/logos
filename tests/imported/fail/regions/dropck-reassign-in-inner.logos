@@ -1,0 +1,17 @@
+// B87: re-assigning a Drop-lt binding with an inner-scope borrow is rejected.
+package dropck_reassign_in_inner;
+
+struct Wrap<'a> { r: &'a i32 }
+impl<'a> Drop for Wrap<'a> {
+    fn drop(self: &mut Wrap<'a>) { let _v: i32 = *(self.r); }
+}
+
+fn main() -> i32 {
+    let v0: i32 = 1i32;
+    let mut w: Wrap = Wrap { r: &v0 };
+    {
+        let v1: i32 = 2i32;
+        w = Wrap { r: &v1 };
+    }
+    return 0i32;
+}

@@ -227,6 +227,16 @@ class BorrowChecker {
     // Used by check_return_value to accept `self: &Self` -> &'a T when 'a
     // is one of Self's struct lt_args (Self<'a> shape).
     std::unordered_map<std::string, std::vector<std::string>> param_inner_lifetimes_;
+    // B87 dropck: for each binding whose type is a Drop-having struct with
+    // lifetime params, record which local vars it borrows from at
+    // construction. On scope-pop, if any source local was declared in the
+    // exiting scope while the binding still lives, reject — the binding's
+    // Drop will run after the source dies.
+    std::unordered_map<std::string, std::vector<std::string>>
+        dropck_borrow_sources_;
+    // B87: line at which each dropck-relevant binding was last bound, for
+    // diagnostic reporting.
+    std::unordered_map<std::string, uint32_t> dropck_binding_line_;
     // Declared lifetime parameters of the current function (e.g. ["'a", "'b"]).
     std::vector<std::string>             fn_lifetime_params_;
     // B66: outlives graph from fn.lifetime_outlives — used to accept the
@@ -283,10 +293,34 @@ class BorrowChecker {
                     it->second.shared_field_borrows.erase(sit);
             }
         }
+        // B87 dropck: before erasing this scope's declared locals, check
+        // whether any outer-scope dropck-relevant binding holds a borrow
+        // of one of them. If so, the binding's Drop runs after the local
+        // dies — reject.
+        if (!frame.declared.empty()) {
+            std::unordered_set<std::string> dying;
+            for (auto& n : frame.declared) dying.insert(n);
+            for (auto& [binding, sources] : dropck_borrow_sources_) {
+                // Skip if the binding itself is being declared/erased here —
+                // its own death coincides with the source, no issue.
+                if (dying.count(binding)) continue;
+                for (auto& src : sources) {
+                    if (!dying.count(src)) continue;
+                    uint32_t ln = dropck_binding_line_[binding];
+                    report(ln, std::format(
+                        "binding '{}' has a `Drop` impl and borrows local '{}', "
+                        "but '{}' goes out of scope before '{}' is dropped",
+                        binding, src, src, binding));
+                    break;
+                }
+            }
+        }
         // Remove variables declared in this scope.
         for (auto& name : frame.declared) {
             states_.erase(name);
             prov_.erase(name);
+            dropck_borrow_sources_.erase(name);
+            dropck_binding_line_.erase(name);
         }
         scopes_.pop_back();
     }
@@ -294,6 +328,61 @@ class BorrowChecker {
     void declare_var(const std::string& name) {
         states_[name] = VarState{};
         if (!scopes_.empty()) scopes_.back().declared.push_back(name);
+    }
+
+    // ── B87 dropck helpers ───────────────────────────────────────────────
+    //
+    // A struct is "dropck-relevant" iff it has a Drop impl AND its declared
+    // template had a lifetime parameter (preserved through mono in B87).
+    // For such bindings, borrows fed into the construction must outlive
+    // the binding's drop point (textual scope-end of the binding).
+    bool struct_is_dropck_relevant(TypeRef t) const {
+        if (!t || t.kind() != LogosType::Kind::Struct) return false;
+        if (!needs_drop(t, prog_, ts_)) return false;
+        std::string sname(t.struct_name());
+        // Check the post-mono struct (preserves lifetime_params via the
+        // B87 clone_struct_def change).
+        auto check = [&](const std::vector<lir::LStructDef>& defs) -> bool {
+            for (auto& sd : defs)
+                if (sd.name == sname && !sd.lifetime_params.empty())
+                    return true;
+            return false;
+        };
+        if (check(prog_.structs)) return true;
+        if (check(prog_.struct_specializations)) return true;
+        // Also honor explicit lifetime_args on the TypeRef (paranoia).
+        return !t.lifetime_args().empty();
+    }
+    // Walk a struct-lit (or nested aggregate) expression, collecting names
+    // of LOCAL variables that are borrowed via AddrOf. Filters out params.
+    void collect_borrow_locals(lir_view::ExprRef e,
+                               std::vector<std::string>& out) const {
+        if (!e) return;
+        using EC = lir_schema::expr::Code;
+        switch (e.kind()) {
+            case EC::AddrOf: {
+                std::string n(lir_view::EAddrOfView{e}.var_name());
+                if (states_.count(n) && !param_names_.count(n))
+                    out.push_back(std::move(n));
+                return;
+            }
+            case EC::AddrOfTemp:
+                collect_borrow_locals(lir_view::EAddrOfTempView{e}.inner(), out);
+                return;
+            case EC::StructLit:
+                lir_view::EStructLitView{e}.each_field_value(
+                    [&](lir_view::ExprRef fv) { collect_borrow_locals(fv, out); });
+                return;
+            case EC::TupleLit:
+                lir_view::ETupleLitView{e}.each_elem(
+                    [&](lir_view::ExprRef fv) { collect_borrow_locals(fv, out); });
+                return;
+            case EC::Cast:
+                collect_borrow_locals(lir_view::ECastView{e}.operand(), out);
+                return;
+            default:
+                return;
+        }
     }
 
     // ── Field-path borrow operations (B83) ───────────────────────────────
@@ -1223,6 +1312,15 @@ class BorrowChecker {
                          (t.kind() == LogosType::Kind::Struct ||
                           t.kind() == LogosType::Kind::ZonedStruct))
                     prov_[name] = prov_of(val);  // struct<'z> borrows through lifetime
+                // B87 dropck: record local borrow sources for Drop-lt bindings.
+                if (val && struct_is_dropck_relevant(t)) {
+                    std::vector<std::string> sources;
+                    collect_borrow_locals(val, sources);
+                    if (!sources.empty()) {
+                        dropck_borrow_sources_[name] = std::move(sources);
+                        dropck_binding_line_[name] = ln;
+                    }
+                }
                 break;
             }
 
@@ -1259,6 +1357,18 @@ class BorrowChecker {
                     states_[name] = VarState{};  // re-own
                 if (is_ref_assign)
                     prov_[name] = prov_of(val);
+                // B87 dropck: record on (re-)assign too.
+                if (val) {
+                    auto vt = val.type(pool);
+                    if (struct_is_dropck_relevant(vt)) {
+                        std::vector<std::string> sources;
+                        collect_borrow_locals(val, sources);
+                        if (!sources.empty()) {
+                            dropck_borrow_sources_[name] = std::move(sources);
+                            dropck_binding_line_[name] = ln;
+                        }
+                    }
+                }
                 break;
             }
 

@@ -1,0 +1,17 @@
+// B87: dropck — Drop-having struct with 'a borrowing a local that dies
+// before the binding's drop point is rejected.
+package dropck_scope_outlives;
+
+struct Wrap<'a> { r: &'a i32 }
+impl<'a> Drop for Wrap<'a> {
+    fn drop(self: &mut Wrap<'a>) { let _v: i32 = *(self.r); }
+}
+
+fn main() -> i32 {
+    let mut w: Wrap;
+    {
+        let v: i32 = 5i32;
+        w = Wrap { r: &v };
+    }
+    return 0i32;
+}

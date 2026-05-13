@@ -1,0 +1,13 @@
+// B87: legitimate use — borrow source declared in same scope as binding.
+package dropck_same_scope;
+
+struct Wrap<'a> { r: &'a i32 }
+impl<'a> Drop for Wrap<'a> {
+    fn drop(self: &mut Wrap<'a>) { let _v: i32 = *(self.r); }
+}
+
+fn main() -> i32 {
+    let v: i32 = 5i32;
+    let _w: Wrap = Wrap { r: &v };
+    return 0i32;
+}

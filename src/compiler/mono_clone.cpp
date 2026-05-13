@@ -3281,7 +3281,13 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
     nd.name = new_name;
     nd.pkg  = tmpl.pkg;
     nd.is_zoned = tmpl.is_zoned;
-    // type_params cleared: result is monomorphic
+    // type_params cleared: result is monomorphic.
+    // B87: preserve lifetime_params + lifetime_outlives so post-mono
+    // dropck can identify "this struct had a lifetime parameter in its
+    // template form" — lifetimes are erased at runtime but the markers
+    // are needed for soundness checks (Drop touching 'a).
+    nd.lifetime_params  = tmpl.lifetime_params;
+    nd.lifetime_outlives = tmpl.lifetime_outlives;
     for (auto& f : tmpl.fields) {
         if (f.is_variadic) {
             std::string pack_name;
