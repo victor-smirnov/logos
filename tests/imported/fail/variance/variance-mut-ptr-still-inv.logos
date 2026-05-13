@@ -1,0 +1,7 @@
+// B84: `*mut T` remains Inv — both directions reject.
+package variance_mut_ptr_still_inv;
+struct W<T> { p: *mut T }
+fn bad<'short, 'long>(v: W<&'long i32>) -> W<&'short i32>
+    where 'long: 'short
+{ return v; }
+fn main() -> i32 { return 0i32; }

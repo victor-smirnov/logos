@@ -4331,9 +4331,10 @@ Variance variance_in_type(TypeRef t,
             return v;
         }
         case K::Ptr:
-            // Raw pointers: Inv in pointee.
+            // B84: *const T is Co in pointee (matches Rust); *mut T is Inv.
             return variance_in_type(t.pointee(), target, target_is_lifetime, table,
-                                    variance_compose(ambient, Variance::Inv));
+                                    variance_compose(ambient,
+                                        t.mut_ptr() ? Variance::Inv : Variance::Co));
         case K::Tuple: {
             Variance v = Variance::BiVar;
             for (auto e : t.tuple_elems())

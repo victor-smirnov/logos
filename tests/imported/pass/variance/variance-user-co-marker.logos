@@ -1,0 +1,7 @@
+// B84: user-defined Co marker via plain T field — auto-Co.
+package variance_user_co_marker;
+struct Co<T> { v: T }
+fn shorten<'short, 'long>(v: Co<&'long i32>) -> Co<&'short i32>
+    where 'long: 'short
+{ return v; }
+fn main() -> i32 { return 0i32; }

@@ -195,10 +195,16 @@ inline bool subtype(TypeRef sub, TypeRef sup,
                 return false;
             return detail::types_equal_with_lifetimes(sub.pointee(), sup.pointee(), &adj);
         }
-        case K::Ptr:
-            // Raw pointers: Inv in pointee, but no lifetime tracking either.
-            // Defer to types_equal_with_lifetimes which ignores lifetime on Ptr.
-            return true;
+        case K::Ptr: {
+            // B84: raw pointer variance:
+            //   *const T — Co in pointee (matches Rust)
+            //   *mut T   — Inv in pointee
+            // Both: no lifetime tracking on Ptr itself.
+            if (sub.mut_ptr() != sup.mut_ptr()) return true;  // shape diff
+            if (sub.mut_ptr())
+                return detail::types_equal_with_lifetimes(sub.pointee(), sup.pointee(), &adj);
+            return subtype(sub.pointee(), sup.pointee(), adj, vars, depth + 1, permissive_empty);
+        }
         case K::Tuple: {
             auto se = sub.tuple_elems();
             auto pe = sup.tuple_elems();
