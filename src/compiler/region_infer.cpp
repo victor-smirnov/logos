@@ -292,7 +292,12 @@ void RegionInferer::walk_stmt(const lir::LStmt& s,
                 bs.region = fresh_region();
                 bs.origin = origin;
                 bs.holder = holder;
-                bs.target = "<temp>";
+                // Each AddrOfTemp produces its OWN fresh temporary —
+                // distinct from every other temp, so tag the target
+                // uniquely by region id. Conflict logic compares
+                // target strings and would otherwise collapse all
+                // temp-borrows into a single phantom variable.
+                bs.target = "<temp#" + std::to_string(bs.region.value) + ">";
                 bs.is_mut = v.is_mut();
                 borrows_.push_back(std::move(bs));
                 RegionConstraint c;
@@ -758,6 +763,36 @@ void RegionInferer::compute_liveness() {
             }
         }
     }
+}
+
+std::vector<RegionInferer::Conflict>
+RegionInferer::find_conflicts() const {
+    std::vector<Conflict> out;
+    for (size_t i = 0; i < borrows_.size(); ++i) {
+        for (size_t j = i + 1; j < borrows_.size(); ++j) {
+            const auto& a = borrows_[i];
+            const auto& b = borrows_[j];
+            // Same target var (transient `<temp>` matches transient).
+            if (a.target != b.target) continue;
+            // At least one must be mut for a conflict.
+            if (!a.is_mut && !b.is_mut) continue;
+            auto ait = region_points_.find(a.region.value);
+            auto bit = region_points_.find(b.region.value);
+            if (ait == region_points_.end() || bit == region_points_.end()) continue;
+            const PointSet& ap = ait->second;
+            const PointSet& bp = bit->second;
+            // Find the first overlapping point (stable: iterate smaller).
+            const PointSet& small = (ap.size() < bp.size()) ? ap : bp;
+            const PointSet& big   = (ap.size() < bp.size()) ? bp : ap;
+            for (auto& p : small) {
+                if (big.count(p)) {
+                    out.push_back(Conflict{&a, &b, p});
+                    break;
+                }
+            }
+        }
+    }
+    return out;
 }
 
 void RegionInferer::dump(const std::string& fn_name) const {

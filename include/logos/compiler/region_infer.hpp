@@ -141,6 +141,17 @@ public:
     const std::unordered_map<uint32_t, PointSet>&
         region_points() const noexcept { return region_points_; }
 
+    // B72: borrow conflict detected by overlapping regions on the
+    // same target where at least one borrow is mutable. Returns the
+    // list of conflicts in stable order; caller turns them into Diag
+    // entries.
+    struct Conflict {
+        const BorrowSite* a;
+        const BorrowSite* b;
+        StmtPoint overlap_at;
+    };
+    std::vector<Conflict> find_conflicts() const;
+
 private:
     RegionId fresh_region() noexcept {
         return RegionId{next_region_id_++};

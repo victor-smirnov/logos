@@ -1448,14 +1448,31 @@ lir::LProgram borrow_check(lir::LProgram prog) {
         if (fn.is_extern)             return;
         if (!fn.type_params.empty())  return;
         BorrowChecker(prog.diags, "fn " + std::string(bare_fn_name(fn.name)), prog, ts).check(fn);
-        // B70: run the region-inference scaffolding alongside the
-        // existing min-viable NLL. Currently behind LOGOS_DUMP_REGIONS;
-        // B71 grows the solver and B72 wires it as the canonical
-        // conflict checker (replacing the min-viable path).
-        if (std::getenv("LOGOS_DUMP_REGIONS")) {
-            RegionInferer ri;
-            ri.analyze(fn, prog);
+        // B72: region-based borrow conflict check. Runs alongside the
+        // B61 min-viable NLL — both contribute diagnostics. min-viable
+        // catches the simple lexical-scope cases; region inference
+        // catches flow-sensitive conflicts via the solved per-borrow
+        // point sets. When both fire on the same conflict, we expect
+        // them to agree (and one will dedupe later).
+        RegionInferer ri;
+        ri.analyze(fn, prog);
+        if (std::getenv("LOGOS_DUMP_REGIONS"))
             ri.dump(std::string(bare_fn_name(fn.name)));
+        auto conflicts = ri.find_conflicts();
+        for (auto& c : conflicts) {
+            const char* kind_a = c.a->is_mut ? "&mut" : "&";
+            const char* kind_b = c.b->is_mut ? "&mut" : "&";
+            Diag d;
+            d.level   = Diag::Level::Error;
+            d.context = "fn " + std::string(bare_fn_name(fn.name));
+            d.message = std::format(
+                "borrow conflict on '{}': {} borrow (region #{}) "
+                "overlaps with {} borrow (region #{}) at CFG point ({},{})",
+                c.a->target, kind_a, c.a->region.value,
+                kind_b, c.b->region.value,
+                c.overlap_at.block, c.overlap_at.idx);
+            d.line = 0;  // origin line lookup deferred to B73
+            prog.diags.diags.push_back(std::move(d));
         }
     };
 
