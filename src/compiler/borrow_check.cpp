@@ -399,28 +399,34 @@ class BorrowChecker {
     static bool paths_overlap(const std::string& a, const std::string& b) {
         return path_prefix_or_eq(a, b) || path_prefix_or_eq(b, a);
     }
+    static std::string fmt_path(const std::string& target,
+                                const std::string& path) {
+        if (path.empty()) return target;
+        return target + "." + path;
+    }
     void take_field_borrow(const std::string& target, std::string path,
                            bool is_mut, uint32_t line) {
         auto it = states_.find(target);
         if (it == states_.end()) return;
+        std::string self_disp = fmt_path(target, path);
         // Whole-value borrows still block everything.
         if (it->second.mut_borrowed) {
             report(line, std::format(
-                "cannot borrow '{}.{}': '{}' is already mutably borrowed",
-                target, path, target));
+                "cannot borrow '{}': '{}' is already mutably borrowed",
+                self_disp, target));
             return;
         }
         if (is_mut && it->second.shared_borrows > 0) {
             report(line, std::format(
-                "cannot borrow '{}.{}' as mutable: '{}' has shared borrows",
-                target, path, target));
+                "cannot borrow '{}' as mutable: '{}' has shared borrows",
+                self_disp, target));
             return;
         }
         // Mut binding check.
         if (is_mut && !it->second.is_mut_binding && !param_names_.count(target)) {
             report(line, std::format(
-                "cannot borrow '{}.{}' as mutable: '{}' not declared as mut",
-                target, path, target));
+                "cannot borrow '{}' as mutable: '{}' not declared as mut",
+                self_disp, target));
             return;
         }
         // Check against tracked field borrows.
@@ -428,16 +434,16 @@ class BorrowChecker {
             if (c <= 0) continue;
             if (paths_overlap(path, p) && is_mut) {
                 report(line, std::format(
-                    "cannot borrow '{}.{}' as mutable: '{}.{}' is already borrowed",
-                    target, path, target, p));
+                    "cannot borrow '{}' as mutable: '{}' is already borrowed",
+                    self_disp, fmt_path(target, p)));
                 return;
             }
         }
         for (auto& p : it->second.mut_field_borrows) {
             if (paths_overlap(path, p)) {
                 report(line, std::format(
-                    "cannot borrow '{}.{}': '{}.{}' is already mutably borrowed",
-                    target, path, target, p));
+                    "cannot borrow '{}': '{}' is already mutably borrowed",
+                    self_disp, fmt_path(target, p)));
                 return;
             }
         }
@@ -1671,22 +1677,92 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             }
             break;
         }
-        // B81: method-call receivers are wrapped in `addr_of_temp(c, mut)` —
-        // the AddrOfTemp path was previously falling through to default, so
-        // the mut-binding check never fired. Mirror the AddrOf rule.
+        // B81 + B93.2: method-call receivers (and other implicit
+        // borrow-takes via AddrOfTemp) need the same path-aware conflict
+        // checks as explicit `&mut x` / `&mut x.f`. Walk inner FieldRead
+        // chain to extract root + dotted path; route through
+        // take_field_borrow so existing whole-value and field-path
+        // borrows are consulted.
         case Code::AddrOfTemp: {
             EAddrOfTempView v{e};
             auto inner = v.inner();
-            if (inner && inner.kind() == Code::VarRef && is_mut_ref(e.type(pool))) {
-                std::string vname(EVarRefView{inner}.name());
-                if (auto it = states_.find(vname); it != states_.end()) {
-                    if (!it->second.is_mut_binding && !param_names_.count(vname))
-                        report(line, std::format(
-                            "cannot borrow '{}' as mutable: not declared as mut",
-                            vname));
+            bool is_mut = is_mut_ref(e.type(pool));
+            // Walk FieldRead chain to root.
+            std::string root;
+            std::string path;
+            bool root_is_raw_ptr = false;
+            {
+                auto cur = inner;
+                std::vector<std::string> parts;
+                while (cur && cur.kind() == Code::FieldRead) {
+                    EFieldReadView fv{cur};
+                    parts.push_back(std::string(fv.field()));
+                    cur = fv.receiver();
+                }
+                if (cur && cur.kind() == Code::VarRef) {
+                    root = std::string(EVarRefView{cur}.name());
+                    // B93.2: if root has raw-pointer type, skip mut-binding +
+                    // field-borrow tracking — borrow goes through pointer
+                    // deref, doesn't constrain the binding itself.
+                    auto rt = cur.type(pool);
+                    if (rt && rt.kind() == LogosType::Kind::Ptr)
+                        root_is_raw_ptr = true;
+                    for (auto it = parts.rbegin(); it != parts.rend(); ++it) {
+                        if (!path.empty()) path.push_back('.');
+                        path.append(*it);
+                    }
                 }
             }
-            // Defer to inner expression visit for the rest of the analysis.
+            if (!root.empty() && !root_is_raw_ptr && states_.count(root)) {
+                auto sit = states_.find(root);
+                // Mut-binding check (root-level).
+                if (is_mut && !sit->second.is_mut_binding
+                    && !param_names_.count(root))
+                    report(line, std::format(
+                        "cannot borrow '{}' as mutable: not declared as mut",
+                        root));
+                // moved_fields check for FieldRead chains.
+                if (!path.empty()) {
+                    auto first_dot = path.find('.');
+                    std::string outer = (first_dot == std::string::npos)
+                                        ? path : path.substr(0, first_dot);
+                    if (auto mit = sit->second.moved_fields.find(outer);
+                        mit != sit->second.moved_fields.end()) {
+                        report(line, std::format(
+                            "use of moved field '{}.{}' (moved on line {})",
+                            root, outer, mit->second));
+                        break;
+                    }
+                }
+                // For explicit field-path borrows (path non-empty): record
+                // via take_field_borrow so subsequent borrows conflict.
+                // For whole-value method-receiver borrows (path empty):
+                // CHECK against existing field paths only — don't record,
+                // because method receivers don't persist past the call
+                // (NLL releases at call end) and recording would conflict
+                // with TPB-style inner method calls (c.update(c.value())).
+                if (!path.empty()) {
+                    take_field_borrow(root, path, is_mut, line);
+                } else {
+                    // Path == "": query-only. Check overlap with any
+                    // existing field borrow on root.
+                    for (auto& [p, c] : sit->second.shared_field_borrows) {
+                        if (c <= 0) continue;
+                        if (is_mut) {
+                            report(line, std::format(
+                                "cannot borrow '{}': '{}' is already borrowed",
+                                root, fmt_path(root, p)));
+                            break;
+                        }
+                    }
+                    for (auto& p : sit->second.mut_field_borrows) {
+                        report(line, std::format(
+                            "cannot borrow '{}': '{}' is already mutably borrowed",
+                            root, fmt_path(root, p)));
+                        break;
+                    }
+                }
+            }
             if (inner) visit(inner, /*consuming=*/false, line);
             break;
         }
@@ -1742,10 +1818,15 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
 
         // ── Method call: recv.method(args) ────────────────────────────
         // Receiver is typically &mut self — already wrapped in EAddrOf.
+        // B93.2: scope the receiver borrow to the call — otherwise its
+        // implicit &mut self leaks past the call site and conflicts with
+        // any subsequent method-call (consecutive `b.foo(); b.bar();`).
         case Code::MethodCall: {
             EMethodCallView v{e};
+            push_scope();
             visit(v.receiver(), /*consuming=*/false, line);
             visit_args(v);
+            pop_scope();
             break;
         }
 
