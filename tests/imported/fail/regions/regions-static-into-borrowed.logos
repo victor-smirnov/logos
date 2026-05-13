@@ -1,0 +1,6 @@
+// B65: cannot widen a borrowed ref to 'static.
+package regions_static_into_borrowed;
+
+fn bad<'a>(r: &'a i32) -> &'static i32 { return r; }
+
+fn main() -> i32 { return 0i32; }

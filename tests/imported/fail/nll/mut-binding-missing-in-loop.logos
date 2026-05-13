@@ -1,0 +1,13 @@
+// B78: `&mut x` rejected inside loop body when binding is non-mut.
+package mut_binding_missing_in_loop;
+
+fn main() -> i32 {
+    let x: i32 = 0i32;
+    let mut i: i32 = 0i32;
+    while i < 1i32 {
+        let r: &mut i32 = &mut x;
+        *r = 1i32;
+        i = i + 1i32;
+    }
+    return 0i32;
+}

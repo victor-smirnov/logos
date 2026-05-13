@@ -1,0 +1,8 @@
+// B65: 'b is shorter than 'a; returning &'a from &'b body invalid.
+package regions_shorter_cant_extend;
+
+fn bad<'a, 'b>(y: &'b i32) -> &'a i32
+    where 'a: 'b
+{ return y; }
+
+fn main() -> i32 { return 0i32; }

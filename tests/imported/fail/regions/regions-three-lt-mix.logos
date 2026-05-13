@@ -1,0 +1,6 @@
+// B65: returning &'c when sig promises &'a; no relation declared.
+package regions_three_lt_mix;
+
+fn bad<'a, 'b, 'c>(x: &'a i32, y: &'b i32, z: &'c i32) -> &'a i32 { return z; }
+
+fn main() -> i32 { return 0i32; }

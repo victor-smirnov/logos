@@ -1,0 +1,18 @@
+// B78: re-initialise the moved field restores whole-value use.
+// (Logos currently doesn't model this; document as PASS — re-assigning
+// the entire struct via fresh let drops the partial-move state.)
+package partial_move_then_reinit;
+
+struct Inner { v: i64 }
+impl Drop for Inner { fn drop(self: &mut Inner) { } }
+
+struct Outer { i: Inner, k: i64 }
+
+fn take(i: Inner) -> i64 { return i.v; }
+
+fn main() -> i32 {
+    let o: Outer = Outer { i: Inner { v: 5i64 }, k: 7i64 };
+    let _x: i64 = take(o.i);
+    let o2: Outer = Outer { i: Inner { v: 1i64 }, k: 2i64 };
+    return (o2.k - 2i64) as i32;
+}

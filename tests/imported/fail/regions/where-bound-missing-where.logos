@@ -1,0 +1,9 @@
+// B78: caller declares no outlives at all.
+package where_bound_missing_where;
+
+struct Pair<'a, 'b> where 'a: 'b { x: &'a i32, y: &'b i32 }
+
+fn bad<'a, 'b>(x: &'a i32, y: &'b i32) -> Pair<'a, 'b>
+{ return Pair { x: x, y: y }; }
+
+fn main() -> i32 { return 0i32; }

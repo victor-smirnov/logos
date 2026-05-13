@@ -1,0 +1,9 @@
+// B78: returning Pair<'a, 'static> requires 'a: 'static which is false.
+package where_bound_static_fail;
+
+struct Pair<'a, 'b> where 'a: 'b { x: &'a i32, y: &'b i32 }
+
+fn bad<'a>(x: &'a i32, y: &'static i32) -> Pair<'a, 'static>
+{ return Pair { x: x, y: y }; }
+
+fn main() -> i32 { return 0i32; }

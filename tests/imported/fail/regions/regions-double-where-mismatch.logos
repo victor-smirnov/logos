@@ -1,0 +1,6 @@
+// B65: where bound `'a: 'b` declared, but return wants &'c (no relation).
+package regions_double_where_mismatch;
+
+fn bad<'a, 'b, 'c>(x: &'a i32) -> &'c i32 where 'a: 'b { return x; }
+
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,12 @@
+// B62: impl uses single concrete 'static across two slots; bound has two
+// independent for<'a, 'b>. Binder injectivity rejects.
+package hrtb_pinned_shared_region;
+
+trait Pair<A, B> { fn p(self: Self, a: A, b: B) -> i32 { return 0i32; } }
+
+struct M { _x: i32 }
+impl Pair<&'static i32, &'static i32> for M {}
+
+fn want<F>() where F: for<'a, 'b> Pair<&'a i32, &'b i32> {}
+
+fn main() -> i32 { want::<M>(); return 0i32; }

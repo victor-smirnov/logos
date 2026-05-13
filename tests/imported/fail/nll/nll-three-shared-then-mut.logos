@@ -1,0 +1,12 @@
+// B72: three shared then one mut — overlap with all three.
+package nll_three_shared_then_mut;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let a: &i32 = &x;
+    let b: &i32 = &x;
+    let c: &i32 = &x;
+    let m: &mut i32 = &mut x;
+    *m = 1i32;
+    return *a + *b + *c;
+}

@@ -1,0 +1,12 @@
+// B72: mut borrow live while shared borrow taken as arg.
+package nll_mut_borrow_overlap_in_fn_call;
+
+fn read(_r: &i32) -> i32 { return 0i32; }
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let m: &mut i32 = &mut x;
+    let _r: i32 = read(&x);
+    *m = 1i32;
+    return 0i32;
+}

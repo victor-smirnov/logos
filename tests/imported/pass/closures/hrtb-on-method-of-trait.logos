@@ -1,0 +1,14 @@
+// B63: HRTB applied to a trait's method requirement (via where on method).
+package hrtb_on_method_of_trait;
+
+trait Op<A, R> { fn op(self: Self, a: A) -> R; }
+
+struct Z { _x: i32 }
+impl<'a> Op<&'a i32, &'a i32> for Z { fn op(self: Z, a: &'a i32) -> &'a i32 { return a; } }
+
+fn drive<F>(f: F) -> i32 where F: for<'a> Op<&'a i32, &'a i32> {
+    let v: i32 = 11i32;
+    return *(f.op(&v)) - 11i32;
+}
+
+fn main() -> i32 { return drive::<Z>(Z { _x: 0i32 }); }

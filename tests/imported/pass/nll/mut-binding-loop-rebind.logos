@@ -1,0 +1,13 @@
+// B78: mut binding used through loop iterations.
+package mut_binding_loop_rebind;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let mut i: i32 = 0i32;
+    while i < 3i32 {
+        let m: &mut i32 = &mut x;
+        *m = *m + 1i32;
+        i = i + 1i32;
+    }
+    return x - 3i32;
+}

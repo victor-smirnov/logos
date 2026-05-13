@@ -1,0 +1,11 @@
+// B78: `&mut s` on non-mut struct binding rejected.
+package mut_binding_missing_struct;
+
+struct S { v: i32 }
+
+fn main() -> i32 {
+    let s: S = S { v: 0i32 };
+    let r: &mut S = &mut s;
+    (*r).v = 1i32;
+    return 0i32;
+}

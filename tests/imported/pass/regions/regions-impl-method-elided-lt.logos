@@ -1,0 +1,14 @@
+// B66/B67: impl-method with elided lifetimes.
+package regions_impl_method_elided_lt;
+
+struct B { v: i32 }
+
+impl B {
+    fn get(self: &B) -> &i32 { return &self.v; }
+    fn dup(self: &B) -> i32 { return *self.get(); }
+}
+
+fn main() -> i32 {
+    let b: B = B { v: 21i32 };
+    return b.dup() - 21i32;
+}

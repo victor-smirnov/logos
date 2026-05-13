@@ -1,0 +1,13 @@
+// B64: outer 'a of &'a mut T is Co — shorten OK.
+package regions_mut_ref_shorten_outer;
+
+fn shorten<'short, 'long>(r: &'long mut i32) -> &'short mut i32
+    where 'long: 'short
+{ return r; }
+
+fn main() -> i32 {
+    let mut v: i32 = 0i32;
+    let r: &mut i32 = shorten(&mut v);
+    *r = 1i32;
+    return v - 1i32;
+}

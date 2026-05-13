@@ -1,0 +1,9 @@
+// B78: 'a: 'a holds reflexively; same-lifetime construction OK.
+package where_bound_same_lifetime;
+
+struct Pair<'a, 'b> where 'a: 'b { x: &'a i32, y: &'b i32 }
+
+fn build<'a>(x: &'a i32, y: &'a i32) -> Pair<'a, 'a>
+{ return Pair { x: x, y: y }; }
+
+fn main() -> i32 { return 0i32; }

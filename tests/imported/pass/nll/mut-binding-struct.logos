@@ -1,0 +1,11 @@
+// B78: `let mut s: S` permits `&mut s.field` chain.
+package mut_binding_struct;
+
+struct S { v: i32 }
+
+fn main() -> i32 {
+    let mut s: S = S { v: 0i32 };
+    let r: &mut S = &mut s;
+    (*r).v = 9i32;
+    return s.v - 9i32;
+}

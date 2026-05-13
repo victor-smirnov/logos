@@ -1,0 +1,12 @@
+// B65: generic struct over lifetime + type, with where bound.
+package regions_generic_struct_lifetime;
+
+struct Holder<'a, T> { r: &'a T }
+
+fn make<'a, T>(r: &'a T) -> Holder<'a, T> { return Holder { r: r }; }
+
+fn main() -> i32 {
+    let v: i32 = 4i32;
+    let h: Holder<i32> = make::<i32>(&v);
+    return *(h.r) - 4i32;
+}

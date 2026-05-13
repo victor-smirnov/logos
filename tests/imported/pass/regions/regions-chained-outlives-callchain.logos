@@ -1,0 +1,11 @@
+// B65: chained call where outlives flows through two fns.
+package regions_chained_outlives_callchain;
+
+fn step1<'a, 'b>(r: &'a i32) -> &'b i32 where 'a: 'b { return r; }
+fn step2<'b, 'c>(r: &'b i32) -> &'c i32 where 'b: 'c { return r; }
+
+fn main() -> i32 {
+    let v: i32 = 11i32;
+    let r1: &i32 = step1(&v);
+    return *step2(r1) - 11i32;
+}

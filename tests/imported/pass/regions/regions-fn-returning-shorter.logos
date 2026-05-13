@@ -1,0 +1,9 @@
+// B65: returning the shorter of two refs.
+package regions_fn_returning_shorter;
+
+fn shorter<'a, 'b>(x: &'a i32, y: &'b i32) -> &'b i32 where 'a: 'b { return y; }
+
+fn main() -> i32 {
+    let a: i32 = 1i32; let b: i32 = 2i32;
+    return *shorter(&a, &b) - 2i32;
+}

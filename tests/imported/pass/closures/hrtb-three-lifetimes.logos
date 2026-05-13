@@ -1,0 +1,11 @@
+// B62/B63: for<'a, 'b, 'c> binder with 3 lifetimes.
+package hrtb_three_lifetimes;
+
+trait Tri<A, B, C> { fn t(self: Self, a: A, b: B, c: C) -> i32 { return 0i32; } }
+
+struct K { _x: i32 }
+impl<'a, 'b, 'c, X, Y, Z> Tri<&'a X, &'b Y, &'c Z> for K {}
+
+fn want<F>() where F: for<'a, 'b, 'c> Tri<&'a i32, &'b i64, &'c u8> {}
+
+fn main() -> i32 { want::<K>(); return 0i32; }

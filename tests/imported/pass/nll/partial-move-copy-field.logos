@@ -1,0 +1,14 @@
+// B78: moving a Copy field (primitive) doesn't poison the struct.
+package partial_move_copy_field;
+
+struct S { a: i64, b: i64 }
+impl Drop for S { fn drop(self: &mut S) { } }
+
+fn main() -> i32 {
+    let s: S = S { a: 3i64, b: 4i64 };
+    let _a: i64 = s.a;
+    let _b: i64 = s.b;
+    // Whole-struct use should still work: a/b are Copy fields, no move.
+    let r: i64 = s.a + s.b;
+    return (r - 7i64) as i32;
+}

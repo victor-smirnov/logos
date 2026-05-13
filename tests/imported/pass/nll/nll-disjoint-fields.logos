@@ -1,0 +1,14 @@
+// B72: borrowing two disjoint struct fields simultaneously is legal
+// in Logos (field-disjoint borrows treated as non-conflicting).
+package nll_disjoint_fields;
+
+struct Pair { a: i32, b: i32 }
+
+fn main() -> i32 {
+    let mut p: Pair = Pair { a: 0i32, b: 0i32 };
+    let ra: &mut i32 = &mut p.a;
+    let rb: &mut i32 = &mut p.b;
+    *ra = 3i32;
+    *rb = 4i32;
+    return p.a + p.b - 7i32;
+}

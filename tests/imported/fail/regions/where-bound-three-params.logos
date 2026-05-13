@@ -1,0 +1,9 @@
+// B78: three-lifetime struct with `where 'a: 'c` — caller missing it.
+package where_bound_three_params;
+
+struct Trip<'a, 'b, 'c> where 'a: 'c { x: &'a i32, y: &'b i32, z: &'c i32 }
+
+fn bad<'a, 'b, 'c>(x: &'a i32, y: &'b i32, z: &'c i32) -> Trip<'a, 'b, 'c>
+{ return Trip { x: x, y: y, z: z }; }
+
+fn main() -> i32 { return 0i32; }

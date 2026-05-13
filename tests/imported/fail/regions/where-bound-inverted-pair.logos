@@ -1,0 +1,10 @@
+// B78: `Pair { x = (with 'short), y = (with 'long) }` requires 'short: 'long.
+package where_bound_inverted_pair;
+
+struct Pair<'a, 'b> where 'a: 'b { x: &'a i32, y: &'b i32 }
+
+fn bad<'short, 'long>(x: &'short i32, y: &'long i32) -> Pair<'short, 'long>
+    where 'long: 'short
+{ return Pair { x: x, y: y }; }
+
+fn main() -> i32 { return 0i32; }

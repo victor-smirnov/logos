@@ -1,0 +1,15 @@
+// B78 GAP: calling a `&mut self` method on a non-mut binding does NOT
+// currently trip the mut-binding check (auto-borrow path bypasses
+// take_borrow's check). Rust rejects this. Pinned as gap-regression.
+package mut_binding_method_call_immut_gap;
+
+struct Counter { n: i32 }
+impl Counter {
+    fn bump(self: &mut Counter) -> i32 { (*self).n = (*self).n + 1i32; return (*self).n; }
+}
+
+fn main() -> i32 {
+    let c: Counter = Counter { n: 0i32 };
+    let r: i32 = c.bump();
+    return r - 1i32;
+}

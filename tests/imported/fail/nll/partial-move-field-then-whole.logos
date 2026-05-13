@@ -1,0 +1,17 @@
+// B78: moving field then whole-struct copy.
+package partial_move_field_then_whole;
+
+struct Inner { v: i64 }
+impl Drop for Inner { fn drop(self: &mut Inner) { } }
+
+struct Outer { i: Inner, k: i64 }
+
+fn take_inner(x: Inner) -> i64 { return x.v; }
+fn take_outer(o: Outer) -> i64 { return o.k; }
+
+fn main() -> i32 {
+    let o: Outer = Outer { i: Inner { v: 5i64 }, k: 7i64 };
+    let _a: i64 = take_inner(o.i);
+    let _b: i64 = take_outer(o);   // o partially moved
+    return 0i32;
+}

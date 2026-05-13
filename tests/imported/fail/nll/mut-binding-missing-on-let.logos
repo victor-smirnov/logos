@@ -1,0 +1,9 @@
+// B78: `&mut x` requires `let mut x`. This binding is non-mut.
+package mut_binding_missing_on_let;
+
+fn main() -> i32 {
+    let x: i32 = 0i32;
+    let r: &mut i32 = &mut x;
+    *r = 1i32;
+    return 0i32;
+}

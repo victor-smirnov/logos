@@ -1,0 +1,9 @@
+// B65: assigning &'a binding from &'b without outlives, then return.
+package regions_fn_return_via_let_mismatch;
+
+fn bad<'a, 'b>(y: &'b i32) -> &'a i32 {
+    let r: &'a i32 = y;
+    return r;
+}
+
+fn main() -> i32 { return 0i32; }

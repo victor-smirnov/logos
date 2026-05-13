@@ -1,0 +1,9 @@
+// B78: 'static outlives everything — Pair<'static, 'b> always valid.
+package where_bound_static_x;
+
+struct Pair<'a, 'b> where 'a: 'b { x: &'a i32, y: &'b i32 }
+
+fn build<'b>(x: &'static i32, y: &'b i32) -> Pair<'static, 'b>
+{ return Pair { x: x, y: y }; }
+
+fn main() -> i32 { return 0i32; }

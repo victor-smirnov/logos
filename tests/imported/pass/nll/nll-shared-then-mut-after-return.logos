@@ -1,0 +1,12 @@
+// B72: shared borrow consumed by an early return doesn't block later mut.
+package nll_shared_then_mut_after_return;
+
+fn main() -> i32 {
+    let mut x: i32 = 7i32;
+    let r: &i32 = &x;
+    let v: i32 = *r;
+    // r dies here.
+    let m: &mut i32 = &mut x;
+    *m = v;
+    return x - 7i32;
+}

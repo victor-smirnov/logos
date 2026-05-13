@@ -1,0 +1,17 @@
+// B63: HRTB binder + extra non-HRTB bound on same param.
+package hrtb_binder_with_extra_where;
+
+trait MarkOK { fn ok(self: &Self) -> i32 { return 0i32; } }
+
+trait Use<A> { fn u(self: Self, a: A) -> i32 { return 0i32; } }
+
+struct W { _x: i32 }
+impl MarkOK for W {}
+impl<'a> Use<&'a i32> for W {}
+
+fn drive<F>(f: F) -> i32
+    where F: for<'a> Use<&'a i32>,
+          F: MarkOK
+{ return 0i32; }
+
+fn main() -> i32 { return drive::<W>(W { _x: 0i32 }); }

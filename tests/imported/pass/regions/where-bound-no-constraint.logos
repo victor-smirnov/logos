@@ -1,0 +1,9 @@
+// B78: struct without where-bound — no constraint to satisfy.
+package where_bound_no_constraint;
+
+struct Pair<'a, 'b> { x: &'a i32, y: &'b i32 }
+
+fn build<'a, 'b>(x: &'a i32, y: &'b i32) -> Pair<'a, 'b>
+{ return Pair { x: x, y: y }; }
+
+fn main() -> i32 { return 0i32; }

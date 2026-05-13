@@ -1,0 +1,10 @@
+// B78: caller has 'a: 'c, 'c: 'b → transitively 'a: 'b ✓.
+package where_bound_transitive_caller;
+
+struct Pair<'a, 'b> where 'a: 'b { x: &'a i32, y: &'b i32 }
+
+fn build<'a, 'b, 'c>(x: &'a i32, y: &'b i32) -> Pair<'a, 'b>
+    where 'a: 'c, 'c: 'b
+{ return Pair { x: x, y: y }; }
+
+fn main() -> i32 { return 0i32; }

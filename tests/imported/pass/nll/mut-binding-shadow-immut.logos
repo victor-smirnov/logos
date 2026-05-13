@@ -1,0 +1,10 @@
+// B78: shadowing introduces fresh binding; mut→immut shadow legal.
+package mut_binding_shadow_immut;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let r: &mut i32 = &mut x;
+    *r = 5i32;
+    let x: i32 = x;  // shadow: fresh immut binding
+    return x - 5i32;
+}

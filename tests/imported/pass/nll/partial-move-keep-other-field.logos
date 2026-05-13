@@ -1,0 +1,16 @@
+// B78: after moving one field, other fields remain accessible.
+package partial_move_keep_other_field;
+
+struct Inner { v: i64 }
+impl Drop for Inner { fn drop(self: &mut Inner) { } }
+
+struct Outer { i: Inner, k: i64 }
+
+fn take(i: Inner) -> i64 { return i.v; }
+
+fn main() -> i32 {
+    let o: Outer = Outer { i: Inner { v: 5i64 }, k: 7i64 };
+    let _x: i64 = take(o.i);
+    let k: i64 = o.k;        // other field still usable
+    return (k - 7i64) as i32;
+}

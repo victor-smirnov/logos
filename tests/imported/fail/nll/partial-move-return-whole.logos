@@ -1,0 +1,17 @@
+// B78: returning partially-moved struct.
+package partial_move_return_whole;
+
+struct Inner { v: i64 }
+impl Drop for Inner { fn drop(self: &mut Inner) { } }
+
+struct Outer { i: Inner, k: i64 }
+
+fn take(i: Inner) -> i64 { return i.v; }
+
+fn make() -> Outer {
+    let o: Outer = Outer { i: Inner { v: 5i64 }, k: 7i64 };
+    let _x: i64 = take(o.i);
+    return o;
+}
+
+fn main() -> i32 { let _o: Outer = make(); return 0i32; }

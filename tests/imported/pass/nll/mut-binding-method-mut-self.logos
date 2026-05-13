@@ -1,0 +1,13 @@
+// B78: mut binding required to call &mut-self method.
+package mut_binding_method_mut_self;
+
+struct Counter { n: i32 }
+impl Counter {
+    fn bump(self: &mut Counter) -> i32 { (*self).n = (*self).n + 1i32; return (*self).n; }
+}
+
+fn main() -> i32 {
+    let mut c: Counter = Counter { n: 0i32 };
+    let r: i32 = c.bump();
+    return r - 1i32;
+}

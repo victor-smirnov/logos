@@ -1,0 +1,11 @@
+// B72: borrow scope for a fn arg ends at call return.
+package nll_borrow_after_fn_arg;
+
+fn take(_r: &i32) -> i32 { return 0i32; }
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let _t: i32 = take(&x);
+    x = 5i32;
+    return x - 5i32;
+}
