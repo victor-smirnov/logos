@@ -1,0 +1,11 @@
+// B83: prefix conflict — `&mut p.i` blocks `&mut p.i.x`.
+package df_prefix_conflict;
+struct Inner { x: i32 }
+struct Outer { i: Inner }
+fn main() -> i32 {
+    let mut o: Outer = Outer { i: Inner { x: 0i32 } };
+    let r1: &mut Inner = &mut o.i;
+    let r2: &mut i32 = &mut o.i.x;
+    (*r1).x = 1i32; *r2 = 2i32;
+    return 0i32;
+}

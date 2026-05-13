@@ -1,0 +1,9 @@
+// B83: two shared field borrows on same field are OK.
+package df_disjoint_shared_fields;
+struct P { a: i32, b: i32 }
+fn main() -> i32 {
+    let p: P = P { a: 3i32, b: 4i32 };
+    let r1: &i32 = &p.a;
+    let r2: &i32 = &p.a;
+    return *r1 + *r2 - 6i32;
+}

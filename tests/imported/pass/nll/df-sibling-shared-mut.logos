@@ -1,0 +1,10 @@
+// B83: shared on one field, mut on disjoint sibling — OK.
+package df_sibling_shared_mut;
+struct P { a: i32, b: i32 }
+fn main() -> i32 {
+    let mut p: P = P { a: 1i32, b: 0i32 };
+    let ra: &i32 = &p.a;
+    let rb: &mut i32 = &mut p.b;
+    *rb = *ra + 1i32;
+    return p.b - 2i32;
+}

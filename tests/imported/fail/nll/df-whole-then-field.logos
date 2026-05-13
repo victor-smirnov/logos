@@ -1,0 +1,10 @@
+// B83: whole-value mut borrow blocks subsequent field borrow.
+package df_whole_then_field;
+struct P { a: i32, b: i32 }
+fn main() -> i32 {
+    let mut p: P = P { a: 0i32, b: 0i32 };
+    let r: &mut P = &mut p;
+    let f: &mut i32 = &mut p.a;
+    (*r).b = 1i32; *f = 2i32;
+    return 0i32;
+}

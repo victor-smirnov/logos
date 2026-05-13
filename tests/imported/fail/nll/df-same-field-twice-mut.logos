@@ -1,0 +1,10 @@
+// B83: cannot mutably borrow same field twice.
+package df_same_field_twice_mut;
+struct P { a: i32, b: i32 }
+fn main() -> i32 {
+    let mut p: P = P { a: 0i32, b: 0i32 };
+    let r1: &mut i32 = &mut p.a;
+    let r2: &mut i32 = &mut p.a;
+    *r1 = 1i32; *r2 = 2i32;
+    return 0i32;
+}

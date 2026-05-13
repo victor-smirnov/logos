@@ -1,0 +1,11 @@
+// B83: disjoint mut field borrows through nested struct.
+package df_disjoint_nested;
+struct Inner { x: i32, y: i32 }
+struct Outer { i: Inner }
+fn main() -> i32 {
+    let mut o: Outer = Outer { i: Inner { x: 0i32, y: 0i32 } };
+    let rx: &mut i32 = &mut o.i.x;
+    let ry: &mut i32 = &mut o.i.y;
+    *rx = 1i32; *ry = 2i32;
+    return o.i.x + o.i.y - 3i32;
+}

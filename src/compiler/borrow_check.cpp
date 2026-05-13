@@ -124,6 +124,14 @@ struct VarState {
     // Partial moves: name → line where field was moved out. Reading the
     // same field again, or the whole value, after a field move is rejected.
     std::unordered_map<std::string, uint32_t> moved_fields;
+    // B83: field-path borrow tracking. Keys are dotted paths into the
+    // value (e.g. "a", "i.x"). Disjoint field paths can be borrowed
+    // simultaneously even mutably. Two borrows conflict iff one path is
+    // a prefix of the other (including equal). The whole-value borrows
+    // (mut_borrowed, shared_borrows) act as borrows on path "" — they
+    // conflict with every field path.
+    std::unordered_map<std::string, int>  shared_field_borrows;  // path → count
+    std::unordered_set<std::string>       mut_field_borrows;     // path
 };
 
 using StateMap = std::unordered_map<std::string, VarState>;
@@ -174,9 +182,18 @@ struct BorrowRecord {
     std::string holder;
 };
 
+// B83: a tracked field borrow recorded in the current scope. On pop,
+// the borrow is released from the target var's field map.
+struct FieldBorrow {
+    std::string target;     // root var
+    std::string path;       // dotted field path ("a.b.c"); empty for whole-value
+    bool        is_mut;
+};
+
 struct ScopeFrame {
     std::vector<std::string>  declared;  // vars declared in this scope
     std::vector<BorrowRecord> borrows;   // borrows held in this scope
+    std::vector<FieldBorrow>  field_borrows;  // B83: tracked field-path borrows
 };
 
 // Merge Phase-1 move state from 'other' into 'base' (union of moved sets).
@@ -250,6 +267,17 @@ class BorrowChecker {
                     --it->second.shared_borrows;
             }
         }
+        // B83: release field-path borrows.
+        for (auto& fb : frame.field_borrows) {
+            auto it = states_.find(fb.target);
+            if (it == states_.end()) continue;
+            if (fb.is_mut) it->second.mut_field_borrows.erase(fb.path);
+            else {
+                auto sit = it->second.shared_field_borrows.find(fb.path);
+                if (sit != it->second.shared_field_borrows.end() && --sit->second <= 0)
+                    it->second.shared_field_borrows.erase(sit);
+            }
+        }
         // Remove variables declared in this scope.
         for (auto& name : frame.declared) {
             states_.erase(name);
@@ -261,6 +289,69 @@ class BorrowChecker {
     void declare_var(const std::string& name) {
         states_[name] = VarState{};
         if (!scopes_.empty()) scopes_.back().declared.push_back(name);
+    }
+
+    // ── Field-path borrow operations (B83) ───────────────────────────────
+    //
+    // A path P is a prefix of path Q iff P == Q OR Q starts with P + ".".
+    // Two borrows (a, b) conflict iff one path is a prefix of the other AND
+    // at least one is mutable.
+    static bool path_prefix_or_eq(const std::string& a, const std::string& b) {
+        if (a.empty()) return true;  // whole-value covers everything
+        if (b.size() < a.size()) return false;
+        if (b.compare(0, a.size(), a) != 0) return false;
+        return b.size() == a.size() || b[a.size()] == '.';
+    }
+    static bool paths_overlap(const std::string& a, const std::string& b) {
+        return path_prefix_or_eq(a, b) || path_prefix_or_eq(b, a);
+    }
+    void take_field_borrow(const std::string& target, std::string path,
+                           bool is_mut, uint32_t line) {
+        auto it = states_.find(target);
+        if (it == states_.end()) return;
+        // Whole-value borrows still block everything.
+        if (it->second.mut_borrowed) {
+            report(line, std::format(
+                "cannot borrow '{}.{}': '{}' is already mutably borrowed",
+                target, path, target));
+            return;
+        }
+        if (is_mut && it->second.shared_borrows > 0) {
+            report(line, std::format(
+                "cannot borrow '{}.{}' as mutable: '{}' has shared borrows",
+                target, path, target));
+            return;
+        }
+        // Mut binding check.
+        if (is_mut && !it->second.is_mut_binding && !param_names_.count(target)) {
+            report(line, std::format(
+                "cannot borrow '{}.{}' as mutable: '{}' not declared as mut",
+                target, path, target));
+            return;
+        }
+        // Check against tracked field borrows.
+        for (auto& [p, c] : it->second.shared_field_borrows) {
+            if (c <= 0) continue;
+            if (paths_overlap(path, p) && is_mut) {
+                report(line, std::format(
+                    "cannot borrow '{}.{}' as mutable: '{}.{}' is already borrowed",
+                    target, path, target, p));
+                return;
+            }
+        }
+        for (auto& p : it->second.mut_field_borrows) {
+            if (paths_overlap(path, p)) {
+                report(line, std::format(
+                    "cannot borrow '{}.{}': '{}.{}' is already mutably borrowed",
+                    target, path, target, p));
+                return;
+            }
+        }
+        // Record.
+        if (is_mut) it->second.mut_field_borrows.insert(path);
+        else        it->second.shared_field_borrows[path]++;
+        if (!scopes_.empty())
+            scopes_.back().field_borrows.push_back({target, std::move(path), is_mut});
     }
 
     // ── Borrow operations ─────────────────────────────────────────────────
@@ -283,6 +374,14 @@ class BorrowChecker {
             if (!it->second.is_mut_binding && !param_names_.count(target)) {
                 report(line, std::format(
                     "cannot borrow '{}' as mutable: not declared as mut", target));
+                return;
+            }
+            // B83: any tracked field-path borrow blocks a whole-value mut.
+            if (!it->second.mut_field_borrows.empty() ||
+                !it->second.shared_field_borrows.empty()) {
+                report(line, std::format(
+                    "cannot borrow '{}' as mutable: field of '{}' is already borrowed",
+                    target, target));
                 return;
             }
             if (it->second.mut_borrowed) {
@@ -319,6 +418,13 @@ class BorrowChecker {
             if (it->second.mut_borrowed) {
                 report(line, std::format(
                     "cannot borrow '{}' as shared: already mutably borrowed", target));
+                return;
+            }
+            // B83: a mut field borrow blocks whole-value shared borrows.
+            if (!it->second.mut_field_borrows.empty()) {
+                report(line, std::format(
+                    "cannot borrow '{}' as shared: field of '{}' is mutably borrowed",
+                    target, target));
                 return;
             }
             ++it->second.shared_borrows;
@@ -633,28 +739,53 @@ class BorrowChecker {
                              line, holder);
                 break;
             }
-            // B81: `&o.field` lowers to AddrOfTemp(FieldRead(o, f)). The
-            // existing default (visit consuming=true) doesn't consult
-            // moved_fields on the receiver. Walk down the chain and report
-            // if a field was moved out, then defer the rest to visit.
+            // B81/B83: `&o.field.chain` lowers to AddrOfTemp(FieldRead*).
+            // Walk down the FieldRead chain to extract the root var and
+            // dotted path; check moved_fields and take a path-aware borrow.
             case Code::AddrOfTemp: {
                 EAddrOfTempView v{e};
                 auto inner = v.inner();
-                if (inner && inner.kind() == Code::FieldRead) {
-                    EFieldReadView fv{inner};
-                    auto recv = fv.receiver();
-                    if (recv && recv.kind() == Code::VarRef) {
-                        std::string rname(EVarRefView{recv}.name());
-                        std::string fname(fv.field());
-                        if (auto it = states_.find(rname); it != states_.end()) {
-                            if (auto mit = it->second.moved_fields.find(fname);
-                                mit != it->second.moved_fields.end()) {
-                                report(line, std::format(
-                                    "use of moved field '{}.{}' (moved on line {})",
-                                    rname, fname, mit->second));
-                                break;
-                            }
+                std::string root;
+                std::string path;
+                {
+                    auto cur = inner;
+                    std::vector<std::string> path_parts;
+                    while (cur && cur.kind() == Code::FieldRead) {
+                        EFieldReadView fv{cur};
+                        path_parts.push_back(std::string(fv.field()));
+                        cur = fv.receiver();
+                    }
+                    if (cur && cur.kind() == Code::VarRef) {
+                        root = std::string(EVarRefView{cur}.name());
+                        // Path built in reverse — outermost field first.
+                        for (auto it = path_parts.rbegin(); it != path_parts.rend(); ++it) {
+                            if (!path.empty()) path.push_back('.');
+                            path.append(*it);
                         }
+                    }
+                }
+                if (!root.empty()) {
+                    auto sit = states_.find(root);
+                    if (sit != states_.end() && !path.empty()) {
+                        // moved_fields key uses outermost field name only
+                        // (matches B78 partial-move tracking granularity).
+                        auto first_dot = path.find('.');
+                        std::string outer = (first_dot == std::string::npos)
+                                          ? path : path.substr(0, first_dot);
+                        if (auto mit = sit->second.moved_fields.find(outer);
+                            mit != sit->second.moved_fields.end()) {
+                            report(line, std::format(
+                                "use of moved field '{}.{}' (moved on line {})",
+                                root, outer, mit->second));
+                            break;
+                        }
+                    }
+                    if (!path.empty()) {
+                        bool is_mut = v.is_mut();
+                        take_field_borrow(root, std::move(path), is_mut, line);
+                        // Still visit inner non-consuming for sub-checks.
+                        if (inner) visit(inner, /*consuming=*/false, line);
+                        break;
                     }
                 }
                 visit(e, /*consuming=*/true, line);

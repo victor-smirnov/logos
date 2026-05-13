@@ -1,0 +1,12 @@
+// B83: disjoint at 3-level depth.
+package df_disjoint_deep_nesting;
+struct L { x: i32, y: i32 }
+struct M { l: L }
+struct N { m: M }
+fn main() -> i32 {
+    let mut n: N = N { m: M { l: L { x: 0i32, y: 0i32 } } };
+    let rx: &mut i32 = &mut n.m.l.x;
+    let ry: &mut i32 = &mut n.m.l.y;
+    *rx = 5i32; *ry = 6i32;
+    return n.m.l.x + n.m.l.y - 11i32;
+}
