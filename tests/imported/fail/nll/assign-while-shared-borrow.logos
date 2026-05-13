@@ -1,0 +1,13 @@
+// While a shared borrow `&x` is live, writing to `x` is rejected:
+// the borrow promises the data won't mutate. Previously a known gap;
+// closed in B75 by extending the assignment handler to consult
+// states_[name].shared_borrows.
+package nll_assign_while_shared_borrow;
+
+fn main() -> i32 {
+    let mut x: i32 = 1i32;
+    let r: &i32 = &x;
+    x = 5i32;
+    let _a = *r;
+    return 0i32;
+}

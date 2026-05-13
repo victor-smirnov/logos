@@ -395,6 +395,29 @@ class BorrowChecker {
                 if (states_.count(name))      return {{},     true};
                 return {};
             }
+            case Code::AddrOfTemp: {
+                // B74 gap: `&literal` / `&<temp_expr>` whose inner expr
+                // is rooted in a temporary (literal, fresh struct lit,
+                // call result, etc.) yields a dangling reference when
+                // returned. If the inner traces back to a parameter or
+                // a long-lived var via field/deref chains, prov_of of
+                // the inner already returns that — propagate it.
+                EAddrOfTempView v{e};
+                auto inner_prov = prov_of(v.inner());
+                if (!inner_prov.params.empty() || inner_prov.is_local)
+                    return inner_prov;
+                // Otherwise: rooted in a true temporary → dangling.
+                using EK = lir_schema::expr::Code;
+                auto ik = v.inner() ? v.inner().kind() : EK::LitInt;
+                if (ik == EK::LitInt || ik == EK::LitFloat ||
+                    ik == EK::LitBool || ik == EK::LitStr ||
+                    ik == EK::StructLit || ik == EK::TupleLit ||
+                    ik == EK::ArrLit || ik == EK::New || ik == EK::Call ||
+                    ik == EK::MethodCall || ik == EK::ClosureCall ||
+                    ik == EK::EnumLit || ik == EK::EnumLitData)
+                    return {{}, true};  // literal / fresh / call result → dangling
+                return {};  // unknown — conservative-accept
+            }
             case Code::FieldRead:
                 return prov_of(EFieldReadView{e}.receiver());
             case Code::Deref:
@@ -440,16 +463,23 @@ class BorrowChecker {
         // 1. Definitely local → always dangling.
         if (prov.is_local) {
             std::string src;
+            bool is_temp = false;
             if (er) {
                 using Code = lir_schema::expr::Code;
                 if (er.kind() == Code::AddrOf)
                     src = std::string(lir_view::EAddrOfView{er}.var_name());
                 else if (er.kind() == Code::VarRef)
                     src = std::string(lir_view::EVarRefView{er}.name());
+                else if (er.kind() == Code::AddrOfTemp)
+                    is_temp = true;
             }
-            report(line, std::format(
-                "cannot return reference to local variable '{}': dangling reference",
-                src.empty() ? "?" : src));
+            if (is_temp)
+                report(line,
+                    "cannot return reference to temporary value: dangling reference");
+            else
+                report(line, std::format(
+                    "cannot return reference to local variable '{}': dangling reference",
+                    src.empty() ? "?" : src));
             return;
         }
 
@@ -964,6 +994,18 @@ class BorrowChecker {
                 SAssignView v{sr};
                 auto val = v.value();
                 std::string name(v.name());
+                // B74 gap: writing to a variable while it has any active
+                // borrow violates exclusivity. mut_borrowed already errored
+                // via check_live elsewhere; the missing case was shared
+                // borrows. Catch them here.
+                if (auto it = states_.find(name); it != states_.end()) {
+                    if (it->second.shared_borrows > 0)
+                        report(ln, std::format(
+                            "cannot assign to '{}' because it is borrowed", name));
+                    if (it->second.mut_borrowed)
+                        report(ln, std::format(
+                            "cannot assign to '{}' while it is mutably borrowed", name));
+                }
                 bool is_ref_assign = val &&
                     (prov_.count(name) || is_ref_kind(val.type(pool)));
                 if (is_ref_assign) {
