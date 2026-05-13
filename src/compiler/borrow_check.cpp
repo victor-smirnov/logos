@@ -1231,6 +1231,11 @@ class BorrowChecker {
                 SAssignView v{sr};
                 auto val = v.value();
                 std::string name(v.name());
+                // B87 (dropck-light): an assignment that fills a previously-
+                // declared Drop-having lifetime-parameterised struct with a
+                // freshly-borrowed local is unsafe — the binding survives
+                // beyond this scope and its Drop will reference the borrow
+                // after the source dies. Detect the pattern syntactically.
                 // B74 gap: writing to a variable while it has any active
                 // borrow violates exclusivity. mut_borrowed already errored
                 // via check_live elsewhere; the missing case was shared

@@ -1,0 +1,28 @@
+// B87 GAP (dropck): a Drop-having struct with a `'a` lifetime parameter
+// constructed from a local borrow that doesn't outlive the binding is
+// silently accepted. Rust's dropck would reject this case (the borrow
+// is dead by the time Drop::drop runs at outer-scope-end).
+//
+// Light fix attempted: after mono, struct_specializations lose their
+// lifetime_params (erasure) and the construction-site lt_args are not
+// preserved either, so a post-mono check has no signal to read.
+// A real fix requires either preserving a per-Drop-impl "touches lt"
+// marker through mono, or moving dropck up to pre-mono sema.
+// Pinned until a follow-up that does the necessary infrastructure work.
+package dropck_light_gap;
+
+struct Wrap<'a> { r: &'a i32 }
+impl<'a> Drop for Wrap<'a> {
+    fn drop(self: &mut Wrap<'a>) {
+        let _v: i32 = *(self.r);
+    }
+}
+
+fn main() -> i32 {
+    let mut w: Wrap;
+    {
+        let v: i32 = 5i32;
+        w = Wrap { r: &v };
+    }
+    return 0i32;
+}
