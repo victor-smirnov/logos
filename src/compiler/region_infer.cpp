@@ -256,6 +256,8 @@ void RegionInferer::walk_stmt(const lir::LStmt& s,
     if (!sr) return;
     StmtPoint origin{blk_id, idx};
     const auto* pool = prog.type_pool.impl();
+    // B73: remember the source line for this CFG point.
+    if (s.line) point_line_.emplace(origin, s.line);
 
     // B71.1: collect use/def for this point. Runs alongside the
     // borrow walker so we don't traverse the AST twice.
@@ -277,6 +279,7 @@ void RegionInferer::walk_stmt(const lir::LStmt& s,
                 bs.holder = holder;
                 bs.target = std::string(v.var_name());
                 bs.is_mut = is_mut_ref_type(e.type(pool));
+                bs.origin_line = s.line;
                 borrows_.push_back(std::move(bs));
                 RegionConstraint c;
                 c.kind    = RegionConstraint::Kind::Contains;
@@ -299,6 +302,7 @@ void RegionInferer::walk_stmt(const lir::LStmt& s,
                 // temp-borrows into a single phantom variable.
                 bs.target = "<temp#" + std::to_string(bs.region.value) + ">";
                 bs.is_mut = v.is_mut();
+                bs.origin_line = s.line;
                 borrows_.push_back(std::move(bs));
                 RegionConstraint c;
                 c.kind    = RegionConstraint::Kind::Contains;

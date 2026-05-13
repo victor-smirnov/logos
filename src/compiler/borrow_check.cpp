@@ -1458,20 +1458,30 @@ lir::LProgram borrow_check(lir::LProgram prog) {
         ri.analyze(fn, prog);
         if (std::getenv("LOGOS_DUMP_REGIONS"))
             ri.dump(std::string(bare_fn_name(fn.name)));
+        // B72/B73: region-based conflict diagnostics. Phrased in
+        // Rust-style so they read naturally alongside B61's lexical
+        // messages. The "later" borrow (by source line) is the
+        // offending one; the "earlier" is referenced as the still-
+        // live one.
         auto conflicts = ri.find_conflicts();
         for (auto& c : conflicts) {
-            const char* kind_a = c.a->is_mut ? "&mut" : "&";
-            const char* kind_b = c.b->is_mut ? "&mut" : "&";
+            const BorrowSite* first  = c.a;
+            const BorrowSite* second = c.b;
+            if (second->origin_line < first->origin_line)
+                std::swap(first, second);
+            const char* kind_first  = first->is_mut  ? "mutable" : "shared";
+            const char* kind_second = second->is_mut ? "mutable" : "shared";
+            std::string target_label = second->target;
+            if (target_label.starts_with("<temp")) target_label = "temporary";
             Diag d;
             d.level   = Diag::Level::Error;
             d.context = "fn " + std::string(bare_fn_name(fn.name));
             d.message = std::format(
-                "borrow conflict on '{}': {} borrow (region #{}) "
-                "overlaps with {} borrow (region #{}) at CFG point ({},{})",
-                c.a->target, kind_a, c.a->region.value,
-                kind_b, c.b->region.value,
-                c.overlap_at.block, c.overlap_at.idx);
-            d.line = 0;  // origin line lookup deferred to B73
+                "cannot borrow '{}' as {}: {} borrow still in scope here "
+                "(first borrowed at line {}, conflicting use at line {})",
+                target_label, kind_second, kind_first,
+                first->origin_line, second->origin_line);
+            d.line = second->origin_line;
             prog.diags.diags.push_back(std::move(d));
         }
     };

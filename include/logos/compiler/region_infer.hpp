@@ -70,6 +70,7 @@ struct BorrowSite {
     std::string holder;    // let/assign LHS that binds the borrow; empty = transient (e.g. call-arg)
     std::string target;    // the variable being borrowed FROM
     bool        is_mut = false;
+    uint32_t    origin_line = 0;  // B73: source line for diagnostics
 };
 
 // A region constraint. The solver propagates region-membership across
@@ -183,6 +184,10 @@ private:
     std::unordered_map<StmtPoint, LiveSet, StmtPointHash> use_;
     std::unordered_map<StmtPoint, LiveSet, StmtPointHash> def_;
     std::unordered_map<uint32_t, PointSet> region_points_;
+    // B73: source line per CFG point (StmtPoint → line number from
+    // the originating LStmt). Used to produce human-readable
+    // diagnostics that point back at the source.
+    std::unordered_map<StmtPoint, uint32_t, StmtPointHash> point_line_;
     // We keep a pointer to the program for liveness's use/def gather
     // helper which needs the type-pool arena to materialize views.
     const lir::LProgram* prog_for_liveness_ = nullptr;
