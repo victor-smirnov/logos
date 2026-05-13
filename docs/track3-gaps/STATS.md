@@ -97,6 +97,14 @@ Counted *at the time the batch landed*.
 | B67  | 2026-05-12 |  0 |     0 |  1 |  —   | 326 | 112 | 20 |
 | B68  | 2026-05-12 |  2 |     0 |  1 |  —   | 328 | 112 | 21 |
 | B68.1| 2026-05-12 |  1 |     0 |  1 |  —   | 329 | 112 | 22 |
+| B68.2| 2026-05-12 |  0 |     0 |  2 |  —   | 329 | 112 | 24 |
+| B68.3| 2026-05-12 |  0 |     0 |  1 |  —   | 329 | 112 | 25 |
+| B69  | 2026-05-12 |  1 |     0 |  1 |  —   | 330 | 112 | 26 |
+| B70  | 2026-05-12 |  0 |     0 |  0 |  —   | 330 | 112 | 26 |
+| B71.0| 2026-05-12 |  0 |     0 |  0 |  —   | 330 | 112 | 26 |
+| B71.1| 2026-05-12 |  0 |     0 |  0 |  —   | 330 | 112 | 26 |
+| B71.2| 2026-05-12 |  0 |     0 |  0 |  —   | 330 | 112 | 26 |
+| B71.3| 2026-05-12 |  0 |     0 |  0 |  —   | 330 | 112 | 26 |
 
 (Phase-1 gap counts are estimates — pre-batch gap-as-code triage gave
 coarse totals only; precise per-batch arrival-order numbers weren't
@@ -304,14 +312,32 @@ Lifetime epic — current status:
 - Variance + variance-aware subtype (B64/B64.2) ✅
 - NLL min-viable (B61) ✅
 
-Genuinely deferred (orthogonal — separate phase):
-- **Region-based borrow analyser** — current B61 NLL operates on
-  holder last-use lines, not regions. A real Polonius-style
-  analyser with region inference is a separate multi-week project
-  driven by NLL-shaped tests that escape the min-viable's
-  resolution. Re-open when imported `tests/ui/nll/*` start
-  surfacing acceptance/rejection divergence beyond what B64's
-  variance check catches.
+Region inference (B70 → B71.3 — orthogonal phase, in progress):
+- B70: scaffolding — RegionId, StmtPoint, BorrowSite,
+  RegionConstraint, CFG; per-fn analysis walks LStmt + LExpr via
+  lir_view and assigns a fresh region to every `&x` / `&mut x` /
+  `&temp` with a Contains-at-origin seed constraint. Wired behind
+  LOGOS_DUMP_REGIONS env var.
+- B71.0: multi-block CFG — branch / loop / match / let-else / block
+  / return / break / continue all produce proper successor edges
+  (verified with if-with-borrow probe → diamond CFG).
+- B71.1: per-statement liveness via backward dataflow over the CFG
+  (use/def + live-in/live-out, fixed-point capped at 64 rounds).
+- B71.2: Contains constraints from holder liveness — a borrow's
+  region must include every point where the holder is in live_in.
+- B71.3: constraint solver — fixed-point growth of each region's
+  point set; verified region 1 (`&mut x → r`) covers exactly its
+  arm, region 2 (`&y → s`) covers exactly its arm.
+
+Remaining (Polonius-style work):
+- B72: wire the region-based conflict checker as the canonical
+  borrow analyser, replacing the B61 min-viable NLL (last-use
+  release). Conflicts emerge when two overlapping region point
+  sets target the same var and at least one is `is_mut`.
+- B73: region-blame diagnostics ("this borrow flows here, but is
+  needed there").
+- B74: import the `tests/ui/nll/*` corpus from rustc — the
+  acceptance/rejection oracle for B72 + B73.
 
 Closed in B59:
 - **L4** ✅ — multi-input-ref elision: borrow check's
