@@ -666,6 +666,37 @@ lir::LStructDef SemaChecker::lower_struct_def(TinyMapView node) {
     sd.lifetime_params = sinfo->lifetime_params;
     // B65: outlives bounds from `struct Foo<'a, 'b: 'a>` + validate names.
     sd.lifetime_outlives = read_lifetime_outlives(node);
+    // B68.3: also pick up where-clause outlives + type-outlives bounds.
+    {
+        auto where_outlives = read_lifetime_outlives_from(node, la::WHERE.code);
+        for (auto& p : where_outlives) sd.lifetime_outlives.push_back(std::move(p));
+        if (node.has_key(la::WHERE)) {
+            AnyVal wav = node.get(la::WHERE.code);
+            if (!wav.is_null()) {
+                auto wmap = map_of(wav);
+                if (wmap.has_key(la::ITEMS)) {
+                    auto witems = arr_of(wmap.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < witems.size(); ++i) {
+                        auto witem = map_of(witems.get(i));
+                        if (code_of(witem) != la::TYPE_PARAM) continue;
+                        if (!witem.has_key(la::ITEMS)) continue;
+                        std::string tname(str_of(witem.get(la::NAME.code)));
+                        auto inner = arr_of(witem.get(la::ITEMS.code));
+                        TypeParam* target = nullptr;
+                        for (auto& tp : sd.type_params)
+                            if (tp.name == tname) { target = &tp; break; }
+                        if (!target) continue;
+                        for (uint64_t j = 0; j < inner.size(); ++j) {
+                            auto inode = map_of(inner.get(j));
+                            if (code_of(inode) != la::LIFETIME_PARAM) continue;
+                            target->lifetime_outlives.push_back(
+                                std::string(str_of(inode.get(la::NAME.code))));
+                        }
+                    }
+                }
+            }
+        }
+    }
     {
         std::unordered_set<std::string> declared(sd.lifetime_params.begin(),
                                                  sd.lifetime_params.end());
@@ -737,6 +768,37 @@ lir::LEnumDef SemaChecker::lower_enum_def(TinyMapView node) {
     // outlives bounds re-read from the node.
     ed.lifetime_params = einfo.lifetime_params;
     ed.lifetime_outlives = read_lifetime_outlives(node);
+    // B68.3: also pick up where-clause outlives + type-outlives.
+    {
+        auto where_outlives = read_lifetime_outlives_from(node, la::WHERE.code);
+        for (auto& p : where_outlives) ed.lifetime_outlives.push_back(std::move(p));
+        if (node.has_key(la::WHERE)) {
+            AnyVal wav = node.get(la::WHERE.code);
+            if (!wav.is_null()) {
+                auto wmap = map_of(wav);
+                if (wmap.has_key(la::ITEMS)) {
+                    auto witems = arr_of(wmap.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < witems.size(); ++i) {
+                        auto witem = map_of(witems.get(i));
+                        if (code_of(witem) != la::TYPE_PARAM) continue;
+                        if (!witem.has_key(la::ITEMS)) continue;
+                        std::string tname(str_of(witem.get(la::NAME.code)));
+                        auto inner = arr_of(witem.get(la::ITEMS.code));
+                        TypeParam* target = nullptr;
+                        for (auto& tp : ed.type_params)
+                            if (tp.name == tname) { target = &tp; break; }
+                        if (!target) continue;
+                        for (uint64_t j = 0; j < inner.size(); ++j) {
+                            auto inode = map_of(inner.get(j));
+                            if (code_of(inode) != la::LIFETIME_PARAM) continue;
+                            target->lifetime_outlives.push_back(
+                                std::string(str_of(inode.get(la::NAME.code))));
+                        }
+                    }
+                }
+            }
+        }
+    }
     {
         std::unordered_set<std::string> declared(ed.lifetime_params.begin(),
                                                  ed.lifetime_params.end());

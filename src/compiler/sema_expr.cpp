@@ -5093,6 +5093,14 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                       error(std::format("struct literal '{}' field '{}': expected {}, got {}",
                           sname, fname, es, gs)); }
                 }
+                // B68.2: variance check at struct-lit field-init. Permissive
+                // mode — the struct's lifetime args are bound at this
+                // construction site (struct-scope), not fn-scope, so caller's
+                // region inference fills in elided source regions.
+                if (ft && !ft_has_typevar)
+                    check_variance(fval->type, ft,
+                                   std::format("struct literal '{}' field '{}'", sname, fname),
+                                   /*permissive=*/true);
                 // Check IntLit field value fits in the declared field type.
                 if (ft && TypeRef(fval->type).kind() == LogosType::Kind::IntLit)
                     if (auto v = get_intlit_value(fval))
@@ -5166,6 +5174,12 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                   error(std::format("struct literal '{}' field '{}': expected {}, got {}",
                       sname, fname, es, gs)); }
             }
+            // B68.2: variance check at struct-lit field-init coercion.
+            // Permissive — struct's lifetime args are inferred at this site.
+            if (ft)
+                check_variance(fval->type, ft,
+                               std::format("struct literal '{}' field '{}'", sname, fname),
+                               /*permissive=*/true);
             // Check IntLit field value fits in the declared field type.
             if (ft && TypeRef(fval->type).kind() == LogosType::Kind::IntLit)
                 if (auto v = get_intlit_value(fval))

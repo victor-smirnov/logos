@@ -237,8 +237,10 @@ inline bool subtype(TypeRef sub, TypeRef sup,
                 if (!subtype(sta[i], pta[i], adj, vars, depth + 1, permissive_empty)) return false;
             return true;
         }
-        case K::FnPtr: {
-            // Contra in params, Co in ret.
+        case K::FnPtr:
+        case K::Closure: {
+            // Contra in params, Co in ret. Closure shares the same variance
+            // shape as FnPtr — param/ret accessors are uniform.
             auto sp = sub.closure_params();
             auto pp = sup.closure_params();
             if (sp.size() != pp.size()) return true;

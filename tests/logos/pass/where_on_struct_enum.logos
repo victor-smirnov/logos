@@ -1,0 +1,15 @@
+// B68.3: where-clauses on struct + enum definitions. Both forms parse,
+// and the type-outlives bound `T: 'a` lands on the struct/enum's
+// TypeParam.lifetime_outlives.
+package where_on_struct_enum;
+
+struct Holder<'a, T> where T: 'a {
+    r: &'a T,
+}
+
+enum Wrap<'a, T> where T: 'a {
+    Some(&'a T),
+    None,
+}
+
+fn main() -> i32 { return 0i32; }

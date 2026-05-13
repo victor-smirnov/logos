@@ -577,23 +577,25 @@
     // enum Color { Red, Green = 5, Blue }
     // enum Option<T> { Some(T), None }
     // enum Tags : u64 { X = 0xdead }          — explicit backing integer type
+    // B68.3: enum where-clauses only on IDENT-NAME alts (NAME_VAR alts
+    // collide with WHERE on slot 38).
     pub_enum_def <- KW_PUB KW_ENUM HASH LPAREN expr RPAREN type_param_list? COLON type_ref LBRACE variant_list? RBRACE
                  => { CODE: ENUM, IS_PUB: 1, NAME_VAR: $5, TYPE_PARAMS: $7, TYPE: $9, ITEMS: $11 }
                   / KW_PUB KW_ENUM HASH LPAREN expr RPAREN type_param_list? LBRACE variant_list? RBRACE
                  => { CODE: ENUM, IS_PUB: 1, NAME_VAR: $5, TYPE_PARAMS: $7, ITEMS: $9 }
-                  / KW_PUB KW_ENUM IDENT type_param_list? COLON type_ref LBRACE variant_list? RBRACE
-                 => { CODE: ENUM, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, TYPE: $6, ITEMS: $8 }
-                  / KW_PUB KW_ENUM IDENT type_param_list? LBRACE variant_list? RBRACE
-                 => { CODE: ENUM, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, ITEMS: $6 }
+                  / KW_PUB KW_ENUM IDENT type_param_list? COLON type_ref where_clause? LBRACE variant_list? RBRACE
+                 => { CODE: ENUM, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, TYPE: $6, WHERE: $7, ITEMS: $9 }
+                  / KW_PUB KW_ENUM IDENT type_param_list? where_clause? LBRACE variant_list? RBRACE
+                 => { CODE: ENUM, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, WHERE: $5, ITEMS: $7 }
 
     enum_def <- KW_ENUM HASH LPAREN expr RPAREN type_param_list? COLON type_ref LBRACE variant_list? RBRACE
              => { CODE: ENUM, NAME_VAR: $4, TYPE_PARAMS: $6, TYPE: $8, ITEMS: $10 }
               / KW_ENUM HASH LPAREN expr RPAREN type_param_list? LBRACE variant_list? RBRACE
              => { CODE: ENUM, NAME_VAR: $4, TYPE_PARAMS: $6, ITEMS: $8 }
-              / KW_ENUM IDENT type_param_list? COLON type_ref LBRACE variant_list? RBRACE
-             => { CODE: ENUM, NAME: $2, TYPE_PARAMS: $3, TYPE: $5, ITEMS: $7 }
-              / KW_ENUM IDENT type_param_list? LBRACE variant_list? RBRACE
-             => { CODE: ENUM, NAME: $2, TYPE_PARAMS: $3, ITEMS: $5 }
+              / KW_ENUM IDENT type_param_list? COLON type_ref where_clause? LBRACE variant_list? RBRACE
+             => { CODE: ENUM, NAME: $2, TYPE_PARAMS: $3, TYPE: $5, WHERE: $6, ITEMS: $8 }
+              / KW_ENUM IDENT type_param_list? where_clause? LBRACE variant_list? RBRACE
+             => { CODE: ENUM, NAME: $2, TYPE_PARAMS: $3, WHERE: $4, ITEMS: $6 }
 
     variant_list <- variant_def (COMMA variant_def)* COMMA?
                  => { ITEMS: $... }
@@ -899,12 +901,17 @@
     struct_inst <- KW_STRUCT type_ref SEMI
                 => { CODE: STRUCT, TYPE: $2 }
 
+    // B68.3: struct/enum where-clauses on definitions. WHERE shares slot 38
+    // with NAME_VAR (antiquot placeholder used inside quote_item! bodies),
+    // so where-clauses are only accepted on the IDENT-NAME alternatives —
+    // the antiquot (NAME_VAR / HASH-prefixed) alts never carry where in
+    // practice, and emitting both would collide on the slot.
     pub_struct_def <- KW_PUB KW_STRUCT HASH LPAREN expr RPAREN type_param_list? LBRACE field_def* method_def* RBRACE
                    => { CODE: STRUCT, IS_PUB: 1, NAME_VAR: $5, TYPE_PARAMS: $7, FIELDS: $9, ITEMS: $10 }
                     / KW_PUB KW_STRUCT HASH IDENT type_param_list? LBRACE field_def* method_def* RBRACE
                    => { CODE: STRUCT, IS_PUB: 1, NAME_VAR: $4, TYPE_PARAMS: $5, FIELDS: $7, ITEMS: $8 }
-                    / KW_PUB KW_STRUCT IDENT type_param_list? LBRACE field_def* method_def* RBRACE
-                   => { CODE: STRUCT, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, FIELDS: $6, ITEMS: $7 }
+                    / KW_PUB KW_STRUCT IDENT type_param_list? where_clause? LBRACE field_def* method_def* RBRACE
+                   => { CODE: STRUCT, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, WHERE: $5, FIELDS: $7, ITEMS: $8 }
                     / KW_PUB KW_STRUCT IDENT LPAREN tuple_field (COMMA tuple_field)* RPAREN SEMI
                    => { CODE: STRUCT, IS_PUB: 1, NAME: $3, FIELDS: $... }
 
@@ -914,8 +921,8 @@
                => { CODE: STRUCT, NAME_VAR: $3, TYPE_PARAMS: $4, FIELDS: $6, ITEMS: $7 }
                 / KW_STRUCT IDENT type_param_list? LPAREN tuple_field (COMMA tuple_field)* RPAREN SEMI
                => { CODE: STRUCT, NAME: $2, FIELDS: $... }
-                / KW_STRUCT IDENT type_param_list? LBRACE field_def* method_def* RBRACE
-               => { CODE: STRUCT, NAME: $2, TYPE_PARAMS: $3, FIELDS: $5, ITEMS: $6 }
+                / KW_STRUCT IDENT type_param_list? where_clause? LBRACE field_def* method_def* RBRACE
+               => { CODE: STRUCT, NAME: $2, TYPE_PARAMS: $3, WHERE: $4, FIELDS: $6, ITEMS: $7 }
 
     // B-ts-01: tuple-struct fields — types only, no field names.
     // Sema synthesises field names "0", "1", … so `foo.0` / pattern
