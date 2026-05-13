@@ -1,0 +1,7 @@
+// B98.2: borrow of module-level const materializes a temp slot.
+package borrow_of_const;
+const N: i32 = 7i32;
+fn main() -> i32 {
+    let r: &i32 = &N;
+    return *r - 7i32;
+}

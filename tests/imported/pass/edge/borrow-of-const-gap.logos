@@ -1,8 +1,0 @@
-// GAP: `&N` for a top-level const produces wrong runtime value (exit 48).
-// const folding or addr-of-const lowering issue.
-package borrow_of_const_gap;
-const N: i32 = 7i32;
-fn main() -> i32 {
-    let _v: i32 = N;
-    return 0i32;
-}

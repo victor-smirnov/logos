@@ -763,6 +763,19 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfView v, TypeRef) {
     std::string var_name{v.var_name()};
     auto it = scope_.find(var_name);
     if (it == scope_.end()) {
+        // B98.2: module-level const — materialize a temporary stack slot
+        // and store the const value, then return the slot address.
+        auto cit = module_consts_.find(var_name);
+        if (cit != module_consts_.end()) {
+            auto val = gen_expr(*cit->second->value);
+            if (!val) {
+                std::fprintf(stderr, "mlir_gen: & const '%s' eval failed\n", var_name.c_str());
+                return nullptr;
+            }
+            auto alloca = create_entry_alloca(val.getType());
+            builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+            return alloca;
+        }
         std::fprintf(stderr, "mlir_gen: & undefined '%s'\n", var_name.c_str());
         return nullptr;
     }
