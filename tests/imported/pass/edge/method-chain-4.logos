@@ -1,0 +1,10 @@
+package method_chain_4;
+struct A { v: i32 }
+struct B { a: A }
+struct C { b: B }
+struct D { c: C }
+impl D { fn read(self: &D) -> i32 { return self.c.b.a.v; } }
+fn main() -> i32 {
+    let d: D = D { c: C { b: B { a: A { v: 11i32 } } } };
+    return d.read() - 11i32;
+}

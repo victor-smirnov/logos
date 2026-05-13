@@ -1,0 +1,7 @@
+package array_mut_write;
+fn main() -> i32 {
+    let mut a: [i32; 3] = [0i32, 0i32, 0i32];
+    a[0] = 5i32;
+    a[1] = 3i32;
+    return a[0] + a[1] - 8i32;
+}

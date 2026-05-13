@@ -1,0 +1,3 @@
+package math_abs;
+fn abs(x: i32) -> i32 { if x < 0i32 { return -x; } return x; }
+fn main() -> i32 { return abs(-5i32) - 5i32; }

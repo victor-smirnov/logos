@@ -1,0 +1,6 @@
+package return_early_4;
+fn check(x: i32) -> i32 {
+    if x == 4i32 { return 0i32; }
+    return -1i32;
+}
+fn main() -> i32 { return check(4i32); }

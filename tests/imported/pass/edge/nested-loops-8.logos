@@ -1,0 +1,14 @@
+package nested_loops_8;
+fn main() -> i32 {
+    let mut count: i32 = 0i32;
+    let mut i: i32 = 0i32;
+    while i < 8i32 {
+        let mut j: i32 = 0i32;
+        while j < 8i32 {
+            count = count + 1i32;
+            j = j + 1i32;
+        }
+        i = i + 1i32;
+    }
+    return count - 64i32;
+}

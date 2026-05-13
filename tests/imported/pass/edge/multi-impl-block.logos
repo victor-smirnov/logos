@@ -1,0 +1,8 @@
+package multi_impl_block;
+struct S { v: i32 }
+impl S { fn a(self: &S) -> i32 { return self.v; } }
+impl S { fn b(self: &S) -> i32 { return self.v * 2i32; } }
+fn main() -> i32 {
+    let s: S = S { v: 3i32 };
+    return s.a() + s.b() - 9i32;
+}

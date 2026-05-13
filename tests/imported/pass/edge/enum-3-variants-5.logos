@@ -1,0 +1,11 @@
+package enum_3_variants_5;
+enum E5 { A, B, C }
+fn main() -> i32 {
+    let e: E5 = E5::B;
+    let r: i32 = match e {
+        E5::A => 0i32,
+        E5::B => 5i32,
+        E5::C => 0i32,
+    };
+    return r - 5i32;
+}

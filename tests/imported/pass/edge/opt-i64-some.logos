@@ -1,0 +1,11 @@
+package opt_i64_some;
+enum Opt<T> { Some(T), None }
+fn main() -> i32 {
+    let o: Opt<i64> = Opt::Some(5i64);
+    let r: i64 = match o {
+        Opt::Some(x) => x,
+        Opt::None    => 0i64,
+    };
+    let _v: i64 = r;
+    return 0i32;
+}

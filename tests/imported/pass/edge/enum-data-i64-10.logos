@@ -1,0 +1,7 @@
+package enum_data_i64_10;
+enum E { Some(i64), None }
+fn main() -> i32 {
+    let e: E = E::Some(10i64);
+    let v: i64 = match e { E::Some(x) => x, E::None => 0i64 };
+    return (v - 10i64) as i32;
+}

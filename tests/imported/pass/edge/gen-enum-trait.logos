@@ -1,0 +1,7 @@
+package gen_enum_trait;
+trait Tag { fn tag() -> i32; }
+struct A { _x: i32 }
+struct B { _x: i32 }
+impl Tag for A { fn tag() -> i32 { return 1i32; } }
+impl Tag for B { fn tag() -> i32 { return 2i32; } }
+fn main() -> i32 { return A::tag() - 1i32; }

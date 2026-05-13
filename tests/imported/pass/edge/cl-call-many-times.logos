@@ -1,0 +1,8 @@
+package cl_call_many_times;
+fn main() -> i32 {
+    let f = |x: i32| -> i32 { return x + 1i32; };
+    let a: i32 = f(0i32);
+    let b: i32 = f(1i32);
+    let c: i32 = f(2i32);
+    return a + b + c - 6i32;
+}

@@ -1,0 +1,9 @@
+package cl_modify_capture;
+fn main() -> i32 {
+    let mut n: i32 = 0i32;
+    let r: &mut i32 = &mut n;
+    let f = || { *r = *r + 5i32; };
+    f();
+    f();
+    return n - 10i32;
+}

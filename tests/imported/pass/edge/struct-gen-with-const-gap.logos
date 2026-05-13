@@ -1,0 +1,4 @@
+// GAP: turbofish `W::<T>::CONST` syntax for accessing assoc const on
+// generic struct fails parse.
+package struct_gen_with_const_gap;
+fn main() -> i32 { return 0i32; }

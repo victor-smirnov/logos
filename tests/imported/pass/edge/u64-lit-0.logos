@@ -1,0 +1,6 @@
+package u64_lit_0;
+fn main() -> i32 {
+    let x: u64 = 0u64;
+    let _y: u64 = x;
+    return 0i32;
+}

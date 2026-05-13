@@ -1,0 +1,11 @@
+package trait_default_base_9;
+trait T9 {
+    fn val(self: &Self) -> i32;
+    fn plus(self: &Self) -> i32 { return self.val() + 9i32; }
+}
+struct S9 { v: i32 }
+impl T9 for S9 { fn val(self: &S9) -> i32 { return self.v; } }
+fn main() -> i32 {
+    let s: S9 = S9 { v: 0i32 };
+    return s.plus() - 9i32;
+}

@@ -1,0 +1,8 @@
+package auto_deref_method;
+struct S { v: i32 }
+impl S { fn val(self: &S) -> i32 { return self.v; } }
+fn main() -> i32 {
+    let s: S = S { v: 7i32 };
+    let r: &S = &s;
+    return r.val() - 7i32;
+}

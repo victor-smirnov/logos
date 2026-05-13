@@ -1,0 +1,10 @@
+package while_sum_3;
+fn main() -> i32 {
+    let mut s: i32 = 0i32;
+    let mut i: i32 = 0i32;
+    while i < 3i32 {
+        s = s + 1i32;
+        i = i + 1i32;
+    }
+    return s - 3i32;
+}

@@ -1,0 +1,8 @@
+package mut_self_write;
+struct S { v: i32 }
+impl S { fn set(self: &mut S, n: i32) { (*self).v = n; } }
+fn main() -> i32 {
+    let mut s: S = S { v: 0i32 };
+    s.set(5i32);
+    return s.v - 5i32;
+}

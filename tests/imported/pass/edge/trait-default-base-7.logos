@@ -1,0 +1,11 @@
+package trait_default_base_7;
+trait T7 {
+    fn val(self: &Self) -> i32;
+    fn plus(self: &Self) -> i32 { return self.val() + 7i32; }
+}
+struct S7 { v: i32 }
+impl T7 for S7 { fn val(self: &S7) -> i32 { return self.v; } }
+fn main() -> i32 {
+    let s: S7 = S7 { v: 0i32 };
+    return s.plus() - 7i32;
+}

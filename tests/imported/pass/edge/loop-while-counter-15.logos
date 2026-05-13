@@ -1,0 +1,6 @@
+package loop_while_counter_15;
+fn main() -> i32 {
+    let mut sum: i32 = 0i32;
+    let mut i: i32 = 0i32; while i < 15i32 { sum = sum + i; i = i + 1i32; }
+    return sum - 105i32;
+}

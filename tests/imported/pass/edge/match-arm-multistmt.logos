@@ -1,0 +1,12 @@
+package match_arm_multistmt;
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    match x {
+        5i32 => {
+            let a: i32 = 1i32;
+            let b: i32 = 2i32;
+            return a + b - 3i32;
+        }
+        _ => return 1i32,
+    }
+}

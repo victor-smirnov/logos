@@ -1,0 +1,6 @@
+package i32_lit_2147483647;
+fn main() -> i32 {
+    let x: i32 = 2147483647i32;
+    let y: i32 = x;
+    return y - x;
+}

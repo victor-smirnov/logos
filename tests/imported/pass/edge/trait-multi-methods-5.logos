@@ -1,0 +1,12 @@
+package trait_multi_methods_5;
+trait Many5 { fn a(self: &Self) -> i32; fn b(self: &Self) -> i32; fn c(self: &Self) -> i32; }
+struct S5 { v: i32 }
+impl Many5 for S5 {
+    fn a(self: &S5) -> i32 { return self.v + 1i32; }
+    fn b(self: &S5) -> i32 { return self.v + 2i32; }
+    fn c(self: &S5) -> i32 { return self.v + 3i32; }
+}
+fn main() -> i32 {
+    let s: S5 = S5 { v: 0i32 };
+    return s.a() + s.b() + s.c() - 6i32;
+}

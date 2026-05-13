@@ -1,0 +1,5 @@
+package tup_mixed_types_4;
+fn main() -> i32 {
+    let t: (i32, i64, bool) = (4i32, 0i64, true);
+    return t.0 - 4i32;
+}

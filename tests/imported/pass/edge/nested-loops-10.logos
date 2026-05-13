@@ -1,0 +1,14 @@
+package nested_loops_10;
+fn main() -> i32 {
+    let mut count: i32 = 0i32;
+    let mut i: i32 = 0i32;
+    while i < 10i32 {
+        let mut j: i32 = 0i32;
+        while j < 10i32 {
+            count = count + 1i32;
+            j = j + 1i32;
+        }
+        i = i + 1i32;
+    }
+    return count - 100i32;
+}

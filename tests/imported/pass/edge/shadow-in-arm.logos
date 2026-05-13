@@ -1,0 +1,8 @@
+package shadow_in_arm;
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    let r: i32 = match x {
+        n => { let n: i32 = n + 1i32; n - 6i32 }
+    };
+    return r;
+}

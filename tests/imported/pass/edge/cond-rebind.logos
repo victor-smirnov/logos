@@ -1,0 +1,6 @@
+package cond_rebind;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    if true { x = 5i32; }
+    return x - 5i32;
+}

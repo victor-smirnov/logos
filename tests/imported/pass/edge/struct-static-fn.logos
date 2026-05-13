@@ -1,0 +1,7 @@
+package struct_static_fn;
+struct S { v: i32 }
+impl S { static fn new() -> S { return S { v: 5i32 }; } }
+fn main() -> i32 {
+    let s: S = S::new();
+    return s.v - 5i32;
+}

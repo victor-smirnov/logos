@@ -1,0 +1,7 @@
+package mut_fn_1;
+fn set(m: &mut i32, n: i32) { *m = n; }
+fn main() -> i32 {
+    let mut v: i32 = 0i32;
+    set(&mut v, 1i32);
+    return v - 1i32;
+}

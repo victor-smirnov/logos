@@ -1,0 +1,9 @@
+package match_merge_4;
+fn main() -> i32 {
+    let x: i32 = 4i32;
+    let r: i32 = match x {
+        1i32 | 2i32 | 3i32 | 4i32 | 5i32 => 0i32,
+        _ => 1i32,
+    };
+    return r;
+}

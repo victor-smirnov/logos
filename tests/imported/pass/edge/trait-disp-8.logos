@@ -1,0 +1,8 @@
+package trait_disp_8;
+trait T8 { fn val(self: &Self) -> i32; }
+struct K8 { v: i32 }
+impl T8 for K8 { fn val(self: &K8) -> i32 { return self.v + 8i32; } }
+fn main() -> i32 {
+    let k: K8 = K8 { v: 0i32 };
+    return k.val() - 8i32;
+}

@@ -1,0 +1,4 @@
+package method_prim_5;
+trait Add5 { fn add_5(self: &Self) -> i32; }
+impl Add5 for i32 { fn add_5(self: &i32) -> i32 { return (*self) + 5i32; } }
+fn main() -> i32 { let x: i32 = 0i32; return x.add_5() - 5i32; }

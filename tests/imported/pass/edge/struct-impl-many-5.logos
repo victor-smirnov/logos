@@ -1,0 +1,11 @@
+package struct_impl_many_5;
+struct S5 { v: i32 }
+impl S5 {
+    fn a(self: &S5) -> i32 { return self.v + 5i32; }
+    fn b(self: &S5) -> i32 { return self.v + 5i32 * 2i32; }
+    fn c(self: &S5) -> i32 { return self.v + 5i32 * 3i32; }
+}
+fn main() -> i32 {
+    let s: S5 = S5 { v: 0i32 };
+    return s.a() + s.b() + s.c() - 30i32;
+}

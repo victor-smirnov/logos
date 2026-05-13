@@ -1,0 +1,6 @@
+package tuple_struct_mixed;
+struct M(i32, i64, bool);
+fn main() -> i32 {
+    let m: M = M(5i32, 9i64, true);
+    return m.0 - 5i32;
+}

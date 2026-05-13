@@ -1,0 +1,11 @@
+package enum_fnptr_variant;
+enum E { Op(fn(i32) -> i32), Nothing }
+fn dbl(x: i32) -> i32 { return x * 2i32; }
+fn main() -> i32 {
+    let e: E = E::Op(dbl);
+    let r: i32 = match e {
+        E::Op(f) => f(5i32),
+        E::Nothing => 0i32,
+    };
+    return r - 10i32;
+}

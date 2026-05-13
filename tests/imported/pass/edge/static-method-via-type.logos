@@ -1,0 +1,7 @@
+package static_method_via_type;
+struct S { v: i32 }
+impl S { static fn make(v: i32) -> S { return S { v: v }; } }
+fn main() -> i32 {
+    let s: S = S::make(7i32);
+    return s.v - 7i32;
+}

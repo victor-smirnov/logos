@@ -1,0 +1,5 @@
+// GAP: `if let Pat = expr { x } else { ... }` as expression doesn't
+// scope binding into the then-branch — `x` reported undefined.
+// `if let ... { ... }` as STATEMENT works (probably different path).
+package if_let_extract_gap;
+fn main() -> i32 { return 0i32; }

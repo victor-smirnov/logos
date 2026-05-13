@@ -1,0 +1,6 @@
+package ref_fn_3;
+fn pass(r: &i32) -> i32 { return *r + 3i32; }
+fn main() -> i32 {
+    let v: i32 = 0i32;
+    return pass(&v) - 3i32;
+}

@@ -1,0 +1,4 @@
+package method_prim_4;
+trait Add4 { fn add_4(self: &Self) -> i32; }
+impl Add4 for i32 { fn add_4(self: &i32) -> i32 { return (*self) + 4i32; } }
+fn main() -> i32 { let x: i32 = 0i32; return x.add_4() - 4i32; }

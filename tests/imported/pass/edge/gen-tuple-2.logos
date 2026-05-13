@@ -1,0 +1,6 @@
+package gen_tuple_2;
+fn pair<T>(x: T) -> (T, T) { return (x, x); }
+fn main() -> i32 {
+    let p: (i32, i32) = pair::<i32>(2i32);
+    return p.0 + p.1 - 4i32;
+}

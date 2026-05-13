@@ -1,0 +1,9 @@
+// GAP: Box<S> doesn't auto-deref for field access (b.v fails).
+// Same family as box-gen-gap. Needs Deref trait wiring.
+package boxed_struct_gap;
+use std.mem.box;
+struct S { v: i32 }
+fn main() -> i32 {
+    let _b: Box<S> = box_new(S { v: 5i32 });
+    return 0i32;
+}

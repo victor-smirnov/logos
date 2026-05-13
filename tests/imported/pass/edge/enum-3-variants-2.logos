@@ -1,0 +1,11 @@
+package enum_3_variants_2;
+enum E2 { A, B, C }
+fn main() -> i32 {
+    let e: E2 = E2::B;
+    let r: i32 = match e {
+        E2::A => 0i32,
+        E2::B => 2i32,
+        E2::C => 0i32,
+    };
+    return r - 2i32;
+}

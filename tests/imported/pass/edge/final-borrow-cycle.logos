@@ -1,0 +1,10 @@
+// borrow released between two loops
+package final_borrow_cycle;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let mut i: i32 = 0i32;
+    while i < 3i32 { x = x + 1i32; i = i + 1i32; }
+    let mut j: i32 = 0i32;
+    while j < 2i32 { x = x + 2i32; j = j + 1i32; }
+    return x - 7i32;
+}

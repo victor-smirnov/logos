@@ -1,0 +1,12 @@
+package two_mut_args_5;
+fn swap(a: &mut i32, b: &mut i32) {
+    let t: i32 = *a;
+    *a = *b;
+    *b = t;
+}
+fn main() -> i32 {
+    let mut x: i32 = 5i32;
+    let mut y: i32 = 10i32;
+    swap(&mut x, &mut y);
+    return x - 10i32;
+}

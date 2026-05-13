@@ -1,0 +1,12 @@
+package match_all_variants;
+enum E { A, B, C, D }
+fn main() -> i32 {
+    let e: E = E::C;
+    let r: i32 = match e {
+        E::A => 0i32,
+        E::B => 1i32,
+        E::C => 2i32,
+        E::D => 3i32,
+    };
+    return r - 2i32;
+}

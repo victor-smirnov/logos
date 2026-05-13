@@ -1,0 +1,4 @@
+// GAP: nested fn decl (`fn helper(...) { }` inside fn body) is not
+// supported by parser. Probably grammar excludes fn-decl in stmt position.
+package nested_fn_gap;
+fn main() -> i32 { return 0i32; }

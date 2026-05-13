@@ -1,0 +1,6 @@
+package gen_ret_4;
+fn make<T>(x: T) -> T { return x; }
+fn main() -> i32 {
+    let r: i32 = make::<i32>(4i32);
+    return r - 4i32;
+}

@@ -1,0 +1,7 @@
+package match_as_arg;
+fn double(x: i32) -> i32 { return x * 2i32; }
+fn main() -> i32 {
+    let x: i32 = 3i32;
+    let r: i32 = double(match x { n => n });
+    return r - 6i32;
+}

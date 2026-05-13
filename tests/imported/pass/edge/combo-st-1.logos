@@ -1,0 +1,9 @@
+package combo_st_1;
+struct K1 { v: i32 }
+trait V1 { fn val(self: &Self) -> i32; }
+impl V1 for K1 { fn val(self: &K1) -> i32 { return self.v + 1i32; } }
+fn run(t: &K1) -> i32 { return t.val(); }
+fn main() -> i32 {
+    let k: K1 = K1 { v: 0i32 };
+    return run(&k) - 1i32;
+}

@@ -1,0 +1,11 @@
+package vec_push_5;
+use std.collections.vec;
+fn main() -> i32 {
+    let mut v: Vec<i32> = vec_new::<i32>();
+    let mut i: i32 = 0i32;
+    while i < 5i32 {
+        v.push(i);
+        i = i + 1i32;
+    }
+    return v.length() as i32 - 5i32;
+}

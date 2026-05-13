@@ -1,0 +1,6 @@
+package slice_method;
+fn main() -> i32 {
+    let a: [i32; 5] = [1i32, 2i32, 3i32, 4i32, 5i32];
+    let s: &[i32] = &a;
+    return s.len() as i32 - 5i32;
+}

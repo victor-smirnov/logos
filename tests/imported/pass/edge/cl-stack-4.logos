@@ -1,0 +1,6 @@
+package cl_stack_4;
+fn main() -> i32 {
+    let f = |x: i32| -> i32 { return x + 4i32; };
+    let g = |x: i32| -> i32 { return f(x) + 4i32; };
+    return g(0i32) - 8i32;
+}

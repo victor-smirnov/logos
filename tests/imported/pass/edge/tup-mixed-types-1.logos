@@ -1,0 +1,5 @@
+package tup_mixed_types_1;
+fn main() -> i32 {
+    let t: (i32, i64, bool) = (1i32, 0i64, true);
+    return t.0 - 1i32;
+}

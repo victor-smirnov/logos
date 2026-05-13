@@ -1,0 +1,8 @@
+package trait_disp_9;
+trait T9 { fn val(self: &Self) -> i32; }
+struct K9 { v: i32 }
+impl T9 for K9 { fn val(self: &K9) -> i32 { return self.v + 9i32; } }
+fn main() -> i32 {
+    let k: K9 = K9 { v: 0i32 };
+    return k.val() - 9i32;
+}

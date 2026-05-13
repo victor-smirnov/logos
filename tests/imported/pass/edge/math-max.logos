@@ -1,0 +1,3 @@
+package math_max;
+fn max(a: i32, b: i32) -> i32 { if a > b { return a; } return b; }
+fn main() -> i32 { return max(3i32, 7i32) - 7i32; }

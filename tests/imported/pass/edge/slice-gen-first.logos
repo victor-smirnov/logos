@@ -1,0 +1,6 @@
+package slice_gen_first;
+fn first(s: &[i32]) -> &i32 { return &s[0]; }
+fn main() -> i32 {
+    let a: [i32; 3] = [5i32, 0i32, 0i32];
+    return *first(&a) - 5i32;
+}

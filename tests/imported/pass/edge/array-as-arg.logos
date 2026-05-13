@@ -1,0 +1,6 @@
+package array_as_arg;
+fn first(a: [i32; 3]) -> i32 { return a[0]; }
+fn main() -> i32 {
+    let a: [i32; 3] = [5i32, 0i32, 0i32];
+    return first(a) - 5i32;
+}

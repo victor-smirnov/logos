@@ -1,0 +1,7 @@
+package struct_clone_7;
+struct S { v: i32 }
+fn main() -> i32 {
+    let s1: S = S { v: 7i32 };
+    let s2: S = S { v: s1.v };
+    return s2.v - 7i32;
+}

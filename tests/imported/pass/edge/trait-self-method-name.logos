@@ -1,0 +1,11 @@
+package trait_self_method_name;
+trait T {
+    fn lookup(self: &Self) -> i32;
+    fn use_lookup(self: &Self) -> i32 { return self.lookup() + 1i32; }
+}
+struct S { v: i32 }
+impl T for S { fn lookup(self: &S) -> i32 { return self.v; } }
+fn main() -> i32 {
+    let s: S = S { v: 5i32 };
+    return s.use_lookup() - 6i32;
+}

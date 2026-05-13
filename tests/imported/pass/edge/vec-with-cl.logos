@@ -1,0 +1,7 @@
+package vec_with_cl;
+use std.collections.vec;
+fn main() -> i32 {
+    let mut v: Vec<i32> = vec_new::<i32>();
+    let push_n = |n: i32| { v.push(n); };
+    return 0i32;
+}

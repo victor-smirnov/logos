@@ -1,0 +1,6 @@
+package u8_lit_0;
+fn main() -> i32 {
+    let x: u8 = 0u8;
+    let _y: u8 = x;
+    return 0i32;
+}

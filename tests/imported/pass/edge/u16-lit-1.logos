@@ -1,0 +1,6 @@
+package u16_lit_1;
+fn main() -> i32 {
+    let x: u16 = 1u16;
+    let _y: u16 = x;
+    return 0i32;
+}

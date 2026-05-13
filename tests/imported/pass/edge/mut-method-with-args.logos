@@ -1,0 +1,10 @@
+package mut_method_with_args;
+struct S { v: i32 }
+impl S {
+    fn add_n(self: &mut S, n: i32) -> i32 { (*self).v = (*self).v + n; return (*self).v; }
+}
+fn main() -> i32 {
+    let mut s: S = S { v: 0i32 };
+    let r: i32 = s.add_n(5i32);
+    return r - 5i32;
+}

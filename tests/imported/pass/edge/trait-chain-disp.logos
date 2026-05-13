@@ -1,0 +1,12 @@
+package trait_chain_disp;
+trait A { fn a(self: &Self) -> i32; }
+trait B { fn b(self: &Self) -> i32; }
+struct K { v: i32 }
+impl A for K { fn a(self: &K) -> i32 { return self.v; } }
+impl B for K { fn b(self: &K) -> i32 { return self.v * 2i32; } }
+fn use_a<T: A>(t: &T) -> i32 { return t.a(); }
+fn use_b<T: B>(t: &T) -> i32 { return t.b(); }
+fn main() -> i32 {
+    let k: K = K { v: 5i32 };
+    return use_a::<K>(&k) + use_b::<K>(&k) - 15i32;
+}

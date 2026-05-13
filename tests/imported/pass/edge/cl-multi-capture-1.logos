@@ -1,0 +1,7 @@
+package cl_multi_capture_1;
+fn main() -> i32 {
+    let a: i32 = 1i32;
+    let b: i32 = 2i32;
+    let f = || -> i32 { return a + b; };
+    return f() - 3i32;
+}

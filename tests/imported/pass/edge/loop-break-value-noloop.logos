@@ -1,0 +1,9 @@
+package loop_break_value_noloop;
+fn main() -> i32 {
+    let mut i: i32 = 0i32;
+    let result: i32 = loop {
+        if i == 5i32 { break i; }
+        i = i + 1i32;
+    };
+    return result - 5i32;
+}

@@ -1,0 +1,9 @@
+package match_const_1;
+fn main() -> i32 {
+    let x: i32 = -1i32;
+    let r: i32 = match x {
+        -1i32 => 0i32,
+        _       => 1i32,
+    };
+    return r;
+}

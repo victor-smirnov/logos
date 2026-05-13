@@ -1,0 +1,6 @@
+package i32_lit_100;
+fn main() -> i32 {
+    let x: i32 = 100i32;
+    let y: i32 = x;
+    return y - x;
+}

@@ -1,0 +1,12 @@
+package trait_multi_methods_1;
+trait Many1 { fn a(self: &Self) -> i32; fn b(self: &Self) -> i32; fn c(self: &Self) -> i32; }
+struct S1 { v: i32 }
+impl Many1 for S1 {
+    fn a(self: &S1) -> i32 { return self.v + 1i32; }
+    fn b(self: &S1) -> i32 { return self.v + 2i32; }
+    fn c(self: &S1) -> i32 { return self.v + 3i32; }
+}
+fn main() -> i32 {
+    let s: S1 = S1 { v: 0i32 };
+    return s.a() + s.b() + s.c() - 6i32;
+}

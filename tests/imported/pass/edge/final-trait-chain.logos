@@ -1,0 +1,12 @@
+package final_trait_chain;
+trait A { fn a(self: &Self) -> i32; }
+trait B : A { fn b(self: &Self) -> i32 { return self.a() + 1i32; } }
+trait C : B { fn c(self: &Self) -> i32 { return self.b() + 1i32; } }
+struct K { v: i32 }
+impl A for K { fn a(self: &K) -> i32 { return self.v; } }
+impl B for K {}
+impl C for K {}
+fn main() -> i32 {
+    let k: K = K { v: 3i32 };
+    return k.c() - 5i32;
+}

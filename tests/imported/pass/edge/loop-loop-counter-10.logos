@@ -1,0 +1,6 @@
+package loop_loop_counter_10;
+fn main() -> i32 {
+    let mut sum: i32 = 0i32;
+    let mut i: i32 = 0i32; loop { if i >= 10i32 { break; } sum = sum + i; i = i + 1i32; }
+    return sum - 45i32;
+}

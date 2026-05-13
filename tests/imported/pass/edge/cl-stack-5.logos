@@ -1,0 +1,6 @@
+package cl_stack_5;
+fn main() -> i32 {
+    let f = |x: i32| -> i32 { return x + 5i32; };
+    let g = |x: i32| -> i32 { return f(x) + 5i32; };
+    return g(0i32) - 10i32;
+}

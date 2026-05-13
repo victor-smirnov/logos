@@ -1,0 +1,6 @@
+package iter_with_acc_1;
+fn main() -> i32 {
+    let mut acc: i32 = 0i32;
+    for i in 0i32..1i32 { acc = acc + i + 1i32; }
+    return acc - 1i32;
+}

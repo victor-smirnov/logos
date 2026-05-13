@@ -1,0 +1,9 @@
+package block_return;
+fn main() -> i32 {
+    let x: i32 = {
+        let a: i32 = 3i32;
+        let b: i32 = 5i32;
+        a * b
+    };
+    return x - 15i32;
+}

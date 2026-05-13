@@ -1,0 +1,11 @@
+package gen_trait_plus_bound;
+trait Marker {}
+trait Use_ { fn use_(self: &Self) -> i32; }
+struct S { v: i32 }
+impl Marker for S {}
+impl Use_ for S { fn use_(self: &S) -> i32 { return self.v; } }
+fn run<T: Marker + Use_>(t: &T) -> i32 { return t.use_(); }
+fn main() -> i32 {
+    let s: S = S { v: 5i32 };
+    return run::<S>(&s) - 5i32;
+}

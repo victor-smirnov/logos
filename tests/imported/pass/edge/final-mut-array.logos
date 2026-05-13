@@ -1,0 +1,10 @@
+package final_mut_array;
+fn main() -> i32 {
+    let mut a: [i32; 4] = [0i32, 0i32, 0i32, 0i32];
+    let mut i: i32 = 0i32;
+    while i < 4i32 {
+        a[i as usize] = i;
+        i = i + 1i32;
+    }
+    return a[0] + a[1] + a[2] + a[3] - 6i32;
+}

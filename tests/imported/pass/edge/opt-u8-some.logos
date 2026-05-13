@@ -1,0 +1,11 @@
+package opt_u8_some;
+enum Opt<T> { Some(T), None }
+fn main() -> i32 {
+    let o: Opt<u8> = Opt::Some(5u8);
+    let r: u8 = match o {
+        Opt::Some(x) => x,
+        Opt::None    => 0u8,
+    };
+    let _v: u8 = r;
+    return 0i32;
+}

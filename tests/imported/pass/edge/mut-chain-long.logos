@@ -1,0 +1,10 @@
+package mut_chain_long;
+struct B { v: i32 }
+impl B {
+    fn add(self: &mut B, x: i32) -> &mut B { (*self).v = (*self).v + x; return self; }
+}
+fn main() -> i32 {
+    let mut b: B = B { v: 0i32 };
+    b.add(1i32).add(2i32).add(3i32).add(4i32).add(5i32);
+    return b.v - 15i32;
+}

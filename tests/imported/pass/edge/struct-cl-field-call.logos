@@ -1,0 +1,7 @@
+package struct_cl_field_call;
+struct H { f: fn(i32) -> i32 }
+fn dbl(x: i32) -> i32 { return x * 2i32; }
+fn main() -> i32 {
+    let h: H = H { f: dbl };
+    return (h.f)(5i32) - 10i32;
+}

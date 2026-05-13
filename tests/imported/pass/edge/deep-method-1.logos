@@ -1,0 +1,9 @@
+package deep_method_1;
+struct L1 { v: i32 }
+struct L2 { l1: L1 }
+struct L3 { l2: L2 }
+impl L3 { fn deep(self: &L3) -> i32 { return self.l2.l1.v + 1i32; } }
+fn main() -> i32 {
+    let l: L3 = L3 { l2: L2 { l1: L1 { v: 0i32 } } };
+    return l.deep() - 1i32;
+}

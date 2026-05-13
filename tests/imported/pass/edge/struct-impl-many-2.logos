@@ -1,0 +1,11 @@
+package struct_impl_many_2;
+struct S2 { v: i32 }
+impl S2 {
+    fn a(self: &S2) -> i32 { return self.v + 2i32; }
+    fn b(self: &S2) -> i32 { return self.v + 2i32 * 2i32; }
+    fn c(self: &S2) -> i32 { return self.v + 2i32 * 3i32; }
+}
+fn main() -> i32 {
+    let s: S2 = S2 { v: 0i32 };
+    return s.a() + s.b() + s.c() - 12i32;
+}

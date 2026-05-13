@@ -1,0 +1,10 @@
+package while_mut_1;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let mut i: i32 = 0i32;
+    while i < 1i32 {
+        x = x + i;
+        i = i + 1i32;
+    }
+    return x - 0i32;
+}

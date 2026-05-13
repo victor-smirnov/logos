@@ -1,0 +1,6 @@
+package cl_borrows_local;
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    let f = || -> i32 { return x; };
+    return f() - 5i32;
+}

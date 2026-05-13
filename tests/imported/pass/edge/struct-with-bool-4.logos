@@ -1,0 +1,7 @@
+package struct_with_bool_4;
+struct B { v: bool, n: i32 }
+fn main() -> i32 {
+    let b: B = B { v: true, n: 4i32 };
+    if b.v { return b.n - 4i32; }
+    return 1i32;
+}

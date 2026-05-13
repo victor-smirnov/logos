@@ -1,0 +1,10 @@
+// Like the segfaulting one but with no match
+package gen_enum_method_shared;
+enum Wrap<T> { Inner(T) }
+fn main() -> i32 {
+    let w: Wrap<i32> = Wrap::Inner(7i32);
+    let v: i32 = match w {
+        Wrap::Inner(x) => x,
+    };
+    return v - 7i32;
+}

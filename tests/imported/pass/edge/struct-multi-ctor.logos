@@ -1,0 +1,11 @@
+package struct_multi_ctor;
+struct S { v: i32 }
+impl S {
+    static fn zero() -> S { return S { v: 0i32 }; }
+    static fn five() -> S { return S { v: 5i32 }; }
+}
+fn main() -> i32 {
+    let z: S = S::zero();
+    let f: S = S::five();
+    return z.v + f.v - 5i32;
+}

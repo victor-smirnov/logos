@@ -1,0 +1,8 @@
+package trait_disp_1;
+trait T1 { fn val(self: &Self) -> i32; }
+struct K1 { v: i32 }
+impl T1 for K1 { fn val(self: &K1) -> i32 { return self.v + 1i32; } }
+fn main() -> i32 {
+    let k: K1 = K1 { v: 0i32 };
+    return k.val() - 1i32;
+}

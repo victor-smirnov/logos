@@ -1,0 +1,11 @@
+package trait_default_base_3;
+trait T3 {
+    fn val(self: &Self) -> i32;
+    fn plus(self: &Self) -> i32 { return self.val() + 3i32; }
+}
+struct S3 { v: i32 }
+impl T3 for S3 { fn val(self: &S3) -> i32 { return self.v; } }
+fn main() -> i32 {
+    let s: S3 = S3 { v: 0i32 };
+    return s.plus() - 3i32;
+}
