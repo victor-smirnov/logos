@@ -1,0 +1,11 @@
+// B77: struct decl `where 'a: 'b` propagates to construction sites —
+// caller must satisfy the bound under lifetime substitution.
+package regions_struct_where_bound;
+
+struct Pair<'a, 'b> where 'a: 'b { x: &'a i32, y: &'b i32 }
+
+fn build<'a, 'b>(x: &'a i32, y: &'b i32) -> Pair<'a, 'b> {
+    return Pair { x: x, y: y };  // missing `where 'a: 'b` on `build`
+}
+
+fn main() -> i32 { return 0i32; }

@@ -1191,6 +1191,10 @@ private:
     struct SemaFieldInfo  { std::string_view name; TypeRef type; bool is_pub = false; bool is_variadic = false; };
     struct SemaStructInfo { std::vector<SemaFieldInfo> fields; std::vector<TypeParam> type_params;
                             std::vector<std::string> lifetime_params;
+                            // B77: declared `where 'a: 'b` outlives pairs on the
+                            // struct itself. Caller's outlives graph must satisfy
+                            // these (under arg-type substitution) at construction.
+                            std::vector<std::pair<std::string, std::string>> lifetime_outlives;
                             bool is_pub = false; std::string source_file;
                             std::string package;
                             bool is_data_plain = true;  // false if any field is Kind::ZonedStruct
@@ -1734,6 +1738,97 @@ private:
                     "outlives bound `{}: {}` (under arg-type substitution: "
                     "`{}: {}` required)",
                     callee_name, c_long, c_short, caller_long, caller_short));
+            }
+        }
+    }
+
+    // B77: at a struct literal `S { ... }` (or tuple-struct ctor), verify that
+    // the caller's outlives graph satisfies S's declared `where 'a: 'b` clauses
+    // under the substitution induced by (a) explicit lt args, when present,
+    // and (b) walking field-type pairs.
+    void check_struct_lit_outlives(
+        const std::string& sname,
+        const std::vector<std::string>& sinfo_lt_params,
+        const std::vector<std::pair<std::string, std::string>>& sinfo_outlives,
+        const std::vector<std::string>& concrete_lt_args,
+        const std::vector<SemaFieldInfo>& sinfo_fields = {},
+        const std::vector<std::pair<std::string, lir::LExprPtr>>& lit_fields = {}) {
+        if (sinfo_outlives.empty() || sinfo_lt_params.empty()) return;
+        std::unordered_map<std::string, std::string> subst;
+        auto record = [&](std::string_view callee_lt, std::string_view caller_lt) {
+            if (callee_lt.empty() || caller_lt.empty()) return;
+            std::string ck = outlives_norm(callee_lt);
+            std::string vk = outlives_norm(caller_lt);
+            if (ck.empty() || vk.empty()) return;
+            auto it = subst.find(ck);
+            if (it == subst.end()) subst.emplace(ck, vk);
+        };
+        // Seed from explicit lt args (e.g. `Pair::<'x, 'y> { ... }` or
+        // hinted by the binding site).
+        for (size_t i = 0; i < sinfo_lt_params.size() && i < concrete_lt_args.size(); ++i)
+            record(sinfo_lt_params[i], concrete_lt_args[i]);
+        // Walk paired field type / value type — extract lifetimes from
+        // refs and recurse through nested aggregates.
+        std::function<void(TypeRef, TypeRef)> walk =
+            [&](TypeRef pt, TypeRef at) {
+            if (!pt || !at) return;
+            using K = LogosType::Kind;
+            auto pk = pt.kind();
+            if ((pk == K::Ref || pk == K::MutRef) &&
+                (at.kind() == K::Ref || at.kind() == K::MutRef)) {
+                record(pt.lifetime(), at.lifetime());
+                walk(pt.pointee(), at.pointee());
+                return;
+            }
+            if (pk == K::Struct || pk == K::ZonedStruct || pk == K::Enum) {
+                if (at.kind() == pk) {
+                    auto pl = pt.lifetime_args(); auto al = at.lifetime_args();
+                    for (size_t i = 0; i < pl.size() && i < al.size(); ++i)
+                        record(pl[i], al[i]);
+                    auto pa = pt.type_args(); auto aa = at.type_args();
+                    for (size_t i = 0; i < pa.size() && i < aa.size(); ++i)
+                        walk(pa[i], aa[i]);
+                }
+                return;
+            }
+            if (pk == K::Tuple && at.kind() == K::Tuple) {
+                auto pe = pt.tuple_elems(); auto ae = at.tuple_elems();
+                for (size_t i = 0; i < pe.size() && i < ae.size(); ++i)
+                    walk(pe[i], ae[i]);
+                return;
+            }
+            if ((pk == K::Slice || pk == K::Array) && at.kind() == pk) {
+                walk(pt.elem(), at.elem());
+                return;
+            }
+            if (pk == K::Ptr && at.kind() == K::Ptr) {
+                walk(pt.pointee(), at.pointee());
+                return;
+            }
+        };
+        for (auto& [fname, fval] : lit_fields) {
+            if (!fval) continue;
+            TypeRef fdecl = nullptr;
+            for (auto& fi : sinfo_fields) {
+                if (fi.name == fname) { fdecl = fi.type; break; }
+            }
+            if (fdecl) walk(fdecl, fval->type);
+        }
+        auto adj = outlives_adj(current_outlives_);
+        for (auto& [c_long, c_short] : sinfo_outlives) {
+            if (outlives_is_static(c_long)) continue;
+            auto it_l = subst.find(outlives_norm(c_long));
+            auto it_s = subst.find(outlives_norm(c_short));
+            if (it_l == subst.end() || it_s == subst.end()) continue;
+            const std::string& caller_long  = it_l->second;
+            const std::string& caller_short = it_s->second;
+            if (caller_long == caller_short) continue;
+            if (!outlives(caller_long, caller_short, adj, /*permissive_empty=*/false)) {
+                error(std::format(
+                    "struct literal '{}': caller does not satisfy declared "
+                    "outlives bound `{}: {}` (under lifetime substitution: "
+                    "`{}: {}` required)",
+                    sname, c_long, c_short, caller_long, caller_short));
             }
         }
     }

@@ -1,9 +1,9 @@
-// B76 GAP: borrow/move check does not currently fire for this pattern.
-// Pinned as gap-regression — file moves to fail/ when fix lands.
-// B61: moving out a field then using the whole struct.
-package borrowck_use_after_field_move;
+// B61: moving out a (move-typed) field then using the whole struct.
+package borrowck_partial_field_move;
 
 struct Inner { v: i64 }
+impl Drop for Inner { fn drop(self: &mut Inner) { } }
+
 struct Outer { i: Inner, k: i64 }
 
 fn take(i: Inner) -> i64 { return i.v; }

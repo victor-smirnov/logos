@@ -5129,6 +5129,14 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 mark_moved_expr(expr_ref_of(*fval));
         }
 
+        // B77: verify generic-struct's `where 'a: 'b` constraints.
+        check_struct_lit_outlives(std::string(sname),
+                                  sinfo.lifetime_params,
+                                  sinfo.lifetime_outlives,
+                                  TypeRef(lit_type).lifetime_args(),
+                                  sinfo.fields,
+                                  fields);
+
         return builder().struct_lit(concrete, std::move(fields), lit_type);
     }
 
@@ -5310,6 +5318,13 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
     std::vector<std::string> ng_lt_args;
     if (hint_struct_type_ && TypeRef(hint_struct_type_).struct_name() == std::string(sname))
         ng_lt_args = TypeRef(hint_struct_type_).lifetime_args();
+    // B77: verify struct's `where 'a: 'b` against caller's outlives graph.
+    check_struct_lit_outlives(std::string(sname),
+                              sinfo.lifetime_params,
+                              sinfo.lifetime_outlives,
+                              ng_lt_args,
+                              sinfo.fields,
+                              fields);
     LogosTypeBuilder ng_t;
     ng_t.kind = slit_is_zoned
                 ? LogosType::Kind::ZonedStruct : LogosType::Kind::Struct;

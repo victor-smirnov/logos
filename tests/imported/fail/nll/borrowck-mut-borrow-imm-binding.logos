@@ -1,0 +1,9 @@
+// B61: `&mut x` requires `let mut x` binding.
+package borrowck_mut_borrow_imm_binding;
+
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    let r: &mut i32 = &mut x;   // x not mut
+    *r = 6i32;
+    return 0i32;
+}

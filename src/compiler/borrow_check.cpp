@@ -113,6 +113,12 @@ struct VarState {
     // Phase 2 — borrow tracking
     int      shared_borrows = 0;     // # active &T borrows on this var
     bool     mut_borrowed   = false; // has an active &mut borrow
+    // Phase 3 — binding mutability (`let mut x` vs `let x`).
+    // Required for rejecting `&mut x` and `x = ...` against immutable bindings.
+    bool     is_mut_binding = false;
+    // Partial moves: name → line where field was moved out. Reading the
+    // same field again, or the whole value, after a field move is rejected.
+    std::unordered_map<std::string, uint32_t> moved_fields;
 };
 
 using StateMap = std::unordered_map<std::string, VarState>;
@@ -255,6 +261,15 @@ class BorrowChecker {
             return;
         }
         if (is_mut) {
+            // Reject &mut on a binding declared without `mut`.
+            // Function params don't currently carry a mut bit in LParam,
+            // so they're declared with is_mut_binding=false; we whitelist
+            // them by checking known_params_ to avoid spurious diagnostics.
+            if (!it->second.is_mut_binding && !param_names_.count(target)) {
+                report(line, std::format(
+                    "cannot borrow '{}' as mutable: not declared as mut", target));
+                return;
+            }
             if (it->second.mut_borrowed) {
                 report(line, std::format(
                     "cannot borrow '{}' as mutable: already mutably borrowed", target));
@@ -284,6 +299,13 @@ class BorrowChecker {
     bool consume(const std::string& name, uint32_t line) {
         auto it = states_.find(name);
         if (it == states_.end()) return true;
+        if (!it->second.moved_fields.empty()) {
+            auto& [fld, ln] = *it->second.moved_fields.begin();
+            report(line, std::format(
+                "use of partially moved value '{}' (field '{}' moved on line {})",
+                name, fld, ln));
+            return false;
+        }
         if (it->second.moved) {
             uint32_t prev = it->second.moved_line;
             if (prev)
@@ -297,7 +319,9 @@ class BorrowChecker {
             report(line, std::format("cannot move '{}' while it is borrowed", name));
             return false;
         }
-        it->second = VarState{true, line};
+        it->second = VarState{};
+        it->second.moved = true;
+        it->second.moved_line = line;
         return true;
     }
 
@@ -980,6 +1004,8 @@ class BorrowChecker {
                     visit(val, /*consuming=*/true, ln);
                 }
                 declare_var(name);
+                if (auto it = states_.find(name); it != states_.end())
+                    it->second.is_mut_binding = v.is_mut();
                 if (is_ref_kind(t))
                     prov_[name] = prov_of(val);
                 else if (t && !t.lifetime_args().empty() &&
@@ -1273,9 +1299,35 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             break;
 
         // ── Field read: recv.field ─────────────────────────────────────
-        case Code::FieldRead:
-            visit(EFieldReadView{e}.receiver(), /*consuming=*/false, line);
+        case Code::FieldRead: {
+            EFieldReadView v{e};
+            auto recv = v.receiver();
+            std::string field(v.field());
+            // Partial-move tracking: when `o.f` is used in a consuming
+            // position (e.g. moved into a fn arg or let RHS) and `f` is a
+            // move-type field, mark `f` as moved on `o`. Subsequent reads
+            // of `o.f` or whole-value `o` then error.
+            std::string recv_name;
+            if (recv && recv.kind() == Code::VarRef)
+                recv_name = std::string(EVarRefView{recv}.name());
+            if (!recv_name.empty()) {
+                if (auto it = states_.find(recv_name); it != states_.end()) {
+                    if (auto fit = it->second.moved_fields.find(field);
+                        fit != it->second.moved_fields.end()) {
+                        report(line, std::format(
+                            "use of moved field '{}.{}' (moved on line {})",
+                            recv_name, field, fit->second));
+                        break;
+                    }
+                    if (consuming && is_move_type(e.type(pool), prog_, ts_)) {
+                        it->second.moved_fields[field] = line;
+                        break;
+                    }
+                }
+            }
+            visit(recv, /*consuming=*/false, line);
             break;
+        }
 
         // ── Index read: arr[i] ─────────────────────────────────────────
         case Code::IndexRead: {

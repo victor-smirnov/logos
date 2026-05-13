@@ -2226,6 +2226,11 @@ void SemaChecker::collect_struct(TinyMapView node) {
     SemaStructInfo info;
     info.type_params = read_type_params(node);
     info.lifetime_params = read_lifetime_params(node);
+    info.lifetime_outlives = read_lifetime_outlives(node);
+    {
+        auto where_outlives = read_lifetime_outlives_from(node, la::WHERE.code);
+        for (auto& p : where_outlives) info.lifetime_outlives.push_back(std::move(p));
+    }
     info.package = cur_package_;
     if (node.has_key(la::IS_PUB)) {
         AnyVal av = node.get(la::IS_PUB.code);
