@@ -1,0 +1,6 @@
+package if_as_rhs;
+fn main() -> i32 {
+    let cond: bool = true;
+    let x: i32 = if cond { 5i32 } else { 10i32 };
+    return x - 5i32;
+}

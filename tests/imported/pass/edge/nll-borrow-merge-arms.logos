@@ -1,0 +1,9 @@
+package nll_borrow_merge_arms;
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    let y: i32 = 10i32;
+    let cond: bool = true;
+    let r: &i32 = if cond { &x } else { &y };
+    let _v: i32 = *r;
+    return 0i32;
+}

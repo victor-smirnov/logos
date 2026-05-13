@@ -1,0 +1,5 @@
+// GAP: static fn on generic struct `impl<T> V<T> { static fn new(x: T) -> V<T> }`
+// causes mlir-gen verification failure: mangled symbol references invalid fn.
+// Mono mangling for static-fn on generic struct is broken.
+package static_fn_gen_gap;
+fn main() -> i32 { return 0i32; }

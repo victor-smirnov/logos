@@ -1,0 +1,7 @@
+package string_push_str;
+use std.lang.text;
+fn main() -> i32 {
+    let mut s: String = String::new();
+    s.push_str("hi");
+    return s.len() as i32 - 2i32;
+}

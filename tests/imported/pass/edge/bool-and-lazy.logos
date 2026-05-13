@@ -1,0 +1,8 @@
+package bool_and_lazy;
+fn main() -> i32 {
+    let mut called: i32 = 0i32;
+    let r: &mut i32 = &mut called;
+    let f = |b: bool| -> bool { *r = *r + 1i32; return b; };
+    let _x: bool = false && f(true);
+    return called;
+}

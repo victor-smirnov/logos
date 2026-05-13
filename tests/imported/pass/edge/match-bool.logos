@@ -1,0 +1,9 @@
+package match_bool;
+fn main() -> i32 {
+    let b: bool = true;
+    let r: i32 = match b {
+        true  => 0i32,
+        false => 1i32,
+    };
+    return r;
+}

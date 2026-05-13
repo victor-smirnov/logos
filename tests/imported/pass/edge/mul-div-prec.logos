@@ -1,0 +1,6 @@
+package mul_div_prec;
+fn main() -> i32 {
+    let x: i32 = 2i32 * 3i32 + 4i32;
+    let y: i32 = 4i32 + 2i32 * 3i32;
+    return (x - y);
+}

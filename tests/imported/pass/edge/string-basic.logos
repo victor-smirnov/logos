@@ -1,0 +1,6 @@
+package string_basic;
+use std.lang.text;
+fn main() -> i32 {
+    let s: String = String::new();
+    return s.len() as i32;
+}

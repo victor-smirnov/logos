@@ -1,0 +1,9 @@
+package fn_arg_dyn;
+trait Greet { fn hello(self: &Self) -> i32; }
+struct H { v: i32 }
+impl Greet for H { fn hello(self: &H) -> i32 { return self.v; } }
+fn greet(g: &dyn Greet) -> i32 { return g.hello(); }
+fn main() -> i32 {
+    let h: H = H { v: 5i32 };
+    return greet(&h) - 5i32;
+}

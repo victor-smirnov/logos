@@ -1,0 +1,9 @@
+package struct_where_clause;
+trait A { fn a(self: &Self) -> i32; }
+struct W<T> where T: A { v: T }
+struct K { _x: i32 }
+impl A for K { fn a(self: &K) -> i32 { return 7i32; } }
+fn main() -> i32 {
+    let w: W<K> = W { v: K { _x: 0i32 } };
+    return w.v.a() - 7i32;
+}

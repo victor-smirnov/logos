@@ -1,0 +1,13 @@
+package trait_self_bound;
+trait CanCompare<Other> {
+    fn cmp(self: &Self, other: &Other) -> i32;
+}
+struct S { v: i32 }
+impl CanCompare<S> for S {
+    fn cmp(self: &S, other: &S) -> i32 { return self.v - other.v; }
+}
+fn main() -> i32 {
+    let a: S = S { v: 5i32 };
+    let b: S = S { v: 3i32 };
+    return a.cmp(&b) - 2i32;
+}

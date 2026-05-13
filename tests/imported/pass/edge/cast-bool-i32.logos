@@ -1,0 +1,5 @@
+package cast_bool_i32;
+fn main() -> i32 {
+    let b: bool = true;
+    return b as i32 - 1i32;
+}

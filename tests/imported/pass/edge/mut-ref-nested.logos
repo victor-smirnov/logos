@@ -1,0 +1,9 @@
+package mut_ref_nested;
+struct Inner { v: i32 }
+struct Outer { i: Inner }
+fn main() -> i32 {
+    let mut o: Outer = Outer { i: Inner { v: 0i32 } };
+    let r: &mut i32 = &mut o.i.v;
+    *r = 7i32;
+    return o.i.v - 7i32;
+}

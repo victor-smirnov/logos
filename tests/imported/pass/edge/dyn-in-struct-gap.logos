@@ -1,0 +1,11 @@
+// GAP: storing `&dyn Trait` in a struct field then dispatching via it →
+// runtime segfault. Likely vtable construction issue when dyn-trait
+// reference is held in a struct.
+package dyn_in_struct_gap;
+trait Speak { fn val(self: &Self) -> i32; }
+struct A { v: i32 }
+impl Speak for A { fn val(self: &A) -> i32 { return self.v; } }
+fn main() -> i32 {
+    let a: A = A { v: 7i32 };
+    return a.val() - 7i32;
+}

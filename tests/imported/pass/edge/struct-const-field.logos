@@ -1,0 +1,7 @@
+package struct_const_field;
+struct S { v: i32 }
+const C: i32 = 42i32;
+fn main() -> i32 {
+    let s: S = S { v: C };
+    return s.v - 42i32;
+}

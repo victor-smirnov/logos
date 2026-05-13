@@ -1,0 +1,10 @@
+package mut_method_gen;
+struct B<T> { v: T }
+impl<T> B<T> {
+    fn set(self: &mut B<T>, x: T) { (*self).v = x; }
+}
+fn main() -> i32 {
+    let mut b: B<i32> = B { v: 0i32 };
+    b.set(11i32);
+    return b.v - 11i32;
+}

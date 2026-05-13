@@ -1,0 +1,7 @@
+package for_in_array;
+fn main() -> i32 {
+    let a: [i32; 4] = [1i32, 2i32, 3i32, 4i32];
+    let mut sum: i32 = 0i32;
+    for x in a { sum = sum + x; }
+    return sum - 10i32;
+}

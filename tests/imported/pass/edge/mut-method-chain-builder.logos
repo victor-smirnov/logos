@@ -1,0 +1,11 @@
+package mut_method_chain_builder;
+struct B { v: i32 }
+impl B {
+    fn add(self: &mut B, x: i32) -> &mut B { (*self).v = (*self).v + x; return self; }
+    fn mul(self: &mut B, x: i32) -> &mut B { (*self).v = (*self).v * x; return self; }
+}
+fn main() -> i32 {
+    let mut b: B = B { v: 1i32 };
+    b.add(2i32).mul(3i32);
+    return b.v - 9i32;
+}

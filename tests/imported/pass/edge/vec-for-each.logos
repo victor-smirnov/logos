@@ -1,0 +1,15 @@
+package vec_for_each;
+use std.collections.vec;
+fn main() -> i32 {
+    let mut v: Vec<i32> = vec_new::<i32>();
+    v.push(1i32);
+    v.push(2i32);
+    v.push(3i32);
+    let mut sum: i32 = 0i32;
+    let mut i: i64 = 0i64;
+    while i < v.length() {
+        sum = sum + v.get(i);
+        i = i + 1i64;
+    }
+    return sum - 6i32;
+}

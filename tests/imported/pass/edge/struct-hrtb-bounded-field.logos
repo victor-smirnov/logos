@@ -1,0 +1,8 @@
+package struct_hrtb_bounded_field;
+struct H { id: for<'a> fn(&'a i32) -> &'a i32 }
+fn id<'a>(x: &'a i32) -> &'a i32 { return x; }
+fn main() -> i32 {
+    let h: H = H { id: id };
+    let v: i32 = 5i32;
+    return *(h.id)(&v) - 5i32;
+}

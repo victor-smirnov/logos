@@ -1,0 +1,6 @@
+package tuple_gen_pair;
+fn pair<T, U>(t: T, u: U) -> (T, U) { return (t, u); }
+fn main() -> i32 {
+    let p: (i32, i64) = pair::<i32, i64>(5i32, 9i64);
+    return p.0 - 5i32;
+}

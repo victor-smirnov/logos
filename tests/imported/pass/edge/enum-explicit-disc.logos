@@ -1,0 +1,6 @@
+package enum_explicit_disc;
+enum E { A = 5i32, B = 10i32 }
+fn main() -> i32 {
+    let e: E = E::A;
+    return (e as i32) - 5i32;
+}

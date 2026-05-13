@@ -1,0 +1,8 @@
+package vec_string;
+use std.collections.vec;
+use std.lang.text;
+fn main() -> i32 {
+    let mut v: Vec<String> = vec_new::<String>();
+    v.push(String::new());
+    return v.length() as i32 - 1i32;
+}

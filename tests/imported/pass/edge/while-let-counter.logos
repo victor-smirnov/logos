@@ -1,0 +1,7 @@
+package while_let_counter;
+enum Opt<T> { Some(T), None }
+fn main() -> i32 {
+    let o: Opt<i32> = Opt::None;
+    while let Opt::Some(_) = o { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,9 @@
+package for_continue;
+fn main() -> i32 {
+    let mut sum: i32 = 0i32;
+    for i in 0i32..5i32 {
+        if i == 2i32 { continue; }
+        sum = sum + i;
+    }
+    return sum - 8i32;
+}

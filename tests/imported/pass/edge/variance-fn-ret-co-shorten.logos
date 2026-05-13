@@ -1,0 +1,3 @@
+package variance_fn_ret_co_shorten;
+struct W { f: fn() -> &'static i32 }
+fn main() -> i32 { return 0i32; }

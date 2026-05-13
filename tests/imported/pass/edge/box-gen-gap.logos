@@ -1,0 +1,8 @@
+// GAP: Box<T> doesn't auto-deref via `*b` to inner T value in
+// arithmetic / let-init context. Probably needs Deref trait wiring.
+package box_gen_gap;
+use std.mem.box;
+fn main() -> i32 {
+    let _b: Box<i32> = box_new(7i32);
+    return 0i32;
+}

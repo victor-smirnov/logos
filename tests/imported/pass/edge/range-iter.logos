@@ -1,0 +1,6 @@
+package range_iter;
+fn main() -> i32 {
+    let mut sum: i32 = 0i32;
+    for i in 0i32..5i32 { sum = sum + i; }
+    return sum - 10i32;
+}

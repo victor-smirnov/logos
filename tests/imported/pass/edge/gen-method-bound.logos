@@ -1,0 +1,13 @@
+package gen_method_bound;
+trait OK { fn ok(self: &Self) -> i32; }
+struct S { v: i32 }
+impl OK for S { fn ok(self: &S) -> i32 { return self.v; } }
+struct H { _x: i32 }
+impl H {
+    fn use_<T: OK>(self: &H, t: &T) -> i32 { return t.ok(); }
+}
+fn main() -> i32 {
+    let h: H = H { _x: 0i32 };
+    let s: S = S { v: 7i32 };
+    return (&h).use_::<S>(&s) - 7i32;
+}

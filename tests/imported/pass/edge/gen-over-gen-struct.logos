@@ -1,0 +1,9 @@
+package gen_over_gen_struct;
+struct W<T> { v: T }
+fn map<A, B>(w: W<A>, f: fn(A) -> B) -> W<B> { return W { v: f(w.v) }; }
+fn dbl(x: i32) -> i32 { return x * 2i32; }
+fn main() -> i32 {
+    let w: W<i32> = W { v: 5i32 };
+    let w2: W<i32> = map::<i32, i32>(w, dbl);
+    return w2.v - 10i32;
+}

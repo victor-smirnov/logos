@@ -1,0 +1,6 @@
+package cl_returning_cl;
+fn main() -> i32 {
+    let f = |x: i32| -> i32 { return x; };
+    let result: i32 = f(5i32);
+    return result - 5i32;
+}

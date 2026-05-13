@@ -1,0 +1,11 @@
+package trait_method_opt;
+enum Opt<T> { Some(T), None }
+trait Find { fn lookup(self: &Self, k: i32) -> Opt<i32>; }
+struct M { _x: i32 }
+impl Find for M { fn lookup(self: &M, k: i32) -> Opt<i32> { return Opt::Some(k); } }
+fn main() -> i32 {
+    let m: M = M { _x: 0i32 };
+    let r: Opt<i32> = m.lookup(7i32);
+    let v: i32 = match r { Opt::Some(x) => x, Opt::None => 0i32 };
+    return v - 7i32;
+}

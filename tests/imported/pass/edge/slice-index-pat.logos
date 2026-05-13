@@ -1,0 +1,6 @@
+package slice_index_pat;
+fn main() -> i32 {
+    let a: [i32; 5] = [10i32, 20i32, 30i32, 40i32, 50i32];
+    let s: &[i32] = &a;
+    return s[2] - 30i32;
+}

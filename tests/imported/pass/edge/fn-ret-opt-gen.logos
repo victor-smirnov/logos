@@ -1,0 +1,11 @@
+package fn_ret_opt_gen;
+enum Opt<T> { Some(T), None }
+fn wrap<T>(x: T) -> Opt<T> { return Opt::Some(x); }
+fn main() -> i32 {
+    let o: Opt<i32> = wrap::<i32>(5i32);
+    let r: i32 = match o {
+        Opt::Some(x) => x,
+        Opt::None    => 0i32,
+    };
+    return r - 5i32;
+}

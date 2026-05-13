@@ -1,0 +1,10 @@
+package if_let_else;
+enum Opt<T> { Some(T), None }
+fn main() -> i32 {
+    let o: Opt<i32> = Opt::None;
+    if let Opt::Some(x) = o {
+        return x;
+    } else {
+        return 0i32;
+    }
+}

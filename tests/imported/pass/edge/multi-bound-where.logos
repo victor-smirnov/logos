@@ -1,0 +1,11 @@
+package multi_bound_where;
+trait A { fn a(self: &Self) -> i32; }
+trait B { fn b(self: &Self) -> i32; }
+struct S { v: i32 }
+impl A for S { fn a(self: &S) -> i32 { return self.v; } }
+impl B for S { fn b(self: &S) -> i32 { return self.v * 2i32; } }
+fn run<T>(t: &T) -> i32 where T: A, T: B { return t.a() + t.b(); }
+fn main() -> i32 {
+    let s: S = S { v: 3i32 };
+    return run::<S>(&s) - 9i32;
+}

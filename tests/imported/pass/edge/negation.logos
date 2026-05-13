@@ -1,0 +1,6 @@
+package negation;
+fn main() -> i32 {
+    let x: i32 = -5i32;
+    let y: i32 = -x;
+    return y - 5i32;
+}

@@ -1,0 +1,10 @@
+package impl_method_cross_call;
+struct S { v: i32 }
+impl S {
+    fn get(self: &S) -> i32 { return self.v; }
+    fn doubled(self: &S) -> i32 { return self.get() * 2i32; }
+}
+fn main() -> i32 {
+    let s: S = S { v: 5i32 };
+    return s.doubled() - 10i32;
+}

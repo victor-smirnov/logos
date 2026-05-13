@@ -1,0 +1,8 @@
+package vec_of_struct;
+use std.collections.vec;
+struct Item { id: i32 }
+fn main() -> i32 {
+    let mut v: Vec<Item> = vec_new::<Item>();
+    v.push(Item { id: 5i32 });
+    return v.length() as i32 - 1i32;
+}

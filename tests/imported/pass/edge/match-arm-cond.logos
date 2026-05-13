@@ -1,0 +1,10 @@
+package match_arm_cond;
+enum Opt<T> { Some(T), None }
+fn main() -> i32 {
+    let o: Opt<i32> = Opt::Some(5i32);
+    let r: i32 = match o {
+        Opt::Some(x) => if x > 0i32 { x } else { -x },
+        Opt::None    => 0i32,
+    };
+    return r - 5i32;
+}

@@ -1,0 +1,6 @@
+package bitwise_mix;
+fn main() -> i32 {
+    let x: i32 = (5i32 & 3i32) | 4i32;
+    if x == 5i32 { return 0i32; }
+    return x;
+}

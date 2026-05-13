@@ -1,0 +1,6 @@
+package tuple_let_destr;
+fn pair() -> (i32, i32) { return (5i32, 3i32); }
+fn main() -> i32 {
+    let (a, b): (i32, i32) = pair();
+    return a + b - 8i32;
+}

@@ -1,0 +1,6 @@
+// GAP: `impl Default for Opt<i32>` on enum — calling `Opt::<i32>::default_()`
+// is resolved as enum-variant lookup ("no variant 'default_'") instead of
+// trait method dispatch on enum-typed Self. Trait-method-on-enum-type
+// dispatch broken.
+package trait_impl_on_opt_gap;
+fn main() -> i32 { return 0i32; }

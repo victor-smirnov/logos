@@ -1,0 +1,9 @@
+package fn_taking_dyn;
+trait Show { fn val(self: &Self) -> i32; }
+struct A { v: i32 }
+impl Show for A { fn val(self: &A) -> i32 { return self.v; } }
+fn show(s: &dyn Show) -> i32 { return s.val(); }
+fn main() -> i32 {
+    let a: A = A { v: 7i32 };
+    return show(&a) - 7i32;
+}

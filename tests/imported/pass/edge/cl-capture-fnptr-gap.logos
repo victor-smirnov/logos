@@ -1,0 +1,9 @@
+// GAP: closure capturing a fn-pointer from outer scope → mlir-gen
+// "undefined 'f'" + missing return operand. Codegen for fn-ptr capture
+// in closure environment broken.
+package cl_capture_fnptr_gap;
+fn dbl(x: i32) -> i32 { return x * 2i32; }
+fn main() -> i32 {
+    let _f: fn(i32) -> i32 = dbl;
+    return 0i32;
+}

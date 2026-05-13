@@ -1,0 +1,11 @@
+package trait_default_recurse;
+trait T {
+    fn base(self: &Self) -> i32;
+    fn quad(self: &Self) -> i32 { return self.base() * 4i32; }
+}
+struct S { v: i32 }
+impl T for S { fn base(self: &S) -> i32 { return self.v; } }
+fn main() -> i32 {
+    let s: S = S { v: 3i32 };
+    return s.quad() - 12i32;
+}

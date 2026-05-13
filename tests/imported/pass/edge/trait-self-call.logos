@@ -1,0 +1,11 @@
+package trait_self_call;
+trait T {
+    fn base(self: &Self) -> i32;
+    fn doubled(self: &Self) -> i32 { return self.base() * 2i32; }
+}
+struct S { v: i32 }
+impl T for S { fn base(self: &S) -> i32 { return self.v; } }
+fn main() -> i32 {
+    let s: S = S { v: 5i32 };
+    return s.doubled() - 10i32;
+}

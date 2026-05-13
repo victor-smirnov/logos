@@ -1,0 +1,5 @@
+// GAP: const-generic N in `fn first<const N: usize>(a: &[i32; N])` —
+// at instantiation N substitution into the array length doesn't propagate.
+// Sema reports `[i32; 0]` for the field type even with `N=3` resolved.
+package fn_const_gen_gap;
+fn main() -> i32 { return 0i32; }

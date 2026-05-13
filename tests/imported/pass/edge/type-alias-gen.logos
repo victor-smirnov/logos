@@ -1,0 +1,6 @@
+package type_alias_gen;
+type Pair<T> = (T, T);
+fn main() -> i32 {
+    let p: Pair<i32> = (5i32, 3i32);
+    return p.0 + p.1 - 8i32;
+}

@@ -1,0 +1,6 @@
+package triple_nested_gen;
+struct W<T> { v: T }
+fn main() -> i32 {
+    let w: W<W<W<i32>>> = W { v: W { v: W { v: 5i32 } } };
+    return w.v.v.v - 5i32;
+}

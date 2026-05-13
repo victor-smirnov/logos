@@ -1,0 +1,9 @@
+package if_let_some;
+enum Opt<T> { Some(T), None }
+fn main() -> i32 {
+    let o: Opt<i32> = Opt::Some(5i32);
+    if let Opt::Some(x) = o {
+        return x - 5i32;
+    }
+    return 1i32;
+}

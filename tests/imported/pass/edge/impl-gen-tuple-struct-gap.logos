@@ -1,0 +1,4 @@
+// GAP: generic tuple-struct `struct W<T>(T);` triggers
+// "unexpected type node code -1" — generic tuple-struct decl path broken.
+package impl_gen_tuple_struct_gap;
+fn main() -> i32 { return 0i32; }
