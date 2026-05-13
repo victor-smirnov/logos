@@ -7348,6 +7348,94 @@ lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
 }
 
 lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
+    // B97: if-let in expression position. The stmt form handles it via
+    // pattern bind in a fresh scope; mirror that here so the THEN-branch
+    // value expression can use the bound names.
+    if (node.has_key(la::PAT)) {
+        auto scrut = node.has_key(la::VALUE)
+            ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
+        TypeRef scrut_type = scrut->type;
+        auto pat = build_pattern(map_of(node.get(la::PAT.code)), scrut_type);
+        if (!node.has_key(la::ELSE)) {
+            error("if-let-as-expression requires an else branch");
+            return error_expr();
+        }
+        push_scope();
+        bind_pattern(pat, scrut_type);
+        lir::LExprPtr then_val;
+        {
+            auto then_node = map_of(node.get(la::THEN.code));
+            if (code_of(then_node) == la::BLOCK) {
+                // Lower block last-expr inline using the same algorithm
+                // as the COND-form below.
+                auto stmts = arr_of(then_node.get(la::ITEMS.code));
+                bool saved_tail = tail_as_return_; tail_as_return_ = false;
+                lir::LExprPtr result = nullptr;
+                auto block = lir::alloc_block(*cur_prog_);
+                for (uint64_t i = 0; i < stmts.size(); ++i) {
+                    auto s = map_of(stmts.get(i));
+                    if (i == stmts.size() - 1) {
+                        int32_t lc = code_of(s);
+                        if ((lc == la::EXPR_STMT || lc == la::TAIL_EXPR) && s.has_key(la::VALUE)) {
+                            result = lower_expr(map_of(s.get(la::VALUE.code)));
+                        } else if (lc != la::EXPR_STMT && lc != la::TAIL_EXPR && lc != la::LET &&
+                                   lc != la::LET_DESTRUCT && lc != la::RETURN) {
+                            result = lower_expr(s);
+                        } else {
+                            block->stmts.push_back(lower_stmt(s));
+                        }
+                    } else {
+                        block->stmts.push_back(lower_stmt(s));
+                    }
+                }
+                tail_as_return_ = saved_tail;
+                TypeRef rt = result ? result->type : void_t();
+                then_val = builder().block_expr(std::move(block),
+                    result ? std::move(result) : nullptr, rt);
+            } else {
+                then_val = lower_expr(then_node);
+            }
+        }
+        pop_scope();
+        // Else branch
+        auto else_node = map_of(node.get(la::ELSE.code));
+        lir::LExprPtr else_val;
+        if (code_of(else_node) == la::BLOCK) {
+            auto stmts = arr_of(else_node.get(la::ITEMS.code));
+            bool saved_tail = tail_as_return_; tail_as_return_ = false;
+            lir::LExprPtr result = nullptr;
+            auto block = lir::alloc_block(*cur_prog_);
+            for (uint64_t i = 0; i < stmts.size(); ++i) {
+                auto s = map_of(stmts.get(i));
+                if (i == stmts.size() - 1) {
+                    int32_t lc = code_of(s);
+                    if ((lc == la::EXPR_STMT || lc == la::TAIL_EXPR) && s.has_key(la::VALUE))
+                        result = lower_expr(map_of(s.get(la::VALUE.code)));
+                    else if (lc != la::EXPR_STMT && lc != la::TAIL_EXPR && lc != la::LET &&
+                             lc != la::LET_DESTRUCT && lc != la::RETURN)
+                        result = lower_expr(s);
+                    else
+                        block->stmts.push_back(lower_stmt(s));
+                } else {
+                    block->stmts.push_back(lower_stmt(s));
+                }
+            }
+            tail_as_return_ = saved_tail;
+            TypeRef rt = result ? result->type : void_t();
+            else_val = builder().block_expr(std::move(block),
+                result ? std::move(result) : nullptr, rt);
+        } else {
+            else_val = lower_expr(else_node);
+        }
+        // Build match-style expression: arms are [pat→then, _→else]
+        TypeRef result_t = then_val->type;
+        lir::EMatchExpr me;
+        me.scrut = std::move(scrut);
+        me.arms.push_back({std::move(pat), std::nullopt, std::move(then_val)});
+        me.arms.push_back({make_pat_wild("_"), std::nullopt, std::move(else_val)});
+        return builder().match_expr_v(std::move(me), result_t);
+    }
+
     lir::LExprPtr cond = nullptr;
     if (node.has_key(la::COND)) {
         cond = lower_expr(map_of(node.get(la::COND.code)));

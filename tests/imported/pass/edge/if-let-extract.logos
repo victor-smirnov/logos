@@ -1,0 +1,8 @@
+// B97: `if let Pat = expr { binding } else { ... }` as expression — binding scoped.
+package if_let_extract;
+enum Opt<T> { Some(T), None }
+fn main() -> i32 {
+    let o: Opt<i32> = Opt::Some(7i32);
+    let r: i32 = if let Opt::Some(x) = o { x } else { 0i32 };
+    return r - 7i32;
+}
