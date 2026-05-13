@@ -1,5 +1,0 @@
-// GAP: associated `const` on inherent impl block rejected with
-// "associated constants can only appear in trait impls". Rust allows
-// inherent assoc consts; Logos restricts to trait impls.
-package struct_assoc_const_gap;
-fn main() -> i32 { return 0i32; }

@@ -1857,9 +1857,13 @@ void SemaChecker::collect_impl(TinyMapView node) {
             } else if (code_of(m) == la::ASSOC_CONST_IMPL) {
                 auto cname = std::string(str_of(m.get(la::NAME.code)));
                 if (trait_name.empty()) {
-                    // Standalone impls cannot declare associated constants (no trait to fulfill).
-                    error(std::format("impl {}: associated constants can only appear in trait impls",
-                                      target));
+                    // B97: inherent assoc-const on `impl S { const C: T = ...; }`
+                    // is allowed; register it under "inherent::<target>::<name>".
+                    TypeRef ctype = nullptr;
+                    if (m.has_key(la::TYPE))
+                        ctype = resolve_type(map_of(m.get(la::TYPE.code)));
+                    std::string key = "inherent::" + target + "::" + cname;
+                    assoc_const_impls_[key] = { ctype, m.get(la::VALUE) };
                 } else {
                     TypeRef ctype = nullptr;
                     if (m.has_key(la::TYPE))

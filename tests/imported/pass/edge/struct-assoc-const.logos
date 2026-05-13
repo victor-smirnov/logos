@@ -1,0 +1,11 @@
+// B97: inherent associated const on impl block.
+package struct_assoc_const;
+struct C { v: i32 }
+impl C {
+    const ZERO: i32 = 0i32;
+    fn get_zero(self: &C) -> i32 { return C::ZERO; }
+}
+fn main() -> i32 {
+    let c: C = C { v: 5i32 };
+    return c.get_zero();
+}

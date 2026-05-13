@@ -6336,6 +6336,19 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
         // access (e.g. Buffer::MAX) parsed as ENUM_LIT due to grammar ambiguity.
         std::string cname_str = std::string(ename);
         std::string mname_str = std::string(vname);
+        // B97: try inherent assoc-const first (`impl S { const C: T = ... }`).
+        {
+            std::string key = "inherent::" + cname_str + "::" + mname_str;
+            auto cit = assoc_const_impls_.find(key);
+            if (cit != assoc_const_impls_.end()) {
+                if (!cit->second.cached_value) {
+                    auto val = lower_expr(map_of(cit->second.value_ast));
+                    if (cit->second.type) builder().retype_expr(val, cit->second.type);
+                    cit->second.cached_value = val;
+                }
+                return cit->second.cached_value;
+            }
+        }
         for (auto& [tname, tinfo] : traits_) {
             if (!impls_.count(tname + "::" + cname_str)) continue;
             std::string key = tname + "::" + cname_str + "::" + mname_str;
@@ -6357,6 +6370,18 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
     for (auto& v : eit->second.variants)
         if (v.name == vname) { disc = v.value; found = true; break; }
     if (!found) {
+        // B97: enum exists but variant not found — could be assoc const
+        // on an enum (rare). Try inherent lookup as last resort.
+        std::string key = "inherent::" + std::string(ename) + "::" + std::string(vname);
+        auto cit = assoc_const_impls_.find(key);
+        if (cit != assoc_const_impls_.end()) {
+            if (!cit->second.cached_value) {
+                auto val = lower_expr(map_of(cit->second.value_ast));
+                if (cit->second.type) builder().retype_expr(val, cit->second.type);
+                cit->second.cached_value = val;
+            }
+            return cit->second.cached_value;
+        }
         error(std::format("enum '{}' has no variant '{}'", ename, vname));
         return error_expr();
     }
