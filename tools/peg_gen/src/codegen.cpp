@@ -1039,13 +1039,14 @@ private:
             auto inner = regex_inner(t.pattern);
             if (inner.starts_with("//") || inner.starts_with("\\/\\/")) {
                 if (has_doc_line) {
-                    // Skip `//` line-comments EXCEPT outer-doc `///` (followed
-                    // by non-`/`). `////+` is a normal comment again per Rust
-                    // rules. Inner-doc `//!` is treated as a normal comment for
-                    // now (Phase A.2 will surface it as a separate token).
+                    // Skip `//` line-comments EXCEPT:
+                    //   - outer-doc `///` (followed by non-`/`)
+                    //   - inner-doc `//!`
+                    // `////+` is a normal comment again per Rust rules.
                     w.line("if (c == '/' && pos_+1 < source_.size() && source_[pos_+1] == '/' &&");
                     w.line("    !(pos_+2 < source_.size() && source_[pos_+2] == '/' &&");
-                    w.line("      !(pos_+3 < source_.size() && source_[pos_+3] == '/'))) {");
+                    w.line("      !(pos_+3 < source_.size() && source_[pos_+3] == '/')) &&");
+                    w.line("    !(pos_+2 < source_.size() && source_[pos_+2] == '!')) {");
                 } else {
                     w.line("if (c == '/' && pos_+1 < source_.size() && source_[pos_+1] == '/') {");
                 }
@@ -1094,6 +1095,21 @@ private:
             w.line("if (c == '/' && pos_+2 < source_.size() &&");
             w.line("    source_[pos_+1] == '/' && source_[pos_+2] == '/' &&");
             w.line("    !(pos_+3 < source_.size() && source_[pos_+3] == '/')) {");
+            w.indent();
+            w.line("pos_ += 3;");
+            w.line("while (pos_ < source_.size() && source_[pos_] != '\\n') ++pos_;");
+            w.fmt("return {{TK::{}, source_.substr(start, pos_ - start), start_line_}};", safe_tok_name(t.name));
+            w.dedent();
+            w.line("}");
+            w.line();
+            break;
+        }
+        // DOC_INNER inner doc-comment (`//!`) — same placement constraint.
+        for (const auto& t : g_.tokens) {
+            if (t.kind != int32_t(ast::TOKEN_REGEX) || t.name != "DOC_INNER") continue;
+            w.line("// DOC_INNER = /\\/\\/![^\\n]*/ (inner doc-comment, runs before SLASH literal)");
+            w.line("if (c == '/' && pos_+2 < source_.size() &&");
+            w.line("    source_[pos_+1] == '/' && source_[pos_+2] == '!') {");
             w.indent();
             w.line("pos_ += 3;");
             w.line("while (pos_ < source_.size() && source_[pos_] != '\\n') ++pos_;");
@@ -1223,9 +1239,10 @@ private:
             if (pat.size() >= 2 && pat.front() == '/' && pat.back() == '/')
                 pat = pat.substr(1, pat.size() - 2);
 
-            // DOC_LINE is emitted earlier in lex_one (before keyword literals)
-            // so the bare `/` SLASH literal doesn't claim the leading slash.
-            if (t.name == "DOC_LINE") continue;
+            // DOC_LINE / DOC_INNER are emitted earlier in lex_one (before
+            // keyword literals) so the bare `/` SLASH literal doesn't claim
+            // the leading slash.
+            if (t.name == "DOC_LINE" || t.name == "DOC_INNER") continue;
 
             // IDENT-like: [a-zA-Z_][a-zA-Z0-9_]*
             if (pat == "[a-zA-Z_][a-zA-Z0-9_]*" || pat == "[a-zA-Z_]\\w*") {

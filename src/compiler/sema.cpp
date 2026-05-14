@@ -4527,6 +4527,17 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             pending_doc_.append(stripped);
             continue;
         }
+        if (c == la::INNER_DOC_LIT) {
+            // Phase A.3: `//!` lines accumulate into the module-level inner-
+            // doc buffer; finalised after the items loop.
+            std::string_view raw = str_of(item.get(la::VALUE.code));
+            std::string_view stripped = raw.size() >= 3 ? raw.substr(3) : std::string_view{};
+            if (!stripped.empty() && stripped.front() == ' ')
+                stripped.remove_prefix(1);
+            if (!module_inner_doc_.empty()) module_inner_doc_.push_back('\n');
+            module_inner_doc_.append(stripped);
+            continue;
+        }
         if (c == la::INSTANTIATE_DECL) {
             // `instantiate Foo<T>;` / `pub instantiate Foo<T>;` — pre-instantiation
             // root pin (C++ `template class Foo<int>;` analog). Pushes an
@@ -4980,6 +4991,11 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
         // Defensive: clear any unused doc from items that didn't consume it.
         pending_doc_.clear();
         pending_annots.clear();
+    }
+    // Phase A.3: commit per-module `//!` accumulator into LProgram and reset.
+    if (!module_inner_doc_.empty()) {
+        prog.module_inner_docs.push_back({file_, std::move(module_inner_doc_)});
+        module_inner_doc_.clear();
     }
 }
 

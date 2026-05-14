@@ -293,6 +293,7 @@
     NESTED_FN                   = 235   // `fn name(params) [-> T] { body }` at stmt position. Sema lifts the body to a top-level free fn under a gensym'd name and binds the local name as a fn-ptr let. NAME, PARAMS, RET_TYPE?, BODY.
     UNSIZED_SLICE_TYPE          = 236   // Phase 1B: bare `[T]` — unsized slice type. TYPE = element. Sema produces Kind::UnsizedSlice; cannot appear by value, only behind `&` / `*const` / `*mut` (canonicalised back to SLICE_TYPE / Kind::Slice at resolve time) or as a `T: ?Sized` substitution.
     DOC_LINE_LIT                = 237   // `/// text` outer doc-comment line. VALUE = raw token text (still includes the leading `///`). Sema-collect strips the prefix, joins consecutive DOC_LINE_LIT siblings, and attaches the joined string to the next real item via the DOC AST slot.
+    INNER_DOC_LIT               = 238   // `//! text` inner doc-comment line (module-level summary). VALUE = raw token text including the leading `//!`. Sema-collect strips the prefix and accumulates into LProgram.module_inner_doc.
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -408,6 +409,10 @@
     // tiny DOC_LINE_LIT wrapper node. Skip-rule below explicitly excludes
     // `///` so this matcher (hand-coded in codegen.cpp) wins.
     DOC_LINE    = /\/\/\/[^\n]*/
+    // Inner doc-comment line (`//! ...`). Module-level summary docs.
+    // Phase A.3: emitted as a token; sema accumulates into per-module
+    // `module_inner_doc` on LProgram.
+    DOC_INNER   = /\/\/![^\n]*/
 
     // Literals & identifiers
     RAW_STRING  = /r"[^"]*"/
@@ -439,8 +444,12 @@
     // Package paths: `a`, `a.b`, `a.b.c`, … arbitrary depth.
     // `NAME` is the first component; `PATH_PARTS` is an array of sub-nodes
     // for components 2..N (empty when there's only one component).
-    module :group mod: <- KW_PACKAGE IDENT path_dot_ident* SEMI any_use_decl* item*
-           => { CODE: MODULE, NAME: $2, PATH_PARTS: $3, USES: $5, ITEMS: $... }
+    // Phase A.3: `//!` inner doc-comments may appear before the `package`
+    // line (Rust-crate-style "crate-level" doc placement). They land in the
+    // captured items via the existing $... collector; lower_module_items
+    // sweeps them into LProgram.module_inner_docs.
+    module :group mod: <- inner_doc_decl* KW_PACKAGE IDENT path_dot_ident* SEMI any_use_decl* item*
+           => { CODE: MODULE, NAME: $3, PATH_PARTS: $4, USES: $6, ITEMS: $... }
 
     any_use_decl <- pub_use_decl / use_decl
 
@@ -453,7 +462,7 @@
     path_dot_ident <- DOT IDENT
                    => { NAME: $2 }
 
-    item <- doc_line_decl / template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / metacall_item_decl / fn_macro_item_decl / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
+    item <- inner_doc_decl / doc_line_decl / template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / metacall_item_decl / fn_macro_item_decl / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
 
     // Outer doc-comment line — captured as a tiny VALUE-only node so it can
     // sit in the item stream alongside annotations. sema_collect accumulates
@@ -462,6 +471,11 @@
     // next real item.
     doc_line_decl <- DOC_LINE
                   => { CODE: DOC_LINE_LIT, VALUE: $1 }
+
+    // Phase A.3: inner doc — module-level summary. Accumulated by sema into
+    // LProgram.module_inner_doc; never attached to any specific item.
+    inner_doc_decl <- DOC_INNER
+                   => { CODE: INNER_DOC_LIT, VALUE: $1 }
 
     // Phase A.2 alias rules: a body-element slot that admits either a real
     // member (field/variant/method/impl_item) or a DOC_LINE_LIT spacer. The

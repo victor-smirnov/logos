@@ -826,6 +826,7 @@ struct LTraitMethodSig {
 struct LAssocTypeDef {
     std::string              name;    // e.g. "Item"
     std::vector<TraitBound>  bounds;  // e.g. [Ord, Clone]
+    std::string              doc;     // Phase A.3: outer `///` doc-comment
 };
 
 struct LTraitDef {
@@ -992,6 +993,11 @@ struct LProgram {
     std::vector<LImplBlock>      impls;
     std::vector<LInstAnnotation> inst_annotations; // explicit instantiation declarations
     std::vector<LDispatchEntry>  dispatch_entries; // tag-dispatch table entries
+
+    // Phase A.3: inner doc-comments (`//!`) collected from all source modules.
+    // Each entry: { source_file, joined_doc_text }. Append-only; downstream
+    // rustdoc-style tooling consumes this directly.
+    std::vector<std::pair<std::string, std::string>> module_inner_docs;
 
     // Populated by sema when reflect::<T>() is lowered; consumed by reflection_emit pass.
     StrSet reflect_requests; // fqn of types to reflect

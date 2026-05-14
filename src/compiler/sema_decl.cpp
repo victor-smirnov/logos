@@ -920,7 +920,7 @@ lir::LTraitDef SemaChecker::lower_trait_def(TinyMapView node) {
     auto tit = traits_.find(tname);
     if (tit != traits_.end()) {
         for (auto& at : tit->second.assoc_types)
-            td.assoc_types.push_back({at.name, at.bounds});
+            td.assoc_types.push_back({at.name, at.bounds, at.doc});
         for (auto& m : tit->second.methods) {
             lir::LTraitMethodSig sig;
             sig.name     = m.name;

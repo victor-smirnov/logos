@@ -1384,10 +1384,12 @@ private:
         std::string name;              // e.g. "Item"
         std::vector<TraitBound> bounds;
         std::vector<TypeParam>  type_params;  // GAT params: type Item<T> has [T]
+        std::string doc;     // Phase A.3: outer `///` doc-comment
     };
     struct SemaAssocConstInfo {
         std::string      name;         // e.g. "MAX"
         TypeRef type = nullptr;
+        std::string doc;     // Phase A.3: outer `///` doc-comment
     };
     struct SemaTraitInfo {
         std::string name;
@@ -1453,6 +1455,10 @@ private:
     // next real item. Cleared by each collect_* after consuming. Joined with
     // '\n'; each line has had its leading `/// ` (or `///`) stripped.
     std::string pending_doc_;
+    // Phase A.3: per-module `//!` inner-doc accumulator. Reset at the start
+    // of each lower_module_items / collect_module pass; finalised onto
+    // LProgram.module_inner_docs at the end of lower_module_items.
+    std::string module_inner_doc_;
     // Consume the accumulated outer doc-comment buffer: move it out and
     // clear the buffer so the next collect_*/lower_* call starts fresh.
     std::string take_pending_doc() {

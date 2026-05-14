@@ -1,0 +1,33 @@
+//! Module-level inner doc (Phase A.3).
+//! Continues on a second line. Should accumulate into
+//! LProgram.module_inner_docs[file_].
+
+package x;
+
+//! Inner-doc lines after `package` line still accumulate to the same buffer.
+
+/// outer doc on Foo
+pub struct Foo {
+    /// outer doc on x
+    pub x: i64,
+}
+
+pub trait T {
+    /// outer doc on assoc-type Item
+    type Item;
+    /// outer doc on assoc-const MAX
+    const MAX: i64;
+    /// outer doc on method id
+    fn id(&self) -> i64;
+}
+
+impl T for Foo {
+    type Item = i64;
+    const MAX: i64 = 100;
+    fn id(&self) -> i64 { self.x }
+}
+
+unsafe fn main() -> i32 {
+    let f = Foo { x: 0 };
+    return f.id() as i32;
+}

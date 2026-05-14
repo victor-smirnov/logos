@@ -726,6 +726,18 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
             pending_doc_.append(stripped);
             continue;
         }
+        if (c == la::INNER_DOC_LIT) {
+            // Phase A.3: `//!` lines accumulate into per-module inner-doc
+            // buffer (separate from pending_doc_; never attaches to any
+            // specific item). Joined in lower_module_items.
+            std::string_view raw = str_of(item.get(la::VALUE.code));
+            std::string_view stripped = raw.size() >= 3 ? raw.substr(3) : std::string_view{};
+            if (!stripped.empty() && stripped.front() == ' ')
+                stripped.remove_prefix(1);
+            if (!module_inner_doc_.empty()) module_inner_doc_.push_back('\n');
+            module_inner_doc_.append(stripped);
+            continue;
+        }
         // Phase 2-2: conditional compilation. `#[cfg(...)]` on any item
         // is evaluated here; if false, drop the item entirely (don't
         // collect, don't lower) along with any other pending annotations
@@ -1426,8 +1438,7 @@ void SemaChecker::collect_trait(TinyMapView node) {
             if (code_of(m) == la::ASSOC_TYPE_DEF) {
                 SemaAssocTypeInfo at;
                 at.name = std::string(str_of(m.get(la::NAME.code)));
-                // Assoc-type docs: not stored on SemaAssocTypeInfo yet —
-                // drop accumulated sweep_doc here. Phase A.3 follow-up.
+                at.doc = std::move(trait_method_sweep_doc);
                 trait_method_sweep_doc.clear();
                 // GAT: read the assoc type's own type params (e.g. type Item<T>)
                 at.type_params = read_type_params(m);
@@ -1452,8 +1463,9 @@ void SemaChecker::collect_trait(TinyMapView node) {
                 ac.name = std::string(str_of(m.get(la::NAME.code)));
                 if (m.has_key(la::TYPE))
                     ac.type = resolve_type(map_of(m.get(la::TYPE.code)));
-                info.assoc_consts.push_back(std::move(ac));
+                ac.doc = std::move(trait_method_sweep_doc);
                 trait_method_sweep_doc.clear();
+                info.assoc_consts.push_back(std::move(ac));
                 continue;
             }
             if (code_of(m) != la::FN) continue;
