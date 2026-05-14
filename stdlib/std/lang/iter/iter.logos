@@ -11,6 +11,43 @@ use std.lang.option;
 
 pub trait Iterator<Item> {
     fn next(self: &mut Self) -> Option<Item>;
+
+    // SL-sl-05: ergonomic method shortcuts that wrap the free-function
+    // constructors below. Default body constructs the corresponding
+    // adapter struct directly. Only `.filter()` lands here today —
+    // `.map<R>` and other method-generic-with-fresh-tparam adapters
+    // hit a method-generic-mono path that doesn't fully specialise
+    // the adapter struct (see baghunt_iter_method_generic_mono.md).
+    // Free-function `iter_map(it, f)` is the workaround until that
+    // mono path closes.
+
+    fn filter(self: Self, pred: fn(Item) -> bool) -> FilterIter<Self, Item> {
+        return FilterIter { inner: self, pred: pred };
+    }
+
+    // Terminal: count items.
+    fn count(self: Self) -> i64 {
+        let mut it: Self = self;
+        let mut n: i64 = 0 as i64;
+        loop {
+            match it.next() {
+                Option::None    => { return n; }
+                Option::Some(_) => { n = n + 1 as i64; }
+            }
+        }
+        return n;
+    }
+
+    // Terminal: visit each item.
+    fn for_each(self: Self, f: fn(Item) -> ()) {
+        let mut it: Self = self;
+        loop {
+            match it.next() {
+                Option::None    => { return; }
+                Option::Some(v) => { f(v); }
+            }
+        }
+    }
 }
 
 // ── IntoIterator ─────────────────────────────────────────────────────────────
@@ -31,8 +68,8 @@ pub trait IntoIterator<Item> {
 // ── MapIter<I, T, R> — lazy map ──────────────────────────────────────────────
 
 pub struct MapIter<I, T, R> {
-    inner: I,
-    f: fn(T) -> R,
+    pub inner: I,
+    pub f: fn(T) -> R,
 }
 
 impl<I: Iterator<T>, T, R> Iterator<R> for MapIter<I, T, R> {
@@ -52,8 +89,8 @@ pub fn iter_map<I: Iterator<T>, T, R>(iter: I, f: fn(T) -> R) -> MapIter<I, T, R
 // ── FilterIter<I, T> — lazy filter ───────────────────────────────────────────
 
 pub struct FilterIter<I, T> {
-    inner: I,
-    pred: fn(T) -> bool,
+    pub inner: I,
+    pub pred: fn(T) -> bool,
 }
 
 impl<I: Iterator<T>, T> Iterator<T> for FilterIter<I, T> {

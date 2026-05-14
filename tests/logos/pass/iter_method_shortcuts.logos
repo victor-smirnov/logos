@@ -1,0 +1,31 @@
+// SL-sl-05: Iterator trait default-method shortcuts. .filter() / .count() /
+// .for_each() now method-chain on any Iterator impl, replacing the
+// boilerplate free-fn form `iter_filter(it, pred)`.
+//
+// Method-generic-with-fresh-tparam adapters (`.map<R>`) still hit the
+// method-generic trait-default mono path bug — see
+// baghunt_iter_method_generic_mono.md. Free-fn `iter_map(it, f)` is the
+// workaround.
+
+package iter_method_shortcuts;
+
+use std.lang.iter;
+use std.lang.option;
+
+fn is_even(x: i32) -> bool { return x % 2i32 == 0i32; }
+
+fn main() -> i32 {
+    let arr: [i32; 5] = [1i32, 2i32, 3i32, 4i32, 5i32];
+    unsafe {
+        // .filter + .count chain.
+        let it1 = iter_over_slice(&arr);
+        let evens: i64 = it1.filter(is_even).count();
+        if evens != 2i64 { return 1i32; }
+
+        // .count() on bare iterator.
+        let it2 = iter_over_slice(&arr);
+        let total: i64 = it2.count();
+        if total != 5i64 { return 2i32; }
+    }
+    return 0i32;
+}
