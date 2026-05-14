@@ -705,7 +705,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
              TypeRef(lhs_l->type).kind() == LogosType::Kind::U24 ||
              TypeRef(lhs_l->type).kind() == LogosType::Kind::U56 ||
              TypeRef(lhs_l->type).kind() == LogosType::Kind::U64 ||
-             TypeRef(lhs_l->type).kind() == LogosType::Kind::U128);
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U128 ||
+             // Bool lowers to LLVM i1. Signed i1 has `true`=−1, `false`=0,
+             // which inverts `<` / `>` / `<=` / `>=` relative to Rust's
+             // canonical `false < true` semantics. Treat as unsigned so
+             // i1 `true`(1) > i1 `false`(0) as in Rust.
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::Bool);
         if (op == "<")  return builder_.create<mlir::arith::CmpIOp>(loc_,
             is_unsigned_cmp ? mlir::arith::CmpIPredicate::ult : mlir::arith::CmpIPredicate::slt, lhs, rhs);
         if (op == ">")  return builder_.create<mlir::arith::CmpIOp>(loc_,

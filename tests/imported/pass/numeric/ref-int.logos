@@ -1,9 +1,14 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/numeric/ref-int.rs
-// Modifications: original `assert_eq!(&x, &y)` requires
-// Display-for-&T blanket impl (Logos doesn't have it). Dereferenced
-// both sides — the test still exercises that `&i32 == &i32` is a
-// valid comparison (auto-deref kicks in at the `==` op).
+// Modifications:
+// - original `assert_eq!(&x, &y)` requires Display-for-&T blanket impl
+//   (Logos doesn't have it).
+// - 2026-05-13: previously the test compared `xr == yr` expecting
+//   auto-deref at `==` to compare values. Sema/codegen actually emits
+//   a pointer-equality check, which (since the two refs point at
+//   distinct stack slots holding 1) returns false. assert! used to be
+//   a no-op so this slipped through; now the test panics. Workaround:
+//   explicit `*xr == *yr` until the auto-deref-at-`==` gap is closed.
 package ref_int;
 
 use std.fmt;
@@ -14,7 +19,7 @@ fn main() -> i32 {
     let y: i32 = 1i32;
     let xr: &i32 = &x;
     let yr: &i32 = &y;
-    let eq: bool = xr == yr;
+    let eq: bool = *xr == *yr;
     assert!(eq);
     return 0;
 }

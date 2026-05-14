@@ -1,0 +1,54 @@
+// assert! / assert_eq! / assert_ne! fn_macros under the #[test] harness.
+//
+// Pre-fix history: the macros' expansion ended in `{ ...; if cond { panic; () }
+// else { () } }`. The trailing `()` and `else { () }` triggered a sema
+// mis-typing — the if-expression was treated as the enclosing fn's
+// implicit-return tail, yielding spurious return-type errors AND
+// silently eliding the if's then-branch in codegen (LLVM IR showed an
+// `icmp ne` with no `br` following). Net effect: `assert_eq!(2, 3)`
+// compiled but never panicked.
+//
+// Fix: macro bodies are now { ...stmts...; let _: () = (); } — a block
+// of pure statements terminated by a let-stmt of unit type. The
+// trailing let is a stmt, not an expression, so sema doesn't promote
+// anything to tail-position. Underlying sema bug (block-with-tail-`()`
+// in non-tail position mis-typed) remains for a future batch.
+//
+// Six tests total: 3 should pass (lhs == rhs / lhs != rhs / true cond),
+// 3 should fail. Harness summary: `3 passed; 3 failed; 0 ignored`
+// → exit 1.
+
+package test_harness_asserts;
+
+use std.fmt;
+use std.lang.text;
+
+#[test]
+fn t_eq_pass() {
+    assert_eq!(2 + 2, 4);
+}
+
+#[test]
+fn t_eq_fail() {
+    assert_eq!(2 + 2, 5);
+}
+
+#[test]
+fn t_ne_pass() {
+    assert_ne!(1, 2);
+}
+
+#[test]
+fn t_ne_fail() {
+    assert_ne!(1, 1);
+}
+
+#[test]
+fn t_assert_pass() {
+    assert!(1 + 1 == 2);
+}
+
+#[test]
+fn t_assert_fail() {
+    assert!(false);
+}

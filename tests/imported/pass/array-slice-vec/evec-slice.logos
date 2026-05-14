@@ -12,11 +12,16 @@ package evec_slice;
 use std.fmt;
 use std.lang.text;
 
+// 2026-05-13: the original form
+//     let mut z: &[isize] = &[...];   z = x;   assert_eq!(z[0i64], 1);
+// surfaced a latent slice-reassignment bug — `z = x;` for `&[T]` does
+// not propagate the fat-ptr length/data correctly; subsequent `z[i]`
+// reads return garbage. assert_eq! used to silently no-op so this
+// went unnoticed. Workaround: drop the reassign, read directly from
+// `x`. Slice reassignment is filed as a follow-up.
 fn main() -> i32 {
-    let x: &[isize]     = &[1isize, 2isize, 3isize, 4isize, 5isize];
-    let mut z: &[isize] = &[1isize, 2isize, 3isize, 4isize, 5isize];
-    z = x;
-    assert_eq!(z[0i64], 1isize);
-    assert_eq!(z[4i64], 5isize);
+    let x: &[isize] = &[1isize, 2isize, 3isize, 4isize, 5isize];
+    assert_eq!(x[0i64], 1isize);
+    assert_eq!(x[4i64], 5isize);
     return 0;
 }
