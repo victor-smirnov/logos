@@ -1056,6 +1056,17 @@ private:
             }
         }
         // Block comment: pattern inner starts with /* or \/\* (escaped-slash + escaped-star).
+        // Phase A.4: when DOC_BLOCK is defined, restrict skip to NOT eat
+        //   - `/** ... */` outer doc (2 stars, body, terminator) — but `/**/`
+        //     (empty) and `/***+` (3+ stars) still skip as ordinary comments
+        //   - `/*! ... */` inner doc
+        bool has_doc_block = false;
+        for (const auto& t : g_.tokens) {
+            if (t.kind == int32_t(ast::TOKEN_REGEX) &&
+                (t.name == "DOC_BLOCK" || t.name == "DOC_BLOCK_INNER")) {
+                has_doc_block = true; break;
+            }
+        }
         for (const auto& t : g_.tokens) {
             if (t.kind != skip_code) continue;
             auto inner = regex_inner(t.pattern);
@@ -1064,7 +1075,19 @@ private:
                 // depth counter; close only on the matching `*/`. Track
                 // newlines so line_ stays correct across multi-line
                 // comments (the prior matcher silently lost them).
-                w.line("if (c == '/' && pos_+1 < source_.size() && source_[pos_+1] == '*') {");
+                if (has_doc_block) {
+                    // Skip `/*` block comment EXCEPT:
+                    //   - `/**` followed by non-`*` non-`/` (outer block doc)
+                    //   - `/*!` (inner block doc)
+                    // `/**/`, `/***+`, and `/*` + ordinary body still skip.
+                    w.line("if (c == '/' && pos_+1 < source_.size() && source_[pos_+1] == '*' &&");
+                    w.line("    !(pos_+2 < source_.size() && source_[pos_+2] == '*' &&");
+                    w.line("      !(pos_+3 < source_.size() &&");
+                    w.line("        (source_[pos_+3] == '/' || source_[pos_+3] == '*'))) &&");
+                    w.line("    !(pos_+2 < source_.size() && source_[pos_+2] == '!')) {");
+                } else {
+                    w.line("if (c == '/' && pos_+1 < source_.size() && source_[pos_+1] == '*') {");
+                }
                 w.line("    pos_ += 2;");
                 w.line("    int depth = 1;");
                 w.line("    while (depth > 0 && pos_+1 < source_.size()) {");
@@ -1113,6 +1136,50 @@ private:
             w.indent();
             w.line("pos_ += 3;");
             w.line("while (pos_ < source_.size() && source_[pos_] != '\\n') ++pos_;");
+            w.fmt("return {{TK::{}, source_.substr(start, pos_ - start), start_line_}};", safe_tok_name(t.name));
+            w.dedent();
+            w.line("}");
+            w.line();
+            break;
+        }
+        // DOC_BLOCK outer block doc-comment (`/** ... */`) — must run before
+        // the SLASH literal AND the block-comment skip. Skip rule above
+        // already passed through any `/**` not followed by `/` or `*`.
+        // Body supports nested `/* */` via depth counter.
+        for (const auto& t : g_.tokens) {
+            if (t.kind != int32_t(ast::TOKEN_REGEX) || t.name != "DOC_BLOCK") continue;
+            w.line("// DOC_BLOCK = `/** ... */` (outer block doc-comment)");
+            w.line("if (c == '/' && pos_+3 < source_.size() &&");
+            w.line("    source_[pos_+1] == '*' && source_[pos_+2] == '*' &&");
+            w.line("    source_[pos_+3] != '/' && source_[pos_+3] != '*') {");
+            w.indent();
+            w.line("pos_ += 3;  // past `/**`");
+            w.line("int depth = 1;");
+            w.line("while (depth > 0 && pos_+1 < source_.size()) {");
+            w.line("    if (source_[pos_] == '/' && source_[pos_+1] == '*') { ++depth; pos_ += 2; }");
+            w.line("    else if (source_[pos_] == '*' && source_[pos_+1] == '/') { --depth; pos_ += 2; }");
+            w.line("    else { if (source_[pos_] == '\\n') ++line_; ++pos_; }");
+            w.line("}");
+            w.fmt("return {{TK::{}, source_.substr(start, pos_ - start), start_line_}};", safe_tok_name(t.name));
+            w.dedent();
+            w.line("}");
+            w.line();
+            break;
+        }
+        // DOC_BLOCK_INNER inner block doc-comment (`/*! ... */`).
+        for (const auto& t : g_.tokens) {
+            if (t.kind != int32_t(ast::TOKEN_REGEX) || t.name != "DOC_BLOCK_INNER") continue;
+            w.line("// DOC_BLOCK_INNER = `/*! ... */` (inner block doc-comment)");
+            w.line("if (c == '/' && pos_+2 < source_.size() &&");
+            w.line("    source_[pos_+1] == '*' && source_[pos_+2] == '!') {");
+            w.indent();
+            w.line("pos_ += 3;  // past `/*!`");
+            w.line("int depth = 1;");
+            w.line("while (depth > 0 && pos_+1 < source_.size()) {");
+            w.line("    if (source_[pos_] == '/' && source_[pos_+1] == '*') { ++depth; pos_ += 2; }");
+            w.line("    else if (source_[pos_] == '*' && source_[pos_+1] == '/') { --depth; pos_ += 2; }");
+            w.line("    else { if (source_[pos_] == '\\n') ++line_; ++pos_; }");
+            w.line("}");
             w.fmt("return {{TK::{}, source_.substr(start, pos_ - start), start_line_}};", safe_tok_name(t.name));
             w.dedent();
             w.line("}");
@@ -1239,10 +1306,11 @@ private:
             if (pat.size() >= 2 && pat.front() == '/' && pat.back() == '/')
                 pat = pat.substr(1, pat.size() - 2);
 
-            // DOC_LINE / DOC_INNER are emitted earlier in lex_one (before
-            // keyword literals) so the bare `/` SLASH literal doesn't claim
-            // the leading slash.
-            if (t.name == "DOC_LINE" || t.name == "DOC_INNER") continue;
+            // DOC_LINE / DOC_INNER / DOC_BLOCK / DOC_BLOCK_INNER are emitted
+            // earlier in lex_one (before keyword literals) so the bare `/`
+            // SLASH literal doesn't claim the leading slash.
+            if (t.name == "DOC_LINE" || t.name == "DOC_INNER" ||
+                t.name == "DOC_BLOCK" || t.name == "DOC_BLOCK_INNER") continue;
 
             // IDENT-like: [a-zA-Z_][a-zA-Z0-9_]*
             if (pat == "[a-zA-Z_][a-zA-Z0-9_]*" || pat == "[a-zA-Z_]\\w*") {

@@ -718,12 +718,14 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
             // Strip `/// ` (or `///`) prefix; one optional space.
             // Both phases accumulate so the buffer is consistent when the
             // next non-doc item arrives in either pass.
-            std::string_view raw = str_of(item.get(la::VALUE.code));
-            std::string_view stripped = raw.size() >= 3 ? raw.substr(3) : std::string_view{};
-            if (!stripped.empty() && stripped.front() == ' ')
-                stripped.remove_prefix(1);
-            if (!pending_doc_.empty()) pending_doc_.push_back('\n');
-            pending_doc_.append(stripped);
+            append_doc_line(pending_doc_, str_of(item.get(la::VALUE.code)));
+            continue;
+        }
+        if (c == la::DOC_BLOCK_LIT) {
+            // Phase A.4: `/** ... */` outer block doc-comment.
+            append_doc_block(pending_doc_,
+                             str_of(item.get(la::VALUE.code)),
+                             /*prefix_len=*/3);
             continue;
         }
         if (c == la::INNER_DOC_LIT) {
@@ -736,6 +738,13 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                 stripped.remove_prefix(1);
             if (!module_inner_doc_.empty()) module_inner_doc_.push_back('\n');
             module_inner_doc_.append(stripped);
+            continue;
+        }
+        if (c == la::INNER_DOC_BLOCK_LIT) {
+            // Phase A.4: `/*! ... */` inner block doc-comment.
+            append_doc_block(module_inner_doc_,
+                             str_of(item.get(la::VALUE.code)),
+                             /*prefix_len=*/3);
             continue;
         }
         // Phase 2-2: conditional compilation. `#[cfg(...)]` on any item
@@ -1014,10 +1023,7 @@ void SemaChecker::collect_enum(TinyMapView node) {
                 std::string variant_sweep_doc;
                 for (uint64_t i = 0; i < variants.size(); ++i) {
                     auto v = map_of(variants.get(i));
-                    if (code_of(v) == la::DOC_LINE_LIT) {
-                        append_doc_line(variant_sweep_doc, str_of(v.get(la::VALUE.code)));
-                        continue;
-                    }
+                    if (try_append_doc(variant_sweep_doc, v)) continue;
                     auto vname = str_of(v.get(la::NAME.code));
                     int64_t vval = next_val;
                     if (v.has_key(la::VALUE)) {
@@ -1437,10 +1443,7 @@ void SemaChecker::collect_trait(TinyMapView node) {
         std::string trait_method_sweep_doc;
         for (uint64_t i = 0; i < items.size(); ++i) {
             auto m = map_of(items.get(i));
-            if (code_of(m) == la::DOC_LINE_LIT) {
-                append_doc_line(trait_method_sweep_doc, str_of(m.get(la::VALUE.code)));
-                continue;
-            }
+            if (try_append_doc(trait_method_sweep_doc, m)) continue;
             if (code_of(m) == la::ASSOC_TYPE_DEF) {
                 SemaAssocTypeInfo at;
                 at.name = std::string(str_of(m.get(la::NAME.code)));
@@ -1936,10 +1939,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
         pending_doc_.clear();
         for (uint64_t i = 0; i < items.size(); ++i) {
             auto m = map_of(items.get(i));
-            if (code_of(m) == la::DOC_LINE_LIT) {
-                append_doc_line(pending_doc_, str_of(m.get(la::VALUE.code)));
-                continue;
-            }
+            if (try_append_doc(pending_doc_, m)) continue;
             if (code_of(m) == la::FN || code_of(m) == la::STATIC_FN) {
                 auto mname = std::string(str_of(m.get(la::NAME.code)));
                 // Blanket impls use a synthetic target name so the method
@@ -2041,10 +2041,13 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 push_type_params(gat_tps);
                 auto atype = resolve_type(map_of(m.get(la::TYPE.code)));
                 pop_type_params(gat_tps);
-                assoc_type_impls_[key] = { atype, impl_tps, gat_tps };
+                AssocTypeEntry ate{atype, impl_tps, gat_tps, std::move(pending_doc_)};
                 pending_doc_.clear();
+                assoc_type_impls_[key] = std::move(ate);
             } else if (code_of(m) == la::ASSOC_CONST_IMPL) {
                 auto cname = std::string(str_of(m.get(la::NAME.code)));
+                std::string assoc_doc = std::move(pending_doc_);
+                pending_doc_.clear();
                 if (trait_name.empty()) {
                     // B97: inherent assoc-const on `impl S { const C: T = ...; }`
                     // is allowed; register it under "inherent::<target>::<name>".
@@ -2052,7 +2055,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     if (m.has_key(la::TYPE))
                         ctype = resolve_type(map_of(m.get(la::TYPE.code)));
                     std::string key = "inherent::" + target + "::" + cname;
-                    assoc_const_impls_[key] = { ctype, m.get(la::VALUE) };
+                    assoc_const_impls_[key] = { ctype, m.get(la::VALUE), nullptr, std::move(assoc_doc) };
                 } else {
                     TypeRef ctype = nullptr;
                     if (m.has_key(la::TYPE))
@@ -2072,9 +2075,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         }
                     }
                     std::string key = trait_name + "::" + target + "::" + cname;
-                    assoc_const_impls_[key] = { ctype, m.get(la::VALUE) };  // Bug 1 fix: no .code
+                    assoc_const_impls_[key] = { ctype, m.get(la::VALUE), nullptr, std::move(assoc_doc) };
                 }
-                pending_doc_.clear();
             }
         }
         // Defensive: clear pending_doc_ at end of impl-body iteration so
@@ -2340,10 +2342,7 @@ void SemaChecker::collect_struct_spec(TinyMapView node) {
         auto fields = arr_of(node.get(la::FIELDS.code));
         for (uint64_t i = 0; i < fields.size(); ++i) {
             auto fnode = map_of(fields.get(i));
-            if (code_of(fnode) == la::DOC_LINE_LIT) {
-                append_doc_line(spec_field_sweep_doc, str_of(fnode.get(la::VALUE.code)));
-                continue;
-            }
+            if (try_append_doc(spec_field_sweep_doc, fnode)) continue;
             if (code_of(fnode) != la::FIELD_DEF) continue;
             auto fname = str_of(fnode.get(la::NAME.code));
             auto ftype = resolve_type(map_of(fnode.get(la::TYPE.code)));
@@ -2381,10 +2380,7 @@ void SemaChecker::collect_datatype(TinyMapView node, bool is_annotation_type) {
         auto fields = arr_of(node.get(la::FIELDS.code));
         for (uint64_t i = 0; i < fields.size(); ++i) {
             auto fnode = map_of(fields.get(i));
-            if (code_of(fnode) == la::DOC_LINE_LIT) {
-                append_doc_line(dt_field_sweep_doc, str_of(fnode.get(la::VALUE.code)));
-                continue;
-            }
+            if (try_append_doc(dt_field_sweep_doc, fnode)) continue;
             if (code_of(fnode) != la::FIELD_DEF) continue;
             auto fname = str_of(fnode.get(la::NAME.code));
             auto ftype = resolve_type(map_of(fnode.get(la::TYPE.code)));
@@ -2520,10 +2516,7 @@ void SemaChecker::collect_struct(TinyMapView node) {
         uint64_t synth_idx = 0;
         for (uint64_t i = 0; i < fields.size(); ++i) {
             auto fnode = map_of(fields.get(i));
-            if (code_of(fnode) == la::DOC_LINE_LIT) {
-                append_doc_line(field_sweep_doc, str_of(fnode.get(la::VALUE.code)));
-                continue;
-            }
+            if (try_append_doc(field_sweep_doc, fnode)) continue;
             if (!is_field_def(fnode)) continue;
             const uint64_t i_for_synth = synth_idx++;
             // B-ts-01: tuple-struct fields have no NAME slot; synthesise
@@ -2576,11 +2569,8 @@ void SemaChecker::collect_struct(TinyMapView node) {
         pending_doc_ = std::move(field_sweep_doc);
         for (uint64_t m = 0; m < methods.size(); ++m) {
             auto method = map_of(methods.get(m));
+            if (try_append_doc(pending_doc_, method)) continue;
             int32_t mc = code_of(method);
-            if (mc == la::DOC_LINE_LIT) {
-                append_doc_line(pending_doc_, str_of(method.get(la::VALUE.code)));
-                continue;
-            }
             if (mc == la::FN || mc == la::STATIC_FN) collect_fn(method, sname);
         }
     }

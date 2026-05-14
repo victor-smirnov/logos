@@ -4519,12 +4519,14 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
         if (c == la::DOC_LINE_LIT) {
             // Mirror collect-phase doc accumulation: strip `/// ` prefix and
             // join with '\n'. Consumed by the next LXxx via take_pending_doc().
-            std::string_view raw = str_of(item.get(la::VALUE.code));
-            std::string_view stripped = raw.size() >= 3 ? raw.substr(3) : std::string_view{};
-            if (!stripped.empty() && stripped.front() == ' ')
-                stripped.remove_prefix(1);
-            if (!pending_doc_.empty()) pending_doc_.push_back('\n');
-            pending_doc_.append(stripped);
+            append_doc_line(pending_doc_, str_of(item.get(la::VALUE.code)));
+            continue;
+        }
+        if (c == la::DOC_BLOCK_LIT) {
+            // Phase A.4: `/** ... */` outer block doc-comment.
+            append_doc_block(pending_doc_,
+                             str_of(item.get(la::VALUE.code)),
+                             /*prefix_len=*/3);
             continue;
         }
         if (c == la::INNER_DOC_LIT) {
@@ -4536,6 +4538,13 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                 stripped.remove_prefix(1);
             if (!module_inner_doc_.empty()) module_inner_doc_.push_back('\n');
             module_inner_doc_.append(stripped);
+            continue;
+        }
+        if (c == la::INNER_DOC_BLOCK_LIT) {
+            // Phase A.4: `/*! ... */` inner block doc-comment.
+            append_doc_block(module_inner_doc_,
+                             str_of(item.get(la::VALUE.code)),
+                             /*prefix_len=*/3);
             continue;
         }
         if (c == la::INSTANTIATE_DECL) {

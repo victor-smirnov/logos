@@ -1,0 +1,47 @@
+/*! Module-level inner block doc (Phase A.4).
+ *  Multi-line, with leading-asterisk indent — sema strips per-line.
+ */
+/*! Second inner block before package. */
+
+package test_doc_a4;
+
+/*! Inner block doc after package — accumulates with prior content. */
+
+/** Outer block doc on a struct. */
+pub struct Foo {
+    /** Field x's block doc.
+     *  Indent-stripped second line.
+     */
+    pub x: i64,
+}
+
+/**
+ * Outer doc on a fn — Rust-style with star indent on each line.
+ * Returns x + 1.
+ */
+pub fn frob(x: i64) -> i64 { x + 1 }
+
+/// Line-doc + block-doc on the same trait — both accumulate.
+/** Trait body has both forms of method-level docs. */
+pub trait T {
+    /** Required method.
+     *  Block form.
+     */
+    fn id(&self) -> i64;
+    /// Default with line-doc.
+    fn double(&self) -> i64 { self.id() + self.id() }
+}
+
+impl T for Foo {
+    /** Impl-side method doc. */
+    fn id(&self) -> i64 { self.x }
+}
+
+// Ordinary block comments stay regular comments.
+/* not a doc-block — single star */
+/**/  /* empty quad-slash is also a regular comment, NOT a DOC_BLOCK */
+
+unsafe fn main() -> i32 {
+    let f = Foo { x: 41 };
+    return (frob(f.x) - 42) as i32;
+}

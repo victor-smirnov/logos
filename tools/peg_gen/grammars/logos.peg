@@ -294,6 +294,8 @@
     UNSIZED_SLICE_TYPE          = 236   // Phase 1B: bare `[T]` — unsized slice type. TYPE = element. Sema produces Kind::UnsizedSlice; cannot appear by value, only behind `&` / `*const` / `*mut` (canonicalised back to SLICE_TYPE / Kind::Slice at resolve time) or as a `T: ?Sized` substitution.
     DOC_LINE_LIT                = 237   // `/// text` outer doc-comment line. VALUE = raw token text (still includes the leading `///`). Sema-collect strips the prefix, joins consecutive DOC_LINE_LIT siblings, and attaches the joined string to the next real item via the DOC AST slot.
     INNER_DOC_LIT               = 238   // `//! text` inner doc-comment line (module-level summary). VALUE = raw token text including the leading `//!`. Sema-collect strips the prefix and accumulates into LProgram.module_inner_doc.
+    DOC_BLOCK_LIT               = 239   // `/** ... */` outer block doc-comment. VALUE = raw token text including the `/**` envelope and trailing `*/`. Sema strips the envelope + per-line leading `*` indent and joins with `\n` into pending_doc_, mirroring DOC_LINE_LIT accumulation.
+    INNER_DOC_BLOCK_LIT         = 240   // `/*! ... */` inner block doc-comment (module-level summary, block form). VALUE = raw token text; sema accumulates into module_inner_doc_ like INNER_DOC_LIT.
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -413,6 +415,12 @@
     // Phase A.3: emitted as a token; sema accumulates into per-module
     // `module_inner_doc` on LProgram.
     DOC_INNER   = /\/\/![^\n]*/
+    // Outer block doc-comment (`/** ... */`). Phase A.4. Body may
+    // contain nested `/* ... */`. Hand-coded matcher in codegen tracks
+    // depth + line counter; this regex shape is recognised by name only.
+    DOC_BLOCK   = /\/\*\*[^*\/][\s\S]*?\*\//
+    // Inner block doc-comment (`/*! ... */`). Phase A.4.
+    DOC_BLOCK_INNER = /\/\*![\s\S]*?\*\//
 
     // Literals & identifiers
     RAW_STRING  = /r"[^"]*"/
@@ -448,7 +456,7 @@
     // line (Rust-crate-style "crate-level" doc placement). They land in the
     // captured items via the existing $... collector; lower_module_items
     // sweeps them into LProgram.module_inner_docs.
-    module :group mod: <- inner_doc_decl* KW_PACKAGE IDENT path_dot_ident* SEMI any_use_decl* item*
+    module :group mod: <- (inner_doc_decl / inner_doc_block_decl)* KW_PACKAGE IDENT path_dot_ident* SEMI any_use_decl* item*
            => { CODE: MODULE, NAME: $3, PATH_PARTS: $4, USES: $6, ITEMS: $... }
 
     any_use_decl <- pub_use_decl / use_decl
@@ -462,7 +470,7 @@
     path_dot_ident <- DOT IDENT
                    => { NAME: $2 }
 
-    item <- inner_doc_decl / doc_line_decl / template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / metacall_item_decl / fn_macro_item_decl / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
+    item <- inner_doc_decl / inner_doc_block_decl / doc_line_decl / doc_block_decl / template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / metacall_item_decl / fn_macro_item_decl / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
 
     // Outer doc-comment line — captured as a tiny VALUE-only node so it can
     // sit in the item stream alongside annotations. sema_collect accumulates
@@ -477,6 +485,18 @@
     inner_doc_decl <- DOC_INNER
                    => { CODE: INNER_DOC_LIT, VALUE: $1 }
 
+    // Phase A.4: outer block doc-comment `/** ... */`. Same accumulator
+    // role as DOC_LINE_LIT — sits in the item / member stream; sema
+    // strips the `/**` envelope + per-line leading `*` indent and joins
+    // with `\n` into pending_doc_.
+    doc_block_decl <- DOC_BLOCK
+                   => { CODE: DOC_BLOCK_LIT, VALUE: $1 }
+
+    // Phase A.4: inner block doc-comment `/*! ... */`. Accumulates into
+    // module_inner_doc_ exactly like INNER_DOC_LIT.
+    inner_doc_block_decl <- DOC_BLOCK_INNER
+                         => { CODE: INNER_DOC_BLOCK_LIT, VALUE: $1 }
+
     // Phase A.2 alias rules: a body-element slot that admits either a real
     // member (field/variant/method/impl_item) or a DOC_LINE_LIT spacer. The
     // DOC_LINE_LIT entries land mixed into the captured array; sema iterates
@@ -485,10 +505,10 @@
     // FIRST method inside a struct body lands in the FIELDS capture (eaten
     // by `field_def_or_doc*`). sema carries trailing-FIELDS docs over into
     // the methods iteration to keep "doc binds to the next member" intuitive.
-    field_def_or_doc        <- doc_line_decl / field_def
-    method_def_or_doc       <- doc_line_decl / method_def
-    trait_method_or_doc     <- doc_line_decl / trait_method
-    impl_item_or_doc        <- doc_line_decl / impl_item
+    field_def_or_doc        <- doc_line_decl / doc_block_decl / field_def
+    method_def_or_doc       <- doc_line_decl / doc_block_decl / method_def
+    trait_method_or_doc     <- doc_line_decl / doc_block_decl / trait_method
+    impl_item_or_doc        <- doc_line_decl / doc_block_decl / impl_item
 
     // Slice 6 of fn-macros — item-position macro invocation. Brace
     // delimiter only (parens / brackets stay at expression position).
@@ -643,7 +663,7 @@
               / KW_ENUM IDENT type_param_list? where_clause? LBRACE variant_list? RBRACE
              => { CODE: ENUM, NAME: $2, TYPE_PARAMS: $3, WHERE: $4, ITEMS: $6 }
 
-    variant_list <- doc_line_decl* variant_def (COMMA doc_line_decl* variant_def)* COMMA?
+    variant_list <- (doc_line_decl / doc_block_decl)* variant_def (COMMA (doc_line_decl / doc_block_decl)* variant_def)* COMMA?
                  => { ITEMS: $... }
 
 

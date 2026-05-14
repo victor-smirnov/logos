@@ -754,11 +754,8 @@ lir::LStructDef SemaChecker::lower_struct_def(TinyMapView node) {
         pending_doc_.clear();
         for (uint64_t m = 0; m < methods.size(); ++m) {
             auto method = map_of(methods.get(m));
+            if (try_append_doc(pending_doc_, method)) continue;
             int32_t mc = code_of(method);
-            if (mc == la::DOC_LINE_LIT) {
-                append_doc_line(pending_doc_, str_of(method.get(la::VALUE.code)));
-                continue;
-            }
             if (mc == la::FN || mc == la::STATIC_FN)
                 sd.methods.push_back(std::make_unique<lir::LFunction>(lower_fn(method, sname)));
         }
@@ -1309,10 +1306,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         pending_doc_.clear();
         for (uint64_t i = 0; i < items.size(); ++i) {
             auto m = map_of(items.get(i));
-            if (code_of(m) == la::DOC_LINE_LIT) {
-                append_doc_line(pending_doc_, str_of(m.get(la::VALUE.code)));
-                continue;
-            }
+            if (try_append_doc(pending_doc_, m)) continue;
             if (code_of(m) == la::FN || code_of(m) == la::STATIC_FN) {
                 auto fn = lower_fn(m, lower_target);
                 // Trait-impl methods inherit visibility from the trait itself:

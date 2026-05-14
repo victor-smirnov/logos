@@ -1488,6 +1488,72 @@ private:
         if (!buf.empty()) buf.push_back('\n');
         buf.append(stripped);
     }
+    // Phase A.4: try to consume a doc-node (DOC_LINE_LIT or DOC_BLOCK_LIT)
+    // into the supplied buffer. Returns true on consume; callers use this
+    // in iteration loops where doc-nodes are interleaved with real members.
+    bool try_append_doc(std::string& buf, hermes::TinyMapView node) {
+        int32_t c = code_of(node);
+        if (c == sema_detail::la::DOC_LINE_LIT) {
+            append_doc_line(buf, str_of(node.get(sema_detail::la::VALUE.code)));
+            return true;
+        }
+        if (c == sema_detail::la::DOC_BLOCK_LIT) {
+            append_doc_block(buf, str_of(node.get(sema_detail::la::VALUE.code)), 3);
+            return true;
+        }
+        return false;
+    }
+    // Phase A.4: append a `/** ... */` (or `/*! ... */`) block-doc body
+    // to buf. Strips the `/**` / `/*!` envelope and the trailing `*/`,
+    // then for each line strips a leading run of whitespace + optional
+    // `*` indent (common rust-doc shape:
+    //     /** First line.
+    //      *  Second line.
+    //      *  Third line.
+    //      */
+    // becomes "First line.\nSecond line.\nThird line."). `prefix_len`
+    // is 3 for both outer (`/**`) and inner (`/*!`) — caller picks.
+    static void append_doc_block(std::string& buf, std::string_view raw,
+                                 std::size_t prefix_len)
+    {
+        if (raw.size() < prefix_len + 2) return;          // need `*/`
+        std::string_view body = raw.substr(prefix_len);
+        if (body.size() >= 2) body.remove_suffix(2);      // drop `*/`
+        // Split into lines and strip per-line leading whitespace + `*`.
+        std::string_view rest = body;
+        bool first = true;
+        while (!rest.empty()) {
+            auto nl = rest.find('\n');
+            std::string_view line = (nl == std::string_view::npos)
+                ? rest : rest.substr(0, nl);
+            // Per-line strip: leading whitespace, then optional `*`, then
+            // one optional space. Trailing whitespace untouched (caller
+            // can render preformatted text if desired).
+            std::size_t i = 0;
+            while (i < line.size() && (line[i] == ' ' || line[i] == '\t'))
+                ++i;
+            if (i < line.size() && line[i] == '*') {
+                ++i;
+                if (i < line.size() && line[i] == ' ') ++i;
+            }
+            std::string_view stripped = line.substr(i);
+            // Drop trailing whitespace.
+            while (!stripped.empty() &&
+                   (stripped.back() == ' ' || stripped.back() == '\t'))
+                stripped.remove_suffix(1);
+            // Skip empty first/last lines that arise from the envelope's
+            // own newlines (`/**\n ... \n*/`).
+            bool drop_empty = stripped.empty() &&
+                              (first || nl == std::string_view::npos);
+            if (!drop_empty) {
+                if (!buf.empty()) buf.push_back('\n');
+                buf.append(stripped);
+            }
+            first = false;
+            if (nl == std::string_view::npos) break;
+            rest = rest.substr(nl + 1);
+        }
+    }
     // Set true when the trait being collected has a `#[type_code]` annotation.
     // collect_trait reads + clears it; SemaTraitInfo.is_hermes carries the
     // result through to reflect::<T>() dispatch.
@@ -1567,6 +1633,7 @@ private:
         TypeRef       type;
         std::vector<TypeParam> impl_type_params;  // from enclosing impl<T>
         std::vector<TypeParam> gat_type_params;   // from GAT itself: type Item<T> = ...
+        std::string doc;     // Phase A.4: outer `///`/`/** */` doc-comment
     };
     logos::compiler::StrMap<AssocTypeEntry> assoc_type_impls_;
 
@@ -1575,6 +1642,7 @@ private:
         TypeRef  type;
         hermes::AnyVal    value_ast;  // AST expr node for the constant value
         mutable lir::LExprPtr cached_value = nullptr;  // lowered once, reused at every access site
+        std::string doc;     // Phase A.4: outer `///`/`/** */` doc-comment
     };
     logos::compiler::StrMap<AssocConstEntry> assoc_const_impls_;
 
