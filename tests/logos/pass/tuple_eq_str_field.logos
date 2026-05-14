@@ -1,0 +1,37 @@
+// CP-cm-08b (a) — tuple `==` for str-typed fields via the Eq blanket.
+//
+// Previously broken: the blanket body emits `self.0.eq(&other.0)`; the
+// `&other.0` lowering spilled the Slice value (8-byte slice-desc-ptr)
+// to an 8-byte alloca and passed the alloca address — but str_eq's
+// `Slice<u8>` ABI is "ptr to {ptr, i64}", so str_eq read 16 bytes from
+// the 8-byte slot → stack garbage.
+//
+// Fix: mlir-gen's EAddrOfTemp now treats `Slice` / `TraitObject`
+// (already-ptr-shaped values) the same as Tuple/Struct/Array — return
+// the value directly without re-spilling.
+
+package tuple_eq_str_field;
+
+use std.lang.cmp;
+
+fn main() -> i32 {
+    let a: (str, i32) = ("foo", 1i32);
+    let b: (str, i32) = ("foo", 1i32);
+    let c: (str, i32) = ("bar", 1i32);
+    let d: (str, i32) = ("foo", 2i32);
+
+    if !(a == b) { return 1i32; }
+    if a == c    { return 2i32; }
+    if a == d    { return 3i32; }
+    if !(a != c) { return 4i32; }
+    if a != b    { return 5i32; }
+
+    // 3-arity with str in different positions.
+    let t1: (i32, str, i32) = (1i32, "hi", 2i32);
+    let t2: (i32, str, i32) = (1i32, "hi", 2i32);
+    let t3: (i32, str, i32) = (1i32, "ho", 2i32);
+    if !(t1 == t2) { return 6i32; }
+    if t1 == t3    { return 7i32; }
+
+    return 0i32;
+}

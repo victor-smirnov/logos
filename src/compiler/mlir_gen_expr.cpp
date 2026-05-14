@@ -1096,7 +1096,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef) {
     if (inner_t && (inner_t.kind() == LogosType::Kind::Tuple ||
                     inner_t.kind() == LogosType::Kind::Struct ||
                     inner_t.kind() == LogosType::Kind::ZonedStruct ||
-                    inner_t.kind() == LogosType::Kind::Array))
+                    inner_t.kind() == LogosType::Kind::Array ||
+                    // CP-cm-08b: Slice<T> values are already ptr-to-slice-desc
+                    // (Logos ABI). Spilling them to an 8-byte alloca and
+                    // passing the alloca address makes callees that expect
+                    // "ptr to {ptr,i64}" read 16 bytes from an 8-byte slot.
+                    // Treat as already-spilled — return the ptr value.
+                    inner_t.kind() == LogosType::Kind::Slice ||
+                    inner_t.kind() == LogosType::Kind::TraitObject))
         return val;
     auto llvm_type = logos_to_mlir(inner_t);
     if (!llvm_type) llvm_type = builder_.getI32Type();
