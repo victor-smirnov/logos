@@ -1320,6 +1320,13 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         us.elem = u8_t();
         current_type_params_["Self"] = pool_->alloc(std::move(us));
     }
+    // SL-sl-08: `impl Trait for (A, B, …)` — Self resolves to the tuple
+    // TypeRef so the impl method bodies can name `Self` / `&Self`.
+    if (target_resolved &&
+        TypeRef(target_resolved).kind() == LogosType::Kind::Tuple &&
+        !current_type_params_.count("Self")) {
+        current_type_params_["Self"] = target_resolved;
+    }
     if (node.has_key(la::ITEMS)) {
         auto items = arr_of(node.get(la::ITEMS.code));
         // Phase A.2: doc-line sweep — pending_doc_ primes the next lower_fn.

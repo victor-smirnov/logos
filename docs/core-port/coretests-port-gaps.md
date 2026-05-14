@@ -13,9 +13,9 @@ etc. to re-tally — counts are derived from the A/B/C tables below.)
 
 | Class                 | Total | ✅ Closed | Partial | Open |
 |---|---|---|---|---|
-| Compiler (CP-cm-*)    | 15    | 8        | 2       | 5    |
+| Compiler (CP-cm-*)    | 15    | 8        | 3       | 4    |
 | Stdlib (SL-sl-*)      | 10    | 4        | 2       | 4    |
-| **Total**             | 25    | 12       | 4       | 9    |
+| **Total**             | 25    | 12       | 5       | 8    |
 
 Closures so far (chronological):
 - 2026-05-13 — CP-cm-03 (prelude shorthand), SL-sl-07 (ToString)
@@ -25,10 +25,11 @@ Closures so far (chronological):
   CP-cm-12 (method-generic on generic enum receivers — Option::and/.map etc.),
   CP-cm-08 (tuple == for primitive fields),
   CP-cm-01 (primitive method dispatch via &Self receiver — auto-deref),
-  SL-sl-08 (Debug for tuples — language path; stdlib impls follow-up)
+  SL-sl-08 (Debug for tuples — language path; stdlib impls follow-up),
+  CP-cm-08b partial (tuple == through Eq trait — struct fields work; str + nested still open)
 
 Still open, high-leverage:
-- CP-cm-08b — tuple `==` for non-primitive fields (str / nested / struct)
+- CP-cm-08b — str / nested-tuple field comparisons (canonicalisation + nested-bound work)
 - SL-sl-02 — PartialEq / Eq separation
 - SL-sl-05 — Iterator adapter surface
 
@@ -101,7 +102,7 @@ Surfaced by ports of rustc coretests. Each needs C++ code change in
 | SL-sl-07 | `ToString` trait + `.to_string()` on primitives | ✅ Closed (2026-05-13) | `ToString` trait + blanket `impl<T: Display> ToString for T` + explicit primitive impls (bool, i8-64, u8-64, isize, usize) in `std.lang.text` so primitive method dispatch (which doesn't try blanket impls in Logos's current path) still resolves. Method shape `self: Self` (by value) — primitives are Copy. | — | — |
 | SL-sl-08 | `Debug` for tuples | ✅ Closed (2026-05-14) | Added tuple-impl-target sentinel mangling (`$tuple$N` generic blanket, `$tuple$N$<t1>$<t2>…` concrete) in sema_collect.cpp + sema_decl.cpp. Tuple-receiver method dispatch in sema_expr.cpp's lower_method_call mirrors the slice path: positional substitution of method-template type-params from the tuple's element types. Stdlib Debug impls for tuples still need to be added — but the language-level path is in. Regression test `tests/logos/pass/impl_for_tuple.logos` (2- and 3-tuple Debug impls). | — | Driver: tuple.rs `test_show`. Stdlib follow-up: add the `impl<...> Debug for (...)` instances for common arities to `std.fmt`. |
 | CP-cm-08 | Tuple `==` (and `!=`) — primitive-field tuples | ✅ Closed (2026-05-14) | gen_binop's `is_ptr_cmp` branch compared the tuple's by-pointer ABI (`Kind::Tuple` → `ptr_type`), returning false for two distinct slots even with equal contents. **Fix:** mlir_gen_expr.cpp emits per-field GEP + load + CmpI (or CmpF for floats), AND'd together. `!=` XORs the AND result with `1` (i1 not). Regression test `tests/logos/pass/tuple_eq_op.logos`. **Limitation:** primitive-only fields; tuples with str / nested-tuple / struct fields still hit the historic pointer-cmp path (CP-cm-08b — separate follow-up entry below). | — | — |
-| CP-cm-08b | Tuple `==` for non-primitive fields (str / nested tuple / struct) | Open (2026-05-14) | CP-cm-08's mlir-gen fix only handles primitive fields. For str / nested-tuple / struct fields, we'd need to dispatch to str_eq / recursive tuple-eq / struct's `Eq::eq` at mlir-gen time — but the helpers live at sema level. Cleanest path forward: route those cases at sema by desugaring `tup_a == tup_b` into `tup_a.0 == tup_b.0 && tup_a.1 == tup_b.1 && …` BinOp chain (so per-field equality goes through `lower_binop` recursively and picks up str_eq / struct-Eq automatically). Initial attempt did this in `lower_binop` but ran into "LExpr reached without mirror_offset_" assertion (the freshly-emitted `tuple_index` + `var_ref` LExprs flow through paths that the assertion guards); needs a more careful inspection of the LirBuilder direct-emit invariants. | Sema desugar (use existing tuple_index + bin_op + str_eq routing). | Driver: tuple.rs `test_partial_eq` with `((1, 2, 3))` tuples — currently works because nested tuple of i32 is "primitive" via my fix; but tuples of `&str` or named structs still fail. |
+| CP-cm-08b | Tuple `==` for non-primitive fields (struct ✅ / str ◌ / nested tuple ◌) | Partial (2026-05-14) | Routed tuple `==`/`!=` through SL-sl-08's tuple-impl dispatch: stdlib now has `impl<A:Eq, B:Eq> Eq for (A, B)` / `(A, B, C)` / `(A, B, C, D)` blankets that compare element-wise via per-element `Eq::eq`. sema_expr.cpp lower_binop now desugars `tup_a == tup_b` → call to `$tuple$N__eq`, with autoref of lhs/rhs to `&Tuple` since Eq takes `&self`. **Works** for primitive fields (also covered by the CP-cm-08 mlir-gen fast-path) and **for struct fields** (e.g. `(Point, i32) == (Point, i32)` — Eq trait on Point handles the comparison). **Still open:** (a) str fields — Logos's `&str` ↔ `Slice<u8>` canonicalisation asymmetry breaks the `str.eq(&str)` method-dispatch leg ("slice has no method 'eq'"). (b) Nested tuple fields — bound-check doesn't yet recognise that `(i32, i32)` satisfies `A: Eq` through the blanket (needs trait-engine recursive-bound handling). | (a) Audit slice-method dispatch's arg-type canonicalisation, or register `str__eq` with both `(Slice, &Slice)` and `(Slice, Slice)` shapes. (b) Extend `check_type_bounds` to consult tuple-blanket impls when the type-arg is itself a Tuple. | Driver: tuple.rs `test_partial_eq` with nested 3-tuples (still requires nested-tuple bound). Regression test `tests/logos/pass/tuple_eq_via_trait.logos` (primitive + struct fields). |
 | SL-sl-09 | `core::panicking::{AssertKind, assert_failed}` | Open | Rust's `assert_eq!`/`assert_ne!` macros expand to `core::panicking::assert_failed(AssertKind::Eq, &left, &right, None)`. Logos uses `__fmt_panic(msg)` and inlines the message format. | Needed BEFORE Phase 3 (macro_rules) so ported core macros can find their target. | Phase 4b. |
 | SL-sl-10 | `core::fmt::{Arguments, Formatter, Write}` proper port | Partial | Logos has `Display`/`Debug` with `fn fmt(self, &mut String)` shape. Rust has `fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result`. Different shape. | Port faithfully OR document divergence + provide compat shim. | Big API surface; touches many trait impls. |
 | CP-cm-11 | `str == str` returned `false` even for equal values | ✅ Closed (2026-05-14) | Root cause: lower_binop fell through to the generic comparison path; codegen saw Slice<u8> as a pointer (ptr_type at MLIR level) and did pointer-eq on the slice descriptors, not byte-slice compare. **Fix:** sema_expr.cpp lower_binop now detects Slice<u8> on both sides of `==`/`!=` and routes to stdlib's `str_eq` (the same helper P4-pm-06 uses for str-const patterns). `!=` wraps with unary `!`. Regression test `pass/str_eq_op.logos`. | — | — |

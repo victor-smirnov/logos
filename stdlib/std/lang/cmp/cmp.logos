@@ -6,6 +6,8 @@
 
 package std.lang.cmp;
 
+use std.lang.text;
+
 pub trait Eq {
     fn eq(&self, other: &Self) -> bool;
     // Default `.ne` derived from `.eq`. Mirrors Rust's
@@ -23,3 +25,34 @@ impl Eq for u16  { fn eq(&self, other: &Self) -> bool { return *self == *other; 
 impl Eq for i16  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
 impl Eq for bool { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
 impl Eq for usize { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for isize { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for char  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for str   {
+    fn eq(&self, other: &Self) -> bool {
+        // self / other are `&str` which canonicalises to `Slice<u8>` (str
+        // is the value form of UnsizedSlice<u8>). Pass through directly.
+        return str_eq(*self, *other);
+    }
+}
+
+// CP-cm-08b: tuple Eq impls. Logos's per-arity tuple-impl-target
+// mangling (SL-sl-08) registers each arity under `$tuple$N`. Common
+// arities 2..=4 covered here; mirror Rust's core::cmp surface (arity
+// 12 in Rust). Add larger arities on demand.
+impl<A: Eq, B: Eq> Eq for (A, B) {
+    fn eq(&self, other: &Self) -> bool {
+        return self.0.eq(&other.0) && self.1.eq(&other.1);
+    }
+}
+impl<A: Eq, B: Eq, C: Eq> Eq for (A, B, C) {
+    fn eq(&self, other: &Self) -> bool {
+        return self.0.eq(&other.0) && self.1.eq(&other.1)
+            && self.2.eq(&other.2);
+    }
+}
+impl<A: Eq, B: Eq, C: Eq, D: Eq> Eq for (A, B, C, D) {
+    fn eq(&self, other: &Self) -> bool {
+        return self.0.eq(&other.0) && self.1.eq(&other.1)
+            && self.2.eq(&other.2) && self.3.eq(&other.3);
+    }
+}

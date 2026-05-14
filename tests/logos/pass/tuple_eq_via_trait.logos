@@ -1,0 +1,46 @@
+// CP-cm-08b (partial): tuple `==` / `!=` routes through `impl Eq for
+// (A, B, …)` blanket so non-primitive field types (e.g. struct) compare
+// via the struct's own Eq impl. Primitive-only tuples also work
+// (via the same Eq desugar — the CP-cm-08 mlir-gen fast-path is no
+// longer needed but stays as a safety net).
+//
+// Limitations tracked separately:
+// - str field: hits Logos's str/&str canonicalisation asymmetry
+// - nested tuple field: bound-check doesn't see the blanket apply
+//   recursively yet (separate trait-engine work)
+
+package tuple_eq_via_trait;
+
+use std.lang.cmp;
+
+struct Point { x: i32, y: i32 }
+impl Eq for Point {
+    fn eq(&self, other: &Self) -> bool {
+        return (*self).x == (*other).x && (*self).y == (*other).y;
+    }
+}
+
+fn main() -> i32 {
+    // Primitive-only — fast-path covers this too, but verify trait
+    // dispatch produces same result.
+    let p1: (i32, bool) = (1i32, true);
+    let p2: (i32, bool) = (1i32, true);
+    if !(p1 == p2) { return 1i32; }
+    if p1 != p2    { return 2i32; }
+
+    // Tuple with struct field — needs Eq trait dispatch (NOT covered by
+    // the primitive-only mlir-gen fast-path).
+    let s1: (Point, i32) = (Point { x: 1i32, y: 2i32 }, 7i32);
+    let s2: (Point, i32) = (Point { x: 1i32, y: 2i32 }, 7i32);
+    if !(s1 == s2) { return 3i32; }
+
+    let s3: (Point, i32) = (Point { x: 9i32, y: 2i32 }, 7i32);
+    if s1 == s3 { return 4i32; }
+
+    // 3-arity covered by the $tuple$3 blanket.
+    let t1: (i32, bool, i64) = (1i32, true, 42i64);
+    let t2: (i32, bool, i64) = (1i32, true, 42i64);
+    if !(t1 == t2) { return 5i32; }
+
+    return 0i32;
+}
