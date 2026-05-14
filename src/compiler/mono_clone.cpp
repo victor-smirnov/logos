@@ -2377,8 +2377,25 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 // concrete sentinel first, then fall back to the generic
                 // `$tuple$N` blanket. Matches the keys sema_collect /
                 // sema_decl register for `impl Trait for (A, B, …)`.
-                if (cname.empty() && TypeRef(rt).kind() == LogosType::Kind::Tuple) {
-                    auto elems = TypeRef(rt).tuple_elems();
+                // CP-cm-08b: also fires for `&Tuple` / `&mut Tuple`
+                // receivers (the existing else-branch above sets cname
+                // to literal "(t1, t2, …)" which doesn't match any
+                // registered impl symbol). Overrides if the sentinel
+                // form actually exists.
+                TypeRef tuple_rt = rt;
+                if (tuple_rt && (TypeRef(tuple_rt).kind() == LogosType::Kind::Ptr ||
+                                 TypeRef(tuple_rt).kind() == LogosType::Kind::Ref ||
+                                 TypeRef(tuple_rt).kind() == LogosType::Kind::MutRef) &&
+                    TypeRef(tuple_rt).pointee() &&
+                    TypeRef(TypeRef(tuple_rt).pointee()).kind() == LogosType::Kind::Tuple) {
+                    tuple_rt = TypeRef(tuple_rt).pointee();
+                }
+                if ((cname.empty() ||
+                     cname == type_str(rt) ||                 // literal pointer name
+                     (TypeRef(rt).pointee() &&
+                      cname == type_str(TypeRef(rt).pointee())))   // literal pointee name
+                    && TypeRef(tuple_rt).kind() == LogosType::Kind::Tuple) {
+                    auto elems = TypeRef(tuple_rt).tuple_elems();
                     std::string concrete_n = "$tuple$" + std::to_string(elems.size());
                     std::string concrete_full = concrete_n;
                     for (auto e : elems) {
