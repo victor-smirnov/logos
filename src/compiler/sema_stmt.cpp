@@ -218,6 +218,19 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
         // if_expr alt fails to commit (the expression-level if_expr alt
         // is greedier than the stmt-level one). Without this guard, the
         // void-typed if would trip lower_return's mismatch check.
+        // Closure body in inference mode (ret_type_ deliberately nullptr by
+        // lower_closure_expr): a non-void tail expression is the implicit
+        // return. Wrap as stmt_return so the closure-body return scanner
+        // picks it up; no compat check (the closure has no declared type).
+        if (tail_as_return_ && !ret_type_ && stmt.has_key(la::VALUE)) {
+            auto inner = lower_expr(map_of(stmt.get(la::VALUE.code)));
+            if (inner && inner->type &&
+                TypeRef(inner->type).kind() != LogosType::Kind::Void &&
+                TypeRef(inner->type).kind() != LogosType::Kind::Error) {
+                return builder().stmt_return(std::move(inner), node_line_);
+            }
+            return builder().stmt_expr(std::move(inner), node_line_);
+        }
         if (tail_as_return_ && ret_type_ &&
             TypeRef(ret_type_).kind() != LogosType::Kind::Void) {
             // Peek the inner expression's type before deciding.

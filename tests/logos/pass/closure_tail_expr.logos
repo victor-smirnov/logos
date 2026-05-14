@@ -1,0 +1,18 @@
+// CP-cm-14 (partial, 2026-05-14): closure body without `-> R` annotation
+// treats its tail expression as the implicit return. Matches Rust
+// semantics for `|x: T| body_expr` / `|x: T| { body_expr }`.
+
+package closure_tail_expr;
+
+fn apply(f: fn(i32) -> i32, x: i32) -> i32 { return f(x); }
+
+fn main() -> i32 {
+    let r1: i32 = apply(|x: i32| { x + 1i32 }, 5i32);
+    if r1 != 6i32 { return 1i32; }
+
+    // Same but with an inner if/else that's tail.
+    let r2: i32 = apply(|x: i32| { if x > 0i32 { x } else { 0i32 } }, 3i32);
+    if r2 != 3i32 { return 2i32; }
+
+    return 0i32;
+}
