@@ -102,6 +102,16 @@ fn test_ord_min_max_by_key() {
 // `&&mut 10` shorthand: Logos demands an explicit named binding to
 // take `&` of an `&mut`.
 #[test]
+fn test_ord_max_min() {
+    assert_eq!(1i32.max(2i32), 2i32);
+    assert_eq!(2i32.max(1i32), 2i32);
+    assert_eq!(1i32.min(2i32), 1i32);
+    assert_eq!(2i32.min(1i32), 1i32);
+    assert_eq!(1i32.max(1i32), 1i32);
+    assert_eq!(1i32.min(1i32), 1i32);
+}
+
+#[test]
 fn test_mut_int_totalord() {
     let mut a: i32 = 5i32;
     let mut b: i32 = 10i32;

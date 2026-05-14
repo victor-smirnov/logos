@@ -176,7 +176,7 @@ Tests touched but not fully ported. Will revisit when their blockers close.
 | `cmp.rs::test_bool_totalord` | ✅ Closed (B27, 2026-05-14) | n/a |
 | `cmp.rs::test_isize_totalord` | ✅ Closed (B27, 2026-05-14) — added beyond upstream; stdlib gained `impl Ord for isize` | n/a |
 | `cmp.rs::test_mut_int_totalord` | ✅ Closed (2026-05-15) — CP-cm-01 extended to demote `&mut T → &T` for the auto-deref method lookup on primitives | n/a |
-| `cmp.rs::test_ord_max_min` | Open | `.max(other)` / `.min(other)` missing on primitives (SL-sl-13 — new) |
+| `cmp.rs::test_ord_max_min` | ✅ Closed (2026-05-15) — `.max` / `.min` added as inherent impls on i32/i64/u32/u64/usize/isize. Trait-default form still blocked on the trait-default-with-Self mono segfault; inherent form dodges the cloning step. | n/a |
 | `cmp.rs::test_ord_min_max_by` / `test_ord_min_max_by_key` | ✅ Closed (2026-05-15) — adapted to `cmp_min_by` / `cmp_max_by` / `cmp_min_by_key` / `cmp_max_by_key` (Logos by-value comparator vs Rust by-ref) | n/a |
 
 ## Per-existing-test deferred assertions

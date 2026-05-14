@@ -67,6 +67,17 @@ impl Ord for bool {
     }
 }
 
+// SL-sl-13: `.max(other)` / `.min(other)` on integer primitives via
+// inherent impl. Trait-default form (default body on Ord) crashes
+// stdlib emit-module (trait-default-with-Self-typed-args baghunt);
+// inherent impls dodge the cloning step entirely.
+impl i32   { pub fn max(self: i32,   other: i32)   -> i32   { if self >= other { return self; } return other; } pub fn min(self: i32,   other: i32)   -> i32   { if self <= other { return self; } return other; } }
+impl i64   { pub fn max(self: i64,   other: i64)   -> i64   { if self >= other { return self; } return other; } pub fn min(self: i64,   other: i64)   -> i64   { if self <= other { return self; } return other; } }
+impl u32   { pub fn max(self: u32,   other: u32)   -> u32   { if self >= other { return self; } return other; } pub fn min(self: u32,   other: u32)   -> u32   { if self <= other { return self; } return other; } }
+impl u64   { pub fn max(self: u64,   other: u64)   -> u64   { if self >= other { return self; } return other; } pub fn min(self: u64,   other: u64)   -> u64   { if self <= other { return self; } return other; } }
+impl usize { pub fn max(self: usize, other: usize) -> usize { if self >= other { return self; } return other; } pub fn min(self: usize, other: usize) -> usize { if self <= other { return self; } return other; } }
+impl isize { pub fn max(self: isize, other: isize) -> isize { if self >= other { return self; } return other; } pub fn min(self: isize, other: isize) -> isize { if self <= other { return self; } return other; } }
+
 // SL-sl-05: core::cmp free fns analogous to Rust's `core::cmp::{min_by,
 // max_by}`. Caller supplies an `fn(T, T) -> Ordering` comparator (Logos
 // closures coerce to fn-ptr when non-capturing, so call sites can pass
