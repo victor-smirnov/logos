@@ -17,6 +17,11 @@ etc. to re-tally — counts are derived from the A/B/C tables below.)
 | Stdlib (SL-sl-*)      | 10    | 4        | 2       | 4    |
 | **Total**             | 25    | 12       | 5       | 8    |
 
+(CP-cm-04 reclassified 2026-05-14 as Divergence — Logos's design uses
+`metacall` for compile-time evaluation; `const fn` keyword isn't going
+to be added. Not counted in any of the columns above; design-level
+divergence, not a gap.)
+
 Closures so far (chronological):
 - 2026-05-13 — CP-cm-03 (prelude shorthand), SL-sl-07 (ToString)
 - 2026-05-14 — CP-cm-09 (multi-param generic enum mono), SL-sl-04 (Result surface),
@@ -70,7 +75,7 @@ Surfaced by ports of rustc coretests. Each needs C++ code change in
 | CP-cm-01 | Primitive method dispatch through `&Self` receiver | ✅ Closed (2026-05-14) | `self.eq(other)` when `self: &i32` produced `mangled_prim = "&i32__eq"` which wasn't registered (the impl is on `i32`). Sema then errored with `receiver is not a struct (got &i32)`. **Fix:** sema_expr.cpp lower_method_call now auto-derefs `&T` / `&mut T` receivers when a method is registered on the pointee — looks up `<pointee>__method`, emits `deref(recv)` if the target method takes self by value, leaves recv as-is when the target takes `&Self`. Regression test `tests/logos/pass/primitive_method_through_ref.logos` (i32 via `&i32` → `.eq` / `.ne` / `.cmp`). Stdlib `Eq.ne` default body reverted from `(*self).eq(other)` workaround to natural `self.eq(other)`. | — | — |
 | CP-cm-02 | Bare-variant import shorthand (`use core::cmp::Ordering::{Equal, Less, Greater}`) | Open | Rust lets you import enum variants directly so call sites can write `Equal` instead of `Ordering::Equal`. Logos requires the fully-qualified form. | `bool.rs::test_bool` | Port-time workaround: insert `Ordering::` prefix everywhere. |
 | CP-cm-03 | Bare-variant shorthand for Option/Result (`Some(x)`, `None`, `Ok(x)`, `Err(x)` without `Option::` / `Result::` prefix) | ✅ Closed (2026-05-13) | Now resolved via prelude shorthand in `lower_call`, `lower_generic_call` (Some/Ok/Err), and bareword VAR_REF + PAT_VARIANT / PAT_VARIANT_DATA (None / variant patterns). When the matching enum is in scope (find_enum_by_name), the bareword routes through enum_lit/enum_lit_data/pat_variant; if a user-defined fn of the same name exists, it wins. | — | — |
-| CP-cm-04 | `const fn` for stable consts | Open | Rust core uses `const fn zero() -> i32 { 0 }` extensively. Logos has metacall for compile-time computation but no `const fn` keyword. | `bool.rs::test_bool_to_option` (`const fn zero`) | Port-time workaround: replace `const fn name(args) -> T { body }` with `pub fn name(args) -> T { body }` for now (loses compile-time-eval guarantee, which most uses don't actually rely on). |
+| CP-cm-04 | `const fn` keyword | Divergence (by design, 2026-05-14) | Logos has no `const fn` keyword and isn't going to add one. The port rule (`feedback_const_fn_via_metacall.md`): strip `const fn` → `fn`; rewrite Rust const-context call sites (`const X: T = foo();`, array-size, cfg predicate, …) to metacall. Any compile-time-evaluation capability the body needs is a metacall surface gap, not a const-fn gap — file under `feat_metacall_*`. | — | The "Port-time workaround" framing this entry used to have isn't a gap, it's the canonical port. |
 | CP-cm-05 | Closure-as-fn-pointer coercion at method args | Open | `false.then(\|\| 0)` — Rust coerces a non-capturing closure to `fn() -> T` at the method-arg site. Logos's closure-to-fn-ptr path may not fire here. | `bool.rs::test_bool_to_option` (`.then(\|\| 0)`) | Needs investigation. |
 | CP-cm-06 | `?` operator on Result for non-`std.lang.result` types | Partial | Logos supports `?` for Result; verify it works for ported core::result::Result if path differs. | TBD | — |
 | CP-cm-07 | Tuple types in `assert_eq!` mismatch render | Open | `assert_eq!((1, 2), (1, 3))` — assert_eq! macro needs Debug for tuples. Currently no `impl Debug for (A, B, ...)`. | Anticipated; not yet hit | — |
