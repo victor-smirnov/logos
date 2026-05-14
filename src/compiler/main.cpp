@@ -2759,15 +2759,15 @@ int main(int argc, char** argv) {
         bool user_has_main = false;
 
         auto entry_idx = asts.empty() ? 0 : asts.size() - 1;
-        for (size_t i = 0; i < asts.size(); ++i) {
-            if (from_binary[i]) continue;
+        // Helper: compute the dotted package name of a parsed module AST.
+        auto pkg_of = [&](size_t i) -> std::string {
+            if (from_binary[i]) return {};
             auto* holder = asts[i].holder();
-            if (!holder) continue;
+            if (!holder) return {};
             auto root = asts[i].root_object().as_tiny_map();
             auto code_v = root.get(la::CODE.code);
             int32_t rcode = code_v.is_null() ? -1 : code_v.as_value<int32_t>();
-            if (rcode != la::MODULE.code) continue;
-            // Compose dotted package name from NAME + PATH_PARTS.
+            if (rcode != la::MODULE.code) return {};
             std::string pkg;
             if (root.has_key(la::NAME)) {
                 auto nm_av = root.get(la::NAME.code);
@@ -2788,7 +2788,23 @@ int main(int argc, char** argv) {
                     }
                 }
             }
-            if (i == entry_idx) entry_pkg = pkg;
+            return pkg;
+        };
+        // Pass 1: resolve entry package from the entry file.
+        entry_pkg = pkg_of(entry_idx);
+        // Pass 2: collect #[test] fns from every file whose package matches.
+        // TH-th-01: previously restricted to the entry file; now any module
+        // in the same dotted package counts as part of the test surface.
+        for (size_t i = 0; i < asts.size(); ++i) {
+            if (from_binary[i]) continue;
+            auto* holder = asts[i].holder();
+            if (!holder) continue;
+            auto root = asts[i].root_object().as_tiny_map();
+            auto code_v = root.get(la::CODE.code);
+            int32_t rcode = code_v.is_null() ? -1 : code_v.as_value<int32_t>();
+            if (rcode != la::MODULE.code) continue;
+            std::string pkg = pkg_of(i);
+            bool same_pkg = (!entry_pkg.empty() && pkg == entry_pkg);
             if (!root.has_key(la::ITEMS)) continue;
             ArrayView items(root.get(la::ITEMS.code).to_offset(), holder);
             bool pending_test = false, pending_sp = false, pending_ig = false;
@@ -2866,8 +2882,8 @@ int main(int argc, char** argv) {
                     std::string nm = nv.is_null()
                         ? std::string{}
                         : std::string(StringView(nv.to_offset(), holder).view());
-                    if (nm == "main") user_has_main = true;
-                    if (pending_test && i == entry_idx) {
+                    if (nm == "main" && same_pkg) user_has_main = true;
+                    if (pending_test && same_pkg) {
                         tests.push_back({nm, pending_sp, pending_ig,
                                          std::move(pending_expected)});
                     }
