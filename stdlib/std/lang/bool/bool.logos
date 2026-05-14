@@ -1,0 +1,44 @@
+// Logos stdlib — std.lang.bool
+//
+// Conversion methods on bool — mirror of Rust's `impl bool` surface
+// covered by coretests/tests/bool.rs (test_bool_to_option,
+// test_bool_to_result):
+//
+//   .then(f)       — Some(f()) if self, else None
+//   .then_some(x)  — Some(x)   if self, else None
+//   .ok_or(err)    — Ok(())    if self, else Err(err)
+//   .ok_or_else(f) — Ok(())    if self, else Err(f())
+
+package std.lang.bool;
+
+use std.lang.option;
+use std.lang.result;
+
+impl bool {
+    // KNOWN GAP (CP-cm-10): Logos's method-generic type-arg inference
+    // can't yet infer `T` from a `fn() -> T` argument's return type.
+    // Calling `.then(f)` fails at sema with "could not infer T from
+    // arguments". Turbofish (`.then::<i32>(f)`) currently also breaks
+    // at mlir-gen. Method body still here for future port-time use.
+    pub fn then<T>(self: bool, f: fn() -> T) -> Option<T> {
+        if self { return Some(f()); }
+        return None;
+    }
+
+    pub fn then_some<T>(self: bool, x: T) -> Option<T> {
+        if self { return Some(x); }
+        return None;
+    }
+
+    pub fn ok_or<E>(self: bool, err: E) -> Result<(), E> {
+        if self { return Ok(()); }
+        return Err(err);
+    }
+
+    // KNOWN GAP (CP-cm-10 — same as .then): inference of E from
+    // `fn() -> E` arg fails.
+    pub fn ok_or_else<E>(self: bool, f: fn() -> E) -> Result<(), E> {
+        if self { return Ok(()); }
+        return Err(f());
+    }
+}

@@ -3,42 +3,125 @@
 // Result<T, E> — value-or-error type (Ok(T) or Err(E)).
 // Use ? operator to propagate Err early from functions returning Result<_, E>.
 //
-// Phase 4a SL-sl-04 status: method form (`r.unwrap()` etc.) deferred —
-// Logos's enum-method mono path only substitutes ONE type param on the
-// receiver enum (works fine for Option<T>; for Result<T, E> the second
-// param E remains literal in the mangled call name, e.g.
-// `Result__i32__E__unwrap`, and MLIR-gen reports "unknown tagged enum".
-// Gap tracked in docs/core-port/coretests-port-gaps.md (SL-sl-04 +
-// CP-cm-XX multi-param mono). Until that's fixed, ported code uses the
-// fn-form shims below.
+// Phase 4a SL-sl-04: faithful Rust method surface mirroring SL-sl-03 (Option).
 
 package std.lang.result;
+
+use std.lang.option;
+use std.lang.panic;
 
 pub enum Result<T, E> {
     Ok(T),
     Err(E),
 }
 
-// Unwrap Ok value or return a default.
+impl<T, E> Result<T, E> {
+    pub fn is_ok(self: Result<T, E>) -> bool {
+        match self {
+            Result::Ok(_)  => { return true; }
+            Result::Err(_) => { return false; }
+        }
+    }
+
+    pub fn is_err(self: Result<T, E>) -> bool {
+        match self {
+            Result::Ok(_)  => { return false; }
+            Result::Err(_) => { return true; }
+        }
+    }
+
+    pub fn unwrap(self: Result<T, E>) -> T {
+        match self {
+            Result::Ok(v)  => { return v; }
+            Result::Err(_) => { panic("called `Result::unwrap()` on an `Err` value"); }
+        }
+    }
+
+    pub fn unwrap_err(self: Result<T, E>) -> E {
+        match self {
+            Result::Ok(_)  => { panic("called `Result::unwrap_err()` on an `Ok` value"); }
+            Result::Err(e) => { return e; }
+        }
+    }
+
+    pub fn expect(self: Result<T, E>, msg: str) -> T {
+        match self {
+            Result::Ok(v)  => { return v; }
+            Result::Err(_) => { panic(msg); }
+        }
+    }
+
+    pub fn expect_err(self: Result<T, E>, msg: str) -> E {
+        match self {
+            Result::Ok(_)  => { panic(msg); }
+            Result::Err(e) => { return e; }
+        }
+    }
+
+    pub fn unwrap_or(self: Result<T, E>, default: T) -> T {
+        match self {
+            Result::Ok(v)  => { return v; }
+            Result::Err(_) => { return default; }
+        }
+    }
+
+    pub fn unwrap_or_else(self: Result<T, E>, f: fn(E) -> T) -> T {
+        match self {
+            Result::Ok(v)  => { return v; }
+            Result::Err(e) => { return f(e); }
+        }
+    }
+
+    pub fn ok(self: Result<T, E>) -> Option<T> {
+        match self {
+            Result::Ok(v)  => { return Option::Some(v); }
+            Result::Err(_) => { return Option::None; }
+        }
+    }
+
+    pub fn err(self: Result<T, E>) -> Option<E> {
+        match self {
+            Result::Ok(_)  => { return Option::None; }
+            Result::Err(e) => { return Option::Some(e); }
+        }
+    }
+
+    pub fn map<U>(self: Result<T, E>, f: fn(T) -> U) -> Result<U, E> {
+        match self {
+            Result::Ok(v)  => { return Result::Ok(f(v)); }
+            Result::Err(e) => { return Result::Err(e); }
+        }
+    }
+
+    pub fn map_err<F>(self: Result<T, E>, f: fn(E) -> F) -> Result<T, F> {
+        match self {
+            Result::Ok(v)  => { return Result::Ok(v); }
+            Result::Err(e) => { return Result::Err(f(e)); }
+        }
+    }
+
+    pub fn and_then<U>(self: Result<T, E>, f: fn(T) -> Result<U, E>) -> Result<U, E> {
+        match self {
+            Result::Ok(v)  => { return f(v); }
+            Result::Err(e) => { return Result::Err(e); }
+        }
+    }
+
+    pub fn or_else<F>(self: Result<T, E>, f: fn(E) -> Result<T, F>) -> Result<T, F> {
+        match self {
+            Result::Ok(v)  => { return Result::Ok(v); }
+            Result::Err(e) => { return f(e); }
+        }
+    }
+}
+
+// Free-function shims for compat with pre-existing call-sites.
 pub fn unwrap_or_i32(r: Result<i32, i32>, def: i32) -> i32 {
-    match r {
-        Result::Ok(v)  => { return v; }
-        Result::Err(e) => { return def; }
-    }
+    return r.unwrap_or(def);
 }
-
-// Return true if the result is Ok.
 pub fn is_ok_i32(r: Result<i32, i32>) -> bool {
-    match r {
-        Result::Ok(v)  => { return true; }
-        Result::Err(e) => { return false; }
-    }
+    return r.is_ok();
 }
-
-// Return true if the result is Err.
 pub fn is_err_i32(r: Result<i32, i32>) -> bool {
-    match r {
-        Result::Ok(v)  => { return false; }
-        Result::Err(e) => { return true; }
-    }
+    return r.is_err();
 }

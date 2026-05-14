@@ -1698,25 +1698,21 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             return builder().call(std::string(callee), {}, std::move(arg_exprs), error_t());
         }
         // CP-cm-03: Rust-prelude shorthand — `Some(x)` / `Ok(x)` / `Err(x)`.
-        // No `None` here; that's a bare-ident path. arg_exprs already
-        // lowered above; rebuild as enum_lit_data payload.
+        // No `None` here; that's a bare-ident path. Route through
+        // lower_enum_lit_data_from_static so the hint_enum_type_ path
+        // (`let r: Result<i32, i32> = Ok(42)`) substitutes both type
+        // params correctly. Don't carry arg_exprs forward — the helper
+        // re-lowers from the AST node; the second lowering is cheap
+        // (we caught the same args above only to test fn-arity
+        // candidates).
         auto try_prelude = [&](const char* en, const char* vn)
             -> lir::LExprPtr {
             auto [pkg, esi] = find_enum_by_name(en);
             if (!esi) return nullptr;
-            const SemaVariantInfo* vinfo = nullptr;
             for (auto& v : esi->variants)
-                if (v.name == vn) { vinfo = &v; break; }
-            if (!vinfo) return nullptr;
-            std::vector<TypeRef> ta;
-            ta.push_back(!arg_exprs.empty() && arg_exprs[0]
-                         ? arg_exprs[0]->type : make_typevar("T"));
-            if (std::string_view(en) == "Result" && ta.size() < 2)
-                ta.push_back(make_typevar("E"));
-            auto rty = make_generic_enum(en, std::move(ta));
-            return builder().enum_lit_data(
-                std::string(en), std::string(vn),
-                (int64_t)vinfo->value, std::move(arg_exprs), rty);
+                if (v.name == vn)
+                    return lower_enum_lit_data_from_static(node, en, vn);
+            return nullptr;
         };
         if      (callee == "Some") { if (auto e = try_prelude("Option", "Some")) return e; }
         else if (callee == "Ok")   { if (auto e = try_prelude("Result", "Ok")) return e; }
@@ -3434,48 +3430,19 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
     }
     if (!fi_ptr) {
         // CP-cm-03: Rust-prelude shorthand for Option/Result variant
-        // construction. `Some(x)` / `Ok(x)` / `Err(x)` (none for `None`
-        // which goes through the bare-ident path) reroute through
-        // enum_lit_data so the user doesn't need `Option::Some(x)`.
-        // Only fires when the matching enum is in scope (find_enum_by_name
-        // succeeds), so user code that defines its own `Some` fn still
-        // wins (fi_ptr would be non-null above).
+        // construction. Routes through lower_enum_lit_data_from_static so
+        // hint_enum_type_ propagation (`let r: Result<i32, i32> = Ok(42)`
+        // → type_args [i32, i32], not [i32, TypeVar(E)]) works correctly.
+        // Only fires when the matching enum is in scope; user-defined
+        // fn `Some(x)` still wins (fi_ptr lookup ran above).
         auto try_prelude_variant = [&](const char* enum_name, const char* var_name)
             -> lir::LExprPtr {
             auto [pkg, esi] = find_enum_by_name(enum_name);
             if (!esi) return nullptr;
-            const SemaVariantInfo* vinfo = nullptr;
             for (auto& v : esi->variants)
-                if (v.name == var_name) { vinfo = &v; break; }
-            if (!vinfo) return nullptr;
-            // Build payload by lowering each arg expression.
-            std::vector<lir::LExprPtr> payload;
-            if (node.has_key(la::ARGS.code)) {
-                auto args_av = node.get(la::ARGS.code);
-                if (!args_av.is_null()) {
-                    auto args_list = map_of(args_av);
-                    if (args_list.has_key(la::ITEMS.code)) {
-                        auto items = arr_of(args_list.get(la::ITEMS.code));
-                        for (uint64_t i = 0; i < items.size(); ++i)
-                            payload.push_back(lower_expr(map_of(items.get(i))));
-                    }
-                }
-            }
-            // Result type — generic enum with payload type derived from args.
-            // Pick payload[0]'s type if available; else fall back to TypeVar T.
-            std::vector<TypeRef> type_args;
-            if (!payload.empty() && payload[0])
-                type_args.push_back(payload[0]->type);
-            else
-                type_args.push_back(make_typevar("T"));
-            // For Result, second arg is Err type — leave as TypeVar so
-            // inference at use-site picks it up.
-            if (std::string_view(enum_name) == "Result" && type_args.size() < 2)
-                type_args.push_back(make_typevar("E"));
-            auto result_ty = make_generic_enum(enum_name, std::move(type_args));
-            return builder().enum_lit_data(
-                std::string(enum_name), std::string(var_name),
-                (int64_t)vinfo->value, std::move(payload), result_ty);
+                if (v.name == var_name)
+                    return lower_enum_lit_data_from_static(node, enum_name, var_name);
+            return nullptr;
         };
         if (callee == "Some") {
             if (auto e = try_prelude_variant("Option", "Some")) return e;
@@ -7546,16 +7513,27 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
         error(std::format("enum '{}' has no variant '{}'", ename, vname));
         return error_expr();
     }
-    // Lower args
+    // Lower args. ARGS is either:
+    //  - a direct array (CALL / ENUM_LIT_DATA bare alt via `$...`)
+    //  - a { ITEMS: [...] } map (turbofish / enum_lit_args sub-production)
+    // Accept both.
+    //
+    // Note: do NOT filter void-typed payload here. `Result::Ok(())` etc.
+    // wants the unit literal as a real payload entry.
     std::vector<lir::LExprPtr> payload;
     if (node.has_key(la::ARGS)) {
         AnyVal args_av = node.get(la::ARGS.code);
         if (!args_av.is_null()) {
-            auto args = map_of(args_av);
-            if (args.has_key(la::ITEMS)) {
-                auto items = arr_of(args.get(la::ITEMS.code));
+            auto run = [&](auto items) {
                 for (uint64_t i = 0; i < items.size(); ++i)
                     payload.push_back(lower_expr(map_of(items.get(i))));
+            };
+            if (args_av.is_pointer()) {
+                auto m = map_of(args_av);
+                if (m.has_key(la::ITEMS)) run(arr_of(m.get(la::ITEMS.code)));
+                else                       run(arr_of(args_av));
+            } else {
+                run(arr_of(args_av));
             }
         }
     }
