@@ -889,6 +889,9 @@
                => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE: $5, WHERE: $6, ITEMS: $... }
                 / KW_IMPL type_param_list IDENT KW_FOR dyn_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE: $5, WHERE: $6, ITEMS: $... }
+                // SL-sl-08: tuple impl target — `impl<A,B> Debug for (A,B)`.
+                / KW_IMPL type_param_list IDENT KW_FOR tuple_type where_clause? LBRACE impl_item_or_doc* RBRACE
+               => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE: $5, WHERE: $6, ITEMS: $... }
                 / KW_IMPL IDENT LT type_arg_list GT_TYPE KW_FOR simple_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE_PARAMS: $4, TYPE: $7, WHERE: $8, ITEMS: $... }
                 / KW_IMPL IDENT LT type_arg_list GT_TYPE KW_FOR ref_type where_clause? LBRACE impl_item_or_doc* RBRACE

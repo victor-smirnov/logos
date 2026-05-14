@@ -1746,6 +1746,26 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
     if (pc == la::PAT_VARIANT) {
         auto pename = std::string(str_of(pnode.get(la::NAME.code)));
         auto pvname = std::string(str_of(pnode.get(la::FIELD.code)));
+        // CP-cm-03: prelude shorthand `Some` / `None` / `Ok` / `Err`
+        // (no `Enum::` qualifier). Remap to enum+variant when the
+        // user-supplied NAME is one of the prelude variant names.
+        if (pvname.empty()) {
+            auto prelude_remap = [&](const char* en) -> bool {
+                auto [pkg, esi] = find_enum_by_name(en);
+                if (!esi) return false;
+                for (auto& v : esi->variants)
+                    if (v.name == pename) {
+                        pvname = std::move(pename);
+                        pename = en;
+                        return true;
+                    }
+                return false;
+            };
+            if (pename == "Some" || pename == "None")
+                prelude_remap("Option");
+            else if (pename == "Ok" || pename == "Err")
+                prelude_remap("Result");
+        }
         int32_t disc = 0;
         auto [epkg_pv, esi_pv] = find_enum_by_name(pename);
         auto eit = esi_pv ? enums_.find(sema_key(epkg_pv, pename)) : enums_.end();
@@ -1771,6 +1791,28 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
     if (pc == la::PAT_VARIANT_DATA) {
         auto pename = std::string(str_of(pnode.get(la::NAME.code)));
         auto pvname = std::string(str_of(pnode.get(la::FIELD.code)));
+        // CP-cm-03: Rust-prelude shorthand on patterns —
+        // `Some(x)` / `Ok(x)` / `Err(x)` parsed as PAT_VARIANT_DATA
+        // with NAME=variant, FIELD="". Reroute to enum+variant
+        // form when the enum is in scope and tuple-struct lookup
+        // would otherwise fail.
+        if (pvname.empty()) {
+            auto prelude_remap = [&](const char* en) -> bool {
+                auto [pkg, esi] = find_enum_by_name(en);
+                if (!esi) return false;
+                for (auto& v : esi->variants)
+                    if (v.name == pename) {
+                        pvname = std::move(pename);
+                        pename = en;
+                        return true;
+                    }
+                return false;
+            };
+            if (pename == "Some" || pename == "None")
+                prelude_remap("Option");
+            else if (pename == "Ok" || pename == "Err")
+                prelude_remap("Result");
+        }
         // B-ts-01: bare `Foo(a, b)` (no `::` separator) — pvname is
         // empty. If `Foo` resolves to a tuple-struct, lower as a
         // struct destructure with synth field names "0", "1", …
