@@ -79,6 +79,13 @@ fn test_unwrap_panic() {
     err.unwrap();
 }
 
+// test_and_then / test_or_else deferred: closure body inference doesn't
+// propagate the enum result-type up through `fn(T) -> Result<U, E>` —
+// even though CP-cm-10 unifies FnPtr formal params, the U inside the
+// Result return type still isn't fixed when the body uses
+// `let r: Result<isize, str> = ...; r`. Needs deeper closure-return
+// inference / turbofish on enum literals to express directly.
+
 #[test]
 fn test_and() {
     // Faithful upstream `test_and` Ok/Err matrix (uses i32 payload to side-

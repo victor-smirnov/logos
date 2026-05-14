@@ -82,3 +82,45 @@ fn test_and() {
     assert!(n.and(a).is_none());
     assert!(n.and(n).is_none());
 }
+
+// Faithful port of upstream `test_and_then`. `const fn` keyword in
+// Rust is stripped per the project-level Divergence (CP-cm-04 — Logos
+// uses metacall for compile-time evaluation, not `const fn`); these
+// fns work fine at run-time which is what `assert_eq!` exercises.
+fn plus_one(x: isize) -> Option<isize> {
+    return Some(x + 1isize);
+}
+
+fn no_more(_x: isize) -> Option<isize> {
+    return None;
+}
+
+#[test]
+fn test_and_then() {
+    let x: Option<isize> = Some(1isize);
+    assert_eq!(x.and_then(plus_one).unwrap(), 2isize);
+    assert!(x.and_then(no_more).is_none());
+
+    let y: Option<isize> = None;
+    assert!(y.and_then(plus_one).is_none());
+    assert!(y.and_then(no_more).is_none());
+}
+
+fn two() -> Option<isize> {
+    return Some(2isize);
+}
+
+fn nothing() -> Option<isize> {
+    return None;
+}
+
+#[test]
+fn test_or_else() {
+    let x: Option<isize> = Some(1isize);
+    assert_eq!(x.or_else(two).unwrap(), 1isize);
+    assert_eq!(x.or_else(nothing).unwrap(), 1isize);
+
+    let y: Option<isize> = None;
+    assert_eq!(y.or_else(two).unwrap(), 2isize);
+    assert!(y.or_else(nothing).is_none());
+}
