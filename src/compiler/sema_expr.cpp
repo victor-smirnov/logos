@@ -15,10 +15,13 @@
 #include <logos/hermes/schema_codes.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <format>
+#include <fstream>
 #include <functional>
+#include <iterator>
 #include <map>
 #include <unordered_set>
 
@@ -11965,6 +11968,41 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
         TypeRef slice_u8_t = pool_->alloc(std::move(sl_b));
         std::string val = callee_name == "file" ? file_ : cur_package_;
         return builder().lit_str(std::move(val), slice_u8_t);
+    }
+
+    // include_str!("path") — read file at compile time. Path is resolved
+    // relative to the file containing the include_str! call (mirrors
+    // Rust). Errors out if the file can't be read.
+    if (callee_name == "include_str") {
+        std::string raw;
+        if (node.has_key(la::RAW_TEXT))
+            raw = std::string(str_of(node.get(la::RAW_TEXT.code)));
+        while (!raw.empty() && (raw.front() == ' ' || raw.front() == '\t' ||
+                                raw.front() == '\n')) raw.erase(0, 1);
+        while (!raw.empty() && (raw.back()  == ' ' || raw.back()  == '\t' ||
+                                raw.back()  == '\n')) raw.pop_back();
+        if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"')
+            raw = raw.substr(1, raw.size() - 2);
+        std::string path = raw;
+        // Resolve relative to the including file.
+        if (!path.empty() && path[0] != '/' && !file_.empty()) {
+            auto slash = file_.rfind('/');
+            if (slash != std::string::npos)
+                path = file_.substr(0, slash + 1) + path;
+        }
+        std::ifstream in(path, std::ios::binary);
+        if (!in) {
+            error(std::format("include_str!: cannot read '{}'", path));
+            return error_expr();
+        }
+        std::string contents((std::istreambuf_iterator<char>(in)),
+                             std::istreambuf_iterator<char>());
+        LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;
+        TypeRef u8_t = pool_->alloc(std::move(u8_b));
+        LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
+        sl_b.elem = u8_t;
+        TypeRef slice_u8_t = pool_->alloc(std::move(sl_b));
+        return builder().lit_str(std::move(contents), slice_u8_t);
     }
 
     // env!("VAR") / option_env!("VAR") — read environment at compile time.

@@ -1,0 +1,9 @@
+package macro_include_str;
+use std.lang.text;
+
+fn main() -> i32 {
+    let s: str = include_str!("include_str_data/payload.txt");
+    // Length includes trailing newline.
+    if s.len() != 24i64 { return 1i32; }
+    return 0i32;
+}
