@@ -41,6 +41,51 @@ impl Debug for usize { fn dbg(self: usize, buf: &mut String) { self.fmt(buf); } 
 impl Debug for isize { fn dbg(self: isize, buf: &mut String) { self.fmt(buf); } }
 impl Debug for bool { fn dbg(self: bool, buf: &mut String) { self.fmt(buf); } }
 
+// SL-sl-08 follow-up: Debug for tuples — Rust ships impls for arities
+// 1..=12; common arities cover practical use, more on demand. The
+// `$tuple$N` blanket mangling registers under any (A,B,…) shape; the
+// per-field `dbg` dispatch picks up the element types' own Debug impls.
+impl<A: Debug> Debug for (A,) {
+    fn dbg(self: (A,), buf: &mut String) {
+        buf.push_str("(");
+        self.0.dbg(buf);
+        buf.push_str(",)");
+    }
+}
+impl<A: Debug, B: Debug> Debug for (A, B) {
+    fn dbg(self: (A, B), buf: &mut String) {
+        buf.push_str("(");
+        self.0.dbg(buf);
+        buf.push_str(", ");
+        self.1.dbg(buf);
+        buf.push_str(")");
+    }
+}
+impl<A: Debug, B: Debug, C: Debug> Debug for (A, B, C) {
+    fn dbg(self: (A, B, C), buf: &mut String) {
+        buf.push_str("(");
+        self.0.dbg(buf);
+        buf.push_str(", ");
+        self.1.dbg(buf);
+        buf.push_str(", ");
+        self.2.dbg(buf);
+        buf.push_str(")");
+    }
+}
+impl<A: Debug, B: Debug, C: Debug, D: Debug> Debug for (A, B, C, D) {
+    fn dbg(self: (A, B, C, D), buf: &mut String) {
+        buf.push_str("(");
+        self.0.dbg(buf);
+        buf.push_str(", ");
+        self.1.dbg(buf);
+        buf.push_str(", ");
+        self.2.dbg(buf);
+        buf.push_str(", ");
+        self.3.dbg(buf);
+        buf.push_str(")");
+    }
+}
+
 // Float Debug — full-precision round-trippable text via libc snprintf
 // "%.17g" (f64) / "%.9g" (f32). Differs from Display ("%g") which
 // drops trailing precision for compactness.
