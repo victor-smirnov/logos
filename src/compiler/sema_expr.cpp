@@ -10996,10 +10996,14 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             if (t->has_key(la::ARGS.code)) {
                 AnyVal av = t->get(la::ARGS.code, b);
                 if (av.is_pointer()) {
-                    auto* arr = reinterpret_cast<ObjectArray*>(
-                        b + av.to_offset().value());
-                    for (uint64_t i = 0; i < arr->size(); ++i) {
-                        AnyVal el = arr->get(i, b);
+                    uint32_t arr_off = static_cast<uint32_t>(av.to_offset().value());
+                    uint64_t n = reinterpret_cast<ObjectArray*>(b + arr_off)->size();
+                    // Refresh base+arr each iter: walk() can grow the arena via
+                    // register_name_var->put(), staling `b` and `arr`.
+                    for (uint64_t i = 0; i < n; ++i) {
+                        auto* b2 = HermesAccess::base(doc);
+                        auto* arr2 = reinterpret_cast<ObjectArray*>(b2 + arr_off);
+                        AnyVal el = arr2->get(i, b2);
                         if (!el.is_pointer()) continue;
                         if (!walk(static_cast<uint32_t>(
                                 el.to_offset().value()))) {
@@ -11020,10 +11024,12 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             if (!t->has_key(la::ITEMS.code)) return true;
             AnyVal av = t->get(la::ITEMS.code, b);
             if (!av.is_pointer()) return true;
-            auto* arr = reinterpret_cast<ObjectArray*>(
-                b + av.to_offset().value());
-            for (uint64_t i = 0; i < arr->size(); ++i) {
-                AnyVal el = arr->get(i, b);
+            uint32_t arr_off = static_cast<uint32_t>(av.to_offset().value());
+            uint64_t n = reinterpret_cast<ObjectArray*>(b + arr_off)->size();
+            for (uint64_t i = 0; i < n; ++i) {
+                auto* b2 = HermesAccess::base(doc);
+                auto* arr2 = reinterpret_cast<ObjectArray*>(b2 + arr_off);
+                AnyVal el = arr2->get(i, b2);
                 if (!el.is_pointer()) continue;
                 if (!walk(static_cast<uint32_t>(el.to_offset().value())))
                     return false;
@@ -11048,10 +11054,12 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             if (!t->has_key(la::ITEMS.code)) return true;
             AnyVal av = t->get(la::ITEMS.code, b);
             if (!av.is_pointer()) return true;
-            auto* arr = reinterpret_cast<ObjectArray*>(
-                b + av.to_offset().value());
-            for (uint64_t i = 0; i < arr->size(); ++i) {
-                AnyVal el = arr->get(i, b);
+            uint32_t arr_off = static_cast<uint32_t>(av.to_offset().value());
+            uint64_t n = reinterpret_cast<ObjectArray*>(b + arr_off)->size();
+            for (uint64_t i = 0; i < n; ++i) {
+                auto* b2 = HermesAccess::base(doc);
+                auto* arr2 = reinterpret_cast<ObjectArray*>(b2 + arr_off);
+                AnyVal el = arr2->get(i, b2);
                 if (!el.is_pointer()) continue;
                 if (!walk(static_cast<uint32_t>(el.to_offset().value())))
                     return false;

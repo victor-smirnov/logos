@@ -1,0 +1,26 @@
+// Regression: trait-default method with `self: Self -> Self` shape.
+// Previously crashed stdlib emit-module because the quote_expr! walk in
+// sema_expr.cpp captured `arr`/`b` before iterating ARGS/ITEMS, then
+// re-entered walk recursively where the arena could shift. Fixed by
+// per-iteration refresh of base+arr in the three walk-loops.
+
+package trait_default_self_typed_return;
+
+pub trait Echo {
+    fn echo(self: Self) -> Self {
+        return self;
+    }
+}
+
+impl Echo for i32 {}
+impl Echo for i64 {}
+
+fn main() -> i32 {
+    let a: i32 = 41i32;
+    let b: i32 = a.echo();
+    let c: i64 = 7i64;
+    let d: i64 = c.echo();
+    if b != 41i32 { return 1; }
+    if d != 7i64 { return 2; }
+    return 42;
+}
