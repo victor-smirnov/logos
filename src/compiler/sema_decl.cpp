@@ -1047,6 +1047,26 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     }
                 }
             }
+        } else if (code_of(tnode) == la::TUPLE_TYPE) {
+            // SL-sl-08: parallel to sema_collect.cpp — `impl Trait for
+            // (A, B, …)` mangling. Generic form (TypeVar elems) →
+            // `$tuple$N`; concrete form → `$tuple$N$<t1>$<t2>…`.
+            auto resolved = resolve_type(tnode);
+            target_resolved = resolved;
+            size_t arity = resolved ? TypeRef(resolved).tuple_elems().size() : 0;
+            bool any_tvar = false;
+            if (resolved) {
+                for (auto e : TypeRef(resolved).tuple_elems())
+                    if (e && TypeRef(e).kind() == LogosType::Kind::TypeVar)
+                        { any_tvar = true; break; }
+            }
+            target = "$tuple$" + std::to_string(arity);
+            if (resolved && !any_tvar) {
+                for (auto e : TypeRef(resolved).tuple_elems()) {
+                    target += "$";
+                    target += (e ? type_str(e) : std::string("?"));
+                }
+            }
         } else {
             target = std::string(str_of(tnode.get(la::NAME.code)));
             // Unfold type aliases: `type ObjectArray = Array<AnyVal>;` makes

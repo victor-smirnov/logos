@@ -1730,6 +1730,29 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 // at auto-trait satisfaction time. impl_tps already pushed into scope.
                 target_resolved = resolve_type(tnode);
             }
+        } else if (code_of(tnode) == la::TUPLE_TYPE) {
+            // SL-sl-08: `impl Trait for (A, B, …)` — tuple as impl target.
+            // Resolve to a Tuple TypeRef and mangle by arity (generic
+            // impl with TypeVar elems → `$tuple$N`) or by element types
+            // (concrete impl with monomorphic elems → `$tuple$N$<t1>$<t2>…`).
+            // Mirrors the $slice$ / $dyn$ shape; coherence rules keep
+            // one impl per (trait, arity) for the generic form.
+            auto resolved = resolve_type(tnode);
+            target_resolved = resolved;
+            size_t arity = resolved ? TypeRef(resolved).tuple_elems().size() : 0;
+            bool any_tvar = false;
+            if (resolved) {
+                for (auto e : TypeRef(resolved).tuple_elems())
+                    if (e && TypeRef(e).kind() == LogosType::Kind::TypeVar)
+                        { any_tvar = true; break; }
+            }
+            target = "$tuple$" + std::to_string(arity);
+            if (resolved && !any_tvar) {
+                for (auto e : TypeRef(resolved).tuple_elems()) {
+                    target += "$";
+                    target += (e ? type_str(e) : std::string("?"));
+                }
+            }
         } else {
             target = std::string(str_of(tnode.get(la::NAME.code)));
             // Unfold transparent type aliases so `impl Trait for Alias`

@@ -3793,6 +3793,81 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         }
     }
 
+    // SL-sl-08: tuple receiver — dispatch user-defined `impl Trait for (A,B,…)`
+    // methods. Mirrors the slice path (sentinel-name lookup against
+    // `$tuple$N` generic blanket / `$tuple$N$<t1>$<t2>…` concrete forms).
+    if (TypeRef(recv->type).kind() == LogosType::Kind::Tuple) {
+        std::vector<lir::LExprPtr> tup_args;
+        if (node.has_key(la::ARGS)) {
+            auto args_av = node.get(la::ARGS.code);
+            if (!args_av.is_null()) {
+                auto args_list = map_of(args_av);
+                if (args_list.has_key(la::ITEMS)) {
+                    auto items = arr_of(args_list.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < items.size(); ++i)
+                        tup_args.push_back(lower_expr(map_of(items.get(i))));
+                } else if (args_av.is_pointer()) {
+                    auto arr = arr_of(args_av);
+                    for (uint64_t i = 0; i < arr.size(); ++i)
+                        tup_args.push_back(lower_expr(map_of(arr.get(i))));
+                }
+            }
+        }
+        auto elems = TypeRef(recv->type).tuple_elems();
+        size_t arity = elems.size();
+        std::vector<std::string> keys;
+        // Concrete: $tuple$N$<t1>$<t2>…
+        {
+            std::string concrete_key =
+                "$tuple$" + std::to_string(arity);
+            for (auto e : elems) {
+                concrete_key += "$";
+                concrete_key += (e ? type_str(e) : std::string("?"));
+            }
+            concrete_key += "__" + std::string(method_name);
+            keys.push_back(std::move(concrete_key));
+        }
+        // Generic blanket: $tuple$N
+        keys.push_back("$tuple$" + std::to_string(arity)
+                       + "__" + std::string(method_name));
+        for (auto& key : keys) {
+            const SemaFuncInfo* fi_ptr = nullptr;
+            std::vector<TypeRef> mtypes;
+            mtypes.push_back(recv->type);
+            for (auto& a : tup_args) mtypes.push_back(a->type);
+            if (auto fit = find_func_by_base_and_signature(key, mtypes, false)) {
+                fi_ptr = fit;
+            } else if (auto git = find_generic_func(key)) {
+                fi_ptr = git;
+            }
+            if (!fi_ptr) continue;
+            std::vector<lir::LExprPtr> pargs;
+            pargs.push_back(std::move(recv));
+            for (auto& a : tup_args) pargs.push_back(std::move(a));
+            if (!fi_ptr->type_params.empty()) {
+                // Bind A,B,… from the tuple element types (positional).
+                std::vector<TypeRef> m_type_args;
+                size_t tp_idx = 0;
+                for (auto& tp : fi_ptr->type_params) {
+                    if (tp_idx < arity)
+                        m_type_args.push_back(elems[tp_idx]);
+                    else
+                        m_type_args.push_back(error_t());
+                    ++tp_idx;
+                    (void)tp;
+                }
+                return finish_generic_call(
+                    fi_ptr->symbol_name.empty() ? key : fi_ptr->symbol_name,
+                    *fi_ptr, std::move(m_type_args), std::move(pargs));
+            }
+            return builder().call(
+                fi_ptr->symbol_name.empty() ? key : fi_ptr->symbol_name,
+                {}, std::move(pargs), fi_ptr->ret_type);
+        }
+        // Fall through to the "no method on tuple" diagnostic below if
+        // no impl matched.
+    }
+
     // Slice / str built-in methods: .len(), .as_ptr()
     if (TypeRef(recv->type).kind() == LogosType::Kind::Slice) {
         if (method_name == "len") {
