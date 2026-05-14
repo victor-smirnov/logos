@@ -364,7 +364,11 @@ uint64_t MLIRGenImpl::logos_abi_byte_size(TypeRef t,
 }
 
 void MLIRGenImpl::register_tagged_enum(const LEnumDef& ed) {
-    if (tagged_enums_.count(ed.name)) return;
+    // Skip if fully populated already (variants filled in). Stub entries
+    // (pre-registered by mlir_gen.cpp's two-pass loop) have empty variants
+    // and need their bodies filled here.
+    auto eit = tagged_enums_.find(ed.name);
+    if (eit != tagged_enums_.end() && !eit->second.variants.empty()) return;
     TaggedEnumInfo info;
     info.name = ed.name;
     uint64_t max_bytes = 0;

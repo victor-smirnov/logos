@@ -44,8 +44,20 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     }
 
     // Pass 0.5: register enum types (needs all_struct_defs_ populated above).
+    // Two passes for tagged enums: pre-register all NAMES first (stub
+    // TaggedEnumInfo entries) so logos_to_mlir on a nested enum payload
+    // (e.g. Option<Option<T>>::Some carrying Option<T>) resolves to
+    // ptr_type rather than the discriminant scalar. Then fill in real
+    // layouts in the second pass.
     for (auto& ed : prog.enums) {
         enum_types_[ed.name] = &ed;
+        if (ed.has_payload() && !tagged_enums_.count(ed.name)) {
+            TaggedEnumInfo stub;
+            stub.name = ed.name;
+            tagged_enums_[ed.name] = std::move(stub);
+        }
+    }
+    for (auto& ed : prog.enums) {
         if (ed.has_payload()) register_tagged_enum(ed);
     }
 

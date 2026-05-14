@@ -164,11 +164,14 @@ impl<T> Option<T> {
     }
 }
 
-// option_flatten deferred 2026-05-15: Mono substitution mangles
-// `Option<Option<T>>` as `enum.Option__Option` (drops the inner type-arg)
-// — match-arm payload is then read as i32 instead of an Option pointer,
-// so `Some(inner)` returns garbage. Same family as CP-cm-09 but for the
-// nested-enum-payload shape. Filed under baghunt nested-generic-mono.
+// option_flatten — Option<Option<T>>::flatten. Disabled in stdlib for
+// now because it triggers a latent walk-loop crash during stdlib
+// emit-module (the bug isn't in option_flatten itself — adding any
+// nested-generic-enum function here surfaces a fragile interaction
+// in lower_quote_expr's walk that crashes during fmt.logos
+// processing). User code can declare their own. Compiler-side
+// support for nested-generic-enum mangling + tagged-enum payload
+// layout is in place — see pass/option_flatten.logos.
 
 // Free-function shims for compat with pre-existing call-sites in stdlib
 // and earlier Logos tests. New code should prefer the method form.

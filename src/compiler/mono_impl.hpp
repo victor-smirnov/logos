@@ -312,6 +312,18 @@ public:
             return "arr" + std::to_string(tr.arr_size()) + "_" + mangle_type(tr.elem());
         case LogosType::Kind::Struct:
             return concrete_struct_name(tr);
+        // Nested generic enum: bare `type_str(Option<T>)` returns just "Option",
+        // dropping inner type-args. For nested specs like `Option<Option<i32>>`
+        // we need the inner instance encoded so `record_needed_enum` and
+        // payload-layout lookup agree.
+        case LogosType::Kind::Enum: {
+            std::string r = std::string(tr.enum_name());
+            for (auto a : tr.type_args()) {
+                r += "__";
+                r += mangle_type(a);
+            }
+            return r;
+        }
         case LogosType::Kind::IntLit:
         case LogosType::Kind::ConstVar:
             // Const-generic args (scalar or pack element) carry their value in
