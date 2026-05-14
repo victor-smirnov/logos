@@ -162,7 +162,7 @@ Tests touched but not fully ported. Will revisit when their blockers close.
 | `option.rs::test_is_some_is_none` | ✅ Closed (B24, 2026-05-14) — added beyond upstream | n/a |
 | `option.rs::test_or` (test_or_typed shape) | ✅ Closed (B24, 2026-05-14) — typed-receiver workaround | None-receiver T-inference (note in feat_phase4a_option_methods.md) |
 | `option.rs::test_get_ptr/str/resource` | Open | Box, `mem::transmute`, Rc<RefCell<...>>, Drop on R |
-| `option.rs::test_option_dance` | Open | Option<Box<T>> juggling |
+| `option.rs::test_option_dance` | ✅ Closed (2026-05-15) — adapted: Logos's Option lacks IntoIterator (Rust uses `for _x in some_opt`), so the for-loop is replaced with an equivalent `match Some(_) => …` block; same observable semantics | n/a |
 | `option.rs::test_and / test_and_then / test_or_else (full)` | ✅ Closed (2026-05-15) — all three under `#[test]` harness | n/a |
 | `result.rs::test_unwrap_or` | ✅ Closed (B25, 2026-05-14) | n/a |
 | `result.rs::test_is_ok_is_err` | ✅ Closed (B25, 2026-05-14) — added beyond upstream | n/a |

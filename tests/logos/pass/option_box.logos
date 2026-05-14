@@ -1,0 +1,12 @@
+package option_box;
+use std.lang.option;
+use std.mem.box;
+
+fn main() -> i32 {
+    let b: Box<i32> = box_new(42i32);
+    let o: Option<Box<i32>> = Option::Some(b);
+    match o {
+        Option::Some(_) => { return 0i32; }
+        Option::None    => { return 1i32; }
+    }
+}

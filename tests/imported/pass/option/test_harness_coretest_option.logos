@@ -114,6 +114,23 @@ fn nothing() -> Option<isize> {
     return None;
 }
 
+// Adaptation of upstream `test_option_dance`. Rust's `for _x in some_opt`
+// uses Option's IntoIterator (Some yields once, None never); Logos's
+// Option doesn't impl IntoIterator yet, so we inline the equivalent
+// match-on-Some check.
+#[test]
+fn test_option_dance() {
+    let x: Option<i32> = Some(0i32);   // Logos has no `()` literal — use a sentinel int.
+    let mut y: Option<i32> = Some(5i32);
+    let mut y2: i32 = 0i32;
+    match x {
+        Option::Some(_) => { y2 = y.take().unwrap(); }
+        Option::None    => {}
+    }
+    assert_eq!(y2, 5i32);
+    assert!(y.is_none());
+}
+
 #[test]
 fn test_or_else() {
     let x: Option<isize> = Some(1isize);
