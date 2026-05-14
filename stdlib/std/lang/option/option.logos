@@ -144,7 +144,31 @@ impl<T> Option<T> {
         *self = Option::Some(value);
         return r;
     }
+
+    // Returns Some iff exactly one of `self` and `other` is Some.
+    pub fn xor(self: Option<T>, other: Option<T>) -> Option<T> {
+        match self {
+            Option::Some(a) => {
+                match other {
+                    Option::Some(_) => { return Option::None; }
+                    Option::None    => { return Option::Some(a); }
+                }
+            }
+            Option::None => {
+                match other {
+                    Option::Some(b) => { return Option::Some(b); }
+                    Option::None    => { return Option::None; }
+                }
+            }
+        }
+    }
 }
+
+// option_flatten deferred 2026-05-15: Mono substitution mangles
+// `Option<Option<T>>` as `enum.Option__Option` (drops the inner type-arg)
+// — match-arm payload is then read as i32 instead of an Option pointer,
+// so `Some(inner)` returns garbage. Same family as CP-cm-09 but for the
+// nested-enum-payload shape. Filed under baghunt nested-generic-mono.
 
 // Free-function shims for compat with pre-existing call-sites in stdlib
 // and earlier Logos tests. New code should prefer the method form.

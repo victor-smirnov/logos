@@ -4788,11 +4788,33 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     };
     std::vector<TypeRef> formals_hint = preload_formals();
     auto lower_arg_with_hint = [&](TinyMapView arg_node, size_t arg_idx) {
-        TypeRef saved = hint_closure_formal_;
-        if (arg_idx < formals_hint.size() && formals_hint[arg_idx])
-            hint_closure_formal_ = formals_hint[arg_idx];
+        TypeRef saved_closure = hint_closure_formal_;
+        TypeRef saved_enum    = hint_enum_type_;
+        TypeRef saved_struct  = hint_struct_type_;
+        if (arg_idx < formals_hint.size() && formals_hint[arg_idx]) {
+            TypeRef f = formals_hint[arg_idx];
+            // Strip a single Ref/MutRef/Ptr wrapper for hint purposes;
+            // bare variant literals don't carry a wrapper, but the formal
+            // may (e.g. `fn or(&self, other: &Option<T>)`).
+            if (f && (TypeRef(f).kind() == LogosType::Kind::Ref ||
+                      TypeRef(f).kind() == LogosType::Kind::MutRef) &&
+                TypeRef(f).pointee())
+                f = TypeRef(f).pointee();
+            auto k = TypeRef(f).kind();
+            if (k == LogosType::Kind::FnPtr || k == LogosType::Kind::Closure)
+                hint_closure_formal_ = formals_hint[arg_idx];
+            else if (k == LogosType::Kind::Enum &&
+                     !TypeRef(f).type_args().empty())
+                hint_enum_type_ = f;
+            else if ((k == LogosType::Kind::Struct ||
+                      k == LogosType::Kind::ZonedStruct) &&
+                     !TypeRef(f).type_args().empty())
+                hint_struct_type_ = f;
+        }
         auto out = lower_expr(arg_node);
-        hint_closure_formal_ = saved;
+        hint_closure_formal_ = saved_closure;
+        hint_enum_type_      = saved_enum;
+        hint_struct_type_    = saved_struct;
         return out;
     };
     std::vector<lir::LExprPtr> arg_exprs;

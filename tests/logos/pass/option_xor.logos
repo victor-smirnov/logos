@@ -1,0 +1,20 @@
+package option_xor;
+use std.lang.option;
+
+fn main() -> i32 {
+    let s: Option<i32> = Option::Some(5i32);
+    let n: Option<i32> = Option::None;
+    match s.xor(n) {
+        Option::Some(v) => { if v != 5i32 { return 1i32; } }
+        Option::None    => { return 2i32; }
+    }
+    match s.xor(Option::Some(9i32)) {
+        Option::Some(_) => { return 3i32; }
+        Option::None    => {}
+    }
+    match n.xor(Option::None) {
+        Option::Some(_) => { return 4i32; }
+        Option::None    => {}
+    }
+    return 0i32;
+}
