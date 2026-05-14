@@ -87,6 +87,53 @@ static std::vector<std::string> extract_uses(hermes::HermesView ast) {
                 }
             }
         }
+        // GR-gp-02: USE_GROUP carries a VARIANTS list — each entry becomes
+        // a separate `<dotted>.<name>` package to load.
+        int32_t use_code = la::USE.code;
+        if (use_node.has_key(la::CODE)) {
+            AnyVal cav = use_node.get(la::CODE);
+            if (!cav.is_null() && !cav.is_pointer())
+                use_code = cav.as_value<int32_t>();
+        }
+        // GR-gp-02: `use pkg.{a, b};` — USE_VARIANTS with lowercase
+        // TYPE_NAME desugars to N separate `use pkg.<TYPE_NAME>.<item>;`
+        // imports. Distinguishes from real variants (uppercase-start
+        // Type names) by first-character case — Rust naming convention
+        // forces enums to be Capitalized.
+        if (use_code == la::USE_VARIANTS.code && use_node.has_key(la::TYPE_NAME)) {
+            AnyVal tn_av = use_node.get(la::TYPE_NAME);
+            if (!tn_av.is_null() && tn_av.is_pointer()) {
+                std::string tn(StringView(tn_av.to_offset(), holder).view());
+                if (!tn.empty() && tn[0] >= 'a' && tn[0] <= 'z') {
+                    // Lowercase: grouped sub-package import.
+                    std::string prefix = dotted.empty()
+                        ? tn : (dotted + "." + tn);
+                    if (use_node.has_key(la::VARIANTS)) {
+                        AnyVal vlist_av = use_node.get(la::VARIANTS);
+                        if (!vlist_av.is_null() && vlist_av.is_pointer()) {
+                            auto vlist = ArrayView(vlist_av.to_offset(), holder);
+                            for (uint64_t vi = 0; vi < vlist.size(); ++vi) {
+                                AnyVal vav = vlist.get(vi);
+                                if (vav.is_null() || !vav.is_pointer()) continue;
+                                auto v = TinyMapView(vav.to_offset(), holder);
+                                if (!v.has_key(la::NAME)) continue;
+                                AnyVal nv = v.get(la::NAME);
+                                if (nv.is_null() || !nv.is_pointer()) continue;
+                                std::string bare(StringView(nv.to_offset(), holder).view());
+                                std::string full = prefix + "." + bare;
+                                result.push_back(std::move(full));
+                            }
+                        }
+                    }
+                    continue;
+                }
+                // Uppercase: real enum-variant import. dotted is the
+                // enum's pkg; load it as a wildcard so the type itself
+                // is in scope.
+                if (!dotted.empty()) result.push_back(dotted);
+                continue;
+            }
+        }
         if (!dotted.empty())
             result.push_back(dotted);
     }

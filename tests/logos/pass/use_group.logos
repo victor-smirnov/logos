@@ -1,0 +1,22 @@
+// GR-gp-02: `use pkg.{a, b, c};` — grouped brace-list import.
+// Desugars to N wildcard imports `use pkg.a; use pkg.b; use pkg.c;`
+// (mirrors Rust's `use std::{io, fmt};` but with `.` separator).
+
+package use_group_test;
+
+use std.lang.{option, result};
+
+fn main() -> i32 {
+    let o: Option<i32> = Option::Some(42i32);
+    let r: Result<i32, str> = Result::Ok(0i32);
+
+    match o {
+        Option::Some(v) => {
+            match r {
+                Result::Ok(_)  => { return v; }
+                Result::Err(_) => { return 1i32; }
+            }
+        }
+        Option::None => { return 2i32; }
+    }
+}

@@ -4262,6 +4262,33 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
                             dotted += std::string(str_of(part.get(NAME.code)));
                         }
                     }
+                    // GR-gp-02: `use pkg.{a, b, c};` is parsed as
+                    // USE_VARIANTS with a lowercase TYPE_NAME. When the
+                    // TYPE_NAME starts with a lowercase letter, desugar
+                    // to N wildcard imports `<dotted>.<TYPE_NAME>.<item>`;
+                    // uppercase TYPE_NAME is the real enum-variant form
+                    // handled below.
+                    if (use_code == USE_VARIANTS.code && use_node.has_key(TYPE_NAME)) {
+                        std::string tn(str_of(use_node.get(TYPE_NAME.code)));
+                        if (!tn.empty() && tn[0] >= 'a' && tn[0] <= 'z') {
+                            std::string prefix = dotted.empty()
+                                ? tn : (dotted + "." + tn);
+                            if (use_node.has_key(VARIANTS)) {
+                                auto vlist_av = use_node.get(VARIANTS.code);
+                                if (!vlist_av.is_null() && vlist_av.is_pointer()) {
+                                    auto vlist = arr_of(vlist_av);
+                                    for (uint64_t vi = 0; vi < vlist.size(); ++vi) {
+                                        auto v = map_of(vlist.get(vi));
+                                        if (!v.has_key(NAME)) continue;
+                                        auto bare = std::string(str_of(v.get(NAME.code)));
+                                        cur_imports_.wildcard_packages.push_back(
+                                            prefix + "." + bare);
+                                    }
+                                }
+                            }
+                            continue;
+                        }
+                    }
                     // CP-cm-02: record bare-variant aliases (mirrors the
                     // collect-pass build_import_scope in sema_collect.cpp).
                     if (use_code == USE_VARIANTS.code &&

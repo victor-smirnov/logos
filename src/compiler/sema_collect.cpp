@@ -132,6 +132,35 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
                     dotted += std::string(str_of(part.get(la::NAME.code)));
                 }
             }
+            // GR-gp-02: `use pkg.{a, b, c};` parses as USE_VARIANTS with
+            // a lowercase TYPE_NAME — desugar to wildcard imports
+            // `<dotted>.<TYPE_NAME>.<item>`. Capitalised TYPE_NAME is the
+            // enum-variant form handled below.
+            if (use_code == la::USE_VARIANTS.code && use_node.has_key(la::TYPE_NAME)) {
+                std::string tn(str_of(use_node.get(la::TYPE_NAME.code)));
+                if (!tn.empty() && tn[0] >= 'a' && tn[0] <= 'z') {
+                    std::string prefix = dotted.empty()
+                        ? tn : (dotted + "." + tn);
+                    if (use_node.has_key(la::VARIANTS)) {
+                        auto vlist_av = use_node.get(la::VARIANTS.code);
+                        if (!vlist_av.is_null() && vlist_av.is_pointer()) {
+                            auto vlist = arr_of(vlist_av);
+                            for (uint64_t vi = 0; vi < vlist.size(); ++vi) {
+                                auto v = map_of(vlist.get(vi));
+                                if (!v.has_key(la::NAME)) continue;
+                                auto bare = std::string(str_of(v.get(la::NAME.code)));
+                                std::string full = prefix + "." + bare;
+                                if (std::find(scope.wildcard_packages.begin(),
+                                              scope.wildcard_packages.end(), full)
+                                    != scope.wildcard_packages.end())
+                                    continue;
+                                scope.wildcard_packages.push_back(std::move(full));
+                            }
+                        }
+                    }
+                    continue;
+                }
+            }
             if (use_code == la::USE_VARIANTS.code) {
                 if (use_node.has_key(la::VARIANTS)) {
                     auto vlist_av = use_node.get(la::VARIANTS.code);

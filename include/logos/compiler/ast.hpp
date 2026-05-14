@@ -61,7 +61,7 @@ inline constexpr Key IS_AUTO    {"IS_AUTO",     29}; // auto trait marker (1 = a
 inline constexpr Code MODULE      {"MODULE",       1};
 inline constexpr Code PACKAGE     {"PACKAGE",      2};   // package declaration
 inline constexpr Code USE         {"USE",          3};   // use declaration
-inline constexpr Code USE_VARIANTS{"USE_VARIANTS", 241}; // CP-cm-02: `use pkg.Path.Type.{V1, V2, …};` — enum-variant bare-name shorthand
+inline constexpr Code USE_VARIANTS{"USE_VARIANTS", 241}; // CP-cm-02 + GR-gp-02: `use pkg.Path.Type.{V1, V2, …};` — enum-variant bare-name shorthand (uppercase Type). Also `use pkg.{a, b, c};` (lowercase TYPE_NAME) — grouped sub-package import.
 
 // Definitions
 inline constexpr Code FN          {"FN",          10};

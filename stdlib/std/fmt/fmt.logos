@@ -132,6 +132,7 @@ impl<A: Debug, B: Debug, C: Debug, D: Debug> Debug for (A, B, C, D) {
     }
 }
 
+
 // Float Debug — full-precision round-trippable text via libc snprintf
 // "%.17g" (f64) / "%.9g" (f32). Differs from Display ("%g") which
 // drops trailing precision for compactness.

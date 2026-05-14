@@ -103,7 +103,7 @@ Surfaced by ports of rustc coretests. Each needs C++ code change in
 | ID | Surface | Status | Gap | Notes |
 |---|---|---|---|---|
 | GR-gp-01 | `!` (never) type at signature position | Open (deferred per user 2026-05-13) | `fn abort() -> !` doesn't parse. Use `enum Never {}` (now in `std.lang.marker`) instead. | Port-time workaround: `-> !` → `-> Never`. |
-| GR-gp-02 | `use pkg::{a, b, c}` brace-list import | Open | Rust's grouped use. Logos requires one `use` per item. | Port-time workaround: split into N `use` lines. |
+| GR-gp-02 | `use pkg.{a, b, c}` brace-list import | ✅ Closed (2026-05-14) | `use std.lang.{option, result};` desugars to `use std.lang.option; use std.lang.result;`. Reuses the existing USE_VARIANTS AST node — sema disambiguates by the TYPE_NAME's first-character case (uppercase → enum-variant shorthand per CP-cm-02; lowercase → grouped sub-package import). Threading runs through module_loader (extract_uses), sema_collect (build_import_scope), and sema (lower-pass). Regression test `pass/use_group.logos`. | Rust uses `::` separator; Logos uses `.`. |
 | GR-gp-03 | `pub(crate)` / `pub(super)` visibility | Open | Logos has only `pub`. | Port-time workaround: replace with bare `pub` (slightly broader visibility). |
 | GR-gp-04 | Doc body containing literal `/*` text | Open (matches rustc) | DOC_BLOCK depth-counter is text-blind. A body containing the literal characters `/*` will demand an extra `*/`. Rust has the same limitation. | Port-time workaround: spell out as "slash-star" in prose. |
 

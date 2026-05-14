@@ -298,7 +298,7 @@
     INNER_DOC_LIT               = 238   // `//! text` inner doc-comment line (module-level summary). VALUE = raw token text including the leading `//!`. Sema-collect strips the prefix and accumulates into LProgram.module_inner_doc.
     DOC_BLOCK_LIT               = 239   // `/** ... */` outer block doc-comment. VALUE = raw token text including the `/**` envelope and trailing `*/`. Sema strips the envelope + per-line leading `*` indent and joins with `\n` into pending_doc_, mirroring DOC_LINE_LIT accumulation.
     INNER_DOC_BLOCK_LIT         = 240   // `/*! ... */` inner block doc-comment (module-level summary, block form). VALUE = raw token text; sema accumulates into module_inner_doc_ like INNER_DOC_LIT.
-    USE_VARIANTS                = 241   // CP-cm-02: `use pkg.Path.Type.{V1, V2, …};` — enum-variant bare-name shorthand. Same shape as USE but with extra TYPE_NAME (the last dotted segment is the enum type, not a pkg part) and VARIANTS (list of bare-ident TomVs each holding a NAME). Sema-collect registers each variant under the alias map so call sites can write `V1` instead of `Type::V1`.
+    USE_VARIANTS                = 241   // CP-cm-02 + GR-gp-02: `use pkg.Path.X.{V1, V2, …};`. Same shape as USE but with extra TYPE_NAME (last dotted segment, either enum Type when uppercase or pkg sub-name when lowercase) and VARIANTS (list of bare-ident TomVs each holding a NAME). Sema disambiguates by TYPE_NAME's first-character case: uppercase → enum-variant bare-name shorthand; lowercase → grouped sub-package import (`use std.lang.{option, result};`).
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -472,6 +472,7 @@
     // name; the brace-list holds the variants to bring into bare scope.
     use_variants_decl :group mod: <- KW_USE IDENT path_dot_ident* DOT IDENT DOT LBRACE variant_name (COMMA variant_name)* COMMA? RBRACE SEMI
                       => { CODE: USE_VARIANTS, NAME: $2, PATH_PARTS: $3, TYPE_NAME: $5, VARIANTS: $... }
+
 
     variant_name <- IDENT
                   => { NAME: $1 }
