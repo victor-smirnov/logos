@@ -11,6 +11,39 @@
 
 package std.lang.ops;
 
+// ── Arithmetic ────────────────────────────────────────────────────
+//
+// SL-sl-01: trait declarations. Primitive `+` etc. are handled by
+// codegen directly via the `Type__add` mangled-name lookup. These
+// traits provide the METHOD-CALL surface (`a.add(b)`) and let ported
+// Rust code write `impl Add for MyType`. No primitive impls yet —
+// add on demand.
+
+pub trait Add {
+    fn add(self: Self, rhs: Self) -> Self;
+}
+pub trait Sub {
+    fn sub(self: Self, rhs: Self) -> Self;
+}
+pub trait Mul {
+    fn mul(self: Self, rhs: Self) -> Self;
+}
+pub trait Div {
+    fn div(self: Self, rhs: Self) -> Self;
+}
+pub trait Rem {
+    fn rem(self: Self, rhs: Self) -> Self;
+}
+pub trait Neg {
+    fn neg(self: Self) -> Self;
+}
+pub trait Shl {
+    fn shl(self: Self, rhs: Self) -> Self;
+}
+pub trait Shr {
+    fn shr(self: Self, rhs: Self) -> Self;
+}
+
 // ── Bitwise ───────────────────────────────────────────────────────
 
 pub trait BitAnd {

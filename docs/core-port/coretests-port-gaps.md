@@ -16,8 +16,8 @@ etc. to re-tally — counts are derived from the A/B/C tables below.)
 | Class                 | Total | ✅ Closed | Partial | Divergence | Open |
 |---|---|---|---|---|---|
 | Compiler (CP-cm-*)    | 15    | 11       | 2       | 1          | 1    |
-| Stdlib (SL-sl-*)      | 10    | 4        | 3       | 2          | 1    |
-| **Total**             | 25    | 15       | 5       | 3          | 2    |
+| Stdlib (SL-sl-*)      | 10    | 5        | 3       | 2          | 0    |
+| **Total**             | 25    | 16       | 5       | 3          | 1    |
 
 Divergence-by-design entries:
 - CP-cm-04 (no `const fn` — metacall is the comptime channel)
@@ -112,7 +112,7 @@ Surfaced by ports of rustc coretests. Each needs C++ code change in
 
 | ID | Surface | Status | Gap | Need | Notes |
 |---|---|---|---|---|---|
-| SL-sl-01 | `core::ops` arithmetic+shift traits | Open | `BitAnd/BitOr/BitXor/Not` in `std.lang.ops` (closed). Add/Sub/Mul/Div/Rem/Neg/Shl/Shr deliberately deferred — Logos's operator dispatch routes `+` etc. to `Type__add` mangled-name lookup directly. Add the traits when a user-struct overload port needs them. | — | — |
+| SL-sl-01 | `core::ops` arithmetic+shift traits | ✅ Closed (2026-05-14) | `BitAnd/BitOr/BitXor/Not` impl'd for bool; Add/Sub/Mul/Div/Rem/Neg/Shl/Shr declared as marker traits in `std.lang.ops` (no primitive impls — they're not needed: `+` on `i32` dispatches via mangled-name lookup directly). Trait declarations let ported Rust code write `impl Add for MyType { fn add(...) }`. | — | Add primitive impls on demand if a port writes `let x: i32 = <i32 as Add>::add(1, 2);` (rare). |
 | SL-sl-02 | `PartialEq` / `PartialOrd` separation | Partial (2026-05-14) | Forward-compat aliases added: stdlib `std.lang.cmp` declares `pub trait PartialEq {}` / `pub trait PartialOrd {}` as empty markers, AND sema_collect.cpp's bound check treats existing `Eq` / `Ord` impls as PartialEq/PartialOrd satisfiers. Rust code with `T: PartialEq` bound now binds against Logos's `impl Eq` automatically — no per-impl migration needed. Full split (separate hierarchy + every `impl Eq` migrated to `impl PartialEq + impl Eq {}`) deferred — no driver yet. | — | Reopen-fully when a driver appears (e.g. `impl PartialEq for f64` without `Eq`). |
 | SL-sl-03 | Option full method surface | Partial (2026-05-14) | `impl<T> Option<T>` covers: `is_some` / `is_none` / `unwrap` / `expect` / `unwrap_or` / `unwrap_or_else` / `map<U>` / `and<U>` / `and_then<U>` / `or` / `or_else` / `is_some_and`. CP-cm-13 closed the bare-None inference issue. Still missing: `.as_ref(&self)` / `.as_mut(&mut self)` / `.take(&mut self)` / `.replace(&mut self, T)` — need `&self` / `&mut self` method dispatch on enums (Logos's current path for `Option<T>::method` consumes self by value). `Default` / `Clone`-bounded helpers still deferred. | — | — |
 | SL-sl-04 | Result full method surface | ✅ Closed (2026-05-14) | With CP-cm-09 fixed, the `impl<T, E> Result<T, E>` block lands cleanly: is_ok / is_err / unwrap / unwrap_err / expect / expect_err / unwrap_or / unwrap_or_else(fn(E)->T) / ok / err / map<U> / map_err<F> / and_then<U> / or_else<F>. | — | — |
