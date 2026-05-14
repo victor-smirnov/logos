@@ -2227,6 +2227,11 @@ private:
     // Closes the gap for `let x: Foo<T> = make_foo();` where T appears only
     // in the return type.
     TypeRef hint_call_return_type_ = nullptr;
+    // CP-cm-14: when lowering a closure-arg whose params lack type
+    // annotations (`|x| body` rather than `|x: T| body`), check this
+    // hint. Set by the call-site path (lower_call / lower_method_call)
+    // when the corresponding formal is a `fn(T,...)->R` / `Closure`.
+    TypeRef hint_closure_formal_ = nullptr;
 
     // ── Return reachability ───────────────────────────────────────
 

@@ -1,0 +1,19 @@
+// CP-cm-14 (closure body inference): `|x|` without type annotation —
+// param type inferred from the call-site's expected `fn(T) -> R` formal.
+
+package closure_bare_param;
+
+use std.lang.iter;
+use std.lang.option;
+
+fn main() -> i32 {
+    let arr: [i32; 4] = [1i32, 2i32, 3i32, 4i32];
+    unsafe {
+        // Bare `|x|` — sema infers x: i32 from filter's fn(Item) -> bool.
+        let it = iter_over_slice(&arr).filter(|x| { x > 2i32 });
+        let cnt: i64 = it.count();
+        if cnt != 2i64 { return 1i32; }
+    }
+
+    return 0i32;
+}

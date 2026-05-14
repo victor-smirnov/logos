@@ -4715,6 +4715,86 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
 
     // ARGS shape: legacy alt has flat array, turbofish alt wraps as
     // { ITEMS: [...] } (mirroring GENERIC_CALL / STATIC_CALL).
+    //
+    // CP-cm-14: peek the candidate method's formal param types by name
+    // so we can hint closure-arg types when params are bare (`|x| body`).
+    // Method dispatch happens further down; for now we just need the
+    // shape of param_types — first non-ambiguous candidate works.
+    auto preload_formals = [&]() -> std::vector<TypeRef> {
+        std::vector<TypeRef> out;
+        std::string lookup_name;
+        if (!sname.empty()) {
+            lookup_name = sname + "__" + std::string(method_name);
+        } else if (recv->type) {
+            // Enum receiver: try base + method.
+            TypeRef rte(recv->type);
+            if (rte.kind() == LogosType::Kind::Enum && !rte.enum_name().empty())
+                lookup_name = std::string(rte.enum_name()) + "__" + std::string(method_name);
+        }
+        if (lookup_name.empty()) return out;
+        auto cands = find_func_candidates(lookup_name);
+        // For generic-receiver concrete forms (`SliceIter$G1$i32`), also
+        // try the base name (`SliceIter`) — trait-default-cloned methods
+        // register under the base.
+        if (cands.empty()) {
+            if (auto dollar = lookup_name.find('$'); dollar != std::string::npos) {
+                std::string base = lookup_name.substr(0, dollar);
+                if (auto under = lookup_name.rfind("__"); under != std::string::npos)
+                    base += lookup_name.substr(under);
+                cands = find_func_candidates(base);
+            }
+        }
+        // Also try the generic-fn registry directly (covers trait default
+        // methods that live as generic templates).
+        if (cands.empty()) {
+            if (auto* gen = find_generic_func(lookup_name))
+                cands.push_back(gen);
+        }
+        if (cands.empty()) return out;
+        const SemaFuncInfo* fi = cands.front();
+        if (!fi) return out;
+        // Substitute receiver's type-args into the formal param types
+        // so the hint is concrete (e.g. SliceIter<i32>'s `Item=i32`).
+        SemaSubst recv_subst;
+        TypeRef rst = recv->type;
+        if (rst && is_ref_like(TypeRef(rst).kind()) && TypeRef(rst).pointee())
+            rst = TypeRef(rst).pointee();
+        if (rst && (TypeRef(rst).kind() == LogosType::Kind::Struct ||
+                    TypeRef(rst).kind() == LogosType::Kind::ZonedStruct) &&
+            !TypeRef(rst).type_args().empty()) {
+            auto [_, si] = find_struct_by_name(TypeRef(rst).struct_name());
+            if (si) {
+                auto& tps = si->type_params;
+                for (size_t i = 0; i < tps.size() && i < TypeRef(rst).type_args().size(); ++i)
+                    recv_subst[tps[i].name] = TypeRef(rst).type_args()[i];
+            }
+        } else if (rst && TypeRef(rst).kind() == LogosType::Kind::Enum
+                   && !TypeRef(rst).type_args().empty()) {
+            auto [_, esi] = find_enum_by_name(TypeRef(rst).enum_name());
+            if (esi) {
+                auto& tps = esi->type_params;
+                for (size_t i = 0; i < tps.size() && i < TypeRef(rst).type_args().size(); ++i)
+                    recv_subst[tps[i].name] = TypeRef(rst).type_args()[i];
+            }
+        }
+        // Skip param[0] (self); return formals for the explicit args.
+        for (size_t i = 1; i < fi->param_types.size(); ++i) {
+            auto pt = fi->param_types[i];
+            if (!recv_subst.empty() && pt)
+                pt = subst_type_sema(pt, recv_subst);
+            out.push_back(pt);
+        }
+        return out;
+    };
+    std::vector<TypeRef> formals_hint = preload_formals();
+    auto lower_arg_with_hint = [&](TinyMapView arg_node, size_t arg_idx) {
+        TypeRef saved = hint_closure_formal_;
+        if (arg_idx < formals_hint.size() && formals_hint[arg_idx])
+            hint_closure_formal_ = formals_hint[arg_idx];
+        auto out = lower_expr(arg_node);
+        hint_closure_formal_ = saved;
+        return out;
+    };
     std::vector<lir::LExprPtr> arg_exprs;
     if (node.has_key(la::ARGS)) {
         auto args_av = node.get(la::ARGS.code);
@@ -4723,12 +4803,12 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             if (args_map.has_key(la::ITEMS)) {
                 auto items = arr_of(args_map.get(la::ITEMS.code));
                 for (uint64_t i = 0; i < items.size(); ++i)
-                    arg_exprs.push_back(lower_expr(map_of(items.get(i))));
+                    arg_exprs.push_back(lower_arg_with_hint(map_of(items.get(i)), i));
             }
         } else {
             auto args = arr_of(args_av);
             for (uint64_t i = 0; i < args.size(); ++i)
-                arg_exprs.push_back(lower_expr(map_of(args.get(i))));
+                arg_exprs.push_back(lower_arg_with_hint(map_of(args.get(i)), i));
         }
     }
 
@@ -5513,6 +5593,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 auto pt = fi.param_types[pi];
                 if (!struct_subst.empty()) pt = subst_type_sema(pt, struct_subst);
                 widen_int_expr(arg_exprs[i], pt, builder());
+                // CP-cm-14: closure→fn-ptr coercion at struct-method args.
+                try_coerce_closure_to_fnptr(arg_exprs[i], pt);
             }
             auto at = arg_exprs[i]->type;
             if (pi < fi.param_types.size()) {
@@ -8683,11 +8765,29 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             auto plist = map_of(pav);
             if (plist.has_key(la::ITEMS)) {
                 auto pitems = arr_of(plist.get(la::ITEMS.code));
+                // CP-cm-14: when params are untyped (`|x| body`),
+                // consult the call-site's hint for the expected fn-ptr
+                // formal so we can fill in param types from it. The
+                // hint is set by lower_method_call / lower_call BEFORE
+                // lower_expr'ing the closure arg.
+                std::vector<TypeRef> hint_param_types;
+                if (hint_closure_formal_) {
+                    TypeRef h(hint_closure_formal_);
+                    if (h.kind() == LogosType::Kind::FnPtr ||
+                        h.kind() == LogosType::Kind::Closure) {
+                        for (auto pt : h.closure_params())
+                            hint_param_types.push_back(pt);
+                    }
+                }
                 for (uint64_t i = 0; i < pitems.size(); ++i) {
                     auto p = map_of(pitems.get(i));
                     auto pname = std::string(str_of(p.get(la::NAME.code)));
                     TypeRef ptype = p.has_key(la::TYPE)
                         ? resolve_type(map_of(p.get(la::TYPE.code))) : error_t();
+                    // CP-cm-14: apply hint when the param is untyped.
+                    if (!p.has_key(la::TYPE) && !p.has_key(la::NAMES) &&
+                        i < hint_param_types.size() && hint_param_types[i])
+                        ptype = hint_param_types[i];
                     // C5-cl-07: tuple-destructure param `(a, b): (T1, T2)`.
                     // Grammar emits PARAM with NAMES = {ITEMS: [name, …]}
                     // and TYPE = tuple type. Synthesise a single param,
