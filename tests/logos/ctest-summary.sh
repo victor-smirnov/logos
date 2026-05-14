@@ -43,6 +43,11 @@ rm -f /tmp/ctest_failures.$$
 
 echo
 echo "=== Summary ==="
-tail -30 "$LOG"
+# Always surface the pass-count line — it's the single most important
+# datum and ctest emits it BEFORE the Label Time Summary block, so a
+# plain tail can miss it on rich output. Grep first, then dump the
+# trailing 40 lines for the label table + total time.
+grep -E "tests passed|tests failed" "$LOG" | tail -2 || true
+tail -40 "$LOG"
 
 exit "$EXIT"

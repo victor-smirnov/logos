@@ -276,8 +276,21 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                     for (auto& v : esi->variants)
                         if (v.name == "None") { vinfo = &v; break; }
                     if (vinfo) {
+                        // Prefer hint_enum_type_ (let-annotation `Option<T>`)
+                        // so `let r: Option<i32> = None.or(Some(x))` resolves
+                        // T at receiver-construction time. Without this,
+                        // None lowers as Option<TypeVar(T)>, method dispatch
+                        // produces `Option__T__or__…` (unbound), and mlir-gen
+                        // can't find the specialised symbol.
                         std::vector<TypeRef> ta;
-                        ta.push_back(make_typevar("T"));
+                        if (hint_enum_type_ &&
+                            TypeRef(hint_enum_type_).kind() == LogosType::Kind::Enum &&
+                            TypeRef(hint_enum_type_).enum_name() == "Option" &&
+                            !TypeRef(hint_enum_type_).type_args().empty()) {
+                            ta.push_back(TypeRef(hint_enum_type_).type_args()[0]);
+                        } else {
+                            ta.push_back(make_typevar("T"));
+                        }
                         auto rty = make_generic_enum("Option", std::move(ta));
                         return builder().enum_lit("Option", "None",
                                                    (int64_t)vinfo->value, rty);
@@ -2050,6 +2063,21 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
     case LogosType::Kind::Struct:
         if (actual_norm.kind() == LogosType::Kind::Struct &&
             formal.struct_name() == actual_norm.struct_name()) {
+            auto fa = formal.type_args();
+            auto aa = actual_norm.type_args();
+            for (size_t i = 0; i < fa.size() && i < aa.size(); ++i)
+                unify_types(fa[i], aa[i], bindings);
+        }
+        break;
+    case LogosType::Kind::Enum:
+        // Mirror of the Struct case: when a generic method takes
+        // `Option<U>` / `Result<T,E>` as a parameter, the formal's
+        // type-args reference method-level type-params that need to be
+        // bound from the actual enum argument. Without this case,
+        // `a.and(Option<i32>)` (where `.and<U>(optb: Option<U>)`) left U
+        // unbound and produced `Option__T__and__…` mangled symbols.
+        if (actual_norm.kind() == LogosType::Kind::Enum &&
+            formal.enum_name() == actual_norm.enum_name()) {
             auto fa = formal.type_args();
             auto aa = actual_norm.type_args();
             for (size_t i = 0; i < fa.size() && i < aa.size(); ++i)
@@ -5206,6 +5234,23 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             if (!si2) { auto [p, di] = find_datatype_by_name(TypeRef(rst).struct_name()); si2 = di; }
             if (si2) {
                 auto& tps = si2->type_params;
+                for (size_t i = 0; i < tps.size() && i < TypeRef(rst).type_args().size(); ++i)
+                    struct_subst[tps[i].name] = TypeRef(rst).type_args()[i];
+            }
+        }
+        // Enum receivers (Option<T>, Result<T,E>, …): mirror the Struct
+        // case so method-level inference sees enum-bound type-params
+        // pre-resolved. Without this, a method like
+        // `Option<T>::and<U>(self, Option<U>)` called as `a.and(b)` left
+        // T unbound, and finish_generic_call's argument-walk fed
+        // `fi.type_params[T]` with whatever unify produced from the
+        // wrong slot — producing `Option__Option__and__…` style symbols
+        // and link errors.
+        else if (TypeRef(rst).kind() == LogosType::Kind::Enum &&
+                 !TypeRef(rst).type_args().empty()) {
+            auto [p, esi] = find_enum_by_name(TypeRef(rst).enum_name());
+            if (esi) {
+                auto& tps = esi->type_params;
                 for (size_t i = 0; i < tps.size() && i < TypeRef(rst).type_args().size(); ++i)
                     struct_subst[tps[i].name] = TypeRef(rst).type_args()[i];
             }

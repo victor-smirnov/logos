@@ -82,6 +82,12 @@ impl<T> Option<T> {
         }
     }
 
+    // GAP CP-cm-12 (2026-05-14): `pub fn and<U>(self: Option<T>, optb: Option<U>) -> Option<U>`
+    // type-checks but mono mis-specialises — generated symbol stays
+    // `Option__i32__and__g__Option__Option` (method-level U not substituted in
+    // the canonical-signature suffix). `.map<U>(fn(T) -> U)` works because its
+    // param is FnPtr (different mono path). Re-add once CP-cm-12 closes.
+
     // Returns None if the option is None, otherwise calls f with the wrapped
     // value and returns the result.
     pub fn and_then<U>(self: Option<T>, f: fn(T) -> Option<U>) -> Option<U> {

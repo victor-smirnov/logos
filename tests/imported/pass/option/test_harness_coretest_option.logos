@@ -62,10 +62,14 @@ fn test_is_some_is_none() {
 
 #[test]
 fn test_or_typed() {
-    // `None.or(Some(x))` doesn't infer T from None — bind None to a typed
-    // local first (gap noted in feat_phase4a_option_methods.md).
-    let n: Option<i32> = None;
-    let some_seven: Option<i32> = Some(7i32);
-    let combined: Option<i32> = n.or(some_seven);
+    // None-receiver T-inference closed 2026-05-14 via hint_enum_type_
+    // propagation: bare `None` in a let-annotated `Option<i32>` context
+    // now lowers as Option<i32> directly. Upstream `None.or(Some(7))`
+    // shape works.
+    let combined: Option<i32> = None.or(Some(7i32));
     assert_eq!(combined.unwrap(), 7i32);
 }
+
+// `test_and` upstream form deferred — `Option::and<U>(Option<U>)` exposes
+// CP-cm-12 (mono drops method-level U in the canonical-signature suffix of
+// enum-typed params). Re-port once that mono path is fixed.

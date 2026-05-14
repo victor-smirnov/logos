@@ -6,6 +6,45 @@ Working tracker for everything deferred during the Phase 3+4 port of
 Status legend: `Open` — not started; `Partial` — partial fix landed,
 notes inline; `✅ Closed` — gap closed (commit, date).
 
+## Tally — gaps surfaced & closed by the core port
+
+(Snapshot 2026-05-14. Run `grep -cE "^\| CP-cm-.*✅ Closed" docs/core-port/coretests-port-gaps.md`
+etc. to re-tally — counts are derived from the A/B/C tables below.)
+
+| Class                 | Total | ✅ Closed | Partial | Open |
+|---|---|---|---|---|
+| Compiler (CP-cm-*)    | 13    | 5        | 1       | 7    |
+| Stdlib (SL-sl-*)      | 10    | 3        | 3       | 4    |
+| **Total**             | 23    | 8        | 4       | 11   |
+
+Closures so far (chronological):
+- 2026-05-13 — CP-cm-03 (prelude shorthand), SL-sl-07 (ToString)
+- 2026-05-14 — CP-cm-09 (multi-param generic enum mono), SL-sl-04 (Result surface),
+  CP-cm-10 (method-generic via fn-ptr), SL-sl-06 (bool conv),
+  CP-cm-11 (str == str), CP-cm-13 (None-receiver inference)
+
+Still open, high-leverage:
+- CP-cm-08 — tuple `==` returns false even for equal tuples
+- CP-cm-12 — mono drops method-level tparam in enum-typed param signature
+- SL-sl-02 — PartialEq / Eq separation
+- SL-sl-05 — Iterator adapter surface
+
+Notable closures since this tracker started (2026-05-13):
+- CP-cm-03 — bare Some/None/Ok/Err prelude shorthand
+- CP-cm-09 — multi-param generic enum method mono (Result method surface)
+- CP-cm-10 — method-generic inference through fn-ptr argument
+- CP-cm-11 — str == str via stdlib str_eq routing
+- CP-cm-13 — None-receiver T-inference via hint_enum_type_
+- SL-sl-04 — Result full method surface (post-CP-cm-09)
+- SL-sl-06 — bool conversion methods (post-CP-cm-10)
+- SL-sl-07 — ToString trait + .to_string() on primitives
+
+Still open (high-leverage):
+- CP-cm-08 — tuple `==` returns false even for equal tuples
+- CP-cm-12 — mono drops method-level tparam in enum-typed param signature
+- SL-sl-02 — PartialEq / Eq separation (Logos's Eq = Rust's PartialEq)
+- SL-sl-05 — Iterator adapter surface (collect/fold/take/skip/zip/…)
+
 ## Workflow
 
 When porting a coretest:
@@ -53,6 +92,8 @@ Surfaced by ports of rustc coretests. Each needs C++ code change in
 | SL-sl-05 | Iterator adapter completeness | Open | Logos has Iterator trait + a few adapters. Missing: `collect`, `fold`, `sum`, `product`, `count`, `nth`, `last`, `take`, `skip`, `take_while`, `skip_while`, `enumerate`, `zip`, `chain`, `rev`, `peekable`, `cycle`, `step_by`, `inspect`, etc. | Port `core::iter` adapter chain. | Large surface; do incrementally as tests need. |
 | SL-sl-06 | Bool conversion methods | ✅ Closed (2026-05-14) | Module `std.lang.bool` provides `then` / `then_some` / `ok_or` / `ok_or_else`. CP-cm-10 closure unblocked all four end-to-end. Driver `bool.rs::test_bool_to_option / test_bool_to_result` ported (`tests/imported/pass/bool/test_harness_coretest_bool_conv.logos`). | — | — |
 | CP-cm-10 | Method-generic on primitive receivers — type-param inference through fn-ptr arg | ✅ Closed (2026-05-14) | Root cause was the unify_types switch in sema_expr.cpp: it had no case for `Kind::FnPtr` / `Kind::Closure`, so type-params appearing only inside a `fn() -> T` argument signature stayed unbound and inference reported "could not infer type arg T". **Fix:** added FnPtr/Closure case unifying both `closure_params` and `closure_ret`. The previously-suspected mlir-gen specialisation crash didn't reproduce — likely already cleared by the broader Phase-4a-era mono cleanups. | — | — |
+| CP-cm-12 | Mono drops method-level type-param in enum-typed param's canonical-signature suffix | Open (2026-05-14) | `Option<T>::and<U>(self: Option<T>, optb: Option<U>)` type-checks fine but the specialised symbol stays `Option__i32__and__g__Option__Option` — `U` not substituted in the `__g__` suffix (canonical-signature carry-over from declaration). `.map<U>(fn(T) -> U)` works because the param is FnPtr (different mono path). Affects every generic method that takes an enum value (Option/Result/user enums) whose generic args reference method-level type-params. | Trace the mono symbol-generation path for enum-typed params with method-level tparams. | Surfaced by attempt to add `Option::and<U>` / `Result::and<U>/or<F>`. Stdlib methods carry a `GAP CP-cm-12` note; re-add once fixed. |
+| CP-cm-13 | None-receiver T-inference (let-annotated context) | ✅ Closed (2026-05-14) | Bare `None` constructed Option<TypeVar(T)> unconditionally. **Fix:** sema_expr.cpp VAR_REF "None" handler now consults `hint_enum_type_` (already set by let-binding / return-context machinery) and uses the hint's Option-arg if available. So `let r: Option<i32> = None.or(Some(7))` resolves T at receiver-construction time. | — | Driver test: `tests/imported/pass/option/test_harness_coretest_option.logos::test_or_typed` (now uses bare `None.or(Some(x))` shape). |
 | SL-sl-07 | `ToString` trait + `.to_string()` on primitives | ✅ Closed (2026-05-13) | `ToString` trait + blanket `impl<T: Display> ToString for T` + explicit primitive impls (bool, i8-64, u8-64, isize, usize) in `std.lang.text` so primitive method dispatch (which doesn't try blanket impls in Logos's current path) still resolves. Method shape `self: Self` (by value) — primitives are Copy. | — | — |
 | SL-sl-08 | `Debug` for tuples | Partial (grammar admits `impl<A,B> Debug for (A,B)` after 2026-05-13; sema doesn't yet recognise tuple as impl-target — emits `impl Debug for : missing method 'dbg'`. Closing needs the tuple-target string-mangling path through sema_collect / sema_decl mirroring the struct/enum/dyn paths) | `impl<A: Debug, B: Debug> Debug for (A, B)` etc. Currently Debug impls only for primitives, str, Ordering. | Sema impl-target machinery + tuple-arity-specific stdlib impls. | Driver: any assert_eq! comparing tuples. Related: CP-cm-08 (tuple ==). |
 | CP-cm-08 | Tuple `==` (and `!=`) | Open | `(1i32, true) == (1i32, true)` compiles but returns `false`. Likely a struct-bit-compare codegen path that doesn't match field-by-field. Affects every assert that compares tuples by value. | Investigate gen_binop for tuple LHS in mlir_gen_expr.cpp. | Discovered while filing SL-sl-08. |
