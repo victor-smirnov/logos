@@ -1,6 +1,6 @@
-// CP-cm-07 + CP-cm-05 closures: assert_eq! works on tuple values via the
-// Display + Debug impls for tuples (SL-sl-08 follow-up) plus the
-// bound-check tuple recognition added in sema_collect.cpp.
+// CP-cm-07: assert_eq! works on tuple values via the Display + Debug
+// impls for tuples (SL-sl-08 follow-up) plus the bound-check tuple
+// recognition added in sema_collect.cpp.
 
 package assert_eq_tuple;
 
@@ -9,23 +9,17 @@ use std.lang.text;
 use std.lang.panic;
 use std.lang.cmp;
 
-#[test]
-fn test_tuple_eq() {
+fn main() -> i32 {
     let a: (i32, bool) = (1i32, true);
     let b: (i32, bool) = (1i32, true);
     assert_eq!(a, b);
-}
 
-#[test]
-fn test_tuple_ne() {
-    let a: (i32, bool) = (1i32, true);
-    let b: (i32, bool) = (1i32, false);
-    assert_ne!(a, b);
-}
+    let c: (i32, bool) = (1i32, false);
+    assert_ne!(a, c);
 
-#[test]
-fn test_3tuple_eq() {
-    let a: (i32, bool, i64) = (1i32, true, 42i64);
-    let b: (i32, bool, i64) = (1i32, true, 42i64);
-    assert_eq!(a, b);
+    let t1: (i32, bool, i64) = (1i32, true, 42i64);
+    let t2: (i32, bool, i64) = (1i32, true, 42i64);
+    assert_eq!(t1, t2);
+
+    return 0i32;
 }

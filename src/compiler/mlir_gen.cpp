@@ -310,7 +310,10 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
 mlir::Value MLIRGenImpl::get_struct_ptr(const std::string& name) {
     auto it = scope_.find(name);
     if (it == scope_.end()) {
-        std::fprintf(stderr, "mlir_gen: undefined '%s'\n", name.c_str());
+        // Same suppression as gen_expr_kind's EVarRefView path — stale
+        // VarRefs from mono void-payload specs.
+        if (std::getenv("LOGOS_MLIRGEN_DEBUG_UNDEF"))
+            std::fprintf(stderr, "mlir_gen: undefined '%s'\n", name.c_str());
         return nullptr;
     }
     // Mutable raw-pointer locals are stored as alloca(ptr) slots.
@@ -610,7 +613,8 @@ mlir::Value MLIRGenImpl::gen_struct_lit(lir_view::EStructLitView v) {
 mlir::Value MLIRGenImpl::get_subscript_ptr(const std::string& name) {
     auto it = scope_.find(name);
     if (it == scope_.end()) {
-        std::fprintf(stderr, "mlir_gen: undefined '%s'\n", name.c_str());
+        if (std::getenv("LOGOS_MLIRGEN_DEBUG_UNDEF"))
+            std::fprintf(stderr, "mlir_gen: undefined '%s'\n", name.c_str());
         return nullptr;
     }
     return it->second;

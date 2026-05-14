@@ -316,7 +316,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EVarRefView v, TypeRef type) {
                 return alloca;
             }
         }
-        std::fprintf(stderr, "mlir_gen: undefined '%s'\n", name.c_str());
+        // Suppress noise from stale VarRefs left over by mono specialization
+        // of `Option<void>` / `Result<void, …>` etc. — pattern variable
+        // bindings for void payloads (e.g. `Option::Some(v) => return v`)
+        // become unreachable but mono still clones them. Print only under
+        // an opt-in env var so debugging stays available.
+        if (std::getenv("LOGOS_MLIRGEN_DEBUG_UNDEF"))
+            std::fprintf(stderr, "mlir_gen: undefined '%s'\n", name.c_str());
         return nullptr;
     }
     // Mutable tagged enum: load struct ptr from pointer slot.
