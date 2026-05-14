@@ -155,6 +155,27 @@ impl<T> Vec<T> {
         }
     }
 
+    // In-place reverse — swap (0, len-1), (1, len-2), … until they meet.
+    pub fn reverse(&mut self) {
+        unsafe {
+            if self.len < 2i64 { return; }
+            let mut i: i64 = 0i64;
+            let mut j: i64 = self.len - 1i64;
+            while i < j {
+                let tmp: T = self.ptr[i];
+                self.ptr[i] = self.ptr[j];
+                self.ptr[j] = tmp;
+                i = i + 1i64;
+                j = j - 1i64;
+            }
+        }
+    }
+
+    // Clear all elements — len reset to 0, capacity preserved.
+    pub fn clear(&mut self) {
+        self.len = 0i64;
+    }
+
     // Return a read-only iterator over elements.
     pub fn iter(&self) -> VecIter<T> {
         return VecIter { data: self.ptr as *const T, len: self.len, idx: 0};
