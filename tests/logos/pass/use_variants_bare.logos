@@ -1,0 +1,35 @@
+// CP-cm-02: `use pkg.Type.{V1, V2, …};` enum-variant bare-name import.
+//
+// Bare `Equal` / `Less` / `Greater` resolve to `Ordering::Equal` etc. at
+// value position, in match-arm patterns, and across both forms in the
+// same fn. The wildcard `use std.lang.ord;` brings the type itself into
+// scope; the brace-list adds the variants to the bare alias map.
+
+package use_variants_bare;
+
+use std.lang.ord;
+use std.lang.ord.Ordering.{Less, Equal, Greater};
+
+fn classify(x: i32) -> Ordering {
+    if x == 0 { return Equal; }
+    if x < 0  { return Less;  }
+    return Greater;
+}
+
+fn arm_check(o: Ordering) -> i32 {
+    match o {
+        Equal   => { return 1; }
+        Less    => { return 2; }
+        Greater => { return 3; }
+    }
+}
+
+fn main() -> i32 {
+    let z: Ordering = classify(0);
+    let n: Ordering = classify(-5);
+    let p: Ordering = classify(7);
+    let s: i32 = arm_check(z) + arm_check(n) * 10 + arm_check(p) * 100;
+    // expect 1 + 20 + 300 = 321
+    if s != 321 { return s; }
+    return 42;
+}

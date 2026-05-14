@@ -556,6 +556,11 @@ private:
     // Per-file import scope (wildcard: `use foo.bar;` makes all pub symbols of foo.bar visible)
     struct ImportScope {
         std::vector<std::string> wildcard_packages;
+        // CP-cm-02: `use pkg.Path.Type.{V1, V2, …};` brings enum variants
+        // into bare scope. Map keyed by the bare variant name → the dotted
+        // enum-type qualifier so lookup paths can resolve `V1` as if it
+        // were written `Type::V1`. Last-write-wins on name collision.
+        std::unordered_map<std::string, std::string> variant_aliases;
     };
     ImportScope cur_imports_;
 

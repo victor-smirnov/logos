@@ -107,6 +107,18 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         auto uses = arr_of(uses_av);
         for (uint64_t i = 0; i < uses.size(); ++i) {
             auto use_node = map_of(uses.get(i));
+            // CP-cm-02: `use pkg.Path.Type.{V1, V2, …};` — register each
+            // listed variant under the bare-name alias map. The dotted-path
+            // portion still becomes a wildcard import so the enum type
+            // itself is in scope (call sites can use both `Type::V1` and
+            // bare `V1`). TYPE_NAME is the last segment (the enum); the
+            // pkg head + PATH_PARTS up to TYPE_NAME form the wildcard pkg.
+            int32_t use_code = la::USE.code;
+            if (use_node.has_key(la::CODE)) {
+                auto cv = use_node.get(la::CODE.code);
+                if (!cv.is_null() && !cv.is_pointer())
+                    use_code = cv.as_value<int32_t>();
+            }
             std::string dotted;
             if (use_node.has_key(la::NAME)) {
                 dotted = std::string(str_of(use_node.get(la::NAME.code)));
@@ -119,6 +131,37 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
                     if (!dotted.empty()) dotted += '.';
                     dotted += std::string(str_of(part.get(la::NAME.code)));
                 }
+            }
+            if (use_code == la::USE_VARIANTS.code) {
+                if (use_node.has_key(la::VARIANTS)) {
+                    auto vlist_av = use_node.get(la::VARIANTS.code);
+                    if (!vlist_av.is_null() && vlist_av.is_pointer()) {
+                        auto vlist = arr_of(vlist_av);
+                        std::string type_q;  // pkg-qualifier captured but not
+                        // emitted in the alias today (Logos resolves bare
+                        // variant against any enum carrying that variant
+                        // via find_enum_by_name during lower).
+                        for (uint64_t vi = 0; vi < vlist.size(); ++vi) {
+                            auto v = map_of(vlist.get(vi));
+                            if (!v.has_key(la::NAME)) continue;
+                            auto bare = std::string(str_of(v.get(la::NAME.code)));
+                            // Resolve TYPE_NAME for the alias value; the
+                            // dotted path captured above is the pkg part
+                            // (e.g. "std.lang.ord"), TYPE_NAME is "Ordering".
+                            std::string enum_qual;
+                            if (use_node.has_key(la::TYPE_NAME)) {
+                                enum_qual = std::string(
+                                    str_of(use_node.get(la::TYPE_NAME.code)));
+                            }
+                            scope.variant_aliases[bare] = enum_qual;
+                        }
+                    }
+                }
+                // Make the underlying pkg visible too (so `Type::V` still
+                // resolves alongside bare `V`).
+                if (!dotted.empty())
+                    scope.wildcard_packages.push_back(std::move(dotted));
+                continue;
             }
             if (dotted.empty()) continue;
             // B-mv-10: warn on `use pkg;` repeated in the same module.

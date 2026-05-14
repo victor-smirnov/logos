@@ -61,6 +61,7 @@ inline constexpr Key IS_AUTO    {"IS_AUTO",     29}; // auto trait marker (1 = a
 inline constexpr Code MODULE      {"MODULE",       1};
 inline constexpr Code PACKAGE     {"PACKAGE",      2};   // package declaration
 inline constexpr Code USE         {"USE",          3};   // use declaration
+inline constexpr Code USE_VARIANTS{"USE_VARIANTS", 241}; // CP-cm-02: `use pkg.Path.Type.{V1, V2, …};` — enum-variant bare-name shorthand
 
 // Definitions
 inline constexpr Code FN          {"FN",          10};
@@ -337,6 +338,8 @@ inline constexpr Key NAME_VAR  {"NAME_VAR",  38};            // antiquot var nam
 inline constexpr Key IMPL_TYPE_PARAMS{"IMPL_TYPE_PARAMS", 41}; // impl<T> own type params
 inline constexpr Key HRTB_BINDERS    {"HRTB_BINDERS",     41}; // `for<'a, 'b>` binder list on a TRAIT_BOUND (reuses IMPL_TYPE_PARAMS slot — trait bounds never carry impl-type-params). Value is a sub-node {ITEMS:[LIFETIME str,...]}.
 inline constexpr Key RELAXED         {"RELAXED",          39}; // `?Trait` relaxed-bound marker on TRAIT_BOUND (Phase 1: only `?Sized` accepted; opts out of implicit Sized bound on the parent type param).
+inline constexpr Key TYPE_NAME       {"TYPE_NAME",         3}; // CP-cm-02: enum-type name in USE_VARIANTS. Reuses TYPE slot — USE never carries a type AST node.
+inline constexpr Key VARIANTS        {"VARIANTS",         22}; // CP-cm-02: array of variant-name sub-nodes (each {NAME}) in USE_VARIANTS. Reuses FIELDS slot — USE never carries struct fields.
 inline constexpr int32_t VIS_PRIVATE = 0;
 inline constexpr int32_t VIS_PUBLIC  = 1;
 

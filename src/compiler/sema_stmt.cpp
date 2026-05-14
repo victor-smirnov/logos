@@ -1796,6 +1796,12 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                 prelude_remap("Option");
             else if (pename == "Ok" || pename == "Err")
                 prelude_remap("Result");
+            // CP-cm-02: `use Type.{V1, …};` bare-variant alias map.
+            if (pvname.empty()) {
+                auto vit = cur_imports_.variant_aliases.find(pename);
+                if (vit != cur_imports_.variant_aliases.end())
+                    prelude_remap(vit->second.c_str());
+            }
         }
         int32_t disc = 0;
         auto [epkg_pv, esi_pv] = find_enum_by_name(pename);
@@ -1843,6 +1849,12 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                 prelude_remap("Option");
             else if (pename == "Ok" || pename == "Err")
                 prelude_remap("Result");
+            // CP-cm-02: `use Type.{V1, …};` bare-variant alias map.
+            if (pvname.empty()) {
+                auto vit = cur_imports_.variant_aliases.find(pename);
+                if (vit != cur_imports_.variant_aliases.end())
+                    prelude_remap(vit->second.c_str());
+            }
         }
         // B-ts-01: bare `Foo(a, b)` (no `::` separator) — pvname is
         // empty. If `Foo` resolves to a tuple-struct, lower as a
@@ -2898,6 +2910,31 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
 
     // PAT_WILD or fallback
     auto wname = std::string(str_of(pnode.get(la::NAME.code)));
+    // CP-cm-02: bare ident in pattern resolves as a variant if a
+    // `use Type.{V1, …};` alias maps it. Route through the same
+    // PAT_VARIANT path used by `Type::V` form.
+    if (wname != "_") {
+        auto vit = cur_imports_.variant_aliases.find(wname);
+        if (vit != cur_imports_.variant_aliases.end()) {
+            auto [vpkg, vesi] = find_enum_by_name(vit->second);
+            if (vesi) {
+                const SemaVariantInfo* vinfo = nullptr;
+                for (auto& v : vesi->variants)
+                    if (v.name == wname) { vinfo = &v; break; }
+                if (vinfo && vinfo->payload_types.empty()) {
+                    int32_t disc = vinfo->value;
+                    if (scrut_type && TypeRef(scrut_type).kind() == LogosType::Kind::Enum &&
+                        TypeRef(scrut_type).enum_name() != vit->second)
+                        error(std::format("pattern: enum '{}' != scrutinee '{}'",
+                              vit->second, type_str(scrut_type)));
+                    lir::Pattern p_;
+                    p_.mirror_offset_ = lir_mirror_emit_pat_variant(
+                        *cur_prog_, vit->second, wname, disc);
+                    return p_;
+                }
+            }
+        }
+    }
     // P4-pm-06: bare ident in pattern that resolves to a module-const ⇒
     // treat as a value pattern (PAT_INT / PAT_BOOL / PAT_CHAR), not as a
     // fresh binding. ctfe-eval the const's RHS once; emit the matching

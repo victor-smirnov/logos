@@ -4244,6 +4244,12 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
                 auto uses = arr_of(uses_av);
                 for (uint64_t ui = 0; ui < uses.size(); ++ui) {
                     auto use_node = map_of(uses.get(ui));
+                    int32_t use_code = USE.code;
+                    if (use_node.has_key(CODE)) {
+                        auto cv = use_node.get(CODE.code);
+                        if (!cv.is_null() && !cv.is_pointer())
+                            use_code = cv.as_value<int32_t>();
+                    }
                     std::string dotted;
                     if (use_node.has_key(NAME))
                         dotted = std::string(str_of(use_node.get(NAME.code)));
@@ -4254,6 +4260,26 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
                             if (!part.has_key(NAME)) continue;
                             if (!dotted.empty()) dotted += '.';
                             dotted += std::string(str_of(part.get(NAME.code)));
+                        }
+                    }
+                    // CP-cm-02: record bare-variant aliases (mirrors the
+                    // collect-pass build_import_scope in sema_collect.cpp).
+                    if (use_code == USE_VARIANTS.code &&
+                        use_node.has_key(VARIANTS)) {
+                        auto vlist_av = use_node.get(VARIANTS.code);
+                        if (!vlist_av.is_null() && vlist_av.is_pointer()) {
+                            std::string enum_qual;
+                            if (use_node.has_key(TYPE_NAME))
+                                enum_qual = std::string(
+                                    str_of(use_node.get(TYPE_NAME.code)));
+                            auto vlist = arr_of(vlist_av);
+                            for (uint64_t vi = 0; vi < vlist.size(); ++vi) {
+                                auto v = map_of(vlist.get(vi));
+                                if (!v.has_key(NAME)) continue;
+                                auto bare = std::string(
+                                    str_of(v.get(NAME.code)));
+                                cur_imports_.variant_aliases[bare] = enum_qual;
+                            }
                         }
                     }
                     if (!dotted.empty())

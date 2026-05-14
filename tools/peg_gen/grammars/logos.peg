@@ -77,6 +77,8 @@
     META           = 16    // meta @{...} block on struct/datatype/trait declarations (slot 16; reuses PATH_PARTS slot, mutually exclusive node types)
     RAW_TEXT       = 7     // raw source text captured from a balanced delim group on FN_MACRO_CALL (reuses VALUE slot — fn-macro nodes never carry a literal payload)
     DOC            = 50    // doc-comment text on item-level decls (reuses HI_NEG slot — PAT_RANGE never appears at item level)
+    TYPE_NAME      = 3     // CP-cm-02: enum-type name in USE_VARIANTS (`use pkg.Path.Type.{V1,…}`). Reuses TYPE slot — USE never carries a type AST node.
+    VARIANTS       = 22    // CP-cm-02: array of variant-name sub-nodes (each with NAME field) in USE_VARIANTS. Reuses FIELDS slot — USE never carries struct fields.
     // ── Group: mod ────────────────────────────────────────────────────────
     // Fields scoped to MODULE and USE nodes.  Slot numbers in a group reuse
     // the same 0..51 space as global fields; peg_gen resolves action field
@@ -296,6 +298,7 @@
     INNER_DOC_LIT               = 238   // `//! text` inner doc-comment line (module-level summary). VALUE = raw token text including the leading `//!`. Sema-collect strips the prefix and accumulates into LProgram.module_inner_doc.
     DOC_BLOCK_LIT               = 239   // `/** ... */` outer block doc-comment. VALUE = raw token text including the `/**` envelope and trailing `*/`. Sema strips the envelope + per-line leading `*` indent and joins with `\n` into pending_doc_, mirroring DOC_LINE_LIT accumulation.
     INNER_DOC_BLOCK_LIT         = 240   // `/*! ... */` inner block doc-comment (module-level summary, block form). VALUE = raw token text; sema accumulates into module_inner_doc_ like INNER_DOC_LIT.
+    USE_VARIANTS                = 241   // CP-cm-02: `use pkg.Path.Type.{V1, V2, …};` — enum-variant bare-name shorthand. Same shape as USE but with extra TYPE_NAME (the last dotted segment is the enum type, not a pkg part) and VARIANTS (list of bare-ident TomVs each holding a NAME). Sema-collect registers each variant under the alias map so call sites can write `V1` instead of `Type::V1`.
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -459,15 +462,27 @@
     module :group mod: <- (inner_doc_decl / inner_doc_block_decl)* KW_PACKAGE IDENT path_dot_ident* SEMI any_use_decl* item*
            => { CODE: MODULE, NAME: $3, PATH_PARTS: $4, USES: $6, ITEMS: $... }
 
-    any_use_decl <- pub_use_decl / use_decl
+    any_use_decl <- pub_use_decl / use_variants_decl / use_decl
 
     pub_use_decl :group mod: <- KW_PUB KW_USE IDENT path_dot_ident* SEMI
                  => { CODE: USE, IS_PUB: 1, NAME: $3, PATH_PARTS: $4 }
 
+    // CP-cm-02: `use pkg.Path.Type.{V1, V2, ...};` — enum variant bare-name
+    // shorthand. The last `path_dot_ident` before `{...}` is the enum type
+    // name; the brace-list holds the variants to bring into bare scope.
+    use_variants_decl :group mod: <- KW_USE IDENT path_dot_ident* DOT IDENT DOT LBRACE variant_name (COMMA variant_name)* COMMA? RBRACE SEMI
+                      => { CODE: USE_VARIANTS, NAME: $2, PATH_PARTS: $3, TYPE_NAME: $5, VARIANTS: $... }
+
+    variant_name <- IDENT
+                  => { NAME: $1 }
+
     use_decl :group mod: <- KW_USE IDENT path_dot_ident* SEMI
              => { CODE: USE, NAME: $2, PATH_PARTS: $3 }
 
-    path_dot_ident <- DOT IDENT
+    // Negative lookahead `!(DOT LBRACE)` keeps the last `.IDENT` before a
+    // `.{...}` brace-list for use_variants_decl to claim. Without it,
+    // greedy `path_dot_ident*` would eat the type name.
+    path_dot_ident <- DOT IDENT !(DOT LBRACE)
                    => { NAME: $2 }
 
     item <- inner_doc_decl / inner_doc_block_decl / doc_line_decl / doc_block_decl / template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / metacall_item_decl / fn_macro_item_decl / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def

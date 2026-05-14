@@ -269,6 +269,36 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                 auto fn_type = pool_->alloc(std::move(ft));
                 return builder().var_ref(fi.symbol_name.empty() ? std::string(name) : fi.symbol_name, fn_type);
             }
+            // CP-cm-02: bare-variant lookup via `use Type.{V1, …};` alias map.
+            // Resolves V1 to the no-payload variant of the registered enum.
+            // Variants with payload are handled via lower_call (CP-cm-03
+            // shape extended below).
+            {
+                auto vit = cur_imports_.variant_aliases.find(std::string(name));
+                if (vit != cur_imports_.variant_aliases.end()) {
+                    auto [pkg, esi] = find_enum_by_name(vit->second);
+                    if (esi) {
+                        const SemaVariantInfo* vinfo = nullptr;
+                        for (auto& v : esi->variants)
+                            if (v.name == std::string(name)) {
+                                vinfo = &v; break;
+                            }
+                        if (vinfo && vinfo->payload_types.empty()) {
+                            // Construct via lower_enum_lit_data_from_static
+                            // so generic-enum hint propagation kicks in.
+                            std::vector<TypeRef> ta;
+                            for (auto& tp : esi->type_params)
+                                ta.push_back(make_typevar(tp.name));
+                            auto rty = ta.empty()
+                                ? make_enum_type(vit->second)
+                                : make_generic_enum(vit->second, std::move(ta));
+                            return builder().enum_lit(
+                                vit->second, std::string(name),
+                                (int64_t)vinfo->value, rty);
+                        }
+                    }
+                }
+            }
             // CP-cm-03: prelude bareword `None` (Option) — no payload.
             // (`Some` / `Ok` / `Err` are call-shape; handled in lower_call.
             //  Only `None` is a bare ident.)
@@ -3610,6 +3640,17 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             if (auto e = try_prelude_variant("Result", "Ok")) return e;
         } else if (callee == "Err") {
             if (auto e = try_prelude_variant("Result", "Err")) return e;
+        }
+        // CP-cm-02: bare-variant ctor via `use Type.{V1, …};` alias map.
+        // Routes through the same lower_enum_lit_data_from_static path used
+        // by prelude shorthand so hint_enum_type_ + payload typing work.
+        {
+            auto vit = cur_imports_.variant_aliases.find(std::string(callee));
+            if (vit != cur_imports_.variant_aliases.end()) {
+                if (auto e = try_prelude_variant(
+                        vit->second.c_str(), std::string(callee).c_str()))
+                    return e;
+            }
         }
         // Metaprog discovery: a call to a not-yet-emitted derive fn
         // (e.g. `branchnode_<col>_shuttle` which the derive will emit
