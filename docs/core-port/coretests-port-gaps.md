@@ -15,9 +15,9 @@ etc. to re-tally — counts are derived from the A/B/C tables below.)
 |---|---|---|---|---|
 | Class                 | Total | ✅ Closed | Partial | Divergence | Open |
 |---|---|---|---|---|---|
-| Compiler (CP-cm-*)    | 15    | 11       | 2       | 1          | 1    |
+| Compiler (CP-cm-*)    | 15    | 12       | 1       | 1          | 1    |
 | Stdlib (SL-sl-*)      | 10    | 5        | 3       | 2          | 0    |
-| **Total**             | 25    | 16       | 5       | 3          | 1    |
+| **Total**             | 25    | 17       | 4       | 3          | 1    |
 
 Divergence-by-design entries:
 - CP-cm-04 (no `const fn` — metacall is the comptime channel)
