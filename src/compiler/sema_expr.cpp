@@ -12001,6 +12001,93 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
         return builder().lit_str(std::string{val}, slice_u8_t);
     }
 
+    // concat!(s1, s2, ...) — compile-time string-literal concat. Supports
+    // string literals, integer literals (decimal), and bool literals
+    // (`true`/`false`). Floats and char literals are deferred. Parses
+    // RAW_TEXT directly — splits on top-level commas (respects string
+    // quotes + escapes) and decodes each piece. Non-literal args are a
+    // compile error.
+    if (callee_name == "concat") {
+        std::string raw;
+        if (node.has_key(la::RAW_TEXT))
+            raw = std::string(str_of(node.get(la::RAW_TEXT.code)));
+        // Strip outer whitespace.
+        while (!raw.empty() && (raw.front() == ' ' || raw.front() == '\t' ||
+                                raw.front() == '\n')) raw.erase(0, 1);
+        while (!raw.empty() && (raw.back()  == ' ' || raw.back()  == '\t' ||
+                                raw.back()  == '\n')) raw.pop_back();
+        // Split on top-level commas. State: in_string / in_escape.
+        std::vector<std::string> pieces;
+        std::string cur;
+        bool in_string = false;
+        bool in_escape = false;
+        for (char c : raw) {
+            if (in_escape) { cur += c; in_escape = false; continue; }
+            if (in_string) {
+                if (c == '\\') { cur += c; in_escape = true; continue; }
+                if (c == '"')  { in_string = false; }
+                cur += c;
+                continue;
+            }
+            if (c == '"') { in_string = true; cur += c; continue; }
+            if (c == ',') { pieces.push_back(std::move(cur)); cur.clear(); continue; }
+            cur += c;
+        }
+        if (!cur.empty()) pieces.push_back(std::move(cur));
+        // Decode each piece.
+        std::string out;
+        for (auto& piece : pieces) {
+            std::string p = piece;
+            while (!p.empty() && (p.front() == ' ' || p.front() == '\t' ||
+                                  p.front() == '\n')) p.erase(0, 1);
+            while (!p.empty() && (p.back()  == ' ' || p.back()  == '\t' ||
+                                  p.back()  == '\n')) p.pop_back();
+            if (p.empty()) continue;
+            if (p.size() >= 2 && p.front() == '"' && p.back() == '"') {
+                // String literal — strip quotes and decode common escapes.
+                std::string body = p.substr(1, p.size() - 2);
+                std::string decoded;
+                for (size_t i = 0; i < body.size(); ++i) {
+                    if (body[i] == '\\' && i + 1 < body.size()) {
+                        char n = body[i + 1];
+                        switch (n) {
+                        case 'n':  decoded += '\n'; ++i; continue;
+                        case 't':  decoded += '\t'; ++i; continue;
+                        case 'r':  decoded += '\r'; ++i; continue;
+                        case '\\': decoded += '\\'; ++i; continue;
+                        case '"':  decoded += '"';  ++i; continue;
+                        case '0':  decoded += '\0'; ++i; continue;
+                        default: break;
+                        }
+                    }
+                    decoded += body[i];
+                }
+                out += decoded;
+                continue;
+            }
+            if (p == "true")  { out += "true";  continue; }
+            if (p == "false") { out += "false"; continue; }
+            // Integer literal — strip any suffix (`42i32`, `100u64`, etc.).
+            bool is_int = !p.empty() && (p[0] == '-' || std::isdigit((unsigned char)p[0]));
+            if (is_int) {
+                size_t end = p[0] == '-' ? 1 : 0;
+                while (end < p.size() && std::isdigit((unsigned char)p[end])) ++end;
+                if (end > (p[0] == '-' ? 1u : 0u)) {
+                    out += p.substr(0, end);
+                    continue;
+                }
+            }
+            error(std::format("concat!: unsupported arg '{}' (string/int/bool literals only)", p));
+            return error_expr();
+        }
+        LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;
+        TypeRef u8_t = pool_->alloc(std::move(u8_b));
+        LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
+        sl_b.elem = u8_t;
+        TypeRef slice_u8_t = pool_->alloc(std::move(sl_b));
+        return builder().lit_str(std::move(out), slice_u8_t);
+    }
+
     // stringify!(...) — return the raw text between the parens as a str
     // literal. Same as Rust's `stringify!` (no macro expansion of the
     // contents).

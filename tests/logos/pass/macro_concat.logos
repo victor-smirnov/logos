@@ -1,0 +1,21 @@
+package macro_concat;
+use std.lang.text;
+
+fn main() -> i32 {
+    let a: str = concat!("hello", " ", "world");
+    if !str_eq(a, "hello world") { return 1i32; }
+
+    let b: str = concat!("answer: ", 42);
+    if !str_eq(b, "answer: 42") { return 2i32; }
+
+    let c: str = concat!("ok: ", true, ", fail: ", false);
+    if !str_eq(c, "ok: true, fail: false") { return 3i32; }
+
+    let d: str = concat!("with\nescape");
+    if d.len() != 11i64 { return 4i32; }
+
+    let e: str = concat!();
+    if e.len() != 0i64 { return 5i32; }
+
+    return 0i32;
+}
