@@ -1,0 +1,11 @@
+package result_map_test;
+use std.lang.result;
+
+fn main() -> i32 {
+    let r: Result<i32, str> = Ok(1i32);
+    let m: Result<i32, str> = r.map(|x| { x + 1i32 });
+    match m {
+        Result::Ok(v)  => { if v != 2i32 { return 1i32; } return 0i32; }
+        Result::Err(_) => { return 2i32; }
+    }
+}
