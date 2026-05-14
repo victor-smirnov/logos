@@ -674,6 +674,42 @@ pub fn to_string<T: Display>(val: T) -> String {
     return s;
 }
 
+// SL-sl-07: Rust-style `.to_string()` method form.
+//
+// Rust's `ToString` is auto-implemented for every `T: Display` via a
+// blanket impl. We mirror that here for STRUCT receivers (the blanket
+// dispatches via Logos's per-trait blanket lookup). Primitive method
+// dispatch doesn't try blanket impls, so we also enumerate explicit
+// `impl ToString for <prim>` per built-in type below.
+//
+// Method shape uses `self: Self` (by value) instead of Rust's `&self`
+// because Display.fmt's existing shape is by-value — switching to
+// `&self` would force every Display impl to handle both. Primitives
+// are Copy so the by-value shape is fine.
+pub trait ToString {
+    fn to_string(self: Self) -> String;
+}
+impl<T: Display> ToString for T {
+    fn to_string(self: T) -> String {
+        let mut s: String = String::new();
+        self.fmt(&mut s);
+        return s;
+    }
+}
+// Explicit primitive impls (Logos's primitive method dispatch path
+// looks up `<type>__to_string` directly and doesn't try blanket impls).
+impl ToString for bool { fn to_string(self: bool) -> String { let mut s: String = String::new(); self.fmt(&mut s); return s; } }
+impl ToString for i8   { fn to_string(self: i8)   -> String { let mut s: String = String::new(); self.fmt(&mut s); return s; } }
+impl ToString for i16  { fn to_string(self: i16)  -> String { let mut s: String = String::new(); self.fmt(&mut s); return s; } }
+impl ToString for i32  { fn to_string(self: i32)  -> String { let mut s: String = String::new(); self.fmt(&mut s); return s; } }
+impl ToString for i64  { fn to_string(self: i64)  -> String { let mut s: String = String::new(); self.fmt(&mut s); return s; } }
+impl ToString for u8   { fn to_string(self: u8)   -> String { let mut s: String = String::new(); self.fmt(&mut s); return s; } }
+impl ToString for u16  { fn to_string(self: u16)  -> String { let mut s: String = String::new(); self.fmt(&mut s); return s; } }
+impl ToString for u32  { fn to_string(self: u32)  -> String { let mut s: String = String::new(); self.fmt(&mut s); return s; } }
+impl ToString for u64  { fn to_string(self: u64)  -> String { let mut s: String = String::new(); self.fmt(&mut s); return s; } }
+impl ToString for usize { fn to_string(self: usize) -> String { let mut s: String = String::new(); self.fmt(&mut s); return s; } }
+impl ToString for isize { fn to_string(self: isize) -> String { let mut s: String = String::new(); self.fmt(&mut s); return s; } }
+
 // ── UTF-8 helpers on String ────────────────────────────────────────────────
 
 // Encode a Unicode codepoint as UTF-8 and append to the String.
