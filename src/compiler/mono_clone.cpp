@@ -2310,8 +2310,19 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         for (auto ta : nc.type_args)
                             if (ta && TypeRef(ta).kind() == LogosType::Kind::TypeVar)
                                 { all_concrete = false; break; }
-                        if (all_concrete) {
-                            size_t n_impl_tp = sit->second->type_params.size();
+                        // CP-cm-15: only do receiver-concretization +
+                        // type_args.clear() when ALL type_args are
+                        // receiver-level (no method-level tail). If a
+                        // tail remains, leave the callee as bare-template
+                        // form + full type_args so enqueue_if_needed can
+                        // drive a single full specialization. Without
+                        // this guard, `Wrap<T>::make_box<U>` calls land
+                        // at a receiver-only spec with `U` still TypeVar
+                        // in the body.
+                        size_t n_impl_tp = sit->second->type_params.size();
+                        bool has_method_level_tail =
+                            nc.type_args.size() > n_impl_tp;
+                        if (all_concrete && !has_method_level_tail) {
                             size_t n_args    = std::min(n_impl_tp, nc.type_args.size());
                             std::vector<TypeRef> args(
                                 nc.type_args.begin(), nc.type_args.begin() + n_args);
