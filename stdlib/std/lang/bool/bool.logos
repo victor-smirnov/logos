@@ -15,11 +15,6 @@ use std.lang.option;
 use std.lang.result;
 
 impl bool {
-    // KNOWN GAP (CP-cm-10): Logos's method-generic type-arg inference
-    // can't yet infer `T` from a `fn() -> T` argument's return type.
-    // Calling `.then(f)` fails at sema with "could not infer T from
-    // arguments". Turbofish (`.then::<i32>(f)`) currently also breaks
-    // at mlir-gen. Method body still here for future port-time use.
     pub fn then<T>(self: bool, f: fn() -> T) -> Option<T> {
         if self { return Some(f()); }
         return None;
@@ -35,8 +30,6 @@ impl bool {
         return Err(err);
     }
 
-    // KNOWN GAP (CP-cm-10 — same as .then): inference of E from
-    // `fn() -> E` arg fails.
     pub fn ok_or_else<E>(self: bool, f: fn() -> E) -> Result<(), E> {
         if self { return Ok(()); }
         return Err(f());

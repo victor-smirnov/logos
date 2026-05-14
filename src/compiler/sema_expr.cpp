@@ -2064,6 +2064,23 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
                 unify_types(fe[i], ae[i], bindings);
         }
         break;
+    case LogosType::Kind::FnPtr:
+    case LogosType::Kind::Closure:
+        // CP-cm-10: unify `fn(A,B,...) -> R` against actual fn-ptr/closure
+        // so method-generic type-params appearing only inside the fn-ptr
+        // signature (e.g. `bool::then<T>(self, f: fn() -> T)`) can be
+        // inferred from the actual callee's return / param types.
+        if (actual_norm.kind() == LogosType::Kind::FnPtr ||
+            actual_norm.kind() == LogosType::Kind::Closure) {
+            auto fp = formal.closure_params();
+            auto ap = actual_norm.closure_params();
+            for (size_t i = 0; i < fp.size() && i < ap.size(); ++i)
+                unify_types(fp[i], ap[i], bindings);
+            if (formal.closure_ret() && actual_norm.closure_ret())
+                unify_types(formal.closure_ret(), actual_norm.closure_ret(),
+                            bindings);
+        }
+        break;
     default:
         break;  // concrete type — nothing to bind
     }

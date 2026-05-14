@@ -1,0 +1,64 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/bool.rs (test_bool_to_option,
+// test_bool_to_result).
+//
+// Modifications vs upstream:
+//   - Closures `|| 0` → named `fn zero() -> i32`. Logos doesn't yet
+//     coerce closure literals where method dispatch on a primitive
+//     receiver expects `fn() -> T` (closure-as-fn-ptr at method-arg
+//     position, distinct from CP-cm-10 which has just been closed).
+//   - `const fn zero` → plain `fn zero`. Logos uses metacall for
+//     compile-time computation rather than `const fn`; the const-context
+//     uses (`const A: Option<i32> = ...`) are deferred — they need
+//     metacall plumbing to evaluate the bool conversion at compile time.
+//   - `assert_eq!(opt_a, opt_b)` → `match` arms checking shape & payload.
+//     Option<i32> doesn't implement `Eq` yet (SL-sl-12, separate gap).
+
+package test_bool_conv;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.panic;
+use std.lang.bool;
+use std.lang.option;
+use std.lang.result;
+
+fn zero() -> i32 { return 0i32; }
+
+#[test]
+fn test_bool_to_option() {
+    // false.then_some(0) → None
+    let a = false.then_some(0i32);
+    match a { Some(_) => { panic("expected None"); } None => {} }
+
+    // true.then_some(0) → Some(0)
+    let b = true.then_some(0i32);
+    match b { Some(v) => { assert_eq!(v, 0i32); } None => { panic("expected Some"); } }
+
+    // false.then(zero) → None  (inference, no turbofish — CP-cm-10 closed)
+    let c: Option<i32> = false.then(zero);
+    match c { Some(_) => { panic("expected None"); } None => {} }
+
+    // true.then(zero) → Some(0)
+    let d: Option<i32> = true.then(zero);
+    match d { Some(v) => { assert_eq!(v, 0i32); } None => { panic("expected Some"); } }
+}
+
+#[test]
+fn test_bool_to_result() {
+    // false.ok_or(0) → Err(0)
+    let a: Result<(), i32> = false.ok_or(0i32);
+    match a { Ok(_) => { panic("expected Err"); } Err(v) => { assert_eq!(v, 0i32); } }
+
+    // true.ok_or(0) → Ok(())
+    let b: Result<(), i32> = true.ok_or(0i32);
+    match b { Ok(_) => {} Err(_) => { panic("expected Ok"); } }
+
+    // false.ok_or_else(zero) → Err(0)
+    let c: Result<(), i32> = false.ok_or_else(zero);
+    match c { Ok(_) => { panic("expected Err"); } Err(v) => { assert_eq!(v, 0i32); } }
+
+    // true.ok_or_else(zero) → Ok(())
+    let d: Result<(), i32> = true.ok_or_else(zero);
+    match d { Ok(_) => {} Err(_) => { panic("expected Ok"); } }
+}
