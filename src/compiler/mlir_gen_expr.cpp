@@ -683,6 +683,89 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
             return builder_.create<mlir::arith::ShRUIOp>(loc_, lhs, rhs);
         return builder_.create<mlir::arith::ShRSIOp>(loc_, lhs, rhs);
     }
+    // CP-cm-08: tuple == / != — emit per-field load + cmp, AND together.
+    // Without this, Kind::Tuple lowers to ptr_type (the by-pointer ABI for
+    // anonymous LLVM struct values), and the generic is_ptr_cmp branch
+    // below compares the pointers to the tuple slots — false for any two
+    // tuple values held in distinct memory even when contents match.
+    // Limitation: primitive-only fields. Tuples with str / nested-tuple /
+    // struct fields fall through to the historic pointer-cmp behaviour;
+    // follow-up will widen.
+    if ((op == "==" || op == "!=") &&
+        lhs_l->type && rhs_l->type &&
+        TypeRef(lhs_l->type).kind() == LogosType::Kind::Tuple &&
+        TypeRef(rhs_l->type).kind() == LogosType::Kind::Tuple) {
+        auto le = TypeRef(lhs_l->type).tuple_elems();
+        auto re = TypeRef(rhs_l->type).tuple_elems();
+        if (le.size() == re.size() && !le.empty()) {
+            // Check every field is primitive (handle nested/str later).
+            auto is_prim = [](TypeRef t) {
+                if (!t) return false;
+                using K = LogosType::Kind;
+                switch (t.kind()) {
+                case K::I8:  case K::I16: case K::I24: case K::I32:
+                case K::I56: case K::I64: case K::I128:
+                case K::U8:  case K::U16: case K::U24: case K::U32:
+                case K::U56: case K::U64: case K::U128:
+                case K::F32: case K::F64:
+                case K::Bool: case K::Char:
+                case K::Usize: case K::Isize:
+                case K::IntLit: case K::FloatLit:
+                    return true;
+                default: return false;
+                }
+            };
+            bool all_prim = true;
+            for (auto e : le) if (!is_prim(e)) { all_prim = false; break; }
+            for (auto e : re) if (!is_prim(e)) { all_prim = false; break; }
+            if (all_prim) {
+                mlir::Type struct_ty = tuple_llvm_type(lhs_l->type);
+                if (struct_ty) {
+                    mlir::Value acc;
+                    size_t idx = 0;
+                    for (auto e : le) {
+                        auto elem_t = logos_to_mlir(e);
+                        if (!elem_t) { acc = nullptr; break; }
+                        auto l_ptr = builder_.create<mlir::LLVM::GEPOp>(
+                            loc_, ptr_type(), struct_ty, lhs,
+                            llvm::ArrayRef<mlir::LLVM::GEPArg>{
+                                0, (int32_t)idx});
+                        auto r_ptr = builder_.create<mlir::LLVM::GEPOp>(
+                            loc_, ptr_type(), struct_ty, rhs,
+                            llvm::ArrayRef<mlir::LLVM::GEPArg>{
+                                0, (int32_t)idx});
+                        auto l_val = builder_.create<mlir::LLVM::LoadOp>(
+                            loc_, elem_t, l_ptr);
+                        auto r_val = builder_.create<mlir::LLVM::LoadOp>(
+                            loc_, elem_t, r_ptr);
+                        mlir::Value cmp;
+                        if (mlir::isa<mlir::FloatType>(elem_t)) {
+                            cmp = builder_.create<mlir::arith::CmpFOp>(
+                                loc_, mlir::arith::CmpFPredicate::OEQ,
+                                l_val, r_val);
+                        } else {
+                            cmp = builder_.create<mlir::arith::CmpIOp>(
+                                loc_, mlir::arith::CmpIPredicate::eq,
+                                l_val, r_val);
+                        }
+                        if (!acc) acc = cmp;
+                        else acc = builder_.create<mlir::arith::AndIOp>(
+                            loc_, acc, cmp);
+                        ++idx;
+                    }
+                    if (acc) {
+                        if (op == "==") return acc;
+                        // != → XOR with true (i1 not).
+                        auto true_c = builder_.create<mlir::arith::ConstantIntOp>(
+                            loc_, 1LL, 1);
+                        return builder_.create<mlir::arith::XOrIOp>(
+                            loc_, acc, true_c);
+                    }
+                }
+            }
+        }
+    }
+
     // For pointer comparisons, use llvm.icmp instead of arith.cmpi
     bool is_ptr_cmp = mlir::isa<mlir::LLVM::LLVMPointerType>(lhs.getType());
     // Rust-style auto-deref at `==` / `!=` for &T / &mut T when both

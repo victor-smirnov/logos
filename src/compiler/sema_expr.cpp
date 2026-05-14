@@ -985,6 +985,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         // ICE. Most users will have stdlib's prelude.
     }
 
+
     if (TypeRef(lt).kind() == LogosType::Kind::Error || TypeRef(rt).kind() == LogosType::Kind::Error) {
         result_type = error_t();
     } else if (op == "&&" || op == "||") {
