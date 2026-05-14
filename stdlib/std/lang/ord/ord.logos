@@ -56,3 +56,26 @@ pub fn cmp_max_by<T>(a: T, b: T, compare: fn(T, T) -> Ordering) -> T {
         Ordering::Greater => { return a; }
     }
 }
+
+// SL-sl-05: key-flavoured variants. Caller supplies `fn(T) -> K` (by
+// value — Logos's closure-on-references aren't fully wired); both
+// arguments are projected and the result compared via `K: Ord`.
+pub fn cmp_min_by_key<T: Copy, K: Ord>(a: T, b: T, key: fn(T) -> K) -> T {
+    let ka: K = key(a);
+    let kb: K = key(b);
+    match ka.cmp(&kb) {
+        Ordering::Greater => { return b; }
+        Ordering::Equal   => { return a; }
+        Ordering::Less    => { return a; }
+    }
+}
+
+pub fn cmp_max_by_key<T: Copy, K: Ord>(a: T, b: T, key: fn(T) -> K) -> T {
+    let ka: K = key(a);
+    let kb: K = key(b);
+    match ka.cmp(&kb) {
+        Ordering::Less    => { return b; }
+        Ordering::Equal   => { return b; }
+        Ordering::Greater => { return a; }
+    }
+}
