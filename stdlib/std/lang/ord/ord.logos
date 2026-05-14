@@ -34,3 +34,21 @@ impl Ord for bool {
         return Ordering::Equal;
     }
 }
+
+// SL-sl-05: core::cmp free fns analogous to Rust's `core::cmp::{min_by,
+// max_by}`. Caller supplies an `fn(T, T) -> Ordering` comparator (Logos
+// closures coerce to fn-ptr when non-capturing, so call sites can pass
+// `|a, b| { … }`).
+pub fn cmp_min_by<T>(a: T, b: T, compare: fn(T, T) -> Ordering) -> T {
+    match compare(a, b) {
+        Ordering::Greater => { return b; }
+        Ordering::Equal | Ordering::Less => { return a; }
+    }
+}
+
+pub fn cmp_max_by<T>(a: T, b: T, compare: fn(T, T) -> Ordering) -> T {
+    match compare(a, b) {
+        Ordering::Less => { return b; }
+        Ordering::Equal | Ordering::Greater => { return a; }
+    }
+}

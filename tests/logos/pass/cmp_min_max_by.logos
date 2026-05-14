@@ -1,0 +1,16 @@
+package cmp_min_max_by_test;
+use std.lang.ord;
+
+fn cmp_i32(a: i32, b: i32) -> Ordering {
+    if a < b { return Ordering::Less; }
+    if a > b { return Ordering::Greater; }
+    return Ordering::Equal;
+}
+
+fn main() -> i32 {
+    if cmp_min_by(3i32, 7i32, cmp_i32) != 3i32 { return 1i32; }
+    if cmp_max_by(3i32, 7i32, cmp_i32) != 7i32 { return 2i32; }
+    if cmp_min_by(5i32, 5i32, cmp_i32) != 5i32 { return 3i32; }
+    if cmp_max_by(5i32, 5i32, cmp_i32) != 5i32 { return 4i32; }
+    return 0i32;
+}
