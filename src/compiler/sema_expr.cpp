@@ -11993,7 +11993,10 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
     // include_str!("path") — read file at compile time. Path is resolved
     // relative to the file containing the include_str! call (mirrors
     // Rust). Errors out if the file can't be read.
-    if (callee_name == "include_str") {
+    // include_bytes! is a thin alias — Rust's `&[u8; N]` and `&str` differ
+    // in type, but Logos's `str` IS `Slice<u8>` so both forms collapse to
+    // the same representation; users distinguish by intent only.
+    if (callee_name == "include_str" || callee_name == "include_bytes") {
         std::string raw;
         if (node.has_key(la::RAW_TEXT))
             raw = std::string(str_of(node.get(la::RAW_TEXT.code)));
@@ -12012,7 +12015,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
         }
         std::ifstream in(path, std::ios::binary);
         if (!in) {
-            error(std::format("include_str!: cannot read '{}'", path));
+            error(std::format("{}!: cannot read '{}'", callee_name, path));
             return error_expr();
         }
         std::string contents((std::istreambuf_iterator<char>(in)),

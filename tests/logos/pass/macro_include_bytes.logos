@@ -1,0 +1,6 @@
+package macro_include_bytes;
+fn main() -> i32 {
+    let b: str = include_bytes!("include_str_data/payload.txt");
+    if b.len() != 24i64 { return 1i32; }
+    return 0i32;
+}

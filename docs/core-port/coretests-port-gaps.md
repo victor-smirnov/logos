@@ -136,7 +136,7 @@ Surfaced by ports of rustc coretests. Each needs C++ code change in
 |---|---|---|---|---|
 | MC-mc-01 | `macro_rules!` parser | Open (Phase 3) | Declarative macro definition syntax. | Big batch; needs DSL: `$ident:tt`, `$($x:expr),*`, etc. |
 | MC-mc-02 | `macro_rules!` expansion | Open (Phase 3) | Pattern-match against TT, substitute, hygienic re-resolve. | — |
-| MC-mc-03 | Compiler builtins | Partial (2026-05-15) | `cfg!`, `line!`, `column!` (always 0 — column not tracked), `file!`, `module_path!`, `compile_error!`, `stringify!`, `env!`, `option_env!`, `concat!` (str/int/bool args) done. Need: `panic!`, `format_args!`, `concat_bytes!`, `include!`, `include_str!`, `include_bytes!`. | Each ~20 LOC sema, except `format_args!` which is a beast. |
+| MC-mc-03 | Compiler builtins | Partial (2026-05-15) | `cfg!`, `line!`, `column!` (always 0 — column not tracked), `file!`, `module_path!`, `compile_error!`, `stringify!`, `env!`, `option_env!`, `concat!` (str/int/bool args), `include_str!`, `include_bytes!` (alias — Logos's str is Slice<u8>) done. Need: `panic!`, `format_args!`, `concat_bytes!`, `include!`. | Each ~20 LOC sema, except `format_args!` which is a beast. |
 
 ## E. Test-harness gaps
 
