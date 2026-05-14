@@ -10,6 +10,7 @@ use std.lang.option;
 use std.lang.iter;
 use std.lang.cmp;
 use std.lang.panic;
+use std.lang.result;
 
 pub struct Vec<T> {
     ptr: *mut T,
@@ -263,6 +264,25 @@ impl<T> Drop for Vec<T> {
                     i = i + 1;
                 }
                 dealloc(p as *mut u8);
+            }
+        }
+    }
+}
+
+// SL-sl-05: drain an iterator of `Result<T, E>` into `Result<Vec<T>, E>`,
+// short-circuiting on the first Err (matches Rust's
+// `collect::<Result<Vec<T>, E>>()`).
+pub fn iter_collect_result_vec<I: Iterator<Result<T, E>>, T, E>(iter: I) -> Result<Vec<T>, E> {
+    let mut it: I = iter;
+    let mut out: Vec<T> = vec_new::<T>();
+    loop {
+        match it.next() {
+            Option::None    => { return Ok(out); }
+            Option::Some(r) => {
+                match r {
+                    Result::Ok(v)  => { out.push(v); }
+                    Result::Err(e) => { return Err(e); }
+                }
             }
         }
     }
