@@ -681,6 +681,55 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 auto key3 = bound.trait_name + "::" + std::string(cv.struct_name());
                 if (impls_.count(key3)) continue;
             }
+            // SL-sl-08 follow-up: tuple-impl bound satisfaction. Tuples
+            // are registered under `$tuple$N` (generic, mirrors the
+            // `$tuple$N$<t1>$<t2>…` concrete form). Recognise both.
+            // The element-level bounds (A: X for elem 0, B: X for elem 1)
+            // are checked recursively below by the same machinery as
+            // generic-struct impls — at monomorphisation time.
+            if (cv.kind() == LogosType::Kind::Tuple) {
+                size_t arity = cv.tuple_elems().size();
+                auto key_arity = bound.trait_name + "::$tuple$"
+                                 + std::to_string(arity);
+                if (impls_.count(key_arity)) {
+                    // Recursive bound check: every element must itself
+                    // implement bound.trait (matches the impl's
+                    // `<A: trait, B: trait, …>` qualifiers).
+                    bool all_elems_ok = true;
+                    for (auto e : cv.tuple_elems()) {
+                        if (!e) continue;
+                        // Skip TypeVar elements — checked at mono time.
+                        if (TypeRef(e).kind() == LogosType::Kind::TypeVar)
+                            continue;
+                        std::vector<TypeRef> rec_args{e};
+                        // Re-enter check_type_bounds; on failure it
+                        // emits a separate diagnostic, but we want to
+                        // suppress that and just record failure here.
+                        // Simpler: peek by reusing the same key-lookup
+                        // logic against the element type.
+                        std::string e_str = type_str(e);
+                        std::string ek1 = bound.trait_name + "::" + e_str;
+                        if (impls_.count(ek1)) continue;
+                        // Tuple element is itself a tuple → arity key.
+                        if (TypeRef(e).kind() == LogosType::Kind::Tuple) {
+                            size_t a2 = TypeRef(e).tuple_elems().size();
+                            if (impls_.count(bound.trait_name + "::$tuple$"
+                                             + std::to_string(a2)))
+                                continue;
+                        }
+                        // Auto trait short-circuit.
+                        auto tit2 = traits_.find(bound.trait_name);
+                        if (tit2 != traits_.end() && tit2->second.is_auto) {
+                            StrSet visited;
+                            if (is_auto_trait_satisfied(e, bound.trait_name, visited))
+                                continue;
+                        }
+                        all_elems_ok = false;
+                        break;
+                    }
+                    if (all_elems_ok) continue;
+                }
+            }
             // Sprint 5.7c: Fn-family bound (`F: FnOnce(args) -> R`)
             // satisfied by any closure or fn-pointer type. Arity /
             // arg-type / ret-type compatibility is enforced at the

@@ -2373,6 +2373,35 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         cname = ptr_exists ? ptr_cname : type_str(TypeRef(rt).pointee());
                     }
                 }
+                // SL-sl-08: tuple receiver — try the `$tuple$N$<t1>$…`
+                // concrete sentinel first, then fall back to the generic
+                // `$tuple$N` blanket. Matches the keys sema_collect /
+                // sema_decl register for `impl Trait for (A, B, …)`.
+                if (cname.empty() && TypeRef(rt).kind() == LogosType::Kind::Tuple) {
+                    auto elems = TypeRef(rt).tuple_elems();
+                    std::string concrete_n = "$tuple$" + std::to_string(elems.size());
+                    std::string concrete_full = concrete_n;
+                    for (auto e : elems) {
+                        concrete_full += "$";
+                        concrete_full += (e ? type_str(e) : std::string("?"));
+                    }
+                    auto has = [&](const std::string& base) {
+                        std::string fn = base + "__" + method;
+                        if (templates_.count(fn) || specs_.count(fn)) return true;
+                        std::string p = fn + "__g__";
+                        std::string p_dot = "." + fn + "__g__";
+                        for (auto& [kn, _] : templates_)
+                            if (kn.rfind(p, 0) == 0 ||
+                                kn.find(p_dot) != std::string::npos) return true;
+                        for (auto& f : in_.functions)
+                            if (bare_fn_name(f->name) == fn) return true;
+                        for (auto& f : out_.functions)
+                            if (bare_fn_name(f->name) == fn) return true;
+                        return false;
+                    };
+                    if (has(concrete_full))      cname = concrete_full;
+                    else if (has(concrete_n))    cname = concrete_n;
+                }
                 if (cname.empty()) cname = type_str(rt);
                 if (cname == "&[u8]") cname = "str";
                 if (!cname.empty()) {
@@ -2412,6 +2441,17 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                             }
                         }
                         nc.type_args.push_back(subst_type(ta, s));
+                    }
+                    // SL-sl-08: tuple receiver — sema's TypeVar-recv path
+                    // doesn't propagate the tuple element types as
+                    // impl-level type_args. Without them mono can't
+                    // specialise `impl<A,B> Trait for (A,B)`. Inject the
+                    // concrete element types when nothing else has filled
+                    // the slot AND the template wants impl-level params.
+                    if (TypeRef(rt).kind() == LogosType::Kind::Tuple
+                        && nc.type_args.empty()) {
+                        for (auto e : TypeRef(rt).tuple_elems())
+                            nc.type_args.push_back(e);
                     }
                     // T9-tr-02: only mangle when the impl method is itself
                     // generic. Sema's TypeVar-receiver path stashes the

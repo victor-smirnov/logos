@@ -13,9 +13,9 @@ etc. to re-tally — counts are derived from the A/B/C tables below.)
 
 | Class                 | Total | ✅ Closed | Partial | Open |
 |---|---|---|---|---|
-| Compiler (CP-cm-*)    | 15    | 8        | 3       | 4    |
+| Compiler (CP-cm-*)    | 15    | 10       | 3       | 2    |
 | Stdlib (SL-sl-*)      | 10    | 4        | 2       | 4    |
-| **Total**             | 25    | 12       | 5       | 8    |
+| **Total**             | 25    | 14       | 5       | 6    |
 
 (CP-cm-04 reclassified 2026-05-14 as Divergence — Logos's design uses
 `metacall` for compile-time evaluation; `const fn` keyword isn't going
@@ -76,9 +76,9 @@ Surfaced by ports of rustc coretests. Each needs C++ code change in
 | CP-cm-02 | Bare-variant import shorthand (`use core::cmp::Ordering::{Equal, Less, Greater}`) | Open | Rust lets you import enum variants directly so call sites can write `Equal` instead of `Ordering::Equal`. Logos requires the fully-qualified form. | `bool.rs::test_bool` | Port-time workaround: insert `Ordering::` prefix everywhere. |
 | CP-cm-03 | Bare-variant shorthand for Option/Result (`Some(x)`, `None`, `Ok(x)`, `Err(x)` without `Option::` / `Result::` prefix) | ✅ Closed (2026-05-13) | Now resolved via prelude shorthand in `lower_call`, `lower_generic_call` (Some/Ok/Err), and bareword VAR_REF + PAT_VARIANT / PAT_VARIANT_DATA (None / variant patterns). When the matching enum is in scope (find_enum_by_name), the bareword routes through enum_lit/enum_lit_data/pat_variant; if a user-defined fn of the same name exists, it wins. | — | — |
 | CP-cm-04 | `const fn` keyword | Divergence (by design, 2026-05-14) | Logos has no `const fn` keyword and isn't going to add one. The port rule (`feedback_const_fn_via_metacall.md`): strip `const fn` → `fn`; rewrite Rust const-context call sites (`const X: T = foo();`, array-size, cfg predicate, …) to metacall. Any compile-time-evaluation capability the body needs is a metacall surface gap, not a const-fn gap — file under `feat_metacall_*`. | — | The "Port-time workaround" framing this entry used to have isn't a gap, it's the canonical port. |
-| CP-cm-05 | Closure-as-fn-pointer coercion at method args | Open | `false.then(\|\| 0)` — Rust coerces a non-capturing closure to `fn() -> T` at the method-arg site. Logos's closure-to-fn-ptr path may not fire here. | `bool.rs::test_bool_to_option` (`.then(\|\| 0)`) | Needs investigation. |
+| CP-cm-05 | Closure-as-fn-pointer coercion at method args | ✅ Closed (2026-05-14) | Already works via existing `try_coerce_closure_to_fnptr` (sema_impl.hpp ~298) + CP-cm-10's unify_types FnPtr/Closure case + CP-cm-14's tail-expr-as-implicit-return. Verified: `true.then(\|\| { 0i32 })` returns `Some(0)`; `Option<i32>.map(\|x: i32\| { x + 1i32 })` works end-to-end. Remaining sugar (`\|\|` body without braces, `\|x\|` without type) is tracked under CP-cm-14. | — | — |
 | CP-cm-06 | `?` operator on Result for non-`std.lang.result` types | Partial | Logos supports `?` for Result; verify it works for ported core::result::Result if path differs. | TBD | — |
-| CP-cm-07 | Tuple types in `assert_eq!` mismatch render | Open | `assert_eq!((1, 2), (1, 3))` — assert_eq! macro needs Debug for tuples. Currently no `impl Debug for (A, B, ...)`. | Anticipated; not yet hit | — |
+| CP-cm-07 | Tuple types in `assert_eq!` mismatch render | ✅ Closed (2026-05-14) | Required three pieces: (a) stdlib Display + Debug impls for tuple arities 1–4 (Display is Logos-specific — Rust's tuples don't impl Display, but Logos's format_args_str bound is `T...: Display + Debug` so both slots need coverage); (b) sema_collect.cpp bound-check recognises tuple types via `<trait>::$tuple$N` impl key with recursive element-level bound check; (c) mono's TypeVar-receiver MethodCall resolution recognises Tuple receivers and emits the `$tuple$N` sentinel mangling + injects the tuple's element types as impl-level type_args. Regression test `tests/logos/pass/assert_eq_tuple.logos` (2- and 3-tuple). | — | — |
 
 ## B. Grammar / syntax gaps
 
