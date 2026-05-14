@@ -70,6 +70,15 @@ fn test_or_typed() {
     assert_eq!(combined.unwrap(), 7i32);
 }
 
-// `test_and` upstream form deferred — `Option::and<U>(Option<U>)` exposes
-// CP-cm-12 (mono drops method-level U in the canonical-signature suffix of
-// enum-typed params). Re-port once that mono path is fixed.
+#[test]
+fn test_and() {
+    // Faithful upstream `test_and` Some/None matrix.
+    let a: Option<i32> = Some(1i32);
+    let b: Option<i32> = Some(2i32);
+    assert_eq!(a.and(b).unwrap(), 2i32);
+
+    let n: Option<i32> = None;
+    assert!(a.and(n).is_none());
+    assert!(n.and(a).is_none());
+    assert!(n.and(n).is_none());
+}

@@ -100,10 +100,19 @@ impl<T, E> Result<T, E> {
         }
     }
 
-    // GAP CP-cm-12 (2026-05-14): `pub fn and<U>(self: Result<T,E>, res: Result<U,E>) -> Result<U,E>`
-    // and the symmetric `or<F>` mis-specialise (mono drops method-level
-    // U/F in the symbol suffix). See option.logos for the same gap on
-    // Option. Re-add once CP-cm-12 closes.
+    pub fn and<U>(self: Result<T, E>, res: Result<U, E>) -> Result<U, E> {
+        match self {
+            Result::Ok(_)  => { return res; }
+            Result::Err(e) => { return Result::Err(e); }
+        }
+    }
+
+    pub fn or<F>(self: Result<T, E>, res: Result<T, F>) -> Result<T, F> {
+        match self {
+            Result::Ok(v)  => { return Result::Ok(v); }
+            Result::Err(_) => { return res; }
+        }
+    }
 
     pub fn and_then<U>(self: Result<T, E>, f: fn(T) -> Result<U, E>) -> Result<U, E> {
         match self {

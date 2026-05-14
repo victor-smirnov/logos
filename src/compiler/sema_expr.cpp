@@ -4573,47 +4573,41 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 if (fi_ptr->is_unsafe && !inside_unsafe_)
                     error(std::format("call to unsafe method '{}' requires unsafe context",
                                       generic_key));
-                // Build concrete name from enum base + type args + method
-                // e.g. "Option__i32__unwrap_or"
-                SemaSubst subst;
+                // CP-cm-12: route ALL enum-method dispatch through
+                // finish_generic_call. It emits the call with the canonical
+                // template-form callee + full type_args (receiver-level +
+                // method-level); mono's subst_expr does the receiver-
+                // concretization and (for method-level tparams) drives
+                // call-site specialization via enqueue_if_needed.
+                //
+                // Pre-seed struct_subst with the receiver's enum type-args
+                // so infer_type_args sees the struct-level T,E,… already
+                // bound — mirrors the Struct/ZonedStruct prelude further
+                // down in lower_method_call.
+                SemaSubst struct_subst;
                 auto [epkg_genum, esi_genum] = find_enum_by_name(base);
-                auto eit = esi_genum ? enums_.find(sema_key(epkg_genum, base)) : enums_.end();
+                auto eit = esi_genum ? enums_.find(sema_key(epkg_genum, base))
+                                     : enums_.end();
                 if (eit == enums_.end()) eit = enums_.find(base);
                 if (eit != enums_.end()) {
                     auto& tps = eit->second.type_params;
                     for (size_t i = 0; i < tps.size() && i < rte.type_args().size(); ++i)
-                        subst[tps[i].name] = rte.type_args()[i];
+                        struct_subst[tps[i].name] = rte.type_args()[i];
                 }
-                TypeRef ret = subst_type_sema(fi_ptr->ret_type, subst);
-                // Mangle: "Option__i32" is the concrete enum name
-                std::string concrete_enum = base;
-                for (auto ta : rte.type_args()) {
-                    concrete_enum += "__";
-                    concrete_enum += type_str(ta);
-                }
-                std::string concrete_mangled = concrete_enum + "__" + std::string(method_name);
-                std::string callee_name = concrete_mangled;
-                if (!fi_ptr->symbol_name.empty()) {
-                    // sema may pkg-qualify the symbol (`pkg.Base__method__f__sig`).
-                    // Strip pkg prefix before splicing in the concrete enum
-                    // name, then re-attach it.
-                    std::string_view sym = fi_ptr->symbol_name;
-                    std::string fn_pkg;
-                    if (auto dot = sym.rfind('.'); dot != std::string_view::npos) {
-                        fn_pkg = std::string(sym.substr(0, dot));
-                        sym = sym.substr(dot + 1);
-                    }
-                    std::string enum_prefix = base + "__";
-                    std::string bare;
-                    if (sym.compare(0, enum_prefix.size(), enum_prefix) == 0)
-                        bare = concrete_enum + std::string(sym.substr(base.size()));
-                    else
-                        bare = std::string(sym);
-                    callee_name = fn_pkg.empty() ? bare : fn_pkg + "." + bare;
+                // Infer the full m_type_args (struct-level prefix +
+                // method-level tail) using existing helper.
+                std::vector<TypeRef> m_type_args;
+                if (!user_type_args.empty()) {
+                    for (size_t i = 0; i < fi_ptr->type_params.size() && i < user_type_args.size(); ++i)
+                        m_type_args.push_back(user_type_args[i]);
+                    while (m_type_args.size() < fi_ptr->type_params.size())
+                        m_type_args.push_back(error_t());
+                } else {
+                    infer_type_args(*fi_ptr, arg_exprs, m_type_args, struct_subst, 1);
                 }
                 // Auto-ref receiver if method expects &Self / &mut Self.
                 if (!fi_ptr->param_types.empty()) {
-                    auto formal0 = subst_type_sema(fi_ptr->param_types[0], subst);
+                    auto formal0 = subst_type_sema(fi_ptr->param_types[0], struct_subst);
                     if (formal0 && is_ref_like(TypeRef(formal0).kind()) && recv->type &&
                         !is_ref_like(TypeRef(recv->type).kind()) &&
                         TypeRef(recv->type).kind() != LogosType::Kind::Ptr) {
@@ -4634,7 +4628,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 std::vector<lir::LExprPtr> pargs;
                 pargs.push_back(std::move(recv));
                 for (auto& a : arg_exprs) pargs.push_back(std::move(a));
-                return builder().call(callee_name, {}, std::move(pargs), ret);
+                return finish_generic_call(
+                    fi_ptr->symbol_name.empty() ? generic_key : fi_ptr->symbol_name,
+                    *fi_ptr, std::move(m_type_args), std::move(pargs));
             }
         }
         auto tname = type_str(recv->type);

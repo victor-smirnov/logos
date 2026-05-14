@@ -78,3 +78,27 @@ fn test_unwrap_panic() {
     let err: Result<isize, str> = Err("kaboom");
     err.unwrap();
 }
+
+#[test]
+fn test_and() {
+    // Faithful upstream `test_and` Ok/Err matrix (uses i32 payload to side-
+    // step CP-cm-11 corner cases with str equality through unwrap_err).
+    let a: Result<i32, i32> = Ok(1i32);
+    let b: Result<i32, i32> = Ok(2i32);
+    assert_eq!(a.and(b).unwrap(), 2i32);
+
+    let err: Result<i32, i32> = Err(99i32);
+    assert!(a.and(err).is_err());
+    assert!(err.and(a).is_err());
+    assert!(err.and(err).is_err());
+}
+
+#[test]
+fn test_or() {
+    // Upstream `test_or` Ok/Err matrix.
+    let a: Result<i32, i32> = Ok(1i32);
+    let err: Result<i32, i32> = Err(99i32);
+    assert_eq!(a.or(err).unwrap(), 1i32);
+    assert_eq!(err.or(a).unwrap(), 1i32);
+    assert!(err.or(err).is_err());
+}
