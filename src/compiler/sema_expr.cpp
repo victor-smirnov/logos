@@ -1043,23 +1043,38 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                               op, *v, type_str(lt)));
         }
     } else if (op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>") {
-        // Bitwise and shift operators — require integer operands.
-        // Auto-deref `&T` / `&mut T` when T is integer (C6-cc-01).
-        auto deref_if_ref_int = [&](lir::LExprPtr& e, TypeRef& t) {
+        // Bitwise and shift operators — require integer operands (or bool
+        // operands for the non-shift forms, matching Rust's
+        // `impl BitAnd/BitOr/BitXor for bool`). Shifts stay integer-only.
+        // Auto-deref `&T` / `&mut T` when T is integer or bool (C6-cc-01).
+        bool is_bitwise_only = (op == "&" || op == "|" || op == "^");
+        auto deref_if_ref_scalar = [&](lir::LExprPtr& e, TypeRef& t) {
             if (TypeRef(t).kind() == LogosType::Kind::Ref) {
                 auto inner = TypeRef(t).pointee();
-                if (is_integer_kind(TypeRef(inner).kind())) {
+                auto ik = TypeRef(inner).kind();
+                if (is_integer_kind(ik) ||
+                    (is_bitwise_only && ik == LogosType::Kind::Bool)) {
                     e = builder().deref(std::move(e), inner);
                     t = inner;
                 }
             }
         };
-        deref_if_ref_int(lhs, lt);
-        deref_if_ref_int(rhs, rt);
-        if (!is_integer_kind(TypeRef(lt).kind()) && TypeRef(lt).kind() != LogosType::Kind::IntLit)
-            error(std::format("operator '{}': left must be integer, got {}", op, type_str(lt)));
-        if (!is_integer_kind(TypeRef(rt).kind()) && TypeRef(rt).kind() != LogosType::Kind::IntLit)
-            error(std::format("operator '{}': right must be integer, got {}", op, type_str(rt)));
+        deref_if_ref_scalar(lhs, lt);
+        deref_if_ref_scalar(rhs, rt);
+        auto ok_operand = [&](LogosType::Kind k) {
+            if (is_integer_kind(k)) return true;
+            if (k == LogosType::Kind::IntLit) return true;
+            if (is_bitwise_only && k == LogosType::Kind::Bool) return true;
+            return false;
+        };
+        if (!ok_operand(TypeRef(lt).kind()))
+            error(std::format("operator '{}': left must be {}, got {}",
+                  op, is_bitwise_only ? "integer or bool" : "integer",
+                  type_str(lt)));
+        if (!ok_operand(TypeRef(rt).kind()))
+            error(std::format("operator '{}': right must be {}, got {}",
+                  op, is_bitwise_only ? "integer or bool" : "integer",
+                  type_str(rt)));
         // B-ex-03: shift by negative-literal count is LLVM UB. Detect at sema.
         if ((op == "<<" || op == ">>") && TypeRef(rt).kind() == LogosType::Kind::IntLit) {
             if (auto v = get_intlit_value(rhs))
