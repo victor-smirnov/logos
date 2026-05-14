@@ -15,6 +15,15 @@ pub trait Eq {
     fn ne(&self, other: &Self) -> bool { return !self.eq(other); }
 }
 
+// SL-sl-02: Rust's hierarchy is `Eq: PartialEq` (every Eq is PartialEq).
+// Logos's `Eq` already carries the methods Rust puts on `PartialEq`.
+// Declare `PartialEq` as a forward-compat marker so user code writing
+// `T: PartialEq` bounds resolves. Bound-check in sema treats existing
+// `impl Eq for X` as a PartialEq satisfier — no per-impl migration
+// needed for the common case.
+pub trait PartialEq {}
+pub trait PartialOrd {}
+
 impl Eq for i32  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
 impl Eq for i64  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
 impl Eq for u32  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }

@@ -621,6 +621,28 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                     auto i2 = impls_.find(key2);
                     if (i2 != impls_.end()) found = &i2->second;
                 }
+                // SL-sl-02: `T: PartialEq` / `T: PartialOrd` accepted via
+                // existing `Eq` / `Ord` impls. Rust's hierarchy is
+                // `Eq: PartialEq` (every Eq is a PartialEq); Logos's `Eq`
+                // currently carries the methods Rust puts on PartialEq.
+                // Until the full split happens (separate Logos trait
+                // hierarchy + per-impl migration), bound-resolution
+                // treats Eq-impls as PartialEq satisfiers.
+                if (!found) {
+                    std::string alias;
+                    if (bound.trait_name == "PartialEq")    alias = "Eq";
+                    else if (bound.trait_name == "PartialOrd") alias = "Ord";
+                    if (!alias.empty()) {
+                        auto ak1 = alias + "::" + concrete_str;
+                        auto i1a = impls_.find(ak1);
+                        if (i1a != impls_.end()) found = &i1a->second;
+                        else if (!unwrapped_name.empty()) {
+                            auto ak2 = alias + "::" + unwrapped_name;
+                            auto i2a = impls_.find(ak2);
+                            if (i2a != impls_.end()) found = &i2a->second;
+                        }
+                    }
+                }
                 if (found) {
                     if (region_ok(*found)) continue;
                     std::string binders_str;
