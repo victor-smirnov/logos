@@ -2414,21 +2414,37 @@
     // |x: i32, y: i32| -> i32 { return x + y; }
     // |x: i32| { return x + 1; }
     // || -> i32 { return 42; }
+    // CP-cm-14: `closure_param` is a relaxed form of `param` that lets
+    // the type annotation be omitted (`|x|` instead of `|x: T|`). Sema
+    // infers the closure-param type from the surrounding `fn(T)->R`
+    // formal at the call site. `closure_param_list` is used by
+    // `closure_expr` instead of the strict `param_list`.
+    closure_param <- AMP KW_MUT IDENT
+                  => { CODE: PARAM, NAME: $3, IS_REF: true, IS_MUT: true }
+                   / AMP IDENT
+                  => { CODE: PARAM, NAME: $2, IS_REF: true }
+                   / IDENT COLON type_ref
+                  => { CODE: PARAM, NAME: $1, TYPE: $3 }
+                   / IDENT
+                  => { CODE: PARAM, NAME: $1 }
+    closure_param_list <- closure_param (COMMA closure_param)* COMMA?
+                       => { ITEMS: $... }
+
     closure_expr <- KW_MOVE OR ARROW type_ref block
                  => { CODE: CLOSURE_EXPR, IS_MOVE: 1, RET_TYPE: $4, BODY: $5 }
                   / KW_MOVE OR block
                  => { CODE: CLOSURE_EXPR, IS_MOVE: 1, BODY: $3 }
-                  / KW_MOVE PIPE param_list? PIPE ARROW type_ref block
+                  / KW_MOVE PIPE closure_param_list? PIPE ARROW type_ref block
                  => { CODE: CLOSURE_EXPR, IS_MOVE: 1, PARAMS: $3, RET_TYPE: $6, BODY: $7 }
-                  / KW_MOVE PIPE param_list? PIPE block
+                  / KW_MOVE PIPE closure_param_list? PIPE block
                  => { CODE: CLOSURE_EXPR, IS_MOVE: 1, PARAMS: $3, BODY: $5 }
                   / OR ARROW type_ref block
                  => { CODE: CLOSURE_EXPR, RET_TYPE: $3, BODY: $4 }
                   / OR block
                  => { CODE: CLOSURE_EXPR, BODY: $2 }
-                  / PIPE param_list? PIPE ARROW type_ref block
+                  / PIPE closure_param_list? PIPE ARROW type_ref block
                  => { CODE: CLOSURE_EXPR, PARAMS: $2, RET_TYPE: $5, BODY: $6 }
-                  / PIPE param_list? PIPE block
+                  / PIPE closure_param_list? PIPE block
                  => { CODE: CLOSURE_EXPR, PARAMS: $2, BODY: $4 }
 
     // ── Parenthesised expression ──────────────────────────────────
