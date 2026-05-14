@@ -317,6 +317,19 @@ public:
         // we need the inner instance encoded so `record_needed_enum` and
         // payload-layout lookup agree.
         case LogosType::Kind::Enum: {
+            // Skip recursive mangling if any type-arg is unresolved
+            // (TypeVar) — emitting "T" into a mangled spec name leaks
+            // unresolved symbols. Fall back to the bare enum name in
+            // that case (matching the pre-2026-05-14 behaviour).
+            std::function<bool(TypeRef)> has_tv = [&](TypeRef t) -> bool {
+                if (!t) return false;
+                if (TypeRef(t).kind() == LogosType::Kind::TypeVar) return true;
+                for (auto a : t.type_args()) if (has_tv(a)) return true;
+                if (t.pointee() && has_tv(t.pointee())) return true;
+                if (t.elem() && has_tv(t.elem())) return true;
+                return false;
+            };
+            for (auto a : tr.type_args()) if (has_tv(a)) return std::string(tr.enum_name());
             std::string r = std::string(tr.enum_name());
             for (auto a : tr.type_args()) {
                 r += "__";
