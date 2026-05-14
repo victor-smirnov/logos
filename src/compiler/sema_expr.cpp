@@ -7534,7 +7534,28 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
         error(std::format("enum '{}' has no variant '{}'", ename, vname));
         return error_expr();
     }
-    return builder().enum_lit(std::string(ename), std::string(vname), disc, make_enum_type(ename, epkg_el));
+    // SL-sl-03: a payload-less variant (`Option::None`) on a generic enum
+    // has no inference source for its type-args. Consult `hint_enum_type_`
+    // (set by the call-site / let / deref-write context) so the resulting
+    // type is `Option<i32>` instead of bare `Option` — mlir-gen needs the
+    // concrete name to find the tagged-enum layout.
+    TypeRef result_t = make_enum_type(ename, epkg_el);
+    auto& einfo_for_hint = eit->second;
+    if (!einfo_for_hint.type_params.empty() &&
+        hint_enum_type_ &&
+        TypeRef(hint_enum_type_).kind() == LogosType::Kind::Enum &&
+        TypeRef(hint_enum_type_).enum_name() == std::string(ename) &&
+        TypeRef(hint_enum_type_).type_args().size() == einfo_for_hint.type_params.size()) {
+        std::vector<TypeRef> targs;
+        for (auto a : TypeRef(hint_enum_type_).type_args()) targs.push_back(a);
+        std::vector<std::string> lt_args;
+        for (auto& lp : einfo_for_hint.lifetime_params) {
+            (void)lp;
+            lt_args.push_back(std::string{});
+        }
+        result_t = make_generic_enum(std::string(ename), std::move(targs), std::move(lt_args));
+    }
+    return builder().enum_lit(std::string(ename), std::string(vname), disc, result_t);
 }
 
 lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {

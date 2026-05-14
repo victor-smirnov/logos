@@ -122,6 +122,28 @@ impl<T> Option<T> {
             Option::None    => { return f(); }
         }
     }
+
+    // Takes the value out of the option, leaving a `None` in its place.
+    // SL-sl-03 (mutating &mut self surface).
+    pub fn take(self: &mut Option<T>) -> Option<T> {
+        let r: Option<T> = match self {
+            Option::Some(v) => { Option::Some(v) }
+            Option::None    => { Option::None }
+        };
+        *self = Option::None;
+        return r;
+    }
+
+    // Replaces the actual value in the option with the value given in
+    // parameter, returning the old value if present.
+    pub fn replace(self: &mut Option<T>, value: T) -> Option<T> {
+        let r: Option<T> = match self {
+            Option::Some(v) => { Option::Some(v) }
+            Option::None    => { Option::None }
+        };
+        *self = Option::Some(value);
+        return r;
+    }
 }
 
 // Free-function shims for compat with pre-existing call-sites in stdlib

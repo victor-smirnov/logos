@@ -1069,6 +1069,28 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef) {
                 loc_, ptr_type(), elem_type, base_ptr, indices);
         }
     }
+    // SL-sl-03: `o.take()` → autoref'd `(&mut o).take()` — for a tagged-enum
+    // local we must hand back the real slot, not a spilled copy of the
+    // pointer, so the callee's `*self = …` rebind reaches the caller's
+    // binding. Restricted to vars that genuinely live in a slot
+    // (var_tagged_enum_ptr_); the broader VarRef carve-out broke
+    // ref-to-struct lets whose scope_ entry holds the ref value directly.
+    if (inner_ref.kind() == ec::Code::VarRef &&
+        inner_t && inner_t.kind() == LogosType::Kind::Enum) {
+        std::string vn{lir_view::EVarRefView{inner_ref}.name()};
+        auto sc = scope_.find(vn);
+        if (sc != scope_.end() && sc->second &&
+            sc->second.getType() == ptr_type() &&
+            var_tagged_enum_.count(vn)) {
+            if (!var_tagged_enum_ptr_.count(vn)) {
+                auto alloca = create_entry_alloca(ptr_type());
+                builder_.create<mlir::LLVM::StoreOp>(loc_, sc->second, alloca);
+                sc->second = alloca;
+                var_tagged_enum_ptr_.insert(vn);
+            }
+            return sc->second;
+        }
+    }
     auto val = gen_expr(*inner_le);
     if (!val) return nullptr;
     if (inner_t && (inner_t.kind() == LogosType::Kind::Tuple ||

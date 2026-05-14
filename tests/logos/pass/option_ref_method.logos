@@ -1,0 +1,19 @@
+package option_ref_method;
+use std.lang.option;
+
+impl<T> Option<T> {
+    pub fn refcheck(self: &Option<T>) -> bool {
+        match self {
+            Option::Some(_) => { return true; }
+            Option::None    => { return false; }
+        }
+    }
+}
+
+fn main() -> i32 {
+    let o: Option<i32> = Option::Some(5i32);
+    if !o.refcheck() { return 1i32; }
+    let n: Option<i32> = Option::None;
+    if n.refcheck() { return 2i32; }
+    return 0i32;
+}

@@ -341,9 +341,27 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
         lir::LExprPtr ptr = stmt.has_key(la::NAME)
             ? lower_expr(map_of(stmt.get(la::NAME.code)))
             : error_expr();
+        // SL-sl-03: propagate `*p = Option::None`-style RHS hints from the
+        // pointee type, so a bare `None` resolves to `Option<i32>` rather
+        // than dropping to a discriminant-only constant (which then gets
+        // stored straight into the &mut slot — corrupting it).
+        auto saved_enum_hint   = hint_enum_type_;
+        auto saved_struct_hint = hint_struct_type_;
+        if (ptr && TypeRef(ptr->type).pointee()) {
+            TypeRef pe = TypeRef(ptr->type).pointee();
+            if (TypeRef(pe).kind() == LogosType::Kind::Enum &&
+                !TypeRef(pe).type_args().empty())
+                hint_enum_type_ = pe;
+            else if ((TypeRef(pe).kind() == LogosType::Kind::Struct ||
+                      TypeRef(pe).kind() == LogosType::Kind::ZonedStruct) &&
+                     !TypeRef(pe).type_args().empty())
+                hint_struct_type_ = pe;
+        }
         lir::LExprPtr val = stmt.has_key(la::VALUE)
             ? lower_expr(map_of(stmt.get(la::VALUE.code)))
             : error_expr();
+        hint_enum_type_   = saved_enum_hint;
+        hint_struct_type_ = saved_struct_hint;
         auto pt = ptr->type;
         // Writing through &mut T is safe; writing through raw *mut/*const T requires unsafe
         bool is_mut_ref = TypeRef(pt).kind() == LogosType::Kind::MutRef;

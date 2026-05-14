@@ -1,0 +1,15 @@
+package option_assign;
+use std.lang.option;
+
+fn clear(o: &mut Option<i32>) {
+    *o = Option::None;
+}
+
+fn main() -> i32 {
+    let mut o: Option<i32> = Option::Some(5i32);
+    clear(&mut o);
+    match o {
+        Option::Some(_) => { return 1i32; }
+        Option::None    => { return 0i32; }
+    }
+}

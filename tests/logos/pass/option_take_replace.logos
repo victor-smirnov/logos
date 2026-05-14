@@ -1,0 +1,36 @@
+// SL-sl-03 (partial closure): Option::take / Option::replace mutate
+// the caller's binding through `&mut self`.
+package option_take_replace;
+
+use std.lang.option;
+
+fn main() -> i32 {
+    let mut o: Option<i32> = Option::Some(7i32);
+    let taken: Option<i32> = o.take();
+    // taken should be Some(7), o should be None
+    match taken {
+        Option::Some(v) => { if v != 7i32 { return 1i32; } }
+        Option::None    => { return 2i32; }
+    }
+    match o {
+        Option::Some(_) => { return 3i32; }
+        Option::None    => {}
+    }
+    // replace fills it back and returns None (it was None).
+    let prev: Option<i32> = o.replace(11i32);
+    match prev {
+        Option::Some(_) => { return 4i32; }
+        Option::None    => {}
+    }
+    match o {
+        Option::Some(v) => { if v != 11i32 { return 5i32; } }
+        Option::None    => { return 6i32; }
+    }
+    // replace again — now prev should be Some(11).
+    let prev2: Option<i32> = o.replace(20i32);
+    match prev2 {
+        Option::Some(v) => { if v != 11i32 { return 7i32; } }
+        Option::None    => { return 8i32; }
+    }
+    return 0i32;
+}
