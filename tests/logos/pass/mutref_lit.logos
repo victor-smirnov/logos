@@ -1,0 +1,7 @@
+package mutref_lit;
+fn main() -> i32 {
+    let r: &mut i32 = &mut 5i32;
+    *r = 7i32;
+    if *r == 7i32 { return 0i32; }
+    return 1i32;
+}

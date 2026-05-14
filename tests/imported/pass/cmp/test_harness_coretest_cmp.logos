@@ -96,6 +96,24 @@ fn test_ord_min_max_by_key() {
     assert_eq!(cmp_max_by_key(2i32,  -1i32, abs_key), 2i32);
 }
 
+// Faithful port of upstream `test_mut_int_totalord`. Closes the
+// `(&mut 5).cmp(&...)` gap (auto-deref of &mut Self → impl-`&self` on
+// the pointee primitive, landed 2026-05-15). Note Rust's
+// `&&mut 10` shorthand: Logos demands an explicit named binding to
+// take `&` of an `&mut`.
+#[test]
+fn test_mut_int_totalord() {
+    let mut a: i32 = 5i32;
+    let mut b: i32 = 10i32;
+    let mut c: i32 = -5i32;
+    let mut d: i32 = 12i32;
+    assert_eq!((&mut a).cmp(&b),         Ordering::Less);
+    assert_eq!((&mut b).cmp(&a),         Ordering::Greater);
+    assert_eq!((&mut a).cmp(&a),         Ordering::Equal);
+    assert_eq!((&mut c).cmp(&d),         Ordering::Less);
+    assert_eq!((&mut d).cmp(&c),         Ordering::Greater);
+}
+
 #[test]
 fn test_ordering_reverse() {
     assert_eq!(Ordering::Less.reverse(),    Ordering::Greater);

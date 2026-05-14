@@ -5060,10 +5060,30 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                         fi_ptr = pfit;
                         mangled_prim = deref_mangled;
                         tname = pname;
-                    } else if (auto gfit = find_generic_func(deref_mangled)) {
-                        fi_ptr = gfit;
-                        mangled_prim = deref_mangled;
-                        tname = pname;
+                    } else {
+                        // CP-cm-01 (extension 2026-05-15): `&mut T` receiver
+                        // calling a `&self`-method on T. Coerce `&mut T` to
+                        // `&T` for dispatch — same pointee, weaker mutability.
+                        if (TypeRef(recv->type).kind() == LogosType::Kind::MutRef) {
+                            auto demoted = make_ref(false, pointee);
+                            deref_types[0] = demoted;
+                            if (auto pfit = find_func_by_base_and_signature(
+                                    deref_mangled, deref_types, false)) {
+                                fi_ptr = pfit;
+                                mangled_prim = deref_mangled;
+                                tname = pname;
+                                // Rebuild recv as `&pointee`: take the &mut
+                                // ref as-is; the &mut/& ABI is identical
+                                // (both are 8-byte pointers).
+                            }
+                        }
+                        if (!fi_ptr) {
+                            if (auto gfit = find_generic_func(deref_mangled)) {
+                                fi_ptr = gfit;
+                                mangled_prim = deref_mangled;
+                                tname = pname;
+                            }
+                        }
                     }
                 }
             }
