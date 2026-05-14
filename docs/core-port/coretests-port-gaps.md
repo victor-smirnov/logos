@@ -13,9 +13,9 @@ etc. to re-tally — counts are derived from the A/B/C tables below.)
 
 | Class                 | Total | ✅ Closed | Partial | Open |
 |---|---|---|---|---|
-| Compiler (CP-cm-*)    | 15    | 7        | 2       | 6    |
+| Compiler (CP-cm-*)    | 15    | 8        | 2       | 5    |
 | Stdlib (SL-sl-*)      | 10    | 3        | 3       | 4    |
-| **Total**             | 25    | 10       | 5       | 10   |
+| **Total**             | 25    | 11       | 5       | 9    |
 
 Closures so far (chronological):
 - 2026-05-13 — CP-cm-03 (prelude shorthand), SL-sl-07 (ToString)
@@ -23,10 +23,10 @@ Closures so far (chronological):
   CP-cm-10 (method-generic via fn-ptr), SL-sl-06 (bool conv),
   CP-cm-11 (str == str), CP-cm-13 (None-receiver inference),
   CP-cm-12 (method-generic on generic enum receivers — Option::and/.map etc.),
-  CP-cm-08 (tuple == for primitive fields)
+  CP-cm-08 (tuple == for primitive fields),
+  CP-cm-01 (primitive method dispatch via &Self receiver — auto-deref)
 
 Still open, high-leverage:
-- CP-cm-01 — Primitive method dispatch through `&Self` receiver
 - CP-cm-08b — tuple `==` for non-primitive fields (str / nested / struct)
 - SL-sl-02 — PartialEq / Eq separation
 - SL-sl-05 — Iterator adapter surface
@@ -65,7 +65,7 @@ Surfaced by ports of rustc coretests. Each needs C++ code change in
 
 | ID | Surface | Status | Gap | Surfaced by | Notes |
 |---|---|---|---|---|---|
-| CP-cm-01 | Primitive method dispatch through `&Self` receiver | Open | `self.eq(other)` when `self` is `&Self` from a trait default body fails with `receiver is not a struct (got &usize)`. Auto-deref to underlying primitive is missing. | `Eq.ne` default body | Workaround: write `(*self).eq(other)` explicitly. Affects every trait default that calls another method on `self`. |
+| CP-cm-01 | Primitive method dispatch through `&Self` receiver | ✅ Closed (2026-05-14) | `self.eq(other)` when `self: &i32` produced `mangled_prim = "&i32__eq"` which wasn't registered (the impl is on `i32`). Sema then errored with `receiver is not a struct (got &i32)`. **Fix:** sema_expr.cpp lower_method_call now auto-derefs `&T` / `&mut T` receivers when a method is registered on the pointee — looks up `<pointee>__method`, emits `deref(recv)` if the target method takes self by value, leaves recv as-is when the target takes `&Self`. Regression test `tests/logos/pass/primitive_method_through_ref.logos` (i32 via `&i32` → `.eq` / `.ne` / `.cmp`). Stdlib `Eq.ne` default body reverted from `(*self).eq(other)` workaround to natural `self.eq(other)`. | — | — |
 | CP-cm-02 | Bare-variant import shorthand (`use core::cmp::Ordering::{Equal, Less, Greater}`) | Open | Rust lets you import enum variants directly so call sites can write `Equal` instead of `Ordering::Equal`. Logos requires the fully-qualified form. | `bool.rs::test_bool` | Port-time workaround: insert `Ordering::` prefix everywhere. |
 | CP-cm-03 | Bare-variant shorthand for Option/Result (`Some(x)`, `None`, `Ok(x)`, `Err(x)` without `Option::` / `Result::` prefix) | ✅ Closed (2026-05-13) | Now resolved via prelude shorthand in `lower_call`, `lower_generic_call` (Some/Ok/Err), and bareword VAR_REF + PAT_VARIANT / PAT_VARIANT_DATA (None / variant patterns). When the matching enum is in scope (find_enum_by_name), the bareword routes through enum_lit/enum_lit_data/pat_variant; if a user-defined fn of the same name exists, it wins. | — | — |
 | CP-cm-04 | `const fn` for stable consts | Open | Rust core uses `const fn zero() -> i32 { 0 }` extensively. Logos has metacall for compile-time computation but no `const fn` keyword. | `bool.rs::test_bool_to_option` (`const fn zero`) | Port-time workaround: replace `const fn name(args) -> T { body }` with `pub fn name(args) -> T { body }` for now (loses compile-time-eval guarantee, which most uses don't actually rely on). |

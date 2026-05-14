@@ -1,0 +1,28 @@
+// CP-cm-01: primitive method dispatch auto-derefs `&T` / `&mut T`
+// receivers so a method registered on `T` (e.g. `impl Eq for i32`)
+// resolves naturally via `(&i32).eq(...)`. Mirrors Rust's method-
+// resolution algorithm.
+
+package primitive_method_through_ref;
+
+use std.lang.cmp;
+use std.lang.ord;
+
+fn check_eq(a: &i32, b: &i32) -> bool { return a.eq(b); }
+fn check_ne(a: &i32, b: &i32) -> bool { return a.ne(b); }
+fn check_lt(a: &i32, b: &i32) -> bool { return a.cmp(b) == Ordering::Less; }
+
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    let y: i32 = 5i32;
+    let z: i32 = 7i32;
+
+    if !check_eq(&x, &y) { return 1i32; }
+    if check_eq(&x, &z)  { return 2i32; }
+    if check_ne(&x, &y)  { return 3i32; }
+    if !check_ne(&x, &z) { return 4i32; }
+    if !check_lt(&x, &z) { return 5i32; }
+    if check_lt(&z, &x)  { return 6i32; }
+
+    return 0i32;
+}

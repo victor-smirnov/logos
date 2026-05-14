@@ -4739,6 +4739,46 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     if (fi_ptr) mangled_prim = std::string("str__") + std::string(method_name);
                 }
             }
+            // CP-cm-01: when receiver is `&T`/`&mut T` and no &T-targeted
+            // impl was found above (struct $ref_, generic blanket $ref$T,
+            // ref-tail variants), auto-deref to T and look up the
+            // pointee's method. Rust's method-resolution algorithm does
+            // this — without it, e.g. `s.eq(o)` with `s: &i32` fails
+            // since `impl Eq for i32` registers as `i32__eq` (no &T form).
+            // Must come AFTER the &T-impl lookups so existing concrete
+            // and generic blanket-impl-for-&T paths win over auto-deref.
+            if (!fi_ptr && recv->type &&
+                is_ref_like(TypeRef(recv->type).kind()) &&
+                TypeRef(recv->type).pointee()) {
+                TypeRef pointee = TypeRef(recv->type).pointee();
+                std::string pname = type_str(pointee);
+                std::string deref_mangled = pname + "__" + std::string(method_name);
+                std::vector<TypeRef> deref_types;
+                deref_types.push_back(pointee);
+                for (auto& a : arg_exprs) deref_types.push_back(a->type);
+                if (auto pfit = find_func_by_base_and_signature(
+                        deref_mangled, deref_types, false)) {
+                    fi_ptr = pfit;
+                    mangled_prim = deref_mangled;
+                    tname = pname;
+                    recv = builder().deref(std::move(recv), pointee);
+                } else {
+                    // Method may declare `self: &Self` — keep recv as-is
+                    // and retry lookup with the original ref type as
+                    // param[0].
+                    deref_types[0] = recv->type;
+                    if (auto pfit = find_func_by_base_and_signature(
+                            deref_mangled, deref_types, false)) {
+                        fi_ptr = pfit;
+                        mangled_prim = deref_mangled;
+                        tname = pname;
+                    } else if (auto gfit = find_generic_func(deref_mangled)) {
+                        fi_ptr = gfit;
+                        mangled_prim = deref_mangled;
+                        tname = pname;
+                    }
+                }
+            }
         }
 
         if (fi_ptr) {
