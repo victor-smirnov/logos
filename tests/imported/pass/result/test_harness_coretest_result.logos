@@ -52,11 +52,10 @@ fn test_is_ok_is_err() {
 
 #[test]
 fn test_unwrap_err() {
-    // Upstream uses `&'static str` and compares with `==`. In Logos
-    // `str == str` is currently not wired (SL-sl-09 — needs PartialEq
-    // impl on `str`). Use isize error payload to exercise unwrap_err.
-    let err: Result<isize, isize> = Err(42isize);
-    assert_eq!(err.unwrap_err(), 42isize);
+    // CP-cm-11 closed (2026-05-14): `str == str` now routes to stdlib
+    // `str_eq`, so the upstream str form works.
+    let err: Result<isize, str> = Err("sadface");
+    assert_eq!(err.unwrap_err(), "sadface");
 }
 
 #[test]

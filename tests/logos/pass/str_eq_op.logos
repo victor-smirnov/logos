@@ -1,0 +1,21 @@
+// CP-cm-11: `str == str` / `str != str` route through stdlib `str_eq`
+// so that two distinct literals with equal contents compare equal.
+
+package str_eq_op;
+
+use std.lang.text;
+
+fn echo(s: str) -> str { return s; }
+
+fn main() -> i32 {
+    let a: str = "hello";
+    let b: str = echo("hello");
+    if !(a == b) { return 1; }
+    if a != b { return 2; }
+
+    let c: str = "world";
+    if a == c { return 3; }
+    if !(a != c) { return 4; }
+
+    return 0;
+}

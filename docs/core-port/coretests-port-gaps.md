@@ -58,7 +58,7 @@ Surfaced by ports of rustc coretests. Each needs C++ code change in
 | CP-cm-08 | Tuple `==` (and `!=`) | Open | `(1i32, true) == (1i32, true)` compiles but returns `false`. Likely a struct-bit-compare codegen path that doesn't match field-by-field. Affects every assert that compares tuples by value. | Investigate gen_binop for tuple LHS in mlir_gen_expr.cpp. | Discovered while filing SL-sl-08. |
 | SL-sl-09 | `core::panicking::{AssertKind, assert_failed}` | Open | Rust's `assert_eq!`/`assert_ne!` macros expand to `core::panicking::assert_failed(AssertKind::Eq, &left, &right, None)`. Logos uses `__fmt_panic(msg)` and inlines the message format. | Needed BEFORE Phase 3 (macro_rules) so ported core macros can find their target. | Phase 4b. |
 | SL-sl-10 | `core::fmt::{Arguments, Formatter, Write}` proper port | Partial | Logos has `Display`/`Debug` with `fn fmt(self, &mut String)` shape. Rust has `fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result`. Different shape. | Port faithfully OR document divergence + provide compat shim. | Big API surface; touches many trait impls. |
-| CP-cm-11 | `str == str` returns `false` even for equal values | Open (2026-05-14) | `assert_eq!(err.unwrap_err(), "sadface")` where err.unwrap_err() returns "sadface" panics with `"sadface" != "sadface"`. Likely a pointer-compare codegen path for str (fat-pointer) rather than slice-compare. Affects every str-payload coretest port (option.rs str forms, result.rs str-error tests). | Investigate gen_binop for str LHS in mlir_gen_expr.cpp; should lower to byte-slice compare. | Driver: `result.rs::test_unwrap_err` (str form) — currently ported with isize payload as workaround. |
+| CP-cm-11 | `str == str` returned `false` even for equal values | ✅ Closed (2026-05-14) | Root cause: lower_binop fell through to the generic comparison path; codegen saw Slice<u8> as a pointer (ptr_type at MLIR level) and did pointer-eq on the slice descriptors, not byte-slice compare. **Fix:** sema_expr.cpp lower_binop now detects Slice<u8> on both sides of `==`/`!=` and routes to stdlib's `str_eq` (the same helper P4-pm-06 uses for str-const patterns). `!=` wraps with unary `!`. Regression test `pass/str_eq_op.logos`. | — | — |
 
 ## D. Macros / Phase 3 prerequisites
 
@@ -96,7 +96,7 @@ Tests touched but not fully ported. Will revisit when their blockers close.
 | `option.rs::test_and / test_and_then / test_or_else (full)` | Open | `.and(other)` method missing; None-receiver T-inference |
 | `result.rs::test_unwrap_or` | ✅ Closed (B25, 2026-05-14) | n/a |
 | `result.rs::test_is_ok_is_err` | ✅ Closed (B25, 2026-05-14) — added beyond upstream | n/a |
-| `result.rs::test_unwrap_err` | ✅ Closed (B25, 2026-05-14) — isize-payload workaround | CP-cm-11 (str == str) for the upstream str form |
+| `result.rs::test_unwrap_err` | ✅ Closed (B25, 2026-05-14); upstream str form restored after CP-cm-11 closure | n/a |
 | `result.rs::test_expect_panic / test_expect_err_panic / test_unwrap_panic` | ✅ Closed (B25, 2026-05-14) — `#[should_panic]` | n/a |
 | `result.rs::test_and / test_or / test_and_then / test_or_else (full)` | Open | `.and()` / `.or()` missing on Result; closures (`|x|`); variant-ctor turbofish (`Err::<i32, _>(...)`) |
 | `result.rs::test_impl_map / test_impl_map_err` | Open | Same closure/turbofish blockers + Eq on Result |

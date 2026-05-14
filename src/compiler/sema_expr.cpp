@@ -943,6 +943,35 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         }
     }
 
+    // CP-cm-11: `str == str` / `str != str` route to stdlib `str_eq`.
+    // Without this, the LLVM-level ICmpOp compares the slice-descriptor
+    // pointers, returning false for two distinct literals with equal
+    // contents. str is `Slice<u8>` in Logos's type system.
+    if ((op == "==" || op == "!=") &&
+        TypeRef(lt).kind() == LogosType::Kind::Slice &&
+        TypeRef(rt).kind() == LogosType::Kind::Slice &&
+        TypeRef(lt).elem() && TypeRef(rt).elem() &&
+        TypeRef(lt).elem().kind() == LogosType::Kind::U8 &&
+        TypeRef(rt).elem().kind() == LogosType::Kind::U8) {
+        auto cands = find_func_candidates("str_eq");
+        const SemaFuncInfo* fi = nullptr;
+        for (auto* c : cands)
+            if (c->param_types.size() == 2) { fi = c; break; }
+        if (fi) {
+            std::vector<lir::LExprPtr> args;
+            args.push_back(std::move(lhs));
+            args.push_back(std::move(rhs));
+            std::string sym = fi->symbol_name.empty()
+                ? std::string("str_eq") : fi->symbol_name;
+            auto call = builder().call(sym, {}, std::move(args), bool_t());
+            if (op == "==") return call;
+            return builder().unary(std::string("!"), std::move(call), bool_t());
+        }
+        // No str_eq in scope — fall through; pointer-cmp codegen will
+        // produce the historic (broken) behaviour but at least won't
+        // ICE. Most users will have stdlib's prelude.
+    }
+
     if (TypeRef(lt).kind() == LogosType::Kind::Error || TypeRef(rt).kind() == LogosType::Kind::Error) {
         result_type = error_t();
     } else if (op == "&&" || op == "||") {
