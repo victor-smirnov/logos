@@ -1,0 +1,31 @@
+// CP-cm-08b (partial): direct `str.eq(&str)` method dispatch.
+//
+// Before fix: "slice has no method 'eq'" because impl Eq for str
+// registered param0 as `&UnsizedSlice<u8>` (uncanonicalised) but the
+// caller passes Ref<Slice<u8>> for `&t` — different mangled keys.
+// After: make_ref now canonicalises `&UnsizedSlice<T>`→`Slice<T>` (and
+// `&UnsizedDyn`→`TraitObject`) symmetrically; the slice-method dispatch
+// also retries with Ref<Slice> args flattened, re-lowering UNARY-& AST
+// to match.
+//
+// Note: tuple-with-str-field via the Eq blanket still hits a separate
+// mlir-gen Slice-in-aggregate ABI bug (slice value spilled to 8-byte
+// alloca, str_eq reads 16-byte slice desc — reads stack garbage).
+// Tracked in CP-cm-08b row, case (a).
+
+package str_eq_method;
+
+use std.lang.cmp;
+
+fn main() -> i32 {
+    let a: str = "foo";
+    let b: str = "foo";
+    let c: str = "bar";
+
+    if !a.eq(&b) { return 1i32; }
+    if a.eq(&c)  { return 2i32; }
+    if !a.ne(&c) { return 3i32; }
+    if a.ne(&b)  { return 4i32; }
+
+    return 0i32;
+}

@@ -4045,19 +4045,29 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         // no autoref needed since the impl method's `self: &Self` (=
         // &UnsizedSlice<T>) canonicalises to the same Kind::Slice ABI.
         std::vector<lir::LExprPtr> slc_args;
+        // CP-cm-08b: track each arg's AST so a second-pass re-lower can
+        // strip a UNARY-& wrapper if the impl wants flat `Slice` rather
+        // than `Ref<Slice>` for that param.
+        std::vector<TinyMapView> slc_arg_asts;
         if (node.has_key(la::ARGS)) {
             auto args_av = node.get(la::ARGS.code);
             if (!args_av.is_null()) {
                 auto args_list = map_of(args_av);
                 if (args_list.has_key(la::ITEMS)) {
                     auto items = arr_of(args_list.get(la::ITEMS.code));
-                    for (uint64_t i = 0; i < items.size(); ++i)
-                        slc_args.push_back(lower_expr(map_of(items.get(i))));
+                    for (uint64_t i = 0; i < items.size(); ++i) {
+                        auto an = map_of(items.get(i));
+                        slc_arg_asts.push_back(an);
+                        slc_args.push_back(lower_expr(an));
+                    }
                 } else if (args_av.is_pointer()) {
                     // Legacy flat-array shape (no turbofish).
                     auto arr = arr_of(args_av);
-                    for (uint64_t i = 0; i < arr.size(); ++i)
-                        slc_args.push_back(lower_expr(map_of(arr.get(i))));
+                    for (uint64_t i = 0; i < arr.size(); ++i) {
+                        auto an = map_of(arr.get(i));
+                        slc_arg_asts.push_back(an);
+                        slc_args.push_back(lower_expr(an));
+                    }
                 }
             }
         }
@@ -4082,6 +4092,49 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 fi_ptr = fit;
             } else if (auto git = find_generic_func(key)) {
                 fi_ptr = git;
+            }
+            // CP-cm-08b: impl-for-str's `&Self`=&UnsizedSlice<u8> canonicalises
+            // to Slice<u8>. User-written `s.eq(&t)` lowers `&t` to Ref<Slice>
+            // for t:str (the slice canonicalisation only fires on UnsizedSlice).
+            // Retry with each Ref<Slice<U>> arg flattened — if the impl is
+            // found that way, re-lower the strip-& AST so ABI matches.
+            std::vector<size_t> flat_idxs;
+            if (!fi_ptr) {
+                std::vector<TypeRef> mt2 = mtypes;
+                bool changed = false;
+                for (size_t i = 1; i < mt2.size(); ++i) {
+                    auto tr = TypeRef(mt2[i]);
+                    if (tr.kind() == LogosType::Kind::Ref &&
+                        tr.pointee() &&
+                        TypeRef(tr.pointee()).kind() == LogosType::Kind::Slice) {
+                        mt2[i] = tr.pointee();
+                        flat_idxs.push_back(i);
+                        changed = true;
+                    }
+                }
+                if (changed) {
+                    if (auto fit = find_func_by_base_and_signature(key, mt2, false))
+                        fi_ptr = fit;
+                    else if (auto git = find_generic_func(key))
+                        fi_ptr = git;
+                }
+            }
+            // Re-lower the &-wrapped slice args to their inner slice value.
+            for (auto idx : flat_idxs) {
+                size_t arg_i = idx - 1;
+                if (arg_i >= slc_arg_asts.size()) continue;
+                auto an = slc_arg_asts[arg_i];
+                // Strip outer UNARY with op "&" / ADDR_OF.
+                if (code_of(an) == la::UNARY) {
+                    auto op_s = str_of(an.get(la::OP.code));
+                    if (op_s == "&" && an.has_key(la::VALUE)) {
+                        slc_args[arg_i] = lower_expr(map_of(an.get(la::VALUE.code)));
+                        continue;
+                    }
+                }
+                if (code_of(an) == la::ADDR_OF_MUT && an.has_key(la::VALUE)) {
+                    slc_args[arg_i] = lower_expr(map_of(an.get(la::VALUE.code)));
+                }
             }
             if (!fi_ptr) continue;
             std::vector<lir::LExprPtr> pargs;

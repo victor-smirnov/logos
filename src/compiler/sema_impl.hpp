@@ -169,6 +169,19 @@ private:
         return pool_->alloc(t);
     }
     TypeRef make_ref(bool mut, TypeRef pointee, std::string lifetime = "") {
+        // Phase 1B-11 canonicalisation: `&UnsizedSlice<T>` ↔ `Slice<T>`
+        // and `&UnsizedDyn<Trait>` ↔ `TraitObject<Trait>` — done at
+        // resolve_type (sema.cpp:3098) for explicit `&Type` syntax;
+        // also done here so implicit `&self` for impl-on-str (Self =
+        // UnsizedSlice<u8>) and impl-on-dyn collapse to the canonical
+        // fat-ptr kind. Without this, param0 mangling diverges between
+        // `&self` and `other: &Self` for the same impl (CP-cm-08b).
+        if (pointee && pointee.kind() == LogosType::Kind::UnsizedSlice)
+            return make_slice_type(pointee.elem());
+        if (pointee && pointee.kind() == LogosType::Kind::UnsizedDyn) {
+            std::vector<TypeRef> args_vec = pointee.type_args();
+            return make_trait_object(pointee.trait_name(), std::move(args_vec));
+        }
         LogosTypeBuilder t;
         t.kind = mut ? LogosType::Kind::MutRef : LogosType::Kind::Ref;
         t.pointee = pointee;
