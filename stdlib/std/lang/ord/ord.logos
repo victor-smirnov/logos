@@ -12,6 +12,38 @@ pub enum Ordering {
     Greater,
 }
 
+impl Ordering {
+    // Rust's `Ordering::reverse` — swap Less <-> Greater, Equal stays.
+    pub fn reverse(self: Ordering) -> Ordering {
+        match self {
+            Ordering::Less    => { return Ordering::Greater; }
+            Ordering::Equal   => { return Ordering::Equal; }
+            Ordering::Greater => { return Ordering::Less; }
+        }
+    }
+
+    // Rust's `Ordering::is_lt` / `is_le` / `is_eq` / `is_ne` / `is_gt`
+    // / `is_ge` predicate accessors.
+    pub fn is_lt(self: Ordering) -> bool {
+        match self { Ordering::Less => { return true; } _ => { return false; } }
+    }
+    pub fn is_le(self: Ordering) -> bool {
+        match self { Ordering::Greater => { return false; } _ => { return true; } }
+    }
+    pub fn is_eq(self: Ordering) -> bool {
+        match self { Ordering::Equal => { return true; } _ => { return false; } }
+    }
+    pub fn is_ne(self: Ordering) -> bool {
+        match self { Ordering::Equal => { return false; } _ => { return true; } }
+    }
+    pub fn is_gt(self: Ordering) -> bool {
+        match self { Ordering::Greater => { return true; } _ => { return false; } }
+    }
+    pub fn is_ge(self: Ordering) -> bool {
+        match self { Ordering::Less => { return false; } _ => { return true; } }
+    }
+}
+
 pub trait Ord {
     fn cmp(&self, other: &Self) -> Ordering;
 }

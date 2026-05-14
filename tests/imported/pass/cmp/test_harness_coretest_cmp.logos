@@ -95,3 +95,35 @@ fn test_ord_min_max_by_key() {
     assert_eq!(cmp_max_by_key(1i32,  -2i32, abs_key), -2i32);
     assert_eq!(cmp_max_by_key(2i32,  -1i32, abs_key), 2i32);
 }
+
+#[test]
+fn test_ordering_reverse() {
+    assert_eq!(Ordering::Less.reverse(),    Ordering::Greater);
+    assert_eq!(Ordering::Equal.reverse(),   Ordering::Equal);
+    assert_eq!(Ordering::Greater.reverse(), Ordering::Less);
+}
+
+#[test]
+fn test_ordering_predicates() {
+    // Beyond upstream — coverage for the is_lt / is_le / is_eq / etc. shim.
+    assert!(Ordering::Less.is_lt());
+    assert!(Ordering::Less.is_le());
+    assert!(!Ordering::Less.is_eq());
+    assert!(Ordering::Less.is_ne());
+    assert!(!Ordering::Less.is_gt());
+    assert!(!Ordering::Less.is_ge());
+
+    assert!(!Ordering::Equal.is_lt());
+    assert!(Ordering::Equal.is_le());
+    assert!(Ordering::Equal.is_eq());
+    assert!(!Ordering::Equal.is_ne());
+    assert!(!Ordering::Equal.is_gt());
+    assert!(Ordering::Equal.is_ge());
+
+    assert!(!Ordering::Greater.is_lt());
+    assert!(!Ordering::Greater.is_le());
+    assert!(!Ordering::Greater.is_eq());
+    assert!(Ordering::Greater.is_ne());
+    assert!(Ordering::Greater.is_gt());
+    assert!(Ordering::Greater.is_ge());
+}
