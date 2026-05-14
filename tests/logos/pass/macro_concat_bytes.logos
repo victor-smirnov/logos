@@ -1,0 +1,42 @@
+// MC-mc-03: `concat_bytes!(...)` — compile-time byte-array concatenation.
+//
+// Accepts byte-string literals (`b"foo"`), byte-char literals (`b'A'`),
+// and integer literals in 0..=255 (decimal / 0x / 0o / 0b prefixes,
+// with trailing type-suffix tolerated). Produces a fixed-size `[u8; N]`
+// array. Mirrors Rust's nightly `concat_bytes!`.
+
+package macro_concat_bytes;
+
+fn main() -> i32 {
+    // Two byte-string literals → 6-element array.
+    let a: [u8; 6] = concat_bytes!(b"foo", b"bar");
+    if a[0] != 102u8 { return 1; }  // 'f'
+    if a[1] != 111u8 { return 2; }  // 'o'
+    if a[3] != 98u8  { return 3; }  // 'b'
+    if a[5] != 114u8 { return 4; }  // 'r'
+
+    // Mix string + hex literal.
+    let b: [u8; 5] = concat_bytes!(b"hi", 0x21, 0x21, 0x21);
+    if b[0] != 104u8 { return 5; }
+    if b[1] != 105u8 { return 6; }
+    if b[2] != 33u8  { return 7; }
+    if b[4] != 33u8  { return 8; }
+
+    // Byte-char + plain int.
+    let c: [u8; 4] = concat_bytes!(b'A', b'B', 67, 68);
+    if c[0] != 65u8 { return 9; }
+    if c[3] != 68u8 { return 10; }
+
+    // Binary / octal prefixes.
+    let d: [u8; 2] = concat_bytes!(0b1010, 0o77);
+    if d[0] != 10u8 { return 11; }
+    if d[1] != 63u8 { return 12; }
+
+    // Escapes in byte-string.
+    let e: [u8; 3] = concat_bytes!(b"\n\t\0");
+    if e[0] != 10u8 { return 13; }
+    if e[1] != 9u8  { return 14; }
+    if e[2] != 0u8  { return 15; }
+
+    return 42;
+}

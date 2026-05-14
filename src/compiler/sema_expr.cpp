@@ -12207,6 +12207,170 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
         return builder().lit_str(std::move(out), slice_u8_t);
     }
 
+    // concat_bytes!(b"foo", 0x42, b"bar", b'A') — compile-time byte-array
+    // concat. Supports byte string literals (`b"..."`), byte char literals
+    // (`b'X'`), and integer literals in u8 range. Result is `[u8; N]`.
+    // Mirrors Rust's nightly `concat_bytes!`. Like `concat!`, parses
+    // RAW_TEXT directly and splits on top-level commas.
+    if (callee_name == "concat_bytes") {
+        std::string raw;
+        if (node.has_key(la::RAW_TEXT))
+            raw = std::string(str_of(node.get(la::RAW_TEXT.code)));
+        while (!raw.empty() && (raw.front() == ' ' || raw.front() == '\t' ||
+                                raw.front() == '\n')) raw.erase(0, 1);
+        while (!raw.empty() && (raw.back()  == ' ' || raw.back()  == '\t' ||
+                                raw.back()  == '\n')) raw.pop_back();
+        std::vector<std::string> pieces;
+        std::string cur;
+        bool in_string = false;
+        bool in_escape = false;
+        for (char c : raw) {
+            if (in_escape) { cur += c; in_escape = false; continue; }
+            if (in_string) {
+                if (c == '\\') { cur += c; in_escape = true; continue; }
+                if (c == '"')  { in_string = false; }
+                cur += c;
+                continue;
+            }
+            if (c == '"') { in_string = true; cur += c; continue; }
+            if (c == ',') { pieces.push_back(std::move(cur)); cur.clear(); continue; }
+            cur += c;
+        }
+        if (!cur.empty()) pieces.push_back(std::move(cur));
+        std::vector<uint8_t> bytes;
+        auto hex_nib = [](char ch) -> int {
+            if (ch >= '0' && ch <= '9') return ch - '0';
+            if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+            if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+            return -1;
+        };
+        auto decode_byte_escape = [&](std::string_view body, size_t& i,
+                                      const std::string& src) -> bool {
+            // body[i] == '\\'; consumes the escape and appends one byte.
+            if (i + 1 >= body.size()) {
+                error(std::format("concat_bytes!: dangling '\\' in '{}'", src));
+                return false;
+            }
+            char e = body[i + 1];
+            uint8_t b = 0;
+            switch (e) {
+            case 'n':  b = '\n'; break;
+            case 't':  b = '\t'; break;
+            case 'r':  b = '\r'; break;
+            case '0':  b = 0;    break;
+            case '\\': b = '\\'; break;
+            case '\'': b = '\''; break;
+            case '"':  b = '"';  break;
+            case 'x': {
+                if (i + 3 < body.size()) {
+                    int hi = hex_nib(body[i + 2]);
+                    int lo = hex_nib(body[i + 3]);
+                    if (hi >= 0 && lo >= 0) {
+                        bytes.push_back((uint8_t)((hi << 4) | lo));
+                        i += 4;
+                        return true;
+                    }
+                }
+                error(std::format(
+                    "concat_bytes!: malformed \\x escape in '{}'", src));
+                i += 2;
+                return true;
+            }
+            default:
+                error(std::format(
+                    "concat_bytes!: unknown escape '\\{}' in '{}'", e, src));
+                i += 2;
+                return true;
+            }
+            bytes.push_back(b);
+            i += 2;
+            return true;
+        };
+        for (auto& piece : pieces) {
+            std::string p = piece;
+            while (!p.empty() && (p.front() == ' ' || p.front() == '\t' ||
+                                  p.front() == '\n')) p.erase(0, 1);
+            while (!p.empty() && (p.back()  == ' ' || p.back()  == '\t' ||
+                                  p.back()  == '\n')) p.pop_back();
+            if (p.empty()) continue;
+            // Byte-string literal: b"..."
+            if (p.size() >= 3 && p[0] == 'b' && p[1] == '"' && p.back() == '"') {
+                std::string body = p.substr(2, p.size() - 3);
+                for (size_t i = 0; i < body.size(); ) {
+                    if (body[i] == '\\') {
+                        if (!decode_byte_escape(body, i, p)) break;
+                    } else {
+                        bytes.push_back((uint8_t)body[i]);
+                        ++i;
+                    }
+                }
+                continue;
+            }
+            // Byte char literal: b'X' or b'\\n' etc.
+            if (p.size() >= 4 && p[0] == 'b' && p[1] == '\'' && p.back() == '\'') {
+                std::string body = p.substr(2, p.size() - 3);
+                if (body.empty()) {
+                    error(std::format(
+                        "concat_bytes!: empty byte-char literal '{}'", p));
+                    continue;
+                }
+                if (body[0] == '\\') {
+                    size_t i = 0;
+                    decode_byte_escape(body, i, p);
+                } else {
+                    bytes.push_back((uint8_t)body[0]);
+                }
+                continue;
+            }
+            // Integer literal (decimal or 0x / 0o / 0b prefixes), possibly
+            // with trailing type suffix like `0x42u8`. We accept any value
+            // that fits in 0..=255 and reject the rest.
+            bool is_neg = (!p.empty() && p[0] == '-');
+            size_t scan = is_neg ? 1 : 0;
+            int base = 10;
+            if (scan + 1 < p.size() && p[scan] == '0' &&
+                (p[scan + 1] == 'x' || p[scan + 1] == 'X')) { base = 16; scan += 2; }
+            else if (scan + 1 < p.size() && p[scan] == '0' &&
+                     (p[scan + 1] == 'o' || p[scan + 1] == 'O')) { base = 8; scan += 2; }
+            else if (scan + 1 < p.size() && p[scan] == '0' &&
+                     (p[scan + 1] == 'b' || p[scan + 1] == 'B')) { base = 2; scan += 2; }
+            int64_t v = 0;
+            bool any_digit = false;
+            for (; scan < p.size(); ++scan) {
+                char ch = p[scan];
+                if (ch == '_') continue;
+                int d = -1;
+                if (base == 10 && ch >= '0' && ch <= '9') d = ch - '0';
+                else if (base == 16) { d = hex_nib(ch); }
+                else if (base == 8 && ch >= '0' && ch <= '7') d = ch - '0';
+                else if (base == 2 && (ch == '0' || ch == '1')) d = ch - '0';
+                if (d < 0) break;
+                v = v * base + d;
+                any_digit = true;
+            }
+            if (!any_digit) {
+                error(std::format(
+                    "concat_bytes!: unsupported arg '{}' (expected byte string, "
+                    "byte char, or integer literal in 0..=255)", piece));
+                return error_expr();
+            }
+            if (is_neg) v = -v;
+            if (v < 0 || v > 255) {
+                error(std::format(
+                    "concat_bytes!: integer literal {} out of u8 range", v));
+                return error_expr();
+            }
+            bytes.push_back((uint8_t)v);
+        }
+        auto u8t = u8_t();
+        std::vector<lir::LExprPtr> elems;
+        elems.reserve(bytes.size());
+        for (auto b : bytes)
+            elems.push_back(builder().lit_int((int64_t)b, u8t));
+        auto arr_t = make_array(u8t, (uint64_t)bytes.size());
+        return builder().arr_lit(std::move(elems), arr_t);
+    }
+
     // stringify!(...) — return the raw text between the parens as a str
     // literal. Same as Rust's `stringify!` (no macro expansion of the
     // contents).

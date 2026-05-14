@@ -136,7 +136,7 @@ Surfaced by ports of rustc coretests. Each needs C++ code change in
 |---|---|---|---|---|
 | MC-mc-01 | `macro_rules!` parser | Open (Phase 3) | Declarative macro definition syntax. | Big batch; needs DSL: `$ident:tt`, `$($x:expr),*`, etc. |
 | MC-mc-02 | `macro_rules!` expansion | Open (Phase 3) | Pattern-match against TT, substitute, hygienic re-resolve. | — |
-| MC-mc-03 | Compiler builtins | Partial (2026-05-14) | `cfg!`, `line!`, `column!` (always 0 — column not tracked), `file!`, `module_path!`, `compile_error!`, `stringify!`, `env!`, `option_env!`, `concat!` (str/int/bool args), `include_str!`, `include_bytes!`, `panic!` (TH-th-03 closure — routes through std.fmt format-family + `__fmt_panic`) done. Need: `format_args!`, `concat_bytes!`, `include!`. | `format_args!` is a beast; the others are ~20 LOC each. |
+| MC-mc-03 | Compiler builtins | Partial (2026-05-14) | `cfg!`, `line!`, `column!` (always 0 — column not tracked), `file!`, `module_path!`, `compile_error!`, `stringify!`, `env!`, `option_env!`, `concat!` (str/int/bool args), `concat_bytes!` (byte-string / byte-char / int-in-u8-range args, produces `[u8; N]`), `include_str!`, `include_bytes!`, `panic!` (TH-th-03 closure — routes through std.fmt format-family + `__fmt_panic`) done. Need: `format_args!`, `include!`. | `format_args!` is a beast; `include!` needs re-parse-as-items infra. |
 
 ## E. Test-harness gaps
 
