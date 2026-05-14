@@ -358,6 +358,73 @@ pub fn iter_for_each<I: Iterator<T>, T>(iter: I, f: fn(T) -> ()) {
     }
 }
 
+// SL-sl-05: product terminals — multiplicative analogues of iter_sum_*.
+// Identity is 1; type-monomorphised because trait-default with primitive
+// Self causes the trait-default-method-mono baghunt.
+pub unsafe fn iter_product_i32<I: Iterator<i32>>(iter: I) -> i32 {
+    let mut it: I = iter;
+    let mut p: i32 = 1i32;
+    loop {
+        match it.next() {
+            Option::None    => { return p; }
+            Option::Some(v) => { p = p * v; }
+        }
+    }
+    return p;
+}
+
+pub unsafe fn iter_product_i64<I: Iterator<i64>>(iter: I) -> i64 {
+    let mut it: I = iter;
+    let mut p: i64 = 1i64;
+    loop {
+        match it.next() {
+            Option::None    => { return p; }
+            Option::Some(v) => { p = p * v; }
+        }
+    }
+    return p;
+}
+
+// SL-sl-05: min_by / max_by — caller supplies a `cmp` closure so we don't
+// need Ord bound. Returns Option<T>; empty iterator → None.
+pub fn iter_max_by<I: Iterator<T>, T>(iter: I, cmp: fn(T, T) -> i32) -> Option<T> {
+    let mut it: I = iter;
+    let mut best: Option<T> = Option::None;
+    loop {
+        match it.next() {
+            Option::None    => { return best; }
+            Option::Some(v) => {
+                match best {
+                    Option::None        => { best = Option::Some(v); }
+                    Option::Some(cur)   => {
+                        if cmp(v, cur) > 0i32 { best = Option::Some(v); }
+                        else                  { best = Option::Some(cur); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub fn iter_min_by<I: Iterator<T>, T>(iter: I, cmp: fn(T, T) -> i32) -> Option<T> {
+    let mut it: I = iter;
+    let mut best: Option<T> = Option::None;
+    loop {
+        match it.next() {
+            Option::None    => { return best; }
+            Option::Some(v) => {
+                match best {
+                    Option::None        => { best = Option::Some(v); }
+                    Option::Some(cur)   => {
+                        if cmp(v, cur) < 0i32 { best = Option::Some(v); }
+                        else                  { best = Option::Some(cur); }
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub unsafe fn iter_sum_i32<I: Iterator<i32>>(iter: I) -> i32 {
     let mut it: I = iter;
     let mut s: i32 = 0;
