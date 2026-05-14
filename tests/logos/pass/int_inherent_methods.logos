@@ -1,0 +1,25 @@
+package int_inherent_methods;
+use std.lang.ord;
+
+fn main() -> i32 {
+    // clamp
+    if 5i32.clamp(0i32, 10i32) != 5i32 { return 1i32; }
+    if (-3i32).clamp(0i32, 10i32) != 0i32 { return 2i32; }
+    if 15i32.clamp(0i32, 10i32) != 10i32 { return 3i32; }
+
+    // abs / signum / is_negative / is_positive
+    if (-7i32).abs() != 7i32 { return 4i32; }
+    if 7i32.abs() != 7i32 { return 5i32; }
+    if 0i32.signum() != 0i32 { return 6i32; }
+    if 7i32.signum() != 1i32 { return 7i32; }
+    if (-7i32).signum() != -1i32 { return 8i32; }
+    if !(-1i32).is_negative() { return 9i32; }
+    if (-1i32).is_positive() { return 10i32; }
+    if !1i32.is_positive() { return 11i32; }
+
+    // i64 spot-check
+    if 100i64.max(50i64) != 100i64 { return 12i32; }
+    if (-50i64).abs() != 50i64 { return 13i32; }
+
+    return 0i32;
+}

@@ -67,16 +67,21 @@ impl Ord for bool {
     }
 }
 
-// SL-sl-13: `.max(other)` / `.min(other)` on integer primitives via
-// inherent impl. Trait-default form (default body on Ord) crashes
-// stdlib emit-module (trait-default-with-Self-typed-args baghunt);
+// SL-sl-13: `.max(other)` / `.min(other)` / `.clamp(lo, hi)` on integer
+// primitives via inherent impl. Trait-default form (default body on Ord)
+// crashes stdlib emit-module (trait-default-with-Self-typed-args baghunt);
 // inherent impls dodge the cloning step entirely.
-impl i32   { pub fn max(self: i32,   other: i32)   -> i32   { if self >= other { return self; } return other; } pub fn min(self: i32,   other: i32)   -> i32   { if self <= other { return self; } return other; } }
-impl i64   { pub fn max(self: i64,   other: i64)   -> i64   { if self >= other { return self; } return other; } pub fn min(self: i64,   other: i64)   -> i64   { if self <= other { return self; } return other; } }
-impl u32   { pub fn max(self: u32,   other: u32)   -> u32   { if self >= other { return self; } return other; } pub fn min(self: u32,   other: u32)   -> u32   { if self <= other { return self; } return other; } }
-impl u64   { pub fn max(self: u64,   other: u64)   -> u64   { if self >= other { return self; } return other; } pub fn min(self: u64,   other: u64)   -> u64   { if self <= other { return self; } return other; } }
-impl usize { pub fn max(self: usize, other: usize) -> usize { if self >= other { return self; } return other; } pub fn min(self: usize, other: usize) -> usize { if self <= other { return self; } return other; } }
-impl isize { pub fn max(self: isize, other: isize) -> isize { if self >= other { return self; } return other; } pub fn min(self: isize, other: isize) -> isize { if self <= other { return self; } return other; } }
+impl i32   { pub fn max(self: i32,   other: i32)   -> i32   { if self >= other { return self; } return other; } pub fn min(self: i32,   other: i32)   -> i32   { if self <= other { return self; } return other; } pub fn clamp(self: i32,   lo: i32,   hi: i32)   -> i32   { if self < lo { return lo; } if self > hi { return hi; } return self; } }
+impl i64   { pub fn max(self: i64,   other: i64)   -> i64   { if self >= other { return self; } return other; } pub fn min(self: i64,   other: i64)   -> i64   { if self <= other { return self; } return other; } pub fn clamp(self: i64,   lo: i64,   hi: i64)   -> i64   { if self < lo { return lo; } if self > hi { return hi; } return self; } }
+impl u32   { pub fn max(self: u32,   other: u32)   -> u32   { if self >= other { return self; } return other; } pub fn min(self: u32,   other: u32)   -> u32   { if self <= other { return self; } return other; } pub fn clamp(self: u32,   lo: u32,   hi: u32)   -> u32   { if self < lo { return lo; } if self > hi { return hi; } return self; } }
+impl u64   { pub fn max(self: u64,   other: u64)   -> u64   { if self >= other { return self; } return other; } pub fn min(self: u64,   other: u64)   -> u64   { if self <= other { return self; } return other; } pub fn clamp(self: u64,   lo: u64,   hi: u64)   -> u64   { if self < lo { return lo; } if self > hi { return hi; } return self; } }
+impl usize { pub fn max(self: usize, other: usize) -> usize { if self >= other { return self; } return other; } pub fn min(self: usize, other: usize) -> usize { if self <= other { return self; } return other; } pub fn clamp(self: usize, lo: usize, hi: usize) -> usize { if self < lo { return lo; } if self > hi { return hi; } return self; } }
+impl isize { pub fn max(self: isize, other: isize) -> isize { if self >= other { return self; } return other; } pub fn min(self: isize, other: isize) -> isize { if self <= other { return self; } return other; } pub fn clamp(self: isize, lo: isize, hi: isize) -> isize { if self < lo { return lo; } if self > hi { return hi; } return self; } }
+
+// Signed-integer arithmetic helpers — abs, signum, is_negative, is_positive.
+impl i32   { pub fn abs(self: i32)   -> i32   { if self < 0i32   { return 0i32   - self; } return self; } pub fn signum(self: i32)   -> i32   { if self > 0i32   { return 1i32;   } if self < 0i32   { return -1i32;   } return 0i32;   } pub fn is_negative(self: i32)   -> bool { return self < 0i32;   } pub fn is_positive(self: i32)   -> bool { return self > 0i32;   } }
+impl i64   { pub fn abs(self: i64)   -> i64   { if self < 0i64   { return 0i64   - self; } return self; } pub fn signum(self: i64)   -> i64   { if self > 0i64   { return 1i64;   } if self < 0i64   { return -1i64;   } return 0i64;   } pub fn is_negative(self: i64)   -> bool { return self < 0i64;   } pub fn is_positive(self: i64)   -> bool { return self > 0i64;   } }
+impl isize { pub fn abs(self: isize) -> isize { if self < 0isize { return 0isize - self; } return self; } pub fn signum(self: isize) -> isize { if self > 0isize { return 1isize; } if self < 0isize { return -1isize; } return 0isize; } pub fn is_negative(self: isize) -> bool { return self < 0isize; } pub fn is_positive(self: isize) -> bool { return self > 0isize; } }
 
 // SL-sl-05: core::cmp free fns analogous to Rust's `core::cmp::{min_by,
 // max_by}`. Caller supplies an `fn(T, T) -> Ordering` comparator (Logos
