@@ -1,0 +1,15 @@
+package iter_collect_vec_test;
+use std.lang.iter;
+use std.collections.vec;
+
+fn main() -> i32 {
+    let arr: [i32; 5] = [10i32, 20i32, 30i32, 40i32, 50i32];
+    unsafe {
+        let v: Vec<i32> = iter_collect_vec(iter_over_slice(&arr).filter(|x| { x >= 20i32 }));
+        // v should have [20, 30, 40, 50]
+        if v.length() != 4i64 { return 1i32; }
+        if v.get(0i64) != 20i32 { return 2i32; }
+        if v.get(3i64) != 50i32 { return 3i32; }
+    }
+    return 0i32;
+}

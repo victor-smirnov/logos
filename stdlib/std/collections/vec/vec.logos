@@ -268,6 +268,22 @@ impl<T> Drop for Vec<T> {
     }
 }
 
+// SL-sl-05: drain an iterator into a fresh Vec<T>. Free-fn form because
+// the standard `.collect::<Vec<T>>()` Rust path needs FromIterator infra
+// (and turbofish on a method-generic call) that isn't wired up yet. Lives
+// in this package — `iter` can't depend on `vec` (cycle).
+pub fn iter_collect_vec<I: Iterator<T>, T>(iter: I) -> Vec<T> {
+    let mut it: I = iter;
+    let mut out: Vec<T> = vec_new::<T>();
+    loop {
+        match it.next() {
+            Option::None    => { return out; }
+            Option::Some(v) => { out.push(v); }
+        }
+    }
+    return out;
+}
+
 // Cross-package skip-codegen probe: pre-instantiate Vec<i32> in this package.
 // Downstream users of Vec<i32> link against these symbols and skip body emission.
 pub instantiate Vec<i32>;
