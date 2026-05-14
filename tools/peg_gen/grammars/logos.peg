@@ -2423,6 +2423,10 @@
                   => { CODE: PARAM, NAME: $3, IS_REF: true, IS_MUT: true }
                    / AMP IDENT
                   => { CODE: PARAM, NAME: $2, IS_REF: true }
+                   / KW_REF IDENT COLON type_ref
+                  => { CODE: PARAM, NAME: $2, TYPE: $4, IS_REF: true }
+                   / LPAREN pat_binding_list RPAREN COLON type_ref
+                  => { CODE: PARAM, NAMES: $2, TYPE: $5 }
                    / IDENT COLON type_ref
                   => { CODE: PARAM, NAME: $1, TYPE: $3 }
                    / IDENT

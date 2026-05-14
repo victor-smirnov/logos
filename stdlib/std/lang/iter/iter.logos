@@ -48,6 +48,55 @@ pub trait Iterator<Item> {
             }
         }
     }
+
+    // Terminal: any item satisfies the predicate?
+    fn any(self: Self, pred: fn(Item) -> bool) -> bool {
+        let mut it: Self = self;
+        loop {
+            match it.next() {
+                Option::None    => { return false; }
+                Option::Some(v) => { if pred(v) { return true; } }
+            }
+        }
+    }
+
+    // Terminal: every item satisfies the predicate?
+    fn all(self: Self, pred: fn(Item) -> bool) -> bool {
+        let mut it: Self = self;
+        loop {
+            match it.next() {
+                Option::None    => { return true; }
+                Option::Some(v) => { if !pred(v) { return false; } }
+            }
+        }
+    }
+
+    // Terminal: skip first `n` items, then return next.
+    fn nth(self: Self, n: i64) -> Option<Item> {
+        let mut it: Self = self;
+        let mut k: i64 = n;
+        loop {
+            match it.next() {
+                Option::None    => { return Option::None; }
+                Option::Some(v) => {
+                    if k == 0 as i64 { return Option::Some(v); }
+                    k = k - 1 as i64;
+                }
+            }
+        }
+    }
+
+    // Terminal: last item, consuming the iterator.
+    fn last(self: Self) -> Option<Item> {
+        let mut it: Self = self;
+        let mut acc: Option<Item> = Option::None;
+        loop {
+            match it.next() {
+                Option::None    => { return acc; }
+                Option::Some(v) => { acc = Option::Some(v); }
+            }
+        }
+    }
 }
 
 // ── IntoIterator ─────────────────────────────────────────────────────────────

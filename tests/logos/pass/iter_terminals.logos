@@ -1,0 +1,38 @@
+// SL-sl-05 incremental: Iterator trait terminal-op methods —
+// .any() / .all() / .nth() / .last() (in addition to .filter() /
+// .count() / .for_each() which landed earlier).
+//
+// .find() / .position() deferred — the pattern `Option::Some(v) =>
+// if pred(v) { return Option::Some(v); }` triggers a move-of-moved-
+// value error in borrow-check because `v` is consumed by `pred(v)`
+// and then re-used in `Some(v)`. Rust avoids this by passing
+// `&Self::Item` to the predicate; needs the same shape change here.
+//
+// .map<R> / .fold<B> blocked on baghunt_iter_method_generic_mono.
+
+package iter_terminals;
+
+use std.lang.iter;
+use std.lang.option;
+
+fn is_pos(x: i32) -> bool { return x > 0i32; }
+fn is_neg(x: i32) -> bool { return x < 0i32; }
+
+fn main() -> i32 {
+    let arr: [i32; 4] = [1i32, 2i32, 3i32, 4i32];
+    unsafe {
+        if !iter_over_slice(&arr).any(is_pos) { return 1i32; }
+        if iter_over_slice(&arr).any(is_neg)  { return 2i32; }
+        if !iter_over_slice(&arr).all(is_pos) { return 3i32; }
+
+        match iter_over_slice(&arr).nth(2i64) {
+            Some(v) => { if v != 3i32 { return 4i32; } }
+            None    => { return 5i32; }
+        }
+        match iter_over_slice(&arr).last() {
+            Some(v) => { if v != 4i32 { return 6i32; } }
+            None    => { return 7i32; }
+        }
+    }
+    return 0i32;
+}

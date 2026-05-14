@@ -99,6 +99,14 @@ impl<T> Option<T> {
         }
     }
 
+    // True iff Some and the predicate accepts the wrapped value.
+    pub fn is_some_and(self: Option<T>, pred: fn(T) -> bool) -> bool {
+        match self {
+            Option::Some(v) => { return pred(v); }
+            Option::None    => { return false; }
+        }
+    }
+
     // Returns self if it contains a value, otherwise returns `other`.
     pub fn or(self: Option<T>, other: Option<T>) -> Option<T> {
         match self {

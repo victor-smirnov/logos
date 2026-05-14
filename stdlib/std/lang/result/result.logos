@@ -30,6 +30,20 @@ impl<T, E> Result<T, E> {
         }
     }
 
+    pub fn is_ok_and(self: Result<T, E>, pred: fn(T) -> bool) -> bool {
+        match self {
+            Result::Ok(v)  => { return pred(v); }
+            Result::Err(_) => { return false; }
+        }
+    }
+
+    pub fn is_err_and(self: Result<T, E>, pred: fn(E) -> bool) -> bool {
+        match self {
+            Result::Ok(_)  => { return false; }
+            Result::Err(e) => { return pred(e); }
+        }
+    }
+
     pub fn unwrap(self: Result<T, E>) -> T {
         match self {
             Result::Ok(v)  => { return v; }
