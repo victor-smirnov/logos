@@ -143,3 +143,22 @@ fn test_or() {
     assert_eq!(err.or(a).unwrap(), 1i32);
     assert!(err.or(err).is_err());
 }
+
+fn ok_plus_one(x: i32) -> Result<i32, i32> { return Ok(x + 1i32); }
+fn err_lift(x: i32)    -> Result<i32, i32> { return Ok(x + 100i32); }
+
+#[test]
+fn test_and_then() {
+    let a: Result<i32, i32> = Ok(1i32);
+    let err: Result<i32, i32> = Err(99i32);
+    assert_eq!(a.and_then(ok_plus_one).unwrap(), 2i32);
+    assert!(err.and_then(ok_plus_one).is_err());
+}
+
+#[test]
+fn test_or_else() {
+    let a: Result<i32, i32> = Ok(1i32);
+    let err: Result<i32, i32> = Err(99i32);
+    assert_eq!(a.or_else(err_lift).unwrap(), 1i32);
+    assert_eq!(err.or_else(err_lift).unwrap(), 199i32);
+}

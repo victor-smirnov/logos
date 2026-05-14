@@ -168,7 +168,7 @@ Tests touched but not fully ported. Will revisit when their blockers close.
 | `result.rs::test_is_ok_is_err` | ✅ Closed (B25, 2026-05-14) — added beyond upstream | n/a |
 | `result.rs::test_unwrap_err` | ✅ Closed (B25, 2026-05-14); upstream str form restored after CP-cm-11 closure | n/a |
 | `result.rs::test_expect_panic / test_expect_err_panic / test_unwrap_panic` | ✅ Closed (B25, 2026-05-14) — `#[should_panic]` | n/a |
-| `result.rs::test_and / test_or / test_and_then / test_or_else (full)` | Open | `.and()` / `.or()` missing on Result; closures (`|x|`); variant-ctor turbofish (`Err::<i32, _>(...)`) |
+| `result.rs::test_and / test_or / test_and_then / test_or_else (full)` | ✅ Closed (2026-05-14) — `.and<U>` / `.or<F>` / `.and_then<U>` / `.or_else<F>` all already in stdlib; ported tests use named fn-pointer transformers (Logos closure-return inference through `fn(T) -> Result<U, E>` is still incomplete, so the test passes named fns instead of inline `|x| { Ok(x+1) }`) | n/a |
 | `result.rs::test_impl_map / test_impl_map_err` | ✅ Closed (2026-05-15) — adapted via match instead of `==` (Eq for Result is the only blocker; multi-tparam-with-bound mono segfault) | n/a |
 | `result.rs::test_collect` | Open | Iterator::collect into Result<Vec<T>, E> |
 | `result.rs::test_fmt_default` | Open | Debug for Result + format! macro |
