@@ -79,6 +79,14 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     fn.name               = mangled;
     fn.from_binary_module = cur_from_binary_;
     fn.doc                = take_pending_doc();
+    // Phase #[test] attributes. Consume here so they don't leak into the
+    // next fn lowered in the same item-loop iteration.
+    fn.is_test            = pending_is_test_;
+    fn.should_panic       = pending_should_panic_;
+    fn.ignored            = pending_ignore_;
+    pending_is_test_      = false;
+    pending_should_panic_ = false;
+    pending_ignore_       = false;
     int32_t node_code = code_of(node);
     fn.is_extern = (node_code == la::EXTERN_FN);
 

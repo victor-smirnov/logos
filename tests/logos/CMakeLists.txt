@@ -291,6 +291,13 @@ function(logos_pass_extra_args BASE OUT_VAR)
         set(_extra "")
     endif()
 
+    # `--test` harness tests: file name prefix `test_harness_` triggers
+    # logosc's --test mode, which synthesises a main() that runs every
+    # #[test] fn under panic-recovery.
+    if (BASE MATCHES "^test_harness_")
+        list(APPEND _extra --test)
+    endif()
+
     set(${OUT_VAR} "${_extra}" PARENT_SCOPE)
 endfunction()
 

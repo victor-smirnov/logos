@@ -804,6 +804,12 @@ private:
         if (name == "no_mangle")       return bit(AttrTarget::Fn);
         if (name == "fn_macro")        return bit(AttrTarget::Fn);
         if (name == "token_macro")     return bit(AttrTarget::Fn);
+        // Test harness attrs (Phase #[test]). `#[test]` marks a free fn as a
+        // test case; `#[should_panic]` and `#[ignore]` are modifiers (only
+        // valid in combination with `#[test]`, enforced downstream).
+        if (name == "test")            return bit(AttrTarget::Fn);
+        if (name == "should_panic")    return bit(AttrTarget::Fn);
+        if (name == "ignore")          return bit(AttrTarget::Fn);
         // Phase 2: conditional compilation. cfg applies to all item kinds
         // (drops the item when predicate is false). cfg_attr applies a
         // wrapped attribute when predicate is true.
@@ -1451,6 +1457,11 @@ private:
     // source text directly as a `str` arg (slice 3b of fn-macros);
     // future slice 3c lifts this to a structured TokenStream.
     bool pending_token_macro_ = false;
+    // Test-harness attribute flags. Consumed by collect_fn / lower_fn; reset
+    // after the function-collection consumes them.
+    bool pending_is_test_      = false;
+    bool pending_should_panic_ = false;
+    bool pending_ignore_       = false;
     // Outer doc-comment buffer accumulated from `///` lines preceding the
     // next real item. Cleared by each collect_* after consuming. Joined with
     // '\n'; each line has had its leading `/// ` (or `///`) stripped.

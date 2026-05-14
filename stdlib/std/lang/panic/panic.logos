@@ -6,6 +6,11 @@ package std.lang.panic;
 
 extern fn abort();
 extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
+// Hook into the test-recovery runtime: if a #[test] runner has installed
+// a TLS jmp_buf via logos_run_with_recovery, this call captures `msg` and
+// longjmps out (never returns). Otherwise it's a no-op and we fall through
+// to the normal abort() path.
+extern fn logos_panic_maybe_longjmp(msg: *const u8, n: i64);
 
 pub fn panic(msg: str) {
     unsafe {
@@ -14,6 +19,7 @@ pub fn panic(msg: str) {
         write(2, msg.as_ptr(), msg.len());
         let nl: str = "\n";
         write(2, nl.as_ptr(), 1);
+        logos_panic_maybe_longjmp(msg.as_ptr(), msg.len());
         abort();
     }
 }

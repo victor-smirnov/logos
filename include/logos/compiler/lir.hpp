@@ -721,6 +721,11 @@ struct LFunction {
     // Outer doc-comment (`/// ...`) lines joined with '\n', leading `/// ` (or
     // `///`) stripped from each. Empty when the fn has no doc-comment.
     std::string                   doc;
+    // Test harness attributes. is_test = `#[test]`; should_panic / ignored
+    // are modifiers (only meaningful when is_test is true, validated in sema).
+    bool                          is_test       = false;
+    bool                          should_panic  = false;
+    bool                          ignored       = false;
 };
 
 struct LField {

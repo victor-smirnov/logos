@@ -1,0 +1,48 @@
+// `#[test]` harness — basic functionality.
+//
+// Tests covered:
+//   - plain #[test]: pass on normal return, fail on panic
+//   - #[ignore]: skipped, doesn't run
+//   - #[should_panic]: passes if test panics, fails if not
+//
+// Five tests total: 2 pass, 1 fail, 1 ignore, 1 should-panic-passes.
+// Expected harness summary:  3 passed; 1 failed; 1 ignored  → exit 1.
+//
+// NOTE: this file is compiled with `logosc --test` (run_test.sh test mode).
+// We don't use std.fmt's `assert_eq!` here because the macro has a
+// pre-existing expansion bug (it never panics on mismatch); the harness
+// itself relies on `panic()` from std.lang.panic, which goes through the
+// test-recovery longjmp hook in stdlib/rt/test_recovery.c.
+
+package test_harness_basic;
+
+use std.lang.panic;
+
+#[test]
+fn t_passes_empty() {
+    // Empty body — succeeds.
+}
+
+#[test]
+fn t_passes_assert() {
+    assert(1 + 1 == 2, "1+1 should be 2");
+    assert(42 > 0,     "42 > 0");
+}
+
+#[test]
+fn t_fails_explicitly() {
+    panic("intentional failure for harness test");
+}
+
+#[test]
+#[ignore]
+fn t_ignored() {
+    // Marked #[ignore]; harness should skip without running.
+    panic("this should never execute");
+}
+
+#[test]
+#[should_panic]
+fn t_should_panic_does() {
+    panic("expected panic");
+}

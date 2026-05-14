@@ -2425,6 +2425,7 @@ int main(int argc, char** argv) {
     bool emit_llvm = false;
     bool jit_run   = false;                      // --jit: compile and run main() in-process
     bool expand_only = false;                    // --expand: run metaprog dispatch over input + render result back to Logos source (no codegen). Avoids stdlib build's circular-dep when derives reference each other (debt #22 alt B).
+    bool test_mode   = false;                    // --test: build a test binary (synthesise main() that runs every `#[test]` fn under panic-recovery and prints a Rust-style summary).
     const char* emit_module_manifest = nullptr;  // --emit-module <manifest>
     std::string only_file;                       // --only-file <path>: per-file emit (B1.7)
     std::string dump_metaprog_dir;                // --dump-metaprog <dir>: write metafn-emitted ASTs as Logos source under <dir>/<callee>__<file>_<line>/post_quote.logos
@@ -2575,6 +2576,7 @@ int main(int argc, char** argv) {
         else if (arg.rfind("--cfg=", 0) == 0) {
             cfg_flags.push_back(std::string(arg).substr(6));
         }
+        else if (arg == "--test") { test_mode = true; }
         else if (arg[0] != '-' && !input_path) { input_path = argv[i]; }
     }
 
@@ -2728,6 +2730,178 @@ int main(int argc, char** argv) {
     if (trace)
         std::fprintf(stderr, "[trace] binary_symbols: %zu from %zu archive(s)\n",
                      binary_symbols.size(), binary_archives_seen.size());
+
+    // ── Step 2a.5: --test synthesis ────────────────────────────────────
+    // Walk the user-provided asts for `#[test]` annotations, synthesise a
+    // tiny extra `package <entry>;` source carrying a `main()` that runs
+    // each test under panic-recovery, parse it, and append to the asts
+    // vector so sema_lower picks it up. The synthesized main calls each
+    // test fn by its bare name, which resolves because the synth shares
+    // the entry file's package.
+    if (test_mode) {
+        namespace la = logos::compiler::ast;
+        using logos::hermes::AnyVal;
+        using logos::hermes::TinyMapView;
+        using logos::hermes::ArrayView;
+        using logos::hermes::StringView;
+
+        struct TestEntry {
+            std::string name;
+            bool should_panic = false;
+            bool ignored      = false;
+        };
+        std::vector<TestEntry> tests;
+        std::string entry_pkg;
+        bool user_has_main = false;
+
+        auto entry_idx = asts.empty() ? 0 : asts.size() - 1;
+        for (size_t i = 0; i < asts.size(); ++i) {
+            if (from_binary[i]) continue;
+            auto* holder = asts[i].holder();
+            if (!holder) continue;
+            auto root = asts[i].root_object().as_tiny_map();
+            auto code_v = root.get(la::CODE.code);
+            int32_t rcode = code_v.is_null() ? -1 : code_v.as_value<int32_t>();
+            if (rcode != la::MODULE.code) continue;
+            // Compose dotted package name from NAME + PATH_PARTS.
+            std::string pkg;
+            if (root.has_key(la::NAME)) {
+                auto nm_av = root.get(la::NAME.code);
+                if (!nm_av.is_null())
+                    pkg = std::string(StringView(nm_av.to_offset(), holder).view());
+            }
+            if (root.has_key(la::mod::PATH_PARTS)) {
+                auto parts_av = root.get(la::mod::PATH_PARTS.code);
+                if (!parts_av.is_null()) {
+                    ArrayView parts(parts_av.to_offset(), holder);
+                    for (uint64_t k = 0; k < parts.size(); ++k) {
+                        TinyMapView p(parts.get(k).to_offset(), holder);
+                        if (!p.has_key(la::NAME)) continue;
+                        auto pn = p.get(la::NAME.code);
+                        if (pn.is_null()) continue;
+                        if (!pkg.empty()) pkg.push_back('.');
+                        pkg += std::string(StringView(pn.to_offset(), holder).view());
+                    }
+                }
+            }
+            if (i == entry_idx) entry_pkg = pkg;
+            if (!root.has_key(la::ITEMS)) continue;
+            ArrayView items(root.get(la::ITEMS.code).to_offset(), holder);
+            bool pending_test = false, pending_sp = false, pending_ig = false;
+            for (uint64_t j = 0; j < items.size(); ++j) {
+                TinyMapView item(items.get(j).to_offset(), holder);
+                auto cv = item.get(la::CODE.code);
+                int32_t ic = cv.is_null() ? -1 : cv.as_value<int32_t>();
+                if (ic == la::ANNOTATION.code) {
+                    if (item.has_key(la::NAME)) {
+                        auto nv = item.get(la::NAME.code);
+                        std::string_view nm = nv.is_null()
+                            ? std::string_view{}
+                            : StringView(nv.to_offset(), holder).view();
+                        if      (nm == "test")         pending_test = true;
+                        else if (nm == "should_panic") pending_sp   = true;
+                        else if (nm == "ignore")       pending_ig   = true;
+                    }
+                    continue;
+                }
+                if (ic == la::DOC_LINE_LIT.code || ic == la::INNER_DOC_LIT.code)
+                    continue;
+                if ((ic == la::FN.code || ic == la::EXTERN_FN.code) &&
+                    item.has_key(la::NAME)) {
+                    auto nv = item.get(la::NAME.code);
+                    std::string nm = nv.is_null()
+                        ? std::string{}
+                        : std::string(StringView(nv.to_offset(), holder).view());
+                    if (nm == "main") user_has_main = true;
+                    if (pending_test && i == entry_idx) {
+                        tests.push_back({nm, pending_sp, pending_ig});
+                    }
+                }
+                pending_test = pending_sp = pending_ig = false;
+            }
+        }
+
+        if (user_has_main) {
+            std::fprintf(stderr,
+                "logosc: --test: user `fn main()` conflicts with the synthesised "
+                "test runner; remove it or compile without --test\n");
+            return 1;
+        }
+        if (tests.empty()) {
+            std::fprintf(stderr, "logosc: --test: no `#[test]` functions found\n");
+            return 1;
+        }
+        if (entry_pkg.empty()) {
+            std::fprintf(stderr,
+                "logosc: --test: entry file has no `package` declaration\n");
+            return 1;
+        }
+
+        // Synthesize Logos source for the test-runner main.
+        std::string s;
+        s  = "package " + entry_pkg + ";\n";
+        s += "extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;\n";
+        s += "extern fn logos_run_with_recovery(fn_ptr: fn()) -> i32;\n";
+        s += "extern fn logos_test_print_start(name: *const u8, n: i64);\n";
+        s += "extern fn logos_test_print_ok();\n";
+        s += "extern fn logos_test_print_failed();\n";
+        s += "extern fn logos_test_print_failed_no_panic();\n";
+        s += "extern fn logos_test_print_ignored();\n";
+        s += "extern fn logos_test_print_summary(p: i32, f: i32, i: i32) -> i32;\n";
+        s += "pub unsafe fn main() -> i32 {\n";
+        s += "    let mut passed: i32 = 0 as i32;\n";
+        s += "    let mut failed: i32 = 0 as i32;\n";
+        s += "    let mut ignored: i32 = 0 as i32;\n";
+        for (const auto& t : tests) {
+            std::string nm_lit = "\"" + t.name + "\"";
+            s += "    {\n";
+            s += "        let nm: str = " + nm_lit + ";\n";
+            s += "        logos_test_print_start(nm.as_ptr(), nm.len());\n";
+            if (t.ignored) {
+                s += "        logos_test_print_ignored();\n";
+                s += "        ignored = ignored + (1 as i32);\n";
+            } else {
+                s += "        let rv: i32 = logos_run_with_recovery(" + t.name + ");\n";
+                if (t.should_panic) {
+                    s += "        if rv != (0 as i32) {\n";
+                    s += "            logos_test_print_ok();\n";
+                    s += "            passed = passed + (1 as i32);\n";
+                    s += "        } else {\n";
+                    s += "            logos_test_print_failed_no_panic();\n";
+                    s += "            failed = failed + (1 as i32);\n";
+                    s += "        }\n";
+                } else {
+                    s += "        if rv == (0 as i32) {\n";
+                    s += "            logos_test_print_ok();\n";
+                    s += "            passed = passed + (1 as i32);\n";
+                    s += "        } else {\n";
+                    s += "            logos_test_print_failed();\n";
+                    s += "            failed = failed + (1 as i32);\n";
+                    s += "        }\n";
+                }
+            }
+            s += "    }\n";
+        }
+        s += "    return logos_test_print_summary(passed, failed, ignored);\n";
+        s += "}\n";
+
+        // Parse and append. Filename uses a marker so diagnostics make
+        // clear the source is synthesised.
+        logos::compiler::LogosParser parser(s);
+        auto ast = parser.parse_module();
+        if (ast.is_null()) {
+            std::fprintf(stderr, "logosc: --test: failed to parse synthesised main:\n%s\n", s.c_str());
+            return 1;
+        }
+        filenames.push_back("<test_main_synth>");
+        from_binary.push_back(false);
+        asts.push_back(std::move(ast));
+        if (trace) {
+            std::fprintf(stderr,
+                "[trace] --test: synthesised main calling %zu test fn(s)\n",
+                tests.size());
+        }
+    }
 
     // ── Step 2b: Semantic analysis + L-IR lowering, with metaprog loop ──
     //

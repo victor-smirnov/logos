@@ -902,11 +902,17 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                 pending_no_mangle_ = false;
                 pending_fn_macro_ = false;
                 pending_token_macro_ = false;
+                pending_is_test_      = false;
+                pending_should_panic_ = false;
+                pending_ignore_       = false;
                 for (auto& ann : pending_annots) {
                     auto nm = str_of(ann.get(la::NAME.code));
                     if (nm == "no_mangle")    pending_no_mangle_ = true;
                     if (nm == "fn_macro")     pending_fn_macro_  = true;
                     if (nm == "token_macro")  pending_token_macro_ = true;
+                    if (nm == "test")         pending_is_test_      = true;
+                    if (nm == "should_panic") pending_should_panic_ = true;
+                    if (nm == "ignore")       pending_ignore_       = true;
                 }
                 // Phase 7 slice 12: record `#[metaprog_handler("trigger")]`
                 // hooks. The annotation's first positional arg is the
