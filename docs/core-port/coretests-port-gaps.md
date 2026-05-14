@@ -147,6 +147,12 @@ Tests touched but not fully ported. Will revisit when their blockers close.
 | `result.rs::test_impl_map / test_impl_map_err` | Open | Same closure/turbofish blockers + Eq on Result |
 | `result.rs::test_collect` | Open | Iterator::collect into Result<Vec<T>, E> |
 | `result.rs::test_fmt_default` | Open | Debug for Result + format! macro |
+| `cmp.rs::test_int_totalord` | ✅ Closed (B27, 2026-05-14) | n/a |
+| `cmp.rs::test_bool_totalord` | ✅ Closed (B27, 2026-05-14) | n/a |
+| `cmp.rs::test_isize_totalord` | ✅ Closed (B27, 2026-05-14) — added beyond upstream; stdlib gained `impl Ord for isize` | n/a |
+| `cmp.rs::test_mut_int_totalord` | Open | `(&mut 5).cmp(...)` — `&mut` on rvalue temporary |
+| `cmp.rs::test_ord_max_min` | Open | `.max(other)` / `.min(other)` missing on primitives (SL-sl-13 — new) |
+| `cmp.rs::test_ord_min_max_by / max_by / minmax_by` | Open | `core::cmp::min_by` free fns; closure body capturing into Vec |
 
 ## Per-existing-test deferred assertions
 

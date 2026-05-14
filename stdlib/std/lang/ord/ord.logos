@@ -25,6 +25,7 @@ impl Ord for u16 { fn cmp(&self, other: &Self) -> Ordering { if *self < *other {
 impl Ord for u32 { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
 impl Ord for u64 { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
 impl Ord for usize { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl Ord for isize { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
 impl Ord for bool {
     fn cmp(&self, other: &Self) -> Ordering {
         // false < true

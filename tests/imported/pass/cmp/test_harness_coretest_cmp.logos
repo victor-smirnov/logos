@@ -1,0 +1,56 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/cmp.rs (subset)
+//
+// Ported tests:
+//   - test_int_totalord
+//   - test_bool_totalord
+//   - test_isize_totalord (added beyond upstream — Logos isize)
+//
+// Deferred tests:
+//   - test_mut_int_totalord — `(&mut 5).cmp(&&mut 10)`. Logos rejects
+//     `&mut` on rvalue temporaries at this position; needs explicit
+//     `let mut a = 5i32;` desugar.
+//   - test_ord_max_min — `.max(2)` / `.min(2)` methods missing on
+//     primitives in stdlib (SL-sl-13, separate gap).
+//   - test_ord_min_max_by / max_by / minmax_by — `core::cmp::min_by`
+//     etc. free fns + closure arg + Vec.push capturing in closure body.
+//   - test_total_cmp_* (f64 / f32 NaN-handling) — needs f64::total_cmp
+//     impl; not on Logos surface yet.
+//
+// Modifications:
+//   - `Less` / `Greater` / `Equal` → `Ordering::Less` etc. (Logos has
+//     no bare-variant re-export for Ordering yet — same workaround as
+//     bool.rs B23).
+//   - Integer literals carry `i32` suffix where needed for inference.
+
+package test_cmp;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.cmp;
+use std.lang.ord;
+
+#[test]
+fn test_int_totalord() {
+    assert_eq!(5i32.cmp(&10i32), Ordering::Less);
+    assert_eq!(10i32.cmp(&5i32), Ordering::Greater);
+    assert_eq!(5i32.cmp(&5i32), Ordering::Equal);
+    assert_eq!((-5i32).cmp(&12i32), Ordering::Less);
+    assert_eq!(12i32.cmp(&-5i32), Ordering::Greater);
+}
+
+#[test]
+fn test_bool_totalord() {
+    assert_eq!(true.cmp(&false), Ordering::Greater);
+    assert_eq!(false.cmp(&true), Ordering::Less);
+    assert_eq!(true.cmp(&true), Ordering::Equal);
+    assert_eq!(false.cmp(&false), Ordering::Equal);
+}
+
+#[test]
+fn test_isize_totalord() {
+    // Added beyond upstream — verifies Ord on isize too.
+    assert_eq!(5isize.cmp(&10isize), Ordering::Less);
+    assert_eq!(10isize.cmp(&10isize), Ordering::Equal);
+    assert_eq!(100isize.cmp(&10isize), Ordering::Greater);
+}
