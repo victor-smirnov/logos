@@ -85,7 +85,14 @@ Tests touched but not fully ported. Will revisit when their blockers close.
 | `bool.rs::test_bool_not` | Open | Tuple Debug for `assert_eq!((bool,bool))` patterns (SL-sl-08) |
 | `bool.rs::test_bool_to_option` | Open | Bool conversion methods (SL-sl-06), closure-as-fn-ptr (CP-cm-05), bare `Some`/`None` (CP-cm-03), `const fn` (CP-cm-04) |
 | `bool.rs::test_bool_to_result` | Open | Same as test_bool_to_option but Result side |
-| (none yet — many to add as we port) | | |
+| `option.rs::test_unwrap` (subset) | ✅ Closed (B24, 2026-05-14) — Some(int) only | String form deferred (PartialEq for String) |
+| `option.rs::test_unwrap_panic1` | ✅ Closed (B24, 2026-05-14) — uses `#[should_panic]` | n/a |
+| `option.rs::test_unwrap_or` | ✅ Closed (B24, 2026-05-14) | n/a |
+| `option.rs::test_is_some_is_none` | ✅ Closed (B24, 2026-05-14) — added beyond upstream | n/a |
+| `option.rs::test_or` (test_or_typed shape) | ✅ Closed (B24, 2026-05-14) — typed-receiver workaround | None-receiver T-inference (note in feat_phase4a_option_methods.md) |
+| `option.rs::test_get_ptr/str/resource` | Open | Box, `mem::transmute`, Rc<RefCell<...>>, Drop on R |
+| `option.rs::test_option_dance` | Open | Option<Box<T>> juggling |
+| `option.rs::test_and / test_and_then / test_or_else (full)` | Open | `.and(other)` method missing; None-receiver T-inference |
 
 ## Per-existing-test deferred assertions
 

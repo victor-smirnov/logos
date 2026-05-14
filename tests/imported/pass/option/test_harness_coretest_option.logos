@@ -1,0 +1,71 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/option.rs (subset)
+//
+// Ported tests:
+//   - test_unwrap (subset — Some(int) only, String form deferred)
+//   - test_unwrap_panic1 (`#[should_panic]`)
+//   - test_unwrap_or
+//   - test_and (Some/None combinations of `.and()` — using `.or()` shape;
+//                `and()` not yet on the Option impl block)
+//
+// Deferred tests:
+//   - test_get_ptr / test_get_str / test_get_resource — need Box, mem::transmute,
+//     Rc<RefCell<...>>, Drop impl on R
+//   - test_option_dance — Option<Box<T>> juggling
+//   - test_and / test_and_then full forms — `.and(other)` method not yet
+//     in stdlib (SL-sl-03 follow-up; trivial to add when needed)
+//   - test_or / test_or_else — `None.or(Some(...))` blocked on T-inference
+//     from None-typed receiver (gap noted in feat_phase4a_option_methods.md)
+//   - String forms — `"hello".to_string()` works (SL-sl-07), but `s == "hello"`
+//     comparison of String values requires PartialEq impl on String (gap).
+//
+// Modifications:
+//   - `use core::*;` → `use std.lang.option;`
+//   - bare `Some(...)` / `None` accepted via prelude shorthand (CP-cm-03)
+//   - `isize` works in Logos
+package test_option;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.option;
+
+#[test]
+fn test_unwrap() {
+    assert_eq!(Some(1isize).unwrap(), 1isize);
+}
+
+#[test]
+#[should_panic]
+fn test_unwrap_panic1() {
+    let x: Option<isize> = None;
+    x.unwrap();
+}
+
+#[test]
+fn test_unwrap_or() {
+    let x: Option<isize> = Some(1isize);
+    assert_eq!(x.unwrap_or(2isize), 1isize);
+
+    let y: Option<isize> = None;
+    assert_eq!(y.unwrap_or(2isize), 2isize);
+}
+
+#[test]
+fn test_is_some_is_none() {
+    let s: Option<i32> = Some(7i32);
+    assert!(s.is_some());
+    assert!(!s.is_none());
+    let n: Option<i32> = None;
+    assert!(!n.is_some());
+    assert!(n.is_none());
+}
+
+#[test]
+fn test_or_typed() {
+    // `None.or(Some(x))` doesn't infer T from None — bind None to a typed
+    // local first (gap noted in feat_phase4a_option_methods.md).
+    let n: Option<i32> = None;
+    let some_seven: Option<i32> = Some(7i32);
+    let combined: Option<i32> = n.or(some_seven);
+    assert_eq!(combined.unwrap(), 7i32);
+}
