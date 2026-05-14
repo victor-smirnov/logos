@@ -8,6 +8,9 @@ package std.lang.cmp;
 
 pub trait Eq {
     fn eq(&self, other: &Self) -> bool;
+    // Default `.ne` derived from `.eq`. Mirrors Rust's
+    // `PartialEq::ne(&self, &Self) -> bool { !self.eq(other) }`.
+    fn ne(&self, other: &Self) -> bool { return !(*self).eq(other); }
 }
 
 impl Eq for i32  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }

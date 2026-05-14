@@ -1,0 +1,42 @@
+// Logos stdlib — std.lang.ops
+//
+// Rust-compatible operator-overload trait family. Mirrors core::ops in
+// shape. Each trait is single-type (Self = RHS = Output) for now;
+// Rust's flexible `BitAnd<Rhs = Self>` default-generic-param form will
+// land when a port needs heterogeneous types.
+//
+// Primitive operator semantics (`+`, `-`, `&`, etc.) are handled by
+// codegen directly on integer / bool types — these traits provide the
+// METHOD-CALL surface (`a.bitand(b)`) used by ported Rust code.
+
+package std.lang.ops;
+
+// ── Bitwise ───────────────────────────────────────────────────────
+
+pub trait BitAnd {
+    fn bitand(self: Self, rhs: Self) -> Self;
+}
+pub trait BitOr {
+    fn bitor(self: Self, rhs: Self) -> Self;
+}
+pub trait BitXor {
+    fn bitxor(self: Self, rhs: Self) -> Self;
+}
+pub trait Not {
+    fn not(self: Self) -> Self;
+}
+
+// ── Primitive impls for bool ─────────────────────────────────────
+
+impl BitAnd for bool {
+    fn bitand(self: Self, rhs: Self) -> Self { return self & rhs; }
+}
+impl BitOr for bool {
+    fn bitor(self: Self, rhs: Self) -> Self { return self | rhs; }
+}
+impl BitXor for bool {
+    fn bitxor(self: Self, rhs: Self) -> Self { return self ^ rhs; }
+}
+impl Not for bool {
+    fn not(self: Self) -> Self { return !self; }
+}

@@ -13,6 +13,7 @@ package std.fmt;
 
 use std.lang.text;
 use std.lang.panic;
+use std.lang.ord;
 use std.compiler.metaprog;
 use std.collections.vec;
 use std.io;
@@ -62,6 +63,24 @@ impl Debug for f32 {
         let n: i32 = unsafe { logos_fmt_f32_dbg(ptr, cap, self) };
         buf.advance_len(n as i64);
     }
+}
+
+// Ordering — Display and Debug impls so it can appear in format! /
+// assert_eq! mismatch messages. Matches Rust's derive(Debug) for the
+// canonical enum: "Less" / "Equal" / "Greater". Display prints the
+// same name (no separate Display impl in Rust core, but we provide one
+// so `{}` works too).
+impl Display for Ordering {
+    fn fmt(self: Ordering, buf: &mut String) {
+        match self {
+            Ordering::Less    => { buf.push_str("Less"); }
+            Ordering::Equal   => { buf.push_str("Equal"); }
+            Ordering::Greater => { buf.push_str("Greater"); }
+        }
+    }
+}
+impl Debug for Ordering {
+    fn dbg(self: Ordering, buf: &mut String) { self.fmt(buf); }
 }
 
 // Debug for str wraps the content in double quotes (Rust-style). Direct

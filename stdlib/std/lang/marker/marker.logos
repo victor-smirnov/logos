@@ -17,3 +17,10 @@ package std.lang.marker;
 pub auto trait Send {}
 pub auto trait Sync {}
 pub trait Sized {}
+
+// Empty (uninhabited) enum — Logos's replacement for Rust's `!` (never)
+// type. Use as the error variant of `Result<T, Never>` to signal
+// "Err is impossible", or as a stand-in for `fn foo() -> !` divergent
+// returns (e.g. `fn abort() -> Never { panic("..."); ... }`). Mirrors
+// the role of `core::convert::Infallible` in stable Rust.
+pub enum Never {}
