@@ -2476,9 +2476,17 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                     // specialise `impl<A,B> Trait for (A,B)`. Inject the
                     // concrete element types when nothing else has filled
                     // the slot AND the template wants impl-level params.
-                    if (TypeRef(rt).kind() == LogosType::Kind::Tuple
-                        && nc.type_args.empty()) {
-                        for (auto e : TypeRef(rt).tuple_elems())
+                    //
+                    // CP-cm-08b (b): for nested-tuple recursion, the
+                    // substituted type_args may carry the *outer* spec's
+                    // [A,B] values (which inflate to the outer tuple's
+                    // own elements after subst). Those are stale for the
+                    // *inner* call — replace with the receiver tuple's
+                    // own element types so we generate a fresh inner
+                    // spec instead of recursing into the outer one.
+                    if (TypeRef(tuple_rt).kind() == LogosType::Kind::Tuple) {
+                        nc.type_args.clear();
+                        for (auto e : TypeRef(tuple_rt).tuple_elems())
                             nc.type_args.push_back(e);
                     }
                     // T9-tr-02: only mangle when the impl method is itself
