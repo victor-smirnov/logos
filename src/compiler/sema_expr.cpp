@@ -12101,6 +12101,111 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
         return builder().lit_str(std::move(val), slice_u8_t);
     }
 
+    // include!("path") — read file at compile time and re-parse its
+    // contents as an expression spliced at the call site. Rust supports
+    // both item-position and expression-position include!; only the
+    // expression form is wired here (item-position would need pre-sema
+    // AST splicing). Path is resolved relative to the including file
+    // (mirrors include_str! below).
+    if (callee_name == "include") {
+        std::string raw;
+        if (node.has_key(la::RAW_TEXT))
+            raw = std::string(str_of(node.get(la::RAW_TEXT.code)));
+        while (!raw.empty() && (raw.front() == ' ' || raw.front() == '\t' ||
+                                raw.front() == '\n')) raw.erase(0, 1);
+        while (!raw.empty() && (raw.back()  == ' ' || raw.back()  == '\t' ||
+                                raw.back()  == '\n')) raw.pop_back();
+        if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"')
+            raw = raw.substr(1, raw.size() - 2);
+        std::string path = raw;
+        if (!path.empty() && path[0] != '/' && !file_.empty()) {
+            auto slash = file_.rfind('/');
+            if (slash != std::string::npos)
+                path = file_.substr(0, slash + 1) + path;
+        }
+        std::ifstream in(path);
+        if (!in) {
+            error(std::format("include!: cannot read '{}'", path));
+            return error_expr();
+        }
+        std::string contents((std::istreambuf_iterator<char>(in)),
+                             std::istreambuf_iterator<char>());
+        // Wrap as an expression body and re-parse.
+        std::string wrap_src = std::format(
+            "package __include_expr;\nfn __f() -> i32 {{ {} }}\n", contents);
+        logos::compiler::LogosParser inc_parser(wrap_src);
+        auto inc_doc = inc_parser.parse_module();
+        if (inc_doc.is_null() || !inc_parser.at_eof()) {
+            error(std::format("include!: file '{}' does not parse as a single expression "
+                              "(item-position include! is not supported)", path));
+            return error_expr();
+        }
+        // Navigate MODULE → ITEMS[0]=FN_DEF → BODY=BLOCK → TAIL or last EXPR.
+        const uint8_t* src_base = HermesAccess::base(inc_doc);
+        auto root = inc_doc.root_object().as_tiny_map();
+        if (root.is_null()) { error("include!: wrap parse produced null module"); return error_expr(); }
+        auto nav_key = [&](TinyObjectMap* tom, uint8_t key) -> TinyObjectMap* {
+            if (!tom || !tom->has_key(key)) return nullptr;
+            AnyVal av = tom->get(key, const_cast<uint8_t*>(src_base));
+            if (!av.is_pointer()) return nullptr;
+            return reinterpret_cast<TinyObjectMap*>(
+                const_cast<uint8_t*>(src_base) + av.to_offset().value());
+        };
+        auto nav_array_first = [&](TinyObjectMap* tom, uint8_t key) -> TinyObjectMap* {
+            if (!tom || !tom->has_key(key)) return nullptr;
+            AnyVal av = tom->get(key, const_cast<uint8_t*>(src_base));
+            if (!av.is_pointer()) return nullptr;
+            auto* arr = reinterpret_cast<logos::hermes::ObjectArray*>(
+                const_cast<uint8_t*>(src_base) + av.to_offset().value());
+            if (arr->size() == 0) return nullptr;
+            AnyVal el = arr->get(0, const_cast<uint8_t*>(src_base));
+            if (!el.is_pointer()) return nullptr;
+            return reinterpret_cast<TinyObjectMap*>(
+                const_cast<uint8_t*>(src_base) + el.to_offset().value());
+        };
+        auto nav_array_last_av = [&](TinyObjectMap* tom, uint8_t key) -> AnyVal {
+            if (!tom || !tom->has_key(key)) return AnyVal{};
+            AnyVal av = tom->get(key, const_cast<uint8_t*>(src_base));
+            if (!av.is_pointer()) return AnyVal{};
+            auto* arr = reinterpret_cast<logos::hermes::ObjectArray*>(
+                const_cast<uint8_t*>(src_base) + av.to_offset().value());
+            if (arr->size() == 0) return AnyVal{};
+            return arr->get(arr->size() - 1, const_cast<uint8_t*>(src_base));
+        };
+        // The wrap_src parser allocates inside its own holder; we need to
+        // splice the resulting AST back into the current document's holder
+        // so subsequent lowering sees consistent offsets. Use the existing
+        // splice helper used by fn_macro re-parse.
+        auto* module_tom = const_cast<TinyObjectMap*>(root.ptr());
+        auto* fn_def  = nav_array_first(module_tom, la::ITEMS.code);
+        auto* fn_body = fn_def ? nav_key(fn_def, la::BODY.code) : nullptr;
+        AnyVal last_av = fn_body ? nav_array_last_av(fn_body, la::ITEMS.code) : AnyVal{};
+        if (!last_av.is_pointer()) {
+            error("include!: included file is empty / does not parse as expression");
+            return error_expr();
+        }
+        // The included AST lives in `inc_doc` (a different holder). Walking
+        // into it requires that holder; capture it for the dive.
+        auto inc_holder = inc_doc.holder();
+        TinyMapView last_view(last_av.to_offset(), inc_holder);
+        if (code_of(last_view) == la::TAIL_EXPR && last_view.has_key(la::VALUE)) {
+            auto prev = holder_;
+            holder_ = inc_holder;
+            auto r = lower_expr(map_of(last_view.get(la::VALUE.code)));
+            holder_ = prev;
+            return r;
+        }
+        if (code_of(last_view) == la::EXPR_STMT && last_view.has_key(la::VALUE)) {
+            auto prev = holder_;
+            holder_ = inc_holder;
+            auto r = lower_expr(map_of(last_view.get(la::VALUE.code)));
+            holder_ = prev;
+            return r;
+        }
+        error("include!: last item in file is not an expression");
+        return error_expr();
+    }
+
     // include_str!("path") — read file at compile time. Path is resolved
     // relative to the file containing the include_str! call (mirrors
     // Rust). Errors out if the file can't be read.

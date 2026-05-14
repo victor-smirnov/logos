@@ -1,0 +1,11 @@
+// MC-mc-03: `include!("path")` — expression-position only.
+// Re-parses the file's contents as a single expression spliced at the
+// call site. Item-position include! (file containing top-level items)
+// is not supported.
+
+package macro_include;
+
+fn main() -> i32 {
+    let v: i32 = include!("macro_include.include_data");
+    return v;
+}
