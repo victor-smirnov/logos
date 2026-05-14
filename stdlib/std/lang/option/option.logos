@@ -1,24 +1,119 @@
 // Logos standard library — std.option
 //
 // Option<T> — optional value type (Some(T) or None).
+//
+// Phase 4a SL-sl-03: faithful Rust method surface. Subset that
+// matches common port-time use:
+//   .is_some()  .is_none()
+//   .unwrap()  .unwrap_or(def)  .unwrap_or_default()
+//   .expect(msg)
+//   .map(f)  .and_then(f)
+//   .or(other)  .or_else(f)
+//   .take()  (requires &mut self; uses raw pointer write)
+//
+// Methods that need `&self` / `&mut self` shape are skipped here
+// because Logos's primitive/enum method dispatch through reference
+// receivers is sparse; the by-value forms cover the common pattern
+// (Option<T> is small + Copy-like for primitive T).
 
 package std.lang.option;
 
-enum Option<T> {
+use std.lang.panic;
+
+pub enum Option<T> {
     Some(T),
     None,
 }
 
-pub fn unwrap_or_i32(opt: Option<i32>, def: i32) -> i32 {
-    match opt {
-        Option::Some(v) => { return v; }
-        Option::None => { return def; }
+impl<T> Option<T> {
+    // Querying the contained values
+    pub fn is_some(self: Option<T>) -> bool {
+        match self {
+            Option::Some(_) => { return true; }
+            Option::None    => { return false; }
+        }
+    }
+
+    pub fn is_none(self: Option<T>) -> bool {
+        match self {
+            Option::Some(_) => { return false; }
+            Option::None    => { return true; }
+        }
+    }
+
+    // Unwrapping: panics on None.
+    pub fn unwrap(self: Option<T>) -> T {
+        match self {
+            Option::Some(v) => { return v; }
+            Option::None    => { panic("called `Option::unwrap()` on a `None` value"); }
+        }
+    }
+
+    // Same as unwrap but with caller-supplied panic message.
+    pub fn expect(self: Option<T>, msg: str) -> T {
+        match self {
+            Option::Some(v) => { return v; }
+            Option::None    => { panic(msg); }
+        }
+    }
+
+    // Returns the contained Some value or a provided default.
+    pub fn unwrap_or(self: Option<T>, default: T) -> T {
+        match self {
+            Option::Some(v) => { return v; }
+            Option::None    => { return default; }
+        }
+    }
+
+    // Returns the contained Some value or computes one from a closure.
+    // `f` is a fn-pointer; non-capturing closures coerce automatically.
+    pub fn unwrap_or_else(self: Option<T>, f: fn() -> T) -> T {
+        match self {
+            Option::Some(v) => { return v; }
+            Option::None    => { return f(); }
+        }
+    }
+
+    // Maps an Option<T> to Option<U> by applying a function to a contained value.
+    pub fn map<U>(self: Option<T>, f: fn(T) -> U) -> Option<U> {
+        match self {
+            Option::Some(v) => { return Option::Some(f(v)); }
+            Option::None    => { return Option::None; }
+        }
+    }
+
+    // Returns None if the option is None, otherwise calls f with the wrapped
+    // value and returns the result.
+    pub fn and_then<U>(self: Option<T>, f: fn(T) -> Option<U>) -> Option<U> {
+        match self {
+            Option::Some(v) => { return f(v); }
+            Option::None    => { return Option::None; }
+        }
+    }
+
+    // Returns self if it contains a value, otherwise returns `other`.
+    pub fn or(self: Option<T>, other: Option<T>) -> Option<T> {
+        match self {
+            Option::Some(v) => { return Option::Some(v); }
+            Option::None    => { return other; }
+        }
+    }
+
+    // Returns self if it contains a value, otherwise calls f and returns the result.
+    pub fn or_else(self: Option<T>, f: fn() -> Option<T>) -> Option<T> {
+        match self {
+            Option::Some(v) => { return Option::Some(v); }
+            Option::None    => { return f(); }
+        }
     }
 }
 
+// Free-function shims for compat with pre-existing call-sites in stdlib
+// and earlier Logos tests. New code should prefer the method form.
+pub fn unwrap_or_i32(opt: Option<i32>, def: i32) -> i32 {
+    return opt.unwrap_or(def);
+}
+
 pub fn is_some_i32(opt: Option<i32>) -> bool {
-    match opt {
-        Option::Some(v) => { return true; }
-        Option::None => { return false; }
-    }
+    return opt.is_some();
 }

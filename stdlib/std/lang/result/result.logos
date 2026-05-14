@@ -2,10 +2,19 @@
 //
 // Result<T, E> — value-or-error type (Ok(T) or Err(E)).
 // Use ? operator to propagate Err early from functions returning Result<_, E>.
+//
+// Phase 4a SL-sl-04 status: method form (`r.unwrap()` etc.) deferred —
+// Logos's enum-method mono path only substitutes ONE type param on the
+// receiver enum (works fine for Option<T>; for Result<T, E> the second
+// param E remains literal in the mangled call name, e.g.
+// `Result__i32__E__unwrap`, and MLIR-gen reports "unknown tagged enum".
+// Gap tracked in docs/core-port/coretests-port-gaps.md (SL-sl-04 +
+// CP-cm-XX multi-param mono). Until that's fixed, ported code uses the
+// fn-form shims below.
 
 package std.lang.result;
 
-enum Result<T, E> {
+pub enum Result<T, E> {
     Ok(T),
     Err(E),
 }
