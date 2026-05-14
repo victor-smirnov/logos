@@ -48,6 +48,20 @@ impl RangeI32 {
     pub fn rev(self: RangeI32) -> RevRangeI32 {
         return RevRangeI32 { current: self.end, start: self.current };
     }
+
+    // Rust's `Range::contains` — half-open interval test. By-value
+    // arg rather than `&i32` since Logos's `&T`-on-primitive method
+    // dispatch is sparse (CP-cm-01 family).
+    pub fn contains(self: RangeI32, item: i32) -> bool {
+        return self.current <= item && item < self.end;
+    }
+
+    // Rust's `Range::is_empty` — true iff start >= end.
+    pub fn is_empty(self: RangeI32) -> bool {
+        return self.current >= self.end;
+    }
+
+    // Note: `count()` is inherited from the Iterator trait default.
 }
 
 // ── RangeI64 — exclusive range [start, end) over i64 ─────────────────────────
@@ -89,4 +103,14 @@ impl RangeI64 {
     pub fn rev(self: RangeI64) -> RevRangeI64 {
         return RevRangeI64 { current: self.end, start: self.current };
     }
+
+    pub fn contains(self: RangeI64, item: i64) -> bool {
+        return self.current <= item && item < self.end;
+    }
+
+    pub fn is_empty(self: RangeI64) -> bool {
+        return self.current >= self.end;
+    }
+
+    // Note: `count()` is inherited from the Iterator trait default.
 }

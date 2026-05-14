@@ -1,0 +1,17 @@
+package range_contains_test;
+use std.lang.range;
+
+fn main() -> i32 {
+    let r: RangeI32 = range_i32(0i32, 10i32);
+    if !r.contains(0i32)  { return 1i32; }
+    if !r.contains(5i32)  { return 2i32; }
+    if !r.contains(9i32)  { return 3i32; }
+    if r.contains(10i32)  { return 4i32; }   // exclusive upper
+    if r.contains(-1i32)  { return 5i32; }
+    if r.is_empty()        { return 6i32; }
+
+    let e: RangeI32 = range_i32(5i32, 5i32);
+    if !e.is_empty()       { return 7i32; }
+    if e.contains(5i32)    { return 8i32; }
+    return 0i32;
+}
