@@ -2747,8 +2747,12 @@ int main(int argc, char** argv) {
 
         struct TestEntry {
             std::string name;
-            bool should_panic = false;
-            bool ignored      = false;
+            bool        should_panic = false;
+            bool        ignored      = false;
+            // TH-th-02: `#[should_panic(expected = "msg")]`. Empty when
+            // no expected arg was supplied — matches Rust semantics
+            // (any panic accepted).
+            std::string expected_msg;
         };
         std::vector<TestEntry> tests;
         std::string entry_pkg;
@@ -2788,6 +2792,7 @@ int main(int argc, char** argv) {
             if (!root.has_key(la::ITEMS)) continue;
             ArrayView items(root.get(la::ITEMS.code).to_offset(), holder);
             bool pending_test = false, pending_sp = false, pending_ig = false;
+            std::string pending_expected;
             for (uint64_t j = 0; j < items.size(); ++j) {
                 TinyMapView item(items.get(j).to_offset(), holder);
                 auto cv = item.get(la::CODE.code);
@@ -2799,7 +2804,56 @@ int main(int argc, char** argv) {
                             ? std::string_view{}
                             : StringView(nv.to_offset(), holder).view();
                         if      (nm == "test")         pending_test = true;
-                        else if (nm == "should_panic") pending_sp   = true;
+                        else if (nm == "should_panic") {
+                            pending_sp = true;
+                            // TH-th-02: extract `expected = "..."` named arg
+                            // if present (annotation grammar puts it in
+                            // ARGS as an ANNOT_KV with NAME=expected,
+                            // VALUE=LIT_STR).
+                            if (item.has_key(la::ARGS)) {
+                                auto args_av = item.get(la::ARGS.code);
+                                if (!args_av.is_null()) {
+                                    TinyMapView args_map(args_av.to_offset(), holder);
+                                    if (args_map.has_key(la::ITEMS)) {
+                                        ArrayView items_arr(
+                                            args_map.get(la::ITEMS.code).to_offset(),
+                                            holder);
+                                        for (uint64_t k = 0; k < items_arr.size(); ++k) {
+                                            TinyMapView a(items_arr.get(k).to_offset(), holder);
+                                            auto ac = a.get(la::CODE.code);
+                                            if (ac.is_null()) continue;
+                                            if (ac.as_value<int32_t>() != la::ANNOT_KV.code)
+                                                continue;
+                                            if (!a.has_key(la::NAME) || !a.has_key(la::VALUE))
+                                                continue;
+                                            auto kn = a.get(la::NAME.code);
+                                            std::string_view kname = kn.is_null()
+                                                ? std::string_view{}
+                                                : StringView(kn.to_offset(), holder).view();
+                                            if (kname != "expected") continue;
+                                            TinyMapView v(a.get(la::VALUE.code).to_offset(),
+                                                          holder);
+                                            auto vc = v.get(la::CODE.code);
+                                            if (vc.is_null()) continue;
+                                            if (vc.as_value<int32_t>() != la::LIT_STR.code)
+                                                continue;
+                                            auto raw_av = v.get(la::VALUE.code);
+                                            if (raw_av.is_null()) continue;
+                                            std::string_view raw = StringView(
+                                                raw_av.to_offset(), holder).view();
+                                            // raw is "..." — strip surrounding quotes.
+                                            if (raw.size() >= 2
+                                                && raw.front() == '"'
+                                                && raw.back() == '"') {
+                                                pending_expected.assign(
+                                                    raw.substr(1, raw.size() - 2));
+                                            }
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         else if (nm == "ignore")       pending_ig   = true;
                     }
                     continue;
@@ -2814,10 +2868,12 @@ int main(int argc, char** argv) {
                         : std::string(StringView(nv.to_offset(), holder).view());
                     if (nm == "main") user_has_main = true;
                     if (pending_test && i == entry_idx) {
-                        tests.push_back({nm, pending_sp, pending_ig});
+                        tests.push_back({nm, pending_sp, pending_ig,
+                                         std::move(pending_expected)});
                     }
                 }
                 pending_test = pending_sp = pending_ig = false;
+                pending_expected.clear();
             }
         }
 
@@ -2846,6 +2902,8 @@ int main(int argc, char** argv) {
         s += "extern fn logos_test_print_ok();\n";
         s += "extern fn logos_test_print_failed();\n";
         s += "extern fn logos_test_print_failed_no_panic();\n";
+        s += "extern fn logos_test_print_failed_expected_mismatch(p: *const u8, n: i64);\n";
+        s += "extern fn logos_panic_msg_contains(p: *const u8, n: i64) -> i32;\n";
         s += "extern fn logos_test_print_ignored();\n";
         s += "extern fn logos_test_print_summary(p: i32, f: i32, i: i32) -> i32;\n";
         s += "pub unsafe fn main() -> i32 {\n";
@@ -2863,13 +2921,38 @@ int main(int argc, char** argv) {
             } else {
                 s += "        let rv: i32 = logos_run_with_recovery(" + t.name + ");\n";
                 if (t.should_panic) {
-                    s += "        if rv != (0 as i32) {\n";
-                    s += "            logos_test_print_ok();\n";
-                    s += "            passed = passed + (1 as i32);\n";
-                    s += "        } else {\n";
-                    s += "            logos_test_print_failed_no_panic();\n";
-                    s += "            failed = failed + (1 as i32);\n";
-                    s += "        }\n";
+                    if (!t.expected_msg.empty()) {
+                        // Escape "..." and \ for Logos string literal.
+                        std::string esc;
+                        esc.reserve(t.expected_msg.size() + 2);
+                        for (char c : t.expected_msg) {
+                            if (c == '\\' || c == '"') esc.push_back('\\');
+                            esc.push_back(c);
+                        }
+                        std::string lit = "\"" + esc + "\"";
+                        s += "        if rv != (0 as i32) {\n";
+                        s += "            let exp: str = " + lit + ";\n";
+                        s += "            let ok: i32 = logos_panic_msg_contains(exp.as_ptr(), exp.len());\n";
+                        s += "            if ok != (0 as i32) {\n";
+                        s += "                logos_test_print_ok();\n";
+                        s += "                passed = passed + (1 as i32);\n";
+                        s += "            } else {\n";
+                        s += "                logos_test_print_failed_expected_mismatch(exp.as_ptr(), exp.len());\n";
+                        s += "                failed = failed + (1 as i32);\n";
+                        s += "            }\n";
+                        s += "        } else {\n";
+                        s += "            logos_test_print_failed_no_panic();\n";
+                        s += "            failed = failed + (1 as i32);\n";
+                        s += "        }\n";
+                    } else {
+                        s += "        if rv != (0 as i32) {\n";
+                        s += "            logos_test_print_ok();\n";
+                        s += "            passed = passed + (1 as i32);\n";
+                        s += "        } else {\n";
+                        s += "            logos_test_print_failed_no_panic();\n";
+                        s += "            failed = failed + (1 as i32);\n";
+                        s += "        }\n";
+                    }
                 } else {
                     s += "        if rv == (0 as i32) {\n";
                     s += "            logos_test_print_ok();\n";

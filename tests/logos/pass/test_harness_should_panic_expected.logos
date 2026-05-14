@@ -1,0 +1,38 @@
+// `#[should_panic(expected = "...")]` — TH-th-02.
+//
+// Substring-matches the captured panic message against `expected`. If the
+// test panics and the message contains the needle, it passes; if no panic
+// or message doesn't contain the needle, it fails. Bare `#[should_panic]`
+// (no `expected`) still accepts any panic.
+//
+// Four tests, all should pass.
+
+package test_harness_should_panic_expected;
+
+use std.lang.panic;
+
+#[test]
+#[should_panic(expected = "boom")]
+fn t_expected_substring_present() {
+    // "boom" appears in the message — passes.
+    panic("ka-boom, the universe ended");
+}
+
+#[test]
+#[should_panic(expected = "exact match")]
+fn t_expected_exact_match() {
+    panic("exact match");
+}
+
+#[test]
+#[should_panic(expected = "")]
+fn t_expected_empty_needle() {
+    // Empty needle matches everything (Rust semantics: any panic).
+    panic("anything");
+}
+
+#[test]
+#[should_panic]
+fn t_bare_should_panic_still_works() {
+    panic("no needle required");
+}

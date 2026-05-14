@@ -1,0 +1,22 @@
+// `#[should_panic(expected = "...")]` — TH-th-02 negative path.
+//
+// Mismatching message → harness reports FAILED. Suite exits with 1 (one
+// failed test).
+//
+// Two tests: one expected-mismatch (FAILED), one no-panic (FAILED).
+
+package test_harness_should_panic_mismatch;
+
+use std.lang.panic;
+
+#[test]
+#[should_panic(expected = "needle-not-in-message")]
+fn t_mismatch_fails() {
+    panic("haystack");
+}
+
+#[test]
+#[should_panic(expected = "anything")]
+fn t_no_panic_fails() {
+    // No panic at all — should_panic shape still fails.
+}

@@ -143,7 +143,7 @@ Surfaced by ports of rustc coretests. Each needs C++ code change in
 | ID | Surface | Status | Gap | Notes |
 |---|---|---|---|---|
 | TH-th-01 | Multi-file `#[test]` discovery | Open | `--test` mode walks only the entry file. Tests spread across multiple .logos files in one project would need cross-file collection. | Port-time workaround: keep all `#[test]` fns in the entry file. |
-| TH-th-02 | `#[should_panic(expected = "msg")]` | Open | Bare `#[should_panic]` works. Pattern-match form (`expected = "..."`) not supported. | Port-time workaround: drop the `expected` arg. |
+| TH-th-02 | `#[should_panic(expected = "msg")]` | Closed (2026-05-14) | main.cpp's --test scanner extracts the named `expected` arg (ANNOT_KV/LIT_STR); synthesised runner emits a `logos_panic_msg_contains(needle)` substring check after panic-recovery. Mismatch reports FAILED with actual panic message. Empty needle accepts any panic (Rust parity). | Regressions: `tests/logos/pass/test_harness_should_panic_expected.logos` (positive) + `test_harness_should_panic_mismatch.logos` (negative). |
 | TH-th-03 | `panic!` macro vs `panic` fn naming collision | Open | `panic!(...)` macro in `std.fmt` would shadow `panic(str)` fn from `std.lang.panic` for files importing only `std.fmt`. Filed in fmt.logos comment block. | Port-time workaround: use `panic(msg)` fn directly. Real fix: macro/fn overload-set split. |
 
 ## F. Specific coretest deferrals

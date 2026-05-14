@@ -83,6 +83,30 @@ void logos_test_print_failed_no_panic(void) {
     fputs("FAILED (expected panic, none observed)\n", stderr);
 }
 
+// `#[should_panic(expected = "needle")]` — substring match against the
+// captured panic message. Returns 1 on match, 0 otherwise. Caller passes
+// the needle as a Logos `str` (ptr+len), so embedded NULs are tolerated.
+int logos_panic_msg_contains(const char* needle, long n) {
+    if (!needle || n <= 0) return 1; // empty needle matches everything
+    if (g_logos_panic_msg_len < n) return 0;
+    long limit = (long)g_logos_panic_msg_len - n;
+    for (long i = 0; i <= limit; ++i) {
+        if (memcmp(g_logos_panic_msg + i, needle, (size_t)n) == 0) return 1;
+    }
+    return 0;
+}
+
+void logos_test_print_failed_expected_mismatch(const char* needle, long n) {
+    fputs("FAILED (panic did not contain expected message: \"", stderr);
+    if (needle && n > 0) fwrite(needle, 1, (size_t)n, stderr);
+    fputs("\")\n", stderr);
+    if (g_logos_panic_msg_len > 0) {
+        fputs("    actual panic: ", stderr);
+        fwrite(g_logos_panic_msg, 1, (size_t)g_logos_panic_msg_len, stderr);
+        fputc('\n', stderr);
+    }
+}
+
 void logos_test_print_ignored(void) { fputs("ignored\n", stderr); }
 
 // Final summary line + exit code. Mirrors Rust's libtest format closely
