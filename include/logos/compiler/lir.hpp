@@ -727,6 +727,7 @@ struct LField {
     std::string      name;
     TypeRef type;
     bool             is_variadic = false;
+    std::string      doc;     // Phase A.2: outer `///` doc-comment
 };
 
 // User annotation (Java-like). Values are literal-only (variant a of the plan):
@@ -792,6 +793,7 @@ struct LVariant {
     int64_t     disc;
     std::vector<TypeRef> payload_types;  // empty = no payload (C-style)
     bool        is_variadic = false;              // variadic pack payload (...T)
+    std::string doc;     // Phase A.2: outer `///` doc-comment
 };
 
 struct LEnumDef {
@@ -818,6 +820,7 @@ struct LTraitMethodSig {
     std::string              name;
     std::vector<LParam>      params;
     TypeRef         ret_type = nullptr;
+    std::string              doc;     // Phase A.2: outer `///` doc-comment
 };
 
 struct LAssocTypeDef {

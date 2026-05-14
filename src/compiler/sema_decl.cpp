@@ -78,6 +78,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     lir::LFunction fn;
     fn.name               = mangled;
     fn.from_binary_module = cur_from_binary_;
+    fn.doc                = take_pending_doc();
     int32_t node_code = code_of(node);
     fn.is_extern = (node_code == la::EXTERN_FN);
 
@@ -733,19 +734,27 @@ lir::LStructDef SemaChecker::lower_struct_def(TinyMapView node) {
                        [](auto& lt) -> std::string_view { return lt; },
                        "lifetime parameter", "struct " + sname);
     for (auto& f : sinfo->fields)
-        sd.fields.push_back({std::string(f.name), f.type, f.is_variadic});
+        sd.fields.push_back({std::string(f.name), f.type, f.is_variadic, f.doc});
     // Field-name uniqueness (closes B-it-03)
     check_unique_names(sd.fields,
                        [](auto& f) -> std::string_view { return f.name; },
                        "field", "struct " + sname);
     if (node.has_key(la::ITEMS)) {
         auto methods = arr_of(node.get(la::ITEMS.code));
+        // Phase A.2: doc-comments in the method stream prime pending_doc_
+        // for the next lower_fn invocation.
+        pending_doc_.clear();
         for (uint64_t m = 0; m < methods.size(); ++m) {
             auto method = map_of(methods.get(m));
             int32_t mc = code_of(method);
+            if (mc == la::DOC_LINE_LIT) {
+                append_doc_line(pending_doc_, str_of(method.get(la::VALUE.code)));
+                continue;
+            }
             if (mc == la::FN || mc == la::STATIC_FN)
                 sd.methods.push_back(std::make_unique<lir::LFunction>(lower_fn(method, sname)));
         }
+        pending_doc_.clear();
     }
     pop_type_params(sd.type_params);
     return sd;
@@ -830,7 +839,7 @@ lir::LEnumDef SemaChecker::lower_enum_def(TinyMapView node) {
                        [](auto& tp) -> std::string_view { return tp.name; },
                        "type parameter", "enum " + ename);
     for (auto& v : einfo.variants)
-        ed.variants.push_back({std::string(v.name), v.value, v.payload_types, v.is_variadic});
+        ed.variants.push_back({std::string(v.name), v.value, v.payload_types, v.is_variadic, v.doc});
     // Variant-name uniqueness (closes B-it-04)
     check_unique_names(ed.variants,
                        [](auto& v) -> std::string_view { return v.name; },
@@ -916,6 +925,7 @@ lir::LTraitDef SemaChecker::lower_trait_def(TinyMapView node) {
             lir::LTraitMethodSig sig;
             sig.name     = m.name;
             sig.ret_type = m.ret_type;
+            sig.doc      = m.doc;
             // We don't lower params here since they may contain Self
             td.methods.push_back(std::move(sig));
         }
@@ -1287,8 +1297,14 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     }
     if (node.has_key(la::ITEMS)) {
         auto items = arr_of(node.get(la::ITEMS.code));
+        // Phase A.2: doc-line sweep — pending_doc_ primes the next lower_fn.
+        pending_doc_.clear();
         for (uint64_t i = 0; i < items.size(); ++i) {
             auto m = map_of(items.get(i));
+            if (code_of(m) == la::DOC_LINE_LIT) {
+                append_doc_line(pending_doc_, str_of(m.get(la::VALUE.code)));
+                continue;
+            }
             if (code_of(m) == la::FN || code_of(m) == la::STATIC_FN) {
                 auto fn = lower_fn(m, lower_target);
                 // Trait-impl methods inherit visibility from the trait itself:
@@ -1327,8 +1343,13 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 } else {
                     prog.functions.push_back(std::make_unique<lir::LFunction>(std::move(fn)));
                 }
+            } else {
+                // Non-fn impl item (assoc-type/const). Discard any sweep doc
+                // since assoc-type/const docs are deferred to Phase A.3.
+                pending_doc_.clear();
             }
         }
+        pending_doc_.clear();
     }
     // Lower default methods from the trait that weren't overridden.
     if (!trait_name.empty()) {

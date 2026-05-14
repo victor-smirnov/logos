@@ -1302,7 +1302,7 @@ private:
 
     // ── Module-level symbol tables ───────────────────────────────
 
-    struct SemaFieldInfo  { std::string_view name; TypeRef type; bool is_pub = false; bool is_variadic = false; };
+    struct SemaFieldInfo  { std::string_view name; TypeRef type; bool is_pub = false; bool is_variadic = false; std::string doc; };
     struct SemaStructInfo { std::vector<SemaFieldInfo> fields; std::vector<TypeParam> type_params;
                             std::vector<std::string> lifetime_params;
                             // B77: declared `where 'a: 'b` outlives pairs on the
@@ -1358,6 +1358,7 @@ private:
         std::vector<std::string> payload_field_names;
         bool is_variadic = false;                     // variadic pack payload (...T)
         bool is_struct_shape = false;                 // P4-pm-01: marker for struct-shape variants
+        std::string doc;     // Phase A.2: outer `///` doc-comment
     };
     struct SemaEnumInfo   {
         std::vector<SemaVariantInfo> variants;
@@ -1377,6 +1378,7 @@ private:
         bool is_unsafe = false;     // declared unsafe fn in trait
         hermes::AnyVal default_ast{};    // AST node for default method (valid when has_default)
         hermes::MemHolder* default_holder = nullptr;  // zone that owns default_ast
+        std::string doc;     // Phase A.2: outer `///` doc-comment
     };
     struct SemaAssocTypeInfo {
         std::string name;              // e.g. "Item"
@@ -1457,6 +1459,17 @@ private:
         std::string d = std::move(pending_doc_);
         pending_doc_.clear();
         return d;
+    }
+    // Phase A.2: append a single `///` line (raw token text, prefix
+    // included) to the supplied buffer. Strips `///` + one optional space
+    // and joins with `\n`. Used by the field/variant/method/impl-item
+    // iteration loops where doc-lines are interleaved with real members.
+    static void append_doc_line(std::string& buf, std::string_view raw) {
+        std::string_view stripped = raw.size() >= 3 ? raw.substr(3) : std::string_view{};
+        if (!stripped.empty() && stripped.front() == ' ')
+            stripped.remove_prefix(1);
+        if (!buf.empty()) buf.push_back('\n');
+        buf.append(stripped);
     }
     // Set true when the trait being collected has a `#[type_code]` annotation.
     // collect_trait reads + clears it; SemaTraitInfo.is_hermes carries the

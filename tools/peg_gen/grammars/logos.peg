@@ -463,6 +463,19 @@
     doc_line_decl <- DOC_LINE
                   => { CODE: DOC_LINE_LIT, VALUE: $1 }
 
+    // Phase A.2 alias rules: a body-element slot that admits either a real
+    // member (field/variant/method/impl_item) or a DOC_LINE_LIT spacer. The
+    // DOC_LINE_LIT entries land mixed into the captured array; sema iterates
+    // and accumulates pending_doc per element. NOTE: PEG is greedy and
+    // engine has no lookahead, so a doc-comment that visually precedes the
+    // FIRST method inside a struct body lands in the FIELDS capture (eaten
+    // by `field_def_or_doc*`). sema carries trailing-FIELDS docs over into
+    // the methods iteration to keep "doc binds to the next member" intuitive.
+    field_def_or_doc        <- doc_line_decl / field_def
+    method_def_or_doc       <- doc_line_decl / method_def
+    trait_method_or_doc     <- doc_line_decl / trait_method
+    impl_item_or_doc        <- doc_line_decl / impl_item
+
     // Slice 6 of fn-macros — item-position macro invocation. Brace
     // delimiter only (parens / brackets stay at expression position).
     // RAW_TEXT capture identical to FN_MACRO_CALL; sema dispatches
@@ -616,7 +629,7 @@
               / KW_ENUM IDENT type_param_list? where_clause? LBRACE variant_list? RBRACE
              => { CODE: ENUM, NAME: $2, TYPE_PARAMS: $3, WHERE: $4, ITEMS: $6 }
 
-    variant_list <- variant_def (COMMA variant_def)* COMMA?
+    variant_list <- doc_line_decl* variant_def (COMMA doc_line_decl* variant_def)* COMMA?
                  => { ITEMS: $... }
 
 
@@ -677,54 +690,54 @@
     // GENOS_DEF AST code retained for the upcoming spec form.
     trait_kw <- KW_TRAIT
 
-    pub_trait_def <- KW_PUB KW_AUTO trait_kw IDENT type_param_list super_list LBRACE trait_method* RBRACE
+    pub_trait_def <- KW_PUB KW_AUTO trait_kw IDENT type_param_list super_list LBRACE trait_method_or_doc* RBRACE
                   => { CODE: TRAIT_DEF, IS_PUB: 1, IS_AUTO: 1, NAME: $4, TYPE_PARAMS: $5, SUPERS: $6, ITEMS: $... }
-                  / KW_PUB KW_AUTO trait_kw IDENT type_param_list LBRACE trait_method* RBRACE
+                  / KW_PUB KW_AUTO trait_kw IDENT type_param_list LBRACE trait_method_or_doc* RBRACE
                   => { CODE: TRAIT_DEF, IS_PUB: 1, IS_AUTO: 1, NAME: $4, TYPE_PARAMS: $5, ITEMS: $... }
-                  / KW_PUB KW_AUTO trait_kw IDENT super_list LBRACE trait_method* RBRACE
+                  / KW_PUB KW_AUTO trait_kw IDENT super_list LBRACE trait_method_or_doc* RBRACE
                   => { CODE: TRAIT_DEF, IS_PUB: 1, IS_AUTO: 1, NAME: $4, SUPERS: $5, ITEMS: $... }
-                  / KW_PUB KW_AUTO trait_kw IDENT LBRACE trait_method* RBRACE
+                  / KW_PUB KW_AUTO trait_kw IDENT LBRACE trait_method_or_doc* RBRACE
                   => { CODE: TRAIT_DEF, IS_PUB: 1, IS_AUTO: 1, NAME: $4, ITEMS: $... }
-                  / KW_PUB KW_UNSAFE trait_kw IDENT type_param_list super_list LBRACE trait_method* RBRACE
+                  / KW_PUB KW_UNSAFE trait_kw IDENT type_param_list super_list LBRACE trait_method_or_doc* RBRACE
                   => { CODE: TRAIT_DEF, IS_PUB: 1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, SUPERS: $6, ITEMS: $... }
-                  / KW_PUB KW_UNSAFE trait_kw IDENT type_param_list LBRACE trait_method* RBRACE
+                  / KW_PUB KW_UNSAFE trait_kw IDENT type_param_list LBRACE trait_method_or_doc* RBRACE
                   => { CODE: TRAIT_DEF, IS_PUB: 1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, ITEMS: $... }
-                  / KW_PUB KW_UNSAFE trait_kw IDENT super_list LBRACE trait_method* RBRACE
+                  / KW_PUB KW_UNSAFE trait_kw IDENT super_list LBRACE trait_method_or_doc* RBRACE
                   => { CODE: TRAIT_DEF, IS_PUB: 1, IS_UNSAFE: 1, NAME: $4, SUPERS: $5, ITEMS: $... }
-                  / KW_PUB KW_UNSAFE trait_kw IDENT LBRACE trait_method* RBRACE
+                  / KW_PUB KW_UNSAFE trait_kw IDENT LBRACE trait_method_or_doc* RBRACE
                   => { CODE: TRAIT_DEF, IS_PUB: 1, IS_UNSAFE: 1, NAME: $4, ITEMS: $... }
-                  / KW_PUB trait_kw IDENT type_param_list super_list LBRACE trait_method* RBRACE
+                  / KW_PUB trait_kw IDENT type_param_list super_list LBRACE trait_method_or_doc* RBRACE
                   => { CODE: TRAIT_DEF, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, SUPERS: $5, ITEMS: $... }
-                  / KW_PUB trait_kw IDENT type_param_list LBRACE trait_method* RBRACE
+                  / KW_PUB trait_kw IDENT type_param_list LBRACE trait_method_or_doc* RBRACE
                   => { CODE: TRAIT_DEF, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, ITEMS: $... }
-                  / KW_PUB trait_kw IDENT super_list LBRACE trait_method* RBRACE
+                  / KW_PUB trait_kw IDENT super_list LBRACE trait_method_or_doc* RBRACE
                   => { CODE: TRAIT_DEF, IS_PUB: 1, NAME: $3, SUPERS: $4, ITEMS: $... }
-                  / KW_PUB trait_kw IDENT LBRACE trait_method* RBRACE
+                  / KW_PUB trait_kw IDENT LBRACE trait_method_or_doc* RBRACE
                   => { CODE: TRAIT_DEF, IS_PUB: 1, NAME: $3, ITEMS: $... }
 
-    trait_def <- KW_AUTO trait_kw IDENT type_param_list super_list LBRACE trait_method* RBRACE
+    trait_def <- KW_AUTO trait_kw IDENT type_param_list super_list LBRACE trait_method_or_doc* RBRACE
               => { CODE: TRAIT_DEF, IS_AUTO: 1, NAME: $3, TYPE_PARAMS: $4, SUPERS: $5, ITEMS: $... }
-              / KW_AUTO trait_kw IDENT type_param_list LBRACE trait_method* RBRACE
+              / KW_AUTO trait_kw IDENT type_param_list LBRACE trait_method_or_doc* RBRACE
               => { CODE: TRAIT_DEF, IS_AUTO: 1, NAME: $3, TYPE_PARAMS: $4, ITEMS: $... }
-              / KW_AUTO trait_kw IDENT super_list LBRACE trait_method* RBRACE
+              / KW_AUTO trait_kw IDENT super_list LBRACE trait_method_or_doc* RBRACE
               => { CODE: TRAIT_DEF, IS_AUTO: 1, NAME: $3, SUPERS: $4, ITEMS: $... }
-              / KW_AUTO trait_kw IDENT LBRACE trait_method* RBRACE
+              / KW_AUTO trait_kw IDENT LBRACE trait_method_or_doc* RBRACE
               => { CODE: TRAIT_DEF, IS_AUTO: 1, NAME: $3, ITEMS: $... }
-              / KW_UNSAFE trait_kw IDENT type_param_list super_list LBRACE trait_method* RBRACE
+              / KW_UNSAFE trait_kw IDENT type_param_list super_list LBRACE trait_method_or_doc* RBRACE
               => { CODE: TRAIT_DEF, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, SUPERS: $5, ITEMS: $... }
-              / KW_UNSAFE trait_kw IDENT type_param_list LBRACE trait_method* RBRACE
+              / KW_UNSAFE trait_kw IDENT type_param_list LBRACE trait_method_or_doc* RBRACE
               => { CODE: TRAIT_DEF, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, ITEMS: $... }
-              / KW_UNSAFE trait_kw IDENT super_list LBRACE trait_method* RBRACE
+              / KW_UNSAFE trait_kw IDENT super_list LBRACE trait_method_or_doc* RBRACE
               => { CODE: TRAIT_DEF, IS_UNSAFE: 1, NAME: $3, SUPERS: $4, ITEMS: $... }
-              / KW_UNSAFE trait_kw IDENT LBRACE trait_method* RBRACE
+              / KW_UNSAFE trait_kw IDENT LBRACE trait_method_or_doc* RBRACE
               => { CODE: TRAIT_DEF, IS_UNSAFE: 1, NAME: $3, ITEMS: $... }
-              / trait_kw IDENT type_param_list super_list LBRACE trait_method* RBRACE
+              / trait_kw IDENT type_param_list super_list LBRACE trait_method_or_doc* RBRACE
               => { CODE: TRAIT_DEF, NAME: $2, TYPE_PARAMS: $3, SUPERS: $4, ITEMS: $... }
-              / trait_kw IDENT type_param_list LBRACE trait_method* RBRACE
+              / trait_kw IDENT type_param_list LBRACE trait_method_or_doc* RBRACE
               => { CODE: TRAIT_DEF, NAME: $2, TYPE_PARAMS: $3, ITEMS: $... }
-              / trait_kw IDENT super_list LBRACE trait_method* RBRACE
+              / trait_kw IDENT super_list LBRACE trait_method_or_doc* RBRACE
               => { CODE: TRAIT_DEF, NAME: $2, SUPERS: $3, ITEMS: $... }
-              / trait_kw IDENT LBRACE trait_method* RBRACE
+              / trait_kw IDENT LBRACE trait_method_or_doc* RBRACE
               => { CODE: TRAIT_DEF, NAME: $2, ITEMS: $... }
 
     trait_method <- KW_UNSAFE KW_FN IDENT type_param_list LPAREN param_list? RPAREN ARROW type_ref block
@@ -789,25 +802,25 @@
     // B67: each alt admits an optional `where_clause?` between the impl
     // target type and the opening brace, captured into WHERE (slot 38,
     // shared with fn-level WHERE).
-    impl_block <- KW_UNSAFE KW_IMPL type_param_list IDENT LT type_arg_list GT_TYPE KW_FOR simple_type where_clause? LBRACE impl_item* RBRACE
+    impl_block <- KW_UNSAFE KW_IMPL type_param_list IDENT LT type_arg_list GT_TYPE KW_FOR simple_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, IMPL_TYPE_PARAMS: $3, NAME: $4, TYPE_PARAMS: $6, TYPE: $9, WHERE: $10, ITEMS: $... }
-                / KW_UNSAFE KW_IMPL type_param_list IDENT KW_FOR ptr_type where_clause? LBRACE impl_item* RBRACE
+                / KW_UNSAFE KW_IMPL type_param_list IDENT KW_FOR ptr_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, IMPL_TYPE_PARAMS: $3, NAME: $4, TYPE: $6, WHERE: $7, ITEMS: $... }
-                / KW_UNSAFE KW_IMPL type_param_list IDENT KW_FOR ref_type where_clause? LBRACE impl_item* RBRACE
+                / KW_UNSAFE KW_IMPL type_param_list IDENT KW_FOR ref_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, IMPL_TYPE_PARAMS: $3, NAME: $4, TYPE: $6, WHERE: $7, ITEMS: $... }
-                / KW_UNSAFE KW_IMPL type_param_list IDENT KW_FOR simple_type where_clause? LBRACE impl_item* RBRACE
+                / KW_UNSAFE KW_IMPL type_param_list IDENT KW_FOR simple_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, IMPL_TYPE_PARAMS: $3, NAME: $4, TYPE: $6, WHERE: $7, ITEMS: $... }
-                / KW_UNSAFE KW_IMPL IDENT LT type_arg_list GT_TYPE KW_FOR simple_type where_clause? LBRACE impl_item* RBRACE
+                / KW_UNSAFE KW_IMPL IDENT LT type_arg_list GT_TYPE KW_FOR simple_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $5, TYPE: $8, WHERE: $9, ITEMS: $... }
-                / KW_UNSAFE KW_IMPL IDENT KW_FOR ptr_type where_clause? LBRACE impl_item* RBRACE
+                / KW_UNSAFE KW_IMPL IDENT KW_FOR ptr_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, NAME: $3, TYPE: $5, WHERE: $6, ITEMS: $... }
-                / KW_UNSAFE KW_IMPL IDENT KW_FOR ref_type where_clause? LBRACE impl_item* RBRACE
+                / KW_UNSAFE KW_IMPL IDENT KW_FOR ref_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, NAME: $3, TYPE: $5, WHERE: $6, ITEMS: $... }
-                / KW_UNSAFE KW_IMPL IDENT KW_FOR simple_type where_clause? LBRACE impl_item* RBRACE
+                / KW_UNSAFE KW_IMPL IDENT KW_FOR simple_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, NAME: $3, TYPE: $5, WHERE: $6, ITEMS: $... }
-                / KW_UNSAFE KW_IMPL type_param_list simple_type where_clause? LBRACE impl_item* RBRACE
+                / KW_UNSAFE KW_IMPL type_param_list simple_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, TYPE_PARAMS: $3, TYPE: $4, WHERE: $5, ITEMS: $... }
-                / KW_UNSAFE KW_IMPL simple_type where_clause? LBRACE impl_item* RBRACE
+                / KW_UNSAFE KW_IMPL simple_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, TYPE: $3, WHERE: $4, ITEMS: $... }
                 // Negative impls: `impl !Trait for Type {}` (empty body).
                 / KW_IMPL type_param_list BANG IDENT KW_FOR simple_type where_clause? LBRACE RBRACE
@@ -822,15 +835,15 @@
                => { CODE: IMPL_BLOCK, IS_NEGATIVE: 1, NAME: $3, TYPE: $5, WHERE: $6 }
                 / KW_IMPL BANG IDENT KW_FOR ref_type where_clause? LBRACE RBRACE
                => { CODE: IMPL_BLOCK, IS_NEGATIVE: 1, NAME: $3, TYPE: $5, WHERE: $6 }
-                / KW_IMPL type_param_list IDENT LT type_arg_list GT_TYPE KW_FOR simple_type where_clause? LBRACE impl_item* RBRACE
+                / KW_IMPL type_param_list IDENT LT type_arg_list GT_TYPE KW_FOR simple_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE_PARAMS: $5, TYPE: $8, WHERE: $9, ITEMS: $... }
-                / KW_IMPL type_param_list IDENT LT type_arg_list GT_TYPE KW_FOR ref_type where_clause? LBRACE impl_item* RBRACE
+                / KW_IMPL type_param_list IDENT LT type_arg_list GT_TYPE KW_FOR ref_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE_PARAMS: $5, TYPE: $8, WHERE: $9, ITEMS: $... }
-                / KW_IMPL type_param_list IDENT KW_FOR ptr_type where_clause? LBRACE impl_item* RBRACE
+                / KW_IMPL type_param_list IDENT KW_FOR ptr_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE: $5, WHERE: $6, ITEMS: $... }
-                / KW_IMPL type_param_list IDENT KW_FOR ref_type where_clause? LBRACE impl_item* RBRACE
+                / KW_IMPL type_param_list IDENT KW_FOR ref_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE: $5, WHERE: $6, ITEMS: $... }
-                / KW_IMPL type_param_list IDENT KW_FOR simple_type where_clause? LBRACE impl_item* RBRACE
+                / KW_IMPL type_param_list IDENT KW_FOR simple_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE: $5, WHERE: $6, ITEMS: $... }
                 // Phase 1B-10: bare unsized self-types — `impl<T> Trait for [T]`
                 // and `impl Trait for dyn Foo`. arr_type matches bare `[T]`
@@ -838,28 +851,28 @@
                 // `dyn Trait` (legacy DYN_TYPE). These alts come BEFORE the
                 // simple_type fallback so bare-bracket/dyn shapes match here
                 // instead of being mis-parsed as IDENTs.
-                / KW_IMPL type_param_list IDENT KW_FOR arr_type where_clause? LBRACE impl_item* RBRACE
+                / KW_IMPL type_param_list IDENT KW_FOR arr_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE: $5, WHERE: $6, ITEMS: $... }
-                / KW_IMPL type_param_list IDENT KW_FOR dyn_type where_clause? LBRACE impl_item* RBRACE
+                / KW_IMPL type_param_list IDENT KW_FOR dyn_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE: $5, WHERE: $6, ITEMS: $... }
-                / KW_IMPL IDENT LT type_arg_list GT_TYPE KW_FOR simple_type where_clause? LBRACE impl_item* RBRACE
+                / KW_IMPL IDENT LT type_arg_list GT_TYPE KW_FOR simple_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE_PARAMS: $4, TYPE: $7, WHERE: $8, ITEMS: $... }
-                / KW_IMPL IDENT LT type_arg_list GT_TYPE KW_FOR ref_type where_clause? LBRACE impl_item* RBRACE
+                / KW_IMPL IDENT LT type_arg_list GT_TYPE KW_FOR ref_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE_PARAMS: $4, TYPE: $7, WHERE: $8, ITEMS: $... }
-                / KW_IMPL IDENT KW_FOR ptr_type where_clause? LBRACE impl_item* RBRACE
+                / KW_IMPL IDENT KW_FOR ptr_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE: $4, WHERE: $5, ITEMS: $... }
-                / KW_IMPL IDENT KW_FOR ref_type where_clause? LBRACE impl_item* RBRACE
+                / KW_IMPL IDENT KW_FOR ref_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE: $4, WHERE: $5, ITEMS: $... }
-                / KW_IMPL IDENT KW_FOR arr_type where_clause? LBRACE impl_item* RBRACE
+                / KW_IMPL IDENT KW_FOR arr_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE: $4, WHERE: $5, ITEMS: $... }
-                / KW_IMPL IDENT KW_FOR dyn_type where_clause? LBRACE impl_item* RBRACE
+                / KW_IMPL IDENT KW_FOR dyn_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE: $4, WHERE: $5, ITEMS: $... }
-                / KW_IMPL IDENT KW_FOR simple_type where_clause? LBRACE impl_item* RBRACE
+                / KW_IMPL IDENT KW_FOR simple_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE: $4, WHERE: $5, ITEMS: $... }
                 // impl<T> Pair<T> { ... } — standalone impl with own type parameters
-                / KW_IMPL type_param_list simple_type where_clause? LBRACE impl_item* RBRACE
+                / KW_IMPL type_param_list simple_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, TYPE_PARAMS: $2, TYPE: $3, WHERE: $4, ITEMS: $... }
-                / KW_IMPL simple_type where_clause? LBRACE impl_item* RBRACE
+                / KW_IMPL simple_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, TYPE: $2, WHERE: $3, ITEMS: $... }
 
     // impl_item: method, associated type, or associated constant definition
@@ -902,10 +915,10 @@
                   => { CODE: STATIC_FN, NAME: $3, PARAMS: $5, BODY: $7 }
 
     // ── Datatype definition (Hermes — C POD layout, no heap types) ──
-    pub_datatype_def <- KW_PUB KW_EIDOS IDENT type_param_list? LBRACE field_def* RBRACE
+    pub_datatype_def <- KW_PUB KW_EIDOS IDENT type_param_list? LBRACE field_def_or_doc* RBRACE
                      => { CODE: DATATYPE, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, FIELDS: $6 }
 
-    datatype_def <- KW_EIDOS IDENT type_param_list? LBRACE field_def* RBRACE
+    datatype_def <- KW_EIDOS IDENT type_param_list? LBRACE field_def_or_doc* RBRACE
                  => { CODE: DATATYPE, NAME: $2, TYPE_PARAMS: $3, FIELDS: $5 }
 
     // ── Explicit instantiation declarations (no body) ────────────
@@ -939,22 +952,22 @@
     // so where-clauses are only accepted on the IDENT-NAME alternatives —
     // the antiquot (NAME_VAR / HASH-prefixed) alts never carry where in
     // practice, and emitting both would collide on the slot.
-    pub_struct_def <- KW_PUB KW_STRUCT HASH LPAREN expr RPAREN type_param_list? LBRACE field_def* method_def* RBRACE
+    pub_struct_def <- KW_PUB KW_STRUCT HASH LPAREN expr RPAREN type_param_list? LBRACE field_def_or_doc* method_def_or_doc* RBRACE
                    => { CODE: STRUCT, IS_PUB: 1, NAME_VAR: $5, TYPE_PARAMS: $7, FIELDS: $9, ITEMS: $10 }
-                    / KW_PUB KW_STRUCT HASH IDENT type_param_list? LBRACE field_def* method_def* RBRACE
+                    / KW_PUB KW_STRUCT HASH IDENT type_param_list? LBRACE field_def_or_doc* method_def_or_doc* RBRACE
                    => { CODE: STRUCT, IS_PUB: 1, NAME_VAR: $4, TYPE_PARAMS: $5, FIELDS: $7, ITEMS: $8 }
-                    / KW_PUB KW_STRUCT IDENT type_param_list? where_clause? LBRACE field_def* method_def* RBRACE
+                    / KW_PUB KW_STRUCT IDENT type_param_list? where_clause? LBRACE field_def_or_doc* method_def_or_doc* RBRACE
                    => { CODE: STRUCT, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, WHERE: $5, FIELDS: $7, ITEMS: $8 }
                     / KW_PUB KW_STRUCT IDENT type_param_list? LPAREN tuple_field (COMMA tuple_field)* RPAREN SEMI
                    => { CODE: STRUCT, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, FIELDS: $... }
 
-    struct_def <- KW_STRUCT HASH LPAREN expr RPAREN type_param_list? LBRACE field_def* method_def* RBRACE
+    struct_def <- KW_STRUCT HASH LPAREN expr RPAREN type_param_list? LBRACE field_def_or_doc* method_def_or_doc* RBRACE
                => { CODE: STRUCT, NAME_VAR: $4, TYPE_PARAMS: $6, FIELDS: $8, ITEMS: $9 }
-                / KW_STRUCT HASH IDENT type_param_list? LBRACE field_def* method_def* RBRACE
+                / KW_STRUCT HASH IDENT type_param_list? LBRACE field_def_or_doc* method_def_or_doc* RBRACE
                => { CODE: STRUCT, NAME_VAR: $3, TYPE_PARAMS: $4, FIELDS: $6, ITEMS: $7 }
                 / KW_STRUCT IDENT type_param_list? LPAREN tuple_field (COMMA tuple_field)* RPAREN SEMI
                => { CODE: STRUCT, NAME: $2, TYPE_PARAMS: $3, FIELDS: $... }
-                / KW_STRUCT IDENT type_param_list? where_clause? LBRACE field_def* method_def* RBRACE
+                / KW_STRUCT IDENT type_param_list? where_clause? LBRACE field_def_or_doc* method_def_or_doc* RBRACE
                => { CODE: STRUCT, NAME: $2, TYPE_PARAMS: $3, WHERE: $4, FIELDS: $6, ITEMS: $7 }
 
     // B-ts-01: tuple-struct fields — types only, no field names.

@@ -4834,13 +4834,13 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             prog.enums.push_back(std::move(ed));
         }
         else if (c == la::FN || c == la::EXTERN_FN) {
+            // lower_fn / lower_spec_fn read pending_doc_ at entry — no
+            // post-hoc assignment needed.
             if (is_specialization_fn(item)) {
                 auto fp = std::make_unique<lir::LFunction>(lower_spec_fn(item));
-                fp->doc = take_pending_doc();
                 prog.specializations.push_back(std::move(fp));
             } else {
                 auto fp = std::make_unique<lir::LFunction>(lower_fn(item));
-                fp->doc = take_pending_doc();
                 prog.functions.push_back(std::move(fp));
             }
         }

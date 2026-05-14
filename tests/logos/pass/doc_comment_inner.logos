@@ -1,0 +1,44 @@
+// Phase A.2: outer `///` doc-comments accepted at field / variant /
+// trait-method / impl-method positions. Sema stores them in
+// LField.doc / LVariant.doc / LTraitMethodSig.doc / LFunction.doc.
+// No language-visible behaviour — this test pins down acceptance.
+
+package x;
+
+pub struct Foo {
+    /// First field.
+    pub x: i64,
+    /// Second field, multi-line doc.
+    /// Continuation.
+    pub y: i64,
+}
+
+pub enum E {
+    /// Variant A.
+    A,
+    /// Variant B.
+    B,
+    /// Variant C carries an i64 payload.
+    C(i64),
+}
+
+pub trait T {
+    /// Identity method.
+    fn id(&self) -> i64;
+    /// Multiplier (default body).
+    /// Returns x * 2.
+    fn double_id(&self) -> i64 { self.id() + self.id() }
+}
+
+impl T for Foo {
+    /// Returns Foo.x.
+    fn id(&self) -> i64 { self.x }
+    /// Returns Foo.x + Foo.y.
+    fn double_id(&self) -> i64 { self.x + self.y }
+}
+
+unsafe fn main() -> i32 {
+    let f = Foo { x: 1, y: 2 };
+    let r: i64 = f.double_id();
+    return (r - 3) as i32;
+}

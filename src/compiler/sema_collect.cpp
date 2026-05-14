@@ -993,8 +993,13 @@ void SemaChecker::collect_enum(TinyMapView node) {
             auto list = map_of(av);
             if (list.has_key(la::ITEMS)) {
                 auto variants = arr_of(list.get(la::ITEMS.code));
+                std::string variant_sweep_doc;
                 for (uint64_t i = 0; i < variants.size(); ++i) {
                     auto v = map_of(variants.get(i));
+                    if (code_of(v) == la::DOC_LINE_LIT) {
+                        append_doc_line(variant_sweep_doc, str_of(v.get(la::VALUE.code)));
+                        continue;
+                    }
                     auto vname = str_of(v.get(la::NAME.code));
                     int64_t vval = next_val;
                     if (v.has_key(la::VALUE)) {
@@ -1037,7 +1042,9 @@ void SemaChecker::collect_enum(TinyMapView node) {
                                         ref_enum, ref_variant));
                             }
                             // payload check skipped — xref node has no payload list
-                            info.variants.push_back({vname, vval, {}, {}, false, false});
+                            info.variants.push_back({vname, vval, {}, {}, false, false,
+                                                     std::move(variant_sweep_doc)});
+                            variant_sweep_doc.clear();
                             next_val = vval + 1;
                             continue;
                         }
@@ -1130,7 +1137,9 @@ void SemaChecker::collect_enum(TinyMapView node) {
                     }
                     info.variants.push_back({vname, vval, std::move(payload),
                                              std::move(payload_names),
-                                             is_var, is_struct_shape});
+                                             is_var, is_struct_shape,
+                                             std::move(variant_sweep_doc)});
+                    variant_sweep_doc.clear();
                     next_val = vval + 1;
                 }
             }
@@ -1407,11 +1416,19 @@ void SemaChecker::collect_trait(TinyMapView node) {
     }
     if (node.has_key(la::ITEMS)) {
         auto items = arr_of(node.get(la::ITEMS.code));
+        std::string trait_method_sweep_doc;
         for (uint64_t i = 0; i < items.size(); ++i) {
             auto m = map_of(items.get(i));
+            if (code_of(m) == la::DOC_LINE_LIT) {
+                append_doc_line(trait_method_sweep_doc, str_of(m.get(la::VALUE.code)));
+                continue;
+            }
             if (code_of(m) == la::ASSOC_TYPE_DEF) {
                 SemaAssocTypeInfo at;
                 at.name = std::string(str_of(m.get(la::NAME.code)));
+                // Assoc-type docs: not stored on SemaAssocTypeInfo yet —
+                // drop accumulated sweep_doc here. Phase A.3 follow-up.
+                trait_method_sweep_doc.clear();
                 // GAT: read the assoc type's own type params (e.g. type Item<T>)
                 at.type_params = read_type_params(m);
                 push_type_params(at.type_params);
@@ -1436,11 +1453,14 @@ void SemaChecker::collect_trait(TinyMapView node) {
                 if (m.has_key(la::TYPE))
                     ac.type = resolve_type(map_of(m.get(la::TYPE.code)));
                 info.assoc_consts.push_back(std::move(ac));
+                trait_method_sweep_doc.clear();
                 continue;
             }
             if (code_of(m) != la::FN) continue;
             SemaTraitMethodInfo mi;
             mi.name = std::string(str_of(m.get(la::NAME.code)));
+            mi.doc = std::move(trait_method_sweep_doc);
+            trait_method_sweep_doc.clear();
             // Method-level type params: `fn hash<H: Hasher>(...)`. Push them on the
             // scope stack so resolve_type() can see H inside param/ret types.
             if (m.has_key(la::TYPE_PARAMS)) {
@@ -1893,8 +1913,15 @@ void SemaChecker::collect_impl(TinyMapView node) {
     // Skip if already registered (e.g. class methods defined inline).
     if (node.has_key(la::ITEMS)) {
         auto items = arr_of(node.get(la::ITEMS.code));
+        // Phase A.2: sweep doc-lines into pending_doc_ so the next
+        // collect_fn invocation picks them up via take_pending_doc().
+        pending_doc_.clear();
         for (uint64_t i = 0; i < items.size(); ++i) {
             auto m = map_of(items.get(i));
+            if (code_of(m) == la::DOC_LINE_LIT) {
+                append_doc_line(pending_doc_, str_of(m.get(la::VALUE.code)));
+                continue;
+            }
             if (code_of(m) == la::FN || code_of(m) == la::STATIC_FN) {
                 auto mname = std::string(str_of(m.get(la::NAME.code)));
                 // Blanket impls use a synthetic target name so the method
@@ -1997,6 +2024,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 auto atype = resolve_type(map_of(m.get(la::TYPE.code)));
                 pop_type_params(gat_tps);
                 assoc_type_impls_[key] = { atype, impl_tps, gat_tps };
+                pending_doc_.clear();
             } else if (code_of(m) == la::ASSOC_CONST_IMPL) {
                 auto cname = std::string(str_of(m.get(la::NAME.code)));
                 if (trait_name.empty()) {
@@ -2028,8 +2056,12 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     std::string key = trait_name + "::" + target + "::" + cname;
                     assoc_const_impls_[key] = { ctype, m.get(la::VALUE) };  // Bug 1 fix: no .code
                 }
+                pending_doc_.clear();
             }
         }
+        // Defensive: clear pending_doc_ at end of impl-body iteration so
+        // it doesn't leak into the surrounding collect_module loop.
+        pending_doc_.clear();
     }
     // If this is a blanket impl with no fn methods (only assoc-types), the
     // items loop didn't push anything to blanket_impls_. Push a marker
@@ -2285,16 +2317,23 @@ void SemaChecker::collect_struct_spec(TinyMapView node) {
     info.package = cur_package_;
     info.base_name = sname;
     info.spec_patterns = spec_patterns;
+    std::string spec_field_sweep_doc;
     if (node.has_key(la::FIELDS)) {
         auto fields = arr_of(node.get(la::FIELDS.code));
         for (uint64_t i = 0; i < fields.size(); ++i) {
             auto fnode = map_of(fields.get(i));
+            if (code_of(fnode) == la::DOC_LINE_LIT) {
+                append_doc_line(spec_field_sweep_doc, str_of(fnode.get(la::VALUE.code)));
+                continue;
+            }
+            if (code_of(fnode) != la::FIELD_DEF) continue;
             auto fname = str_of(fnode.get(la::NAME.code));
             auto ftype = resolve_type(map_of(fnode.get(la::TYPE.code)));
             bool fpub = fnode.has_key(la::IS_PUB) &&
                         fnode.get(la::IS_PUB.code).is_value() &&
                         fnode.get(la::IS_PUB.code).as_value<uint8_t>() != 0;
-            info.fields.push_back({fname, ftype, fpub});
+            info.fields.push_back({fname, ftype, fpub, false, std::move(spec_field_sweep_doc)});
+            spec_field_sweep_doc.clear();
         }
     }
     struct_specs_sema_[std::move(concrete)] = std::move(info);
@@ -2319,10 +2358,16 @@ void SemaChecker::collect_datatype(TinyMapView node, bool is_annotation_type) {
         info.is_pub = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
     }
     push_type_params(info.type_params);
+    std::string dt_field_sweep_doc;
     if (node.has_key(la::FIELDS)) {
         auto fields = arr_of(node.get(la::FIELDS.code));
         for (uint64_t i = 0; i < fields.size(); ++i) {
             auto fnode = map_of(fields.get(i));
+            if (code_of(fnode) == la::DOC_LINE_LIT) {
+                append_doc_line(dt_field_sweep_doc, str_of(fnode.get(la::VALUE.code)));
+                continue;
+            }
+            if (code_of(fnode) != la::FIELD_DEF) continue;
             auto fname = str_of(fnode.get(la::NAME.code));
             auto ftype = resolve_type(map_of(fnode.get(la::TYPE.code)));
             bool fpub = fnode.has_key(la::IS_PUB) &&
@@ -2391,7 +2436,8 @@ void SemaChecker::collect_datatype(TinyMapView node, bool is_annotation_type) {
             };
             if (marks_data_node(ftype))
                 info.is_data_plain = false;
-            info.fields.push_back({fname, ftype, fpub, false});
+            info.fields.push_back({fname, ftype, fpub, false, std::move(dt_field_sweep_doc)});
+            dt_field_sweep_doc.clear();
         }
     }
     auto dkey = sema_key(cur_package_, dname);
@@ -2440,6 +2486,10 @@ void SemaChecker::collect_struct(TinyMapView node) {
             break;
         }
     }
+    // Phase A.2: leftover doc-comment after the FIELDS loop carries over
+    // into the methods iteration (greedy `field_def_or_doc*` matcher eats
+    // a doc that visually preceded the first method).
+    std::string field_sweep_doc;
     if (node.has_key(la::FIELDS)) {
         auto fields = arr_of(node.get(la::FIELDS.code));
         // Phase 1B-13: identify the LAST real FIELD_DEF (custom-DST support
@@ -2452,6 +2502,10 @@ void SemaChecker::collect_struct(TinyMapView node) {
         uint64_t synth_idx = 0;
         for (uint64_t i = 0; i < fields.size(); ++i) {
             auto fnode = map_of(fields.get(i));
+            if (code_of(fnode) == la::DOC_LINE_LIT) {
+                append_doc_line(field_sweep_doc, str_of(fnode.get(la::VALUE.code)));
+                continue;
+            }
             if (!is_field_def(fnode)) continue;
             const uint64_t i_for_synth = synth_idx++;
             // B-ts-01: tuple-struct fields have no NAME slot; synthesise
@@ -2489,7 +2543,8 @@ void SemaChecker::collect_struct(TinyMapView node) {
                 AnyVal av = fnode.get(la::IS_VARIADIC.code);
                 fvar = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
             }
-            info.fields.push_back({fname, ftype, fpub, fvar});
+            info.fields.push_back({fname, ftype, fpub, fvar, std::move(field_sweep_doc)});
+            field_sweep_doc.clear();
         }
     }
     auto skey = sema_key(cur_package_, sname);
@@ -2497,9 +2552,17 @@ void SemaChecker::collect_struct(TinyMapView node) {
     // Methods must be collected with the struct's type params in scope.
     if (node.has_key(la::ITEMS)) {
         auto methods = arr_of(node.get(la::ITEMS.code));
+        // Phase A.2: carry any doc that the greedy FIELDS matcher ate from
+        // immediately before the first method. collect_fn consumes pending_doc_
+        // at its top.
+        pending_doc_ = std::move(field_sweep_doc);
         for (uint64_t m = 0; m < methods.size(); ++m) {
             auto method = map_of(methods.get(m));
             int32_t mc = code_of(method);
+            if (mc == la::DOC_LINE_LIT) {
+                append_doc_line(pending_doc_, str_of(method.get(la::VALUE.code)));
+                continue;
+            }
             if (mc == la::FN || mc == la::STATIC_FN) collect_fn(method, sname);
         }
     }
@@ -2718,6 +2781,7 @@ lir::LFunction SemaChecker::lower_spec_fn(TinyMapView node) {
 
     lir::LFunction fn;
     fn.name = std::string(raw_name);
+    fn.doc  = take_pending_doc();
     fn.is_specialization = true;
 
     // Parse spec type-param list: populate fn.spec_patterns and scope TypeVars.
