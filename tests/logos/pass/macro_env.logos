@@ -1,0 +1,12 @@
+package macro_env;
+use std.lang.text;
+
+fn main() -> i32 {
+    // PATH is virtually guaranteed in CI/dev envs.
+    let p: str = env!("PATH");
+    if p.len() == 0i64 { return 1i32; }
+    // option_env! of a definitely-unset var returns empty str (tombstone).
+    let missing: str = option_env!("__LOGOS_DEFINITELY_UNSET_VAR_42__");
+    if missing.len() != 0i64 { return 2i32; }
+    return 0i32;
+}

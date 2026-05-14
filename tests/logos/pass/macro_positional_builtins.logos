@@ -1,0 +1,16 @@
+// MC-mc-03: line!() / column!() / file!() / module_path!() builtins.
+package macro_positional_builtins;
+use std.lang.text;
+
+fn main() -> i32 {
+    let l: u32 = line!();
+    if l == 0u32 { return 1i32; }
+    let c: u32 = column!();
+    // column!() always 0 today; just check the type/path works.
+    if c != 0u32 { return 2i32; }
+    let f: str = file!();
+    if f.len() == 0i64 { return 3i32; }
+    let m: str = module_path!();
+    if !str_eq(m, "macro_positional_builtins") { return 4i32; }
+    return 0i32;
+}

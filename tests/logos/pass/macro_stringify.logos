@@ -1,0 +1,11 @@
+package macro_stringify;
+use std.lang.text;
+
+fn main() -> i32 {
+    let s: str = stringify!(a + b);
+    // Should contain something like "a + b" (whitespace may vary).
+    if s.len() < 3i64 { return 1i32; }
+    let empty: str = stringify!();
+    // stringify!() of empty arg list — currently empty/whitespace.
+    return 0i32;
+}

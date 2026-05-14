@@ -1,0 +1,5 @@
+package macro_compile_error;
+fn main() -> i32 {
+    compile_error!("hand-rolled error message");
+    return 0i32;
+}

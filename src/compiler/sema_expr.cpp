@@ -11944,6 +11944,97 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
         return builder().lit_int(result ? 1LL : 0LL, prim(LogosType::Kind::Bool));
     }
 
+    // MC-mc-03 positional builtins. line!() / file!() / module_path!() /
+    // column!() resolve to the current sema lowering context: line and
+    // file come from the AST node currently being lowered (set on each
+    // recursive `lower_*` entry), module_path is the current package
+    // name. column!() returns 0 since the AST doesn't track columns yet
+    // — same shape as Rust's macro but always at the start of the line.
+    if (callee_name == "line") {
+        return builder().lit_int(int64_t(node_line_),
+                                 prim(LogosType::Kind::U32));
+    }
+    if (callee_name == "column") {
+        return builder().lit_int(0LL, prim(LogosType::Kind::U32));
+    }
+    if (callee_name == "file" || callee_name == "module_path") {
+        LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;
+        TypeRef u8_t = pool_->alloc(std::move(u8_b));
+        LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
+        sl_b.elem = u8_t;
+        TypeRef slice_u8_t = pool_->alloc(std::move(sl_b));
+        std::string val = callee_name == "file" ? file_ : cur_package_;
+        return builder().lit_str(std::move(val), slice_u8_t);
+    }
+
+    // env!("VAR") / option_env!("VAR") — read environment at compile time.
+    // env! errors if unset; option_env! returns Option<&str> (here: bare
+    // empty string if unset, since Logos doesn't expose Option<&str>
+    // through this path yet — treat absence as compile error and direct
+    // users to `option_env!` if they want the optional form).
+    if (callee_name == "env" || callee_name == "option_env") {
+        std::string raw;
+        if (node.has_key(la::RAW_TEXT))
+            raw = std::string(str_of(node.get(la::RAW_TEXT.code)));
+        while (!raw.empty() && (raw.front() == ' ' || raw.front() == '\t' ||
+                                raw.front() == '\n')) raw.erase(0, 1);
+        while (!raw.empty() && (raw.back()  == ' ' || raw.back()  == '\t' ||
+                                raw.back()  == '\n')) raw.pop_back();
+        if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"')
+            raw = raw.substr(1, raw.size() - 2);
+        const char* val = std::getenv(raw.c_str());
+        LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;
+        TypeRef u8_t = pool_->alloc(std::move(u8_b));
+        LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
+        sl_b.elem = u8_t;
+        TypeRef slice_u8_t = pool_->alloc(std::move(sl_b));
+        if (!val) {
+            if (callee_name == "env") {
+                error(std::format("env!: environment variable '{}' not set", raw));
+                return error_expr();
+            }
+            // option_env!: return empty str as a tombstone — Option<&str>
+            // wiring is deferred until a coretest port actually needs the
+            // None branch.
+            return builder().lit_str(std::string{}, slice_u8_t);
+        }
+        return builder().lit_str(std::string{val}, slice_u8_t);
+    }
+
+    // stringify!(...) — return the raw text between the parens as a str
+    // literal. Same as Rust's `stringify!` (no macro expansion of the
+    // contents).
+    if (callee_name == "stringify") {
+        std::string text;
+        if (node.has_key(la::RAW_TEXT))
+            text = std::string(str_of(node.get(la::RAW_TEXT.code)));
+        LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;
+        TypeRef u8_t = pool_->alloc(std::move(u8_b));
+        LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
+        sl_b.elem = u8_t;
+        TypeRef slice_u8_t = pool_->alloc(std::move(sl_b));
+        return builder().lit_str(std::move(text), slice_u8_t);
+    }
+
+    // compile_error!("msg") — emit a compile-time error and return error_expr.
+    // Takes exactly one string-literal arg; reads it from the raw-text path
+    // since args may not have been lowered yet.
+    if (callee_name == "compile_error") {
+        std::string msg;
+        if (node.has_key(la::RAW_TEXT))
+            msg = std::string(str_of(node.get(la::RAW_TEXT.code)));
+        // Trim outer whitespace; strip enclosing quotes if present.
+        while (!msg.empty() && (msg.front() == ' ' || msg.front() == '\t' ||
+                                msg.front() == '\n')) msg.erase(0, 1);
+        while (!msg.empty() && (msg.back()  == ' ' || msg.back()  == '\t' ||
+                                msg.back()  == '\n')) msg.pop_back();
+        if (msg.size() >= 2 && msg.front() == '"' && msg.back() == '"')
+            msg = msg.substr(1, msg.size() - 2);
+        if (msg.empty()) msg = "<empty compile_error! arg>";
+        error(std::format("compile_error!: {}", msg));
+        return error_expr();
+    }
+
     // Resolve against funcs_ (non-generic) only — generic fn_macro is
     // out of scope for slice 1. Look up by base name across overloads.
     auto ovit = func_overloads_.find(callee_name);
