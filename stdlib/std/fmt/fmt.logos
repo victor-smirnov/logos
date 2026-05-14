@@ -449,26 +449,18 @@ pub fn __fmt_panic(msg: str) { panic(msg); }
 
 // assert! / assert_eq! / assert_ne! — macro-form Rust-compatible asserts.
 //
-// Implementation note: the expansion produces a block whose body is
-// purely statements — NO trailing `()` and NO `else { () }` branch.
-// Reason: any tail expression in a wrapper block (whether `()` or the
-// if-expression itself) is mis-typed by sema as the enclosing fn's
-// implicit return value, yielding a spurious "return type mismatch —
-// expected T, got void" diagnostic even when the caller has its own
-// `return` statement afterwards. With statements-only, the wrapper
-// block's type is `()` by absence of a tail expr — well-formed at
-// any stmt position, including inside a fn with non-unit return.
-// (Underlying sema fix tracked as a follow-up.)
+// Earlier workaround (committed 2026-05-13 as `let _: () = ();` block
+// terminator) is no longer needed — the underlying sema bug that
+// promoted unit-valued TAIL_EXPR to fn-implicit-return has been fixed
+// in sema_stmt.cpp's TAIL_EXPR handling. Bodies are now back to the
+// faithful Rust shape: `if cond { ...; () } else { () }`.
 #[fn_macro]
 pub fn assert(args: Vec<ExprBlob>) -> ExprBlob {
     let n: i64 = args.length();
     if n == 1i64 {
         let cond: ExprBlob = args.get(0i64);
         return quote_expr! {
-            {
-                if !(#cond) { __fmt_panic("assertion failed"); }
-                let _: () = ();
-            }
+            if !(#cond) { __fmt_panic("assertion failed"); () } else { () }
         };
     }
     let cond: ExprBlob = args.get(0i64);
@@ -479,13 +471,11 @@ pub fn assert(args: Vec<ExprBlob>) -> ExprBlob {
         i = i + 1i64;
     }
     return quote_expr! {
-        {
-            if !(#cond) {
-                let __m: String = format_args_str(#(#tail),*);
-                __fmt_panic(__m.as_str());
-            }
-            let _: () = ();
-        }
+        if !(#cond) {
+            let __m: String = format_args_str(#(#tail),*);
+            __fmt_panic(__m.as_str());
+            ()
+        } else { () }
     };
 }
 
@@ -501,8 +491,8 @@ pub fn assert_eq(args: Vec<ExprBlob>) -> ExprBlob {
                 let __m: String = format_args_str(
                     "assertion failed: {:?} != {:?}", __a, __b);
                 __fmt_panic(__m.as_str());
-            }
-            let _: () = ();
+                ()
+            } else { () }
         }
     };
 }
@@ -519,8 +509,8 @@ pub fn assert_ne(args: Vec<ExprBlob>) -> ExprBlob {
                 let __m: String = format_args_str(
                     "assertion failed: {:?} == {:?}", __a, __b);
                 __fmt_panic(__m.as_str());
-            }
-            let _: () = ();
+                ()
+            } else { () }
         }
     };
 }

@@ -208,8 +208,38 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
         // synthesise an implicit `return expr` when we're at fn-body level
         // (tail_as_return_) AND the ret type is non-void. In other contexts
         // (block-as-expression, void fn) lower as an expression-stmt.
+        //
+        // Additional guard (closes the `if cond { ...; () } else { () }`
+        // followed by `return X;` mis-typing): when the inner expression
+        // is unit-typed, treat it as a plain stmt regardless of
+        // tail_as_return_. A unit-valued tail can never be a useful
+        // implicit return for a non-unit fn, and the parser sometimes
+        // wraps an `if_expr`-as-stmt in a TAIL_EXPR when the stmt-level
+        // if_expr alt fails to commit (the expression-level if_expr alt
+        // is greedier than the stmt-level one). Without this guard, the
+        // void-typed if would trip lower_return's mismatch check.
         if (tail_as_return_ && ret_type_ &&
             TypeRef(ret_type_).kind() != LogosType::Kind::Void) {
+            // Peek the inner expression's type before deciding.
+            if (stmt.has_key(la::VALUE)) {
+                auto inner = lower_expr(map_of(stmt.get(la::VALUE.code)));
+                if (inner && inner->type &&
+                    TypeRef(inner->type).kind() == LogosType::Kind::Void) {
+                    return builder().stmt_expr(std::move(inner), node_line_);
+                }
+                // Non-void: wrap as implicit return, mirroring the
+                // existing lower_return body but with the already-lowered
+                // value (avoids re-lowering).
+                if (inner && ret_type_ &&
+                    TypeRef(ret_type_).kind() != LogosType::Kind::Error &&
+                    TypeRef(inner->type).kind() != LogosType::Kind::Error &&
+                    !compat(inner->type, ret_type_)) {
+                    auto [es, gs] = type_str_pair(ret_type_, inner->type);
+                    error(std::format("return type mismatch — expected {}, got {}",
+                          es, gs));
+                }
+                return builder().stmt_return(std::move(inner), node_line_);
+            }
             return lower_return(stmt);
         }
         lir::LExprPtr e = stmt.has_key(la::VALUE)

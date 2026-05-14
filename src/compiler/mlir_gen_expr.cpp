@@ -2092,11 +2092,20 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIfExprView v, TypeRef type) {
     auto cond = gen_expr(*cond_l);
     if (!cond) return nullptr;
 
+    // Void-typed if (both branches evaluate to `()`): still emit the
+    // branches — they may have side effects (panic call, write, etc.).
+    // Without this the cond is computed but no `br` follows, silently
+    // dropping both branch bodies. Was the root cause behind
+    // assert_eq!(2, 3) not panicking despite the if-then containing
+    // __fmt_panic. logos_to_mlir(Void) returns nullptr, which the
+    // original `if (!result_type) return nullptr;` short-circuited on.
     mlir::Type result_type = logos_to_mlir(type);
-    if (!result_type) return nullptr;
+    bool void_if = (type && TypeRef(type).kind() == LogosType::Kind::Void);
+    if (!result_type && !void_if) return nullptr;
 
     // Allocate result slot in the current (entry-reachable) block.
-    auto result_alloca = create_entry_alloca(result_type);
+    mlir::Value result_alloca;
+    if (result_type) result_alloca = create_entry_alloca(result_type);
 
     auto* region      = builder_.getBlock()->getParent();
     auto* then_block  = new mlir::Block();
@@ -2115,31 +2124,39 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIfExprView v, TypeRef type) {
     // case — the block is terminated and merge_block's predecessors
     // simply omit this edge.
     if (!is_terminated(builder_.getBlock())) {
-        if (!then_val) then_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
-        then_val = coerce_numeric(then_val, result_type);
-        // Branches may return a struct by-value (function call) while the merge
-        // slot expects a pointer (struct values are normally pointer-aliased).
-        // Spill aggregate values so both branches store a pointer.
-        if (result_type == ptr_type() &&
-            mlir::isa<mlir::LLVM::LLVMStructType>(then_val.getType()))
-            then_val = spill_to_alloca(then_val);
-        builder_.create<mlir::LLVM::StoreOp>(loc_, then_val, result_alloca);
+        if (result_type) {
+            if (!then_val) then_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+            then_val = coerce_numeric(then_val, result_type);
+            // Branches may return a struct by-value (function call) while the merge
+            // slot expects a pointer (struct values are normally pointer-aliased).
+            // Spill aggregate values so both branches store a pointer.
+            if (result_type == ptr_type() &&
+                mlir::isa<mlir::LLVM::LLVMStructType>(then_val.getType()))
+                then_val = spill_to_alloca(then_val);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, then_val, result_alloca);
+        }
         builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
     }
 
     builder_.setInsertionPointToStart(else_block);
     auto else_val = gen_expr(*else_l);
     if (!is_terminated(builder_.getBlock())) {
-        if (!else_val) else_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
-        else_val = coerce_numeric(else_val, result_type);
-        if (result_type == ptr_type() &&
-            mlir::isa<mlir::LLVM::LLVMStructType>(else_val.getType()))
-            else_val = spill_to_alloca(else_val);
-        builder_.create<mlir::LLVM::StoreOp>(loc_, else_val, result_alloca);
+        if (result_type) {
+            if (!else_val) else_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+            else_val = coerce_numeric(else_val, result_type);
+            if (result_type == ptr_type() &&
+                mlir::isa<mlir::LLVM::LLVMStructType>(else_val.getType()))
+                else_val = spill_to_alloca(else_val);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, else_val, result_alloca);
+        }
         builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
     }
 
     builder_.setInsertionPointToStart(merge_block);
+    if (!result_type) {
+        // Void if: synthetic unit value so callers don't deref nullptr.
+        return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+    }
     return builder_.create<mlir::LLVM::LoadOp>(loc_, result_type, result_alloca);
 }
 
