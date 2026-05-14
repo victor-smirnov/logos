@@ -42,13 +42,17 @@ impl Ord for bool {
 pub fn cmp_min_by<T>(a: T, b: T, compare: fn(T, T) -> Ordering) -> T {
     match compare(a, b) {
         Ordering::Greater => { return b; }
-        Ordering::Equal | Ordering::Less => { return a; }
+        Ordering::Equal   => { return a; }
+        Ordering::Less    => { return a; }
     }
 }
 
 pub fn cmp_max_by<T>(a: T, b: T, compare: fn(T, T) -> Ordering) -> T {
+    // Note: Rust's `cmp::max_by` returns the *second* argument when
+    // `compare` yields `Equal`. Mirror that for parity with coretests.
     match compare(a, b) {
-        Ordering::Less => { return b; }
-        Ordering::Equal | Ordering::Greater => { return a; }
+        Ordering::Less    => { return b; }
+        Ordering::Equal   => { return b; }
+        Ordering::Greater => { return a; }
     }
 }

@@ -177,7 +177,7 @@ Tests touched but not fully ported. Will revisit when their blockers close.
 | `cmp.rs::test_isize_totalord` | ✅ Closed (B27, 2026-05-14) — added beyond upstream; stdlib gained `impl Ord for isize` | n/a |
 | `cmp.rs::test_mut_int_totalord` | Open | `(&mut 5).cmp(...)` — `&mut` on rvalue temporary |
 | `cmp.rs::test_ord_max_min` | Open | `.max(other)` / `.min(other)` missing on primitives (SL-sl-13 — new) |
-| `cmp.rs::test_ord_min_max_by / max_by / minmax_by` | Open | `core::cmp::min_by` free fns; closure body capturing into Vec |
+| `cmp.rs::test_ord_min_max_by` | ✅ Closed (2026-05-15) — adapted to `cmp_min_by` / `cmp_max_by` (Logos's by-value comparator vs Rust's by-ref) | `test_ord_min_max_by_key` still Open (key fn signature) |
 
 ## Per-existing-test deferred assertions
 
