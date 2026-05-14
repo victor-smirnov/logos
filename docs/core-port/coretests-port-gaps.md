@@ -13,9 +13,17 @@ etc. to re-tally — counts are derived from the A/B/C tables below.)
 
 | Class                 | Total | ✅ Closed | Partial | Open |
 |---|---|---|---|---|
-| Compiler (CP-cm-*)    | 15    | 10       | 3       | 2    |
-| Stdlib (SL-sl-*)      | 10    | 4        | 4       | 2    |
-| **Total**             | 25    | 14       | 7       | 4    |
+| Class                 | Total | ✅ Closed | Partial | Divergence | Open |
+|---|---|---|---|---|---|
+| Compiler (CP-cm-*)    | 15    | 11       | 2       | 1          | 1    |
+| Stdlib (SL-sl-*)      | 10    | 4        | 3       | 2          | 1    |
+| **Total**             | 25    | 15       | 5       | 3          | 2    |
+
+Divergence-by-design entries:
+- CP-cm-04 (no `const fn` — metacall is the comptime channel)
+- SL-sl-09 (`core::panicking::AssertKind` — Logos macros self-contained)
+- SL-sl-10 (`core::fmt::Formatter` shape — Logos's `fmt(self, &mut String)` is
+  functionally equivalent for `{}`/`{:?}`/`{:b}`/`{:x}`)
 
 (CP-cm-04 reclassified 2026-05-14 as Divergence — Logos's design uses
 `metacall` for compile-time evaluation; `const fn` keyword isn't going
@@ -31,14 +39,23 @@ Closures so far (chronological):
   CP-cm-08 (tuple == for primitive fields),
   CP-cm-01 (primitive method dispatch via &Self receiver — auto-deref),
   SL-sl-08 (Debug for tuples — language path; stdlib impls follow-up),
-  CP-cm-08b partial (tuple == through Eq trait — struct fields work; str + nested still open)
+  CP-cm-08b partial (tuple == through Eq trait — struct fields work; str + nested still open),
+  CP-cm-05 (closure-as-fn-pointer at method args — verified working),
+  CP-cm-07 (tuple types in assert_eq! mismatch render),
+  CP-cm-06 (? operator on Result — verified)
 
-Still open, high-leverage:
-- CP-cm-08b — str / nested-tuple field comparisons (canonicalisation + nested-bound work)
-- SL-sl-05 — Iterator adapter surface (incremental; .filter/.count/.for_each landed, .map blocked on baghunt_iter_method_generic_mono)
-- SL-sl-02 — full PartialEq/Eq split (deferred — no driver yet)
-- SL-sl-02 — PartialEq / Eq separation
-- SL-sl-05 — Iterator adapter surface
+Reclassified Divergence-by-design 2026-05-14:
+- CP-cm-04 (no `const fn` — metacall is the comptime channel)
+- SL-sl-09 (`core::panicking::AssertKind` — Logos macros self-contained)
+- SL-sl-10 (`core::fmt::Formatter` shape — Logos's `fmt(self, &mut String)` is
+  functionally equivalent for `{}`/`{:?}`/`{:b}`/`{:x}`)
+
+Still open / partial, high-leverage:
+- CP-cm-08b Partial — tuple `==` for str / nested-tuple fields (canonicalisation + recursive-bound + recursive-call ABI)
+- CP-cm-14 Partial — bare `|x|` parses but body type-inference deferred (workaround: `|x: T|`)
+- SL-sl-03 Partial — Option `.as_ref` / `.as_mut` / `.take` / `.replace` not yet implemented
+- SL-sl-05 Partial — Iterator adapter `.map<R>`, `.fold<B>`, etc. blocked on baghunt_iter_method_generic_mono
+- SL-sl-02 Partial — full PartialEq/Eq split deferred (forward-compat aliases land)
 
 Notable closures since this tracker started (2026-05-13):
 - CP-cm-03 — bare Some/None/Ok/Err prelude shorthand
@@ -79,7 +96,7 @@ Surfaced by ports of rustc coretests. Each needs C++ code change in
 | CP-cm-03 | Bare-variant shorthand for Option/Result (`Some(x)`, `None`, `Ok(x)`, `Err(x)` without `Option::` / `Result::` prefix) | ✅ Closed (2026-05-13) | Now resolved via prelude shorthand in `lower_call`, `lower_generic_call` (Some/Ok/Err), and bareword VAR_REF + PAT_VARIANT / PAT_VARIANT_DATA (None / variant patterns). When the matching enum is in scope (find_enum_by_name), the bareword routes through enum_lit/enum_lit_data/pat_variant; if a user-defined fn of the same name exists, it wins. | — | — |
 | CP-cm-04 | `const fn` keyword | Divergence (by design, 2026-05-14) | Logos has no `const fn` keyword and isn't going to add one. The port rule (`feedback_const_fn_via_metacall.md`): strip `const fn` → `fn`; rewrite Rust const-context call sites (`const X: T = foo();`, array-size, cfg predicate, …) to metacall. Any compile-time-evaluation capability the body needs is a metacall surface gap, not a const-fn gap — file under `feat_metacall_*`. | — | The "Port-time workaround" framing this entry used to have isn't a gap, it's the canonical port. |
 | CP-cm-05 | Closure-as-fn-pointer coercion at method args | ✅ Closed (2026-05-14) | Already works via existing `try_coerce_closure_to_fnptr` (sema_impl.hpp ~298) + CP-cm-10's unify_types FnPtr/Closure case + CP-cm-14's tail-expr-as-implicit-return. Verified: `true.then(\|\| { 0i32 })` returns `Some(0)`; `Option<i32>.map(\|x: i32\| { x + 1i32 })` works end-to-end. Remaining sugar (`\|\|` body without braces, `\|x\|` without type) is tracked under CP-cm-14. | — | — |
-| CP-cm-06 | `?` operator on Result for non-`std.lang.result` types | Partial | Logos supports `?` for Result; verify it works for ported core::result::Result if path differs. | TBD | — |
+| CP-cm-06 | `?` operator on Result for non-`std.lang.result` types | ✅ Closed (2026-05-14) | Verified end-to-end with `Result<i32, str>::?` chaining: `let v = maybe(5)?; return Ok(v + 1);` produces the expected `Ok(6)` after early-return on Err. The `?` operator works on Logos's standard `Result<T, E>` regardless of import path. | — | — |
 | CP-cm-07 | Tuple types in `assert_eq!` mismatch render | ✅ Closed (2026-05-14) | Required three pieces: (a) stdlib Display + Debug impls for tuple arities 1–4 (Display is Logos-specific — Rust's tuples don't impl Display, but Logos's format_args_str bound is `T...: Display + Debug` so both slots need coverage); (b) sema_collect.cpp bound-check recognises tuple types via `<trait>::$tuple$N` impl key with recursive element-level bound check; (c) mono's TypeVar-receiver MethodCall resolution recognises Tuple receivers and emits the `$tuple$N` sentinel mangling + injects the tuple's element types as impl-level type_args. Regression test `tests/logos/pass/assert_eq_tuple.logos` (2- and 3-tuple). | — | — |
 
 ## B. Grammar / syntax gaps
@@ -96,7 +113,7 @@ Surfaced by ports of rustc coretests. Each needs C++ code change in
 | ID | Surface | Status | Gap | Need | Notes |
 |---|---|---|---|---|---|
 | SL-sl-01 | `core::ops` arithmetic+shift traits | Open | `BitAnd/BitOr/BitXor/Not` in `std.lang.ops` (closed). Add/Sub/Mul/Div/Rem/Neg/Shl/Shr deliberately deferred — Logos's operator dispatch routes `+` etc. to `Type__add` mangled-name lookup directly. Add the traits when a user-struct overload port needs them. | — | — |
-| SL-sl-02 | `PartialEq` / `PartialOrd` separation | Open | Logos's `Eq` shape (`eq(&self, &Self) -> bool`) == Rust's `PartialEq`. Rust's stricter `Eq` has no methods (marker). Logos lacks the distinction. | Rename current `Eq` to `PartialEq`, add empty marker `Eq: PartialEq`. Same for `Ord` / `PartialOrd`. | Touches every existing `impl Eq` in stdlib (~50 sites). |
+| SL-sl-02 | `PartialEq` / `PartialOrd` separation | Partial (2026-05-14) | Forward-compat aliases added: stdlib `std.lang.cmp` declares `pub trait PartialEq {}` / `pub trait PartialOrd {}` as empty markers, AND sema_collect.cpp's bound check treats existing `Eq` / `Ord` impls as PartialEq/PartialOrd satisfiers. Rust code with `T: PartialEq` bound now binds against Logos's `impl Eq` automatically — no per-impl migration needed. Full split (separate hierarchy + every `impl Eq` migrated to `impl PartialEq + impl Eq {}`) deferred — no driver yet. | — | Reopen-fully when a driver appears (e.g. `impl PartialEq for f64` without `Eq`). |
 | SL-sl-03 | Option full method surface | Partial (2026-05-13) | `impl<T> Option<T>` block lands: `is_some` / `is_none` / `unwrap` / `expect` / `unwrap_or` / `unwrap_or_else(fn()->T)` / `map<U>(fn(T)->U)` / `and_then<U>(fn(T)->Option<U>)` / `or` / `or_else(fn()->Option<T>)`. Methods needing `&self` / `&mut self` (`.as_ref` / `.as_mut` / `.take` / `.replace`) deferred — Logos's enum-method dispatch through reference receivers needs work first. `Default` / `Clone`-bounded methods deferred. | — | Known issue: T-inference from `None`-typed receiver fails — `None.or(Some(x))` reports `Option__T__or__g_…` mangled-name link error. Use `let n: Option<i32> = None;` first or pass typed Some. |
 | SL-sl-04 | Result full method surface | ✅ Closed (2026-05-14) | With CP-cm-09 fixed, the `impl<T, E> Result<T, E>` block lands cleanly: is_ok / is_err / unwrap / unwrap_err / expect / expect_err / unwrap_or / unwrap_or_else(fn(E)->T) / ok / err / map<U> / map_err<F> / and_then<U> / or_else<F>. | — | — |
 | CP-cm-09 | Multi-param generic enum method mono | ✅ Closed (2026-05-14) | Root cause: prelude `Ok(x)` / `Err(x)` shorthand built `Result<payload, TypeVar("E")>` with bespoke result-type construction; let-annotation `Result<i32, i32>` didn't retroactively retype. Method dispatch later saw `Result<i32, E_unbound>`. **Fix:** routed prelude through `lower_enum_lit_data_from_static`, which has proper hint_enum_type_ propagation. Helper itself fixed to accept both flat-array and wrapped-map ARGS shapes. | — | — |
@@ -110,8 +127,8 @@ Surfaced by ports of rustc coretests. Each needs C++ code change in
 | SL-sl-08 | `Debug` for tuples | ✅ Closed (2026-05-14) | Added tuple-impl-target sentinel mangling (`$tuple$N` generic blanket, `$tuple$N$<t1>$<t2>…` concrete) in sema_collect.cpp + sema_decl.cpp. Tuple-receiver method dispatch in sema_expr.cpp's lower_method_call mirrors the slice path: positional substitution of method-template type-params from the tuple's element types. Stdlib Debug impls for tuples still need to be added — but the language-level path is in. Regression test `tests/logos/pass/impl_for_tuple.logos` (2- and 3-tuple Debug impls). | — | Driver: tuple.rs `test_show`. Stdlib follow-up: add the `impl<...> Debug for (...)` instances for common arities to `std.fmt`. |
 | CP-cm-08 | Tuple `==` (and `!=`) — primitive-field tuples | ✅ Closed (2026-05-14) | gen_binop's `is_ptr_cmp` branch compared the tuple's by-pointer ABI (`Kind::Tuple` → `ptr_type`), returning false for two distinct slots even with equal contents. **Fix:** mlir_gen_expr.cpp emits per-field GEP + load + CmpI (or CmpF for floats), AND'd together. `!=` XORs the AND result with `1` (i1 not). Regression test `tests/logos/pass/tuple_eq_op.logos`. **Limitation:** primitive-only fields; tuples with str / nested-tuple / struct fields still hit the historic pointer-cmp path (CP-cm-08b — separate follow-up entry below). | — | — |
 | CP-cm-08b | Tuple `==` for non-primitive fields (struct ✅ / str ◌ / nested tuple ◌) | Partial (2026-05-14) | Routed tuple `==`/`!=` through SL-sl-08's tuple-impl dispatch: stdlib now has `impl<A:Eq, B:Eq> Eq for (A, B)` / `(A, B, C)` / `(A, B, C, D)` blankets that compare element-wise via per-element `Eq::eq`. sema_expr.cpp lower_binop now desugars `tup_a == tup_b` → call to `$tuple$N__eq`, with autoref of lhs/rhs to `&Tuple` since Eq takes `&self`. **Works** for primitive fields (also covered by the CP-cm-08 mlir-gen fast-path) and **for struct fields** (e.g. `(Point, i32) == (Point, i32)` — Eq trait on Point handles the comparison). **Still open:** (a) str fields — Logos's `&str` ↔ `Slice<u8>` canonicalisation asymmetry breaks the `str.eq(&str)` method-dispatch leg ("slice has no method 'eq'"). (b) Nested tuple fields — bound-check doesn't yet recognise that `(i32, i32)` satisfies `A: Eq` through the blanket (needs trait-engine recursive-bound handling). | (a) Audit slice-method dispatch's arg-type canonicalisation, or register `str__eq` with both `(Slice, &Slice)` and `(Slice, Slice)` shapes. (b) Extend `check_type_bounds` to consult tuple-blanket impls when the type-arg is itself a Tuple. | Driver: tuple.rs `test_partial_eq` with nested 3-tuples (still requires nested-tuple bound). Regression test `tests/logos/pass/tuple_eq_via_trait.logos` (primitive + struct fields). |
-| SL-sl-09 | `core::panicking::{AssertKind, assert_failed}` | Open | Rust's `assert_eq!`/`assert_ne!` macros expand to `core::panicking::assert_failed(AssertKind::Eq, &left, &right, None)`. Logos uses `__fmt_panic(msg)` and inlines the message format. | Needed BEFORE Phase 3 (macro_rules) so ported core macros can find their target. | Phase 4b. |
-| SL-sl-10 | `core::fmt::{Arguments, Formatter, Write}` proper port | Partial | Logos has `Display`/`Debug` with `fn fmt(self, &mut String)` shape. Rust has `fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result`. Different shape. | Port faithfully OR document divergence + provide compat shim. | Big API surface; touches many trait impls. |
+| SL-sl-09 | `core::panicking::{AssertKind, assert_failed}` | Divergence (by design, 2026-05-14) | Logos's `assert_eq!` / `assert_ne!` macros are self-contained — they inline the message format and call `__fmt_panic`. Rust's `core::panicking::assert_failed(AssertKind::Eq, &l, &r, None)` shape is macro-internal scaffolding; no user code references it directly. Porting it would only matter if we ever literally inlined Rust's macro definitions, which we don't (we translate to Logos macros). Reclassified Divergence rather than tracked Open. | — | Reopen if a coretest port surfaces a direct reference to `core::panicking::*`. |
+| SL-sl-10 | `core::fmt::{Arguments, Formatter, Write}` proper port | Divergence (by design, 2026-05-14) | Logos's `fmt` trait shape is `fn fmt(self, &mut String)` — different from Rust's `fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result` but functionally equivalent for `{}` / `{:?}` / `{:b}` / `{:x}` etc. The Rust shape's distinguishing features (width / precision / fill / alternate / fmt::Result-based error propagation) are nice-to-have but not driver-blocking. A faithful port would touch ~30+ trait impls (i32/i64/u*/f*/bool/str/etc. all gain Formatter parameter) — large invasive refactor for marginal port-time value. Reclassified Divergence; reopen if a coretest uses width/precision/fill in a way that Logos's current fmt surface can't render. | — | Logos's fmt is already feature-complete for the format-string surface most coretests use. |
 | CP-cm-11 | `str == str` returned `false` even for equal values | ✅ Closed (2026-05-14) | Root cause: lower_binop fell through to the generic comparison path; codegen saw Slice<u8> as a pointer (ptr_type at MLIR level) and did pointer-eq on the slice descriptors, not byte-slice compare. **Fix:** sema_expr.cpp lower_binop now detects Slice<u8> on both sides of `==`/`!=` and routes to stdlib's `str_eq` (the same helper P4-pm-06 uses for str-const patterns). `!=` wraps with unary `!`. Regression test `pass/str_eq_op.logos`. | — | — |
 
 ## D. Macros / Phase 3 prerequisites
