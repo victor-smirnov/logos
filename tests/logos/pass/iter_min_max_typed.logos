@@ -1,0 +1,24 @@
+package iter_min_max_typed_test;
+use std.lang.iter;
+use std.lang.option;
+
+fn main() -> i32 {
+    let arr: [i32; 5] = [3i32, 1i32, 4i32, 1i32, 5i32];
+    unsafe {
+        match iter_max_i32(iter_over_slice(&arr)) {
+            Option::Some(v) => { if v != 5i32 { return 1i32; } }
+            Option::None    => { return 2i32; }
+        }
+        match iter_min_i32(iter_over_slice(&arr)) {
+            Option::Some(v) => { if v != 1i32 { return 3i32; } }
+            Option::None    => { return 4i32; }
+        }
+        // Empty array → None.
+        let empty: [i32; 0] = [];
+        match iter_max_i32(iter_over_slice(&empty)) {
+            Option::Some(_) => { return 5i32; }
+            Option::None    => {}
+        }
+    }
+    return 0i32;
+}

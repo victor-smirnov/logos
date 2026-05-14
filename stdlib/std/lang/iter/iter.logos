@@ -425,6 +425,78 @@ pub fn iter_min_by<I: Iterator<T>, T>(iter: I, cmp: fn(T, T) -> i32) -> Option<T
     }
 }
 
+// SL-sl-05: typed min/max for primitive integer iterators. Don't need
+// Ord bound (the trait-default-with-Self segfault would otherwise
+// block this); use the integer operator < / > directly. Empty
+// iterator → None.
+pub fn iter_max_i32<I: Iterator<i32>>(iter: I) -> Option<i32> {
+    let mut it: I = iter;
+    let mut best: Option<i32> = Option::None;
+    loop {
+        match it.next() {
+            Option::None    => { return best; }
+            Option::Some(v) => {
+                match best {
+                    Option::None      => { best = Option::Some(v); }
+                    Option::Some(cur) => { if v > cur { best = Option::Some(v); }
+                                           else        { best = Option::Some(cur); } }
+                }
+            }
+        }
+    }
+}
+
+pub fn iter_min_i32<I: Iterator<i32>>(iter: I) -> Option<i32> {
+    let mut it: I = iter;
+    let mut best: Option<i32> = Option::None;
+    loop {
+        match it.next() {
+            Option::None    => { return best; }
+            Option::Some(v) => {
+                match best {
+                    Option::None      => { best = Option::Some(v); }
+                    Option::Some(cur) => { if v < cur { best = Option::Some(v); }
+                                           else        { best = Option::Some(cur); } }
+                }
+            }
+        }
+    }
+}
+
+pub fn iter_max_i64<I: Iterator<i64>>(iter: I) -> Option<i64> {
+    let mut it: I = iter;
+    let mut best: Option<i64> = Option::None;
+    loop {
+        match it.next() {
+            Option::None    => { return best; }
+            Option::Some(v) => {
+                match best {
+                    Option::None      => { best = Option::Some(v); }
+                    Option::Some(cur) => { if v > cur { best = Option::Some(v); }
+                                           else        { best = Option::Some(cur); } }
+                }
+            }
+        }
+    }
+}
+
+pub fn iter_min_i64<I: Iterator<i64>>(iter: I) -> Option<i64> {
+    let mut it: I = iter;
+    let mut best: Option<i64> = Option::None;
+    loop {
+        match it.next() {
+            Option::None    => { return best; }
+            Option::Some(v) => {
+                match best {
+                    Option::None      => { best = Option::Some(v); }
+                    Option::Some(cur) => { if v < cur { best = Option::Some(v); }
+                                           else        { best = Option::Some(cur); } }
+                }
+            }
+        }
+    }
+}
+
 pub unsafe fn iter_sum_i32<I: Iterator<i32>>(iter: I) -> i32 {
     let mut it: I = iter;
     let mut s: i32 = 0;
