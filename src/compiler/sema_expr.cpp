@@ -1790,6 +1790,15 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
 
     auto fit  = funcs_.find(std::string(callee));
     auto all_cands = find_func_candidates(callee);
+    // TH-th-03: filter fn_macro / token_macro overloads — they're only
+    // callable via `name!(...)` syntax. Without this, `panic("msg")` would
+    // mis-resolve to a `#[fn_macro] panic(args: Vec<ExprBlob>)` overload.
+    all_cands.erase(
+        std::remove_if(all_cands.begin(), all_cands.end(),
+            [](const SemaFuncInfo* fi){
+                return fi && (fi->is_fn_macro || fi->is_token_macro);
+            }),
+        all_cands.end());
     auto git  = find_generic_func(callee, n_args);
 
     // Resolve the "best" SemaFuncInfo to try.
@@ -12391,7 +12400,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
     bool is_format_family =
         callee_name == "format"   || callee_name == "print"   ||
         callee_name == "println"  || callee_name == "eprint"  ||
-        callee_name == "eprintln";
+        callee_name == "eprintln" || callee_name == "panic";
     if (is_format_family && !arg_avs.empty() && arg_avs[0].is_pointer()) {
         auto* fmt_tom = reinterpret_cast<TinyObjectMap*>(
             const_cast<uint8_t*>(src_base) + arg_avs[0].to_offset().value());
@@ -12594,6 +12603,8 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
                         blk += "__fmt_eprintln(__buf.as_str()) }";
                     } else if (callee_name == "eprint") {
                         blk += "__fmt_eprint(__buf.as_str()) }";
+                    } else if (callee_name == "panic") {
+                        blk += "__fmt_panic(__buf.as_str()) }";
                     }
 
                     holder_ = saved_holder;

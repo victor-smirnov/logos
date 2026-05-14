@@ -550,6 +550,18 @@ pub fn eprintln(args: Vec<ExprBlob>) -> ExprBlob {
 
 pub fn __fmt_panic(msg: str) { panic(msg); }
 
+// TH-th-03: `panic!(...)` macro — formats per Rust's panic! and aborts.
+// Lives in std.fmt because it shares format_args_str with print!/etc.
+// Distinct from the runtime `panic(str)` fn in std.lang.panic — no
+// name shadowing: lookup by `!` syntax only matches fn_macro-tagged
+// overloads, so call sites can use both forms (rare but legal).
+#[fn_macro]
+pub fn panic(args: Vec<ExprBlob>) -> ExprBlob {
+    return quote_expr! {
+        { let __m: String = format_args_str(#(#args),*); __fmt_panic(__m.as_str()); }
+    };
+}
+
 // All three assertion macros lower to a unit-typed if-expression with
 // non-empty `()`-tailed branches: Logos rejects empty branches in
 // block-as-expression position and the macro emits its block as the

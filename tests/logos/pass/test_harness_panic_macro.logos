@@ -1,0 +1,41 @@
+// `panic!` macro — TH-th-03 / MC-mc-03.
+//
+// `panic!(...)` becomes a sema-builtin that funnels through __fmt_panic
+// (which calls the runtime `panic` fn). It coexists with the runtime
+// `panic(str)` function — the parser distinguishes `panic!(...)` (macro)
+// from `panic(...)` (fn) by the trailing `!`, so no name-shadowing.
+//
+// All four tests should pass (each panics with a message matching its
+// expected substring).
+
+package test_harness_panic_macro;
+
+use std.fmt;
+use std.lang.text;
+
+#[test]
+#[should_panic(expected = "static text")]
+fn t_panic_static_literal() {
+    panic!("static text");
+}
+
+#[test]
+#[should_panic(expected = "value=42")]
+fn t_panic_formatted_int() {
+    let x: i32 = 42;
+    panic!("value={}", x);
+}
+
+#[test]
+#[should_panic(expected = "a=1 b=two")]
+fn t_panic_multiple_args() {
+    let a: i32 = 1;
+    let b: str = "two";
+    panic!("a={} b={}", a, b);
+}
+
+#[test]
+#[should_panic(expected = "no placeholders")]
+fn t_panic_lit_only() {
+    panic!("no placeholders here");
+}
