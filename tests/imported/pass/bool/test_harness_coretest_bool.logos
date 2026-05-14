@@ -86,3 +86,20 @@ fn test_bool() {
     assert_eq!(true.cmp(&false), Ordering::Greater);
     assert_eq!(false.cmp(&true), Ordering::Less);
 }
+
+// Upstream `test_bool_not` — doesn't actually exercise tuples (the
+// catalog entry claiming it needs Debug-for-(bool,bool) was stale).
+// Pure if-else over `!false` / `!true`.
+#[test]
+fn test_bool_not() {
+    if !false {
+        assert!(true);
+    } else {
+        assert!(false);
+    }
+    if !true {
+        assert!(false);
+    } else {
+        assert!(true);
+    }
+}

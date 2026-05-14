@@ -153,7 +153,7 @@ Tests touched but not fully ported. Will revisit when their blockers close.
 | Test | Status | Blocker(s) |
 |---|---|---|
 | `bool.rs::test_bool` | ✅ Closed (commit `99c9dd55`, 2026-05-13) | n/a |
-| `bool.rs::test_bool_not` | Open | Tuple Debug for `assert_eq!((bool,bool))` patterns (SL-sl-08) |
+| `bool.rs::test_bool_not` | ✅ Closed (2026-05-15) — upstream is pure if-else, no tuples | n/a (catalog entry was stale) |
 | `bool.rs::test_bool_to_option` | ✅ Closed (B26, 2026-05-14) — `match`-shape adapter; closure `\|\| 0` → named fn (closure-as-fn-ptr at method-arg site still open); `const A: …` const-context use deferred (no `const fn` in Logos) | n/a |
 | `bool.rs::test_bool_to_result` | ✅ Closed (B26, 2026-05-14) — same shape as test_bool_to_option | n/a |
 | `option.rs::test_unwrap` (subset) | ✅ Closed (B24, 2026-05-14) — Some(int) only | String form deferred (PartialEq for String) |
