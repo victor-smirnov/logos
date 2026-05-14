@@ -6,10 +6,9 @@
 // closed 2026-05-12 — `*x` on a non-pointer value is identity, so the
 // Rust spelling compiles unchanged even though Logos's iteration
 // model yields `T` directly (not `&T`).
-// 2026-05-13: assert_eq!(has_mut_vec(v), 6) surfaced a slice-iter
-// element-value bug — `for i in s` over `&[1,2,3]` doesn't sum to 6
-// (matches the auto-loop test discovery). assert_eq! used to no-op
-// silently so this passed. Workaround: assert non-zero length only.
+// Vec/slice iter element-value correctness closed 2026-05-13 — was
+// masked by broken assert_eq!; root cause was array params lacking
+// var_subscript_ entry.
 package borrowck_mut_vec_as_imm_slice;
 
 use std.fmt;
@@ -18,9 +17,9 @@ use std.lang.option;
 use std.collections.vec;
 
 fn want_slice(s: &[i64]) -> i64 {
-    let mut count: i64 = 0i64;
-    for _i in s { count = count + 1i64; }
-    return count;
+    let mut sum: i64 = 0i64;
+    for i in s { sum = sum + *i; }
+    return sum;
 }
 
 fn has_mut_vec(v: Vec<i64>) -> i64 {
@@ -29,6 +28,6 @@ fn has_mut_vec(v: Vec<i64>) -> i64 {
 
 fn main() -> i32 {
     let v: Vec<i64> = vec_from_arr([1i64, 2i64, 3i64]);
-    assert_eq!(has_mut_vec(v), 3i64);
+    assert_eq!(has_mut_vec(v), 6i64);
     return 0;
 }

@@ -685,6 +685,46 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
     }
     // For pointer comparisons, use llvm.icmp instead of arith.cmpi
     bool is_ptr_cmp = mlir::isa<mlir::LLVM::LLVMPointerType>(lhs.getType());
+    // Rust-style auto-deref at `==` / `!=` for &T / &mut T when both
+    // operands point at a primitive scalar. Closes the "ref-int" gap:
+    // previously `&i32 == &i32` did pointer-equality (two refs to
+    // distinct stack slots holding 1 returned false). Now matches the
+    // PartialEq-for-&T blanket: dereference both sides first.
+    if (is_ptr_cmp && (op == "==" || op == "!=")) {
+        auto is_ref_to_prim = [](TypeRef t) -> TypeRef {
+            if (!t) return TypeRef{};
+            auto k = t.kind();
+            if (k != LogosType::Kind::Ref && k != LogosType::Kind::MutRef)
+                return TypeRef{};
+            TypeRef pe = t.pointee();
+            if (!pe) return TypeRef{};
+            using K = LogosType::Kind;
+            switch (pe.kind()) {
+            case K::I8:  case K::I16: case K::I24: case K::I32: case K::I56:
+            case K::I64: case K::I128:
+            case K::U8:  case K::U16: case K::U24: case K::U32: case K::U56:
+            case K::U64: case K::U128:
+            case K::F32: case K::F64:
+            case K::Bool:
+            case K::IntLit: case K::FloatLit:
+                return pe;
+            default: return TypeRef{};
+            }
+        };
+        TypeRef lhs_pe = is_ref_to_prim(lhs_l->type);
+        TypeRef rhs_pe = is_ref_to_prim(rhs_l->type);
+        if (lhs_pe && rhs_pe) {
+            auto elem_t = logos_to_mlir(lhs_pe);
+            if (elem_t) {
+                lhs = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_t, lhs);
+                rhs = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_t, rhs);
+                is_ptr_cmp = false;
+                // Override lhs_l->type / rhs_l->type pointee handling for
+                // downstream signedness checks: not needed here since
+                // CmpIPredicate::eq/ne are sign-agnostic.
+            }
+        }
+    }
     if (op == "==") {
         if (is_ptr_cmp)
             return builder_.create<mlir::LLVM::ICmpOp>(

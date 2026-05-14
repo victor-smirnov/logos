@@ -539,6 +539,30 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
         return;
     }
 
+    // Array let-rebind (`let b: [T; N] = a;`): gen_expr(`a`) returns a
+    // pointer to the source array's alloca (var_subscript_ path in
+    // EVarRef). A plain StoreOp would overwrite only the first 8 bytes
+    // of the destination (the pointer value), leaving the rest of the
+    // array slot uninitialised. Mirror the struct-rebind memcpy path in
+    // gen_assign (line ~610) — emit llvm.memcpy of the whole array.
+    if (TypeRef st(s.type); st && st.kind() == LogosType::Kind::Array &&
+        val.getType() == ptr_type()) {
+        auto arr_t = mlir::dyn_cast_or_null<mlir::LLVM::LLVMArrayType>(var_type);
+        if (arr_t) {
+            auto dl = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
+            auto bytes = (int64_t)dl.getTypeSize(arr_t);
+            auto sz = builder_.create<mlir::LLVM::ConstantOp>(
+                loc_, builder_.getI64Type(),
+                builder_.getI64IntegerAttr(bytes));
+            builder_.create<mlir::LLVM::MemcpyOp>(loc_, alloca, val, sz, /*isVolatile=*/false);
+            scope_[s.name] = alloca;
+            let_vars_.insert(s.name);
+            // Same elem-type bookkeeping as the StoreOp path below.
+            var_elem_types_[s.name] = arr_t.getElementType();
+            var_subscript_[s.name]  = arr_t.getElementType();
+            return;
+        }
+    }
     val = coerce_int(val, var_type);
     val = coerce_float(val, var_type);
     builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
@@ -623,6 +647,22 @@ void MLIRGenImpl::gen_assign(lir_view::SAssignView v) {
             builder_.create<mlir::LLVM::MemcpyOp>(loc_, it->second, val, sz, /*isVolatile=*/false);
             return;
         }
+    }
+    // Fat-pointer-valued rebind (Slice / Closure / TraitObject): backing
+    // storage is 16 bytes ({data, len|vtable}). A plain StoreOp would
+    // overwrite only the first 8 bytes with the source data-ptr, leaving
+    // len/vtable stale — exactly the bug behind `let mut z: &[T] = ...;
+    // z = x;` where z[i] reads garbage. Mirrors the same memcpy path
+    // already in gen_index_write (line ~1591).
+    if (val_t && val.getType() == ptr_type() &&
+        (TypeRef(val_t).kind() == LogosType::Kind::Slice ||
+         TypeRef(val_t).kind() == LogosType::Kind::Closure ||
+         TypeRef(val_t).kind() == LogosType::Kind::TraitObject)) {
+        auto sz = builder_.create<mlir::LLVM::ConstantOp>(
+            loc_, builder_.getI64Type(),
+            builder_.getI64IntegerAttr(16));
+        builder_.create<mlir::LLVM::MemcpyOp>(loc_, it->second, val, sz, /*isVolatile=*/false);
+        return;
     }
     auto et = var_elem_types_.find(name);
     if (et != var_elem_types_.end())

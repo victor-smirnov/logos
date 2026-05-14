@@ -1,15 +1,11 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/for-loop-while/auto-loop.rs
-// Modifications:
-// - `vec![…]` → `vec_from_arr([…])` (no vec!).
-// - In Logos `for x in &Vec<T>` yields T directly (not &T as in Rust),
-//   so the `*x` deref is dropped.
-// - 2026-05-13: assert_eq!(sum, 15) surfaced a latent Vec-iter bug —
-//   `for x in &vec` over [1,2,3,4,5] sums to 6 (not 15); only the
-//   first three elements contribute correctly. assert_eq! used to
-//   no-op silently so this passed. Workaround: count iterations
-//   instead (length matches even though per-element value is buggy).
-//   Vec-iter element-value correctness is filed as a follow-up.
+// Modifications: `vec![…]` → `vec_from_arr([…])` (no vec!). In Logos
+// `for x in &Vec<T>` yields T directly (not &T as in Rust), so the
+// `*x` deref is dropped.
+// Vec iter element-value correctness closed 2026-05-13 — was masked by
+// the broken assert_eq! macro; root cause was array params lacking
+// var_subscript_ entry → GEP stride defaulted to i32 on i64 arrays.
 package auto_loop;
 
 use std.fmt;
@@ -18,11 +14,11 @@ use std.lang.option;
 use std.collections.vec;
 
 fn main() -> i32 {
-    let mut count: i64 = 0i64;
+    let mut sum: i64 = 0i64;
     let xs: Vec<i64> = vec_from_arr([1i64, 2i64, 3i64, 4i64, 5i64]);
-    for _x in &xs {
-        count = count + 1i64;
+    for x in &xs {
+        sum = sum + x;
     }
-    assert_eq!(count, 5i64);
+    assert_eq!(sum, 15i64);
     return 0;
 }

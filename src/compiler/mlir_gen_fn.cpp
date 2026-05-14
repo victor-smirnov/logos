@@ -242,6 +242,16 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
                 }
                 if (!et) et = logos_to_mlir(pe);
                 if (et) var_subscript_[p.name] = et;
+            } else if (pv.kind() == LogosType::Kind::Array && pv.elem()) {
+                // Array params arrive as `ptr` (per make_fn_type). Without an
+                // explicit subscript entry, gen_index_read's
+                // subscript_elem_type(name) falls back to i32 — which on an
+                // i64 array reads with stride-4 instead of stride-8 and
+                // yields the alternating-value/zero pattern that masked the
+                // assertion bug. Register the element's MLIR type so the
+                // GEP stride matches the array layout.
+                auto et = logos_to_mlir(pv.elem());
+                if (et) var_subscript_[p.name] = et;
             }
         }
 

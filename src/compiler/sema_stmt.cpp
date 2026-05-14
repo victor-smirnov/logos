@@ -735,7 +735,16 @@ lir::LStmt SemaChecker::lower_let_pat(TinyMapView node) {
                 sl.name   = vname;
                 sl.type   = elem_t;
                 sl.is_mut = false;
-                sl.value  = builder().slice_index(
+                // 2026-05-13: previously used slice_index (fat-pointer
+                // GEP shape `{ptr, i64}`) on the temp slot. That worked
+                // accidentally because the (broken) let-rebind dropped a
+                // pointer-to-source-array into the temp's first 8 bytes,
+                // which lined up with the slice's data-ptr position. With
+                // the let-rebind memcpy fix, the temp now holds the
+                // actual array bytes — slice_index reads them as if they
+                // were a fat pointer and segfaults. Use index_read
+                // (array-shaped GEP) instead.
+                sl.value  = builder().index_read(
                     builder().var_ref(tmp, rhs_type),
                     builder().lit_int((int64_t)j, prim(LogosType::Kind::I64)),
                     elem_t);
