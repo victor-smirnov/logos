@@ -322,7 +322,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EVarRefView v, TypeRef type) {
         // become unreachable but mono still clones them. Print only under
         // an opt-in env var so debugging stays available.
         if (std::getenv("LOGOS_MLIRGEN_DEBUG_UNDEF"))
-            std::fprintf(stderr, "mlir_gen: undefined '%s'\n", name.c_str());
+            std::fprintf(stderr, "mlir_gen: undefined '%s' in fn '%s'\n",
+                         name.c_str(), cur_fn_name_.c_str());
         return nullptr;
     }
     // Mutable tagged enum: load struct ptr from pointer slot.

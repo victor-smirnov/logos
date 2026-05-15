@@ -3875,6 +3875,29 @@ void Mono::instantiate_enum_templates() {
             // Instantiate: substitute payload types and methods
             auto inst = clone_enum_def(*tmpl, subst, packs, cname);
 
+            // Void payload skip: `Option<()>` / `Result<(), E>` etc.
+            // map their `()` payload to Kind::Void. Method bodies like
+            // `Option::unwrap` (`match self { Some(v) => return v }`)
+            // would emit a `return v` of void-typed v — at mlir-gen
+            // the pattern-bound `v` has no slot (void carries no
+            // value) and VarRef(v) is undefined. Skip cloning these
+            // specs entirely; real call sites for `Option<()>::unwrap`
+            // are uncallable in user code (void can't be passed/
+            // returned as a value). Pure marker / discriminant-only
+            // uses still work via the bare `match` shape.
+            bool any_void_arg = false;
+            for (auto& [_, v] : subst) {
+                if (v && v.kind() == LogosType::Kind::Void) {
+                    any_void_arg = true;
+                    break;
+                }
+            }
+            if (any_void_arg) {
+                out_.enums.push_back(std::move(inst));
+                ++stats_.enum_instances;
+                continue;
+            }
+
             // Instantiate any impl<T> methods stored as generic functions in prog.functions.
             // Convention: function name starts with "Base__" and has matching type params.
             //

@@ -1,0 +1,30 @@
+// mono_void_payload_specs: `Option<()>` / `Result<(), E>` no longer
+// generate broken specs of payload-consuming methods (Option<()>::unwrap
+// etc.) where the cloned body had stale VarRefs to a void-typed `v`
+// binding. Mono now skips eager impl-method clones when any subst arg
+// resolved to Kind::Void — the specs are uncallable anyway (void can't
+// be passed/returned as a value), and skipping them removes
+// `mlir_gen: undefined 'v'` warnings on every build.
+//
+// Basic discriminant-only uses of Option<()> / Result<(), E> remain
+// supported via the bare `match` shape.
+
+package option_unit_payload;
+
+use std.lang.option;
+
+fn main() -> i32 {
+    let o: Option<()> = Option::Some(());
+    match o {
+        Option::Some(_) => { }
+        Option::None    => { return 1i32; }
+    }
+
+    let n: Option<()> = Option::None;
+    match n {
+        Option::Some(_) => { return 2i32; }
+        Option::None    => { }
+    }
+
+    return 0i32;
+}

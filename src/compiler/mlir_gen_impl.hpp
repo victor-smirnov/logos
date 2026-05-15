@@ -224,6 +224,7 @@ private:
     std::unordered_set<std::string>               ref_param_names_;
     mlir::Type                                    cur_ret_type_;
     TypeRef                              cur_fn_ret_logos_type_ = nullptr;
+    std::string                                   cur_fn_name_;
     bool                                          in_llvm_func_ = false;
     // Entry block of the function currently being emitted.  All LLVM::AllocaOp
     // instructions must be inserted here (at the top) so LLVM treats them as

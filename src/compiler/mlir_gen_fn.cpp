@@ -274,6 +274,7 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
     auto ret_types = func.getFunctionType().getResults();
     cur_ret_type_ = ret_types.empty() ? mlir::Type{} : ret_types[0];
     cur_fn_ret_logos_type_ = fn.ret_type;
+    cur_fn_name_ = fn.name;
 
     gen_block(block_ref_of(fn.body));
 
