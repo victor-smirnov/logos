@@ -442,6 +442,26 @@ pub unsafe fn iter_skip<I: Iterator<T>, T>(iter: I, n: i64, zero: T) -> SkipIter
     return SkipIter { inner: iter, remaining: n, _t: zero };
 }
 
+// DEI: drain skip-prefix from the front first so back doesn't
+// touch items the forward direction would skip, then pull from
+// inner.next_back. The drain stores into a typed local before
+// matching — without the temp, mono of the matched-on Option<T>
+// hits a disc-load codegen bug (the whole struct lands as the
+// cmpi operand instead of just its tag field).
+impl<I: DoubleEndedIterator<T>, T> DoubleEndedIterator<T> for SkipIter<I, T> {
+    fn next_back(self: &mut SkipIter<I, T>) -> Option<T> {
+        loop {
+            if self.remaining <= 0 as i64 { return self.inner.next_back(); }
+            self.remaining = self.remaining - 1 as i64;
+            let drained: Option<T> = self.inner.next();
+            match drained {
+                Option::None    => { return Option::None; }
+                Option::Some(v) => { }
+            }
+        }
+    }
+}
+
 // ── TakeWhileIter<I, T> — yield until pred returns false ─────────────────────
 
 pub struct TakeWhileIter<I, T> {

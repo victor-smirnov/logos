@@ -111,6 +111,21 @@ fn test_iterator_chain_nth_back() {
 }
 
 #[test]
+fn test_double_ended_skip() {
+    let xs: [i32; 12] = [0i32, 1i32, 2i32, 3i32, 5i32, 13i32, 15i32, 16i32, 17i32, 19i32, 20i32, 30i32];
+    unsafe {
+        // skip(5) gives [13,15,16,17,19,20,30]. next_back yields
+        // them in reverse: 30, 20, 19, 17, ... Front .next on a
+        // drained-by-back iter starts where back left off.
+        let mut it = iter_skip::<SliceIter<i32>, i32>(iter_over_slice(&xs), 5i64, 0i32);
+        match it.next_back() { Option::Some(v) => { assert_eq!(v, 30i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next_back() { Option::Some(v) => { assert_eq!(v, 20i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next()      { Option::Some(v) => { assert_eq!(v, 13i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next_back() { Option::Some(v) => { assert_eq!(v, 19i32); } Option::None => { assert_eq!(true, false); } }
+    }
+}
+
+#[test]
 fn test_double_ended_inspect() {
     let xs: [i32; 4] = [10i32, 20i32, 30i32, 40i32];
     unsafe {
