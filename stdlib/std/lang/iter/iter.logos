@@ -525,6 +525,59 @@ pub fn iter_filter<I: Iterator<T>, T>(iter: I, pred: fn(T) -> bool) -> FilterIte
     return FilterIter { inner: iter, pred: pred };
 }
 
+// ── FilterMapIter<I, T, B> — lazy filter+map combo ──────────────────────────
+//
+// Mirrors Rust's `core::iter::FilterMap`. `f` returns `Option<B>`;
+// items where f returns None are skipped, items where f returns
+// `Some(b)` yield b.
+
+pub struct FilterMapIter<I, T, B> {
+    pub inner: I,
+    pub f:     fn(T) -> Option<B>,
+}
+
+impl<I: Iterator<T>, T, B> Iterator<B> for FilterMapIter<I, T, B> {
+    fn next(self: &mut FilterMapIter<I, T, B>) -> Option<B> {
+        loop {
+            match self.inner.next() {
+                Option::None    => { return Option::None; }
+                Option::Some(v) => {
+                    let f = self.f;
+                    let r: Option<B> = f(v);
+                    match r {
+                        Option::Some(_) => { return r; }
+                        Option::None    => { }
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl<I: DoubleEndedIterator<T>, T, B> DoubleEndedIterator<B> for FilterMapIter<I, T, B> {
+    fn next_back(self: &mut FilterMapIter<I, T, B>) -> Option<B> {
+        loop {
+            match self.inner.next_back() {
+                Option::None    => { return Option::None; }
+                Option::Some(v) => {
+                    let f = self.f;
+                    let r: Option<B> = f(v);
+                    match r {
+                        Option::Some(_) => { return r; }
+                        Option::None    => { }
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub fn iter_filter_map<I: Iterator<T>, T, B>(
+    iter: I, f: fn(T) -> Option<B>,
+) -> FilterMapIter<I, T, B> {
+    return FilterMapIter { inner: iter, f: f };
+}
+
 // DEI: walk back through the source, returning the first item from
 // the back that satisfies the predicate. Front and back can advance
 // independently — the underlying DEI keeps front/back cursors

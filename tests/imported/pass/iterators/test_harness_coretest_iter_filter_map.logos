@@ -1,0 +1,72 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/iter/adapters/filter_map.rs
+//   (test_filter_map subset)
+//
+// Modifications:
+// - Closure `|x| if x % 2 == 0 { Some(x * x) } else { None }` lowered
+//   to a named fn-ptr `square_if_even`.
+// - `(0..).step_by(1).take(10)` → `0i32..10i32` range expression.
+// - assert_eq! family imports via std.fmt + std.lang.text.
+//
+// Stdlib companion: new `FilterMapIter<I, T, B>` adapter struct +
+// `iter_filter_map<I, T, B>(iter, f)` free fn + Iterator/DEI impls
+// in std/lang/iter/iter.logos.
+
+package test_iter_filter_map;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.iter;
+use std.lang.range;
+use std.lang.option;
+use std.collections.vec;
+
+fn square_if_even(x: i32) -> Option<i32> {
+    if (x % 2i32) == 0i32 { return Some(x * x); }
+    return None;
+}
+
+#[test]
+fn test_filter_map_range() {
+    let r = 0i32..10i32;
+    let v: Vec<i32> = iter_filter_map::<RangeI32, i32, i32>(r, square_if_even)
+                        .collect::<Vec<i32>>();
+    let want: [i32; 5] = [0i32, 4i32, 16i32, 36i32, 64i32];
+    unsafe {
+        assert_eq!(v.len, 5i64);
+        let mut i: i32 = 0i32;
+        while (i as i64) < v.len {
+            assert_eq!(v.ptr[i as i64], want[i]);
+            i = i + 1i32;
+        }
+    }
+}
+
+#[test]
+fn test_filter_map_empty() {
+    let r = 5i32..5i32;
+    let v: Vec<i32> = iter_filter_map::<RangeI32, i32, i32>(r, square_if_even)
+                        .collect::<Vec<i32>>();
+    assert_eq!(v.len, 0i64);
+}
+
+#[test]
+fn test_filter_map_dei() {
+    // FilterMapIter has DEI when inner is DEI; back yields from the
+    // end of the (filter-mapped) sequence.
+    let r = 0i32..10i32;
+    let mut it = iter_filter_map::<RangeI32, i32, i32>(r, square_if_even);
+    // Even sequence: 0,2,4,6,8 → squares 0,4,16,36,64. Back yields 64.
+    match it.next_back() {
+        Option::Some(v) => { assert_eq!(v, 64i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+    match it.next() {
+        Option::Some(v) => { assert_eq!(v, 0i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+    match it.next_back() {
+        Option::Some(v) => { assert_eq!(v, 36i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+}
