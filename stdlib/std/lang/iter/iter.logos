@@ -311,11 +311,14 @@ pub trait Iterator<Item> {
     }
 
     // Terminal: skip first `n` items, then return next.
-    fn nth(self: Self, n: i64) -> Option<Item> {
-        let mut it: Self = self;
+    // Rust signature: `fn nth(&mut self, n: usize) -> Option<Item>` — takes
+    // `&mut self` so the underlying iterator advances past the consumed
+    // prefix. Logos mirrors this for nth/find/position; count/last/fold
+    // keep by-value self (consuming terminals).
+    fn nth(self: &mut Self, n: i64) -> Option<Item> {
         let mut k: i64 = n;
         loop {
-            match it.next() {
+            match self.next() {
                 Option::None    => { return Option::None; }
                 Option::Some(v) => {
                     if k == 0 as i64 { return Option::Some(v); }

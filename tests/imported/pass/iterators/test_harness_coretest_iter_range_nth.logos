@@ -37,9 +37,22 @@ fn test_range_nth_none() {
     assert!(r.nth(5i64).is_none());
 }
 
-// Note: Logos's Iterator::nth takes `self` by value (consumes the iterator),
-// while Rust's takes `&mut self`. So the upstream chain-nth-on-same-r
-// pattern isn't reproducible here — each .nth() call needs a fresh range.
+#[test]
+fn test_range_nth_consumes() {
+    // Faithful upstream chain — nth advances the same iterator.
+    let mut r: RangeI32 = 10i32..20i32;
+    match r.nth(2i64) {
+        Option::Some(v) => { assert_eq!(v, 12i32); }
+        Option::None    => { assert!(false); }
+    }
+    // Next nth(2) skips 13,14 and yields 15.
+    match r.nth(2i64) {
+        Option::Some(v) => { assert_eq!(v, 15i32); }
+        Option::None    => { assert!(false); }
+    }
+    // r is positioned past 15 — nth(10) overshoots, returns None.
+    assert!(r.nth(10i64).is_none());
+}
 
 #[test]
 fn test_range_nth_back_some() {
@@ -68,16 +81,16 @@ fn test_range_nth_back_none() {
 
 #[test]
 fn test_range_i64_nth() {
-    let r1: RangeI64 = 100i64..200i64;
+    let mut r1: RangeI64 = 100i64..200i64;
     match r1.nth(5i64) {
         Option::Some(v) => { assert_eq!(v, 105i64); }
         Option::None    => { assert!(false); }
     }
-    let r2: RangeI64 = 100i64..200i64;
+    let mut r2: RangeI64 = 100i64..200i64;
     match r2.nth(99i64) {
         Option::Some(v) => { assert_eq!(v, 199i64); }
         Option::None    => { assert!(false); }
     }
-    let r3: RangeI64 = 100i64..200i64;
+    let mut r3: RangeI64 = 100i64..200i64;
     assert!(r3.nth(100i64).is_none());
 }
