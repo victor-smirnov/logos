@@ -1,0 +1,86 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
+//   library/coretests/tests/result.rs::test_try (analogue using ? operator).
+//
+// Validates the `?` operator on both Result<T, E> and Option<T>. Currently
+// requires E_inner == E_outer (strict). Rust's implicit From<E_inner> for
+// E_outer on `?` (Try trait → FromResidual + From<E>) is a known gap —
+// callers must use `.map_err(...)?` explicitly. Coretest reflects the
+// same-E shape only.
+
+package test_coretest_qmark_from;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.option;
+use std.lang.result;
+
+fn inner_result(x: i32) -> Result<i32, i32> {
+    if x < 0i32 { return Result::Err(7i32); }
+    return Result::Ok(x + 1i32);
+}
+
+fn outer_result(x: i32) -> Result<i32, i32> {
+    let y: i32 = inner_result(x)?;
+    return Result::Ok(y * 2i32);
+}
+
+fn step(x: i32) -> Result<i32, i32> {
+    if x < 0i32 { return Result::Err(99i32); }
+    return Result::Ok(x + 1i32);
+}
+fn pipe_result(x: i32) -> Result<i32, i32> {
+    let a: i32 = step(x)?;
+    let b: i32 = step(a)?;
+    let c: i32 = step(b)?;
+    return Result::Ok(c);
+}
+
+fn first_opt(v: i32) -> Option<i32> {
+    if v == 0i32 { return Option::None; }
+    return Option::Some(v * 2i32);
+}
+fn pipe_opt(v: i32) -> Option<i32> {
+    let x: i32 = first_opt(v)?;
+    return Option::Some(x + 1i32);
+}
+
+#[test]
+fn test_qmark_result_ok() {
+    match outer_result(5i32) {
+        Result::Ok(v)  => { assert!(v == 12i32); }
+        Result::Err(_) => { assert!(false); }
+    }
+}
+
+#[test]
+fn test_qmark_result_err_propagates() {
+    match outer_result(-1i32) {
+        Result::Ok(_)  => { assert!(false); }
+        Result::Err(e) => { assert!(e == 7i32); }
+    }
+}
+
+#[test]
+fn test_qmark_result_chain() {
+    match pipe_result(0i32) {
+        Result::Ok(v)  => { assert!(v == 3i32); }
+        Result::Err(_) => { assert!(false); }
+    }
+    match pipe_result(-5i32) {
+        Result::Ok(_)  => { assert!(false); }
+        Result::Err(e) => { assert!(e == 99i32); }
+    }
+}
+
+#[test]
+fn test_qmark_option_some() {
+    match pipe_opt(7i32) {
+        Option::Some(v) => { assert!(v == 15i32); }
+        Option::None    => { assert!(false); }
+    }
+}
+
+#[test]
+fn test_qmark_option_none_short_circuit() {
+    assert!(pipe_opt(0i32).is_none());
+}

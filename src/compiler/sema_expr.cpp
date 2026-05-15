@@ -664,6 +664,22 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                 error("'?' operator used in function that does not return Result<T, E>");
             return error_expr();
         }
+        // For Result<T, E>: inner E and outer E must match exactly. The
+        // current `?` lowering byte-copies the err payload from inner to
+        // outer, so heterogeneous E types silently miscompile. Rust handles
+        // this via implicit `From::<E_inner>::from(e)`; that path is a
+        // TODO — call .map_err(From::from)? explicitly until then.
+        if (is_result) {
+            auto iargs = TypeRef(inner_t).type_args();
+            auto rargs = TypeRef(ret_type_).type_args();
+            if (iargs.size() >= 2 && rargs.size() >= 2
+                && !types_equal(iargs[1], rargs[1])) {
+                error("'?' operator: inner error type differs from outer "
+                      "function's error type — implicit `From` conversion on "
+                      "`?` is not yet supported. Use `.map_err(...)?` explicitly.");
+                return error_expr();
+            }
+        }
         // Find the "ok-like" and "err-like" discriminants from the enum def.
         // Result: Ok/Err.  Option: Some/None.
         int32_t ok_disc = 0, err_disc = 1;
