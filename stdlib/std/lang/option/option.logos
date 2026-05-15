@@ -19,6 +19,7 @@
 package std.lang.option;
 
 use std.lang.panic;
+use std.lang.default;
 
 pub enum Option<T> {
     Some(T),
@@ -194,6 +195,12 @@ pub fn option_unwrap_or_default<T: Default>(opt: Option<T>) -> T {
         Option::Some(v) => { return v; }
         Option::None    => { return T::default(); }
     }
+}
+
+// Default for Option<T> is None — independent of T. Mirrors Rust's
+// `impl<T> Default for Option<T>`.
+impl<T> Default for Option<T> {
+    fn default() -> Option<T> { return Option::<T>::None; }
 }
 
 // Flatten a doubly-wrapped Option<Option<T>> into Option<T>.

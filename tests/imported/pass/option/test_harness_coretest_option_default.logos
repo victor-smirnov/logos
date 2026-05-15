@@ -1,0 +1,39 @@
+// Coretest port — `Option<T>::default() = None` invariant.
+// Mirrors Rust's `impl<T> Default for Option<T>`. Source:
+// library/coretests/tests/option.rs (Default assertions woven
+// through several upstream tests; consolidated here).
+//
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7.
+
+package test_option_default;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.option;
+use std.lang.default;
+
+#[test]
+fn test_option_default_i32() {
+    let o: Option<i32> = Option::<i32>::default();
+    match o {
+        Option::Some(_) => { assert_eq!(true, false); }
+        Option::None    => { }
+    }
+}
+
+#[test]
+fn test_option_default_i64() {
+    let o: Option<i64> = Option::<i64>::default();
+    match o {
+        Option::Some(_) => { assert_eq!(true, false); }
+        Option::None    => { }
+    }
+}
+
+#[test]
+fn test_option_default_via_unwrap_or_default() {
+    // Helper free fn from option module: applies T::default for the
+    // None case.
+    assert_eq!(option_unwrap_or_default::<i32>(Option::<i32>::default()), 0i32);
+    assert_eq!(option_unwrap_or_default::<i64>(Option::<i64>::default()), 0i64);
+}
