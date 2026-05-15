@@ -6,6 +6,7 @@
 package std.lang.iter;
 
 use std.lang.option;
+use std.lang.ord;
 
 // ── Core trait ───────────────────────────────────────────────────────────────
 
@@ -27,6 +28,38 @@ pub trait Iterator<Item> {
 
     fn map<MapOut>(self: Self, f: fn(Item) -> MapOut) -> MapIter<Self, Item, MapOut> {
         return MapIter { inner: self, f: f };
+    }
+
+    // SL-sl-05 method shortcuts for the adapter free fns below. No
+    // fresh method-level tparams (Item is impl-bound), so the method-
+    // generic-mono machinery isn't needed here. The `unsafe` qualifier
+    // matches their free-fn counterparts which require a `zero`
+    // sentinel for raw-pointer copies in adapter bodies. The unusual
+    // 2nd-arg `zero: Item` placeholder is a workaround for Logos's
+    // lack of `mem::zeroed` / `Default` — give the adapter a typed
+    // initial value for its `_t` phantom field.
+    unsafe fn take_while(self: Self, pred: fn(Item) -> bool, zero: Item)
+        -> TakeWhileIter<Self, Item>
+    {
+        return TakeWhileIter { inner: self, pred: pred, done: false, _t: zero };
+    }
+
+    unsafe fn skip_while(self: Self, pred: fn(Item) -> bool, zero: Item)
+        -> SkipWhileIter<Self, Item>
+    {
+        return SkipWhileIter { inner: self, pred: pred, primed: false, _t: zero };
+    }
+
+    unsafe fn step_by(self: Self, step: i64, zero: Item)
+        -> StepByIter<Self, Item>
+    {
+        return StepByIter { inner: self, step: step, first: true, _t: zero };
+    }
+
+    unsafe fn inspect(self: Self, visit: fn(Item) -> (), zero: Item)
+        -> InspectIter<Self, Item>
+    {
+        return InspectIter { inner: self, visit: visit, _t: zero };
     }
 
     // Terminal: fold items into an accumulator.
@@ -253,6 +286,137 @@ impl<I: Iterator<T>, T> Iterator<T> for SkipIter<I, T> {
 pub unsafe fn iter_skip<I: Iterator<T>, T>(iter: I, n: i64, zero: T) -> SkipIter<I, T> {
     return SkipIter { inner: iter, remaining: n, _t: zero };
 }
+
+// ── TakeWhileIter<I, T> — yield until pred returns false ─────────────────────
+
+pub struct TakeWhileIter<I, T> {
+    pub inner: I,
+    pub pred: fn(T) -> bool,
+    pub done: bool,
+    pub _t: T,
+}
+
+impl<I: Iterator<T>, T> Iterator<T> for TakeWhileIter<I, T> {
+    fn next(self: &mut TakeWhileIter<I, T>) -> Option<T> {
+        if self.done { return Option::None; }
+        unsafe {
+            match self.inner.next() {
+                Option::None    => { self.done = true; return Option::None; }
+                Option::Some(v) => {
+                    let v_copy: T = *((&v) as *const T);
+                    let pred = self.pred;
+                    if pred(v_copy) { return Option::Some(v); }
+                    self.done = true;
+                    return Option::None;
+                }
+            }
+        }
+    }
+}
+
+pub unsafe fn iter_take_while<I: Iterator<T>, T>(iter: I, pred: fn(T) -> bool, zero: T) -> TakeWhileIter<I, T> {
+    return TakeWhileIter { inner: iter, pred: pred, done: false, _t: zero };
+}
+
+// ── SkipWhileIter<I, T> — skip until pred returns false, then yield rest ─────
+
+pub struct SkipWhileIter<I, T> {
+    pub inner: I,
+    pub pred: fn(T) -> bool,
+    pub primed: bool,
+    pub _t: T,
+}
+
+impl<I: Iterator<T>, T> Iterator<T> for SkipWhileIter<I, T> {
+    fn next(self: &mut SkipWhileIter<I, T>) -> Option<T> {
+        unsafe {
+            if !self.primed {
+                loop {
+                    match self.inner.next() {
+                        Option::None    => { self.primed = true; return Option::None; }
+                        Option::Some(v) => {
+                            let v_copy: T = *((&v) as *const T);
+                            let pred = self.pred;
+                            if !pred(v_copy) {
+                                self.primed = true;
+                                return Option::Some(v);
+                            }
+                        }
+                    }
+                }
+            }
+            return self.inner.next();
+        }
+    }
+}
+
+pub unsafe fn iter_skip_while<I: Iterator<T>, T>(iter: I, pred: fn(T) -> bool, zero: T) -> SkipWhileIter<I, T> {
+    return SkipWhileIter { inner: iter, pred: pred, primed: false, _t: zero };
+}
+
+// ── StepByIter<I, T> — yield every Nth item starting from the first ──────────
+
+pub struct StepByIter<I, T> {
+    pub inner: I,
+    pub step: i64,
+    pub first: bool,
+    pub _t: T,
+}
+
+impl<I: Iterator<T>, T> Iterator<T> for StepByIter<I, T> {
+    fn next(self: &mut StepByIter<I, T>) -> Option<T> {
+        if self.first {
+            self.first = false;
+            return self.inner.next();
+        }
+        // Skip step-1 items.
+        let mut k: i64 = self.step - 1i64;
+        while k > 0i64 {
+            match self.inner.next() {
+                Option::None    => { return Option::None; }
+                Option::Some(_) => { k = k - 1i64; }
+            }
+        }
+        return self.inner.next();
+    }
+}
+
+pub unsafe fn iter_step_by<I: Iterator<T>, T>(iter: I, step: i64, zero: T) -> StepByIter<I, T> {
+    return StepByIter { inner: iter, step: step, first: true, _t: zero };
+}
+
+// ── InspectIter<I, T> — observe each item without consuming it ───────────────
+
+pub struct InspectIter<I, T> {
+    pub inner: I,
+    pub visit: fn(T) -> (),
+    pub _t: T,
+}
+
+impl<I: Iterator<T>, T> Iterator<T> for InspectIter<I, T> {
+    fn next(self: &mut InspectIter<I, T>) -> Option<T> {
+        unsafe {
+            match self.inner.next() {
+                Option::None    => { return Option::None; }
+                Option::Some(v) => {
+                    let v_copy: T = *((&v) as *const T);
+                    let visit = self.visit;
+                    visit(v_copy);
+                    return Option::Some(v);
+                }
+            }
+        }
+    }
+}
+
+pub unsafe fn iter_inspect<I: Iterator<T>, T>(iter: I, visit: fn(T) -> (), zero: T) -> InspectIter<I, T> {
+    return InspectIter { inner: iter, visit: visit, _t: zero };
+}
+
+// PeekableIter / iter_peekable deferred — `&self.peeked` through
+// &mut self lvalue doesn't yet form a &T into the field's payload
+// slot correctly (separate from the standalone-match-scrutinee ref-v
+// path that works in this same TU).
 
 // ── EnumIter<I, T> — pair each item with its index ───────────────────────────
 

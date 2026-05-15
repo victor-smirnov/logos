@@ -1,0 +1,58 @@
+// SL-sl-05 — additional Iterator adapters: take_while, skip_while,
+// step_by, inspect. Available both as free fns
+// (iter_take_while / iter_skip_while / iter_step_by / iter_inspect)
+// AND as `unsafe` trait-default-method shortcuts on Iterator (Item-
+// bound, no fresh method-level tparams so the method-generic-mono
+// path isn't engaged).
+
+package iter_more_adapters;
+
+use std.lang.iter;
+use std.lang.option;
+
+fn lt5(x: i32) -> bool { return x < 5i32; }
+fn lt3(x: i32) -> bool { return x < 3i32; }
+fn add_i32(a: i32, b: i32) -> i32 { return a + b; }
+fn nop(_x: i32) -> () { }
+
+fn main() -> i32 {
+    let arr: [i32; 7] = [1i32, 2i32, 3i32, 4i32, 5i32, 6i32, 7i32];
+    unsafe {
+        // take_while: 1, 2, 3, 4 — stops at first false.  Sum = 10.
+        let it = iter_over_slice::<i32>(&arr);
+        if iter_fold(iter_take_while(it, lt5, 0i32), 0i32, add_i32) != 10i32 {
+            return 1i32;
+        }
+
+        // skip_while: skips while pred true; yields 3..7.  Sum = 25.
+        let it2 = iter_over_slice::<i32>(&arr);
+        if iter_fold(iter_skip_while(it2, lt3, 0i32), 0i32, add_i32) != 25i32 {
+            return 2i32;
+        }
+
+        // step_by(2): 1, 3, 5, 7 = 16.
+        let it3 = iter_over_slice::<i32>(&arr);
+        if iter_fold(iter_step_by(it3, 2i64, 0i32), 0i32, add_i32) != 16i32 {
+            return 3i32;
+        }
+
+        // inspect: pass-through with side-effect; sum unchanged = 28.
+        let it4 = iter_over_slice::<i32>(&arr);
+        if iter_fold(iter_inspect(it4, nop, 0i32), 0i32, add_i32) != 28i32 {
+            return 4i32;
+        }
+
+        // Method-shortcut chain: .take_while(...).fold(...)
+        let it5 = iter_over_slice::<i32>(&arr);
+        if it5.take_while(lt5, 0i32).fold::<i32>(0i32, add_i32) != 10i32 {
+            return 5i32;
+        }
+
+        // Method-shortcut chain: .step_by(2).fold(...)
+        let it6 = iter_over_slice::<i32>(&arr);
+        if it6.step_by(2i64, 0i32).fold::<i32>(0i32, add_i32) != 16i32 {
+            return 6i32;
+        }
+    }
+    return 0i32;
+}
