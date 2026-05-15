@@ -15,51 +15,58 @@ using namespace lir;
 
 mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
     if (!tv) return nullptr;
-    if (type_str(tv) == "AnyVal") return builder_.getI32Type();
+    // Cache check first — see logos_to_mlir_cache_ comment in
+    // mlir_gen_impl.hpp. Struct/Array/Enum cases lazily register types
+    // as a side effect; subsequent cache hits skip re-registration but
+    // the registration itself is idempotent, so this is safe. Hit rate
+    // is very high in forward_declare (same TypeRef appears across many
+    // fn signatures: `&self`, common return types, etc).
+    auto off = tv.offset();
+    if (auto it = logos_to_mlir_cache_.find(off);
+        it != logos_to_mlir_cache_.end())
+        return it->second;
+    auto cache_ret = [&](mlir::Type t) -> mlir::Type {
+        if (t) logos_to_mlir_cache_[off] = t;
+        return t;
+    };
+    if (is_anyval(tv)) return cache_ret(builder_.getI32Type());
     switch (tv.kind()) {
     case LogosType::Kind::Void:   return nullptr;
-    case LogosType::Kind::I32:    return builder_.getI32Type();
-    case LogosType::Kind::I64:    return builder_.getI64Type();
-    case LogosType::Kind::F64:    return builder_.getF64Type();
-    case LogosType::Kind::F32:    return builder_.getF32Type();
-    case LogosType::Kind::Bool:   return builder_.getI1Type();
-    case LogosType::Kind::U8:     return builder_.getIntegerType(8);
-    case LogosType::Kind::I8:     return builder_.getIntegerType(8);
-    case LogosType::Kind::I16:    return builder_.getIntegerType(16);
-    case LogosType::Kind::U16:    return builder_.getIntegerType(16);
-    case LogosType::Kind::I24:    return builder_.getIntegerType(24);
-    case LogosType::Kind::U24:    return builder_.getIntegerType(24);
-    case LogosType::Kind::I56:    return builder_.getIntegerType(56);
-    case LogosType::Kind::U56:    return builder_.getIntegerType(56);
-    case LogosType::Kind::U32:    return builder_.getIntegerType(32);
-    case LogosType::Kind::U64:    return builder_.getIntegerType(64);
-    case LogosType::Kind::I128:   return builder_.getIntegerType(128);
-    case LogosType::Kind::U128:   return builder_.getIntegerType(128);
-    case LogosType::Kind::Usize:  return builder_.getIntegerType(::logos::compiler::g_target_pointer_bits);
-    case LogosType::Kind::Isize:  return builder_.getIntegerType(::logos::compiler::g_target_pointer_bits);
-    case LogosType::Kind::Char:   return builder_.getI32Type();  // Unicode scalar = 4 bytes
-    case LogosType::Kind::IntLit:   return builder_.getI32Type();
-    case LogosType::Kind::FloatLit: return builder_.getF64Type();
+    case LogosType::Kind::I32:    return cache_ret(builder_.getI32Type());
+    case LogosType::Kind::I64:    return cache_ret(builder_.getI64Type());
+    case LogosType::Kind::F64:    return cache_ret(builder_.getF64Type());
+    case LogosType::Kind::F32:    return cache_ret(builder_.getF32Type());
+    case LogosType::Kind::Bool:   return cache_ret(builder_.getI1Type());
+    case LogosType::Kind::U8:     return cache_ret(builder_.getIntegerType(8));
+    case LogosType::Kind::I8:     return cache_ret(builder_.getIntegerType(8));
+    case LogosType::Kind::I16:    return cache_ret(builder_.getIntegerType(16));
+    case LogosType::Kind::U16:    return cache_ret(builder_.getIntegerType(16));
+    case LogosType::Kind::I24:    return cache_ret(builder_.getIntegerType(24));
+    case LogosType::Kind::U24:    return cache_ret(builder_.getIntegerType(24));
+    case LogosType::Kind::I56:    return cache_ret(builder_.getIntegerType(56));
+    case LogosType::Kind::U56:    return cache_ret(builder_.getIntegerType(56));
+    case LogosType::Kind::U32:    return cache_ret(builder_.getIntegerType(32));
+    case LogosType::Kind::U64:    return cache_ret(builder_.getIntegerType(64));
+    case LogosType::Kind::I128:   return cache_ret(builder_.getIntegerType(128));
+    case LogosType::Kind::U128:   return cache_ret(builder_.getIntegerType(128));
+    case LogosType::Kind::Usize:  return cache_ret(builder_.getIntegerType(::logos::compiler::g_target_pointer_bits));
+    case LogosType::Kind::Isize:  return cache_ret(builder_.getIntegerType(::logos::compiler::g_target_pointer_bits));
+    case LogosType::Kind::Char:   return cache_ret(builder_.getI32Type());
+    case LogosType::Kind::IntLit:   return cache_ret(builder_.getI32Type());
+    case LogosType::Kind::FloatLit: return cache_ret(builder_.getF64Type());
     case LogosType::Kind::Enum: {
-        // Tagged enums are passed by pointer; C-style enums use their
-        // backing integer type (i32 by default, or `enum Foo : u64 {}`).
-        if (resolve_tagged_enum(std::string(tv.enum_name()), tv)) return ptr_type();
-        return enum_disc_mlir(std::string(tv.enum_name()));
+        if (resolve_tagged_enum(std::string(tv.enum_name()), tv))
+            return cache_ret(ptr_type());
+        return cache_ret(enum_disc_mlir(std::string(tv.enum_name())));
     }
-    case LogosType::Kind::Ptr:    return ptr_type();
-    case LogosType::Kind::Ref:    return ptr_type();  // &T — same layout as *const T
-    case LogosType::Kind::MutRef: return ptr_type();  // &mut T — same layout as *mut T
+    case LogosType::Kind::Ptr:    return cache_ret(ptr_type());
+    case LogosType::Kind::Ref:    return cache_ret(ptr_type());
+    case LogosType::Kind::MutRef: return cache_ret(ptr_type());
     case LogosType::Kind::Array: {
-        // For struct-typed elements, inline the LLVM struct aggregate as the
-        // slot type (sizeof(Struct) per slot) instead of the bare pointer
-        // type — otherwise array slots are undersized and storing each
-        // element would overlap into the next slot, plus pointers into a
-        // local slot would dangle once the function returns. Mirrors the
-        // inline-embed path in `register_struct` for struct-of-struct.
         TypeRef elem_tv = tv.elem();
         if (elem_tv && (elem_tv.kind() == LogosType::Kind::Struct ||
                         elem_tv.kind() == LogosType::Kind::ZonedStruct) &&
-            type_str(elem_tv) != "AnyVal") {
+            !is_anyval(elem_tv)) {
             auto cname = concrete_struct_name(elem_tv);
             auto sit   = struct_types_.find(cname);
             if (sit == struct_types_.end()) {
@@ -70,75 +77,49 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
                 }
             }
             if (sit != struct_types_.end())
-                return mlir::LLVM::LLVMArrayType::get(
-                    sit->second.llvm_type, tv.arr_size());
+                return cache_ret(mlir::LLVM::LLVMArrayType::get(
+                    sit->second.llvm_type, tv.arr_size()));
         }
         auto elem = logos_to_mlir(elem_tv);
         if (!elem) return nullptr;
-        return mlir::LLVM::LLVMArrayType::get(elem, tv.arr_size());
+        return cache_ret(mlir::LLVM::LLVMArrayType::get(elem, tv.arr_size()));
     }
     case LogosType::Kind::Struct:
     case LogosType::Kind::ZonedStruct: {
-        // Check type alias first.
         auto cname = concrete_struct_name(tv);
         auto ait = type_aliases_.find(cname);
-        if (ait != type_aliases_.end()) return ait->second;
-        // Structs/datatypes are always passed by pointer; no need to wait for registration.
-        return ptr_type();
+        if (ait != type_aliases_.end()) return cache_ret(ait->second);
+        return cache_ret(ptr_type());
     }
-    case LogosType::Kind::Closure:
-        // Closures are {fn_ptr, env_ptr}, passed by pointer.
-        return ptr_type();
-    case LogosType::Kind::FnPtr:
-        // Bare function pointer: just a single ptr.
-        return ptr_type();
-    case LogosType::Kind::Slice:
-        // Slices are fat pointers {ptr, i64}, passed by pointer (like structs/tuples).
-        return ptr_type();
-    case LogosType::Kind::UnsizedSlice:
-        // Phase 1B: bare `[T]` is unsized — it has no by-value MLIR
-        // representation. Reaching this case at codegen indicates that
-        // canonicalisation `&[T]` / `*const [T]` failed somewhere in
-        // sema; treat as a sentinel pointer so the surrounding diagnostic
-        // path can report the misuse rather than crash here.
-        return ptr_type();
-    case LogosType::Kind::UnsizedDyn:
-        // Phase 1B-4: bare `dyn Trait` is unsized — same sentinel.
-        return ptr_type();
-    case LogosType::Kind::DstRef:
-        // Phase 1B-14: `&DstStruct` / `*const DstStruct` — fat pointer
-        // {data, tail_len}. Same ABI as Kind::Slice: the value lives in
-        // memory as a 2-pointer-wide pair; the MLIR-level handle is a
-        // pointer to that pair.
-        return ptr_type();
+    case LogosType::Kind::Closure:      return cache_ret(ptr_type());
+    case LogosType::Kind::FnPtr:        return cache_ret(ptr_type());
+    case LogosType::Kind::Slice:        return cache_ret(ptr_type());
+    case LogosType::Kind::UnsizedSlice: return cache_ret(ptr_type());
+    case LogosType::Kind::UnsizedDyn:   return cache_ret(ptr_type());
+    case LogosType::Kind::DstRef:       return cache_ret(ptr_type());
     case LogosType::Kind::Tuple: {
-        // Tuples are anonymous LLVM struct types, passed by pointer (like structs).
+        // Tuples are anonymous LLVM struct types, passed by pointer.
+        // We discard the literal struct type here (return ptr_type) but
+        // tuple_llvm_type() builds it on demand for return-by-value.
         llvm::SmallVector<mlir::Type> fields;
         for (auto e : tv.tuple_elems()) {
             auto ft = logos_to_mlir(e);
             if (!ft) return nullptr;
             fields.push_back(ft);
         }
-        return ptr_type();
+        return cache_ret(ptr_type());
     }
-    case LogosType::Kind::TaggedPtr:
-        // &tagged<TS> Trait is a thin pointer (*const u8) — same layout as any ptr.
-        return ptr_type();
-    case LogosType::Kind::TraitObject:
-        // &dyn Trait is a fat pointer {data_ptr, vtable_ptr}, passed by pointer.
-        return ptr_type();
+    case LogosType::Kind::TaggedPtr:    return cache_ret(ptr_type());
+    case LogosType::Kind::TraitObject:  return cache_ret(ptr_type());
     case LogosType::Kind::TypeVar:
-        // TypeVar should have been eliminated by mono_pass.
         std::fprintf(stderr, "mlir_gen: unresolved TypeVar '%s' — mono_pass required\n",
                      std::string(tv.type_var_name()).c_str());
         return nullptr;
     case LogosType::Kind::ConstVar:
-        // ConstVar (e.g. N in [T; N]) should have been resolved by mono_pass.
         std::fprintf(stderr, "mlir_gen: unresolved ConstVar '%s' — mono_pass required\n",
                      std::string(tv.type_var_name()).c_str());
         return nullptr;
     case LogosType::Kind::AssocType: {
-        // AssocType (T::Item) should have been resolved by mono_pass.
         std::string base_s = tv.assoc_base() ? type_str(tv.assoc_base()) : "<null>";
         std::fprintf(stderr,
                      "mlir_gen: unresolved AssocType '%s::%s::%s' — mono_pass required\n",
@@ -147,9 +128,9 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
     }
     case LogosType::Kind::Error:       return nullptr;
     case LogosType::Kind::ImplTrait:   return nullptr;
-    case LogosType::Kind::Generic:     return nullptr;  // value-side marker only
-    case LogosType::Kind::HStaticLit:  return nullptr;  // type-level only, no MLIR mapping
-    case LogosType::Kind::CfgSlotType: return nullptr;  // type-level only, no MLIR mapping
+    case LogosType::Kind::Generic:     return nullptr;
+    case LogosType::Kind::HStaticLit:  return nullptr;
+    case LogosType::Kind::CfgSlotType: return nullptr;
     }
     return nullptr;
 }

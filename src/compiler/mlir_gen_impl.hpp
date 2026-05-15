@@ -192,6 +192,20 @@ private:
     std::unordered_map<std::string, TaggedEnumInfo>    tagged_enums_;
     std::unordered_map<std::string, mlir::Type>        type_aliases_;
     std::unordered_map<std::string, const LConst*>     module_consts_;
+    // logos_to_mlir cache keyed by TypeRef offset. Same TypeRef
+    // value appears in many fn signatures (e.g. `&self` across 50+
+    // methods on the same struct); without the cache, make_fn_type
+    // re-computes the MLIR Type for each occurrence. Offsets are
+    // stable for the lifetime of a single mlir_gen invocation (the
+    // LProgram's type_pool arena isn't mutated by mlir_gen).
+    std::unordered_map<hermes::arena_offset_t, mlir::Type> logos_to_mlir_cache_;
+
+    // Names already forward-declared in the current generate() pass.
+    // Replaces `mod.lookupSymbol(name)` as a duplicate-declaration guard:
+    // MLIR's SymbolTable cache is invalidated by every push_back so each
+    // lookupSymbol walks the module afresh — O(n) per call, O(n²) total
+    // across 3500+ symbols.
+    std::unordered_set<std::string>                        declared_fn_names_;
     std::unordered_set<std::string>                    vararg_fns_;  // names of vararg extern fns
 
     // Per-function: variables holding &dyn Trait values (name → trait name).

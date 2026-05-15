@@ -13,14 +13,14 @@ using namespace lir;
 // ---------------------------------------------------------------------------
 
 void MLIRGenImpl::ensure_malloc_free(mlir::ModuleOp mod) {
-    if (!mod.lookupSymbol("malloc")) {
+    if (declared_fn_names_.insert("malloc").second) {
         auto fn_type = builder_.getFunctionType(
             {builder_.getI64Type()}, {ptr_type()});
         auto fn = mlir::func::FuncOp::create(loc_, "malloc", fn_type);
         fn.setPrivate();
         mod.push_back(fn);
     }
-    if (!mod.lookupSymbol("free")) {
+    if (declared_fn_names_.insert("free").second) {
         auto fn_type = builder_.getFunctionType({ptr_type()}, {});
         auto fn = mlir::func::FuncOp::create(loc_, "free", fn_type);
         fn.setPrivate();
@@ -139,9 +139,13 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(const LFunction& fn) {
 
 void MLIRGenImpl::forward_declare(mlir::ModuleOp mod, const LFunction& fn,
                                     bool is_binary_skip) {
+    // Dup-check via declared_fn_names_ instead of mod.lookupSymbol:
+    // MLIR's symbol table cache is invalidated by every push_back, so each
+    // lookupSymbol re-walks the module — O(n) per call, O(n²) across the
+    // 3500+ forward_declare iterations.
+    if (!declared_fn_names_.insert(fn.name).second) return;
     if (fn.is_vararg) {
         // Vararg extern fns use llvm.func (func dialect doesn't support varargs)
-        if (mod.lookupSymbol<mlir::LLVM::LLVMFuncOp>(fn.name)) return;
         llvm::SmallVector<mlir::Type> param_types;
         for (auto& p : fn.params) {
             auto t = logos_to_mlir(p.type);
@@ -157,7 +161,6 @@ void MLIRGenImpl::forward_declare(mlir::ModuleOp mod, const LFunction& fn,
         vararg_fns_.insert(fn.name);
         return;
     }
-    if (mod.lookupSymbol<mlir::func::FuncOp>(fn.name)) return;
     auto f = mlir::func::FuncOp::create(loc_, fn.name, make_fn_type(fn));
     // Binary-skip and extern fns are declaration-only — set private at
     // creation time to avoid the separate setPrivate-by-name pass.

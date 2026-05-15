@@ -734,8 +734,18 @@ mlir::Value MLIRGenImpl::gen_arr_lit(lir_view::EArrLitView v, mlir::Type elem_ty
 mlir::OwningOpRef<mlir::ModuleOp> mlir_gen(mlir::MLIRContext& ctx,
                                             const LProgram& prog) noexcept
 {
+    auto t0 = std::chrono::steady_clock::now();
     MLIRGenImpl gen(ctx);
-    return gen.generate(prog);
+    auto t_ctor = std::chrono::steady_clock::now();
+    auto mod = gen.generate(prog);
+    auto t_gen = std::chrono::steady_clock::now();
+    if (const char* e = std::getenv("LOGOS_MLIR_PHASE_TIMING"); e && e[0] && e[0] != '0') {
+        auto ctor_us = std::chrono::duration_cast<std::chrono::microseconds>(t_ctor - t0).count();
+        auto gen_us  = std::chrono::duration_cast<std::chrono::microseconds>(t_gen - t_ctor).count();
+        std::fprintf(stderr, "[mlir-outer] ctor=%ldus generate=%ldus\n",
+                     (long)ctor_us, (long)gen_us);
+    }
+    return mod;
 }
 
 } // namespace logos::compiler
