@@ -1,0 +1,125 @@
+// Multi-source coretest batch (B52) — iter/sources.rs (once/empty/
+// repeat) + Peekable DEI.
+//
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7.
+//
+// Validates the just-landed stdlib additions:
+//   * std/lang/iter: OnceIter / EmptyIter / RepeatIter + free fns
+//   * std/lang/iter: PeekableIter DoubleEndedIterator
+//
+// Source paths:
+//   iter/sources.rs::test_once
+//   iter/sources.rs::test_repeat_take       (adapted to finite take(N))
+//   iter/sources.rs::test_repeat_take_collect (via .collect::<Vec<T>>())
+//   iter/sources.rs::test_empty
+//   iter/adapters/peekable.rs::test_iterator_peekable_doubleended_basic
+//     (subset — Logos's Peekable DEI returns cached front-peek only
+//      after inner is exhausted from the back; matches Rust's shape)
+//
+// assert_eq! macros via std.fmt + std.lang.text.
+
+package test_iter_batch_b52_sources;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.iter;
+use std.lang.option;
+use std.collections.vec;
+
+#[test]
+fn test_once() {
+    unsafe {
+        let mut it = iter_once::<i32>(42i32);
+        match it.next() {
+            Option::Some(v) => { assert_eq!(v, 42i32); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+        match it.next() {
+            Option::Some(_) => { assert_eq!(true, false); }
+            Option::None    => { }
+        }
+    }
+}
+
+#[test]
+fn test_once_dei() {
+    unsafe {
+        let mut it = iter_once::<i32>(42i32);
+        match it.next_back() {
+            Option::Some(v) => { assert_eq!(v, 42i32); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+        match it.next_back() {
+            Option::Some(_) => { assert_eq!(true, false); }
+            Option::None    => { }
+        }
+    }
+}
+
+#[test]
+fn test_empty() {
+    unsafe {
+        let mut it = iter_empty::<i32>(0i32);
+        match it.next() {
+            Option::Some(_) => { assert_eq!(true, false); }
+            Option::None    => { }
+        }
+        // DEI also yields None.
+        match it.next_back() {
+            Option::Some(_) => { assert_eq!(true, false); }
+            Option::None    => { }
+        }
+    }
+}
+
+#[test]
+fn test_repeat_take() {
+    // repeat(42).take(3) → 3 × 42 = sum 126.
+    unsafe {
+        let r = iter_repeat::<i32>(42i32);
+        let mut it = iter_take::<RepeatIter<i32>, i32>(r, 3i64, 0i32);
+        let mut sum: i32 = 0i32;
+        let mut k: i32 = 0i32;
+        loop {
+            match it.next() {
+                Option::None    => { break; }
+                Option::Some(v) => { sum = sum + v; k = k + 1i32; }
+            }
+        }
+        assert_eq!(k,   3i32);
+        assert_eq!(sum, 126i32);
+    }
+}
+
+#[test]
+fn test_repeat_take_collect() {
+    unsafe {
+        // .collect::<Vec<i32>>() over repeat(42).take(3).
+        let r = iter_repeat::<i32>(42i32);
+        let it = iter_take::<RepeatIter<i32>, i32>(r, 3i64, 0i32);
+        let v: Vec<i32> = it.collect::<Vec<i32>>();
+        assert_eq!(v.len, 3i64);
+        assert_eq!(v.ptr[0i64], 42i32);
+        assert_eq!(v.ptr[1i64], 42i32);
+        assert_eq!(v.ptr[2i64], 42i32);
+    }
+}
+
+#[test]
+fn test_peekable_dei_basic() {
+    let xs: [i32; 5] = [1i32, 2i32, 3i32, 4i32, 5i32];
+    unsafe {
+        let mut it = iter_peekable::<SliceIter<i32>, i32>(iter_over_slice(&xs), 0i32);
+        // next_back from a fresh peekable just delegates.
+        match it.next_back() { Option::Some(v) => { assert_eq!(v, 5i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next_back() { Option::Some(v) => { assert_eq!(v, 4i32); } Option::None => { assert_eq!(true, false); } }
+        // Cache front via peek, then pull more from back.
+        match it.peek()      { Option::Some(r) => { assert_eq!(*r, 1i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next_back() { Option::Some(v) => { assert_eq!(v, 3i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next_back() { Option::Some(v) => { assert_eq!(v, 2i32); } Option::None => { assert_eq!(true, false); } }
+        // Inner exhausted now; next_back returns the cached front peek.
+        match it.next_back() { Option::Some(v) => { assert_eq!(v, 1i32); } Option::None => { assert_eq!(true, false); } }
+        // Fully drained.
+        match it.next_back() { Option::Some(_) => { assert_eq!(true, false); } Option::None => { } }
+    }
+}

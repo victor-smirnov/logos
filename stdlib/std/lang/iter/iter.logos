@@ -657,6 +657,98 @@ pub unsafe fn iter_peekable<I: Iterator<T>, T>(iter: I, zero: T) -> PeekableIter
     return PeekableIter { inner: iter, has_peeked: false, peeked_val: zero };
 }
 
+// DEI: pull from inner.next_back; if inner is exhausted but a front
+// peek is cached, return that cached value (so the cached peek
+// always observes as the last element from either direction).
+// Matches Rust's std::iter::Peekable<I: DoubleEndedIterator> shape.
+// Intermediate `back` local is required to dodge the disc-load
+// codegen bug on rvalue-call-match-result (same workaround as
+// SkipIter DEI).
+impl<I: DoubleEndedIterator<T>, T> DoubleEndedIterator<T> for PeekableIter<I, T> {
+    fn next_back(self: &mut PeekableIter<I, T>) -> Option<T> {
+        unsafe {
+            let back: Option<T> = self.inner.next_back();
+            match back {
+                Option::Some(v) => { return Option::Some(v); }
+                Option::None => {
+                    if self.has_peeked {
+                        self.has_peeked = false;
+                        let v_copy: T = *((&self.peeked_val) as *const T);
+                        return Option::Some(v_copy);
+                    }
+                    return Option::None;
+                }
+            }
+        }
+    }
+}
+
+// ── Source iterators: once / empty / repeat ──────────────────────────────────
+//
+// Matches Rust's `core::iter::{once, empty, repeat}` shape: free fn
+// returning a typed iterator struct. Trivially DEI (a single-element
+// or symmetric source has the same yield from either end).
+
+pub struct OnceIter<T> {
+    pub consumed: bool,
+    pub val: T,
+}
+
+impl<T> Iterator<T> for OnceIter<T> {
+    fn next(self: &mut OnceIter<T>) -> Option<T> {
+        unsafe {
+            if self.consumed { return Option::None; }
+            self.consumed = true;
+            let v_copy: T = *((&self.val) as *const T);
+            return Option::Some(v_copy);
+        }
+    }
+}
+
+impl<T> DoubleEndedIterator<T> for OnceIter<T> {
+    fn next_back(self: &mut OnceIter<T>) -> Option<T> {
+        unsafe {
+            if self.consumed { return Option::None; }
+            self.consumed = true;
+            let v_copy: T = *((&self.val) as *const T);
+            return Option::Some(v_copy);
+        }
+    }
+}
+
+pub fn iter_once<T>(val: T) -> OnceIter<T> {
+    return OnceIter { consumed: false, val: val };
+}
+
+pub struct EmptyIter<T> { pub _t: T }
+
+impl<T> Iterator<T> for EmptyIter<T> {
+    fn next(self: &mut EmptyIter<T>) -> Option<T> { return Option::None; }
+}
+
+impl<T> DoubleEndedIterator<T> for EmptyIter<T> {
+    fn next_back(self: &mut EmptyIter<T>) -> Option<T> { return Option::None; }
+}
+
+pub fn iter_empty<T>(zero: T) -> EmptyIter<T> {
+    return EmptyIter { _t: zero };
+}
+
+pub struct RepeatIter<T> { pub val: T }
+
+impl<T> Iterator<T> for RepeatIter<T> {
+    fn next(self: &mut RepeatIter<T>) -> Option<T> {
+        unsafe {
+            let v_copy: T = *((&self.val) as *const T);
+            return Option::Some(v_copy);
+        }
+    }
+}
+
+pub fn iter_repeat<T>(val: T) -> RepeatIter<T> {
+    return RepeatIter { val: val };
+}
+
 // ── CycleIter<I, T> — repeat the source iterator forever ─────────────────────
 //
 // Stores the original (Clone'd on construction) plus the active copy.
