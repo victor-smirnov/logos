@@ -1,0 +1,97 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/iter/traits/iterator.rs
+//   (test_all, test_any, test_find, test_position, test_count)
+//
+// Modifications:
+// - `v.iter().<method>(...)` → `iter_over_slice(&v).<method>(...)`.
+// - Closure predicates lowered to named fn-ptrs (`.all` / `.any` /
+//   `.find` / `.position` accept `fn(T) -> bool`).
+// - `.count` on slice → `iter_filter(...).count()` pattern preserved.
+// - assert_eq! family imports via std.fmt + std.lang.text.
+
+package test_iter_search;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.iter;
+use std.lang.option;
+
+fn lt10(x: i32)        -> bool { return x < 10i32; }
+fn is_even(x: i32)     -> bool { return (x % 2i32) == 0i32; }
+fn gt100(x: i32)       -> bool { return x > 100i32; }
+fn div_by_3(x: i32)    -> bool { return (x % 3i32) == 0i32; }
+fn div_by_12(x: i32)   -> bool { return (x % 12i32) == 0i32; }
+fn eq2(x: i32)         -> bool { return x == 2i32; }
+fn eq5(x: i32)         -> bool { return x == 5i32; }
+fn eq95(x: i32)        -> bool { return x == 95i32; }
+
+#[test]
+fn test_all() {
+    let v: [i32; 5] = [1i32, 2i32, 3i32, 4i32, 5i32];
+    unsafe {
+        assert_eq!(iter_over_slice(&v).all(lt10),    true);
+        assert_eq!(iter_over_slice(&v).all(is_even), false);
+        assert_eq!(iter_over_slice(&v).all(gt100),   false);
+    }
+}
+
+#[test]
+fn test_any() {
+    let v: [i32; 5] = [1i32, 2i32, 3i32, 4i32, 5i32];
+    unsafe {
+        assert_eq!(iter_over_slice(&v).any(lt10),    true);
+        assert_eq!(iter_over_slice(&v).any(is_even), true);
+        assert_eq!(iter_over_slice(&v).any(gt100),   false);
+    }
+}
+
+#[test]
+fn test_find() {
+    let v: [i32; 7] = [1i32, 3i32, 9i32, 27i32, 103i32, 14i32, 11i32];
+    unsafe {
+        match iter_over_slice(&v).find(is_even) {
+            Option::Some(x) => { assert_eq!(x, 14i32); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+        match iter_over_slice(&v).find(div_by_3) {
+            Option::Some(x) => { assert_eq!(x, 3i32); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+        match iter_over_slice(&v).find(div_by_12) {
+            Option::Some(_) => { assert_eq!(true, false); }
+            Option::None    => { }
+        }
+    }
+}
+
+#[test]
+fn test_position() {
+    let v: [i32; 7] = [1i32, 3i32, 9i32, 27i32, 103i32, 14i32, 11i32];
+    unsafe {
+        match iter_over_slice(&v).position(is_even) {
+            Option::Some(idx) => { assert_eq!(idx, 5i64); }
+            Option::None      => { assert_eq!(true, false); }
+        }
+        match iter_over_slice(&v).position(div_by_3) {
+            Option::Some(idx) => { assert_eq!(idx, 1i64); }
+            Option::None      => { assert_eq!(true, false); }
+        }
+        match iter_over_slice(&v).position(div_by_12) {
+            Option::Some(_) => { assert_eq!(true, false); }
+            Option::None    => { }
+        }
+    }
+}
+
+#[test]
+fn test_count() {
+    let xs: [i32; 8] = [1i32, 2i32, 2i32, 1i32, 5i32, 9i32, 0i32, 2i32];
+    unsafe {
+        let c2: i64 = iter_filter::<SliceIter<i32>, i32>(iter_over_slice(&xs), eq2).count();
+        assert_eq!(c2, 3i64);
+        let c5: i64 = iter_filter::<SliceIter<i32>, i32>(iter_over_slice(&xs), eq5).count();
+        assert_eq!(c5, 1i64);
+        let c95: i64 = iter_filter::<SliceIter<i32>, i32>(iter_over_slice(&xs), eq95).count();
+        assert_eq!(c95, 0i64);
+    }
+}
