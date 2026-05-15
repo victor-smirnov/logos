@@ -1,0 +1,95 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
+//   library/coretests/tests/num/uint_macros.rs (subset, instantiated at u32)
+//
+// Mirrors B92 (u64) for the 32-bit width — count_ones / count_zeros /
+// rotate / swap_bytes / leading_trailing_zeros / pow / max/min/clamp.
+
+package test_coretest_u32;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.ord;
+
+const A: u32 = 0b0101100u32;
+const B: u32 = 0b0100001u32;
+const C: u32 = 0b1111001u32;
+
+const _0: u32 = 0u32;
+const _1: u32 = 0xFFFFFFFFu32;
+
+#[test]
+fn test_overflows() {
+    assert!(_1 > 0u32);
+}
+
+#[test]
+fn test_count_ones() {
+    assert!(A.count_ones() == 3u32);
+    assert!(B.count_ones() == 2u32);
+    assert!(C.count_ones() == 5u32);
+}
+
+#[test]
+fn test_count_zeros() {
+    assert!(A.count_zeros() == 32u32 - 3u32);
+    assert!(B.count_zeros() == 32u32 - 2u32);
+    assert!(C.count_zeros() == 32u32 - 5u32);
+}
+
+#[test]
+fn test_rotate() {
+    assert!(A.rotate_left(6u32).rotate_right(2u32).rotate_right(4u32) == A);
+    assert!(B.rotate_left(3u32).rotate_left(2u32).rotate_right(5u32) == B);
+    assert!(C.rotate_left(6u32).rotate_right(2u32).rotate_right(4u32) == C);
+
+    assert!(_0.rotate_left(7u32)  == _0);
+    assert!(_1.rotate_left(7u32)  == _1);
+    assert!(_0.rotate_right(7u32) == _0);
+    assert!(_1.rotate_right(7u32) == _1);
+
+    assert!(A.rotate_left(0u32) == A);
+    assert!(B.rotate_left(0u32) == B);
+    assert!(C.rotate_left(0u32) == C);
+}
+
+#[test]
+fn test_swap_bytes() {
+    assert!(A.swap_bytes().swap_bytes() == A);
+    assert!(B.swap_bytes().swap_bytes() == B);
+    assert!(C.swap_bytes().swap_bytes() == C);
+    assert!(_0.swap_bytes() == _0);
+    assert!(_1.swap_bytes() == _1);
+}
+
+#[test]
+fn test_leading_trailing_zeros() {
+    assert!(_0.leading_zeros()  == 32u32);
+    assert!(_0.trailing_zeros() == 32u32);
+    assert!(_1.leading_zeros()  == 0u32);
+    assert!(_1.trailing_zeros() == 0u32);
+
+    let x: u32 = 0b0010_1100u32;
+    assert!(x.trailing_zeros() == 2u32);
+
+    let y: u32 = 0x80000000u32;
+    assert!(y.leading_zeros()  == 0u32);
+    assert!(y.trailing_zeros() == 31u32);
+}
+
+#[test]
+fn test_pow() {
+    assert!(2u32.pow(0u32)  == 1u32);
+    assert!(2u32.pow(1u32)  == 2u32);
+    assert!(2u32.pow(10u32) == 1024u32);
+    assert!(3u32.pow(4u32)  == 81u32);
+    assert!(10u32.pow(6u32) == 1000000u32);
+}
+
+#[test]
+fn test_max_min_clamp() {
+    assert!(3u32.max(7u32) == 7u32);
+    assert!(3u32.min(7u32) == 3u32);
+    assert!(5u32.clamp(2u32, 8u32) == 5u32);
+    assert!(1u32.clamp(2u32, 8u32) == 2u32);
+    assert!(9u32.clamp(2u32, 8u32) == 8u32);
+}

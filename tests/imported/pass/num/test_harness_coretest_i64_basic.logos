@@ -1,0 +1,112 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
+//   library/coretests/tests/num/int_macros.rs (subset, instantiated at i64)
+//
+// Covers count_ones / count_zeros / rotate / swap_bytes / leading_trailing_zeros
+// / abs / signum / is_positive / is_negative / pow / max_min_clamp.
+
+package test_coretest_i64;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.ord;
+
+const A: i64 = 0b0101100i64;
+const B: i64 = 0b0100001i64;
+const C: i64 = 0b1111001i64;
+
+#[test]
+fn test_overflows() {
+    let max: i64 = 0x7FFFFFFFFFFFFFFFi64;
+    // Avoid -0x8000000000000000i64 literal (parser treats abs value as i64
+    // pre-negation and overflows). Build min from MAX + 1 in u64 space.
+    let min: i64 = (0x8000000000000000u64) as i64;
+    assert!(max > 0i64);
+    assert!(min < 0i64);
+}
+
+#[test]
+fn test_count_ones() {
+    assert!(A.count_ones() == 3u32);
+    assert!(B.count_ones() == 2u32);
+    assert!(C.count_ones() == 5u32);
+}
+
+#[test]
+fn test_count_zeros() {
+    assert!(A.count_zeros() == 64u32 - 3u32);
+    assert!(B.count_zeros() == 64u32 - 2u32);
+    assert!(C.count_zeros() == 64u32 - 5u32);
+}
+
+#[test]
+fn test_rotate() {
+    assert!(A.rotate_left(6u32).rotate_right(2u32).rotate_right(4u32) == A);
+    assert!(B.rotate_left(3u32).rotate_left(2u32).rotate_right(5u32) == B);
+    assert!(C.rotate_left(6u32).rotate_right(2u32).rotate_right(4u32) == C);
+
+    assert!(A.rotate_left(0u32) == A);
+    assert!(B.rotate_left(0u32) == B);
+    assert!(C.rotate_left(0u32) == C);
+}
+
+#[test]
+fn test_swap_bytes() {
+    assert!(A.swap_bytes().swap_bytes() == A);
+    assert!(B.swap_bytes().swap_bytes() == B);
+    assert!(C.swap_bytes().swap_bytes() == C);
+}
+
+#[test]
+fn test_abs() {
+    assert!((-5i64).abs() == 5i64);
+    assert!((5i64).abs()  == 5i64);
+    assert!((0i64).abs()  == 0i64);
+}
+
+#[test]
+fn test_signum() {
+    assert!((-5i64).signum() == -1i64);
+    assert!((5i64).signum()  == 1i64);
+    assert!((0i64).signum()  == 0i64);
+}
+
+#[test]
+fn test_is_positive_is_negative() {
+    assert!((-5i64).is_negative() == true);
+    assert!((-5i64).is_positive() == false);
+    assert!((5i64).is_positive()  == true);
+    assert!((5i64).is_negative()  == false);
+    assert!((0i64).is_positive()  == false);
+    assert!((0i64).is_negative()  == false);
+}
+
+#[test]
+fn test_leading_trailing_zeros() {
+    let z: i64 = 0i64;
+    assert!(z.leading_zeros()  == 64u32);
+    assert!(z.trailing_zeros() == 64u32);
+
+    let x: i64 = 0b0010_1100i64;
+    assert!(x.trailing_zeros() == 2u32);
+}
+
+#[test]
+fn test_pow() {
+    assert!(2i64.pow(0u32)  == 1i64);
+    assert!(2i64.pow(1u32)  == 2i64);
+    assert!(2i64.pow(10u32) == 1024i64);
+    assert!(3i64.pow(4u32)  == 81i64);
+    assert!(10i64.pow(6u32) == 1000000i64);
+    assert!((-2i64).pow(3u32) == -8i64);
+}
+
+#[test]
+fn test_max_min_clamp() {
+    assert!(3i64.max(7i64) == 7i64);
+    assert!(3i64.min(7i64) == 3i64);
+    assert!((-3i64).max(7i64) == 7i64);
+    assert!((-3i64).min(7i64) == -3i64);
+    assert!(5i64.clamp(-2i64, 8i64) == 5i64);
+    assert!((-9i64).clamp(-2i64, 8i64) == -2i64);
+    assert!(9i64.clamp(-2i64, 8i64)   == 8i64);
+}
