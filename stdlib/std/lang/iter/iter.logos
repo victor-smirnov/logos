@@ -230,13 +230,20 @@ pub trait Iterator<Item> {
     // Terminal: applies f to each item, returns the first Some.
     // Equivalent to `.filter_map(f).next()` once filter_map exists.
     // Mirrors Rust's `Iterator::find_map`.
-    fn find_map<B>(self: Self, f: fn(Item) -> Option<B>) -> Option<B> {
+    //
+    // Method-level type-param is named `Out` to avoid shadowing
+    // impl-block type-params on iterator adapters (ScanIter,
+    // FilterMapIter, ChainIter, ZipIter, MapIter all use single-letter
+    // tparams like B/R that collide with conventional Rust-style names).
+    // Sema treats same-name method/impl tparams as specialisation,
+    // silently losing the method-level generic — see the sema warning.
+    fn find_map<Out>(self: Self, f: fn(Item) -> Option<Out>) -> Option<Out> {
         let mut it: Self = self;
         loop {
             match it.next() {
                 Option::None    => { return Option::None; }
                 Option::Some(v) => {
-                    let r: Option<B> = f(v);
+                    let r: Option<Out> = f(v);
                     match r {
                         Option::Some(_) => { return r; }
                         Option::None    => { }

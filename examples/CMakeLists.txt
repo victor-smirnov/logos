@@ -33,6 +33,7 @@ function(logos_add_example NAME)
     set(_compile_deps logosc ${SRC} ${HERMES_STDLIB} stdlib_binary stdlib_uring logos_rt logos_fibers)
     set(_compile_extra)
     set(_link_archives
+        ${LOGOS_BUILD_LIB_DIR}/liblstdlib.a
         ${LOGOS_BUILD_LIB_DIR}/liblstdlib_fibers.a
         ${LOGOS_BUILD_LIB_DIR}/liblstdlib_rt.a
         ${LOGOS_BUILD_LIB_DIR}/liblstdlib_uring.a)
