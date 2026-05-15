@@ -283,6 +283,21 @@ pub trait DoubleEndedIterator<Item>: Iterator<Item> {
     fn rev(self: Self) -> RevIter<Self, Item> {
         return RevIter { inner: self, _t_marker: 0i32 };
     }
+
+    // `.nth_back(n)` — skip n items from the back, return the next
+    // one. Mirrors Iterator::nth but from the back. Returns None if
+    // the iterator exhausts before consuming n+1 items.
+    fn nth_back(self: &mut Self, n: i64) -> Option<Item> {
+        let mut k: i64 = 0 as i64;
+        while k < n {
+            let drained: Option<Item> = self.next_back();
+            match drained {
+                Option::None    => { return Option::None; }
+                Option::Some(_) => { k = k + 1 as i64; }
+            }
+        }
+        return self.next_back();
+    }
 }
 
 // ── ExactSizeIterator ────────────────────────────────────────────────────────
