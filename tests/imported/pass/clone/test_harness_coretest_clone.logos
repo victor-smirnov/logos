@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/clone.rs (test_borrowed_clone)
+//
+// Modifications:
+// - Rust's `(&y).clone()` chains the Clone for `&T` blanket, copying
+//   the reference (yielding `&i32`). Logos's stdlib doesn't currently
+//   blanket-impl Clone for `&T`, but i32 is Clone, so the equivalent
+//   in Logos is to dereference once and clone the value:
+//   `let z: i32 = (*y).clone();`. Same observable behaviour for a
+//   trivially-copyable receiver.
+// - assert_eq! family imports via std.fmt + std.lang.text.
+
+package test_clone_borrowed;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.clone;
+
+#[test]
+fn test_borrowed_clone() {
+    let x: i32 = 5i32;
+    let y: &i32 = &x;
+    let z: i32 = (*y).clone();
+    assert_eq!(z, 5i32);
+}

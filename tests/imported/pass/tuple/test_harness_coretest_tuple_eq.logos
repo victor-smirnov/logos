@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/tuple.rs (test_partial_eq subset)
+//
+// Modifications:
+// - `i32` for tuple elements (Rust uses inferred default `{integer}`
+//   defaulting to i32 anyway).
+// - assert_eq! macros (Logos's `assert_eq!` on tuples desugars to
+//   Eq.eq via the SL-sl-08 / CP-cm-08b blanket impl).
+// - assert_ne! family imports via std.fmt + std.lang.text.
+//
+// Surfaces exercised (closures of these gaps):
+// - SL-sl-08 / CP-cm-08b: tuple `==` / `!=` via Eq blanket
+//   (primitive-field tuples).
+
+package test_tuple_eq;
+
+use std.fmt;
+use std.lang.text;
+
+#[test]
+fn test_partial_eq() {
+    let small: (i32, i32, i32) = (1i32, 2i32, 3i32);
+    let big:   (i32, i32, i32) = (3i32, 2i32, 1i32);
+    // ==
+    assert_eq!(small == small, true);
+    assert_eq!(big   == big,   true);
+    // !=
+    assert_eq!(small != big,   true);
+    assert_eq!(big   != small, true);
+    // Sanity: == flips correctly.
+    assert_eq!(small == big,   false);
+}
