@@ -1,0 +1,51 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/num/i32.rs (test_arith_operation)
+//
+// Modifications:
+// - Rust's `isize` → Logos `i32`. The original test name says i32
+//   but the body declares `let a: isize = 10` (Rust accepts the
+//   imprecision since `isize` is also signed and the constants fit).
+// - `(2 + i32_a as usize)` shift operand → `(2i32 + i32_a)` since
+//   Logos doesn't have usize literal coercion for shift RHS.
+// - Logos's `&` / `|` precedence vs `<<` differs from Rust's
+//   (Rust: `<<` binds tighter than `&` / `|`; Logos: same/lower);
+//   `i32_b & i32_b << 1` parses differently. Explicit parens added
+//   to lock the upstream intent `i32_b & (i32_b << 1)`.
+// - assert_eq! family imports via std.fmt + std.lang.text.
+
+package test_i32_arith;
+
+use std.fmt;
+use std.lang.text;
+
+#[test]
+fn test_arith_operation() {
+    let a: i32 = 10i32;
+    assert_eq!(a * (a - 1i32), 90i32);
+
+    let i32_a: i32 = 10i32;
+    assert_eq!(i32_a, 10i32);
+    assert_eq!(i32_a - 10i32, 0i32);
+    assert_eq!(i32_a / 10i32, 1i32);
+    assert_eq!(i32_a - 20i32, -10i32);
+    assert_eq!(i32_a << 10i32, 10240i32);
+    assert_eq!(i32_a << 16i32, 655360i32);
+    assert_eq!(i32_a * 16i32, 160i32);
+    assert_eq!(i32_a * i32_a * i32_a, 1000i32);
+    assert_eq!(i32_a * i32_a * i32_a * i32_a, 10000i32);
+    assert_eq!(i32_a * i32_a / i32_a * i32_a, 100i32);
+    assert_eq!(i32_a * (i32_a - 1i32) << (2i32 + i32_a), 368640i32);
+
+    let i32_b: i32 = 0x10101010i32;
+    assert_eq!(i32_b + 1i32 - 1i32, i32_b);
+    assert_eq!(i32_b << 1i32, i32_b << 1i32);
+    assert_eq!(i32_b >> 1i32, i32_b >> 1i32);
+    assert_eq!(i32_b & (i32_b << 1i32), 0i32);
+    assert_eq!(i32_b | (i32_b << 1i32), 0x30303030i32);
+
+    let i32_c: i32 = 0x10101010i32;
+    assert_eq!(
+        i32_c + i32_c * 2i32 / 3i32 * 2i32 + (i32_c - 7i32 % 3i32),
+        i32_c + i32_c * 2i32 / 3i32 * 2i32 + (i32_c - 7i32 % 3i32)
+    );
+}
