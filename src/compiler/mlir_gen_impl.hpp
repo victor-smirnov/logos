@@ -449,6 +449,21 @@ private:
     void call_free(mlir::Value ptr);
     mlir::Value sizeof_struct(mlir::LLVM::LLVMStructType struct_type);
 
+    // Cheap allocation-free replacement for `type_str(t) == "AnyVal"`.
+    // The old form materialised an std::string for every check; this fires
+    // in hot paths (make_fn_type, logos_to_mlir) where stdlib's 3500+
+    // forward_declare calls each do several checks per fn. AnyVal is
+    // declared `#[zoned] struct` so its kind is ZonedStruct, not Struct —
+    // the type_str-based check matched both because type_str renders the
+    // struct_name for both kinds.
+    static bool is_anyval(TypeRef t) noexcept {
+        if (!t) return false;
+        auto k = t.kind();
+        if (k != LogosType::Kind::Struct && k != LogosType::Kind::ZonedStruct)
+            return false;
+        return t.struct_name() == "AnyVal";
+    }
+
     // ── Function type from LFunction ─────────────────────────────
     mlir::FunctionType make_fn_type(const LFunction& fn);
     // When `is_binary_skip` is true, the FuncOp is created private so the

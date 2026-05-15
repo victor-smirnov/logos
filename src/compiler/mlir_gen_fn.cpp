@@ -84,12 +84,13 @@ mlir::Type MLIRGenImpl::fn_call_ret_llvm_type(TypeRef ret_type) {
 mlir::FunctionType MLIRGenImpl::make_fn_type(const LFunction& fn) {
     llvm::SmallVector<mlir::Type> param_types;
     for (auto& p : fn.params) {
-        if (p.type && type_str(p.type) == "AnyVal") {
+        TypeRef pt{p.type};
+        if (is_anyval(pt)) {
             param_types.push_back(builder_.getI32Type());
             continue;
         }
         // Arrays (like structs) are passed by pointer.
-        if (p.type && TypeRef(p.type).kind() == LogosType::Kind::Array)
+        if (pt && pt.kind() == LogosType::Kind::Array)
             param_types.push_back(ptr_type());
         else {
             auto t = logos_to_mlir(p.type);
@@ -99,7 +100,7 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(const LFunction& fn) {
     llvm::SmallVector<mlir::Type> ret_types;
     if (fn.ret_type) {
         TypeRef rv{fn.ret_type};
-        if (type_str(fn.ret_type) == "AnyVal") {
+        if (is_anyval(rv)) {
             ret_types.push_back(builder_.getI32Type());
         } else
         // Tuples and structs are returned by value (as LLVM struct), not by pointer.
