@@ -1,0 +1,40 @@
+// SL-sl-02: PartialEq now carries `eq` / `ne` methods (was an empty
+// marker). `impl PartialEq for f32 / f64` lands in stdlib so floats
+// can satisfy `T: PartialEq` bounds — they can't impl total `Eq`
+// because NaN != NaN, but PartialEq's IEEE semantics are exactly what
+// most equality-bound generic code expects. Existing `impl Eq for X`
+// for integer types continues to satisfy `T: PartialEq` via the
+// sema_collect bound-check fallback (Eq ⇒ PartialEq).
+
+package partial_eq_floats;
+
+use std.lang.cmp;
+
+fn pair_eq<T: PartialEq>(a: T, b: T) -> bool {
+    return a.eq(&b);
+}
+
+fn pair_ne<T: PartialEq>(a: T, b: T) -> bool {
+    return a.ne(&b);
+}
+
+fn main() -> i32 {
+    // f64 equality on finite values.
+    if !pair_eq::<f64>(1.5f64, 1.5f64) { return 1i32; }
+    if pair_eq::<f64>(1.5f64, 2.5f64)  { return 2i32; }
+    if !pair_ne::<f64>(1.5f64, 2.5f64) { return 3i32; }
+
+    // NaN != NaN per IEEE.
+    let nan: f64 = 0.0f64 / 0.0f64;
+    if pair_eq::<f64>(nan, nan)        { return 4i32; }
+    if !pair_ne::<f64>(nan, nan)       { return 5i32; }
+
+    // f32 path.
+    if !pair_eq::<f32>(1.5f32, 1.5f32) { return 6i32; }
+
+    // Integers still satisfy `T: PartialEq` via the Eq fallback.
+    if !pair_eq::<i32>(42i32, 42i32)   { return 7i32; }
+    if pair_eq::<i32>(1i32, 2i32)      { return 8i32; }
+
+    return 0i32;
+}

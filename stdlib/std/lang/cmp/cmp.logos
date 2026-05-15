@@ -16,13 +16,34 @@ pub trait Eq {
 }
 
 // SL-sl-02: Rust's hierarchy is `Eq: PartialEq` (every Eq is PartialEq).
-// Logos's `Eq` already carries the methods Rust puts on `PartialEq`.
-// Declare `PartialEq` as a forward-compat marker so user code writing
-// `T: PartialEq` bounds resolves. Bound-check in sema treats existing
-// `impl Eq for X` as a PartialEq satisfier — no per-impl migration
-// needed for the common case.
-pub trait PartialEq {}
+// Logos pre-2026-05-15 declared `PartialEq` as an empty marker for
+// forward-compat. Now `PartialEq` actually carries `eq`/`ne` so floats
+// (which can't impl total `Eq` because NaN != NaN) can still satisfy
+// equality bounds, and so user code with `T: PartialEq` can call
+// `t1.eq(&t2)`. Existing `impl Eq for X` blocks continue to provide
+// `eq` via the bound-check fallback in sema_collect.cpp that treats
+// `Eq` as a PartialEq satisfier — no per-impl migration needed for
+// the integer types.
+pub trait PartialEq {
+    fn eq(&self, other: &Self) -> bool;
+    fn ne(&self, other: &Self) -> bool { return !self.eq(other); }
+}
+// PartialOrd kept as an empty marker — full method shape
+// (`partial_cmp(&self, other: &Self) -> Option<Ordering>`) needs
+// `Option<Ordering>` to flow through bound-check, and the existing
+// `impl Ord for X` provides `cmp` returning bare `Ordering` rather
+// than `Option<Ordering>`. The marker plus the sema bound-check
+// fallback (Ord ⇒ PartialOrd) covers the integer types. Floats need
+// a separate `partial_cmp` shape — deferred until a driver appears.
 pub trait PartialOrd {}
+
+// f32 / f64 PartialEq impls — IEEE equality semantics (NaN != NaN).
+// Logos's primitive `==` on floats already does the IEEE compare, so
+// `*self == *other` returns false when either side is NaN. These
+// can't impl Eq (no total order on NaN) but PartialEq is enough for
+// the common `assert_eq!(a, b)` driver pattern.
+impl PartialEq for f32 { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl PartialEq for f64 { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
 
 impl Eq for i32  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
 impl Eq for i64  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
