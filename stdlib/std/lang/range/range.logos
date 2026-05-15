@@ -29,6 +29,21 @@ impl Iterator<i32> for RangeI32 {
     }
 }
 
+impl DoubleEndedIterator<i32> for RangeI32 {
+    fn next_back(self: &mut RangeI32) -> Option<i32> {
+        if self.current >= self.end { return Option::None; }
+        self.end = self.end - 1;
+        return Option::Some(self.end);
+    }
+}
+
+impl ExactSizeIterator<i32> for RangeI32 {
+    fn len(&self) -> i64 {
+        if self.current >= self.end { return 0 as i64; }
+        return (self.end - self.current) as i64;
+    }
+}
+
 // ── RevRangeI32 — same elements as RangeI32, yielded in reverse order ────────
 
 pub struct RevRangeI32 {
@@ -45,7 +60,10 @@ impl Iterator<i32> for RevRangeI32 {
 }
 
 impl RangeI32 {
-    pub fn rev(self: RangeI32) -> RevRangeI32 {
+    // Specialised RevRangeI32 form kept for back-compat; prefer the
+    // DoubleEndedIterator `.rev()` trait-default (returns RevIter)
+    // for new code.
+    pub fn into_rev_range(self: RangeI32) -> RevRangeI32 {
         return RevRangeI32 { current: self.end, start: self.current };
     }
 
@@ -84,6 +102,21 @@ impl Iterator<i64> for RangeI64 {
     }
 }
 
+impl DoubleEndedIterator<i64> for RangeI64 {
+    fn next_back(self: &mut RangeI64) -> Option<i64> {
+        if self.current >= self.end { return Option::None; }
+        self.end = self.end - 1 as i64;
+        return Option::Some(self.end);
+    }
+}
+
+impl ExactSizeIterator<i64> for RangeI64 {
+    fn len(&self) -> i64 {
+        if self.current >= self.end { return 0 as i64; }
+        return self.end - self.current;
+    }
+}
+
 // ── RevRangeI64 — reverse iteration over RangeI64 ────────────────────────────
 
 pub struct RevRangeI64 {
@@ -100,7 +133,7 @@ impl Iterator<i64> for RevRangeI64 {
 }
 
 impl RangeI64 {
-    pub fn rev(self: RangeI64) -> RevRangeI64 {
+    pub fn into_rev_range(self: RangeI64) -> RevRangeI64 {
         return RevRangeI64 { current: self.end, start: self.current };
     }
 

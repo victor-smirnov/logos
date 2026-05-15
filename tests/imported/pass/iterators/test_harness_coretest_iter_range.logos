@@ -1,0 +1,97 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/iter/range.rs +
+//   library/coretests/tests/iter/traits/iterator.rs subsets that
+//   exercise `(0..N)` open-range syntax.
+//
+// Modifications:
+// - Rust's `(0..N)` open-range syntax isn't on Logos's grammar
+//   surface yet; constructed via `range_i32(0, N)` instead.
+//   `(0..N).rev()` → `range_i32(0, N).rev()`.
+// - assert_eq! family imports via std.fmt + std.lang.text.
+//
+// Stdlib companion: `impl DoubleEndedIterator<i32>` +
+// `impl ExactSizeIterator<i32>` for RangeI32 (and RangeI64) added
+// to std/lang/range/range.logos. RangeI32.next_back decrements
+// end and yields; .len returns end - current.
+
+package test_iter_range;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.range;
+use std.lang.iter;
+use std.lang.option;
+
+#[test]
+fn test_range_forward() {
+    let mut r = range_i32(0i32, 5i32);
+    let mut sum: i32 = 0i32;
+    loop {
+        match r.next() {
+            Option::None    => { break; }
+            Option::Some(v) => { sum = sum + v; }
+        }
+    }
+    assert_eq!(sum, 10i32);  // 0+1+2+3+4 = 10
+}
+
+#[test]
+fn test_range_back() {
+    let mut r = range_i32(0i32, 5i32);
+    // next_back yields 4, 3, 2, 1, 0.
+    match r.next_back() {
+        Option::Some(v) => { assert_eq!(v, 4i32); } Option::None => { assert_eq!(true, false); }
+    }
+    match r.next_back() {
+        Option::Some(v) => { assert_eq!(v, 3i32); } Option::None => { assert_eq!(true, false); }
+    }
+    match r.next() {
+        Option::Some(v) => { assert_eq!(v, 0i32); } Option::None => { assert_eq!(true, false); }
+    }
+    match r.next_back() {
+        Option::Some(v) => { assert_eq!(v, 2i32); } Option::None => { assert_eq!(true, false); }
+    }
+}
+
+#[test]
+fn test_range_len() {
+    let mut r = range_i32(3i32, 10i32);
+    assert_eq!(r.len(), 7i64);
+    r.next();
+    assert_eq!(r.len(), 6i64);
+    r.next_back();
+    assert_eq!(r.len(), 5i64);
+}
+
+#[test]
+fn test_range_rev_via_dei() {
+    // `.rev()` trait-default returns RevIter<RangeI32, i32>.
+    let r = range_i32(0i32, 5i32);
+    let mut rm = r.rev();
+    let mut collected: i32 = 0i32;
+    loop {
+        match rm.next() {
+            Option::None    => { break; }
+            Option::Some(v) => {
+                // Items arrive as 4, 3, 2, 1, 0.
+                collected = collected * 10i32 + v;
+            }
+        }
+    }
+    assert_eq!(collected, 43210i32);
+}
+
+#[test]
+fn test_range_count() {
+    // .count() trait-default works via len() effectively.
+    let r = range_i32(10i32, 20i32);
+    assert_eq!(r.count(), 10i64);
+}
+
+#[test]
+fn test_range_is_empty() {
+    let r_empty = range_i32(5i32, 5i32);
+    assert_eq!(r_empty.len(), 0i64);
+    let r_full  = range_i32(0i32, 3i32);
+    assert_eq!(r_full.len(), 3i64);
+}
