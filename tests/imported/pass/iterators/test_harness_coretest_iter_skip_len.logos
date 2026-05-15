@@ -1,0 +1,44 @@
+// Coretest port for SkipIter ExactSizeIterator impl. Source path
+// is library/coretests/tests/iter/adapters/skip.rs's
+// `test_iterator_skip` ESI assertions (interleaved with the
+// front-iteration loop). Logos shape uses bounded `.len()` checks
+// before/after consumption.
+//
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7.
+//
+// Modifications:
+// - `xs.iter().skip(N)` → `iter_skip::<…>(iter_over_slice(&xs), N, zero)`.
+// - assert_eq! family imports via std.fmt + std.lang.text.
+//
+// Stdlib companion: `impl<I: ESI<T>, T> ExactSizeIterator<T> for
+// SkipIter<I, T>` — len = max(0, inner.len() - remaining).
+
+package test_iter_skip_len;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.iter;
+use std.lang.option;
+
+#[test]
+fn test_iterator_skip_len_basic() {
+    let xs: [i32; 10] = [0i32, 1i32, 2i32, 3i32, 4i32, 5i32, 6i32, 7i32, 8i32, 9i32];
+    unsafe {
+        let mut it = iter_skip::<SliceIter<i32>, i32>(iter_over_slice(&xs), 3i64, 0i32);
+        assert_eq!(it.len(), 7i64);
+        it.next();
+        assert_eq!(it.len(), 6i64);
+        it.next();
+        assert_eq!(it.len(), 5i64);
+    }
+}
+
+#[test]
+fn test_iterator_skip_len_over() {
+    let xs: [i32; 4] = [10i32, 20i32, 30i32, 40i32];
+    unsafe {
+        // skip(10) past the end clamps len to 0.
+        let it = iter_skip::<SliceIter<i32>, i32>(iter_over_slice(&xs), 10i64, 0i32);
+        assert_eq!(it.len(), 0i64);
+    }
+}
