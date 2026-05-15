@@ -396,6 +396,92 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
     if (orig_name.empty())
         for (auto& [sname, _] : specs_)
             if (mangle(sname, type_args) == mangled_callee) { orig_name = sname; break; }
+    // Struct-method templates with method-level tparams: sema/finish_generic_call
+    // emits the call with a callee name in template form `Struct__method[__g__sig]`
+    // and type_args that include BOTH the struct-level tparams AND the method-
+    // level tparams. enqueue_method_inst only handles struct-tparams; route
+    // through a dedicated method-level enqueue here so the right specialisation
+    // gets cloned.
+    if (orig_name.empty()) {
+        // Split mangled_callee at the first `__` to find Struct + method-tail.
+        auto sep = mangled_callee.find("__");
+        if (sep != std::string::npos) {
+            std::string struct_part = mangled_callee.substr(0, sep);
+            std::string method_tail = mangled_callee.substr(sep + 2);
+            // Strip `__g__sig` / `__f__sig` suffix and the trailing
+            // mangled type-args (`__i32__...`) to reach the method short name.
+            // We don't know the suffix length exactly here, but the
+            // struct_method_templates lookup is by short name only.
+            std::string method_name = method_tail;
+            if (auto p = method_name.find("__g__"); p != std::string::npos)
+                method_name.resize(p);
+            else if (auto p = method_name.find("__f__"); p != std::string::npos)
+                method_name.resize(p);
+            else if (auto p = method_name.find("__"); p != std::string::npos)
+                method_name.resize(p);
+            // Pkg-qualified struct (e.g. `std.lang.iter.SliceIter`): the call
+            // emit may carry only the bare struct name. struct_method_templates_
+            // keys both pkg-qualified and bare.
+            auto smt_it = struct_method_templates_.find(struct_part);
+            if (smt_it == struct_method_templates_.end()) {
+                auto dot = struct_part.rfind('.');
+                if (dot != std::string::npos)
+                    smt_it = struct_method_templates_.find(struct_part.substr(dot + 1));
+            }
+            if (smt_it != struct_method_templates_.end()) {
+                auto mit = smt_it->second.find(method_name);
+                if (mit == smt_it->second.end()) {
+                    // Try with `__g__sig` variants.
+                    for (auto& [k, _] : smt_it->second) {
+                        if (k == method_name ||
+                            (k.size() > method_name.size() + 5 &&
+                             k.compare(0, method_name.size(), method_name) == 0 &&
+                             k.compare(method_name.size(), 5, "__g__") == 0)) {
+                            mit = smt_it->second.find(k);
+                            break;
+                        }
+                    }
+                }
+                if (mit != smt_it->second.end()) {
+                    const lir::LFunction* tmpl = mit->second;
+                    // Find the struct template to split type_args into struct-
+                    // vs method-tparam slices.
+                    auto stt = struct_templates_.find(struct_part);
+                    if (stt == struct_templates_.end()) {
+                        auto dot = struct_part.rfind('.');
+                        if (dot != std::string::npos)
+                            stt = struct_templates_.find(struct_part.substr(dot + 1));
+                    }
+                    if (stt != struct_templates_.end()) {
+                        const auto& sd_tpars = stt->second->type_params;
+                        size_t n_struct = sd_tpars.size();
+                        if (type_args.size() >= n_struct) {
+                            // Build SubstMap: struct tparams from prefix +
+                            // method tparams from suffix.
+                            SubstMap subst;
+                            for (size_t i = 0; i < n_struct && i < type_args.size(); ++i)
+                                subst[sd_tpars[i].name] = type_args[i];
+                            size_t i_meth = 0;
+                            for (auto& mtp : tmpl->type_params) {
+                                bool is_struct = false;
+                                for (auto& stp : sd_tpars)
+                                    if (stp.name == mtp.name) { is_struct = true; break; }
+                                if (is_struct) continue;
+                                if (n_struct + i_meth < type_args.size())
+                                    subst[mtp.name] = type_args[n_struct + i_meth];
+                                ++i_meth;
+                            }
+                            done_.insert(mangled_callee);
+                            worklist_.push_back({mangled_callee, tmpl,
+                                                 std::move(subst), {},
+                                                 depth_ + 1});
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
     if (orig_name.empty()) return;  // not a generic/spec call we know about
 
     if (depth_ >= max_depth_) {
@@ -502,6 +588,23 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
     auto type_args = TypeRef(concrete_struct_t).type_args();
 
     for (auto& [sn, fp] : matches) {
+        // Skip methods with method-level type-params (e.g. `fn map<U>` on
+        // `impl<I, T> Iterator<T> for FilterIter<I, T>`). The root-pin /
+        // dispatch path only binds the struct-level tpars; method-level
+        // tparams need a real call-site turbofish to bind them. Enqueuing
+        // here would leave the cloned body with literal TypeVars (e.g.
+        // `MapIter<FilterIter, i32, U>`) which mlir_gen can't lower.
+        // Real call sites enqueue via subst_expr's MethodCall path with
+        // a SubstMap that includes the method-tparam binding.
+        bool has_method_tparam = false;
+        for (auto& tp : fp->type_params) {
+            bool is_struct_tparam = false;
+            for (auto& stp : tpars)
+                if (stp.name == tp.name) { is_struct_tparam = true; break; }
+            if (!is_struct_tparam) { has_method_tparam = true; break; }
+        }
+        if (has_method_tparam) continue;
+
         // Dedup key uses the short user-facing name so multiple overloads
         // sharing it dedupe to one slot (matches eager rename semantics).
         std::string key = concrete + "__" + method_name + "::" + sn;

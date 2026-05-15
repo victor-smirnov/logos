@@ -25,6 +25,26 @@ pub trait Iterator<Item> {
         return FilterIter { inner: self, pred: pred };
     }
 
+    fn map<MapOut>(self: Self, f: fn(Item) -> MapOut) -> MapIter<Self, Item, MapOut> {
+        return MapIter { inner: self, f: f };
+    }
+
+    // Terminal: fold items into an accumulator. Works on plain Iterator
+    // impls (e.g. SliceIter); chained `it.map(...).fold(...)` still hits
+    // a separate sema receiver-type-args slicing bug on MapIter (the
+    // dispatch uses MapIter<I=i32,…> instead of MapIter<I=SliceIter<i32>,…>).
+    // Use `iter_fold(it, init, f)` for chains until that's closed.
+    fn fold<Acc>(self: Self, init: Acc, f: fn(Acc, Item) -> Acc) -> Acc {
+        let mut it: Self = self;
+        let mut acc: Acc = init;
+        loop {
+            match it.next() {
+                Option::None    => { return acc; }
+                Option::Some(v) => { acc = f(acc, v); }
+            }
+        }
+    }
+
     // Terminal: count items.
     fn count(self: Self) -> i64 {
         let mut it: Self = self;

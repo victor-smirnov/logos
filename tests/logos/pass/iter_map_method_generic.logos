@@ -1,0 +1,33 @@
+// SL-sl-05: Iterator trait-default-method `.map<MapOut>` — method-level
+// type-param drives mono spec via a struct-method template enqueue.
+//
+// Two layers of mono fix:
+//   1. enqueue_method_inst's root-pin/dispatch path skips methods with
+//      method-level tparams (it only knows struct-level bindings).
+//   2. enqueue_if_needed (the call-site path triggered by scan_fn's
+//      ECall handler) now looks up Struct__method in struct_method_
+//      templates_ when not found in free-fn templates_, and splits
+//      type_args into struct-tparams + method-tparams to build the
+//      full SubstMap.
+
+package iter_map_method_generic;
+
+use std.lang.iter;
+use std.lang.option;
+
+fn triple(x: i32) -> i32 { return x * 3i32; }
+
+fn main() -> i32 {
+    let arr: [i32; 4] = [1i32, 2i32, 3i32, 4i32];
+    unsafe {
+        let it = iter_over_slice::<i32>(&arr);
+        let mut mi = it.map::<i32>(triple);
+        let mut sum: i32 = 0i32;
+        loop {
+            match mi.next() {
+                Option::Some(x) => { sum = sum + x; }
+                Option::None    => { return sum; }
+            }
+        }
+    }
+}
