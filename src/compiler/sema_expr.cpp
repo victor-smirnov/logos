@@ -664,22 +664,6 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                 error("'?' operator used in function that does not return Result<T, E>");
             return error_expr();
         }
-        // For Result<T, E>: inner E and outer E must match exactly. The
-        // current `?` lowering byte-copies the err payload from inner to
-        // outer, so heterogeneous E types silently miscompile. Rust handles
-        // this via implicit `From::<E_inner>::from(e)`; that path is a
-        // TODO — call .map_err(From::from)? explicitly until then.
-        if (is_result) {
-            auto iargs = TypeRef(inner_t).type_args();
-            auto rargs = TypeRef(ret_type_).type_args();
-            if (iargs.size() >= 2 && rargs.size() >= 2
-                && !types_equal(iargs[1], rargs[1])) {
-                error("'?' operator: inner error type differs from outer "
-                      "function's error type — implicit `From` conversion on "
-                      "`?` is not yet supported. Use `.map_err(...)?` explicitly.");
-                return error_expr();
-            }
-        }
         // Find the "ok-like" and "err-like" discriminants from the enum def.
         // Result: Ok/Err.  Option: Some/None.
         int32_t ok_disc = 0, err_disc = 1;
@@ -695,6 +679,94 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
             }
         }
         auto ok_type = TypeRef(inner_t).type_args()[0];  // T
+
+        // Heterogeneous-E desugar (Result<T, E_inner> → Result<U, E_outer>).
+        // ETry's codegen byte-copies the err payload, which is wrong when E
+        // types differ. Desugar to:
+        //
+        //   match <inner_expr> {
+        //       Ok(__try_ok_v)  => __try_ok_v,
+        //       Err(__try_err_e) => return Err(<E_outer>::from(__try_err_e))
+        //   }
+        //
+        // This reuses existing match + return + EnumLitData lowering, which
+        // already handles aggregate calling conventions.
+        if (is_result) {
+            auto iargs = TypeRef(inner_t).type_args();
+            auto rargs = TypeRef(ret_type_).type_args();
+            if (iargs.size() >= 2 && rargs.size() >= 2
+                && !types_equal(iargs[1], rargs[1])) {
+                TypeRef e_inner = iargs[1];
+                TypeRef e_outer = rargs[1];
+
+                // Find `impl From<E_inner> for E_outer`.
+                std::string base_target;
+                if (e_outer.kind() == LogosType::Kind::Struct
+                 || e_outer.kind() == LogosType::Kind::ZonedStruct) {
+                    base_target = std::string(e_outer.struct_name());
+                } else if (e_outer.kind() == LogosType::Kind::Enum) {
+                    base_target = std::string(e_outer.enum_name());
+                } else {
+                    base_target = type_str(e_outer);
+                }
+                std::string from_bare = base_target + "__from";
+                std::string from_sym;
+                for (auto* cand : find_func_candidates(from_bare)) {
+                    if (!cand || cand->param_types.size() != 1) continue;
+                    if (types_equal(cand->param_types[0], e_inner)) {
+                        from_sym = cand->symbol_name;
+                        break;
+                    }
+                }
+                if (from_sym.empty()) {
+                    error(std::string("'?' operator: inner error type '")
+                        + type_str(e_inner)
+                        + "' does not implement `From` for outer error type '"
+                        + type_str(e_outer) + "' — add `impl From<"
+                        + type_str(e_inner) + "> for " + type_str(e_outer)
+                        + "` or use `.map_err(...)?`.");
+                    return error_expr();
+                }
+
+                // Generate unique binding names.
+                std::string ok_name_b  = "__try_ok_" + std::to_string(tmp_var_count_++);
+                std::string err_name_b = "__try_err_" + std::to_string(tmp_var_count_++);
+
+                // Ok(__try_ok_v) pattern.
+                lir::Pattern ok_pat;
+                ok_pat.mirror_offset_ = lir_mirror_emit_pat_variant_data(
+                    *cur_prog_, "Result", "Ok", ok_disc, {ok_name_b}, {ok_type});
+
+                // Err(__try_err_e) pattern.
+                lir::Pattern err_pat;
+                err_pat.mirror_offset_ = lir_mirror_emit_pat_variant_data(
+                    *cur_prog_, "Result", "Err", err_disc, {err_name_b}, {e_inner});
+
+                // Ok arm value: VarRef(__try_ok_v).
+                auto ok_arm_val = builder().var_ref(ok_name_b, ok_type);
+
+                // Err arm value: { return Err(<E_outer>::from(__try_err_e)) }.
+                auto e_var = builder().var_ref(err_name_b, e_inner);
+                auto from_call = builder().call(
+                    from_sym, {}, std::vector<lir::LExprPtr>{std::move(e_var)},
+                    e_outer);
+                std::vector<lir::LExprPtr> err_payload;
+                err_payload.push_back(std::move(from_call));
+                auto err_lit = builder().enum_lit_data(
+                    "Result", "Err", err_disc, std::move(err_payload), ret_type_);
+                auto err_ret = builder().stmt_return(std::move(err_lit), 0);
+                auto err_block = lir::alloc_block(*cur_prog_);
+                err_block->stmts.push_back(std::move(err_ret));
+                auto err_arm_val = builder().block_expr(
+                    std::move(err_block), nullptr, ok_type);
+
+                lir::EMatchExpr me;
+                me.scrut = std::move(inner);
+                me.arms.push_back({std::move(ok_pat), std::nullopt, std::move(ok_arm_val)});
+                me.arms.push_back({std::move(err_pat), std::nullopt, std::move(err_arm_val)});
+                return builder().match_expr_v(std::move(me), ok_type);
+            }
+        }
         return builder().try_expr(std::move(inner), ok_disc, err_disc, ok_type);
     }
 

@@ -1,11 +1,15 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
 //   library/coretests/tests/result.rs::test_try (analogue using ? operator).
 //
-// Validates the `?` operator on both Result<T, E> and Option<T>. Currently
-// requires E_inner == E_outer (strict). Rust's implicit From<E_inner> for
-// E_outer on `?` (Try trait → FromResidual + From<E>) is a known gap —
-// callers must use `.map_err(...)?` explicitly. Coretest reflects the
-// same-E shape only.
+// Validates the `?` operator on both Result<T, E> and Option<T>, including
+// the heterogeneous-E path that desugars to:
+//
+//   match expr {
+//       Ok(v)  => v,
+//       Err(e) => return Err(<E_outer>::from(e))
+//   }
+//
+// (Rust's Try trait → FromResidual + From<E> shape.)
 
 package test_coretest_qmark_from;
 
@@ -13,6 +17,7 @@ use std.fmt;
 use std.lang.text;
 use std.lang.option;
 use std.lang.result;
+use std.lang.convert;
 
 fn inner_result(x: i32) -> Result<i32, i32> {
     if x < 0i32 { return Result::Err(7i32); }
@@ -20,6 +25,19 @@ fn inner_result(x: i32) -> Result<i32, i32> {
 }
 
 fn outer_result(x: i32) -> Result<i32, i32> {
+    let y: i32 = inner_result(x)?;
+    return Result::Ok(y * 2i32);
+}
+
+// Heterogeneous-E: inner Result<i32, i32>, outer Result<i32, OuterErr>.
+// `?` must call OuterErr::from(i32) to coerce the error.
+pub struct OuterErr { pub code: i32 }
+
+impl From<i32> for OuterErr {
+    fn from(val: i32) -> OuterErr { return OuterErr{ code: val + 1000i32 }; }
+}
+
+fn outer_hetero(x: i32) -> Result<i32, OuterErr> {
     let y: i32 = inner_result(x)?;
     return Result::Ok(y * 2i32);
 }
@@ -83,4 +101,21 @@ fn test_qmark_option_some() {
 #[test]
 fn test_qmark_option_none_short_circuit() {
     assert!(pipe_opt(0i32).is_none());
+}
+
+#[test]
+fn test_qmark_result_from_coerce_ok() {
+    match outer_hetero(5i32) {
+        Result::Ok(v)  => { assert!(v == 12i32); }
+        Result::Err(_) => { assert!(false); }
+    }
+}
+
+#[test]
+fn test_qmark_result_from_coerce_err() {
+    // inner returns Err(7); From<i32> for OuterErr maps 7 → OuterErr{code:1007}.
+    match outer_hetero(-1i32) {
+        Result::Ok(_)  => { assert!(false); }
+        Result::Err(e) => { assert!(e.code == 1007i32); }
+    }
 }
