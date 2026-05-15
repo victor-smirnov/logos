@@ -1,0 +1,51 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/result.rs
+//   (test_impl_map, test_impl_map_err)
+//
+// Modifications:
+// - `isize` → `i32`.
+// - Closures `|x| x + 1` lowered to named fn-ptrs (closure-as-fn-ptr
+//   at method-arg site is partial in Logos).
+// - `Ok::<isize, isize>(1)` turbofish → bare `Ok(1i32)` with a typed
+//   `let` annotation; the turbofish-on-variant-constructor form hits
+//   a sibling-of-CP-cm-12 mono bug (noted in B31).
+// - `==` comparison on Result lifted to explicit match (no
+//   `impl Eq for Result<T, E>` yet).
+// - assert_eq! family imports via std.fmt + std.lang.text.
+
+package test_result_map;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.result;
+use std.lang.option;
+
+fn plus_one(x: i32) -> i32 { return x + 1i32; }
+
+#[test]
+fn test_impl_map() {
+    let ok: Result<i32, i32> = Ok(1i32);
+    match ok.map(plus_one) {
+        Result::Ok(v)  => { assert_eq!(v, 2i32); }
+        Result::Err(_) => { assert_eq!(true, false); }
+    }
+    let err: Result<i32, i32> = Err(1i32);
+    match err.map(plus_one) {
+        Result::Ok(_)  => { assert_eq!(true, false); }
+        Result::Err(e) => { assert_eq!(e, 1i32); }
+    }
+}
+
+#[test]
+fn test_impl_map_err() {
+    let ok: Result<i32, i32> = Ok(1i32);
+    match ok.map_err(plus_one) {
+        Result::Ok(v)  => { assert_eq!(v, 1i32); }
+        Result::Err(_) => { assert_eq!(true, false); }
+    }
+    let err: Result<i32, i32> = Err(1i32);
+    match err.map_err(plus_one) {
+        Result::Ok(_)  => { assert_eq!(true, false); }
+        Result::Err(e) => { assert_eq!(e, 2i32); }
+    }
+}
