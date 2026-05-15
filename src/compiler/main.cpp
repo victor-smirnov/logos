@@ -2702,14 +2702,14 @@ int main(int argc, char** argv) {
         if (!is_jit_unsafe_archive(f)) archive_paths.push_back(f);
     }
 
-    // binary_symbols: only collected from user-explicit -L / -l. mlir_gen
-    // consults this set to skip body emission for fns whose pre-baked
-    // implementation is already in an archive the user explicitly pulled
-    // in — emitting again would multiply-define. The system stdlib is
-    // intentionally OUT: a project that doesn't opt in to stdlib's
-    // pre-baked bodies stays free to define `fn alloc`, `fn str_len`,
-    // etc. The lazy-archive linker picks user's `.o` over the archive's
-    // same-named member.
+    // binary_symbols: mlir_gen consults this set to skip body emission for
+    // fns whose pre-baked implementation is already in an archive on the
+    // search path. Emitting them again duplicates work (multiply-define
+    // would happen too, but the linker resolves it; the cost is mlir_gen
+    // time on stdlib fns that are already in liblstdlib.a). We now collect
+    // from BOTH user-explicit -L/-l AND the system stdlib (LOGOS_LIB_DIR /
+    // implicit search paths) — set LOGOS_NO_LIB_BINARY_SKIP=1 to disable
+    // the system-stdlib half if a project wants to override stdlib symbols.
     auto collect_syms = [&](const std::string& cmd) {
         FILE* pipe = ::popen(cmd.c_str(), "r");
         if (!pipe) return;
@@ -2727,6 +2727,10 @@ int main(int argc, char** argv) {
         collect_syms("nm --defined-only -j " + dir + "/*.a 2>/dev/null");
     for (const auto& f : explicit_lib_files)
         collect_syms("nm --defined-only -j " + f + " 2>/dev/null");
+    if (!std::getenv("LOGOS_NO_LIB_BINARY_SKIP")) {
+        for (const auto& dir : search_paths)
+            collect_syms("nm --defined-only -j " + dir + "/*.a 2>/dev/null");
+    }
     if (trace)
         std::fprintf(stderr, "[trace] binary_symbols: %zu from %zu archive(s)\n",
                      binary_symbols.size(), binary_archives_seen.size());
