@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/cmp.rs (test_user_defined_eq)
+//
+// Modifications:
+// - `isize` → `i32`.
+// - struct moved to top level (Logos can't nest struct decls inside
+//   a fn body the same way Rust does for ad-hoc test types).
+// - `(self.num - other.num).abs()` — hand-rolled abs since i32 in
+//   Logos doesn't have an `.abs()` method on the surface.
+// - assert_eq! family imports via std.fmt + std.lang.text.
+
+package test_user_defined_eq;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.cmp;
+
+struct SketchyNum { num: i32 }
+
+impl PartialEq for SketchyNum {
+    fn eq(&self, other: &SketchyNum) -> bool {
+        let d: i32 = self.num - other.num;
+        let ad: i32 = if d < 0i32 { 0i32 - d } else { d };
+        return ad < 5i32;
+    }
+}
+
+#[test]
+fn test_user_defined_eq() {
+    let a: SketchyNum = SketchyNum { num: 37i32 };
+    let b: SketchyNum = SketchyNum { num: 34i32 };
+    let c: SketchyNum = SketchyNum { num: 25i32 };
+    let d: SketchyNum = SketchyNum { num: 57i32 };
+    assert_eq!(a == b, true);
+    assert_eq!(c != d, true);
+}
