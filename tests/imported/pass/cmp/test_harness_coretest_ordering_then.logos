@@ -1,0 +1,78 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/cmp.rs
+//   (test_ordering_then, test_ordering_then_with)
+//
+// Modifications:
+// - `Less` / `Equal` / `Greater` → `Ordering::Less` / `::Equal` /
+//   `::Greater` (no bare-variant re-export in std.lang.ord).
+// - `||` closure for then_with replaced with named fn-ptrs (Logos's
+//   closure-as-fn-ptr at method-arg site is partial).
+// - assert_eq! family imports via std.fmt + std.lang.text.
+//
+// Stdlib companion added in same commit: `Ordering::then` and
+// `Ordering::then_with(f: fn() -> Ordering)` inherent methods on
+// the Ordering enum.
+
+package test_ordering_then;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.ord;
+
+fn ret_less()    -> Ordering { return Ordering::Less; }
+fn ret_equal()   -> Ordering { return Ordering::Equal; }
+fn ret_greater() -> Ordering { return Ordering::Greater; }
+
+#[test]
+fn test_ordering_then() {
+    assert_eq!(Ordering::Equal.then(Ordering::Less),       Ordering::Less);
+    assert_eq!(Ordering::Equal.then(Ordering::Equal),      Ordering::Equal);
+    assert_eq!(Ordering::Equal.then(Ordering::Greater),    Ordering::Greater);
+    assert_eq!(Ordering::Less.then(Ordering::Less),        Ordering::Less);
+    assert_eq!(Ordering::Less.then(Ordering::Equal),       Ordering::Less);
+    assert_eq!(Ordering::Less.then(Ordering::Greater),     Ordering::Less);
+    assert_eq!(Ordering::Greater.then(Ordering::Less),     Ordering::Greater);
+    assert_eq!(Ordering::Greater.then(Ordering::Equal),    Ordering::Greater);
+    assert_eq!(Ordering::Greater.then(Ordering::Greater),  Ordering::Greater);
+}
+
+#[test]
+fn test_ordering_then_with() {
+    assert_eq!(Ordering::Equal.then_with(ret_less),       Ordering::Less);
+    assert_eq!(Ordering::Equal.then_with(ret_equal),      Ordering::Equal);
+    assert_eq!(Ordering::Equal.then_with(ret_greater),    Ordering::Greater);
+    assert_eq!(Ordering::Less.then_with(ret_less),        Ordering::Less);
+    assert_eq!(Ordering::Less.then_with(ret_equal),       Ordering::Less);
+    assert_eq!(Ordering::Less.then_with(ret_greater),     Ordering::Less);
+    assert_eq!(Ordering::Greater.then_with(ret_less),     Ordering::Greater);
+    assert_eq!(Ordering::Greater.then_with(ret_equal),    Ordering::Greater);
+    assert_eq!(Ordering::Greater.then_with(ret_greater),  Ordering::Greater);
+}
+
+#[test]
+fn test_ordering_predicates() {
+    // Smoke for is_lt / is_le / is_eq / is_ne / is_gt / is_ge.
+    assert!(Ordering::Less.is_lt());
+    assert!(!Ordering::Equal.is_lt());
+    assert!(!Ordering::Greater.is_lt());
+
+    assert!(Ordering::Less.is_le());
+    assert!(Ordering::Equal.is_le());
+    assert!(!Ordering::Greater.is_le());
+
+    assert!(!Ordering::Less.is_eq());
+    assert!(Ordering::Equal.is_eq());
+    assert!(!Ordering::Greater.is_eq());
+
+    assert!(Ordering::Less.is_ne());
+    assert!(!Ordering::Equal.is_ne());
+    assert!(Ordering::Greater.is_ne());
+
+    assert!(!Ordering::Less.is_gt());
+    assert!(!Ordering::Equal.is_gt());
+    assert!(Ordering::Greater.is_gt());
+
+    assert!(!Ordering::Less.is_ge());
+    assert!(Ordering::Equal.is_ge());
+    assert!(Ordering::Greater.is_ge());
+}

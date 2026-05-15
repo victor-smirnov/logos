@@ -42,6 +42,26 @@ impl Ordering {
     pub fn is_ge(self: Ordering) -> bool {
         match self { Ordering::Less => { return false; } _ => { return true; } }
     }
+
+    // Rust's `Ordering::then` — chain two orderings (this then other).
+    // If self is Equal, return other; otherwise return self unchanged.
+    pub fn then(self: Ordering, other: Ordering) -> Ordering {
+        match self {
+            Ordering::Equal => { return other; }
+            Ordering::Less  => { return Ordering::Less; }
+            Ordering::Greater => { return Ordering::Greater; }
+        }
+    }
+
+    // Rust's `Ordering::then_with` — same as `.then` but lazy: only
+    // calls the fallback when self is Equal.
+    pub fn then_with(self: Ordering, f: fn() -> Ordering) -> Ordering {
+        match self {
+            Ordering::Equal => { return f(); }
+            Ordering::Less  => { return Ordering::Less; }
+            Ordering::Greater => { return Ordering::Greater; }
+        }
+    }
 }
 
 pub trait Ord {
