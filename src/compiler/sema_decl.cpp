@@ -549,7 +549,8 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     // "<metaprog>") — those need to JIT-compile so the discovery loop
     // can invoke them. The final non-metaprog sema pass lowers
     // everything for real.
-    bool is_synth_blob = file_ == "<metaprog-blob-subst>";
+    bool is_synth_blob = file_ == "<metaprog-blob-subst>"
+                      || file_ == "<test_main_synth>";
     // Impl methods on a yet-to-be-derived target struct (e.g. cow.logos's
     // `impl BTreeNode for BranchNode { ... }` where BranchNode is emitted
     // by a #[derive_branch_node] hook on a sibling struct) cascade if

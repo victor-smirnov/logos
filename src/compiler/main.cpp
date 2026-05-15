@@ -3013,7 +3013,16 @@ int main(int argc, char** argv) {
     // Capture entry idx BEFORE dispatch — synth docs append to asts so
     // `asts.size()-1` no longer points at the user's input file after
     // dispatch returns.
-    const size_t pre_dispatch_entry_idx = asts.empty() ? 0 : asts.size() - 1;
+    // In --test mode the synthesised main was appended last, so asts.size()-1
+    // points at the test runner blob rather than the user file. Step back one
+    // so metaprog dispatch treats the user file as the entry (the synth main
+    // is skipped via the is_synth_blob filename check in sema_decl).
+    size_t pre_dispatch_entry_idx = asts.empty() ? 0 : asts.size() - 1;
+    if (test_mode && pre_dispatch_entry_idx > 0 &&
+        pre_dispatch_entry_idx < filenames.size() &&
+        filenames[pre_dispatch_entry_idx] == "<test_main_synth>") {
+        pre_dispatch_entry_idx -= 1;
+    }
     {
         logos::compiler::MetaprogDispatchOpts mopts;
         mopts.trace          = trace;

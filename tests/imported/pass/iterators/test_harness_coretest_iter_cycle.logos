@@ -4,28 +4,23 @@
 // Modifications:
 // - Rust's `(0..N).step_by(1).take(N).cycle()` infinite-range chain
 //   replaced with a tiny `Counter` struct (Logos has no open-range
-//   syntax). CycleIter requires `I: Clone`; we hand-roll `impl Clone
-//   for Counter` instead of `#[derive_clone]` because the metaprog
-//   handler doesn't currently fire under `logosc --test` synthesis
-//   (handler dispatch sees the test-runner's synthesised main first;
-//   tracking as a follow-up gap).
+//   syntax). CycleIter requires `I: Clone`; `#[derive_clone]` fires
+//   under `logosc --test` synthesis now that the test runner blob
+//   is recognised as a synth blob by sema_decl's metaprog-stub gate
+//   and the user file remains the metaprog entry idx.
 // - assert_eq! family imports via std.fmt + std.lang.text.
 
 package test_iter_cycle;
 
 use std.fmt;
 use std.lang.text;
+use std.compiler.metaprog;
 use std.lang.clone;
 use std.lang.iter;
 use std.lang.option;
 
+#[derive_clone]
 struct Counter { cur: i32, max: i32 }
-
-impl Clone for Counter {
-    fn clone(self: Counter) -> Counter {
-        return Counter { cur: self.cur, max: self.max };
-    }
-}
 
 impl Iterator<i32> for Counter {
     fn next(self: &mut Counter) -> Option<i32> {
