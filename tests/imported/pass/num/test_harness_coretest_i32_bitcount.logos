@@ -1,0 +1,66 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/num/int_macros.rs
+//   (test_count_ones, test_count_zeros, test_leading_zeros,
+//    test_trailing_zeros — int_module!-expanded for i32)
+//
+// Modifications:
+// - `const A: $T = 0b…` constants inlined into the assertions.
+// - `$T::BITS` constant replaced with literal `32` (i32 BITS).
+// - `assert_eq_const_safe!` simplified to `assert_eq!`.
+// - assert_eq! family imports via std.fmt + std.lang.text.
+//
+// Stdlib companion: bit-counting methods (count_ones, count_zeros,
+// leading_zeros, trailing_zeros) on u32/i32/u64/i64 in std.lang.ord
+// wrapping the existing popcount_u64 / leading_zeros_u64 /
+// trailing_zeros_u64 intrinsics with width-appropriate adjustments.
+
+package test_i32_bitcount;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.ord;
+
+#[test]
+fn test_count_ones() {
+    let a: i32 = 0b0101100i32;        // 3 ones
+    let b: i32 = 0b0100001i32;        // 2 ones
+    let c: i32 = 0b1111001i32;        // 5 ones
+    assert_eq!(a.count_ones(), 3u32);
+    assert_eq!(b.count_ones(), 2u32);
+    assert_eq!(c.count_ones(), 5u32);
+}
+
+#[test]
+fn test_count_zeros() {
+    let a: i32 = 0b0101100i32;
+    let b: i32 = 0b0100001i32;
+    let c: i32 = 0b1111001i32;
+    assert_eq!(a.count_zeros(), 29u32);   // 32 - 3
+    assert_eq!(b.count_zeros(), 30u32);   // 32 - 2
+    assert_eq!(c.count_zeros(), 27u32);   // 32 - 5
+}
+
+#[test]
+fn test_leading_zeros() {
+    assert_eq!((0i32).leading_zeros(),  32u32);
+    assert_eq!((1i32).leading_zeros(),  31u32);
+    assert_eq!((0b1000i32).leading_zeros(), 28u32);
+}
+
+#[test]
+fn test_trailing_zeros() {
+    assert_eq!((0i32).trailing_zeros(), 32u32);
+    assert_eq!((1i32).trailing_zeros(),  0u32);
+    assert_eq!((8i32).trailing_zeros(),  3u32);
+    assert_eq!((0b110000i32).trailing_zeros(), 4u32);
+}
+
+#[test]
+fn test_i64_bitcount() {
+    assert_eq!((0xFFi64).count_ones(),    8u32);
+    assert_eq!((0i64).count_ones(),       0u32);
+    assert_eq!((0i64).leading_zeros(),    64u32);
+    assert_eq!((1i64).leading_zeros(),    63u32);
+    assert_eq!((0i64).trailing_zeros(),   64u32);
+    assert_eq!((0b10000i64).trailing_zeros(), 4u32);
+}

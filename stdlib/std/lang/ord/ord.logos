@@ -103,6 +103,42 @@ impl i32   { pub fn abs(self: i32)   -> i32   { if self < 0i32   { return 0i32  
 impl i64   { pub fn abs(self: i64)   -> i64   { if self < 0i64   { return 0i64   - self; } return self; } pub fn signum(self: i64)   -> i64   { if self > 0i64   { return 1i64;   } if self < 0i64   { return -1i64;   } return 0i64;   } pub fn is_negative(self: i64)   -> bool { return self < 0i64;   } pub fn is_positive(self: i64)   -> bool { return self > 0i64;   } }
 impl isize { pub fn abs(self: isize) -> isize { if self < 0isize { return 0isize - self; } return self; } pub fn signum(self: isize) -> isize { if self > 0isize { return 1isize; } if self < 0isize { return -1isize; } return 0isize; } pub fn is_negative(self: isize) -> bool { return self < 0isize; } pub fn is_positive(self: isize) -> bool { return self > 0isize; } }
 
+// Bit-counting methods on integer primitives. Logos's compiler
+// exposes `popcount_u64` / `leading_zeros_u64` / `trailing_zeros_u64`
+// intrinsics; wrap them with type-appropriate width-adjustments.
+impl u64   { pub fn count_ones(self: u64) -> u32 { return popcount_u64(self); }
+             pub fn count_zeros(self: u64) -> u32 { return 64u32 - popcount_u64(self); }
+             pub fn leading_zeros(self: u64) -> u32 { return leading_zeros_u64(self); }
+             pub fn trailing_zeros(self: u64) -> u32 { return trailing_zeros_u64(self); } }
+impl u32   { pub fn count_ones(self: u32) -> u32 { return popcount_u64(self as u64); }
+             pub fn count_zeros(self: u32) -> u32 { return 32u32 - popcount_u64(self as u64); }
+             pub fn leading_zeros(self: u32) -> u32 {
+                 if self == 0u32 { return 32u32; }
+                 // ctlz on u32 zero-extended to u64 over-counts by 32.
+                 return leading_zeros_u64(self as u64) - 32u32;
+             }
+             pub fn trailing_zeros(self: u32) -> u32 {
+                 if self == 0u32 { return 32u32; }
+                 // ctz on a non-zero u32 is unaffected by zero-extension.
+                 return trailing_zeros_u64(self as u64);
+             } }
+impl i32   { pub fn count_ones(self: i32) -> u32 { return popcount_u64((self as u32) as u64); }
+             pub fn count_zeros(self: i32) -> u32 { return 32u32 - popcount_u64((self as u32) as u64); }
+             pub fn leading_zeros(self: i32) -> u32 {
+                 let u: u32 = self as u32;
+                 if u == 0u32 { return 32u32; }
+                 return leading_zeros_u64(u as u64) - 32u32;
+             }
+             pub fn trailing_zeros(self: i32) -> u32 {
+                 let u: u32 = self as u32;
+                 if u == 0u32 { return 32u32; }
+                 return trailing_zeros_u64(u as u64);
+             } }
+impl i64   { pub fn count_ones(self: i64) -> u32 { return popcount_u64(self as u64); }
+             pub fn count_zeros(self: i64) -> u32 { return 64u32 - popcount_u64(self as u64); }
+             pub fn leading_zeros(self: i64) -> u32 { return leading_zeros_u64(self as u64); }
+             pub fn trailing_zeros(self: i64) -> u32 { return trailing_zeros_u64(self as u64); } }
+
 // SL-sl-05: core::cmp free fns analogous to Rust's `core::cmp::{min_by,
 // max_by}`. Caller supplies an `fn(T, T) -> Ordering` comparator (Logos
 // closures coerce to fn-ptr when non-capturing, so call sites can pass
