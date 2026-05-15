@@ -447,6 +447,69 @@ pub fn iter_eq_by<I: Iterator<T>, J: Iterator<U>, T, U>(
     }
 }
 
+// `iter_cmp` / `iter_lt` / `iter_le` / `iter_gt` / `iter_ge` —
+// lexicographic comparison of two iterators where T: Ord. Mirrors
+// Rust's `Iterator::{cmp, lt, le, gt, ge}`.
+pub fn iter_cmp<I: Iterator<T>, J: Iterator<T>, T: Ord>(a: I, b: J) -> Ordering {
+    let mut ai: I = a;
+    let mut bi: J = b;
+    loop {
+        let av: Option<T> = ai.next();
+        let bv: Option<T> = bi.next();
+        match av {
+            Option::None    => {
+                match bv {
+                    Option::None    => { return Ordering::Equal; }
+                    Option::Some(_) => { return Ordering::Less; }
+                }
+            }
+            Option::Some(x) => {
+                match bv {
+                    Option::None    => { return Ordering::Greater; }
+                    Option::Some(y) => {
+                        unsafe {
+                            let xr: *const T = (&x) as *const T;
+                            let yr: *const T = (&y) as *const T;
+                            match (&*xr).cmp(&*yr) {
+                                Ordering::Equal => { }
+                                ord             => { return ord; }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub fn iter_lt<I: Iterator<T>, J: Iterator<T>, T: Ord>(a: I, b: J) -> bool {
+    match iter_cmp::<I, J, T>(a, b) {
+        Ordering::Less => { return true; }
+        _              => { return false; }
+    }
+}
+pub fn iter_le<I: Iterator<T>, J: Iterator<T>, T: Ord>(a: I, b: J) -> bool {
+    match iter_cmp::<I, J, T>(a, b) {
+        Ordering::Greater => { return false; }
+        _                 => { return true; }
+    }
+}
+pub fn iter_gt<I: Iterator<T>, J: Iterator<T>, T: Ord>(a: I, b: J) -> bool {
+    match iter_cmp::<I, J, T>(a, b) {
+        Ordering::Greater => { return true; }
+        _                 => { return false; }
+    }
+}
+pub fn iter_ge<I: Iterator<T>, J: Iterator<T>, T: Ord>(a: I, b: J) -> bool {
+    match iter_cmp::<I, J, T>(a, b) {
+        Ordering::Less => { return false; }
+        _              => { return true; }
+    }
+}
+pub fn iter_ne<I: Iterator<T>, J: Iterator<T>, T: Eq>(a: I, b: J) -> bool {
+    return !iter_eq::<I, J, T>(a, b);
+}
+
 // `iter_eq` — pairwise equality of two iterators where T: Eq.
 pub fn iter_eq<I: Iterator<T>, J: Iterator<T>, T: Eq>(a: I, b: J) -> bool {
     let mut ai: I = a;
