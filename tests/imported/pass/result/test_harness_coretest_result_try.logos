@@ -1,0 +1,41 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/result.rs (test_try)
+//
+// Modifications:
+// - `u8` payload → `i32`. Source / target error types unified to i32
+//   (Rust uses `Result<u8, u8>?` widening to `Result<u8, u32>` via
+//   From conversion — Logos's `?` operator doesn't currently invoke
+//   the From trait for error conversion, so kept the types matched).
+// - Nested fns lifted to top level.
+// - assert_eq! family imports via std.fmt + std.lang.text.
+
+package test_result_try;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.result;
+use std.lang.option;
+
+fn try_result_ok() -> Result<i32, i32> {
+    let r: Result<i32, i32> = Ok(1i32);
+    let val: i32 = r?;
+    return Ok(val);
+}
+
+fn try_result_err() -> Result<i32, i32> {
+    let r: Result<i32, i32> = Err(1i32);
+    let val: i32 = r?;
+    return Ok(val);
+}
+
+#[test]
+fn test_try() {
+    match try_result_ok() {
+        Result::Ok(v)  => { assert_eq!(v, 1i32); }
+        Result::Err(_) => { assert_eq!(true, false); }
+    }
+    match try_result_err() {
+        Result::Ok(_)  => { assert_eq!(true, false); }
+        Result::Err(e) => { assert_eq!(e, 1i32); }
+    }
+}
