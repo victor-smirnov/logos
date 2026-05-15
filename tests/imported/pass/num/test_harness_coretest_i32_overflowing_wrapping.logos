@@ -1,0 +1,100 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/num/int_macros.rs
+//   (overflowing_* / wrapping_* methods cross-section)
+//
+// Modifications:
+// - `$T` parametrisation flattened to i32.
+// - MAX/MIN inlined.
+// - `(r, of) = expr` Rust tuple destructure works directly in Logos.
+// - assert_eq! family imports via std.fmt + std.lang.text.
+//
+// Stdlib companion: overflowing_add / sub / mul / neg / abs and
+// wrapping_add / sub / mul / neg / abs inherent methods on i32 in
+// std.lang.ord. overflowing_* returns (wrapping_result, overflow_flag).
+
+package test_i32_overflowing_wrapping;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.ord;
+
+#[test]
+fn test_overflowing_add() {
+    let max: i32 = 2147483647i32;
+    let min: i32 = -2147483647i32 - 1i32;
+
+    let (r1, of1) = 100i32.overflowing_add(200i32);
+    assert_eq!(r1, 300i32);
+    assert_eq!(of1, false);
+
+    let (r2, of2) = max.overflowing_add(1i32);
+    assert_eq!(r2, min);
+    assert_eq!(of2, true);
+
+    let (r3, of3) = min.overflowing_add(-1i32);
+    assert_eq!(r3, max);
+    assert_eq!(of3, true);
+}
+
+#[test]
+fn test_overflowing_sub() {
+    let max: i32 = 2147483647i32;
+    let min: i32 = -2147483647i32 - 1i32;
+
+    let (r1, of1) = 10i32.overflowing_sub(3i32);
+    assert_eq!(r1, 7i32);
+    assert_eq!(of1, false);
+
+    let (r2, of2) = min.overflowing_sub(1i32);
+    assert_eq!(r2, max);
+    assert_eq!(of2, true);
+}
+
+#[test]
+fn test_overflowing_mul() {
+    let max: i32 = 2147483647i32;
+
+    let (r1, of1) = 7i32.overflowing_mul(6i32);
+    assert_eq!(r1, 42i32);
+    assert_eq!(of1, false);
+
+    let (_r2, of2) = max.overflowing_mul(2i32);
+    assert_eq!(of2, true);
+}
+
+#[test]
+fn test_overflowing_neg_abs() {
+    let max: i32 = 2147483647i32;
+    let min: i32 = -2147483647i32 - 1i32;
+
+    let (r1, of1) = 7i32.overflowing_neg();
+    assert_eq!(r1, -7i32);
+    assert_eq!(of1, false);
+
+    let (r2, of2) = min.overflowing_neg();
+    // MIN's negation wraps to itself.
+    assert_eq!(r2, min);
+    assert_eq!(of2, true);
+
+    let (r3, of3) = (-5i32).overflowing_abs();
+    assert_eq!(r3, 5i32);
+    assert_eq!(of3, false);
+
+    let (r4, of4) = min.overflowing_abs();
+    assert_eq!(r4, min);
+    assert_eq!(of4, true);
+}
+
+#[test]
+fn test_wrapping_basic() {
+    let max: i32 = 2147483647i32;
+    let min: i32 = -2147483647i32 - 1i32;
+
+    assert_eq!(5i32.wrapping_add(7i32),       12i32);
+    assert_eq!(max.wrapping_add(1i32),        min);
+    assert_eq!(min.wrapping_sub(1i32),        max);
+    assert_eq!(7i32.wrapping_mul(6i32),       42i32);
+    assert_eq!(min.wrapping_neg(),            min);
+    assert_eq!((-7i32).wrapping_abs(),        7i32);
+    assert_eq!(min.wrapping_abs(),            min);
+}

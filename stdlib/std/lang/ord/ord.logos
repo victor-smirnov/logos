@@ -226,6 +226,58 @@ impl i32 {
     }
 }
 
+// Overflowing arithmetic on i32. Returns (wrapping_result,
+// overflow_flag). Matches Rust's `overflowing_add` etc.
+impl i32 {
+    pub fn overflowing_add(self: i32, other: i32) -> (i32, bool) {
+        let r: i64 = (self as i64) + (other as i64);
+        let overflowed: bool = r > 2147483647i64 || r < -2147483648i64;
+        return ((r as i32), overflowed);
+    }
+    pub fn overflowing_sub(self: i32, other: i32) -> (i32, bool) {
+        let r: i64 = (self as i64) - (other as i64);
+        let overflowed: bool = r > 2147483647i64 || r < -2147483648i64;
+        return ((r as i32), overflowed);
+    }
+    pub fn overflowing_mul(self: i32, other: i32) -> (i32, bool) {
+        let r: i64 = (self as i64) * (other as i64);
+        let overflowed: bool = r > 2147483647i64 || r < -2147483648i64;
+        return ((r as i32), overflowed);
+    }
+    pub fn overflowing_neg(self: i32) -> (i32, bool) {
+        if self == -2147483647i32 - 1i32 { return (self, true); }
+        return ((0i32 - self), false);
+    }
+    pub fn overflowing_abs(self: i32) -> (i32, bool) {
+        if self == -2147483647i32 - 1i32 { return (self, true); }
+        if self < 0i32 { return ((0i32 - self), false); }
+        return (self, false);
+    }
+}
+
+// Wrapping arithmetic on i32 — explicit two's-complement wrap on
+// overflow. Logos's plain `+` / `-` / `*` trap on signed overflow,
+// so the wrap is implemented via i64 intermediate + truncation
+// (i64→i32 cast wraps the lower 32 bits cleanly).
+impl i32 {
+    pub fn wrapping_add(self: i32, other: i32) -> i32 {
+        return ((self as i64) + (other as i64)) as i32;
+    }
+    pub fn wrapping_sub(self: i32, other: i32) -> i32 {
+        return ((self as i64) - (other as i64)) as i32;
+    }
+    pub fn wrapping_mul(self: i32, other: i32) -> i32 {
+        return ((self as i64) * (other as i64)) as i32;
+    }
+    pub fn wrapping_neg(self: i32) -> i32 {
+        return (0i64 - (self as i64)) as i32;
+    }
+    pub fn wrapping_abs(self: i32) -> i32 {
+        if self < 0i32 { return (0i64 - (self as i64)) as i32; }
+        return self;
+    }
+}
+
 // Bit-rotation methods (mirror Rust's `rotate_left` / `rotate_right`).
 // Modular shift amount: rotation by `n` is equivalent to rotation by
 // `n % BITS`. Implementation: `(x << k) | (x >> (BITS - k))` with
