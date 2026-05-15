@@ -329,6 +329,9 @@ pub trait Iterator<Item> {
     }
 
     // Terminal: first item satisfying the predicate.
+    // TODO Rust-parity: should be `&mut self`. Tried 2026-05-15 — triggers
+    // a logosc segfault on derive_debug_enum (sema/mono bug specific to
+    // `unsafe fn` trait-default with `&mut self`). Reverted to by-value.
     unsafe fn find(self: Self, pred: fn(Item) -> bool) -> Option<Item> {
         let mut it: Self = self;
         loop {
@@ -343,6 +346,7 @@ pub trait Iterator<Item> {
     }
 
     // Terminal: index of first item satisfying the predicate.
+    // Same `&mut self` deferral as `find` — see note above.
     unsafe fn position(self: Self, pred: fn(Item) -> bool) -> Option<i64> {
         let mut it: Self = self;
         let mut idx: i64 = 0i64;
