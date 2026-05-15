@@ -3239,6 +3239,11 @@ int main(int argc, char** argv) {
             // Step 2: full pipeline through JIT for the metacall thunks.
             auto mc_prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts);
             if (!mc_prog.ok()) { mc_prog.print_diags(stderr); return 1; }
+            // Same skip-already-compiled-stdlib trick as the metaprog JIT
+            // and the final user-compile path. The metacall JIT registers
+            // archive_paths via build_jit_from_module, so binary_symbols
+            // covers everything mlir_gen would otherwise re-emit.
+            mc_prog.binary_symbols = binary_symbols;
             mc_prog = logos::compiler::reflection_emit(std::move(mc_prog));
             mc_prog = logos::compiler::mono_pass(std::move(mc_prog));
             if (!mc_prog.ok()) { mc_prog.print_diags(stderr); return 1; }
