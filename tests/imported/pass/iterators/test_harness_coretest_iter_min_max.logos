@@ -1,0 +1,68 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/iter/traits/iterator.rs
+//   (test_iterator_max, test_iterator_min subsets)
+//
+// Modifications:
+// - Rust's `iter.cloned().max()` / `.min()` rely on `T: Ord`.
+//   Logos's Iterator surface currently provides `.min_by(cmp)` /
+//   `.max_by(cmp)` taking an `fn(T, T) -> i32` comparator (so
+//   trait-default body doesn't transitively require std.lang.ord on
+//   every implementor's pkg). Pass an explicit i32 comparator.
+// - The `.cloned()` adapter is a no-op for primitive Item-type
+//   slice iters in Logos (which yield T by value), so it's dropped.
+// - assert_eq! family imports via std.fmt + std.lang.text.
+
+package test_iter_min_max;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.iter;
+use std.lang.option;
+
+fn cmp_i32(a: i32, b: i32) -> i32 {
+    if a < b { return -1i32; }
+    if a > b { return  1i32; }
+    return 0i32;
+}
+
+#[test]
+fn test_iterator_max() {
+    let v: [i32; 11] = [0i32, 1i32, 2i32, 3i32, 4i32, 5i32, 6i32, 7i32, 8i32, 9i32, 10i32];
+    unsafe {
+        let it = iter_over_slice(&v);
+        match it.max_by(cmp_i32) {
+            Option::Some(x) => { assert_eq!(x, 10i32); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+        // Prefix [0..4] → max == 3.
+        let it_pre = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&v), 4i64, 0i32);
+        match it_pre.max_by(cmp_i32) {
+            Option::Some(x) => { assert_eq!(x, 3i32); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+        // Empty iter → None.
+        let it_empty = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&v), 0i64, 0i32);
+        match it_empty.max_by(cmp_i32) {
+            Option::Some(_) => { assert_eq!(true, false); }
+            Option::None    => { }
+        }
+    }
+}
+
+#[test]
+fn test_iterator_min() {
+    let v: [i32; 11] = [0i32, 1i32, 2i32, 3i32, 4i32, 5i32, 6i32, 7i32, 8i32, 9i32, 10i32];
+    unsafe {
+        let it = iter_over_slice(&v);
+        match it.min_by(cmp_i32) {
+            Option::Some(x) => { assert_eq!(x, 0i32); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+        // Empty iter → None.
+        let it_empty = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&v), 0i64, 0i32);
+        match it_empty.min_by(cmp_i32) {
+            Option::Some(_) => { assert_eq!(true, false); }
+            Option::None    => { }
+        }
+    }
+}

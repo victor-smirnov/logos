@@ -1,0 +1,60 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/iter/traits/iterator.rs
+//   (test_iterator_nth, test_iterator_last)
+//
+// Modifications:
+// - `v.iter().nth(i)` → `iter_over_slice(&v).nth(i)`. `.nth` is a
+//   trait-default method on Iterator; works directly on SliceIter.
+// - `unwrap()` → explicit Option::Some match (Logos's `.unwrap` is
+//   also available but the match form makes the assertion explicit).
+// - `&v[..1]` slice-take-prefix → manual `iter_over_slice + .take(1)`.
+// - assert_eq! family imports via std.fmt + std.lang.text.
+
+package test_iter_nth_last;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.iter;
+use std.lang.option;
+
+#[test]
+fn test_iterator_nth() {
+    let v: [i32; 5] = [0i32, 1i32, 2i32, 3i32, 4i32];
+    unsafe {
+        // For each i in 0..5, .nth(i) yields v[i].
+        let mut i: i32 = 0i32;
+        while i < 5i32 {
+            let mut it = iter_over_slice(&v);
+            match it.nth(i as i64) {
+                Option::Some(x) => { assert_eq!(x, v[i]); }
+                Option::None    => { assert_eq!(true, false); }
+            }
+            i = i + 1i32;
+        }
+        // .nth(len) past the end is None.
+        let mut it_end = iter_over_slice(&v);
+        match it_end.nth(5i64) {
+            Option::Some(_) => { assert_eq!(true, false); }
+            Option::None    => { }
+        }
+    }
+}
+
+#[test]
+fn test_iterator_last() {
+    let v: [i32; 5] = [0i32, 1i32, 2i32, 3i32, 4i32];
+    unsafe {
+        // .last on a 5-element source yields the last (4).
+        let it = iter_over_slice(&v);
+        match it.last() {
+            Option::Some(x) => { assert_eq!(x, 4i32); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+        // .last on a 1-element prefix yields the first (0).
+        let it1 = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&v), 1i64, 0i32);
+        match it1.last() {
+            Option::Some(x) => { assert_eq!(x, 0i32); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+    }
+}
