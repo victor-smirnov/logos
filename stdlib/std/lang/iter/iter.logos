@@ -18,6 +18,75 @@ pub trait FromIterator<A> {
     fn from_iter<I: Iterator<A>>(iter: I) -> Self;
 }
 
+// ── Sum / Product traits ─────────────────────────────────────────────────────
+//
+// Rust's `core::iter::{Sum, Product}`. `.sum<S>()` / `.product<S>()`
+// on Iterator dispatch via these. CP-cm-14's extension to primitive
+// receivers (mono_clone's prefix-rewrite handles non-Struct types
+// too) makes the trait-static call S::sum(self) / S::product(self)
+// resolve correctly when S = i32 / i64.
+
+pub trait Sum<A> {
+    fn sum<I: Iterator<A>>(iter: I) -> Self;
+}
+
+impl Sum<i32> for i32 {
+    fn sum<I: Iterator<i32>>(iter: I) -> i32 {
+        let mut it: I = iter;
+        let mut acc: i32 = 0i32;
+        loop {
+            match it.next() {
+                Option::None    => { return acc; }
+                Option::Some(v) => { acc = acc + v; }
+            }
+        }
+    }
+}
+
+impl Sum<i64> for i64 {
+    fn sum<I: Iterator<i64>>(iter: I) -> i64 {
+        let mut it: I = iter;
+        let mut acc: i64 = 0 as i64;
+        loop {
+            match it.next() {
+                Option::None    => { return acc; }
+                Option::Some(v) => { acc = acc + v; }
+            }
+        }
+    }
+}
+
+pub trait Product<A> {
+    fn product<I: Iterator<A>>(iter: I) -> Self;
+}
+
+impl Product<i32> for i32 {
+    fn product<I: Iterator<i32>>(iter: I) -> i32 {
+        let mut it: I = iter;
+        let mut acc: i32 = 1i32;
+        loop {
+            match it.next() {
+                Option::None    => { return acc; }
+                Option::Some(v) => { acc = acc * v; }
+            }
+        }
+    }
+}
+
+impl Product<i64> for i64 {
+    fn product<I: Iterator<i64>>(iter: I) -> i64 {
+        let mut it: I = iter;
+        let mut acc: i64 = 1 as i64;
+        loop {
+            match it.next() {
+                Option::None    => { return acc; }
+                Option::Some(v) => { acc = acc * v; }
+            }
+        }
+    }
+}
+
+
 // ── Core trait ───────────────────────────────────────────────────────────────
 
 pub trait Iterator<Item> {
@@ -45,6 +114,17 @@ pub trait Iterator<Item> {
     // defined collections.
     fn collect<C: FromIterator<Item>>(self: Self) -> C {
         return C::from_iter(self);
+    }
+
+    // SL-sl-05: `.sum<S>` / `.product<S>` — terminals that fold the
+    // iterator into any `S: Sum<Item>` / `S: Product<Item>`.
+    // CP-cm-14's primitive-receiver extension makes the trait-static
+    // dispatch work for `S = i32 / i64` etc.
+    fn sum<S: Sum<Item>>(self: Self) -> S {
+        return S::sum(self);
+    }
+    fn product<S: Product<Item>>(self: Self) -> S {
+        return S::product(self);
     }
 
     // SL-sl-05: min/max terminals — caller supplies an i32 comparator

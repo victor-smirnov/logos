@@ -1,0 +1,77 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/iter/traits/accum.rs
+//   (test_iterator_sum + analogous product tests)
+//
+// Modifications:
+// - `v.iter().cloned().sum::<i32>()` → `iter_over_slice(&v).sum::<i32>()`
+//   (Logos slice iter yields T by value; no `.cloned()` needed).
+// - `(0..N)` open-range constructed via `range_i32(0, N)`.
+// - assert_eq! family imports via std.fmt + std.lang.text.
+//
+// Stdlib companion: `Sum<A>` + `Product<A>` traits in std.lang.iter,
+// with primitive impls (`impl Sum<i32> for i32` etc.). `.sum<S>()` /
+// `.product<S>()` trait-default methods on Iterator dispatch via
+// `S::sum(self)` / `S::product(self)`. CP-cm-14 extended to handle
+// primitive receivers — mono_clone's prefix-rewrite + mono_scan's
+// struct-method-template fallback both now walk `templates_` for
+// `<base>__<method>__g__*` when `struct_method_templates_` doesn't
+// have the entry (primitives never do).
+
+package test_iter_sum_product;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.iter;
+use std.lang.range;
+use std.lang.option;
+
+#[test]
+fn test_iterator_sum_i32() {
+    let v: [i32; 11] = [0i32, 1i32, 2i32, 3i32, 4i32, 5i32, 6i32, 7i32, 8i32, 9i32, 10i32];
+    unsafe {
+        let s_full: i32 = iter_over_slice(&v).sum::<i32>();
+        assert_eq!(s_full, 55i32);
+        // Prefix-of-4: 0+1+2+3 = 6.
+        let s_pre: i32 = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&v), 4i64, 0i32).sum::<i32>();
+        assert_eq!(s_pre, 6i32);
+        // Empty.
+        let s_empty: i32 = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&v), 0i64, 0i32).sum::<i32>();
+        assert_eq!(s_empty, 0i32);
+    }
+}
+
+#[test]
+fn test_iterator_sum_i64() {
+    let v: [i64; 5] = [10i64, 20i64, 30i64, 40i64, 50i64];
+    unsafe {
+        let s: i64 = iter_over_slice(&v).sum::<i64>();
+        assert_eq!(s, 150i64);
+    }
+}
+
+#[test]
+fn test_iterator_sum_range() {
+    // 1..=10 over RangeI32 = 55.
+    let r = range_i32(1i32, 11i32);
+    let s: i32 = r.sum::<i32>();
+    assert_eq!(s, 55i32);
+}
+
+#[test]
+fn test_iterator_product_i32() {
+    let v: [i32; 5] = [1i32, 2i32, 3i32, 4i32, 5i32];
+    unsafe {
+        let p: i32 = iter_over_slice(&v).product::<i32>();
+        assert_eq!(p, 120i32);
+    }
+}
+
+#[test]
+fn test_iterator_product_range() {
+    let r = range_i32(1i32, 6i32);
+    let p: i32 = r.product::<i32>();
+    assert_eq!(p, 120i32);
+    // Empty range product = 1.
+    let r0 = range_i32(5i32, 5i32);
+    assert_eq!(r0.product::<i32>(), 1i32);
+}

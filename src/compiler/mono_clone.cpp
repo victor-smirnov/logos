@@ -2305,16 +2305,31 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                             // this, `.collect::<Vec<i32>>()` lowers to an
                             // unparameterised `Vec$G1$i32__from_iter` that
                             // never gets emitted.
-                            if (nc.type_args.empty() &&
-                                TypeRef(t).kind() == LogosType::Kind::Struct) {
+                            if (nc.type_args.empty()) {
                                 std::string method_tail = callee_body.substr(sep + 2);
                                 std::string method_name = method_tail;
                                 if (auto p = method_name.find("__g__"); p != std::string::npos)
                                     method_name.resize(p);
                                 else if (auto p = method_name.find("__f__"); p != std::string::npos)
                                     method_name.resize(p);
-                                std::string struct_base{TypeRef(t).struct_name()};
-                                std::string struct_pkg{TypeRef(t).pkg_name()};
+                                // For Struct receivers, the impl method's namespace
+                                // key is `[pkg.]Struct`. For primitive receivers
+                                // (i32 / i64 / etc.), the impl block registers
+                                // methods under the bare type name (`i32`).
+                                std::string struct_base;
+                                std::string struct_pkg;
+                                if (TypeRef(t).kind() == LogosType::Kind::Struct) {
+                                    struct_base = std::string(TypeRef(t).struct_name());
+                                    struct_pkg  = std::string(TypeRef(t).pkg_name());
+                                } else {
+                                    struct_base = cname;
+                                }
+                                // Look up the template fn. First try
+                                // struct_method_templates_ (for struct receivers);
+                                // fall back to templates_ keys that match
+                                // `[pkg.]<base>__<method>[__g__sig]` (for primitive
+                                // receivers — `impl Sum<i32> for i32` lives there).
+                                const lir::LFunction* tmpl = nullptr;
                                 auto smt_it = struct_method_templates_.end();
                                 if (!struct_pkg.empty())
                                     smt_it = struct_method_templates_.find(
@@ -2333,17 +2348,38 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                                             }
                                         }
                                     }
-                                    if (mit != smt_it->second.end()) {
-                                        const lir::LFunction* tmpl = mit->second;
+                                    if (mit != smt_it->second.end())
+                                        tmpl = mit->second;
+                                }
+                                if (!tmpl) {
+                                    // Walk templates_ for a primitive-receiver fn.
+                                    std::string p = struct_base + "__" + method_name + "__g__";
+                                    std::string p_dot = "." + struct_base + "__" + method_name + "__g__";
+                                    for (auto& [kn, fp] : templates_) {
+                                        if (kn.rfind(p, 0) == 0 ||
+                                            kn.find(p_dot) != std::string::npos) {
+                                            tmpl = fp;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (tmpl) {
+                                    {
+                                        // Primitive receivers won't have a
+                                        // struct_templates_ entry; treat them
+                                        // as having zero struct-level tparams.
                                         auto stt = struct_templates_.end();
                                         if (!struct_pkg.empty())
                                             stt = struct_templates_.find(
                                                 struct_pkg + "." + struct_base);
                                         if (stt == struct_templates_.end())
                                             stt = struct_templates_.find(struct_base);
-                                        if (stt != struct_templates_.end()) {
-                                            const auto& sd_tpars =
-                                                stt->second->type_params;
+                                        const std::vector<TypeParam> empty_tpars;
+                                        const std::vector<TypeParam>& sd_tpars =
+                                            (stt != struct_templates_.end())
+                                            ? stt->second->type_params
+                                            : empty_tpars;
+                                        {
                                             std::vector<const TypeParam*> meth_tps;
                                             for (auto& tp : tmpl->type_params) {
                                                 bool is_struct = false;

@@ -428,6 +428,7 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
                 if (dot != std::string::npos)
                     smt_it = struct_method_templates_.find(struct_part.substr(dot + 1));
             }
+            const lir::LFunction* tmpl = nullptr;
             if (smt_it != struct_method_templates_.end()) {
                 auto mit = smt_it->second.find(method_name);
                 if (mit == smt_it->second.end()) {
@@ -442,18 +443,59 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
                         }
                     }
                 }
-                if (mit != smt_it->second.end()) {
-                    const lir::LFunction* tmpl = mit->second;
+                if (mit != smt_it->second.end())
+                    tmpl = mit->second;
+            }
+            if (!tmpl) {
+                // CP-cm-14 extension: primitive-receiver impl methods
+                // (e.g. `impl Sum<i32> for i32`) live in templates_ as
+                // free fns, not in struct_method_templates_. Walk
+                // templates_ for `[pkg.]<base>__<method>__g__*`.
+                std::string base_p = struct_part + "__" + method_name + "__g__";
+                std::string base_p_bare = method_name + "__g__";
+                std::string dot_path = "." + struct_part + "__" + method_name + "__g__";
+                std::string dot_bare = "." + base_p_bare;
+                for (auto& [kn, fp] : templates_) {
+                    if (kn.rfind(base_p, 0) == 0 ||
+                        kn.find(dot_path) != std::string::npos) {
+                        tmpl = fp;
+                        break;
+                    }
+                }
+                if (!tmpl) {
+                    // Strip pkg-prefix from struct_part and retry the bare form.
+                    auto dot = struct_part.rfind('.');
+                    if (dot != std::string::npos) {
+                        std::string base_only = struct_part.substr(dot + 1);
+                        std::string bare_p = base_only + "__" + method_name + "__g__";
+                        std::string bare_dot = "." + bare_p;
+                        for (auto& [kn, fp] : templates_) {
+                            if (kn.rfind(bare_p, 0) == 0 ||
+                                kn.find(bare_dot) != std::string::npos) {
+                                tmpl = fp;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if (tmpl) {
+                    {
                     // Find the struct template to split type_args into struct-
-                    // vs method-tparam slices.
+                    // vs method-tparam slices. Primitive receivers won't have
+                    // a struct_templates_ entry; treat them as zero-tparam.
                     auto stt = struct_templates_.find(struct_part);
                     if (stt == struct_templates_.end()) {
                         auto dot = struct_part.rfind('.');
                         if (dot != std::string::npos)
                             stt = struct_templates_.find(struct_part.substr(dot + 1));
                     }
-                    if (stt != struct_templates_.end()) {
-                        const auto& sd_tpars = stt->second->type_params;
+                    {
+                        const std::vector<TypeParam> empty_tpars;
+                        const std::vector<TypeParam>& sd_tpars =
+                            (stt != struct_templates_.end())
+                            ? stt->second->type_params
+                            : empty_tpars;
                         size_t n_struct = sd_tpars.size();
                         if (type_args.size() >= n_struct) {
                             // Build SubstMap: struct tparams from prefix +
