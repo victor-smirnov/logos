@@ -525,6 +525,48 @@ pub fn iter_filter<I: Iterator<T>, T>(iter: I, pred: fn(T) -> bool) -> FilterIte
     return FilterIter { inner: iter, pred: pred };
 }
 
+// ── FuseIter<I, T> — pin the iterator to None once it's exhausted ────────────
+//
+// Mirrors Rust's `core::iter::Fuse`. Some iterators may yield Some
+// items again after returning None once; Fuse "fuses" the iter so
+// subsequent .next() always returns None.
+
+pub struct FuseIter<I, T> {
+    pub inner: I,
+    pub done:  bool,
+    pub _t:    T,
+}
+
+impl<I: Iterator<T>, T> Iterator<T> for FuseIter<I, T> {
+    fn next(self: &mut FuseIter<I, T>) -> Option<T> {
+        if self.done { return Option::None; }
+        match self.inner.next() {
+            Option::None    => {
+                self.done = true;
+                return Option::None;
+            }
+            Option::Some(v) => { return Option::Some(v); }
+        }
+    }
+}
+
+impl<I: DoubleEndedIterator<T>, T> DoubleEndedIterator<T> for FuseIter<I, T> {
+    fn next_back(self: &mut FuseIter<I, T>) -> Option<T> {
+        if self.done { return Option::None; }
+        match self.inner.next_back() {
+            Option::None    => {
+                self.done = true;
+                return Option::None;
+            }
+            Option::Some(v) => { return Option::Some(v); }
+        }
+    }
+}
+
+pub unsafe fn iter_fuse<I: Iterator<T>, T>(iter: I, zero: T) -> FuseIter<I, T> {
+    return FuseIter { inner: iter, done: false, _t: zero };
+}
+
 // ── FilterMapIter<I, T, B> — lazy filter+map combo ──────────────────────────
 //
 // Mirrors Rust's `core::iter::FilterMap`. `f` returns `Option<B>`;

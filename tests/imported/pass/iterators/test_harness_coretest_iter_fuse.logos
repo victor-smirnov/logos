@@ -1,0 +1,82 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/iter/adapters/fuse.rs
+//   (test_fuse subset — verifies pin-to-None after exhaustion)
+//
+// Modifications:
+// - Range source `(1..4)` works as a Logos range expression.
+// - assert_eq! family imports via std.fmt + std.lang.text.
+//
+// Stdlib companion: new `FuseIter<I, T>` adapter + `iter_fuse`
+// free fn in std/lang/iter/iter.logos. Tracks a `done: bool` flag;
+// once inner yields None, future .next() returns None directly.
+
+package test_iter_fuse;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.iter;
+use std.lang.range;
+use std.lang.option;
+
+#[test]
+fn test_fuse_pins_to_none() {
+    let r = 1i32..4i32;
+    unsafe {
+        let mut it = iter_fuse::<RangeI32, i32>(r, 0i32);
+        match it.next() {
+            Option::Some(v) => { assert_eq!(v, 1i32); } Option::None => { assert_eq!(true, false); }
+        }
+        match it.next() {
+            Option::Some(v) => { assert_eq!(v, 2i32); } Option::None => { assert_eq!(true, false); }
+        }
+        match it.next() {
+            Option::Some(v) => { assert_eq!(v, 3i32); } Option::None => { assert_eq!(true, false); }
+        }
+        // First None.
+        match it.next() {
+            Option::Some(_) => { assert_eq!(true, false); } Option::None => { }
+        }
+        // Subsequent .next() must also return None (pinned).
+        match it.next() {
+            Option::Some(_) => { assert_eq!(true, false); } Option::None => { }
+        }
+        match it.next() {
+            Option::Some(_) => { assert_eq!(true, false); } Option::None => { }
+        }
+    }
+}
+
+#[test]
+fn test_fuse_dei() {
+    // FuseIter::next_back works through inner DEI when available.
+    let r = 1i32..4i32;
+    unsafe {
+        let mut it = iter_fuse::<RangeI32, i32>(r, 0i32);
+        match it.next_back() {
+            Option::Some(v) => { assert_eq!(v, 3i32); } Option::None => { assert_eq!(true, false); }
+        }
+        match it.next() {
+            Option::Some(v) => { assert_eq!(v, 1i32); } Option::None => { assert_eq!(true, false); }
+        }
+        match it.next_back() {
+            Option::Some(v) => { assert_eq!(v, 2i32); } Option::None => { assert_eq!(true, false); }
+        }
+        match it.next() {
+            Option::Some(_) => { assert_eq!(true, false); } Option::None => { }
+        }
+    }
+}
+
+#[test]
+fn test_fuse_empty() {
+    let r = 5i32..5i32;
+    unsafe {
+        let mut it = iter_fuse::<RangeI32, i32>(r, 0i32);
+        match it.next() {
+            Option::Some(_) => { assert_eq!(true, false); } Option::None => { }
+        }
+        match it.next() {
+            Option::Some(_) => { assert_eq!(true, false); } Option::None => { }
+        }
+    }
+}
