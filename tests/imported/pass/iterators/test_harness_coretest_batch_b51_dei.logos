@@ -1,0 +1,124 @@
+// Multi-source coretest batch (B51) — DEI on iter adapters.
+//
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7.
+//
+// Validates the just-landed DoubleEndedIterator impls on:
+//   MapIter, FilterIter, InspectIter, ChainIter.
+//
+// Source paths (faithful to upstream, with the standard Logos
+// adaptations: slice ref `.iter()` → `iter_over_slice`; closure
+// preds → named fn-ptrs; values yielded by copy, not reference):
+//
+//   iter/adapters/map.rs::test_double_ended_map
+//   iter/adapters/filter.rs::test_double_ended_filter
+//   iter/adapters/chain.rs::test_double_ended_chain
+//   iter/adapters/chain.rs::test_iterator_chain_nth_back (subset —
+//     empty-array `zs = []` halves dropped)
+//   iter/adapters/inspect.rs::test_double_ended_inspect_basic
+//     (visit-fn is no-op since closures with captured mut state
+//     aren't on the Logos surface — same as B49's inspect entry)
+//
+// assert_eq! macros via std.fmt + std.lang.text.
+
+package test_iter_batch_b51_dei;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.iter;
+use std.lang.option;
+
+fn neg(x: i32) -> i32 { return 0i32 - x; }
+fn is_even(x: i32) -> bool { return (x % 2i32) == 0i32; }
+fn noop(_x: i32) { return; }
+
+#[test]
+fn test_double_ended_map() {
+    let xs: [i32; 6] = [1i32, 2i32, 3i32, 4i32, 5i32, 6i32];
+    unsafe {
+        let mut it = iter_map::<SliceIter<i32>, i32, i32>(iter_over_slice(&xs), neg);
+        // Interleave front / back consumption — matches the upstream
+        // pattern exactly.
+        match it.next()      { Option::Some(v) => { assert_eq!(v, -1i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next()      { Option::Some(v) => { assert_eq!(v, -2i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next_back() { Option::Some(v) => { assert_eq!(v, -6i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next_back() { Option::Some(v) => { assert_eq!(v, -5i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next()      { Option::Some(v) => { assert_eq!(v, -3i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next_back() { Option::Some(v) => { assert_eq!(v, -4i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next()      { Option::Some(_) => { assert_eq!(true, false); } Option::None => { } }
+    }
+}
+
+#[test]
+fn test_double_ended_filter() {
+    let xs: [i32; 6] = [1i32, 2i32, 3i32, 4i32, 5i32, 6i32];
+    unsafe {
+        // Even-only filter: yields 2, 4, 6.
+        let mut it = iter_filter::<SliceIter<i32>, i32>(iter_over_slice(&xs), is_even);
+        match it.next_back() { Option::Some(v) => { assert_eq!(v, 6i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next_back() { Option::Some(v) => { assert_eq!(v, 4i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next()      { Option::Some(v) => { assert_eq!(v, 2i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next_back() { Option::Some(_) => { assert_eq!(true, false); } Option::None => { } }
+    }
+}
+
+#[test]
+fn test_double_ended_chain() {
+    let xs: [i32; 5] = [1i32, 2i32, 3i32, 4i32, 5i32];
+    let ys: [i32; 3] = [7i32, 9i32, 11i32];
+    unsafe {
+        // .rev() over chain — RevIter swaps front/back.
+        let mut it = iter_chain::<SliceIter<i32>, SliceIter<i32>, i32>(
+            iter_over_slice(&xs), iter_over_slice(&ys), 0i32).rev();
+        match it.next()      { Option::Some(v) => { assert_eq!(v, 11i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next()      { Option::Some(v) => { assert_eq!(v,  9i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next_back() { Option::Some(v) => { assert_eq!(v,  1i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next_back() { Option::Some(v) => { assert_eq!(v,  2i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next_back() { Option::Some(v) => { assert_eq!(v,  3i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next_back() { Option::Some(v) => { assert_eq!(v,  4i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next_back() { Option::Some(v) => { assert_eq!(v,  5i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next_back() { Option::Some(v) => { assert_eq!(v,  7i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next_back() { Option::Some(_) => { assert_eq!(true, false); } Option::None => { } }
+    }
+}
+
+#[test]
+fn test_iterator_chain_nth_back() {
+    let xs: [i32; 6] = [0i32, 1i32, 2i32, 3i32, 4i32, 5i32];
+    let ys: [i32; 4] = [30i32, 40i32, 50i32, 60i32];
+    // expected.rev() = [60,50,40,30,5,4,3,2,1,0]; chain.next_back yields
+    // them in that order — so nth_back(i) gives expected[len-1-i].
+    let expected_rev: [i32; 10] = [60i32, 50i32, 40i32, 30i32, 5i32, 4i32, 3i32, 2i32, 1i32, 0i32];
+    unsafe {
+        let mut k: i32 = 0i32;
+        while k < 10i32 {
+            // Logos's `.nth_back` doesn't exist as a trait-default;
+            // simulate it by walking next_back k+1 times.
+            let mut it = iter_chain::<SliceIter<i32>, SliceIter<i32>, i32>(
+                iter_over_slice(&xs), iter_over_slice(&ys), 0i32);
+            let mut j: i32 = 0i32;
+            let mut last: Option<i32> = Option::None;
+            while j <= k {
+                last = it.next_back();
+                j = j + 1i32;
+            }
+            match last {
+                Option::Some(v) => { assert_eq!(v, expected_rev[k]); }
+                Option::None    => { assert_eq!(true, false); }
+            }
+            k = k + 1i32;
+        }
+    }
+}
+
+#[test]
+fn test_double_ended_inspect() {
+    let xs: [i32; 4] = [10i32, 20i32, 30i32, 40i32];
+    unsafe {
+        let mut it = iter_inspect::<SliceIter<i32>, i32>(iter_over_slice(&xs), noop, 0i32);
+        match it.next_back() { Option::Some(v) => { assert_eq!(v, 40i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next()      { Option::Some(v) => { assert_eq!(v, 10i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next_back() { Option::Some(v) => { assert_eq!(v, 30i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next()      { Option::Some(v) => { assert_eq!(v, 20i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next()      { Option::Some(_) => { assert_eq!(true, false); } Option::None => { } }
+    }
+}

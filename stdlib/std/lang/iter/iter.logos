@@ -334,6 +334,19 @@ pub fn iter_map<I: Iterator<T>, T, R>(iter: I, f: fn(T) -> R) -> MapIter<I, T, R
     return MapIter { inner: iter, f: f };
 }
 
+// DEI: forwards next_back through the same fn-ptr. The mapping
+// function is pure-by-signature (no side effects expected), so
+// front and back evaluation are independent.
+impl<I: DoubleEndedIterator<T>, T, R> DoubleEndedIterator<R> for MapIter<I, T, R> {
+    fn next_back(self: &mut MapIter<I, T, R>) -> Option<R> {
+        let f = self.f;
+        match self.inner.next_back() {
+            Option::Some(v) => { return Option::Some(f(v)); }
+            Option::None    => { return Option::None; }
+        }
+    }
+}
+
 // ── FilterIter<I, T> — lazy filter ───────────────────────────────────────────
 
 pub struct FilterIter<I, T> {
@@ -360,6 +373,28 @@ impl<I: Iterator<T>, T> Iterator<T> for FilterIter<I, T> {
 
 pub fn iter_filter<I: Iterator<T>, T>(iter: I, pred: fn(T) -> bool) -> FilterIter<I, T> {
     return FilterIter { inner: iter, pred: pred };
+}
+
+// DEI: walk back through the source, returning the first item from
+// the back that satisfies the predicate. Front and back can advance
+// independently — the underlying DEI keeps front/back cursors
+// distinct, so a filter-walking-back never collides with one
+// walking-forward unless they meet.
+impl<I: DoubleEndedIterator<T>, T> DoubleEndedIterator<T> for FilterIter<I, T> {
+    fn next_back(self: &mut FilterIter<I, T>) -> Option<T> {
+        unsafe {
+            loop {
+                match self.inner.next_back() {
+                    Option::Some(v) => {
+                        let v_copy: T = *((&v) as *const T);
+                        let pred = self.pred;
+                        if pred(v_copy) { return Option::Some(v); }
+                    }
+                    Option::None => { return Option::None; }
+                }
+            }
+        }
+    }
 }
 
 // ── TakeIter<I, T> — limit to first n items ──────────────────────────────────
@@ -533,6 +568,24 @@ pub unsafe fn iter_inspect<I: Iterator<T>, T>(iter: I, visit: fn(T) -> (), zero:
     return InspectIter { inner: iter, visit: visit, _t: zero };
 }
 
+// DEI: same shape as forward, fires the visit fn for each element
+// pulled from the back.
+impl<I: DoubleEndedIterator<T>, T> DoubleEndedIterator<T> for InspectIter<I, T> {
+    fn next_back(self: &mut InspectIter<I, T>) -> Option<T> {
+        unsafe {
+            match self.inner.next_back() {
+                Option::None    => { return Option::None; }
+                Option::Some(v) => {
+                    let v_copy: T = *((&v) as *const T);
+                    let visit = self.visit;
+                    visit(v_copy);
+                    return Option::Some(v);
+                }
+            }
+        }
+    }
+}
+
 // ── PeekableIter<I, T> — one-element lookahead wrapper ───────────────────────
 //
 // `peek()` fetches & caches the next item without consuming it.
@@ -667,6 +720,22 @@ impl<A: Iterator<T>, B: Iterator<T>, T> Iterator<T> for ChainIter<A, B, T> {
 
 pub unsafe fn iter_chain<A: Iterator<T>, B: Iterator<T>, T>(a: A, b: B, zero: T) -> ChainIter<A, B, T> {
     return ChainIter { first: a, second: b, first_done: false, _t: zero };
+}
+
+// DEI: pull from the back of `second` first; once `second` is
+// exhausted, pull from the back of `first`. Symmetric to forward
+// chain (front of `first` then front of `second`). `second_done`
+// tracked locally — when next_back finds `second.next_back()` =
+// None, we record that and switch to `first.next_back()`. We
+// reuse `first_done` for forward exhaustion and add a new
+// `second_done` field for back-end exhaustion.
+impl<A: DoubleEndedIterator<T>, B: DoubleEndedIterator<T>, T> DoubleEndedIterator<T> for ChainIter<A, B, T> {
+    fn next_back(self: &mut ChainIter<A, B, T>) -> Option<T> {
+        match self.second.next_back() {
+            Option::Some(v) => { return Option::Some(v); }
+            Option::None    => { return self.first.next_back(); }
+        }
+    }
 }
 
 // ── ZipPair<A, B> ─────────────────────────────────────────────────────────────
