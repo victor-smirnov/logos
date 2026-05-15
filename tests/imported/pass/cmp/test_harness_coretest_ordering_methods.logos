@@ -1,0 +1,81 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
+//   library/coretests/tests/cmp.rs
+//
+// Covers Ordering.reverse / then / then_with + free fns cmp_min_by /
+// cmp_max_by / cmp_min_by_key / cmp_max_by_key.
+
+package test_coretest_ordering_methods;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.ord;
+use std.lang.cmp;
+
+fn abs_cmp(a: i32, b: i32) -> Ordering {
+    let aa: i32 = a.abs();
+    let bb: i32 = b.abs();
+    if aa < bb { return Ordering::Less; }
+    if aa > bb { return Ordering::Greater; }
+    return Ordering::Equal;
+}
+
+fn abs_key(x: i32) -> i32 { return x.abs(); }
+
+#[test]
+fn test_ordering_reverse() {
+    match Ordering::Less.reverse()    { Ordering::Greater => {} _ => { assert!(false); } }
+    match Ordering::Equal.reverse()   { Ordering::Equal   => {} _ => { assert!(false); } }
+    match Ordering::Greater.reverse() { Ordering::Less    => {} _ => { assert!(false); } }
+}
+
+#[test]
+fn test_ordering_then() {
+    match Ordering::Equal.then(Ordering::Less)    { Ordering::Less    => {} _ => { assert!(false); } }
+    match Ordering::Equal.then(Ordering::Equal)   { Ordering::Equal   => {} _ => { assert!(false); } }
+    match Ordering::Equal.then(Ordering::Greater) { Ordering::Greater => {} _ => { assert!(false); } }
+    match Ordering::Less.then(Ordering::Less)     { Ordering::Less    => {} _ => { assert!(false); } }
+    match Ordering::Less.then(Ordering::Equal)    { Ordering::Less    => {} _ => { assert!(false); } }
+    match Ordering::Less.then(Ordering::Greater)  { Ordering::Less    => {} _ => { assert!(false); } }
+    match Ordering::Greater.then(Ordering::Less)    { Ordering::Greater => {} _ => { assert!(false); } }
+    match Ordering::Greater.then(Ordering::Equal)   { Ordering::Greater => {} _ => { assert!(false); } }
+    match Ordering::Greater.then(Ordering::Greater) { Ordering::Greater => {} _ => { assert!(false); } }
+}
+
+fn mk_less()    -> Ordering { return Ordering::Less; }
+fn mk_equal()   -> Ordering { return Ordering::Equal; }
+fn mk_greater() -> Ordering { return Ordering::Greater; }
+
+#[test]
+fn test_ordering_then_with() {
+    match Ordering::Equal.then_with(mk_less)    { Ordering::Less    => {} _ => { assert!(false); } }
+    match Ordering::Equal.then_with(mk_equal)   { Ordering::Equal   => {} _ => { assert!(false); } }
+    match Ordering::Equal.then_with(mk_greater) { Ordering::Greater => {} _ => { assert!(false); } }
+    // Lazy: Less / Greater don't call the closure — verified by the result
+    // staying Less/Greater regardless of what mk_* would have returned.
+    match Ordering::Less.then_with(mk_greater)    { Ordering::Less    => {} _ => { assert!(false); } }
+    match Ordering::Greater.then_with(mk_less)    { Ordering::Greater => {} _ => { assert!(false); } }
+}
+
+#[test]
+fn test_ord_min_by() {
+    assert_eq!(cmp_min_by(1i32,  -1i32, abs_cmp),  1i32);
+    assert_eq!(cmp_min_by(1i32,  -2i32, abs_cmp),  1i32);
+    assert_eq!(cmp_min_by(2i32,  -1i32, abs_cmp), -1i32);
+}
+
+#[test]
+fn test_ord_max_by() {
+    assert_eq!(cmp_max_by(1i32,  -1i32, abs_cmp), -1i32);
+    assert_eq!(cmp_max_by(1i32,  -2i32, abs_cmp), -2i32);
+    assert_eq!(cmp_max_by(2i32,  -1i32, abs_cmp),  2i32);
+}
+
+#[test]
+fn test_ord_min_max_by_key() {
+    assert_eq!(cmp_min_by_key(1i32,  -1i32, abs_key),  1i32);
+    assert_eq!(cmp_min_by_key(1i32,  -2i32, abs_key),  1i32);
+    assert_eq!(cmp_min_by_key(2i32,  -1i32, abs_key), -1i32);
+    assert_eq!(cmp_max_by_key(1i32,  -1i32, abs_key), -1i32);
+    assert_eq!(cmp_max_by_key(1i32,  -2i32, abs_key), -2i32);
+    assert_eq!(cmp_max_by_key(2i32,  -1i32, abs_key),  2i32);
+}
