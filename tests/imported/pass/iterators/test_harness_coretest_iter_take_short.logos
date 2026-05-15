@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/iter/adapters/take.rs
+//   (test_iterator_take_short)
+//
+// Modifications:
+// - `xs.iter().take(5)` → free fn iter_take, asking for more items
+//   than the source provides (length-4 source, take 5 → yields 4).
+// - `it.len()` (ExactSizeIterator) assertions dropped.
+// - assert_eq! family imports via std.fmt + std.lang.text.
+
+package test_iter_take_short;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.iter;
+use std.lang.option;
+
+#[test]
+fn test_iterator_take_short() {
+    let xs: [i32; 4] = [0i32, 1i32, 2i32, 3i32];
+    unsafe {
+        let mut it = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&xs), 5i64, 0i32);
+        let mut i: i32 = 0i32;
+        loop {
+            match it.next() {
+                Option::None    => { break; }
+                Option::Some(x) => {
+                    assert_eq!(x, xs[i]);
+                    i = i + 1i32;
+                }
+            }
+        }
+        // Take(5) on a length-4 source yields exactly 4 items.
+        assert_eq!(i, 4i32);
+    }
+}
