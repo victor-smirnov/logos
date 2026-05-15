@@ -948,6 +948,58 @@ pub unsafe fn iter_zip<A: Iterator<T>, B: Iterator<U>, T, U>(a: A, b: B, zt: T, 
     return ZipIter { left: a, right: b, _t: zt, _u: zu };
 }
 
+// DEI: both halves must be DEI + ESI so we can align their lengths
+// from the back. Drops `max(alen,blen) - min(alen,blen)` items
+// from the longer side's back first, then pulls next_back from
+// both. Matches Rust's Zip<A: DEI+ESI, B: DEI+ESI> shape.
+impl<A: DoubleEndedIterator<T> + ExactSizeIterator<T>,
+     B: DoubleEndedIterator<U> + ExactSizeIterator<U>,
+     T, U> DoubleEndedIterator<ZipPair<T, U>> for ZipIter<A, B, T, U> {
+    fn next_back(self: &mut ZipIter<A, B, T, U>) -> Option<ZipPair<T, U>> {
+        let alen: i64 = self.left.len();
+        let blen: i64 = self.right.len();
+        if alen > blen {
+            let drop_n: i64 = alen - blen;
+            let mut k: i64 = 0 as i64;
+            while k < drop_n {
+                let _drained: Option<T> = self.left.next_back();
+                k = k + 1 as i64;
+            }
+        }
+        if blen > alen {
+            let drop_n: i64 = blen - alen;
+            let mut k: i64 = 0 as i64;
+            while k < drop_n {
+                let _drained: Option<U> = self.right.next_back();
+                k = k + 1 as i64;
+            }
+        }
+        let a: Option<T> = self.left.next_back();
+        let b: Option<U> = self.right.next_back();
+        match a {
+            Option::None     => { return Option::None; }
+            Option::Some(av) => {
+                match b {
+                    Option::None     => { return Option::None; }
+                    Option::Some(bv) => {
+                        return Option::Some(ZipPair { first: av, second: bv });
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl<A: ExactSizeIterator<T>, B: ExactSizeIterator<U>, T, U>
+    ExactSizeIterator<ZipPair<T, U>> for ZipIter<A, B, T, U> {
+    fn len(&self) -> i64 {
+        let alen: i64 = self.left.len();
+        let blen: i64 = self.right.len();
+        if alen < blen { return alen; }
+        return blen;
+    }
+}
+
 // ── SliceIter<T> — iterator over a slice &[T] ────────────────────────────────
 
 pub struct SliceIter<T> {
