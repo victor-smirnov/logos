@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/iter/traits/accum.rs
+//   (test_iterator_sum)
+//
+// Modifications:
+// - `v.iter().cloned().sum::<i32>()` → `iter_sum_i32(iter_over_slice(&v))`.
+//   Logos's stdlib provides typed free-fn sums (`iter_sum_i32`,
+//   `iter_sum_i64`) rather than a generic `.sum<T>()` method —
+//   `T: Sum` trait isn't on the surface yet.
+// - Slice prefixes `v[..N]` modeled via iter_take.
+// - Result / Option fold variants deferred (no Sum/Add traits on
+//   Option<T> / Result<T, E> yet).
+// - assert_eq! family imports via std.fmt + std.lang.text.
+
+package test_iter_sum;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.iter;
+use std.lang.option;
+
+#[test]
+fn test_iterator_sum() {
+    let v: [i32; 11] = [0i32, 1i32, 2i32, 3i32, 4i32, 5i32, 6i32, 7i32, 8i32, 9i32, 10i32];
+    unsafe {
+        // Prefix-of-4: 0+1+2+3 = 6.
+        let n4 = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&v), 4i64, 0i32);
+        assert_eq!(iter_sum_i32::<TakeIter<SliceIter<i32>, i32>>(n4), 6i32);
+        // Full 0..11: 0+1+...+10 = 55.
+        assert_eq!(iter_sum_i32::<SliceIter<i32>>(iter_over_slice(&v)), 55i32);
+        // Empty.
+        let n0 = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&v), 0i64, 0i32);
+        assert_eq!(iter_sum_i32::<TakeIter<SliceIter<i32>, i32>>(n0), 0i32);
+    }
+}
