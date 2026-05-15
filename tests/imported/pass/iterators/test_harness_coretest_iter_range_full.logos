@@ -1,0 +1,87 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/iter/range.rs
+//   (test_range subset — collect / rev / count / is_empty / sum)
+//
+// Modifications:
+// - Rust's `(0..5).collect::<Vec<_>>()` works directly: `0..5` is a
+//   range expression that evaluates to `RangeI32` in Logos, and
+//   `.collect::<Vec<i32>>()` flows through CP-cm-14 / FromIterator.
+// - Vec equality replaced with per-index assertion (no Vec PartialEq).
+// - assert_eq! family imports via std.fmt + std.lang.text.
+
+package test_iter_range_full;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.iter;
+use std.lang.range;
+use std.lang.option;
+use std.collections.vec;
+
+#[test]
+fn test_range_collect() {
+    unsafe {
+        let v: Vec<i32> = (0i32..5i32).collect::<Vec<i32>>();
+        assert_eq!(v.len, 5i64);
+        assert_eq!(v.ptr[0i64], 0i32);
+        assert_eq!(v.ptr[1i64], 1i32);
+        assert_eq!(v.ptr[2i64], 2i32);
+        assert_eq!(v.ptr[3i64], 3i32);
+        assert_eq!(v.ptr[4i64], 4i32);
+    }
+}
+
+#[test]
+fn test_range_rev_collect() {
+    unsafe {
+        let v: Vec<i32> = (0i32..5i32).rev().collect::<Vec<i32>>();
+        assert_eq!(v.len, 5i64);
+        assert_eq!(v.ptr[0i64], 4i32);
+        assert_eq!(v.ptr[1i64], 3i32);
+        assert_eq!(v.ptr[2i64], 2i32);
+        assert_eq!(v.ptr[3i64], 1i32);
+        assert_eq!(v.ptr[4i64], 0i32);
+    }
+}
+
+#[test]
+fn test_range_negative() {
+    unsafe {
+        let v: Vec<i32> = (-10i32..-1i32).collect::<Vec<i32>>();
+        assert_eq!(v.len, 9i64);
+        assert_eq!(v.ptr[0i64], -10i32);
+        assert_eq!(v.ptr[8i64], -2i32);
+    }
+}
+
+#[test]
+fn test_range_reversed_bounds() {
+    // start > end → empty.
+    let r1 = 200i32..(-5i32);
+    assert_eq!(r1.count(), 0i64);
+    let r2 = (200i32..(-5i32)).rev();
+    assert_eq!(r2.count(), 0i64);
+    let r3 = 200i32..200i32;
+    assert_eq!(r3.count(), 0i64);
+}
+
+#[test]
+fn test_range_sum() {
+    // 1..=10 → 55
+    let s: i32 = (1i32..11i32).sum::<i32>();
+    assert_eq!(s, 55i32);
+}
+
+#[test]
+fn test_range_exhaustion() {
+    let mut r = 10i32..10i32;
+    assert_eq!(r.len(), 0i64);
+    match r.next() {
+        Option::Some(_) => { assert_eq!(true, false); }
+        Option::None    => { }
+    }
+    match r.next_back() {
+        Option::Some(_) => { assert_eq!(true, false); }
+        Option::None    => { }
+    }
+}
