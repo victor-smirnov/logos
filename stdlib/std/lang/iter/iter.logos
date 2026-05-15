@@ -1283,6 +1283,60 @@ pub fn iter_min_by<I: Iterator<T>, T>(iter: I, cmp: fn(T, T) -> i32) -> Option<T
     }
 }
 
+// Ord-bounded `iter_max` / `iter_min` free fns. Mirrors Rust's
+// `Iterator::max` / `min` which require `Item: Ord`. The CP-cm-14
+// primitive-receiver extension makes `cmp` dispatch resolve when
+// Item is a primitive (i32 / i64 / etc.).
+pub fn iter_max<I: Iterator<T>, T: Ord>(iter: I) -> Option<T> {
+    let mut it: I = iter;
+    let mut best: Option<T> = Option::None;
+    loop {
+        match it.next() {
+            Option::None    => { return best; }
+            Option::Some(v) => {
+                match best {
+                    Option::None    => { best = Option::Some(v); }
+                    Option::Some(b) => {
+                        unsafe {
+                            let v_copy: T = *((&v) as *const T);
+                            let b_copy: T = *((&b) as *const T);
+                            match v_copy.cmp(&b_copy) {
+                                Ordering::Greater => { best = Option::Some(v); }
+                                _                 => { best = Option::Some(b); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub fn iter_min<I: Iterator<T>, T: Ord>(iter: I) -> Option<T> {
+    let mut it: I = iter;
+    let mut best: Option<T> = Option::None;
+    loop {
+        match it.next() {
+            Option::None    => { return best; }
+            Option::Some(v) => {
+                match best {
+                    Option::None    => { best = Option::Some(v); }
+                    Option::Some(b) => {
+                        unsafe {
+                            let v_copy: T = *((&v) as *const T);
+                            let b_copy: T = *((&b) as *const T);
+                            match v_copy.cmp(&b_copy) {
+                                Ordering::Less => { best = Option::Some(v); }
+                                _              => { best = Option::Some(b); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // SL-sl-05: typed min/max for primitive integer iterators. Don't need
 // Ord bound (the trait-default-with-Self segfault would otherwise
 // block this); use the integer operator < / > directly. Empty

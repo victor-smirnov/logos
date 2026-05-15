@@ -1,0 +1,61 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/iter/traits/iterator.rs
+//   (test_iterator_max, test_iterator_min — Ord-bounded forms)
+//
+// Modifications:
+// - Rust's `.max()` / `.min()` method form requires `Item: Ord`.
+//   In Logos those land as free fns `iter_max` / `iter_min` since
+//   trait-default methods with a `where Item: Ord` clause aren't
+//   reliably dispatching yet for trait-method bodies that call
+//   `v.cmp(&b)` on a tparam.
+// - assert_eq! family imports via std.fmt + std.lang.text.
+//
+// Stdlib companion: `iter_max<I: Iterator<T>, T: Ord>` and
+// `iter_min<I, T: Ord>` free fns in std/lang/iter/iter.logos.
+// Use raw-ptr-copy idiom on non-Copy T to dodge the move-of-
+// moved-value gotcha when comparing.
+
+package test_iter_max_min_ord;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.iter;
+use std.lang.range;
+use std.lang.option;
+use std.lang.ord;
+
+#[test]
+fn test_iter_max_i32() {
+    let r = 1i32..11i32;
+    match iter_max::<RangeI32, i32>(r) {
+        Option::Some(v) => { assert_eq!(v, 10i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+}
+
+#[test]
+fn test_iter_min_i32() {
+    let r = 1i32..11i32;
+    match iter_min::<RangeI32, i32>(r) {
+        Option::Some(v) => { assert_eq!(v, 1i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+}
+
+#[test]
+fn test_iter_max_empty() {
+    let r = 5i32..5i32;
+    match iter_max::<RangeI32, i32>(r) {
+        Option::Some(_) => { assert_eq!(true, false); }
+        Option::None    => { }
+    }
+}
+
+#[test]
+fn test_iter_min_negative() {
+    let r = (-5i32)..3i32;
+    match iter_min::<RangeI32, i32>(r) {
+        Option::Some(v) => { assert_eq!(v, -5i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+}
