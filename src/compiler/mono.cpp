@@ -379,7 +379,15 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     for (auto& ss : in_.struct_specializations)
         struct_specs_[ss.name].push_back(&ss);
 
-    // Process non-generic free functions.
+    // Process non-generic free functions. Every non-generic free fn is a
+    // clone root; the lazy_methods_ path handles struct methods separately.
+    // Reachability-mode filtering (entry_points_) is intentionally NOT
+    // applied here — generic-struct method instantiations (e.g.
+    // Vec$G1$Foo__push) need to be materialised whenever any user fn uses
+    // them, even if no direct call appears in the entry-point's body.
+    // Future work: thread reachability through mlir_gen's binary-skip set
+    // instead, so mono keeps producing the full LProgram but mlir_gen only
+    // emits bodies the entry-point closure transitively needs.
     for (auto& fn_up : in_.functions) {
         auto& fn = *fn_up;
         if (!fn.type_params.empty()) continue;
@@ -666,6 +674,12 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
 lir::LProgram mono_pass(lir::LProgram prog, int max_instantiation_depth) noexcept(false) {
     Mono m(max_instantiation_depth);
     return m.run(std::move(prog), max_instantiation_depth);
+}
+
+lir::LProgram mono_pass(lir::LProgram prog, MonoOpts opts) {
+    Mono m(opts.max_instantiation_depth);
+    m.set_entry_points(std::move(opts.entry_points));
+    return m.run(std::move(prog), opts.max_instantiation_depth);
 }
 
 } // namespace logos::compiler

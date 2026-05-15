@@ -39,6 +39,9 @@ public:
         if (const char* e = std::getenv("LOGOS_MONO_STATS"); e && e[0] != '0' && e[0] != '\0')
             stats_enabled_ = true;
     }
+    // Opt-in: restrict non-generic free fn processing to those reachable
+    // from the given names. Empty → eager (all non-generic fns processed).
+    void set_entry_points(StrSet ep) { entry_points_ = std::move(ep); }
 
     lir::LProgram run(lir::LProgram&& in, int max_depth);
 
@@ -235,6 +238,12 @@ private:
     // L1.6: default true (lazy method cloning). `LOGOS_LAZY_METHODS=0`
     // restores eager codegen — only used for bisecting regressions.
     bool lazy_methods_ = true;
+
+    // Opt-in reachability filter. Stored on the Mono instance for future
+    // use (currently not consulted — the mlir_gen-side binary-skip path
+    // is preferred, since mono needs the full LProgram for struct-method
+    // instantiation to converge). MonoOpts API kept stable.
+    StrSet entry_points_;
 
     // ── Type substitution (large — defined in mono_subst.cpp) ────────────
     TypeRef subst_type(TypeRef tv, const SubstMap& s) noexcept;

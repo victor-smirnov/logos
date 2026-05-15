@@ -5,6 +5,7 @@
 #pragma once
 
 #include <logos/compiler/lir.hpp>
+#include <logos/compiler/str_map.hpp>
 
 namespace logos::compiler {
 
@@ -13,6 +14,18 @@ namespace logos::compiler {
 // found in call sites.  The returned program contains no TypeVar types.
 //
 // max_instantiation_depth limits recursive generic instantiation (default 64).
+//
+// Opts.entry_points (optional): when non-empty, only fns reachable from these
+// names get cloned/instantiated. Used by the metaprog/metacall JIT compile
+// paths to avoid processing the whole stdlib for tiny hook modules. Empty
+// (default) preserves the old eager behaviour — every non-generic free fn
+// is processed.
+struct MonoOpts {
+    int    max_instantiation_depth = 64;
+    StrSet entry_points;   // empty → all non-generic free fns are roots
+};
+
 lir::LProgram mono_pass(lir::LProgram prog, int max_instantiation_depth = 64);
+lir::LProgram mono_pass(lir::LProgram prog, MonoOpts opts);
 
 } // namespace logos::compiler
