@@ -227,6 +227,43 @@ pub trait Iterator<Item> {
         }
     }
 
+    // Terminal: applies f to each item, returns the first Some.
+    // Equivalent to `.filter_map(f).next()` once filter_map exists.
+    // Mirrors Rust's `Iterator::find_map`.
+    fn find_map<B>(self: Self, f: fn(Item) -> Option<B>) -> Option<B> {
+        let mut it: Self = self;
+        loop {
+            match it.next() {
+                Option::None    => { return Option::None; }
+                Option::Some(v) => {
+                    let r: Option<B> = f(v);
+                    match r {
+                        Option::Some(_) => { return r; }
+                        Option::None    => { }
+                    }
+                }
+            }
+        }
+    }
+
+    // Terminal: like fold but seeds the accumulator from the first
+    // item. Returns None on an empty iterator. Mirrors Rust's
+    // `Iterator::reduce`.
+    fn reduce(self: Self, f: fn(Item, Item) -> Item) -> Option<Item> {
+        let mut it: Self = self;
+        let first: Option<Item> = it.next();
+        match first {
+            Option::None    => { return Option::None; }
+            Option::Some(v) => {
+                unsafe {
+                    let init: Item = *((&v) as *const Item);
+                    let acc: Item = it.fold(init, f);
+                    return Option::Some(acc);
+                }
+            }
+        }
+    }
+
     // Terminal: count items.
     fn count(self: Self) -> i64 {
         let mut it: Self = self;

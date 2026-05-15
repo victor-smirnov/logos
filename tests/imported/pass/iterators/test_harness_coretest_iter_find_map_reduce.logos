@@ -1,0 +1,101 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/iter/traits/iterator.rs
+//   (test_find_map + a reduce smoke; try_reduce deferred — needs
+//    Try trait + closure-capture handling)
+//
+// Modifications:
+// - `xs.iter()` → `iter_over_slice(&xs)`.
+// - Closure `|x| half_if_even(x)` lowered to a named fn-ptr.
+// - assert_eq! family imports via std.fmt + std.lang.text.
+//
+// Stdlib companion: `.find_map<B>(f: fn(Item) -> Option<B>) ->
+// Option<B>` and `.reduce(f: fn(Item, Item) -> Item) ->
+// Option<Item>` trait-default methods on Iterator (newly added).
+
+package test_iter_find_map_reduce;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.iter;
+use std.lang.range;
+use std.lang.option;
+
+fn half_if_even(x: i32) -> Option<i32> {
+    if (x % 2i32) == 0i32 { return Some(x / 2i32); }
+    return None;
+}
+
+fn add_i32(a: i32, b: i32) -> i32 { return a + b; }
+fn mul_i32(a: i32, b: i32) -> i32 { return a * b; }
+
+#[test]
+fn test_find_map_empty() {
+    let xs: [i32; 4] = [3i32, 5i32, 7i32, 9i32];
+    // All odd → no half_if_even produces Some → None.
+    unsafe {
+        let it = iter_over_slice(&xs);
+        match it.find_map::<i32>(half_if_even) {
+            Option::Some(_) => { assert_eq!(true, false); }
+            Option::None    => { }
+        }
+    }
+}
+
+#[test]
+fn test_find_map_first_even() {
+    let xs: [i32; 4] = [3i32, 4i32, 5i32, 6i32];
+    // First even = 4, half = 2.
+    unsafe {
+        let it = iter_over_slice(&xs);
+        match it.find_map::<i32>(half_if_even) {
+            Option::Some(v) => { assert_eq!(v, 2i32); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+    }
+}
+
+#[test]
+fn test_find_map_range() {
+    // (1..6) first even = 2, half = 1.
+    let r = 1i32..6i32;
+    match r.find_map::<i32>(half_if_even) {
+        Option::Some(v) => { assert_eq!(v, 1i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+}
+
+#[test]
+fn test_reduce_sum() {
+    let r = 1i32..6i32;
+    match r.reduce(add_i32) {
+        Option::Some(v) => { assert_eq!(v, 15i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+}
+
+#[test]
+fn test_reduce_product() {
+    let r = 1i32..6i32;
+    match r.reduce(mul_i32) {
+        Option::Some(v) => { assert_eq!(v, 120i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+}
+
+#[test]
+fn test_reduce_empty() {
+    let r = 5i32..5i32;
+    match r.reduce(add_i32) {
+        Option::Some(_) => { assert_eq!(true, false); }
+        Option::None    => { }
+    }
+}
+
+#[test]
+fn test_reduce_single() {
+    let r = 7i32..8i32;
+    match r.reduce(add_i32) {
+        Option::Some(v) => { assert_eq!(v, 7i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+}
