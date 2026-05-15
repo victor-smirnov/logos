@@ -3241,6 +3241,16 @@ int main(int argc, char** argv) {
         bool mc_any_emitted = false;
         g_any_emitted = &mc_any_emitted;
         constexpr int kMaxMetacallIters = 16;
+        // Per-iteration timing helper (same shape as the metaprog dispatch
+        // loop). Labels prefixed with "mc_" so the --stats summary keeps
+        // metacall slices distinct from metaprog ones.
+        auto mc_stat_step = [&](std::chrono::steady_clock::time_point& t,
+                                const char* label, int iter_idx) {
+            auto now = std::chrono::steady_clock::now();
+            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - t).count();
+            if (stats_flag) top_stats.add(std::string("mc_") + label, ms, iter_idx);
+            t = now;
+        };
         for (int mi = 0; !prog.metacall_sites.empty(); ++mi) {
             if (mi >= kMaxMetacallIters) {
                 std::fprintf(stderr,
@@ -3257,13 +3267,17 @@ int main(int argc, char** argv) {
             }
             if (emitted_any_thunk) {
                 // Re-sema so the JIT module below picks up the new thunks.
+                auto _t_resema = std::chrono::steady_clock::now();
                 prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts);
+                mc_stat_step(_t_resema, "resema_after_emit", mi);
                 prog.print_diags(stderr);
                 if (!prog.ok()) return 1;
             }
 
             // Step 2: full pipeline through JIT for the metacall thunks.
+            auto _mc_t = std::chrono::steady_clock::now();
             auto mc_prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts);
+            mc_stat_step(_mc_t, "sema_lower", mi);
             if (!mc_prog.ok()) { mc_prog.print_diags(stderr); return 1; }
             // Same skip-already-compiled-stdlib trick as the metaprog JIT
             // and the final user-compile path. The metacall JIT registers
@@ -3271,9 +3285,12 @@ int main(int argc, char** argv) {
             // covers everything mlir_gen would otherwise re-emit.
             mc_prog.binary_symbols = binary_symbols;
             mc_prog = logos::compiler::reflection_emit(std::move(mc_prog));
+            mc_stat_step(_mc_t, "reflection", mi);
             mc_prog = logos::compiler::mono_pass(std::move(mc_prog));
+            mc_stat_step(_mc_t, "mono", mi);
             if (!mc_prog.ok()) { mc_prog.print_diags(stderr); return 1; }
             mc_prog = logos::compiler::borrow_check(std::move(mc_prog));
+            mc_stat_step(_mc_t, "borrow", mi);
             if (!mc_prog.ok()) { mc_prog.print_diags(stderr); return 1; }
 
             mlir::MLIRContext mc_ctx;
@@ -3284,6 +3301,7 @@ int main(int argc, char** argv) {
             mc_ctx.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
             auto mc_mlir = logos::compiler::mlir_gen(mc_ctx, mc_prog);
             if (!mc_mlir) { std::fprintf(stderr, "logosc: metacall MLIR gen failed\n"); return 1; }
+            mc_stat_step(_mc_t, "mlir_gen", mi);
             mlir::PassManager mc_pm(&mc_ctx);
             mc_pm.addPass(mlir::createSCFToControlFlowPass());
             mc_pm.addPass(mlir::createConvertControlFlowToLLVMPass());
@@ -3293,11 +3311,13 @@ int main(int argc, char** argv) {
             if (mlir::failed(mc_pm.run(*mc_mlir))) {
                 std::fprintf(stderr, "logosc: metacall MLIR lowering failed\n"); return 1;
             }
+            mc_stat_step(_mc_t, "mlir->llvm", mi);
             mlir::registerBuiltinDialectTranslation(mc_ctx);
             mlir::registerLLVMDialectTranslation(mc_ctx);
             llvm::LLVMContext mc_llvm_ctx;
             auto mc_llvm = mlir::translateModuleToLLVMIR(*mc_mlir, mc_llvm_ctx);
             if (!mc_llvm) { std::fprintf(stderr, "logosc: metacall LLVM IR translate failed\n"); return 1; }
+            mc_stat_step(_mc_t, "llvm_ir", mi);
             mc_llvm->setTargetTriple(llvm::Triple(llvm::sys::getDefaultTargetTriple()));
             llvm::InitializeNativeTarget();
             llvm::InitializeNativeTargetAsmPrinter();
@@ -3323,6 +3343,7 @@ int main(int argc, char** argv) {
                                                 /*with_process_symbols=*/true,
                                                 &archive_paths);
             if (!mc_jit) return 1;
+            mc_stat_step(_mc_t, "jit_build", mi);
 
             // Slice 7 of metaprog-quote derisk: bind the hand-built BIN_OP
             // blob fixture so `metacall_expr_blob.logos` can resolve the
@@ -3602,7 +3623,9 @@ int main(int argc, char** argv) {
             // Step 4: re-run sema. Sites should disappear (METACALL→LIT_INT).
             // Loop continues only if new sites somehow appeared.
             (void)any_spliced;
+            auto _mc_t_resema = std::chrono::steady_clock::now();
             prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts);
+            mc_stat_step(_mc_t_resema, "resema_after_splice", mi);
             prog.print_diags(stderr);
             if (!prog.ok()) return 1;
         }
@@ -3883,21 +3906,31 @@ int main(int argc, char** argv) {
     if (stats_flag) {
         auto total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - t_compile_start).count();
+        // Three buckets: top-level (iter<0), metaprog iters (iter>=0, label
+        // unprefixed), metacall iters (iter>=0, label starts with "mc_").
         std::map<std::string, int64_t> top_by_label;
         std::map<std::string, int>     top_count;
-        std::map<std::string, int64_t> iter_by_label;
-        std::map<std::string, int>     iter_count;
-        int64_t iter_total = 0;
-        int     max_iter   = -1;
+        std::map<std::string, int64_t> mp_by_label;
+        std::map<std::string, int>     mp_count;
+        std::map<std::string, int64_t> mc_by_label;
+        std::map<std::string, int>     mc_count;
+        int64_t mp_total = 0, mc_total = 0;
+        int     mp_iters = 0,  mc_iters = 0;
         for (auto& s : top_stats.samples) {
             if (s.iter < 0) {
                 top_by_label[s.label] += s.ms;
                 top_count[s.label]    += 1;
+            } else if (s.label.rfind("mc_", 0) == 0) {
+                std::string short_label = s.label.substr(3);
+                mc_by_label[short_label] += s.ms;
+                mc_count[short_label]    += 1;
+                mc_total                 += s.ms;
+                if (s.iter + 1 > mc_iters) mc_iters = s.iter + 1;
             } else {
-                iter_by_label[s.label] += s.ms;
-                iter_count[s.label]    += 1;
-                iter_total             += s.ms;
-                if (s.iter > max_iter) max_iter = s.iter;
+                mp_by_label[s.label] += s.ms;
+                mp_count[s.label]    += 1;
+                mp_total             += s.ms;
+                if (s.iter + 1 > mp_iters) mp_iters = s.iter + 1;
             }
         }
         auto rule = "─────────────────────────────────────────────";
@@ -3909,16 +3942,27 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "    %-26s %8lld  (×%d)\n",
                          label.c_str(), (long long)ms, top_count[label]);
         }
-        if (!iter_by_label.empty()) {
+        if (!mp_by_label.empty()) {
             std::fprintf(stderr, "%s\n", rule);
-            std::fprintf(stderr, "  Metaprog/metacall iters  (NESTED inside above)\n");
-            std::fprintf(stderr, "  iterations: %d\n", max_iter + 1);
-            for (auto& [label, ms] : iter_by_label) {
+            std::fprintf(stderr, "  Metaprog dispatch iters  (NESTED in sema+lower)\n");
+            std::fprintf(stderr, "  iterations: %d\n", mp_iters);
+            for (auto& [label, ms] : mp_by_label) {
                 std::fprintf(stderr, "    %-26s %8lld  (×%d)\n",
-                             label.c_str(), (long long)ms, iter_count[label]);
+                             label.c_str(), (long long)ms, mp_count[label]);
             }
             std::fprintf(stderr, "    %-26s %8lld\n",
-                         "iter slices subtotal", (long long)iter_total);
+                         "subtotal", (long long)mp_total);
+        }
+        if (!mc_by_label.empty()) {
+            std::fprintf(stderr, "%s\n", rule);
+            std::fprintf(stderr, "  Metacall thunk iters     (NESTED in sema+lower)\n");
+            std::fprintf(stderr, "  iterations: %d\n", mc_iters);
+            for (auto& [label, ms] : mc_by_label) {
+                std::fprintf(stderr, "    %-26s %8lld  (×%d)\n",
+                             label.c_str(), (long long)ms, mc_count[label]);
+            }
+            std::fprintf(stderr, "    %-26s %8lld\n",
+                         "subtotal", (long long)mc_total);
         }
         std::fprintf(stderr, "%s\n", rule);
         std::fprintf(stderr, "  %-28s %8lld\n", "wall-clock total", (long long)total_ms);
