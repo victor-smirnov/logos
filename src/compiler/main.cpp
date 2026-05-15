@@ -3288,8 +3288,15 @@ int main(int argc, char** argv) {
             }
 
             // Step 2: full pipeline through JIT for the metacall thunks.
+            // Same trick as in the metaprog dispatcher: a fresh sema_lower
+            // here would duplicate work already done above. Snapshot the
+            // fields mono_pass discards (metacall_sites + macro_arg_blobs
+            // are used later in this iter), then move-construct mc_prog
+            // from `prog`.
             auto _mc_t = std::chrono::steady_clock::now();
-            auto mc_prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts);
+            auto saved_metacall_sites = prog.metacall_sites;
+            auto saved_macro_args     = std::move(prog.macro_arg_blobs);
+            auto mc_prog = std::move(prog);
             mc_stat_step(_mc_t, "sema_lower", mi);
             if (!mc_prog.ok()) { mc_prog.print_diags(stderr); return 1; }
             // Same skip-already-compiled-stdlib trick as the metaprog JIT
@@ -3433,8 +3440,9 @@ int main(int argc, char** argv) {
             // Function-style macros (slice 1.3b): publish the per-site
             // arg-blob table so `logos_macro_arg(site, idx)` can resolve
             // bytes for each fn-macro thunk we are about to invoke.
-            // Cleared right after the loop — the bytes live in `prog`.
-            g_macro_args = &prog.macro_arg_blobs;
+            // Cleared right after the loop — the bytes live in the
+            // snapshot we took before move-constructing mc_prog.
+            g_macro_args = &saved_macro_args;
             struct MacroArgsGuard {
                 ~MacroArgsGuard() { g_macro_args = nullptr; }
             } macro_args_guard;
@@ -3442,7 +3450,7 @@ int main(int argc, char** argv) {
             // Step 3: invoke each thunk and splice the result into the AST.
             using RT = logos::compiler::lir::LProgram::MetacallSite::RetTag;
             bool any_spliced = false;
-            for (const auto& site : prog.metacall_sites) {
+            for (const auto& site : saved_metacall_sites) {
                 if (site.thunk_source.empty()) continue;
                 if (site.ast_idx >= asts.size()) continue;
                 auto* sym = mc_jit->lookup(site.thunk_name);

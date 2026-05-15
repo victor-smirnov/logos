@@ -184,19 +184,28 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     pt.tick("pass1d reflection_globals");
 
     // Pass 2: fill function bodies (structs, free fns).
+    size_t bodies_emitted = 0;
+    size_t method_bodies = 0;
+    size_t fn_bodies = 0;
     for (auto& sd : prog.structs) {
         for (auto& m : sd.methods) {
             if (is_binary_skip(*m)) continue;
             auto func = mod.lookupSymbol<mlir::func::FuncOp>(m->name);
             if (!gen_function_body(func, *m)) return nullptr;
+            ++method_bodies; ++bodies_emitted;
         }
     }
     for (auto& fn : prog.functions) {
         if (fn->is_extern || is_binary_skip(*fn)) continue;
         auto func = mod.lookupSymbol<mlir::func::FuncOp>(fn->name);
         if (!gen_function_body(func, *fn)) return nullptr;
+        ++fn_bodies; ++bodies_emitted;
     }
     pt.tick("pass2 body emit");
+    if (pt.enabled) {
+        std::fprintf(stderr, "[mlir-phase]   bodies_emitted=%zu (methods=%zu fns=%zu)\n",
+                     bodies_emitted, method_bodies, fn_bodies);
+    }
 
     // Pass 3: inject dispatch table init calls at the start of main().
     // Each tag system has __logos_tag_dispatch_init__<TagSystem>.  Binary tag
