@@ -963,10 +963,15 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             });
             v.each_capture_type(out_.type_pool.impl(),
                 [&](TypeRef ct) { capture_types.push_back(subst_type(ct, s)); });
+            // Copy static_blob OUT of the source arena before emit: emit
+            // allocates into the same arena (mono moves in_.type_pool into
+            // out_), and growth invalidates the source-side string_view.
+            // Same pattern used at line 908 for HVStrView.
+            std::string static_blob_copy(v.static_blob());
             result->mirror_offset_ = lir_mirror_emit_hermes_lit(
                 out_, result->type, root, has_captures,
                 capture_exprs, capture_types, capture_param_count,
-                v.static_blob());
+                static_blob_copy);
             break;
         }
         case C::Call: {

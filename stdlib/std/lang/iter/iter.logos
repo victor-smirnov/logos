@@ -328,14 +328,10 @@ pub trait Iterator<Item> {
         }
     }
 
-    // TODO Rust-parity: should be `&mut self`. Flaky logosc segfault when
-    // find AND position both use `&mut self` (compiles fine on warm-cache
-    // build, crashes on fresh stdlib mono). Sema/mono bug — kept by-value
-    // until the underlying issue is fixed compiler-side.
-    unsafe fn find(self: Self, pred: fn(Item) -> bool) -> Option<Item> {
-        let mut it: Self = self;
+    // Terminal: first item satisfying the predicate. Rust shape: `&mut self`.
+    unsafe fn find(self: &mut Self, pred: fn(Item) -> bool) -> Option<Item> {
         loop {
-            match it.next() {
+            match self.next() {
                 Option::None    => { return Option::None; }
                 Option::Some(v) => {
                     let v_copy: Item = *((&v) as *const Item);
@@ -345,13 +341,11 @@ pub trait Iterator<Item> {
         }
     }
 
-    // Terminal: index of first item satisfying the predicate.
-    // See find note re: `&mut self` deferral.
-    unsafe fn position(self: Self, pred: fn(Item) -> bool) -> Option<i64> {
-        let mut it: Self = self;
+    // Terminal: index of first item satisfying the predicate. `&mut self`.
+    unsafe fn position(self: &mut Self, pred: fn(Item) -> bool) -> Option<i64> {
         let mut idx: i64 = 0i64;
         loop {
-            match it.next() {
+            match self.next() {
                 Option::None    => { return Option::None; }
                 Option::Some(v) => {
                     if pred(v) { return Option::Some(idx); }
