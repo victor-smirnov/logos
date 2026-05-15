@@ -1,0 +1,62 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/num/int_macros.rs
+//   (test_swap_bytes, test_le, test_be)
+//
+// Modifications:
+// - `$T::from_le(A.to_le()) == A` round-trip preserved.
+// - `int_module!`-$T parametrisation flattened to i32 + u64.
+// - assert_eq! family imports via std.fmt + std.lang.text.
+//
+// Stdlib companion: swap_bytes / to_le / from_le / to_be / from_be
+// on u32 / i32 / u64 / i64 in std.lang.ord. Wraps `bswap_u64`
+// intrinsic; to_le / from_le identity on Logos's LE target.
+
+package test_i32_swap_bytes;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.ord;
+
+#[test]
+fn test_swap_bytes_i32() {
+    let a: i32 = 0x12345678i32;
+    let b: i32 = 0x01234567i32;
+    // Round-trip property.
+    assert_eq!(a.swap_bytes().swap_bytes(), a);
+    assert_eq!(b.swap_bytes().swap_bytes(), b);
+    // Concrete value: 0x12345678 → 0x78563412.
+    assert_eq!(a.swap_bytes(), 0x78563412i32);
+}
+
+#[test]
+fn test_le_i32() {
+    // On Logos's LE target, to_le/from_le are identity.
+    let a: i32 = 0x12345678i32;
+    assert_eq!(i32::from_le(a.to_le()), a);
+    assert_eq!((-1i32).to_le(), -1i32);
+    assert_eq!(0i32.to_le(), 0i32);
+}
+
+#[test]
+fn test_be_i32() {
+    let a: i32 = 0x12345678i32;
+    // Round-trip via to_be/from_be.
+    assert_eq!(i32::from_be(a.to_be()), a);
+    // to_be = swap_bytes on LE.
+    assert_eq!(a.to_be(), a.swap_bytes());
+}
+
+#[test]
+fn test_swap_bytes_u64() {
+    let b: u64 = 0x0123456789ABCDEFu64;
+    assert_eq!(b.swap_bytes(), 0xEFCDAB8967452301u64);
+    assert_eq!(b.swap_bytes().swap_bytes(), b);
+}
+
+#[test]
+fn test_endian_zero() {
+    assert_eq!(0i32.swap_bytes(), 0i32);
+    assert_eq!(0u64.swap_bytes(), 0u64);
+    assert_eq!(i32::from_le(0i32.to_le()), 0i32);
+    assert_eq!(u64::from_be(0u64.to_be()), 0u64);
+}

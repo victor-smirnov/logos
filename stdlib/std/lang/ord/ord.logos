@@ -179,6 +179,44 @@ impl i32 {
     }
 }
 
+// Byte-swap / endianness conversions. Logos targets little-endian
+// x86_64, so:
+//   * to_le / from_le are identity
+//   * to_be / from_be are swap_bytes (self-inverse)
+//   * swap_bytes uses the bswap_u64 intrinsic with width shift
+impl u32 {
+    pub fn swap_bytes(self: u32) -> u32 {
+        return (bswap_u64(self as u64) >> 32u32) as u32;
+    }
+    pub fn to_le(self: u32) -> u32   { return self; }
+    pub fn from_le(x: u32) -> u32    { return x; }
+    pub fn to_be(self: u32) -> u32   { return self.swap_bytes(); }
+    pub fn from_be(x: u32) -> u32    { return x.swap_bytes(); }
+}
+impl i32 {
+    pub fn swap_bytes(self: i32) -> i32 {
+        return ((self as u32).swap_bytes()) as i32;
+    }
+    pub fn to_le(self: i32) -> i32   { return self; }
+    pub fn from_le(x: i32) -> i32    { return x; }
+    pub fn to_be(self: i32) -> i32   { return self.swap_bytes(); }
+    pub fn from_be(x: i32) -> i32    { return x.swap_bytes(); }
+}
+impl u64 {
+    pub fn swap_bytes(self: u64) -> u64 { return bswap_u64(self); }
+    pub fn to_le(self: u64) -> u64   { return self; }
+    pub fn from_le(x: u64) -> u64    { return x; }
+    pub fn to_be(self: u64) -> u64   { return self.swap_bytes(); }
+    pub fn from_be(x: u64) -> u64    { return x.swap_bytes(); }
+}
+impl i64 {
+    pub fn swap_bytes(self: i64) -> i64 { return bswap_u64(self as u64) as i64; }
+    pub fn to_le(self: i64) -> i64   { return self; }
+    pub fn from_le(x: i64) -> i64    { return x; }
+    pub fn to_be(self: i64) -> i64   { return self.swap_bytes(); }
+    pub fn from_be(x: i64) -> i64    { return x.swap_bytes(); }
+}
+
 // Integer exponentiation via repeated squaring. Wrapping arithmetic
 // on overflow (matches Rust's `wrapping_pow`; `pow` panics on
 // overflow in Rust debug builds but this version just wraps).
