@@ -10,6 +10,7 @@
 #include <vector>
 
 #include <logos/hermes/view.hpp>  // hermes::Hermes (= Own<HermesView>)
+#include <logos/compiler/str_map.hpp>
 
 namespace logos::compiler {
 
@@ -38,6 +39,11 @@ struct MetaprogDispatchOpts {
     // Phase 2-4: cfg flags propagated to every sema_lower call inside the
     // dispatch loop. Each entry is `feature=name` or a bare flag.
     std::vector<std::string> cfg_flags;
+    // Symbols already provided by the JIT's archive_paths (and the final
+    // link archives) — copy onto meta_prog.binary_symbols so mlir_gen
+    // skips body emission for fns whose pre-baked impl is in those .a
+    // files. Empty disables the skip (legacy behaviour).
+    StrSet binary_symbols;
 };
 
 // Run the metaprog discovery loop:

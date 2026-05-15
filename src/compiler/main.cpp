@@ -2239,6 +2239,10 @@ int run_metaprog_dispatch(
             std::remove_if(meta_prog.functions.begin(), meta_prog.functions.end(),
                 [](const auto& f) { return f->is_metaprog_stub; }),
             meta_prog.functions.end());
+        // Pass binary_symbols through so the metaprog JIT's mlir_gen skips
+        // body emission for fns already provided by the JIT's archive
+        // generators (resolved via build_jit_from_module's archive_paths).
+        meta_prog.binary_symbols = opts.binary_symbols;
         meta_prog = reflection_emit(std::move(meta_prog));
         meta_prog = mono_pass(std::move(meta_prog));
         if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
@@ -3035,6 +3039,7 @@ int main(int argc, char** argv) {
         mopts.archive_paths  = archive_paths;
         mopts.provenance_out = &ast_provenance;
         mopts.cfg_flags      = cfg_flags;  // Phase 2-4
+        mopts.binary_symbols = binary_symbols;
         if (logos::compiler::run_metaprog_dispatch(
                 asts, filenames, from_binary, pre_dispatch_entry_idx, mopts) != 0)
             return 1;
