@@ -25,6 +25,7 @@
 #include <logos/hermes/schema_codes.hpp>
 #include <logos/verification/assert.hpp>
 
+#include <chrono>
 #include <cstdio>
 #include <format>
 #include <functional>
@@ -1230,6 +1231,19 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     filenames_ = &filenames;
     from_binary_ = from_binary.empty() ? nullptr : &from_binary;
 
+    const bool sema_phase_timing = []{
+        const char* e = std::getenv("LOGOS_SEMA_PHASE_TIMING");
+        return e && e[0] && e[0] != '0';
+    }();
+    auto t_phase = std::chrono::steady_clock::now();
+    auto sema_tick = [&](const char* label) {
+        if (!sema_phase_timing) return;
+        auto now = std::chrono::steady_clock::now();
+        auto us = std::chrono::duration_cast<std::chrono::microseconds>(now - t_phase).count();
+        std::fprintf(stderr, "[sema-phase] %-24s %6ld us\n", label, (long)us);
+        t_phase = now;
+    };
+
     lir::LProgram prog;
     pool_ = &prog.type_pool;  // bind so all alloc()s share prog's arena
     // Set cur_prog_ before `collect` so LIT_HSTATIC encountered inside
@@ -1241,8 +1255,10 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     cur_prog_ = &prog;
 
     init_primitives();
+    sema_tick("init_primitives");
     phase_ = SemaPhase::Collect;
     collect(asts);
+    sema_tick("collect");
 
     if (!result_.ok()) {
         prog.diags = std::move(result_);
@@ -1251,6 +1267,7 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
 
     phase_ = SemaPhase::Lower;
     lower_program(asts, prog);
+    sema_tick("lower_program");
 
     // Enforce the "one eidos per (genos, tag-system)" invariant at compile
     // time.  Two different impl targets that end up with the same
@@ -4224,9 +4241,22 @@ TypeRef SemaChecker::field_type_of_for_type(TypeRef struct_t,
 
 void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LProgram& prog) {
     using namespace ast;
+    const bool phase_dbg = []{
+        const char* e = std::getenv("LOGOS_SEMA_PHASE_TIMING");
+        return e && e[0] && e[0] != '0';
+    }();
+    auto t_phase = std::chrono::steady_clock::now();
+    auto tick = [&](const char* l) {
+        if (!phase_dbg) return;
+        auto now = std::chrono::steady_clock::now();
+        auto us = std::chrono::duration_cast<std::chrono::microseconds>(now - t_phase).count();
+        std::fprintf(stderr, "[sema-lower] %-24s %6ld us\n", l, (long)us);
+        t_phase = now;
+    };
     // B64: variance fixed-point — runs after collect_*, before any lower_fn
     // (the subtype check at return / arg / let-init sites consults the table).
     compute_variances();
+    tick("variances");
     for (size_t i = 0; i < asts.size(); ++i) {
         cur_ast_idx_ = i;
         holder_ = asts[i].holder();
