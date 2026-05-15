@@ -1,0 +1,54 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/iter/traits/iterator.rs
+//   (test_max_by, test_min_by)
+//
+// Modifications:
+// - `xs.iter().max_by(|x, y| ...)` → `iter_over_slice(&xs).max_by(cmp)`
+//   where `cmp: fn(i32, i32) -> i32`. Logos's `.max_by` returns the
+//   raw i32 verdict (neg/zero/pos) instead of an `Ordering` enum to
+//   avoid forcing std.lang.ord on every implementor's pkg.
+// - `x.abs().cmp(&y.abs())` → manually compare `|x|` vs `|y|` via i32 cmp.
+// - max_by_key / min_by_key dropped — not on the Iterator surface yet.
+// - assert_eq! family imports via std.fmt + std.lang.text.
+
+package test_iter_minmax_by;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.iter;
+use std.lang.option;
+
+fn abs_i32(x: i32) -> i32 {
+    if x < 0i32 { return 0i32 - x; }
+    return x;
+}
+
+fn cmp_abs(x: i32, y: i32) -> i32 {
+    let ax: i32 = abs_i32(x);
+    let ay: i32 = abs_i32(y);
+    if ax < ay { return -1i32; }
+    if ax > ay { return  1i32; }
+    return 0i32;
+}
+
+#[test]
+fn test_max_by() {
+    let xs: [i32; 5] = [-3i32, 0i32, 1i32, 5i32, -10i32];
+    unsafe {
+        match iter_over_slice(&xs).max_by(cmp_abs) {
+            Option::Some(x) => { assert_eq!(x, -10i32); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+    }
+}
+
+#[test]
+fn test_min_by() {
+    let xs: [i32; 5] = [-3i32, 0i32, 1i32, 5i32, -10i32];
+    unsafe {
+        match iter_over_slice(&xs).min_by(cmp_abs) {
+            Option::Some(x) => { assert_eq!(x, 0i32); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+    }
+}
