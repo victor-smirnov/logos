@@ -1,0 +1,75 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/num/int_macros.rs
+//   (test_saturating_abs, test_saturating_neg + saturating_add /
+//    saturating_sub / saturating_mul smoke)
+//
+// Modifications:
+// - `int_module!`-driven `$T` parametrisation flattened to i32.
+// - `MAX` / `MIN` constants inlined (Logos's i32::MAX const item
+//   isn't on the surface yet).
+// - `assert_eq_const_safe!` → runtime assert_eq!.
+//
+// Stdlib companion: saturating_add / saturating_sub /
+// saturating_mul / saturating_abs / saturating_neg inherent
+// methods on i32 in std.lang.ord. Use i64 intermediates to dodge
+// the i32 overflow trap, clamp to [MIN, MAX].
+
+package test_i32_saturating;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.ord;
+
+#[test]
+fn test_saturating_add() {
+    let max: i32 = 2147483647i32;
+    let min: i32 = -2147483647i32 - 1i32;
+    assert_eq!(max.saturating_add(1i32),  max);     // overflow → MAX
+    assert_eq!(max.saturating_add(100i32), max);
+    assert_eq!(min.saturating_add(-1i32), min);     // underflow → MIN
+    assert_eq!(7i32.saturating_add(3i32), 10i32);
+    assert_eq!(0i32.saturating_add(0i32), 0i32);
+}
+
+#[test]
+fn test_saturating_sub() {
+    let max: i32 = 2147483647i32;
+    let min: i32 = -2147483647i32 - 1i32;
+    assert_eq!(min.saturating_sub(1i32), min);
+    assert_eq!(max.saturating_sub(-1i32), max);
+    assert_eq!(10i32.saturating_sub(3i32), 7i32);
+    assert_eq!(3i32.saturating_sub(10i32), -7i32);
+}
+
+#[test]
+fn test_saturating_mul() {
+    let max: i32 = 2147483647i32;
+    let min: i32 = -2147483647i32 - 1i32;
+    assert_eq!(max.saturating_mul(2i32),  max);
+    assert_eq!(max.saturating_mul(-2i32), min);
+    assert_eq!(7i32.saturating_mul(6i32), 42i32);
+    assert_eq!(0i32.saturating_mul(123i32), 0i32);
+}
+
+#[test]
+fn test_saturating_abs() {
+    let max: i32 = 2147483647i32;
+    let min: i32 = -2147483647i32 - 1i32;
+    assert_eq!(0i32.saturating_abs(), 0i32);
+    assert_eq!(123i32.saturating_abs(), 123i32);
+    assert_eq!((-123i32).saturating_abs(), 123i32);
+    assert_eq!(max.saturating_abs(), max);
+    // MIN's negation would overflow — saturate to MAX.
+    assert_eq!(min.saturating_abs(), max);
+}
+
+#[test]
+fn test_saturating_neg() {
+    let max: i32 = 2147483647i32;
+    let min: i32 = -2147483647i32 - 1i32;
+    assert_eq!(0i32.saturating_neg(), 0i32);
+    assert_eq!(123i32.saturating_neg(), -123i32);
+    assert_eq!((-123i32).saturating_neg(), 123i32);
+    // -MIN overflows — saturate to MAX.
+    assert_eq!(min.saturating_neg(), max);
+}

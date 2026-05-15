@@ -139,6 +139,46 @@ impl i64   { pub fn count_ones(self: i64) -> u32 { return popcount_u64(self as u
              pub fn leading_zeros(self: i64) -> u32 { return leading_zeros_u64(self as u64); }
              pub fn trailing_zeros(self: i64) -> u32 { return trailing_zeros_u64(self as u64); } }
 
+// Saturating arithmetic on signed integer primitives. Returns
+// MAX on positive overflow, MIN on negative overflow. The wider
+// i64 intermediate dodges the i32 overflow trap.
+impl i32 {
+    pub fn saturating_add(self: i32, other: i32) -> i32 {
+        let i32_max: i64 =  2147483647i64;
+        let i32_min: i64 = -2147483648i64;
+        let r: i64 = (self as i64) + (other as i64);
+        if r > i32_max { return  2147483647i32; }
+        if r < i32_min { return -2147483647i32 - 1i32; }
+        return r as i32;
+    }
+    pub fn saturating_sub(self: i32, other: i32) -> i32 {
+        let i32_max: i64 =  2147483647i64;
+        let i32_min: i64 = -2147483648i64;
+        let r: i64 = (self as i64) - (other as i64);
+        if r > i32_max { return  2147483647i32; }
+        if r < i32_min { return -2147483647i32 - 1i32; }
+        return r as i32;
+    }
+    pub fn saturating_mul(self: i32, other: i32) -> i32 {
+        let i32_max: i64 =  2147483647i64;
+        let i32_min: i64 = -2147483648i64;
+        let r: i64 = (self as i64) * (other as i64);
+        if r > i32_max { return  2147483647i32; }
+        if r < i32_min { return -2147483647i32 - 1i32; }
+        return r as i32;
+    }
+    pub fn saturating_abs(self: i32) -> i32 {
+        // i32::MIN has no positive counterpart in i32; saturate to MAX.
+        if self == -2147483647i32 - 1i32 { return 2147483647i32; }
+        if self < 0i32 { return 0i32 - self; }
+        return self;
+    }
+    pub fn saturating_neg(self: i32) -> i32 {
+        if self == -2147483647i32 - 1i32 { return 2147483647i32; }
+        return 0i32 - self;
+    }
+}
+
 // Integer exponentiation via repeated squaring. Wrapping arithmetic
 // on overflow (matches Rust's `wrapping_pow`; `pow` panics on
 // overflow in Rust debug builds but this version just wraps).

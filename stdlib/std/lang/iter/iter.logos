@@ -305,11 +305,17 @@ pub trait DoubleEndedIterator<Item>: Iterator<Item> {
 // SL-sl-05: an iterator that knows its remaining length exactly.
 // Matches Rust's `core::iter::ExactSizeIterator`. Used by adapters
 // like TakeIter / EnumIter that need to align front/back from a
-// known back-position. No `is_empty` default — caller checks `len`
-// against 0 explicitly.
+// known back-position.
 
 pub trait ExactSizeIterator<Item>: Iterator<Item> {
     fn len(&self) -> i64;
+
+    // Trait-default: an iterator is empty iff its length is 0.
+    // Mirrors Rust's `ExactSizeIterator::is_empty` (still unstable
+    // on stable Rust as of 2026, but semantics are stable).
+    fn is_empty(&self) -> bool {
+        return self.len() == 0 as i64;
+    }
 }
 
 // ── RevIter<I, T> — swap-ends adapter on a DoubleEndedIterator ───────────────
