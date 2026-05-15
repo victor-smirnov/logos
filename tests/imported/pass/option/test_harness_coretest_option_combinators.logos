@@ -1,0 +1,110 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/option.rs
+//   (test_or, test_and_then, test_or_else, test_unwrap_or_else)
+//
+// Complements the earlier test_harness_coretest_option.logos batch
+// which covered test_unwrap / test_unwrap_or / test_is_some_is_none /
+// test_or_typed / test_and. These four follow after CP-cm-12
+// (method-generic on generic enum receivers) and CP-cm-13
+// (None-receiver T-inference) landed.
+//
+// Modifications:
+// - `isize` → `i32`.
+// - `const fn plus_one(...)` → plain `fn plus_one(...)` (CP-cm-04
+//   Divergence — Logos uses metacall, no `const fn`).
+// - Bare `None` for receivers when the let-annotation pins T;
+//   `Option::<i32>::None` form not needed once CP-cm-13 lands.
+// - assert_eq! family imports via std.fmt + std.lang.text.
+
+package test_option_combinators;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.option;
+
+fn plus_one(x: i32) -> Option<i32> { return Some(x + 1i32); }
+fn ret_none(x: i32) -> Option<i32> { return None; }
+fn two_opt() -> Option<i32>        { return Some(2i32); }
+fn none_opt() -> Option<i32>       { return None; }
+fn two_val() -> i32                { return 2i32; }
+
+#[test]
+fn test_or() {
+    let xs: Option<i32> = Some(1i32);
+    let xn: Option<i32> = None;
+
+    // Some.or(Some) → Some(self)
+    match xs.or(Some(2i32)) {
+        Option::Some(v) => { assert_eq!(v, 1i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+    // Some.or(None) → Some(self)
+    match xs.or(none_opt()) {
+        Option::Some(v) => { assert_eq!(v, 1i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+    // None.or(Some) → Some(arg)
+    match xn.or(Some(2i32)) {
+        Option::Some(v) => { assert_eq!(v, 2i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+    // None.or(None) → None
+    match xn.or(none_opt()) {
+        Option::Some(_) => { assert_eq!(true, false); }
+        Option::None    => { }
+    }
+}
+
+#[test]
+fn test_and_then() {
+    let xs: Option<i32> = Some(1i32);
+    let xn: Option<i32> = None;
+
+    match xs.and_then(plus_one) {
+        Option::Some(v) => { assert_eq!(v, 2i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+    match xs.and_then(ret_none) {
+        Option::Some(_) => { assert_eq!(true, false); }
+        Option::None    => { }
+    }
+    match xn.and_then(plus_one) {
+        Option::Some(_) => { assert_eq!(true, false); }
+        Option::None    => { }
+    }
+    match xn.and_then(ret_none) {
+        Option::Some(_) => { assert_eq!(true, false); }
+        Option::None    => { }
+    }
+}
+
+#[test]
+fn test_or_else() {
+    let xs: Option<i32> = Some(1i32);
+    let xn: Option<i32> = None;
+
+    match xs.or_else(two_opt) {
+        Option::Some(v) => { assert_eq!(v, 1i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+    match xs.or_else(none_opt) {
+        Option::Some(v) => { assert_eq!(v, 1i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+    match xn.or_else(two_opt) {
+        Option::Some(v) => { assert_eq!(v, 2i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+    match xn.or_else(none_opt) {
+        Option::Some(_) => { assert_eq!(true, false); }
+        Option::None    => { }
+    }
+}
+
+#[test]
+fn test_unwrap_or_else() {
+    let xs: Option<i32> = Some(1i32);
+    let xn: Option<i32> = None;
+    assert_eq!(xs.unwrap_or_else(two_val), 1i32);
+    assert_eq!(xn.unwrap_or_else(two_val), 2i32);
+}
