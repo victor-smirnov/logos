@@ -1,0 +1,191 @@
+// Coretest batch — char ASCII-range methods.
+//
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7.
+// Original path: library/coretests/tests/char.rs (ASCII-faithful subset).
+//
+// Modifications:
+// - Unicode-property tests dropped: `'ö'.is_lowercase()` /
+//   `'ß'.is_lowercase()` / `'Ü'.is_uppercase()` rely on Unicode
+//   property tables that Logos's std.lang.char doesn't ship yet
+//   (only the ASCII subset is faithful). Where the upstream test
+//   exercises both, we keep the ASCII half and mark the rest open.
+// - `'\u{XXXX}'` escape isn't on Logos's char-literal surface yet —
+//   non-ASCII / control-byte codepoints are constructed via
+//   `(0xNNN as u32) as char` instead.
+//
+// Source `#[test]` fns ported:
+//   char.rs::test_is_whitespace
+//   char.rs::test_is_lowercase (ASCII subset)
+//   char.rs::test_is_uppercase (ASCII subset)
+//   char.rs::test_is_alphabetic (via is_ascii_alphabetic)
+//   char.rs::test_is_alphanumeric (via is_ascii_alphanumeric)
+//   char.rs::test_is_numeric (via is_ascii_digit)
+//   char.rs::test_is_control (ASCII subset)
+//   char.rs::test_to_ascii_uppercase
+//   char.rs::test_to_ascii_lowercase
+//   char.rs::test_to_digit
+//   char.rs::test_len_utf8
+
+package test_char_ascii;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.char;
+
+#[test]
+fn test_is_whitespace() {
+    assert!(' '.is_whitespace());
+    assert!((0x2007u32 as char).is_whitespace());
+    assert!('\t'.is_whitespace());
+    assert!('\n'.is_whitespace());
+    assert!(!'a'.is_whitespace());
+    assert!(!'_'.is_whitespace());
+    assert!(!(0u32 as char).is_whitespace());
+}
+
+#[test]
+fn test_is_lowercase_ascii() {
+    assert!('a'.is_lowercase());
+    assert!('z'.is_lowercase());
+    assert!(!'P'.is_lowercase());
+    assert!(!'A'.is_lowercase());
+    assert!(!'0'.is_lowercase());
+}
+
+#[test]
+fn test_is_uppercase_ascii() {
+    assert!(!'h'.is_uppercase());
+    assert!(!'a'.is_uppercase());
+    assert!('T'.is_uppercase());
+    assert!('Z'.is_uppercase());
+    assert!(!'0'.is_uppercase());
+}
+
+#[test]
+fn test_is_alphabetic_ascii() {
+    assert!('a'.is_alphabetic());
+    assert!('Z'.is_alphabetic());
+    assert!(!'0'.is_alphabetic());
+    assert!(!' '.is_alphabetic());
+    assert!(!'_'.is_alphabetic());
+}
+
+#[test]
+fn test_is_alphanumeric_ascii() {
+    assert!('a'.is_alphanumeric());
+    assert!('Z'.is_alphanumeric());
+    assert!('0'.is_alphanumeric());
+    assert!('9'.is_alphanumeric());
+    assert!(!' '.is_alphanumeric());
+    assert!(!'-'.is_alphanumeric());
+}
+
+#[test]
+fn test_is_numeric_ascii() {
+    assert!('0'.is_numeric());
+    assert!('9'.is_numeric());
+    assert!(!'a'.is_numeric());
+    assert!(!'/'.is_numeric());
+    assert!(!':'.is_numeric());
+}
+
+#[test]
+fn test_is_control_ascii() {
+    assert!((0u32    as char).is_control());
+    assert!((3u32    as char).is_control());
+    assert!((9u32    as char).is_control());
+    assert!((0x7Fu32 as char).is_control());
+    assert!(!(0x20u32 as char).is_control());
+    assert!(!(0x55u32 as char).is_control());
+    assert!(!'A'.is_control());
+}
+
+#[test]
+fn test_to_ascii_uppercase() {
+    // assert_eq! requires Display+Debug; cast both sides to u32 since
+    // std.lang.char doesn't yet ship those impls.
+    assert_eq!('a'.to_ascii_uppercase() as u32, 'A' as u32);
+    assert_eq!('z'.to_ascii_uppercase() as u32, 'Z' as u32);
+    assert_eq!('A'.to_ascii_uppercase() as u32, 'A' as u32);
+    assert_eq!('0'.to_ascii_uppercase() as u32, '0' as u32);
+}
+
+#[test]
+fn test_to_ascii_lowercase() {
+    assert_eq!('A'.to_ascii_lowercase() as u32, 'a' as u32);
+    assert_eq!('Z'.to_ascii_lowercase() as u32, 'z' as u32);
+    assert_eq!('a'.to_ascii_lowercase() as u32, 'a' as u32);
+    assert_eq!('0'.to_ascii_lowercase() as u32, '0' as u32);
+}
+
+#[test]
+fn test_to_digit() {
+    // Logos returns u32::MAX (= 4294967295) as the "not a digit"
+    // sentinel instead of Option<u32>::None. The trait-static
+    // dispatch for `Option<u32>::from_u32` would need the trait-
+    // method-tparam mono path that's still a sibling-of-CP-cm-12
+    // gap; the sentinel form sidesteps it.
+    assert_eq!('0'.to_digit(10u32), 0u32);
+    assert_eq!('1'.to_digit(2u32),  1u32);
+    assert_eq!('2'.to_digit(3u32),  2u32);
+    assert_eq!('9'.to_digit(10u32), 9u32);
+    assert_eq!('a'.to_digit(16u32), 10u32);
+    assert_eq!('A'.to_digit(16u32), 10u32);
+    assert_eq!('b'.to_digit(16u32), 11u32);
+    assert_eq!('B'.to_digit(16u32), 11u32);
+    assert_eq!('z'.to_digit(36u32), 35u32);
+    assert_eq!('Z'.to_digit(36u32), 35u32);
+    // Sentinel for not-a-digit:
+    assert_eq!(' '.to_digit(10u32), 4294967295u32);
+    assert_eq!('9'.to_digit(9u32),  4294967295u32);
+}
+
+#[test]
+fn test_len_utf8() {
+    assert_eq!('A'.len_utf8(),                  1i64);
+    assert_eq!((0x7Fu32  as char).len_utf8(),   1i64);
+    assert_eq!((0x80u32  as char).len_utf8(),   2i64);
+    assert_eq!((0x7FFu32 as char).len_utf8(),   2i64);
+    assert_eq!((0x800u32 as char).len_utf8(),   3i64);
+    assert_eq!((0x2007u32 as char).len_utf8(),  3i64);
+    assert_eq!((0x10000u32 as char).len_utf8(), 4i64);
+}
+
+#[test]
+fn test_is_ascii_hexdigit() {
+    assert!('0'.is_ascii_hexdigit());
+    assert!('9'.is_ascii_hexdigit());
+    assert!('a'.is_ascii_hexdigit());
+    assert!('f'.is_ascii_hexdigit());
+    assert!('A'.is_ascii_hexdigit());
+    assert!('F'.is_ascii_hexdigit());
+    assert!(!'g'.is_ascii_hexdigit());
+    assert!(!'G'.is_ascii_hexdigit());
+    assert!(!' '.is_ascii_hexdigit());
+}
+
+#[test]
+fn test_is_ascii_punctuation() {
+    assert!('!'.is_ascii_punctuation());
+    assert!('.'.is_ascii_punctuation());
+    assert!(':'.is_ascii_punctuation());
+    assert!('@'.is_ascii_punctuation());
+    assert!('['.is_ascii_punctuation());
+    assert!('{'.is_ascii_punctuation());
+    assert!('~'.is_ascii_punctuation());
+    assert!(!'a'.is_ascii_punctuation());
+    assert!(!'0'.is_ascii_punctuation());
+    assert!(!' '.is_ascii_punctuation());
+}
+
+#[test]
+fn test_is_ascii_graphic() {
+    assert!('!'.is_ascii_graphic());
+    assert!('a'.is_ascii_graphic());
+    assert!('Z'.is_ascii_graphic());
+    assert!('9'.is_ascii_graphic());
+    assert!('~'.is_ascii_graphic());
+    assert!(!' '.is_ascii_graphic());
+    assert!(!'\t'.is_ascii_graphic());
+    assert!(!(0u32 as char).is_ascii_graphic());
+}

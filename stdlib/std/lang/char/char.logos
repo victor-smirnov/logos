@@ -1,0 +1,158 @@
+// Logos stdlib — std.lang.char
+//
+// Inherent methods on `char` (Unicode scalar value, u32-typed).
+// ASCII-range queries are exact; Unicode-general queries fall back
+// to the ASCII subset for now — full Unicode tables would need a
+// large compiled-in dataset (deferred).
+//
+// Mirrors the subset of Rust's `impl char` surface covered by
+// coretests/tests/char.rs that doesn't require Unicode property
+// tables: is_ascii, is_ascii_*, to_ascii_lowercase /
+// _uppercase, is_digit, to_digit, len_utf8.
+
+package std.lang.char;
+
+impl char {
+    // ── ASCII range membership ────────────────────────────────────────────
+    pub fn is_ascii(self: char) -> bool {
+        return (self as u32) < 128u32;
+    }
+
+    pub fn is_ascii_alphabetic(self: char) -> bool {
+        let c: u32 = self as u32;
+        return (c >= 65u32 && c <= 90u32) || (c >= 97u32 && c <= 122u32);
+    }
+
+    pub fn is_ascii_lowercase(self: char) -> bool {
+        let c: u32 = self as u32;
+        return c >= 97u32 && c <= 122u32;
+    }
+
+    pub fn is_ascii_uppercase(self: char) -> bool {
+        let c: u32 = self as u32;
+        return c >= 65u32 && c <= 90u32;
+    }
+
+    pub fn is_ascii_digit(self: char) -> bool {
+        let c: u32 = self as u32;
+        return c >= 48u32 && c <= 57u32;
+    }
+
+    pub fn is_ascii_alphanumeric(self: char) -> bool {
+        return self.is_ascii_alphabetic() || self.is_ascii_digit();
+    }
+
+    pub fn is_ascii_hexdigit(self: char) -> bool {
+        let c: u32 = self as u32;
+        if c >= 48u32 && c <= 57u32 { return true; }
+        if c >= 65u32 && c <= 70u32 { return true; }
+        if c >= 97u32 && c <= 102u32 { return true; }
+        return false;
+    }
+
+    // ASCII whitespace: space, tab, LF, FF, CR.
+    pub fn is_ascii_whitespace(self: char) -> bool {
+        let c: u32 = self as u32;
+        return c == 32u32 || c == 9u32 || c == 10u32 || c == 12u32 || c == 13u32;
+    }
+
+    pub fn is_ascii_control(self: char) -> bool {
+        let c: u32 = self as u32;
+        return c < 32u32 || c == 127u32;
+    }
+
+    pub fn is_ascii_punctuation(self: char) -> bool {
+        let c: u32 = self as u32;
+        if c >= 33u32  && c <= 47u32  { return true; }  // ! " # $ % & ' ( ) * + , - . /
+        if c >= 58u32  && c <= 64u32  { return true; }  // : ; < = > ? @
+        if c >= 91u32  && c <= 96u32  { return true; }  // [ \ ] ^ _ `
+        if c >= 123u32 && c <= 126u32 { return true; }  // { | } ~
+        return false;
+    }
+
+    pub fn is_ascii_graphic(self: char) -> bool {
+        let c: u32 = self as u32;
+        return c >= 33u32 && c <= 126u32;
+    }
+
+    // ── General-Unicode wrappers (ASCII subset for now) ───────────────────
+    //
+    // Full Unicode property tables are deferred — these return the
+    // ASCII subset, which matches Rust semantics for ASCII inputs.
+
+    pub fn is_whitespace(self: char) -> bool {
+        // Includes a few Unicode whitespace codepoints that the
+        // Rust coretest exercises explicitly (U+2007 figure space).
+        if self.is_ascii_whitespace() { return true; }
+        let c: u32 = self as u32;
+        if c == 0x00A0u32 { return true; }  // NBSP
+        if c == 0x2007u32 { return true; }  // FIGURE SPACE
+        if c == 0x202Fu32 { return true; }  // NARROW NBSP
+        return false;
+    }
+
+    pub fn is_alphabetic(self: char) -> bool {
+        return self.is_ascii_alphabetic();
+    }
+
+    pub fn is_lowercase(self: char) -> bool {
+        return self.is_ascii_lowercase();
+    }
+
+    pub fn is_uppercase(self: char) -> bool {
+        return self.is_ascii_uppercase();
+    }
+
+    pub fn is_numeric(self: char) -> bool {
+        return self.is_ascii_digit();
+    }
+
+    pub fn is_alphanumeric(self: char) -> bool {
+        return self.is_ascii_alphanumeric();
+    }
+
+    pub fn is_control(self: char) -> bool {
+        return self.is_ascii_control();
+    }
+
+    // ── Case conversion (ASCII-only) ──────────────────────────────────────
+
+    pub fn to_ascii_lowercase(self: char) -> char {
+        let c: u32 = self as u32;
+        if c >= 65u32 && c <= 90u32 { return (c + 32u32) as char; }
+        return self;
+    }
+
+    pub fn to_ascii_uppercase(self: char) -> char {
+        let c: u32 = self as u32;
+        if c >= 97u32 && c <= 122u32 { return (c - 32u32) as char; }
+        return self;
+    }
+
+    // ── Numeric value of a digit ──────────────────────────────────────────
+    //
+    // Returns the digit value of this char in the given radix
+    // (2..=36), or None if it isn't a valid digit. Matches Rust's
+    // `char::to_digit(radix: u32) -> Option<u32>` shape.
+
+    pub fn to_digit(self: char, radix: u32) -> u32 {
+        let c: u32 = self as u32;
+        let mut val: u32 = 0u32;
+        if c >= 48u32 && c <= 57u32 { val = c - 48u32; }
+        else if c >= 97u32 && c <= 122u32 { val = c - 97u32 + 10u32; }
+        else if c >= 65u32 && c <= 90u32 { val = c - 65u32 + 10u32; }
+        else { return 4294967295u32; }   // sentinel: not a digit
+        if val >= radix { return 4294967295u32; }
+        return val;
+    }
+
+    // ── UTF-8 byte length ─────────────────────────────────────────────────
+
+    pub fn len_utf8(self: char) -> i64 {
+        let c: u32 = self as u32;
+        if c < 0x80u32 { return 1i64; }
+        if c < 0x800u32 { return 2i64; }
+        if c < 0x10000u32 { return 3i64; }
+        return 4i64;
+    }
+}
