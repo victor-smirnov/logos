@@ -3588,23 +3588,25 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
     for (auto& m_up : tmpl.methods) {
         auto& m = *m_up;
         if (!method_bound_ok(m, s)) continue;
-        auto nm = clone_fn(m, s, packs);
-        // Rename method: "[pkg.]OldBase__methodName[__g__T]" →
-        //                "[pkg.]new_name__methodName[__g__T]".
-        // Preserve pkg prefix and any sig suffix; replace base name only.
-        std::string mn = m.name;
-        std::string mn_pkg;
-        // Pkg may have inner dots; split at LAST dot.
-        if (auto dot = mn.rfind('.'); dot != std::string::npos) {
-            mn_pkg = mn.substr(0, dot);
-            mn = mn.substr(dot + 1);
+
+        // Compute the final renamed method name first so the binary-symbol
+        // fast path below can consult it.
+        std::string final_name = m.name;
+        {
+            std::string mn = m.name;
+            std::string mn_pkg;
+            if (auto dot = mn.rfind('.'); dot != std::string::npos) {
+                mn_pkg = mn.substr(0, dot);
+                mn = mn.substr(dot + 1);
+            }
+            auto sep = mn.find("__");
+            if (sep != std::string::npos) {
+                std::string rest = mn.substr(sep);
+                std::string new_bare = new_name + rest;
+                final_name = mn_pkg.empty() ? new_bare : mn_pkg + "." + new_bare;
+            }
         }
-        auto sep = mn.find("__");
-        if (sep != std::string::npos) {
-            std::string rest = mn.substr(sep);  // "__methodName[__g__T]"
-            std::string new_bare = new_name + rest;
-            nm.name = mn_pkg.empty() ? new_bare : mn_pkg + "." + new_bare;
-        }
+
         // Specialization: if the user wrote `impl Foo<Concrete> { fn m ... }`
         // separately from `impl<T> Foo<T> { fn m ... }`, the concrete method
         // lives in in_.functions under the mangled name.  Skip cloning the
@@ -3613,9 +3615,23 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
         bool overridden = false;
         for (auto& fn : in_.functions) {
             if (!fn->type_params.empty()) continue;
-            if (bare_fn_name(fn->name) == nm.name) { overridden = true; break; }
+            if (bare_fn_name(fn->name) == final_name) { overridden = true; break; }
         }
         if (overridden) continue;
+
+        // Binary-symbol fast path: body is in liblstdlib.a, mlir_gen will skip
+        // body emission, and any transitive instantiations from this body are
+        // already in the archive. Signature-only stub is enough.
+        if (!in_.binary_symbols.empty() &&
+            in_.binary_symbols.count(final_name)) {
+            auto nm = clone_fn_signature(m, s, packs);
+            nm.name = final_name;
+            nd.methods.push_back(std::make_unique<lir::LFunction>(std::move(nm)));
+            continue;
+        }
+
+        auto nm = clone_fn(m, s, packs);
+        nm.name = final_name;
         // Substitute struct type in params/ret as needed (already done by clone_fn).
         nd.methods.push_back(std::make_unique<lir::LFunction>(std::move(nm)));
         lir_mirror_emit_function(out_, *out_.mirror_table, *nd.methods.back());
