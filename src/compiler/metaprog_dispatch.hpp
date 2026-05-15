@@ -27,6 +27,25 @@ struct EmitProvenance {
     int          iter_seq = 0; // metaprog discovery-loop iteration (informational)
 };
 
+// Per-phase timing accumulator for --stats. Cumulative across all
+// iterations of the metaprog dispatch loop + the metacall-thunk loop.
+struct CompileStats {
+    // Each entry is one slice of CPU work (in ms). Ordered chronologically
+    // (caller-set order at sample time) so the summary can render a clean
+    // breakdown. label is informational; value is wall-clock ms for the
+    // slice it terminates. iter < 0 means "user-side / top-level" — used
+    // for the final pipeline that's not inside a dispatch iteration.
+    struct Sample {
+        std::string label;
+        int64_t     ms;
+        int         iter;   // -1 = top-level, 0+ = metaprog iter index
+    };
+    std::vector<Sample> samples;
+    void add(std::string label, int64_t ms, int iter = -1) {
+        samples.push_back({std::move(label), ms, iter});
+    }
+};
+
 struct MetaprogDispatchOpts {
     bool                     trace = false;
     std::string              dump_dir;       // --dump-metaprog: empty disables
@@ -44,6 +63,8 @@ struct MetaprogDispatchOpts {
     // skips body emission for fns whose pre-baked impl is in those .a
     // files. Empty disables the skip (legacy behaviour).
     StrSet binary_symbols;
+    // Optional: when non-null, dispatch records its per-phase timings here.
+    CompileStats* stats_out = nullptr;
 };
 
 // Run the metaprog discovery loop:

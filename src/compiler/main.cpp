@@ -10,6 +10,7 @@
 #include "compile_pipeline.hpp"
 #include "module_manifest.hpp"
 #include <chrono>
+#include <map>
 #include <climits>
 #include <cstdlib>
 #include <cstring>
@@ -2177,6 +2178,14 @@ int run_metaprog_dispatch(
         if (!opts.trace) return;
         std::fprintf(stderr, "[metaprog dispatch] %s\n", label);
     };
+    auto* stats = opts.stats_out;
+    auto stat_step = [&](std::chrono::steady_clock::time_point& t,
+                         const char* label, int iter_idx) {
+        auto now = std::chrono::steady_clock::now();
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - t).count();
+        if (stats) stats->add(label, ms, iter_idx);
+        t = now;
+    };
 
     SemaOptions meta_opts;
     meta_opts.metaprog_mode = true;
@@ -2188,7 +2197,9 @@ int run_metaprog_dispatch(
 
     lir::LProgram prog;
     for (int iter = 0; ; ++iter) {
+        auto _t = std::chrono::steady_clock::now();
         prog = sema_lower(asts, filenames, from_binary, meta_opts);
+        stat_step(_t, "sema_lower", iter);
         prog.print_diags(stderr);
         if (!prog.ok()) return 1;
         report(iter == 0 ? "sema+lower" : "sema+lower (re-run)");
@@ -2209,7 +2220,9 @@ int run_metaprog_dispatch(
                 std::fprintf(stderr, "                 - %s\n", t.trigger.c_str());
         }
 
+        auto _t2 = std::chrono::steady_clock::now();
         auto meta_prog = sema_lower(asts, filenames, from_binary, meta_opts);
+        stat_step(_t2, "meta_sema_lower", iter);
         if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
 
         std::vector<lir::LProgram::MetacallSite> meta_item_sites;
@@ -2243,10 +2256,14 @@ int run_metaprog_dispatch(
         // body emission for fns already provided by the JIT's archive
         // generators (resolved via build_jit_from_module's archive_paths).
         meta_prog.binary_symbols = opts.binary_symbols;
+        auto _t3 = std::chrono::steady_clock::now();
         meta_prog = reflection_emit(std::move(meta_prog));
+        stat_step(_t3, "reflection", iter);
         meta_prog = mono_pass(std::move(meta_prog));
+        stat_step(_t3, "mono", iter);
         if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
         meta_prog = borrow_check(std::move(meta_prog));
+        stat_step(_t3, "borrow", iter);
         if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
 
         mlir::MLIRContext meta_mlir_ctx;
@@ -2257,6 +2274,7 @@ int run_metaprog_dispatch(
         meta_mlir_ctx.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
         auto meta_mlir = mlir_gen(meta_mlir_ctx, meta_prog);
         if (!meta_mlir) { std::fprintf(stderr, "logosc: metaprog MLIR gen failed\n"); return 1; }
+        stat_step(_t3, "mlir_gen", iter);
         mlir::PassManager meta_pm(&meta_mlir_ctx);
         meta_pm.addPass(mlir::createSCFToControlFlowPass());
         meta_pm.addPass(mlir::createConvertControlFlowToLLVMPass());
@@ -2266,11 +2284,13 @@ int run_metaprog_dispatch(
         if (mlir::failed(meta_pm.run(*meta_mlir))) {
             std::fprintf(stderr, "logosc: metaprog MLIR lowering failed\n"); return 1;
         }
+        stat_step(_t3, "mlir->llvm", iter);
         mlir::registerBuiltinDialectTranslation(meta_mlir_ctx);
         mlir::registerLLVMDialectTranslation(meta_mlir_ctx);
         llvm::LLVMContext meta_llvm_ctx;
         auto meta_llvm = mlir::translateModuleToLLVMIR(*meta_mlir, meta_llvm_ctx);
         if (!meta_llvm) { std::fprintf(stderr, "logosc: metaprog LLVM IR translate failed\n"); return 1; }
+        stat_step(_t3, "llvm_ir", iter);
         meta_llvm->setTargetTriple(llvm::Triple(llvm::sys::getDefaultTargetTriple()));
         llvm::InitializeNativeTarget();
         llvm::InitializeNativeTargetAsmPrinter();
@@ -2279,6 +2299,7 @@ int run_metaprog_dispatch(
                                               /*with_process_symbols=*/true,
                                               &opts.archive_paths);
         if (!meta_jit) return 1;
+        stat_step(_t3, "jit_build", iter);
         report("metaprog jit");
 
         bool any_emitted = false;
@@ -2415,7 +2436,7 @@ int run_metaprog_dispatch(
 
 int main(int argc, char** argv) {
     if (argc < 2) {
-        std::fprintf(stderr, "usage: logosc <input.logos> [-o output.o] [-O0|-O1|-O2|-O3] [--emit-mlir] [--emit-llvm] [--diag-format=text|json]\n");
+        std::fprintf(stderr, "usage: logosc <input.logos> [-o output.o] [-O0|-O1|-O2|-O3] [--emit-mlir] [--emit-llvm] [--diag-format=text|json] [--stats]\n");
         return EXIT_USAGE;
     }
 
@@ -2430,6 +2451,7 @@ int main(int argc, char** argv) {
     bool jit_run   = false;                      // --jit: compile and run main() in-process
     bool expand_only = false;                    // --expand: run metaprog dispatch over input + render result back to Logos source (no codegen). Avoids stdlib build's circular-dep when derives reference each other (debt #22 alt B).
     bool test_mode   = false;                    // --test: build a test binary (synthesise main() that runs every `#[test]` fn under panic-recovery and prints a Rust-style summary).
+    bool stats_flag  = false;                    // --stats: print per-phase compile-time summary at end (also turns on inline phase trace).
     const char* emit_module_manifest = nullptr;  // --emit-module <manifest>
     std::string only_file;                       // --only-file <path>: per-file emit (B1.7)
     std::string dump_metaprog_dir;                // --dump-metaprog <dir>: write metafn-emitted ASTs as Logos source under <dir>/<callee>__<file>_<line>/post_quote.logos
@@ -2535,6 +2557,7 @@ int main(int argc, char** argv) {
                 return EXIT_USAGE;
             }
         }
+        else if (arg == "--stats") { stats_flag = true; }
         else if (arg == "--emit-mlir") { emit_mlir = true; }
         else if (arg == "--emit-llvm") { emit_llvm = true; }
         else if (arg == "--jit") { jit_run = true; }
@@ -2638,12 +2661,14 @@ int main(int argc, char** argv) {
     }
 
     const bool trace = std::getenv("LOGOS_TRACE_PHASES") != nullptr;
+    logos::compiler::CompileStats top_stats;
     auto t_start = std::chrono::steady_clock::now();
+    auto t_compile_start = t_start;
     auto report = [&](const char* label) {
-        if (!trace) return;
         auto now = std::chrono::steady_clock::now();
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - t_start).count();
-        std::fprintf(stderr, "[trace %6lldms] %s\n", (long long)ms, label);
+        if (stats_flag) top_stats.add(label, ms, -1);
+        if (trace) std::fprintf(stderr, "[trace %6lldms] %s\n", (long long)ms, label);
         t_start = now;
     };
     // ── Step 1-2: Load and parse all modules ────────────────────
@@ -3040,6 +3065,7 @@ int main(int argc, char** argv) {
         mopts.provenance_out = &ast_provenance;
         mopts.cfg_flags      = cfg_flags;  // Phase 2-4
         mopts.binary_symbols = binary_symbols;
+        mopts.stats_out      = stats_flag ? &top_stats : nullptr;
         if (logos::compiler::run_metaprog_dispatch(
                 asts, filenames, from_binary, pre_dispatch_entry_idx, mopts) != 0)
             return 1;
@@ -3848,6 +3874,55 @@ int main(int argc, char** argv) {
         sz += output_path;
         sz += " 2>/dev/null | awk '$1==\".text\" {printf \"[text-size] .text total=%s bytes\\n\", $2}'";
         std::system(sz.c_str());
+    }
+
+    // --stats: print a per-phase breakdown of compile time. Top-level phases
+    // are wall-clock-disjoint (sum to wall-clock); metaprog/metacall iters'
+    // sub-phases are NESTED inside the top-level "sema+lower (final)" sample,
+    // so we report them separately and label them as a subset.
+    if (stats_flag) {
+        auto total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - t_compile_start).count();
+        std::map<std::string, int64_t> top_by_label;
+        std::map<std::string, int>     top_count;
+        std::map<std::string, int64_t> iter_by_label;
+        std::map<std::string, int>     iter_count;
+        int64_t iter_total = 0;
+        int     max_iter   = -1;
+        for (auto& s : top_stats.samples) {
+            if (s.iter < 0) {
+                top_by_label[s.label] += s.ms;
+                top_count[s.label]    += 1;
+            } else {
+                iter_by_label[s.label] += s.ms;
+                iter_count[s.label]    += 1;
+                iter_total             += s.ms;
+                if (s.iter > max_iter) max_iter = s.iter;
+            }
+        }
+        auto rule = "─────────────────────────────────────────────";
+        std::fprintf(stderr, "%s\n", rule);
+        std::fprintf(stderr, "  --stats : phase timings (ms)\n");
+        std::fprintf(stderr, "%s\n", rule);
+        std::fprintf(stderr, "  Top-level pipeline   (sums to wall-clock)\n");
+        for (auto& [label, ms] : top_by_label) {
+            std::fprintf(stderr, "    %-26s %8lld  (×%d)\n",
+                         label.c_str(), (long long)ms, top_count[label]);
+        }
+        if (!iter_by_label.empty()) {
+            std::fprintf(stderr, "%s\n", rule);
+            std::fprintf(stderr, "  Metaprog/metacall iters  (NESTED inside above)\n");
+            std::fprintf(stderr, "  iterations: %d\n", max_iter + 1);
+            for (auto& [label, ms] : iter_by_label) {
+                std::fprintf(stderr, "    %-26s %8lld  (×%d)\n",
+                             label.c_str(), (long long)ms, iter_count[label]);
+            }
+            std::fprintf(stderr, "    %-26s %8lld\n",
+                         "iter slices subtotal", (long long)iter_total);
+        }
+        std::fprintf(stderr, "%s\n", rule);
+        std::fprintf(stderr, "  %-28s %8lld\n", "wall-clock total", (long long)total_ms);
+        std::fprintf(stderr, "%s\n", rule);
     }
 
     return 0;
