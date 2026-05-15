@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/option.rs (test_get_str)
+//
+// Modifications:
+// - `"test".to_string()` → `String::from_cstr("test".as_ptr())`
+//   (Logos's stdlib has `String::from_cstr` but not `&str.to_string()`
+//   as a free method; ToString trait blanket only does Display types).
+// - assert_eq! family imports via std.fmt + std.lang.text.
+//
+// Validates that wrapping a heap-allocated String in `Some(...)` then
+// `.unwrap()`-ing preserves the underlying buffer pointer (no
+// copy / no realloc).
+
+package test_option_get;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.option;
+
+#[test]
+fn test_get_str() {
+    let x: String = String::from_cstr("test".as_ptr());
+    let addr_x: *const u8 = x.as_ptr();
+    let opt: Option<String> = Some(x);
+    let y: String = opt.unwrap();
+    let addr_y: *const u8 = y.as_ptr();
+    assert_eq!(addr_x == addr_y, true);
+}
