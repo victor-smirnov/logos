@@ -1,0 +1,39 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/num/int_macros.rs
+//   (test_overflows, test_bitwise_operators — int_module!-expanded
+//    for i32)
+//
+// Modifications:
+// - `int_module!`-driven `$T` parametrisation flattened to i32 only.
+// - MAX/MIN constants inlined (Logos's `i32::MAX` constant isn't on
+//   the surface yet — literals used directly).
+// - `-2147483648i32` lexer-rejected (unary minus applies after the
+//   integer literal); MIN computed as `-2147483647 - 1`.
+// - assert_eq! family imports via std.fmt + std.lang.text.
+
+package test_i32_bitwise_overflow;
+
+use std.fmt;
+use std.lang.text;
+
+#[test]
+fn test_overflows() {
+    let max_i32: i32 = 2147483647i32;
+    let min_i32: i32 = -2147483647i32 - 1i32;
+    assert!(max_i32 > 0i32);
+    assert!(min_i32 <= 0i32);
+    assert_eq!(min_i32 + max_i32 + 1i32, 0i32);
+}
+
+#[test]
+fn test_bitwise_operators() {
+    // assert_eq!(0b1110, 0b1100.bitor(0b1010)) — Logos accepts the
+    // `|` / `&` / `^` operators directly on i32.
+    assert_eq!(0b1110i32, 0b1100i32 | 0b1010i32);
+    assert_eq!(0b1000i32, 0b1100i32 & 0b1010i32);
+    assert_eq!(0b0110i32, 0b1100i32 ^ 0b1010i32);
+    assert_eq!(0b1110i32, 0b0111i32 << 1i32);
+    assert_eq!(0b0111i32, 0b1110i32 >> 1i32);
+    // `!x` = `-x - 1` for two's complement signed.
+    assert_eq!(-(0b11i32) - 1i32, !(0b11i32));
+}
