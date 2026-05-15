@@ -1,0 +1,53 @@
+// SL-sl-05: DoubleEndedIterator trait + .rev() adapter.
+// Exercises:
+//   - DoubleEndedIterator impl on SliceIter (front+back twin cursor)
+//   - Trait-default .rev() returning RevIter
+//   - RevIter::next() pulls from back; RevIter::next_back() pulls from front
+
+package iter_rev_test;
+
+use std.lang.iter;
+use std.lang.option;
+use std.collections.vec;
+
+fn main() -> i32 {
+    let arr: [i32; 5] = [1i32, 2i32, 3i32, 4i32, 5i32];
+    unsafe {
+        // .rev() over SliceIter
+        let it = iter_over_slice(&arr).rev();
+        let v: Vec<i32> = it.collect::<Vec<i32>>();
+        if v.len != 5i64 { return 1i32; }
+        if v.ptr[0] != 5i32 { return 2i32; }
+        if v.ptr[1] != 4i32 { return 3i32; }
+        if v.ptr[2] != 3i32 { return 4i32; }
+        if v.ptr[3] != 2i32 { return 5i32; }
+        if v.ptr[4] != 1i32 { return 6i32; }
+
+        // next_back directly on SliceIter
+        let mut it2 = iter_over_slice(&arr);
+        match it2.next_back() {
+            Option::Some(x) => { if x != 5i32 { return 10i32; } }
+            Option::None    => { return 11i32; }
+        }
+        match it2.next() {
+            Option::Some(x) => { if x != 1i32 { return 12i32; } }
+            Option::None    => { return 13i32; }
+        }
+        match it2.next_back() {
+            Option::Some(x) => { if x != 4i32 { return 14i32; } }
+            Option::None    => { return 15i32; }
+        }
+
+        // sum of .rev() should still be 15
+        let mut it3_m = iter_over_slice(&arr).rev();
+        let mut sum: i32 = 0i32;
+        loop {
+            match it3_m.next() {
+                Option::None    => { break; }
+                Option::Some(x) => { sum = sum + x; }
+            }
+        }
+        if sum != 15i32 { return 20i32; }
+    }
+    return 0i32;
+}

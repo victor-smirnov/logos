@@ -178,7 +178,7 @@ impl<T> Vec<T> {
 
     // Return a read-only iterator over elements.
     pub fn iter(&self) -> VecIter<T> {
-        return VecIter { data: self.ptr as *const T, len: self.len, idx: 0};
+        return VecIter { data: self.ptr as *const T, len: self.len, idx: 0, back_idx: self.len };
     }
 
     // Return a mutable iterator yielding &mut T.
@@ -193,17 +193,31 @@ pub struct VecIter<T> {
     data: *const T,
     len:  i64,
     idx:  i64,
+    back_idx: i64,
 }
 
 impl<T> Iterator<T> for VecIter<T> {
     fn next(self: &mut VecIter<T>) -> Option<T> {
-        if self.idx >= self.len { 
-            return Option::None; 
+        if self.idx >= self.back_idx {
+            return Option::None;
         }
 
         unsafe {
             let val: T = self.data[self.idx];
             self.idx = self.idx + 1;
+            return Option::Some(val);
+        }
+    }
+}
+
+impl<T> DoubleEndedIterator<T> for VecIter<T> {
+    fn next_back(self: &mut VecIter<T>) -> Option<T> {
+        if self.idx >= self.back_idx {
+            return Option::None;
+        }
+        unsafe {
+            self.back_idx = self.back_idx - 1;
+            let val: T = self.data[self.back_idx];
             return Option::Some(val);
         }
     }
@@ -235,14 +249,14 @@ impl<T> Iterator<&mut T> for VecIterMut<T> {
 impl<T> IntoIterator<T> for Vec<T> {
     type Iter = VecIter<T>;
     fn into_iter(self: Vec<T>) -> VecIter<T> {
-        return VecIter { data: self.ptr as *const T, len: self.len, idx: 0 };
+        return VecIter { data: self.ptr as *const T, len: self.len, idx: 0, back_idx: self.len };
     }
 }
 
 impl<T> IntoIterator<T> for &Vec<T> {
     type Iter = VecIter<T>;
     fn into_iter(self: &Vec<T>) -> VecIter<T> {
-        return VecIter { data: self.ptr as *const T, len: self.len, idx: 0 };
+        return VecIter { data: self.ptr as *const T, len: self.len, idx: 0, back_idx: self.len };
     }
 }
 
