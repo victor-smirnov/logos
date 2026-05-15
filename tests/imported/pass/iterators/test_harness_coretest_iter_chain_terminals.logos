@@ -1,0 +1,42 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/iter/adapters/chain.rs
+//   (test_iterator_chain_count, test_iterator_chain_last)
+//
+// Modifications:
+// - `xs.iter().chain(&ys)` → free fn iter_chain (Logos's adapter
+//   takes both iterators by value + a zero sentinel).
+// - Empty-array `zs = []` cases dropped — Logos requires non-empty
+//   element-typed array literal at the let-binding (warns when not),
+//   and the empty-iter half is exercised elsewhere.
+// - assert_eq! family imports via std.fmt + std.lang.text.
+
+package test_iter_chain_terminals;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.iter;
+use std.lang.option;
+
+#[test]
+fn test_iterator_chain_count() {
+    let xs: [i32; 6] = [0i32, 1i32, 2i32, 3i32, 4i32, 5i32];
+    let ys: [i32; 4] = [30i32, 40i32, 50i32, 60i32];
+    unsafe {
+        let n: i64 = iter_chain::<SliceIter<i32>, SliceIter<i32>, i32>(
+            iter_over_slice(&xs), iter_over_slice(&ys), 0i32).count();
+        assert_eq!(n, 10i64);
+    }
+}
+
+#[test]
+fn test_iterator_chain_last() {
+    let xs: [i32; 6] = [0i32, 1i32, 2i32, 3i32, 4i32, 5i32];
+    let ys: [i32; 4] = [30i32, 40i32, 50i32, 60i32];
+    unsafe {
+        match iter_chain::<SliceIter<i32>, SliceIter<i32>, i32>(
+            iter_over_slice(&xs), iter_over_slice(&ys), 0i32).last() {
+            Option::Some(v) => { assert_eq!(v, 60i32); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+    }
+}
