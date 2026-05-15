@@ -12,6 +12,8 @@
 
 package std.lang.char;
 
+use std.lang.option;
+
 impl char {
     // ── ASCII range membership ────────────────────────────────────────────
     pub fn is_ascii(self: char) -> bool {
@@ -135,15 +137,15 @@ impl char {
     // (2..=36), or None if it isn't a valid digit. Matches Rust's
     // `char::to_digit(radix: u32) -> Option<u32>` shape.
 
-    pub fn to_digit(self: char, radix: u32) -> u32 {
+    pub fn to_digit(self: char, radix: u32) -> Option<u32> {
         let c: u32 = self as u32;
         let mut val: u32 = 0u32;
         if c >= 48u32 && c <= 57u32 { val = c - 48u32; }
         else if c >= 97u32 && c <= 122u32 { val = c - 97u32 + 10u32; }
         else if c >= 65u32 && c <= 90u32 { val = c - 65u32 + 10u32; }
-        else { return 4294967295u32; }   // sentinel: not a digit
-        if val >= radix { return 4294967295u32; }
-        return val;
+        else { return Option::None; }
+        if val >= radix { return Option::None; }
+        return Option::Some(val);
     }
 
     // ── UTF-8 byte length ─────────────────────────────────────────────────

@@ -1,0 +1,72 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
+//   library/coretests/tests/char.rs::test_to_digit, test_is_whitespace
+//
+// Coverage of char::to_digit's Option<u32> return shape (Logos upgrade
+// at 2026-05-15 — was a sentinel u32::MAX), plus is_whitespace including
+// the upstream U+2007 (figure space) probe.
+
+package test_coretest_char_to_digit_option;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.option;
+use std.lang.char;
+
+#[test]
+fn test_to_digit_option() {
+    // Some-arm — same shape as Rust assert_eq!(_.to_digit(_), Some(_)).
+    match '0'.to_digit(10u32) {
+        Option::Some(v) => { assert_eq!(v, 0u32); }
+        Option::None    => { assert!(false); }
+    }
+    match 'a'.to_digit(16u32) {
+        Option::Some(v) => { assert_eq!(v, 10u32); }
+        Option::None    => { assert!(false); }
+    }
+    match 'A'.to_digit(36u32) {
+        Option::Some(v) => { assert_eq!(v, 10u32); }
+        Option::None    => { assert!(false); }
+    }
+    match 'z'.to_digit(36u32) {
+        Option::Some(v) => { assert_eq!(v, 35u32); }
+        Option::None    => { assert!(false); }
+    }
+}
+
+#[test]
+fn test_to_digit_none() {
+    // None arms.
+    assert!('['.to_digit(36u32).is_none());
+    assert!('`'.to_digit(36u32).is_none());
+    assert!('{'.to_digit(36u32).is_none());
+    assert!('$'.to_digit(36u32).is_none());
+    assert!('@'.to_digit(16u32).is_none());
+    assert!('G'.to_digit(16u32).is_none());
+    assert!('g'.to_digit(16u32).is_none());
+    assert!(' '.to_digit(10u32).is_none());
+    assert!('/'.to_digit(10u32).is_none());
+    assert!(':'.to_digit(10u32).is_none());
+    assert!(':'.to_digit(11u32).is_none());
+}
+
+#[test]
+fn test_is_whitespace_ascii() {
+    assert!(' '.is_whitespace());
+    assert!('\t'.is_whitespace());
+    assert!('\n'.is_whitespace());
+    assert!(!'a'.is_whitespace());
+    assert!(!'_'.is_whitespace());
+}
+
+#[test]
+fn test_is_whitespace_u2007() {
+    // U+2007 FIGURE SPACE — Logos's is_whitespace includes it explicitly.
+    let figure_space: char = 0x2007u32 as char;
+    assert!(figure_space.is_whitespace());
+
+    let nbsp: char = 0x00A0u32 as char;
+    assert!(nbsp.is_whitespace());
+
+    let null_char: char = 0u32 as char;
+    assert!(!null_char.is_whitespace());
+}
