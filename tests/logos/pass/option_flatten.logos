@@ -9,13 +9,6 @@ package option_flatten_pass;
 
 use std.lang.option;
 
-fn option_flatten<T>(opt: Option<Option<T>>) -> Option<T> {
-    match opt {
-        Option::Some(inner) => { return inner; }
-        Option::None        => { return Option::None; }
-    }
-}
-
 fn main() -> i32 {
     let some_some: Option<Option<i32>> = Option::Some(Option::Some(42i32));
     match option_flatten::<i32>(some_some) {

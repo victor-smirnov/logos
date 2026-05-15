@@ -164,14 +164,13 @@ impl<T> Option<T> {
     }
 }
 
-// option_flatten — Option<Option<T>>::flatten. Disabled in stdlib for
-// now because it triggers a latent walk-loop crash during stdlib
-// emit-module — adding ANY function with `Option<Option<T>>` in the
-// signature (even with an empty body) causes lower_quote_expr's walk
-// to crash inside fmt.logos's assert! macro processing. Pre-existing
-// fragility; user code can declare its own option_flatten.
-// Compiler-side support for nested-generic-enum mangling +
-// tagged-enum payload layout is in place — see pass/option_flatten.logos.
+// Flatten a doubly-wrapped Option<Option<T>> into Option<T>.
+pub fn option_flatten<T>(opt: Option<Option<T>>) -> Option<T> {
+    match opt {
+        Option::Some(inner) => { return inner; }
+        Option::None        => { return Option::None; }
+    }
+}
 
 // Free-function shims for compat with pre-existing call-sites in stdlib
 // and earlier Logos tests. New code should prefer the method form.

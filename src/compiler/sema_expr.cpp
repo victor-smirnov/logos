@@ -11086,11 +11086,19 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
         }
         if (cd == la::CALL.code || cd == la::METHOD_CALL.code
             || cd == la::STATIC_CALL.code) {
-            // CALLEE is a single expr (CALL only); RECEIVER for METHOD_CALL/
-            // STATIC_CALL is also a single expr. ARGS is an ObjectArray of
-            // expr offsets; iterate each element.
+            // CALL has either CALLEE (an IDENT string — `foo(args)`) or
+            // NAME_VAR (antiquot — `#foo(args)`). Neither is a child
+            // expression: CALLEE is a leaf-string keyed by name; NAME_VAR
+            // gets registered via register_name_var. The pre-2026-05-14
+            // code recursed into CALLEE as if it were a TOM offset — when
+            // CALLEE pointed into an ArenaString that happened to look
+            // like a small offset (e.g. 462), `walk` crashed in
+            // TinyObjectMap::get on the string bytes.
+            //
+            // METHOD_CALL / STATIC_CALL RECEIVER is a real sub-expression.
             if (cd == la::CALL.code) {
-                if (!recurse_key(la::CALLEE.code)) return false;
+                if (!register_name_var(tom_off, /*ident_only=*/false))
+                    return false;
             } else {
                 if (!recurse_key(la::RECEIVER.code)) return false;
             }
