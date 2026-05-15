@@ -179,6 +179,51 @@ impl i32 {
     }
 }
 
+// Bit-rotation methods (mirror Rust's `rotate_left` / `rotate_right`).
+// Modular shift amount: rotation by `n` is equivalent to rotation by
+// `n % BITS`. Implementation: `(x << k) | (x >> (BITS - k))` with
+// the `k == 0` corner case avoided (shifting by `BITS` is UB).
+impl u32 {
+    pub fn rotate_left(self: u32, n: u32) -> u32 {
+        let k: u32 = n & 31u32;
+        if k == 0u32 { return self; }
+        return (self << k) | (self >> (32u32 - k));
+    }
+    pub fn rotate_right(self: u32, n: u32) -> u32 {
+        let k: u32 = n & 31u32;
+        if k == 0u32 { return self; }
+        return (self >> k) | (self << (32u32 - k));
+    }
+}
+impl i32 {
+    pub fn rotate_left(self: i32, n: u32) -> i32 {
+        return ((self as u32).rotate_left(n)) as i32;
+    }
+    pub fn rotate_right(self: i32, n: u32) -> i32 {
+        return ((self as u32).rotate_right(n)) as i32;
+    }
+}
+impl u64 {
+    pub fn rotate_left(self: u64, n: u32) -> u64 {
+        let k: u32 = n & 63u32;
+        if k == 0u32 { return self; }
+        return (self << k) | (self >> (64u32 - k));
+    }
+    pub fn rotate_right(self: u64, n: u32) -> u64 {
+        let k: u32 = n & 63u32;
+        if k == 0u32 { return self; }
+        return (self >> k) | (self << (64u32 - k));
+    }
+}
+impl i64 {
+    pub fn rotate_left(self: i64, n: u32) -> i64 {
+        return ((self as u64).rotate_left(n)) as i64;
+    }
+    pub fn rotate_right(self: i64, n: u32) -> i64 {
+        return ((self as u64).rotate_right(n)) as i64;
+    }
+}
+
 // Byte-swap / endianness conversions. Logos targets little-endian
 // x86_64, so:
 //   * to_le / from_le are identity
