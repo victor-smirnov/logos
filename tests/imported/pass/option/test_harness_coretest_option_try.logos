@@ -1,0 +1,41 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/option.rs (test_try)
+//
+// Modifications:
+// - `u8` payload → `i32` (matches the rest of the imported tests'
+//   default).
+// - `let val = None?;` form needs a type-annotated None local since
+//   `Option::<i32>::None` literal in this exact spot triggers the
+//   sibling-of-CP-cm-12 mono bug noted in B31.
+// - Nested fns lifted to top level (Logos doesn't yet support nested
+//   fn declarations inside a fn body the way Rust does).
+// - assert_eq! family imports via std.fmt + std.lang.text.
+
+package test_option_try;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.option;
+
+fn try_some() -> Option<i32> {
+    let val: i32 = Some(1i32)?;
+    return Some(val);
+}
+
+fn try_none() -> Option<i32> {
+    let n: Option<i32> = None;
+    let val: i32 = n?;
+    return Some(val);
+}
+
+#[test]
+fn test_try() {
+    match try_some() {
+        Option::Some(v) => { assert_eq!(v, 1i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+    match try_none() {
+        Option::Some(_) => { assert_eq!(true, false); }
+        Option::None    => { }
+    }
+}
