@@ -84,6 +84,22 @@ impl<T> Option<T> {
         }
     }
 
+    // Returns `default` (if None) or applies `f` to the contained Some value.
+    pub fn map_or<U>(self: Option<T>, default: U, f: fn(T) -> U) -> U {
+        match self {
+            Option::Some(v) => { return f(v); }
+            Option::None    => { return default; }
+        }
+    }
+
+    // Computes a default from `dfl` if None, else applies `f`.
+    pub fn map_or_else<U>(self: Option<T>, dfl: fn() -> U, f: fn(T) -> U) -> U {
+        match self {
+            Option::Some(v) => { return f(v); }
+            Option::None    => { return dfl(); }
+        }
+    }
+
     // Returns None if self is None, otherwise returns `optb`.
     pub fn and<U>(self: Option<T>, optb: Option<U>) -> Option<U> {
         match self {

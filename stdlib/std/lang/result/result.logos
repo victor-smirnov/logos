@@ -114,6 +114,22 @@ impl<T, E> Result<T, E> {
         }
     }
 
+    // Returns `default` (if Err) or applies `f` to the contained Ok value.
+    pub fn map_or<U>(self: Result<T, E>, default: U, f: fn(T) -> U) -> U {
+        match self {
+            Result::Ok(v)  => { return f(v); }
+            Result::Err(_) => { return default; }
+        }
+    }
+
+    // Maps a Result<T,E> to U by applying `f` to Ok, or `dfl` to Err.
+    pub fn map_or_else<U>(self: Result<T, E>, dfl: fn(E) -> U, f: fn(T) -> U) -> U {
+        match self {
+            Result::Ok(v)  => { return f(v); }
+            Result::Err(e) => { return dfl(e); }
+        }
+    }
+
     pub fn and<U>(self: Result<T, E>, res: Result<U, E>) -> Result<U, E> {
         match self {
             Result::Ok(_)  => { return res; }

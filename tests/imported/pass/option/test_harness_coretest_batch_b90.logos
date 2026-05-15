@@ -1,0 +1,78 @@
+// Multi-source coretest batch (B90), imported from
+// rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7.
+//
+// Covers Option::map_or / Option::map_or_else and Result::map_or /
+// Result::map_or_else — the four "default-on-empty/error + map-on-value"
+// combinators.
+//
+//   option.rs::test_map_or
+//   option.rs::test_map_or_else
+//   result.rs::test_map_or
+//   result.rs::test_map_or_else
+
+package test_batch_b90;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.option;
+use std.lang.result;
+
+fn dbl(x: i32) -> i32     { return x + x; }
+fn nine()    -> i32       { return 9i32; }
+fn from_err(e: i32) -> i32 { return e + 100i32; }
+
+#[test]
+fn test_option_map_or_some() {
+    let a: Option<i32> = Some(7i32);
+    let r: i32 = a.map_or(0i32, dbl);
+    assert_eq!(r, 14i32);
+}
+
+#[test]
+fn test_option_map_or_none() {
+    let a: Option<i32> = None;
+    let r: i32 = a.map_or(0i32, dbl);
+    assert_eq!(r, 0i32);
+}
+
+#[test]
+fn test_option_map_or_else_some() {
+    let a: Option<i32> = Some(3i32);
+    let r: i32 = a.map_or_else(nine, dbl);
+    assert_eq!(r, 6i32);
+}
+
+#[test]
+fn test_option_map_or_else_none() {
+    let a: Option<i32> = None;
+    let r: i32 = a.map_or_else(nine, dbl);
+    assert_eq!(r, 9i32);
+}
+
+#[test]
+fn test_result_map_or_ok() {
+    let a: Result<i32, i32> = Ok(7i32);
+    let r: i32 = a.map_or(0i32, dbl);
+    assert_eq!(r, 14i32);
+}
+
+#[test]
+fn test_result_map_or_err() {
+    let a: Result<i32, i32> = Err(5i32);
+    let r: i32 = a.map_or(0i32, dbl);
+    assert_eq!(r, 0i32);
+}
+
+#[test]
+fn test_result_map_or_else_ok() {
+    let a: Result<i32, i32> = Ok(3i32);
+    let r: i32 = a.map_or_else(from_err, dbl);
+    assert_eq!(r, 6i32);
+}
+
+#[test]
+fn test_result_map_or_else_err() {
+    let a: Result<i32, i32> = Err(5i32);
+    let r: i32 = a.map_or_else(from_err, dbl);
+    assert_eq!(r, 105i32);
+}
