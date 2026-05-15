@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/cmp.rs (test_ordering_reverse)
+//
+// Modifications:
+// - `Less` / `Equal` / `Greater` → `Ordering::Less` / `::Equal` /
+//   `::Greater` (Logos uses fully-qualified variant paths).
+// - `.cmp()` not used here; only `.reverse()`.
+// - .then / .then_with / `Less < Equal` cross-variant comparison
+//   tests deferred (not on the Ordering surface yet).
+// - assert_eq! family imports via std.fmt + std.lang.text.
+
+package test_ordering_reverse;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.ord;
+
+#[test]
+fn test_ordering_reverse() {
+    assert_eq!(Ordering::Less.reverse(),    Ordering::Greater);
+    assert_eq!(Ordering::Equal.reverse(),   Ordering::Equal);
+    assert_eq!(Ordering::Greater.reverse(), Ordering::Less);
+}
