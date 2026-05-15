@@ -1,0 +1,94 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/iter/traits/double_ended.rs
+//   (test_rposition, test_rev_rposition)
+//
+// Modifications:
+// - `v.iter().rposition(f)` → `iter_rposition::<SliceIter<i32>,
+//   i32>(iter_over_slice(&v), f)`. Free fn rather than trait-default
+//   method because trait-default with a method-level supertrait
+//   bound on Self isn't reliably dispatching yet.
+// - assert_eq! family imports via std.fmt + std.lang.text.
+//
+// Stdlib companion: `iter_rposition<I: DEI<T> + ESI<T>, T>(iter,
+// pred) -> Option<i64>` free fn in std/lang/iter/iter.logos.
+// Walks from the back, counts the position down from len-1.
+
+package test_iter_rposition;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.iter;
+use std.lang.option;
+
+fn eq_3(x: i32)  -> bool { return x == 3i32; }
+fn eq_5(x: i32)  -> bool { return x == 5i32; }
+fn eq_99(x: i32) -> bool { return x == 99i32; }
+fn is_b(x: i32)  -> bool { return x == 1i32; }  // adapted tuple→i32 form
+fn is_even(x: i32) -> bool { return (x % 2i32) == 0i32; }
+
+#[test]
+fn test_rposition_first_hit() {
+    let v: [i32; 5] = [1i32, 3i32, 3i32, 4i32, 3i32];
+    unsafe {
+        // Last 3 is at index 4.
+        match iter_rposition::<SliceIter<i32>, i32>(iter_over_slice(&v), eq_3) {
+            Option::Some(i) => { assert_eq!(i, 4i64); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+    }
+}
+
+#[test]
+fn test_rposition_no_match() {
+    let v: [i32; 5] = [1i32, 3i32, 3i32, 4i32, 3i32];
+    unsafe {
+        // 5 isn't present.
+        match iter_rposition::<SliceIter<i32>, i32>(iter_over_slice(&v), eq_5) {
+            Option::Some(_) => { assert_eq!(true, false); }
+            Option::None    => { }
+        }
+        // 99 also not present.
+        match iter_rposition::<SliceIter<i32>, i32>(iter_over_slice(&v), eq_99) {
+            Option::Some(_) => { assert_eq!(true, false); }
+            Option::None    => { }
+        }
+    }
+}
+
+#[test]
+fn test_rposition_index_zero() {
+    let v: [i32; 5] = [5i32, 3i32, 3i32, 4i32, 3i32];
+    unsafe {
+        // 5 is at index 0 — rposition walks back, finds it last.
+        match iter_rposition::<SliceIter<i32>, i32>(iter_over_slice(&v), eq_5) {
+            Option::Some(i) => { assert_eq!(i, 0i64); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+    }
+}
+
+#[test]
+fn test_rposition_even() {
+    // From upstream's test_rev_rposition spirit — find last even.
+    let v: [i32; 5] = [1i32, 3i32, 4i32, 7i32, 6i32];
+    unsafe {
+        // Last even is 6 at index 4.
+        match iter_rposition::<SliceIter<i32>, i32>(iter_over_slice(&v), is_even) {
+            Option::Some(i) => { assert_eq!(i, 4i64); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+    }
+}
+
+#[test]
+fn test_rposition_empty() {
+    let v: [i32; 1] = [0i32];
+    unsafe {
+        // Empty slice via take(0).
+        let empty_it = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&v), 0i64, 0i32);
+        match iter_rposition::<TakeIter<SliceIter<i32>, i32>, i32>(empty_it, eq_3) {
+            Option::Some(_) => { assert_eq!(true, false); }
+            Option::None    => { }
+        }
+    }
+}

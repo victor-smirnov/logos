@@ -417,6 +417,32 @@ pub trait DoubleEndedIterator<Item>: Iterator<Item> {
     }
 }
 
+// `iter_rposition` — like `.position` but walking from the back.
+// Returns the index (counted from the start of the original
+// iterator) of the first item for which `pred` returns true when
+// iterating from the back, else None. Requires the iter be both
+// DEI and ExactSize so we can convert the "back-th item from the
+// end" into a forward index. Free fn because trait-default with
+// a method-level supertrait on `Self` isn't reliably dispatching.
+pub fn iter_rposition<I: DoubleEndedIterator<T> + ExactSizeIterator<T>, T>(
+    iter: I, pred: fn(T) -> bool,
+) -> Option<i64> {
+    let mut it: I = iter;
+    let n: i64 = it.len();
+    if n == 0 as i64 { return Option::None; }
+    let mut i: i64 = n - 1 as i64;
+    loop {
+        match it.next_back() {
+            Option::None    => { return Option::None; }
+            Option::Some(v) => {
+                if pred(v) { return Option::Some(i); }
+                if i == 0 as i64 { return Option::None; }
+                i = i - 1 as i64;
+            }
+        }
+    }
+}
+
 // ── ExactSizeIterator ────────────────────────────────────────────────────────
 //
 // SL-sl-05: an iterator that knows its remaining length exactly.
