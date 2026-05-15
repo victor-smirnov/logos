@@ -2350,6 +2350,16 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             lir_view::PatVariantDataView pvd{pat_ref};
             std::vector<std::string> bindings;
             pvd.each_binding([&](std::string_view n){ bindings.emplace_back(n); });
+            // SL-sl-03 follow-up: per-binding override types from
+            // `Option::Some(ref v)` / `ref mut v` patterns — sema wraps
+            // the corresponding `binding_types` slot with Ref / MutRef.
+            // When set, codegen returns the payload field's GEP address
+            // and types the binding as a ref so subsequent `*v` reads
+            // (or `*v = x` writes for &mut) hit the original payload
+            // slot rather than a value copy.
+            std::vector<TypeRef> pvd_binding_types;
+            pvd.each_binding_type(pool_impl(),
+                [&](TypeRef t){ pvd_binding_types.push_back(t); });
             int64_t pvd_disc = pvd.disc();
             if (te_info && scrut_ptr) {
                 llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
@@ -2376,6 +2386,36 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                              TypeRef(lt).kind() == LogosType::Kind::Tuple ||
                              TypeRef(lt).kind() == LogosType::Kind::Slice ||
                              TypeRef(lt).kind() == LogosType::Kind::Closure);
+                        // `ref v` / `ref mut v` binding — sema wraps
+                        // pvd_binding_types[bi] in Ref/MutRef while the
+                        // underlying variant payload type stays bare.
+                        // (For Opt<&T>'s Some(plain r), pvd is Ref but
+                        // so is the payload — not a ref-pattern.)
+                        bool is_ref_bind = false;
+                        if (bi < pvd_binding_types.size() && pvd_binding_types[bi]) {
+                            auto ot = TypeRef(pvd_binding_types[bi]);
+                            auto pt = bi < vp->logos_types.size()
+                                ? TypeRef(vp->logos_types[bi]) : TypeRef{};
+                            bool pvd_is_ref = ot.kind() == LogosType::Kind::Ref ||
+                                              ot.kind() == LogosType::Kind::MutRef;
+                            bool payload_is_ref = pt &&
+                                (pt.kind() == LogosType::Kind::Ref ||
+                                 pt.kind() == LogosType::Kind::MutRef);
+                            if (pvd_is_ref && !payload_is_ref) is_ref_bind = true;
+                        }
+                        if (is_ref_bind) {
+                            // Bind as an alloca holding the GEP address,
+                            // typed as ptr_type so let-var lookup loads
+                            // the address for use. `*ref_binding` then
+                            // dereferences through the original slot.
+                            auto alloca = create_entry_alloca(ptr_type());
+                            builder_.create<mlir::LLVM::StoreOp>(loc_, fp, alloca);
+                            scope_[bindings[bi]] = alloca;
+                            let_vars_.insert(bindings[bi]);
+                            var_elem_types_[bindings[bi]] = ptr_type();
+                            added.push_back(bindings[bi]);
+                            continue;
+                        }
                         if (is_inline_struct &&
                             (TypeRef(lt).kind() == LogosType::Kind::Struct ||
                              TypeRef(lt).kind() == LogosType::Kind::ZonedStruct)) {

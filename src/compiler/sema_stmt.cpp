@@ -2087,6 +2087,12 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             }
             for (auto& s : by_pos) bindings.push_back(std::move(s));
         }
+        // Per-binding IS_REF / IS_MUT flags from `ref v` / `ref mut v`
+        // sub-patterns inside variant data — parallel to `bindings`,
+        // consulted below to wrap the corresponding binding_types with
+        // Ref/MutRef so codegen materialises the payload by-address.
+        std::vector<bool> binding_is_ref;
+        std::vector<bool> binding_is_mut;
         if (!pat_is_struct_shape && pnode.has_key(la::ARGS)) {
             AnyVal aav = pnode.get(la::ARGS.code);
             if (!aav.is_null() && aav.is_pointer()) {
@@ -2104,7 +2110,15 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                         if (bc == la::PAT_UNIT) continue;  // () unit — no binding
                         if (bc == la::PAT_WILD) {
                             if (!bnode.has_key(la::NAME)) continue;
+                            bool is_ref = bnode.has_key(la::IS_REF) &&
+                                          bnode.get(la::IS_REF.code).is_value() &&
+                                          bnode.get(la::IS_REF.code).as_value<uint8_t>() != 0;
+                            bool is_mut = bnode.has_key(la::IS_MUT) &&
+                                          bnode.get(la::IS_MUT.code).is_value() &&
+                                          bnode.get(la::IS_MUT.code).as_value<uint8_t>() != 0;
                             bindings.push_back(std::string(str_of(bnode.get(la::NAME.code))));
+                            binding_is_ref.push_back(is_ref);
+                            binding_is_mut.push_back(is_ref && is_mut);
                             continue;
                         }
                         // P4-pm-02: nested struct/tuple pattern inside
@@ -2182,11 +2196,23 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         // the bare-variant form. `binding_types` filters Void out, so
         // a `Right<U=()>` ends up with 0 expected bindings; if the
         // user supplied exactly one `_`, drop it silently.
-        if (binding_types.empty() && bindings.size() == 1 && bindings[0] == "_")
+        if (binding_types.empty() && bindings.size() == 1 && bindings[0] == "_") {
             bindings.clear();
+            binding_is_ref.clear();
+            binding_is_mut.clear();
+        }
         if (bindings.size() != binding_types.size())
             error(std::format("pattern {}::{}: expected {} bindings, got {}",
                   pename, pvname, binding_types.size(), bindings.size()));
+        // SL-sl-03 follow-up: wrap binding_types in Ref/MutRef for any
+        // PAT_WILD with `ref` / `ref mut`. mlir_gen detects this and
+        // returns the payload field's GEP address rather than a load,
+        // so the binding actually references the original payload slot.
+        for (size_t k = 0; k < binding_types.size() && k < binding_is_ref.size(); ++k) {
+            if (binding_is_ref[k] && binding_types[k]) {
+                binding_types[k] = make_ref(binding_is_mut[k], binding_types[k]);
+            }
+        }
         auto mo = lir_mirror_emit_pat_variant_data(
             *cur_prog_, pename, pvname, disc, bindings, binding_types);
         lir::Pattern p_;

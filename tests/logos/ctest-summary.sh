@@ -18,7 +18,7 @@ set -u
 LOG=$(mktemp -t ctest.XXXXXX.log)
 trap 'rm -f "$LOG"' EXIT
 
-ctest -j8 --output-on-failure "$@" 2>&1 | tee "$LOG" > /dev/null
+ctest -j12 --output-on-failure "$@" 2>&1 | tee "$LOG" > /dev/null
 EXIT=${PIPESTATUS[0]}
 
 echo "=== Failures ==="
