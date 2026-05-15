@@ -246,6 +246,21 @@ impl<T> IntoIterator<T> for &Vec<T> {
     }
 }
 
+// ── FromIterator impl ─────────────────────────────────────────────────────────
+
+impl<T> FromIterator<T> for Vec<T> {
+    fn from_iter<I: Iterator<T>>(iter: I) -> Vec<T> {
+        let mut v: Vec<T> = vec_new::<T>();
+        let mut it: I = iter;
+        loop {
+            match it.next() {
+                Option::None    => { return v; }
+                Option::Some(x) => { v.push(x); }
+            }
+        }
+    }
+}
+
 // Linear-search contains; requires T: Eq (free function to avoid bound on main impl).
 pub fn vec_contains<T: Eq>(v: &Vec<T>, val: &T) -> bool {
     let mut i: i64 = 0;        
