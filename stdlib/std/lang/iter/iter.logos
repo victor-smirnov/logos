@@ -418,6 +418,36 @@ pub unsafe fn iter_inspect<I: Iterator<T>, T>(iter: I, visit: fn(T) -> (), zero:
 // slot correctly (separate from the standalone-match-scrutinee ref-v
 // path that works in this same TU).
 
+// ── CycleIter<I, T> — repeat the source iterator forever ─────────────────────
+//
+// Stores the original (Clone'd on construction) plus the active copy.
+// When the active copy yields None, refresh it by cloning the original
+// and try again. `I: Clone` bound — Logos's stdlib clone trait already
+// auto-impl'd for primitives + via #[derive_clone] for structs.
+
+pub struct CycleIter<I, T> {
+    pub orig: I,
+    pub active: I,
+    pub _t: T,
+}
+
+impl<I: Iterator<T> + Clone, T> Iterator<T> for CycleIter<I, T> {
+    fn next(self: &mut CycleIter<I, T>) -> Option<T> {
+        match self.active.next() {
+            Option::Some(v) => { return Option::Some(v); }
+            Option::None    => {
+                self.active = self.orig.clone();
+                return self.active.next();
+            }
+        }
+    }
+}
+
+pub unsafe fn iter_cycle<I: Iterator<T> + Clone, T>(iter: I, zero: T) -> CycleIter<I, T> {
+    let copy: I = iter.clone();
+    return CycleIter { orig: iter, active: copy, _t: zero };
+}
+
 // ── EnumIter<I, T> — pair each item with its index ───────────────────────────
 
 pub struct EnumPair<T> {

@@ -1,0 +1,43 @@
+// SL-sl-05: `CycleIter<I, T>` — adapter that repeats `iter` forever.
+// Requires `I: Clone`; user struct uses `#[derive_clone]` from
+// std.compiler.metaprog to satisfy the bound. The trait engine's
+// supertrait check now resolves `I: Iterator<T> + Clone` against an
+// `impl Clone for Counter` emitted by the metaprog hook.
+
+package iter_cycle_test;
+
+use std.compiler.metaprog;
+use std.lang.clone;
+use std.lang.iter;
+use std.lang.option;
+
+#[derive_clone]
+struct Counter { cur: i32, max: i32 }
+
+impl Iterator<i32> for Counter {
+    fn next(self: &mut Counter) -> Option<i32> {
+        if self.cur >= self.max { return Option::None; }
+        let v: i32 = self.cur;
+        self.cur = self.cur + 1i32;
+        return Option::Some(v);
+    }
+}
+
+fn main() -> i32 {
+    let c: Counter = Counter { cur: 0i32, max: 3i32 };
+    unsafe {
+        let mut it = iter_cycle::<Counter, i32>(c, 0i32);
+        // Sequence: 0, 1, 2, 0, 1, 2, 0, 1, ... — sum of first 8 = 7.
+        let mut sum: i32 = 0i32;
+        let mut i: i32 = 0i32;
+        while i < 8i32 {
+            match it.next() {
+                Option::Some(v) => { sum = sum + v; }
+                Option::None    => { return 1i32; }
+            }
+            i = i + 1i32;
+        }
+        if sum != 7i32 { return 2i32; }
+    }
+    return 0i32;
+}
