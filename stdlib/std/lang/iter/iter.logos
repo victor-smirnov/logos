@@ -770,6 +770,35 @@ pub fn iter_once<T>(val: T) -> OnceIter<T> {
     return OnceIter { consumed: false, val: val };
 }
 
+// ── OptionIter<T> — 0-or-1-element iterator over an Option<T> ────────────────
+//
+// Backing iterator for `impl<T> IntoIterator<T> for Option<T>` —
+// matches Rust's `impl<T> IntoIterator for Option<T>` shape.
+// `.next()` takes the cached Option, leaving None behind.
+
+pub struct OptionIter<T> {
+    pub state: Option<T>,
+}
+
+impl<T> Iterator<T> for OptionIter<T> {
+    fn next(self: &mut OptionIter<T>) -> Option<T> {
+        return self.state.take();
+    }
+}
+
+impl<T> DoubleEndedIterator<T> for OptionIter<T> {
+    fn next_back(self: &mut OptionIter<T>) -> Option<T> {
+        return self.state.take();
+    }
+}
+
+impl<T> IntoIterator<T> for Option<T> {
+    type Iter = OptionIter<T>;
+    fn into_iter(self: Option<T>) -> OptionIter<T> {
+        return OptionIter { state: self };
+    }
+}
+
 pub struct EmptyIter<T> { pub _t: T }
 
 impl<T> Iterator<T> for EmptyIter<T> {
