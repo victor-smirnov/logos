@@ -50,6 +50,18 @@ fn test_ordering_then_with() {
 }
 
 #[test]
+fn test_ordering_order() {
+    // Upstream test_ordering_order — `assert!(Less < Equal)`.
+    // Ordering's discriminant ordering in Logos matches Rust
+    // (Less=0, Equal=1, Greater=2), so `<` works on variants.
+    assert!(Ordering::Less    < Ordering::Equal);
+    assert!(Ordering::Equal   < Ordering::Greater);
+    assert!(Ordering::Less    < Ordering::Greater);
+    assert!(!(Ordering::Equal < Ordering::Less));
+    assert!(!(Ordering::Greater < Ordering::Equal));
+}
+
+#[test]
 fn test_ordering_predicates() {
     // Smoke for is_lt / is_le / is_eq / is_ne / is_gt / is_ge.
     assert!(Ordering::Less.is_lt());
