@@ -1,0 +1,41 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/iter/adapters/map.rs
+//   (test_double_ended_map subset — front-only)
+//
+// Modifications:
+// - `xs.iter().map(|&x| x * -1)` → `iter_map::<…>(iter_over_slice(&xs),
+//   fn_ptr)`. Closures aren't yet fn-ptrs at the trait-default-method
+//   site without explicit fn-ptr signatures; using the free fn is the
+//   canonical entry.
+// - DEI half (`next_back`) deferred — MapIter doesn't yet impl
+//   DoubleEndedIterator (separate SL-sl gap).
+// - assert_eq! family imports via std.fmt + std.lang.text.
+
+package test_iter_map;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.iter;
+use std.lang.option;
+
+fn negate(x: i32) -> i32 { return 0i32 - x; }
+
+#[test]
+fn test_iterator_map() {
+    let xs: [i32; 6] = [1i32, 2i32, 3i32, 4i32, 5i32, 6i32];
+    let want: [i32; 6] = [-1i32, -2i32, -3i32, -4i32, -5i32, -6i32];
+    unsafe {
+        let mut it = iter_map::<SliceIter<i32>, i32, i32>(iter_over_slice(&xs), negate);
+        let mut i: i32 = 0i32;
+        loop {
+            match it.next() {
+                Option::None    => { break; }
+                Option::Some(x) => {
+                    assert_eq!(x, want[i]);
+                    i = i + 1i32;
+                }
+            }
+        }
+        assert_eq!(i, 6i32);
+    }
+}

@@ -1,0 +1,56 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/iter/adapters/filter.rs
+//
+// Modifications:
+// - `xs.iter().filter(...)` → `iter_filter::<SliceIter<i32>, i32>(
+//   iter_over_slice(&xs), |x| ... )` (Logos closures don't yet
+//   coerce to fn-ptrs at trait-default-method args without explicit
+//   types; the free-fn form is the supported entry point).
+// - `xs.iter().filter(...).fold(0, |i, &x| ...)` follow-up uses
+//   `iter_fold::<…>(iter, init, f)` for the same reason.
+// - DEI / `.rfold` / `try_fold` / `try_rfold` deferred — FilterIter
+//   doesn't currently impl DoubleEndedIterator (separate SL-sl gap).
+// - assert_eq! family imports via std.fmt + std.lang.text.
+
+package test_iter_filter;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.iter;
+use std.lang.option;
+
+#[test]
+fn test_iterator_filter_count() {
+    let xs: [i32; 9] = [0i32, 1i32, 2i32, 3i32, 4i32, 5i32, 6i32, 7i32, 8i32];
+    unsafe {
+        let n: i64 = iter_filter::<SliceIter<i32>, i32>(
+            iter_over_slice(&xs),
+            |x: i32| -> bool { return (x % 2i32) == 0i32; }
+        ).count();
+        assert_eq!(n, 5i64);
+    }
+}
+
+#[test]
+fn test_iterator_filter_fold() {
+    let xs: [i32; 9] = [0i32, 1i32, 2i32, 3i32, 4i32, 5i32, 6i32, 7i32, 8i32];
+    let ys: [i32; 5] = [0i32, 2i32, 4i32, 6i32, 8i32];
+    unsafe {
+        let it = iter_filter::<SliceIter<i32>, i32>(
+            iter_over_slice(&xs),
+            |x: i32| -> bool { return (x % 2i32) == 0i32; }
+        );
+        // Sum even values: 0+2+4+6+8 = 20. Use this as a stand-in
+        // for Rust's index-marching fold (no closure-captured locals
+        // in Logos's free-fn fold form).
+        let s: i32 = iter_fold::<FilterIter<SliceIter<i32>, i32>, i32, i32>(
+            it, 0i32, |acc: i32, x: i32| -> i32 { return acc + x; }
+        );
+        assert_eq!(s, 20i32);
+        // Sanity: the ys array sums to the same.
+        let mut want: i32 = 0i32;
+        let mut i: i32 = 0i32;
+        while i < 5i32 { want = want + ys[i]; i = i + 1i32; }
+        assert_eq!(want, 20i32);
+    }
+}
