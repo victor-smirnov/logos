@@ -851,6 +851,28 @@ pub unsafe fn iter_enumerate<I: Iterator<T>, T>(iter: I, zero: T) -> EnumIter<I,
     return EnumIter { inner: iter, idx: 0 as i64, _t: zero };
 }
 
+// DEI: yields (position, value) from the back. The position is
+// computed as `self.idx + inner.len()` after the back-pull —
+// since inner's remaining items are at original positions
+// [idx .. idx + inner.len()) and the pulled item was at the
+// upper end of that range.
+impl<I: DoubleEndedIterator<T> + ExactSizeIterator<T>, T> DoubleEndedIterator<EnumPair<T>> for EnumIter<I, T> {
+    fn next_back(self: &mut EnumIter<I, T>) -> Option<EnumPair<T>> {
+        let pulled: Option<T> = self.inner.next_back();
+        match pulled {
+            Option::None    => { return Option::None; }
+            Option::Some(v) => {
+                let pos: i64 = self.idx + self.inner.len();
+                return Option::Some(EnumPair { idx: pos, val: v });
+            }
+        }
+    }
+}
+
+impl<I: ExactSizeIterator<T>, T> ExactSizeIterator<EnumPair<T>> for EnumIter<I, T> {
+    fn len(&self) -> i64 { return self.inner.len(); }
+}
+
 // ── ChainIter<A, B, T> — concatenate two iterators of the same Item ──────────
 
 pub struct ChainIter<A, B, T> {
