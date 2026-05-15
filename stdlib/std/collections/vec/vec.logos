@@ -223,6 +223,10 @@ impl<T> DoubleEndedIterator<T> for VecIter<T> {
     }
 }
 
+impl<T> ExactSizeIterator<T> for VecIter<T> {
+    fn len(&self) -> i64 { return self.back_idx - self.idx; }
+}
+
 // ── VecIterMut<T> ─────────────────────────────────────────────────────────────
 
 pub struct VecIterMut<T> {

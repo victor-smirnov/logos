@@ -1,0 +1,73 @@
+// Multi-source coretest batch (B60) — ExactSizeIterator + TakeIter DEI.
+//
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7.
+//
+// Validates:
+//   * std/lang/iter: new trait `ExactSizeIterator<Item>: Iterator<Item>`
+//     with `.len(&self) -> i64`. Impls on SliceIter / VecIter /
+//     TakeIter (delegates to inner).
+//   * std/lang/iter: `impl DoubleEndedIterator for TakeIter<…>` —
+//     requires inner: ExactSizeIterator so it knows how much to
+//     drop off the back to align with the take cap.
+//
+// Source paths:
+//   iter/adapters/take.rs::test_double_ended_take (next_back over
+//     take(N) of a longer source)
+//   iter/adapters/take.rs::test_iterator_take_len_smoke
+//     (ExactSizeIterator on TakeIter)
+//   iter/traits/iterator.rs::test_iterator_len (already covered
+//     elsewhere — quick smoke here for new ESI impl)
+//
+// assert_eq! macros via std.fmt + std.lang.text.
+
+package test_iter_batch_b60_esi_take_dei;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.iter;
+use std.lang.option;
+
+#[test]
+fn test_double_ended_take() {
+    // Take 3 from a 5-element source. Forward: 1, 2, 3.
+    // Backward: 3, 2, 1 (drops 5 and 4 off the back first to align
+    // with the take cap, then pulls next_back from the inner).
+    let xs: [i32; 5] = [1i32, 2i32, 3i32, 4i32, 5i32];
+    unsafe {
+        let mut it = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&xs), 3i64, 0i32);
+        match it.next_back() { Option::Some(v) => { assert_eq!(v, 3i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next_back() { Option::Some(v) => { assert_eq!(v, 2i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next()      { Option::Some(v) => { assert_eq!(v, 1i32); } Option::None => { assert_eq!(true, false); } }
+        match it.next_back() { Option::Some(_) => { assert_eq!(true, false); } Option::None => { } }
+    }
+}
+
+#[test]
+fn test_iterator_take_len_smoke() {
+    let xs: [i32; 6] = [10i32, 20i32, 30i32, 40i32, 50i32, 60i32];
+    unsafe {
+        let mut it = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&xs), 4i64, 0i32);
+        assert_eq!(it.len(), 4i64);
+        it.next();
+        assert_eq!(it.len(), 3i64);
+        it.next();
+        assert_eq!(it.len(), 2i64);
+    }
+}
+
+#[test]
+fn test_slice_iter_len() {
+    let xs: [i32; 5] = [10i32, 20i32, 30i32, 40i32, 50i32];
+    unsafe {
+        let mut it = iter_over_slice(&xs);
+        assert_eq!(it.len(), 5i64);
+        it.next();
+        assert_eq!(it.len(), 4i64);
+        it.next_back();
+        assert_eq!(it.len(), 3i64);
+        it.next();
+        it.next();
+        it.next();
+        assert_eq!(it.len(), 0i64);
+    }
+}

@@ -285,6 +285,18 @@ pub trait DoubleEndedIterator<Item>: Iterator<Item> {
     }
 }
 
+// ── ExactSizeIterator ────────────────────────────────────────────────────────
+//
+// SL-sl-05: an iterator that knows its remaining length exactly.
+// Matches Rust's `core::iter::ExactSizeIterator`. Used by adapters
+// like TakeIter / EnumIter that need to align front/back from a
+// known back-position. No `is_empty` default — caller checks `len`
+// against 0 explicitly.
+
+pub trait ExactSizeIterator<Item>: Iterator<Item> {
+    fn len(&self) -> i64;
+}
+
 // ── RevIter<I, T> — swap-ends adapter on a DoubleEndedIterator ───────────────
 //
 // `next()` pulls from the source's back; `next_back()` pulls from
@@ -415,6 +427,36 @@ impl<I: Iterator<T>, T> Iterator<T> for TakeIter<I, T> {
 
 pub unsafe fn iter_take<I: Iterator<T>, T>(iter: I, n: i64, zero: T) -> TakeIter<I, T> {
     return TakeIter { inner: iter, remaining: n, _t: zero };
+}
+
+// DEI: requires inner: ExactSizeIterator so we know how much to
+// drop from the back to align with the take-cap. If inner.len() <=
+// remaining, the back yields directly from inner. Otherwise we
+// drop `inner.len() - remaining` items off the back first, then
+// pull next_back. Tracks remaining the same way forward does.
+impl<I: DoubleEndedIterator<T> + ExactSizeIterator<T>, T> DoubleEndedIterator<T> for TakeIter<I, T> {
+    fn next_back(self: &mut TakeIter<I, T>) -> Option<T> {
+        if self.remaining <= 0 as i64 { return Option::None; }
+        let inner_len: i64 = self.inner.len();
+        if inner_len > self.remaining {
+            let drop_n: i64 = inner_len - self.remaining;
+            let mut k: i64 = 0 as i64;
+            while k < drop_n {
+                let _drained: Option<T> = self.inner.next_back();
+                k = k + 1 as i64;
+            }
+        }
+        self.remaining = self.remaining - 1 as i64;
+        return self.inner.next_back();
+    }
+}
+
+impl<I: ExactSizeIterator<T>, T> ExactSizeIterator<T> for TakeIter<I, T> {
+    fn len(&self) -> i64 {
+        let il: i64 = self.inner.len();
+        if il < self.remaining { return il; }
+        return self.remaining;
+    }
 }
 
 // ── SkipIter<I, T> — skip first n items ──────────────────────────────────────
@@ -919,6 +961,10 @@ pub unsafe fn iter_over_slice<T>(s: &[T]) -> SliceIter<T> {
     let p: *const T = s.as_ptr() as *const T;
     let n: i64 = s.len() as i64;
     return SliceIter { data: p, len: n, idx: 0 as i64, back_idx: n };
+}
+
+impl<T> ExactSizeIterator<T> for SliceIter<T> {
+    fn len(&self) -> i64 { return self.back_idx - self.idx; }
 }
 
 // ── Terminal operations ───────────────────────────────────────────────────────
