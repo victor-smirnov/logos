@@ -1,0 +1,68 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/iter/traits/double_ended.rs
+// Tests ported: test_rev, test_iterator_rev_nth
+//
+// Modifications:
+// - `xs.iter()` (slice ref-yielding iterator) → `iter_over_slice(&xs)`
+//   (Logos's slice iter yields T by value, not &T; no `.cloned()` needed).
+// - `isize` element type → `i32`.
+// - `Vec<isize>` → `Vec<i32>` + comparison with .ptr[i] instead of
+//   `vec![…]` macro literal (Logos has no Rust-style vec! macro).
+// - `unwrap` on Option<i32> works the same.
+// - Tests using `try_fold` / `try_rfold` / `nth_back` / `rposition` /
+//   `cloned` skipped — those adapters are deferred (see SL-sl-05 row).
+//
+// Surfaces exercised (closures of these gaps):
+// - SL-sl-05: DoubleEndedIterator<i32> for SliceIter, RevIter adapter,
+//   `.rev()` trait-default, `.nth(n)` trait-default.
+// - CP-cm-14: `.collect::<Vec<i32>>()` through method-tparam inference.
+
+package test_iter_rev;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.iter;
+use std.lang.option;
+use std.collections.vec;
+
+#[test]
+fn test_rev() {
+    let xs: [i32; 8] = [2i32, 4i32, 6i32, 8i32, 10i32, 12i32, 14i32, 16i32];
+    unsafe {
+        let mut it = iter_over_slice(&xs);
+        it.next();
+        it.next();
+        let got: Vec<i32> = it.rev().collect::<Vec<i32>>();
+        let want: [i32; 6] = [16i32, 14i32, 12i32, 10i32, 8i32, 6i32];
+        assert_eq!(got.len, 6i64);
+        let mut i: i64 = 0i64;
+        while i < got.len {
+            assert_eq!(got.ptr[i], want[i as i32]);
+            i = i + 1i64;
+        }
+    }
+}
+
+#[test]
+fn test_iterator_rev_nth() {
+    let v: [i32; 5] = [0i32, 1i32, 2i32, 3i32, 4i32];
+    unsafe {
+        let mut i: i32 = 0i32;
+        while (i as i64) < 5i64 {
+            let mut it = iter_over_slice(&v).rev();
+            let got = it.nth(i as i64);
+            match got {
+                Option::Some(x) => { assert_eq!(x, v[4i32 - i]); }
+                Option::None    => { assert_eq!(true, false); }
+            }
+            i = i + 1i32;
+        }
+        // .nth(len) on a length-5 reversed iter is None.
+        let mut it2 = iter_over_slice(&v).rev();
+        let past = it2.nth(5i64);
+        match past {
+            Option::Some(_) => { assert_eq!(true, false); }
+            Option::None    => { }
+        }
+    }
+}

@@ -1,0 +1,84 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/iter/adapters/peekable.rs
+//   (test_iterator_peekable — front-only subset)
+//
+// Modifications:
+// - `xs.iter().cloned()` → `iter_over_slice(&xs)` (Logos's slice iter
+//   yields T by value, no `.cloned()` adapter needed for primitives).
+// - PeekableIter's `peek` is `unsafe` in Logos because it returns a
+//   `&T` into the iterator's storage; whole body wrapped in `unsafe`.
+// - `it.len()` (ExactSizeIterator) assertions dropped — that trait is
+//   not yet on PeekableIter (separate SL-sl gap).
+// - `next_back()` follow-ups dropped — DoubleEndedIterator on
+//   PeekableIter not yet wired (deferred).
+// - assert_eq! family imports via std.fmt + std.lang.text.
+
+package test_iter_peekable;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.iter;
+use std.lang.option;
+
+#[test]
+fn test_iterator_peekable_front() {
+    let xs: [i32; 6] = [0i32, 1i32, 2i32, 3i32, 4i32, 5i32];
+    unsafe {
+        let mut it = iter_peekable::<SliceIter<i32>, i32>(iter_over_slice(&xs), 0i32);
+
+        match it.peek() {
+            Option::Some(r) => { assert_eq!(*r, 0i32); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+        match it.next() {
+            Option::Some(v) => { assert_eq!(v, 0i32); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+        match it.next() {
+            Option::Some(v) => { assert_eq!(v, 1i32); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+        match it.next() {
+            Option::Some(v) => { assert_eq!(v, 2i32); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+
+        // peek caches 3; subsequent peeks see the same value.
+        match it.peek() {
+            Option::Some(r) => { assert_eq!(*r, 3i32); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+        match it.peek() {
+            Option::Some(r) => { assert_eq!(*r, 3i32); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+        match it.next() {
+            Option::Some(v) => { assert_eq!(v, 3i32); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+        match it.next() {
+            Option::Some(v) => { assert_eq!(v, 4i32); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+
+        // peek of last item, then consume it.
+        match it.peek() {
+            Option::Some(r) => { assert_eq!(*r, 5i32); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+        match it.next() {
+            Option::Some(v) => { assert_eq!(v, 5i32); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+
+        // Past the end: peek and next return None.
+        match it.peek() {
+            Option::Some(_) => { assert_eq!(true, false); }
+            Option::None    => { }
+        }
+        match it.next() {
+            Option::Some(_) => { assert_eq!(true, false); }
+            Option::None    => { }
+        }
+    }
+}
