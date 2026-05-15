@@ -3312,6 +3312,48 @@ lir::LFunction Mono::clone_fn(const lir::LFunction& fn, const SubstMap& s,
 }
 
 
+// ── Signature-only clone for binary_symbols fast path ──────────
+//
+// Copies the function signature (params/return/flags) and substitutes
+// TypeVars on the surface types, but leaves body empty. mlir_gen needs
+// the signature for forward_declare; the body is in liblstdlib.a and
+// would be skipped anyway. Caller must not run lir_mirror_emit_function
+// or scan_fn on the result — body.mirror_offset_ stays default-zero, so
+// scan_fn's mirror_offset guard short-circuits if accidentally invoked.
+lir::LFunction Mono::clone_fn_signature(const lir::LFunction& fn,
+                                         const SubstMap& s,
+                                         const PackMap& packs) {
+    cur_packs_ = packs;
+    lir::LFunction nf;
+    nf.name               = fn.name;
+    nf.method_base        = fn.method_base;
+    nf.package            = fn.package;
+    nf.is_extern          = fn.is_extern;
+    nf.is_vararg          = fn.is_vararg;
+    nf.ret_type           = subst_type(fn.ret_type, s);
+    nf.lifetime_params    = fn.lifetime_params;
+    nf.lifetime_outlives  = fn.lifetime_outlives;
+    for (auto& p : fn.params) {
+        if (p.is_variadic) {
+            std::string pack_name;
+            TypeRef pt(p.type);
+            if (pt && pt.kind() == LogosType::Kind::TypeVar)
+                pack_name = std::string(pt.type_var_name());
+            auto pit = packs.find(pack_name);
+            if (pit != packs.end()) {
+                for (size_t i = 0; i < pit->second.size(); ++i) {
+                    auto expanded_name = make_pack_arg_name(p.name, i);
+                    nf.params.push_back({expanded_name, pit->second[i]});
+                }
+            }
+        } else {
+            nf.params.push_back({p.name, subst_type(p.type, s)});
+        }
+    }
+    return nf;
+}
+
+
 // ── Struct monomorphization ───────────────────────────────────
 
 // Sprint 5.4: populate the trait_engine from current mono tables.

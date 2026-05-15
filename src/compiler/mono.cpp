@@ -359,6 +359,18 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                                        : concrete_pkg + "." + bare_dest;
                 if (done_.count(dest)) continue;
                 subst[bi.target_typevar] = concrete_t;
+                // Binary-symbol fast path (same logic as the non-generic
+                // free-fn loop below): if the linker already provides
+                // `dest`'s body, skip the deep clone + scan.
+                if (!in_.binary_symbols.empty() &&
+                    in_.binary_symbols.count(dest)) {
+                    auto stub = clone_fn_signature(tfn, subst);
+                    stub.name = dest;
+                    stub.type_params.clear();
+                    out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(stub)));
+                    done_.insert(dest);
+                    continue;
+                }
                 auto cloned = clone_fn(tfn, subst);
                 cloned.name = dest;
                 cloned.type_params.clear();
@@ -391,6 +403,19 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     for (auto& fn_up : in_.functions) {
         auto& fn = *fn_up;
         if (!fn.type_params.empty()) continue;
+        // Binary-symbol fast path: the body lives in liblstdlib.a (or a user
+        // -L archive). mlir_gen would skip body emission anyway, so the deep
+        // body clone + mirror emit + scan_fn are pure waste here. All
+        // transitive generic instantiations referenced by this body are
+        // already pre-baked in the same archive (otherwise the archive
+        // wouldn't link), so dropping the scan can't leave the worklist
+        // missing a required instantiation.
+        if (!in_.binary_symbols.empty() && in_.binary_symbols.count(fn.name)) {
+            auto stub = clone_fn_signature(fn, {}, {});
+            out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(stub)));
+            ++stats_.fn_clones;
+            continue;
+        }
         auto cloned = clone_fn(fn, {});
         out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(cloned)));
         auto& fn_ref = *out_.functions.back();
@@ -407,6 +432,20 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         // Set current depth for enqueue_if_needed during scan_fn
         depth_ = item.depth;
         note_depth(depth_);
+        // Binary-symbol fast path: the archive already has the body of this
+        // generic instance (stdlib emit_module pre-baked it). Emit a
+        // signature-only stub so mlir_gen can forward-declare; skip mirror
+        // + scan_fn to save the deep body walk.
+        if (!in_.binary_symbols.empty() &&
+            in_.binary_symbols.count(item.mangled)) {
+            auto stub = clone_fn_signature(*item.tmpl, item.subst, item.packs);
+            stub.name = item.mangled;
+            stub.type_params.clear();
+            out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(stub)));
+            ++stats_.fn_instances;
+            note_fn_worklist_size(worklist_.size());
+            continue;
+        }
         auto inst = instantiate_fn(*item.tmpl, item.mangled, item.subst, item.packs);
         out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(inst)));
         auto& fn_ref = *out_.functions.back();
@@ -510,6 +549,14 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             auto item = std::move(worklist_.back());
             worklist_.pop_back();
             depth_ = item.depth;
+            if (!in_.binary_symbols.empty() &&
+                in_.binary_symbols.count(item.mangled)) {
+                auto stub = clone_fn_signature(*item.tmpl, item.subst, item.packs);
+                stub.name = item.mangled;
+                stub.type_params.clear();
+                out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(stub)));
+                continue;
+            }
             auto inst = instantiate_fn(*item.tmpl, item.mangled, item.subst, item.packs);
             out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(inst)));
             auto& fn_ref = *out_.functions.back();
@@ -568,6 +615,14 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 auto item = std::move(worklist_.back());
                 worklist_.pop_back();
                 depth_ = item.depth;
+                if (!in_.binary_symbols.empty() &&
+                    in_.binary_symbols.count(item.mangled)) {
+                    auto stub = clone_fn_signature(*item.tmpl, item.subst, item.packs);
+                    stub.name = item.mangled;
+                    stub.type_params.clear();
+                    out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(stub)));
+                    continue;
+                }
                 auto inst = instantiate_fn(*item.tmpl, item.mangled, item.subst, item.packs);
                 out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(inst)));
                 auto& fn_ref = *out_.functions.back();

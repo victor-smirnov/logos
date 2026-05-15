@@ -738,6 +738,19 @@ void Mono::drain_method_worklist() {
         if (!method_bound_ok(*tmpl, item.subst)) continue;
 
         depth_ = item.depth;
+        // Binary-symbol fast path: pre-baked struct-method instance in the
+        // archive. Push a signature-only stub so mlir_gen can forward-declare
+        // it; skip the deep body clone + scan_fn.
+        if (!in_.binary_symbols.empty() &&
+            in_.binary_symbols.count(dest_name)) {
+            auto stub = clone_fn_signature(*tmpl, item.subst, item.packs);
+            stub.name = dest_name;
+            stub.type_params.clear();
+            target->methods.push_back(std::make_unique<lir::LFunction>(std::move(stub)));
+            ++stats_.method_instances;
+            note_method_worklist_size(method_worklist_.size());
+            continue;
+        }
         auto cloned = clone_fn(*tmpl, item.subst, item.packs);
         cloned.name = dest_name;
         cloned.type_params.clear();

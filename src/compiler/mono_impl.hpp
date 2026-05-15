@@ -389,6 +389,15 @@ private:
     lir::LFunction clone_fn(const lir::LFunction& fn, const SubstMap& s,
                              const PackMap& packs = {});
 
+    // Signature-only clone for binary-symbol fast path: copies name/flags
+    // and substitutes param/return types, but leaves body empty (no deep
+    // body walk). The result is suitable for mlir_gen's forward_declare —
+    // mlir_gen skips body emission for binary_symbols fns anyway. Caller
+    // must NOT call lir_mirror_emit_function / scan_fn on the result;
+    // body.mirror_offset_ stays default, and scan_fn early-returns on that.
+    lir::LFunction clone_fn_signature(const lir::LFunction& fn, const SubstMap& s,
+                                       const PackMap& packs = {});
+
     // Auto-trait structural check.  Mirrors sema_auto_trait.cpp::is_auto_trait_satisfied
     // but operates on mono-side state (out_.structs/in_.structs, out_.enums, out_.traits,
     // concrete_impls_).  Used by clone_struct_def's bound gate and (future) auto-trait
