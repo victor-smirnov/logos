@@ -1,0 +1,39 @@
+// SL-sl-05 / CP-cm-14: `.collect::<Vec<T>>()` — terminal Iterator
+// method routed through `FromIterator<A>` trait. Exercises mono's
+// method-tparam inference for trait-static dispatch via a type-param
+// receiver: `.collect`'s body is `C::from_iter(self)` with C tparam
+// and method-level `I: Iterator<A>`; mono infers I from the arg type
+// at the substitution site.
+
+package iter_collect_test;
+
+use std.lang.iter;
+use std.lang.option;
+use std.collections.vec;
+
+struct Counter { cur: i32, max: i32 }
+
+impl Iterator<i32> for Counter {
+    fn next(self: &mut Counter) -> Option<i32> {
+        if self.cur >= self.max { return Option::None; }
+        let v: i32 = self.cur;
+        self.cur = self.cur + 1i32;
+        return Option::Some(v);
+    }
+}
+
+fn main() -> i32 {
+    let c: Counter = Counter { cur: 0i32, max: 5i32 };
+    let v: Vec<i32> = c.collect::<Vec<i32>>();
+    unsafe {
+        if v.len != 5i64 { return 1i32; }
+        let mut sum: i32 = 0i32;
+        let mut i: i64 = 0i64;
+        while i < v.len {
+            sum = sum + v.ptr[i];
+            i = i + 1i64;
+        }
+        if sum != 10i32 { return 2i32; }
+    }
+    return 0i32;
+}

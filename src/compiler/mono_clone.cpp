@@ -2293,6 +2293,112 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                             if (new_pkg.empty()) new_pkg = callee_pkg;
                             std::string bare = cname + callee_body.substr(sep);
                             nc.callee = new_pkg.empty() ? bare : new_pkg + "." + bare;
+
+                            // CP-cm-14: if the target method has method-level
+                            // tparams and the call site didn't carry any
+                            // type_args (sema's "Generic static dispatch"
+                            // branch for trait-static calls via a type-param
+                            // receiver emits `{}`), infer them from arg types
+                            // and emit a template-form callee + full type_args
+                            // so mono_scan's struct-method-template fallback
+                            // can drive the right specialisation. Without
+                            // this, `.collect::<Vec<i32>>()` lowers to an
+                            // unparameterised `Vec$G1$i32__from_iter` that
+                            // never gets emitted.
+                            if (nc.type_args.empty() &&
+                                TypeRef(t).kind() == LogosType::Kind::Struct) {
+                                std::string method_tail = callee_body.substr(sep + 2);
+                                std::string method_name = method_tail;
+                                if (auto p = method_name.find("__g__"); p != std::string::npos)
+                                    method_name.resize(p);
+                                else if (auto p = method_name.find("__f__"); p != std::string::npos)
+                                    method_name.resize(p);
+                                std::string struct_base{TypeRef(t).struct_name()};
+                                std::string struct_pkg{TypeRef(t).pkg_name()};
+                                auto smt_it = struct_method_templates_.end();
+                                if (!struct_pkg.empty())
+                                    smt_it = struct_method_templates_.find(
+                                        struct_pkg + "." + struct_base);
+                                if (smt_it == struct_method_templates_.end())
+                                    smt_it = struct_method_templates_.find(struct_base);
+                                if (smt_it != struct_method_templates_.end()) {
+                                    auto mit = smt_it->second.find(method_name);
+                                    if (mit == smt_it->second.end()) {
+                                        for (auto& [k, fp] : smt_it->second) {
+                                            if (k.size() > method_name.size() + 5 &&
+                                                k.compare(0, method_name.size(), method_name) == 0 &&
+                                                k.compare(method_name.size(), 5, "__g__") == 0) {
+                                                mit = smt_it->second.find(k);
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if (mit != smt_it->second.end()) {
+                                        const lir::LFunction* tmpl = mit->second;
+                                        auto stt = struct_templates_.end();
+                                        if (!struct_pkg.empty())
+                                            stt = struct_templates_.find(
+                                                struct_pkg + "." + struct_base);
+                                        if (stt == struct_templates_.end())
+                                            stt = struct_templates_.find(struct_base);
+                                        if (stt != struct_templates_.end()) {
+                                            const auto& sd_tpars =
+                                                stt->second->type_params;
+                                            std::vector<const TypeParam*> meth_tps;
+                                            for (auto& tp : tmpl->type_params) {
+                                                bool is_struct = false;
+                                                for (auto& stp : sd_tpars)
+                                                    if (stp.name == tp.name) {
+                                                        is_struct = true;
+                                                        break;
+                                                    }
+                                                if (!is_struct)
+                                                    meth_tps.push_back(&tp);
+                                            }
+                                            if (!meth_tps.empty()) {
+                                                SubstMap inferred;
+                                                size_t pn = std::min(
+                                                    tmpl->params.size(),
+                                                    nc.args.size());
+                                                for (size_t i = 0; i < pn; ++i) {
+                                                    if (!tmpl->params[i].type ||
+                                                        !nc.args[i] ||
+                                                        !nc.args[i]->type)
+                                                        continue;
+                                                    match_type(nc.args[i]->type,
+                                                               tmpl->params[i].type,
+                                                               inferred);
+                                                }
+                                                bool all_bound = true;
+                                                std::vector<TypeRef> method_args;
+                                                for (auto* tp : meth_tps) {
+                                                    auto fit = inferred.find(tp->name);
+                                                    if (fit == inferred.end()) {
+                                                        all_bound = false;
+                                                        break;
+                                                    }
+                                                    method_args.push_back(fit->second);
+                                                }
+                                                if (all_bound) {
+                                                    std::vector<TypeRef> full;
+                                                    auto sta = TypeRef(t).type_args();
+                                                    for (auto a : sta)
+                                                        full.push_back(a);
+                                                    for (auto a : method_args)
+                                                        full.push_back(a);
+                                                    nc.type_args = std::move(full);
+                                                    std::string callee_base;
+                                                    if (!new_pkg.empty())
+                                                        callee_base = new_pkg + ".";
+                                                    callee_base += struct_base
+                                                                 + "__" + method_name;
+                                                    nc.callee = callee_base;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
