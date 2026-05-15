@@ -20,6 +20,7 @@ package std.lang.option;
 
 use std.lang.panic;
 use std.lang.default;
+use std.lang.result;
 
 pub enum Option<T> {
     Some(T),
@@ -97,6 +98,23 @@ impl<T> Option<T> {
         match self {
             Option::Some(v) => { return f(v); }
             Option::None    => { return dfl(); }
+        }
+    }
+
+    // Transforms Option<T> into Result<T, E>, mapping Some(v) → Ok(v) and
+    // None → Err(err).
+    pub fn ok_or<E>(self: Option<T>, err: E) -> Result<T, E> {
+        match self {
+            Option::Some(v) => { return Result::Ok(v); }
+            Option::None    => { return Result::Err(err); }
+        }
+    }
+
+    // Same as ok_or but the err value is computed lazily.
+    pub fn ok_or_else<E>(self: Option<T>, err: fn() -> E) -> Result<T, E> {
+        match self {
+            Option::Some(v) => { return Result::Ok(v); }
+            Option::None    => { return Result::Err(err()); }
         }
     }
 

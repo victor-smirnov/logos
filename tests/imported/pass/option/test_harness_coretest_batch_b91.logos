@@ -1,0 +1,71 @@
+// Multi-source coretest batch (B91), imported from
+// rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7.
+//
+// Covers Option::ok_or / Option::ok_or_else — the two Option→Result lifts.
+//
+//   option.rs::test_ok_or
+//   option.rs::test_ok_or_else
+
+package test_batch_b91;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.option;
+use std.lang.result;
+
+fn mk_err()   -> i32 { return 7i32; }
+fn mk_err_99() -> i32 { return 99i32; }
+
+#[test]
+fn test_ok_or_some() {
+    let a: Option<i32> = Some(5i32);
+    let r: Result<i32, i32> = a.ok_or(7i32);
+    match r {
+        Result::Ok(v)  => { assert_eq!(v, 5i32); }
+        Result::Err(_) => { assert_eq!(true, false); }
+    }
+}
+
+#[test]
+fn test_ok_or_none() {
+    let a: Option<i32> = None;
+    let r: Result<i32, i32> = a.ok_or(7i32);
+    match r {
+        Result::Ok(_)  => { assert_eq!(true, false); }
+        Result::Err(e) => { assert_eq!(e, 7i32); }
+    }
+}
+
+#[test]
+fn test_ok_or_else_some() {
+    let a: Option<i32> = Some(5i32);
+    let r: Result<i32, i32> = a.ok_or_else(mk_err_99);
+    match r {
+        Result::Ok(v)  => { assert_eq!(v, 5i32); }
+        Result::Err(_) => { assert_eq!(true, false); }
+    }
+}
+
+#[test]
+fn test_ok_or_else_none() {
+    let a: Option<i32> = None;
+    let r: Result<i32, i32> = a.ok_or_else(mk_err_99);
+    match r {
+        Result::Ok(_)  => { assert_eq!(true, false); }
+        Result::Err(e) => { assert_eq!(e, 99i32); }
+    }
+}
+
+#[test]
+fn test_ok_or_chain_with_map() {
+    // Some(2) → Ok(2) → .map(dbl) → Ok(4)
+    let a: Option<i32> = Some(2i32);
+    let r: Result<i32, i32> = a.ok_or(0i32);
+    let r2: Result<i32, i32> = r.map(dbl);
+    match r2 {
+        Result::Ok(v)  => { assert_eq!(v, 4i32); }
+        Result::Err(_) => { assert_eq!(true, false); }
+    }
+}
+
+fn dbl(x: i32) -> i32 { return x + x; }
