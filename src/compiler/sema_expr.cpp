@@ -8146,13 +8146,24 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                 subst[std::string(TypeRef(pt).type_var_name())] = inferred;
             }
         }
-        // Fill any still-unresolved type params from hint
+        // SL-sl-03 follow-up: when the let / return context hint says
+        // `Option<&T>` but the payload arg is a `T` value (e.g. binding
+        // from a match-arm in `Some(v) => Some(v)` where v: T), prefer
+        // the hint's reference type if the inferred is its pointee. We
+        // expect downstream addr_of to materialise the reference; the
+        // hint disambiguates which Option spec to build.
         if (hint_enum_type_ && TypeRef(hint_enum_type_).enum_name() == std::string(ename)) {
             for (size_t i = 0; i < einfo.type_params.size() && i < TypeRef(hint_enum_type_).type_args().size(); ++i) {
-                if (subst.find(einfo.type_params[i].name) == subst.end()) {
-                    auto hta = TypeRef(hint_enum_type_).type_args()[i];
-                    if (hta && TypeRef(hta).kind() != LogosType::Kind::Error)
-                        subst[einfo.type_params[i].name] = hta;
+                auto hta = TypeRef(hint_enum_type_).type_args()[i];
+                if (!hta || TypeRef(hta).kind() == LogosType::Kind::Error) continue;
+                auto sit = subst.find(einfo.type_params[i].name);
+                if (sit == subst.end()) {
+                    subst[einfo.type_params[i].name] = hta;
+                } else if ((TypeRef(hta).kind() == LogosType::Kind::Ref ||
+                            TypeRef(hta).kind() == LogosType::Kind::MutRef) &&
+                           TypeRef(hta).pointee() == sit->second) {
+                    // Hint says &T, inferred says T — prefer hint.
+                    sit->second = hta;
                 }
             }
         }
