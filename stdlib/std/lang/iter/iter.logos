@@ -447,6 +447,96 @@ pub fn iter_eq_by<I: Iterator<T>, J: Iterator<U>, T, U>(
     }
 }
 
+// `iter_eq` — pairwise equality of two iterators where T: Eq.
+pub fn iter_eq<I: Iterator<T>, J: Iterator<T>, T: Eq>(a: I, b: J) -> bool {
+    let mut ai: I = a;
+    let mut bi: J = b;
+    loop {
+        let av: Option<T> = ai.next();
+        let bv: Option<T> = bi.next();
+        match av {
+            Option::None    => {
+                match bv {
+                    Option::None    => { return true; }
+                    Option::Some(_) => { return false; }
+                }
+            }
+            Option::Some(x) => {
+                match bv {
+                    Option::None    => { return false; }
+                    Option::Some(y) => {
+                        unsafe {
+                            let xr: *const T = (&x) as *const T;
+                            let yr: *const T = (&y) as *const T;
+                            if !(&*xr).eq(&*yr) { return false; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// `iter_max_by_key` / `iter_min_by_key` — find item that maximises
+// / minimises a key projection. Empty → None.
+pub fn iter_max_by_key<I: Iterator<T>, T: Copy, K: Ord>(
+    iter: I, key: fn(T) -> K,
+) -> Option<T> {
+    let mut it: I = iter;
+    let mut best: Option<T> = Option::None;
+    loop {
+        match it.next() {
+            Option::None    => { return best; }
+            Option::Some(v) => {
+                match best {
+                    Option::None    => { best = Option::Some(v); }
+                    Option::Some(b) => {
+                        let kv: K = key(v);
+                        let kb: K = key(b);
+                        unsafe {
+                            let kvr: *const K = (&kv) as *const K;
+                            let kbr: *const K = (&kb) as *const K;
+                            match (&*kvr).cmp(&*kbr) {
+                                Ordering::Greater => { best = Option::Some(v); }
+                                _                 => { best = Option::Some(b); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub fn iter_min_by_key<I: Iterator<T>, T: Copy, K: Ord>(
+    iter: I, key: fn(T) -> K,
+) -> Option<T> {
+    let mut it: I = iter;
+    let mut best: Option<T> = Option::None;
+    loop {
+        match it.next() {
+            Option::None    => { return best; }
+            Option::Some(v) => {
+                match best {
+                    Option::None    => { best = Option::Some(v); }
+                    Option::Some(b) => {
+                        let kv: K = key(v);
+                        let kb: K = key(b);
+                        unsafe {
+                            let kvr: *const K = (&kv) as *const K;
+                            let kbr: *const K = (&kb) as *const K;
+                            match (&*kvr).cmp(&*kbr) {
+                                Ordering::Less => { best = Option::Some(v); }
+                                _              => { best = Option::Some(b); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // `iter_rposition` — like `.position` but walking from the back.
 // Returns the index (counted from the start of the original
 // iterator) of the first item for which `pred` returns true when

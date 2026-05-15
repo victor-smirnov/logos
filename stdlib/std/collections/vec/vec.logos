@@ -358,6 +358,34 @@ pub fn iter_collect_vec<I: Iterator<T>, T>(iter: I) -> Vec<T> {
     return out;
 }
 
+// `iter_partition_vec` — splits an iterator into two Vecs by a
+// predicate. Items where `pred(v)` is true go to the first Vec,
+// the rest go to the second. Matches Rust's
+// `Iterator::partition::<Vec<T>>(pred)` shape (free fn form here).
+pub fn iter_partition_vec<I: Iterator<T>, T>(
+    iter: I, pred: fn(T) -> bool,
+) -> ZipPair<Vec<T>, Vec<T>> {
+    let mut it: I = iter;
+    let mut yes: Vec<T> = vec_new::<T>();
+    let mut no:  Vec<T> = vec_new::<T>();
+    loop {
+        match it.next() {
+            Option::None    => { return ZipPair { first: yes, second: no }; }
+            Option::Some(v) => {
+                unsafe {
+                    let v_copy: T = *((&v) as *const T);
+                    let take_yes: bool = pred(v_copy);
+                    if take_yes {
+                        (&mut yes as *mut Vec<T>).push(v);
+                    } else {
+                        (&mut no as *mut Vec<T>).push(v);
+                    }
+                }
+            }
+        }
+    }
+}
+
 // Cross-package skip-codegen probe: pre-instantiate Vec<i32> in this package.
 // Downstream users of Vec<i32> link against these symbols and skip body emission.
 pub instantiate Vec<i32>;

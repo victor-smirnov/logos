@@ -1,0 +1,144 @@
+// Multi-source coretest batch (B87) — iter helpers.
+//
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7.
+//
+// Source paths (modifications: closures lowered to named fn-ptrs;
+// `(0..N)` open-range used directly; collect-into-tuple shapes
+// replaced with ZipPair<Vec<T>, Vec<T>> for iter_partition_vec):
+//
+//   iter/traits/iterator.rs::test_iterator_max_by_key
+//   iter/traits/iterator.rs::test_iterator_min_by_key
+//   iter/traits/iterator.rs::test_partition (slice form replaced
+//     with iter_partition_vec free fn)
+//   iter/traits/iterator.rs::test_eq (under iter_eq with Eq bound)
+//
+// Stdlib companions added in same batch:
+//   * iter_eq<I, J, T: Eq>(a, b)             — std.lang.iter
+//   * iter_max_by_key<I, T: Copy, K: Ord>    — std.lang.iter
+//   * iter_min_by_key<I, T: Copy, K: Ord>    — std.lang.iter
+//   * iter_partition_vec<I, T>(iter, pred)   — std.collections.vec
+//     (lives there because Vec<T>'s package owns the result type,
+//     and iter.logos imports vec is cyclic)
+
+package test_iter_batch_b87_helpers;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.iter;
+use std.lang.range;
+use std.lang.option;
+use std.lang.cmp;
+use std.lang.ord;
+use std.collections.vec;
+
+fn abs_i32(x: i32) -> i32 {
+    if x < 0i32 { return 0i32 - x; }
+    return x;
+}
+
+fn is_even(x: i32) -> bool { return (x % 2i32) == 0i32; }
+
+#[test]
+fn test_iter_eq_same() {
+    let xs: [i32; 4] = [1i32, 2i32, 3i32, 4i32];
+    let ys: [i32; 4] = [1i32, 2i32, 3i32, 4i32];
+    unsafe {
+        assert_eq!(iter_eq::<SliceIter<i32>, SliceIter<i32>, i32>(
+            iter_over_slice(&xs), iter_over_slice(&ys)), true);
+    }
+}
+
+#[test]
+fn test_iter_eq_diff() {
+    let xs: [i32; 4] = [1i32, 2i32, 3i32, 4i32];
+    let ys: [i32; 4] = [1i32, 2i32, 3i32, 5i32];
+    unsafe {
+        assert_eq!(iter_eq::<SliceIter<i32>, SliceIter<i32>, i32>(
+            iter_over_slice(&xs), iter_over_slice(&ys)), false);
+    }
+}
+
+#[test]
+fn test_iter_eq_length_mismatch() {
+    let xs: [i32; 4] = [1i32, 2i32, 3i32, 4i32];
+    let ys: [i32; 3] = [1i32, 2i32, 3i32];
+    unsafe {
+        assert_eq!(iter_eq::<SliceIter<i32>, SliceIter<i32>, i32>(
+            iter_over_slice(&xs), iter_over_slice(&ys)), false);
+    }
+}
+
+#[test]
+fn test_iter_max_by_key() {
+    // [-3, 0, 1, 5, -10] with abs key → max |x| is 10 → -10.
+    let xs: [i32; 5] = [-3i32, 0i32, 1i32, 5i32, -10i32];
+    unsafe {
+        match iter_max_by_key::<SliceIter<i32>, i32, i32>(iter_over_slice(&xs), abs_i32) {
+            Option::Some(v) => { assert_eq!(v, -10i32); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+    }
+}
+
+#[test]
+fn test_iter_min_by_key() {
+    // [-3, 0, 1, 5, -10] with abs key → min |x| is 0 → 0.
+    let xs: [i32; 5] = [-3i32, 0i32, 1i32, 5i32, -10i32];
+    unsafe {
+        match iter_min_by_key::<SliceIter<i32>, i32, i32>(iter_over_slice(&xs), abs_i32) {
+            Option::Some(v) => { assert_eq!(v, 0i32); }
+            Option::None    => { assert_eq!(true, false); }
+        }
+    }
+}
+
+#[test]
+fn test_iter_max_by_key_empty() {
+    let xs: [i32; 1] = [0i32];
+    unsafe {
+        let empty_it = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&xs), 0i64, 0i32);
+        match iter_max_by_key::<TakeIter<SliceIter<i32>, i32>, i32, i32>(empty_it, abs_i32) {
+            Option::Some(_) => { assert_eq!(true, false); }
+            Option::None    => { }
+        }
+    }
+}
+
+#[test]
+fn test_iter_partition_evens() {
+    let xs: [i32; 6] = [1i32, 2i32, 3i32, 4i32, 5i32, 6i32];
+    unsafe {
+        let pair: ZipPair<Vec<i32>, Vec<i32>> =
+            iter_partition_vec::<SliceIter<i32>, i32>(iter_over_slice(&xs), is_even);
+        assert_eq!(pair.first.len,  3i64);   // 2, 4, 6
+        assert_eq!(pair.second.len, 3i64);   // 1, 3, 5
+        assert_eq!(pair.first.ptr[0i64],  2i32);
+        assert_eq!(pair.first.ptr[1i64],  4i32);
+        assert_eq!(pair.first.ptr[2i64],  6i32);
+        assert_eq!(pair.second.ptr[0i64], 1i32);
+        assert_eq!(pair.second.ptr[1i64], 3i32);
+        assert_eq!(pair.second.ptr[2i64], 5i32);
+    }
+}
+
+#[test]
+fn test_iter_partition_all_yes() {
+    let xs: [i32; 3] = [2i32, 4i32, 6i32];
+    unsafe {
+        let pair: ZipPair<Vec<i32>, Vec<i32>> =
+            iter_partition_vec::<SliceIter<i32>, i32>(iter_over_slice(&xs), is_even);
+        assert_eq!(pair.first.len,  3i64);
+        assert_eq!(pair.second.len, 0i64);
+    }
+}
+
+#[test]
+fn test_iter_partition_all_no() {
+    let xs: [i32; 3] = [1i32, 3i32, 5i32];
+    unsafe {
+        let pair: ZipPair<Vec<i32>, Vec<i32>> =
+            iter_partition_vec::<SliceIter<i32>, i32>(iter_over_slice(&xs), is_even);
+        assert_eq!(pair.first.len,  0i64);
+        assert_eq!(pair.second.len, 3i64);
+    }
+}
