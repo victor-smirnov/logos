@@ -7,6 +7,7 @@
 package std.lang.ord;
 
 use std.lang.option;
+use std.lang.arith;
 
 pub enum Ordering {
     Less,
@@ -414,6 +415,262 @@ impl u64 {
             if e > 0u32 { base = base * base; }
         }
         return result;
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Extended integer arithmetic surface — saturating / checked / overflowing /
+// wrapping for u32, u64, i64 (i32 above). Wrapping uses std.lang.arith
+// intrinsics (wrapping_add / sub / mul); overflow detection is done in
+// comparison logic before/after.
+// ──────────────────────────────────────────────────────────────────────────
+
+// ── u32 ──────────────────────────────────────────────────────────────────
+impl u32 {
+    pub fn wrapping_add(self: u32, other: u32) -> u32 { return wrapping_add::<u32>(self, other); }
+    pub fn wrapping_sub(self: u32, other: u32) -> u32 { return wrapping_sub::<u32>(self, other); }
+    pub fn wrapping_mul(self: u32, other: u32) -> u32 { return wrapping_mul::<u32>(self, other); }
+    pub fn wrapping_neg(self: u32) -> u32             { return wrapping_sub::<u32>(0u32, self); }
+
+    pub fn saturating_add(self: u32, other: u32) -> u32 {
+        let r: u32 = wrapping_add::<u32>(self, other);
+        if r < self { return 0xFFFFFFFFu32; }
+        return r;
+    }
+    pub fn saturating_sub(self: u32, other: u32) -> u32 {
+        if other > self { return 0u32; }
+        return self - other;
+    }
+    pub fn saturating_mul(self: u32, other: u32) -> u32 {
+        if self == 0u32 || other == 0u32 { return 0u32; }
+        let r: u64 = (self as u64) * (other as u64);
+        if r > 0xFFFFFFFFu64 { return 0xFFFFFFFFu32; }
+        return r as u32;
+    }
+
+    pub fn checked_add(self: u32, other: u32) -> Option<u32> {
+        let r: u32 = wrapping_add::<u32>(self, other);
+        if r < self { return Option::None; }
+        return Option::Some(r);
+    }
+    pub fn checked_sub(self: u32, other: u32) -> Option<u32> {
+        if other > self { return Option::None; }
+        return Option::Some(self - other);
+    }
+    pub fn checked_mul(self: u32, other: u32) -> Option<u32> {
+        let r: u64 = (self as u64) * (other as u64);
+        if r > 0xFFFFFFFFu64 { return Option::None; }
+        return Option::Some(r as u32);
+    }
+    pub fn checked_div(self: u32, other: u32) -> Option<u32> {
+        if other == 0u32 { return Option::None; }
+        return Option::Some(self / other);
+    }
+    pub fn checked_rem(self: u32, other: u32) -> Option<u32> {
+        if other == 0u32 { return Option::None; }
+        return Option::Some(self % other);
+    }
+
+    pub fn overflowing_add(self: u32, other: u32) -> (u32, bool) {
+        let r: u32 = wrapping_add::<u32>(self, other);
+        return (r, r < self);
+    }
+    pub fn overflowing_sub(self: u32, other: u32) -> (u32, bool) {
+        return (wrapping_sub::<u32>(self, other), other > self);
+    }
+    pub fn overflowing_mul(self: u32, other: u32) -> (u32, bool) {
+        let r: u64 = (self as u64) * (other as u64);
+        return (r as u32, r > 0xFFFFFFFFu64);
+    }
+}
+
+// ── u64 ──────────────────────────────────────────────────────────────────
+impl u64 {
+    pub fn wrapping_add(self: u64, other: u64) -> u64 { return wrapping_add::<u64>(self, other); }
+    pub fn wrapping_sub(self: u64, other: u64) -> u64 { return wrapping_sub::<u64>(self, other); }
+    pub fn wrapping_mul(self: u64, other: u64) -> u64 { return wrapping_mul::<u64>(self, other); }
+    pub fn wrapping_neg(self: u64) -> u64             { return wrapping_sub::<u64>(0u64, self); }
+
+    pub fn saturating_add(self: u64, other: u64) -> u64 {
+        let r: u64 = wrapping_add::<u64>(self, other);
+        if r < self { return 0xFFFFFFFFFFFFFFFFu64; }
+        return r;
+    }
+    pub fn saturating_sub(self: u64, other: u64) -> u64 {
+        if other > self { return 0u64; }
+        return self - other;
+    }
+    pub fn saturating_mul(self: u64, other: u64) -> u64 {
+        if self == 0u64 || other == 0u64 { return 0u64; }
+        // Overflow check without a u128 intermediate: if a > MAX/b then overflow.
+        let max: u64 = 0xFFFFFFFFFFFFFFFFu64;
+        if self > max / other { return max; }
+        return wrapping_mul::<u64>(self, other);
+    }
+
+    pub fn checked_add(self: u64, other: u64) -> Option<u64> {
+        let r: u64 = wrapping_add::<u64>(self, other);
+        if r < self { return Option::None; }
+        return Option::Some(r);
+    }
+    pub fn checked_sub(self: u64, other: u64) -> Option<u64> {
+        if other > self { return Option::None; }
+        return Option::Some(self - other);
+    }
+    pub fn checked_mul(self: u64, other: u64) -> Option<u64> {
+        if self == 0u64 || other == 0u64 { return Option::Some(0u64); }
+        let max: u64 = 0xFFFFFFFFFFFFFFFFu64;
+        if self > max / other { return Option::None; }
+        return Option::Some(wrapping_mul::<u64>(self, other));
+    }
+    pub fn checked_div(self: u64, other: u64) -> Option<u64> {
+        if other == 0u64 { return Option::None; }
+        return Option::Some(self / other);
+    }
+    pub fn checked_rem(self: u64, other: u64) -> Option<u64> {
+        if other == 0u64 { return Option::None; }
+        return Option::Some(self % other);
+    }
+
+    pub fn overflowing_add(self: u64, other: u64) -> (u64, bool) {
+        let r: u64 = wrapping_add::<u64>(self, other);
+        return (r, r < self);
+    }
+    pub fn overflowing_sub(self: u64, other: u64) -> (u64, bool) {
+        return (wrapping_sub::<u64>(self, other), other > self);
+    }
+    pub fn overflowing_mul(self: u64, other: u64) -> (u64, bool) {
+        if self == 0u64 || other == 0u64 { return (0u64, false); }
+        let max: u64 = 0xFFFFFFFFFFFFFFFFu64;
+        let overflow: bool = self > max / other;
+        return (wrapping_mul::<u64>(self, other), overflow);
+    }
+}
+
+// ── i64 ──────────────────────────────────────────────────────────────────
+impl i64 {
+    pub fn wrapping_add(self: i64, other: i64) -> i64 { return wrapping_add::<i64>(self, other); }
+    pub fn wrapping_sub(self: i64, other: i64) -> i64 { return wrapping_sub::<i64>(self, other); }
+    pub fn wrapping_mul(self: i64, other: i64) -> i64 { return wrapping_mul::<i64>(self, other); }
+    pub fn wrapping_neg(self: i64) -> i64             { return wrapping_sub::<i64>(0i64, self); }
+    pub fn wrapping_abs(self: i64) -> i64 {
+        if self < 0i64 { return wrapping_sub::<i64>(0i64, self); }
+        return self;
+    }
+
+    // Signed overflow detection without i128: r = wrapping_add(a, b);
+    // overflow iff (sign(a) == sign(b)) && (sign(r) != sign(a)).
+    pub fn overflowing_add(self: i64, other: i64) -> (i64, bool) {
+        let r: i64 = wrapping_add::<i64>(self, other);
+        let same_sign: bool = (self < 0i64) == (other < 0i64);
+        let flipped:   bool = (self < 0i64) != (r < 0i64);
+        return (r, same_sign && flipped);
+    }
+    pub fn overflowing_sub(self: i64, other: i64) -> (i64, bool) {
+        let r: i64 = wrapping_sub::<i64>(self, other);
+        let diff_sign: bool = (self < 0i64) != (other < 0i64);
+        let flipped:   bool = (self < 0i64) != (r < 0i64);
+        return (r, diff_sign && flipped);
+    }
+    pub fn overflowing_mul(self: i64, other: i64) -> (i64, bool) {
+        if self == 0i64 || other == 0i64 { return (0i64, false); }
+        let r: i64 = wrapping_mul::<i64>(self, other);
+        // Recover by division: if r / other != self → overflow.
+        // (Watch i64::MIN / -1 special case — also overflow.)
+        let i64_min: i64 = (0x8000000000000000u64) as i64;
+        if self == i64_min && other == -1i64 { return (i64_min, true); }
+        if other == i64_min && self == -1i64 { return (i64_min, true); }
+        let check: i64 = r / other;
+        return (r, check != self);
+    }
+    pub fn overflowing_neg(self: i64) -> (i64, bool) {
+        let i64_min: i64 = (0x8000000000000000u64) as i64;
+        if self == i64_min { return (i64_min, true); }
+        return (wrapping_sub::<i64>(0i64, self), false);
+    }
+    pub fn overflowing_abs(self: i64) -> (i64, bool) {
+        let i64_min: i64 = (0x8000000000000000u64) as i64;
+        if self == i64_min { return (i64_min, true); }
+        if self < 0i64 { return (wrapping_sub::<i64>(0i64, self), false); }
+        return (self, false);
+    }
+
+    pub fn checked_add(self: i64, other: i64) -> Option<i64> {
+        let r: (i64, bool) = self.overflowing_add(other);
+        if r.1 { return Option::None; }
+        return Option::Some(r.0);
+    }
+    pub fn checked_sub(self: i64, other: i64) -> Option<i64> {
+        let r: (i64, bool) = self.overflowing_sub(other);
+        if r.1 { return Option::None; }
+        return Option::Some(r.0);
+    }
+    pub fn checked_mul(self: i64, other: i64) -> Option<i64> {
+        let r: (i64, bool) = self.overflowing_mul(other);
+        if r.1 { return Option::None; }
+        return Option::Some(r.0);
+    }
+    pub fn checked_div(self: i64, other: i64) -> Option<i64> {
+        if other == 0i64 { return Option::None; }
+        let i64_min: i64 = (0x8000000000000000u64) as i64;
+        if self == i64_min && other == -1i64 { return Option::None; }
+        return Option::Some(self / other);
+    }
+    pub fn checked_rem(self: i64, other: i64) -> Option<i64> {
+        if other == 0i64 { return Option::None; }
+        let i64_min: i64 = (0x8000000000000000u64) as i64;
+        if self == i64_min && other == -1i64 { return Option::None; }
+        return Option::Some(self % other);
+    }
+    pub fn checked_neg(self: i64) -> Option<i64> {
+        let i64_min: i64 = (0x8000000000000000u64) as i64;
+        if self == i64_min { return Option::None; }
+        return Option::Some(wrapping_sub::<i64>(0i64, self));
+    }
+    pub fn checked_abs(self: i64) -> Option<i64> {
+        let i64_min: i64 = (0x8000000000000000u64) as i64;
+        if self == i64_min { return Option::None; }
+        if self < 0i64 { return Option::Some(wrapping_sub::<i64>(0i64, self)); }
+        return Option::Some(self);
+    }
+
+    pub fn saturating_add(self: i64, other: i64) -> i64 {
+        let i64_max: i64 =  0x7FFFFFFFFFFFFFFFi64;
+        let i64_min: i64 = (0x8000000000000000u64) as i64;
+        let r: (i64, bool) = self.overflowing_add(other);
+        if !r.1 { return r.0; }
+        if other > 0i64 { return i64_max; }
+        return i64_min;
+    }
+    pub fn saturating_sub(self: i64, other: i64) -> i64 {
+        let i64_max: i64 =  0x7FFFFFFFFFFFFFFFi64;
+        let i64_min: i64 = (0x8000000000000000u64) as i64;
+        let r: (i64, bool) = self.overflowing_sub(other);
+        if !r.1 { return r.0; }
+        if other < 0i64 { return i64_max; }
+        return i64_min;
+    }
+    pub fn saturating_mul(self: i64, other: i64) -> i64 {
+        let i64_max: i64 =  0x7FFFFFFFFFFFFFFFi64;
+        let i64_min: i64 = (0x8000000000000000u64) as i64;
+        let r: (i64, bool) = self.overflowing_mul(other);
+        if !r.1 { return r.0; }
+        let same_sign: bool = (self < 0i64) == (other < 0i64);
+        if same_sign { return i64_max; }
+        return i64_min;
+    }
+    pub fn saturating_abs(self: i64) -> i64 {
+        let i64_max: i64 =  0x7FFFFFFFFFFFFFFFi64;
+        let i64_min: i64 = (0x8000000000000000u64) as i64;
+        if self == i64_min { return i64_max; }
+        if self < 0i64 { return wrapping_sub::<i64>(0i64, self); }
+        return self;
+    }
+    pub fn saturating_neg(self: i64) -> i64 {
+        let i64_max: i64 =  0x7FFFFFFFFFFFFFFFi64;
+        let i64_min: i64 = (0x8000000000000000u64) as i64;
+        if self == i64_min { return i64_max; }
+        return wrapping_sub::<i64>(0i64, self);
     }
 }
 

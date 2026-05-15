@@ -1,0 +1,152 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
+//   library/coretests/tests/num/uint_macros.rs (wrapping/checked/saturating subset)
+//
+// Validates the extended arithmetic surface added to u64/u32/i64 — same
+// shape as the existing i32 surface, but covering wider/unsigned types.
+
+package test_coretest_u64_extended;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.option;
+use std.lang.ord;
+
+const U64_MAX: u64 = 0xFFFFFFFFFFFFFFFFu64;
+const U32_MAX: u32 = 0xFFFFFFFFu32;
+const I64_MAX: i64 = 0x7FFFFFFFFFFFFFFFi64;
+
+#[test]
+fn test_u64_wrapping_add() {
+    assert!(U64_MAX.wrapping_add(1u64) == 0u64);
+    assert!(U64_MAX.wrapping_add(2u64) == 1u64);
+    assert!(5u64.wrapping_add(3u64)    == 8u64);
+}
+
+#[test]
+fn test_u64_wrapping_sub() {
+    assert!(0u64.wrapping_sub(1u64) == U64_MAX);
+    assert!(5u64.wrapping_sub(3u64) == 2u64);
+}
+
+#[test]
+fn test_u64_wrapping_mul() {
+    assert!(U64_MAX.wrapping_mul(2u64)  == U64_MAX - 1u64);
+    assert!(5u64.wrapping_mul(6u64)     == 30u64);
+}
+
+#[test]
+fn test_u64_saturating_add() {
+    assert!(U64_MAX.saturating_add(1u64) == U64_MAX);
+    assert!(5u64.saturating_add(3u64)    == 8u64);
+}
+
+#[test]
+fn test_u64_saturating_sub() {
+    assert!(3u64.saturating_sub(5u64) == 0u64);
+    assert!(5u64.saturating_sub(3u64) == 2u64);
+}
+
+#[test]
+fn test_u64_saturating_mul() {
+    assert!(U64_MAX.saturating_mul(2u64) == U64_MAX);
+    assert!(5u64.saturating_mul(6u64)    == 30u64);
+    assert!(0u64.saturating_mul(U64_MAX) == 0u64);
+}
+
+#[test]
+fn test_u64_checked_add() {
+    match U64_MAX.checked_add(1u64) {
+        Option::Some(_) => { assert!(false); }
+        Option::None    => {}
+    }
+    match 5u64.checked_add(3u64) {
+        Option::Some(v) => { assert!(v == 8u64); }
+        Option::None    => { assert!(false); }
+    }
+}
+
+#[test]
+fn test_u64_checked_div_rem() {
+    assert!(10u64.checked_div(0u64).is_none());
+    assert!(10u64.checked_rem(0u64).is_none());
+    match 10u64.checked_div(3u64) {
+        Option::Some(v) => { assert!(v == 3u64); }
+        Option::None    => { assert!(false); }
+    }
+}
+
+#[test]
+fn test_u64_overflowing() {
+    let r1: (u64, bool) = U64_MAX.overflowing_add(1u64);
+    assert!(r1.1 == true);
+    assert!(r1.0 == 0u64);
+
+    let r2: (u64, bool) = 5u64.overflowing_add(3u64);
+    assert!(r2.1 == false);
+    assert!(r2.0 == 8u64);
+}
+
+// ── u32 ──────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_u32_wrapping_add() {
+    assert!(U32_MAX.wrapping_add(1u32) == 0u32);
+    assert!(5u32.wrapping_add(3u32)    == 8u32);
+}
+
+#[test]
+fn test_u32_saturating_ops() {
+    assert!(U32_MAX.saturating_add(1u32) == U32_MAX);
+    assert!(3u32.saturating_sub(5u32)    == 0u32);
+    assert!(U32_MAX.saturating_mul(2u32) == U32_MAX);
+}
+
+#[test]
+fn test_u32_checked_add_overflow() {
+    assert!(U32_MAX.checked_add(1u32).is_none());
+    match 5u32.checked_add(3u32) {
+        Option::Some(v) => { assert!(v == 8u32); }
+        Option::None    => { assert!(false); }
+    }
+}
+
+// ── i64 ──────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_i64_wrapping_add() {
+    assert!(I64_MAX.wrapping_add(1i64) == (0x8000000000000000u64) as i64);
+    assert!(5i64.wrapping_add(3i64)    == 8i64);
+    assert!((-1i64).wrapping_add(1i64) == 0i64);
+}
+
+#[test]
+fn test_i64_saturating_add() {
+    assert!(I64_MAX.saturating_add(1i64)    == I64_MAX);
+    let i64_min: i64 = (0x8000000000000000u64) as i64;
+    assert!(i64_min.saturating_add(-1i64)   == i64_min);
+    assert!(5i64.saturating_add(3i64)       == 8i64);
+}
+
+#[test]
+fn test_i64_checked_add_neg() {
+    assert!(I64_MAX.checked_add(1i64).is_none());
+    let i64_min: i64 = (0x8000000000000000u64) as i64;
+    assert!(i64_min.checked_neg().is_none());
+    assert!(i64_min.checked_abs().is_none());
+    match 5i64.checked_add(3i64) {
+        Option::Some(v) => { assert!(v == 8i64); }
+        Option::None    => { assert!(false); }
+    }
+}
+
+#[test]
+fn test_i64_overflowing_neg() {
+    let i64_min: i64 = (0x8000000000000000u64) as i64;
+    let r: (i64, bool) = i64_min.overflowing_neg();
+    assert!(r.1 == true);
+    assert!(r.0 == i64_min);
+
+    let r2: (i64, bool) = 5i64.overflowing_neg();
+    assert!(r2.1 == false);
+    assert!(r2.0 == -5i64);
+}
