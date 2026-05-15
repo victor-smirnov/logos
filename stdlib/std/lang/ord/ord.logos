@@ -6,6 +6,8 @@
 
 package std.lang.ord;
 
+use std.lang.option;
+
 pub enum Ordering {
     Less,
     Equal,
@@ -176,6 +178,51 @@ impl i32 {
     pub fn saturating_neg(self: i32) -> i32 {
         if self == -2147483647i32 - 1i32 { return 2147483647i32; }
         return 0i32 - self;
+    }
+}
+
+// Checked arithmetic on signed i32. Returns Some(result) when the
+// operation fits, None on overflow / underflow. Like Rust's
+// `checked_add` / `checked_sub` / `checked_mul` family but only
+// for i32 in this batch (i64 / u32 / u64 wait for ESI demand).
+impl i32 {
+    pub fn checked_add(self: i32, other: i32) -> Option<i32> {
+        let r: i64 = (self as i64) + (other as i64);
+        if r > 2147483647i64       { return Option::None; }
+        if r < -2147483648i64      { return Option::None; }
+        return Some(r as i32);
+    }
+    pub fn checked_sub(self: i32, other: i32) -> Option<i32> {
+        let r: i64 = (self as i64) - (other as i64);
+        if r > 2147483647i64       { return Option::None; }
+        if r < -2147483648i64      { return Option::None; }
+        return Some(r as i32);
+    }
+    pub fn checked_mul(self: i32, other: i32) -> Option<i32> {
+        let r: i64 = (self as i64) * (other as i64);
+        if r > 2147483647i64       { return Option::None; }
+        if r < -2147483648i64      { return Option::None; }
+        return Some(r as i32);
+    }
+    pub fn checked_div(self: i32, other: i32) -> Option<i32> {
+        if other == 0i32 { return Option::None; }
+        // i32::MIN / -1 overflows.
+        if self == -2147483647i32 - 1i32 && other == -1i32 { return Option::None; }
+        return Some(self / other);
+    }
+    pub fn checked_rem(self: i32, other: i32) -> Option<i32> {
+        if other == 0i32 { return Option::None; }
+        if self == -2147483647i32 - 1i32 && other == -1i32 { return Option::None; }
+        return Some(self % other);
+    }
+    pub fn checked_neg(self: i32) -> Option<i32> {
+        if self == -2147483647i32 - 1i32 { return Option::None; }
+        return Some(0i32 - self);
+    }
+    pub fn checked_abs(self: i32) -> Option<i32> {
+        if self == -2147483647i32 - 1i32 { return Option::None; }
+        if self < 0i32 { return Some(0i32 - self); }
+        return Some(self);
     }
 }
 

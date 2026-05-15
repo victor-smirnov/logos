@@ -1,0 +1,122 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/num/int_macros.rs
+//   (test_signed_checked_div + cross-section of checked_*)
+//
+// Modifications:
+// - `$T` parametrisation flattened to i32.
+// - MAX/MIN literals inlined.
+// - `assert_eq_const_safe!` → runtime assert_eq! / explicit match.
+//
+// Stdlib companion: checked_add / checked_sub / checked_mul /
+// checked_div / checked_rem / checked_neg / checked_abs inherent
+// methods on i32 in std.lang.ord, returning `Option<i32>`. Use
+// i64 intermediates to detect overflow; explicit MIN/-1 special
+// case for division.
+
+package test_i32_checked;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.ord;
+use std.lang.option;
+
+#[test]
+fn test_checked_add() {
+    let max: i32 = 2147483647i32;
+    let min: i32 = -2147483647i32 - 1i32;
+
+    match 100i32.checked_add(200i32) {
+        Option::Some(v) => { assert_eq!(v, 300i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+    match max.checked_add(1i32) {
+        Option::Some(_) => { assert_eq!(true, false); }
+        Option::None    => { }
+    }
+    match min.checked_add(-1i32) {
+        Option::Some(_) => { assert_eq!(true, false); }
+        Option::None    => { }
+    }
+}
+
+#[test]
+fn test_checked_sub() {
+    let min: i32 = -2147483647i32 - 1i32;
+    match 10i32.checked_sub(3i32) {
+        Option::Some(v) => { assert_eq!(v, 7i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+    match min.checked_sub(1i32) {
+        Option::Some(_) => { assert_eq!(true, false); }
+        Option::None    => { }
+    }
+}
+
+#[test]
+fn test_checked_mul() {
+    let max: i32 = 2147483647i32;
+    match 6i32.checked_mul(7i32) {
+        Option::Some(v) => { assert_eq!(v, 42i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+    match max.checked_mul(2i32) {
+        Option::Some(_) => { assert_eq!(true, false); }
+        Option::None    => { }
+    }
+}
+
+#[test]
+fn test_checked_div_rem() {
+    let min: i32 = -2147483647i32 - 1i32;
+    // Normal cases.
+    match 10i32.checked_div(3i32) {
+        Option::Some(v) => { assert_eq!(v, 3i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+    match 10i32.checked_rem(3i32) {
+        Option::Some(v) => { assert_eq!(v, 1i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+    // Div / rem by zero → None.
+    match 10i32.checked_div(0i32) {
+        Option::Some(_) => { assert_eq!(true, false); }
+        Option::None    => { }
+    }
+    match 10i32.checked_rem(0i32) {
+        Option::Some(_) => { assert_eq!(true, false); }
+        Option::None    => { }
+    }
+    // i32::MIN / -1 overflows.
+    match min.checked_div(-1i32) {
+        Option::Some(_) => { assert_eq!(true, false); }
+        Option::None    => { }
+    }
+}
+
+#[test]
+fn test_checked_neg_abs() {
+    let max: i32 = 2147483647i32;
+    let min: i32 = -2147483647i32 - 1i32;
+
+    match 7i32.checked_neg() {
+        Option::Some(v) => { assert_eq!(v, -7i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+    match min.checked_neg() {
+        Option::Some(_) => { assert_eq!(true, false); }
+        Option::None    => { }
+    }
+    match max.checked_neg() {
+        Option::Some(v) => { assert_eq!(v, min + 1i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+
+    match (-7i32).checked_abs() {
+        Option::Some(v) => { assert_eq!(v, 7i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+    match min.checked_abs() {
+        Option::Some(_) => { assert_eq!(true, false); }
+        Option::None    => { }
+    }
+}
