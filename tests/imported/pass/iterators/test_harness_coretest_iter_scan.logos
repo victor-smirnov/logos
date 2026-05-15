@@ -1,0 +1,58 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/iter/adapters/scan.rs
+//   (test_scan subset)
+//
+// Modifications:
+// - Closure with captured state replaced with explicit ScanState
+//   struct + named fn-ptr (`fn running_sum(s: &mut ScanState, ...)`).
+// - assert_eq! family imports via std.fmt + std.lang.text.
+//
+// Stdlib companion: new `ScanIter<I, T, St, B>` struct + free fn
+// `iter_scan<I, T, St, B>(iter, state, f)` in std/lang/iter/iter.logos.
+
+package test_iter_scan;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.iter;
+use std.lang.range;
+use std.lang.option;
+
+pub struct RunningSum { pub acc: i32 }
+
+fn step_running_sum(s: &mut RunningSum, x: i32) -> Option<i32> {
+    s.acc = s.acc + x;
+    return Some(s.acc);
+}
+
+fn stop_at_4(s: &mut RunningSum, x: i32) -> Option<i32> {
+    s.acc = s.acc + x;
+    if s.acc >= 4i32 { return None; }
+    return Some(s.acc);
+}
+
+#[test]
+fn test_scan_running_sum() {
+    let r = 1i32..5i32;  // 1, 2, 3, 4
+    let st = RunningSum { acc: 0i32 };
+    let mut it = iter_scan::<RangeI32, i32, RunningSum, i32>(r, st, step_running_sum);
+    // Running sum: 1, 3, 6, 10.
+    match it.next() { Option::Some(v) => { assert_eq!(v, 1i32); }  Option::None => { assert_eq!(true, false); } }
+    match it.next() { Option::Some(v) => { assert_eq!(v, 3i32); }  Option::None => { assert_eq!(true, false); } }
+    match it.next() { Option::Some(v) => { assert_eq!(v, 6i32); }  Option::None => { assert_eq!(true, false); } }
+    match it.next() { Option::Some(v) => { assert_eq!(v, 10i32); } Option::None => { assert_eq!(true, false); } }
+    match it.next() { Option::Some(_) => { assert_eq!(true, false); } Option::None => { } }
+}
+
+#[test]
+fn test_scan_early_stop() {
+    let r = 1i32..10i32;
+    let st = RunningSum { acc: 0i32 };
+    let mut it = iter_scan::<RangeI32, i32, RunningSum, i32>(r, st, stop_at_4);
+    // 1 → acc=1, yield 1
+    // 2 → acc=3, yield 3
+    // 3 → acc=6, >= 4 → stop.
+    match it.next() { Option::Some(v) => { assert_eq!(v, 1i32); } Option::None => { assert_eq!(true, false); } }
+    match it.next() { Option::Some(v) => { assert_eq!(v, 3i32); } Option::None => { assert_eq!(true, false); } }
+    match it.next() { Option::Some(_) => { assert_eq!(true, false); } Option::None => { } }
+}

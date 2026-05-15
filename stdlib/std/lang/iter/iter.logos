@@ -525,6 +525,36 @@ pub fn iter_filter<I: Iterator<T>, T>(iter: I, pred: fn(T) -> bool) -> FilterIte
     return FilterIter { inner: iter, pred: pred };
 }
 
+// ── ScanIter<I, T, St, B> — stateful filter+map ──────────────────────────────
+//
+// Mirrors Rust's `core::iter::Scan`. Carries a mutable state across
+// items; the closure mutates state and yields Option<B>. Yields
+// while the closure returns Some; first None ends iteration.
+
+pub struct ScanIter<I, T, St, B> {
+    pub inner: I,
+    pub state: St,
+    pub f:     fn(&mut St, T) -> Option<B>,
+}
+
+impl<I: Iterator<T>, T, St, B> Iterator<B> for ScanIter<I, T, St, B> {
+    fn next(self: &mut ScanIter<I, T, St, B>) -> Option<B> {
+        match self.inner.next() {
+            Option::None    => { return Option::None; }
+            Option::Some(v) => {
+                let f = self.f;
+                return f(&mut self.state, v);
+            }
+        }
+    }
+}
+
+pub fn iter_scan<I: Iterator<T>, T, St, B>(
+    iter: I, state: St, f: fn(&mut St, T) -> Option<B>,
+) -> ScanIter<I, T, St, B> {
+    return ScanIter { inner: iter, state: state, f: f };
+}
+
 // ── FuseIter<I, T> — pin the iterator to None once it's exhausted ────────────
 //
 // Mirrors Rust's `core::iter::Fuse`. Some iterators may yield Some
