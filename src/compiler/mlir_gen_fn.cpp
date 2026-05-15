@@ -136,7 +136,8 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(const LFunction& fn) {
 // Forward declare
 // ---------------------------------------------------------------------------
 
-void MLIRGenImpl::forward_declare(mlir::ModuleOp mod, const LFunction& fn) {
+void MLIRGenImpl::forward_declare(mlir::ModuleOp mod, const LFunction& fn,
+                                    bool is_binary_skip) {
     if (fn.is_vararg) {
         // Vararg extern fns use llvm.func (func dialect doesn't support varargs)
         if (mod.lookupSymbol<mlir::LLVM::LLVMFuncOp>(fn.name)) return;
@@ -157,7 +158,9 @@ void MLIRGenImpl::forward_declare(mlir::ModuleOp mod, const LFunction& fn) {
     }
     if (mod.lookupSymbol<mlir::func::FuncOp>(fn.name)) return;
     auto f = mlir::func::FuncOp::create(loc_, fn.name, make_fn_type(fn));
-    if (fn.is_extern) f.setPrivate();
+    // Binary-skip and extern fns are declaration-only — set private at
+    // creation time to avoid the separate setPrivate-by-name pass.
+    if (fn.is_extern || is_binary_skip) f.setPrivate();
     mod.push_back(f);
     // Record Logos-level param types for dyn coercion at call sites.
     std::vector<TypeRef> ptypes;

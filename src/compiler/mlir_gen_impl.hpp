@@ -451,7 +451,11 @@ private:
 
     // ── Function type from LFunction ─────────────────────────────
     mlir::FunctionType make_fn_type(const LFunction& fn);
-    void forward_declare(mlir::ModuleOp mod, const LFunction& fn);
+    // When `is_binary_skip` is true, the FuncOp is created private so the
+    // module ends up with a declaration-only entry (no body, matching the
+    // archive-resident implementation).
+    void forward_declare(mlir::ModuleOp mod, const LFunction& fn,
+                          bool is_binary_skip = false);
     bool gen_function_body(mlir::func::FuncOp func, const LFunction& fn);
 
     // ── Block ─────────────────────────────────────────────────────

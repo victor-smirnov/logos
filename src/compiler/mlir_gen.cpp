@@ -12,6 +12,9 @@
 // mlir_gen_stmt.cpp, mlir_gen_expr.cpp, mlir_gen_dyn.cpp.
 
 #include "mlir_gen_impl.hpp"
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <set>
 #include <string>
 #include <vector>
@@ -20,11 +23,37 @@ namespace logos::compiler {
 
 using namespace lir;
 
+namespace {
+
+// Per-phase timer for `LOGOS_MLIR_PHASE_TIMING=1`. Cheap (steady_clock::now)
+// when disabled-once-at-init.
+struct MlirPhaseTimer {
+    bool enabled;
+    std::chrono::steady_clock::time_point t0;
+    MlirPhaseTimer() {
+        const char* e = std::getenv("LOGOS_MLIR_PHASE_TIMING");
+        enabled = e && e[0] && e[0] != '0';
+    }
+    void reset() { t0 = std::chrono::steady_clock::now(); }
+    void tick(const char* phase) {
+        if (!enabled) { reset(); return; }
+        auto t1 = std::chrono::steady_clock::now();
+        auto ms = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+        std::fprintf(stderr, "[mlir-phase] %-32s %6ld us\n", phase, (long)ms);
+        t0 = t1;
+    }
+};
+
+} // namespace
+
 // ---------------------------------------------------------------------------
 // MLIRGenImpl::generate — top-level lowering pipeline
 // ---------------------------------------------------------------------------
 
 mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
+    MlirPhaseTimer pt;
+    pt.reset();
+
     auto mod = mlir::ModuleOp::create(loc_);
 
     prog_   = &prog;
@@ -60,10 +89,12 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     for (auto& ed : prog.enums) {
         if (ed.has_payload()) register_tagged_enum(ed);
     }
+    pt.tick("pass0 register types");
 
     // Register struct LLVM types (all_struct_defs_ already built above).
     for (auto& sd : prog.structs)
         if (!register_struct(sd)) return nullptr;
+    pt.tick("pass0 register_struct");
 
     for (auto& ta : prog.type_aliases)
         type_aliases_[ta.name] = logos_to_mlir(ta.type);
@@ -73,6 +104,7 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
 
     // Declare malloc and free for 'new' and 'delete'.
     ensure_malloc_free(mod);
+    pt.tick("pass0 aliases+consts+ensure");
 
     // Pass 1: forward-declare all functions (structs, free fns).
     // Skip a fn's body emission iff the linker can find it in a binary
@@ -114,31 +146,24 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
 
     // Always forward-declare every function so call sites can resolve the
     // signature.  Binary-skip only suppresses body emission — the linker
-    // provides the implementation from the archive.
+    // provides the implementation from the archive. Pass is_binary_skip
+    // through so forward_declare sets the FuncOp private at creation time
+    // — saves the second by-name lookup pass over 3500+ symbols.
     for (auto& sd : prog.structs)
         for (auto& m : sd.methods)
-            forward_declare(mod, *m);
+            forward_declare(mod, *m, is_binary_skip(*m));
 
     for (auto& fn : prog.functions)
-        forward_declare(mod, *fn);
-
-    // Binary-skip functions are declarations only (no body); MLIR requires
-    // declarations to have private visibility.
-    for (auto& sd : prog.structs)
-        for (auto& m : sd.methods)
-            if (is_binary_skip(*m))
-                if (auto f = mod.lookupSymbol<mlir::func::FuncOp>(m->name))
-                    f.setPrivate();
-    for (auto& fn : prog.functions)
-        if (is_binary_skip(*fn))
-            if (auto f = mod.lookupSymbol<mlir::func::FuncOp>(fn->name))
-                f.setPrivate();
+        forward_declare(mod, *fn, is_binary_skip(*fn));
+    pt.tick("pass1 forward_declare");
 
     // Pass 1b: emit vtable globals for trait impls (&dyn Trait support).
     emit_trait_vtables(mod, prog);
+    pt.tick("pass1b vtables");
 
     // Pass 1c: emit tag-based dispatch tables (one [223 x ptr] per TagSystem×Trait×method).
     emit_tag_dispatch_tables(mod, prog);
+    pt.tick("pass1c tag_dispatch");
 
     // Pass 1d: emit TypeInfo rodata globals for reflect::<T>() and annotated types.
     {
@@ -156,6 +181,7 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
                 rg.symbol, blob_attr);
         }
     }
+    pt.tick("pass1d reflection_globals");
 
     // Pass 2: fill function bodies (structs, free fns).
     for (auto& sd : prog.structs) {
@@ -170,6 +196,7 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
         auto func = mod.lookupSymbol<mlir::func::FuncOp>(fn->name);
         if (!gen_function_body(func, *fn)) return nullptr;
     }
+    pt.tick("pass2 body emit");
 
     // Pass 3: inject dispatch table init calls at the start of main().
     // Each tag system has __logos_tag_dispatch_init__<TagSystem>.  Binary tag
@@ -205,6 +232,7 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
             }
         }
     }
+    pt.tick("pass3 dispatch init");
 
     // Canonical-form rename pass. Bridges callees produced in older bare
     // forms (mono call rewrites, T → Concrete substitutions, blanket-impl
@@ -306,12 +334,14 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
             if (changed) gop.setValueAttr(mlir::ArrayAttr::get(gop.getContext(), elems));
         });
     }
+    pt.tick("canon rename walk");
 
     if (mlir::failed(mlir::verify(mod))) {
         std::fprintf(stderr, "mlir_gen: module verification failed\n");
         mod.dump();
         return nullptr;
     }
+    pt.tick("verify");
     return mod;
 }
 

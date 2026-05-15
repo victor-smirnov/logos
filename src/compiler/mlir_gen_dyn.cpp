@@ -643,28 +643,55 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
 
 
 void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& prog) {
-    // Helper: find every concrete-mangled clone of `target_base` in
-    // prog.functions. Each clone's struct mangling looks like
-    // `[pkg.]target_base$G<N>$<arg1>[$<arg2>…]__method__[fg]__sig`.
-    // We collect the set of unique struct manglings (`target_base$G…`).
-    auto collect_concrete_targets = [&](std::string_view target_base) {
-        std::set<std::string> targets;
-        std::string prefix = std::string(target_base) + "$G";
+    // Build a method_base → vector<const LFunction*> index once, so the
+    // per-(trait, impl, method) `resolve_methods` lookup below doesn't walk
+    // prog.functions linearly. Without the index, the loop is quadratic over
+    // (n_impls × n_methods × n_functions); for stdlib that's ~50ms per
+    // mlir_gen invocation.
+    std::unordered_map<std::string, std::vector<const lir::LFunction*>>
+        method_base_idx;
+    method_base_idx.reserve(256);
+    for (auto& fp : prog.functions)
+        if (fp && !fp->method_base.empty())
+            method_base_idx[fp->method_base].push_back(fp.get());
+    // Also build a per-struct method_base index (used as the last fallback).
+    std::unordered_map<std::string,
+        std::unordered_map<std::string, std::vector<const lir::LFunction*>>>
+        struct_method_idx;
+    for (auto& sd : prog.structs) {
+        auto& sm = struct_method_idx[sd.name];
+        for (auto& mp : sd.methods)
+            if (mp && !mp->method_base.empty())
+                sm[mp->method_base].push_back(mp.get());
+    }
+
+    // Pre-walk all fns/methods once to build `target_base → set<concrete>`
+    // index. Each name `[pkg.]<base>$G<N>$<args>__method[__fg__sig]` carries
+    // the concrete struct mangling we want grouped under its template's
+    // `<base>` key.
+    std::unordered_map<std::string, std::set<std::string>>
+        concrete_targets_by_base;
+    {
         auto scan = [&](std::string_view name) {
             if (auto dot = name.rfind('.'); dot != std::string_view::npos)
                 name = name.substr(dot + 1);
-            if (name.compare(0, prefix.size(), prefix) != 0) return;
-            auto p = name.find("__", prefix.size());
-            if (p == std::string_view::npos) return;
-            targets.emplace(name.substr(0, p));
+            auto g_pos = name.find("$G");
+            if (g_pos == std::string_view::npos) return;
+            auto end = name.find("__", g_pos);
+            if (end == std::string_view::npos) return;
+            std::string base{name.substr(0, g_pos)};
+            std::string concrete{name.substr(0, end)};
+            concrete_targets_by_base[std::move(base)].insert(std::move(concrete));
         };
         for (auto& fp : prog.functions) if (fp) scan(fp->name);
-        // Methods on cloned struct specs land under struct.methods in some
-        // mono paths.
-        for (auto& sd : prog.structs) {
+        for (auto& sd : prog.structs)
             for (auto& mp : sd.methods) if (mp) scan(mp->name);
-        }
-        return targets;
+    }
+    auto collect_concrete_targets = [&](const std::string& target_base)
+        -> const std::set<std::string>& {
+        static const std::set<std::string> empty;
+        auto it = concrete_targets_by_base.find(target_base);
+        return it == concrete_targets_by_base.end() ? empty : it->second;
     };
 
     for (auto& td : prog.traits) {
@@ -703,19 +730,26 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
                         if (try_match(*fp)) { sym = fp->name; break; }
                     }
                     if (sym.empty()) {
-                        for (auto& fp : prog.functions) {
-                            if (!fp) continue;
-                            if (try_match(*fp)) { sym = fp->name; break; }
+                        if (auto it = method_base_idx.find(m.name);
+                            it != method_base_idx.end()) {
+                            for (auto* fp : it->second) {
+                                if (belongs_to_target(fp->name)) {
+                                    sym = fp->name; break;
+                                }
+                            }
                         }
                     }
                     if (sym.empty()) {
-                        for (auto& sd : prog.structs) {
-                            if (sd.name != target) continue;
-                            for (auto& mp : sd.methods) {
-                                if (!mp) continue;
-                                if (try_match(*mp)) { sym = mp->name; break; }
+                        if (auto sit = struct_method_idx.find(std::string(target));
+                            sit != struct_method_idx.end()) {
+                            if (auto it = sit->second.find(m.name);
+                                it != sit->second.end()) {
+                                for (auto* mp : it->second) {
+                                    if (belongs_to_target(mp->name)) {
+                                        sym = mp->name; break;
+                                    }
+                                }
                             }
-                            if (!sym.empty()) break;
                         }
                     }
                     if (sym.empty()) sym = std::string(target) + "__" + m.name;
