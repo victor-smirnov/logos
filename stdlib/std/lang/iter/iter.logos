@@ -417,6 +417,36 @@ pub trait DoubleEndedIterator<Item>: Iterator<Item> {
     }
 }
 
+// `iter_eq_by` — pairwise equality of two iterators under a custom
+// equivalence relation. Returns true iff both iters yield the same
+// number of items and `eq(x, y)` holds for each pair.
+pub fn iter_eq_by<I: Iterator<T>, J: Iterator<U>, T, U>(
+    a: I, b: J, eq: fn(T, U) -> bool,
+) -> bool {
+    let mut ai: I = a;
+    let mut bi: J = b;
+    loop {
+        let av: Option<T> = ai.next();
+        let bv: Option<U> = bi.next();
+        match av {
+            Option::None    => {
+                match bv {
+                    Option::None    => { return true; }
+                    Option::Some(_) => { return false; }
+                }
+            }
+            Option::Some(x) => {
+                match bv {
+                    Option::None    => { return false; }
+                    Option::Some(y) => {
+                        if !eq(x, y) { return false; }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // `iter_rposition` — like `.position` but walking from the back.
 // Returns the index (counted from the start of the original
 // iterator) of the first item for which `pred` returns true when
