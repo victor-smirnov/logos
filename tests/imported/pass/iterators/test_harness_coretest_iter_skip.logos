@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/iter/adapters/skip.rs
+//   (test_iterator_skip front-only subset)
+//
+// Modifications:
+// - `xs.iter().skip(N)` → `iter_skip::<…>(iter_over_slice(&xs), N, zero)`.
+// - `it.len()` (ExactSizeIterator) assertions dropped — not impl'd.
+// - DoubleEnded variants deferred — SkipIter has no DEI yet.
+// - assert_eq! family imports via std.fmt + std.lang.text.
+
+package test_iter_skip;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.iter;
+use std.lang.option;
+
+#[test]
+fn test_iterator_skip() {
+    let xs: [i32; 12] = [0i32, 1i32, 2i32, 3i32, 5i32, 13i32, 15i32, 16i32, 17i32, 19i32, 20i32, 30i32];
+    let ys: [i32; 7]  = [13i32, 15i32, 16i32, 17i32, 19i32, 20i32, 30i32];
+    unsafe {
+        let mut it = iter_skip::<SliceIter<i32>, i32>(iter_over_slice(&xs), 5i64, 0i32);
+        let mut i: i32 = 0i32;
+        loop {
+            match it.next() {
+                Option::None    => { break; }
+                Option::Some(x) => {
+                    assert_eq!(x, ys[i]);
+                    i = i + 1i32;
+                }
+            }
+        }
+        assert_eq!(i, 7i32);
+    }
+}
