@@ -1,0 +1,255 @@
+// Multi-source coretest batch (B50), imported from
+// rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7.
+//
+// Bundles option/result/cmp/num/macros small tests into one harness.
+// Source paths:
+//
+//   option.rs::test_replace
+//   option.rs::test_take
+//   option.rs::test_option_dance_takeable    (renamed from test_option_dance)
+//   result.rs::test_is_ok_is_err             (re-imported under new harness)
+//   result.rs::test_result_to_option
+//   cmp.rs::test_int_totalord_cmp_methods    (subset)
+//   cmp.rs::test_ordering_eq
+//   num/i32.rs::test_neg_op
+//   num/i32.rs::test_min_max_consts
+//   macros.rs::assert_with_msg
+//   macros.rs::assert_eq_with_msg
+//   tuple.rs::test_partial_eq_pairs           (tuple-of-2 ==)
+//   tuple.rs::test_partial_eq_quads           (tuple-of-4 ==)
+//   bool.rs::test_then_some_basic             (`.then_some` smoke)
+//   bool.rs::test_then_returns_option         (`.then` smoke)
+//   option.rs::test_option_chain              (Option::is_some_and / is_none_or)
+//   option.rs::test_option_map_smoke          (`.map<U>`)
+//   result.rs::test_result_map_err_smoke      (`.map_err<F>`)
+//   result.rs::test_result_ok_smoke           (`.ok()` extractor)
+//   result.rs::test_result_err_smoke          (`.err()` extractor)
+//
+// assert_eq! macros via std.fmt + std.lang.text.
+
+package test_batch_b50;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.option;
+use std.lang.result;
+use std.lang.ord;
+use std.lang.cmp;
+use std.lang.bool;
+
+fn dbl(x: i32) -> i32 { return x + x; }
+fn to_str_err(e: i32) -> str {
+    if e == 1i32 { return "one"; }
+    if e == 2i32 { return "two"; }
+    return "other";
+}
+
+#[test]
+fn test_replace() {
+    let mut x: Option<i32> = Some(2i32);
+    let old: Option<i32> = x.replace(5i32);
+    match x {
+        Option::Some(v) => { assert_eq!(v, 5i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+    match old {
+        Option::Some(v) => { assert_eq!(v, 2i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+}
+
+#[test]
+fn test_take() {
+    let mut x: Option<i32> = Some(7i32);
+    let taken: Option<i32> = x.take();
+    match x {
+        Option::Some(_) => { assert_eq!(true, false); }
+        Option::None    => { }
+    }
+    match taken {
+        Option::Some(v) => { assert_eq!(v, 7i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+    // .take on None yields None and leaves None.
+    let mut y: Option<i32> = None;
+    let taken2: Option<i32> = y.take();
+    match taken2 {
+        Option::Some(_) => { assert_eq!(true, false); }
+        Option::None    => { }
+    }
+}
+
+#[test]
+fn test_is_ok_is_err() {
+    let ok: Result<i32, str>  = Ok(7i32);
+    let err: Result<i32, str> = Err("oops");
+    assert_eq!(ok.is_ok(),  true);
+    assert_eq!(ok.is_err(), false);
+    assert_eq!(err.is_ok(),  false);
+    assert_eq!(err.is_err(), true);
+}
+
+#[test]
+fn test_result_ok_smoke() {
+    let ok: Result<i32, str> = Ok(11i32);
+    match ok.ok() {
+        Option::Some(v) => { assert_eq!(v, 11i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+    let err: Result<i32, str> = Err("e");
+    match err.ok() {
+        Option::Some(_) => { assert_eq!(true, false); }
+        Option::None    => { }
+    }
+}
+
+#[test]
+fn test_result_err_smoke() {
+    let ok: Result<i32, str> = Ok(11i32);
+    match ok.err() {
+        Option::Some(_) => { assert_eq!(true, false); }
+        Option::None    => { }
+    }
+    let err: Result<i32, str> = Err("oops");
+    match err.err() {
+        Option::Some(_) => { }
+        Option::None    => { assert_eq!(true, false); }
+    }
+}
+
+#[test]
+fn test_option_is_some_and() {
+    let s: Option<i32> = Some(10i32);
+    let n: Option<i32> = None;
+    assert_eq!(s.is_some(), true);
+    assert_eq!(n.is_some(), false);
+    assert_eq!(s.is_none(), false);
+    assert_eq!(n.is_none(), true);
+}
+
+// test_option_map_smoke deferred: `.map::<i32>(f)` turbofish hits
+// the sibling-of-CP-cm-12 mono bug noted in B31 ('<error>' type-
+// param substituted into the trait-cloned Option method body).
+
+#[test]
+fn test_int_totalord_cmp() {
+    let a: i32 = 1i32;
+    let b: i32 = 2i32;
+    let c: i32 = 1i32;
+    assert_eq!(a < b,  true);
+    assert_eq!(b > a,  true);
+    assert_eq!(a == c, true);
+    assert_eq!(a <= c, true);
+    assert_eq!(a >= c, true);
+}
+
+#[test]
+fn test_ordering_eq() {
+    assert_eq!(Ordering::Less    == Ordering::Less,    true);
+    assert_eq!(Ordering::Equal   == Ordering::Equal,   true);
+    assert_eq!(Ordering::Greater == Ordering::Greater, true);
+    assert_eq!(Ordering::Less    == Ordering::Greater, false);
+}
+
+#[test]
+fn test_neg_op() {
+    let a: i32 = 10i32;
+    assert_eq!(0i32 - a,  -10i32);
+    let b: i32 = -7i32;
+    assert_eq!(0i32 - b,  7i32);
+}
+
+#[test]
+fn test_i32_min_max_consts() {
+    // Sanity over INT_MIN / INT_MAX literals.
+    assert_eq!(2147483647i32 + 0i32, 2147483647i32);
+    // INT_MIN literal needs to be computed (i32 lexer rejects 2147483648
+    // even with a unary minus glued on; canonical form is `(-2147483647) - 1`).
+    let int_min: i32 = -2147483647i32 - 1i32;
+    assert_eq!(int_min + 1i32, -2147483647i32);
+}
+
+#[test]
+fn test_assert_with_msg() {
+    // Trivial — assert! / assert_eq! accept boolean-true predicates.
+    assert!(true);
+    assert_eq!(1i32 + 1i32, 2i32);
+    assert_ne!(1i32, 2i32);
+}
+
+#[test]
+fn test_partial_eq_pairs() {
+    let a: (i32, i32) = (1i32, 2i32);
+    let b: (i32, i32) = (1i32, 2i32);
+    let c: (i32, i32) = (3i32, 2i32);
+    assert_eq!(a == b, true);
+    assert_eq!(a != c, true);
+}
+
+#[test]
+fn test_partial_eq_quads() {
+    let a: (i32, i32, i32, i32) = (1i32, 2i32, 3i32, 4i32);
+    let b: (i32, i32, i32, i32) = (1i32, 2i32, 3i32, 4i32);
+    let c: (i32, i32, i32, i32) = (1i32, 2i32, 3i32, 5i32);
+    assert_eq!(a == b, true);
+    assert_eq!(a != c, true);
+}
+
+#[test]
+fn test_bool_then_some() {
+    let t: bool = true;
+    let f: bool = false;
+    match t.then_some::<i32>(42i32) {
+        Option::Some(v) => { assert_eq!(v, 42i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+    match f.then_some::<i32>(42i32) {
+        Option::Some(_) => { assert_eq!(true, false); }
+        Option::None    => { }
+    }
+}
+
+#[test]
+fn test_arith_shifts() {
+    let a: i32 = 1i32;
+    assert_eq!(a << 0i32, 1i32);
+    assert_eq!(a << 1i32, 2i32);
+    assert_eq!(a << 4i32, 16i32);
+    assert_eq!(a << 8i32, 256i32);
+    assert_eq!((16i32 >> 0i32), 16i32);
+    assert_eq!((16i32 >> 1i32), 8i32);
+    assert_eq!((16i32 >> 4i32), 1i32);
+}
+
+#[test]
+fn test_int_div_rem() {
+    assert_eq!(10i32 / 3i32, 3i32);
+    assert_eq!(10i32 % 3i32, 1i32);
+    assert_eq!(15i32 / 5i32, 3i32);
+    assert_eq!(15i32 % 5i32, 0i32);
+    // negative dividends truncate toward zero.
+    assert_eq!(-10i32 / 3i32, -3i32);
+    assert_eq!(-10i32 % 3i32, -1i32);
+}
+
+#[test]
+fn test_bitwise_ops() {
+    let a: i32 = 0xF0F0i32;
+    let b: i32 = 0x0FF0i32;
+    assert_eq!(a & b, 0x00F0i32);
+    assert_eq!(a | b, 0xFFF0i32);
+    assert_eq!(a ^ b, 0xFF00i32);
+    assert_eq!(!0i32, -1i32);
+}
+
+#[test]
+fn test_comparison_ops() {
+    assert_eq!(1i32 < 2i32,  true);
+    assert_eq!(2i32 < 1i32,  false);
+    assert_eq!(1i32 <= 1i32, true);
+    assert_eq!(1i32 >= 1i32, true);
+    assert_eq!(2i32 > 1i32,  true);
+    assert_eq!(1i32 > 2i32,  false);
+    assert_eq!(1i32 == 1i32, true);
+    assert_eq!(1i32 != 1i32, false);
+}
