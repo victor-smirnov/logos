@@ -1,0 +1,55 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/num/int_macros.rs
+//   (test_pow subset — wrapping_pow / checked_pow / overflowing_pow
+//    deferred since Logos's `pow` is wrapping-only and lacks the
+//    Option-returning checked_pow variant)
+//
+// Modifications:
+// - `int_module!`-$T parametrisation flattened to i32 + i64.
+// - `assert_eq_const_safe!` → runtime assert_eq!.
+// - checked_pow / overflowing_pow / wrapping_pow tests dropped.
+//
+// Stdlib companion: `pow(self, exp: u32) -> Self` inherent method
+// on i32/i64/u32/u64 in std.lang.ord, repeated-squaring impl.
+
+package test_i32_pow;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.ord;
+
+#[test]
+fn test_pow_basic() {
+    assert_eq!(2i32.pow(0u32),  1i32);
+    assert_eq!(2i32.pow(1u32),  2i32);
+    assert_eq!(2i32.pow(2u32),  4i32);
+    assert_eq!(2i32.pow(10u32), 1024i32);
+    assert_eq!(3i32.pow(4u32),  81i32);
+    assert_eq!(7i32.pow(3u32),  343i32);
+    assert_eq!(1i32.pow(100u32), 1i32);
+    assert_eq!(0i32.pow(0u32),  1i32);   // by convention, 0^0 = 1
+    assert_eq!(0i32.pow(5u32),  0i32);
+}
+
+#[test]
+fn test_pow_negative_base() {
+    assert_eq!((-2i32).pow(0u32), 1i32);
+    assert_eq!((-2i32).pow(1u32), -2i32);
+    assert_eq!((-2i32).pow(2u32), 4i32);
+    assert_eq!((-2i32).pow(3u32), -8i32);
+    assert_eq!((-2i32).pow(10u32), 1024i32);
+}
+
+#[test]
+fn test_pow_i64() {
+    assert_eq!(10i64.pow(6u32),  1000000i64);
+    assert_eq!(10i64.pow(9u32),  1000000000i64);
+    assert_eq!(2i64.pow(40u32),  1099511627776i64);
+}
+
+#[test]
+fn test_pow_u32() {
+    assert_eq!(3u32.pow(0u32), 1u32);
+    assert_eq!(3u32.pow(5u32), 243u32);
+    assert_eq!(5u32.pow(3u32), 125u32);
+}

@@ -139,6 +139,62 @@ impl i64   { pub fn count_ones(self: i64) -> u32 { return popcount_u64(self as u
              pub fn leading_zeros(self: i64) -> u32 { return leading_zeros_u64(self as u64); }
              pub fn trailing_zeros(self: i64) -> u32 { return trailing_zeros_u64(self as u64); } }
 
+// Integer exponentiation via repeated squaring. Wrapping arithmetic
+// on overflow (matches Rust's `wrapping_pow`; `pow` panics on
+// overflow in Rust debug builds but this version just wraps).
+impl i32 {
+    pub fn pow(self: i32, exp: u32) -> i32 {
+        let mut result: i32 = 1i32;
+        let mut base: i32 = self;
+        let mut e: u32 = exp;
+        while e > 0u32 {
+            if (e & 1u32) == 1u32 { result = result * base; }
+            e = e >> 1u32;
+            if e > 0u32 { base = base * base; }
+        }
+        return result;
+    }
+}
+impl i64 {
+    pub fn pow(self: i64, exp: u32) -> i64 {
+        let mut result: i64 = 1i64;
+        let mut base: i64 = self;
+        let mut e: u32 = exp;
+        while e > 0u32 {
+            if (e & 1u32) == 1u32 { result = result * base; }
+            e = e >> 1u32;
+            if e > 0u32 { base = base * base; }
+        }
+        return result;
+    }
+}
+impl u32 {
+    pub fn pow(self: u32, exp: u32) -> u32 {
+        let mut result: u32 = 1u32;
+        let mut base: u32 = self;
+        let mut e: u32 = exp;
+        while e > 0u32 {
+            if (e & 1u32) == 1u32 { result = result * base; }
+            e = e >> 1u32;
+            if e > 0u32 { base = base * base; }
+        }
+        return result;
+    }
+}
+impl u64 {
+    pub fn pow(self: u64, exp: u32) -> u64 {
+        let mut result: u64 = 1u64;
+        let mut base: u64 = self;
+        let mut e: u32 = exp;
+        while e > 0u32 {
+            if (e & 1u32) == 1u32 { result = result * base; }
+            e = e >> 1u32;
+            if e > 0u32 { base = base * base; }
+        }
+        return result;
+    }
+}
+
 // SL-sl-05: core::cmp free fns analogous to Rust's `core::cmp::{min_by,
 // max_by}`. Caller supplies an `fn(T, T) -> Ordering` comparator (Logos
 // closures coerce to fn-ptr when non-capturing, so call sites can pass
