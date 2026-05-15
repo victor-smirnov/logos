@@ -1,0 +1,60 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/num/int_macros.rs
+//   (test_abs, test_signum, test_is_positive, test_is_negative —
+//    int_module!-expanded for i32)
+//
+// Modifications:
+// - `int_module!`-driven `$T` parametrisation flattened to a single
+//   i32 instance.
+// - `(N as $T)` cast simplified to `Ni32` literal.
+// - `assert_eq_const_safe!` simplified to `assert_eq!` (we don't
+//   have const-context evaluation; runtime evaluation suffices).
+// - assert_eq! family imports via std.fmt + std.lang.text.
+
+package test_i32_signum_abs;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.ord;
+
+#[test]
+fn test_abs() {
+    assert_eq!((1i32).abs(),  1i32);
+    assert_eq!((0i32).abs(),  0i32);
+    assert_eq!((-1i32).abs(), 1i32);
+    assert_eq!((-42i32).abs(), 42i32);
+}
+
+#[test]
+fn test_signum() {
+    assert_eq!((1i32).signum(),  1i32);
+    assert_eq!((0i32).signum(),  0i32);
+    assert_eq!((-1i32).signum(), -1i32);
+    assert_eq!((100i32).signum(), 1i32);
+    assert_eq!((-100i32).signum(), -1i32);
+}
+
+#[test]
+fn test_is_positive() {
+    assert!((1i32).is_positive());
+    assert!(!(0i32).is_positive());
+    assert!(!(-1i32).is_positive());
+    assert!((100i32).is_positive());
+}
+
+#[test]
+fn test_is_negative() {
+    assert!(!(1i32).is_negative());
+    assert!(!(0i32).is_negative());
+    assert!((-1i32).is_negative());
+    assert!((-100i32).is_negative());
+}
+
+#[test]
+fn test_abs_signum_i64() {
+    assert_eq!((-7i64).abs(), 7i64);
+    assert_eq!((0i64).signum(), 0i64);
+    assert_eq!((-3i64).signum(), -1i64);
+    assert!((5i64).is_positive());
+    assert!((-9i64).is_negative());
+}

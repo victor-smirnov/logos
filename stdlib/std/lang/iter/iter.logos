@@ -799,6 +799,7 @@ impl<T> IntoIterator<T> for Option<T> {
     }
 }
 
+
 pub struct EmptyIter<T> { pub _t: T }
 
 impl<T> Iterator<T> for EmptyIter<T> {
