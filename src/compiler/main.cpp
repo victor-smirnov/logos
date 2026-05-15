@@ -2221,7 +2221,16 @@ int run_metaprog_dispatch(
         }
 
         auto _t2 = std::chrono::steady_clock::now();
-        auto meta_prog = sema_lower(asts, filenames, from_binary, meta_opts);
+        // Reuse the `prog` we already lowered at the top of this iter:
+        // the second sema_lower below would do identical work (same asts,
+        // same opts, no global state changes between them). The dispatcher
+        // loop at line ~2360 still needs metaprog_targets / handlers /
+        // functions, but mono_pass consumes meta_prog and drops those
+        // fields. So snapshot them now, then move-construct meta_prog
+        // from prog.
+        auto saved_targets  = std::move(prog.metaprog_targets);
+        auto saved_handlers = std::move(prog.metaprog_handlers);
+        auto meta_prog      = std::move(prog);
         stat_step(_t2, "meta_sema_lower", iter);
         if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
 
@@ -2331,7 +2340,11 @@ int run_metaprog_dispatch(
         if (!bind_sym("logos_metaprog_error",             reinterpret_cast<void*>(&logos_metaprog_error))) return 1;
         if (!bind_sym("logos_metaprog_error_at",          reinterpret_cast<void*>(&logos_metaprog_error_at))) return 1;
 
-        for (const auto& tgt : prog.metaprog_targets) {
+        // Use the saved targets/handlers (snapshotted from prog above)
+        // because mono_pass dropped them from meta_prog. meta_prog.functions
+        // is preserved through mono (names match prog's pre-mono names for
+        // free fns; mono just renames mangled instances).
+        for (const auto& tgt : saved_targets) {
             // Route oview_module_ast at this trigger's ast (handler may
             // be in a sibling module — emit_module case dispatches across
             // multiple non-binary asts in one pass). Restored after the
@@ -2339,11 +2352,11 @@ int run_metaprog_dispatch(
             auto saved_root = g_user_root_idx;
             g_user_root_idx = tgt.ast_idx;
             bool any_handler = false;
-            for (const auto& mh : prog.metaprog_handlers) {
+            for (const auto& mh : saved_handlers) {
                 if (mh.trigger != tgt.trigger) continue;
                 any_handler = true;
                 std::string lookup_name = mh.hook_fn;
-                for (const auto& f : prog.functions) {
+                for (const auto& f : meta_prog.functions) {
                     if (bare_fn_name(f->name) == mh.hook_fn) {
                         lookup_name = f->name;
                         break;
