@@ -5291,6 +5291,11 @@ lir::LProgram sema_lower(const std::vector<logos::hermes::Hermes>& asts,
                           const std::vector<std::string>& filenames,
                           const std::vector<bool>& from_binary,
                           SemaOptions opts) {
+    auto t_outer = std::chrono::steady_clock::now();
+    const bool phase_dbg = []{
+        const char* e = std::getenv("LOGOS_SEMA_PHASE_TIMING");
+        return e && e[0] && e[0] != '0';
+    }();
     SemaChecker checker;
     checker.set_metaprog_options(opts.metaprog_mode, opts.entry_ast_idx);
     checker.set_metaprog_keep_fns(opts.metaprog_keep_fns);
@@ -5307,7 +5312,14 @@ lir::LProgram sema_lower(const std::vector<logos::hermes::Hermes>& asts,
         // bare flags (no `=`) are placeholder for future target-key
         // overrides like `--cfg target_pointer_width=32`. No-op for now.
     }
-    return checker.run(asts, filenames, from_binary);
+    auto prog = checker.run(asts, filenames, from_binary);
+    if (phase_dbg) {
+        auto t_after_run = std::chrono::steady_clock::now();
+        auto run_us = std::chrono::duration_cast<std::chrono::microseconds>(t_after_run - t_outer).count();
+        std::fprintf(stderr, "[sema-outer] sema_lower (excl. dtor)  %6ld us\n",
+                     (long)run_us);
+    }
+    return prog;
 }
 
 } // namespace logos::compiler
