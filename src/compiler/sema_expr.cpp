@@ -613,6 +613,24 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                 return builder().addr_of(std::string(var_name), make_ref(true, TypeRef(vt).elem()));
             return builder().addr_of(std::string(var_name), make_ref(true, vt));
         }
+        // `&mut *ptr` — short-circuit to ptr with re-typed reference.
+        // Without this, the literal load+spill-to-temp chain emitted
+        // for `*ptr` followed by addr_of_temp produces a reference to a
+        // FRESH alloca holding a value copy, not to the original
+        // pointee. Standard pointer/ref identity from Rust:
+        //   &mut *p ≡ p (with type Ptr<T> → MutRef<T>).
+        if (code_of(child) == la::DEREF && child.has_key(la::VALUE)) {
+            auto inner = lower_expr(map_of(child.get(la::VALUE.code)));
+            auto it = inner->type;
+            if (TypeRef(it).kind() == LogosType::Kind::Ptr ||
+                TypeRef(it).kind() == LogosType::Kind::MutRef ||
+                TypeRef(it).kind() == LogosType::Kind::Ref) {
+                auto ret_t = make_ref(true, TypeRef(it).pointee());
+                inner->type = ret_t;
+                return inner;
+            }
+            return builder().addr_of_temp(std::move(inner), true, make_ref(true, it));
+        }
         // &mut <expr> — temporary materialization
         auto inner = lower_expr(child);
         if (TypeRef(inner->type).kind() == LogosType::Kind::Error) return error_expr();
@@ -1300,6 +1318,20 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
                 return builder().slice_lit(std::move(addr), std::move(len), make_slice_type(TypeRef(vt).elem()));
             }
             return builder().addr_of(std::string(var_name), make_ref(false, vt));
+        }
+        // `&*ptr` — pointer/ref identity peephole (see ADDR_OF_MUT
+        // case above for rationale).
+        if (code_of(child) == la::DEREF && child.has_key(la::VALUE)) {
+            auto inner_v = lower_expr(map_of(child.get(la::VALUE.code)));
+            auto it = inner_v->type;
+            if (TypeRef(it).kind() == LogosType::Kind::Ptr ||
+                TypeRef(it).kind() == LogosType::Kind::MutRef ||
+                TypeRef(it).kind() == LogosType::Kind::Ref) {
+                auto ret_t = make_ref(false, TypeRef(it).pointee());
+                inner_v->type = ret_t;
+                return inner_v;
+            }
+            return builder().addr_of_temp(std::move(inner_v), false, make_ref(false, it));
         }
         // &<expr> — temporary materialization: spill rvalue to stack
         auto inner = lower_expr(child);

@@ -145,6 +145,35 @@ impl<T> Option<T> {
         return r;
     }
 
+    // Converts `&Option<T>` → `Option<&T>`. Unsafe because the body uses
+    // raw-pointer arithmetic to lift a `&T` out of the Some payload —
+    // Logos's `ref v` binding inside `Option::Some(ref v)` doesn't yet
+    // produce a payload-typed reference through variant-data patterns.
+    pub unsafe fn as_ref(self: &Option<T>) -> Option<&T> {
+        if (*self).is_some() {
+            // Logos's `&Aggregate` ABI passes a slot-holding-ptr at LLVM
+            // level (double-indirection). To reach the Option's actual
+            // bytes, take self's pointer-to-the-slot, load 8 bytes to
+            // get the Option's address, then offset by sizeof(disc)=4.
+            let slot: *const *const u8 = self as *const *const u8;
+            let inner: *const u8 = *slot;
+            let payload_ptr: *const T = inner.add(4) as *const T;
+            return Option::Some(&*payload_ptr);
+        }
+        return Option::None;
+    }
+
+    // Converts `&mut Option<T>` → `Option<&mut T>`. Symmetric to as_ref.
+    pub unsafe fn as_mut(self: &mut Option<T>) -> Option<&mut T> {
+        if (*self).is_some() {
+            let slot: *mut *mut u8 = self as *mut *mut u8;
+            let inner: *mut u8 = *slot;
+            let payload_ptr: *mut T = inner.add(4) as *mut T;
+            return Option::Some(&mut *payload_ptr);
+        }
+        return Option::None;
+    }
+
     // Returns Some iff exactly one of `self` and `other` is Some.
     pub fn xor(self: Option<T>, other: Option<T>) -> Option<T> {
         match self {

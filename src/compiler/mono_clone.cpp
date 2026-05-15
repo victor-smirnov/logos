@@ -3877,6 +3877,48 @@ void Mono::instantiate_enum_templates() {
 
             // Instantiate any impl<T> methods stored as generic functions in prog.functions.
             // Convention: function name starts with "Base__" and has matching type params.
+            //
+            // Self-referential return types (e.g. `Option::as_ref(self: &Option<T>)
+            // -> Option<&T>`) would cascade here without bound: instantiating
+            // Option<i32> clones as_ref<i32>, whose body references Option<&i32>;
+            // that triggers Option<&i32> instantiation which clones as_ref<&i32>
+            // whose body references Option<&&i32>; etc. — depth limit hit at 64.
+            //
+            // Skip the eager clone when the method body's body-types include
+            // a recursive `Option<X>` reference whose X is structurally larger
+            // than `T`. Real call sites still enqueue the spec via scan_fn's
+            // enqueue_if_needed → templates_ lookup path.
+            //
+            // Cheaper conservative check: if the method's return type or any
+            // param type references the same enum base with a TypeVar that's
+            // NESTED inside another type-constructor (Ref / Ptr / Array / etc.)
+            // — i.e. not bare T — assume self-referential and skip.
+            auto is_self_referential = [&](const lir::LFunction& fn) -> bool {
+                auto self_ref_type = [&](TypeRef t) -> bool {
+                    if (!t) return false;
+                    auto k = t.kind();
+                    if (k != LogosType::Kind::Enum) return false;
+                    if (std::string(t.enum_name()) != base) return false;
+                    for (auto a : t.type_args()) {
+                        if (!a) continue;
+                        // Bare TypeVar T is fine; anything else (Ref<T>,
+                        // Ptr<T>, Option<T>, ...) is structurally larger.
+                        if (a.kind() != LogosType::Kind::TypeVar) return true;
+                    }
+                    return false;
+                };
+                std::function<bool(TypeRef)> walk = [&](TypeRef t) -> bool {
+                    if (!t) return false;
+                    if (self_ref_type(t)) return true;
+                    if (t.pointee() && walk(t.pointee())) return true;
+                    if (t.elem() && walk(t.elem())) return true;
+                    for (auto a : t.type_args()) if (walk(a)) return true;
+                    return false;
+                };
+                for (auto& p : fn.params) if (walk(p.type)) return true;
+                if (walk(fn.ret_type)) return true;
+                return false;
+            };
             std::string prefix = base + "__";
             for (auto& fn_up : in_.functions) {
                 auto& fn = *fn_up;
@@ -3896,6 +3938,7 @@ void Mono::instantiate_enum_templates() {
                 std::string inst_name = fn_pkg.empty() ? bare_inst
                                                        : fn_pkg + "." + bare_inst;
                 if (done_.count(inst_name)) continue;
+                if (is_self_referential(fn)) continue;
                 SubstMap fn_subst = subst;
                 PackMap fn_packs = packs;
                 // Override type params with the enum's type param names if different

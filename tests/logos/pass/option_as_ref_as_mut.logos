@@ -1,0 +1,64 @@
+// SL-sl-03 follow-up: Option::as_ref / Option::as_mut.
+//
+// Closed via three coordinated fixes:
+//
+// 1. mono_clone.cpp: cycle-detect on self-referential return types for
+//    enum-impl method instantiation. Without it, instantiating
+//    Option<i32> eagerly clones as_ref<i32>, whose body references
+//    Option<&i32>, which queues Option<&i32> → clones as_ref<&i32> →
+//    references Option<&&i32> → depth-64 limit hit.
+//
+// 2. sema_expr.cpp: `&*ptr` / `&mut *ptr` pointer-ref identity
+//    peephole. Without it, `&mut *payload_ptr` loaded `*payload_ptr`
+//    into a fresh temp alloca and returned that alloca's address —
+//    Option::Some(&mut *p) ended up with a &mut pointing at the temp,
+//    not the original pointee, so writes through the &mut didn't
+//    propagate back.
+//
+// 3. sema_expr.cpp (earlier commit b8df74c3): hint priority for
+//    enum-lit subst lets `Option<&i32>` from a let / return context
+//    overcome the inferred-from-payload `Option<i32>`.
+//
+// Body uses raw-pointer arithmetic because Logos's `&Aggregate` ABI is
+// double-indirection (slot-holding-ptr-to-Option), and `(*self).is_some()`
+// is the only way to express the discriminant check before extracting
+// the payload by hand.
+
+package option_as_ref_as_mut;
+
+use std.lang.option;
+
+fn main() -> i32 {
+    // as_ref on Some — read through the returned &T.
+    let o: Option<i32> = Option::Some(42i32);
+    unsafe {
+        match o.as_ref() {
+            Option::Some(r) => { if *r != 42i32 { return 1i32; } }
+            Option::None    => { return 2i32; }
+        }
+    }
+
+    // as_ref on None — returns None.
+    let n: Option<i32> = Option::None;
+    unsafe {
+        match n.as_ref() {
+            Option::Some(_) => { return 3i32; }
+            Option::None    => { }
+        }
+    }
+
+    // as_mut on Some — mutate the underlying payload through the &mut.
+    let mut m: Option<i32> = Option::Some(10i32);
+    unsafe {
+        match m.as_mut() {
+            Option::Some(r) => { *r = 99i32; }
+            Option::None    => { return 4i32; }
+        }
+    }
+    match m {
+        Option::Some(v) => { if v != 99i32 { return 5i32; } }
+        Option::None    => { return 6i32; }
+    }
+
+    return 0i32;
+}
