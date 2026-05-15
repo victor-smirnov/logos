@@ -1577,7 +1577,18 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
         if (callee_fn) callee_name = callee_fn.getName().str();
     }
     if (!callee_fn) {
-        std::fprintf(stderr, "mlir_gen: method '%s' not found\n", callee_name.c_str());
+        // Suppress noise from the known method-generic-trait-default
+        // mono limitation (baghunt CP-cm-12 family): when a trait default
+        // method calls another method-level generic method (e.g.
+        // `Iterator::reduce` calling `.fold::<Item>(...)`), mono doesn't
+        // always synthesize the call-site's `__g__<arg>` instance for
+        // unused concrete instantiations. The unreached call site below
+        // would refer to a missing FuncOp; since it's not actually
+        // dispatched (the enclosing fn is itself a dead instantiation),
+        // staying silent keeps build output readable. Set
+        // LOGOS_MLIR_DEBUG_UNDEF=1 to re-enable for diagnosis.
+        if (std::getenv("LOGOS_MLIR_DEBUG_UNDEF"))
+            std::fprintf(stderr, "mlir_gen: method '%s' not found\n", callee_name.c_str());
         return nullptr;
     }
     llvm::SmallVector<mlir::Value> args;

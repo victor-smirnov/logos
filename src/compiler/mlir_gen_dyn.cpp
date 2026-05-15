@@ -752,7 +752,29 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
                             }
                         }
                     }
-                    if (sym.empty()) sym = std::string(target) + "__" + m.name;
+                    if (sym.empty()) {
+                        // Object-safety check: if every fn carrying this
+                        // method_base has method-level type-params
+                        // (`fn fold<Acc>(...)`), the method is not callable
+                        // through &dyn Trait — Rust's object-safety rule.
+                        // Emit an empty sentinel so build_inline_vtable
+                        // skips silently instead of warning "not found".
+                        bool any_concrete = false;
+                        bool any_generic  = false;
+                        if (auto it = method_base_idx.find(m.name);
+                            it != method_base_idx.end()) {
+                            for (auto* fp : it->second) {
+                                if (fp->impl_type_params.empty()) any_concrete = true;
+                                else                              any_generic  = true;
+                            }
+                        }
+                        if (any_generic && !any_concrete) {
+                            // Method-generic only — non-dispatchable slot.
+                            methods.emplace_back();
+                            continue;
+                        }
+                        sym = std::string(target) + "__" + m.name;
+                    }
                     methods.push_back(std::move(sym));
                 }
                 return methods;
@@ -797,6 +819,9 @@ mlir::Value MLIRGenImpl::build_inline_vtable(std::string_view trait_name,
     if (!vtable) return nullptr;
     auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
     for (size_t i = 0; i < n; ++i) {
+        // Empty slot is the object-unsafe sentinel from resolve_methods
+        // (method has method-level type-params — not dispatchable via &dyn).
+        if (methods[i].empty()) continue;
         auto callee = parent_mod.lookupSymbol<mlir::func::FuncOp>(methods[i]);
         if (!callee) {
             std::fprintf(stderr, "mlir_gen: vtable: method '%s' not found\n",
