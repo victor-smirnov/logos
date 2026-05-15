@@ -1,0 +1,39 @@
+// SL-sl-05 follow-up: chained `it.map(...).fold(...)`.
+//
+// Previously failed with:
+//   'MapIter__fold': type 'i32' does not implement trait 'Iterator'
+//   required by parameter 'I'
+//   ... expected MapIter<i32, i32, i32>, got MapIter<SliceIter<i32>, ...>
+//
+// Root cause: sema's struct-method dispatch for methods whose
+// `fi.type_params` carry BOTH the struct's tparams (impl-attached
+// from a trait-default-method clone — `impl<I,T,R> Iterator<R> for
+// MapIter<I,T,R> { fn fold<Acc>(...) }` gives fold a type_params
+// list [I,T,R,Acc]) AND its own method-level tparams.  Turbofish
+// `mi.fold::<i32>` injected user_type_args[0] = i32 into
+// `struct_subst[I]`, clobbering the receiver-derived
+// `struct_subst[I] = SliceIter<i32>` set just before. Then the
+// arg-compat check substituted I → i32 in the formal `MapIter<I,T,R>`
+// and rejected the SliceIter receiver as type-mismatched.
+//
+// Fix: skip the struct-level prefix of fi.type_params when matching
+// user_type_args onto the method-level tail.
+
+package iter_chain_map_fold;
+
+use std.lang.iter;
+use std.lang.option;
+
+fn add(acc: i32, x: i32) -> i32 { return acc + x; }
+fn double(x: i32) -> i32 { return x * 2i32; }
+
+fn main() -> i32 {
+    let arr: [i32; 4] = [1i32, 2i32, 3i32, 4i32];
+    unsafe {
+        // .map<U>().fold<Acc>() — chain of two method-tparam methods
+        // on Iterator. Equivalent: 0 + 2 + 4 + 6 + 8 = 20.
+        let it = iter_over_slice::<i32>(&arr);
+        let sum: i32 = it.map::<i32>(double).fold::<i32>(0i32, add);
+        return sum;
+    }
+}

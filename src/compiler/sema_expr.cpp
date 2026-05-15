@@ -5751,9 +5751,50 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         // the case where method type params don't appear in any arg
         // (e.g. `fn checkout<K,V>(&self, id: i64) -> Snap<K,V>`),
         // which inference can never resolve.
+        //
+        // Chain-receiver fix: when fi.type_params carries the struct's
+        // own tparams as a prefix (struct-method-template clone of a
+        // trait-default-method on a generic struct like
+        // `impl<I,T,R> Iterator<R> for MapIter<I,T,R> { fn fold<Acc> }`
+        // where fi.type_params = [I,T,R,Acc]), user_type_args targets
+        // only the method-level tail. Compute the offset by skipping
+        // tparams whose names match the receiver struct's own. Without
+        // this, `mi.fold::<i32>` bound `I = i32` and clobbered the
+        // receiver-derived `I = SliceIter<i32>` set above.
         if (!user_type_args.empty()) {
-            for (size_t i = 0; i < fi.type_params.size() && i < user_type_args.size(); ++i)
-                struct_subst[fi.type_params[i].name] = user_type_args[i];
+            size_t method_tp_start = 0;
+            TypeRef rst2 = recv->type;
+            if (rst2 && (TypeRef(rst2).kind() == LogosType::Kind::Ptr ||
+                         is_ref_like(TypeRef(rst2).kind())) && TypeRef(rst2).pointee())
+                rst2 = TypeRef(rst2).pointee();
+            if (rst2 && (TypeRef(rst2).kind() == LogosType::Kind::Struct ||
+                         TypeRef(rst2).kind() == LogosType::Kind::ZonedStruct)) {
+                SemaStructInfo* si3 = nullptr;
+                { auto [p, si] = find_struct_by_name(TypeRef(rst2).struct_name()); si3 = si; }
+                if (!si3) { auto [p, di] = find_datatype_by_name(TypeRef(rst2).struct_name()); si3 = di; }
+                if (si3) {
+                    StrSet struct_names;
+                    for (auto& tp : si3->type_params) struct_names.insert(tp.name);
+                    // Find first fi.type_params name NOT in struct_names —
+                    // that's the start of the method-level tail.
+                    for (; method_tp_start < fi.type_params.size(); ++method_tp_start)
+                        if (!struct_names.count(fi.type_params[method_tp_start].name))
+                            break;
+                }
+            } else if (rst2 && TypeRef(rst2).kind() == LogosType::Kind::Enum) {
+                auto [_, esi] = find_enum_by_name(TypeRef(rst2).enum_name());
+                if (esi) {
+                    StrSet enum_names;
+                    for (auto& tp : esi->type_params) enum_names.insert(tp.name);
+                    for (; method_tp_start < fi.type_params.size(); ++method_tp_start)
+                        if (!enum_names.count(fi.type_params[method_tp_start].name))
+                            break;
+                }
+            }
+            for (size_t i = 0;
+                 method_tp_start + i < fi.type_params.size() && i < user_type_args.size();
+                 ++i)
+                struct_subst[fi.type_params[method_tp_start + i].name] = user_type_args[i];
         }
         infer_type_args(fi, arg_exprs, m_type_args, struct_subst, 1);
         for (size_t i = 0; i < fi.type_params.size() && i < m_type_args.size(); ++i)
