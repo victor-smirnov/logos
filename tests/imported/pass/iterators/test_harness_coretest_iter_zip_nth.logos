@@ -1,0 +1,63 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/iter/adapters/zip.rs (test_zip_nth)
+//
+// Modifications:
+// - `xs.iter().zip(&ys)` → `iter_zip::<…>(…, zt, zu)`; pairs are
+//   `ZipPair<T, U>` structs with `.first` / `.second` fields.
+// - Logos's `.nth(n)` takes `self` by value (consumes the iter),
+//   so the chained `it.nth(0); it.nth(1); it.nth(0)` shape of the
+//   upstream test rebuilds the iter for each call. Same observable
+//   pair sequence, different bookkeeping.
+// - assert_eq! family imports via std.fmt + std.lang.text.
+
+package test_iter_zip_nth;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.iter;
+use std.lang.option;
+
+#[test]
+fn test_zip_nth() {
+    let xs: [i32; 5] = [0i32, 1i32, 2i32, 4i32, 5i32];
+    let ys: [i32; 3] = [10i32, 11i32, 12i32];
+    unsafe {
+        // .nth(0): first pair is (0, 10).
+        let it0 = iter_zip::<SliceIter<i32>, SliceIter<i32>, i32, i32>(
+            iter_over_slice(&xs), iter_over_slice(&ys), 0i32, 0i32);
+        match it0.nth(0i64) {
+            Option::Some(p) => {
+                assert_eq!(p.first,  0i32);
+                assert_eq!(p.second, 10i32);
+            }
+            Option::None    => { assert_eq!(true, false); }
+        }
+        // Fresh iter, .nth(1): pair at index 1 is (1, 11).
+        let it1 = iter_zip::<SliceIter<i32>, SliceIter<i32>, i32, i32>(
+            iter_over_slice(&xs), iter_over_slice(&ys), 0i32, 0i32);
+        match it1.nth(1i64) {
+            Option::Some(p) => {
+                assert_eq!(p.first,  1i32);
+                assert_eq!(p.second, 11i32);
+            }
+            Option::None    => { assert_eq!(true, false); }
+        }
+        // .nth(2): pair at index 2 is (2, 12).
+        let it2 = iter_zip::<SliceIter<i32>, SliceIter<i32>, i32, i32>(
+            iter_over_slice(&xs), iter_over_slice(&ys), 0i32, 0i32);
+        match it2.nth(2i64) {
+            Option::Some(p) => {
+                assert_eq!(p.first,  2i32);
+                assert_eq!(p.second, 12i32);
+            }
+            Option::None    => { assert_eq!(true, false); }
+        }
+        // .nth(3) past the shorter (ys = length 3) iter → None.
+        let it3 = iter_zip::<SliceIter<i32>, SliceIter<i32>, i32, i32>(
+            iter_over_slice(&xs), iter_over_slice(&ys), 0i32, 0i32);
+        match it3.nth(3i64) {
+            Option::Some(_) => { assert_eq!(true, false); }
+            Option::None    => { }
+        }
+    }
+}
