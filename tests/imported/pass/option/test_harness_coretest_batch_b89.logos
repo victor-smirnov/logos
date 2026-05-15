@@ -1,0 +1,167 @@
+// Multi-source coretest batch (B89), imported from
+// rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7.
+//
+// Covers Option::filter + option_zip + option_flatten free fns + a few
+// surrounding combinators we hadn't exercised in earlier batches.
+//
+//   option.rs::test_filter
+//   option.rs::test_zip                (via option_zip free fn — Logos
+//                                       form, because U tparam isn't on the
+//                                       impl block)
+//   option.rs::test_flatten            (via option_flatten free fn)
+//   option.rs::test_xor
+//   option.rs::test_or_else
+//   option.rs::test_and_chain          (.and<U>(other))
+//
+// Option payloads aren't Display/Debug yet, so we destructure with match.
+
+package test_batch_b89;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.option;
+
+fn is_even(x: i32) -> bool { return (x & 1i32) == 0i32; }
+fn is_pos(x: i32)  -> bool { return x > 0i32; }
+fn alt_some_42() -> Option<i32> { return Some(42i32); }
+fn alt_none()    -> Option<i32> { return None; }
+
+#[test]
+fn test_filter() {
+    let a: Option<i32> = Some(4i32).filter(is_even);
+    match a {
+        Option::Some(v) => { assert_eq!(v, 4i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+    let b: Option<i32> = Some(3i32).filter(is_even);
+    assert_eq!(b.is_none(), true);
+    let c: Option<i32> = None.filter(is_even);
+    assert_eq!(c.is_none(), true);
+}
+
+#[test]
+fn test_filter_predicate_chain() {
+    let v: Option<i32> = Some(10i32).filter(is_pos).filter(is_even);
+    match v {
+        Option::Some(x) => { assert_eq!(x, 10i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+    let w: Option<i32> = Some(-2i32).filter(is_pos).filter(is_even);
+    assert_eq!(w.is_none(), true);
+}
+
+#[test]
+fn test_zip_some_some() {
+    let a: Option<i32> = Some(1i32);
+    let b: Option<i32> = Some(2i32);
+    let z: Option<(i32, i32)> = option_zip(a, b);
+    match z {
+        Option::Some(p) => {
+            assert_eq!(p.0, 1i32);
+            assert_eq!(p.1, 2i32);
+        }
+        Option::None => { assert_eq!(true, false); }
+    }
+}
+
+#[test]
+fn test_zip_some_none() {
+    let a: Option<i32> = Some(1i32);
+    let b: Option<i32> = None;
+    let z: Option<(i32, i32)> = option_zip(a, b);
+    assert_eq!(z.is_none(), true);
+}
+
+#[test]
+fn test_zip_none_some() {
+    let a: Option<i32> = None;
+    let b: Option<i32> = Some(2i32);
+    let z: Option<(i32, i32)> = option_zip(a, b);
+    assert_eq!(z.is_none(), true);
+}
+
+#[test]
+fn test_flatten_some_some() {
+    let nested: Option<Option<i32>> = Some(Some(7i32));
+    let flat: Option<i32> = option_flatten(nested);
+    match flat {
+        Option::Some(v) => { assert_eq!(v, 7i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+}
+
+#[test]
+fn test_flatten_some_none() {
+    let nested: Option<Option<i32>> = Some(None);
+    let flat: Option<i32> = option_flatten(nested);
+    assert_eq!(flat.is_none(), true);
+}
+
+#[test]
+fn test_flatten_outer_none() {
+    let nested: Option<Option<i32>> = None;
+    let flat: Option<i32> = option_flatten(nested);
+    assert_eq!(flat.is_none(), true);
+}
+
+#[test]
+fn test_xor_basic() {
+    let a: Option<i32> = Some(1i32);
+    let b: Option<i32> = None;
+    let c: Option<i32> = Some(2i32);
+
+    match a.xor(b) {
+        Option::Some(v) => { assert_eq!(v, 1i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+    match b.xor(a) {
+        Option::Some(v) => { assert_eq!(v, 1i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+    assert_eq!(a.xor(c).is_none(), true);
+    assert_eq!(b.xor(b).is_none(), true);
+}
+
+#[test]
+fn test_or_else_some() {
+    let a: Option<i32> = Some(5i32);
+    let r: Option<i32> = a.or_else(alt_some_42);
+    match r {
+        Option::Some(v) => { assert_eq!(v, 5i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+}
+
+#[test]
+fn test_or_else_none_recover() {
+    let a: Option<i32> = None;
+    let r: Option<i32> = a.or_else(alt_some_42);
+    match r {
+        Option::Some(v) => { assert_eq!(v, 42i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+}
+
+#[test]
+fn test_or_else_none_still_none() {
+    let a: Option<i32> = None;
+    let r: Option<i32> = a.or_else(alt_none);
+    assert_eq!(r.is_none(), true);
+}
+
+#[test]
+fn test_and_chain_some_some() {
+    let a: Option<i32> = Some(1i32);
+    let b: Option<i32> = Some(2i32);
+    match a.and(b) {
+        Option::Some(v) => { assert_eq!(v, 2i32); }
+        Option::None    => { assert_eq!(true, false); }
+    }
+}
+
+#[test]
+fn test_and_chain_short_circuit() {
+    let a: Option<i32> = None;
+    let b: Option<i32> = Some(2i32);
+    assert_eq!(a.and(b).is_none(), true);
+}

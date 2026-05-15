@@ -183,6 +183,36 @@ impl<T> Option<T> {
             }
         }
     }
+
+    // Returns Some(v) if self is Some(v) and `pred(v)` is true,
+    // else None. Mirrors Rust's `Option::filter`.
+    pub fn filter(self: Option<T>, pred: fn(T) -> bool) -> Option<T> {
+        match self {
+            Option::None    => { return Option::None; }
+            Option::Some(v) => {
+                unsafe {
+                    let v_copy: T = *((&v) as *const T);
+                    if pred(v_copy) { return Option::Some(v); }
+                    return Option::None;
+                }
+            }
+        }
+    }
+}
+
+// Option::zip — combines two Options into Option<(T, U)>.
+// Returns Some((t, u)) iff both are Some; else None. Free fn
+// rather than method because the U tparam isn't on the impl side.
+pub fn option_zip<T, U>(a: Option<T>, b: Option<U>) -> Option<(T, U)> {
+    match a {
+        Option::None    => { return Option::None; }
+        Option::Some(t) => {
+            match b {
+                Option::None    => { return Option::None; }
+                Option::Some(u) => { return Option::Some((t, u)); }
+            }
+        }
+    }
 }
 
 // `opt.unwrap_or(T::default())` analogue. Free fn form sidesteps the
