@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/macros.rs
+//   (assert_eq_trailing_comma, assert_ne_trailing_comma)
+//
+// Modifications:
+// - Rust's `r#"☃\backslash"#` raw-string-literal subset not on
+//   the Logos surface yet; assert_escape skipped.
+// - matches!() macro / cfg_select! not on the Logos surface.
+// - assert_eq! / assert_ne! family imports via std.fmt + std.lang.text.
+
+package test_assert_macros;
+
+use std.fmt;
+use std.lang.text;
+
+#[test]
+fn assert_eq_trailing_comma() {
+    assert_eq!(1i32, 1i32,);
+}
+
+#[test]
+fn assert_ne_trailing_comma() {
+    assert_ne!(1i32, 2i32,);
+}
