@@ -1,0 +1,109 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/result.rs
+//   (test_and, test_and_then, test_or, test_or_else)
+//
+// Complements B25's `test_harness_coretest_result.logos` (which
+// covered test_unwrap_or / test_is_ok_is_err / test_unwrap_err /
+// test_expect_panic / test_expect_err_panic / test_unwrap_panic).
+// The .and / .and_then / .or / .or_else surface unlocks after
+// CP-cm-12 (method-generic on generic enum receivers) and
+// CP-cm-09 (multi-param generic enum mono — Result<T, E>).
+//
+// Modifications:
+// - `isize` → `i32`. `&'static str` error payload → `str` (Logos's
+//   stdlib str slice type).
+// - `op1/op2().and(Err::<i32, &'static str>("bad"))` turbofish
+//   simplifies to `op1().and(err_bad())` via a typed helper —
+//   Logos doesn't yet accept `Err::<T, E>(...)` literal in arg
+//   position cleanly when the trait method needs U-substitution.
+// - Closure args `|i| Ok::<i32, str>(i + 1)` lowered to named fn
+//   refs (CP-cm-05 closure-as-fn-ptr at method args is partial).
+// - assert_eq! family imports via std.fmt + std.lang.text.
+
+package test_result_combinators;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.option;
+use std.lang.result;
+
+fn op1() -> Result<i32, str> { return Ok(666i32); }
+fn op2() -> Result<i32, str> { return Err("sadface"); }
+
+fn ok_667(i: i32)  -> Result<i32, str> { return Ok(667i32); }
+fn err_bad(_i: i32) -> Result<i32, str> { return Err("bad"); }
+fn plus_one(i: i32) -> Result<i32, str> { return Ok(i + 1i32); }
+fn ret_bad(_i: i32) -> Result<i32, str> { return Err("bad"); }
+fn from_err(e: str) -> Result<i32, str> { return Err(e); }
+fn const_667(_e: str) -> Result<i32, str> { return Ok(667i32); }
+
+#[test]
+fn test_and() {
+    // Ok(666).and(Ok(667)) == Ok(667)
+    match op1().and(ok_667(0i32)) {
+        Result::Ok(v)  => { assert_eq!(v, 667i32); }
+        Result::Err(_) => { assert_eq!(true, false); }
+    }
+    // Ok(666).and(Err("bad")) == Err("bad")
+    match op1().and(err_bad(0i32)) {
+        Result::Ok(_)  => { assert_eq!(true, false); }
+        Result::Err(_) => { }
+    }
+    // Err("sadface").and(_) == Err("sadface")
+    match op2().and(ok_667(0i32)) {
+        Result::Ok(_)  => { assert_eq!(true, false); }
+        Result::Err(_) => { }
+    }
+}
+
+#[test]
+fn test_and_then() {
+    // Ok(666).and_then(|i| Ok(i + 1)) == Ok(667)
+    match op1().and_then(plus_one) {
+        Result::Ok(v)  => { assert_eq!(v, 667i32); }
+        Result::Err(_) => { assert_eq!(true, false); }
+    }
+    // Ok(666).and_then(|_| Err("bad")) == Err("bad")
+    match op1().and_then(ret_bad) {
+        Result::Ok(_)  => { assert_eq!(true, false); }
+        Result::Err(_) => { }
+    }
+    // Err("sadface").and_then(_) == Err("sadface")
+    match op2().and_then(plus_one) {
+        Result::Ok(_)  => { assert_eq!(true, false); }
+        Result::Err(_) => { }
+    }
+}
+
+#[test]
+fn test_or() {
+    // Ok(666).or(Ok(667)) == Ok(666)
+    match op1().or(ok_667(0i32)) {
+        Result::Ok(v)  => { assert_eq!(v, 666i32); }
+        Result::Err(_) => { assert_eq!(true, false); }
+    }
+    // Err("sadface").or(Ok(667)) == Ok(667)
+    match op2().or(ok_667(0i32)) {
+        Result::Ok(v)  => { assert_eq!(v, 667i32); }
+        Result::Err(_) => { assert_eq!(true, false); }
+    }
+}
+
+#[test]
+fn test_or_else() {
+    // Ok(666).or_else(|_| Ok(667)) == Ok(666)
+    match op1().or_else(const_667) {
+        Result::Ok(v)  => { assert_eq!(v, 666i32); }
+        Result::Err(_) => { assert_eq!(true, false); }
+    }
+    // Err("sadface").or_else(|_| Ok(667)) == Ok(667)
+    match op2().or_else(const_667) {
+        Result::Ok(v)  => { assert_eq!(v, 667i32); }
+        Result::Err(_) => { assert_eq!(true, false); }
+    }
+    // Err("sadface").or_else(|e| Err(e)) == Err("sadface") — preserved
+    match op2().or_else(from_err) {
+        Result::Ok(_)  => { assert_eq!(true, false); }
+        Result::Err(_) => { }
+    }
+}
