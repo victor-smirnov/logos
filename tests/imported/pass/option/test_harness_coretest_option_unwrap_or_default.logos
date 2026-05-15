@@ -1,0 +1,47 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/option.rs
+//   (test_unwrap_or — extends the existing B24 i32-payload form
+//    with the .unwrap_or_default() semantics test)
+//
+// Modifications:
+// - `.unwrap_or_default()` method on Option lifted to a free fn
+//   `option_unwrap_or_default::<T>(opt)` since `where T: Default`
+//   on an `impl<T> Option<T>` inherent method doesn't yet bind T
+//   to the Default trait for `T::default()` dispatch in Logos.
+// - `isize` → `i32`.
+// - assert_eq! family imports via std.fmt + std.lang.text.
+//
+// Stdlib companion: new free fn
+// `option_unwrap_or_default<T: Default>(opt: Option<T>) -> T` in
+// std/lang/option/option.logos.
+
+package test_option_unwrap_or_default;
+
+use std.fmt;
+use std.lang.text;
+use std.lang.option;
+use std.lang.default;
+
+#[test]
+fn test_unwrap_or_default_i32() {
+    let s: Option<i32> = Some(5i32);
+    let n: Option<i32> = None;
+    assert_eq!(option_unwrap_or_default::<i32>(s), 5i32);
+    assert_eq!(option_unwrap_or_default::<i32>(n), 0i32);
+}
+
+#[test]
+fn test_unwrap_or_default_i64() {
+    let s: Option<i64> = Some(42i64);
+    let n: Option<i64> = None;
+    assert_eq!(option_unwrap_or_default::<i64>(s), 42i64);
+    assert_eq!(option_unwrap_or_default::<i64>(n), 0i64);
+}
+
+#[test]
+fn test_unwrap_or_default_bool() {
+    let s: Option<bool> = Some(true);
+    let n: Option<bool> = None;
+    assert_eq!(option_unwrap_or_default::<bool>(s), true);
+    assert_eq!(option_unwrap_or_default::<bool>(n), false);
+}

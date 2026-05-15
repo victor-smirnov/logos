@@ -65,6 +65,7 @@ impl<T> Option<T> {
         }
     }
 
+
     // Returns the contained Some value or computes one from a closure.
     // `f` is a fn-pointer; non-capturing closures coerce automatically.
     pub fn unwrap_or_else(self: Option<T>, f: fn() -> T) -> T {
@@ -180,6 +181,18 @@ impl<T> Option<T> {
                 }
             }
         }
+    }
+}
+
+// `opt.unwrap_or(T::default())` analogue. Free fn form sidesteps the
+// `impl<T> Option<T> { fn unwrap_or_default() where T: Default }` shape
+// where `T::default()` doesn't resolve from the impl-T context in Logos
+// (the `where T: Default` clause on an inherent impl method doesn't yet
+// bind T to the trait for trait-static dispatch on T).
+pub fn option_unwrap_or_default<T: Default>(opt: Option<T>) -> T {
+    match opt {
+        Option::Some(v) => { return v; }
+        Option::None    => { return T::default(); }
     }
 }
 
