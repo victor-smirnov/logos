@@ -1,0 +1,60 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/mem.rs
+//   (size_of_basic, size_of_64 — 64-bit target only)
+//
+// Modifications:
+// - Rust's `size_of::<T>()` → Logos's `sizeof::<T>()` (the
+//   compiler intrinsic name differs).
+// - Rust returns `usize`; Logos returns `i64`. Assertion literals
+//   carry the `i64` suffix.
+// - The size_of_16 / size_of_32 cfg-gated variants are dropped —
+//   only the 64-bit assumption is exercised (matches the build
+//   we test against).
+// - assert_eq! family imports via std.fmt + std.lang.text.
+
+package test_size_of;
+
+use std.fmt;
+use std.lang.text;
+
+#[test]
+fn size_of_basic() {
+    assert_eq!(sizeof::<u8>(),  1i64);
+    assert_eq!(sizeof::<u16>(), 2i64);
+    assert_eq!(sizeof::<u32>(), 4i64);
+    assert_eq!(sizeof::<u64>(), 8i64);
+    assert_eq!(sizeof::<i8>(),  1i64);
+    assert_eq!(sizeof::<i16>(), 2i64);
+    assert_eq!(sizeof::<i32>(), 4i64);
+    assert_eq!(sizeof::<i64>(), 8i64);
+}
+
+#[test]
+fn size_of_64() {
+    assert_eq!(sizeof::<usize>(), 8i64);
+    assert_eq!(sizeof::<isize>(), 8i64);
+}
+
+#[test]
+fn size_of_bool() {
+    assert_eq!(sizeof::<bool>(), 1i64);
+}
+
+#[test]
+fn size_of_char() {
+    // char is u32 in Logos (full Unicode codepoint).
+    assert_eq!(sizeof::<char>(), 4i64);
+}
+
+#[test]
+fn size_of_float() {
+    assert_eq!(sizeof::<f32>(), 4i64);
+    assert_eq!(sizeof::<f64>(), 8i64);
+}
+
+#[test]
+fn size_of_array() {
+    assert_eq!(sizeof::<[i32; 4]>(),  16i64);
+    assert_eq!(sizeof::<[u8;  16]>(), 16i64);
+    assert_eq!(sizeof::<[i64; 2]>(),  16i64);
+}
