@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
+//   library/coretests/tests/bool.rs::test_bool (to_string subset)
+//
+// Spot-test bool's Display / ToString impls.
+
+package test_coretest_bool_to_string;
+
+use std.fmt;
+use std.lang.text;
+
+#[test]
+fn test_bool_to_string_true() {
+    let s: String = true.to_string();
+    assert!(s.as_str() == "true");
+}
+
+#[test]
+fn test_bool_to_string_false() {
+    let s: String = false.to_string();
+    assert!(s.as_str() == "false");
+}
+
+#[test]
+fn test_bool_display_format() {
+    let s: String = format!("{}", true);
+    assert!(s.as_str() == "true");
+    let s2: String = format!("{}", false);
+    assert!(s2.as_str() == "false");
+}
+
+#[test]
+fn test_bool_display_in_context() {
+    let s: String = format!("flag={}", true);
+    assert!(s.as_str() == "flag=true");
+}
