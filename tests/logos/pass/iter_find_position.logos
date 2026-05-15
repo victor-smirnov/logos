@@ -1,0 +1,53 @@
+// SL-sl-05: Iterator trait-default `.find(pred)` / `.position(pred)`.
+//
+// Unsafe because the body needs `let v_copy = *((&v) as *const Item)`
+// to dodge the move-of-moved-value check on the `return Some(v)` after
+// `if pred(v_copy)` — sema's borrow check doesn't realise pred could
+// not have moved v through a Copy-only fn-pointer call.
+//
+// Previously crashed `logosc --emit-module` during stdlib build (the
+// crash was actually the lower_quote_expr walk treating CALL.CALLEE
+// as a TOM offset — fixed in 9856866f; once that was closed the
+// trait-default body cloned cleanly across every Iterator impl).
+
+package iter_find_position;
+
+use std.lang.iter;
+use std.lang.option;
+
+fn is_even(x: i32) -> bool { return x % 2i32 == 0i32; }
+fn gt100(x: i32) -> bool { return x > 100i32; }
+
+fn main() -> i32 {
+    let arr: [i32; 5] = [1i32, 2i32, 3i32, 4i32, 5i32];
+    unsafe {
+        // .find — first even
+        let it1 = iter_over_slice::<i32>(&arr);
+        match it1.find(is_even) {
+            Option::Some(v) => { if v != 2i32 { return 1i32; } }
+            Option::None    => { return 2i32; }
+        }
+
+        // .find — predicate never matches → None
+        let it2 = iter_over_slice::<i32>(&arr);
+        match it2.find(gt100) {
+            Option::Some(_) => { return 3i32; }
+            Option::None    => { }
+        }
+
+        // .position — index of first even
+        let it3 = iter_over_slice::<i32>(&arr);
+        match it3.position(is_even) {
+            Option::Some(idx) => { if idx != 1i64 { return 4i32; } }
+            Option::None      => { return 5i32; }
+        }
+
+        // .position — never matches → None
+        let it4 = iter_over_slice::<i32>(&arr);
+        match it4.position(gt100) {
+            Option::Some(_) => { return 6i32; }
+            Option::None    => { }
+        }
+    }
+    return 0i32;
+}

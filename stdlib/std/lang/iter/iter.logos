@@ -106,6 +106,35 @@ pub trait Iterator<Item> {
         }
     }
 
+    // Terminal: first item satisfying the predicate.
+    unsafe fn find(self: Self, pred: fn(Item) -> bool) -> Option<Item> {
+        let mut it: Self = self;
+        loop {
+            match it.next() {
+                Option::None    => { return Option::None; }
+                Option::Some(v) => {
+                    let v_copy: Item = *((&v) as *const Item);
+                    if pred(v_copy) { return Option::Some(v); }
+                }
+            }
+        }
+    }
+
+    // Terminal: index of first item satisfying the predicate.
+    unsafe fn position(self: Self, pred: fn(Item) -> bool) -> Option<i64> {
+        let mut it: Self = self;
+        let mut idx: i64 = 0i64;
+        loop {
+            match it.next() {
+                Option::None    => { return Option::None; }
+                Option::Some(v) => {
+                    if pred(v) { return Option::Some(idx); }
+                    idx = idx + 1i64;
+                }
+            }
+        }
+    }
+
     // Terminal: last item, consuming the iterator.
     fn last(self: Self) -> Option<Item> {
         let mut it: Self = self;
