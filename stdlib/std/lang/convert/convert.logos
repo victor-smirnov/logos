@@ -1,14 +1,158 @@
-// Logos standard library — std.convert
+// Logos standard library — std.lang.convert
 //
-// From<T> — construct Self from T.
-// Into<T> — convert Self into T.
+// Mirrors Rust's core::convert: From / Into / TryFrom / TryInto. We
+// supply primitive widening conversions (lossless integer/char ↔
+// integer) as From; lossy/range-checked conversions as TryFrom returning
+// Result<T, ConvertError>. String / &str / Box / Vec conversions live in
+// their respective modules (text.logos / vec.logos) where the receiver
+// types are defined.
 
 package std.lang.convert;
 
-trait From<T> {
+use std.lang.option;
+use std.lang.result;
+
+pub trait From<T> {
     fn from(val: T) -> Self;
 }
 
-trait Into<T> {
+pub trait Into<T> {
     fn into(self: Self) -> T;
+}
+
+pub trait TryFrom<T> {
+    fn try_from(val: T) -> Result<Self, ConvertError>;
+}
+
+pub trait TryInto<T> {
+    fn try_into(self: Self) -> Result<T, ConvertError>;
+}
+
+// Empty marker payload — TryFrom/TryInto conversions only fail in one
+// way (out-of-range), so the error value is information-free.
+pub struct ConvertError {}
+
+// ─── Lossless widening ─────────────────────────────────────────────────
+// Mirrors Rust's `impl From<u8> for u32` family (every narrow primitive
+// widens losslessly to every wider primitive of the same signedness, and
+// to any signed type strictly wider).
+
+impl From<i8>  for i16 { fn from(val: i8)  -> i16 { return val as i16; } }
+impl From<i8>  for i32 { fn from(val: i8)  -> i32 { return val as i32; } }
+impl From<i8>  for i64 { fn from(val: i8)  -> i64 { return val as i64; } }
+impl From<i16> for i32 { fn from(val: i16) -> i32 { return val as i32; } }
+impl From<i16> for i64 { fn from(val: i16) -> i64 { return val as i64; } }
+impl From<i32> for i64 { fn from(val: i32) -> i64 { return val as i64; } }
+
+impl From<u8>  for u16 { fn from(val: u8)  -> u16 { return val as u16; } }
+impl From<u8>  for u32 { fn from(val: u8)  -> u32 { return val as u32; } }
+impl From<u8>  for u64 { fn from(val: u8)  -> u64 { return val as u64; } }
+impl From<u16> for u32 { fn from(val: u16) -> u32 { return val as u32; } }
+impl From<u16> for u64 { fn from(val: u16) -> u64 { return val as u64; } }
+impl From<u32> for u64 { fn from(val: u32) -> u64 { return val as u64; } }
+
+// Unsigned → signed widening (always lossless when target is strictly wider).
+impl From<u8>  for i16 { fn from(val: u8)  -> i16 { return val as i16; } }
+impl From<u8>  for i32 { fn from(val: u8)  -> i32 { return val as i32; } }
+impl From<u8>  for i64 { fn from(val: u8)  -> i64 { return val as i64; } }
+impl From<u16> for i32 { fn from(val: u16) -> i32 { return val as i32; } }
+impl From<u16> for i64 { fn from(val: u16) -> i64 { return val as i64; } }
+impl From<u32> for i64 { fn from(val: u32) -> i64 { return val as i64; } }
+
+// char ↔ u32 (lossless one-way: char → u32 always; u32 → char via TryFrom).
+impl From<char> for u32 { fn from(val: char) -> u32 { return val as u32; } }
+
+// bool → integer widening — matches Rust's `From<bool> for {i,u}*`.
+impl From<bool> for i32 { fn from(val: bool) -> i32 { if val { return 1i32; } return 0i32; } }
+impl From<bool> for i64 { fn from(val: bool) -> i64 { if val { return 1i64; } return 0i64; } }
+impl From<bool> for u32 { fn from(val: bool) -> u32 { if val { return 1u32; } return 0u32; } }
+impl From<bool> for u64 { fn from(val: bool) -> u64 { if val { return 1u64; } return 0u64; } }
+impl From<bool> for u8  { fn from(val: bool) -> u8  { if val { return 1u8;  } return 0u8;  } }
+
+// ─── TryFrom — range-checked narrowing ─────────────────────────────────
+
+impl TryFrom<i32> for i8 {
+    fn try_from(val: i32) -> Result<i8, ConvertError> {
+        if val < -128i32 || val > 127i32 { return Result::Err(ConvertError{}); }
+        return Result::Ok(val as i8);
+    }
+}
+impl TryFrom<i32> for i16 {
+    fn try_from(val: i32) -> Result<i16, ConvertError> {
+        if val < -32768i32 || val > 32767i32 { return Result::Err(ConvertError{}); }
+        return Result::Ok(val as i16);
+    }
+}
+impl TryFrom<i32> for u8 {
+    fn try_from(val: i32) -> Result<u8, ConvertError> {
+        if val < 0i32 || val > 255i32 { return Result::Err(ConvertError{}); }
+        return Result::Ok(val as u8);
+    }
+}
+impl TryFrom<i32> for u16 {
+    fn try_from(val: i32) -> Result<u16, ConvertError> {
+        if val < 0i32 || val > 65535i32 { return Result::Err(ConvertError{}); }
+        return Result::Ok(val as u16);
+    }
+}
+impl TryFrom<i32> for u32 {
+    fn try_from(val: i32) -> Result<u32, ConvertError> {
+        if val < 0i32 { return Result::Err(ConvertError{}); }
+        return Result::Ok(val as u32);
+    }
+}
+
+impl TryFrom<i64> for i32 {
+    fn try_from(val: i64) -> Result<i32, ConvertError> {
+        if val < -2147483648i64 || val > 2147483647i64 { return Result::Err(ConvertError{}); }
+        return Result::Ok(val as i32);
+    }
+}
+impl TryFrom<i64> for u64 {
+    fn try_from(val: i64) -> Result<u64, ConvertError> {
+        if val < 0i64 { return Result::Err(ConvertError{}); }
+        return Result::Ok(val as u64);
+    }
+}
+
+impl TryFrom<u32> for i32 {
+    fn try_from(val: u32) -> Result<i32, ConvertError> {
+        if val > 2147483647u32 { return Result::Err(ConvertError{}); }
+        return Result::Ok(val as i32);
+    }
+}
+impl TryFrom<u32> for u16 {
+    fn try_from(val: u32) -> Result<u16, ConvertError> {
+        if val > 65535u32 { return Result::Err(ConvertError{}); }
+        return Result::Ok(val as u16);
+    }
+}
+impl TryFrom<u32> for u8 {
+    fn try_from(val: u32) -> Result<u8, ConvertError> {
+        if val > 255u32 { return Result::Err(ConvertError{}); }
+        return Result::Ok(val as u8);
+    }
+}
+
+impl TryFrom<u64> for u32 {
+    fn try_from(val: u64) -> Result<u32, ConvertError> {
+        if val > 4294967295u64 { return Result::Err(ConvertError{}); }
+        return Result::Ok(val as u32);
+    }
+}
+impl TryFrom<u64> for i64 {
+    fn try_from(val: u64) -> Result<i64, ConvertError> {
+        if val > (0x7FFFFFFFFFFFFFFFu64) { return Result::Err(ConvertError{}); }
+        return Result::Ok(val as i64);
+    }
+}
+
+// u32 → char — succeeds iff val is a valid Unicode scalar value
+// (< 0x110000 and not in the surrogate range 0xD800..=0xDFFF).
+impl TryFrom<u32> for char {
+    fn try_from(val: u32) -> Result<char, ConvertError> {
+        if val >= 0x110000u32 { return Result::Err(ConvertError{}); }
+        if val >= 0xD800u32 && val <= 0xDFFFu32 { return Result::Err(ConvertError{}); }
+        return Result::Ok(val as char);
+    }
 }

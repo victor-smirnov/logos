@@ -2431,16 +2431,32 @@ void SemaChecker::collect_impl(TinyMapView node) {
         // forms with different specialization patterns are legitimate and
         // disambiguated downstream. Negative impls (`impl !T for X {}`)
         // are coherence markers, not impls — skip.
+        // Coherence-only key: must include the trait's type-arguments —
+        // otherwise `impl From<i8> for i32` and `impl From<i16> for i32`
+        // would collide on `"From::i32"`. The main impls_ map stays keyed
+        // by the bare `Trait::Target` (so bound-check / has_impl /
+        // find_impl callers without trait_args still find a hit); coherence
+        // duplicate detection consults a SECOND set keyed with args spelled
+        // out. impls_ ends up pointing at one of the legitimate variants
+        // (last wins on insertion order); per-call resolution that needs
+        // the args-specific impl walks all_impls_ instead.
+        std::string trait_args_key;
+        if (!trait_type_args.empty()) {
+            trait_args_key = "[";
+            for (size_t i = 0; i < trait_type_args.size(); ++i) {
+                if (i) trait_args_key += ",";
+                trait_args_key += type_str(trait_type_args[i]);
+            }
+            trait_args_key += "]";
+        }
+        std::string coh_key = trait_name + trait_args_key + "::" + target;
         std::string key = trait_name + "::" + target;
         bool is_generic_impl = !impl_tps.empty() || !impl_lt_params.empty();
-        if (!impl_is_negative && !is_generic_impl && impls_.count(key)) {
-            auto& prev = impls_.at(key);
-            bool prev_generic = !prev.impl_type_params.empty() ||
-                                !prev.impl_lifetime_params.empty();
-            if (!prev_generic)
-                error(std::format("conflicting implementations of trait '{}' for type '{}'",
-                                  trait_name, target));
+        if (!impl_is_negative && !is_generic_impl && coherence_keys_.count(coh_key)) {
+            error(std::format("conflicting implementations of trait '{}' for type '{}'",
+                              trait_name, target));
         }
+        if (!is_generic_impl) coherence_keys_.insert(coh_key);
         impls_[key] = info;
         // `str` is a built-in that resolves to Slice<u8>; type_str() produces
         // "&[u8]" for Slice<u8>, so trait-bound checks look for "Trait::&[u8]".

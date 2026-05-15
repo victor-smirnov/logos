@@ -1646,6 +1646,12 @@ private:
     logos::compiler::StrMap<SemaTraitInfo>    traits_;
     // "TraitName::TypeName" → impl info
     logos::compiler::StrMap<SemaImplInfo>     impls_;
+    // Coherence-only set keyed by `Trait[arg1,arg2,...]::Target`. impls_ stays
+    // bare (so existing bound-check / has_impl / find_impl callers without
+    // trait_args still hit a registered impl); duplicate-detection uses this
+    // map so e.g. `impl From<i8> for i32` and `impl From<i16> for i32` are
+    // recognised as different impls.
+    logos::compiler::StrSet                   coherence_keys_;
     // "TraitName::TypeName::AssocName" → assoc type + type params for substitution.
     struct AssocTypeEntry {
         TypeRef       type;
