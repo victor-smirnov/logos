@@ -310,6 +310,23 @@ struct LirBundle {
     std::vector<std::pair<std::string, std::string>> module_inner_docs;
     StrSet                            reflect_requests;
     bool                              valid = false;
+    // M6.1: per-vector "binary boundary" — entries [0, *_binary_end) came
+    // from binary-AST ranges; entries [*_binary_end, .size()) came from
+    // user-AST ranges (only ever non-zero in keep_user_state mode). Set
+    // at capture by emitting binary ranges first, recording the size,
+    // then emitting user ranges. reset_user_state truncates each vector
+    // back to *_binary_end so the binary cache survives the user wipe.
+    // structs/struct_specializations/functions/specializations don't need
+    // boundary markers — they're partitioned by the from_binary_module
+    // flag on the entry itself, which reset uses for filtering.
+    size_t enums_binary_end = 0;
+    size_t consts_binary_end = 0;
+    size_t type_aliases_binary_end = 0;
+    size_t traits_binary_end = 0;
+    size_t impls_binary_end = 0;
+    size_t inst_annotations_binary_end = 0;
+    size_t dispatch_entries_binary_end = 0;
+    size_t module_inner_docs_binary_end = 0;
 };
 
 class SemaCacheImpl {
@@ -454,14 +471,53 @@ void SemaCache::reset_user_state() {
         // Drop user holders from collected_holders.
         for (auto* h : c->persisted_user_holders) s->collected_holders.erase(h);
     }
-    // Bundle: wipe entirely and force re-capture. We could try to surgically
-    // strip user content via the from_binary_module flag on structs/fns +
-    // per-AST attribution on unflagged vectors, but post-hoc partial-filter
-    // followed by re-capture-and-append produces duplicates (the next
-    // sema_lower's bundle-capture path appends to what's already there).
-    // Simpler and correct: clear the whole bundle, invalidate it, and pay
-    // the cost of one full binary lower walk on the next sema_lower call.
-    c->lir_bundle = LirBundle{};
+    // Bundle: truncate each unflagged vector to its binary boundary
+    // (drops user-AST-captured entries) and filter struct/fn vectors by
+    // the from_binary_module flag. Bundle stays valid so the next
+    // sema_lower (final user sema) reuses the binary cache via splice —
+    // avoiding the ~50ms cost of re-walking binary asts.
+    auto& b = c->lir_bundle;
+    auto only_binary_vec = [](auto& vec, auto pred) {
+        vec.erase(std::remove_if(vec.begin(), vec.end(), pred), vec.end());
+    };
+    only_binary_vec(b.structs, [](const lir::LStructDef& sd) {
+        return !sd.from_binary_module;
+    });
+    only_binary_vec(b.struct_specializations, [](const lir::LStructDef& sd) {
+        return !sd.from_binary_module;
+    });
+    only_binary_vec(b.functions, [](const lir::LFunctionPtr& fp) {
+        return !fp || !fp->from_binary_module;
+    });
+    only_binary_vec(b.specializations, [](const lir::LFunctionPtr& fp) {
+        return !fp || !fp->from_binary_module;
+    });
+    auto filter_methods = [](std::vector<lir::LStructDef>& v) {
+        for (auto& sd : v) {
+            sd.methods.erase(
+                std::remove_if(sd.methods.begin(), sd.methods.end(),
+                    [](const lir::LFunctionPtr& m) {
+                        return !m || !m->from_binary_module;
+                    }),
+                sd.methods.end());
+        }
+    };
+    filter_methods(b.structs);
+    filter_methods(b.struct_specializations);
+    // Unflagged vectors: truncate to the binary boundary recorded at
+    // capture time. [0, *_binary_end) is binary-origin (preserved);
+    // [*_binary_end, .size()) is user-origin (dropped).
+    b.enums.resize(b.enums_binary_end);
+    b.consts.resize(b.consts_binary_end);
+    b.type_aliases.resize(b.type_aliases_binary_end);
+    b.traits.resize(b.traits_binary_end);
+    b.impls.resize(b.impls_binary_end);
+    b.inst_annotations.resize(b.inst_annotations_binary_end);
+    b.dispatch_entries.resize(b.dispatch_entries_binary_end);
+    b.module_inner_docs.resize(b.module_inner_docs_binary_end);
+    b.reflect_requests.clear();
+    // valid stays true: next sema_lower will splice the (now binary-only)
+    // bundle and skip the binary lower walk as in default mode.
     // Drop persisted user keys.
     c->persisted_user_pkgs.clear();
     c->persisted_user_module_const_keys.clear();
@@ -4824,6 +4880,10 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
     // lower_module_items. Used to filter binary contributions out of the
     // post-loop prog state for bundling.
     struct BinaryAstRange {
+        size_t structs_b = 0, structs_e = 0;
+        size_t struct_specs_b = 0, struct_specs_e = 0;
+        size_t functions_b = 0, functions_e = 0;
+        size_t specializations_b = 0, specializations_e = 0;
         size_t enums_b = 0, enums_e = 0;
         size_t consts_b = 0, consts_e = 0;
         size_t type_aliases_b = 0, type_aliases_e = 0;
@@ -4832,6 +4892,7 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
         size_t inst_annotations_b = 0, inst_annotations_e = 0;
         size_t dispatch_entries_b = 0, dispatch_entries_e = 0;
         size_t module_inner_docs_b = 0, module_inner_docs_e = 0;
+        bool   is_binary = true;
     };
     std::vector<BinaryAstRange> m5_ranges;
     StrSet m5_refl0;
@@ -4873,6 +4934,10 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
             m5_capture_active &&
             (cur_from_binary_ || (cache_ && cache_->impl()->keep_user_state));
         if (capture_this_ast) {
+            rng.structs_b           = prog.structs.size();
+            rng.struct_specs_b      = prog.struct_specializations.size();
+            rng.functions_b         = prog.functions.size();
+            rng.specializations_b   = prog.specializations.size();
             rng.enums_b             = prog.enums.size();
             rng.consts_b            = prog.consts.size();
             rng.type_aliases_b      = prog.type_aliases.size();
@@ -4963,6 +5028,11 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
         }
         lower_module_items(root, prog);
         if (capture_this_ast) {
+            rng.is_binary           = cur_from_binary_;
+            rng.structs_e           = prog.structs.size();
+            rng.struct_specs_e      = prog.struct_specializations.size();
+            rng.functions_e         = prog.functions.size();
+            rng.specializations_e   = prog.specializations.size();
             rng.enums_e             = prog.enums.size();
             rng.consts_e            = prog.consts.size();
             rng.type_aliases_e      = prog.type_aliases.size();
@@ -5063,19 +5133,29 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
     // are still valid post-re-attachment.
     if (m5_capture_active) {
         auto& b = cache_->impl()->lir_bundle;
-        // M6.1: in keep_user_state mode, bundle captures everything (no
-        // from_binary_module filter); reset_user_state will post-hoc
-        // strip user content. In default mode, filter to binary-only.
         const bool keep_user = cache_ && cache_->impl()->keep_user_state;
-        // M6.1: in delta mode the bundle is RE-CAPTURED from scratch each
-        // call (rather than the capture-once semantics of step 6). Clearing
-        // upfront avoids duplicating previously-captured items. The cost is
-        // re-walking prog vectors + shared_ptr refcount-bumps for ~3000 fns
-        // — measured at 1-2ms per call, negligible vs the delta savings.
-        // Cross-AST method early-binding (sema_decl.cpp's
-        // target_struct_tmpl->methods.push_back) into a spliced bundle
-        // struct is therefore also captured naturally on the next call.
-        if (keep_user) b = LirBundle{};
+        // M6.1: in keep_user_state mode the bundle accumulates across
+        // sema_lower calls. Structs/struct_specs/fns/specializations are
+        // captured via the original Step 6 path (iterate prog with
+        // flag-relaxed filter — keep_user accepts user content too) and
+        // since the iteration covers all of prog (bundle splice + this
+        // call's deltas), we CLEAR these vectors first to avoid the
+        // splice contents being re-captured as duplicates. This keeps
+        // capture-after-re-attachment semantics so cross-AST early-binding
+        // is reflected naturally. Cost: ~3000 shared_ptr refcount-bumps
+        // per call (~1-2ms).
+        //
+        // Unflagged vectors (impls/enums/consts/...) use per-AST ranges,
+        // which capture only this call's deltas — these APPEND to the
+        // existing bundle. *_binary_end is set only on the first capture
+        // (binary ranges emitted first); subsequent calls (keep_user) add
+        // user deltas which don't extend the binary region.
+        if (keep_user) {
+            b.structs.clear();
+            b.struct_specializations.clear();
+            b.functions.clear();
+            b.specializations.clear();
+        }
         auto take_methods = [keep_user](const std::vector<lir::LFunctionPtr>& src) {
             std::vector<lir::LFunctionPtr> dst;
             dst.reserve(src.size());
@@ -5099,8 +5179,11 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
             if (fp && (keep_user || fp->from_binary_module)) b.functions.push_back(fp);
         for (auto& fp : prog.specializations)
             if (fp && (keep_user || fp->from_binary_module)) b.specializations.push_back(fp);
-        // Range-based capture for unflagged vectors.
-        for (auto& r : m5_ranges) {
+        // Unflagged vectors: per-AST range emit. Binary first (to set the
+        // boundary), then user. On non-first call (keep_user mode only,
+        // bundle already valid), the boundary stays at its first-call value.
+        const bool first_capture = !b.valid;
+        auto emit_range = [&](const BinaryAstRange& r) {
             for (size_t k = r.enums_b; k < r.enums_e; ++k)
                 b.enums.push_back(prog.enums[k]);
             for (size_t k = r.consts_b; k < r.consts_e; ++k)
@@ -5117,7 +5200,19 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
                 b.dispatch_entries.push_back(prog.dispatch_entries[k]);
             for (size_t k = r.module_inner_docs_b; k < r.module_inner_docs_e; ++k)
                 b.module_inner_docs.push_back(prog.module_inner_docs[k]);
+        };
+        for (auto& r : m5_ranges) if (r.is_binary) emit_range(r);
+        if (first_capture) {
+            b.enums_binary_end             = b.enums.size();
+            b.consts_binary_end            = b.consts.size();
+            b.type_aliases_binary_end      = b.type_aliases.size();
+            b.traits_binary_end            = b.traits.size();
+            b.impls_binary_end             = b.impls.size();
+            b.inst_annotations_binary_end  = b.inst_annotations.size();
+            b.dispatch_entries_binary_end  = b.dispatch_entries.size();
+            b.module_inner_docs_binary_end = b.module_inner_docs.size();
         }
+        for (auto& r : m5_ranges) if (!r.is_binary) emit_range(r);
         // reflect_requests: capture diff against pre-loop snapshot. Filter
         // to entries whose fqn starts with a binary pkg name; we don't have
         // that mapping at hand, so for now capture nothing (binary code
