@@ -1238,6 +1238,16 @@ struct SemaOptions {
     // Used by run_metaprog_dispatch to avoid re-processing ASTs that were
     // already lowered in a prior iter of the dispatch loop.
     size_t delta_start_idx = 0;
+    // Phase 4 fix: force the LOGOS_SEMA_USE_BLOB skeleton path OFF for this
+    // call regardless of env. emit_module sets this when building a library:
+    // its ast_only files are stamped from_binary=true post-dispatch so the
+    // codegen pass treats their host-extern wrappers as "already provided",
+    // but those wrappers contain GENERIC_CALLs (e.g. vec_new::<QuoteItemBlob>)
+    // that mono's scan_fn needs to walk to discover required instantiations.
+    // Blob-skipping their bodies leaves those instantiations un-emitted in
+    // the output archive — invisible until a downstream JIT (showcase, etc.)
+    // tries to call them and crashes on the unresolved symbol.
+    bool disable_blob_skeletons = false;
 };
 
 // Run semantic analysis and produce L-IR from all parsed module ASTs.

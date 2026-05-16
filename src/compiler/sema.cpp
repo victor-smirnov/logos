@@ -6173,6 +6173,10 @@ lir::LProgram sema_lower(const std::vector<logos::hermes::Hermes>& asts,
         // Default ON; only explicit "0" disables. Empty value keeps default
         // (matches the "set but blank" idiom common in CI configs).
         bool on = !(e && e[0] == '0' && e[1] == '\0');
+        // Caller-side opt-out (Phase 4 fix): emit_module's library-build
+        // sema_lower needs full body lowering for ast_only files so mono's
+        // scan_fn discovers generic instantiations called from those bodies.
+        if (opts.disable_blob_skeletons) on = false;
         checker.set_use_blob_skeletons(on);
     }
     // Phase 2-4: ingest cfg flags. `feature=name` adds `name` to the
