@@ -6,6 +6,7 @@
 #include <cstdlib>
 
 #include <logos/compiler/ast.hpp>
+#include <logos/hermes/arena_publish.hpp>
 #include <logos/hermes/binary_codec.hpp>
 #include <logos/hermes/document.hpp>
 #include <logos/hermes/tiny_object_map.hpp>
@@ -940,6 +941,42 @@ std::vector<ParsedModule> load_modules(
                         std::fprintf(stderr,
                             "module_loader: %s — lir_blob: %zu bytes\n",
                             archive_path.c_str(), bopt.bytes.size());
+                    }
+                }
+                // Multi-arena IR Phase 3: if the lir_blob carries a
+                // LirArenaRoot (emitted by Phase 3+ emit_module), load it
+                // into a Hermes doc and register with the global ArenaPool.
+                // The ArenaPool keeps the holder alive via its own ref; the
+                // local Hermes doc handle drops at end of scope but the
+                // arena stays live until pool unregisters (process exit).
+                //
+                // Failure modes (legacy archives without LirArenaRoot,
+                // unknown module names, malformed root) are non-fatal —
+                // we log under trace and continue without registration.
+                {
+                    auto bopt = extract_hermes0_lir_blob(member, archive_path);
+                    if (bopt.present && !bopt.bytes.empty()) {
+                        auto doc_exp = hermes::from_bytes_copy(
+                            bopt.bytes.data(), bopt.bytes.size());
+                        if (doc_exp) {
+                            auto reg = hermes::register_lir_arena(*doc_exp);
+                            if (reg) {
+                                if (trace) {
+                                    std::fprintf(stderr,
+                                        "module_loader: %s — registered LIR arena '%s' as arena_id=%u (%zu deps)\n",
+                                        archive_path.c_str(),
+                                        reg->name.c_str(),
+                                        reg->arena_id.value,
+                                        reg->depends_on.size());
+                                }
+                            } else {
+                                if (trace) {
+                                    std::fprintf(stderr,
+                                        "module_loader: %s — LIR blob present but register_lir_arena failed (legacy or no LirArenaRoot)\n",
+                                        archive_path.c_str());
+                                }
+                            }
+                        }
                     }
                 }
             }

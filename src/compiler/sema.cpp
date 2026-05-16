@@ -977,6 +977,9 @@ hermes::Arena& TypePool::arena_or_init() {
     if (!impl_) impl_ = TypePoolImpl::make();
     return impl_->arena();
 }
+hermes::MemHolder* TypePool::holder() noexcept {
+    return impl_ ? impl_->holder() : nullptr;
+}
 LogosType::TypeUID TypePool::uid_of(TypeRef t) const noexcept {
     return impl_ ? impl_->uid_of(t) : LogosType::TypeUID{};
 }

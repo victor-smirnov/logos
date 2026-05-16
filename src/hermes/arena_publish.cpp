@@ -125,6 +125,19 @@ register_lir_arena(Hermes& doc, ArenaPool& pool) noexcept
         "register_lir_arena: MODULE_NAME field is missing or null");
     std::string name(name_view.view());
 
+    // Idempotency: if a module with this name is already registered in the
+    // pool, return the existing handle. This is the expected case for
+    // single-process scenarios where load_modules is called multiple times
+    // (e.g. metaprog dispatch re-runs sema_lower) and each call independently
+    // reads the same archive — the second + later registrations would
+    // otherwise collide on the name uniqueness check.
+    //
+    // The newly-passed doc.holder() is discarded by the caller when the
+    // Hermes handle goes out of scope; the pool keeps using the original.
+    if (auto existing = pool.find_by_name(name); existing.has_value()) {
+        return *existing;
+    }
+
     // Extract DEPS (vector of dep names).
     std::vector<std::string> deps;
     auto deps_arr = lar.deps();

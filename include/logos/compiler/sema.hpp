@@ -435,6 +435,12 @@ public:
     // resolution; nullptr-pool TypeRefs work for kind/name accessors only).
     const TypePoolImpl* impl() const noexcept { return impl_.get(); }
 
+    // Multi-arena IR Phase 3: expose the underlying MemHolder so consumers
+    // can wrap the arena as a hermes::Hermes view for publish-phase work
+    // (lir_arena_root_begin etc.). Returns nullptr if the pool hasn't yet
+    // allocated (no calls to alloc()).
+    hermes::MemHolder* holder() noexcept;
+
     // Component-metaprog slice 1B: public access to per-type 32-byte UID.
     LogosType::TypeUID uid_of(TypeRef t) const noexcept;
 };

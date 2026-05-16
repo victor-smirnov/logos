@@ -18,6 +18,7 @@
 #include <logos/compiler/borrow_check.hpp>
 #include <logos/compiler/lir.hpp>
 #include <logos/compiler/mono.hpp>
+#include <logos/hermes/arena_publish.hpp>
 #include <logos/hermes/binary_codec.hpp>
 #include <logos/hermes/document.hpp>
 #include <logos/hermes/type_ops.hpp>
@@ -240,7 +241,8 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                                const std::string& obj_path,
                                const std::string& only_file = "",
                                StdlibExports* out_exports = nullptr,
-                               std::vector<uint8_t>* out_lir_blob = nullptr) {
+                               std::vector<uint8_t>* out_lir_blob = nullptr,
+                               const std::string& module_name = "") {
     // Run metaprog discovery loop (#21 closure) so #[derive_*] hooks
     // and metacall thunks fire during stdlib build. asts/filenames
     // grow with synthesised docs that subsequent sema picks up.
@@ -385,6 +387,33 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
     // — and stdlib build never uses --only-file anyway).
     if (out_lir_blob) {
         if (auto* arena = prog.type_pool.arena()) {
+            // Multi-arena IR Phase 3: publish a LirArenaRoot into the arena
+            // so the dumped blob ships with a proper multi-arena entry
+            // point (DocumentHeader.root_offset → LirArenaRoot). Loader
+            // calls register_lir_arena(doc) after from_bytes_copy to wire
+            // this arena into the global ArenaPool.
+            //
+            // Directory is empty in Phase 3 (only the null sentinel at
+            // obj_id 0); Phase 4 will populate it with template body
+            // offsets so sema can skip re-lowering stdlib AST.
+            //
+            // module_name == "" path: legacy emit; skip publish so existing
+            // tests / per-file emit (which don't have a manifest name)
+            // still produce valid M4-step-1 blobs without LirArenaRoot.
+            if (!module_name.empty()) {
+                auto* holder = prog.type_pool.holder();
+                if (holder) {
+                    auto doc = hermes::Hermes(hermes::HermesView(holder));
+                    if (auto bld = hermes::lir_arena_root_begin(
+                            doc, module_name, /*deps=*/{})) {
+                        // No items published yet — directory stays at null
+                        // sentinel. Finalize sets root_offset + seals arena.
+                        auto fin = hermes::lir_arena_root_finalize(*bld);
+                        (void) fin;
+                    }
+                }
+            }
+
             const auto& chunk = arena->head();
             out_lir_blob->assign(chunk.data(), chunk.data() + chunk.used);
         }
@@ -560,7 +589,8 @@ bool emit_module(const ModuleManifest& manifest,
     StdlibExports exports;
     std::vector<uint8_t> lir_blob;
     if (!compile_to_object(asts, filenames, ast_only_flags, obj_path,
-                           only_file_canon, &exports, &lir_blob)) {
+                           only_file_canon, &exports, &lir_blob,
+                           /*module_name=*/manifest.name)) {
         std::fprintf(stderr, "emit_module: compilation failed\n");
         return false;
     }
