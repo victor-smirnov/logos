@@ -326,17 +326,129 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
     s->assoc_type_impls     = std::move(assoc_type_impls_);
     s->assoc_const_impls    = std::move(assoc_const_impls_);
     s->blanket_impls        = std::move(blanket_impls_);
-    // M5 step 3b: COPY (not move) — prog.metaprog_handlers/targets are
-    // moved out at line ~1484-1485 (end of run), AFTER take_snapshot
-    // runs. If we moved into the snapshot here, prog would receive an
-    // empty vector and the dispatcher's hook-firing loop would be a
-    // no-op. The vectors are small POD-ish structs; copy is cheap.
+    // M5 step 3b: COPY (not move) metaprog_handlers — prog.metaprog_handlers
+    // is moved out at the end of run() AFTER take_snapshot. Vector is small.
+    // Handlers are stdlib-stable so caching across calls is safe.
     s->metaprog_handlers    = metaprog_handlers_;
-    s->metaprog_targets     = metaprog_targets_;
+    // M5 step 5c: DO NOT cache metaprog_targets — they are populated only
+    // from user (non-binary) ASTs, which always re-walk every call. A cached
+    // copy would re-add identical entries on install, double-firing hooks.
+    // The fresh walk re-discovers them every call.
     s->copy_types           = std::move(copy_types_);
     s->pkg_reexports        = std::move(pkg_reexports_);
     s->collected_holders    = std::move(collected_holders_);
     s->synth_field_name_pool = std::move(synth_field_name_pool_);
+
+    // M5 step 5c: drop entries owned by user packages — user ASTs are
+    // re-walked on every sema_lower invocation, so caching their entries
+    // would just trip "duplicate const/function/trait/..." diags on
+    // re-insertion (most maps lack first-seen ODR dedup). The user_pkgs_
+    // set was populated by collect at every non-binary per-AST iteration.
+    // M5 step 5c: drop user-origin entries from maps whose keys don't
+    // carry pkg info. Tracked at insert time in user_*_keys_ sets.
+    for (auto& k : user_module_const_keys_) {
+        s->module_consts.erase(k);
+        s->module_const_values.erase(k);
+    }
+    for (auto& k : user_generic_const_keys_)      s->generic_consts.erase(k);
+    for (auto& k : user_impl_keys_)               s->impls.erase(k);
+    for (auto& k : user_coherence_keys_)          s->coherence_keys.erase(k);
+    for (auto& k : user_assoc_type_impl_keys_)    s->assoc_type_impls.erase(k);
+    for (auto& k : user_assoc_const_impl_keys_)   s->assoc_const_impls.erase(k);
+    for (auto& k : user_trait_keys_)              s->traits.erase(k);
+    for (auto& k : user_type_alias_keys_)         s->type_aliases.erase(k);
+    // blanket_impls_ — vector; drop entries whose mangled_name was tagged
+    // as user-origin (regular blankets use real mangled names; satisfaction
+    // markers carry a synthetic "$marker$..." name set at insertion time).
+    if (!user_blanket_mangled_.empty()) {
+        s->blanket_impls.erase(
+            std::remove_if(s->blanket_impls.begin(), s->blanket_impls.end(),
+                [&](const SemaChecker::BlanketImpl& b) {
+                    return !b.mangled_name.empty() &&
+                           user_blanket_mangled_.count(b.mangled_name);
+                }),
+            s->blanket_impls.end());
+    }
+    if (!user_pkgs_.empty()) {
+        // Map keyed by `sema_key(pkg, name)` = "pkg::name" — strip if
+        // the pkg prefix matches a user pkg. Use std::string_view for
+        // the prefix-compare to avoid per-entry string allocation; on
+        // big stdlib maps (1000+ entries) this is the difference
+        // between ~0ms and several ms per call.
+        auto erase_pkg_key = [&](auto& map) {
+            for (auto it = map.begin(); it != map.end(); ) {
+                std::string_view key = it->first;
+                auto sep = key.find("::");
+                if (sep != std::string_view::npos) {
+                    std::string_view pkg = key.substr(0, sep);
+                    // user_pkgs_ is StrSet (StringHash w/ transparent); look
+                    // up by string_view without materialising a std::string.
+                    if (user_pkgs_.find(pkg) != user_pkgs_.end()) {
+                        it = map.erase(it); continue;
+                    }
+                }
+                ++it;
+            }
+        };
+        erase_pkg_key(s->structs);
+        erase_pkg_key(s->datatypes);
+        erase_pkg_key(s->enums);
+        erase_pkg_key(s->type_aliases);
+        erase_pkg_key(s->module_consts);
+        erase_pkg_key(s->module_const_values);
+        erase_pkg_key(s->generic_consts);
+        erase_pkg_key(s->traits);
+        erase_pkg_key(s->explicit_type_codes);
+
+        // Map valued by SemaFuncInfo / SemaStructInfo with .package field
+        // — check the value's package against user_pkgs_.
+        auto erase_by_pkg_field = [&](auto& map) {
+            for (auto it = map.begin(); it != map.end(); ) {
+                if (user_pkgs_.count(it->second.package)) {
+                    it = map.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        };
+        erase_by_pkg_field(s->funcs);
+        erase_by_pkg_field(s->generic_funcs);
+        erase_by_pkg_field(s->struct_specs_sema);
+
+        // func_overloads_ / generic_overloads_ are bare-name → vector<sym_name>.
+        // Drop overload symbol_names that point into funcs/generic_funcs that
+        // we just erased. Empty overload lists are erased entirely.
+        auto erase_orphan_overloads = [&](auto& overloads_map, auto& fn_map) {
+            for (auto it = overloads_map.begin(); it != overloads_map.end(); ) {
+                auto& syms = it->second;
+                syms.erase(std::remove_if(syms.begin(), syms.end(),
+                                          [&](const std::string& s) {
+                                              return !fn_map.count(s);
+                                          }),
+                           syms.end());
+                if (syms.empty()) { it = overloads_map.erase(it); continue; }
+                ++it;
+            }
+        };
+        erase_orphan_overloads(s->func_overloads, s->funcs);
+        erase_orphan_overloads(s->generic_overloads, s->generic_funcs);
+
+        // Drop user pkgs from pkg_reexports.
+        for (auto it = s->pkg_reexports.begin(); it != s->pkg_reexports.end(); ) {
+            if (user_pkgs_.count(it->first)) it = s->pkg_reexports.erase(it);
+            else ++it;
+        }
+
+        // impls_ / assoc_*_impls_ / coherence_keys_ keys are
+        // "Trait::Target[::Name]". Target name doesn't carry pkg
+        // directly, and impls_ overwrites on re-insert (`m[key] = v;`
+        // not first-seen). Left unfiltered — if duplicate-impl diags
+        // surface, add a .package field to SemaImplInfo + filter here.
+        //
+        // blanket_impls / metaprog_handlers / copy_types / impls_ etc.
+        // are left as-is; either stdlib-stable (handlers) or use
+        // overwrite-on-conflict semantics (impls_).
+    }
     return s;
 }
 
@@ -1360,20 +1472,16 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     }
     pool_ = &prog.type_pool;  // bind so all alloc()s share prog's arena
 
-    // M5 step 3b+5a: install cached symbol tables + restore the
-    // hstatic_registry. With Step 4's shared expr_pool_, cached
-    // LExpr* in the registry stay valid. With Step 5b's per-AST
-    // skip in collect's loops, the funcs_/overloads_/etc. entries
-    // are NOT re-added (so the lack of ODR dedup there doesn't bite).
+    // M5 step 3b+5a+5c: install cached symbol tables + restore the
+    // hstatic_registry. Step 4's shared expr_pool_ keeps cached LExpr*
+    // valid; Step 5b's per-binary-AST skip in collect keeps user ASTs
+    // re-walking each call (so strict validation still fires) without
+    // tripping ODR-less duplicate checks; Step 5c's user-pkg filter in
+    // take_snapshot ensures the persisted state contains binary-origin
+    // entries only.
     if (cache_ && cache_->impl()->snapshot) {
-        // Temporarily gated to bisect persistent_* / derive_* / hstatic
-        // failures — investigation in progress.
-        if (std::getenv("LOGOS_M5_INSTALL")) {
-            prog.hstatic_registry_ = cache_->impl()->snapshot->hstatic_registry;
-            install_snapshot(std::move(cache_->impl()->snapshot));
-        } else {
-            cache_->impl()->snapshot.reset();
-        }
+        prog.hstatic_registry_ = cache_->impl()->snapshot->hstatic_registry;
+        install_snapshot(std::move(cache_->impl()->snapshot));
     }
     // Set cur_prog_ before `collect` so LIT_HSTATIC encountered inside
     // type-alias rhs / supertrait bounds / etc. can register into

@@ -248,16 +248,18 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         // (e.g. catches "unknown type 'HermesStatic'" when the user
         // file doesn't `use` it). Cached binary asts are safe to skip
         // because they're processed identically in every mode.
-        {
-            bool is_bin = (from_binary_ && pass0_ai < from_binary_->size())
-                          ? (*from_binary_)[pass0_ai] : false;
-            if (std::getenv("LOGOS_M5_INSTALL") && is_bin &&
-                collected_holders_.count(ast.holder())) continue;
-        }
+        bool is_bin = (from_binary_ && pass0_ai < from_binary_->size())
+                      ? (*from_binary_)[pass0_ai] : false;
+        if (is_bin &&
+            collected_holders_.count(ast.holder())) continue;
         holder_ = ast.holder();
         auto root = ast.root_object().as_tiny_map();
         cur_package_ = read_package_name(root);
         cur_imports_ = build_import_scope(root);
+        // M5 step 5c: record user-pkgs so take_snapshot can filter
+        // their entries out before persisting.
+        if (!is_bin && !cur_package_.empty())
+            user_pkgs_.insert(cur_package_);
         if (!root.has_key(la::ITEMS)) continue;
         auto items = arr_of(root.get(la::ITEMS.code));
         std::vector<TinyMapView> pass0_pending;
@@ -343,7 +345,7 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         {
             bool is_bin = (from_binary_ && ai < from_binary_->size())
                           ? (*from_binary_)[ai] : false;
-            if (std::getenv("LOGOS_M5_INSTALL") && is_bin &&
+            if (is_bin &&
                 collected_holders_.count(asts[ai].holder())) continue;
         }
         cur_ast_idx_ = ai;
@@ -364,7 +366,7 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         {
             bool is_bin = (from_binary_ && ai < from_binary_->size())
                           ? (*from_binary_)[ai] : false;
-            if (std::getenv("LOGOS_M5_INSTALL") && is_bin &&
+            if (is_bin &&
                 collected_holders_.count(asts[ai].holder())) continue;
         }
         cur_ast_idx_ = ai;
@@ -411,7 +413,7 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         {
             bool is_bin = (from_binary_ && ai < from_binary_->size())
                           ? (*from_binary_)[ai] : false;
-            if (std::getenv("LOGOS_M5_INSTALL") && is_bin &&
+            if (is_bin &&
                 collected_holders_.count(asts[ai].holder())) continue;
         }
             // Bind helpers (arr_of/map_of/code_of/str_of) to this ast's holder.
@@ -470,7 +472,7 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         {
             bool is_bin = (from_binary_ && ai < from_binary_->size())
                           ? (*from_binary_)[ai] : false;
-            if (std::getenv("LOGOS_M5_INSTALL") && is_bin &&
+            if (is_bin &&
                 collected_holders_.count(asts[ai].holder())) continue;
         }
             holder_ = asts[ai].holder();
@@ -1402,6 +1404,7 @@ void SemaChecker::collect_type_alias(TinyMapView node) {
     entry.type = resolve_type(map_of(node.get(la::TYPE.code)));
     pop_type_params(entry.type_params);
     type_aliases_[name] = std::move(entry);
+    if (!cur_from_binary_) user_type_alias_keys_.insert(name);
 }
 
 void SemaChecker::collect_const(TinyMapView node) {
@@ -1420,6 +1423,8 @@ void SemaChecker::collect_const(TinyMapView node) {
             error(std::format("duplicate const '{}'", name));
         }
         module_consts_[name] = t;
+        // M5 step 5c: track user-origin keys for snapshot filtering.
+        if (!cur_from_binary_) user_module_const_keys_.insert(std::string(name));
         if (node.has_key(la::VALUE)) {
             auto val_av = node.get(la::VALUE.code);
             if (val_av.is_pointer())
@@ -1598,6 +1603,7 @@ void SemaChecker::collect_const(TinyMapView node) {
                 ent.value_node = val_node;
                 ent.holder = holder_;
                 generic_consts_[name] = std::move(ent);
+                if (!cur_from_binary_) user_generic_const_keys_.insert(std::string(name));
             }
         }
     }
@@ -1772,6 +1778,7 @@ void SemaChecker::collect_trait(TinyMapView node) {
     }
     info.package = cur_package_;  // record so future cross-pkg dup diag can show pkg
     traits_[tname] = std::move(info);
+    if (!cur_from_binary_) user_trait_keys_.insert(tname);
 }
 
 void SemaChecker::collect_impl(TinyMapView node) {
@@ -2240,6 +2247,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     bi_rec.mangled_name = mangled;
                     bi_rec.primary_assoc_eqs = blanket_primary_assoc_eqs;
                     bi_rec.extra_assoc_eqs = blanket_extra_assoc_eqs;
+                    if (!cur_from_binary_) user_blanket_mangled_.insert(bi_rec.mangled_name);
                     blanket_impls_.push_back(std::move(bi_rec));
                 }
             } else if (code_of(m) == la::ASSOC_TYPE_IMPL && !trait_name.empty()) {
@@ -2283,6 +2291,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 AssocTypeEntry ate{atype, impl_tps, gat_tps, std::move(pending_doc_)};
                 pending_doc_.clear();
                 assoc_type_impls_[key] = std::move(ate);
+                if (!cur_from_binary_) user_assoc_type_impl_keys_.insert(key);
             } else if (code_of(m) == la::ASSOC_CONST_IMPL) {
                 auto cname = std::string(str_of(m.get(la::NAME.code)));
                 std::string assoc_doc = std::move(pending_doc_);
@@ -2295,6 +2304,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         ctype = resolve_type(map_of(m.get(la::TYPE.code)));
                     std::string key = "inherent::" + target + "::" + cname;
                     assoc_const_impls_[key] = { ctype, m.get(la::VALUE), nullptr, std::move(assoc_doc) };
+                    if (!cur_from_binary_) user_assoc_const_impl_keys_.insert(key);
                 } else {
                     TypeRef ctype = nullptr;
                     if (m.has_key(la::TYPE))
@@ -2315,6 +2325,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     }
                     std::string key = trait_name + "::" + target + "::" + cname;
                     assoc_const_impls_[key] = { ctype, m.get(la::VALUE), nullptr, std::move(assoc_doc) };
+                    if (!cur_from_binary_) user_assoc_const_impl_keys_.insert(key);
                 }
             }
         }
@@ -2336,6 +2347,15 @@ void SemaChecker::collect_impl(TinyMapView node) {
         // satisfaction-only marker, not a method-dispatch entry.
         bi_rec.primary_assoc_eqs = blanket_primary_assoc_eqs;
         bi_rec.extra_assoc_eqs = blanket_extra_assoc_eqs;
+        // M5 step 5c: for satisfaction markers (empty mangled), tag with
+        // a synthetic "$marker$<trait>$<bound>$<target>" so the snapshot
+        // filter can drop user-origin entries by mangled-name.
+        if (!cur_from_binary_) {
+            std::string marker = "$marker$" + trait_name + "$" +
+                                 blanket_bound_trait + "$" + target;
+            user_blanket_mangled_.insert(marker);
+            bi_rec.mangled_name = std::move(marker);
+        }
         blanket_impls_.push_back(std::move(bi_rec));
     }
 
@@ -2529,8 +2549,12 @@ void SemaChecker::collect_impl(TinyMapView node) {
             error(std::format("conflicting implementations of trait '{}' for type '{}'",
                               trait_name, target));
         }
-        if (!is_generic_impl) coherence_keys_.insert(coh_key);
+        if (!is_generic_impl) {
+            coherence_keys_.insert(coh_key);
+            if (!cur_from_binary_) user_coherence_keys_.insert(coh_key);
+        }
         impls_[key] = info;
+        if (!cur_from_binary_) user_impl_keys_.insert(key);
         // `str` is a built-in that resolves to Slice<u8>; type_str() produces
         // "&[u8]" for Slice<u8>, so trait-bound checks look for "Trait::&[u8]".
         // Register an alias entry so satisfaction checks find the impl.

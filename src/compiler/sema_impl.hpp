@@ -1240,6 +1240,27 @@ private:
     // logic, but the walk itself is the cost we want to avoid).
     std::unordered_set<const hermes::MemHolder*> collected_holders_;
 
+    // M5 step 5c: packages declared by non-binary (user) ASTs. Used
+    // by take_snapshot to drop user-pkg entries before persisting —
+    // user ASTs always re-walk every call, so caching their tables
+    // would just trip "duplicate" diagnostics on re-insertion.
+    // Populated at top of each per-AST loop in collect when
+    // cur_from_binary_ is false; reset across runs.
+    StrSet user_pkgs_;
+    // Bare-key maps (no pkg in key) — record user-origin keys at insert
+    // time so take_snapshot can drop them. Map-keyed-by-name doesn't
+    // give us the pkg from the key alone; the value's .package field
+    // (where present) handles symbol_name maps separately.
+    StrSet user_module_const_keys_;
+    StrSet user_generic_const_keys_;
+    StrSet user_impl_keys_;             // "Trait::Target" keys added by user impls
+    StrSet user_coherence_keys_;         // "Trait[args]::Target" keys
+    StrSet user_assoc_type_impl_keys_;   // "Trait::Target::Name" keys
+    StrSet user_assoc_const_impl_keys_;
+    StrSet user_trait_keys_;             // bare trait names from user code
+    StrSet user_type_alias_keys_;        // bare type alias names from user code
+    StrSet user_blanket_mangled_;        // BlanketImpl.mangled_name from user code
+
     // Current AST root, set by lower_program at each iteration. Used by
     // sema-side intrinsics (e.g. `template_of::<X>()`) that need to walk
     // the user-root MODULE's ITEMS to bake an AST-node arena offset.
