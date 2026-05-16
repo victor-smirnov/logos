@@ -2217,8 +2217,14 @@ int run_metaprog_dispatch(
     for (int iter = 0; ; ++iter) {
         auto _t = std::chrono::steady_clock::now();
         auto opts_iter = meta_opts;
-        opts_iter.delta_start_idx = next_delta_start;
-        next_delta_start = asts.size();
+        // M6.1: delta only when we have a cache to provide skipped asts'
+        // state. emit_module's dispatch runs without a cache — skipping
+        // asts there would lose their symbol-table + LIR contributions
+        // (no install_snapshot + no bundle splice to compensate).
+        if (opts.sema_cache) {
+            opts_iter.delta_start_idx = next_delta_start;
+            next_delta_start = asts.size();
+        }
         prog = sema_lower(asts, filenames, from_binary, opts_iter);
         stat_step(_t, "sema_lower", iter);
         prog.print_diags(stderr);
@@ -2283,8 +2289,10 @@ int run_metaprog_dispatch(
             // a full fresh sema (slow but correct). next_delta_start stays
             // at its iter-top value so the *next* iter's sema picks up
             // where iter-top left off.
-            resema_opts.cache = nullptr;
-            resema_opts.delta_start_idx = 0;
+            if (opts.sema_cache) {
+                resema_opts.cache = nullptr;
+                resema_opts.delta_start_idx = 0;
+            }
             meta_prog = sema_lower(asts, filenames, from_binary, resema_opts);
             if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
         }

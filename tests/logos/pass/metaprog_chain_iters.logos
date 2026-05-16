@@ -1,0 +1,47 @@
+// M6.1 regression test: forces multiple ACTIVE metaprog dispatch
+// iterations by chaining two custom handlers. Verifies sema-delta
+// correctness with cross-iter state (snapshot persistence, bundle
+// accumulation, reset_user_state-after-dispatch). Also a benchmark
+// target for future M6.2 (mono delta) / M6.3 (mlir_gen extend) since
+// it's currently the only test in the suite where iter 1 actually
+// runs the full mono+mlir_gen+JIT pipeline (×2).
+//
+// Flow:
+//   iter 0: collect finds `#[chain_a]` on Marker → fires chain_a_hook
+//           which emits `#[chain_b] struct ChainStep1`. Pipeline runs.
+//   iter 1: delta-collect finds `#[chain_b]` on ChainStep1 → fires
+//           chain_b_hook which emits `struct ChainStep2`. Pipeline runs.
+//   iter 2: delta-collect finds no new triggers → break.
+
+package main;
+
+use std.compiler.metaprog;
+use std.hermes.view;
+
+#[metaprog_handler("chain_a")]
+fn chain_a_hook(target_offset: u32) -> () {
+    let blob: QuoteItemBlob = quote_item! {
+        #[chain_b]
+        struct ChainStep1 { v: i32 }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
+    return;
+}
+
+#[metaprog_handler("chain_b")]
+fn chain_b_hook(target_offset: u32) -> () {
+    let blob: QuoteItemBlob = quote_item! {
+        struct ChainStep2 { w: i32 }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
+    return;
+}
+
+#[chain_a]
+struct Marker {}
+
+unsafe fn main() -> i32 {
+    let a: ChainStep1 = ChainStep1 { v: 10 };
+    let b: ChainStep2 = ChainStep2 { w: 32 };
+    return a.v + b.w;
+}
