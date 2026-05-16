@@ -347,6 +347,37 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
 
+    // Phase 5.B: snapshot generic template names + body mirror offsets
+    // BEFORE mono_pass moves prog into its in_. Mono drops templates after
+    // instantiation (they're not in post-mono out_), but their body mirrors
+    // remain at stable offsets in the arena. Capture (name, body_offset)
+    // here and publish in the post-mono publish phase below.
+    // Pre-Phase-5.B: this snapshot was used only for the M3 stdlib-exports
+    // catalog (struct/enum/fn template names + impl catalog); now extended
+    // with body offsets so the multi-arena EXPORTS map can resolve template
+    // names → arena_offset for cross-arena clone.
+    struct TemplateEntry {
+        std::string                name;
+        hermes::arena_offset_t     body_offset{};
+    };
+    std::vector<TemplateEntry> generic_fn_templates;
+    std::vector<TemplateEntry> generic_method_templates;
+    auto stash_template = [](std::vector<TemplateEntry>& dst, const lir::LFunction& fn) {
+        if (fn.is_extern) return;
+        if (fn.from_binary_module) return;          // already in its own archive
+        if (fn.body.mirror_offset_ == hermes::arena_offset_t{}) return;
+        dst.push_back({fn.name, fn.body.mirror_offset_});
+    };
+    for (auto& fn : prog.functions) {
+        if (fn && !fn->type_params.empty()) stash_template(generic_fn_templates, *fn);
+    }
+    for (auto& sd : prog.structs) {
+        if (sd.type_params.empty()) continue;
+        for (auto& m : sd.methods) {
+            if (m) stash_template(generic_method_templates, *m);
+        }
+    }
+
     // M3 step 2+4: snapshot generic template names + blanket/concrete impl
     // catalog from the post-sema LProgram BEFORE mono_pass moves prog into
     // its in_. Template criterion: `type_params` non-empty (mirrors mono's
@@ -427,7 +458,7 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                         // the same rule, gated on the struct being non-
                         // generic itself (mono can't clone a method whose
                         // struct template is not yet instantiated).
-                        size_t published = 0;
+                        size_t published = 0, published_tmpl = 0;
                         auto try_publish = [&](const lir::LFunction& fn) {
                             if (fn.is_extern) return;
                             if (fn.is_specialization) return;
@@ -448,11 +479,32 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                                 if (m) try_publish(*m);
                             }
                         }
+                        // Phase 5.B: also publish generic template bodies (free
+                        // fns + generic-struct methods). Mono dropped them from
+                        // post-mono prog, but their mirror offsets stayed valid
+                        // in the arena (captured above into generic_*_templates).
+                        // Consumer = future mono cross-arena clone path: when a
+                        // user-side mono is asked to instantiate Vec<MyType>, it
+                        // looks up "Vec<T>::push" in EXPORTS, resolves to the
+                        // template's body in stdlib's arena, walks via lir_view
+                        // through that arena, substitutes into user's arena.
+                        for (auto& tmpl : generic_fn_templates) {
+                            auto av = hermes::AnyVal::from_offset(tmpl.body_offset);
+                            if (auto r = hermes::arena_publish_named(*bld, tmpl.name, av)) {
+                                ++published_tmpl;
+                            }
+                        }
+                        for (auto& tmpl : generic_method_templates) {
+                            auto av = hermes::AnyVal::from_offset(tmpl.body_offset);
+                            if (auto r = hermes::arena_publish_named(*bld, tmpl.name, av)) {
+                                ++published_tmpl;
+                            }
+                        }
                         if (std::getenv("LOGOS_TRACE_PHASES")) {
                             std::fprintf(stderr,
-                                "emit_module: published %zu fn body export(s) "
-                                "for module '%s'\n",
-                                published, module_name.c_str());
+                                "emit_module: published %zu non-generic + %zu "
+                                "template body export(s) for module '%s'\n",
+                                published, published_tmpl, module_name.c_str());
                         }
                         auto fin = hermes::lir_arena_root_finalize(*bld);
                         (void) fin;
