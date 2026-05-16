@@ -6,8 +6,10 @@
 
 #include <logos/hermes/access.hpp>
 #include <logos/hermes/arena_pool.hpp>
+#include <logos/hermes/arena_publish.hpp>
 #include <logos/hermes/arena_value.hpp>
 #include <logos/hermes/arena_string.hpp>
+#include <logos/hermes/binary_codec.hpp>
 #include <logos/hermes/external_ref.hpp>
 #include <logos/hermes/lir_arena_root.hpp>
 #include <logos/hermes/mem_holder.hpp>
@@ -345,6 +347,169 @@ static void test_lir_arena_root() {
     std::printf("  PASS\n");
 }
 
+// ---------------------------------------------------------------------------
+// Phase 1.B: binary_codec + publish helpers + register_lir_arena
+// ---------------------------------------------------------------------------
+
+static void test_external_ref_binary_codec_roundtrip() {
+    std::printf("--- ExternalRef binary_codec roundtrip ---\n");
+
+    // Build a doc with a TinyObjectMap root containing an ExternalRef.
+    // (binary_codec encodes from the root, so we wrap the ExternalRef
+    //  in a map slot.)
+    auto src = make_doc(4096).get();
+    auto& src_arena = HermesAccess::arena(src);
+
+    auto* ref_p = arena_put<ExternalRef>(
+        src_arena, ExternalRef::make(arena_id_t{0x123456}, 0xDEADBEEF)).get();
+    auto ref_off = HermesAccess::offset_of(src, ref_p);
+
+    auto src_root = src.make_tiny_map(2).get();
+    src_root.put(0, AnyVal::from_offset(ref_off)).get();
+    src.set_root(src_root);
+
+    // Encode → bytes → decode.
+    auto bytes = binary_encode(src).get();
+    LOGOS_ASSERT(!bytes.empty(), "EXTREF-CODEC-001", "encoded bytes non-empty");
+
+    auto dst = binary_decode(bytes.data(), bytes.size()).get();
+    auto* dst_base = HermesAccess::base(dst);
+
+    // Walk decoded doc: root → TinyMap → slot 0 → ExternalRef.
+    auto dst_root_av = dst.root_object().tagged();
+    LOGOS_ASSERT(dst_root_av.is_pointer(), "EXTREF-CODEC-002",
+        "decoded root must be a pointer");
+    TinyMapView dst_map(dst_root_av.to_offset(), dst.holder());
+    auto slot0 = dst_map.get(uint8_t{0});
+    LOGOS_ASSERT(slot0.is_pointer(), "EXTREF-CODEC-003",
+        "decoded slot 0 must be a pointer to ExternalRef");
+
+    auto* decoded_ref = slot0.as_ptr<ExternalRef>(dst_base);
+    LOGOS_ASSERT(decoded_ref->arena_id() == arena_id_t{0x123456},
+        "EXTREF-CODEC-004",
+        "decoded arena_id mismatch: got {}", decoded_ref->arena_id().value);
+    LOGOS_ASSERT(decoded_ref->obj_id() == 0xDEADBEEF, "EXTREF-CODEC-005",
+        "decoded obj_id mismatch: got 0x{:x}", decoded_ref->obj_id());
+
+    std::printf("  PASS\n");
+}
+
+static void test_publish_helpers() {
+    std::printf("--- arena publish helpers (lir_arena_root_begin/publish/finalize) ---\n");
+
+    InMemoryArenaPool pool;
+
+    // Build a coremeta-like arena via the publish flow.
+    auto coremeta_doc = make_doc(8192).get();
+    auto builder = lir_arena_root_begin(coremeta_doc, "coremeta", {}).get();
+    auto& arena = HermesAccess::arena(builder.doc);
+
+    // Publish 3 ExternalRef objects (just as test payload).
+    auto* p1 = arena_put<ExternalRef>(arena,
+        ExternalRef::make(arena_id_t{0}, 100)).get();
+    auto* p2 = arena_put<ExternalRef>(arena,
+        ExternalRef::make(arena_id_t{0}, 200)).get();
+    auto* p3 = arena_put<ExternalRef>(arena,
+        ExternalRef::make(arena_id_t{0}, 300)).get();
+
+    auto oid1 = arena_publish(builder,
+        AnyVal::from_offset(HermesAccess::offset_of(builder.doc, p1))).get();
+    auto oid2 = arena_publish(builder,
+        AnyVal::from_offset(HermesAccess::offset_of(builder.doc, p2))).get();
+    auto oid3 = arena_publish(builder,
+        AnyVal::from_offset(HermesAccess::offset_of(builder.doc, p3))).get();
+
+    // Slot 0 was null sentinel; real obj_ids start at 1.
+    LOGOS_ASSERT(oid1 == 1, "PUBLISH-001", "first obj_id should be 1, got {}", oid1);
+    LOGOS_ASSERT(oid2 == 2, "PUBLISH-002", "second obj_id should be 2, got {}", oid2);
+    LOGOS_ASSERT(oid3 == 3, "PUBLISH-003", "third obj_id should be 3, got {}", oid3);
+
+    // Reserve an obj_id (null entry).
+    auto oid_reserved = arena_publish_reserved(builder).get();
+    LOGOS_ASSERT(oid_reserved == 4, "PUBLISH-004",
+        "reserved obj_id should be 4, got {}", oid_reserved);
+
+    // Finalize: sets root, seals arena.
+    auto root_off = lir_arena_root_finalize(builder).get();
+    LOGOS_ASSERT(root_off.value() != 0, "PUBLISH-005",
+        "root offset should be non-zero after finalize");
+    LOGOS_ASSERT(builder.finalized, "PUBLISH-006", "builder should be finalized");
+    LOGOS_ASSERT(coremeta_doc.is_sealed(), "PUBLISH-007",
+        "arena should be sealed after finalize");
+
+    // Now register with the private pool.
+    auto handle = register_lir_arena(coremeta_doc, pool).get();
+    LOGOS_ASSERT(handle.arena_id.is_valid(), "PUBLISH-REG-001",
+        "registered arena_id should be valid");
+    LOGOS_ASSERT(handle.name == "coremeta", "PUBLISH-REG-002",
+        "registered name mismatch: '{}'", handle.name);
+    LOGOS_ASSERT(handle.depends_on.empty(), "PUBLISH-REG-003",
+        "coremeta should have no deps");
+
+    // Look up the published objects via the pool + directory.
+    auto* mem = pool.get(handle.arena_id);
+    LOGOS_ASSERT(mem != nullptr, "PUBLISH-REG-004", "pool lookup must succeed");
+
+    auto root_view = LirArenaRootView(
+        TinyMapView(root_off, mem));
+    auto dir = root_view.directory();
+    LOGOS_ASSERT(dir.size() == 5, "PUBLISH-REG-005",
+        "directory size = 5 (slot 0 sentinel + 3 published + 1 reserved); got {}",
+        dir.size());
+    LOGOS_ASSERT(dir.get(0).is_null(), "PUBLISH-REG-006",
+        "slot 0 must be null sentinel");
+    LOGOS_ASSERT(dir.get(oid1).is_pointer(), "PUBLISH-REG-007",
+        "slot {} must be a pointer", oid1);
+    LOGOS_ASSERT(dir.get(oid_reserved).is_null(), "PUBLISH-REG-008",
+        "reserved slot {} must be null", oid_reserved);
+
+    // Resolve via directory: dir[oid1] → original ExternalRef.
+    auto p1_resolved = dir.get(oid1);
+    auto* p1_ptr = p1_resolved.as_ptr<ExternalRef>(mem->base());
+    LOGOS_ASSERT(p1_ptr->obj_id() == 100, "PUBLISH-REG-009",
+        "resolved obj_id mismatch: {}", p1_ptr->obj_id());
+
+    std::printf("  PASS\n");
+}
+
+static void test_register_lir_arena_dep_chain() {
+    std::printf("--- register_lir_arena with dep chain ---\n");
+
+    InMemoryArenaPool pool;
+
+    // Build coremeta first (no deps).
+    auto coremeta = make_doc(4096).get();
+    auto b1 = lir_arena_root_begin(coremeta, "coremeta", {}).get();
+    lir_arena_root_finalize(b1).get();
+    auto h1 = register_lir_arena(coremeta, pool).get();
+
+    // Build alloc (depends on coremeta).
+    auto alloc = make_doc(4096).get();
+    auto b2 = lir_arena_root_begin(alloc, "alloc", {"coremeta"}).get();
+    lir_arena_root_finalize(b2).get();
+    auto h2 = register_lir_arena(alloc, pool).get();
+
+    LOGOS_ASSERT(h2.depends_on.size() == 1, "DEP-CHAIN-001",
+        "alloc must have 1 dep");
+    LOGOS_ASSERT(h2.depends_on[0] == h1.arena_id, "DEP-CHAIN-002",
+        "alloc's dep must resolve to coremeta's arena_id");
+
+    // Build stdlib (depends on alloc + coremeta).
+    auto stdlib = make_doc(4096).get();
+    auto b3 = lir_arena_root_begin(stdlib, "stdlib", {"alloc", "coremeta"}).get();
+    lir_arena_root_finalize(b3).get();
+    auto h3 = register_lir_arena(stdlib, pool).get();
+
+    LOGOS_ASSERT(h3.depends_on.size() == 2, "DEP-CHAIN-003",
+        "stdlib must have 2 deps, got {}", h3.depends_on.size());
+    LOGOS_ASSERT(h3.depends_on[0] == h2.arena_id, "DEP-CHAIN-004",
+        "stdlib's first dep must be alloc");
+    LOGOS_ASSERT(h3.depends_on[1] == h1.arena_id, "DEP-CHAIN-005",
+        "stdlib's second dep must be coremeta");
+
+    std::printf("  PASS\n");
+}
+
 int main() {
     // Phase 0 tests (ArenaPool).
     test_register_lookup_drop();
@@ -357,6 +522,11 @@ int main() {
     test_external_ref_arena_roundtrip();
     test_lir_arena_root();
 
-    std::printf("All ArenaPool + Phase 1.A tests passed\n");
+    // Phase 1.B tests (binary_codec + publish + register).
+    test_external_ref_binary_codec_roundtrip();
+    test_publish_helpers();
+    test_register_lir_arena_dep_chain();
+
+    std::printf("All ArenaPool + Phase 1.A/1.B tests passed\n");
     return 0;
 }

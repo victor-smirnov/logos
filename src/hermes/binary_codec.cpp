@@ -185,6 +185,7 @@ private:
             case type_hash::Uid64: return 8;
             case type_hash::Uid128: return 16;
             case type_hash::Uid256: return 32;
+            case type_hash::ExternalRef: return 7;  // multi-arena IR
             default: return 8;
         }
     }
@@ -453,6 +454,7 @@ private:
             case type_hash::Uid64: return 8;
             case type_hash::Uid128: return 16;
             case type_hash::Uid256: return 32;
+            case type_hash::ExternalRef: return 7;  // multi-arena IR
             default: return 8;
         }
     }
@@ -463,6 +465,7 @@ private:
             case type_hash::I16: case type_hash::U16: return 2;
             case type_hash::I24: case type_hash::U24: case type_hash::F32:
             case type_hash::Time: return 4;
+            case type_hash::ExternalRef: return 2;  // byte-aligned, but min arena align is 2
             default: return 8;
         }
     }
