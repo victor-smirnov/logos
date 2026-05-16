@@ -987,6 +987,22 @@ LogosType::TypeUID TypePool::uid_of(TypeRef t) const noexcept {
 
 TypeRef TypePool::alloc(LogosTypeBuilder t) {
     if (!impl_) impl_ = TypePoolImpl::make();
+    // Multi-arena IR Phase 5.B step 3: a builder can carry foreign TypeRef
+    // fields (e.g. produced by subst_type when an Array's element is a
+    // Struct that didn't itself need substitution). Their offsets are
+    // meaningless in this pool's arena and would be written into the
+    // mirror as-is by impl_->mirror(), garbling later reads. Localize
+    // every child TypeRef before computing the UID + interning so the
+    // resulting type is self-consistent.
+    if (t.pointee     && t.pointee.is_external())     t.pointee     = intern_foreign(t.pointee);
+    if (t.elem        && t.elem.is_external())        t.elem        = intern_foreign(t.elem);
+    if (t.assoc_base  && t.assoc_base.is_external())  t.assoc_base  = intern_foreign(t.assoc_base);
+    if (t.closure_ret && t.closure_ret.is_external()) t.closure_ret = intern_foreign(t.closure_ret);
+    for (auto& a : t.type_args)      if (a && a.is_external()) a = intern_foreign(a);
+    for (auto& e : t.tuple_elems)    if (e && e.is_external()) e = intern_foreign(e);
+    for (auto& p : t.closure_params) if (p && p.is_external()) p = intern_foreign(p);
+    for (auto& g : t.gat_args)       if (g && g.is_external()) g = intern_foreign(g);
+
     LogosType::TypeUID uid = compute_type_uid(impl_.get(), t);
     auto& bucket = impl_->intern_buckets_[uid];
     for (auto cand_off : bucket) {
@@ -1002,16 +1018,9 @@ TypeRef TypePool::alloc(LogosTypeBuilder t) {
 
 TypeRef TypePool::intern_foreign(TypeRef tv) {
     if (!tv || !tv.is_external()) return tv;
-    auto b = tv.to_builder();
-    b.pointee     = intern_foreign(b.pointee);
-    b.elem        = intern_foreign(b.elem);
-    b.assoc_base  = intern_foreign(b.assoc_base);
-    b.closure_ret = intern_foreign(b.closure_ret);
-    for (auto& a : b.type_args)      a = intern_foreign(a);
-    for (auto& e : b.tuple_elems)    e = intern_foreign(e);
-    for (auto& p : b.closure_params) p = intern_foreign(p);
-    for (auto& g : b.gat_args)       g = intern_foreign(g);
-    return alloc(std::move(b));
+    // alloc() now recursively localizes every TypeRef field in the
+    // builder; to_builder + alloc is enough.
+    return alloc(tv.to_builder());
 }
 
 // ── TypeRef pointer-valued accessors (Phase 2c.4d.0) ───────────────────────

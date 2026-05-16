@@ -364,7 +364,14 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
     std::vector<TemplateEntry> generic_method_templates;
     auto stash_template = [](std::vector<TemplateEntry>& dst, const lir::LFunction& fn) {
         if (fn.is_extern) return;
-        if (fn.from_binary_module) return;          // already in its own archive
+        // Phase 5.B step 3 (Phase 5.C close-out): the prior
+        // `if (fn.from_binary_module) return` here was wrong during the
+        // stdlib build for ast_only files (e.g. std.compiler.metaprog) —
+        // those get stamped from_binary=true post-metaprog-dispatch but
+        // their bodies came from THIS sema's source, so there's no other
+        // archive providing them. The mirror_offset_ guard below catches
+        // the genuine "already published" case (mirror missing means
+        // body never lowered locally → nothing to publish).
         if (fn.body.mirror_offset_ == hermes::arena_offset_t{}) return;
         dst.push_back({fn.name, fn.body.mirror_offset_});
     };

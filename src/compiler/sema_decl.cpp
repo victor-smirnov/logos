@@ -573,38 +573,21 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                   && !fn_is_metaprog_keep(fn.name);
     if (skip_body) fn.is_metaprog_stub = true;
 
-    // Phase 4.A (multi-arena IR): skeleton-only lowering for non-generic
-    // from_binary fns. The binary archive already contains the lowered LIR
-    // (we registered the arena in module_loader); body lowering here is
-    // pure overhead. mlir_gen treats from_binary_module fns as forward-
-    // declarations, so an empty body causes no codegen divergence.
+    // Phase 4.A + Phase 5.B step 3 (multi-arena IR): skeleton-only lowering
+    // for from_binary fns. The binary archive already contains the lowered
+    // LIR (we registered the arena in module_loader); body lowering here
+    // is pure overhead. mlir_gen treats from_binary_module fns as forward-
+    // declarations, and mono cross-arena clone walks the body via the
+    // body_external_ref published in stdlib's EXPORTS.
     //
-    // Conditions are conservative: generic fns / generic-struct methods
-    // are kept because mono needs the body to clone+specialize. Metaprog
-    // handlers / metaprog-keep fns can be invoked at compile time and
-    // also need bodies. Specializations go through lower_spec_fn and
-    // have their own gate there.
-    //
-    // Phase 5.B step 3: allow generic templates from binary to also be
-    // skipped — body resolved cross-arena via EXPORTS. Variadic-pack
-    // templates stay local: their bodies use __sizeof_pack__ /
-    // __type_refs_of__ intrinsics that splice cur_packs_ entries via
-    // builder code paths that bypass type_av's intern_foreign hook.
-    // Audit + targeted localization of those paths is a separate sweep
-    // (~1 session); meanwhile a handful of std.compiler.metaprog helpers
-    // (any/all/count_if/filter/sum_by/transform/typelist_*/fold/…) fall
-    // back to the legacy local-body path.
-    auto has_variadic_tparam = [&] {
-        for (auto& tp : fn.type_params)      if (tp.is_variadic) return true;
-        for (auto& tp : impl_type_params_)   if (tp.is_variadic) return true;
-        return false;
-    };
+    // Carve-outs: metaprog handlers / metaprog-keep fns can be invoked at
+    // compile time and need bodies. Specializations go through lower_spec_fn
+    // and have their own gate.
     bool blob_skip_body = use_blob_skeletons_
                        && cur_from_binary_
                        && !fn.is_extern
                        && !fn_is_metaprog_handler(fn.name)
-                       && !fn_is_metaprog_keep(fn.name)
-                       && !has_variadic_tparam();
+                       && !fn_is_metaprog_keep(fn.name);
     if (blob_skip_body) {
         skip_body = true;
         ++blob_skip_count_;
