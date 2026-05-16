@@ -406,6 +406,12 @@ private:
     // ── Type substitution (large — defined in mono_subst.cpp) ────────────
     TypeRef subst_type(TypeRef tv, const SubstMap& s) noexcept;
 
+    // Phase 5.B step 3: when a TypeRef points into a foreign arena (cross-
+    // arena body walk), re-intern it into out_.type_pool so its offset is
+    // meaningful when stored in local LIR mirrors. Recurses through every
+    // child type. No-op for local TypeRefs.
+    TypeRef localize_type(TypeRef tv) noexcept;
+
     // Structural FNV-1a-64 hash of T (mini-Memoria block_type_hash). Layout-
     // stable: ignores struct/field names, recurses into field types using
     // the same SubstMap shape as __field_types_of__. Cycle-guarded via the

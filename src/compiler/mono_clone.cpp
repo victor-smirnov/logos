@@ -389,8 +389,18 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             // subst_expr returns a freshly-pooled LExpr in out_;
                             // splice its mirror_offset_ + type into `result` so
                             // the surrounding clone-loop sees a well-formed node.
+                            //
+                            // hstatic_registry_ lives on out_, so we must
+                            // construct the view over out_.type_pool.arena()
+                            // explicitly — expr_ref_of() would route through
+                            // effective_src_arena() which, during a Phase 5.B
+                            // cross-arena body walk, points at the foreign
+                            // arena and would garble this local read.
                             SubstMap empty;
-                            auto cloned = subst_expr(expr_ref_of(*rit->second), empty);
+                            lir_view::ExprRef src_eref(
+                                out_.type_pool.arena(),
+                                rit->second->mirror_offset_);
+                            auto cloned = subst_expr(src_eref, empty);
                             if (cloned) {
                                 result->mirror_offset_ = cloned->mirror_offset_;
                                 result->type           = cloned->type;
@@ -984,7 +994,12 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                            ta.kind() == LogosType::Kind::ConstVar)) {
                     auto pit = cur_packs_.find(std::string(ta.type_var_name()));
                     if (pit != cur_packs_.end()) {
-                        for (auto pt : pit->second) nc.type_args.push_back(pt);
+                        // Phase 5.B step 3: pack entries may be foreign
+                        // TypeRefs (cur_packs_ comes from a caller's
+                        // SubstMap which may have been built over the
+                        // foreign body's type-arg references). localize
+                        // before splicing into the local nc.type_args.
+                        for (auto pt : pit->second) nc.type_args.push_back(localize_type(pt));
                         continue;
                     }
                 }

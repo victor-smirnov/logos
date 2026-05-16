@@ -585,13 +585,26 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     // also need bodies. Specializations go through lower_spec_fn and
     // have their own gate there.
     //
+    // Phase 5.B step 3: allow generic templates from binary to also be
+    // skipped — body resolved cross-arena via EXPORTS. Variadic-pack
+    // templates are kept local: their bodies use __sizeof_pack__ /
+    // __type_refs_of__ intrinsics that splice cur_packs_ entries (which
+    // may themselves be cross-arena TypeRefs after a foreign body walk)
+    // into emitted nodes via paths that bypass localize_type. Until
+    // those paths are audited, fall back to the legacy local-body path
+    // for variadic templates. Practical impact: a handful of std.compiler.
+    // metaprog helpers (any / all / count_if / filter / …).
+    auto has_variadic_tparam = [&] {
+        for (auto& tp : fn.type_params)      if (tp.is_variadic) return true;
+        for (auto& tp : impl_type_params_)   if (tp.is_variadic) return true;
+        return false;
+    };
     bool blob_skip_body = use_blob_skeletons_
                        && cur_from_binary_
                        && !fn.is_extern
-                       && fn.type_params.empty()
-                       && impl_type_params_.empty()
                        && !fn_is_metaprog_handler(fn.name)
-                       && !fn_is_metaprog_keep(fn.name);
+                       && !fn_is_metaprog_keep(fn.name)
+                       && !has_variadic_tparam();
     if (blob_skip_body) {
         skip_body = true;
         ++blob_skip_count_;

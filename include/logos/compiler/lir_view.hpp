@@ -110,6 +110,31 @@ inline ChildLoc resolve_child(const RefBase& parent, hermes::AnyVal av) noexcept
     return ChildLoc{&r.mem->arena(), r.offset, ref->arena_id()};
 }
 
+// Phase 5.B step 3: construct a child TypeRef from (parent, within-arena
+// offset, caller's pool). When the parent ref is itself cross-arena the
+// child inherits the parent's arena_id (and drops the local pool) so
+// downstream TypeRef accessors route through ArenaPool's MemHolder.
+inline TypeRef make_child_typeref(const RefBase& parent,
+                                  hermes::arena_offset_t off,
+                                  const TypePoolImpl* pool) noexcept {
+    if (parent.is_external()) {
+        return TypeRef(parent.arena(), off, /*pool=*/nullptr, parent.arena_id());
+    }
+    return TypeRef(parent.arena(), off, pool);
+}
+
+// Phase 5.B step 3: construct a same-kind child Ref from (parent, within-
+// arena offset). Inherits parent's arena_id when the parent is cross-arena
+// so the foreign-arena context isn't lost as we walk deeper.
+template <class TargetRef>
+inline TargetRef make_sub_ref(const RefBase& parent,
+                              hermes::arena_offset_t off) noexcept {
+    if (parent.is_external()) {
+        return TargetRef(parent.arena(), off, parent.arena_id());
+    }
+    return TargetRef(parent.arena(), off);
+}
+
 // Read primitives shared by every view struct. Each takes a ref and a
 // sparse-key code; missing keys return defaults so views can stay terse.
 
@@ -190,6 +215,10 @@ public:
     // pool-dependent accessors (e.g. trait resolution) keep working.
     // Phase 2.B: ExternalRef-aware — cross-arena types return TypeRef with
     // pool_ = nullptr (read-only accessors still work).
+    // Phase 5.B step 3: when the parent ref is itself cross-arena (this
+    // ExprRef came from a foreign body walk), the child within-arena type
+    // also lives in the foreign arena — inherit our arena_id so downstream
+    // accessors route through the foreign MemHolder via ArenaPool.
     TypeRef type(const TypePoolImpl* pool) const noexcept {
         auto av = mirror()->get(lir_schema::expr_common::TYPE.code, base());
         if (av.is_null()) return TypeRef{};
@@ -197,6 +226,9 @@ public:
         if (!loc) return TypeRef{};
         if (loc.aid.is_valid()) {
             return TypeRef(loc.arena, loc.off, /*pool=*/nullptr, loc.aid);
+        }
+        if (is_external()) {
+            return TypeRef(loc.arena, loc.off, /*pool=*/nullptr, arena_id());
         }
         return TypeRef(loc.arena, loc.off, pool);
     }
@@ -212,6 +244,9 @@ public:
         if (!loc) return TypeRef{};
         if (loc.aid.is_valid()) {
             return TypeRef(loc.arena, loc.off, /*pool=*/nullptr, loc.aid);
+        }
+        if (is_external()) {
+            return TypeRef(loc.arena, loc.off, /*pool=*/nullptr, arena_id());
         }
         return TypeRef(loc.arena, loc.off, pool);
     }
@@ -292,39 +327,39 @@ public:
 // transparently dispatches on ExternalRef. Single-arena code paths take the
 // [[likely]] local branch with no overhead beyond a 1-byte TypeTag compare.
 
+// Phase 5.B step 3: when a sub-ref resolves to a within-arena reference but
+// the parent is itself cross-arena, the child must inherit the parent's
+// arena_id — otherwise downstream is_external() checks (e.g. on
+// TypeRef-fetching paths) lose track of the foreign-arena membership and
+// the offset gets interpreted in the wrong arena later. detail::make_sub_ref
+// + the explicit branch on loc.aid below fold the propagation in.
+
 inline ExprRef ExprRef::sub_expr(uint8_t key) const noexcept {
     auto av = mirror()->get(key, base());
     auto loc = detail::resolve_child(*this, av);
     if (!loc) return {};
-    return loc.aid.is_valid()
-        ? ExprRef(loc.arena, loc.off, loc.aid)
-        : ExprRef(loc.arena, loc.off);
+    if (loc.aid.is_valid()) return ExprRef(loc.arena, loc.off, loc.aid);
+    return detail::make_sub_ref<ExprRef>(*this, loc.off);
 }
 
 inline ExprRef StmtRef::sub_expr(uint8_t key) const noexcept {
     auto av = mirror()->get(key, base());
     auto loc = detail::resolve_child(*this, av);
     if (!loc) return {};
-    return loc.aid.is_valid()
-        ? ExprRef(loc.arena, loc.off, loc.aid)
-        : ExprRef(loc.arena, loc.off);
+    if (loc.aid.is_valid()) return ExprRef(loc.arena, loc.off, loc.aid);
+    return detail::make_sub_ref<ExprRef>(*this, loc.off);
 }
 
 inline StmtRef StmtRef::sub_stmt(uint8_t key) const noexcept {
     auto av = mirror()->get(key, base());
     auto loc = detail::resolve_child(*this, av);
     if (!loc) return {};
-    return loc.aid.is_valid()
-        ? StmtRef(loc.arena, loc.off, loc.aid)
-        : StmtRef(loc.arena, loc.off);
+    if (loc.aid.is_valid()) return StmtRef(loc.arena, loc.off, loc.aid);
+    return detail::make_sub_ref<StmtRef>(*this, loc.off);
 }
 
 // Iterate stmts inside a block. The mirror stores them at stmt_keys::ARMS (24),
 // reusing the same key for SMatch.arms — see lir_mirror.cpp:emit_block.
-//
-// Phase 2.B: each element may be an ExternalRef pointing into a remote
-// arena's directory. resolve_child handles both forms; callers receive a
-// StmtRef that knows which arena it lives in.
 template <class F>
 inline void BlockRef::each_stmt(F&& f) const noexcept {
     auto av = mirror()->get(/*stmt_keys::ARMS*/ 24, base());
@@ -334,9 +369,8 @@ inline void BlockRef::each_stmt(F&& f) const noexcept {
         auto el = av.as_ptr<const hermes::ObjectArray>(base())->get(i, base());
         auto loc = detail::resolve_child(*this, el);
         if (!loc) continue;
-        f(loc.aid.is_valid()
-            ? StmtRef(loc.arena, loc.off, loc.aid)
-            : StmtRef(loc.arena, loc.off));
+        if (loc.aid.is_valid()) f(StmtRef(loc.arena, loc.off, loc.aid));
+        else                    f(detail::make_sub_ref<StmtRef>(*this, loc.off));
     }
 }
 
@@ -361,7 +395,7 @@ void for_each_expr(const RefBase& r, uint8_t key, F&& f) noexcept {
     for (uint64_t i = 0; i < n; ++i) {
         auto el = av.as_ptr<const hermes::ObjectArray>(r.base())->get(i, r.base());
         if (el.is_null()) { f(ExprRef{}); continue; }
-        f(ExprRef(r.arena(), el.to_offset()));
+        f(detail::make_sub_ref<ExprRef>(r, el.to_offset()));
     }
 }
 
@@ -377,26 +411,31 @@ public:
     EMatchArmRef() = default;
     EMatchArmRef(const hermes::Arena* a, hermes::arena_offset_t o) noexcept
         : RefBase(a, o) {}
+    // Phase 5.B step 3: cross-arena constructor so each_arm can carry
+    // the parent's arena_id across into per-arm reads.
+    EMatchArmRef(const hermes::Arena* a, hermes::arena_offset_t o,
+                 hermes::arena_id_t aid) noexcept
+        : RefBase(a, o, aid) {}
 
     PatRef  pat() const noexcept {
         auto av = mirror()->get(ak::PAT.code, base());
         if (av.is_null()) return {};
-        return PatRef(arena(), av.to_offset());
+        return detail::make_sub_ref<PatRef>(*this, av.to_offset());
     }
     ExprRef value() const noexcept {
         auto av = mirror()->get(ak::VALUE.code, base());
         if (av.is_null()) return {};
-        return ExprRef(arena(), av.to_offset());
+        return detail::make_sub_ref<ExprRef>(*this, av.to_offset());
     }
     ExprRef guard() const noexcept {
         auto av = mirror()->get(ak::GUARD.code, base());
         if (av.is_null()) return {};
-        return ExprRef(arena(), av.to_offset());
+        return detail::make_sub_ref<ExprRef>(*this, av.to_offset());
     }
     BlockRef body() const noexcept {
         auto av = mirror()->get(ak::BODY.code, base());
         if (av.is_null()) return {};
-        return BlockRef(arena(), av.to_offset());
+        return detail::make_sub_ref<BlockRef>(*this, av.to_offset());
     }
 };
 
@@ -465,7 +504,7 @@ struct EBlockExprView {
     BlockRef block() const noexcept {
         auto av = self.mirror()->get(ek::BLOCK.code, self.base());
         if (av.is_null()) return {};
-        return BlockRef(self.arena(), av.to_offset());
+        return detail::make_sub_ref<BlockRef>(self, av.to_offset());
     }
 };
 
@@ -483,7 +522,7 @@ struct EMatchExprView {
         for (uint64_t i = 0; i < n; ++i) {
             auto el = av.as_ptr<const hermes::ObjectArray>(self.base())->get(i, self.base());
             if (el.is_null()) continue;
-            f(EMatchArmRef(self.arena(), el.to_offset()));
+            f(detail::make_sub_ref<EMatchArmRef>(self, el.to_offset()));
         }
     }
 };
@@ -598,7 +637,7 @@ struct ECallView {
         for (uint64_t i = 0; i < arr->size(); ++i) {
             auto el = arr->get(i, self.base());
             if (el.is_null()) { out.emplace_back(); continue; }
-            out.emplace_back(self.arena(), el.to_offset(), pool);
+            out.push_back(detail::make_child_typeref(self, el.to_offset(), pool));
         }
         return out;
     }
@@ -629,7 +668,7 @@ struct EMethodCallView {
         for (uint64_t i = 0; i < arr->size(); ++i) {
             auto el = arr->get(i, self.base());
             if (el.is_null()) { out.emplace_back(); continue; }
-            out.emplace_back(self.arena(), el.to_offset(), pool);
+            out.push_back(detail::make_child_typeref(self, el.to_offset(), pool));
         }
         return out;
     }
@@ -666,7 +705,7 @@ struct EFormatCallView {
         for (uint64_t i = 0; i < arr->size(); ++i) {
             auto el = arr->get(i, self.base());
             if (el.is_null()) { out.emplace_back(); continue; }
-            out.emplace_back(self.arena(), el.to_offset(), pool);
+            out.push_back(detail::make_child_typeref(self, el.to_offset(), pool));
         }
         return out;
     }
@@ -693,7 +732,7 @@ struct EStructLitView {
             if (!nv.is_null())
                 fname = nv.as_ptr<const hermes::ArenaString>(self.base())->view();
             ExprRef value;
-            if (!vv.is_null()) value = ExprRef(self.arena(), vv.to_offset());
+            if (!vv.is_null()) value = detail::make_sub_ref<ExprRef>(self, vv.to_offset());
             f(fname, value);
         }
     }
@@ -721,7 +760,7 @@ struct ENewView {
             if (!nv.is_null())
                 name = nv.as_ptr<const hermes::ArenaString>(self.base())->view();
             ExprRef value;
-            if (!vv.is_null()) value = ExprRef(self.arena(), vv.to_offset());
+            if (!vv.is_null()) value = detail::make_sub_ref<ExprRef>(self, vv.to_offset());
             f(name, value);
         }
     }
@@ -744,7 +783,7 @@ struct EArrLitView {
         if (i >= arr->size()) return {};
         auto el = arr->get(i, self.base());
         if (el.is_null()) return {};
-        return ExprRef(self.arena(), el.to_offset());
+        return detail::make_sub_ref<ExprRef>(self, el.to_offset());
     }
 };
 
@@ -765,7 +804,7 @@ struct ETupleLitView {
         if (i >= arr->size()) return {};
         auto el = arr->get(i, self.base());
         if (el.is_null()) return {};
-        return ExprRef(self.arena(), el.to_offset());
+        return detail::make_sub_ref<ExprRef>(self, el.to_offset());
     }
 };
 
@@ -800,7 +839,7 @@ public:
         if (!m) return {};
         auto blk_av = m->get(lir_schema::closure_keys::BLOCK.code, self.base());
         if (blk_av.is_null()) return {};
-        return BlockRef(self.arena(), blk_av.to_offset());
+        return detail::make_sub_ref<BlockRef>(self, blk_av.to_offset());
     }
 
     std::string_view closure_id() const noexcept {
@@ -832,7 +871,7 @@ public:
         if (!m) return {};
         auto av = m->get(lir_schema::closure_keys::RET_TYPE.code, self.base());
         if (av.is_null()) return {};
-        return TypeRef(self.arena(), av.to_offset(), pool);
+        return detail::make_child_typeref(self, av.to_offset(), pool);
     }
 
     uint64_t capture_count() const noexcept {
@@ -893,7 +932,7 @@ public:
             TypeRef t;
             if (i < tn) {
                 auto tv = types_av.as_ptr<const hermes::ObjectArray>(self.base())->get(i, self.base());
-                if (!tv.is_null()) t = TypeRef(self.arena(), tv.to_offset(), pool);
+                if (!tv.is_null()) t = detail::make_child_typeref(self, tv.to_offset(), pool);
             }
             f(name, t);
         }
@@ -918,7 +957,7 @@ public:
             TypeRef t;
             if (i < tn) {
                 auto tv = types_av.as_ptr<const hermes::ObjectArray>(self.base())->get(i, self.base());
-                if (!tv.is_null()) t = TypeRef(self.arena(), tv.to_offset(), pool);
+                if (!tv.is_null()) t = detail::make_child_typeref(self, tv.to_offset(), pool);
             }
             f(name, t);
         }
@@ -969,7 +1008,7 @@ struct EGenericRefView {
         for (uint64_t i = 0; i < arr->size(); ++i) {
             auto el = arr->get(i, self.base());
             if (el.is_null()) { out.emplace_back(); continue; }
-            out.emplace_back(self.arena(), el.to_offset(), pool);
+            out.push_back(detail::make_child_typeref(self, el.to_offset(), pool));
         }
         return out;
     }
@@ -1071,7 +1110,7 @@ struct HVMapView {
         if (i >= arr->size()) return {};
         auto el = arr->get(i, self.base());
         if (el.is_null()) return {};
-        return HermesValRef(self.arena(), el.to_offset());
+        return detail::make_sub_ref<HermesValRef>(self, el.to_offset());
     }
     std::string_view str_key(uint64_t i) const noexcept {
         auto av = self.mirror()->get(hvk::MAP_KEYS.code, self.base());
@@ -1110,7 +1149,7 @@ struct HVArrayView {
         if (i >= arr->size()) return {};
         auto el = arr->get(i, self.base());
         if (el.is_null()) return {};
-        return HermesValRef(self.arena(), el.to_offset());
+        return detail::make_sub_ref<HermesValRef>(self, el.to_offset());
     }
 };
 
@@ -1121,7 +1160,7 @@ struct EHermesLitView {
     HermesValRef root() const noexcept {
         auto av = self.mirror()->get(hl::ROOT.code, self.base());
         if (av.is_null()) return {};
-        return HermesValRef(self.arena(), av.to_offset());
+        return detail::make_sub_ref<HermesValRef>(self, av.to_offset());
     }
     bool     has_captures()        const noexcept { return detail::read_bool(self, hl::HAS_CAPTURES.code); }
     uint32_t capture_param_count() const noexcept { return detail::read_u32(self, hl::CAPTURE_PARAM_COUNT.code); }
@@ -1136,7 +1175,7 @@ struct EHermesLitView {
         for (uint64_t i = 0; i < n; ++i) {
             auto el = av.as_ptr<const hermes::ObjectArray>(self.base())->get(i, self.base());
             if (el.is_null()) { f(TypeRef{}); continue; }
-            f(TypeRef(self.arena(), el.to_offset(), pool));
+            f(detail::make_child_typeref(self, el.to_offset(), pool));
         }
     }
 };
@@ -1184,7 +1223,7 @@ struct PatVariantDataView {
         for (uint64_t i = 0; i < n; ++i) {
             auto el = av.as_ptr<const hermes::ObjectArray>(self.base())->get(i, self.base());
             if (el.is_null()) { f(TypeRef{}); continue; }
-            f(TypeRef(self.arena(), el.to_offset(), pool));
+            f(detail::make_child_typeref(self, el.to_offset(), pool));
         }
     }
 };
@@ -1214,7 +1253,7 @@ struct PatOrView {
         for (uint64_t i = 0; i < n; ++i) {
             auto el = av.as_ptr<const hermes::ObjectArray>(self.base())->get(i, self.base());
             if (el.is_null()) continue;
-            f(PatRef(self.arena(), el.to_offset()));
+            f(detail::make_sub_ref<PatRef>(self, el.to_offset()));
         }
     }
 };
@@ -1230,7 +1269,7 @@ inline void for_each_pat(const PatRef& r, uint8_t key, F&& f) noexcept {
     for (uint64_t i = 0; i < n; ++i) {
         auto el = av.as_ptr<const hermes::ObjectArray>(r.base())->get(i, r.base());
         if (el.is_null()) continue;
-        f(PatRef(r.arena(), el.to_offset()));
+        f(detail::make_sub_ref<PatRef>(r, el.to_offset()));
     }
 }
 
@@ -1257,7 +1296,7 @@ inline void for_each_type(const PatRef& r, uint8_t key,
     for (uint64_t i = 0; i < n; ++i) {
         auto el = av.as_ptr<const hermes::ObjectArray>(r.base())->get(i, r.base());
         if (el.is_null()) { f(TypeRef{}); continue; }
-        f(TypeRef(r.arena(), el.to_offset(), pool));
+        f(detail::make_child_typeref(r, el.to_offset(), pool));
     }
 }
 
@@ -1269,14 +1308,14 @@ inline PatRef first_pat(const PatRef& r, uint8_t key) noexcept {
     if (arr->size() == 0) return {};
     auto el = arr->get(0, r.base());
     if (el.is_null()) return {};
-    return PatRef(r.arena(), el.to_offset());
+    return detail::make_sub_ref<PatRef>(r, el.to_offset());
 }
 
 inline TypeRef pat_type(const PatRef& r, uint8_t key,
                         const TypePoolImpl* pool) noexcept {
     auto av = r.mirror()->get(key, r.base());
     if (av.is_null()) return TypeRef{};
-    return TypeRef(r.arena(), av.to_offset(), pool);
+    return detail::make_child_typeref(r, av.to_offset(), pool);
 }
 
 } // namespace detail
@@ -1337,7 +1376,7 @@ struct PatStructView {
         for (uint64_t i = 0; i < arr->size(); ++i) {
             auto el = arr->get(i, self.base());
             if (el.is_null()) continue;
-            f(PatFieldBindingView{PatRef(self.arena(), el.to_offset())});
+            f(PatFieldBindingView{detail::make_sub_ref<PatRef>(self, el.to_offset())});
         }
     }
 };
@@ -1408,7 +1447,7 @@ inline ExprRef stmt_sub_expr(const StmtRef& s, uint8_t key) noexcept {
 inline BlockRef stmt_sub_block(const StmtRef& s, uint8_t key) noexcept {
     auto av = s.mirror()->get(key, s.base());
     if (av.is_null()) return {};
-    return BlockRef(s.arena(), av.to_offset());
+    return detail::make_sub_ref<BlockRef>(s, av.to_offset());
 }
 
 inline std::string_view stmt_str(const StmtRef& s, uint8_t key) noexcept {
@@ -1418,7 +1457,7 @@ inline std::string_view stmt_str(const StmtRef& s, uint8_t key) noexcept {
 inline TypeRef stmt_type(const StmtRef& s, uint8_t key, const TypePoolImpl* pool) noexcept {
     auto av = s.mirror()->get(key, s.base());
     if (av.is_null()) return TypeRef{};
-    return TypeRef(s.arena(), av.to_offset(), pool);
+    return detail::make_child_typeref(s, av.to_offset(), pool);
 }
 
 // Iterate a key-stored Array<Varchar> on a StmtRef.
@@ -1589,7 +1628,7 @@ struct SLetElseView {
     PatRef   pat() const noexcept {
         auto av = self.mirror()->get(sk::PAT.code, self.base());
         if (av.is_null()) return {};
-        return PatRef(self.arena(), av.to_offset());
+        return detail::make_sub_ref<PatRef>(self, av.to_offset());
     }
 };
 
@@ -1635,7 +1674,7 @@ struct SMatchView {
         for (uint64_t i = 0; i < n; ++i) {
             auto el = av.as_ptr<const hermes::ObjectArray>(self.base())->get(i, self.base());
             if (el.is_null()) continue;
-            f(EMatchArmRef(self.arena(), el.to_offset()));
+            f(detail::make_sub_ref<EMatchArmRef>(self, el.to_offset()));
         }
     }
 };

@@ -18,6 +18,7 @@
 #include <logos/compiler/sha256.hpp>
 #include <logos/compiler/sema_schema.hpp>
 #include <logos/hermes/arena.hpp>
+#include <logos/hermes/arena_pool.hpp>
 #include <logos/hermes/arena_value.hpp>
 #include <logos/hermes/arena_string.hpp>
 #include <logos/hermes/external_ref.hpp>
@@ -1025,7 +1026,15 @@ TypeRef ptr_via_mirror(const TypeRef& self, sema_schema::Key key) {
     // Single-arena fast path: AnyVal points at a normal mirror node in the
     // same arena. This branch covers ~100% of current single-arena work.
     if (!hermes::is_external_ref_av(av, self.mirror_base())) [[likely]] {
-        return self.pool()->ref(av.to_offset());
+        if (self.pool()) {
+            return self.pool()->ref(av.to_offset());
+        }
+        // Self is already cross-arena (pool=nullptr). Chain into the same
+        // foreign arena: same arena bytes, same arena_id, no local pool.
+        // Phase 5.B step 3: needed so subst_type can chase pointee/elem on a
+        // TypeRef whose root came from a foreign mirror.
+        return TypeRef(self.arena(), av.to_offset(),
+                       /*pool=*/nullptr, self.arena_id());
     }
 
     // Cross-arena dispatch: AnyVal points at an ExternalRef object; resolve
@@ -1047,15 +1056,26 @@ TypeRef TypeRef::assoc_base()  const noexcept { return ptr_via_mirror(*this, sem
 TypeRef TypeRef::closure_ret() const noexcept { return ptr_via_mirror(*this, sema_schema::CLOSURE_RET); }
 
 // String accessors return realloc-safe owning views. The MemHolder is reached
-// via pool_; if pool_ is null (synthetic / TypeUID-only TypeRef) the result is
-// a null OStringView.
+// via pool_ for local TypeRefs; for cross-arena TypeRefs (pool_ == nullptr,
+// arena_id_ valid) it is looked up from the global ArenaPool. Both paths
+// yield a working OStringView; only fully synthetic TypeRefs (no pool, no
+// arena_id) degrade to a null view.
 namespace {
+hermes::MemHolder* holder_for(const TypeRef& self) noexcept {
+    if (self.pool()) return self.pool()->holder();
+    if (self.arena_id().is_valid()) {
+        return hermes::global_arena_pool().get(self.arena_id());
+    }
+    return nullptr;
+}
 hermes::OStringView ostr_via_mirror(const TypeRef& self,
                                     sema_schema::Key key) noexcept {
-    if (!self || !self.pool()) return {};
+    if (!self) return {};
+    auto* holder = holder_for(self);
+    if (!holder) return {};
     auto av = self.mirror()->get(key.code, self.mirror_base());
     if (av.is_null()) return {};
-    return hermes::OStringView(av.to_offset(), self.pool()->holder());
+    return hermes::OStringView(av.to_offset(), holder);
 }
 } // namespace
 
@@ -1070,6 +1090,12 @@ hermes::OStringView TypeRef::arr_size_var()    const noexcept { return ostr_via_
 
 // 2c.4e.3.0/.1: vector accessors via mirror ObjectArray, sourced from
 // TypeRef's base/off/pool fat pointer.
+//
+// Phase 5.B step 3: cross-arena TypeRefs (pool=nullptr, arena_id valid) chain
+// element types into the same foreign arena instead of crashing on
+// pool()->ref(). Elements stay non-pool-bound; downstream read accessors
+// keep working (kind, names, type_args via the arena_id fallback in
+// holder_for).
 namespace {
 std::vector<TypeRef> type_vec_via_mirror(const TypeRef& self,
                                           sema_schema::Key key) {
@@ -1082,7 +1108,12 @@ std::vector<TypeRef> type_vec_via_mirror(const TypeRef& self,
     result.reserve(arr->size());
     for (uint64_t i = 0; i < arr->size(); ++i) {
         auto e = const_cast<hermes::ObjectArray*>(arr)->get(i, base);
-        result.push_back(self.pool()->ref(e.to_offset()));
+        if (self.pool()) {
+            result.push_back(self.pool()->ref(e.to_offset()));
+        } else {
+            result.push_back(TypeRef(self.arena(), e.to_offset(),
+                                     /*pool=*/nullptr, self.arena_id()));
+        }
     }
     return result;
 }

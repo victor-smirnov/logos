@@ -177,6 +177,7 @@ public:
     const hermes::TinyObjectMap* mirror() const noexcept {
         return reinterpret_cast<const hermes::TinyObjectMap*>(mirror_base() + off_.value());
     }
+    const hermes::Arena* arena() const noexcept { return arena_; }
     const TypePoolImpl* pool() const noexcept { return pool_; }
     // Phase 2.B: arena_id of this TypeRef's arena. INVALID = single-arena
     // (local) fast path; consumers can ignore this field unless they need
