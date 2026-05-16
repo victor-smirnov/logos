@@ -242,6 +242,15 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
 
     // First pass: register names (so forward references work).
     for (auto& ast : asts) {
+        // M5 step 3b: skipping cached holders here was correct in
+        // isolation but exposed a latent issue — hstatic_registry_ on
+        // LProgram is populated lazily through resolve_hstatic_value
+        // during collect_type_alias / collect_const / fn-sig processing
+        // for binary ASTs. The registry holds LExpr* into the OLD
+        // call's expr_pool_, which is moved out by mono and eventually
+        // destroyed; cached entries would dangle. Skipping per-AST is
+        // disabled until Step 4 lands (shared expr_pool_ via shared_ptr).
+        if (false && collected_holders_.count(ast.holder())) continue;
         holder_ = ast.holder();
         auto root = ast.root_object().as_tiny_map();
         cur_package_ = read_package_name(root);
@@ -318,7 +327,13 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
     }
 
     // Intermediate pass: type aliases and consts (Phase 2). Wait, we execute this FIRST so aliases are known for fn signatures.
+    // M5 step 3b: skip ASTs whose collect contributions are already in
+    // the symbol tables (installed via SemaCheckerSnapshot at run-time).
+    // The snapshot was taken at the end of a previous sema_lower call;
+    // those holders are still pinned in `asts` (caller preserves the
+    // vector across invocations).
     for (size_t ai = 0; ai < asts.size(); ++ai) {
+        if (false && collected_holders_.count(asts[ai].holder())) continue;  // Step 3b disabled; see pass 0 note
         cur_ast_idx_ = ai;
         holder_ = asts[ai].holder();
         file_ = (filenames_ && ai < filenames_->size()) ? (*filenames_)[ai] : std::string{};
@@ -330,6 +345,7 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
     }
     // Second pass: fill in fields, variants, function signatures (Phase 1).
     for (size_t ai = 0; ai < asts.size(); ++ai) {
+        if (false && collected_holders_.count(asts[ai].holder())) continue;  // Step 3b disabled; see pass 0 note
         cur_ast_idx_ = ai;
         holder_ = asts[ai].holder();
         file_ = (filenames_ && ai < filenames_->size()) ? (*filenames_)[ai] : std::string{};
@@ -364,6 +380,10 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         for (size_t ai = 0; ai < asts.size(); ++ai) {
             bool is_bin = (from_binary_ && ai < from_binary_->size()) ? (*from_binary_)[ai] : false;
             if (is_bin) continue;
+            // M5 step 3b: skip user ASTs already collected in a prior
+            // sema_lower call — their metaprog_targets contributions are
+            // already in the snapshot we installed at run() top.
+            if (false && collected_holders_.count(asts[ai].holder())) continue;  // Step 3b disabled; see pass 0 note
             // Bind helpers (arr_of/map_of/code_of/str_of) to this ast's holder.
             holder_ = asts[ai].holder();
             auto root = asts[ai].root_object().as_tiny_map();
@@ -411,6 +431,9 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
             bool is_bin = (from_binary_ && ai < from_binary_->size())
                           ? (*from_binary_)[ai] : false;
             if (is_bin) continue;
+            // M5 step 3b: skip cached user ASTs (their unknown-attr diags
+            // were emitted by the original sema_lower call).
+            if (false && collected_holders_.count(asts[ai].holder())) continue;  // Step 3b disabled; see pass 0 note
             holder_ = asts[ai].holder();
             auto root = asts[ai].root_object().as_tiny_map();
             if (!root.has_key(la::ITEMS)) continue;
@@ -447,6 +470,16 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
     // whose every field is itself Copy. Closes the most surprising Logos-
     // vs-Rust divergence for porting scalar-only structs.
     compute_auto_copy_types();
+
+    // M5 step 3b: record every walked holder in the persistent set so
+    // a future sema_lower invocation (which would inherit this set via
+    // install_snapshot once that path is re-enabled) can skip the
+    // per-AST walks above. Currently install_snapshot is gated off
+    // (see SemaChecker::run); this still runs so the cache snapshot
+    // captures a representative `collected_holders` field.
+    for (size_t ai = 0; ai < asts.size(); ++ai) {
+        collected_holders_.insert(asts[ai].holder());
+    }
 }
 
 void SemaChecker::simplify_all_types() {

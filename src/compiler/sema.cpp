@@ -282,7 +282,10 @@ public:
     // Allocated lazily on first use via TypePool::alloc()'s internal init.
     TypePool shared_pool;
 
-    // Step 3+ will add per-holder snapshots here.
+    // M5 step 3b: persistent SemaChecker symbol tables. Moved out at end
+    // of each sema_lower call, moved in at start of the next. Initially
+    // null; populated after the first invocation.
+    std::unique_ptr<SemaCheckerSnapshot> snapshot;
 };
 
 SemaCache::SemaCache() : impl_(std::make_unique<SemaCacheImpl>()) {}
@@ -290,6 +293,70 @@ SemaCache::~SemaCache() = default;
 SemaCache::SemaCache(SemaCache&&) noexcept = default;
 SemaCache& SemaCache::operator=(SemaCache&&) noexcept = default;
 TypePool& SemaCache::shared_pool() noexcept { return impl_->shared_pool; }
+
+// ── M5 step 3b: SemaChecker snapshot take / install ──────────────────────
+
+std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
+    auto s = std::make_unique<SemaCheckerSnapshot>();
+    s->structs              = std::move(structs_);
+    s->datatypes            = std::move(datatypes_);
+    s->struct_specs_sema    = std::move(struct_specs_sema_);
+    s->explicit_type_codes  = std::move(explicit_type_codes_);
+    s->enums                = std::move(enums_);
+    s->funcs                = std::move(funcs_);
+    s->func_overloads       = std::move(func_overloads_);
+    s->generic_funcs        = std::move(generic_funcs_);
+    s->generic_overloads    = std::move(generic_overloads_);
+    s->type_aliases         = std::move(type_aliases_);
+    s->module_consts        = std::move(module_consts_);
+    s->module_const_values  = std::move(module_const_values_);
+    s->generic_consts       = std::move(generic_consts_);
+    s->traits               = std::move(traits_);
+    s->impls                = std::move(impls_);
+    s->coherence_keys       = std::move(coherence_keys_);
+    s->assoc_type_impls     = std::move(assoc_type_impls_);
+    s->assoc_const_impls    = std::move(assoc_const_impls_);
+    s->blanket_impls        = std::move(blanket_impls_);
+    // M5 step 3b: COPY (not move) — prog.metaprog_handlers/targets are
+    // moved out at line ~1484-1485 (end of run), AFTER take_snapshot
+    // runs. If we moved into the snapshot here, prog would receive an
+    // empty vector and the dispatcher's hook-firing loop would be a
+    // no-op. The vectors are small POD-ish structs; copy is cheap.
+    s->metaprog_handlers    = metaprog_handlers_;
+    s->metaprog_targets     = metaprog_targets_;
+    s->copy_types           = std::move(copy_types_);
+    s->pkg_reexports        = std::move(pkg_reexports_);
+    s->collected_holders    = std::move(collected_holders_);
+    return s;
+}
+
+void SemaChecker::install_snapshot(std::unique_ptr<SemaCheckerSnapshot> s) {
+    if (!s) return;
+    structs_              = std::move(s->structs);
+    datatypes_            = std::move(s->datatypes);
+    struct_specs_sema_    = std::move(s->struct_specs_sema);
+    explicit_type_codes_  = std::move(s->explicit_type_codes);
+    enums_                = std::move(s->enums);
+    funcs_                = std::move(s->funcs);
+    func_overloads_       = std::move(s->func_overloads);
+    generic_funcs_        = std::move(s->generic_funcs);
+    generic_overloads_    = std::move(s->generic_overloads);
+    type_aliases_         = std::move(s->type_aliases);
+    module_consts_        = std::move(s->module_consts);
+    module_const_values_  = std::move(s->module_const_values);
+    generic_consts_       = std::move(s->generic_consts);
+    traits_               = std::move(s->traits);
+    impls_                = std::move(s->impls);
+    coherence_keys_       = std::move(s->coherence_keys);
+    assoc_type_impls_     = std::move(s->assoc_type_impls);
+    assoc_const_impls_    = std::move(s->assoc_const_impls);
+    blanket_impls_        = std::move(s->blanket_impls);
+    metaprog_handlers_    = std::move(s->metaprog_handlers);
+    metaprog_targets_     = std::move(s->metaprog_targets);
+    copy_types_           = std::move(s->copy_types);
+    pkg_reexports_        = std::move(s->pkg_reexports);
+    collected_holders_    = std::move(s->collected_holders);
+}
 
 // ── Canonical structural hash ──
 // 2c.5.4: canonical TypeUID computation.
@@ -1271,6 +1338,19 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     // an independent refcount on the same TypePoolImpl.
     if (cache_) prog.type_pool = cache_->shared_pool().shared_clone();
     pool_ = &prog.type_pool;  // bind so all alloc()s share prog's arena
+
+    // M5 step 3b: install_snapshot disabled in this commit. Step 4
+    // (shared expr_pool_ etc.) is the prerequisite — without it, the
+    // installed symbol tables hold TypeRef/LExpr* into the prior
+    // call's pools, which mono moves out and eventually destroys.
+    // Cache stays wired so the snapshot is still captured (for future
+    // verification) but its contents are never replayed. Symbol-table
+    // mutation sites in collect (funcs_, overloads_, etc.) lack ODR
+    // dedup checks, so installing a snapshot today triggers "duplicate
+    // function" errors on the re-walk.
+    if (false && cache_ && cache_->impl()->snapshot) {
+        install_snapshot(std::move(cache_->impl()->snapshot));
+    }
     // Set cur_prog_ before `collect` so LIT_HSTATIC encountered inside
     // type-alias rhs / supertrait bounds / etc. can register into
     // prog.hstatic_registry_ during collection. Otherwise alias-routed
@@ -1293,6 +1373,24 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     phase_ = SemaPhase::Lower;
     lower_program(asts, prog);
     sema_tick("lower_program");
+
+    // M5 step 3b: snapshot symbol tables for the next sema_lower call.
+    // lower_program reads the tables but never mutates them (verified by
+    // grep across sema_expr/stmt/decl), so taking the snapshot now is
+    // semantically equivalent to taking it right after collect. The
+    // tables move OUT of *this* checker — fine because this checker is
+    // destroyed when run() returns; the LProgram already has everything
+    // it needs from the maps via TypeRefs and LIR items.
+    //
+    // Also sync the cache's TypePool handle to prog.type_pool so the
+    // next call's shared_clone returns a valid (refcount-bumped) handle
+    // to the same TypePoolImpl. Without this the cache's pool stays
+    // empty (default-constructed) and each call gets a fresh impl,
+    // dangling the snapshot's TypeRefs once prog goes out of scope.
+    if (cache_) {
+        cache_->impl()->shared_pool = prog.type_pool.shared_clone();
+        cache_->impl()->snapshot = take_snapshot();
+    }
 
     // Enforce the "one eidos per (genos, tag-system)" invariant at compile
     // time.  Two different impl targets that end up with the same

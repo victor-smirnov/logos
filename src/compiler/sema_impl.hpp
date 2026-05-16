@@ -103,11 +103,32 @@ namespace sema_detail {
     using hermes::MemHolder;
 }
 
+// M5 step 3b: snapshot of all collect()-mutated symbol tables + the
+// "already collected" holder set. Held by SemaCacheImpl across the
+// 5+ sema_lower invocations per compile session. Defined in
+// sema_impl.hpp where SemaChecker's private nested types are visible;
+// friended so the fields below can spell `SemaChecker::SemaStructInfo`
+// etc. directly. PIMPL-style: SemaChecker exposes only take/install
+// methods, never the field types.
+class SemaCheckerSnapshot;
+
 class SemaChecker {
 public:
+    friend class SemaCheckerSnapshot;
+
     lir::LProgram run(const std::vector<hermes::Hermes>& asts,
                       const std::vector<std::string>& filenames,
                       const std::vector<bool>& from_binary = {});
+
+    // M5: move-out all collect-mutated tables + the cached holder set
+    // into an opaque snapshot. Called at the end of run() when cache is
+    // bound; the cache stores the result and feeds it back via
+    // install_snapshot on the next sema_lower invocation.
+    std::unique_ptr<SemaCheckerSnapshot> take_snapshot();
+    // M5: move-in the snapshot — replaces this checker's symbol tables
+    // wholesale. Called at start of run() when cache is bound and
+    // already has a snapshot from a prior invocation.
+    void install_snapshot(std::unique_ptr<SemaCheckerSnapshot> snap);
 
     void set_metaprog_options(bool mode, size_t entry_ast_idx) {
         metaprog_mode_ = mode;
@@ -1210,6 +1231,14 @@ private:
     // M5: optional cache for binary-AST sema state, shared across
     // multiple sema_lower invocations in one compile session.
     SemaCache* cache_               = nullptr;
+
+    // M5 step 3b: persistent set of holders whose collect_module()
+    // contribution is already in the symbol tables. Survives across
+    // sema_lower invocations via install/take_snapshot. Each per-AST
+    // loop in collect() checks this set and skips already-processed
+    // holders (re-walking would just be deduped by the existing ODR
+    // logic, but the walk itself is the cost we want to avoid).
+    std::unordered_set<const hermes::MemHolder*> collected_holders_;
 
     // Current AST root, set by lower_program at each iteration. Used by
     // sema-side intrinsics (e.g. `template_of::<X>()`) that need to walk
@@ -2978,5 +3007,49 @@ inline LogosType::Kind float_suffix_kind(std::string_view sv) noexcept {
     if (sv.size() >= 3 && sv.substr(sv.size() - 3) == "f64") return LogosType::Kind::F64;
     return LogosType::Kind::Error;
 }
+
+// M5 step 3b: opaque snapshot of every collect()-mutated symbol table.
+// Defined after SemaChecker so the field types (SemaStructInfo etc.) are
+// in scope. SemaChecker is friended so we can spell them; the names
+// themselves remain private to outside callers.
+class SemaCheckerSnapshot {
+public:
+    // Symbol tables — direct move targets of SemaChecker members.
+    StrMap<SemaChecker::SemaStructInfo>   structs;
+    StrMap<SemaChecker::SemaStructInfo>   datatypes;
+    StrMap<SemaChecker::SemaStructInfo>   struct_specs_sema;
+    StrMap<uint64_t>                       explicit_type_codes;
+    StrMap<SemaChecker::SemaEnumInfo>     enums;
+    StrMap<SemaChecker::SemaFuncInfo>     funcs;
+    StrMap<std::vector<std::string>>       func_overloads;
+    StrMap<SemaChecker::SemaFuncInfo>     generic_funcs;
+    StrMap<std::vector<std::string>>       generic_overloads;
+    StrMap<SemaChecker::TypeAliasEntry>   type_aliases;
+    StrMap<TypeRef>                        module_consts;
+    StrMap<hermes::TinyMapView>            module_const_values;
+    StrMap<SemaChecker::GenericConstEntry> generic_consts;
+    StrMap<SemaChecker::SemaTraitInfo>    traits;
+    StrMap<SemaChecker::SemaImplInfo>     impls;
+    StrSet                                 coherence_keys;
+    StrMap<SemaChecker::AssocTypeEntry>   assoc_type_impls;
+    StrMap<SemaChecker::AssocConstEntry>  assoc_const_impls;
+    std::vector<SemaChecker::BlanketImpl>  blanket_impls;
+    std::vector<lir::LProgram::MetaprogHandler> metaprog_handlers;
+    std::vector<lir::LProgram::MetaprogTarget>  metaprog_targets;
+    std::set<std::string>                   copy_types;
+    StrMap<std::vector<std::string>>       pkg_reexports;
+    // Holders whose collect_module() contribution is already in these
+    // tables. SemaChecker's per-AST loops skip walks for holders in
+    // this set — re-walking would be deduped but the walk itself is
+    // the cost we want to skip.
+    std::unordered_set<const hermes::MemHolder*> collected_holders;
+
+    // Cached HStaticLit registry contributions. Populated by sema when
+    // LIT_HSTATIC nodes are encountered at type-arg position; held on
+    // LProgram::hstatic_registry_ which is per-call. Cached here so
+    // subsequent sema_lower calls can pre-seed the fresh prog's
+    // registry instead of re-walking binary ASTs to rediscover them.
+    std::unordered_map<uint64_t, lir::LExpr*> hstatic_registry;
+};
 
 } // namespace logos::compiler
