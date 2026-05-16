@@ -448,6 +448,24 @@ public:
     // SemaChecker uses this as its working pool when a cache is wired in.
     TypePool& shared_pool() noexcept;
 
+    // M6.1: keep-user-state mode. When true, snapshots preserve user
+    // contributions (skip the Step 5c filter) and the LIR bundle captures
+    // user items in addition to binary. Required when SemaOptions::
+    // delta_start_idx is used across multiple sema_lower calls — the
+    // delta call relies on the cache having all prior asts' state.
+    // Used by run_metaprog_dispatch to avoid re-processing user ASTs
+    // across dispatch-loop iterations.
+    void set_keep_user_state(bool v) noexcept;
+    bool keep_user_state() const noexcept;
+
+    // M6.1: invalidate user-only state from the cache. Re-applies the
+    // Step 5c filter to the existing snapshot, re-filters the bundle to
+    // binary-only, drops user holders from collected_holders, and resets
+    // keep_user_state to false. Used by run_metaprog_dispatch after the
+    // dispatch loop completes so the *next* sema_lower (final user sema)
+    // can run in default mode without seeing duplicated user content.
+    void reset_user_state();
+
     // Implementation handle for SemaChecker internals (cross-module access).
     SemaCacheImpl*       impl()       noexcept { return impl_.get(); }
     const SemaCacheImpl* impl() const noexcept { return impl_.get(); }

@@ -1220,6 +1220,14 @@ struct SemaOptions {
     // Owned by the caller; outlives all sema_lower invocations that
     // share it. nullptr → no caching (fresh sema each call).
     SemaCache* cache = nullptr;
+    // M6.1: incremental sema across calls. delta_start_idx > 0 tells
+    // SemaChecker to skip collect()+lower for asts[0..delta_start_idx);
+    // their symbol-table entries and LIR contributions are expected to be
+    // in the cache (which must also have metaprog_delta=true so user
+    // content is preserved across calls — see SemaCache::set_metaprog_delta).
+    // Used by run_metaprog_dispatch to avoid re-processing ASTs that were
+    // already lowered in a prior iter of the dispatch loop.
+    size_t delta_start_idx = 0;
 };
 
 // Run semantic analysis and produce L-IR from all parsed module ASTs.

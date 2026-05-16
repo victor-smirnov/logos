@@ -141,6 +141,10 @@ public:
     // When set, run() seeds prog.type_pool from cache->shared_pool() instead
     // of allocating a fresh pool, so cached TypeRefs (Step 3+) stay valid.
     void set_cache(SemaCache* c) { cache_ = c; }
+    // M6.1: when > 0, collect() and lower_program() skip asts[0..idx).
+    // Their state is expected to be in the cache (which must be in
+    // metaprog_delta mode — see SemaCache).
+    void set_delta_start_idx(size_t idx) { delta_start_idx_ = idx; }
     bool fn_is_metaprog_keep(std::string_view name) const {
         // metacall_sites store the raw callee token (bare base name);
         // compare against the bare form of `name` (which may carry
@@ -1232,6 +1236,11 @@ private:
     // multiple sema_lower invocations in one compile session.
     SemaCache* cache_               = nullptr;
 
+    // M6.1: delta start — collect()+lower_program() skip asts[0..idx).
+    // 0 means "process all" (current behavior). Set by sema_lower from
+    // SemaOptions::delta_start_idx.
+    size_t delta_start_idx_         = 0;
+
     // M5 step 3b: persistent set of holders whose collect_module()
     // contribution is already in the symbol tables. Survives across
     // sema_lower invocations via install/take_snapshot. Each per-AST
@@ -1260,6 +1269,9 @@ private:
     StrSet user_trait_keys_;             // bare trait names from user code
     StrSet user_type_alias_keys_;        // bare type alias names from user code
     StrSet user_blanket_mangled_;        // BlanketImpl.mangled_name from user code
+    // M6.1: user holders added to collected_holders_ under keep_user_state
+    // mode (so reset_user_state can drop them again).
+    std::unordered_set<const hermes::MemHolder*> user_holders_;
 
     // Current AST root, set by lower_program at each iteration. Used by
     // sema-side intrinsics (e.g. `template_of::<X>()`) that need to walk

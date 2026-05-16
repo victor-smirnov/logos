@@ -242,6 +242,9 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
 
     // First pass: register names (so forward references work).
     for (size_t pass0_ai = 0; pass0_ai < asts.size(); ++pass0_ai) {
+        // M6.1: delta mode — skip asts already processed in a prior
+        // sema_lower call within this same compile session.
+        if (pass0_ai < delta_start_idx_) continue;
         auto& ast = asts[pass0_ai];
         // M5 step 3b+5: skip ONLY cached BINARY holders. User asts
         // re-walk so the strict-mode final sema still validates them
@@ -338,6 +341,8 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
     // those holders are still pinned in `asts` (caller preserves the
     // vector across invocations).
     for (size_t ai = 0; ai < asts.size(); ++ai) {
+        // M6.1: delta mode — already processed in a prior call.
+        if (ai < delta_start_idx_) continue;
         // M5 step 3b+5: skip ONLY cached binary holders. User asts must
         // re-walk because (a) they may be processed under different
         // SemaOptions (metaprog_mode vs strict) and (b) skipping the
@@ -359,6 +364,8 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
     }
     // Second pass: fill in fields, variants, function signatures (Phase 1).
     for (size_t ai = 0; ai < asts.size(); ++ai) {
+        // M6.1: delta mode — already processed in a prior call.
+        if (ai < delta_start_idx_) continue;
         // M5 step 3b+5: skip ONLY cached binary holders. User asts must
         // re-walk because (a) they may be processed under different
         // SemaOptions (metaprog_mode vs strict) and (b) skipping the
@@ -401,6 +408,8 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         for (const auto& mh : metaprog_handlers_)
             if (mh.trigger != "<missing>") trigger_names.insert(mh.trigger);
         for (size_t ai = 0; ai < asts.size(); ++ai) {
+            // M6.1: delta mode — already processed in a prior call.
+            if (ai < delta_start_idx_) continue;
             bool is_bin = (from_binary_ && ai < from_binary_->size()) ? (*from_binary_)[ai] : false;
             if (is_bin) continue;
             // M5 step 3b: skip user ASTs already collected in a prior
@@ -460,6 +469,8 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
                     colon == std::string::npos ? k : k.substr(colon + 2));
             }
         for (size_t ai = 0; ai < asts.size(); ++ai) {
+            // M6.1: delta mode — already processed in a prior call.
+            if (ai < delta_start_idx_) continue;
             bool is_bin = (from_binary_ && ai < from_binary_->size())
                           ? (*from_binary_)[ai] : false;
             if (is_bin) continue;
@@ -518,9 +529,20 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
     // mutation-prone tables like module_consts_/funcs_ don't grow stale
     // user entries that would conflict on re-add.
     for (size_t ai = 0; ai < asts.size(); ++ai) {
+        // M6.1: don't reset delta_start tracking for already-processed
+        // asts (their holders are already in collected_holders_).
+        if (ai < delta_start_idx_) continue;
         bool is_bin = (from_binary_ && ai < from_binary_->size())
                       ? (*from_binary_)[ai] : false;
-        if (is_bin) collected_holders_.insert(asts[ai].holder());
+        if (is_bin) {
+            collected_holders_.insert(asts[ai].holder());
+        } else if (cache_ && cache_->keep_user_state()) {
+            // M6.1: in delta mode, also pin user holders so subsequent
+            // sema_lower calls skip them in collect (same as binary).
+            // user_holders_ marks them as user-origin for reset_user_state.
+            collected_holders_.insert(asts[ai].holder());
+            user_holders_.insert(asts[ai].holder());
+        }
     }
 }
 

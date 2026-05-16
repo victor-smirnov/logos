@@ -337,6 +337,29 @@ public:
     // calls splice the bundle into prog upfront and skip lower_module_items
     // for every binary AST.
     LirBundle lir_bundle;
+
+    // M6.1: keep-user-state mode toggle. When true, take_snapshot skips
+    // the Step 5c filter and the bundle capture skips the from_binary_module
+    // filter. Driver toggles this on for the dispatch loop and off before
+    // final sema; reset_user_state() also flips it off and post-hoc-filters
+    // the existing snapshot+bundle to drop user content.
+    bool keep_user_state = false;
+
+    // M6.1: persisted user-key tracking. When keep_user_state=true,
+    // take_snapshot copies SemaChecker's user_*_keys_ here so that a
+    // subsequent reset_user_state() call can post-hoc-filter the snapshot
+    // (the SemaChecker that built them is destroyed at end of run()).
+    StrSet persisted_user_pkgs;
+    StrSet persisted_user_module_const_keys;
+    StrSet persisted_user_generic_const_keys;
+    StrSet persisted_user_impl_keys;
+    StrSet persisted_user_coherence_keys;
+    StrSet persisted_user_assoc_type_impl_keys;
+    StrSet persisted_user_assoc_const_impl_keys;
+    StrSet persisted_user_trait_keys;
+    StrSet persisted_user_type_alias_keys;
+    StrSet persisted_user_blanket_mangled;
+    std::unordered_set<const hermes::MemHolder*> persisted_user_holders;
 };
 
 SemaCache::SemaCache() : impl_(std::make_unique<SemaCacheImpl>()) {}
@@ -344,6 +367,114 @@ SemaCache::~SemaCache() = default;
 SemaCache::SemaCache(SemaCache&&) noexcept = default;
 SemaCache& SemaCache::operator=(SemaCache&&) noexcept = default;
 TypePool& SemaCache::shared_pool() noexcept { return impl_->shared_pool; }
+void SemaCache::set_keep_user_state(bool v) noexcept { impl_->keep_user_state = v; }
+bool SemaCache::keep_user_state() const noexcept { return impl_->keep_user_state; }
+
+// M6.1: post-hoc filter the snapshot/bundle to drop user content. Mirrors
+// the Step 5c filter logic in take_snapshot but operates on persisted
+// user_*_keys_ (saved by take_snapshot under keep_user_state=true).
+void SemaCache::reset_user_state() {
+    auto* c = impl_.get();
+    c->keep_user_state = false;
+    if (c->snapshot) {
+        auto* s = c->snapshot.get();
+        for (auto& k : c->persisted_user_module_const_keys) {
+            s->module_consts.erase(k);
+            s->module_const_values.erase(k);
+        }
+        for (auto& k : c->persisted_user_generic_const_keys)    s->generic_consts.erase(k);
+        for (auto& k : c->persisted_user_impl_keys)             s->impls.erase(k);
+        for (auto& k : c->persisted_user_coherence_keys)        s->coherence_keys.erase(k);
+        for (auto& k : c->persisted_user_assoc_type_impl_keys)  s->assoc_type_impls.erase(k);
+        for (auto& k : c->persisted_user_assoc_const_impl_keys) s->assoc_const_impls.erase(k);
+        for (auto& k : c->persisted_user_trait_keys)            s->traits.erase(k);
+        for (auto& k : c->persisted_user_type_alias_keys)       s->type_aliases.erase(k);
+        if (!c->persisted_user_blanket_mangled.empty()) {
+            s->blanket_impls.erase(
+                std::remove_if(s->blanket_impls.begin(), s->blanket_impls.end(),
+                    [&](const auto& b) {
+                        return !b.mangled_name.empty() &&
+                               c->persisted_user_blanket_mangled.count(b.mangled_name);
+                    }),
+                s->blanket_impls.end());
+        }
+        if (!c->persisted_user_pkgs.empty()) {
+            auto erase_pkg_key = [&](auto& map) {
+                for (auto it = map.begin(); it != map.end(); ) {
+                    std::string_view key = it->first;
+                    auto sep = key.find("::");
+                    if (sep != std::string_view::npos) {
+                        std::string_view pkg = key.substr(0, sep);
+                        if (c->persisted_user_pkgs.find(pkg) != c->persisted_user_pkgs.end()) {
+                            it = map.erase(it); continue;
+                        }
+                    }
+                    ++it;
+                }
+            };
+            erase_pkg_key(s->structs);
+            erase_pkg_key(s->datatypes);
+            erase_pkg_key(s->enums);
+            erase_pkg_key(s->type_aliases);
+            erase_pkg_key(s->module_consts);
+            erase_pkg_key(s->module_const_values);
+            erase_pkg_key(s->generic_consts);
+            erase_pkg_key(s->traits);
+            erase_pkg_key(s->explicit_type_codes);
+            auto erase_by_pkg_field = [&](auto& map) {
+                for (auto it = map.begin(); it != map.end(); ) {
+                    if (c->persisted_user_pkgs.count(it->second.package))
+                        it = map.erase(it);
+                    else
+                        ++it;
+                }
+            };
+            erase_by_pkg_field(s->funcs);
+            erase_by_pkg_field(s->generic_funcs);
+            erase_by_pkg_field(s->struct_specs_sema);
+            auto erase_orphan_overloads = [&](auto& overloads_map, auto& fn_map) {
+                for (auto it = overloads_map.begin(); it != overloads_map.end(); ) {
+                    auto& syms = it->second;
+                    syms.erase(std::remove_if(syms.begin(), syms.end(),
+                                              [&](const std::string& s) {
+                                                  return !fn_map.count(s);
+                                              }),
+                               syms.end());
+                    if (syms.empty()) { it = overloads_map.erase(it); continue; }
+                    ++it;
+                }
+            };
+            erase_orphan_overloads(s->func_overloads, s->funcs);
+            erase_orphan_overloads(s->generic_overloads, s->generic_funcs);
+            for (auto it = s->pkg_reexports.begin(); it != s->pkg_reexports.end(); ) {
+                if (c->persisted_user_pkgs.count(it->first)) it = s->pkg_reexports.erase(it);
+                else ++it;
+            }
+        }
+        // Drop user holders from collected_holders.
+        for (auto* h : c->persisted_user_holders) s->collected_holders.erase(h);
+    }
+    // Bundle: wipe entirely and force re-capture. We could try to surgically
+    // strip user content via the from_binary_module flag on structs/fns +
+    // per-AST attribution on unflagged vectors, but post-hoc partial-filter
+    // followed by re-capture-and-append produces duplicates (the next
+    // sema_lower's bundle-capture path appends to what's already there).
+    // Simpler and correct: clear the whole bundle, invalidate it, and pay
+    // the cost of one full binary lower walk on the next sema_lower call.
+    c->lir_bundle = LirBundle{};
+    // Drop persisted user keys.
+    c->persisted_user_pkgs.clear();
+    c->persisted_user_module_const_keys.clear();
+    c->persisted_user_generic_const_keys.clear();
+    c->persisted_user_impl_keys.clear();
+    c->persisted_user_coherence_keys.clear();
+    c->persisted_user_assoc_type_impl_keys.clear();
+    c->persisted_user_assoc_const_impl_keys.clear();
+    c->persisted_user_trait_keys.clear();
+    c->persisted_user_type_alias_keys.clear();
+    c->persisted_user_blanket_mangled.clear();
+    c->persisted_user_holders.clear();
+}
 
 // ── M5 step 3b: SemaChecker snapshot take / install ──────────────────────
 
@@ -388,6 +519,30 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
     // set was populated by collect at every non-binary per-AST iteration.
     // M5 step 5c: drop user-origin entries from maps whose keys don't
     // carry pkg info. Tracked at insert time in user_*_keys_ sets.
+    //
+    // M6.1: in keep_user_state mode (set by run_metaprog_dispatch), SKIP
+    // the filter and persist the user_*_keys_ to the cache so a later
+    // SemaCache::reset_user_state() can post-hoc replay the filter.
+    if (cache_ && cache_->impl()->keep_user_state) {
+        auto* c = cache_->impl();
+        // Persist into cache (union with prior calls so dispatch loop
+        // accumulates the full user-key set across all iters).
+        for (auto& k : user_pkgs_) c->persisted_user_pkgs.insert(k);
+        for (auto& k : user_module_const_keys_)    c->persisted_user_module_const_keys.insert(k);
+        for (auto& k : user_generic_const_keys_)   c->persisted_user_generic_const_keys.insert(k);
+        for (auto& k : user_impl_keys_)            c->persisted_user_impl_keys.insert(k);
+        for (auto& k : user_coherence_keys_)       c->persisted_user_coherence_keys.insert(k);
+        for (auto& k : user_assoc_type_impl_keys_) c->persisted_user_assoc_type_impl_keys.insert(k);
+        for (auto& k : user_assoc_const_impl_keys_)c->persisted_user_assoc_const_impl_keys.insert(k);
+        for (auto& k : user_trait_keys_)           c->persisted_user_trait_keys.insert(k);
+        for (auto& k : user_type_alias_keys_)      c->persisted_user_type_alias_keys.insert(k);
+        for (auto& k : user_blanket_mangled_)      c->persisted_user_blanket_mangled.insert(k);
+        // collected_holders user-portion: in keep_user_state mode collect
+        // adds all (binary + user) holders to the set; we record which ones
+        // are user-origin here so reset_user_state can drop them.
+        for (auto* h : user_holders_)              c->persisted_user_holders.insert(h);
+        return s;  // skip the filter below
+    }
     for (auto& k : user_module_const_keys_) {
         s->module_consts.erase(k);
         s->module_const_values.erase(k);
@@ -4639,7 +4794,13 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
     const char* m5_lir_off_env = std::getenv("LOGOS_M5_LIR_OFF");
     const bool  m5_lir_off     = m5_lir_off_env && m5_lir_off_env[0] && m5_lir_off_env[0] != '0';
     const bool m5_bundle_active = cache_ && cache_->impl()->lir_bundle.valid && !m5_lir_off;
-    const bool m5_capture_active = cache_ && !cache_->impl()->lir_bundle.valid && !m5_lir_off;
+    // M6.1: in keep_user_state mode the bundle accumulates incrementally
+    // across sema_lower calls — every call captures its own delta-asts'
+    // contributions and appends to the bundle. In default mode the bundle
+    // is captured-once-on-first-call (current Step 6 behavior).
+    const bool m5_keep_user = cache_ && cache_->impl()->keep_user_state;
+    const bool m5_capture_active = cache_ && !m5_lir_off &&
+        (m5_keep_user || !cache_->impl()->lir_bundle.valid);
     if (m5_bundle_active) {
         // Splice the bundle into prog up-front. Per-AST loop will skip
         // binary ASTs entirely (their contribution is already in prog).
@@ -4676,6 +4837,12 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
     StrSet m5_refl0;
     if (m5_capture_active) m5_refl0 = prog.reflect_requests;
     for (size_t i = 0; i < asts.size(); ++i) {
+        // M6.1: delta mode — this AST was processed in a prior sema_lower
+        // call within this compile session. Its prog contributions are
+        // expected to already be in `prog` (either via bundle splice for
+        // binary, or via cache's keep_user_state for user content) — no
+        // need to re-walk it.
+        if (i < delta_start_idx_) continue;
         auto _ast_t0 = phase_dbg
             ? std::chrono::steady_clock::now()
             : std::chrono::steady_clock::time_point{};
@@ -4700,8 +4867,12 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
         }
         // Record per-AST baseline sizes for unflagged vectors so the
         // bundle assembler can pick out this AST's contributions.
+        // M6.1: in keep_user_state mode, capture user-AST contributions too.
         BinaryAstRange rng{};
-        if (m5_capture_active && cur_from_binary_) {
+        const bool capture_this_ast =
+            m5_capture_active &&
+            (cur_from_binary_ || (cache_ && cache_->impl()->keep_user_state));
+        if (capture_this_ast) {
             rng.enums_b             = prog.enums.size();
             rng.consts_b            = prog.consts.size();
             rng.type_aliases_b      = prog.type_aliases.size();
@@ -4791,7 +4962,7 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
             }
         }
         lower_module_items(root, prog);
-        if (m5_capture_active && cur_from_binary_) {
+        if (capture_this_ast) {
             rng.enums_e             = prog.enums.size();
             rng.consts_e            = prog.consts.size();
             rng.type_aliases_e      = prog.type_aliases.size();
@@ -4892,29 +5063,42 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
     // are still valid post-re-attachment.
     if (m5_capture_active) {
         auto& b = cache_->impl()->lir_bundle;
-        auto take_methods = [](const std::vector<lir::LFunctionPtr>& src) {
+        // M6.1: in keep_user_state mode, bundle captures everything (no
+        // from_binary_module filter); reset_user_state will post-hoc
+        // strip user content. In default mode, filter to binary-only.
+        const bool keep_user = cache_ && cache_->impl()->keep_user_state;
+        // M6.1: in delta mode the bundle is RE-CAPTURED from scratch each
+        // call (rather than the capture-once semantics of step 6). Clearing
+        // upfront avoids duplicating previously-captured items. The cost is
+        // re-walking prog vectors + shared_ptr refcount-bumps for ~3000 fns
+        // — measured at 1-2ms per call, negligible vs the delta savings.
+        // Cross-AST method early-binding (sema_decl.cpp's
+        // target_struct_tmpl->methods.push_back) into a spliced bundle
+        // struct is therefore also captured naturally on the next call.
+        if (keep_user) b = LirBundle{};
+        auto take_methods = [keep_user](const std::vector<lir::LFunctionPtr>& src) {
             std::vector<lir::LFunctionPtr> dst;
             dst.reserve(src.size());
             for (auto& m : src)
-                if (m && m->from_binary_module) dst.push_back(m);
+                if (m && (keep_user || m->from_binary_module)) dst.push_back(m);
             return dst;
         };
         for (auto& sd : prog.structs) {
-            if (!sd.from_binary_module) continue;
+            if (!keep_user && !sd.from_binary_module) continue;
             auto copy = sd;
             copy.methods = take_methods(sd.methods);
             b.structs.push_back(std::move(copy));
         }
         for (auto& sd : prog.struct_specializations) {
-            if (!sd.from_binary_module) continue;
+            if (!keep_user && !sd.from_binary_module) continue;
             auto copy = sd;
             copy.methods = take_methods(sd.methods);
             b.struct_specializations.push_back(std::move(copy));
         }
         for (auto& fp : prog.functions)
-            if (fp && fp->from_binary_module) b.functions.push_back(fp);
+            if (fp && (keep_user || fp->from_binary_module)) b.functions.push_back(fp);
         for (auto& fp : prog.specializations)
-            if (fp && fp->from_binary_module) b.specializations.push_back(fp);
+            if (fp && (keep_user || fp->from_binary_module)) b.specializations.push_back(fp);
         // Range-based capture for unflagged vectors.
         for (auto& r : m5_ranges) {
             for (size_t k = r.enums_b; k < r.enums_e; ++k)
@@ -5843,6 +6027,7 @@ lir::LProgram sema_lower(const std::vector<logos::hermes::Hermes>& asts,
     checker.set_metaprog_options(opts.metaprog_mode, opts.entry_ast_idx);
     checker.set_metaprog_keep_fns(opts.metaprog_keep_fns);
     checker.set_cache(opts.cache);
+    checker.set_delta_start_idx(opts.delta_start_idx);
     // Phase 2-4: ingest cfg flags. `feature=name` adds `name` to the
     // feature set; bare `flag` is reserved (future use). Equal sign is
     // the discriminator.

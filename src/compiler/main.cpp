@@ -2197,10 +2197,29 @@ int run_metaprog_dispatch(
     // M5: same cache pointer is reused by every sema_lower we drive.
     meta_opts.cache     = opts.sema_cache;
 
+    // M6.1: enable incremental dispatch. Cache preserves user-AST state
+    // across iters; each iter's sema_lower is given a delta_start_idx so
+    // it only processes the NEW asts appended since the previous call.
+    // At end of dispatch, reset_user_state() invalidates the user portion
+    // of the cache so the *next* sema_lower (final user sema) sees a
+    // clean state.
+    if (opts.sema_cache) opts.sema_cache->set_keep_user_state(true);
+    struct ResetUserStateGuard {
+        logos::compiler::SemaCache* c;
+        ~ResetUserStateGuard() { if (c) c->reset_user_state(); }
+    } _reset_guard{opts.sema_cache};
+    // delta_start_idx for the NEXT sema_lower call. Updated to asts.size()
+    // right before each sema_lower invocation so the call after it skips
+    // everything up through the current asts vector.
+    size_t next_delta_start = 0;
+
     lir::LProgram prog;
     for (int iter = 0; ; ++iter) {
         auto _t = std::chrono::steady_clock::now();
-        prog = sema_lower(asts, filenames, from_binary, meta_opts);
+        auto opts_iter = meta_opts;
+        opts_iter.delta_start_idx = next_delta_start;
+        next_delta_start = asts.size();
+        prog = sema_lower(asts, filenames, from_binary, opts_iter);
         stat_step(_t, "sema_lower", iter);
         prog.print_diags(stderr);
         if (!prog.ok()) return 1;
@@ -2256,6 +2275,16 @@ int run_metaprog_dispatch(
                 if (!s.callee_name.empty())
                     resema_opts.metaprog_keep_fns.push_back(s.callee_name);
             }
+            // M6.1: bypass the cache for this re-sema. The cache snapshot
+            // captured the iter-top sema where the callee bodies were
+            // stubbed (not in metaprog_keep_fns); this re-sema lowers them
+            // REAL. Installing the cached state would carry the stubs over
+            // and cause duplicate-symbol clashes. cache=nullptr makes this
+            // a full fresh sema (slow but correct). next_delta_start stays
+            // at its iter-top value so the *next* iter's sema picks up
+            // where iter-top left off.
+            resema_opts.cache = nullptr;
+            resema_opts.delta_start_idx = 0;
             meta_prog = sema_lower(asts, filenames, from_binary, resema_opts);
             if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
         }
