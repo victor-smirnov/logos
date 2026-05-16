@@ -53,11 +53,12 @@ namespace fs = std::filesystem;
 //   // M3 (version 3 addition):
 //   exports_len   uint64_t          — bytes following; 0 = empty/no exports
 //   exports       uint8_t[exports_len]
-//                                   — Hermes-encoded payload; entries
-//                                     are name→template lookups used by
-//                                     user-side mono to skip iterating in_.
-//                                     Empty for now; populated in a later
-//                                     M3 step. Loaders may safely skip.
+//                                   — see StdlibExports in module_loader.hpp
+//                                     for the inner trailer format. M3
+//                                     step 2 ships generic template names
+//                                     only; richer payloads land in later
+//                                     M3 steps. Loaders that don't know a
+//                                     given trailer_version safely skip.
 //
 // v2 readers fail on v3; v3 readers accept both v2 and v3 (the file table
 // layout is identical between versions, only the trailing exports section
@@ -71,8 +72,35 @@ static void write_u64(std::ofstream& f, uint64_t v) {
     f.write(reinterpret_cast<const char*>(&v), 8);
 }
 
+// Build the inner trailer bytes (trailer_version=1, names-only) from a
+// StdlibExports value. Encoded as length-prefixed primitives; see the
+// header comment on StdlibExports in module_loader.hpp.
+static std::string encode_stdlib_exports(const StdlibExports& exp) {
+    std::string out;
+    auto put_u16 = [&](uint16_t v) {
+        out.append(reinterpret_cast<const char*>(&v), 2);
+    };
+    auto put_u32 = [&](uint32_t v) {
+        out.append(reinterpret_cast<const char*>(&v), 4);
+    };
+    auto put_str = [&](const std::string& s) {
+        put_u32(static_cast<uint32_t>(s.size()));
+        out.append(s.data(), s.size());
+    };
+    put_u16(1);   // trailer_version
+    put_u16(0);   // reserved
+    put_u32(static_cast<uint32_t>(exp.struct_templates.size()));
+    for (auto& [pkg, name] : exp.struct_templates) { put_str(pkg); put_str(name); }
+    put_u32(static_cast<uint32_t>(exp.enum_templates.size()));
+    for (auto& [pkg, name] : exp.enum_templates)   { put_str(pkg); put_str(name); }
+    put_u32(static_cast<uint32_t>(exp.fn_templates.size()));
+    for (auto& name : exp.fn_templates)            { put_str(name); }
+    return out;
+}
+
 static bool write_hermes0(const std::string& path,
-                           const std::vector<ParsedModule>& modules) {
+                           const std::vector<ParsedModule>& modules,
+                           const StdlibExports* exports = nullptr) {
     std::ofstream f(path, std::ios::binary);
     if (!f) {
         std::fprintf(stderr, "emit_module: cannot create %s\n", path.c_str());
@@ -100,11 +128,16 @@ static bool write_hermes0(const std::string& path,
         write_u64(f, ast_len);
         f.write(reinterpret_cast<const char*>(enc->data()), ast_len);
     }
-    // M3: exports trailer. Empty for now (no payload). Future M3 step
-    // writes a Hermes-encoded TinyObjectMap<String, AnyVal> of generic
-    // template names → mirror offsets (etc.) so user-side mono can skip
-    // iterating in_ to build templates_/struct_templates_/etc.
-    write_u64(f, 0);
+    // M3 step 2: exports trailer. Empty `exports` writes a 0 length-prefix
+    // (interpreted by readers as "no exports"); a non-null `exports`
+    // serializes the StdlibExports payload.
+    if (exports) {
+        std::string payload = encode_stdlib_exports(*exports);
+        write_u64(f, static_cast<uint64_t>(payload.size()));
+        f.write(payload.data(), payload.size());
+    } else {
+        write_u64(f, 0);
+    }
     return f.good();
 }
 
@@ -165,7 +198,8 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                                std::vector<std::string>& filenames,
                                const std::vector<bool>& ast_only_flags,
                                const std::string& obj_path,
-                               const std::string& only_file = "") {
+                               const std::string& only_file = "",
+                               StdlibExports* out_exports = nullptr) {
     // Run metaprog discovery loop (#21 closure) so #[derive_*] hooks
     // and metacall thunks fire during stdlib build. asts/filenames
     // grow with synthesised docs that subsequent sema picks up.
@@ -259,6 +293,24 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
     auto prog = sema_lower(asts, filenames, from_binary);
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
+
+    // M3 step 2: snapshot generic template names from the post-sema LProgram
+    // BEFORE mono_pass moves prog into its in_. Names are precisely the
+    // items mono will index into struct_templates_/enum_templates_/
+    // templates_ (criterion: `type_params` non-empty). Future M3 steps
+    // will extend this with mirror_offset_ payloads so user-side mono can
+    // skip iterating in_ entirely.
+    if (out_exports) {
+        for (auto& sd : prog.structs)
+            if (!sd.type_params.empty())
+                out_exports->struct_templates.push_back({sd.pkg, sd.name});
+        for (auto& ed : prog.enums)
+            if (!ed.type_params.empty())
+                out_exports->enum_templates.push_back({ed.pkg, ed.name});
+        for (auto& fn : prog.functions)
+            if (!fn->type_params.empty())
+                out_exports->fn_templates.push_back(fn->name);
+    }
 
     // Mono (also emits L-IR Hermes mirror; borrow_check reads via mirror)
     prog = mono_pass(std::move(prog));
@@ -437,9 +489,18 @@ bool emit_module(const ModuleManifest& manifest,
                      obj_path.c_str());
     }
     size_t original_ast_count = asts.size();
-    if (!compile_to_object(asts, filenames, ast_only_flags, obj_path, only_file_canon)) {
+    StdlibExports exports;
+    if (!compile_to_object(asts, filenames, ast_only_flags, obj_path,
+                           only_file_canon, &exports)) {
         std::fprintf(stderr, "emit_module: compilation failed\n");
         return false;
+    }
+    if (verbose) {
+        std::fprintf(stderr,
+            "emit_module: exports — %zu struct templates, %zu enum templates, %zu fn templates\n",
+            exports.struct_templates.size(),
+            exports.enum_templates.size(),
+            exports.fn_templates.size());
     }
     // Harvest synth docs (appended by metaprog dispatch). These carry
     // derive-emitted items (e.g. cow.logos's `BranchNode`) that must
@@ -516,7 +577,7 @@ bool emit_module(const ModuleManifest& manifest,
         if (verbose) {
             std::fprintf(stderr, "emit_module: writing → %s (single file)\n", h0_path.c_str());
         }
-        if (!write_hermes0(h0_path, single)) {
+        if (!write_hermes0(h0_path, single, &exports)) {
             std::fprintf(stderr, "emit_module: .hermes0 write failed\n");
             return false;
         }
@@ -549,7 +610,7 @@ bool emit_module(const ModuleManifest& manifest,
     if (verbose) {
         std::fprintf(stderr, "emit_module: writing → %s\n", h0_path.c_str());
     }
-    if (!write_hermes0(h0_path, modules_for_h0)) {
+    if (!write_hermes0(h0_path, modules_for_h0, &exports)) {
         std::fprintf(stderr, "emit_module: .hermes0 write failed\n");
         return false;
     }

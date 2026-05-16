@@ -395,8 +395,8 @@ static std::vector<ParsedModule> parse_hermes0(const std::vector<uint8_t>& data,
         result.push_back({path, pkg, std::move(*decoded)});
     }
     // M3: v3 has a trailing exports section (u64 length + bytes). Skip it
-    // here — consumers needing the exports pull them via a separate API.
-    // v2 has no trailer.
+    // here — consumers needing the exports pull them via
+    // extract_hermes0_exports() on the same blob. v2 has no trailer.
     if (version == 3 && p + 8 <= end) {
         uint64_t exports_len = read_le_u64(p);
         p += 8;
@@ -405,9 +405,114 @@ static std::vector<ParsedModule> parse_hermes0(const std::vector<uint8_t>& data,
                          archive_path.c_str());
             return {};
         }
-        p += exports_len;  // skip; user-side hookup is a later M3 step
+        p += exports_len;  // skip; consumers use extract_hermes0_exports()
     }
     return result;
+}
+
+// M3 step 2 reader: decode the v3 exports trailer into a StdlibExports value.
+// Returns `{present=false}` for v2 archives or when the trailer is zero-
+// length. Returns `{present=true, value=…}` on success. Returns nullopt on
+// a malformed trailer; the caller should treat that as fatal. Reads the
+// outer file table just to advance past it — no AST decode needed.
+StdlibExportsOpt extract_hermes0_exports(const std::vector<uint8_t>& data,
+                                         const std::string& archive_path) {
+    StdlibExportsOpt r;
+    const uint8_t* p = data.data();
+    const uint8_t* end = p + data.size();
+    if (data.size() < 16 || std::memcmp(p, "HERMAST0", 8) != 0) return r;
+    uint32_t version   = read_le_u32(p + 8);
+    uint32_t num_files = read_le_u32(p + 12);
+    if (version == 2) return r;  // no trailer in v2
+    if (version != 3) return r;
+    p += 16;
+    // Skip file table — entries store path + pkg + ast_len-prefixed bytes.
+    for (uint32_t i = 0; i < num_files; ++i) {
+        if (p + 4 > end) return r;
+        uint32_t path_len = read_le_u32(p); p += 4;
+        if (p + path_len > end) return r;
+        p += path_len;
+        if (p + 4 > end) return r;
+        uint32_t pkg_len = read_le_u32(p); p += 4;
+        if (p + pkg_len > end) return r;
+        p += pkg_len;
+        if (p + 8 > end) return r;
+        uint64_t ast_len = read_le_u64(p); p += 8;
+        if (ast_len > static_cast<uint64_t>(end - p)) return r;
+        p += ast_len;
+    }
+    if (p + 8 > end) return r;
+    uint64_t exports_len = read_le_u64(p); p += 8;
+    if (exports_len == 0) return r;  // present but empty → treat as absent
+    if (exports_len > static_cast<uint64_t>(end - p)) {
+        std::fprintf(stderr, "module_loader: %s: exports trailer truncated\n",
+                     archive_path.c_str());
+        return r;
+    }
+    const uint8_t* tp = p;
+    const uint8_t* tend = p + exports_len;
+    auto need = [&](size_t n) { return tp + n <= tend; };
+    auto rd_u16 = [&]() -> uint16_t {
+        uint16_t v = static_cast<uint16_t>(tp[0]) | (static_cast<uint16_t>(tp[1]) << 8);
+        tp += 2;
+        return v;
+    };
+    auto rd_u32 = [&]() -> uint32_t { uint32_t v = read_le_u32(tp); tp += 4; return v; };
+    auto rd_str = [&](std::string& out) -> bool {
+        if (!need(4)) return false;
+        uint32_t n = rd_u32();
+        if (!need(n)) return false;
+        out.assign(reinterpret_cast<const char*>(tp), n);
+        tp += n;
+        return true;
+    };
+    if (!need(4)) {
+        std::fprintf(stderr, "module_loader: %s: exports trailer header truncated\n",
+                     archive_path.c_str());
+        return r;
+    }
+    uint16_t trailer_version = rd_u16();
+    (void) rd_u16();  // reserved
+    if (trailer_version != 1) {
+        // Forward-compat: unknown trailer_version → silently treat as absent.
+        // Outer u64 length already let us skip the whole section in older
+        // readers; the same applies here.
+        return r;
+    }
+    auto rd_vec_pp = [&](std::vector<std::pair<std::string, std::string>>& v) -> bool {
+        if (!need(4)) return false;
+        uint32_t n = rd_u32();
+        v.reserve(n);
+        for (uint32_t i = 0; i < n; ++i) {
+            std::string pkg, name;
+            if (!rd_str(pkg)) return false;
+            if (!rd_str(name)) return false;
+            v.emplace_back(std::move(pkg), std::move(name));
+        }
+        return true;
+    };
+    auto rd_vec_s = [&](std::vector<std::string>& v) -> bool {
+        if (!need(4)) return false;
+        uint32_t n = rd_u32();
+        v.reserve(n);
+        for (uint32_t i = 0; i < n; ++i) {
+            std::string s;
+            if (!rd_str(s)) return false;
+            v.push_back(std::move(s));
+        }
+        return true;
+    };
+    if (!rd_vec_pp(r.value.struct_templates) ||
+        !rd_vec_pp(r.value.enum_templates)   ||
+        !rd_vec_s(r.value.fn_templates))
+    {
+        std::fprintf(stderr, "module_loader: %s: exports trailer payload malformed\n",
+                     archive_path.c_str());
+        r.value = {};
+        return r;
+    }
+    r.present = true;
+    return r;
 }
 
 // ---------------------------------------------------------------------------
@@ -673,6 +778,17 @@ std::vector<ParsedModule> load_modules(
             for (auto& member : members) {
                 auto part = parse_hermes0(member, archive_path);
                 for (auto& pm : part) decoded.push_back(std::move(pm));
+                if (trace) {
+                    auto eopt = extract_hermes0_exports(member, archive_path);
+                    if (eopt.present) {
+                        std::fprintf(stderr,
+                            "module_loader: %s — exports: %zu struct, %zu enum, %zu fn templates\n",
+                            archive_path.c_str(),
+                            eopt.value.struct_templates.size(),
+                            eopt.value.enum_templates.size(),
+                            eopt.value.fn_templates.size());
+                    }
+                }
             }
             if (trace)
                 std::fprintf(stderr, "module_loader: decoded %zu file(s) from %zu .hermes0 member(s) in %s\n",
