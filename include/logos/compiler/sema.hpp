@@ -366,16 +366,36 @@ std::string concrete_struct_name_raw(std::string_view base_name,
 // the rest of the compilation pipeline.
 
 class TypePool {
-    std::unique_ptr<TypePoolImpl>  impl_;  // lazily created on first alloc()
+    // M5 Step 1: shared_ptr so multiple TypePools can refer to the same
+    // interning state. Used by SemaCache to keep stdlib's type-arena alive
+    // across the 5+ sema_lower invocations per compile session — TypeRefs
+    // stored in cached SemaStructInfo/etc. need their underlying pool to
+    // outlive any single LProgram. Mono's `std::move(in_.type_pool)` still
+    // works (shared_ptr is movable); after move, source has empty impl_,
+    // dest gets the refcounted handle.
+    std::shared_ptr<TypePoolImpl>  impl_;  // lazily created on first alloc()
 public:
     TypePool();
     ~TypePool();
     TypePool(TypePool&&) noexcept;
     TypePool& operator=(TypePool&&) noexcept;
 
-    // Non-copyable — pointer stability requires unique ownership.
+    // Non-copyable by default to preserve existing semantics; sharing is
+    // explicit via shared_clone() so call sites that want a refcounted
+    // copy must opt in.
     TypePool(const TypePool&) = delete;
     TypePool& operator=(const TypePool&) = delete;
+
+    // M5 Step 1: cheap clone via shared_ptr refcount bump. The returned
+    // TypePool sees the same interned types as `*this` and stays in sync:
+    // alloc() on either side appends to the same arena. Used by SemaCache
+    // to share stdlib types across multiple sema_lower invocations without
+    // re-allocating them.
+    TypePool shared_clone() const noexcept {
+        TypePool t;
+        t.impl_ = impl_;
+        return t;
+    }
 
     TypeRef alloc(LogosTypeBuilder t);
 
