@@ -1,5 +1,6 @@
 add_library(logos_hermes
     arena.cpp
+    arena_pool.cpp
     document.cpp
     view.cpp
     binary_codec.cpp
@@ -62,6 +63,13 @@ target_link_libraries(hermes_exerciser_decimal PRIVATE logos_hermes)
 add_test(NAME hermes_cpp_exerciser_decimal COMMAND hermes_exerciser_decimal
          WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 set_tests_properties(hermes_cpp_exerciser_decimal PROPERTIES LABELS "hermes;cpp;decimal")
+
+# Exerciser: ArenaPool (Phase 0 of multi-arena IR refactor)
+add_executable(hermes_exerciser_arena_pool exerciser_arena_pool.cpp)
+target_link_libraries(hermes_exerciser_arena_pool PRIVATE logos_hermes)
+add_test(NAME hermes_cpp_exerciser_arena_pool COMMAND hermes_exerciser_arena_pool
+         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+set_tests_properties(hermes_cpp_exerciser_arena_pool PROPERTIES LABELS "hermes;cpp")
 
 # Walkthrough: interactive API tour for debugging
 add_executable(hermes_walkthrough walkthrough.cpp)
