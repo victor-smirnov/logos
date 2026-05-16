@@ -47,7 +47,12 @@ using LExprPtr     = LExpr*;
 // ADR 0007 slice 1c: LBlock is pool-owned by LProgram::block_pool_.
 // LBlockPtr is a non-owning raw handle — allocate via lir::alloc_block(prog, ...).
 using LBlockPtr    = LBlock*;
-using LFunctionPtr = std::unique_ptr<LFunction>;
+// M5 step 6: shared_ptr so SemaCache can hold per-binary-AST cached
+// LFunctions across sema_lower invocations. Refcount-cheap copy on
+// install (no per-fn deep-clone). All call sites that `push_back`
+// `std::make_unique<LFunction>(...)` continue to compile — shared_ptr
+// has an implicit converting constructor from unique_ptr.
+using LFunctionPtr = std::shared_ptr<LFunction>;
 
 // ── Patterns (for match arms) ─────────────────────────────────────────────
 //

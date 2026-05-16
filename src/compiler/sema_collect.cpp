@@ -2989,6 +2989,7 @@ lir::LStructDef SemaChecker::lower_spec_struct(TinyMapView node) {
     sd.name = sname;
     sd.pkg  = cur_package_;
     sd.is_specialization = true;
+    sd.from_binary_module = cur_from_binary_;
 
     // Parse spec type-param list: populate spec_patterns and TypeVar scope.
     std::vector<TypeParam> pattern_tvars;
@@ -3070,6 +3071,7 @@ lir::LFunction SemaChecker::lower_spec_fn(TinyMapView node) {
     fn.name = std::string(raw_name);
     fn.doc  = take_pending_doc();
     fn.is_specialization = true;
+    fn.from_binary_module = cur_from_binary_;
 
     // Parse spec type-param list: populate fn.spec_patterns and scope TypeVars.
     std::vector<TypeParam> pattern_tvars;

@@ -511,7 +511,7 @@ private:
 
     // Drain method_worklist_: clone each pending method under its struct's
     // substitution, rename to "<concrete>__<method>", append to the matching
-    // LStructDef in out_.structs (heap-stable through unique_ptr<LFunction>),
+    // LStructDef in out_.structs (heap-stable through shared_ptr<LFunction>),
     // mirror-emit, and scan for further calls.
     void drain_method_worklist();
 

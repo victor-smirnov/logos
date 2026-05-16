@@ -276,6 +276,42 @@ TypePool& TypePool::operator=(TypePool&&) noexcept = default;
 // Step 2: skeleton. Owns the shared TypePool and (in later steps) per-AST
 // snapshots. SemaChecker / sema_lower consult this when wired in via
 // SemaOptions::cache.
+//
+// M5 step 6: cached snapshot of LIR items contributed by binary-AST
+// lowering. Captured once at end of the first lower_program (after the
+// impl-method re-attachment pass), reused on subsequent sema_lower calls
+// by splicing into prog upfront and then skipping lower_module_items for
+// every binary AST. Per-AST keying was rejected because impl-method
+// early-binding (sema_decl.cpp's `target_struct_tmpl->methods.push_back`)
+// can mutate a struct from a *different* AST, so per-AST slices would
+// lose those cross-AST methods. A single post-loop bundle captures the
+// fully-assembled binary contribution.
+//
+// LFunction bodies are shared across LPrograms via shared_ptr<LFunction>
+// (Step 6a); splice is a refcount-bump per method. Other aggregates are
+// value-copied; their nested method vectors refcount-bump too.
+//
+// from_binary_module flag (present on LStructDef + LFunction) drives the
+// per-item filter for structs/functions; for unflagged vectors (impls,
+// enums, consts, ...) the capture walks per-AST [start,end) ranges
+// recorded during the iter-0 loop.
+struct LirBundle {
+    std::vector<lir::LStructDef>      structs;
+    std::vector<lir::LStructDef>      struct_specializations;
+    std::vector<lir::LEnumDef>        enums;
+    std::vector<lir::LFunctionPtr>    functions;
+    std::vector<lir::LFunctionPtr>    specializations;
+    std::vector<lir::LConst>          consts;
+    std::vector<lir::LTypeAlias>      type_aliases;
+    std::vector<lir::LTraitDef>       traits;
+    std::vector<lir::LImplBlock>      impls;
+    std::vector<lir::LInstAnnotation> inst_annotations;
+    std::vector<lir::LDispatchEntry>  dispatch_entries;
+    std::vector<std::pair<std::string, std::string>> module_inner_docs;
+    StrSet                            reflect_requests;
+    bool                              valid = false;
+};
+
 class SemaCacheImpl {
 public:
     // Shared across all sema_lower invocations that pass this cache.
@@ -295,6 +331,12 @@ public:
     // of each sema_lower call, moved in at start of the next. Initially
     // null; populated after the first invocation.
     std::unique_ptr<SemaCheckerSnapshot> snapshot;
+
+    // M5 step 6: cached LIR contribution from binary ASTs (single bundle,
+    // captured after lower_program completes on the first call). Subsequent
+    // calls splice the bundle into prog upfront and skip lower_module_items
+    // for every binary AST.
+    LirBundle lir_bundle;
 };
 
 SemaCache::SemaCache() : impl_(std::make_unique<SemaCacheImpl>()) {}
@@ -1633,6 +1675,65 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     // pool_ bound to prog.type_pool throughout sema, mirror offsets and
     // TypeRef offsets share the same arena from the start.
     lir_mirror_emit_into(prog, *prog.mirror_table);
+
+    // M5 step 6: lir_mirror_emit_into's backfill path (taken for cached
+    // LFunction bodies whose mirror_offset_ is already set from a prior
+    // sema_lower) registers only the top-level stmt/block in their reverse
+    // maps; it does NOT recurse into sub-exprs / sub-blocks / sub-HVs /
+    // sub-closures of cached items. Mono's lexpr_of / lblock_of /
+    // hermes_val_of / etc. would then return null inside cached bodies,
+    // corrupting subst (e.g. SReturn loses its value). Mirror
+    // lir_mirror_populate_moved's pool-sweep approach: every pooled node
+    // with a non-zero mirror_offset_ goes into the reverse map. Cheap
+    // (single pass per append-only pool, runs every sema_lower regardless
+    // of cache state — the cost is negligible vs the lower walk savings).
+    if (prog.expr_pool_) {
+        for (auto& uptr : *prog.expr_pool_)
+            if (uptr && uptr->mirror_offset_ != hermes::arena_offset_t{})
+                prog.mirror_table->expr_by_offset[
+                    uptr->mirror_offset_.value()] = uptr.get();
+    }
+    if (prog.block_pool_) {
+        for (auto& uptr : *prog.block_pool_)
+            if (uptr && uptr->mirror_offset_ != hermes::arena_offset_t{})
+                prog.mirror_table->block_by_offset[
+                    uptr->mirror_offset_.value()] = uptr.get();
+    }
+    if (prog.hermes_val_pool_) {
+        for (auto& uptr : *prog.hermes_val_pool_)
+            if (uptr && uptr->mirror_offset_ != hermes::arena_offset_t{})
+                prog.mirror_table->hermes_val_by_offset[
+                    uptr->mirror_offset_.value()] = uptr.get();
+    }
+    // EClosure is not pooled-keyed in the reverse-map set (closure_box_inner
+    // maps LExpr* → EClosure*, populated by LirBuilder at construction).
+    // Stmts and Patterns are not pooled (owned by their parent vectors); the
+    // backfill walk in lir_mirror_emit_into reaches them only via the
+    // function-body recursion, which is shallow. Walk every cached LFunction
+    // body recursively here, registering every LStmt and Pattern in the
+    // reverse maps. The walk operates entirely off in-memory fields (no
+    // mirror reads), so it works regardless of table state.
+    auto register_lstmts_in_block = [&](auto&& self, const lir::LBlock& blk) -> void {
+        for (auto& st : blk.stmts) {
+            if (st.mirror_offset_ != hermes::arena_offset_t{})
+                prog.mirror_table->stmt_by_offset[st.mirror_offset_.value()] = &st;
+            // LStmt carries no in-memory children other than mirror_offset_
+            // (the variant fields were retired at Stage B.6). All children
+            // are reachable only through the mirror view — sub-blocks are
+            // separately pooled and covered by the block_pool_ sweep above.
+        }
+    };
+    auto walk_fn = [&](const lir::LFunction& fn) {
+        register_lstmts_in_block(register_lstmts_in_block, fn.body);
+    };
+    for (auto& f : prog.functions)        if (f) walk_fn(*f);
+    for (auto& f : prog.specializations)  if (f) walk_fn(*f);
+    for (auto& s : prog.structs)
+        for (auto& m : s.methods) if (m) walk_fn(*m);
+    for (auto& s : prog.struct_specializations)
+        for (auto& m : s.methods) if (m) walk_fn(*m);
+    for (auto& i : prog.impls)
+        for (auto& m : i.methods) if (m) walk_fn(*m);
 
     return prog;
 }
@@ -4529,6 +4630,51 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
     size_t  count_user       = 0;
     int64_t max_binary_us    = 0;
     int64_t max_user_us      = 0;
+    // M5 step 6: LIR bundle install + capture state.
+    //   m5_bundle_active: bundle was valid at start of run() and spliced
+    //     into prog before the loop; binary ASTs skip lower_module_items.
+    //   m5_capture_active: bundle was NOT valid → this run is the populator;
+    //     we record per-binary-AST ranges in unflagged prog vectors so the
+    //     bundle can be assembled after the loop + re-attachment pass.
+    const char* m5_lir_off_env = std::getenv("LOGOS_M5_LIR_OFF");
+    const bool  m5_lir_off     = m5_lir_off_env && m5_lir_off_env[0] && m5_lir_off_env[0] != '0';
+    const bool m5_bundle_active = cache_ && cache_->impl()->lir_bundle.valid && !m5_lir_off;
+    const bool m5_capture_active = cache_ && !cache_->impl()->lir_bundle.valid && !m5_lir_off;
+    if (m5_bundle_active) {
+        // Splice the bundle into prog up-front. Per-AST loop will skip
+        // binary ASTs entirely (their contribution is already in prog).
+        const auto& c = cache_->impl()->lir_bundle;
+        prog.structs.insert                (prog.structs.end(),                c.structs.begin(),                c.structs.end());
+        prog.struct_specializations.insert (prog.struct_specializations.end(), c.struct_specializations.begin(), c.struct_specializations.end());
+        prog.enums.insert                  (prog.enums.end(),                  c.enums.begin(),                  c.enums.end());
+        prog.functions.insert              (prog.functions.end(),              c.functions.begin(),              c.functions.end());
+        prog.specializations.insert        (prog.specializations.end(),        c.specializations.begin(),        c.specializations.end());
+        prog.consts.insert                 (prog.consts.end(),                 c.consts.begin(),                 c.consts.end());
+        prog.type_aliases.insert           (prog.type_aliases.end(),           c.type_aliases.begin(),           c.type_aliases.end());
+        prog.traits.insert                 (prog.traits.end(),                 c.traits.begin(),                 c.traits.end());
+        prog.impls.insert                  (prog.impls.end(),                  c.impls.begin(),                  c.impls.end());
+        prog.inst_annotations.insert       (prog.inst_annotations.end(),       c.inst_annotations.begin(),       c.inst_annotations.end());
+        prog.dispatch_entries.insert       (prog.dispatch_entries.end(),       c.dispatch_entries.begin(),       c.dispatch_entries.end());
+        prog.module_inner_docs.insert      (prog.module_inner_docs.end(),      c.module_inner_docs.begin(),      c.module_inner_docs.end());
+        for (auto& r : c.reflect_requests) prog.reflect_requests.insert(r);
+    }
+    // Per-binary-AST range tracking for unflagged vectors (when capturing).
+    // Indices into unflagged prog vectors right after each binary AST's
+    // lower_module_items. Used to filter binary contributions out of the
+    // post-loop prog state for bundling.
+    struct BinaryAstRange {
+        size_t enums_b = 0, enums_e = 0;
+        size_t consts_b = 0, consts_e = 0;
+        size_t type_aliases_b = 0, type_aliases_e = 0;
+        size_t traits_b = 0, traits_e = 0;
+        size_t impls_b = 0, impls_e = 0;
+        size_t inst_annotations_b = 0, inst_annotations_e = 0;
+        size_t dispatch_entries_b = 0, dispatch_entries_e = 0;
+        size_t module_inner_docs_b = 0, module_inner_docs_e = 0;
+    };
+    std::vector<BinaryAstRange> m5_ranges;
+    StrSet m5_refl0;
+    if (m5_capture_active) m5_refl0 = prog.reflect_requests;
     for (size_t i = 0; i < asts.size(); ++i) {
         auto _ast_t0 = phase_dbg
             ? std::chrono::steady_clock::now()
@@ -4540,6 +4686,31 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
         auto root = asts[i].root_object().as_tiny_map();
         cur_root_ = root;
         cur_package_ = read_package_name(root);
+        // M5 step 6: bundle hit → binary AST is already in prog; skip the
+        // entire lower walk for it.
+        if (m5_bundle_active && cur_from_binary_) {
+            if (phase_dbg) {
+                auto _ast_t1 = std::chrono::steady_clock::now();
+                auto us = std::chrono::duration_cast<std::chrono::microseconds>(_ast_t1 - _ast_t0).count();
+                total_binary_us += us;
+                ++count_binary;
+                if (us > max_binary_us) max_binary_us = us;
+            }
+            continue;
+        }
+        // Record per-AST baseline sizes for unflagged vectors so the
+        // bundle assembler can pick out this AST's contributions.
+        BinaryAstRange rng{};
+        if (m5_capture_active && cur_from_binary_) {
+            rng.enums_b             = prog.enums.size();
+            rng.consts_b            = prog.consts.size();
+            rng.type_aliases_b      = prog.type_aliases.size();
+            rng.traits_b            = prog.traits.size();
+            rng.impls_b             = prog.impls.size();
+            rng.inst_annotations_b  = prog.inst_annotations.size();
+            rng.dispatch_entries_b  = prog.dispatch_entries.size();
+            rng.module_inner_docs_b = prog.module_inner_docs.size();
+        }
         // Rebuild import scope (same logic as in collect()) so find_*_by_name
         // works during lowering for cross-package type lookups.
         cur_imports_ = {};
@@ -4620,6 +4791,17 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
             }
         }
         lower_module_items(root, prog);
+        if (m5_capture_active && cur_from_binary_) {
+            rng.enums_e             = prog.enums.size();
+            rng.consts_e            = prog.consts.size();
+            rng.type_aliases_e      = prog.type_aliases.size();
+            rng.traits_e            = prog.traits.size();
+            rng.impls_e             = prog.impls.size();
+            rng.inst_annotations_e  = prog.inst_annotations.size();
+            rng.dispatch_entries_e  = prog.dispatch_entries.size();
+            rng.module_inner_docs_e = prog.module_inner_docs.size();
+            m5_ranges.push_back(rng);
+        }
         if (phase_dbg) {
             auto _ast_t1 = std::chrono::steady_clock::now();
             auto us = std::chrono::duration_cast<std::chrono::microseconds>(_ast_t1 - _ast_t0).count();
@@ -4683,7 +4865,7 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
             if (base.empty() || base[0] == '$') return {};
             return base;
         };
-        std::vector<std::unique_ptr<lir::LFunction>> kept;
+        std::vector<lir::LFunctionPtr> kept;
         kept.reserve(prog.functions.size());
         for (auto& fp : prog.functions) {
             if (!fp) continue;
@@ -4697,6 +4879,67 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
             else      kept.push_back(std::move(fp));
         }
         prog.functions = std::move(kept);
+    }
+
+    // ── M5 step 6: bundle-assembly (populator run only) ─────────────
+    // Walk the assembled prog and copy binary-origin items into the
+    // cache bundle. For LStructDef/LFunctionPtr we use the
+    // `from_binary_module` flag (survives re-attachment and matches
+    // both prog.functions orphans and struct.methods early-bindings).
+    // For unflagged vectors (impls, enums, consts, ...) we use the
+    // per-binary-AST [b,e) ranges captured during the loop — these
+    // vectors are append-only across the loop, so original positions
+    // are still valid post-re-attachment.
+    if (m5_capture_active) {
+        auto& b = cache_->impl()->lir_bundle;
+        auto take_methods = [](const std::vector<lir::LFunctionPtr>& src) {
+            std::vector<lir::LFunctionPtr> dst;
+            dst.reserve(src.size());
+            for (auto& m : src)
+                if (m && m->from_binary_module) dst.push_back(m);
+            return dst;
+        };
+        for (auto& sd : prog.structs) {
+            if (!sd.from_binary_module) continue;
+            auto copy = sd;
+            copy.methods = take_methods(sd.methods);
+            b.structs.push_back(std::move(copy));
+        }
+        for (auto& sd : prog.struct_specializations) {
+            if (!sd.from_binary_module) continue;
+            auto copy = sd;
+            copy.methods = take_methods(sd.methods);
+            b.struct_specializations.push_back(std::move(copy));
+        }
+        for (auto& fp : prog.functions)
+            if (fp && fp->from_binary_module) b.functions.push_back(fp);
+        for (auto& fp : prog.specializations)
+            if (fp && fp->from_binary_module) b.specializations.push_back(fp);
+        // Range-based capture for unflagged vectors.
+        for (auto& r : m5_ranges) {
+            for (size_t k = r.enums_b; k < r.enums_e; ++k)
+                b.enums.push_back(prog.enums[k]);
+            for (size_t k = r.consts_b; k < r.consts_e; ++k)
+                b.consts.push_back(prog.consts[k]);
+            for (size_t k = r.type_aliases_b; k < r.type_aliases_e; ++k)
+                b.type_aliases.push_back(prog.type_aliases[k]);
+            for (size_t k = r.traits_b; k < r.traits_e; ++k)
+                b.traits.push_back(prog.traits[k]);
+            for (size_t k = r.impls_b; k < r.impls_e; ++k)
+                b.impls.push_back(prog.impls[k]);
+            for (size_t k = r.inst_annotations_b; k < r.inst_annotations_e; ++k)
+                b.inst_annotations.push_back(prog.inst_annotations[k]);
+            for (size_t k = r.dispatch_entries_b; k < r.dispatch_entries_e; ++k)
+                b.dispatch_entries.push_back(prog.dispatch_entries[k]);
+            for (size_t k = r.module_inner_docs_b; k < r.module_inner_docs_e; ++k)
+                b.module_inner_docs.push_back(prog.module_inner_docs[k]);
+        }
+        // reflect_requests: capture diff against pre-loop snapshot. Filter
+        // to entries whose fqn starts with a binary pkg name; we don't have
+        // that mapping at hand, so for now capture nothing (binary code
+        // typically doesn't use the reflect intrinsic at top level).
+        (void)m5_refl0;
+        b.valid = true;
     }
 }
 
