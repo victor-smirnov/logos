@@ -36,10 +36,12 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // in_-walks that build templates_/struct_templates_/etc.
     if (stdlib_exports_ && std::getenv("LOGOS_TRACE_PHASES")) {
         std::fprintf(stderr,
-            "[trace] mono received stdlib_exports: %zu struct, %zu enum, %zu fn templates\n",
+            "[trace] mono received stdlib_exports: %zu struct, %zu enum, %zu fn templates, %zu blanket, %zu concrete impls\n",
             stdlib_exports_->struct_templates.size(),
             stdlib_exports_->enum_templates.size(),
-            stdlib_exports_->fn_templates.size());
+            stdlib_exports_->fn_templates.size(),
+            stdlib_exports_->blanket_impls.size(),
+            stdlib_exports_->concrete_impls.size());
     }
 
     if (has_prev_out_) {

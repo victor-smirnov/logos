@@ -473,10 +473,8 @@ StdlibExportsOpt extract_hermes0_exports(const std::vector<uint8_t>& data,
     }
     uint16_t trailer_version = rd_u16();
     (void) rd_u16();  // reserved
-    if (trailer_version != 1) {
-        // Forward-compat: unknown trailer_version → silently treat as absent.
-        // Outer u64 length already let us skip the whole section in older
-        // readers; the same applies here.
+    if (trailer_version < 1) {
+        // Unknown / pre-v1 — treat as absent.
         return r;
     }
     auto rd_vec_pp = [&](std::vector<std::pair<std::string, std::string>>& v) -> bool {
@@ -502,15 +500,69 @@ StdlibExportsOpt extract_hermes0_exports(const std::vector<uint8_t>& data,
         }
         return true;
     };
+    // v1 fields (always present from trailer_version >= 1)
     if (!rd_vec_pp(r.value.struct_templates) ||
         !rd_vec_pp(r.value.enum_templates)   ||
         !rd_vec_s(r.value.fn_templates))
     {
-        std::fprintf(stderr, "module_loader: %s: exports trailer payload malformed\n",
+        std::fprintf(stderr, "module_loader: %s: exports trailer v1 payload malformed\n",
                      archive_path.c_str());
         r.value = {};
         return r;
     }
+    // v2 additions: blanket + concrete impl catalog
+    if (trailer_version >= 2) {
+        if (!need(4)) {
+            std::fprintf(stderr, "module_loader: %s: exports trailer v2 truncated at blanket_impls\n",
+                         archive_path.c_str());
+            r.value = {};
+            return r;
+        }
+        uint32_t nb = rd_u32();
+        r.value.blanket_impls.reserve(nb);
+        for (uint32_t i = 0; i < nb; ++i) {
+            StdlibExports::BlanketImpl bi;
+            if (!rd_str(bi.trait_name) || !rd_str(bi.bound_trait) || !need(4)) {
+                std::fprintf(stderr, "module_loader: %s: blanket_impls[%u] truncated\n",
+                             archive_path.c_str(), i);
+                r.value = {};
+                return r;
+            }
+            uint32_t ne = rd_u32();
+            bi.extra_bounds.reserve(ne);
+            for (uint32_t j = 0; j < ne; ++j) {
+                std::string b;
+                if (!rd_str(b)) {
+                    std::fprintf(stderr, "module_loader: %s: blanket_impls[%u].extra[%u] truncated\n",
+                                 archive_path.c_str(), i, j);
+                    r.value = {};
+                    return r;
+                }
+                bi.extra_bounds.push_back(std::move(b));
+            }
+            r.value.blanket_impls.push_back(std::move(bi));
+        }
+        if (!need(4)) {
+            std::fprintf(stderr, "module_loader: %s: exports trailer v2 truncated at concrete_impls\n",
+                         archive_path.c_str());
+            r.value = {};
+            return r;
+        }
+        uint32_t nc = rd_u32();
+        r.value.concrete_impls.reserve(nc);
+        for (uint32_t i = 0; i < nc; ++i) {
+            StdlibExports::ConcreteImpl ci;
+            if (!rd_str(ci.trait_name) || !rd_str(ci.target_type)) {
+                std::fprintf(stderr, "module_loader: %s: concrete_impls[%u] truncated\n",
+                             archive_path.c_str(), i);
+                r.value = {};
+                return r;
+            }
+            r.value.concrete_impls.push_back(std::move(ci));
+        }
+    }
+    // trailer_version > 2: future fields ignored (outer length prefix bounds
+    // the scan, so unknown bytes after our last-known field are harmless).
     r.present = true;
     return r;
 }
@@ -537,6 +589,12 @@ StdlibExports load_archive_exports(const std::vector<std::string>& archive_paths
             merged.fn_templates.insert(merged.fn_templates.end(),
                 std::make_move_iterator(opt.value.fn_templates.begin()),
                 std::make_move_iterator(opt.value.fn_templates.end()));
+            merged.blanket_impls.insert(merged.blanket_impls.end(),
+                std::make_move_iterator(opt.value.blanket_impls.begin()),
+                std::make_move_iterator(opt.value.blanket_impls.end()));
+            merged.concrete_impls.insert(merged.concrete_impls.end(),
+                std::make_move_iterator(opt.value.concrete_impls.begin()),
+                std::make_move_iterator(opt.value.concrete_impls.end()));
         }
     }
     return merged;
@@ -809,11 +867,13 @@ std::vector<ParsedModule> load_modules(
                     auto eopt = extract_hermes0_exports(member, archive_path);
                     if (eopt.present) {
                         std::fprintf(stderr,
-                            "module_loader: %s — exports: %zu struct, %zu enum, %zu fn templates\n",
+                            "module_loader: %s — exports: %zu struct, %zu enum, %zu fn templates, %zu blanket, %zu concrete impls\n",
                             archive_path.c_str(),
                             eopt.value.struct_templates.size(),
                             eopt.value.enum_templates.size(),
-                            eopt.value.fn_templates.size());
+                            eopt.value.fn_templates.size(),
+                            eopt.value.blanket_impls.size(),
+                            eopt.value.concrete_impls.size());
                     }
                 }
             }

@@ -2876,10 +2876,12 @@ int main(int argc, char** argv) {
     auto stdlib_exports = logos::compiler::load_archive_exports(archive_paths);
     if (std::getenv("LOGOS_TRACE_PHASES")) {
         std::fprintf(stderr,
-            "[trace] stdlib_exports: %zu struct, %zu enum, %zu fn templates from %zu archive(s)\n",
+            "[trace] stdlib_exports: %zu struct, %zu enum, %zu fn templates, %zu blanket, %zu concrete impls from %zu archive(s)\n",
             stdlib_exports.struct_templates.size(),
             stdlib_exports.enum_templates.size(),
             stdlib_exports.fn_templates.size(),
+            stdlib_exports.blanket_impls.size(),
+            stdlib_exports.concrete_impls.size(),
             archive_paths.size());
     }
 

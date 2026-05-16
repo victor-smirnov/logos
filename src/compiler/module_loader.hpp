@@ -29,7 +29,7 @@ struct ParsedModule {
 // are precisely the items whose type_params is non-empty in sema's output.
 //
 // Trailer format (inside the u64-prefixed exports section of the .hermes0):
-//   u16 trailer_version    // 1 = "templates only (names)"
+//   u16 trailer_version    // 1 = templates only; 2 = +blanket/concrete impls
 //   u16 reserved (0)
 //   u32 num_struct_templates
 //   for each: u32 pkg_len, pkg bytes, u32 name_len, name bytes
@@ -37,15 +37,44 @@ struct ParsedModule {
 //   for each: u32 pkg_len, pkg bytes, u32 name_len, name bytes
 //   u32 num_fn_templates
 //   for each: u32 name_len, name bytes (already pkg-mangled)
+//   // v2 additions (absent in v1):
+//   u32 num_blanket_impls
+//   for each:
+//     u32 trait_len, trait bytes
+//     u32 bound_len, bound bytes
+//     u32 num_extra_bounds
+//     for each: u32 b_len, b bytes
+//   u32 num_concrete_impls
+//   for each:
+//     u32 trait_len, trait bytes
+//     u32 target_len, target bytes
 //
 // Forward-compat: v3 readers that don't know about a future trailer_version
-// must skip the section (the outer u64-length prefix lets them do so).
+// must skip the section (the outer u64-length prefix lets them do so). The
+// in-trailer fields are read top-down: a v2 reader against a v3 trailer
+// reads through the v2 fields and stops (outer length prefix bounds the
+// scan).
 struct StdlibExports {
     // (pkg, name) — pkg may be empty for items without a package decl
     std::vector<std::pair<std::string, std::string>> struct_templates;
     std::vector<std::pair<std::string, std::string>> enum_templates;
     // Mangled name (already pkg-qualified per the unconditional-mangling epic).
     std::vector<std::string> fn_templates;
+    // v2: blanket impls — `impl<T: Bound + Extra...> Trait for T`.
+    // target_type is always the typevar by definition.
+    struct BlanketImpl {
+        std::string trait_name;
+        std::string bound_trait;            // primary bound; "" for unbounded
+        std::vector<std::string> extra_bounds;
+    };
+    std::vector<BlanketImpl> blanket_impls;
+    // v2: concrete impls — `impl Trait for Target`. Negative impls + DST
+    // target patterns are dropped (catalog is for fast-path lookups only).
+    struct ConcreteImpl {
+        std::string trait_name;
+        std::string target_type;
+    };
+    std::vector<ConcreteImpl> concrete_impls;
 };
 
 // Decode the exports trailer from a .hermes0 blob. Returns empty exports on

@@ -72,9 +72,9 @@ static void write_u64(std::ofstream& f, uint64_t v) {
     f.write(reinterpret_cast<const char*>(&v), 8);
 }
 
-// Build the inner trailer bytes (trailer_version=1, names-only) from a
-// StdlibExports value. Encoded as length-prefixed primitives; see the
-// header comment on StdlibExports in module_loader.hpp.
+// Build the inner trailer bytes (trailer_version=2) from a StdlibExports
+// value. Length-prefixed primitives; see the StdlibExports header comment
+// in module_loader.hpp for the exact byte layout.
 static std::string encode_stdlib_exports(const StdlibExports& exp) {
     std::string out;
     auto put_u16 = [&](uint16_t v) {
@@ -87,14 +87,28 @@ static std::string encode_stdlib_exports(const StdlibExports& exp) {
         put_u32(static_cast<uint32_t>(s.size()));
         out.append(s.data(), s.size());
     };
-    put_u16(1);   // trailer_version
+    put_u16(2);   // trailer_version (writer always emits the latest)
     put_u16(0);   // reserved
+    // v1 payload (unchanged)
     put_u32(static_cast<uint32_t>(exp.struct_templates.size()));
     for (auto& [pkg, name] : exp.struct_templates) { put_str(pkg); put_str(name); }
     put_u32(static_cast<uint32_t>(exp.enum_templates.size()));
     for (auto& [pkg, name] : exp.enum_templates)   { put_str(pkg); put_str(name); }
     put_u32(static_cast<uint32_t>(exp.fn_templates.size()));
     for (auto& name : exp.fn_templates)            { put_str(name); }
+    // v2 additions
+    put_u32(static_cast<uint32_t>(exp.blanket_impls.size()));
+    for (auto& bi : exp.blanket_impls) {
+        put_str(bi.trait_name);
+        put_str(bi.bound_trait);
+        put_u32(static_cast<uint32_t>(bi.extra_bounds.size()));
+        for (auto& b : bi.extra_bounds) put_str(b);
+    }
+    put_u32(static_cast<uint32_t>(exp.concrete_impls.size()));
+    for (auto& ci : exp.concrete_impls) {
+        put_str(ci.trait_name);
+        put_str(ci.target_type);
+    }
     return out;
 }
 
@@ -294,12 +308,12 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
 
-    // M3 step 2: snapshot generic template names from the post-sema LProgram
-    // BEFORE mono_pass moves prog into its in_. Names are precisely the
-    // items mono will index into struct_templates_/enum_templates_/
-    // templates_ (criterion: `type_params` non-empty). Future M3 steps
-    // will extend this with mirror_offset_ payloads so user-side mono can
-    // skip iterating in_ entirely.
+    // M3 step 2+4: snapshot generic template names + blanket/concrete impl
+    // catalog from the post-sema LProgram BEFORE mono_pass moves prog into
+    // its in_. Template criterion: `type_params` non-empty (mirrors mono's
+    // own indexing logic in mono.cpp:133/195/207). Impl catalog excludes
+    // negative impls (`impl !Trait`) — they're sema-level filters with no
+    // runtime presence.
     if (out_exports) {
         for (auto& sd : prog.structs)
             if (!sd.type_params.empty())
@@ -310,6 +324,16 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
         for (auto& fn : prog.functions)
             if (!fn->type_params.empty())
                 out_exports->fn_templates.push_back(fn->name);
+        for (auto& impl : prog.impls) {
+            if (impl.is_negative) continue;
+            if (impl.is_blanket) {
+                out_exports->blanket_impls.push_back({
+                    impl.trait_name, impl.bound_trait, impl.extra_bounds});
+            } else {
+                out_exports->concrete_impls.push_back({
+                    impl.trait_name, impl.target_type});
+            }
+        }
     }
 
     // Mono (also emits L-IR Hermes mirror; borrow_check reads via mirror)
@@ -497,10 +521,12 @@ bool emit_module(const ModuleManifest& manifest,
     }
     if (verbose) {
         std::fprintf(stderr,
-            "emit_module: exports — %zu struct templates, %zu enum templates, %zu fn templates\n",
+            "emit_module: exports — %zu struct templates, %zu enum templates, %zu fn templates, %zu blanket impls, %zu concrete impls\n",
             exports.struct_templates.size(),
             exports.enum_templates.size(),
-            exports.fn_templates.size());
+            exports.fn_templates.size(),
+            exports.blanket_impls.size(),
+            exports.concrete_impls.size());
     }
     // Harvest synth docs (appended by metaprog dispatch). These carry
     // derive-emitted items (e.g. cow.logos's `BranchNode`) that must
