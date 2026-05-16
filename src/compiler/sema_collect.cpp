@@ -241,13 +241,19 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
     };
 
     // First pass: register names (so forward references work).
-    for (auto& ast : asts) {
-        // M5 step 3b+5: skip ASTs already collected in a previous
-        // sema_lower invocation — their symbol-table entries were
-        // moved in by install_snapshot, and the hstatic_registry was
-        // restored alongside. Re-walking would just produce ODR
-        // "duplicate" errors (funcs_ etc. lack first-seen dedup).
-        if (std::getenv("LOGOS_M5_INSTALL") && collected_holders_.count(ast.holder())) continue;
+    for (size_t pass0_ai = 0; pass0_ai < asts.size(); ++pass0_ai) {
+        auto& ast = asts[pass0_ai];
+        // M5 step 3b+5: skip ONLY cached BINARY holders. User asts
+        // re-walk so the strict-mode final sema still validates them
+        // (e.g. catches "unknown type 'HermesStatic'" when the user
+        // file doesn't `use` it). Cached binary asts are safe to skip
+        // because they're processed identically in every mode.
+        {
+            bool is_bin = (from_binary_ && pass0_ai < from_binary_->size())
+                          ? (*from_binary_)[pass0_ai] : false;
+            if (std::getenv("LOGOS_M5_INSTALL") && is_bin &&
+                collected_holders_.count(ast.holder())) continue;
+        }
         holder_ = ast.holder();
         auto root = ast.root_object().as_tiny_map();
         cur_package_ = read_package_name(root);
@@ -330,7 +336,16 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
     // those holders are still pinned in `asts` (caller preserves the
     // vector across invocations).
     for (size_t ai = 0; ai < asts.size(); ++ai) {
-        if (std::getenv("LOGOS_M5_INSTALL") && collected_holders_.count(asts[ai].holder())) continue;  // M5 step 3b+5
+        // M5 step 3b+5: skip ONLY cached binary holders. User asts must
+        // re-walk because (a) they may be processed under different
+        // SemaOptions (metaprog_mode vs strict) and (b) skipping the
+        // final strict pass loses validation errors that should fire.
+        {
+            bool is_bin = (from_binary_ && ai < from_binary_->size())
+                          ? (*from_binary_)[ai] : false;
+            if (std::getenv("LOGOS_M5_INSTALL") && is_bin &&
+                collected_holders_.count(asts[ai].holder())) continue;
+        }
         cur_ast_idx_ = ai;
         holder_ = asts[ai].holder();
         file_ = (filenames_ && ai < filenames_->size()) ? (*filenames_)[ai] : std::string{};
@@ -342,7 +357,16 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
     }
     // Second pass: fill in fields, variants, function signatures (Phase 1).
     for (size_t ai = 0; ai < asts.size(); ++ai) {
-        if (std::getenv("LOGOS_M5_INSTALL") && collected_holders_.count(asts[ai].holder())) continue;  // M5 step 3b+5
+        // M5 step 3b+5: skip ONLY cached binary holders. User asts must
+        // re-walk because (a) they may be processed under different
+        // SemaOptions (metaprog_mode vs strict) and (b) skipping the
+        // final strict pass loses validation errors that should fire.
+        {
+            bool is_bin = (from_binary_ && ai < from_binary_->size())
+                          ? (*from_binary_)[ai] : false;
+            if (std::getenv("LOGOS_M5_INSTALL") && is_bin &&
+                collected_holders_.count(asts[ai].holder())) continue;
+        }
         cur_ast_idx_ = ai;
         holder_ = asts[ai].holder();
         file_ = (filenames_ && ai < filenames_->size()) ? (*filenames_)[ai] : std::string{};
@@ -380,7 +404,16 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
             // M5 step 3b: skip user ASTs already collected in a prior
             // sema_lower call — their metaprog_targets contributions are
             // already in the snapshot we installed at run() top.
-            if (std::getenv("LOGOS_M5_INSTALL") && collected_holders_.count(asts[ai].holder())) continue;  // M5 step 3b+5
+            // M5 step 3b+5: skip ONLY cached binary holders. User asts must
+        // re-walk because (a) they may be processed under different
+        // SemaOptions (metaprog_mode vs strict) and (b) skipping the
+        // final strict pass loses validation errors that should fire.
+        {
+            bool is_bin = (from_binary_ && ai < from_binary_->size())
+                          ? (*from_binary_)[ai] : false;
+            if (std::getenv("LOGOS_M5_INSTALL") && is_bin &&
+                collected_holders_.count(asts[ai].holder())) continue;
+        }
             // Bind helpers (arr_of/map_of/code_of/str_of) to this ast's holder.
             holder_ = asts[ai].holder();
             auto root = asts[ai].root_object().as_tiny_map();
@@ -430,7 +463,16 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
             if (is_bin) continue;
             // M5 step 3b: skip cached user ASTs (their unknown-attr diags
             // were emitted by the original sema_lower call).
-            if (std::getenv("LOGOS_M5_INSTALL") && collected_holders_.count(asts[ai].holder())) continue;  // M5 step 3b+5
+            // M5 step 3b+5: skip ONLY cached binary holders. User asts must
+        // re-walk because (a) they may be processed under different
+        // SemaOptions (metaprog_mode vs strict) and (b) skipping the
+        // final strict pass loses validation errors that should fire.
+        {
+            bool is_bin = (from_binary_ && ai < from_binary_->size())
+                          ? (*from_binary_)[ai] : false;
+            if (std::getenv("LOGOS_M5_INSTALL") && is_bin &&
+                collected_holders_.count(asts[ai].holder())) continue;
+        }
             holder_ = asts[ai].holder();
             auto root = asts[ai].root_object().as_tiny_map();
             if (!root.has_key(la::ITEMS)) continue;
@@ -468,14 +510,15 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
     // vs-Rust divergence for porting scalar-only structs.
     compute_auto_copy_types();
 
-    // M5 step 3b: record every walked holder in the persistent set so
-    // a future sema_lower invocation (which would inherit this set via
-    // install_snapshot once that path is re-enabled) can skip the
-    // per-AST walks above. Currently install_snapshot is gated off
-    // (see SemaChecker::run); this still runs so the cache snapshot
-    // captures a representative `collected_holders` field.
+    // M5 step 3b+5: record only BINARY holders. User holders intentionally
+    // skipped — user ASTs must re-walk every call so strict-mode validation
+    // fires for them (e.g. fail-tests expecting "unknown type" diags) and
+    // mutation-prone tables like module_consts_/funcs_ don't grow stale
+    // user entries that would conflict on re-add.
     for (size_t ai = 0; ai < asts.size(); ++ai) {
-        collected_holders_.insert(asts[ai].holder());
+        bool is_bin = (from_binary_ && ai < from_binary_->size())
+                      ? (*from_binary_)[ai] : false;
+        if (is_bin) collected_holders_.insert(asts[ai].holder());
     }
 }
 

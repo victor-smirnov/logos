@@ -282,6 +282,15 @@ public:
     // Allocated lazily on first use via TypePool::alloc()'s internal init.
     TypePool shared_pool;
 
+    // M5 step 5: refcount-holding handles to the four LIR pools. After
+    // step 4 the pools are shared_ptr<vector<...>>; cache must hold a
+    // ref or mono's out_ destruction would drop the last refcount and
+    // free the underlying vectors — dangling cached LExpr* etc.
+    std::shared_ptr<std::vector<std::unique_ptr<lir::LExpr>>>      expr_pool;
+    std::shared_ptr<std::vector<std::unique_ptr<lir::LBlock>>>     block_pool;
+    std::shared_ptr<std::vector<std::unique_ptr<lir::HermesVal>>>  hermes_val_pool;
+    std::shared_ptr<std::vector<std::unique_ptr<lir::EClosure>>>   closure_pool;
+
     // M5 step 3b: persistent SemaChecker symbol tables. Moved out at end
     // of each sema_lower call, moved in at start of the next. Initially
     // null; populated after the first invocation.
@@ -1338,7 +1347,17 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     // this LProgram. All subsequent alloc()s land in the cache's arena,
     // so TypeRefs survive past mono_pass(std::move(prog)) — cache holds
     // an independent refcount on the same TypePoolImpl.
-    if (cache_) prog.type_pool = cache_->shared_pool().shared_clone();
+    if (cache_) {
+        prog.type_pool = cache_->shared_pool().shared_clone();
+        // M5 step 5: alias prog's LIR pools to the cache-held shared_ptrs.
+        // Without this, cached LExpr*/LBlock*/etc. (e.g. via
+        // hstatic_registry) dangle as soon as mono's out_ pool refcount
+        // drops to zero. Cache's shared_ptr holds the storage alive.
+        if (cache_->impl()->expr_pool)        prog.expr_pool_        = cache_->impl()->expr_pool;
+        if (cache_->impl()->block_pool)       prog.block_pool_       = cache_->impl()->block_pool;
+        if (cache_->impl()->hermes_val_pool)  prog.hermes_val_pool_  = cache_->impl()->hermes_val_pool;
+        if (cache_->impl()->closure_pool)     prog.closure_pool_     = cache_->impl()->closure_pool;
+    }
     pool_ = &prog.type_pool;  // bind so all alloc()s share prog's arena
 
     // M5 step 3b+5a: install cached symbol tables + restore the
@@ -1394,10 +1413,16 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     // dangling the snapshot's TypeRefs once prog goes out of scope.
     if (cache_) {
         cache_->impl()->shared_pool = prog.type_pool.shared_clone();
+        // M5 step 5: keep refcounts on the LIR pools so cached
+        // LExpr*/LBlock*/etc. survive past mono's out_ destruction.
+        cache_->impl()->expr_pool        = prog.expr_pool_;
+        cache_->impl()->block_pool       = prog.block_pool_;
+        cache_->impl()->hermes_val_pool  = prog.hermes_val_pool_;
+        cache_->impl()->closure_pool     = prog.closure_pool_;
         cache_->impl()->snapshot = take_snapshot();
         // M5 step 5a: also capture prog.hstatic_registry_ (per-LProgram
-        // field, not in SemaChecker). Step 4 made expr_pool_ shared, so
-        // the LExpr* entries here stay alive for the next call.
+        // field, not in SemaChecker). With pools shared above the LExpr*
+        // entries here stay alive for the next call.
         cache_->impl()->snapshot->hstatic_registry = prog.hstatic_registry_;
     }
 
