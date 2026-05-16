@@ -422,28 +422,23 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
             // Pkg-qualified struct (e.g. `std.lang.iter.SliceIter`): the call
             // emit may carry only the bare struct name. struct_method_templates_
             // keys both pkg-qualified and bare.
-            auto smt_it = struct_method_templates_.find(struct_part);
-            if (smt_it == struct_method_templates_.end()) {
-                auto dot = struct_part.rfind('.');
-                if (dot != std::string::npos)
-                    smt_it = struct_method_templates_.find(struct_part.substr(dot + 1));
-            }
+            auto* smt_inner = find_struct_method_templates_unguarded(struct_part);
             const lir::LFunction* tmpl = nullptr;
-            if (smt_it != struct_method_templates_.end()) {
-                auto mit = smt_it->second.find(method_name);
-                if (mit == smt_it->second.end()) {
+            if (smt_inner) {
+                auto mit = smt_inner->find(method_name);
+                if (mit == smt_inner->end()) {
                     // Try with `__g__sig` variants.
-                    for (auto& [k, _] : smt_it->second) {
+                    for (auto& [k, _] : *smt_inner) {
                         if (k == method_name ||
                             (k.size() > method_name.size() + 5 &&
                              k.compare(0, method_name.size(), method_name) == 0 &&
                              k.compare(method_name.size(), 5, "__g__") == 0)) {
-                            mit = smt_it->second.find(k);
+                            mit = smt_inner->find(k);
                             break;
                         }
                     }
                 }
-                if (mit != smt_it->second.end())
+                if (mit != smt_inner->end())
                     tmpl = mit->second;
             }
             if (!tmpl) {
@@ -484,18 +479,11 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
                     // Find the struct template to split type_args into struct-
                     // vs method-tparam slices. Primitive receivers won't have
                     // a struct_templates_ entry; treat them as zero-tparam.
-                    auto stt = struct_templates_.find(struct_part);
-                    if (stt == struct_templates_.end()) {
-                        auto dot = struct_part.rfind('.');
-                        if (dot != std::string::npos)
-                            stt = struct_templates_.find(struct_part.substr(dot + 1));
-                    }
+                    auto* stt_ptr = find_struct_template_unguarded(struct_part);
                     {
                         const std::vector<TypeParam> empty_tpars;
                         const std::vector<TypeParam>& sd_tpars =
-                            (stt != struct_templates_.end())
-                            ? stt->second->type_params
-                            : empty_tpars;
+                            stt_ptr ? stt_ptr->type_params : empty_tpars;
                         size_t n_struct = sd_tpars.size();
                         if (type_args.size() >= n_struct) {
                             // Build SubstMap: struct tparams from prefix +

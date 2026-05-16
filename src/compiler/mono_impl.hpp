@@ -191,6 +191,24 @@ private:
         }
         return nullptr;
     }
+    // M2: composite-key variant. Caller passes a possibly-pkg-qualified
+    // string in one argument (e.g. mono_scan's `struct_part`). Tries the
+    // full string first; on miss with a dot present, retries with the
+    // tail after the last dot. Mirrors find_struct_method_templates_
+    // unguarded's semantics for the per-struct map.
+    const lir::LStructDef*
+    find_struct_template_unguarded(std::string_view qkey) const noexcept {
+        if (auto it = struct_templates_.find(std::string(qkey));
+            it != struct_templates_.end())
+            return it->second;
+        auto dot = qkey.rfind('.');
+        if (dot != std::string_view::npos) {
+            if (auto it = struct_templates_.find(std::string(qkey.substr(dot + 1)));
+                it != struct_templates_.end())
+                return it->second;
+        }
+        return nullptr;
+    }
     bool has_struct_template_pkg(std::string_view pkg, std::string_view base) const noexcept {
         if (pkg.empty()) return false;
         std::string qkey;
@@ -202,6 +220,18 @@ private:
     StrMap<std::pair<TypeRef, int>> needed_struct_insts_;
     StrSet struct_done_;
     StrMap<const lir::LEnumDef*>   enum_templates_;
+    // M2: enum_templates_ is currently bare-keyed only (mono.cpp:192).
+    // The single lookup site (mono_clone.cpp:4048) takes a bare base
+    // extracted from a mangled cname. Helper wraps the direct .find for
+    // call-site symmetry with struct_template helpers; M3 can swap the
+    // backing store without touching the call site.
+    const lir::LEnumDef*
+    find_enum_template_bare(std::string_view base) const noexcept {
+        if (auto it = enum_templates_.find(std::string(base));
+            it != enum_templates_.end())
+            return it->second;
+        return nullptr;
+    }
     StrMap<std::pair<std::vector<TypeRef>, int>> needed_enum_insts_;
     StrSet enum_done_;
     StrSet done_;
@@ -276,6 +306,24 @@ private:
     // mono.cpp / mono_scan.cpp sites that have the guard; mono_clone.cpp
     // :2338 uses an unguarded pkg-first-then-bare pattern and stays on
     // the direct .find for now.
+    // M2: unguarded variant for sites that pass a composite (possibly-
+    // pkg-qualified) string in one argument, or that don't have the
+    // pkg_struct_exists guard for historical reasons (mono_clone.cpp
+    // :2338). Tries the full string first; on miss, if there's a dot
+    // present, retries with the portion after the last dot.
+    const StrMap<const lir::LFunction*>*
+    find_struct_method_templates_unguarded(std::string_view qkey) const noexcept {
+        if (auto it = struct_method_templates_.find(std::string(qkey));
+            it != struct_method_templates_.end())
+            return &it->second;
+        auto dot = qkey.rfind('.');
+        if (dot != std::string_view::npos) {
+            if (auto it = struct_method_templates_.find(std::string(qkey.substr(dot + 1)));
+                it != struct_method_templates_.end())
+                return &it->second;
+        }
+        return nullptr;
+    }
     const StrMap<const lir::LFunction*>*
     find_struct_method_templates_guarded(std::string_view pkg, std::string_view base) const noexcept {
         bool pkg_exists = has_struct_template_pkg(pkg, base);

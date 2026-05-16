@@ -2335,25 +2335,25 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                                 // `[pkg.]<base>__<method>[__g__sig]` (for primitive
                                 // receivers — `impl Sum<i32> for i32` lives there).
                                 const lir::LFunction* tmpl = nullptr;
-                                auto smt_it = struct_method_templates_.end();
-                                if (!struct_pkg.empty())
-                                    smt_it = struct_method_templates_.find(
-                                        struct_pkg + "." + struct_base);
-                                if (smt_it == struct_method_templates_.end())
-                                    smt_it = struct_method_templates_.find(struct_base);
-                                if (smt_it != struct_method_templates_.end()) {
-                                    auto mit = smt_it->second.find(method_name);
-                                    if (mit == smt_it->second.end()) {
-                                        for (auto& [k, fp] : smt_it->second) {
+                                // M2: unguarded pkg-first-then-bare via the
+                                // composite-key helper (build the qkey here).
+                                std::string smt_qkey = struct_pkg.empty()
+                                    ? struct_base
+                                    : (struct_pkg + "." + struct_base);
+                                auto* smt_inner = find_struct_method_templates_unguarded(smt_qkey);
+                                if (smt_inner) {
+                                    auto mit = smt_inner->find(method_name);
+                                    if (mit == smt_inner->end()) {
+                                        for (auto& [k, fp] : *smt_inner) {
                                             if (k.size() > method_name.size() + 5 &&
                                                 k.compare(0, method_name.size(), method_name) == 0 &&
                                                 k.compare(method_name.size(), 5, "__g__") == 0) {
-                                                mit = smt_it->second.find(k);
+                                                mit = smt_inner->find(k);
                                                 break;
                                             }
                                         }
                                     }
-                                    if (mit != smt_it->second.end())
+                                    if (mit != smt_inner->end())
                                         tmpl = mit->second;
                                 }
                                 if (!tmpl) {
@@ -2445,8 +2445,8 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 if (sep != std::string::npos) {
                     std::string struct_part = nc.callee.substr(0, sep);
                     std::string method_part = nc.callee.substr(sep);
-                    auto sit = struct_templates_.find(struct_part);
-                    if (sit != struct_templates_.end()) {
+                    auto* sit_ptr = find_struct_template_unguarded(struct_part);
+                    if (sit_ptr) {
                         bool all_concrete = true;
                         for (auto ta : nc.type_args)
                             if (ta && TypeRef(ta).kind() == LogosType::Kind::TypeVar)
@@ -2460,7 +2460,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         // this guard, `Wrap<T>::make_box<U>` calls land
                         // at a receiver-only spec with `U` still TypeVar
                         // in the body.
-                        size_t n_impl_tp = sit->second->type_params.size();
+                        size_t n_impl_tp = sit_ptr->type_params.size();
                         bool has_method_level_tail =
                             nc.type_args.size() > n_impl_tp;
                         if (all_concrete && !has_method_level_tail) {
@@ -4045,9 +4045,8 @@ void Mono::instantiate_enum_templates() {
             std::string base = cname;
             auto pos = base.find("__");
             if (pos != std::string::npos) base = base.substr(0, pos);
-            auto tit = enum_templates_.find(base);
-            if (tit == enum_templates_.end()) continue;
-            auto* tmpl = tit->second;
+            auto* tmpl = find_enum_template_bare(base);
+            if (!tmpl) continue;
             // Build substitution map and packs
             SubstMap subst;
             PackMap packs;
