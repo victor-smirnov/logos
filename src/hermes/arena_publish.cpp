@@ -8,7 +8,9 @@
 #include <logos/hermes/access.hpp>
 #include <logos/hermes/any_val.hpp>
 #include <logos/hermes/arena_string.hpp>
+#include <logos/hermes/external_ref.hpp>
 #include <logos/hermes/lir_arena_root.hpp>
+#include <logos/hermes/mem_holder.hpp>
 #include <logos/hermes/object_array.hpp>
 #include <logos/hermes/tiny_object_map.hpp>
 #include <logos/hermes/type_registry.hpp>
@@ -138,6 +140,49 @@ register_lir_arena(Hermes& doc, ArenaPool& pool) noexcept
     }
 
     return pool.register_module(doc.holder(), std::move(name), std::move(deps));
+}
+
+// ── Phase 2.A: ExternalRef resolution via ArenaPool dispatch ────────────
+//
+// Walks: arena_id → MemHolder → LirArenaRoot → directory → obj_id slot.
+// 3 indirections per docs/internals/multi-arena-ir.md §3.1. All steps
+// degenerate to "arena not registered" / "obj_id out of bounds" failures
+// that return ok()=false (no UB).
+
+ExternalRefResolved resolve_external_ref(
+    const ExternalRef& ref,
+    ArenaPool&         pool) noexcept
+{
+    ExternalRefResolved fail{nullptr, arena_offset_t{}};
+
+    auto aid = ref.arena_id();
+    if (!aid.is_valid()) return fail;
+    uint32_t oid = ref.obj_id();
+    if (oid == 0) return fail;  // invariant #13: obj_id 0 is INVALID
+
+    auto* mem = pool.get(aid);
+    if (!mem) return fail;
+
+    // Walk LirArenaRoot → DIRECTORY.
+    auto* hdr = reinterpret_cast<const DocumentHeader*>(mem->base());
+    if (hdr->root_offset == NULL_OFFSET) return fail;
+
+    auto* root_tom = reinterpret_cast<const TinyObjectMap*>(
+        mem->base() + hdr->root_offset.value());
+    if (root_tom->schema_type_code() != type_hash::LirArenaRoot) return fail;
+
+    auto dir_av = root_tom->get(lir_arena_root::DIRECTORY.code, mem->base());
+    if (dir_av.is_null() || !dir_av.is_pointer()) return fail;
+
+    auto* dir_arr = reinterpret_cast<const ObjectArray*>(
+        mem->base() + dir_av.to_offset().value());
+    if (oid >= dir_arr->size()) return fail;
+
+    auto target_av = const_cast<ObjectArray*>(dir_arr)->get(
+        oid, const_cast<uint8_t*>(mem->base()));
+    if (target_av.is_null() || !target_av.is_pointer()) return fail;
+
+    return ExternalRefResolved{mem, target_av.to_offset()};
 }
 
 } // namespace logos::hermes

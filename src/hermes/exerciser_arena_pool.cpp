@@ -510,6 +510,116 @@ static void test_register_lir_arena_dep_chain() {
     std::printf("  PASS\n");
 }
 
+// ---------------------------------------------------------------------------
+// Phase 2.A: cross-arena resolution helpers
+// ---------------------------------------------------------------------------
+
+static void test_cross_arena_resolve() {
+    std::printf("--- cross-arena ExternalRef resolution via ArenaPool ---\n");
+
+    InMemoryArenaPool pool;
+
+    // Build provider arena ("coremeta"): allocate 2 ExternalRef payload
+    // objects + publish them so they have obj_ids.
+    auto provider = make_doc(4096).get();
+    auto pb = lir_arena_root_begin(provider, "coremeta", {}).get();
+    auto& parena = HermesAccess::arena(pb.doc);
+
+    // Target objects — use ExternalRef instances themselves as test payload
+    // (we're testing the resolve mechanism, not what's pointed at).
+    auto* t1 = arena_put<ExternalRef>(parena,
+        ExternalRef::make(arena_id_t{0}, 0xAAAA)).get();
+    auto* t2 = arena_put<ExternalRef>(parena,
+        ExternalRef::make(arena_id_t{0}, 0xBBBB)).get();
+
+    auto oid_t1 = arena_publish(pb,
+        AnyVal::from_offset(HermesAccess::offset_of(pb.doc, t1))).get();
+    auto oid_t2 = arena_publish(pb,
+        AnyVal::from_offset(HermesAccess::offset_of(pb.doc, t2))).get();
+
+    lir_arena_root_finalize(pb).get();
+    auto provider_handle = register_lir_arena(provider, pool).get();
+    auto provider_aid = provider_handle.arena_id;
+
+    // Build consumer arena: contains ExternalRefs pointing INTO provider.
+    auto consumer = make_doc(4096).get();
+    auto& carena = HermesAccess::arena(consumer);
+
+    auto* cross1 = arena_put<ExternalRef>(carena,
+        ExternalRef::make(provider_aid, oid_t1)).get();
+    auto* cross2 = arena_put<ExternalRef>(carena,
+        ExternalRef::make(provider_aid, oid_t2)).get();
+
+    // Direct resolve via API.
+    {
+        auto r1 = resolve_external_ref(*cross1, pool);
+        LOGOS_ASSERT(r1.ok(), "RESOLVE-001",
+            "cross1 must resolve (provider registered, oid valid)");
+        LOGOS_ASSERT(r1.mem == provider.holder(), "RESOLVE-002",
+            "resolved mem must be provider's MemHolder");
+
+        auto* target_obj = reinterpret_cast<const ExternalRef*>(
+            r1.mem->base() + r1.offset.value());
+        LOGOS_ASSERT(target_obj->obj_id() == 0xAAAA, "RESOLVE-003",
+            "resolved obj_id must be 0xAAAA, got 0x{:x}", target_obj->obj_id());
+    }
+    {
+        auto r2 = resolve_external_ref(*cross2, pool);
+        LOGOS_ASSERT(r2.ok(), "RESOLVE-004", "cross2 must resolve");
+        auto* target_obj = reinterpret_cast<const ExternalRef*>(
+            r2.mem->base() + r2.offset.value());
+        LOGOS_ASSERT(target_obj->obj_id() == 0xBBBB, "RESOLVE-005",
+            "resolved obj_id must be 0xBBBB");
+    }
+
+    // Failure modes.
+    {
+        auto bad_aid = ExternalRef::make(arena_id_t{0xDEAD}, 1);
+        auto rb = resolve_external_ref(bad_aid, pool);
+        LOGOS_ASSERT(!rb.ok(), "RESOLVE-FAIL-001",
+            "unknown arena_id must fail to resolve");
+    }
+    {
+        auto bad_oid = ExternalRef::make(provider_aid, 0xDEAD);
+        auto rb = resolve_external_ref(bad_oid, pool);
+        LOGOS_ASSERT(!rb.ok(), "RESOLVE-FAIL-002",
+            "out-of-range obj_id must fail to resolve");
+    }
+    {
+        auto null_oid = ExternalRef::make(provider_aid, 0);
+        auto rb = resolve_external_ref(null_oid, pool);
+        LOGOS_ASSERT(!rb.ok(), "RESOLVE-FAIL-003",
+            "obj_id 0 (invariant #13: invalid sentinel) must fail to resolve");
+    }
+
+    // Detection + resolve-if-external on a generic AnyVal.
+    {
+        auto av_cross = AnyVal::from_offset(HermesAccess::offset_of(consumer, cross1));
+        LOGOS_ASSERT(is_external_ref_av(av_cross, HermesAccess::base(consumer)),
+            "RESOLVE-DETECT-001", "is_external_ref_av(cross1) should be true");
+
+        auto opt = resolve_if_external(av_cross, HermesAccess::base(consumer), pool);
+        LOGOS_ASSERT(opt.has_value(), "RESOLVE-DETECT-002",
+            "resolve_if_external should succeed for cross1");
+    }
+    {
+        // A non-ExternalRef object: e.g., the LirArenaRoot map itself.
+        auto av_root = AnyVal::from_offset(arena_offset_t{
+            reinterpret_cast<const DocumentHeader*>(
+                HermesAccess::base(consumer))->root_offset});
+        // Consumer has no root, so this is NULL — should not be detected.
+        LOGOS_ASSERT(!is_external_ref_av(av_root, HermesAccess::base(consumer)),
+            "RESOLVE-DETECT-003",
+            "is_external_ref_av on non-pointer / null should be false");
+        LOGOS_ASSERT(!resolve_if_external(av_root, HermesAccess::base(consumer), pool)
+                        .has_value(),
+            "RESOLVE-DETECT-004",
+            "resolve_if_external on non-ExternalRef should return nullopt");
+    }
+
+    std::printf("  PASS\n");
+}
+
 int main() {
     // Phase 0 tests (ArenaPool).
     test_register_lookup_drop();
@@ -527,6 +637,9 @@ int main() {
     test_publish_helpers();
     test_register_lir_arena_dep_chain();
 
-    std::printf("All ArenaPool + Phase 1.A/1.B tests passed\n");
+    // Phase 2.A tests (cross-arena resolve).
+    test_cross_arena_resolve();
+
+    std::printf("All ArenaPool + Phase 1.A/1.B + 2.A tests passed\n");
     return 0;
 }

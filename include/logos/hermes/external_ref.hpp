@@ -22,7 +22,10 @@
 
 #include <cstdint>
 #include <cstring>
+#include <optional>
 #include <logos/hermes/arena_pool.hpp>   // arena_id_t
+#include <logos/hermes/any_val.hpp>      // AnyVal
+#include <logos/hermes/type_tag.hpp>     // TypeTag (for is_external_ref_av)
 #include <logos/hermes/type_registry.hpp> // TypeTraits
 
 namespace logos::hermes {
@@ -96,5 +99,59 @@ template <> struct TypeTraits<ExternalRef> {
     static constexpr bool          embeddable  = false;
     static constexpr TagDescriptor descriptor  = TagDescriptor::Data;
 };
+
+// ── Phase 2.A: detection + resolution helpers ────────────────────────────
+//
+// These let view-layer / consumer code work with ExternalRef WITHOUT yet
+// changing RefBase / TypeRef shape. The full multi-arena refactor of
+// RefBase / TypeRef (Phase 2.B) will use the same helper logic inside
+// sub_expr() / sub_type() etc.
+
+// Quick check: is `av` a pointer-mode AnyVal whose target's TypeTag prefix
+// is type_hash::ExternalRef? Returns false for null / value-mode AnyVal /
+// pointer-to-other-type.
+//
+// `base` must be the arena base where `av`'s offset is rooted.
+inline bool is_external_ref_av(AnyVal av, const uint8_t* base) noexcept {
+    if (!av.is_pointer()) return false;
+    auto* obj = base + av.to_offset().value();
+    auto tag = TypeTag::read_before(obj);
+    return tag.type_code() == type_hash::ExternalRef;
+}
+
+// Resolution result: arena (via MemHolder) + offset of the target object
+// within that arena. Caller dereferences as needed via mem->base() + offset.
+struct ExternalRefResolved {
+    MemHolder*             mem;
+    arena_offset_t         offset;
+
+    constexpr bool ok() const noexcept { return mem != nullptr; }
+};
+
+// Resolve via ArenaPool dispatch. See docs/internals/multi-arena-ir.md §3.1
+// for the 3-indirection model (pool index → directory ptr → directory
+// lookup → target offset).
+//
+// Returns ok()=false if arena_id isn't registered in the pool or obj_id is
+// out of range. obj_id 0 is INVALID per invariant #13 → ok()=false.
+ExternalRefResolved resolve_external_ref(
+    const ExternalRef& ref,
+    ArenaPool&         pool = global_arena_pool()) noexcept;
+
+// Convenience: detect + resolve in one go. Returns nullopt if `av` is not
+// a pointer to ExternalRef (use this when walking a generic AnyVal slot
+// and you want "transparent" cross-arena traversal).
+inline std::optional<ExternalRefResolved> resolve_if_external(
+    AnyVal             av,
+    const uint8_t*     base,
+    ArenaPool&         pool = global_arena_pool()) noexcept
+{
+    if (!is_external_ref_av(av, base)) return std::nullopt;
+    auto* ref = reinterpret_cast<const ExternalRef*>(
+        base + av.to_offset().value());
+    auto r = resolve_external_ref(*ref, pool);
+    if (!r.ok()) return std::nullopt;
+    return r;
+}
 
 } // namespace logos::hermes
