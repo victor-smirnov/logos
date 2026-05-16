@@ -627,6 +627,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                 TypeRef(it).kind() == LogosType::Kind::Ref) {
                 auto ret_t = make_ref(true, TypeRef(it).pointee());
                 inner->type = ret_t;
+                lir_mirror_update_type(*cur_prog_, *inner);
                 return inner;
             }
             return builder().addr_of_temp(std::move(inner), true, make_ref(true, it));
@@ -1417,6 +1418,7 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
                 TypeRef(it).kind() == LogosType::Kind::Ref) {
                 auto ret_t = make_ref(false, TypeRef(it).pointee());
                 inner_v->type = ret_t;
+                lir_mirror_update_type(*cur_prog_, *inner_v);
                 return inner_v;
             }
             return builder().addr_of_temp(std::move(inner_v), false, make_ref(false, it));
@@ -4406,6 +4408,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         if (!inside_unsafe_)
             error("method call through raw pointer requires unsafe context");
         recv->type = ptr_recv.pointee();
+        lir_mirror_update_type(*cur_prog_, *recv);
     }
     // &dyn Trait method call: look up trait method, emit EMethodCall with vtable dispatch.
     if (TypeRef rt(recv->type); rt && rt.kind() == LogosType::Kind::TraitObject) {
@@ -12214,6 +12217,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
         // bytes into a static blob, so user code consumes HermesStatic.
         if (rt_is_hermes && lowered) {
             lowered->type = make_struct_type("HermesStatic");
+            lir_mirror_update_type(*cur_prog_, *lowered);
         }
     }
 

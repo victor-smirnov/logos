@@ -314,29 +314,28 @@ lir::Pattern Mono::subst_pattern(lir_view::PatRef pref, const SubstMap& s) {
     return w.walk(pref);
 }
 
-lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
+lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                           const PackMap& /*unused*/) {
     // packs are stored in cur_packs_ (set by clone_fn)
-    auto* result = lir::alloc_expr(out_);
-    result->type = subst_type(e.type, s);
-
-    // Stage 3g.4b: every LExpr reaching mono is mirrored — sema's LirBuilder
-    // emits per-node, and lir_mirror_emit_into runs once at end of sema. The
-    // view switch handles all 41 expr Codes; no std::visit fallback remains.
-    auto eref = expr_ref_of(e);
     if (!eref) {
         std::fprintf(stderr,
-            "mono.subst_expr: input LExpr lacks mirror_offset_\n");
+            "mono.subst_expr: input ExprRef is null\n");
         std::abort();
     }
+    auto* result = lir::alloc_expr(out_);
+    // Phase 5.B: read type from the mirror via the view. Sema keeps mirror's
+    // TYPE in sync with C++ LExpr.type via lir_mirror_update_type at the 5
+    // post-construction sites (sema_stmt:1244, sema_expr:629/1419/4408/12216).
+    // View-based read works for local refs AND for cross-arena refs (where
+    // there is no local LExpr to dereference at all).
+    result->type = subst_type(eref.type(out_.type_pool.impl()), s);
+
     {
         auto subst_child_expr = [&](lir_view::ExprRef er) -> lir::LExprPtr {
-            auto* le = lexpr_of(er);
-            return le ? subst_expr(*le, s) : nullptr;
+            return er ? subst_expr(er, s) : nullptr;
         };
         auto subst_child_block = [&](lir_view::BlockRef br) -> lir::LBlock {
-            auto* lb = lblock_of(br);
-            return lb ? subst_block(*lb, s) : lir::LBlock{};
+            return br ? subst_block(br, s) : lir::LBlock{};
         };
         using C = lir_schema::expr::Code;
         switch (eref.kind()) {
@@ -391,7 +390,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                             // splice its mirror_offset_ + type into `result` so
                             // the surrounding clone-loop sees a well-formed node.
                             SubstMap empty;
-                            auto cloned = subst_expr(*rit->second, empty);
+                            auto cloned = subst_expr(expr_ref_of(*rit->second), empty);
                             if (cloned) {
                                 result->mirror_offset_ = cloned->mirror_offset_;
                                 result->type           = cloned->type;
@@ -2940,25 +2939,22 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
     return lir::Pattern{};
 }
 
-lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
+lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
     // Returns LStmt with mirror_offset_=0 by design. Caller (instantiate_fn /
     // clone_struct_def) bulk-emits via lir_mirror_emit_function only after the
     // owning LFunction reaches a heap-stable address (unique_ptr) and its
     // body's stmt-vector buffers stop reallocating. See the call sites in
     // the worklist drain and per-method emit loop for the full rationale.
     lir::LStmt ns;
-    ns.line = st.line;
-
-    auto sref = stmt_ref_of(st);
-    if (!sref) return ns;  // mirror miss — defensive
+    if (!sref) return ns;  // null source — defensive
+    // Phase 5.B: read line from the mirror via the view (cross-arena safe).
+    ns.line = lir_view::stmt_line(sref);
 
     auto subst_child_expr = [&](lir_view::ExprRef er) -> lir::LExprPtr {
-        auto* le = lexpr_of(er);
-        return le ? subst_expr(*le, s) : nullptr;
+        return er ? subst_expr(er, s) : nullptr;
     };
     auto subst_child_block = [&](lir_view::BlockRef br) -> lir::LBlock {
-        auto* lb = lblock_of(br);
-        return lb ? subst_block(*lb, s) : lir::LBlock{};
+        return br ? subst_block(br, s) : lir::LBlock{};
     };
 
     using SCode = lir_schema::stmt::Code;
@@ -3300,7 +3296,31 @@ lir::LFunction Mono::clone_fn(const lir::LFunction& fn, const SubstMap& s,
             nf.params.push_back({p.name, subst_type(p.type, s)});
         }
     }
-    nf.body = subst_block(fn.body, s, packs);
+    // Phase 5.B step 2: cross-arena body source. When sema skipped this fn's
+    // body (Phase 4.A — non-generic from_binary; Phase 5.B step 3 also
+    // skips generic templates from binary), body_external_ref points at the
+    // body's mirror in a foreign arena (stdlib's published EXPORTS). Resolve
+    // it, set src_arena_ for the duration of the walk so view helpers route
+    // refs through the foreign arena, then restore.
+    //
+    // Falls back to the local body_ref when body_external_ref is INVALID
+    // (the legacy path: body was lowered locally by this run's sema).
+    lir_view::BlockRef src_body;
+    const hermes::Arena* saved_src_arena = src_arena_;
+    if (fn.body_external_ref.arena_id().is_valid()) {
+        auto resolved = hermes::resolve_external_ref(fn.body_external_ref);
+        if (resolved.ok()) {
+            src_arena_ = &resolved.mem->arena();
+            src_body = lir_view::BlockRef(
+                src_arena_, resolved.offset,
+                fn.body_external_ref.arena_id());
+        }
+    }
+    if (!src_body) {
+        src_body = block_ref_of(fn.body);
+    }
+    nf.body = subst_block(src_body, s, packs);
+    src_arena_ = saved_src_arena;
     // type_params left empty: instantiated functions are monomorphic
     return nf;
 }

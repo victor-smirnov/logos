@@ -2180,4 +2180,32 @@ hermes::arena_offset_t lir_mirror_emit_hv_node(lir::LProgram& prog, const lir::H
     return em.emit_hv_public(v);
 }
 
+void lir_mirror_update_type(lir::LProgram& prog, const lir::LExpr& e) {
+    // Phase 5.B step 2 prerequisite: sema modifies LExpr.type AFTER initial
+    // mirror emit at 5 sites (sema_stmt:1244, sema_expr:629/1419/4408/12216).
+    // Overwrite the mirror's TYPE field in-place so view-based readers
+    // (mlir_gen, borrow_check, mono_scan, region_infer, mono cross-arena
+    // subst_expr) observe the post-construction type.
+    //
+    // TinyObjectMap::put for an existing key is in-place (no arena grow),
+    // so this is cheap and safe to call repeatedly.
+    if (e.mirror_offset_ == hermes::arena_offset_t{}) return;
+    auto& arena = prog.type_pool.arena_or_init();
+    auto* base = arena.head().data();
+    auto* tom = reinterpret_cast<hermes::TinyObjectMap*>(
+                    base + e.mirror_offset_.value());
+    auto av = e.type
+              ? hermes::AnyVal::from_offset(e.type.offset())
+              : hermes::AnyVal{};
+    // Ignore put() error: TYPE key was already present when the mirror
+    // was first emitted (every emit_*_direct that gets a non-null ty
+    // writes the TYPE key), so this is an in-place overwrite that
+    // cannot OOM. If TYPE was absent (e.g. construction-time ty was
+    // null), put() may need to grow the TinyObjectMap; in that case
+    // it returns error but we have nothing useful to do — the original
+    // mirror just stays with no TYPE key, same as it was before this
+    // helper was called. Either way, observable state is consistent.
+    (void) tom->put(lir_schema::expr_common::TYPE.code, av, arena);
+}
+
 } // namespace logos::compiler

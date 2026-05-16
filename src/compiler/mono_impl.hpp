@@ -532,15 +532,25 @@ public:
 private:
 
     // ── Expression/statement cloning (large — defined in mono_clone.cpp) ─
-    lir::LExprPtr subst_expr(const lir::LExpr& e, const SubstMap& s,
+    // Phase 5.B: signatures take view refs (ExprRef/StmtRef/BlockRef) instead
+    // of C++ LExpr/LStmt/LBlock — so the body walk works both for local
+    // bodies AND for cross-arena bodies (BlockRef constructed from a
+    // body_external_ref resolution into a foreign arena's mirror). The view-
+    // based path doesn't depend on in_.mirror_table for the source side.
+    // Requires sema to keep mirror's TYPE field in sync with C++ LExpr.type
+    // — see lir_mirror_update_type call sites for the 5 post-construction
+    // type modifications.
+    lir::LExprPtr subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                               const PackMap& /*unused*/ = {});
-    lir::LStmt    subst_stmt(const lir::LStmt& st, const SubstMap& s);
+    lir::LStmt    subst_stmt(lir_view::StmtRef sref, const SubstMap& s);
 
-    lir::LBlock subst_block(const lir::LBlock& b, const SubstMap& s,
+    lir::LBlock subst_block(lir_view::BlockRef bref, const SubstMap& s,
                              const PackMap& /*unused*/ = {}) {
         lir::LBlock nb;
-        for (auto& st : b.stmts)
-            nb.stmts.push_back(subst_stmt(st, s));
+        if (!bref) return nb;
+        bref.each_stmt([&](lir_view::StmtRef sref) {
+            nb.stmts.push_back(subst_stmt(sref, s));
+        });
         return nb;
     }
 

@@ -1241,7 +1241,10 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         is_exprblob(rhs_type);
     if (rhs_is_expr_blob && ann != nullptr) {
         rhs_type = ann;
-        if (rhs) rhs->type = ann;
+        if (rhs) {
+            rhs->type = ann;
+            lir_mirror_update_type(*cur_prog_, *rhs);
+        }
     }
     if (rhs && ann != nullptr) {
         // impl Trait annotation: any concrete struct/class that was returned from an

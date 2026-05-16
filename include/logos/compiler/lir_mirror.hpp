@@ -221,4 +221,15 @@ hermes::arena_offset_t lir_mirror_emit_block_node(lir::LProgram& prog, const lir
 hermes::arena_offset_t lir_mirror_emit_pat_node  (lir::LProgram& prog, const lir::Pattern&   p);
 hermes::arena_offset_t lir_mirror_emit_hv_node   (lir::LProgram& prog, const lir::HermesVal& v);
 
+// Phase 5.B step 2 prerequisite: when sema modifies LExpr.type AFTER the
+// LExpr has been mirrored (e.g. sema_expr.cpp:629 `inner->type = ret_t;`),
+// the mirror's TYPE field becomes stale. Call this helper to overwrite the
+// TYPE field in-place. Required for view-based readers (mono subst_expr
+// cross-arena path, mlir_gen, borrow_check, mono_scan, region_infer) to
+// see the post-construction type rather than the construction-time type.
+//
+// No-op when e.mirror_offset_ is 0 (the LExpr was never mirrored — sema
+// path that builds without mirroring).
+void lir_mirror_update_type(lir::LProgram& prog, const lir::LExpr& e);
+
 } // namespace logos::compiler
