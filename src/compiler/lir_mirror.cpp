@@ -50,6 +50,12 @@ namespace pdk = lir_schema::ptrdiff_keys;
 class LirMirrorEmitter {
     hermes::Arena&  arena_;
     LirMirrorTable& table_;
+    // Phase 5.B step 3: optional pool ref used by type_av to intern foreign
+    // TypeRefs before writing their offsets into mirrors. Set by the public
+    // wrappers (which have prog.type_pool in hand). Older internal callers
+    // (variant walk on local prog) leave it null — in those paths every
+    // TypeRef is already local so the check is a no-op anyway.
+    TypePool*       pool_ = nullptr;
     // Dry-run mode: when true, make_map / make_array / put / array_push are
     // no-ops. Used to back-fill the table's reverse-lookup maps for nodes that
     // were already mirrored under a different table (e.g. carried over via
@@ -59,6 +65,8 @@ class LirMirrorEmitter {
 
 public:
     LirMirrorEmitter(hermes::Arena& a, LirMirrorTable& t) : arena_(a), table_(t) {}
+    LirMirrorEmitter(hermes::Arena& a, LirMirrorTable& t, TypePool& p)
+        : arena_(a), table_(t), pool_(&p) {}
 
     void run(lir::LProgram& prog);
 
@@ -1140,6 +1148,11 @@ private:
 
     hermes::AnyVal type_av(TypeRef t) {
         if (!t) return hermes::AnyVal{};
+        // Phase 5.B step 3: foreign TypeRef → intern into local pool before
+        // taking its offset. The mirror's TYPE field is interpreted in the
+        // local arena, so a foreign offset here would read garbage later.
+        // is_external() is a single uint32 compare on the hot local path.
+        if (pool_ && t.is_external()) t = pool_->intern_foreign(t);
         return hermes::AnyVal::from_offset(t.offset());
     }
 
@@ -1641,7 +1654,7 @@ namespace logos::compiler {
 LirMirrorTable lir_mirror_emit(lir::LProgram& prog) {
     LirMirrorTable table;
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, table);
+    LirMirrorEmitter em(arena, table, prog.type_pool);
     em.run(prog);
     return table;
 }
@@ -1650,463 +1663,463 @@ void lir_mirror_emit_function(lir::LProgram& prog,
                               LirMirrorTable& table,
                               lir::LFunction& fn) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, table);
+    LirMirrorEmitter em(arena, table, prog.type_pool);
     em.emit_function(fn);
 }
 
 void lir_mirror_emit_into(lir::LProgram& prog, LirMirrorTable& table) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, table);
+    LirMirrorEmitter em(arena, table, prog.type_pool);
     em.run(prog);
 }
 
 hermes::arena_offset_t lir_mirror_emit_lit_bool(lir::LProgram& prog, TypeRef ty, bool v) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_lit_bool_direct(ty, v);
 }
 hermes::arena_offset_t lir_mirror_emit_lit_int(lir::LProgram& prog, TypeRef ty, int64_t v) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_lit_int_direct(ty, v);
 }
 hermes::arena_offset_t lir_mirror_emit_lit_float(lir::LProgram& prog, TypeRef ty, double v) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_lit_float_direct(ty, v);
 }
 hermes::arena_offset_t lir_mirror_emit_lit_str(lir::LProgram& prog, TypeRef ty, std::string_view v) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_lit_str_direct(ty, v);
 }
 hermes::arena_offset_t lir_mirror_emit_var_ref(lir::LProgram& prog, TypeRef ty, std::string_view name) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_var_ref_direct(ty, name);
 }
 hermes::arena_offset_t lir_mirror_emit_addr_of(lir::LProgram& prog, TypeRef ty, std::string_view var_name) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_addr_of_direct(ty, var_name);
 }
 hermes::arena_offset_t lir_mirror_emit_pack_expand(lir::LProgram& prog, TypeRef ty, std::string_view var_name) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_pack_expand_direct(ty, var_name);
 }
 hermes::arena_offset_t lir_mirror_emit_size_of(lir::LProgram& prog, TypeRef ty, TypeRef elem) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_size_of_direct(ty, elem);
 }
 hermes::arena_offset_t lir_mirror_emit_align_of(lir::LProgram& prog, TypeRef ty, TypeRef elem) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_align_of_direct(ty, elem);
 }
 hermes::arena_offset_t lir_mirror_emit_generic_ref(lir::LProgram& prog, TypeRef ty,
                                                     std::string_view name,
                                                     const std::vector<TypeRef>& type_args) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_generic_ref_direct(ty, name, type_args);
 }
 hermes::arena_offset_t lir_mirror_emit_type_code_of(lir::LProgram& prog, TypeRef ty, TypeRef elem) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_type_code_of_direct(ty, elem);
 }
 hermes::arena_offset_t lir_mirror_emit_reflect_of(lir::LProgram& prog, TypeRef ty, TypeRef elem) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_reflect_of_direct(ty, elem);
 }
 
 hermes::arena_offset_t lir_mirror_emit_enum_lit(lir::LProgram& prog, TypeRef ty, std::string_view enum_name, std::string_view variant, int64_t disc) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_enum_lit_direct(ty, enum_name, variant, disc);
 }
 hermes::arena_offset_t lir_mirror_emit_enum_lit_data(lir::LProgram& prog, TypeRef ty, std::string_view enum_name, std::string_view variant, int64_t disc, const std::vector<lir::LExprPtr>& payload) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_enum_lit_data_direct(ty, enum_name, variant, disc, payload);
 }
 hermes::arena_offset_t lir_mirror_emit_struct_lit(lir::LProgram& prog, TypeRef ty, std::string_view name, const std::vector<std::pair<std::string, lir::LExprPtr>>& fields) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_struct_lit_direct(ty, name, fields);
 }
 hermes::arena_offset_t lir_mirror_emit_call(lir::LProgram& prog, TypeRef ty, std::string_view callee, const std::vector<TypeRef>& type_args, const std::vector<lir::LExprPtr>& args) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_call_direct(ty, callee, type_args, args);
 }
 hermes::arena_offset_t lir_mirror_emit_method_call(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& receiver, std::string_view method, std::string_view resolved_symbol, const std::vector<TypeRef>& type_args, const std::vector<lir::LExprPtr>& args, int32_t vtable_index, std::string_view resolved_type, std::string_view tag_system, std::string_view tag_trait) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_method_call_direct(ty, receiver, method, resolved_symbol, type_args, args, vtable_index, resolved_type, tag_system, tag_trait);
 }
 hermes::arena_offset_t lir_mirror_emit_unary(lir::LProgram& prog, TypeRef ty, std::string_view op, const lir::LExprPtr& operand) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_unary_direct(ty, op, operand);
 }
 hermes::arena_offset_t lir_mirror_emit_bin_op(lir::LProgram& prog, TypeRef ty, std::string_view op, const lir::LExprPtr& lhs, const lir::LExprPtr& rhs) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_bin_op_direct(ty, op, lhs, rhs);
 }
 hermes::arena_offset_t lir_mirror_emit_field_read(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& receiver, std::string_view field) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_field_read_direct(ty, receiver, field);
 }
 hermes::arena_offset_t lir_mirror_emit_index_read(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& receiver, const lir::LExprPtr& index) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_index_read_direct(ty, receiver, index);
 }
 hermes::arena_offset_t lir_mirror_emit_hermes_lit(lir::LProgram& prog, TypeRef ty, const lir::HermesValPtr& root, bool has_captures, const std::vector<lir::LExprPtr>& capture_exprs, const std::vector<TypeRef>& capture_types, uint32_t capture_param_count, std::string_view static_blob) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_hermes_lit_direct(ty, root, has_captures, capture_exprs, capture_types, capture_param_count, static_blob);
 }
 hermes::arena_offset_t lir_mirror_emit_deref(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& operand) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_deref_direct(ty, operand);
 }
 hermes::arena_offset_t lir_mirror_emit_cast(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& operand, std::string_view hermes_build_fn) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_cast_direct(ty, operand, hermes_build_fn);
 }
 hermes::arena_offset_t lir_mirror_emit_try(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& inner, int32_t ok_disc, int32_t err_disc) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_try_direct(ty, inner, ok_disc, err_disc);
 }
 hermes::arena_offset_t lir_mirror_emit_slice_lit(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& base, const lir::LExprPtr& len) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_slice_lit_direct(ty, base, len);
 }
 hermes::arena_offset_t lir_mirror_emit_slice_index(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& slice, const lir::LExprPtr& index) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_slice_index_direct(ty, slice, index);
 }
 hermes::arena_offset_t lir_mirror_emit_slice_len(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& slice) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_slice_len_direct(ty, slice);
 }
 hermes::arena_offset_t lir_mirror_emit_slice_ptr(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& slice) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_slice_ptr_direct(ty, slice);
 }
 hermes::arena_offset_t lir_mirror_emit_addr_of_temp(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& inner, bool is_mut) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_addr_of_temp_direct(ty, inner, is_mut);
 }
 hermes::arena_offset_t lir_mirror_emit_ptr_arith(lir::LProgram& prog, TypeRef ty, uint8_t op, const lir::LExprPtr& ptr, const lir::LExprPtr& offset) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_ptr_arith_direct(ty, op, ptr, offset);
 }
 hermes::arena_offset_t lir_mirror_emit_ptr_diff(lir::LProgram& prog, TypeRef ty, bool by_byte, const lir::LExprPtr& lhs, const lir::LExprPtr& rhs) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_ptr_diff_direct(ty, by_byte, lhs, rhs);
 }
 hermes::arena_offset_t lir_mirror_emit_if_expr(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& cond, const lir::LExprPtr& then_val, const lir::LExprPtr& else_val) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_if_expr_direct(ty, cond, then_val, else_val);
 }
 hermes::arena_offset_t lir_mirror_emit_tuple_lit(lir::LProgram& prog, TypeRef ty, const std::vector<lir::LExprPtr>& elems) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_tuple_lit_direct(ty, elems);
 }
 hermes::arena_offset_t lir_mirror_emit_tuple_index(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& receiver, uint32_t index) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_tuple_index_direct(ty, receiver, index);
 }
 hermes::arena_offset_t lir_mirror_emit_arr_lit(lir::LProgram& prog, TypeRef ty, const std::vector<lir::LExprPtr>& elems) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_arr_lit_direct(ty, elems);
 }
 hermes::arena_offset_t lir_mirror_emit_block_expr(lir::LProgram& prog, TypeRef ty, const lir::LBlock* block, const lir::LExprPtr& result) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_block_expr_direct(ty, block, result);
 }
 hermes::arena_offset_t lir_mirror_emit_closure_call(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& callee, const std::vector<lir::LExprPtr>& args) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_closure_call_direct(ty, callee, args);
 }
 hermes::arena_offset_t lir_mirror_emit_fn_ptr_call(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& callee, const std::vector<lir::LExprPtr>& args) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_fn_ptr_call_direct(ty, callee, args);
 }
 hermes::arena_offset_t lir_mirror_emit_match_expr(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& scrut, const std::vector<lir::EMatchArm>& arms) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_match_expr_direct(ty, scrut, arms);
 }
 hermes::arena_offset_t lir_mirror_emit_new(lir::LProgram& prog, TypeRef ty, std::string_view class_name, const std::vector<std::pair<std::string, lir::LExprPtr>>& fields) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_new_direct(ty, class_name, fields);
 }
 hermes::arena_offset_t lir_mirror_emit_format_call(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& fmt, const std::vector<lir::LExprPtr>& args, const std::vector<TypeRef>& arg_types) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_format_call_direct(ty, fmt, args, arg_types);
 }
 hermes::arena_offset_t lir_mirror_emit_closure_box(lir::LProgram& prog, TypeRef ty, const lir::EClosure* inner) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_closure_box_direct(ty, inner);
 }
 
 // ── Stage B.6 — LStmt direct mirror writers ──────────────────────────────
 hermes::arena_offset_t lir_mirror_emit_let(lir::LProgram& prog, uint32_t line, std::string_view name, TypeRef ty, const lir::LExprPtr& value, bool is_mut) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_let_direct(line, name, ty, value, is_mut);
 }
 hermes::arena_offset_t lir_mirror_emit_assign(lir::LProgram& prog, uint32_t line, std::string_view name, const lir::LExprPtr& value) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_assign_direct(line, name, value);
 }
 hermes::arena_offset_t lir_mirror_emit_return(lir::LProgram& prog, uint32_t line, const lir::LExprPtr& value) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_return_direct(line, value);
 }
 hermes::arena_offset_t lir_mirror_emit_if_stmt(lir::LProgram& prog, uint32_t line, const lir::LExprPtr& cond, const lir::LBlock* then_blk, const lir::LBlock* else_blk) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_if_stmt_direct(line, cond, then_blk, else_blk);
 }
 hermes::arena_offset_t lir_mirror_emit_while(lir::LProgram& prog, uint32_t line, const lir::LExprPtr& cond, const lir::LBlock* body, std::string_view label) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_while_direct(line, cond, body, label);
 }
 hermes::arena_offset_t lir_mirror_emit_for(lir::LProgram& prog, uint32_t line, std::string_view var, const lir::LExprPtr& lo, const lir::LExprPtr& hi, bool inclusive, const lir::LBlock* body, std::string_view label) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_for_direct(line, var, lo, hi, inclusive, body, label);
 }
 hermes::arena_offset_t lir_mirror_emit_loop(lir::LProgram& prog, uint32_t line, const lir::LBlock* body, std::string_view label, std::string_view break_slot, TypeRef result_type) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_loop_direct(line, body, label, break_slot, result_type);
 }
 hermes::arena_offset_t lir_mirror_emit_break(lir::LProgram& prog, uint32_t line, const lir::LExprPtr& value, std::string_view label) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_break_direct(line, value, label);
 }
 hermes::arena_offset_t lir_mirror_emit_continue(lir::LProgram& prog, uint32_t line, std::string_view label) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_continue_direct(line, label);
 }
 hermes::arena_offset_t lir_mirror_emit_block_stmt(lir::LProgram& prog, uint32_t line, const lir::LBlock* body) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_block_stmt_direct(line, body);
 }
 hermes::arena_offset_t lir_mirror_emit_field_write(lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view field, const lir::LExprPtr& value) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_field_write_direct(line, receiver, field, value);
 }
 hermes::arena_offset_t lir_mirror_emit_index_write(lir::LProgram& prog, uint32_t line, std::string_view arr, const lir::LExprPtr& index, const lir::LExprPtr& value) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_index_write_direct(line, arr, index, value);
 }
 hermes::arena_offset_t lir_mirror_emit_field_index_write(lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view field, const lir::LExprPtr& index, const lir::LExprPtr& value) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_field_index_write_direct(line, receiver, field, index, value);
 }
 hermes::arena_offset_t lir_mirror_emit_expr_stmt(lir::LProgram& prog, uint32_t line, const lir::LExprPtr& expr) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_expr_stmt_direct(line, expr);
 }
 hermes::arena_offset_t lir_mirror_emit_match_stmt(lir::LProgram& prog, uint32_t line, const lir::LExprPtr& scrut, const std::vector<lir::LMatchArm>& arms) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_match_stmt_direct(line, scrut, arms);
 }
 hermes::arena_offset_t lir_mirror_emit_delete(lir::LProgram& prog, uint32_t line, const lir::LExprPtr& expr) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_delete_direct(line, expr);
 }
 hermes::arena_offset_t lir_mirror_emit_for_each(lir::LProgram& prog, uint32_t line, std::string_view var, const lir::LExprPtr& iter, TypeRef elem_type, int64_t arr_size, bool is_slice, const lir::LBlock* body) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_for_each_direct(line, var, iter, elem_type, arr_size, is_slice, body);
 }
 hermes::arena_offset_t lir_mirror_emit_deref_write(lir::LProgram& prog, uint32_t line, const lir::LExprPtr& ptr, const lir::LExprPtr& value) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_deref_write_direct(line, ptr, value);
 }
 hermes::arena_offset_t lir_mirror_emit_drop(lir::LProgram& prog, uint32_t line, std::string_view var_name, std::string_view drop_fn, TypeRef ty, bool drop_fields, const std::vector<std::string>& moved_fields) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_drop_direct(line, var_name, drop_fn, ty, drop_fields, moved_fields);
 }
 hermes::arena_offset_t lir_mirror_emit_deref_field_write(lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view type_name, std::string_view field, const lir::LExprPtr& value) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_deref_field_write_direct(line, receiver, type_name, field, value);
 }
 hermes::arena_offset_t lir_mirror_emit_tuple_write(lir::LProgram& prog, uint32_t line, std::string_view receiver, uint32_t index, const lir::LExprPtr& value, TypeRef recv_type) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_tuple_write_direct(line, receiver, index, value, recv_type);
 }
 hermes::arena_offset_t lir_mirror_emit_let_else(lir::LProgram& prog, uint32_t line, const lir::Pattern& pat, const lir::LExprPtr& scrut, const lir::LBlock* else_block) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_let_else_direct(line, pat, scrut, else_block);
 }
 hermes::arena_offset_t lir_mirror_emit_chain_field_write(lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view mid_field, const std::vector<std::string>& extras, std::string_view field, const lir::LExprPtr& value) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_chain_field_write_direct(line, receiver, mid_field, extras, field, value);
 }
 
 // ── Stage B.6 — HermesVal direct mirror writers ──────────────────────────
 hermes::arena_offset_t lir_mirror_emit_hv_null(lir::LProgram& prog) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_hv_null_direct();
 }
 hermes::arena_offset_t lir_mirror_emit_hv_bool(lir::LProgram& prog, bool value) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_hv_bool_direct(value);
 }
 hermes::arena_offset_t lir_mirror_emit_hv_int(lir::LProgram& prog, int64_t value) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_hv_int_direct(value);
 }
 hermes::arena_offset_t lir_mirror_emit_hv_float(lir::LProgram& prog, double value) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_hv_float_direct(value);
 }
 hermes::arena_offset_t lir_mirror_emit_hv_str(lir::LProgram& prog, std::string_view value) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_hv_str_direct(value);
 }
 hermes::arena_offset_t lir_mirror_emit_hv_map(lir::LProgram& prog, const std::vector<lir::HVMapEntry>& entries, std::string_view key_type) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_hv_map_direct(entries, key_type);
 }
 hermes::arena_offset_t lir_mirror_emit_hv_array(lir::LProgram& prog, const std::vector<lir::HermesValPtr>& elements, std::string_view elem_type) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_hv_array_direct(elements, elem_type);
 }
 hermes::arena_offset_t lir_mirror_emit_hv_capture(lir::LProgram& prog, uint32_t param_index, uint32_t value_index) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_hv_capture_direct(param_index, value_index);
 }
 hermes::arena_offset_t lir_mirror_emit_hv_type(lir::LProgram& prog, uint32_t kind, uint64_t uid, std::string_view name) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_hv_type_direct(kind, uid, name);
 }
 
 // ── Stage B.6 — Pattern direct mirror writers ────────────────────────────
 hermes::arena_offset_t lir_mirror_emit_pat_variant(lir::LProgram& prog, std::string_view enum_name, std::string_view variant, int64_t disc) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_pat_variant_direct(enum_name, variant, disc);
 }
 hermes::arena_offset_t lir_mirror_emit_pat_int(lir::LProgram& prog, int64_t value) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_pat_int_direct(value);
 }
 hermes::arena_offset_t lir_mirror_emit_pat_bool(lir::LProgram& prog, bool value) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_pat_bool_direct(value);
 }
 hermes::arena_offset_t lir_mirror_emit_pat_wild(lir::LProgram& prog, std::string_view name) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_pat_wild_direct(name);
 }
 hermes::arena_offset_t lir_mirror_emit_pat_variant_data(lir::LProgram& prog, std::string_view enum_name, std::string_view variant, int64_t disc, const std::vector<std::string>& bindings, const std::vector<TypeRef>& binding_types) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_pat_variant_data_direct(enum_name, variant, disc, bindings, binding_types);
 }
 hermes::arena_offset_t lir_mirror_emit_pat_or(lir::LProgram& prog, const std::vector<lir::Pattern>& alts) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_pat_or_direct(alts);
 }
 hermes::arena_offset_t lir_mirror_emit_pat_tuple(lir::LProgram& prog, const std::vector<std::string>& bindings, const std::vector<TypeRef>& binding_types, const std::vector<lir::Pattern>& subs) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_pat_tuple_direct(bindings, binding_types, subs);
 }
 hermes::arena_offset_t lir_mirror_emit_pat_range(lir::LProgram& prog, int64_t lo, int64_t hi) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_pat_range_direct(lo, hi);
 }
 hermes::arena_offset_t lir_mirror_emit_pat_struct(lir::LProgram& prog, std::string_view struct_name, const std::vector<lir::PatFieldBinding>& fields, bool has_rest) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_pat_struct_direct(struct_name, fields, has_rest);
 }
 hermes::arena_offset_t lir_mirror_emit_pat_slice(lir::LProgram& prog, const std::vector<lir::Pattern>& prefix, const std::vector<lir::Pattern>& rest, const std::vector<lir::Pattern>& suffix) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_pat_slice_direct(prefix, rest, suffix);
 }
 hermes::arena_offset_t lir_mirror_emit_pat_at(lir::LProgram& prog, std::string_view name, const std::vector<lir::Pattern>& sub, TypeRef type) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_pat_at_direct(name, sub, type);
 }
 hermes::arena_offset_t lir_mirror_emit_pat_ref_bind(lir::LProgram& prog, std::string_view name, bool is_mut, TypeRef bind_type) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_pat_ref_bind_direct(name, is_mut, bind_type);
 }
 hermes::arena_offset_t lir_mirror_emit_pat_ref_pat(lir::LProgram& prog, const std::vector<lir::Pattern>& inner, bool is_mut) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_pat_ref_pat_direct(inner, is_mut);
 }
 
@@ -2127,7 +2140,7 @@ void lir_mirror_retype_expr(lir::LProgram& prog,
 
 void lir_mirror_populate_moved(lir::LProgram& prog, LirMirrorTable& table) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, table);
+    LirMirrorEmitter em(arena, table, prog.type_pool);
     for (auto& i : prog.impls)
         for (auto& m : i.methods) em.emit_function(*m);
     for (auto& c : prog.consts)
@@ -2156,27 +2169,27 @@ void lir_mirror_populate_moved(lir::LProgram& prog, LirMirrorTable& table) {
 
 hermes::arena_offset_t lir_mirror_emit_expr_node(lir::LProgram& prog, const lir::LExpr& e) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_expr_public(e);
 }
 hermes::arena_offset_t lir_mirror_emit_stmt_node(lir::LProgram& prog, const lir::LStmt& s) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_stmt_public(s);
 }
 hermes::arena_offset_t lir_mirror_emit_block_node(lir::LProgram& prog, const lir::LBlock& b) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_block_public(b);
 }
 hermes::arena_offset_t lir_mirror_emit_pat_node(lir::LProgram& prog, const lir::Pattern& p) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_pat_public(p);
 }
 hermes::arena_offset_t lir_mirror_emit_hv_node(lir::LProgram& prog, const lir::HermesVal& v) {
     auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table);
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_hv_public(v);
 }
 

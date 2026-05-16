@@ -418,6 +418,17 @@ public:
 
     TypeRef alloc(LogosTypeBuilder t);
 
+    // Multi-arena IR Phase 5.B step 3: rebuild a foreign TypeRef inside this
+    // pool. No-op for local refs (returns input unchanged). For foreign
+    // refs, recurses through every child reference and reallocates the
+    // whole type tree locally so the returned TypeRef's offset is
+    // meaningful when later stored in this pool's arena (e.g. via
+    // `AnyVal::from_offset(tr.offset())` in a mirror node's TYPE field).
+    //
+    // Cheap on the hot path: the foreign-check short-circuits to a single
+    // pointer comparison + arena_id_ test for local refs.
+    TypeRef intern_foreign(TypeRef tv);
+
     // Phase 3b: expose the underlying Hermes arena. The compiler's L-IR mirror
     // shares this arena with the type mirror so cross-references (TypeRef
     // offsets stored on L-IR nodes, sub-expression offsets, etc.) all live in

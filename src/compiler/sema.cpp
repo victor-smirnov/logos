@@ -1000,6 +1000,20 @@ TypeRef TypePool::alloc(LogosTypeBuilder t) {
     return impl_->ref(off);
 }
 
+TypeRef TypePool::intern_foreign(TypeRef tv) {
+    if (!tv || !tv.is_external()) return tv;
+    auto b = tv.to_builder();
+    b.pointee     = intern_foreign(b.pointee);
+    b.elem        = intern_foreign(b.elem);
+    b.assoc_base  = intern_foreign(b.assoc_base);
+    b.closure_ret = intern_foreign(b.closure_ret);
+    for (auto& a : b.type_args)      a = intern_foreign(a);
+    for (auto& e : b.tuple_elems)    e = intern_foreign(e);
+    for (auto& p : b.closure_params) p = intern_foreign(p);
+    for (auto& g : b.gat_args)       g = intern_foreign(g);
+    return alloc(std::move(b));
+}
+
 // ── TypeRef pointer-valued accessors (Phase 2c.4d.0) ───────────────────────
 //
 // These cross-check the mirror's AnyVal pointee offset against the source

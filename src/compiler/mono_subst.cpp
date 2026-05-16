@@ -6,36 +6,25 @@
 
 namespace logos::compiler {
 
-// Phase 5.B step 3: bring a possibly-foreign TypeRef into out_.type_pool.
-// Local TypeRefs short-circuit. For foreign TypeRefs we rebuild via
-// to_builder + recurse on every child reference so the resulting LogosType
-// (and every type it transitively references) lives in the local pool.
-//
-// Without this, subst_type's `return tv` short-circuits (e.g. Struct with
-// no type-arg substitutions) would let a foreign offset escape into the
-// local LIR mirror's TYPE field, which then reads garbage when the mirror
-// is later interpreted in the local arena.
+// Phase 5.B step 3: thin wrapper around TypePool::intern_foreign so all
+// "pull a foreign TypeRef into our local pool" calls have a uniform name
+// at the call site. Recursion lives on TypePool itself (so non-Mono
+// callers — notably lir_mirror's type_av — can use it without threading
+// Mono through every emit boundary).
 TypeRef Mono::localize_type(TypeRef tv) noexcept {
-    if (!tv || !tv.is_external()) return tv;
-    auto b = tv.to_builder();
-    b.pointee     = localize_type(b.pointee);
-    b.elem        = localize_type(b.elem);
-    b.assoc_base  = localize_type(b.assoc_base);
-    b.closure_ret = localize_type(b.closure_ret);
-    for (auto& a : b.type_args)      a = localize_type(a);
-    for (auto& e : b.tuple_elems)    e = localize_type(e);
-    for (auto& p : b.closure_params) p = localize_type(p);
-    for (auto& g : b.gat_args)       g = localize_type(g);
-    return out_.type_pool.alloc(std::move(b));
+    return out_.type_pool.intern_foreign(tv);
 }
 
 TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
     if (!tv) return tv;
-    // Phase 5.B step 3: ensure all subst_type work operates on local types.
-    // Cross-arena body walks hand us foreign TypeRefs via lir_view reads;
-    // localize at the boundary so every `return tv` / `return out_.alloc(...)`
-    // below produces a local-pool offset suitable for writing into mirrors.
-    if (tv.is_external()) tv = localize_type(tv);
+    // Phase 5.B step 3 NOTE: deliberately NO eager localize here. Eager
+    // localize eats >1s on iterator-heavy compiles because every
+    // recursive subst_type call would deep-copy types that are then
+    // either thrown away or re-substituted. Foreign offsets are caught
+    // at the write boundary instead: lir_mirror's type_av calls
+    // intern_foreign so anything stored into a local mirror's TYPE
+    // field is local by construction. Reads through foreign TypeRefs
+    // are safe — lir_view's accessors are cross-arena-aware.
     if (tv.kind() == LogosType::Kind::TypeVar || tv.kind() == LogosType::Kind::ConstVar) {
         auto it = s.find(std::string(tv.type_var_name()));
         if (it != s.end()) return it->second;
