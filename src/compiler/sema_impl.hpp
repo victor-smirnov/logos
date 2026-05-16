@@ -134,6 +134,9 @@ public:
         metaprog_mode_ = mode;
         metaprog_entry_ast_idx_ = entry_ast_idx;
     }
+    // Phase 4.A (multi-arena IR): opt into skeleton-only lowering for
+    // non-generic from_binary fns. Set by sema_lower from getenv("LOGOS_SEMA_USE_BLOB").
+    void set_use_blob_skeletons(bool v) { use_blob_skeletons_ = v; }
     void set_metaprog_keep_fns(std::vector<std::string> names) {
         metaprog_keep_fns_ = std::move(names);
     }
@@ -1231,6 +1234,21 @@ private:
     size_t metaprog_entry_ast_idx_  = static_cast<size_t>(-1);
     std::vector<std::string> metaprog_keep_fns_;
     size_t cur_ast_idx_             = static_cast<size_t>(-1);
+
+    // Phase 4.A (multi-arena IR): when true, lower_fn / lower_spec_fn skip
+    // body lowering for non-generic, non-extern, non-spec fns that came
+    // from a binary module (cur_from_binary_=true). The resulting LFunction
+    // has empty body.stmts; mlir_gen already treats from_binary_module fns
+    // as forward-declarations so codegen is unaffected.
+    // Set from getenv("LOGOS_SEMA_USE_BLOB") at sema_lower entry — opt-in.
+    // Phase 4.B will populate body_external_ref via lib export tables;
+    // Phase 4.C wires mono + flips default.
+    bool   use_blob_skeletons_      = false;
+    // Phase 4.A counter: how many fn bodies were skipped via the blob path
+    // in the current run. Surfaced when LOGOS_TRACE_PHASES is set to give
+    // an observability hook for the skip path (otherwise the field would
+    // be silent — only the timing difference would betray it).
+    size_t blob_skip_count_         = 0;
 
     // M5: optional cache for binary-AST sema state, shared across
     // multiple sema_lower invocations in one compile session.

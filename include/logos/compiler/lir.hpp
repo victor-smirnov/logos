@@ -17,6 +17,7 @@
 #include <logos/compiler/sema.hpp>   // LogosType, TypePool, SemaResult
 #include <logos/compiler/str_map.hpp>
 #include <logos/hermes/config.hpp>    // arena_offset_t
+#include <logos/hermes/external_ref.hpp>  // ExternalRef (Phase 4.A: LFunction.body_external_ref)
 #include <unordered_set>
 #include <string>
 
@@ -708,6 +709,15 @@ struct LFunction {
     // Non-generic functions with this flag are forward-declared only; the linker
     // resolves them from the archive's .o member.
     bool from_binary_module = false;
+
+    // Phase 4.A (multi-arena IR): when LOGOS_SEMA_USE_BLOB=1, sema skips
+    // body lowering for non-generic from_binary_module fns and stores a
+    // cross-arena handle here pointing into the registered library arena.
+    // Default INVALID — body was lowered locally (legacy path) or is not
+    // available cross-arena (e.g. generic templates).
+    // Phase 4.B will resolve the target obj_id via the library's name→obj_id
+    // export table; Phase 4.C will teach mono/codegen to traverse it.
+    hermes::ExternalRef body_external_ref{};
 
     // Absolute path of the source file this function was lowered from.
     // Empty for fns reconstructed from binary modules. Used by the

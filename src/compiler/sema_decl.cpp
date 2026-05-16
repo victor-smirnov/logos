@@ -570,6 +570,33 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                   && !fn_is_metaprog_keep(fn.name);
     if (skip_body) fn.is_metaprog_stub = true;
 
+    // Phase 4.A (multi-arena IR): skeleton-only lowering for non-generic
+    // from_binary fns. The binary archive already contains the lowered LIR
+    // (we registered the arena in module_loader); body lowering here is
+    // pure overhead. mlir_gen treats from_binary_module fns as forward-
+    // declarations, so an empty body causes no codegen divergence.
+    //
+    // Conditions are conservative: generic fns / generic-struct methods
+    // are kept because mono needs the body to clone+specialize. Metaprog
+    // handlers / metaprog-keep fns can be invoked at compile time and
+    // also need bodies. Specializations go through lower_spec_fn and
+    // have their own gate there.
+    //
+    // Phase 4.B will populate body_external_ref by looking up fn.name in
+    // the library's name→obj_id export table; for 4.A the field stays
+    // INVALID and existing forward-decl machinery covers correctness.
+    bool blob_skip_body = use_blob_skeletons_
+                       && cur_from_binary_
+                       && !fn.is_extern
+                       && fn.type_params.empty()
+                       && impl_type_params_.empty()
+                       && !fn_is_metaprog_handler(fn.name)
+                       && !fn_is_metaprog_keep(fn.name);
+    if (blob_skip_body) {
+        skip_body = true;
+        ++blob_skip_count_;
+    }
+
     // Body (extern fns have no body)
     if (!fn.is_extern && !skip_body && node.has_key(la::BODY)) {
         auto body_node = map_of(node.get(la::BODY.code));

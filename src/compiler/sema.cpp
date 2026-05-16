@@ -5096,6 +5096,12 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
             "[sema-lower] per-ast: binary=%zu/%lldus(max=%lld) user=%zu/%lldus(max=%lld)\n",
             count_binary, (long long)total_binary_us, (long long)max_binary_us,
             count_user, (long long)total_user_us, (long long)max_user_us);
+        // Phase 4.A: report how many binary-fn bodies were skipped this run
+        // (zero unless LOGOS_SEMA_USE_BLOB=1 is set). Visible only under
+        // LOGOS_SEMA_PHASE_TIMING so it doesn't pollute normal output.
+        std::fprintf(stderr,
+            "[sema-lower] blob_skip_count=%zu (use_blob_skeletons=%d)\n",
+            blob_skip_count_, use_blob_skeletons_ ? 1 : 0);
     }
     cur_package_ = {};
     cur_imports_ = {};
@@ -6151,6 +6157,13 @@ lir::LProgram sema_lower(const std::vector<logos::hermes::Hermes>& asts,
     checker.set_metaprog_keep_fns(opts.metaprog_keep_fns);
     checker.set_cache(opts.cache);
     checker.set_delta_start_idx(opts.delta_start_idx);
+    // Phase 4.A: env-gated opt-in for skeleton-only lowering of non-generic
+    // from_binary fns. Default OFF — full lowering preserved as fallback.
+    {
+        const char* e = std::getenv("LOGOS_SEMA_USE_BLOB");
+        bool on = e && e[0] && e[0] != '0';
+        checker.set_use_blob_skeletons(on);
+    }
     // Phase 2-4: ingest cfg flags. `feature=name` adds `name` to the
     // feature set; bare `flag` is reserved (future use). Equal sign is
     // the discriminator.
