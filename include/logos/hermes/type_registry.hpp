@@ -77,6 +77,27 @@ namespace type_hash {
 
     // TypedValue (4100-range, wraps unregistered types).
     inline constexpr uint64_t TypedValue    = 4115;
+
+    // Multi-arena IR types (compiler-internal).
+    // See docs/internals/multi-arena-ir.md for the full design.
+    //
+    // ExternalRef: 8-byte tagged object encoding {arena_id (3B), obj_id (4B)}.
+    // Placed in the single-byte tag range (1-222) so the on-wire tag prefix
+    // is exactly 1 byte → total ExternalRef footprint is 1 (tag) + 7 (payload)
+    // = 8 bytes, byte-aligned. Resolves through ArenaPool dispatch.
+    inline constexpr uint64_t ExternalRef   = 110;
+
+    // LirArenaRoot: schema_type_code for a TinyObjectMap that carries
+    // per-arena metadata { SCHEMA_VERSION, MODULE_NAME, DEPS, DIRECTORY }.
+    // NOT a structural TypeTag — the on-wire tag stays TinyObjectMap (=98);
+    // this code lives in the map's schema_type_code_ field (8 bytes embedded
+    // in TinyObjectMap header) and discriminates the schema. May exceed 222
+    // since it never appears as a TypeTag prefix.
+    //
+    // Pointed-to by DocumentHeader.root_offset for arenas participating in
+    // the multi-arena IR (LIR mirror arenas; AST arenas keep their existing
+    // PROGRAM root).
+    inline constexpr uint64_t LirArenaRoot  = 5002;
 }
 
 // TypeTraits: compile-time properties of a Hermes data type.
