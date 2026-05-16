@@ -2218,6 +2218,19 @@ int run_metaprog_dispatch(
     // preserved (done_/struct_done_/enum_done_ seeded from this).
     lir::LProgram m6_prev_mono_out;
 
+    // M6.3: persistent metaprog JIT across iters. Iter 0 creates +
+    // binds externs + adds its module. Iter N+1 only adds the delta
+    // module to the same JIT (which already has iter 0's bodies +
+    // bound externs, so unresolved references in the delta module
+    // resolve via ORC's existing JITDylib).
+    std::unique_ptr<logos::jit::Jit> m6_meta_jit;
+    // M6.3: function names emitted by mlir_gen in prior iters of this
+    // dispatch loop. Extended into meta_prog.binary_symbols for the
+    // current iter's mlir_gen so it forward-declares these names
+    // (without re-emitting the body), then accumulated as new
+    // emissions are observed.
+    StrSet m6_prev_emitted_fns;
+
     lir::LProgram prog;
     for (int iter = 0; ; ++iter) {
         auto _t = std::chrono::steady_clock::now();
@@ -2309,6 +2322,12 @@ int run_metaprog_dispatch(
         // body emission for fns already provided by the JIT's archive
         // generators (resolved via build_jit_from_module's archive_paths).
         meta_prog.binary_symbols = opts.binary_symbols;
+        // M6.3: extend binary_symbols with the names already emitted by
+        // prior iters' mlir_gen. mlir_gen will forward-declare these but
+        // skip body emission — the bodies live in m6_meta_jit (from those
+        // prior iters' addModule calls) and resolve through ORC's
+        // existing JITDylib at link time.
+        for (auto& n : m6_prev_emitted_fns) meta_prog.binary_symbols.insert(n);
         auto _t3 = std::chrono::steady_clock::now();
         meta_prog = reflection_emit(std::move(meta_prog));
         stat_step(_t3, "reflection", iter);
@@ -2333,6 +2352,20 @@ int run_metaprog_dispatch(
         auto meta_mlir = mlir_gen(meta_mlir_ctx, meta_prog);
         if (!meta_mlir) { std::fprintf(stderr, "logosc: metaprog MLIR gen failed\n"); return 1; }
         stat_step(_t3, "mlir_gen", iter);
+        // M6.3: record functions emitted by THIS iter's mlir_gen so the
+        // next iter's binary_symbols extension covers them. "Emitted"
+        // means name is in prog.functions / struct.methods AND NOT in
+        // the current binary_symbols set (which already excludes them).
+        for (auto& fp : meta_prog.functions) {
+            if (fp && !meta_prog.binary_symbols.count(fp->name))
+                m6_prev_emitted_fns.insert(fp->name);
+        }
+        for (auto& sd : meta_prog.structs) {
+            for (auto& m : sd.methods) {
+                if (m && !meta_prog.binary_symbols.count(m->name))
+                    m6_prev_emitted_fns.insert(m->name);
+            }
+        }
         mlir::PassManager meta_pm(&meta_mlir_ctx);
         meta_pm.addPass(mlir::createSCFToControlFlowPass());
         meta_pm.addPass(mlir::createConvertControlFlowToLLVMPass());
@@ -2345,18 +2378,70 @@ int run_metaprog_dispatch(
         stat_step(_t3, "mlir->llvm", iter);
         mlir::registerBuiltinDialectTranslation(meta_mlir_ctx);
         mlir::registerLLVMDialectTranslation(meta_mlir_ctx);
-        llvm::LLVMContext meta_llvm_ctx;
-        auto meta_llvm = mlir::translateModuleToLLVMIR(*meta_mlir, meta_llvm_ctx);
+        // M6.3: heap-allocated LLVMContext so we can move ownership into
+        // m6_meta_jit's ORC ThreadSafeModule without round-tripping the IR
+        // through textual form (as build_jit_from_module does for the
+        // const& Module case).
+        auto meta_llvm_ctx_ptr = std::make_unique<llvm::LLVMContext>();
+        auto meta_llvm = mlir::translateModuleToLLVMIR(*meta_mlir, *meta_llvm_ctx_ptr);
         if (!meta_llvm) { std::fprintf(stderr, "logosc: metaprog LLVM IR translate failed\n"); return 1; }
         stat_step(_t3, "llvm_ir", iter);
         meta_llvm->setTargetTriple(llvm::Triple(llvm::sys::getDefaultTargetTriple()));
         llvm::InitializeNativeTarget();
         llvm::InitializeNativeTargetAsmPrinter();
 
-        auto meta_jit = build_jit_from_module(*meta_llvm, "logosc-metaprog",
-                                              /*with_process_symbols=*/true,
-                                              &opts.archive_paths);
-        if (!meta_jit) return 1;
+        // M6.3: build JIT on first iter (bind externs + add module), reuse
+        // on subsequent iters (just add module). The delta module's forward-
+        // declared symbols resolve against prior iters' modules via ORC.
+        if (!m6_meta_jit) {
+            m6_meta_jit = std::make_unique<logos::jit::Jit>();
+            if (!m6_meta_jit->init()) {
+                std::fprintf(stderr, "logosc-metaprog: jit init: %s\n",
+                             m6_meta_jit->error_str().c_str());
+                return 1;
+            }
+            if (!m6_meta_jit->enable_process_symbols()) {
+                std::fprintf(stderr, "logosc-metaprog: enable_process_symbols: %s\n",
+                             m6_meta_jit->error_str().c_str());
+                return 1;
+            }
+            for (const auto& p : opts.archive_paths) {
+                if (!m6_meta_jit->add_static_archive(p)) {
+                    std::fprintf(stderr, "logosc-metaprog: add_static_archive(%s): %s\n",
+                                 p.c_str(), m6_meta_jit->error_str().c_str());
+                    // Non-fatal (matches build_jit_from_module).
+                }
+            }
+            auto bind_sym = [&](const char* name, void* fn) -> bool {
+                if (m6_meta_jit->define_symbol(name, fn)) return true;
+                std::fprintf(stderr, "logosc: bind %s: %s\n",
+                             name, m6_meta_jit->error_str().c_str());
+                return false;
+            };
+            if (!bind_sym("logos_emit_source",                reinterpret_cast<void*>(&logos_emit_source))) return 1;
+            if (!bind_sym("logos_emit_item_blob",             reinterpret_cast<void*>(&logos_emit_item_blob))) return 1;
+            if (!bind_sym("logos_emit_item_blob_subst",       reinterpret_cast<void*>(&logos_emit_item_blob_subst))) return 1;
+            if (!bind_sym("logos_qib_pack_idents",            reinterpret_cast<void*>(&logos_qib_pack_idents))) return 1;
+            if (!bind_sym("logos_qib_free_idents",            reinterpret_cast<void*>(&logos_qib_free_idents))) return 1;
+            if (!bind_sym("logos_qib_pack_blobs",             reinterpret_cast<void*>(&logos_qib_pack_blobs))) return 1;
+            if (!bind_sym("logos_qib_free_blobs",             reinterpret_cast<void*>(&logos_qib_free_blobs))) return 1;
+            if (!bind_sym("logos_qib_pack_cursors",           reinterpret_cast<void*>(&logos_qib_pack_cursors))) return 1;
+            if (!bind_sym("logos_qib_free_cursors",           reinterpret_cast<void*>(&logos_qib_free_cursors))) return 1;
+            if (!bind_sym("logos_metaprog_gensym",            reinterpret_cast<void*>(&logos_metaprog_gensym))) return 1;
+            if (!bind_sym("logos_metaprog_test_module_blob",  reinterpret_cast<void*>(&logos_metaprog_test_module_blob))) return 1;
+            if (!bind_sym("logos_test_make_bin_op_blob",      reinterpret_cast<void*>(&logos_test_make_bin_op_blob))) return 1;
+            if (!bind_sym("logos_quote_expr_subst",           reinterpret_cast<void*>(&logos_quote_expr_subst))) return 1;
+            if (!bind_sym("logos_get_module_ast",             reinterpret_cast<void*>(&logos_get_module_ast))) return 1;
+            if (!bind_sym("logos_get_module_ast_oview",       reinterpret_cast<void*>(&logos_get_module_ast_oview))) return 1;
+            if (!bind_sym("logos_holder_release",             reinterpret_cast<void*>(&logos_holder_release))) return 1;
+            if (!bind_sym("logos_metaprog_error",             reinterpret_cast<void*>(&logos_metaprog_error))) return 1;
+            if (!bind_sym("logos_metaprog_error_at",          reinterpret_cast<void*>(&logos_metaprog_error_at))) return 1;
+        }
+        if (!m6_meta_jit->add_module(std::move(meta_llvm), std::move(meta_llvm_ctx_ptr))) {
+            std::fprintf(stderr, "logosc-metaprog: jit add_module: %s\n",
+                         m6_meta_jit->error_str().c_str());
+            return 1;
+        }
         stat_step(_t3, "jit_build", iter);
         report("metaprog jit");
 
@@ -2364,30 +2449,9 @@ int run_metaprog_dispatch(
         g_any_emitted = &any_emitted;
         std::vector<std::string> hook_diags;
         g_metaprog_diags = &hook_diags;
-        auto bind_sym = [&](const char* name, void* fn) -> bool {
-            if (meta_jit->define_symbol(name, fn)) return true;
-            std::fprintf(stderr, "logosc: bind %s: %s\n",
-                         name, meta_jit->error_str().c_str());
-            return false;
-        };
-        if (!bind_sym("logos_emit_source",                reinterpret_cast<void*>(&logos_emit_source))) return 1;
-        if (!bind_sym("logos_emit_item_blob",             reinterpret_cast<void*>(&logos_emit_item_blob))) return 1;
-        if (!bind_sym("logos_emit_item_blob_subst",       reinterpret_cast<void*>(&logos_emit_item_blob_subst))) return 1;
-        if (!bind_sym("logos_qib_pack_idents",            reinterpret_cast<void*>(&logos_qib_pack_idents))) return 1;
-        if (!bind_sym("logos_qib_free_idents",            reinterpret_cast<void*>(&logos_qib_free_idents))) return 1;
-        if (!bind_sym("logos_qib_pack_blobs",             reinterpret_cast<void*>(&logos_qib_pack_blobs))) return 1;
-        if (!bind_sym("logos_qib_free_blobs",             reinterpret_cast<void*>(&logos_qib_free_blobs))) return 1;
-        if (!bind_sym("logos_qib_pack_cursors",           reinterpret_cast<void*>(&logos_qib_pack_cursors))) return 1;
-        if (!bind_sym("logos_qib_free_cursors",           reinterpret_cast<void*>(&logos_qib_free_cursors))) return 1;
-        if (!bind_sym("logos_metaprog_gensym",            reinterpret_cast<void*>(&logos_metaprog_gensym))) return 1;
-        if (!bind_sym("logos_metaprog_test_module_blob",  reinterpret_cast<void*>(&logos_metaprog_test_module_blob))) return 1;
-        if (!bind_sym("logos_test_make_bin_op_blob",      reinterpret_cast<void*>(&logos_test_make_bin_op_blob))) return 1;
-        if (!bind_sym("logos_quote_expr_subst",           reinterpret_cast<void*>(&logos_quote_expr_subst))) return 1;
-        if (!bind_sym("logos_get_module_ast",             reinterpret_cast<void*>(&logos_get_module_ast))) return 1;
-        if (!bind_sym("logos_get_module_ast_oview",       reinterpret_cast<void*>(&logos_get_module_ast_oview))) return 1;
-        if (!bind_sym("logos_holder_release",             reinterpret_cast<void*>(&logos_holder_release))) return 1;
-        if (!bind_sym("logos_metaprog_error",             reinterpret_cast<void*>(&logos_metaprog_error))) return 1;
-        if (!bind_sym("logos_metaprog_error_at",          reinterpret_cast<void*>(&logos_metaprog_error_at))) return 1;
+        // M6.3: alias to keep downstream lookups (meta_jit->lookup) reading
+        // from the persistent jit.
+        auto& meta_jit = m6_meta_jit;
 
         // Use the saved targets/handlers (snapshotted from prog above)
         // because mono_pass dropped them from meta_prog. meta_prog.functions
