@@ -54,15 +54,28 @@ namespace fs = std::filesystem;
 //   exports_len   uint64_t          — bytes following; 0 = empty/no exports
 //   exports       uint8_t[exports_len]
 //                                   — see StdlibExports in module_loader.hpp
-//                                     for the inner trailer format. M3
-//                                     step 2 ships generic template names
-//                                     only; richer payloads land in later
-//                                     M3 steps. Loaders that don't know a
-//                                     given trailer_version safely skip.
+//                                     for the inner trailer format. Loaders
+//                                     that don't know a given trailer_version
+//                                     safely skip.
+//   // M4 step 1 (no version bump — optional trailing section):
+//   lir_blob_len  uint64_t          — bytes following; 0 = empty/no blob
+//   lir_blob      uint8_t[lir_blob_len]
+//                                   — raw bytes of mono's post-mono
+//                                     prog.type_pool.arena() head chunk.
+//                                     Includes DocumentHeader at offset 0.
+//                                     Load via hermes::from_bytes_copy. The
+//                                     blob holds the LIR Hermes mirror
+//                                     (LStructDef / LFunction / LExpr / …)
+//                                     so user-side sema/mono can skip
+//                                     re-lowering stdlib AST once the
+//                                     register-pre-lowered path lands
+//                                     (later M4 steps).
 //
 // v2 readers fail on v3; v3 readers accept both v2 and v3 (the file table
-// layout is identical between versions, only the trailing exports section
-// is new in v3).
+// layout is identical between versions, only the trailing sections are new
+// in v3). Trailing sections beyond the exports trailer are read lazily —
+// readers that don't know about them (M3-era archives written before this
+// commit) simply have no bytes after exports and the reader stops cleanly.
 // ---------------------------------------------------------------------------
 
 static void write_u32(std::ofstream& f, uint32_t v) {
@@ -114,7 +127,8 @@ static std::string encode_stdlib_exports(const StdlibExports& exp) {
 
 static bool write_hermes0(const std::string& path,
                            const std::vector<ParsedModule>& modules,
-                           const StdlibExports* exports = nullptr) {
+                           const StdlibExports* exports = nullptr,
+                           const std::vector<uint8_t>* lir_blob = nullptr) {
     std::ofstream f(path, std::ios::binary);
     if (!f) {
         std::fprintf(stderr, "emit_module: cannot create %s\n", path.c_str());
@@ -149,6 +163,18 @@ static bool write_hermes0(const std::string& path,
         std::string payload = encode_stdlib_exports(*exports);
         write_u64(f, static_cast<uint64_t>(payload.size()));
         f.write(payload.data(), payload.size());
+    } else {
+        write_u64(f, 0);
+    }
+    // M4 step 1: optional LIR mirror blob. Always emit the u64 length so
+    // readers can distinguish "no blob" (0) from "section absent" (EOF
+    // before the u64). Older archives written before M4 step 1 have no
+    // bytes after exports — the loader's "8+ bytes remaining" check
+    // handles both shapes.
+    if (lir_blob) {
+        write_u64(f, static_cast<uint64_t>(lir_blob->size()));
+        f.write(reinterpret_cast<const char*>(lir_blob->data()),
+                lir_blob->size());
     } else {
         write_u64(f, 0);
     }
@@ -213,7 +239,8 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                                const std::vector<bool>& ast_only_flags,
                                const std::string& obj_path,
                                const std::string& only_file = "",
-                               StdlibExports* out_exports = nullptr) {
+                               StdlibExports* out_exports = nullptr,
+                               std::vector<uint8_t>* out_lir_blob = nullptr) {
     // Run metaprog discovery loop (#21 closure) so #[derive_*] hooks
     // and metacall thunks fire during stdlib build. asts/filenames
     // grow with synthesised docs that subsequent sema picks up.
@@ -345,6 +372,23 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
     prog = borrow_check(std::move(prog));
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
+
+    // M4 step 1: snapshot prog.type_pool arena bytes for the .hermes0 LIR
+    // blob section. This is the post-mono LIR Hermes mirror — every
+    // template/struct/fn/expr/stmt that mono produced lives here with its
+    // mirror_offset_ value referencing offsets in these very bytes. Loaded
+    // user-side via hermes::from_bytes_copy; future M4 steps add the cross-
+    // arena lookup so sema/mono skip re-lowering stdlib AST.
+    //
+    // Done before apply_only_file_filter so per-file-mode invocations still
+    // see a complete blob (the filter only narrows codegen, not the mirror
+    // — and stdlib build never uses --only-file anyway).
+    if (out_lir_blob) {
+        if (auto* arena = prog.type_pool.arena()) {
+            const auto& chunk = arena->head();
+            out_lir_blob->assign(chunk.data(), chunk.data() + chunk.used);
+        }
+    }
 
     // B1.7: per-file mode marks every fn outside the target file as
     // binary-skip so mlir_gen forward-declares without bodies.
@@ -514,8 +558,9 @@ bool emit_module(const ModuleManifest& manifest,
     }
     size_t original_ast_count = asts.size();
     StdlibExports exports;
+    std::vector<uint8_t> lir_blob;
     if (!compile_to_object(asts, filenames, ast_only_flags, obj_path,
-                           only_file_canon, &exports)) {
+                           only_file_canon, &exports, &lir_blob)) {
         std::fprintf(stderr, "emit_module: compilation failed\n");
         return false;
     }
@@ -527,6 +572,8 @@ bool emit_module(const ModuleManifest& manifest,
             exports.fn_templates.size(),
             exports.blanket_impls.size(),
             exports.concrete_impls.size());
+        std::fprintf(stderr,
+            "emit_module: LIR blob — %zu bytes\n", lir_blob.size());
     }
     // Harvest synth docs (appended by metaprog dispatch). These carry
     // derive-emitted items (e.g. cow.logos's `BranchNode`) that must
@@ -603,7 +650,7 @@ bool emit_module(const ModuleManifest& manifest,
         if (verbose) {
             std::fprintf(stderr, "emit_module: writing → %s (single file)\n", h0_path.c_str());
         }
-        if (!write_hermes0(h0_path, single, &exports)) {
+        if (!write_hermes0(h0_path, single, &exports, &lir_blob)) {
             std::fprintf(stderr, "emit_module: .hermes0 write failed\n");
             return false;
         }
@@ -636,7 +683,7 @@ bool emit_module(const ModuleManifest& manifest,
     if (verbose) {
         std::fprintf(stderr, "emit_module: writing → %s\n", h0_path.c_str());
     }
-    if (!write_hermes0(h0_path, modules_for_h0, &exports)) {
+    if (!write_hermes0(h0_path, modules_for_h0, &exports, &lir_blob)) {
         std::fprintf(stderr, "emit_module: .hermes0 write failed\n");
         return false;
     }

@@ -406,6 +406,19 @@ static std::vector<ParsedModule> parse_hermes0(const std::vector<uint8_t>& data,
             return {};
         }
         p += exports_len;  // skip; consumers use extract_hermes0_exports()
+        // M4 step 1: optional LIR blob section right after the exports
+        // trailer (u64 length + bytes). M3-era v3 archives stop after the
+        // exports trailer — no bytes here. Skip in either shape.
+        if (p + 8 <= end) {
+            uint64_t blob_len = read_le_u64(p);
+            p += 8;
+            if (p + blob_len > end) {
+                std::fprintf(stderr, "module_loader: %s: .hermes0 truncated lir_blob\n",
+                             archive_path.c_str());
+                return {};
+            }
+            p += blob_len;  // skip; consumers use extract_hermes0_lir_blob()
+        }
     }
     return result;
 }
@@ -563,6 +576,53 @@ StdlibExportsOpt extract_hermes0_exports(const std::vector<uint8_t>& data,
     }
     // trailer_version > 2: future fields ignored (outer length prefix bounds
     // the scan, so unknown bytes after our last-known field are harmless).
+    r.present = true;
+    return r;
+}
+
+// M4 step 1 reader: decode the optional LIR blob section that follows the
+// exports trailer in a .hermes0 v3 archive. Walks the file table + exports
+// trailer just to advance past them — no AST decode needed.
+LirBlobOpt extract_hermes0_lir_blob(const std::vector<uint8_t>& data,
+                                     const std::string& archive_path) {
+    LirBlobOpt r;
+    const uint8_t* p = data.data();
+    const uint8_t* end = p + data.size();
+    if (data.size() < 16 || std::memcmp(p, "HERMAST0", 8) != 0) return r;
+    uint32_t version   = read_le_u32(p + 8);
+    uint32_t num_files = read_le_u32(p + 12);
+    if (version != 3) return r;
+    p += 16;
+    // Skip file table.
+    for (uint32_t i = 0; i < num_files; ++i) {
+        if (p + 4 > end) return r;
+        uint32_t path_len = read_le_u32(p); p += 4;
+        if (p + path_len > end) return r;
+        p += path_len;
+        if (p + 4 > end) return r;
+        uint32_t pkg_len = read_le_u32(p); p += 4;
+        if (p + pkg_len > end) return r;
+        p += pkg_len;
+        if (p + 8 > end) return r;
+        uint64_t ast_len = read_le_u64(p); p += 8;
+        if (ast_len > static_cast<uint64_t>(end - p)) return r;
+        p += ast_len;
+    }
+    // Skip exports trailer.
+    if (p + 8 > end) return r;
+    uint64_t exports_len = read_le_u64(p); p += 8;
+    if (exports_len > static_cast<uint64_t>(end - p)) return r;
+    p += exports_len;
+    // Optional LIR blob section. M3-era archives stop here — no bytes left.
+    if (p + 8 > end) return r;
+    uint64_t blob_len = read_le_u64(p); p += 8;
+    if (blob_len == 0) return r;  // present but empty → treat as absent
+    if (blob_len > static_cast<uint64_t>(end - p)) {
+        std::fprintf(stderr, "module_loader: %s: lir_blob section truncated\n",
+                     archive_path.c_str());
+        return r;
+    }
+    r.bytes.assign(p, p + blob_len);
     r.present = true;
     return r;
 }
@@ -874,6 +934,12 @@ std::vector<ParsedModule> load_modules(
                             eopt.value.fn_templates.size(),
                             eopt.value.blanket_impls.size(),
                             eopt.value.concrete_impls.size());
+                    }
+                    auto bopt = extract_hermes0_lir_blob(member, archive_path);
+                    if (bopt.present) {
+                        std::fprintf(stderr,
+                            "module_loader: %s — lir_blob: %zu bytes\n",
+                            archive_path.c_str(), bopt.bytes.size());
                     }
                 }
             }

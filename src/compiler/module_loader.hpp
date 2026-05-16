@@ -95,6 +95,18 @@ StdlibExportsOpt extract_hermes0_exports(const std::vector<uint8_t>& data,
 // (rare — only happens if a project redefines a stdlib mangled symbol).
 StdlibExports load_archive_exports(const std::vector<std::string>& archive_paths);
 
+// M4 step 1: extract the raw LIR-mirror blob from a .hermes0 v3 archive.
+// Returns the bytes as written by emit_module (a complete Hermes arena
+// segment — load via hermes::from_bytes_copy to wrap as a Hermes view).
+// Returns empty for v2 archives, archives without the lir_blob section
+// (M3-era writes), or zero-length blobs. Returns nullopt on truncation.
+struct LirBlobOpt {
+    bool present = false;
+    std::vector<uint8_t> bytes;
+};
+LirBlobOpt extract_hermes0_lir_blob(const std::vector<uint8_t>& data,
+                                     const std::string& archive_path);
+
 // Load a .logos file and all its transitive dependencies.
 // search_paths: directories to search for package files (e.g. {"stdlib"}).
 // extra_archive_files: explicit `.a` paths from -l / --lib (additional
