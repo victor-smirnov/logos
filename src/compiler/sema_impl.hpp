@@ -3050,6 +3050,13 @@ public:
     // subsequent sema_lower calls can pre-seed the fresh prog's
     // registry instead of re-walking binary ASTs to rediscover them.
     std::unordered_map<uint64_t, lir::LExpr*> hstatic_registry;
+
+    // M5 step 5: synth tuple-struct field-name intern pool. Owns the
+    // std::string objects whose string_views are stored on
+    // SemaFieldInfo::name. Must outlive the cached SemaStructInfo
+    // entries or those views dangle and trip "duplicate field" errors
+    // on the next call.
+    std::vector<std::unique_ptr<std::string>> synth_field_name_pool;
 };
 
 } // namespace logos::compiler

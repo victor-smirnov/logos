@@ -327,6 +327,7 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
     s->copy_types           = std::move(copy_types_);
     s->pkg_reexports        = std::move(pkg_reexports_);
     s->collected_holders    = std::move(collected_holders_);
+    s->synth_field_name_pool = std::move(synth_field_name_pool_);
     return s;
 }
 
@@ -356,6 +357,7 @@ void SemaChecker::install_snapshot(std::unique_ptr<SemaCheckerSnapshot> s) {
     copy_types_           = std::move(s->copy_types);
     pkg_reexports_        = std::move(s->pkg_reexports);
     collected_holders_    = std::move(s->collected_holders);
+    synth_field_name_pool_ = std::move(s->synth_field_name_pool);
 }
 
 // ── Canonical structural hash ──
@@ -1339,17 +1341,20 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     if (cache_) prog.type_pool = cache_->shared_pool().shared_clone();
     pool_ = &prog.type_pool;  // bind so all alloc()s share prog's arena
 
-    // M5 step 3b: install_snapshot disabled in this commit. Step 4
-    // (shared expr_pool_ etc.) is the prerequisite — without it, the
-    // installed symbol tables hold TypeRef/LExpr* into the prior
-    // call's pools, which mono moves out and eventually destroys.
-    // Cache stays wired so the snapshot is still captured (for future
-    // verification) but its contents are never replayed. Symbol-table
-    // mutation sites in collect (funcs_, overloads_, etc.) lack ODR
-    // dedup checks, so installing a snapshot today triggers "duplicate
-    // function" errors on the re-walk.
-    if (false && cache_ && cache_->impl()->snapshot) {
-        install_snapshot(std::move(cache_->impl()->snapshot));
+    // M5 step 3b+5a: install cached symbol tables + restore the
+    // hstatic_registry. With Step 4's shared expr_pool_, cached
+    // LExpr* in the registry stay valid. With Step 5b's per-AST
+    // skip in collect's loops, the funcs_/overloads_/etc. entries
+    // are NOT re-added (so the lack of ODR dedup there doesn't bite).
+    if (cache_ && cache_->impl()->snapshot) {
+        // Temporarily gated to bisect persistent_* / derive_* / hstatic
+        // failures — investigation in progress.
+        if (std::getenv("LOGOS_M5_INSTALL")) {
+            prog.hstatic_registry_ = cache_->impl()->snapshot->hstatic_registry;
+            install_snapshot(std::move(cache_->impl()->snapshot));
+        } else {
+            cache_->impl()->snapshot.reset();
+        }
     }
     // Set cur_prog_ before `collect` so LIT_HSTATIC encountered inside
     // type-alias rhs / supertrait bounds / etc. can register into
@@ -1390,6 +1395,10 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     if (cache_) {
         cache_->impl()->shared_pool = prog.type_pool.shared_clone();
         cache_->impl()->snapshot = take_snapshot();
+        // M5 step 5a: also capture prog.hstatic_registry_ (per-LProgram
+        // field, not in SemaChecker). Step 4 made expr_pool_ shared, so
+        // the LExpr* entries here stay alive for the next call.
+        cache_->impl()->snapshot->hstatic_registry = prog.hstatic_registry_;
     }
 
     // Enforce the "one eidos per (genos, tag-system)" invariant at compile

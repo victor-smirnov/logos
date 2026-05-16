@@ -242,15 +242,12 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
 
     // First pass: register names (so forward references work).
     for (auto& ast : asts) {
-        // M5 step 3b: skipping cached holders here was correct in
-        // isolation but exposed a latent issue — hstatic_registry_ on
-        // LProgram is populated lazily through resolve_hstatic_value
-        // during collect_type_alias / collect_const / fn-sig processing
-        // for binary ASTs. The registry holds LExpr* into the OLD
-        // call's expr_pool_, which is moved out by mono and eventually
-        // destroyed; cached entries would dangle. Skipping per-AST is
-        // disabled until Step 4 lands (shared expr_pool_ via shared_ptr).
-        if (false && collected_holders_.count(ast.holder())) continue;
+        // M5 step 3b+5: skip ASTs already collected in a previous
+        // sema_lower invocation — their symbol-table entries were
+        // moved in by install_snapshot, and the hstatic_registry was
+        // restored alongside. Re-walking would just produce ODR
+        // "duplicate" errors (funcs_ etc. lack first-seen dedup).
+        if (std::getenv("LOGOS_M5_INSTALL") && collected_holders_.count(ast.holder())) continue;
         holder_ = ast.holder();
         auto root = ast.root_object().as_tiny_map();
         cur_package_ = read_package_name(root);
@@ -333,7 +330,7 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
     // those holders are still pinned in `asts` (caller preserves the
     // vector across invocations).
     for (size_t ai = 0; ai < asts.size(); ++ai) {
-        if (false && collected_holders_.count(asts[ai].holder())) continue;  // Step 3b disabled; see pass 0 note
+        if (std::getenv("LOGOS_M5_INSTALL") && collected_holders_.count(asts[ai].holder())) continue;  // M5 step 3b+5
         cur_ast_idx_ = ai;
         holder_ = asts[ai].holder();
         file_ = (filenames_ && ai < filenames_->size()) ? (*filenames_)[ai] : std::string{};
@@ -345,7 +342,7 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
     }
     // Second pass: fill in fields, variants, function signatures (Phase 1).
     for (size_t ai = 0; ai < asts.size(); ++ai) {
-        if (false && collected_holders_.count(asts[ai].holder())) continue;  // Step 3b disabled; see pass 0 note
+        if (std::getenv("LOGOS_M5_INSTALL") && collected_holders_.count(asts[ai].holder())) continue;  // M5 step 3b+5
         cur_ast_idx_ = ai;
         holder_ = asts[ai].holder();
         file_ = (filenames_ && ai < filenames_->size()) ? (*filenames_)[ai] : std::string{};
@@ -383,7 +380,7 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
             // M5 step 3b: skip user ASTs already collected in a prior
             // sema_lower call — their metaprog_targets contributions are
             // already in the snapshot we installed at run() top.
-            if (false && collected_holders_.count(asts[ai].holder())) continue;  // Step 3b disabled; see pass 0 note
+            if (std::getenv("LOGOS_M5_INSTALL") && collected_holders_.count(asts[ai].holder())) continue;  // M5 step 3b+5
             // Bind helpers (arr_of/map_of/code_of/str_of) to this ast's holder.
             holder_ = asts[ai].holder();
             auto root = asts[ai].root_object().as_tiny_map();
@@ -433,7 +430,7 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
             if (is_bin) continue;
             // M5 step 3b: skip cached user ASTs (their unknown-attr diags
             // were emitted by the original sema_lower call).
-            if (false && collected_holders_.count(asts[ai].holder())) continue;  // Step 3b disabled; see pass 0 note
+            if (std::getenv("LOGOS_M5_INSTALL") && collected_holders_.count(asts[ai].holder())) continue;  // M5 step 3b+5
             holder_ = asts[ai].holder();
             auto root = asts[ai].root_object().as_tiny_map();
             if (!root.has_key(la::ITEMS)) continue;
