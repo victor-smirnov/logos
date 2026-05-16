@@ -147,6 +147,57 @@ private:
     StrMap<const lir::LFunction*>  templates_;
     StrMap<std::vector<const lir::LFunction*>> specs_;
     StrMap<const lir::LStructDef*> struct_templates_;
+    // ── M2: centralized struct_templates_ lookup helpers ─────────────
+    //
+    // Today: inserts at mono.cpp:135-137 register BOTH `pkg.base` and
+    // bare `base` keys. Lookups have three semantics across call sites:
+    //   (B) pkg-first-then-bare: most common — try `pkg.base`, fall back
+    //       to bare. Used when caller knows the pkg and wants to prefer
+    //       it but tolerates the bare alias.
+    //   (C) bare-first-then-pkg: mono_subst.cpp:81 only — used in a DST
+    //       check where any same-named struct's is_dst flag is acceptable.
+    //   (A) existence-of-pkg-qualified: existence-check only, no fallback.
+    //
+    // Helpers below capture (A)/(B)/(C) so a future M3 can swap the
+    // backing map for a .hermes0-loaded exports table without rewriting
+    // every lookup. Composite-key sites (mono_scan.cpp:487, mono_clone.cpp
+    // :2454) take a single string and split internally — they stay on
+    // direct .find for now.
+    const lir::LStructDef*
+    find_struct_template_pkg_first(std::string_view pkg, std::string_view base) const noexcept {
+        if (!pkg.empty()) {
+            std::string qkey;
+            qkey.reserve(pkg.size() + 1 + base.size());
+            qkey.append(pkg).append(".").append(base);
+            if (auto it = struct_templates_.find(qkey); it != struct_templates_.end())
+                return it->second;
+        }
+        if (auto it = struct_templates_.find(std::string(base));
+            it != struct_templates_.end())
+            return it->second;
+        return nullptr;
+    }
+    const lir::LStructDef*
+    find_struct_template_bare_first(std::string_view pkg, std::string_view base) const noexcept {
+        if (auto it = struct_templates_.find(std::string(base));
+            it != struct_templates_.end())
+            return it->second;
+        if (!pkg.empty()) {
+            std::string qkey;
+            qkey.reserve(pkg.size() + 1 + base.size());
+            qkey.append(pkg).append(".").append(base);
+            if (auto it = struct_templates_.find(qkey); it != struct_templates_.end())
+                return it->second;
+        }
+        return nullptr;
+    }
+    bool has_struct_template_pkg(std::string_view pkg, std::string_view base) const noexcept {
+        if (pkg.empty()) return false;
+        std::string qkey;
+        qkey.reserve(pkg.size() + 1 + base.size());
+        qkey.append(pkg).append(".").append(base);
+        return struct_templates_.find(qkey) != struct_templates_.end();
+    }
     StrMap<std::vector<const lir::LStructDef*>> struct_specs_;
     StrMap<std::pair<TypeRef, int>> needed_struct_insts_;
     StrSet struct_done_;
@@ -216,6 +267,32 @@ private:
     // Index: base struct/enum name → method name → method template fn (lives
     // in the input struct's sd.methods, heap-stable through unique_ptr).
     StrMap<StrMap<const lir::LFunction*>> struct_method_templates_;
+    // M2: centralized struct_method_templates_ outer lookup. Tries
+    // `pkg.base` first; falls back to bare `base` ONLY if the struct
+    // isn't registered in this pkg at all (the pkg_struct_exists guard
+    // prevents leaking methods from a same-named struct in a different
+    // pkg when the in-pkg struct simply has no methods). Returns nullptr
+    // on miss; caller does the inner-map method-name lookup. Used at
+    // mono.cpp / mono_scan.cpp sites that have the guard; mono_clone.cpp
+    // :2338 uses an unguarded pkg-first-then-bare pattern and stays on
+    // the direct .find for now.
+    const StrMap<const lir::LFunction*>*
+    find_struct_method_templates_guarded(std::string_view pkg, std::string_view base) const noexcept {
+        bool pkg_exists = has_struct_template_pkg(pkg, base);
+        if (!pkg.empty()) {
+            std::string qkey;
+            qkey.reserve(pkg.size() + 1 + base.size());
+            qkey.append(pkg).append(".").append(base);
+            if (auto it = struct_method_templates_.find(qkey); it != struct_method_templates_.end())
+                return &it->second;
+        }
+        if (!pkg_exists) {
+            if (auto it = struct_method_templates_.find(std::string(base));
+                it != struct_method_templates_.end())
+                return &it->second;
+        }
+        return nullptr;
+    }
 
     struct MethodWorkItem {
         std::string             concrete_struct; // e.g. "Foo$G1$i32"

@@ -2373,17 +2373,11 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                                         // Primitive receivers won't have a
                                         // struct_templates_ entry; treat them
                                         // as having zero struct-level tparams.
-                                        auto stt = struct_templates_.end();
-                                        if (!struct_pkg.empty())
-                                            stt = struct_templates_.find(
-                                                struct_pkg + "." + struct_base);
-                                        if (stt == struct_templates_.end())
-                                            stt = struct_templates_.find(struct_base);
+                                        auto* stt_ptr = find_struct_template_pkg_first(
+                                            struct_pkg, struct_base);
                                         const std::vector<TypeParam> empty_tpars;
                                         const std::vector<TypeParam>& sd_tpars =
-                                            (stt != struct_templates_.end())
-                                            ? stt->second->type_params
-                                            : empty_tpars;
+                                            stt_ptr ? stt_ptr->type_params : empty_tpars;
                                         {
                                             std::vector<const TypeParam*> meth_tps;
                                             for (auto& tp : tmpl->type_params) {
@@ -3913,12 +3907,8 @@ void Mono::instantiate_struct_templates() {
                     match_type(TypeRef(struct_t).type_args()[i], spec->spec_patterns[i], subst);
                 tmpl = spec;
             } else {
-                auto it = struct_pkg.empty() ? struct_templates_.end()
-                                             : struct_templates_.find(struct_pkg + "." + base);
-                if (it == struct_templates_.end())
-                    it = struct_templates_.find(base);
-                if (it == struct_templates_.end()) continue;
-                tmpl = it->second;
+                tmpl = find_struct_template_pkg_first(struct_pkg, base);
+                if (!tmpl) continue;
                 for (size_t i = 0, j = 0; i < tmpl->type_params.size(); ++i) {
                     if (tmpl->type_params[i].is_variadic) {
                         std::vector<TypeRef> pack;
@@ -3942,15 +3932,8 @@ void Mono::instantiate_struct_templates() {
             // the generic decl) and mlir-side struct names agree.
             // Inst pkg comes from the generic template (not the spec, which
             // may live in a different pkg and only contribute layout).
-            if (!struct_pkg.empty())
-                if (auto git = struct_templates_.find(struct_pkg + "." + base);
-                    git != struct_templates_.end()) {
-                    inst.pkg = git->second->pkg;
-                }
-            if (inst.pkg.empty())
-                if (auto git = struct_templates_.find(base);
-                    git != struct_templates_.end())
-                    inst.pkg = git->second->pkg;
+            if (auto* git = find_struct_template_pkg_first(struct_pkg, base))
+                inst.pkg = git->pkg;
             // Mirror emit happens here — *after* clone, *before* scan_fn — because
             // only at this point are stmt/expr addresses stable. Two conditions:
             //   (a) all recursive subst_block push_backs are done, so the

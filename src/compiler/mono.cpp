@@ -556,20 +556,15 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             // struct exists in this pkg (template registered) but has no
             // methods, accept that — don't fall back to bare which would
             // pull in another pkg's same-named struct's methods.
-            bool pkg_struct_exists = !ia_pkg.empty() &&
-                struct_templates_.find(ia_pkg + "." + base) != struct_templates_.end();
-            auto sit = ia_pkg.empty() ? struct_method_templates_.end()
-                                      : struct_method_templates_.find(ia_pkg + "." + base);
-            if (sit == struct_method_templates_.end() && !pkg_struct_exists)
-                sit = struct_method_templates_.find(base);
-            if (sit == struct_method_templates_.end()) continue;
+            auto* sit_inner = find_struct_method_templates_guarded(ia_pkg, base);
+            if (!sit_inner) continue;
             std::string concrete = concrete_struct_name(ia.struct_type);
             // Strip overload-disambiguation suffix `__g__<sig>` so the dest
             // name matches what user call sites produce (and what eager-mode
             // clone_struct_def emits). enqueue_method_inst's match loop picks
             // up overloads via prefix-matching on the stripped name.
             StrSet seen_short;
-            for (auto& [mname, _] : sit->second) {
+            for (auto& [mname, _] : *sit_inner) {
                 std::string short_name = mname;
                 if (auto p = short_name.find("__g__"); p != std::string::npos)
                     short_name.resize(p);

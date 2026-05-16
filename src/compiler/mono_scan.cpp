@@ -599,20 +599,15 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
     // the correct template. If the struct exists in this pkg but has no
     // methods, don't fall back to bare (would leak other pkg's methods).
     std::string pkg{TypeRef(concrete_struct_t).pkg_name()};
-    bool pkg_struct_exists = !pkg.empty() &&
-        struct_templates_.find(pkg + "." + base) != struct_templates_.end();
-    auto sit = pkg.empty() ? struct_method_templates_.end()
-                            : struct_method_templates_.find(pkg + "." + base);
-    if (sit == struct_method_templates_.end() && !pkg_struct_exists)
-        sit = struct_method_templates_.find(base);
-    if (sit == struct_method_templates_.end()) return;
+    auto* sit_inner = find_struct_method_templates_guarded(pkg, base);
+    if (!sit_inner) return;
 
     // Method names may carry overload-disambiguation suffix `__g__<sig>`.
     // Match every entry whose short-name equals `method_name` exactly, or
     // begins with `method_name + "__g__"`. Each match enqueues separately
     // (overloads keep their distinct signatures).
     std::vector<std::pair<std::string, const lir::LFunction*>> matches;
-    for (auto& [sn, fp] : sit->second) {
+    for (auto& [sn, fp] : *sit_inner) {
         if (sn == method_name ||
             (sn.size() > method_name.size() + 5 &&
              sn.compare(0, method_name.size(), method_name) == 0 &&
@@ -621,12 +616,9 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
     }
     if (matches.empty()) return;
 
-    auto stt = pkg.empty() ? struct_templates_.end()
-                            : struct_templates_.find(pkg + "." + base);
-    if (stt == struct_templates_.end() && !pkg_struct_exists)
-        stt = struct_templates_.find(base);
-    if (stt == struct_templates_.end()) return;
-    const auto& tpars = stt->second->type_params;
+    auto* stt_ptr = find_struct_template_pkg_first(pkg, base);
+    if (!stt_ptr) return;
+    const auto& tpars = stt_ptr->type_params;
     auto type_args = TypeRef(concrete_struct_t).type_args();
 
     for (auto& [sn, fp] : matches) {

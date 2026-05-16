@@ -78,16 +78,17 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         if (inner && (inner.kind() == LogosType::Kind::Struct ||
                       inner.kind() == LogosType::Kind::ZonedStruct)) {
             std::string sn(inner.struct_name());
-            auto sit = struct_templates_.find(sn);
-            if (sit == struct_templates_.end() && !inner.pkg_name().empty())
-                sit = struct_templates_.find(std::string(inner.pkg_name()) + "." + sn);
             // Phase 1B-14: trust the template's is_dst flag. For generic
             // DST instantiations (post-subst last field unsized), sema's
             // canonicalisation already produced DstRef at type-resolution
             // time; we don't repeat the recursive check here (it would
             // re-walk the struct's field type, potentially deep into
             // self-referential generic types).
-            if (sit != struct_templates_.end() && sit->second->is_dst) {
+            // M2: bare-first lookup preserves prior behavior for this
+            // specific call (DST flag is pkg-independent in practice, but
+            // bare-first is the historical ordering here).
+            auto* sit_ptr = find_struct_template_bare_first(inner.pkg_name(), sn);
+            if (sit_ptr && sit_ptr->is_dst) {
                 LogosTypeBuilder dn; dn.kind = LogosType::Kind::DstRef;
                 dn.struct_name = sn;
                 dn.pkg_name = std::string(inner.pkg_name());
