@@ -4257,7 +4257,17 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
     // (the subtype check at return / arg / let-init sites consults the table).
     compute_variances();
     tick("variances");
+    // Per-ast timing accumulators (only populated when phase_dbg).
+    int64_t total_binary_us  = 0;
+    int64_t total_user_us    = 0;
+    size_t  count_binary     = 0;
+    size_t  count_user       = 0;
+    int64_t max_binary_us    = 0;
+    int64_t max_user_us      = 0;
     for (size_t i = 0; i < asts.size(); ++i) {
+        auto _ast_t0 = phase_dbg
+            ? std::chrono::steady_clock::now()
+            : std::chrono::steady_clock::time_point{};
         cur_ast_idx_ = i;
         holder_ = asts[i].holder();
         file_ = (filenames_ && i < filenames_->size()) ? (*filenames_)[i] : std::string{};
@@ -4345,6 +4355,31 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
             }
         }
         lower_module_items(root, prog);
+        if (phase_dbg) {
+            auto _ast_t1 = std::chrono::steady_clock::now();
+            auto us = std::chrono::duration_cast<std::chrono::microseconds>(_ast_t1 - _ast_t0).count();
+            if (cur_from_binary_) {
+                total_binary_us += us;
+                ++count_binary;
+                if (us > max_binary_us) max_binary_us = us;
+            } else {
+                total_user_us += us;
+                ++count_user;
+                if (us > max_user_us) max_user_us = us;
+            }
+            if (us >= 3000) {  // also flag outliers (≥3ms)
+                std::fprintf(stderr,
+                    "[sema-lower]   ast[%zu] %s file='%s' %ldus\n",
+                    i, cur_from_binary_ ? "(bin)" : "(usr)",
+                    file_.c_str(), (long)us);
+            }
+        }
+    }
+    if (phase_dbg) {
+        std::fprintf(stderr,
+            "[sema-lower] per-ast: binary=%zu/%lldus(max=%lld) user=%zu/%lldus(max=%lld)\n",
+            count_binary, (long long)total_binary_us, (long long)max_binary_us,
+            count_user, (long long)total_user_us, (long long)max_user_us);
     }
     cur_package_ = {};
     cur_imports_ = {};
