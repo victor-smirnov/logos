@@ -2213,6 +2213,11 @@ int run_metaprog_dispatch(
     // everything up through the current asts vector.
     size_t next_delta_start = 0;
 
+    // M6.2: previous iter's mono output, passed to next iter's mono_pass
+    // so already-cloned instances + passed-through non-generics are
+    // preserved (done_/struct_done_/enum_done_ seeded from this).
+    lir::LProgram m6_prev_mono_out;
+
     lir::LProgram prog;
     for (int iter = 0; ; ++iter) {
         auto _t = std::chrono::steady_clock::now();
@@ -2307,7 +2312,12 @@ int run_metaprog_dispatch(
         auto _t3 = std::chrono::steady_clock::now();
         meta_prog = reflection_emit(std::move(meta_prog));
         stat_step(_t3, "reflection", iter);
-        meta_prog = mono_pass(std::move(meta_prog));
+        {
+            // M6.2: thread prev iter's mono output for incremental clone.
+            MonoOpts mopts_iter;
+            mopts_iter.prev_out = std::move(m6_prev_mono_out);
+            meta_prog = mono_pass(std::move(meta_prog), std::move(mopts_iter));
+        }
         stat_step(_t3, "mono", iter);
         if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
         meta_prog = borrow_check(std::move(meta_prog));
@@ -2480,6 +2490,11 @@ int run_metaprog_dispatch(
                 kMaxMetaprogIters);
             return 1;
         }
+        // M6.2: save mono output for next iter's incremental mono. Done
+        // at end of iter (after hook dispatch read meta_prog.functions
+        // for the JIT lookup). Move is safe: meta_prog/JIT are torn down
+        // when this iter scope exits anyway.
+        m6_prev_mono_out = std::move(meta_prog);
     }
     return 0;
 }

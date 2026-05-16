@@ -42,6 +42,12 @@ public:
     // Opt-in: restrict non-generic free fn processing to those reachable
     // from the given names. Empty → eager (all non-generic fns processed).
     void set_entry_points(StrSet ep) { entry_points_ = std::move(ep); }
+    // M6.2: when set, run() seeds out_ with the previous iter's mono
+    // output (preserving cloned generic instances + passed-through
+    // non-generics) and seeds done_/struct_done_/enum_done_ from it so
+    // those items aren't re-cloned. The two LPrograms must share the
+    // same TypePool / pools (via SemaCache).
+    void set_prev_out(lir::LProgram&& p) { prev_out_ = std::move(p); has_prev_out_ = true; }
 
     lir::LProgram run(lir::LProgram&& in, int max_depth);
 
@@ -75,6 +81,12 @@ public:
 private:
     lir::LProgram  in_;
     lir::LProgram  out_;
+    // M6.2: optional previous-iter mono output (set via set_prev_out).
+    // When has_prev_out_ is true, run() seeds out_ from it and primes
+    // done_/struct_done_/enum_done_ so the previously-cloned instances
+    // and passthroughs aren't redone.
+    lir::LProgram  prev_out_;
+    bool           has_prev_out_ = false;
     // Mirror of in_'s L-IR. Stage 3g.1: in_.mirror_table is the canonical
     // home — pre-populated by sema's LirBuilder for LExprs and topped up
     // by lir_mirror_emit_into() in run() for stmts/blocks/patterns.

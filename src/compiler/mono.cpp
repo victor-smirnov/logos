@@ -30,17 +30,29 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // run pass emitted every stmt/block/pattern, and LirBuilder mirrored each
     // LExpr at construction. No top-up needed here.
 
-    // Output mirror — populated incrementally as functions are cloned
-    // (so scan_fn can dispatch via lir_view). Empty at start of mono.
-    out_.mirror_table = std::make_unique<LirMirrorTable>();
+    if (has_prev_out_) {
+        // M6.2 incremental: seed out_ with prev iter's mono output so
+        // its cloned generic instances + passthrough non-generics are
+        // preserved. prev_out_.mirror_table / type_pool / pools are
+        // moved over too (same shared_ptrs as in_'s thanks to the
+        // SemaCache, so refcount semantics are preserved when in_'s
+        // pools also move in below).
+        out_ = std::move(prev_out_);
+    } else {
+        // Output mirror — populated incrementally as functions are cloned
+        // (so scan_fn can dispatch via lir_view). Empty at start of mono.
+        out_.mirror_table = std::make_unique<LirMirrorTable>();
+    }
 
     // Slice 1b: LExprPtr is now a raw pointer into LProgram::expr_pool_.
     // Moving consts/functions/etc. from in_ to out_ leaves their LExpr*'s
     // pointing into in_.expr_pool_ — so we must transfer the pool too. New
     // mono-cloned exprs are appended onto this same pool by alloc_expr(out_).
+    // M6.2: when has_prev_out_, in_'s pools/type_pool are the SAME shared_ptr
+    // values as prev_out_'s (via SemaCache), so this move is effectively a
+    // no-op for the pointed-to data — refcounts stay the same.
     out_.expr_pool_          = std::move(in_.expr_pool_);
     out_.hstatic_registry_   = std::move(in_.hstatic_registry_);
-    // Slice 1c: same hazard for LBlock / HermesVal / EClosure pools.
     out_.block_pool_         = std::move(in_.block_pool_);
     out_.hermes_val_pool_    = std::move(in_.hermes_val_pool_);
     out_.closure_pool_       = std::move(in_.closure_pool_);
@@ -52,8 +64,44 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     out_.inst_annotations    = std::move(in_.inst_annotations);
     out_.reflection_globals  = std::move(in_.reflection_globals);
     out_.reflect_requests    = std::move(in_.reflect_requests);
-    // Move type_pool — will be extended with new types during mono
     out_.type_pool           = std::move(in_.type_pool);
+
+    if (has_prev_out_) {
+        // Seed done_ tracking sets from prev_out's items so the passthrough
+        // and clone passes below skip work for items already cloned in the
+        // previous iter. Done-tracking is name-keyed (mangled name for fns,
+        // pkg::name for structs/enums). For struct methods we also seed
+        // done_methods_ from each struct's .methods vector.
+        for (auto& fp : out_.functions)
+            if (fp) done_.insert(fp->name);
+        for (auto& fp : out_.specializations)
+            if (fp) done_.insert(fp->name);
+        for (auto& sd : out_.structs) {
+            auto qkey = sd.pkg.empty() ? sd.name : (sd.pkg + "." + sd.name);
+            struct_done_.insert(qkey);
+            struct_done_.insert(sd.name);
+            for (auto& m : sd.methods) {
+                if (!m) continue;
+                done_methods_.insert(sd.name + "__" + m->name);
+                done_.insert(m->name);
+            }
+        }
+        for (auto& sd : out_.struct_specializations) {
+            auto qkey = sd.pkg.empty() ? sd.name : (sd.pkg + "." + sd.name);
+            struct_done_.insert(qkey);
+            struct_done_.insert(sd.name);
+            for (auto& m : sd.methods) {
+                if (!m) continue;
+                done_methods_.insert(sd.name + "__" + m->name);
+                done_.insert(m->name);
+            }
+        }
+        for (auto& ed : out_.enums) {
+            auto qkey = ed.pkg.empty() ? ed.name : (ed.pkg + "." + ed.name);
+            enum_done_.insert(qkey);
+            enum_done_.insert(ed.name);
+        }
+    }
 
     // Index associated type impls for subst_type resolution.
     // Also split blanket impls into a separate table for fallback lookup.
@@ -127,9 +175,15 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         }
     }
     // Move non-generic structs to output.
+    // M6.2: skip when prev_out_ already had this struct (struct_done_ seed).
     for (auto& sd : in_.structs) {
-        if (sd.type_params.empty())
+        if (sd.type_params.empty()) {
+            auto qkey = sd.pkg.empty() ? sd.name : (sd.pkg + "." + sd.name);
+            if (struct_done_.count(qkey) || struct_done_.count(sd.name)) continue;
             out_.structs.push_back(clone_struct_def(sd, {}, {}, sd.name));
+            struct_done_.insert(qkey);
+            struct_done_.insert(sd.name);
+        }
     }
 
     // Index generic enum templates; pass-through plain enums.
@@ -137,7 +191,11 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         if (!ed.type_params.empty()) {
             enum_templates_[ed.name] = &ed;
         } else {
+            auto qkey = ed.pkg.empty() ? ed.name : (ed.pkg + "." + ed.name);
+            if (enum_done_.count(qkey) || enum_done_.count(ed.name)) continue;
             out_.enums.push_back(ed);
+            enum_done_.insert(qkey);
+            enum_done_.insert(ed.name);
         }
     }
 
@@ -403,6 +461,8 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     for (auto& fn_up : in_.functions) {
         auto& fn = *fn_up;
         if (!fn.type_params.empty()) continue;
+        // M6.2: skip when prev_out_ already cloned this fn (done_ seed).
+        if (done_.count(fn.name)) continue;
         // Binary-symbol fast path: the body lives in liblstdlib.a (or a user
         // -L archive). mlir_gen would skip body emission anyway, so the deep
         // body clone + mirror emit + scan_fn are pure waste here. All
@@ -413,6 +473,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         if (!in_.binary_symbols.empty() && in_.binary_symbols.count(fn.name)) {
             auto stub = clone_fn_signature(fn, {}, {});
             out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(stub)));
+            done_.insert(fn.name);
             ++stats_.fn_clones;
             continue;
         }
@@ -421,6 +482,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         auto& fn_ref = *out_.functions.back();
         lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
         scan_fn(fn_ref);
+        done_.insert(fn.name);
         ++stats_.fn_clones;
     }
 
@@ -734,6 +796,13 @@ lir::LProgram mono_pass(lir::LProgram prog, int max_instantiation_depth) noexcep
 lir::LProgram mono_pass(lir::LProgram prog, MonoOpts opts) {
     Mono m(opts.max_instantiation_depth);
     m.set_entry_points(std::move(opts.entry_points));
+    // M6.2: seed mono with previous iter's output so already-cloned
+    // generic instances + passed-through non-generics are preserved and
+    // not re-cloned this call.
+    bool has_prev = !opts.prev_out.functions.empty() ||
+                    !opts.prev_out.structs.empty() ||
+                    !opts.prev_out.enums.empty();
+    if (has_prev) m.set_prev_out(std::move(opts.prev_out));
     return m.run(std::move(prog), opts.max_instantiation_depth);
 }
 

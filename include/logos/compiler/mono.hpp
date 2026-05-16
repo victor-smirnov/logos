@@ -23,6 +23,13 @@ namespace logos::compiler {
 struct MonoOpts {
     int    max_instantiation_depth = 64;
     StrSet entry_points;   // empty → all non-generic free fns are roots
+    // M6.2: when non-empty, mono extends `prev_out` instead of starting
+    // from a fresh LProgram. Used by run_metaprog_dispatch so iter N+1's
+    // mono skips the re-cloning that iter N already did (its concrete
+    // instances seed the done_/struct_done_/enum_done_ tracking sets).
+    // The two LPrograms must share the same TypePool/pools (via SemaCache);
+    // mono moves prev_out into its out_ at start of run.
+    lir::LProgram prev_out;
 };
 
 lir::LProgram mono_pass(lir::LProgram prog, int max_instantiation_depth = 64);
