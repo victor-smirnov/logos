@@ -116,6 +116,10 @@ public:
     void set_metaprog_keep_fns(std::vector<std::string> names) {
         metaprog_keep_fns_ = std::move(names);
     }
+    // M5: bind to a cache shared across multiple sema_lower invocations.
+    // When set, run() seeds prog.type_pool from cache->shared_pool() instead
+    // of allocating a fresh pool, so cached TypeRefs (Step 3+) stay valid.
+    void set_cache(SemaCache* c) { cache_ = c; }
     bool fn_is_metaprog_keep(std::string_view name) const {
         // metacall_sites store the raw callee token (bare base name);
         // compare against the bare form of `name` (which may carry
@@ -1202,6 +1206,10 @@ private:
     size_t metaprog_entry_ast_idx_  = static_cast<size_t>(-1);
     std::vector<std::string> metaprog_keep_fns_;
     size_t cur_ast_idx_             = static_cast<size_t>(-1);
+
+    // M5: optional cache for binary-AST sema state, shared across
+    // multiple sema_lower invocations in one compile session.
+    SemaCache* cache_               = nullptr;
 
     // Current AST root, set by lower_program at each iteration. Used by
     // sema-side intrinsics (e.g. `template_of::<X>()`) that need to walk

@@ -1177,6 +1177,10 @@ namespace logos::compiler {
 // even when surrounding user code references not-yet-emitted impls. The
 // final, full sema pass runs with `metaprog_mode = false` after expansion
 // has converged.
+// M5: opaque pointer to the sema cache shared across multiple sema_lower
+// invocations in one compile session (defined in sema.hpp).
+class SemaCache;
+
 struct SemaOptions {
     bool metaprog_mode = false;
     size_t entry_ast_idx = static_cast<size_t>(-1);
@@ -1190,6 +1194,11 @@ struct SemaOptions {
     // `flag` (placeholder for future use). Populated by main.cpp from
     // argv and propagated into SemaChecker.cfg_features_ during sema_lower.
     std::vector<std::string> cfg_flags;
+    // M5: optional cache for binary-module AST processing — sema_lower
+    // skips re-walking ASTs whose snapshot is already in the cache.
+    // Owned by the caller; outlives all sema_lower invocations that
+    // share it. nullptr → no caching (fresh sema each call).
+    SemaCache* cache = nullptr;
 };
 
 // Run semantic analysis and produce L-IR from all parsed module ASTs.

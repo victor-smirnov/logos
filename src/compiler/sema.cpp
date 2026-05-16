@@ -271,6 +271,26 @@ TypePool::~TypePool() = default;
 TypePool::TypePool(TypePool&&) noexcept = default;
 TypePool& TypePool::operator=(TypePool&&) noexcept = default;
 
+// ── M5 SemaCache implementation ───────────────────────────────────────────
+//
+// Step 2: skeleton. Owns the shared TypePool and (in later steps) per-AST
+// snapshots. SemaChecker / sema_lower consult this when wired in via
+// SemaOptions::cache.
+class SemaCacheImpl {
+public:
+    // Shared across all sema_lower invocations that pass this cache.
+    // Allocated lazily on first use via TypePool::alloc()'s internal init.
+    TypePool shared_pool;
+
+    // Step 3+ will add per-holder snapshots here.
+};
+
+SemaCache::SemaCache() : impl_(std::make_unique<SemaCacheImpl>()) {}
+SemaCache::~SemaCache() = default;
+SemaCache::SemaCache(SemaCache&&) noexcept = default;
+SemaCache& SemaCache::operator=(SemaCache&&) noexcept = default;
+TypePool& SemaCache::shared_pool() noexcept { return impl_->shared_pool; }
+
 // ── Canonical structural hash ──
 // 2c.5.4: canonical TypeUID computation.
 //
@@ -5334,6 +5354,7 @@ lir::LProgram sema_lower(const std::vector<logos::hermes::Hermes>& asts,
     SemaChecker checker;
     checker.set_metaprog_options(opts.metaprog_mode, opts.entry_ast_idx);
     checker.set_metaprog_keep_fns(opts.metaprog_keep_fns);
+    checker.set_cache(opts.cache);
     // Phase 2-4: ingest cfg flags. `feature=name` adds `name` to the
     // feature set; bare `flag` is reserved (future use). Equal sign is
     // the discriminator.

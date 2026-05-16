@@ -421,6 +421,38 @@ public:
     LogosType::TypeUID uid_of(TypeRef t) const noexcept;
 };
 
+// ── M5 sema cache ─────────────────────────────────────────────────────────
+//
+// Persistent cache of per-AST sema state, shared across multiple
+// sema_lower invocations in one compile session. Caller (main.cpp's
+// compile dispatcher) creates one SemaCache and passes it to each
+// sema_lower call via SemaOptions::cache. The cache owns:
+//   - A shared TypePool that outlives any single LProgram.
+//   - Per-binary-AST snapshots of symbol-table entries (collect output)
+//     and LIR items (lower_program output, future steps).
+//
+// PIMPL: implementation in sema.cpp has visibility into SemaChecker's
+// private SemaStructInfo / SemaEnumInfo / etc. types.
+class SemaCacheImpl;
+class SemaCache {
+    std::unique_ptr<SemaCacheImpl> impl_;
+public:
+    SemaCache();
+    ~SemaCache();
+    SemaCache(SemaCache&&) noexcept;
+    SemaCache& operator=(SemaCache&&) noexcept;
+    SemaCache(const SemaCache&) = delete;
+    SemaCache& operator=(const SemaCache&) = delete;
+
+    // Returns the shared pool (the one all cached TypeRefs reference).
+    // SemaChecker uses this as its working pool when a cache is wired in.
+    TypePool& shared_pool() noexcept;
+
+    // Implementation handle for SemaChecker internals (cross-module access).
+    SemaCacheImpl*       impl()       noexcept { return impl_.get(); }
+    const SemaCacheImpl* impl() const noexcept { return impl_.get(); }
+};
+
 // ── Diagnostics ────────────────────────────────────────────────────────────
 
 struct Diag {
