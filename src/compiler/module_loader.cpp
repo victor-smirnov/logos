@@ -361,8 +361,8 @@ static std::vector<ParsedModule> parse_hermes0(const std::vector<uint8_t>& data,
     }
     uint32_t version   = read_le_u32(p + 8);
     uint32_t num_files = read_le_u32(p + 12);
-    if (version != 2) {
-        std::fprintf(stderr, "module_loader: %s: unsupported .hermes0 version %u (want 2)\n",
+    if (version != 2 && version != 3) {
+        std::fprintf(stderr, "module_loader: %s: unsupported .hermes0 version %u (want 2 or 3)\n",
                      archive_path.c_str(), version);
         return {};
     }
@@ -394,6 +394,19 @@ static std::vector<ParsedModule> parse_hermes0(const std::vector<uint8_t>& data,
         }
         result.push_back({path, pkg, std::move(*decoded)});
     }
+    // M3: v3 has a trailing exports section (u64 length + bytes). Skip it
+    // here — consumers needing the exports pull them via a separate API.
+    // v2 has no trailer.
+    if (version == 3 && p + 8 <= end) {
+        uint64_t exports_len = read_le_u64(p);
+        p += 8;
+        if (p + exports_len > end) {
+            std::fprintf(stderr, "module_loader: %s: .hermes0 truncated exports\n",
+                         archive_path.c_str());
+            return {};
+        }
+        p += exports_len;  // skip; user-side hookup is a later M3 step
+    }
     return result;
 }
 
@@ -409,8 +422,10 @@ static std::vector<ParsedModule> parse_hermes0(const std::vector<uint8_t>& data,
 // For a typical stdlib with 50 files it's negligible.
 // ---------------------------------------------------------------------------
 
-// Scan a v2 .hermes0 blob to extract the list of package names it contains.
-// Version 2 stores pkg_len+pkg explicitly — no AST decode needed.
+// Scan a v2 or v3 .hermes0 blob to extract the list of package names it
+// contains. Both versions store pkg_len+pkg explicitly — no AST decode
+// needed. The file table has the same layout in both; v3 only adds a
+// trailing exports section that this scan ignores.
 static std::vector<std::string>
 hermes0_packages(const std::vector<uint8_t>& data) {
     const uint8_t* p = data.data();
@@ -418,7 +433,7 @@ hermes0_packages(const std::vector<uint8_t>& data) {
     if (data.size() < 16 || std::memcmp(p, "HERMAST0", 8) != 0) return {};
     uint32_t version   = read_le_u32(p + 8);
     uint32_t num_files = read_le_u32(p + 12);
-    if (version != 2) return {};  // only v2 has explicit pkg names
+    if (version != 2 && version != 3) return {};
     p += 16;
 
     std::vector<std::string> pkgs;

@@ -38,10 +38,10 @@ namespace logos::compiler {
 namespace fs = std::filesystem;
 
 // ---------------------------------------------------------------------------
-// .hermes0 format (version 2)
+// .hermes0 format (version 3)
 //
 //   magic[8]      "HERMAST0"
-//   version       uint32_t  = 2
+//   version       uint32_t  = 3
 //   num_files     uint32_t
 //   for each file:
 //     path_len    uint32_t
@@ -50,6 +50,18 @@ namespace fs = std::filesystem;
 //     pkg         char[pkg_len]   — dotted package name (e.g. "std.io")
 //     ast_len     uint64_t
 //     ast         uint8_t[ast_len]  (binary_codec output)
+//   // M3 (version 3 addition):
+//   exports_len   uint64_t          — bytes following; 0 = empty/no exports
+//   exports       uint8_t[exports_len]
+//                                   — Hermes-encoded payload; entries
+//                                     are name→template lookups used by
+//                                     user-side mono to skip iterating in_.
+//                                     Empty for now; populated in a later
+//                                     M3 step. Loaders may safely skip.
+//
+// v2 readers fail on v3; v3 readers accept both v2 and v3 (the file table
+// layout is identical between versions, only the trailing exports section
+// is new in v3).
 // ---------------------------------------------------------------------------
 
 static void write_u32(std::ofstream& f, uint32_t v) {
@@ -68,7 +80,7 @@ static bool write_hermes0(const std::string& path,
     }
     // header
     f.write("HERMAST0", 8);
-    write_u32(f, 2);  // version 2: adds pkg_len+pkg per file
+    write_u32(f, 3);  // version 3: adds trailing exports section
     write_u32(f, static_cast<uint32_t>(modules.size()));
 
     for (auto& mod : modules) {
@@ -88,6 +100,11 @@ static bool write_hermes0(const std::string& path,
         write_u64(f, ast_len);
         f.write(reinterpret_cast<const char*>(enc->data()), ast_len);
     }
+    // M3: exports trailer. Empty for now (no payload). Future M3 step
+    // writes a Hermes-encoded TinyObjectMap<String, AnyVal> of generic
+    // template names → mirror offsets (etc.) so user-side mono can skip
+    // iterating in_ to build templates_/struct_templates_/etc.
+    write_u64(f, 0);
     return f.good();
 }
 
