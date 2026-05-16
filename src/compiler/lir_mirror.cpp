@@ -2138,9 +2138,12 @@ void lir_mirror_populate_moved(lir::LProgram& prog, LirMirrorTable& table) {
     // mirror_offset_ but whose descendants weren't reached by the recursive
     // visit. Cheap (one-time, post-mono) and unconditional — works for both
     // variant-built and direct-built nodes.
-    for (auto& uptr : prog.expr_pool_)
-        if (uptr && uptr->mirror_offset_ != hermes::arena_offset_t{})
-            table.expr_by_offset[uptr->mirror_offset_.value()] = uptr.get();
+    // M5 step 4: expr_pool_ is now shared_ptr<vector<...>>; deref to iterate.
+    if (prog.expr_pool_) {
+        for (auto& uptr : *prog.expr_pool_)
+            if (uptr && uptr->mirror_offset_ != hermes::arena_offset_t{})
+                table.expr_by_offset[uptr->mirror_offset_.value()] = uptr.get();
+    }
 }
 
 // ── Per-node entry points (Stage 3g.1) ────────────────────────────────────
