@@ -6161,11 +6161,18 @@ lir::LProgram sema_lower(const std::vector<logos::hermes::Hermes>& asts,
     checker.set_metaprog_keep_fns(opts.metaprog_keep_fns);
     checker.set_cache(opts.cache);
     checker.set_delta_start_idx(opts.delta_start_idx);
-    // Phase 4.A: env-gated opt-in for skeleton-only lowering of non-generic
-    // from_binary fns. Default OFF — full lowering preserved as fallback.
+    // Phase 4.C: skeleton-only lowering for non-generic from_binary fns is
+    // ON by default. mono short-circuits on empty mirror_offset_, mlir_gen
+    // forward-declares from_binary_module fns, borrow_check walks empty
+    // bodies as a no-op — all three pass audits + 3194/3194 ctest with
+    // flag=1 cleared the way. LOGOS_SEMA_USE_BLOB=0 is retained as an
+    // explicit debug fallback so regressions can be bisected against the
+    // pre-Phase-4 lowering path.
     {
         const char* e = std::getenv("LOGOS_SEMA_USE_BLOB");
-        bool on = e && e[0] && e[0] != '0';
+        // Default ON; only explicit "0" disables. Empty value keeps default
+        // (matches the "set but blank" idiom common in CI configs).
+        bool on = !(e && e[0] == '0' && e[1] == '\0');
         checker.set_use_blob_skeletons(on);
     }
     // Phase 2-4: ingest cfg flags. `feature=name` adds `name` to the
