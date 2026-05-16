@@ -2333,8 +2333,15 @@ int run_metaprog_dispatch(
         stat_step(_t3, "reflection", iter);
         {
             // M6.2: thread prev iter's mono output for incremental clone.
+            // ONLY when the sema cache provides shared TypePool + pools
+            // across iters — without that (emit_module's stdlib build runs
+            // without a cache), each iter's prog has a fresh TypePool and
+            // prev_out's mirror_offset_ values reference iter N-1's now-
+            // dead arena.
             MonoOpts mopts_iter;
-            mopts_iter.prev_out = std::move(m6_prev_mono_out);
+            if (opts.sema_cache) {
+                mopts_iter.prev_out = std::move(m6_prev_mono_out);
+            }
             meta_prog = mono_pass(std::move(meta_prog), std::move(mopts_iter));
         }
         stat_step(_t3, "mono", iter);

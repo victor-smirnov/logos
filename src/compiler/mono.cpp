@@ -175,14 +175,19 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         }
     }
     // Move non-generic structs to output.
-    // M6.2: skip when prev_out_ already had this struct (struct_done_ seed).
+    // M6.2: when has_prev_out_, skip structs that prev_out already
+    // passed through (struct_done_ seeded from prev_out at top of
+    // run). In default mode (cache=null), the skip+insert pair is a
+    // no-op for the first non-generic in_.structs walk; we keep the
+    // insert so subsequent code paths that consult struct_done_
+    // observe consistent state.
     for (auto& sd : in_.structs) {
         if (sd.type_params.empty()) {
-            auto qkey = sd.pkg.empty() ? sd.name : (sd.pkg + "." + sd.name);
-            if (struct_done_.count(qkey) || struct_done_.count(sd.name)) continue;
+            if (has_prev_out_) {
+                auto qkey = sd.pkg.empty() ? sd.name : (sd.pkg + "." + sd.name);
+                if (struct_done_.count(qkey) || struct_done_.count(sd.name)) continue;
+            }
             out_.structs.push_back(clone_struct_def(sd, {}, {}, sd.name));
-            struct_done_.insert(qkey);
-            struct_done_.insert(sd.name);
         }
     }
 
@@ -191,11 +196,11 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         if (!ed.type_params.empty()) {
             enum_templates_[ed.name] = &ed;
         } else {
-            auto qkey = ed.pkg.empty() ? ed.name : (ed.pkg + "." + ed.name);
-            if (enum_done_.count(qkey) || enum_done_.count(ed.name)) continue;
+            if (has_prev_out_) {
+                auto qkey = ed.pkg.empty() ? ed.name : (ed.pkg + "." + ed.name);
+                if (enum_done_.count(qkey) || enum_done_.count(ed.name)) continue;
+            }
             out_.enums.push_back(ed);
-            enum_done_.insert(qkey);
-            enum_done_.insert(ed.name);
         }
     }
 
@@ -462,7 +467,10 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         auto& fn = *fn_up;
         if (!fn.type_params.empty()) continue;
         // M6.2: skip when prev_out_ already cloned this fn (done_ seed).
-        if (done_.count(fn.name)) continue;
+        // Gated on has_prev_out_ so the default-mode walk doesn't acquire
+        // the new done_ insert side-effect (which would shift state for
+        // unrelated code paths consulting done_ later).
+        if (has_prev_out_ && done_.count(fn.name)) continue;
         // Binary-symbol fast path: the body lives in liblstdlib.a (or a user
         // -L archive). mlir_gen would skip body emission anyway, so the deep
         // body clone + mirror emit + scan_fn are pure waste here. All
@@ -473,7 +481,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         if (!in_.binary_symbols.empty() && in_.binary_symbols.count(fn.name)) {
             auto stub = clone_fn_signature(fn, {}, {});
             out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(stub)));
-            done_.insert(fn.name);
+            if (has_prev_out_) done_.insert(fn.name);
             ++stats_.fn_clones;
             continue;
         }
@@ -482,7 +490,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         auto& fn_ref = *out_.functions.back();
         lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
         scan_fn(fn_ref);
-        done_.insert(fn.name);
+        if (has_prev_out_) done_.insert(fn.name);
         ++stats_.fn_clones;
     }
 
