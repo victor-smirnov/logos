@@ -88,6 +88,18 @@ add_test(NAME trait_engine_test COMMAND trait_engine_test
          WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 set_tests_properties(trait_engine_test PROPERTIES LABELS "trait_engine;cpp")
 
+# ---------------------------------------------------------------------------
+# exerciser_cross_arena_view — Phase 2.B multi-arena IR exerciser.
+# Verifies TypeRef/lir_view cross-arena dispatch (ExternalRef detection +
+# ArenaPool resolution end-to-end). See docs/internals/multi-arena-ir.md.
+# ---------------------------------------------------------------------------
+add_executable(exerciser_cross_arena_view exerciser_cross_arena_view.cpp)
+target_link_libraries(exerciser_cross_arena_view PRIVATE logos_hermes logos_verification)
+target_include_directories(exerciser_cross_arena_view PRIVATE ${CMAKE_SOURCE_DIR}/include)
+add_test(NAME exerciser_cross_arena_view COMMAND exerciser_cross_arena_view
+         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+set_tests_properties(exerciser_cross_arena_view PROPERTIES LABELS "hermes;cpp;multi_arena")
+
 target_include_directories(logosc PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_CURRENT_BINARY_DIR}   # generated logos_parser.hpp

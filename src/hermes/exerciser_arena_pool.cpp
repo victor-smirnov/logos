@@ -641,5 +641,6 @@ int main() {
     test_cross_arena_resolve();
 
     std::printf("All ArenaPool + Phase 1.A/1.B + 2.A tests passed\n");
+
     return 0;
 }

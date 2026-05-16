@@ -20,6 +20,7 @@
 #include <logos/hermes/arena.hpp>
 #include <logos/hermes/arena_value.hpp>
 #include <logos/hermes/arena_string.hpp>
+#include <logos/hermes/external_ref.hpp>
 #include <logos/hermes/mem_holder.hpp>
 #include <logos/hermes/object_array.hpp>
 #include <logos/hermes/schema_codes.hpp>
@@ -1004,11 +1005,35 @@ TypeRef TypePool::alloc(LogosTypeBuilder t) {
 namespace {
 
 // 2c.4e.3.1: accessors source from TypeRef's fat-pointer fields directly.
+//
+// Phase 2.B (multi-arena IR): when the child AnyVal points at an ExternalRef
+// object, dispatch through ArenaPool to the target arena. The returned
+// TypeRef carries the target arena_id; pool_ defaults to nullptr (target
+// arena's TypePoolImpl isn't yet wired through ArenaPool — Phase 2.C). All
+// read-only accessors on TypeRef (kind, names, type_args, etc.) still work
+// against the target arena's bytes; pool-dependent paths (trait dispatch
+// out-of-line strings) need explicit pool plumbing — see TypeRef::pool()
+// docs for the limitation.
 TypeRef ptr_via_mirror(const TypeRef& self, sema_schema::Key key) {
     if (!self) return {};
     auto av = self.mirror()->get(key.code, self.mirror_base());
     if (av.is_null()) return {};
-    return self.pool()->ref(av.to_offset());
+
+    // Single-arena fast path: AnyVal points at a normal mirror node in the
+    // same arena. This branch covers ~100% of current single-arena work.
+    if (!hermes::is_external_ref_av(av, self.mirror_base())) [[likely]] {
+        return self.pool()->ref(av.to_offset());
+    }
+
+    // Cross-arena dispatch: AnyVal points at an ExternalRef object; resolve
+    // via global ArenaPool. Returned TypeRef has pool_ = nullptr — caller
+    // gets read-only access; further pool-dependent accessors degrade
+    // gracefully (return null OStringView etc.).
+    auto* ref = reinterpret_cast<const hermes::ExternalRef*>(
+        self.mirror_base() + av.to_offset().value());
+    auto r = hermes::resolve_external_ref(*ref);
+    if (!r.ok()) return {};
+    return TypeRef(&r.mem->arena(), r.offset, /*pool=*/nullptr, ref->arena_id());
 }
 
 }  // namespace

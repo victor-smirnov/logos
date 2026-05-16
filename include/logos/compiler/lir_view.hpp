@@ -16,7 +16,10 @@
 #include <logos/compiler/lir_schema.hpp>
 #include <logos/compiler/sema.hpp>  // TypeRef, TypePoolImpl
 #include <logos/hermes/arena.hpp>
+#include <logos/hermes/arena_pool.hpp>   // arena_id_t (multi-arena IR)
 #include <logos/hermes/arena_string.hpp>
+#include <logos/hermes/external_ref.hpp> // is_external_ref_av, resolve_external_ref
+#include <logos/hermes/mem_holder.hpp>   // for arena() in cross-arena dispatch
 #include <logos/hermes/object_array.hpp>
 #include <logos/hermes/schema_codes.hpp>
 #include <logos/hermes/tiny_object_map.hpp>
@@ -36,10 +39,20 @@ class RefBase {
 protected:
     const hermes::Arena*   arena_ = nullptr;
     hermes::arena_offset_t off_{};
+    // Phase 2.B (multi-arena IR): arena_id of the arena this ref lives in.
+    // INVALID_ARENA_ID = single-arena fast path (current compiler).
+    // Non-INVALID = resolved from an ExternalRef; arena_ + arena_id_ are
+    // both populated and consistent with each other.
+    hermes::arena_id_t     arena_id_ = hermes::INVALID_ARENA_ID;
 
     RefBase() = default;
     RefBase(const hermes::Arena* a, hermes::arena_offset_t o) noexcept
         : arena_(a), off_(o) {}
+    // Cross-arena constructor — used by sub_*() dispatchers when a child
+    // AnyVal points to an ExternalRef object.
+    RefBase(const hermes::Arena* a, hermes::arena_offset_t o,
+            hermes::arena_id_t aid) noexcept
+        : arena_(a), off_(o), arena_id_(aid) {}
 
 public:
     constexpr explicit operator bool() const noexcept {
@@ -47,6 +60,9 @@ public:
     }
     hermes::arena_offset_t offset() const noexcept { return off_; }
     const hermes::Arena*   arena()  const noexcept { return arena_; }
+    // Phase 2.B accessors.
+    hermes::arena_id_t arena_id() const noexcept { return arena_id_; }
+    bool               is_external() const noexcept { return arena_id_.is_valid(); }
 
     uint8_t* base() const noexcept {
         return arena_ ? const_cast<uint8_t*>(arena_->head().data()) : nullptr;
@@ -62,6 +78,37 @@ public:
         return a.off_ == b.off_;
     }
 };
+
+// Phase 2.B helper: given a child AnyVal in `parent`'s arena, return
+// (arena, offset, arena_id) to use when constructing a child Ref. For
+// local refs the result is `(parent.arena_, av.offset, INVALID)`. For
+// external refs (AnyVal points at ExternalRef object) the result is
+// resolved via ArenaPool: `(target_arena, target_offset, target_id)`.
+// Returns nullopt-equivalent (arena=nullptr, off=NULL) when resolution
+// fails (unknown arena_id, out-of-range obj_id, etc.).
+struct ChildLoc {
+    const hermes::Arena*   arena;
+    hermes::arena_offset_t off;
+    hermes::arena_id_t     aid;  // INVALID for local refs
+
+    static ChildLoc null() noexcept { return {nullptr, hermes::NULL_OFFSET, hermes::INVALID_ARENA_ID}; }
+    constexpr explicit operator bool() const noexcept {
+        return arena != nullptr && off != hermes::NULL_OFFSET;
+    }
+};
+
+inline ChildLoc resolve_child(const RefBase& parent, hermes::AnyVal av) noexcept {
+    if (av.is_null()) return ChildLoc::null();
+    if (!hermes::is_external_ref_av(av, parent.base())) [[likely]] {
+        return ChildLoc{parent.arena(), av.to_offset(), hermes::INVALID_ARENA_ID};
+    }
+    // Cross-arena dispatch — resolve via global pool.
+    auto* ref = reinterpret_cast<const hermes::ExternalRef*>(
+        parent.base() + av.to_offset().value());
+    auto r = hermes::resolve_external_ref(*ref);
+    if (!r.ok()) return ChildLoc::null();
+    return ChildLoc{&r.mem->arena(), r.offset, ref->arena_id()};
+}
 
 // Read primitives shared by every view struct. Each takes a ref and a
 // sparse-key code; missing keys return defaults so views can stay terse.
@@ -128,6 +175,10 @@ public:
     ExprRef() = default;
     ExprRef(const hermes::Arena* a, hermes::arena_offset_t o) noexcept
         : RefBase(a, o) {}
+    // Phase 2.B: cross-arena constructor (used by sub_*() dispatchers).
+    ExprRef(const hermes::Arena* a, hermes::arena_offset_t o,
+            hermes::arena_id_t aid) noexcept
+        : RefBase(a, o, aid) {}
 
     lir_schema::expr::Code kind() const noexcept {
         return lir_schema::expr::Code(
@@ -137,10 +188,17 @@ public:
     // TypeRef of the expression. The mirror stores the type's arena offset
     // under expr_common::TYPE; wrap it with the caller's TypePoolImpl* so
     // pool-dependent accessors (e.g. trait resolution) keep working.
+    // Phase 2.B: ExternalRef-aware — cross-arena types return TypeRef with
+    // pool_ = nullptr (read-only accessors still work).
     TypeRef type(const TypePoolImpl* pool) const noexcept {
         auto av = mirror()->get(lir_schema::expr_common::TYPE.code, base());
         if (av.is_null()) return TypeRef{};
-        return TypeRef(arena(), av.to_offset(), pool);
+        auto loc = detail::resolve_child(*this, av);
+        if (!loc) return TypeRef{};
+        if (loc.aid.is_valid()) {
+            return TypeRef(loc.arena, loc.off, /*pool=*/nullptr, loc.aid);
+        }
+        return TypeRef(loc.arena, loc.off, pool);
     }
 
     // Helper: reach a sub-expression via a sparse key (used by view structs).
@@ -150,7 +208,12 @@ public:
     TypeRef sub_type(uint8_t key, const TypePoolImpl* pool) const noexcept {
         auto av = mirror()->get(key, base());
         if (av.is_null()) return TypeRef{};
-        return TypeRef(arena(), av.to_offset(), pool);
+        auto loc = detail::resolve_child(*this, av);
+        if (!loc) return TypeRef{};
+        if (loc.aid.is_valid()) {
+            return TypeRef(loc.arena, loc.off, /*pool=*/nullptr, loc.aid);
+        }
+        return TypeRef(loc.arena, loc.off, pool);
     }
 };
 
@@ -161,6 +224,9 @@ public:
     StmtRef() = default;
     StmtRef(const hermes::Arena* a, hermes::arena_offset_t o) noexcept
         : RefBase(a, o) {}
+    StmtRef(const hermes::Arena* a, hermes::arena_offset_t o,
+            hermes::arena_id_t aid) noexcept
+        : RefBase(a, o, aid) {}
 
     lir_schema::stmt::Code kind() const noexcept {
         return lir_schema::stmt::Code(
@@ -178,6 +244,9 @@ public:
     PatRef() = default;
     PatRef(const hermes::Arena* a, hermes::arena_offset_t o) noexcept
         : RefBase(a, o) {}
+    PatRef(const hermes::Arena* a, hermes::arena_offset_t o,
+           hermes::arena_id_t aid) noexcept
+        : RefBase(a, o, aid) {}
 
     lir_schema::pat::Code kind() const noexcept {
         return lir_schema::pat::Code(
@@ -192,6 +261,9 @@ public:
     BlockRef() = default;
     BlockRef(const hermes::Arena* a, hermes::arena_offset_t o) noexcept
         : RefBase(a, o) {}
+    BlockRef(const hermes::Arena* a, hermes::arena_offset_t o,
+             hermes::arena_id_t aid) noexcept
+        : RefBase(a, o, aid) {}
 
     // Block stmts are stored under stmt_keys::ARMS (key 24) — a single key
     // shared with SMatch.arms because both are Array<RelPtr<sub-node>>.
@@ -204,6 +276,9 @@ public:
     HermesValRef() = default;
     HermesValRef(const hermes::Arena* a, hermes::arena_offset_t o) noexcept
         : RefBase(a, o) {}
+    HermesValRef(const hermes::Arena* a, hermes::arena_offset_t o,
+                 hermes::arena_id_t aid) noexcept
+        : RefBase(a, o, aid) {}
 
     lir_schema::hermes_val::Code kind() const noexcept {
         return lir_schema::hermes_val::Code(
@@ -212,27 +287,44 @@ public:
 };
 
 // ── Inline accessors that need the above forward decls ───────────────────
+//
+// Phase 2.B: each sub_* method routes through detail::resolve_child() which
+// transparently dispatches on ExternalRef. Single-arena code paths take the
+// [[likely]] local branch with no overhead beyond a 1-byte TypeTag compare.
 
 inline ExprRef ExprRef::sub_expr(uint8_t key) const noexcept {
     auto av = mirror()->get(key, base());
-    if (av.is_null()) return {};
-    return ExprRef(arena_, av.to_offset());
+    auto loc = detail::resolve_child(*this, av);
+    if (!loc) return {};
+    return loc.aid.is_valid()
+        ? ExprRef(loc.arena, loc.off, loc.aid)
+        : ExprRef(loc.arena, loc.off);
 }
 
 inline ExprRef StmtRef::sub_expr(uint8_t key) const noexcept {
     auto av = mirror()->get(key, base());
-    if (av.is_null()) return {};
-    return ExprRef(arena_, av.to_offset());
+    auto loc = detail::resolve_child(*this, av);
+    if (!loc) return {};
+    return loc.aid.is_valid()
+        ? ExprRef(loc.arena, loc.off, loc.aid)
+        : ExprRef(loc.arena, loc.off);
 }
 
 inline StmtRef StmtRef::sub_stmt(uint8_t key) const noexcept {
     auto av = mirror()->get(key, base());
-    if (av.is_null()) return {};
-    return StmtRef(arena_, av.to_offset());
+    auto loc = detail::resolve_child(*this, av);
+    if (!loc) return {};
+    return loc.aid.is_valid()
+        ? StmtRef(loc.arena, loc.off, loc.aid)
+        : StmtRef(loc.arena, loc.off);
 }
 
 // Iterate stmts inside a block. The mirror stores them at stmt_keys::ARMS (24),
 // reusing the same key for SMatch.arms — see lir_mirror.cpp:emit_block.
+//
+// Phase 2.B: each element may be an ExternalRef pointing into a remote
+// arena's directory. resolve_child handles both forms; callers receive a
+// StmtRef that knows which arena it lives in.
 template <class F>
 inline void BlockRef::each_stmt(F&& f) const noexcept {
     auto av = mirror()->get(/*stmt_keys::ARMS*/ 24, base());
@@ -240,8 +332,11 @@ inline void BlockRef::each_stmt(F&& f) const noexcept {
     uint64_t n = av.as_ptr<const hermes::ObjectArray>(base())->size();
     for (uint64_t i = 0; i < n; ++i) {
         auto el = av.as_ptr<const hermes::ObjectArray>(base())->get(i, base());
-        if (el.is_null()) continue;
-        f(StmtRef(arena_, el.to_offset()));
+        auto loc = detail::resolve_child(*this, el);
+        if (!loc) continue;
+        f(loc.aid.is_valid()
+            ? StmtRef(loc.arena, loc.off, loc.aid)
+            : StmtRef(loc.arena, loc.off));
     }
 }
 

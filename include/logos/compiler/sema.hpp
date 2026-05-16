@@ -22,6 +22,7 @@
 
 #include <logos/compiler/sema_schema.hpp>
 #include <logos/hermes/arena.hpp>
+#include <logos/hermes/arena_pool.hpp>
 #include <logos/hermes/tiny_object_map.hpp>
 #include <logos/hermes/schema_codes.hpp>
 #include <logos/hermes/view.hpp>
@@ -135,12 +136,24 @@ class TypeRef {
     const hermes::Arena*      arena_ = nullptr;
     hermes::arena_offset_t    off_{};  // NULL_OFFSET when null
     const TypePoolImpl*       pool_  = nullptr;
+    // Phase 2.B (multi-arena IR): arena_id of the arena this TypeRef belongs
+    // to. INVALID_ARENA_ID = "local arena" (single-arena fast path, current
+    // compiler). Non-INVALID = TypeRef resolved from a cross-arena ExternalRef;
+    // the target arena is registered with global_arena_pool() at the indicated
+    // id. Single-arena code paths leave this default (INVALID) and behave
+    // exactly as before. See docs/internals/multi-arena-ir.md §3.1.
+    hermes::arena_id_t        arena_id_ = hermes::INVALID_ARENA_ID;
 public:
     constexpr TypeRef() noexcept = default;
     constexpr TypeRef(std::nullptr_t) noexcept {}
     TypeRef(const hermes::Arena* a, hermes::arena_offset_t off,
             const TypePoolImpl* p) noexcept
         : arena_(a), off_(off), pool_(p) {}
+    // Cross-arena constructor: explicit arena_id of the (typically remote)
+    // arena. Used by ptr_via_mirror's ExternalRef dispatch path.
+    TypeRef(const hermes::Arena* a, hermes::arena_offset_t off,
+            const TypePoolImpl* p, hermes::arena_id_t aid) noexcept
+        : arena_(a), off_(off), pool_(p), arena_id_(aid) {}
 
     constexpr explicit operator bool() const noexcept {
         return off_ != hermes::NULL_OFFSET;
@@ -165,6 +178,11 @@ public:
         return reinterpret_cast<const hermes::TinyObjectMap*>(mirror_base() + off_.value());
     }
     const TypePoolImpl* pool() const noexcept { return pool_; }
+    // Phase 2.B: arena_id of this TypeRef's arena. INVALID = single-arena
+    // (local) fast path; consumers can ignore this field unless they need
+    // cross-arena awareness.
+    hermes::arena_id_t  arena_id() const noexcept { return arena_id_; }
+    bool                is_external() const noexcept { return arena_id_.is_valid(); }
 
     LogosType::Kind kind() const noexcept {
         return LogosType::Kind(
