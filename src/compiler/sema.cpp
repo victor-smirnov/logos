@@ -5096,12 +5096,16 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
             "[sema-lower] per-ast: binary=%zu/%lldus(max=%lld) user=%zu/%lldus(max=%lld)\n",
             count_binary, (long long)total_binary_us, (long long)max_binary_us,
             count_user, (long long)total_user_us, (long long)max_user_us);
-        // Phase 4.A: report how many binary-fn bodies were skipped this run
-        // (zero unless LOGOS_SEMA_USE_BLOB=1 is set). Visible only under
-        // LOGOS_SEMA_PHASE_TIMING so it doesn't pollute normal output.
+        // Phase 4.A/B: report how many binary-fn bodies were skipped this
+        // run, and of those how many resolved a body_external_ref via
+        // pool.lookup_export. blob_skip_count - blob_resolved_count >0 means
+        // some skips left body_external_ref INVALID (lookup miss). Zero
+        // unless LOGOS_SEMA_USE_BLOB=1 is set.
         std::fprintf(stderr,
-            "[sema-lower] blob_skip_count=%zu (use_blob_skeletons=%d)\n",
-            blob_skip_count_, use_blob_skeletons_ ? 1 : 0);
+            "[sema-lower] blob_skip_count=%zu blob_resolved_count=%zu "
+            "(use_blob_skeletons=%d)\n",
+            blob_skip_count_, blob_resolved_count_,
+            use_blob_skeletons_ ? 1 : 0);
     }
     cur_package_ = {};
     cur_imports_ = {};

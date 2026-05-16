@@ -4,7 +4,13 @@
 // (docs/internals/multi-arena-ir.md §3.4) for invariants.
 
 #include <logos/hermes/arena_pool.hpp>
+#include <logos/hermes/any_val.hpp>
+#include <logos/hermes/document.hpp>     // DocumentHeader
+#include <logos/hermes/lir_arena_root.hpp>
 #include <logos/hermes/mem_holder.hpp>
+#include <logos/hermes/object_map.hpp>
+#include <logos/hermes/tiny_object_map.hpp>
+#include <logos/hermes/type_registry.hpp>
 #include <logos/verification/assert.hpp>
 
 namespace logos::hermes {
@@ -92,6 +98,38 @@ InMemoryArenaPool::find_by_name(std::string_view name) {
     if (it == by_name_.end()) return std::nullopt;
     auto& slot = slots_[it->second.value];
     return ModuleHandle{it->second, slot.name, slot.deps};
+}
+
+ArenaPool::ExportLookup
+InMemoryArenaPool::lookup_export(std::string_view name) noexcept {
+    // Walk every live slot (skip slot 0 = sentinel and unregistered slots).
+    // Each slot's MemHolder's DocumentHeader.root_offset → LirArenaRoot →
+    // EXPORTS map (string-keyed). First hit wins. Names are mangled fn
+    // names — globally unique within a build by construction (package
+    // prefix), so first-hit is also unique-hit in practice.
+    for (size_t i = 1; i < slots_.size(); ++i) {
+        auto& slot = slots_[i];
+        if (!slot.mem) continue;
+        auto* base = slot.mem->base();
+        auto* hdr = reinterpret_cast<const DocumentHeader*>(base);
+        if (hdr->root_offset == NULL_OFFSET) continue;
+
+        auto* root_tom = reinterpret_cast<const TinyObjectMap*>(
+            base + hdr->root_offset.value());
+        if (root_tom->schema_type_code() != type_hash::LirArenaRoot) continue;
+
+        AnyVal exports_av = root_tom->get(lir_arena_root::EXPORTS.code, base);
+        if (exports_av.is_null() || !exports_av.is_pointer()) continue;
+
+        auto* map = reinterpret_cast<const ObjectMap*>(
+            base + exports_av.to_offset().value());
+        AnyVal hit = map->get(name, const_cast<uint8_t*>(base));
+        if (hit.is_null() || !hit.is_value()) continue;
+
+        uint32_t oid = hit.as_value<uint32_t>();
+        return ExportLookup{arena_id_t{static_cast<uint32_t>(i)}, oid};
+    }
+    return ExportLookup{};  // INVALID, no hit
 }
 
 ArenaPool& global_arena_pool() {

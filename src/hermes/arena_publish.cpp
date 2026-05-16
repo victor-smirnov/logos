@@ -48,6 +48,13 @@ lir_arena_root_begin(Hermes&                       doc,
     LOGOS_TRY_VOID(dir_arr.push_back(AnyVal{}));
     b.directory = std::move(dir_arr);
 
+    // Exports map — name→obj_id lookup (Phase 4.B). Default capacity
+    // (log2_buckets=3 → 8 buckets) grows on demand via the map's own
+    // rehash. Empty exports table is valid; consumers tolerate missing
+    // keys (treat as "publish this name not exported").
+    LOGOS_TRY(auto exports_map, b.doc.make_object_map());
+    b.exports = std::move(exports_map);
+
     // Populate the root map's fields. Note: we must re-fetch via the
     // ptr() each time because allocation may have grown the arena.
     LOGOS_TRY_VOID(b.root_map.put(lir_arena_root::SCHEMA_VERSION,
@@ -57,6 +64,7 @@ lir_arena_root_begin(Hermes&                       doc,
     LOGOS_TRY_VOID(b.root_map.put(lir_arena_root::MODULE_NAME, name_str.to_anyval()));
     LOGOS_TRY_VOID(b.root_map.put(lir_arena_root::DEPS,        deps_arr.to_anyval()));
     LOGOS_TRY_VOID(b.root_map.put(lir_arena_root::DIRECTORY,   b.directory.to_anyval()));
+    LOGOS_TRY_VOID(b.root_map.put(lir_arena_root::EXPORTS,     b.exports.to_anyval()));
 
     return b;
 }
@@ -77,6 +85,23 @@ logos::expected<uint32_t>
 arena_publish_reserved(ArenaPublishBuilder& b) noexcept
 {
     return arena_publish(b, AnyVal{});  // null entry
+}
+
+logos::expected<uint32_t>
+arena_publish_named(ArenaPublishBuilder& b,
+                    std::string_view     name,
+                    AnyVal               target) noexcept
+{
+    LOGOS_ASSERT(!b.finalized, "ARENA-PUBLISH-NAMED-001",
+        "arena_publish_named: builder already finalized; arena is sealed");
+
+    LOGOS_TRY(uint32_t oid, arena_publish(b, target));
+    // Encode obj_id as a u24-embedded AnyVal (3-byte payload fits AnyVal's
+    // inline value mode). 24 bits = up to 16M obj_ids per arena.
+    auto oid_av = AnyVal::from_value<uint32_t>(
+        oid, static_cast<uint8_t>(type_hash::U24));
+    LOGOS_TRY_VOID(b.exports.put(name, oid_av));
+    return oid;
 }
 
 logos::expected<arena_offset_t>

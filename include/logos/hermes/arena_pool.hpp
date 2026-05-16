@@ -86,6 +86,18 @@ public:
 
     // Cold path: name → handle copy. Returns nullopt if not registered.
     virtual std::optional<ModuleHandle> find_by_name(std::string_view name) = 0;
+
+    // Phase 4.B: name → (arena_id, obj_id) export lookup. Walks every
+    // registered arena's LirArenaRoot.EXPORTS map and returns the first
+    // hit. Returns INVALID arena_id when not found. Currently linear in
+    // (registered arenas) × (1 hash lookup); fine for the expected pool
+    // size (≤ ~10 modules per build). Cache hook can be added later.
+    struct ExportLookup {
+        arena_id_t arena_id;
+        uint32_t   obj_id = 0;
+        constexpr bool ok() const noexcept { return arena_id.is_valid(); }
+    };
+    virtual ExportLookup lookup_export(std::string_view name) noexcept = 0;
 };
 
 // In-memory implementation. Single-threaded. Slots are append-only;
@@ -107,6 +119,8 @@ public:
     MemHolder* get(arena_id_t aid) noexcept override;
 
     std::optional<ModuleHandle> find_by_name(std::string_view name) override;
+
+    ExportLookup lookup_export(std::string_view name) noexcept override;
 
 private:
     struct Entry {

@@ -406,8 +406,44 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                     auto doc = hermes::Hermes(hermes::HermesView(holder));
                     if (auto bld = hermes::lir_arena_root_begin(
                             doc, module_name, /*deps=*/{})) {
-                        // No items published yet — directory stays at null
-                        // sentinel. Finalize sets root_offset + seals arena.
+                        // Phase 4.B: publish each non-generic, non-extern,
+                        // non-specialization fn body whose mirror was emitted
+                        // into this arena. Sema's skeleton path looks the
+                        // name up in EXPORTS to resolve body_external_ref.
+                        //
+                        // What we publish is the LBlock mirror offset (the
+                        // fn body). Consumer resolves directory[obj_id] →
+                        // arena_offset → BlockRef. Struct methods follow
+                        // the same rule, gated on the struct being non-
+                        // generic itself (mono can't clone a method whose
+                        // struct template is not yet instantiated).
+                        size_t published = 0;
+                        auto try_publish = [&](const lir::LFunction& fn) {
+                            if (fn.is_extern) return;
+                            if (fn.is_specialization) return;
+                            if (!fn.type_params.empty()) return;
+                            if (fn.from_binary_module) return;
+                            if (fn.body.mirror_offset_ == hermes::arena_offset_t{}) return;
+                            auto av = hermes::AnyVal::from_offset(fn.body.mirror_offset_);
+                            if (auto r = hermes::arena_publish_named(*bld, fn.name, av)) {
+                                ++published;
+                            }
+                        };
+                        for (auto& fn : prog.functions) {
+                            if (fn) try_publish(*fn);
+                        }
+                        for (auto& sd : prog.structs) {
+                            if (!sd.type_params.empty()) continue;  // generic struct
+                            for (auto& m : sd.methods) {
+                                if (m) try_publish(*m);
+                            }
+                        }
+                        if (std::getenv("LOGOS_TRACE_PHASES")) {
+                            std::fprintf(stderr,
+                                "emit_module: published %zu fn body export(s) "
+                                "for module '%s'\n",
+                                published, module_name.c_str());
+                        }
                         auto fin = hermes::lir_arena_root_finalize(*bld);
                         (void) fin;
                     }

@@ -21,6 +21,11 @@
 //   DIRECTORY      (key 3) : AnyVal pointer → ObjectArray<AnyVal>
 //                            (each entry is an AnyVal pointer → published
 //                             object; nulls = sparse / deprecated slots)
+//   EXPORTS        (key 4) : AnyVal pointer → ObjectMap (Phase 4.B)
+//                            name → obj_id (u24 embedded AnyVal). Allows
+//                            consumers (sema, mono) to look up published
+//                            items by their stable mangled name without
+//                            iterating the directory.
 
 #pragma once
 
@@ -37,6 +42,7 @@ inline constexpr ::logos::hermes::NamedCode<uint8_t> SCHEMA_VERSION{"schema_vers
 inline constexpr ::logos::hermes::NamedCode<uint8_t> MODULE_NAME   {"module_name",    1};
 inline constexpr ::logos::hermes::NamedCode<uint8_t> DEPS          {"deps",           2};
 inline constexpr ::logos::hermes::NamedCode<uint8_t> DIRECTORY     {"directory",      3};
+inline constexpr ::logos::hermes::NamedCode<uint8_t> EXPORTS       {"exports",        4};
 
 // Current writer always emits this version. Readers tolerate versions <=
 // CURRENT_VERSION; unknown future versions trigger an explicit fallback
@@ -82,6 +88,15 @@ public:
         AnyVal v = map_.get(lir_arena_root::DIRECTORY.code);
         if (v.is_null() || !v.is_pointer()) return ArrayView{};
         return ArrayView(v.to_offset(), map_.holder());
+    }
+
+    // Name→obj_id export table (Phase 4.B). Returns null MapView if EXPORTS
+    // absent (older arenas) or malformed. Values are u24-embedded obj_ids
+    // (consumers read via AnyVal::as_value<uint32_t>()).
+    MapView exports() const noexcept {
+        AnyVal v = map_.get(lir_arena_root::EXPORTS.code);
+        if (v.is_null() || !v.is_pointer()) return MapView{};
+        return MapView(v.to_offset(), map_.holder());
     }
 
     // Underlying map access for advanced consumers.

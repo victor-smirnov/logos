@@ -1249,6 +1249,14 @@ private:
     // an observability hook for the skip path (otherwise the field would
     // be silent — only the timing difference would betray it).
     size_t blob_skip_count_         = 0;
+    // Phase 4.B counter: of the skipped bodies, how many resolved to a
+    // concrete body_external_ref via pool lookup_export. blob_skip_count_
+    // > blob_resolved_count_ means some skips left body_external_ref
+    // INVALID (lookup miss). With Phase 4.B publish wired in emit_module
+    // and stdlib re-built, this should equal blob_skip_count_ on a normal
+    // run; a gap signals a publish/lookup naming mismatch worth digging
+    // into.
+    size_t blob_resolved_count_     = 0;
 
     // M5: optional cache for binary-AST sema state, shared across
     // multiple sema_lower invocations in one compile session.

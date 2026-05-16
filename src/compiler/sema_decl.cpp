@@ -2,6 +2,9 @@
 
 #include "sema_impl.hpp"
 
+#include <logos/hermes/arena_pool.hpp>   // Phase 4.B: lookup_export()
+#include <logos/hermes/external_ref.hpp> // ExternalRef::make
+
 #include <cstdio>
 #include <format>
 #include <functional>
@@ -595,6 +598,16 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     if (blob_skip_body) {
         skip_body = true;
         ++blob_skip_count_;
+        // Phase 4.B: try to populate body_external_ref by looking the fn
+        // name up in the registered libraries' EXPORTS tables. Missing hit
+        // leaves body_external_ref INVALID — the forward-decl codegen path
+        // still produces a correct call. Phase 4.C will require this for
+        // mono cross-arena clone, but for Phase 4.B step 1 it's optional.
+        auto hit = hermes::global_arena_pool().lookup_export(fn.name);
+        if (hit.ok()) {
+            fn.body_external_ref = hermes::ExternalRef::make(hit.arena_id, hit.obj_id);
+            ++blob_resolved_count_;
+        }
     }
 
     // Body (extern fns have no body)

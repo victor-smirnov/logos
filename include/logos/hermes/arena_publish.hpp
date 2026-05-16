@@ -30,13 +30,15 @@
 
 namespace logos::hermes {
 
-// In-progress LirArenaRoot accumulator. Holds owning views of the root map
-// and its directory array so they stay alive until finalize. Caller appends
-// to the directory via arena_publish().
+// In-progress LirArenaRoot accumulator. Holds owning views of the root map,
+// its directory array, and (Phase 4.B) its exports map, so they stay alive
+// until finalize. Caller appends to the directory via arena_publish() and
+// to the exports table via arena_publish_named() / arena_publish_fn_body().
 struct ArenaPublishBuilder {
     Hermes  doc;          // owning doc handle
     TinyMap root_map;     // owning root TinyObjectMap (schema = LirArenaRoot)
     Array   directory;    // owning directory ObjectArray
+    Map     exports;      // owning name→obj_id ObjectMap (Phase 4.B)
     bool    finalized = false;
 };
 
@@ -71,6 +73,18 @@ arena_publish(ArenaPublishBuilder& b, AnyVal target) noexcept;
 // expected by a consumer).
 [[nodiscard]] logos::expected<uint32_t>
 arena_publish_reserved(ArenaPublishBuilder& b) noexcept;
+
+// Phase 4.B: publish an in-arena object AND register it in the EXPORTS map
+// under the given name. Equivalent to arena_publish(b, target) followed by
+// recording (name → obj_id) in b.exports. Caller is responsible for name
+// uniqueness within the arena (later put() overwrites silently).
+//
+// obj_id is encoded as a u24-embedded AnyVal (3-byte payload); supports
+// up to 16M items per arena, well beyond any realistic library size.
+[[nodiscard]] logos::expected<uint32_t>
+arena_publish_named(ArenaPublishBuilder& b,
+                    std::string_view     name,
+                    AnyVal               target) noexcept;
 
 // Attach the LirArenaRoot to DocumentHeader.root_offset and seal the
 // arena. After this call, the builder is consumed (finalized = true) and
