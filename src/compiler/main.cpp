@@ -2869,6 +2869,20 @@ int main(int argc, char** argv) {
         if (!is_jit_unsafe_archive(f)) archive_paths.push_back(f);
     }
 
+    // M3 step 3: merge .hermes0 v3 exports trailers from every archive on
+    // the link path. The result is name-only stdlib template catalog; future
+    // M3 steps extend the trailer with mirror offsets so mono can short-
+    // circuit indexing/instantiation work. For now mono just stores it.
+    auto stdlib_exports = logos::compiler::load_archive_exports(archive_paths);
+    if (std::getenv("LOGOS_TRACE_PHASES")) {
+        std::fprintf(stderr,
+            "[trace] stdlib_exports: %zu struct, %zu enum, %zu fn templates from %zu archive(s)\n",
+            stdlib_exports.struct_templates.size(),
+            stdlib_exports.enum_templates.size(),
+            stdlib_exports.fn_templates.size(),
+            archive_paths.size());
+    }
+
     // binary_symbols: mlir_gen consults this set to skip body emission for
     // fns whose pre-baked implementation is already in an archive on the
     // search path. Emitting them again duplicates work (multiply-define
@@ -3973,7 +3987,11 @@ int main(int argc, char** argv) {
     report("reflection_emit");
 
     // ── Step 2c: Monomorphization (also emits L-IR Hermes mirror) ─
-    prog = logos::compiler::mono_pass(std::move(prog));
+    {
+        logos::compiler::MonoOpts mopts;
+        mopts.stdlib_exports = &stdlib_exports;
+        prog = logos::compiler::mono_pass(std::move(prog), std::move(mopts));
+    }
     prog.print_diags(stderr);
     if (!prog.ok()) return 1;
     report("mono");

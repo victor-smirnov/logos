@@ -9,6 +9,11 @@
 
 namespace logos::compiler {
 
+// M3 step 3: full definition lives in src/compiler/module_loader.hpp.
+// Held in MonoOpts as a non-owning const pointer so this header (in
+// include/) doesn't need to chase the loader-side type.
+struct StdlibExports;
+
 // Run monomorphization on a fully sema-lowered program.
 // Generic functions are instantiated for each unique set of type arguments
 // found in call sites.  The returned program contains no TypeVar types.
@@ -30,6 +35,13 @@ struct MonoOpts {
     // The two LPrograms must share the same TypePool/pools (via SemaCache);
     // mono moves prev_out into its out_ at start of run.
     lir::LProgram prev_out;
+    // M3 step 3: stdlib template catalog decoded from .hermes0 v3 trailers.
+    // Non-owning; the caller (main.cpp / emit_module) keeps the value alive
+    // for the duration of mono_pass. Empty/null = no exports available
+    // (cold-build / non-stdlib-using compile / older v2 archives only).
+    // Mono uses it to skip indexing work for stdlib content once the
+    // user-side hookup lands (a later M3 step); currently stored only.
+    const StdlibExports* stdlib_exports = nullptr;
 };
 
 lir::LProgram mono_pass(lir::LProgram prog, int max_instantiation_depth = 64);

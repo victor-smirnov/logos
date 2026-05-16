@@ -515,6 +515,33 @@ StdlibExportsOpt extract_hermes0_exports(const std::vector<uint8_t>& data,
     return r;
 }
 
+// M3 step 3: union exports trailers from a set of archives. Same archive
+// scan path as load_modules uses (ar_read_members + unwrap_lhermes), but
+// only the trailer is decoded — no AST work.
+StdlibExports load_archive_exports(const std::vector<std::string>& archive_paths) {
+    StdlibExports merged;
+    for (const auto& archive_path : archive_paths) {
+        auto members = ar_read_members(archive_path, ".hm0");
+        for (auto& m : members) {
+            auto opt = extract_hermes0_exports(m, archive_path);
+            if (!opt.present) continue;
+            // Append; dedup is deferred — mono can build a set if needed.
+            // Duplicates are rare in practice (a name in two archives
+            // would already be a multiply-defined linker symbol).
+            merged.struct_templates.insert(merged.struct_templates.end(),
+                std::make_move_iterator(opt.value.struct_templates.begin()),
+                std::make_move_iterator(opt.value.struct_templates.end()));
+            merged.enum_templates.insert(merged.enum_templates.end(),
+                std::make_move_iterator(opt.value.enum_templates.begin()),
+                std::make_move_iterator(opt.value.enum_templates.end()));
+            merged.fn_templates.insert(merged.fn_templates.end(),
+                std::make_move_iterator(opt.value.fn_templates.begin()),
+                std::make_move_iterator(opt.value.fn_templates.end()));
+        }
+    }
+    return merged;
+}
+
 // ---------------------------------------------------------------------------
 // Binary package index: package_name → archive_path
 // ---------------------------------------------------------------------------

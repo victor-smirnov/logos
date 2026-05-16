@@ -48,6 +48,10 @@ public:
     // those items aren't re-cloned. The two LPrograms must share the
     // same TypePool / pools (via SemaCache).
     void set_prev_out(lir::LProgram&& p) { prev_out_ = std::move(p); has_prev_out_ = true; }
+    // M3 step 3: non-owning pointer to the stdlib template catalog decoded
+    // from .hermes0 v3 trailers (see mono.hpp). Stored only for now; future
+    // M3 steps use it to skip in_-walks for stdlib content.
+    void set_stdlib_exports(const StdlibExports* e) { stdlib_exports_ = e; }
 
     lir::LProgram run(lir::LProgram&& in, int max_depth);
 
@@ -87,6 +91,10 @@ private:
     // and passthroughs aren't redone.
     lir::LProgram  prev_out_;
     bool           has_prev_out_ = false;
+    // M3 step 3: non-owning pointer to the stdlib template catalog merged
+    // from .hermes0 v3 trailers. Caller (main.cpp) keeps the value alive
+    // for the duration of run(). Null = no exports available.
+    const StdlibExports* stdlib_exports_ = nullptr;
     // Mirror of in_'s L-IR. Stage 3g.1: in_.mirror_table is the canonical
     // home — pre-populated by sema's LirBuilder for LExprs and topped up
     // by lir_mirror_emit_into() in run() for stmts/blocks/patterns.

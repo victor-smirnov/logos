@@ -18,6 +18,7 @@
 //      a diagnostic and skip.
 
 #include "mono_impl.hpp"
+#include "module_loader.hpp"
 
 #include <logos/compiler/lir_mirror.hpp>
 
@@ -29,6 +30,17 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // Stage 3g.1: in_.mirror_table is already comprehensive — sema's end-of-
     // run pass emitted every stmt/block/pattern, and LirBuilder mirrored each
     // LExpr at construction. No top-up needed here.
+
+    // M3 step 3: confirm receipt of the stdlib exports catalog. Trace-only
+    // for now; future steps consume `stdlib_exports_` to short-circuit the
+    // in_-walks that build templates_/struct_templates_/etc.
+    if (stdlib_exports_ && std::getenv("LOGOS_TRACE_PHASES")) {
+        std::fprintf(stderr,
+            "[trace] mono received stdlib_exports: %zu struct, %zu enum, %zu fn templates\n",
+            stdlib_exports_->struct_templates.size(),
+            stdlib_exports_->enum_templates.size(),
+            stdlib_exports_->fn_templates.size());
+    }
 
     if (has_prev_out_) {
         // M6.2 incremental: seed out_ with prev iter's mono output so
@@ -806,6 +818,9 @@ lir::LProgram mono_pass(lir::LProgram prog, MonoOpts opts) {
                     !opts.prev_out.structs.empty() ||
                     !opts.prev_out.enums.empty();
     if (has_prev) m.set_prev_out(std::move(opts.prev_out));
+    // M3 step 3: forward the stdlib template catalog (non-owning; caller
+    // keeps it alive across this mono_pass call).
+    m.set_stdlib_exports(opts.stdlib_exports);
     return m.run(std::move(prog), opts.max_instantiation_depth);
 }
 

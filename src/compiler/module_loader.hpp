@@ -58,6 +58,14 @@ struct StdlibExportsOpt {
 StdlibExportsOpt extract_hermes0_exports(const std::vector<uint8_t>& data,
                                           const std::string& archive_path);
 
+// M3 step 3: extract + merge StdlibExports across a set of archive paths.
+// For each archive, reads its .hermes0 member(s) and unions any present
+// exports trailer into the result. Archives without a v3 trailer (e.g.
+// non-stdlib libraries that haven't been re-emitted) contribute nothing.
+// Order is preserved as given; later archives win on duplicate fn_templates
+// (rare — only happens if a project redefines a stdlib mangled symbol).
+StdlibExports load_archive_exports(const std::vector<std::string>& archive_paths);
+
 // Load a .logos file and all its transitive dependencies.
 // search_paths: directories to search for package files (e.g. {"stdlib"}).
 // extra_archive_files: explicit `.a` paths from -l / --lib (additional
