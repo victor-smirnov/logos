@@ -2194,6 +2194,8 @@ int run_metaprog_dispatch(
     // this dispatcher. cfg_flags come from MetaprogDispatchOpts (the
     // caller — main() — populates them from argv).
     meta_opts.cfg_flags = opts.cfg_flags;
+    // M5: same cache pointer is reused by every sema_lower we drive.
+    meta_opts.cache     = opts.sema_cache;
 
     lir::LProgram prog;
     for (int iter = 0; ; ++iter) {
@@ -3069,6 +3071,12 @@ int main(int argc, char** argv) {
         filenames[pre_dispatch_entry_idx] == "<test_main_synth>") {
         pre_dispatch_entry_idx -= 1;
     }
+
+    // M5: one SemaCache shared by every sema_lower invocation in this
+    // compile session. Holds the TypePool alive across the 5+ calls so
+    // cached TypeRefs (Step 3b+) stay valid.
+    logos::compiler::SemaCache sema_cache;
+
     {
         logos::compiler::MetaprogDispatchOpts mopts;
         mopts.trace          = trace;
@@ -3079,6 +3087,7 @@ int main(int argc, char** argv) {
         mopts.cfg_flags      = cfg_flags;  // Phase 2-4
         mopts.binary_symbols = binary_symbols;
         mopts.stats_out      = stats_flag ? &top_stats : nullptr;
+        mopts.sema_cache     = &sema_cache;
         if (logos::compiler::run_metaprog_dispatch(
                 asts, filenames, from_binary, pre_dispatch_entry_idx, mopts) != 0)
             return 1;
@@ -3243,6 +3252,7 @@ int main(int argc, char** argv) {
     // across the remaining sema_lower call sites in main().
     logos::compiler::SemaOptions default_opts;
     default_opts.cfg_flags = cfg_flags;
+    default_opts.cache     = &sema_cache;  // M5
     prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts);
     prog.print_diags(stderr);
     if (!prog.ok()) return 1;

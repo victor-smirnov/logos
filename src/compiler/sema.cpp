@@ -1265,6 +1265,11 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     };
 
     lir::LProgram prog;
+    // M5 step 3a: if a cache is wired in, plug its shared TypePool into
+    // this LProgram. All subsequent alloc()s land in the cache's arena,
+    // so TypeRefs survive past mono_pass(std::move(prog)) — cache holds
+    // an independent refcount on the same TypePoolImpl.
+    if (cache_) prog.type_pool = cache_->shared_pool().shared_clone();
     pool_ = &prog.type_pool;  // bind so all alloc()s share prog's arena
     // Set cur_prog_ before `collect` so LIT_HSTATIC encountered inside
     // type-alias rhs / supertrait bounds / etc. can register into

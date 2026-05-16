@@ -14,6 +14,10 @@
 
 namespace logos::compiler {
 
+// M5: forward decl — full type in sema.hpp.
+class SemaCache;
+
+
 // Per-emitted-doc provenance tracked when --dump-metaprog is on.
 // Sized parallel to `asts` (sparse; entries stay nullopt for docs
 // that weren't emitted by a metafn).
@@ -65,6 +69,10 @@ struct MetaprogDispatchOpts {
     StrSet binary_symbols;
     // Optional: when non-null, dispatch records its per-phase timings here.
     CompileStats* stats_out = nullptr;
+    // M5: persistent sema cache shared across every sema_lower in this
+    // compile session (metaprog iters + metacall iters + final). Caller
+    // owns it; outlives all sema_lower invocations.
+    SemaCache* sema_cache = nullptr;
 };
 
 // Run the metaprog discovery loop:
