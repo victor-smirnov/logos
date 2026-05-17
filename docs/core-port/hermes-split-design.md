@@ -222,7 +222,33 @@ These need careful per-file split (struct + read methods in lang; owning methods
 
 ### Step 5 — stringify / pat / check / equal / hashing / hbs_read
 
-Likely lang-tier as-is once Step 4 lands (their deps will all be in lang then).
+**Blocked.** Tried 2026-05-17 — these packages access raw fields
+(`map.size`, `map.keys`, `map.vals`) on `Map<Bitmap, AnyVal>` and
+similar partial specialisations of structs that live in mem-tier
+(std.hermes.map). When the file moves to lang-tier and the Map
+struct stays in monolith, mono fails to materialize the specialised
+fields from the binary AST:
+
+    mlir_gen: struct 'std.hermes.map.Map$G2$Bitmap$AnyVal'
+              has no field 'size'
+
+This is a real compiler limitation — cross-archive specialisation
+of structs with explicit field access is not yet supported. Step 4
+moves worked because they touched their own structs (HermesView,
+AnyVal, TypedValue) or used method-dispatch (relptr_traits's
+delegate-via-resolve pattern). Step 5 hits the limit directly.
+
+Two ways forward:
+- **(A)** Move all mem-tier container types (Map/ObjectMap/Array/
+  HermesString/Decimal/...) to the same tier first (Step 6). Then
+  re-attempt Step 5. Cross-archive issue is gone because the new
+  layer.a contains both the impl AND the struct.
+- **(B)** Compiler patch: teach mono to instantiate cross-archive
+  struct specialisations from the source's binary AST. Non-trivial
+  — touches mono's struct-template-realisation pipeline.
+
+Recommend (A). Step 6 stands alone (renames only), and after it
+Step 5 becomes a simple intra-tier move.
 
 ### Step 6 — Mem-tier remainder
 
