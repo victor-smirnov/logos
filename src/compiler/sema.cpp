@@ -52,6 +52,10 @@ public:
     // grow() — never cache base pointers; always re-fetch via holder_->base().
     hermes::MemHolder*                                     holder_ = nullptr;
 
+    // Phase 7 lite: latch so the 3.5 GB warning fires at most once per
+    // TypePool instance (TypePool::alloc is the hot path).
+    bool                                                   size_warned_ = false;
+
     hermes::Arena&       arena()       noexcept { return holder_->arena(); }
     const hermes::Arena& arena() const noexcept { return holder_->arena(); }
     hermes::MemHolder*   holder() const noexcept { return holder_; }
@@ -1013,6 +1017,46 @@ TypeRef TypePool::alloc(LogosTypeBuilder t) {
     auto off = impl_->mirror(t);
     impl_->uid_of_[off] = uid;
     bucket.push_back(off);
+
+    // Phase 7 lite — arena size monitoring. The Hermes arena has a hard
+    // 4 GB ceiling (32-bit offsets). Before rolling multi-arena lands
+    // (full Phase 7), give the user a heads-up at 3.5 GB and a clear
+    // diagnostic + abort at 3.9 GB instead of a mid-emit hermes OOM.
+    // The warning latches via TypePoolImpl::size_warned_ to avoid
+    // spamming the hot path. Override thresholds via env for testing.
+    {
+        const uint64_t MB = uint64_t{1024} * 1024;
+        uint64_t warn_at = 3500 * MB;
+        uint64_t err_at  = 3900 * MB;
+        if (const char* w = std::getenv("LOGOS_ARENA_WARN_MB"))
+            warn_at = std::strtoull(w, nullptr, 10) * MB;
+        if (const char* e = std::getenv("LOGOS_ARENA_ERR_MB"))
+            err_at  = std::strtoull(e, nullptr, 10) * MB;
+        uint64_t used = impl_->arena().head().used;
+        if (used > err_at) {
+            std::fprintf(stderr,
+                "FATAL: TypePool arena reached %llu MB (limit %llu MB). The\n"
+                "Hermes arena has a 4 GB hard ceiling (32-bit offsets). The\n"
+                "compiler does not yet support rolling to a new arena\n"
+                "mid-emit (Phase 7 of the multi-arena IR refactor). To\n"
+                "continue, split the module into smaller compilation units\n"
+                "or ship parts as separate `logos.module`s.\n",
+                (unsigned long long)(used / MB),
+                (unsigned long long)(err_at / MB));
+            std::abort();
+        }
+        if (used > warn_at && !impl_->size_warned_) {
+            std::fprintf(stderr,
+                "WARNING: TypePool arena past %llu MB (current %llu MB,\n"
+                "         hard 4 GB ceiling). Approaching the Hermes\n"
+                "         arena limit — split the module or wait for\n"
+                "         multi-arena IR Phase 7 (rolling arenas).\n",
+                (unsigned long long)(warn_at / MB),
+                (unsigned long long)(used / MB));
+            impl_->size_warned_ = true;
+        }
+    }
+
     return impl_->ref(off);
 }
 
