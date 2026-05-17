@@ -11,7 +11,7 @@
 
 package hermes_round_trip;
 
-use std.hermes.zone;
+use logos.lang.hermes.zone;
 use std.hermes.anyval;
 use std.hermes.string;
 use logos.lang.hermes.typetag;

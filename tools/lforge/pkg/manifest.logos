@@ -6,7 +6,7 @@ use std.lang.text;
 use logos.lang.result;
 use std.collections.vec;
 use std.io.fs;
-use std.hermes.zone;
+use logos.lang.hermes.zone;
 use std.hermes.anyval;
 use std.hermes.view;
 use std.hermes.map;

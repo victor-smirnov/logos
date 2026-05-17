@@ -4,7 +4,7 @@ package hermes_traits_bugfix;
 //
 // Each test block targets a specific fix documented in the commit log.
 
-use std.hermes.zone;
+use logos.lang.hermes.zone;
 use std.hermes.anyval;
 use std.hermes.string;
 use std.lang.text;

@@ -4,7 +4,7 @@
 // HermesClone (via CloneElem), HermesRelease.
 package array_i32_polymorphic;
 
-use std.hermes.zone;
+use logos.lang.hermes.zone;
 use std.hermes.anyval;
 use std.hermes.array;
 use std.hermes.map;

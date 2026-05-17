@@ -4,7 +4,7 @@ package hermes_ex_arena;
 // Beyond round-trip tests, each section verifies the RAW wire layout in memory
 // so that silent changes to encoding constants or bit-field positions fail here.
 
-use std.hermes.zone;
+use logos.lang.hermes.zone;
 use logos.lang.hermes.relptr;
 use std.hermes.anyval;
 use logos.lang.hermes.typetag;

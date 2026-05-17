@@ -1,7 +1,7 @@
 package hermes_traits_full;
 // End-to-end test of HermesEqual, HermesHash, HermesClone across zones.
 
-use std.hermes.zone;
+use logos.lang.hermes.zone;
 use std.hermes.anyval;
 use std.hermes.string;
 use std.lang.text;

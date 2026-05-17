@@ -4,7 +4,7 @@ package hermes_parse;
 // Each section parses a raw byte sequence, then inspects AnyVal fields and
 // zone data directly so that regressions in parsing logic are caught.
 
-use std.hermes.zone;
+use logos.lang.hermes.zone;
 use std.hermes.anyval;
 use std.hermes.string;
 use logos.lang.hermes.typetag;

@@ -4,7 +4,7 @@
 // Unsupported headers still return parse error.
 package hermes_parse_typed_containers;
 
-use std.hermes.zone;
+use logos.lang.hermes.zone;
 use std.hermes.anyval;
 use std.hermes.parser;
 use std.hermes.document;

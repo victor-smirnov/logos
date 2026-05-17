@@ -25,7 +25,7 @@ package std.hermes.ctr;
 
 use std.hermes.view;
 use std.hermes.string;
-use std.hermes.zone;
+use logos.lang.hermes.zone;
 use std.hermes.anyval;
 use logos.lang.hermes.datatag;
 use std.hermes.array;
@@ -44,7 +44,7 @@ use std.hermes.clone;
 use std.hermes.check;
 use std.hermes.hbs_write;
 use std.hermes.hbs_read;
-use std.hermes.mem_holder;
+use logos.lang.hermes.mem_holder;
 use std.lang.text;
 use logos.lang.drop;
 

@@ -29,7 +29,7 @@
 package std.hermes.check;
 
 use std.hermes.anyval;
-use std.hermes.zone;
+use logos.lang.hermes.zone;
 use std.hermes.string;
 use logos.lang.hermes.typetag;
 use logos.lang.hermes.datatag;
@@ -41,7 +41,7 @@ use std.hermes.objectmap;
 use std.hermes.document;
 use std.hermes.scalar;
 use std.hermes.decimal;
-use std.hermes.mem_holder;
+use logos.lang.hermes.mem_holder;
 
 extern fn calloc(count: i64, size: i64) -> *mut u8;
 extern fn malloc(size: i64) -> *mut u8;

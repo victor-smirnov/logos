@@ -1,12 +1,12 @@
 package hermes_containers;
 // Phase 8: TinyObjectMap and ObjectArray — Hermes container datatypes.
 
-use std.hermes.zone;
+use logos.lang.hermes.zone;
 use std.hermes.anyval;
 use std.hermes.array;
 use std.hermes.map;
 use std.hermes.typed_value;
-use std.hermes.mem_holder;
+use logos.lang.hermes.mem_holder;
 
 unsafe fn main() -> i32 {
     let mut zone: HermesZone = HermesZone::create(4096);

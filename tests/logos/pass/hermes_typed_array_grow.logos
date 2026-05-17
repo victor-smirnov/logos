@@ -3,12 +3,12 @@ package hermes_typed_array_grow;
 // s as <I32>[] preallocates exact capacity so never exercises grow —
 // this test drives grow via the generic impl<T>::push codepath directly.
 
-use std.hermes.zone;
+use logos.lang.hermes.zone;
 use std.hermes.anyval;
 use std.hermes.array;
 use std.hermes.map;
 use std.hermes.typed_value;
-use std.hermes.mem_holder;
+use logos.lang.hermes.mem_holder;
 
 unsafe fn main() -> i32 {
     let mut zone: Zone<Mutable> = zone_create(4096);

@@ -5,7 +5,7 @@ package hermes_ex_containers;
 // element addresses, entry counts, raw TypeTag bytes — so that silent
 // regressions in the header layout or bookkeeping fields fail here.
 
-use std.hermes.zone;
+use logos.lang.hermes.zone;
 use std.hermes.anyval;
 use logos.lang.hermes.typetag;
 use logos.lang.hermes.datatag;

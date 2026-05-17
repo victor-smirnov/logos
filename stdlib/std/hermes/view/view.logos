@@ -10,8 +10,8 @@
 
 package std.hermes.view;
 
-use std.hermes.zone;
-use std.hermes.mem_holder;
+use logos.lang.hermes.zone;
+use logos.lang.hermes.mem_holder;
 use std.hermes.document;
 use std.hermes.stringify;
 use std.hermes.anyval;

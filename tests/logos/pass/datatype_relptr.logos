@@ -2,7 +2,7 @@ package datatype_relptr;
 // Phase 7: RelPtr<T> — thin intra-zone relative pointer (u32 offset).
 // Demonstrates: zone-relative singly-linked list.
 
-use std.hermes.zone;
+use logos.lang.hermes.zone;
 use logos.lang.hermes.relptr;
 
 #[zoned] struct Node {

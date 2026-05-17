@@ -3,7 +3,7 @@
 // Array of string offsets actually clones each pointee into the dst zone.
 package array_relptr_strings;
 
-use std.hermes.zone;
+use logos.lang.hermes.zone;
 use std.hermes.anyval;
 use std.hermes.array;
 use std.hermes.map;

@@ -2,7 +2,7 @@ package datatype_zone_ergonomic;
 // Phase 7: ergonomic DataRef<T> field access — p.x and p.x = val
 // without explicit intermediate pointer variables.
 
-use std.hermes.zone;
+use logos.lang.hermes.zone;
 
 #[zoned] struct Point {
     x: i32,

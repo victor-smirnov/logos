@@ -2,7 +2,7 @@ package hermes_scalar;
 // Round-trip test for zone-allocated I64/U64 scalars: build → stringify →
 // equal/hash → clone across zones.
 
-use std.hermes.zone;
+use logos.lang.hermes.zone;
 use std.hermes.anyval;
 use std.hermes.string;
 use logos.lang.hermes.typetag;

@@ -7,7 +7,7 @@
 // on RC = 0.  This sidesteps needing mutable statics / closures.
 package mem_holder_custom_destroyer;
 
-use std.hermes.mem_holder;
+use logos.lang.hermes.mem_holder;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);

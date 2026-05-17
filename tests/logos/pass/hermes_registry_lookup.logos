@@ -2,7 +2,7 @@ package hermes_registry_lookup;
 // Verifies hermes.registry: the registry path (code → fn_ptr → indirect
 // call) yields the same output as direct tagged-trait dispatch.
 
-use std.hermes.zone;
+use logos.lang.hermes.zone;
 use std.hermes.anyval;
 use std.hermes.string;
 use logos.lang.hermes.typetag;

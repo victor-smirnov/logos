@@ -1,7 +1,7 @@
 package hermes_typetag;
 // Vlen TypeTag constants and allocation tests.
 
-use std.hermes.zone;
+use logos.lang.hermes.zone;
 use logos.lang.hermes.typetag;
 use logos.lang.hermes.datatag;
 

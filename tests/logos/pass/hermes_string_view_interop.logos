@@ -4,7 +4,7 @@ package hermes_string_view_interop;
 //   • Buffer<HermesString> (heap/SoA — packed bytes + end offsets)
 // Code that consumes StringView doesn't care which one it came from.
 
-use std.hermes.zone;
+use logos.lang.hermes.zone;
 use std.hermes.anyval;
 use std.hermes.string;
 use logos.lang.hermes.typetag;

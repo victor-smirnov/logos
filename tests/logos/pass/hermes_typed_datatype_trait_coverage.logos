@@ -11,7 +11,7 @@ use std.hermes.equal;
 use std.hermes.hashing;
 use std.hermes.clone;
 use std.hermes.release;
-use std.hermes.zone;
+use logos.lang.hermes.zone;
 
 unsafe fn main() -> i32 {
     let mut d: Hermes = Hermes::new(4096);

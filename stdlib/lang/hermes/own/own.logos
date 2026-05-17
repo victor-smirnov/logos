@@ -15,10 +15,10 @@
 //   own.ref_count()                     → current per-object RC (debug)
 //   own.ptr()    / own.mut_ptr()        → raw pointer to T (unsafe)
 
-package std.hermes.own;
+package logos.lang.hermes.own;
 
-use std.hermes.zone;
-use std.hermes.mem_holder;
+use logos.lang.hermes.zone;
+use logos.lang.hermes.mem_holder;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);

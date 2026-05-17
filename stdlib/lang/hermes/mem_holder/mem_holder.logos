@@ -20,7 +20,7 @@
 //   memholder_retain         → RC += 1  (for each new Zone / DataRef / DataOwn)
 //   memholder_release        → RC -= 1  (call when Zone / DataRef / DataOwn goes away)
 
-package std.hermes.mem_holder;
+package logos.lang.hermes.mem_holder;
 
 use logos.lang.hermes.datatag;
 
