@@ -462,3 +462,73 @@ before it can be safely batched. Recommended next session:
 3. Fix in sema (or document the constraint as "trait must be in
    single-file package").
 4. Re-attempt the all-in-lang move once sema is reliable.
+
+---
+
+## Session 3 (2026-05-17) — collections-to-mem + ROOT CAUSE found
+
+Per Victor: physical move of mem/ packages into stdlib/lang/ (keeping
+their logos.mem.* names) so layer-lang archive bundles everything;
+layer-mem manifest stays as placeholder. Then add collections
+(`std.collections.X` → `logos.mem.collections.X`, physically in
+`stdlib/mem/collections/`) so layer-mem has real content.
+
+Attempted. Layer-mem build failed with the now-familiar pattern:
+
+    error [impl Iterator for VecIter]: impl: unknown trait 'Iterator'
+
+But this time, careful instrumentation pinpointed the actual bug.
+
+### Instrumentation findings
+
+Added diagnostic prints to:
+- `module_loader.cpp` — log every binary-loaded ParsedModule
+- `sema_collect.cpp` — log every trait registration with `cur_from_binary_`
+
+Output for layer-mem build:
+
+    [loader diag] binary load: pkg='logos.lang.iter' path='.../iter/iter.logos'  ×5
+    [sema diag] register trait 'Iterator' from pkg 'logos.lang.iter' (from_binary=0)
+    error [impl Iterator for VecIter]: impl: unknown trait 'Iterator'
+
+Two anomalies:
+- iter.logos loaded 5 times (one per consumer entry file — wasteful
+  but not buggy)
+- **`from_binary=0` for trait Iterator** — but iter.logos is
+  unambiguously a binary-loaded module per loader diag
+
+### Root cause
+
+`SemaChecker::cur_from_binary_` is not set when sema processes
+binary-loaded modules. Downstream the `only_binary_vec` filter at
+sema.cpp:489 keeps only entries with `from_binary_module=true`.
+Since binary-loaded traits register with `from_binary_module=false`,
+they get filtered out of the lir_bundle binary cache, and the final
+user-sema pass that consumes the bundle has empty `traits_` for
+binary-loaded traits → "unknown trait" errors.
+
+**This is the SAME bug** that surfaced in:
+- Session 1's Step 5 attempt (cross-archive Map trait field access)
+- Session 2's all-Hermes-in-lang trait visibility issue
+- Session 3's collections-to-mem layer-mem build
+
+One bug. Three failure modes. Localised in sema's
+`cur_from_binary_` propagation when binary modules feed
+sema_collect.
+
+### Fix path (next session, ~1 session scope)
+
+1. Find where binary-loaded ParsedModules feed sema_collect (likely
+   `lower_program` in sema.cpp or wherever sema iterates `asts`).
+2. Set `cur_from_binary_=true` for those iterations based on
+   `ParsedModule::from_binary_module` flag.
+3. Verify trait registrations get `from_binary=1` post-fix.
+4. Re-attempt collections-to-mem; expect layer-mem to build cleanly.
+5. Re-attempt all-Hermes-in-lang; expect ctr's `impl HermesRead for
+   Hermes` to find HermesRead trait.
+
+Once this lands, all the previously-blocked three-layer split
+operations should be unblocked.
+
+3197/3197 baseline preserved. Three sessions of debugging
+produced a precise actionable diagnosis.
