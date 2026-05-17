@@ -17,7 +17,7 @@ package test_iter_find_map_reduce;
 use std.fmt;
 use std.lang.text;
 use std.lang.iter;
-use std.lang.range;
+use logos.lang.range;
 use std.lang.option;
 
 fn half_if_even(x: i32) -> Option<i32> {

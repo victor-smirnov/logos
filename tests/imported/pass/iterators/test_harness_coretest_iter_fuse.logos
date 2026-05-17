@@ -15,7 +15,7 @@ package test_iter_fuse;
 use std.fmt;
 use std.lang.text;
 use std.lang.iter;
-use std.lang.range;
+use logos.lang.range;
 use std.lang.option;
 
 #[test]

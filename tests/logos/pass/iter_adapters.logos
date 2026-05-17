@@ -3,7 +3,7 @@ package iter_adapters;
 
 use std.lang.option;
 use std.lang.iter;
-use std.lang.range;
+use logos.lang.range;
 
 unsafe fn main() -> i32 {
     // ── TakeIter ──────────────────────────────────────────────────────────────

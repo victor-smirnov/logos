@@ -1,5 +1,5 @@
 package range_contains_test;
-use std.lang.range;
+use logos.lang.range;
 
 fn main() -> i32 {
     let r: RangeI32 = range_i32(0i32, 10i32);

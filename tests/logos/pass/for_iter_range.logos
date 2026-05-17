@@ -3,7 +3,7 @@ package for_iter_range;
 
 use std.lang.option;
 use std.lang.iter;
-use std.lang.range;
+use logos.lang.range;
 
 unsafe fn main() -> i32 {
     // Sum of 0..10 = 45
