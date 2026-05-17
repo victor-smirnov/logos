@@ -1,6 +1,6 @@
 package stdlib_demo;
 
-use std.lang.option;
+use logos.lang.option;
 use std.io;
 
 fn find_first_gt(arr: &[i32], threshold: i32) -> Option<i32> {

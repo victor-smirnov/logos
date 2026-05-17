@@ -25,7 +25,7 @@ package test_iter_batch_b60_esi_take_dei;
 use std.fmt;
 use std.lang.text;
 use std.lang.iter;
-use std.lang.option;
+use logos.lang.option;
 
 #[test]
 fn test_double_ended_take() {

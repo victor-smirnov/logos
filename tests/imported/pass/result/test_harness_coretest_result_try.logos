@@ -14,7 +14,7 @@ package test_result_try;
 use std.fmt;
 use std.lang.text;
 use logos.lang.result;
-use std.lang.option;
+use logos.lang.option;
 
 fn try_result_ok() -> Result<i32, i32> {
     let r: Result<i32, i32> = Ok(1i32);

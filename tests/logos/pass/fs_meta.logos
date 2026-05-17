@@ -6,7 +6,7 @@ use std.io.fs;
 use std.io.fs.path;
 use std.lang.text;
 use logos.lang.result;
-use std.lang.option;
+use logos.lang.option;
 use std.lang.iter;
 use std.collections.vec;
 

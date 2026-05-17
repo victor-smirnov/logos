@@ -5,7 +5,7 @@ package string_strops;
 
 use std.lang.text;
 use std.lang.iter;
-use std.lang.option;
+use logos.lang.option;
 
 fn main() -> i32 {
     // starts_with

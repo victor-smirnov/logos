@@ -7,7 +7,7 @@
 
 package option_flatten_pass;
 
-use std.lang.option;
+use logos.lang.option;
 
 fn main() -> i32 {
     let some_some: Option<Option<i32>> = Option::Some(Option::Some(42i32));

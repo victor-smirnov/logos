@@ -10,7 +10,7 @@ use std.fmt;
 use std.lang.text;
 use std.lang.iter;
 use logos.lang.range;
-use std.lang.option;
+use logos.lang.option;
 
 #[test]
 fn test_range_nth_some() {

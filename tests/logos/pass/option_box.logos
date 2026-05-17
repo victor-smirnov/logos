@@ -1,5 +1,5 @@
 package option_box;
-use std.lang.option;
+use logos.lang.option;
 use std.mem.box;
 
 fn main() -> i32 {

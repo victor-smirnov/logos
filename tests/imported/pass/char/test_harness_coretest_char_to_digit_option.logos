@@ -9,7 +9,7 @@ package test_coretest_char_to_digit_option;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.option;
+use logos.lang.option;
 use logos.lang.char;
 
 #[test]

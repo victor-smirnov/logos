@@ -6,7 +6,7 @@
 // variant pattern (similar to Rust). The qualified path is required.
 package match_ref_option_pattern;
 
-use std.lang.option;
+use logos.lang.option;
 
 fn main() -> i32 {
     let x: &Option<i32> = &Option::Some(1i32);

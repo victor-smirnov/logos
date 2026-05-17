@@ -12,7 +12,7 @@
 
 package logos.lang.char;
 
-use std.lang.option;
+use logos.lang.option;
 
 impl char {
     // ── ASCII range membership ────────────────────────────────────────────

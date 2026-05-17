@@ -1,5 +1,5 @@
 package r;
-use std.lang.option;
+use logos.lang.option;
 
 unsafe fn make_some() -> Option<str> { return Option::Some("hello"); }
 

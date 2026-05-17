@@ -2,7 +2,7 @@
 package test;
 
 use std.collections.vec;
-use std.lang.option;
+use logos.lang.option;
 use std.lang.iter;
 use logos.lang.cmp;
 

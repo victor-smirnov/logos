@@ -15,7 +15,7 @@ package std.collections.btree;
 use std.mem;
 use logos.lang.cmp;
 use std.lang.iter;
-use std.lang.option;
+use logos.lang.option;
 
 pub struct BTreeMap<K, V> {
     keys: *mut K,

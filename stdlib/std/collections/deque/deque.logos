@@ -12,7 +12,7 @@
 package std.collections.deque;
 
 use std.mem;
-use std.lang.option;
+use logos.lang.option;
 
 pub struct VecDeque<T> {
     buf:  *mut T,

@@ -9,7 +9,7 @@
 
 package logos.lang.convert;
 
-use std.lang.option;
+use logos.lang.option;
 use logos.lang.result;
 
 pub trait From<T> {

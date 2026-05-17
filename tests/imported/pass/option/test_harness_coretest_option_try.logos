@@ -15,7 +15,7 @@ package test_option_try;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.option;
+use logos.lang.option;
 
 fn try_some() -> Option<i32> {
     let val: i32 = Some(1i32)?;

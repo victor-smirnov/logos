@@ -1,7 +1,7 @@
 // Tests for all Iterator adapter types in std.iter.
 package iter_adapters;
 
-use std.lang.option;
+use logos.lang.option;
 use std.lang.iter;
 use logos.lang.range;
 

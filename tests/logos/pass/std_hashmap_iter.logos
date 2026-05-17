@@ -2,7 +2,7 @@ package test;
 
 use std.collections.hashmap;
 use std.lang.iter;
-use std.lang.option;
+use logos.lang.option;
 
 fn main() -> i32 {
     unsafe {

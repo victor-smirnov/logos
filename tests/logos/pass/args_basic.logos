@@ -3,7 +3,7 @@
 package test;
 
 use logos.std.env;
-use std.lang.option;
+use logos.lang.option;
 
 fn main() -> i32 {
     // No flags, no options, no positionals.

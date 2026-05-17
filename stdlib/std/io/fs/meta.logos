@@ -8,7 +8,7 @@ package std.io.fs;
 use std.lang.text;
 use logos.lang.result;
 use std.lang.iter;
-use std.lang.option;
+use logos.lang.option;
 use std.io.fs.path;
 use std.collections.vec;
 use std.mem;

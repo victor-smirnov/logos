@@ -12,7 +12,7 @@ package std.collections.hashmap;
 use std.mem;
 use logos.lang.hash;
 use logos.lang.cmp;
-use std.lang.option;
+use logos.lang.option;
 use std.lang.iter;
 
 let SLOT_EMPTY:     u8 = 0 as u8;

@@ -2,7 +2,7 @@
 // Modifications: i64; exit-code main; `Option::Some(i)` explicit path.
 package r_borrowck_pat_enum;
 
-use std.lang.option;
+use logos.lang.option;
 
 fn match_ref(v: Option<i64>) -> i64 {
     match v {

@@ -9,7 +9,7 @@ package inf_generic_type_inference_10436;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.option;
+use logos.lang.option;
 use std.collections.vec;
 
 fn works<T: Copy>(x: T) -> Vec<T> { return vec_from_arr([x]); }

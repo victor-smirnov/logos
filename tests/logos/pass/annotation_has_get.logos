@@ -1,5 +1,5 @@
 package annotation_has_get;
-use std.lang.option;
+use logos.lang.option;
 
 #[annotation]
 #[zoned] struct Deprecated {

@@ -19,7 +19,7 @@ package test_option_unwrap_or_default;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.option;
+use logos.lang.option;
 use logos.lang.default;
 
 #[test]

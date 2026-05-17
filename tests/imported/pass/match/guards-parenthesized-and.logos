@@ -11,7 +11,7 @@
 // point.
 package m_guards_parenthesized_and;
 
-use std.lang.option;
+use logos.lang.option;
 use logos.lang.panic;
 
 fn eq_str(a: str, b: str) -> bool {

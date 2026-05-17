@@ -8,7 +8,7 @@
 package iter_more_adapters;
 
 use std.lang.iter;
-use std.lang.option;
+use logos.lang.option;
 
 fn lt5(x: i32) -> bool { return x < 5i32; }
 fn lt3(x: i32) -> bool { return x < 3i32; }

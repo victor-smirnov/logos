@@ -11,7 +11,7 @@ use std.io.read;
 use std.io.write;
 use std.io.net.url;
 use std.collections.vec;
-use std.lang.option;
+use logos.lang.option;
 use logos.lang.result;
 use std.lang.text;
 

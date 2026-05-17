@@ -2,7 +2,7 @@
 package test;
 
 use logos.std.env;
-use std.lang.option;
+use logos.lang.option;
 use std.mem;
 
 fn main() -> i32 {

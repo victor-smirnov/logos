@@ -1,5 +1,5 @@
 package option_assign;
-use std.lang.option;
+use logos.lang.option;
 
 fn clear(o: &mut Option<i32>) {
     *o = Option::None;

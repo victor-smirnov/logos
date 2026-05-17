@@ -5,7 +5,7 @@ use std.collections.set;
 use logos.lang.hash;
 use logos.lang.cmp;
 use std.lang.iter;
-use std.lang.option;
+use logos.lang.option;
 
 fn main() -> i32 {
     unsafe {

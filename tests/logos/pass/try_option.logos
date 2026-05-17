@@ -3,7 +3,7 @@
 
 package test;
 
-use std.lang.option;
+use logos.lang.option;
 
 fn first_digit(s: str) -> Option<i32> {
     let b: *const u8 = s.as_ptr();

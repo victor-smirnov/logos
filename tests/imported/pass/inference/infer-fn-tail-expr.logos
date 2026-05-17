@@ -5,7 +5,7 @@ package inf_infer_fn_tail_expr;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.option;
+use logos.lang.option;
 use std.collections.vec;
 
 fn f() -> Vec<i64> { return vec_new::<i64>(); }

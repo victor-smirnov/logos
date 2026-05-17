@@ -14,7 +14,7 @@
 package std.lang.text;
 
 use std.lang.iter;
-use std.lang.option;
+use logos.lang.option;
 
 // Multi-byte separator splitter.
 pub struct Splitter {

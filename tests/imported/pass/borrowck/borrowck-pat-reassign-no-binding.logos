@@ -5,7 +5,7 @@
 // inside the match arm is the borrowck property under test.
 package borrowck_pat_reassign_no_binding;
 
-use std.lang.option;
+use logos.lang.option;
 use std.fmt;
 use std.lang.text;
 

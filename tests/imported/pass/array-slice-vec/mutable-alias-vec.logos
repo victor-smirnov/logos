@@ -7,7 +7,7 @@ package asv_mutable_alias_vec;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.option;
+use logos.lang.option;
 use std.collections.vec;
 
 fn grow(v: &mut Vec<i64>) {

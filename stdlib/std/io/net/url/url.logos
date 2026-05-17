@@ -9,7 +9,7 @@
 package std.io.net.url;
 
 use std.lang.text;
-use std.lang.option;
+use logos.lang.option;
 
 // unreserved: A-Z a-z 0-9 '-' '.' '_' '~'
 fn is_unreserved(c: u8) -> bool {

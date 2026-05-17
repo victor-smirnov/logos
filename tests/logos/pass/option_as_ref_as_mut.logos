@@ -14,7 +14,7 @@
 
 package option_as_ref_as_mut;
 
-use std.lang.option;
+use logos.lang.option;
 
 fn main() -> i32 {
     // as_ref on Some — read through the returned &T.

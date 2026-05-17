@@ -11,7 +11,7 @@
 
 package option_unit_payload;
 
-use std.lang.option;
+use logos.lang.option;
 
 fn main() -> i32 {
     let o: Option<()> = Option::Some(());

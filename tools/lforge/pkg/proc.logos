@@ -4,7 +4,7 @@
 package lforge.proc;
 
 use std.lang.text;
-use std.lang.option;
+use logos.lang.option;
 use std.collections.vec;
 use logos.std.process;
 

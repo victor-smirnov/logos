@@ -18,7 +18,7 @@ package test_iter_enumerate_dei;
 use std.fmt;
 use std.lang.text;
 use std.lang.iter;
-use std.lang.option;
+use logos.lang.option;
 
 #[test]
 fn test_double_ended_enumerate() {

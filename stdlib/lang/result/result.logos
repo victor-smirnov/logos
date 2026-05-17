@@ -7,7 +7,7 @@
 
 package logos.lang.result;
 
-use std.lang.option;
+use logos.lang.option;
 use logos.lang.panic;
 
 pub enum Result<T, E> {

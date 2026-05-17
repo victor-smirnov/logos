@@ -18,7 +18,7 @@ package test_result_map;
 use std.fmt;
 use std.lang.text;
 use logos.lang.result;
-use std.lang.option;
+use logos.lang.option;
 
 fn plus_one(x: i32) -> i32 { return x + 1i32; }
 

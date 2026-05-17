@@ -6,7 +6,7 @@ package match_bot;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.option;
+use logos.lang.option;
 
 fn main() -> i32 {
     let i: isize = match Option::Some::<isize>(3isize) {

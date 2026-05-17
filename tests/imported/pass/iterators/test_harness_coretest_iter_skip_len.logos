@@ -18,7 +18,7 @@ package test_iter_skip_len;
 use std.fmt;
 use std.lang.text;
 use std.lang.iter;
-use std.lang.option;
+use logos.lang.option;
 
 #[test]
 fn test_iterator_skip_len_basic() {

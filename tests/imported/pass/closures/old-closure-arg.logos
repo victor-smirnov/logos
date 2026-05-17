@@ -7,7 +7,7 @@ package cl_old_closure_arg;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.option;
+use logos.lang.option;
 use std.collections.vec;
 
 fn main() -> i32 {

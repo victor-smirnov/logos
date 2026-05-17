@@ -4,7 +4,7 @@ package test;
 use std.io.http;
 use std.lang.text;
 use std.io.net.url;
-use std.lang.option;
+use logos.lang.option;
 
 fn main() -> i32 {
     // Method constructors + eq_str

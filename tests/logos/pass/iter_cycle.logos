@@ -9,7 +9,7 @@ package iter_cycle_test;
 use std.compiler.metaprog;
 use logos.lang.clone;
 use std.lang.iter;
-use std.lang.option;
+use logos.lang.option;
 
 #[derive_clone]
 struct Counter { cur: i32, max: i32 }

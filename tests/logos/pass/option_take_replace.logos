@@ -2,7 +2,7 @@
 // the caller's binding through `&mut self`.
 package option_take_replace;
 
-use std.lang.option;
+use logos.lang.option;
 
 fn main() -> i32 {
     let mut o: Option<i32> = Option::Some(7i32);

@@ -22,7 +22,7 @@ package test_iter_rev;
 use std.fmt;
 use std.lang.text;
 use std.lang.iter;
-use std.lang.option;
+use logos.lang.option;
 use std.collections.vec;
 
 #[test]

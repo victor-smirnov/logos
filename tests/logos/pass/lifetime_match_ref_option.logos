@@ -6,7 +6,7 @@
 // concrete instantiation (e.g. `i64` here).
 package lifetime_match_ref_option;
 
-use std.lang.option;
+use logos.lang.option;
 
 fn get(opt: &Option<i64>) -> i64 {
     match opt {

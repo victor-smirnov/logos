@@ -8,7 +8,7 @@
 package iter_collect_test;
 
 use std.lang.iter;
-use std.lang.option;
+use logos.lang.option;
 use std.collections.vec;
 
 struct Counter { cur: i32, max: i32 }

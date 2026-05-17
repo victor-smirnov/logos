@@ -39,7 +39,7 @@ package test_iter_batch_b49;
 use std.fmt;
 use std.lang.text;
 use std.lang.iter;
-use std.lang.option;
+use logos.lang.option;
 
 fn is_even(x: i32) -> bool { return (x % 2i32) == 0i32; }
 fn eq_4(x: i32)    -> bool { return x == 4i32; }

@@ -17,7 +17,7 @@ package test_iter_min_max;
 use std.fmt;
 use std.lang.text;
 use std.lang.iter;
-use std.lang.option;
+use logos.lang.option;
 
 fn cmp_i32(a: i32, b: i32) -> i32 {
     if a < b { return -1i32; }

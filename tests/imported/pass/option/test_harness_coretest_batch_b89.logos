@@ -19,7 +19,7 @@ package test_batch_b89;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.option;
+use logos.lang.option;
 
 fn is_even(x: i32) -> bool { return (x & 1i32) == 0i32; }
 fn is_pos(x: i32)  -> bool { return x > 0i32; }

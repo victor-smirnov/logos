@@ -2,7 +2,7 @@
 
 package test;
 
-use std.lang.option;
+use logos.lang.option;
 
 fn get(ok: bool) -> Option<i32> {
     if ok { return Option::Some(100); }

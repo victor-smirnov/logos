@@ -7,7 +7,7 @@ package le_let_else;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.option;
+use logos.lang.option;
 
 fn main() -> i32 {
     let Option::Some(x) = Option::Some::<i32>(1i32) else {

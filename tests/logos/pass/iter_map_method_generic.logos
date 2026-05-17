@@ -13,7 +13,7 @@
 package iter_map_method_generic;
 
 use std.lang.iter;
-use std.lang.option;
+use logos.lang.option;
 
 fn triple(x: i32) -> i32 { return x * 3i32; }
 

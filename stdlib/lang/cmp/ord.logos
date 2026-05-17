@@ -6,7 +6,7 @@
 
 package logos.lang.cmp;
 
-use std.lang.option;
+use logos.lang.option;
 use logos.lang.arith;
 
 pub enum Ordering {

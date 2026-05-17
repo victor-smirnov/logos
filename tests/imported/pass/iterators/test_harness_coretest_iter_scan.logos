@@ -16,7 +16,7 @@ use std.fmt;
 use std.lang.text;
 use std.lang.iter;
 use logos.lang.range;
-use std.lang.option;
+use logos.lang.option;
 
 pub struct RunningSum { pub acc: i32 }
 

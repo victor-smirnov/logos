@@ -16,7 +16,7 @@ package test_iter_map;
 use std.fmt;
 use std.lang.text;
 use std.lang.iter;
-use std.lang.option;
+use logos.lang.option;
 
 fn negate(x: i32) -> i32 { return 0i32 - x; }
 

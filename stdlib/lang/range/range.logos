@@ -6,7 +6,7 @@
 
 package logos.lang.range;
 
-use std.lang.option;
+use logos.lang.option;
 use std.lang.iter;
 
 // ── RangeI32 — exclusive range [start, end) over i32 ─────────────────────────

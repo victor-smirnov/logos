@@ -4,7 +4,7 @@
 // `Option<&'a T>` field shape.
 package r_struct_with_lifetime_parameters_9259;
 
-use std.lang.option;
+use logos.lang.option;
 
 struct A<'a> {
     a: &'a i64,

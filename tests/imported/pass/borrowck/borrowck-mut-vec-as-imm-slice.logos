@@ -13,7 +13,7 @@ package borrowck_mut_vec_as_imm_slice;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.option;
+use logos.lang.option;
 use std.collections.vec;
 
 fn want_slice(s: &[i64]) -> i64 {

@@ -1,6 +1,6 @@
 package option_chain;
 
-use std.lang.option;
+use logos.lang.option;
 
 fn double_if_some(opt: Option<i32>) -> Option<i32> {
     match opt {

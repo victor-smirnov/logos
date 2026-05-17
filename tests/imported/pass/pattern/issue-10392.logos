@@ -6,7 +6,7 @@
 // 2026-05-11) and the destructure-from-fn-return shape (P4-pm-08).
 package issue_10392;
 
-use std.lang.option;
+use logos.lang.option;
 
 struct A { foo: isize }
 struct B { a: isize, b: isize, c: isize }

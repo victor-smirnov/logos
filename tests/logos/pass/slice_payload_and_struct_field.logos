@@ -11,7 +11,7 @@
 //
 // Total = 2 + 5 + 5 + 6 + 7 = 25.
 package slice_payload_and_struct_field;
-use std.lang.option;
+use logos.lang.option;
 
 fn pass_str(s: str) -> i64 { return s.len() as i64; }
 fn ret_str() -> str { return "hello"; }

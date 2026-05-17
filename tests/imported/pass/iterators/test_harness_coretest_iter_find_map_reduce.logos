@@ -18,7 +18,7 @@ use std.fmt;
 use std.lang.text;
 use std.lang.iter;
 use logos.lang.range;
-use std.lang.option;
+use logos.lang.option;
 
 fn half_if_even(x: i32) -> Option<i32> {
     if (x % 2i32) == 0i32 { return Some(x / 2i32); }

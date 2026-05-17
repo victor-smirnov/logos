@@ -9,7 +9,7 @@ use std.collections.hashmap;
 use logos.lang.hash;
 use logos.lang.cmp;
 use std.lang.iter;
-use std.lang.option;
+use logos.lang.option;
 
 pub struct HashSet<K> {
     inner: HashMap<K, u8>,

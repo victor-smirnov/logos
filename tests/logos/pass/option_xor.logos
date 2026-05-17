@@ -1,5 +1,5 @@
 package option_xor;
-use std.lang.option;
+use logos.lang.option;
 
 fn main() -> i32 {
     let s: Option<i32> = Option::Some(5i32);

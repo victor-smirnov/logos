@@ -4,7 +4,7 @@ package iter_basic;
 
 use logos.lang.range;
 use std.lang.iter;
-use std.lang.option;
+use logos.lang.option;
 
 unsafe fn main() -> i32 {
     // range_i32: 0..5 = 0,1,2,3,4

@@ -7,7 +7,7 @@
 // shape — confirms let-else works as in Rust.
 package let_else_basic;
 
-use std.lang.option;
+use logos.lang.option;
 use logos.lang.panic;
 use std.fmt;
 use std.lang.text;

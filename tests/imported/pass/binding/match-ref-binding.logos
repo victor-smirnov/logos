@@ -9,7 +9,7 @@
 // the value read.
 package b_match_ref_binding;
 
-use std.lang.option;
+use logos.lang.option;
 
 fn destructure(x: Option<i64>) -> i64 {
     match x {

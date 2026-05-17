@@ -5,7 +5,7 @@
 // in the concrete form).
 package r_regions_return_interior_of_option;
 
-use std.lang.option;
+use logos.lang.option;
 
 fn get(opt: Option<i64>) -> i64 {
     match opt {

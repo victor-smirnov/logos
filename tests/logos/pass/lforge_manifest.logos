@@ -30,7 +30,7 @@ use std.hermes.objectmap;
 use std.hermes.document;
 use std.hermes.parser;
 use std.lang.text;
-use std.lang.option;
+use logos.lang.option;
 use logos.lang.result;
 
 extern fn malloc(size: i64) -> *mut u8;

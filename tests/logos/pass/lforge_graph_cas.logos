@@ -19,7 +19,7 @@ package lforge_graph_cas;
 use std.io.fs;
 use std.io.fs.path;
 use std.lang.text;
-use std.lang.option;
+use logos.lang.option;
 use logos.lang.result;
 use std.lang.iter;
 use std.collections.vec;

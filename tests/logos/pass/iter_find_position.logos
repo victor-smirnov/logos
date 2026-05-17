@@ -13,7 +13,7 @@
 package iter_find_position;
 
 use std.lang.iter;
-use std.lang.option;
+use logos.lang.option;
 
 fn is_even(x: i32) -> bool { return x % 2i32 == 0i32; }
 fn gt100(x: i32) -> bool { return x > 100i32; }

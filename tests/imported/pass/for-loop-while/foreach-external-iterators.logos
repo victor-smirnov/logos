@@ -6,7 +6,7 @@ package fl_foreach_external_iterators;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.option;
+use logos.lang.option;
 use std.collections.vec;
 
 fn main() -> i32 {

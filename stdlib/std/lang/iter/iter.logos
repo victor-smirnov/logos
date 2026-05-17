@@ -5,7 +5,7 @@
 
 package std.lang.iter;
 
-use std.lang.option;
+use logos.lang.option;
 use logos.lang.cmp;
 
 // ── FromIterator trait ───────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 // Verify `for x in iter { body }` works for Iterator trait types.
 package for_iter_range;
 
-use std.lang.option;
+use logos.lang.option;
 use std.lang.iter;
 use logos.lang.range;
 

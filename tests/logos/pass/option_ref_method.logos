@@ -1,5 +1,5 @@
 package option_ref_method;
-use std.lang.option;
+use logos.lang.option;
 
 impl<T> Option<T> {
     pub fn refcheck(self: &Option<T>) -> bool {

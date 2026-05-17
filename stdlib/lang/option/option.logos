@@ -16,7 +16,7 @@
 // receivers is sparse; the by-value forms cover the common pattern
 // (Option<T> is small + Copy-like for primitive T).
 
-package std.lang.option;
+package logos.lang.option;
 
 use logos.lang.panic;
 use logos.lang.default;

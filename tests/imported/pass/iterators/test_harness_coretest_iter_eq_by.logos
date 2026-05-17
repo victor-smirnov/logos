@@ -18,7 +18,7 @@ package test_iter_eq_by;
 use std.fmt;
 use std.lang.text;
 use std.lang.iter;
-use std.lang.option;
+use logos.lang.option;
 
 fn square_eq(x: i32, y: i32) -> bool { return x * x == y; }
 

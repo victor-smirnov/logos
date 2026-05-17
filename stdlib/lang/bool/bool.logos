@@ -11,7 +11,7 @@
 
 package logos.lang.bool;
 
-use std.lang.option;
+use logos.lang.option;
 use logos.lang.result;
 
 impl bool {

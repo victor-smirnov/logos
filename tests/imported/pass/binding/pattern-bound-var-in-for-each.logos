@@ -7,7 +7,7 @@
 // by the while-loop). `assert_eq!` → if-return.
 package b_pattern_bound_var_in_for_each;
 
-use std.lang.option;
+use logos.lang.option;
 
 fn foo(src: i64) {
     match Option::Some::<i64>(src) {

@@ -4,7 +4,7 @@
 package closure_bare_param;
 
 use std.lang.iter;
-use std.lang.option;
+use logos.lang.option;
 
 fn main() -> i32 {
     let arr: [i32; 4] = [1i32, 2i32, 3i32, 4i32];

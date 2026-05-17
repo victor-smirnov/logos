@@ -20,14 +20,14 @@
 //     comparison of String values requires PartialEq impl on String (gap).
 //
 // Modifications:
-//   - `use core::*;` → `use std.lang.option;`
+//   - `use core::*;` → `use logos.lang.option;`
 //   - bare `Some(...)` / `None` accepted via prelude shorthand (CP-cm-03)
 //   - `isize` works in Logos
 package test_option;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.option;
+use logos.lang.option;
 
 #[test]
 fn test_unwrap() {

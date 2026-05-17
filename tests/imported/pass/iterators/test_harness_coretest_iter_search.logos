@@ -14,7 +14,7 @@ package test_iter_search;
 use std.fmt;
 use std.lang.text;
 use std.lang.iter;
-use std.lang.option;
+use logos.lang.option;
 
 fn lt10(x: i32)        -> bool { return x < 10i32; }
 fn is_even(x: i32)     -> bool { return (x % 2i32) == 0i32; }

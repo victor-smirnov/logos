@@ -18,7 +18,7 @@
 // concrete-impl call sites stay un-mangled.
 package t_early_vtbl_resolution;
 
-use std.lang.option;
+use logos.lang.option;
 
 trait thing<A> {
     fn foo(&self) -> Option<A>;

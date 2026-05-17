@@ -6,7 +6,7 @@
 package std.collections.vec;
 
 use std.mem;
-use std.lang.option;
+use logos.lang.option;
 use std.lang.iter;
 use logos.lang.cmp;
 use logos.lang.panic;

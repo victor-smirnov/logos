@@ -4,7 +4,7 @@ package json_parse;
 
 use logos.mem.encoding.json;
 use std.lang.text;
-use std.lang.option;
+use logos.lang.option;
 use logos.lang.result;
 use std.collections.vec;
 

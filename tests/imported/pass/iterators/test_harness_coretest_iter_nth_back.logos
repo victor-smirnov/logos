@@ -16,7 +16,7 @@ package test_iter_nth_back;
 use std.fmt;
 use std.lang.text;
 use std.lang.iter;
-use std.lang.option;
+use logos.lang.option;
 
 #[test]
 fn test_iterator_nth_back_basic() {

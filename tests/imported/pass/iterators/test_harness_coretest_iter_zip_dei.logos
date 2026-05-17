@@ -18,7 +18,7 @@ package test_iter_zip_dei;
 use std.fmt;
 use std.lang.text;
 use std.lang.iter;
-use std.lang.option;
+use logos.lang.option;
 
 #[test]
 fn test_double_ended_zip_balanced() {

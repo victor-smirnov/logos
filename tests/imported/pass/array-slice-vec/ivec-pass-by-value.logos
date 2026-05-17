@@ -5,7 +5,7 @@ package asv_ivec_pass_by_value;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.option;
+use logos.lang.option;
 use std.collections.vec;
 
 fn f(_a: Vec<i64>) { }
