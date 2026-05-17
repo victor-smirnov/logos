@@ -1074,8 +1074,22 @@ std::vector<ParsedModule> load_modules(
             cit = binary_cache.emplace(cache_key, std::move(decoded)).first;
         }
 
+        // wanted: load the requested package unconditionally. For prelude
+        // siblings (cross-cutting traits / genos types), skip if the
+        // consumer's TEXT walk already provides the package — otherwise
+        // we'd load the same package from both sources, registering its
+        // impls twice ("conflicting implementations of trait X for
+        // type Y" / "duplicate datatype Z" at sema). The requested_pkg
+        // never gets text-index'd at this point (visit_package's text-
+        // first check would have caught it), so it doesn't need the
+        // skip; conversely prelude siblings DO need it when monolith's
+        // recursive root absorbs lang/mem sub-trees that layer archives
+        // also text-walk independently.
         auto wanted = [&](const std::string& pkg) {
-            return pkg == requested_pkg || pkg_in_prelude(pkg);
+            if (pkg == requested_pkg) return true;
+            if (!pkg_in_prelude(pkg)) return false;
+            if (index.count(pkg)) return false;  // text-walk already has it
+            return true;
         };
 
         std::vector<std::string> pkg_uses;
