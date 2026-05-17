@@ -6,9 +6,9 @@
 //   3. Verifies the compacted copy stringifies identically to the original.
 //   4. (Where possible) verifies that the compacted zone is smaller or equal.
 package hermes_compactify;
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 use logos.lang.hermes.anyval;
-use std.hermes.decimal;
+use logos.mem.hermes.decimal;
 use logos.mem.string;
 use logos.lang.str;
 

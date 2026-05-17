@@ -1,7 +1,7 @@
 package metacall_hermes;
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 use logos.lang.hermes.view;
-use std.hermes.view;
+use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;
 
 unsafe fn build_cfg() -> Hermes {

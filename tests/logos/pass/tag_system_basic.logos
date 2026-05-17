@@ -4,7 +4,7 @@ package tag_system_basic;
 // 2. TomTagSystem::read_tag reads first 8 bytes as LE u64
 
 use logos.lang.hermes.datatag;
-use std.hermes.tag_system;
+use logos.mem.hermes.tag_system;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);

@@ -9,7 +9,7 @@ package main;
 
 use std.compiler.metaprog;
 use logos.lang.hermes.view;
-use std.hermes.view;
+use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;
 
 #[metaprog_handler("template_of_typed_probe")]

@@ -1,6 +1,6 @@
 // Comprehensive Decimal arithmetic tests
 package dec_arithmetic;
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 use logos.lang.hermes.anyval;
 use logos.mem.string;
 use logos.lang.str;

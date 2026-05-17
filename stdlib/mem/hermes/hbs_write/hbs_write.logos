@@ -16,21 +16,21 @@
 //   0x60 i64box   0x61 u64box   0x62 arr_i32 0x63 map_i32_anyval 0x64 arr_u64
 //   0xFD DEF      0xFE REF
 
-package std.hermes.hbs_write;
+package logos.mem.hermes.hbs_write;
 
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.zone;
 use logos.lang.hermes.view;
-use std.hermes.string;
+use logos.mem.hermes.string;
 use logos.lang.hermes.typetag;
 use logos.lang.hermes.datatag;
-use std.hermes.array;
-use std.hermes.map;
+use logos.mem.hermes.array;
+use logos.mem.hermes.map;
 use logos.lang.hermes.typed_value;
-use std.hermes.objectmap;
-use std.hermes.document;
+use logos.mem.hermes.objectmap;
+use logos.mem.hermes.document;
 use logos.lang.hermes.scalar;
-use std.hermes.decimal;
+use logos.mem.hermes.decimal;
 use logos.lang.hermes.mem_holder;
 use logos.mem.string;
 use logos.lang.str;

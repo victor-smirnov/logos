@@ -1899,7 +1899,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
         auto build_fn = find_func_op(parent_mod, hermes_build_fn);
         if (!build_fn) {
-            std::fprintf(stderr, "mlir_gen: '%s' not found — add 'use std.hermes.ctr;'\n",
+            std::fprintf(stderr, "mlir_gen: '%s' not found — add 'use logos.mem.hermes.ctr;'\n",
                          hermes_build_fn.c_str());
             return nullptr;
         }
@@ -4057,7 +4057,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EHermesLitView v, TypeRef ret_t
         // C5-fix4: check all alloc helpers upfront — missing functions cause silent null AnyVal.
         if (!new_fn || !patch_fn || !alloc_f64_fn || !alloc_str_fn || !alloc_cstr_fn) {
             std::fprintf(stderr, "mlir_gen: hermes zone-alloc helpers not found — "
-                         "add 'use std.hermes.ctr;' to your file\n");
+                         "add 'use logos.mem.hermes.ctr;' to your file\n");
             return nullptr;
         }
 
@@ -4195,7 +4195,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EHermesLitView v, TypeRef ret_t
     auto build_fn = find_func_op(parent_mod, "hermes_build_from_template");
     if (!build_fn) {
         std::fprintf(stderr, "mlir_gen: hermes_build_from_template not found — "
-                     "add 'use std.hermes.ctr;' to your file\n");
+                     "add 'use logos.mem.hermes.ctr;' to your file\n");
         return nullptr;
     }
     llvm::SmallVector<mlir::Value> build_args{

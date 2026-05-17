@@ -15,12 +15,12 @@
 
 package hermes_showcase;
 
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.pat;
 use logos.lang.hermes.view;
-use std.hermes.view;
-use std.hermes.map;
+use logos.mem.hermes.view;
+use logos.mem.hermes.map;
 use logos.mem.string;
 use logos.lang.str;
 use std.io;

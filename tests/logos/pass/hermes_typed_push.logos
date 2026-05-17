@@ -2,12 +2,12 @@
 // Array<i32>, Array<u64>, Map<i32, AnyVal>.
 package hermes_typed_push;
 
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 use logos.lang.hermes.view;
-use std.hermes.view;
+use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;
-use std.hermes.array;
-use std.hermes.map;
+use logos.mem.hermes.array;
+use logos.mem.hermes.map;
 use logos.lang.hermes.typed_value;
 
 unsafe fn main() -> i32 {

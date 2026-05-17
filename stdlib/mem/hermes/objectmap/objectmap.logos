@@ -20,15 +20,15 @@
 // Hash function: FNV-1a (hermes_fnv1a from hermes.string).
 // Collision resolution: linear probing (slot wraps at capacity).
 
-package std.hermes.objectmap;
+package logos.mem.hermes.objectmap;
 
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.tags;
-use std.hermes.array;
-use std.hermes.map;
+use logos.mem.hermes.array;
+use logos.mem.hermes.map;
 use logos.lang.hermes.typed_value;
 use logos.lang.hermes.view;
-use std.hermes.string;
+use logos.mem.hermes.string;
 use logos.lang.hermes.relptr;
 
 // ---------------------------------------------------------------------------

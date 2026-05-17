@@ -9,9 +9,9 @@
 package hermes_sdn_lit;
 
 use logos.lang.hermes.view;
-use std.hermes.view;
+use logos.mem.hermes.view;
 use logos.lang.hermes.zone;
-use std.hermes.document;
+use logos.mem.hermes.document;
 use logos.lang.hermes.stringify;
 use logos.lang.hermes.mem_holder;
 use logos.mem.string;

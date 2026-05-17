@@ -1,6 +1,6 @@
 // Fail: capture inside a typed @<T>[] array (not supported — typed arrays store raw T, not AnyVal).
 package hermes_capture_typed_array;
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 
 unsafe fn main() -> i32 {
     let x: i32 = 5;

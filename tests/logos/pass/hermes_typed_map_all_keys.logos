@@ -7,10 +7,10 @@
 package hermes_typed_map_all_keys;
 
 use logos.lang.hermes.view;
-use std.hermes.view;
+use logos.mem.hermes.view;
 use logos.lang.hermes.stringify;
-use std.hermes.array;
-use std.hermes.map;
+use logos.mem.hermes.array;
+use logos.mem.hermes.map;
 use logos.lang.hermes.typed_value;
 use logos.mem.string;
 use logos.lang.str;

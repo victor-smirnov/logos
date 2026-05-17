@@ -4,9 +4,9 @@
 
 package hermes_type_lit_parse;
 
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 use logos.lang.hermes.view;
-use std.hermes.view;
+use logos.mem.hermes.view;
 
 pub unsafe fn main() -> i32 {
     let _a = @{"key_ty": <type:i64>, "val_ty": <type:u32>};

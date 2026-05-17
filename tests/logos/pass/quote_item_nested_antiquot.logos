@@ -8,7 +8,7 @@ package main;
 
 use std.compiler.metaprog;
 use logos.lang.hermes.view;
-use std.hermes.view;
+use logos.mem.hermes.view;
 
 #[metaprog_handler("nested_antiquot_inject")]
 fn nested_antiquot_inject_hook(target_offset: u32) -> () {

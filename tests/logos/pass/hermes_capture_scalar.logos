@@ -1,6 +1,6 @@
 // Hermes capture: scalar values captured from variables into @-literals.
 package hermes_capture_scalar;
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 use logos.lang.hermes.anyval;
 
 unsafe fn main() -> i32 {

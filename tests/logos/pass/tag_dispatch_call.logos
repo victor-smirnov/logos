@@ -8,7 +8,7 @@ package tag_dispatch_call;
 //      to the correct impl method based on the type_code in memory.
 
 use logos.lang.hermes.datatag;
-use std.hermes.tag_system;
+use logos.mem.hermes.tag_system;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);

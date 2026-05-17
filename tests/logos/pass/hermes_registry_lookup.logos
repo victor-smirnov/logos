@@ -5,11 +5,11 @@ package hermes_registry_lookup;
 use logos.lang.hermes.zone;
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.view;
-use std.hermes.string;
+use logos.mem.hermes.string;
 use logos.lang.hermes.typetag;
-use std.hermes.tag_system;
+use logos.mem.hermes.tag_system;
 use logos.lang.hermes.stringify;
-use std.hermes.registry;
+use logos.mem.hermes.registry;
 use logos.mem.string;
 use logos.lang.str;
 

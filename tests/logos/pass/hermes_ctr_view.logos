@@ -1,9 +1,9 @@
 // C8f: HermesView — non-owning view of a live Hermes.
 package hermes_ctr_view;
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.view;
-use std.hermes.view;
+use logos.mem.hermes.view;
 use logos.mem.string;
 use logos.lang.str;
 

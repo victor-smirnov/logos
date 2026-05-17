@@ -8,11 +8,11 @@ use logos.lang.str;
 use logos.lang.result;
 use logos.mem.collections.vec;
 use logos.lang.hermes.view;
-use std.hermes.view;
+use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;
-use std.hermes.string;
-use std.hermes.map;
-use std.hermes.array;
+use logos.mem.hermes.string;
+use logos.mem.hermes.map;
+use logos.mem.hermes.array;
 
 use lforge.schema;
 use lforge.util;

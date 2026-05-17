@@ -22,7 +22,7 @@ package foo.bar.baz;     // one per file; first non-comment statement
 
 use std.lang.cmp;        // make all `pub` items of std.lang.cmp visible
 use other.module;
-pub use std.hermes.view; // re-export to consumers of foo.bar.baz
+pub use logos.mem.hermes.view; // re-export to consumers of foo.bar.baz
 
 // items follow…
 pub struct Quux { … }

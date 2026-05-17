@@ -7,7 +7,7 @@ package main;
 
 use std.compiler.metaprog;
 use logos.lang.hermes.view;
-use std.hermes.view;
+use logos.mem.hermes.view;
 
 fn emit_one() -> QuoteItemBlob {
     let n: Ident = gensym("Helper");

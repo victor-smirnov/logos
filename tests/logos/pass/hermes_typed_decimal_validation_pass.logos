@@ -1,7 +1,7 @@
 // Decimal typed-value validation: accepted forms.
 package hermes_typed_decimal_validation_pass;
 
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 use logos.mem.string;
 use logos.lang.str;
 

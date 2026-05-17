@@ -32,7 +32,7 @@ There are two ways to construct a Hermes document.
 **Hermes literals** (`@{...}`, `@[...]`) are part of Logos syntax. They produce a `Hermes` document directly and support capture (see below):
 
 ```logos
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 
 let id: i32 = 42;
 let doc: Hermes = @{ "id": $id, "ok": true, "tags": ["fast", "safe"] };

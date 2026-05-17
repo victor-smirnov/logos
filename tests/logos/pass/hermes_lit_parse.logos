@@ -3,9 +3,9 @@
 
 package hermes_lit_parse;
 
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 use logos.lang.hermes.view;
-use std.hermes.view;
+use logos.mem.hermes.view;
 
 pub unsafe fn main() -> i32 {
     // map literal

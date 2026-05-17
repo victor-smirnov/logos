@@ -15,7 +15,7 @@
 //   document_set_root(doc, AnyVal::from_offset(obj_off));
 //   let root: AnyVal = document_get_root(doc);
 
-package std.hermes.document;
+package logos.mem.hermes.document;
 
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.tags;

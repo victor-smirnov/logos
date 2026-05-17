@@ -1,7 +1,7 @@
 // Assoc params list must not truncate silently.
 package hermes_typed_datatype_params_overflow;
 
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 
 unsafe fn main() -> i32 {
     let mut d: Hermes = Hermes::new(8192);

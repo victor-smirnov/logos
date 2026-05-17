@@ -10,7 +10,7 @@
 // HermesString layout in zone: [vlen_length: 1+ bytes][UTF-8 bytes]
 // Always allocate vlen_encode_size(len) + len bytes before calling init.
 
-package std.hermes.string;
+package logos.mem.hermes.string;
 
 use logos.lang.hermes.view;
 use logos.lang.hermes.fabric;

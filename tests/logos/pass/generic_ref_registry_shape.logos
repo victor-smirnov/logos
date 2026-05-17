@@ -10,7 +10,7 @@
 package generic_ref_registry_shape;
 
 use logos.lang.hermes.view;
-use std.hermes.view;
+use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;
 
 // (1) Const-generic thunks — distinct N values yield distinct functions.

@@ -1,6 +1,6 @@
 // Fail: &[i32] slice cast to <I32,AnyVal>{} — wrong source type (need MapSliceI32).
 package hermes_as_map_wrong_src;
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 
 unsafe fn main() -> i32 {
     let arr: [i32; 2] = [1, 2];

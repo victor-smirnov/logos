@@ -7,7 +7,7 @@
 // 5) ctr.decimal_from_cstr crashed on null pointer
 package hermes_decimal_limits_errors;
 
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 use logos.lang.hermes.anyval;
 
 unsafe fn main() -> i32 {

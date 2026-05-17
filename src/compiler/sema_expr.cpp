@@ -7348,7 +7348,7 @@ lir::LExprPtr SemaChecker::lower_map_comp(TinyMapView node) {
 // ObjectArray of AnyVals, iterating over iter_expr and optionally
 // filtering by guard.  Element expression must evaluate to AnyVal
 // (user coerces scalars explicitly via AnyVal::embed_i24 etc.).
-// Requires `use std.hermes.ctr;` in scope.
+// Requires `use logos.mem.hermes.ctr;` in scope.
 lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
     auto var_name = str_of(node.get(la::NAME.code));
 
@@ -7379,7 +7379,7 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
     {
         auto [hpkg, hsi] = find_struct_by_name("Hermes");
         if (!hsi) {
-            error("hermes list comprehension requires `use std.hermes.ctr;`");
+            error("hermes list comprehension requires `use logos.mem.hermes.ctr;`");
             return error_expr();
         }
     }
@@ -7391,7 +7391,7 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
     for (auto* fi : new_cands)  if (fi->param_types.size() == 1) { new_fi  = fi; break; }
     for (auto* fi : push_cands) if (fi->param_types.size() == 2) { push_fi = fi; break; }
     if (!new_fi || !push_fi) {
-        error("hermes list comprehension requires `use std.hermes.ctr;`");
+        error("hermes list comprehension requires `use logos.mem.hermes.ctr;`");
         return error_expr();
     }
 
@@ -7485,7 +7485,7 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
 
 // Hermes map comprehension:  @{kexpr: vexpr for x in iter (if guard)?}
 // v1: string keys only (`str`); values must be AnyVal.
-// Requires `use std.hermes.ctr;` in scope.
+// Requires `use logos.mem.hermes.ctr;` in scope.
 lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
     auto var_name = str_of(node.get(la::NAME.code));
 
@@ -7516,7 +7516,7 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
     {
         auto [hpkg, hsi] = find_struct_by_name("Hermes");
         if (!hsi) {
-            error("hermes map comprehension requires `use std.hermes.ctr;`");
+            error("hermes map comprehension requires `use logos.mem.hermes.ctr;`");
             return error_expr();
         }
     }
@@ -7528,7 +7528,7 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
     for (auto* fi : new_cands) if (fi->param_types.size() == 2) { new_fi = fi; break; }
     for (auto* fi : put_cands) if (fi->param_types.size() == 3) { put_fi = fi; break; }
     if (!new_fi || !put_fi) {
-        error("hermes map comprehension requires `use std.hermes.ctr;`");
+        error("hermes map comprehension requires `use logos.mem.hermes.ctr;`");
         return error_expr();
     }
 
@@ -7700,7 +7700,7 @@ lir::LExprPtr SemaChecker::coerce_to_hermes_anyval(
         if (c->param_types.size() == want_arity) { fi = c; break; }
     }
     if (!fi) {
-        error(std::format("{}: {} not found; `use std.hermes.ctr;`",
+        error(std::format("{}: {} not found; `use logos.mem.hermes.ctr;`",
                           context, helper));
         return error_expr();
     }
@@ -9823,7 +9823,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
         if (!datatypes_.count(kit->second.struct_name) &&
             !type_aliases_.count(kit->second.struct_name)) {
             error(std::format(
-                "typed array @<{}>[...] requires '{}' in scope — add 'use std.hermes.array;'",
+                "typed array @<{}>[...] requires '{}' in scope — add 'use logos.mem.hermes.array;'",
                 type_name, kit->second.struct_name));
             return nullptr;
         }
@@ -9904,7 +9904,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                               || struct_specs_sema_.count("Map$G2$K$AnyVal") != 0;
             if (!map_available) {
                 error(std::format(
-                    "typed map @<{}>{{...}} requires 'use std.hermes.map;'",
+                    "typed map @<{}>{{...}} requires 'use logos.mem.hermes.map;'",
                     key_type));
                 return nullptr;
             }
@@ -12179,7 +12179,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
                 if (ok) {
                     site.thunk_source = std::format(
                         "package {};\n"
-                        "use std.hermes.ctr;\n"
+                        "use logos.mem.hermes.ctr;\n"
                         "unsafe fn {}() -> *const u8 {{\n"
                         "    let __h: Hermes = {};\n"
                         "    return __metacall_freeze(&__h);\n"
@@ -12194,9 +12194,9 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
                 // ExprBlob ret additionally needs std.compiler.metaprog.
                 const char* extra_uses =
                     (site.ret_tag == RT2::HermesStatic)
-                    ? "use logos.lang.hermes.view;\nuse std.hermes.view;\n"
+                    ? "use logos.lang.hermes.view;\nuse logos.mem.hermes.view;\n"
                     : (site.ret_tag == RT2::ExprBlob)
-                    ? "use std.compiler.metaprog;\nuse logos.lang.hermes.view;\nuse std.hermes.view;\n"
+                    ? "use std.compiler.metaprog;\nuse logos.lang.hermes.view;\nuse logos.mem.hermes.view;\n"
                     : "";
                 // Body shape:
                 //   call/expr forms → `{ return <text>; }`
@@ -13319,7 +13319,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
         thunk_src = std::format(
             "package {};\n"
             "use std.compiler.metaprog;\n"
-            "use std.hermes.view;\n"
+            "use logos.mem.hermes.view;\n"
             "fn {}() -> ExprBlob {{\n"
             "    let e0: ExprBlob = ExprBlob {{ ptr: unsafe {{ logos_macro_arg({}u64, 0u64) }} }};\n"
             "    return {}(e0);\n"
@@ -13335,7 +13335,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
         thunk_src = std::format(
             "package {};\n"
             "use std.compiler.metaprog;\n"
-            "use std.hermes.view;\n"
+            "use logos.mem.hermes.view;\n"
             "use logos.mem.collections.vec;\n"
             "fn {}() -> ExprBlob {{\n"
             "    let mut v: Vec<ExprBlob> = vec_new::<ExprBlob>();\n"
@@ -13585,7 +13585,7 @@ void SemaChecker::lower_fn_macro_call_item(hermes::TinyMapView node,
             "package {};\n"
             "use std.compiler.metaprog;\n"
             "use logos.mem.collections.vec;\n"
-            "use std.hermes.view;\n"
+            "use logos.mem.hermes.view;\n"
             "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
             "extern fn logos_qib_free_idents(blob: *const u8);\n"
             "extern fn logos_qib_free_blobs(blob: *const u8);\n"
@@ -13612,7 +13612,7 @@ void SemaChecker::lower_fn_macro_call_item(hermes::TinyMapView node,
             "package {};\n"
             "use std.compiler.metaprog;\n"
             "use logos.mem.collections.vec;\n"
-            "use std.hermes.view;\n"
+            "use logos.mem.hermes.view;\n"
             "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
             "extern fn logos_qib_free_idents(blob: *const u8);\n"
             "extern fn logos_qib_free_blobs(blob: *const u8);\n"
@@ -13860,7 +13860,7 @@ void SemaChecker::lower_metacall_item(hermes::TinyMapView node,
             "package {};\n"
             "use std.compiler.metaprog;\n"
             "use logos.mem.collections.vec;\n"
-            "use std.hermes.view;\n"
+            "use logos.mem.hermes.view;\n"
             "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
             "extern fn logos_qib_free_idents(blob: *const u8);\n"
             "extern fn logos_qib_free_blobs(blob: *const u8);\n"
@@ -13886,7 +13886,7 @@ void SemaChecker::lower_metacall_item(hermes::TinyMapView node,
         site.thunk_source = std::format(
             "package {};\n"
             "use std.compiler.metaprog;\n"
-            "use std.hermes.view;\n"
+            "use logos.mem.hermes.view;\n"
             "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
             "extern fn logos_qib_free_idents(blob: *const u8);\n"
             "extern fn logos_qib_free_blobs(blob: *const u8);\n"

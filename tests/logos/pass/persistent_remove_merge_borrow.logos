@@ -17,7 +17,7 @@ use std.data.persistent.descent;
 use std.data.persistent.mutate;
 use logos.lang.hermes.fabric;
 use logos.lang.hermes.view;
-use std.hermes.view;
+use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;
 
 pub const StoreCfg: HermesStatic = @{

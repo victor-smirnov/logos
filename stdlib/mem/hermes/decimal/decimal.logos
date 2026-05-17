@@ -14,7 +14,7 @@
 // Decimal logical value:
 //   value = sign ? -(value_abs / 10^S) : +(value_abs / 10^S)
 
-package std.hermes.decimal;
+package logos.mem.hermes.decimal;
 
 use logos.lang.hermes.zone;
 use logos.lang.hermes.mem_holder;

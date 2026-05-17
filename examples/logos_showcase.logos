@@ -17,9 +17,9 @@
 package logos_showcase;
 
 use logos.lang.hermes.view;
-use std.hermes.view;
+use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;
-use std.hermes.string;
+use logos.mem.hermes.string;
 use std.compiler.metaprog;
 use std.fmt;
 use logos.mem.string;

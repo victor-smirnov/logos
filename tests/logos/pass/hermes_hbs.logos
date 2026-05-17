@@ -1,7 +1,7 @@
 // HBS round-trip test: serialize a Hermes document to HBS binary and
 // deserialize into a fresh container; verify that stringify output matches.
 package hermes_hbs;
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 use logos.mem.string;
 use logos.lang.str;
 

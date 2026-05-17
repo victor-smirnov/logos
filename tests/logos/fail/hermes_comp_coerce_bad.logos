@@ -1,6 +1,6 @@
 package hermes_comp_coerce_bad;
 
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 use logos.lang.hermes.anyval;
 
 fn main() -> i32 {

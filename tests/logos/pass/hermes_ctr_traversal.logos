@@ -3,7 +3,7 @@
 
 package hermes_ctr_traversal;
 
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 use logos.lang.hermes.anyval;
 
 // write a single byte into a raw buffer at a given offset.

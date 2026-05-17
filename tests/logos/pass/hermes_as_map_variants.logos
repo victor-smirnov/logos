@@ -5,7 +5,7 @@
 
 package hermes_as_map_variants;
 
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 use logos.lang.hermes.anyval;
 use logos.mem.string;
 use logos.lang.str;

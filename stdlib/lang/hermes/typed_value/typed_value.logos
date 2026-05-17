@@ -14,7 +14,7 @@ use logos.lang.hermes.anyval;
 use logos.lang.hermes.tags;
 use logos.lang.hermes.relptr;
 use logos.lang.hermes.view;
-use std.hermes.string;
+use logos.mem.hermes.string;
 
 #[type_code = HermesTag::TypedValue]
 pub trait TypedValueTag {

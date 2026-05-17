@@ -1,6 +1,6 @@
 // Decimal ↔ f64 conversion tests
 package hermes_decimal_f64;
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 use logos.lang.hermes.anyval;
 use logos.mem.string;
 use logos.lang.str;

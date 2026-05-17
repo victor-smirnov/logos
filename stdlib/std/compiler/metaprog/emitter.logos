@@ -19,7 +19,7 @@ package std.compiler.metaprog;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.hermes.view;
-use std.hermes.string;
+use logos.mem.hermes.string;
 use logos.mem.collections.vec;
 
 extern fn logos_emit_source(src: *const u8) -> i32;

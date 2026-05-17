@@ -5,8 +5,8 @@ package array_generic_push_grow;
 
 use logos.lang.hermes.zone;
 use logos.lang.hermes.mem_holder;
-use std.hermes.array;
-use std.hermes.map;
+use logos.mem.hermes.array;
+use logos.mem.hermes.map;
 use logos.lang.hermes.typed_value;
 use logos.lang.hermes.relptr;
 

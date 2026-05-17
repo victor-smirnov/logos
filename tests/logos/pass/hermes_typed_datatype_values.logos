@@ -3,15 +3,15 @@
 //   "string" @Type(params)
 package hermes_typed_datatype_values;
 
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.typetag;
 use logos.lang.hermes.datatag;
-use std.hermes.array;
-use std.hermes.map;
+use logos.mem.hermes.array;
+use logos.mem.hermes.map;
 use logos.lang.hermes.typed_value;
 use logos.lang.hermes.view;
-use std.hermes.string;
+use logos.mem.hermes.string;
 use logos.mem.string;
 use logos.lang.str;
 

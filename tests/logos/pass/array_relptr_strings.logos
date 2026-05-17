@@ -5,16 +5,16 @@ package array_relptr_strings;
 
 use logos.lang.hermes.zone;
 use logos.lang.hermes.anyval;
-use std.hermes.array;
-use std.hermes.map;
+use logos.mem.hermes.array;
+use logos.mem.hermes.map;
 use logos.lang.hermes.typed_value;
 use logos.lang.hermes.relptr;
 use logos.lang.hermes.relptr_traits;
 use logos.lang.hermes.view;
-use std.hermes.string;
+use logos.mem.hermes.string;
 use logos.lang.hermes.typetag;
 use logos.lang.hermes.stringify;
-use std.hermes.clone;
+use logos.mem.hermes.clone;
 use logos.mem.string;
 use logos.lang.str;
 

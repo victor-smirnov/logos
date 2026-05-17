@@ -1,6 +1,6 @@
 // Fail: as <I32>[] with non-slice source.
 package hermes_as_array_not_slice;
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 
 unsafe fn main() -> i32 {
     let x: i32 = 5;

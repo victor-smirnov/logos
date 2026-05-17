@@ -11,7 +11,7 @@ package quote_expr_subblob;
 
 use std.compiler.metaprog;
 use logos.lang.hermes.view;
-use std.hermes.view;
+use logos.mem.hermes.view;
 
 fn build_inner() -> ExprBlob {
     return quote_expr! { 41 };

@@ -3,7 +3,7 @@ package hermes_objectmap;
 
 use logos.lang.hermes.zone;
 use logos.lang.hermes.anyval;
-use std.hermes.objectmap;
+use logos.mem.hermes.objectmap;
 
 unsafe fn main() -> i32 {
     let mut zone: HermesZone = HermesZone::create(4096);

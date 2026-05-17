@@ -8,8 +8,8 @@ alone because `std.lang.any` and `std.lang.cmp` use `std.hermes.view`
 and `std.lang.text` (both in monolith), creating a circular dep with
 layer-lang's `logos.lang.*` content.
 
-Status: **Steps 0–5 complete.** Steps 6–8 (mem-tier batch, then
-unblock any/cmp, then activate excludes) still pending. Companion to
+Status: **Steps 0–6 complete.** Steps 7–8 (unblock any/cmp, then
+activate excludes) still pending. Companion to
 [three-layer-split.md](three-layer-split.md) and
 [layer-assignment.md](layer-assignment.md).
 
@@ -28,6 +28,7 @@ unblock any/cmp, then activate excludes) still pending. Companion to
 | 4e   | ✅ done | StringView → lang.hermes.view. HermesString stays mem |
 | 4f   | ✅ done | relptr_traits → lang (orphan rule allows impl-of-foreign-trait-for-local-RelPtr) |
 | 5    | ✅ done | stringify/pat/check/equal/hashing/hbs_read → logos.lang.hermes.*. Unblocked by fundamental (D) fix: explicit Tarjan-SCC topo-sort of `modules[]` in `module_loader.cpp` after load. 3197/3197. |
+| 6    | ✅ done | 15 mem-tier packages (alloc/array/clone/ctr/decimal/document/hbs_write/map/objectmap/parser/registry/release/string/tag_system/view) → `logos.mem.hermes.*` + physical move to `stdlib/mem/hermes/`. Prior session's blockers (duplicate clobber, lang↔mem cycle) did NOT re-fire — already mitigated by (C) loader dedup + Tarjan topo-sort. All 4 archives build cleanly (liblstdlib + liblogos-lang/mem/std). 3197/3197. |
 
 ---
 
@@ -176,7 +177,7 @@ in step 8 once layer-lang truly stands alone.
 
 Monolith files currently use `use logos.lang.option;` etc. — they need
 layer archives at build time. But layer-lang's `any.logos`/`cmp.logos`
-use `use std.lang.text;` / `use std.hermes.view;` (in monolith). Circular.
+use `use std.lang.text;` / `use logos.mem.hermes.view;` (in monolith). Circular.
 
 Options:
 - (A) Build layer-lang WITHOUT `any.logos` and `cmp.logos`. Move those
@@ -238,12 +239,22 @@ of structs with explicit field access is not yet supported.
 
 ### Step 6 — mem-tier batch (rename to logos.mem.hermes.*)
 
-**Attempted 2026-05-17, reverted.** Renaming the 21 mem-tier
-packages (string/array/map/objectmap/ctr/document/parser/clone/
-hbs_write/decimal/tag_system/registry/alloc/release plus
-stringify/equal/hashing/check/pat/hbs_read/view-trait-surface)
-was straightforward as a sed, but the build broke on two distinct
-fronts:
+**LANDED 2026-05-17 (session 8).** After the (C) loader dedup + (D)
+fundamental Tarjan-SCC topo-sort fix, the 15 remaining mem-tier
+packages (alloc/array/clone/ctr/decimal/document/hbs_write/map/
+objectmap/parser/registry/release/string/tag_system/view) moved
+cleanly via a mechanical sed:
+- Physical move: `stdlib/std/hermes/<pkg>/` → `stdlib/mem/hermes/<pkg>/`
+- Package decl: `package std.hermes.<pkg>;` → `package logos.mem.hermes.<pkg>;`
+- 224 consumer files updated.
+
+Neither of the originally-feared blockers re-fired. Their reasoning
+is preserved below for context.
+
+**Original (now-stale) blocker writeup:**
+
+Initial 2026-05-17 attempt (21 packages including the 6 since moved
+to lang in Step 5) hit two distinct fronts:
 
 1. **Duplicate datatype clobber.** Monolith's recursive glob root
    (`stdlib/`) absorbs `stdlib/mem/hermes/*` into liblstdlib.a
@@ -353,7 +364,7 @@ but all stay in the same tier.
 
 ### Step 7 — Unblock circulars
 
-- Move `std.lang.any` (was reflect) — its `use std.hermes.view` becomes
+- Move `std.lang.any` (was reflect) — its `use logos.mem.hermes.view` becomes
   `use logos.lang.hermes.view` (now lang-side). No circular.
 - Move `std.lang.cmp` — same for text dependency.
 
@@ -738,6 +749,7 @@ classification. Not one-session work.
 | 5 | 05-17 | (C) loader dedup landed; (D) partial-spec mangling pinpointed |
 | 6 | 05-17 | (D) investigation; more orthogonal bugs surfaced |
 | 7 | 05-17 | (D) **fundamental fix**: explicit module-level dep-DAG + Tarjan SCC + condensation topo-sort in `module_loader.cpp`. Replaces implicit DFS-natural-order invariant lost when binary archives were added. Step 5 landed (stringify/pat/check/equal/hashing/hbs_read → logos.lang.hermes.*). 3197/3197. |
+| 8 | 05-17 | Step 6 landed without any new compiler work: 15 mem-tier pkgs renamed + moved (std.hermes.* → logos.mem.hermes.*, into stdlib/mem/hermes/). Both feared blockers (duplicate clobber, lang↔mem cycle) failed to materialise — the prior (C)+(D) fixes had fully neutralised them. All 4 archives build clean. 3197/3197. |
 
 ---
 
@@ -756,7 +768,7 @@ that invariant broke: binary-loaded packages land in `modules[]` at
 whatever position the visit happens to push them, independent of any
 text dep-chain. Layer-build (text consumer + monolith .a) ends up
 processing `logos.lang.hermes.check` (text) before `std.hermes.map`
-(binary) even though check has `use std.hermes.map;`. Impl-target
+(binary) even though check has `use logos.mem.hermes.map;`. Impl-target
 lookup in sema_decl finds an empty `prog.struct_specializations`,
 falls back to base struct, methods cement to the wrong target,
 mlir-gen "no field" at codegen.

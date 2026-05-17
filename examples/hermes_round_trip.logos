@@ -3,7 +3,7 @@
 
 package hermes_example;
 
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 use logos.mem.string;
 use logos.lang.str;
 use std.io;

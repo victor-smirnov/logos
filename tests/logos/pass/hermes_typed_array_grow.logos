@@ -5,8 +5,8 @@ package hermes_typed_array_grow;
 
 use logos.lang.hermes.zone;
 use logos.lang.hermes.anyval;
-use std.hermes.array;
-use std.hermes.map;
+use logos.mem.hermes.array;
+use logos.mem.hermes.map;
 use logos.lang.hermes.typed_value;
 use logos.lang.hermes.mem_holder;
 

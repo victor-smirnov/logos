@@ -4,7 +4,7 @@
 package assoc_const_hermes_static;
 
 use logos.lang.hermes.view;
-use std.hermes.view;
+use logos.mem.hermes.view;
 
 trait Schema {
     const SHAPE: HermesStatic;

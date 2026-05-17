@@ -11,10 +11,10 @@ use std.io.fs;
 use logos.lang.hermes.zone;
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.view;
-use std.hermes.view;
-use std.hermes.map;
-use std.hermes.array;
-use std.hermes.parser;
+use logos.mem.hermes.view;
+use logos.mem.hermes.map;
+use logos.mem.hermes.array;
+use logos.mem.hermes.parser;
 
 use lforge.schema;
 use lforge.util;

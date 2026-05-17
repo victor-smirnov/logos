@@ -12,7 +12,7 @@ use logos.mem.collections.vec;
 use logos.lang.cmp;
 use logos.lang.hermes.fabric;
 use logos.lang.hermes.view;
-use std.hermes.view;
+use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;
 
 use std.data.persistent.node;

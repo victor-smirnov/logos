@@ -1,6 +1,6 @@
 // Structural integrity check tests for Hermes documents.
 package hermes_check;
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 use logos.lang.hermes.anyval;
 use logos.mem.string;
 use logos.lang.str;

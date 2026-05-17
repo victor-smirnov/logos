@@ -18,7 +18,7 @@
 // Safety note: all read_tag implementations dereference raw pointers.
 // Callers must ensure `obj` points to a valid, live, tagged object.
 
-package std.hermes.tag_system;
+package logos.mem.hermes.tag_system;
 
 use logos.lang.hermes.datatag;
 

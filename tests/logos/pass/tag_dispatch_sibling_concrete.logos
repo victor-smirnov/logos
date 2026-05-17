@@ -16,10 +16,10 @@
 package tag_dispatch_sibling_concrete;
 
 use logos.lang.hermes.anyval;
-use std.hermes.map;
-use std.hermes.objectmap;
+use logos.mem.hermes.map;
+use logos.mem.hermes.objectmap;
 use logos.lang.hermes.datatag;
-use std.hermes.tag_system;
+use logos.mem.hermes.tag_system;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);

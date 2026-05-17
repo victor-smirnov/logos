@@ -3,9 +3,9 @@
 package hermes_match_or;
 
 use logos.lang.hermes.anyval;
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 use logos.lang.hermes.view;
-use std.hermes.view;
+use logos.mem.hermes.view;
 
 unsafe fn mk(v: AnyVal) -> Hermes {
     let mut c: Hermes = Hermes::builder(128 as i64);

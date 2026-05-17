@@ -3,7 +3,7 @@ package hermes_buffer_string;
 // strings, read them back via StringView, verify each byte.
 
 use logos.lang.hermes.view;
-use std.hermes.string;
+use logos.mem.hermes.string;
 use logos.lang.hermes.fabric;
 
 unsafe fn bytes_eq(a: *const u8, b: *const u8, n: u64) -> bool {

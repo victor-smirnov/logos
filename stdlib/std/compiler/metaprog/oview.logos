@@ -18,20 +18,20 @@ package std.compiler.metaprog;
 // impl'ing it for OView instantiates those defaults, so we need the
 // same module surface as `std.hermes.view` itself imports.
 use logos.lang.hermes.view;
-use std.hermes.view;
+use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;
-use std.hermes.string;
+use logos.mem.hermes.string;
 use logos.lang.hermes.scalar;
-use std.hermes.objectmap;
-use std.hermes.array;
-use std.hermes.map;
+use logos.mem.hermes.objectmap;
+use logos.mem.hermes.array;
+use logos.mem.hermes.map;
 use logos.lang.hermes.typed_value;
 use logos.lang.hermes.relptr;
-use std.hermes.decimal;
+use logos.mem.hermes.decimal;
 use logos.lang.hermes.datatag;
 use logos.lang.hermes.typetag;
 use logos.lang.hermes.stringify;
-use std.hermes.document;
+use logos.mem.hermes.document;
 use logos.mem.string;
 use logos.lang.str;
 

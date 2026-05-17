@@ -7,17 +7,17 @@ package hermes_string_view_interop;
 use logos.lang.hermes.zone;
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.view;
-use std.hermes.string;
+use logos.mem.hermes.string;
 use logos.lang.hermes.typetag;
-use std.hermes.tag_system;
-use std.hermes.array;
-use std.hermes.map;
+use logos.mem.hermes.tag_system;
+use logos.mem.hermes.array;
+use logos.mem.hermes.map;
 use logos.lang.hermes.typed_value;
-use std.hermes.objectmap;
-use std.hermes.document;
-use std.hermes.ctr;
+use logos.mem.hermes.objectmap;
+use logos.mem.hermes.document;
+use logos.mem.hermes.ctr;
 use logos.lang.hermes.stringify;
-use std.hermes.parser;
+use logos.mem.hermes.parser;
 use logos.lang.hermes.fabric;
 
 unsafe fn views_eq(a: StringView, b: StringView) -> bool {

@@ -1,7 +1,7 @@
 // Unsupported typed materializations must return parse error.
 package hermes_typed_materialization_errors;
 
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 use logos.mem.string;
 use logos.lang.str;
 

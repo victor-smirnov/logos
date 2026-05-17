@@ -44,7 +44,7 @@ The key/value expressions can use any binding introduced by the `for` clause; bo
 ## Hermes List Comprehensions → `Hermes` (`ObjectArray` root)
 
 ```logos
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 use std.hermes.anyval;
 
 let arr: [i32; 5] = [1, 2, 3, 4, 5];

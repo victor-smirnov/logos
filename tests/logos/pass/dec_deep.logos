@@ -1,6 +1,6 @@
 // Deep probe of Decimal — looking for subtle bugs
 package dec_deep;
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 use logos.lang.hermes.anyval;
 use logos.mem.string;
 use logos.lang.str;

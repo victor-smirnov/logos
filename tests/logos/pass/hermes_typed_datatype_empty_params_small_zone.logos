@@ -2,7 +2,7 @@
 // Regression: @Type() used to allocate-and-drop an unused ObjectArray.
 package hermes_typed_datatype_empty_params_small_zone;
 
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 
 unsafe fn main() -> i32 {
     // This capacity is enough for @I64=1, and should also be enough for @I64()=1

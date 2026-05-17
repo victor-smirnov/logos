@@ -3,10 +3,10 @@
 package hermes_match_nested;
 
 use logos.lang.hermes.anyval;
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 use logos.lang.hermes.pat;
 use logos.lang.hermes.view;
-use std.hermes.view;
+use logos.mem.hermes.view;
 
 unsafe fn classify(d: &HermesStatic) -> i32 {
     match d {

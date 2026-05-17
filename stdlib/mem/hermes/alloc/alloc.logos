@@ -1,7 +1,7 @@
 // Hermes stdlib — hermes.alloc
 // Shared C allocator bindings used by hermes.zone and hermes.own.
 
-package std.hermes.alloc;
+package logos.mem.hermes.alloc;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);

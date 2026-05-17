@@ -6,9 +6,9 @@ package hermes_parse_typed_containers;
 
 use logos.lang.hermes.zone;
 use logos.lang.hermes.anyval;
-use std.hermes.parser;
-use std.hermes.document;
-use std.hermes.ctr;
+use logos.mem.hermes.parser;
+use logos.mem.hermes.document;
+use logos.mem.hermes.ctr;
 use logos.lang.hermes.stringify;
 use logos.mem.string;
 use logos.lang.str;

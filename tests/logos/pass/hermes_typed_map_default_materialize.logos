@@ -2,7 +2,7 @@
 //   <Varchar>{...} and <Varchar,AnyVal>{...} -> ObjectMap (type_code=101)
 package hermes_typed_map_default_materialize;
 
-use std.hermes.ctr;
+use logos.mem.hermes.ctr;
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.typetag;
 use logos.lang.hermes.datatag;

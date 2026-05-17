@@ -12,7 +12,7 @@
 //
 // References: openspec/specs/hermes.md §3, hermes-wire-format.md §3.
 
-package std.hermes.map;
+package logos.mem.hermes.map;
 
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.tags;
