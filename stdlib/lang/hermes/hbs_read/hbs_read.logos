@@ -4,7 +4,7 @@
 //
 // Frame-based iterative deserializer; no recursion.
 
-package std.hermes.hbs_read;
+package logos.lang.hermes.hbs_read;
 
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.zone;

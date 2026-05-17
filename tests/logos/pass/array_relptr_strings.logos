@@ -13,7 +13,7 @@ use logos.lang.hermes.relptr_traits;
 use logos.lang.hermes.view;
 use std.hermes.string;
 use logos.lang.hermes.typetag;
-use std.hermes.stringify;
+use logos.lang.hermes.stringify;
 use std.hermes.clone;
 use logos.mem.string;
 use logos.lang.str;

@@ -270,5 +270,5 @@ pub unsafe fn hermes_pat_is_present(av: *const AnyVal) -> bool {
 // hermes_pat_eq_str moved to std.hermes.pat — the only AnyVal helper
 // that dereferences zone-resident HermesString. Compiler-synthesized
 // callers (sema_stmt.cpp PAT_HERMES_STR lowering) emit a bare-name
-// call and need `use std.hermes.pat;` in the consumer.
+// call and need `use logos.lang.hermes.pat;` in the consumer.
 

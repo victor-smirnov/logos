@@ -166,7 +166,7 @@ fn todo() -> Empty { return todo(); }
 ### B-pt-09: Hermes-pattern positions gated on missing stdlib helper
 
 **Severity**: feature-incomplete
-**Status**: confirmed-feature-incomplete (2026-05-07) — `match arr { @[a, b, c] => ... }` is rejected by sema with `Hermes pattern needs stdlib helper 'hermes_pat_array_slot'; use std.hermes.pat;`, but `std.hermes.pat` does not exist in stdlib. Sema gate works; the stdlib side was never written.
+**Status**: confirmed-feature-incomplete (2026-05-07) — `match arr { @[a, b, c] => ... }` is rejected by sema with `Hermes pattern needs stdlib helper 'hermes_pat_array_slot'; use logos.lang.hermes.pat;`, but `std.hermes.pat` does not exist in stdlib. Sema gate works; the stdlib side was never written.
 **Note**: To revive, write `stdlib/std/hermes/pat.logos` exposing the helpers the gate names (`hermes_pat_array_slot`, etc.). Same shape as B-he-09/B-he-10.
 **Tags**: feature-incomplete:no-stdlib-helper, deferred-to-hermes-group
 

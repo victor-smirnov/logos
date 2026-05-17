@@ -8,7 +8,7 @@ package hermes_typed_array_all_elems;
 
 use logos.lang.hermes.view;
 use std.hermes.view;
-use std.hermes.stringify;
+use logos.lang.hermes.stringify;
 use std.hermes.array;
 use std.hermes.map;
 use logos.lang.hermes.typed_value;

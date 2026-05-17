@@ -21,7 +21,7 @@
 // For compact output:  StringifyOpts::compact()
 // For pretty output:   StringifyOpts::pretty()   (2-space indent)
 
-package std.hermes.stringify;
+package logos.lang.hermes.stringify;
 
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.view;

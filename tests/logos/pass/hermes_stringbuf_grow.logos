@@ -13,7 +13,7 @@ use std.hermes.map;
 use logos.lang.hermes.typed_value;
 use std.hermes.objectmap;
 use std.hermes.document;
-use std.hermes.stringify;
+use logos.lang.hermes.stringify;
 use logos.mem.string;
 use logos.lang.str;
 

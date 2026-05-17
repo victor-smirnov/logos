@@ -7,9 +7,9 @@
 package logos.lang.hermes.relptr_traits;
 
 use logos.lang.hermes.relptr;
-use std.hermes.stringify;
-use std.hermes.equal;
-use std.hermes.hashing;
+use logos.lang.hermes.stringify;
+use logos.lang.hermes.equal;
+use logos.lang.hermes.hashing;
 use std.hermes.clone;
 use std.hermes.release;
 use logos.mem.string;

@@ -3179,7 +3179,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             // user) lives in std.hermes.pat.
             const char* hint =
                 std::strcmp(helper, "hermes_pat_eq_str") == 0
-                ? "use std.hermes.pat;"
+                ? "use logos.lang.hermes.pat;"
                 : "use logos.lang.hermes.anyval;";
             error(std::format(
                 "Hermes pattern needs stdlib helper `{}`; `{}`",
@@ -3208,7 +3208,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             if (c->param_types.size() == want_arity) { fi = c; break; }
         if (!fi) {
             error(std::format(
-                "Hermes pattern needs stdlib helper `{}`; `use std.hermes.pat;`",
+                "Hermes pattern needs stdlib helper `{}`; `use logos.lang.hermes.pat;`",
                 helper));
             return "";
         }
@@ -3234,7 +3234,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             if (c->param_types.size() == 3) { fi = c; break; }
         if (!fi) {
             error(std::format(
-                "Hermes pattern needs stdlib helper `{}`; `use std.hermes.pat;`",
+                "Hermes pattern needs stdlib helper `{}`; `use logos.lang.hermes.pat;`",
                 helper));
             return builder().lit_bool(false, bool_t());
         }
@@ -3254,7 +3254,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             if (c->param_types.size() == 3) { fi = c; break; }
         if (!fi) {
             error(std::format(
-                "Hermes pattern needs stdlib helper `{}`; `use std.hermes.pat;`",
+                "Hermes pattern needs stdlib helper `{}`; `use logos.lang.hermes.pat;`",
                 helper));
             return builder().lit_bool(false, bool_t());
         }
@@ -3274,7 +3274,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             if (c->param_types.size() == 3) { fi = c; break; }
         if (!fi) {
             error(std::format(
-                "Hermes pattern needs stdlib helper `{}`; `use std.hermes.pat;`",
+                "Hermes pattern needs stdlib helper `{}`; `use logos.lang.hermes.pat;`",
                 helper));
             return builder().lit_bool(false, bool_t());
         }
@@ -3294,7 +3294,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             if (c->param_types.size() == 2) { fi = c; break; }
         if (!fi) {
             error(std::format(
-                "Hermes pattern needs stdlib helper `{}`; `use std.hermes.pat;`",
+                "Hermes pattern needs stdlib helper `{}`; `use logos.lang.hermes.pat;`",
                 helper));
             return builder().lit_bool(false, bool_t());
         }

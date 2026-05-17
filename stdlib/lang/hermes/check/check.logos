@@ -26,7 +26,7 @@
 // Inline AnyVals (boolean, integer, null) carry no zone address and are
 // always considered valid.
 
-package std.hermes.check;
+package logos.lang.hermes.check;
 
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.zone;

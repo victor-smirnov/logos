@@ -4,7 +4,7 @@
 // AnyVal scrutinees into ObjectMap / ObjectArray and return the AnyVal at
 // the requested position (null AnyVal on miss / wrong type).
 
-package std.hermes.pat;
+package logos.lang.hermes.pat;
 
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.typetag;

@@ -8,7 +8,7 @@ alone because `std.lang.any` and `std.lang.cmp` use `std.hermes.view`
 and `std.lang.text` (both in monolith), creating a circular dep with
 layer-lang's `logos.lang.*` content.
 
-Status: **Steps 0–4 complete.** Steps 5–8 (mem-tier batch, then
+Status: **Steps 0–5 complete.** Steps 6–8 (mem-tier batch, then
 unblock any/cmp, then activate excludes) still pending. Companion to
 [three-layer-split.md](three-layer-split.md) and
 [layer-assignment.md](layer-assignment.md).
@@ -27,6 +27,7 @@ unblock any/cmp, then activate excludes) still pending. Companion to
 | 4d   | ✅ done | typed_value → lang (transitive name-resolution dep on HermesString via RelPtr<T> field accepted) |
 | 4e   | ✅ done | StringView → lang.hermes.view. HermesString stays mem |
 | 4f   | ✅ done | relptr_traits → lang (orphan rule allows impl-of-foreign-trait-for-local-RelPtr) |
+| 5    | ✅ done | stringify/pat/check/equal/hashing/hbs_read → logos.lang.hermes.*. Unblocked by fundamental (D) fix: explicit Tarjan-SCC topo-sort of `modules[]` in `module_loader.cpp` after load. 3197/3197. |
 
 ---
 
@@ -601,6 +602,7 @@ Both ~1-session compiler work. After (D), Step 5 becomes a sed.
 | 2 | 05-17 | Step 5+6 attempts blocked, root cause hypothesis |
 | 3 | 05-17 | Instrumentation pinpointed bug: from_binary + pass2 order |
 | 4 | 05-17 | (B) fix landed + collections-to-mem; (D) now the next blocker |
+| 5 | 05-17 | (D) fixed fundamentally via explicit Tarjan-SCC topo-sort of `modules[]` in `module_loader.cpp` (post-mortem in session 6 below); Step 5 landed; 3197/3197 |
 
 ---
 
@@ -735,3 +737,78 @@ classification. Not one-session work.
 | 4 | 05-17 | (B) fix landed + collections-to-mem |
 | 5 | 05-17 | (C) loader dedup landed; (D) partial-spec mangling pinpointed |
 | 6 | 05-17 | (D) investigation; more orthogonal bugs surfaced |
+| 7 | 05-17 | (D) **fundamental fix**: explicit module-level dep-DAG + Tarjan SCC + condensation topo-sort in `module_loader.cpp`. Replaces implicit DFS-natural-order invariant lost when binary archives were added. Step 5 landed (stringify/pat/check/equal/hashing/hbs_read → logos.lang.hermes.*). 3197/3197. |
+
+---
+
+## Session 7 (2026-05-17) — (D) fundamental fix + Step 5
+
+### Diagnosis: lost invariant
+
+In text-only mode, `module_loader.cpp::visit_package` does post-order
+DFS on explicit `use` deps. This naturally produces dep-first order
+in `modules[]`. Lower-pass lookups (e.g. impl-target at
+`sema_decl.cpp:1295` walking `prog.struct_specializations`) silently
+relied on this.
+
+When binary archives were added (.a loading via `visit_binary_module`),
+that invariant broke: binary-loaded packages land in `modules[]` at
+whatever position the visit happens to push them, independent of any
+text dep-chain. Layer-build (text consumer + monolith .a) ends up
+processing `logos.lang.hermes.check` (text) before `std.hermes.map`
+(binary) even though check has `use std.hermes.map;`. Impl-target
+lookup in sema_decl finds an empty `prog.struct_specializations`,
+falls back to base struct, methods cement to the wrong target,
+mlir-gen "no field" at codegen.
+
+### Why prior options were workarounds
+
+- **Sort asts by `from_binary` first**: pure ordering hack that fixes
+  this one case. Doesn't generalize — any new cross-archive lookup
+  remains hostage to loader emission order.
+- **Switch impl-target lookup to `struct_specs_sema_`**: only fixes the
+  one lookup site in sema_decl; the underlying ordering invariant
+  stays implicit and other lookups remain hostage.
+
+### Fundamental fix
+
+`topo_sort_modules()` runs at the end of `load_modules` and reorders
+`modules[]` by package-level `use` deps:
+
+1. Build a package-level DAG from explicit `use` decls in each
+   module's AST (using existing `extract_uses` helper). Implicit
+   prelude (when applicable to non-binary modules) is treated as an
+   edge to the prelude package.
+2. Run Tarjan SCC iteratively (avoids C++ stack blow-up on large
+   dep graphs).
+3. Condensation: SCCs collapse to single nodes; resulting graph is
+   acyclic by construction.
+4. Tarjan emits SCCs in dep-first order for our edge semantics
+   (u→v = "u depends on v"). Iterate and re-emit modules per SCC,
+   preserving original order within each SCC.
+
+Cycles are legitimate in Logos (e.g. `option ↔ result`: Option
+methods return Result and vice versa). The SCC condensation handles
+them naturally — packages within an SCC keep original load order;
+the SCC as a whole is ordered relative to others.
+
+### Subtle bug surfaced during impl
+
+First implementation reversed `scc_rev_topo` thinking I needed to
+flip Tarjan's "reverse topo" output. But Tarjan's "reverse topo of
+the condensation" is in terms of edges u→v = "u before v". My edges
+mean "u depends on v" — the opposite semantic. So Tarjan's natural
+emission order (deepest SCC popped first = dependency-first in my
+graph) is what I want. **No reversal.**
+
+Once corrected: monolith 3197/3197 unchanged; Step 5 sed lands clean
+(only stale `liblazy_pkg.a` cache needed manual `rm` — orthogonal).
+
+### Files touched
+
+- `src/compiler/module_loader.cpp` — `topo_sort_modules()` helper +
+  call at end of `load_modules`. Iterative Tarjan SCC.
+- `stdlib/{std,lang}/hermes/{stringify,pat,check,equal,hashing,hbs_read}/`
+  — physical move + `package std.hermes.X;` → `package logos.lang.hermes.X;`
+- 37 files updated: `use std.hermes.X;` → `use logos.lang.hermes.X;`
+  across stdlib, tests, examples, docs.

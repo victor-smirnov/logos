@@ -11,7 +11,7 @@
 //
 // `EqualCtx` carries both zone bases so cross-zone comparison works.
 
-package std.hermes.equal;
+package logos.lang.hermes.equal;
 
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.view;

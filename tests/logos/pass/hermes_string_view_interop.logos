@@ -16,7 +16,7 @@ use logos.lang.hermes.typed_value;
 use std.hermes.objectmap;
 use std.hermes.document;
 use std.hermes.ctr;
-use std.hermes.stringify;
+use logos.lang.hermes.stringify;
 use std.hermes.parser;
 use logos.lang.hermes.fabric;
 

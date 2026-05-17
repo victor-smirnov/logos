@@ -4,7 +4,7 @@ package hermes_match_nested;
 
 use logos.lang.hermes.anyval;
 use std.hermes.ctr;
-use std.hermes.pat;
+use logos.lang.hermes.pat;
 use logos.lang.hermes.view;
 use std.hermes.view;
 
