@@ -1,7 +1,7 @@
 // Tests std.math: trigonometry, logs, roots, rounding, integer helpers.
 package test;
 
-use std.math;
+use logos.lang.math;
 
 fn abs_diff_ok(a: f64, b: f64) -> bool {
     let d: f64 = a - b;

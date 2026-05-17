@@ -1,8 +1,8 @@
-// Logos standard library -- std.math
+// Logos standard library -- logos.lang.math
 //
 // Thin wrappers over libm. f64 only; cast explicitly for f32.
 
-package std.math;
+package logos.lang.math;
 
 // ---- constants (functions since Logos has no top-level consts) -------------
 
