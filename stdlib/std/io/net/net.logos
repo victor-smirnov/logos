@@ -5,7 +5,7 @@
 
 package std.io.net;
 
-use std.sys.fiber;
+use logos.std.rt.fiber;
 use std.io.read;
 use std.io.write;
 

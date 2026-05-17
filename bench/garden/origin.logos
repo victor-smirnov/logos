@@ -30,7 +30,7 @@ use std.lang.text;
 use std.collections.vec;
 use std.lang.option;
 use std.lang.result;
-use std.sys.fiber;
+use logos.std.rt.fiber;
 use logos.mem.encoding.base64;
 
 const PORT: u16 = 18081 as u16;

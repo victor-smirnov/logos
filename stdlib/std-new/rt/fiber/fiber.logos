@@ -3,7 +3,7 @@
 // Native dependency: stdlib/rt/fiber_ctx.S (compiled into liblogos_rt.a).
 // All scheduler logic lives here in pure Logos.
 
-package std.sys.fiber;
+package logos.std.rt.fiber;
 
 use std.mem;
 

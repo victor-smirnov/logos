@@ -14,7 +14,7 @@
 // here too, without the HTTP code path involved.
 package bench_mpsc_stress;
 
-use std.sys.fiber;
+use logos.std.rt.fiber;
 use std.mem;
 
 extern fn logos_atomic_fetch_add64(ptr: *mut i64, v: i64) -> i64;

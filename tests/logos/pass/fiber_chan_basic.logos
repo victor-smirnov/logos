@@ -6,7 +6,7 @@
 
 package fiber_chan_basic;
 
-use std.sys.fiber;
+use logos.std.rt.fiber;
 
 struct Args {
     ch:     *mut Chan<i32>,

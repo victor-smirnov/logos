@@ -5,7 +5,7 @@
 
 package fiber_thread_basic;
 
-use std.sys.fiber;
+use logos.std.rt.fiber;
 
 fn do_increment(arg: i64) {
     let ptr: *mut i32 = arg as *mut i32;

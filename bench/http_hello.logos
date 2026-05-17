@@ -9,7 +9,7 @@ use std.lang.text;
 use std.collections.vec;
 use std.lang.option;
 use std.lang.result;
-use std.sys.fiber;
+use logos.std.rt.fiber;
 
 const PORT:      u16 = 18080 as u16;
 const N_WORKERS: i32 = 1 as i32;

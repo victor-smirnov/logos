@@ -8,7 +8,7 @@
 // MVP: single producer per inbox assumed.  x86 TSO + extern-fn boundaries
 // act as compiler barriers.
 
-package std.sys.fiber;
+package logos.std.rt.fiber;
 
 use std.mem;
 

@@ -7,7 +7,7 @@
 
 package fiber_future;
 
-use std.sys.fiber;
+use logos.std.rt.fiber;
 
 fn producer(arg: i64) {
     let slot: *mut FutureSlot<i32> = arg as *mut FutureSlot<i32>;
