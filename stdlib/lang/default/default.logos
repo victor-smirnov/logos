@@ -2,7 +2,7 @@
 //
 // Default — construct a zero/false/empty value for a type.
 
-package std.lang.default;
+package logos.lang.default;
 
 pub trait Default {
     fn default() -> Self;

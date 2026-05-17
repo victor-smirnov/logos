@@ -9,7 +9,7 @@
 //   .ok_or(err)    — Ok(())    if self, else Err(err)
 //   .ok_or_else(f) — Ok(())    if self, else Err(f())
 
-package std.lang.bool;
+package logos.lang.bool;
 
 use std.lang.option;
 use std.lang.result;

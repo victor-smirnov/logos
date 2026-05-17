@@ -13,7 +13,7 @@
 //       i = i + 1;
 //   }
 
-package std.lang.reflect;
+package logos.lang.any;
 
 use std.hermes.view;
 use std.hermes.anyval;

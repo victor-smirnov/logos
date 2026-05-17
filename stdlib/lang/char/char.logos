@@ -10,7 +10,7 @@
 // tables: is_ascii, is_ascii_*, to_ascii_lowercase /
 // _uppercase, is_digit, to_digit, len_utf8.
 
-package std.lang.char;
+package logos.lang.char;
 
 use std.lang.option;
 

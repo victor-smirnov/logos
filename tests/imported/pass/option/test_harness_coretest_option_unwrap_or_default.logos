@@ -20,7 +20,7 @@ package test_option_unwrap_or_default;
 use std.fmt;
 use std.lang.text;
 use std.lang.option;
-use std.lang.default;
+use logos.lang.default;
 
 #[test]
 fn test_unwrap_or_default_i32() {

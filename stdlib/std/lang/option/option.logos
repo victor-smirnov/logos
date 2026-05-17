@@ -19,7 +19,7 @@
 package std.lang.option;
 
 use std.lang.panic;
-use std.lang.default;
+use logos.lang.default;
 use std.lang.result;
 
 pub enum Option<T> {

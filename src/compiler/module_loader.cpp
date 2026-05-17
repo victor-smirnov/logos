@@ -964,7 +964,15 @@ std::vector<ParsedModule> load_modules(
             return pkg.size() >= p.size() &&
                    pkg.compare(0, p.size(), p) == 0;
         };
-        return starts("std.lang") || starts("std.hermes") || starts("std.mem");
+        // Three-layer split Phase 4 transition: also recognize the new
+        // logos.lang.*/mem.*/hermes.* prefixes as foundational packages
+        // so stdlib-internal cross-cutting traits (Default, Ord, Send,
+        // AnyVal, ...) keep auto-loading after their package moves.
+        // Phase 7 cleanup replaces this prefix-based hack with the
+        // manifest-driven tier system.
+        return starts("std.lang") || starts("std.hermes") || starts("std.mem")
+            || starts("logos.lang") || starts("logos.mem")
+            || starts("logos.lang.hermes") || starts("logos.mem.hermes");
     };
     auto visit_binary_module = [&](const std::string& cache_key,
                                    const std::string& archive_path,

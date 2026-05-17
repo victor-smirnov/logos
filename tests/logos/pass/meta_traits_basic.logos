@@ -1,7 +1,7 @@
 // Tests Default, Clone, Copy traits and mem utilities.
 package test;
 
-use std.lang.default;
+use logos.lang.default;
 use std.lang.clone;
 use std.mem;
 
