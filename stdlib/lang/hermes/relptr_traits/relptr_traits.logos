@@ -4,7 +4,7 @@
 // `Array<RelPtr<HermesString>>` and similar pointer-indirect containers
 // work with the standard Hermes traits via static dispatch on T.
 
-package std.hermes.relptr_traits;
+package logos.lang.hermes.relptr_traits;
 
 use logos.lang.hermes.relptr;
 use std.hermes.stringify;
