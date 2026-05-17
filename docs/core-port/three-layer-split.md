@@ -205,19 +205,25 @@ catalog work.
 **Blast radius:** zero — pure infrastructure addition. All
 existing tests pass; one new test added.
 
-### Phase 2 — Catalog (paper only)
+### Phase 2 — Catalog (paper only) — DONE 2026-05-16
 
-**No source moves.** Two documents:
+**No source moves.** Two documents produced:
 
-- `docs/core-port/layer-assignment.md` — for each of 106 current
-  packages, target package name + layer + rationale.
-  - Special subsection for `std.hermes.*` per-package split (12 to
-    lang, 12 to mem; see "Layer assignment — high-level rules"
-    above for the rough cut).
-  - Special subsection for `std.lang.text` split (`logos.lang.str`
-    for read-side, `logos.mem.string` for owned).
-- `docs/core-port/prelude-design.md` — exact contents of three
-  preludes, with rationale for each item.
+- [`layer-assignment.md`](layer-assignment.md) — per-package
+  target name + layer + rationale for all 106 current packages.
+  Includes splits (`std.lang.text` → str+string,
+  `std.fmt` → lang+mem), merges (ops absorbs arith+range+drop;
+  cmp absorbs ord; io.* flattens), relocations
+  (`std.lang.thread` → `logos.std.thread` — was misplaced),
+  and the Hermes per-package split (15 lang + 17 mem out of 32
+  sub-packages). Final counts: ~35 lang + ~40 mem + ~27 std =
+  ~102 target packages.
+- [`prelude-design.md`](prelude-design.md) — exact contents of
+  `logos.lang.prelude`, `logos.mem.prelude`, `logos.std.prelude`
+  with explicit rationale for inclusions and exclusions, a
+  Rust-comparison table, and the Phase 3 implementation sketch
+  (manifest directive + sema injection + no_implicit_prelude
+  opt-out + which stdlib-internal files must carry the opt-out).
 
 **Reviewable, no commits to stdlib.**
 
