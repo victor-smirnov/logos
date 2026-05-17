@@ -63,7 +63,7 @@ use std.lang.result;
 use std.lang.iter;
 use std.collections.vec;
 use std.sys.process;
-use std.sys.args;
+use logos.std.env;
 
 use lforge.version;
 use lforge.schema;

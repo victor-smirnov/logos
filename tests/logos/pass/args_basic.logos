@@ -2,7 +2,7 @@
 // all scans should return the "nothing found" answer.
 package test;
 
-use std.sys.args;
+use logos.std.env;
 use std.lang.option;
 
 fn main() -> i32 {

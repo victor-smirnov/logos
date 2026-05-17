@@ -8,9 +8,8 @@
 // Users needing richer behaviour (default values, required options, nested
 // subcommands) can layer on top; this module aims for the 80% case.
 
-package std.sys.args;
+package logos.std.env;
 
-use std.sys.env;
 use std.lang.text;
 use std.lang.option;
 

@@ -8,7 +8,7 @@ use std.lang.option;
 use std.lang.result;
 use std.collections.vec;
 use std.io.fs;
-use std.sys.args;
+use logos.std.env;
 
 use lforge.schema;
 use lforge.util;
