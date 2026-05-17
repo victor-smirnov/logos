@@ -415,3 +415,50 @@ dependency.
 **Total to unblock Phase 4: ~5-7 sessions.** Then Phase 4 finishes in
 ~3-5 more sessions per current pace (28 packages remaining outside
 Hermes).
+
+---
+
+## Session 2 (2026-05-17) — "all-Hermes-in-lang" attempt
+
+Per Victor: pragmatic three-layer with EVERYTHING Hermes-related
+(including mem-tier containers + stringify/equal/etc. trait surface)
+bundled into lang, and `--no-alloc` enforced at metaprog level
+(variable captures in `@{...}` rejected when --no-alloc set). This
+bypasses the (C) and (D) blockers since all Hermes code ends up in
+a single archive.
+
+Attempted batch:
+- 21 hermes packages: std.hermes.X → logos.lang.hermes.X
+- view split merged back (struct file + trait surface in one package)
+- mem.mem → split into minimal logos.lang.mem (allocator + byte ops
+  for Hermes) and logos.mem.mem (generic swap/replace/take helpers)
+- All consumers swept (~500+ files), compiler refs updated
+  (sema_stmt.cpp helper hints, sema_expr.cpp metacall thunk template,
+  module_loader.cpp pkg_in_prelude prefix list)
+
+Encountered, did not resolve cleanly in one session:
+- **Trait visibility in multi-file packages.** After merging view's
+  structs (view.logos) and traits (view_traits.logos) into one
+  package — even keeping them in one file — `impl HermesRead for
+  Hermes` in ctr.logos failed with "unknown trait 'HermesRead'",
+  despite ctr having `use logos.lang.hermes.view;` and the trait
+  declared in the same imported package. Needs targeted sema
+  debugging.
+- **Stale binary AST interference.** Old liblstdlib.a content
+  cached under std.hermes.X names lingered through partial
+  rebuilds and confused symbol lookup.
+- **Circular import surface.** view ↔ stringify (and friends)
+  cycles surface differently when both packages live in the same
+  layer vs. spread across monolith.
+
+Reverted; baseline (Steps 0-4, 3197/3197) preserved. The
+all-in-lang approach is architecturally sound but requires
+focused trait-visibility / multi-file-package sema debugging
+before it can be safely batched. Recommended next session:
+
+1. Reproduce trait-visibility issue with minimal 2-file test fixture.
+2. Walk sema_collect's handling of multi-file packages to find the
+   gap.
+3. Fix in sema (or document the constraint as "trait must be in
+   single-file package").
+4. Re-attempt the all-in-lang move once sema is reliable.
