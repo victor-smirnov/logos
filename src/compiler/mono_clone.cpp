@@ -3304,7 +3304,14 @@ lir::LFunction Mono::clone_fn(const lir::LFunction& fn, const SubstMap& s,
             if (pit != packs.end()) {
                 for (size_t i = 0; i < pit->second.size(); ++i) {
                     auto expanded_name = make_pack_arg_name(p.name, i);
-                    nf.params.push_back({expanded_name, pit->second[i]});
+                    // Phase 5.C: localize foreign pack entries so the
+                    // cloned fn's params don't hold offsets into a remote
+                    // arena (mlir_gen reads via TypeRef accessors which
+                    // work cross-arena, but downstream sites that route
+                    // TypeRef through mirror writes — e.g. emit_function
+                    // header / signature mangling — assume local pool).
+                    nf.params.push_back({expanded_name,
+                                         localize_type(pit->second[i])});
                 }
             }
         } else {
@@ -3372,7 +3379,10 @@ lir::LFunction Mono::clone_fn_signature(const lir::LFunction& fn,
             if (pit != packs.end()) {
                 for (size_t i = 0; i < pit->second.size(); ++i) {
                     auto expanded_name = make_pack_arg_name(p.name, i);
-                    nf.params.push_back({expanded_name, pit->second[i]});
+                    // Phase 5.C: localize foreign pack entries (see
+                    // matching site in clone_fn for rationale).
+                    nf.params.push_back({expanded_name,
+                                         localize_type(pit->second[i])});
                 }
             }
         } else {
@@ -3592,7 +3602,9 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
             auto pit = packs.find(pack_name);
             if (pit != packs.end()) {
                 for (size_t i = 0; i < pit->second.size(); ++i) {
-                    nd.fields.push_back({f.name + "_" + std::to_string(i), pit->second[i]});
+                    // Phase 5.C: localize pack entries (see clone_fn).
+                    nd.fields.push_back({f.name + "_" + std::to_string(i),
+                                         localize_type(pit->second[i])});
                 }
             }
         } else {
