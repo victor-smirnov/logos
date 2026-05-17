@@ -2,7 +2,7 @@
 
 package json_parse;
 
-use std.encoding.json;
+use logos.mem.encoding.json;
 use std.lang.text;
 use std.lang.option;
 use std.lang.result;

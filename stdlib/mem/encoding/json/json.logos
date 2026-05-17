@@ -9,7 +9,7 @@
 // This module does NOT build an AST — parsing is left to callers who can
 // traverse with `json_validate` as a skip primitive.
 
-package std.encoding.json;
+package logos.mem.encoding.json;
 
 use std.lang.text;
 

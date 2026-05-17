@@ -25,7 +25,7 @@
 //              as_array() -> Option<&Vec<Json>>, as_object() -> ...
 //   pub fn json_get<'a>(obj: &'a Vec<JsonField>, key: str) -> Option<&'a Json>
 
-package std.encoding.json;
+package logos.mem.encoding.json;
 
 use std.lang.text;
 use std.lang.option;
