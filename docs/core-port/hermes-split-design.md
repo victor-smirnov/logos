@@ -233,22 +233,66 @@ fields from the binary AST:
               has no field 'size'
 
 This is a real compiler limitation — cross-archive specialisation
-of structs with explicit field access is not yet supported. Step 4
-moves worked because they touched their own structs (HermesView,
-AnyVal, TypedValue) or used method-dispatch (relptr_traits's
-delegate-via-resolve pattern). Step 5 hits the limit directly.
+of structs with explicit field access is not yet supported.
 
-Two ways forward:
-- **(A)** Move all mem-tier container types (Map/ObjectMap/Array/
-  HermesString/Decimal/...) to the same tier first (Step 6). Then
-  re-attempt Step 5. Cross-archive issue is gone because the new
-  layer.a contains both the impl AND the struct.
+### Step 6 — mem-tier batch (rename to logos.mem.hermes.*)
+
+**Attempted 2026-05-17, reverted.** Renaming the 21 mem-tier
+packages (string/array/map/objectmap/ctr/document/parser/clone/
+hbs_write/decimal/tag_system/registry/alloc/release plus
+stringify/equal/hashing/check/pat/hbs_read/view-trait-surface)
+was straightforward as a sed, but the build broke on two distinct
+fronts:
+
+1. **Duplicate datatype clobber.** Monolith's recursive glob root
+   (`stdlib/`) absorbs `stdlib/mem/hermes/*` into liblstdlib.a
+   while layer-mem's text walk does the same. When layer-mem
+   builds, its transitive `use` triggers monolith binary load
+   via the `pkg_in_prelude` auto-load mechanism — which pulls in
+   the duplicate `logos.mem.hermes.map.Map` from monolith, racing
+   the text-walk's own definition. Sema: "duplicate datatype 'Map'".
+
+   Attempted fix: dedup in `visit_binary_module` — skip prelude
+   packages that the consumer's text-walk already has. The fix
+   works for layer-mem but breaks metaprog JIT (which calls
+   load_modules at runtime, and the filter excludes packages it
+   needs from a transitive lookup angle).
+
+2. **lang ↔ mem cycle.** lang has files with transitive mem deps:
+   - `stdlib/lang/hermes/typed_value/` declares
+     `struct TypedValue { type_off: RelPtr<HermesString>, ... }` —
+     needs HermesString from mem.hermes.string for name resolution.
+   - `stdlib/lang/hermes/fabric/` `use logos.mem.mem;` for alloc.
+   - `stdlib/lang/hermes/relptr_traits/` impls mem-tier traits.
+   - `stdlib/lang/any/` calls HermesRead methods (mem-tier trait).
+
+   Currently these resolve because monolith builds FIRST (with no
+   excludes) and absorbs both mem and lang content. Layer-lang
+   loads its missing pieces from monolith binary. Activating
+   excludes on monolith breaks this — monolith no longer has the
+   mem content, and flipping build order (layers → monolith) means
+   layer-lang's transitive mem deps can't resolve.
+
+Two ways forward, both substantial:
+
+- **(A)** Move the boundary-crossing lang files out of lang. They
+  are mem-coupled in reality:
+  - `any.logos` → `logos.mem.any`
+  - `typed_value` → `logos.mem.hermes.typed_value`
+  - `relptr_traits` → `logos.mem.hermes.relptr_traits`
+  - `fabric` → split its mem-dependent pieces out
+
+  Plus a refactor of `fabric.logos` to separate allocator-dependent
+  helpers (OwningStorage with `alloc`) from pure lang surfaces.
+
 - **(B)** Compiler patch: teach mono to instantiate cross-archive
   struct specialisations from the source's binary AST. Non-trivial
   — touches mono's struct-template-realisation pipeline.
 
-Recommend (A). Step 6 stands alone (renames only), and after it
-Step 5 becomes a simple intra-tier move.
+Recommend either (A) as a careful per-file follow-up — accepting
+that lang-tier is smaller than the original design imagined — or
+(B) as the architecturally correct fix that unlocks both Step 5
+and Step 6 cleanly.
 
 ### Step 6 — Mem-tier remainder
 
