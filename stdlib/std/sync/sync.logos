@@ -18,7 +18,7 @@
 
 package std.sync;
 
-use std.mem;
+use logos.mem.mem;
 use logos.lang.marker;
 use logos.lang.option;
 

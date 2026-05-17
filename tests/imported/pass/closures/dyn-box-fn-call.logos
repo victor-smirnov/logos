@@ -1,6 +1,6 @@
 // Box<dyn FnMut() -> i32> can be called directly.
 package dyn_box_fn_call;
-use std.mem.box;
+use logos.mem.boxed;
 
 fn main() -> i32 {
     let cl = || -> i32 { return 13i32; };

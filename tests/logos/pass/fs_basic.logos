@@ -4,7 +4,7 @@ package test;
 use std.io.fs;
 use std.lang.text;
 use logos.lang.result;
-use std.mem;
+use logos.mem.mem;
 
 fn main() -> i32 {
     unsafe {

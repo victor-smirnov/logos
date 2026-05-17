@@ -1,5 +1,5 @@
 package boxed_cl_call;
-use std.mem.box;
+use logos.mem.boxed;
 fn main() -> i32 {
     let cl = || -> i32 { return 5i32; };
     let b: Box<dyn FnMut() -> i32> = box_new(cl);

@@ -1,7 +1,7 @@
 // pass — Rc<T> reference counting smoke test.
 package test;
 
-use std.mem.rc;
+use logos.mem.rc;
 
 fn main() -> i32 {
     unsafe {

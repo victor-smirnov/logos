@@ -5,7 +5,7 @@
 
 package std.collections.vec;
 
-use std.mem;
+use logos.mem.mem;
 use logos.lang.option;
 use logos.lang.iter;
 use logos.lang.cmp;

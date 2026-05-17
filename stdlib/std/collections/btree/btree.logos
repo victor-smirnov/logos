@@ -12,7 +12,7 @@
 
 package std.collections.btree;
 
-use std.mem;
+use logos.mem.mem;
 use logos.lang.cmp;
 use logos.lang.iter;
 use logos.lang.option;

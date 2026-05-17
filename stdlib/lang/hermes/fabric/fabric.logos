@@ -9,7 +9,7 @@ package logos.lang.hermes.fabric;
 
 use logos.lang.drop;
 use logos.lang.cmp;
-use std.mem;
+use logos.mem.mem;
 
 // ---------------------------------------------------------------------------
 // Storage hierarchy — three orthogonal axes factored into a trait hierarchy.

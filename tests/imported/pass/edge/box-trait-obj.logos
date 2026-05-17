@@ -1,5 +1,5 @@
 package box_trait_obj;
-use std.mem.box;
+use logos.mem.boxed;
 trait Speak { fn val(self: &Self) -> i32; }
 struct S { v: i32 }
 impl Speak for S { fn val(self: &S) -> i32 { return self.v; } }

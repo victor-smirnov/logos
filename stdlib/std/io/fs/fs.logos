@@ -6,7 +6,7 @@
 package std.io.fs;
 
 use std.io.linux.uring;
-use std.mem;
+use logos.mem.mem;
 use std.lang.text;
 use logos.lang.result;
 

@@ -10,7 +10,7 @@
 
 package std.io.bytes;
 
-use std.mem;
+use logos.mem.mem;
 use std.sync.atomic;
 use std.lang.text;
 

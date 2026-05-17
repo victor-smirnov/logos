@@ -6,7 +6,7 @@
 // closures pass by ptr at the surface ABI but the storage is fat).
 package cl_box_dyn_fnmut;
 
-use std.mem.box;
+use logos.mem.boxed;
 
 fn main() -> i32 {
     let cl = || -> i32 { return 42i32; };

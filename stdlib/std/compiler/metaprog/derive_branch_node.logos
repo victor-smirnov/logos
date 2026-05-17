@@ -34,7 +34,7 @@ use std.lang.text;
 // emit now inheriting the originating user module's USES, those types
 // resolve through the user's own imports — this handler no longer
 // needs to know about the persistent stack at all.
-use std.mem;
+use logos.mem.mem;
 
 // Walk module ITEMS to find the ANNOTATION immediately preceding the
 // target item whose NAME matches `trigger`. Returns the ANNOTATION

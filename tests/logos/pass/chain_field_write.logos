@@ -4,7 +4,7 @@
 // where self: *mut Holder<T>, inner: *mut Inner<T>, count: i32.
 package test;
 
-use std.mem;
+use logos.mem.mem;
 
 struct Inner<T> {
     val:   T,

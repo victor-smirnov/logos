@@ -10,7 +10,7 @@
 
 package std.io.buffered;
 
-use std.mem;
+use logos.mem.mem;
 use std.lang.text;
 use std.io.read;
 use std.io.write;

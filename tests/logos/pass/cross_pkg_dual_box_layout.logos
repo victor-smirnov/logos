@@ -8,7 +8,7 @@
 
 package test;
 
-use std.mem.box;
+use logos.mem.boxed;
 
 struct Box<T> { v: T }
 

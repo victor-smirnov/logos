@@ -9,7 +9,7 @@
 
 package logos.std.rt.fiber;
 
-use std.mem;
+use logos.mem.mem;
 
 extern fn logos_fiber_switch(from: *mut FiberCtx, to: *const FiberCtx);
 extern fn logos_sched_get() -> *mut u8;

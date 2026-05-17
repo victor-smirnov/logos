@@ -6,7 +6,7 @@
 // equally). `isize` → `i64`. assert_eq! → if-return.
 package g_generic_object;
 
-use std.mem.box;
+use logos.mem.boxed;
 
 trait Foo<T> {
     fn get(&self) -> T;

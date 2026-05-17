@@ -5,7 +5,7 @@
 // `Box::new` → `box_new`. Closure body returns `0i32`.
 package inf_newlambdas_ret_infer;
 
-use std.mem.box;
+use logos.mem.boxed;
 
 fn unique() -> Box<dyn FnMut() -> i32> {
     return box_new(|| -> i32 { return 0i32; });

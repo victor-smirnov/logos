@@ -12,7 +12,7 @@
 
 package std.io.net.tls;
 
-use std.mem;
+use logos.mem.mem;
 
 extern fn logos_user_tls_get() -> *mut i64;
 extern fn logos_user_tls_set(p: *mut i64);

@@ -4,9 +4,9 @@
 // Unlike raw *mut T, Box<T> makes the ownership intent explicit.
 // Without RAII, the caller must call box_free() when done.
 
-package std.mem.box;
+package logos.mem.boxed;
 
-use std.mem;
+use logos.mem.mem;
 
 pub struct Box<T> {
     ptr: *mut T,

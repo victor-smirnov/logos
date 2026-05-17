@@ -1,7 +1,7 @@
 // 3- and 4-deep field write/read through pointer chains.
 package test;
 
-use std.mem;
+use logos.mem.mem;
 
 struct A { x: i32 }
 struct B { a: *mut A }

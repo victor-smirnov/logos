@@ -4,7 +4,7 @@
 // in the fat pair.
 package test;
 
-use std.mem.box;
+use logos.mem.boxed;
 
 pub trait Greet {
     fn hi(&self) -> i32;

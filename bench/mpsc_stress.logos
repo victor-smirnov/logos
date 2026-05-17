@@ -15,7 +15,7 @@
 package bench_mpsc_stress;
 
 use logos.std.rt.fiber;
-use std.mem;
+use logos.mem.mem;
 
 extern fn logos_atomic_fetch_add64(ptr: *mut i64, v: i64) -> i64;
 

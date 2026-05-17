@@ -17,7 +17,7 @@
 
 package logos.std.rt.fiber;
 
-use std.mem;
+use logos.mem.mem;
 
 // ── io_uring C shims (also declared in std.io_uring; re-extern here to
 //    avoid a package-level dependency on std.io_uring just for types) ─────

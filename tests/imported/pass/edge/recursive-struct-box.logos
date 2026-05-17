@@ -1,5 +1,5 @@
 package recursive_struct_box;
-use std.mem.box;
+use logos.mem.boxed;
 struct Node { v: i32, next: Box<Option_> }
 enum Option_ { Some(Node), None }
 fn main() -> i32 {

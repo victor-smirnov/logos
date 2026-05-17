@@ -15,7 +15,7 @@ use std.io.read;
 use std.io.write;
 use std.io.buffered;
 use logos.std.rt.fiber;
-use std.mem;
+use logos.mem.mem;
 
 // Drain a full HTTP/1.1 request message from `s` into `buf`.  Reads until
 // headers are complete AND the entire Content-Length body (or chunked

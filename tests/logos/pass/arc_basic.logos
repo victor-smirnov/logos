@@ -1,7 +1,7 @@
 // pass — Arc<T: Send + Sync> atomic reference counting smoke test.
 package test;
 
-use std.mem.arc;
+use logos.mem.sync;
 
 fn main() -> i32 {
     unsafe {

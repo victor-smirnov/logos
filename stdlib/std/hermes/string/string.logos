@@ -15,7 +15,7 @@ package std.hermes.string;
 use logos.lang.hermes.fabric;
 use logos.lang.arith;
 use std.hermes.tags;
-use std.mem;
+use logos.mem.mem;
 
 // ---------------------------------------------------------------------------
 // FNV-1a hash (used by ObjectMap for string key hashing)

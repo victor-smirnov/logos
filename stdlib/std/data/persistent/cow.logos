@@ -26,7 +26,7 @@
 package std.data.persistent.cow;
 
 use std.collections.vec;
-use std.mem;
+use logos.mem.mem;
 use logos.lang.cmp;
 use logos.lang.hermes.fabric;
 use std.hermes.view;

@@ -14,7 +14,7 @@ use std.data.persistent.node;
 use std.data.persistent.shuttle;
 use logos.lang.hermes.fabric;
 use std.hermes.view;
-use std.mem;
+use logos.mem.mem;
 
 pub const StoreCfg: HermesStatic = @{
     "name": "demo", "ctr_id": <type:u64>, "snp_id": <type:u64>, "block_id": <type:u64>,

@@ -16,9 +16,9 @@
 //   a1.drop_arc();   // does NOT free (a2 still alive)
 //   a2.drop_arc();   // frees inner block
 
-package std.mem.arc;
+package logos.mem.sync;
 
-use std.mem;
+use logos.mem.mem;
 use std.sync.atomic;
 use logos.lang.marker;
 use logos.lang.drop;

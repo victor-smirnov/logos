@@ -11,7 +11,7 @@
 
 package std.collections.deque;
 
-use std.mem;
+use logos.mem.mem;
 use logos.lang.option;
 
 pub struct VecDeque<T> {

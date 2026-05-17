@@ -1,6 +1,6 @@
 package option_box;
 use logos.lang.option;
-use std.mem.box;
+use logos.mem.boxed;
 
 fn main() -> i32 {
     let b: Box<i32> = box_new(42i32);

@@ -6,7 +6,7 @@
 // machinery yet — direct lowering for the stdlib Box; sister-fix in
 // lower_field_read handles `b.field` (boxed-struct-gap).
 package box_gen_gap;
-use std.mem.box;
+use logos.mem.boxed;
 fn main() -> i32 {
     let b: Box<i32> = box_new(7i32);
     return *b - 7i32;

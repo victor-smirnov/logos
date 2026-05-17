@@ -13,9 +13,9 @@
 // dropping mutate the inner.strong counter; the last drop releases
 // the whole block in one dealloc.
 
-package std.mem.rc;
+package logos.mem.rc;
 
-use std.mem;
+use logos.mem.mem;
 use logos.lang.drop;
 
 pub struct RcInner<T> {

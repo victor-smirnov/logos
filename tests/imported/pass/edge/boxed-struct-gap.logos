@@ -4,7 +4,7 @@
 // of `.ptr` (`*mut S`), then the existing Ptr-recv branch threads through
 // without requiring user-level unsafe (Box abstracts its raw pointer).
 package boxed_struct_gap;
-use std.mem.box;
+use logos.mem.boxed;
 struct S { v: i32 }
 fn main() -> i32 {
     let b: Box<S> = box_new(S { v: 5i32 });

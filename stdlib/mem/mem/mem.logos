@@ -2,7 +2,7 @@
 //
 // Memory allocation and low-level memory utilities.
 
-package std.mem;
+package logos.mem.mem;
 
 use logos.lang.default;
 

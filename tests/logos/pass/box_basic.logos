@@ -1,7 +1,7 @@
 // pass — Box<T> smoke test.
 package test;
 
-use std.mem.box;
+use logos.mem.boxed;
 
 fn main() -> i32 {
     unsafe {
