@@ -8,6 +8,7 @@
 
 package hermes_sdn_lit;
 
+use logos.lang.hermes.view;
 use std.hermes.view;
 use logos.lang.hermes.zone;
 use std.hermes.document;

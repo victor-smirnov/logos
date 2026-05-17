@@ -11,6 +11,7 @@ package std.data.persistent.descent;
 use std.collections.vec;
 use logos.lang.cmp;
 use logos.lang.hermes.fabric;
+use logos.lang.hermes.view;
 use std.hermes.view;
 use std.hermes.anyval;
 

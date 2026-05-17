@@ -3,6 +3,7 @@
 // distinct impls must yield distinct blobs.
 package assoc_const_hermes_static;
 
+use logos.lang.hermes.view;
 use std.hermes.view;
 
 trait Schema {

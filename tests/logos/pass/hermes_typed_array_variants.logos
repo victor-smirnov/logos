@@ -6,6 +6,7 @@
 
 package hermes_typed_array_variants;
 
+use logos.lang.hermes.view;
 use std.hermes.view;
 use std.hermes.stringify;
 use std.hermes.array;

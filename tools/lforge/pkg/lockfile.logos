@@ -10,6 +10,7 @@ use std.collections.vec;
 use std.io.fs;
 use logos.lang.hermes.zone;
 use std.hermes.anyval;
+use logos.lang.hermes.view;
 use std.hermes.view;
 use std.hermes.map;
 use std.hermes.array;

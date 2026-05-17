@@ -6,6 +6,7 @@
 
 package hermes_typed_map_all_keys;
 
+use logos.lang.hermes.view;
 use std.hermes.view;
 use std.hermes.stringify;
 use std.hermes.array;

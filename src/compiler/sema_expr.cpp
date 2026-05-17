@@ -12187,13 +12187,16 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
                         pkg, site.thunk_name, call_text);
                 }
             } else {
-                // HermesStatic ret needs std.hermes.view in scope.
-                // ExprBlob ret needs std.compiler.metaprog in scope.
+                // HermesStatic ret needs the HermesStatic struct in scope.
+                // After the three-layer split, the struct lives in
+                // logos.lang.hermes.view; the trait surface still in
+                // std.hermes.view. Include both for safety.
+                // ExprBlob ret additionally needs std.compiler.metaprog.
                 const char* extra_uses =
                     (site.ret_tag == RT2::HermesStatic)
-                    ? "use std.hermes.view;\n"
+                    ? "use logos.lang.hermes.view;\nuse std.hermes.view;\n"
                     : (site.ret_tag == RT2::ExprBlob)
-                    ? "use std.compiler.metaprog;\nuse std.hermes.view;\n"
+                    ? "use std.compiler.metaprog;\nuse logos.lang.hermes.view;\nuse std.hermes.view;\n"
                     : "";
                 // Body shape:
                 //   call/expr forms → `{ return <text>; }`

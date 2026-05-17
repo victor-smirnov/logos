@@ -10,6 +10,7 @@
 
 package std.hermes.view;
 
+use logos.lang.hermes.view;
 use logos.lang.hermes.zone;
 use logos.lang.hermes.mem_holder;
 use std.hermes.document;
@@ -27,12 +28,6 @@ use logos.lang.hermes.datatag;
 use logos.lang.hermes.typetag;
 use logos.mem.string;
 use logos.lang.str;
-
-pub unsafe fn view_cstr_len(s: *const u8) -> i64 {
-    let mut n: i64 = 0;
-    while *((s as i64 + n) as *const u8) != 0 { n = n + 1; }
-    return n;
-}
 
 // ── HermesRead trait ─────────────────────────────────────────────────────────
 //
@@ -620,35 +615,13 @@ pub trait HermesWrite: HermesRead {
     }
 }
 
-// ── HermesView<'a> ────────────────────────────────────────────────────────
-//
-// Non-owning fat view: pointer to zone data + byte size.
-// Borrows from any Hermes, HermesStatic, or raw zone for lifetime 'a.
-
-pub struct HermesView<'a> {
-    pub base: *const u8,
-    pub size: u64,
-}
+// HermesView<'a> + HermesStatic + hermes_static_size moved to lang-tier
+// [logos.lang.hermes.view](../../../lang/hermes/view/view.logos). The
+// trait impls below pick the structs back up via the use line above.
 
 impl<'a> HermesRead for HermesView<'a> {
     fn base(self: &HermesView<'a>) -> *const u8 { return self.base; }
     fn size(self: &HermesView<'a>) -> u64 { return self.size; }
-}
-
-// ── HermesStatic ─────────────────────────────────────────────────────────────
-//
-// Non-owning 'static view of a rodata blob created by @-literal codegen.
-// Layout in rodata: [u64 size][blob bytes...].
-// The ptr field points to the first blob byte (after the u64 prefix).
-// Use hermes_static_size(ptr) to read the size without owning a HermesStatic.
-
-pub struct HermesStatic {
-    pub ptr: *const u8,
-}
-
-// Read the blob size stored 8 bytes before the blob pointer.
-pub unsafe fn hermes_static_size(ptr: *const u8) -> u64 {
-    return *((ptr as i64 - 8) as *const u64);
 }
 
 impl HermesRead for HermesStatic {

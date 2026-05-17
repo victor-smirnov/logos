@@ -2,6 +2,7 @@
 package hermes_ctr_view;
 use std.hermes.ctr;
 use std.hermes.anyval;
+use logos.lang.hermes.view;
 use std.hermes.view;
 use logos.mem.string;
 use logos.lang.str;

@@ -5,6 +5,7 @@ package hermes_match_arr;
 use std.hermes.anyval;
 use std.hermes.ctr;
 use std.hermes.pat;
+use logos.lang.hermes.view;
 use std.hermes.view;
 
 unsafe fn classify(d: &HermesStatic) -> i32 {

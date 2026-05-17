@@ -9,6 +9,7 @@
 package quote_expr_repeat_comma;
 
 use std.compiler.metaprog;
+use logos.lang.hermes.view;
 use std.hermes.view;
 
 fn add3(x: i32, y: i32, z: i32) -> i32 {

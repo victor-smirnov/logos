@@ -9,6 +9,7 @@ use std.data.persistent.descent;
 use std.data.persistent.mutate;
 use std.data.persistent.iter;
 use logos.lang.hermes.fabric;
+use logos.lang.hermes.view;
 use std.hermes.view;
 use std.hermes.anyval;
 

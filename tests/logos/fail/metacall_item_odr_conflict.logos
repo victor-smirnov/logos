@@ -4,6 +4,7 @@
 package main;
 
 use std.compiler.metaprog;
+use logos.lang.hermes.view;
 use std.hermes.view;
 
 fn emit_a() -> QuoteItemBlob {

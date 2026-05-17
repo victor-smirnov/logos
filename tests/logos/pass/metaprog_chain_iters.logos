@@ -16,6 +16,7 @@
 package main;
 
 use std.compiler.metaprog;
+use logos.lang.hermes.view;
 use std.hermes.view;
 
 #[metaprog_handler("chain_a")]

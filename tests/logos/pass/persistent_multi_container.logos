@@ -11,7 +11,7 @@ package persistent_multi_container;
 use std.collections.vec;
 use logos.mem.mem;
 use logos.lang.cmp; use logos.lang.cmp; use logos.lang.hermes.fabric;
-use std.hermes.view; use std.hermes.anyval;
+use logos.lang.hermes.view; use std.hermes.view; use std.hermes.anyval;
 
 use std.data.persistent.node;
 use std.data.persistent.cow;

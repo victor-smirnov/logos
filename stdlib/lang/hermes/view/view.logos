@@ -1,0 +1,53 @@
+// Logos lang-tier standard library — logos.lang.hermes.view
+//
+// Lifecycle-only Hermes views: the non-owning fat-pointer (HermesView)
+// and the rodata blob view (HermesStatic). Both are pure value types
+// — they wrap pointers and let consumers carry a Hermes zone around
+// without owning it. No allocation, no reading of zone-resident
+// container types (HermesString / ObjectMap / ObjectArray / Decimal).
+//
+// The HermesRead / HermesWrite traits and their default methods live
+// in mem-tier [std.hermes.view](../../../std/hermes/view/view.logos)
+// because reading a zone document inherently dereferences mem-tier
+// container types (HermesString, ObjectMap, ObjectArray, ...).
+//
+// Splitting the structs out lets lang-tier code that only needs to
+// pass HermesView values around (e.g. signatures) avoid pulling the
+// trait machinery and its transitive deps.
+
+package logos.lang.hermes.view;
+
+// Length of a null-terminated C string starting at `s`. Re-exposed
+// here (rather than depending on logos.lang.str) so lang.hermes.view
+// has zero external lang deps beyond the Hermes leaves.
+pub unsafe fn view_cstr_len(s: *const u8) -> i64 {
+    let mut n: i64 = 0;
+    while *((s as i64 + n) as *const u8) != 0 { n = n + 1; }
+    return n;
+}
+
+// ── HermesView<'a> ────────────────────────────────────────────────────────
+//
+// Non-owning fat view: pointer to zone data + byte size.
+// Borrows from any Hermes, HermesStatic, or raw zone for lifetime 'a.
+
+pub struct HermesView<'a> {
+    pub base: *const u8,
+    pub size: u64,
+}
+
+// ── HermesStatic ─────────────────────────────────────────────────────────────
+//
+// Non-owning 'static view of a rodata blob created by @-literal codegen.
+// Layout in rodata: [u64 size][blob bytes...].
+// The ptr field points to the first blob byte (after the u64 prefix).
+// Use hermes_static_size(ptr) to read the size without owning a HermesStatic.
+
+pub struct HermesStatic {
+    pub ptr: *const u8,
+}
+
+// Read the blob size stored 8 bytes before the blob pointer.
+pub unsafe fn hermes_static_size(ptr: *const u8) -> u64 {
+    return *((ptr as i64 - 8) as *const u64);
+}

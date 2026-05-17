@@ -11,6 +11,7 @@
 package quote_expr_antiquot;
 
 use std.compiler.metaprog;
+use logos.lang.hermes.view;
 use std.hermes.view;
 
 fn build_expr() -> ExprBlob {

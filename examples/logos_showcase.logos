@@ -16,6 +16,7 @@
 
 package logos_showcase;
 
+use logos.lang.hermes.view;
 use std.hermes.view;
 use std.hermes.anyval;
 use std.hermes.string;

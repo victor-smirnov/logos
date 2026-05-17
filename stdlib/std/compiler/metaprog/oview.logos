@@ -17,6 +17,7 @@ package std.compiler.metaprog;
 // HermesRead's default methods touch AnyVal/StringView/DecimalView/etc.;
 // impl'ing it for OView instantiates those defaults, so we need the
 // same module surface as `std.hermes.view` itself imports.
+use logos.lang.hermes.view;
 use std.hermes.view;
 use std.hermes.anyval;
 use std.hermes.string;

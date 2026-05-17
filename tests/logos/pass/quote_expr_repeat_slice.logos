@@ -6,6 +6,7 @@ package quote_expr_repeat_slice;
 
 use std.compiler.metaprog;
 use std.collections.vec;
+use logos.lang.hermes.view;
 use std.hermes.view;
 
 fn add3(x: i32, y: i32, z: i32) -> i32 {

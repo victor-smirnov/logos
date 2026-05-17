@@ -15,6 +15,7 @@ use std.compiler.metaprog;
 use std.data.persistent.node;
 use std.data.persistent.cow;
 use logos.lang.hermes.fabric;
+use logos.lang.hermes.view;
 use std.hermes.view;
 use std.hermes.anyval;
 

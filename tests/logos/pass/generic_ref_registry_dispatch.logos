@@ -16,6 +16,7 @@
 package generic_ref_registry_dispatch;
 
 use logos.lang.hermes.fabric;
+use logos.lang.hermes.view;
 use std.hermes.view;
 use std.hermes.anyval;
 

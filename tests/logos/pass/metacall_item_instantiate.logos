@@ -6,6 +6,7 @@
 package main;
 
 use std.compiler.metaprog;
+use logos.lang.hermes.view;
 use std.hermes.view;
 
 trait BoxLike { fn weight(self: Self) -> i64; }

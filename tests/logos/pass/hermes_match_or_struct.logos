@@ -8,6 +8,7 @@ use std.hermes.map;
 use std.hermes.typed_value;
 use std.hermes.ctr;
 use std.hermes.pat;
+use logos.lang.hermes.view;
 use std.hermes.view;
 
 unsafe fn kind(d: &HermesStatic) -> i32 {

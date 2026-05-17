@@ -4,6 +4,7 @@ package hermes_match_or;
 
 use std.hermes.anyval;
 use std.hermes.ctr;
+use logos.lang.hermes.view;
 use std.hermes.view;
 
 unsafe fn mk(v: AnyVal) -> Hermes {

@@ -4,6 +4,7 @@
 package hermes_lit_parse;
 
 use std.hermes.ctr;
+use logos.lang.hermes.view;
 use std.hermes.view;
 
 pub unsafe fn main() -> i32 {

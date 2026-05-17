@@ -3,6 +3,7 @@
 package hermes_typed_push;
 
 use std.hermes.ctr;
+use logos.lang.hermes.view;
 use std.hermes.view;
 use std.hermes.anyval;
 use std.hermes.array;

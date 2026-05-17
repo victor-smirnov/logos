@@ -7,6 +7,7 @@ use logos.mem.string;
 use logos.lang.str;
 use logos.lang.result;
 use std.collections.vec;
+use logos.lang.hermes.view;
 use std.hermes.view;
 use std.hermes.anyval;
 use std.hermes.string;

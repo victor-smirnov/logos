@@ -21,6 +21,7 @@ package showcase_type_metaprog;
 
 use std.compiler.metaprog;
 use std.hermes.ctr;
+use logos.lang.hermes.view;
 use std.hermes.view;
 use std.hermes.anyval;
 

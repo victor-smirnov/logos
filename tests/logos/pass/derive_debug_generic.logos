@@ -11,6 +11,7 @@
 // proves type-param plumbing in OView and the synth template work.
 package main;
 
+use logos.lang.hermes.view;
 use std.hermes.view;
 use std.hermes.anyval;
 use std.hermes.string;

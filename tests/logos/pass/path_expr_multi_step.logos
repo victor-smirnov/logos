@@ -7,7 +7,7 @@
 // instantiation) resolution paths walk the path identically.
 package path_expr_multi_step;
 
-use std.hermes.view; use std.hermes.anyval;
+use logos.lang.hermes.view; use std.hermes.view; use std.hermes.anyval;
 
 pub const Cfg: HermesStatic = @{
     "outer": { "inner": <type:u64> },

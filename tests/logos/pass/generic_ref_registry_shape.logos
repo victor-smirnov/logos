@@ -9,6 +9,7 @@
 //   3. HermesStatic-keyed instantiation works the same way.
 package generic_ref_registry_shape;
 
+use logos.lang.hermes.view;
 use std.hermes.view;
 use std.hermes.anyval;
 

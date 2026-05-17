@@ -23,6 +23,7 @@
 
 package std.hermes.ctr;
 
+use logos.lang.hermes.view;
 use std.hermes.view;
 use std.hermes.string;
 use logos.lang.hermes.zone;
