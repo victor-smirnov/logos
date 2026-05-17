@@ -1,10 +1,9 @@
 // three_layer fixture: middle tier, depends on three_layer.low via
-// manifest `depends low`. Loader must locate liblow.a before sema sees
-// the `use` below.
+// manifest `depends low`. The manifest also declares
+// `prelude three_layer.low`, so symbols from low are in scope WITHOUT
+// an explicit `use` — exercises Phase 3.4 implicit-prelude injection.
 
 package three_layer.mid;
-
-use three_layer.low;
 
 pub fn mid_quadruple(x: i32) -> i32 {
     return low_double(low_double(x));

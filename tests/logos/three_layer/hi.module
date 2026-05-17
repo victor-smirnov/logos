@@ -3,3 +3,4 @@ version 0.1
 root tests/logos/three_layer/hi/
 depends mid
 depends low
+prelude three_layer.mid

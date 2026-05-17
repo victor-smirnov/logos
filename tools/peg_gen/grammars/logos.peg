@@ -299,6 +299,7 @@
     DOC_BLOCK_LIT               = 239   // `/** ... */` outer block doc-comment. VALUE = raw token text including the `/**` envelope and trailing `*/`. Sema strips the envelope + per-line leading `*` indent and joins with `\n` into pending_doc_, mirroring DOC_LINE_LIT accumulation.
     INNER_DOC_BLOCK_LIT         = 240   // `/*! ... */` inner block doc-comment (module-level summary, block form). VALUE = raw token text; sema accumulates into module_inner_doc_ like INNER_DOC_LIT.
     USE_VARIANTS                = 241   // CP-cm-02 + GR-gp-02: `use pkg.Path.X.{V1, V2, …};`. Same shape as USE but with extra TYPE_NAME (last dotted segment, either enum Type when uppercase or pkg sub-name when lowercase) and VARIANTS (list of bare-ident TomVs each holding a NAME). Sema disambiguates by TYPE_NAME's first-character case: uppercase → enum-variant bare-name shorthand; lowercase → grouped sub-package import (`use std.lang.{option, result};`).
+    INNER_ANNOTATION            = 242   // Three-layer split Phase 3.2: `#![name]` / `#![name(args)]` / `#![name=val]` — file/module-level inner attribute. Currently used only for `#![no_implicit_prelude]`. Payload shape identical to ANNOTATION; differing CODE lets sema pick out module-level attrs from per-item attrs.
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -459,7 +460,10 @@
     // line (Rust-crate-style "crate-level" doc placement). They land in the
     // captured items via the existing $... collector; lower_module_items
     // sweeps them into LProgram.module_inner_docs.
-    module :group mod: <- (inner_doc_decl / inner_doc_block_decl)* KW_PACKAGE IDENT path_dot_ident* SEMI any_use_decl* item*
+    // Three-layer split Phase 3.2: inner attributes `#![...]` (currently only
+    // `#![no_implicit_prelude]`) may also appear before `package`. They land
+    // in the same item stream via $... and sema_collect sweeps them.
+    module :group mod: <- (inner_doc_decl / inner_doc_block_decl / inner_annotation)* KW_PACKAGE IDENT path_dot_ident* SEMI any_use_decl* item*
            => { CODE: MODULE, NAME: $3, PATH_PARTS: $4, USES: $6, ITEMS: $... }
 
     any_use_decl <- pub_use_decl / use_variants_decl / use_decl
@@ -582,6 +586,18 @@
                => { CODE: ANNOTATION, NAME: $3, VALUE: $5 }
                 / HASH LBRACKET IDENT RBRACKET
                => { CODE: ANNOTATION, NAME: $3 }
+
+    // Three-layer split Phase 3.2: inner attribute `#![name]` — file-level
+    // attribute attaching to the enclosing module rather than the next
+    // item. Currently used only for `#![no_implicit_prelude]`. Same payload
+    // shape as `annotation` but tagged differently so sema can pick out
+    // module-level attrs from per-item attrs.
+    inner_annotation <- HASH BANG LBRACKET IDENT LPAREN annot_args RPAREN RBRACKET
+                     => { CODE: INNER_ANNOTATION, NAME: $4, ARGS: $6 }
+                      / HASH BANG LBRACKET IDENT ASSIGN annot_val RBRACKET
+                     => { CODE: INNER_ANNOTATION, NAME: $4, VALUE: $6 }
+                      / HASH BANG LBRACKET IDENT RBRACKET
+                     => { CODE: INNER_ANNOTATION, NAME: $4 }
 
     annot_val <- IDENT COLONCOLON IDENT
               => { CODE: ENUM_LIT, NAME: $1, FIELD: $3 }

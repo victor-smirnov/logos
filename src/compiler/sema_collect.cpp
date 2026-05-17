@@ -222,6 +222,34 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         }
         return scope;
     };
+
+    // Three-layer split Phase 3.4: append the manifest-declared implicit
+    // prelude to the wildcard scope unless this file opts out via
+    // `#![no_implicit_prelude]` or is loaded from a binary archive (its
+    // producer already applied its own prelude when the archive was built).
+    // Self-imports are skipped (own package symbols always resolve first).
+    auto maybe_inject_implicit_prelude = [&](TinyMapView root, bool is_bin) {
+        if (implicit_prelude_.empty() || is_bin) return;
+        if (cur_package_ == implicit_prelude_) return;
+        // Scan ITEMS for INNER_ANNOTATION{NAME="no_implicit_prelude"} opt-out.
+        if (root.has_key(la::ITEMS)) {
+            auto items = arr_of(root.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                auto it = map_of(items.get(i));
+                if (code_of(it) != la::INNER_ANNOTATION.code) continue;
+                if (!it.has_key(la::NAME)) continue;
+                if (str_of(it.get(la::NAME.code)) == "no_implicit_prelude")
+                    return;
+            }
+        }
+        // Dedup against any explicit `use <prelude>;` already in scope.
+        if (std::find(cur_imports_.wildcard_packages.begin(),
+                      cur_imports_.wildcard_packages.end(),
+                      implicit_prelude_)
+            == cur_imports_.wildcard_packages.end()) {
+            cur_imports_.wildcard_packages.push_back(implicit_prelude_);
+        }
+    };
     // MC2.5: per-name first-seen item record for ODR dedup. On a name
     // collision we deep-compare the new item's AST sub-tree against the
     // first-seen one; equal → silently skip (dedup), differ → "duplicate".
@@ -259,6 +287,7 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         auto root = ast.root_object().as_tiny_map();
         cur_package_ = read_package_name(root);
         cur_imports_ = build_import_scope(root);
+        maybe_inject_implicit_prelude(root, is_bin);
         // M5 step 5c: record user-pkgs so take_snapshot can filter
         // their entries out before persisting.
         if (!is_bin && !cur_package_.empty())
@@ -361,6 +390,7 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         auto root = asts[ai].root_object().as_tiny_map();
         cur_package_ = read_package_name(root);
         cur_imports_ = build_import_scope(root);
+        maybe_inject_implicit_prelude(root, cur_from_binary_);
         collect_module(root, 2);
     }
     // Second pass: fill in fields, variants, function signatures (Phase 1).
@@ -385,6 +415,7 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         auto root = asts[ai].root_object().as_tiny_map();
         cur_package_ = read_package_name(root);
         cur_imports_ = build_import_scope(root);
+        maybe_inject_implicit_prelude(root, cur_from_binary_);
         collect_module(root, 1);
     }
     cur_package_ = {};

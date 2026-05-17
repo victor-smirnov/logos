@@ -257,7 +257,8 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                                const std::string& only_file = "",
                                StdlibExports* out_exports = nullptr,
                                std::vector<uint8_t>* out_lir_blob = nullptr,
-                               const std::string& module_name = "") {
+                               const std::string& module_name = "",
+                               const std::string& implicit_prelude = "") {
     // Run metaprog discovery loop (#21 closure) so #[derive_*] hooks
     // and metacall thunks fire during stdlib build. asts/filenames
     // grow with synthesised docs that subsequent sema picks up.
@@ -358,6 +359,7 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
     // in user code that transitively reach ast_only-resident generic calls).
     SemaOptions sema_opts;
     sema_opts.disable_blob_skeletons = true;
+    sema_opts.implicit_prelude = implicit_prelude;
     auto prog = sema_lower(asts, filenames, from_binary, sema_opts);
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
@@ -688,7 +690,7 @@ bool emit_module(const ModuleManifest& manifest,
         auto load_bucket = [&](const std::vector<std::string>& bucket) {
             for (auto& file : bucket) {
                 auto mods = load_modules(file, search_paths, nullptr,
-                                         all_lib_files);
+                                         all_lib_files, manifest.prelude);
                 for (auto& m : mods) {
                     if (seen.insert(m.path).second)
                         modules.push_back(std::move(m));
@@ -781,7 +783,8 @@ bool emit_module(const ModuleManifest& manifest,
         }
         if (!compile_to_object(asts, filenames, ast_only_flags, obj_path,
                                only_file_canon, &exports, &lir_blob,
-                               /*module_name=*/manifest.name)) {
+                               /*module_name=*/manifest.name,
+                               /*implicit_prelude=*/manifest.prelude)) {
             std::fprintf(stderr, "emit_module: compilation failed\n");
             return false;
         }

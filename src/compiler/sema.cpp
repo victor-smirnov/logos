@@ -5153,6 +5153,32 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
                 }
             }
         }
+        // Three-layer split Phase 3.4: same implicit-prelude injection as
+        // sema_collect.cpp's maybe_inject_implicit_prelude. Source-side
+        // ASTs only; binary archives skip (their producer already applied
+        // its own prelude). Self-import and explicit-use dedup.
+        if (!implicit_prelude_.empty() && !cur_from_binary_
+            && cur_package_ != implicit_prelude_) {
+            bool opt_out = false;
+            if (root.has_key(la::ITEMS)) {
+                auto items = arr_of(root.get(la::ITEMS.code));
+                for (uint64_t ii = 0; ii < items.size(); ++ii) {
+                    auto it = map_of(items.get(ii));
+                    if (code_of(it) != la::INNER_ANNOTATION.code) continue;
+                    if (!it.has_key(NAME)) continue;
+                    if (str_of(it.get(NAME.code)) == "no_implicit_prelude") {
+                        opt_out = true; break;
+                    }
+                }
+            }
+            if (!opt_out &&
+                std::find(cur_imports_.wildcard_packages.begin(),
+                          cur_imports_.wildcard_packages.end(),
+                          implicit_prelude_)
+                == cur_imports_.wildcard_packages.end()) {
+                cur_imports_.wildcard_packages.push_back(implicit_prelude_);
+            }
+        }
         lower_module_items(root, prog);
         if (capture_this_ast) {
             rng.is_binary           = cur_from_binary_;
@@ -6261,6 +6287,7 @@ lir::LProgram sema_lower(const std::vector<logos::hermes::Hermes>& asts,
     checker.set_metaprog_keep_fns(opts.metaprog_keep_fns);
     checker.set_cache(opts.cache);
     checker.set_delta_start_idx(opts.delta_start_idx);
+    checker.set_implicit_prelude(std::move(opts.implicit_prelude));
     // Phase 4.C: skeleton-only lowering for non-generic from_binary fns is
     // ON by default. mono short-circuits on empty mirror_offset_, mlir_gen
     // forward-declares from_binary_module fns, borrow_check walks empty

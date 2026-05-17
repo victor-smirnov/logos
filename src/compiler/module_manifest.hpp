@@ -33,6 +33,23 @@ struct ModuleManifest {
     //
     // Manifest directive: `lowering eager` / `lowering lazy`.
     bool lazy = false;
+
+    // Three-layer split (Phase 3) — `tier` and `prelude` directives.
+    //
+    // tier: declares the availability tier of this module.
+    //   "lang" → no-alloc, no-OS. Loads only against logos.lang.*.
+    //   "mem"  → heap, no-OS. Loads against lang + mem.
+    //   "std"  → full (default). Loads against all three.
+    // Empty string means "tier not declared" (legacy behaviour — module
+    // sees whatever's on the search path, no enforcement). Phase 6.A wires
+    // sema enforcement; Phase 3 stores the value only.
+    std::string tier;
+
+    // prelude: dotted package name to inject as implicit `use <pkg>;` at
+    // the head of every file in this module that doesn't carry
+    // `#![no_implicit_prelude]`. Empty means "no prelude" (legacy behaviour).
+    // Typically:  logos.lang.prelude / logos.mem.prelude / logos.std.prelude.
+    std::string prelude;
 };
 
 // Parse a logos.module manifest file.  Returns nullopt + message on error.

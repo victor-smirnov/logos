@@ -44,6 +44,22 @@ std::optional<ModuleManifest> parse_module_manifest(const std::string& path,
             else if (val == "eager") m.lazy = false;
             else { err_out = "manifest: 'lowering' must be 'lazy' or 'eager', got '" + val + "'"; return {}; }
         }
+        else if (key == "tier") {
+            // Phase 3 of three-layer split. Validate against the closed set;
+            // empty/unknown values rejected so typos surface early.
+            if (val != "lang" && val != "mem" && val != "std") {
+                err_out = "manifest: 'tier' must be 'lang', 'mem', or 'std', got '" + val + "'";
+                return {};
+            }
+            m.tier = val;
+        }
+        else if (key == "prelude") {
+            if (val.empty()) {
+                err_out = "manifest: 'prelude' requires a package name";
+                return {};
+            }
+            m.prelude = val;
+        }
         // ignore unknown keys for forward compat
     }
 

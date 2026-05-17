@@ -438,7 +438,13 @@ private:
     // Public mutator for cfg features (called by sema_lower entry).
 public:
     void add_cfg_feature(const std::string& name) { cfg_features_.insert(name); }
+    // Three-layer split Phase 3.4: set the implicit-prelude package name
+    // before collect() runs. Empty means "no implicit prelude" (legacy).
+    // build_import_scope appends this to wildcard_packages for every
+    // NON-binary AST that doesn't carry `#![no_implicit_prelude]`.
+    void set_implicit_prelude(std::string p) { implicit_prelude_ = std::move(p); }
 private:
+    std::string implicit_prelude_;
 
     // Phase 1B-15: returns true when the struct type `t` is custom-DST
     // either directly (template flagged is_dst at decl time) or after

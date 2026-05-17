@@ -305,6 +305,7 @@ inline constexpr Code DOC_LINE_LIT         {"DOC_LINE_LIT",       237}; // `/// 
 inline constexpr Code INNER_DOC_LIT        {"INNER_DOC_LIT",      238}; // `//! text` inner doc-comment line (module-level summary). VALUE = raw token text including the leading `//!`. Accumulated into LProgram.module_inner_doc.
 inline constexpr Code DOC_BLOCK_LIT        {"DOC_BLOCK_LIT",      239}; // `/** ... */` outer block doc-comment. Phase A.4.
 inline constexpr Code INNER_DOC_BLOCK_LIT  {"INNER_DOC_BLOCK_LIT",240}; // `/*! ... */` inner block doc-comment. Phase A.4.
+inline constexpr Code INNER_ANNOTATION     {"INNER_ANNOTATION",   242}; // Three-layer split Phase 3.2: `#![name]` / `#![name(args)]` / `#![name=val]` — file/module-level inner attribute. Currently used only for `#![no_implicit_prelude]`. NAME = ident; ARGS / VALUE optional, same shape as ANNOTATION.
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  META            {"META",               16};   // meta @{...} block node on struct/trait/datatype declarations (reuses PATH_PARTS slot; these node types never co-exist)

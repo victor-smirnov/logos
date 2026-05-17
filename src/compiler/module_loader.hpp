@@ -117,6 +117,11 @@ LirBlobOpt extract_hermes0_lir_blob(const std::vector<uint8_t>& data,
 // search_paths: directories to search for package files (e.g. {"stdlib"}).
 // extra_archive_files: explicit `.a` paths from -l / --lib (additional
 //   binary modules outside any search dir).
+// implicit_prelude: dotted package name to inject as an implicit `use`
+//   into every source file loaded for THIS run that does not carry
+//   `#![no_implicit_prelude]`. Files loaded from binary archives are
+//   never auto-augmented (their producer's prelude was already applied
+//   at their original build). Empty means "no implicit prelude" (legacy).
 // Returns all modules in dependency order (dependencies first, root last).
 // If `out_had_error` is non-null, it is set to true when at least one
 // `use <pkg>;` could not be resolved (B-mv-03/04). The diagnostic is still
@@ -125,6 +130,7 @@ std::vector<ParsedModule> load_modules(
     const std::string& root_path,
     const std::vector<std::string>& search_paths,
     bool* out_had_error = nullptr,
-    const std::vector<std::string>& extra_archive_files = {}) noexcept;
+    const std::vector<std::string>& extra_archive_files = {},
+    std::string_view implicit_prelude = {}) noexcept;
 
 } // namespace logos::compiler

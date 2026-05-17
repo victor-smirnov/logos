@@ -1,6 +1,11 @@
 // three_layer fixture: top tier. Depends on three_layer.mid (which
-// transitively depends on three_layer.low). Both depends entries are
-// declared explicitly in hi.module — exercises multi-depends resolution.
+// transitively depends on three_layer.low). Manifest declares
+// `prelude three_layer.mid`, but this file carries
+// `#![no_implicit_prelude]` so the prelude is NOT injected — the
+// explicit `use` lines below are required. Exercises Phase 3.4
+// opt-out attribute.
+
+#![no_implicit_prelude]
 
 package three_layer.hi;
 

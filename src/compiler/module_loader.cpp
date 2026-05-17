@@ -49,14 +49,56 @@ static std::string read_file(const std::string& path) {
 
 // Extract use declarations from a parsed module AST.
 // Returns dotted package paths (e.g. "std.io").
-static std::vector<std::string> extract_uses(hermes::HermesView ast) {
+// Three-layer split Phase 3.4: scan a parsed AST for the file-level inner
+// attribute `#![no_implicit_prelude]`. Returns true if present. Walks
+// root.ITEMS for any INNER_ANNOTATION node with NAME="no_implicit_prelude".
+static bool file_opts_out_of_implicit_prelude(hermes::HermesView ast) {
+    auto holder = ast.holder();
+    auto root = ast.root_object().as_tiny_map();
+    if (!root.has_key(la::ITEMS)) return false;
+    AnyVal items_av = root.get(la::ITEMS);
+    if (items_av.is_null() || !items_av.is_pointer()) return false;
+    auto items = ArrayView(items_av.to_offset(), holder);
+    for (uint64_t i = 0; i < items.size(); ++i) {
+        AnyVal it = items.get(i);
+        if (it.is_null() || !it.is_pointer()) continue;
+        auto node = TinyMapView(it.to_offset(), holder);
+        if (!node.has_key(la::CODE)) continue;
+        AnyVal cav = node.get(la::CODE);
+        if (cav.is_null() || cav.is_pointer()) continue;
+        if (cav.as_value<int32_t>() != la::INNER_ANNOTATION.code) continue;
+        if (!node.has_key(la::NAME)) continue;
+        AnyVal nav = node.get(la::NAME);
+        if (nav.is_null() || !nav.is_pointer()) continue;
+        auto name = StringView(nav.to_offset(), holder).view();
+        if (name == "no_implicit_prelude") return true;
+    }
+    return false;
+}
+
+// Three-layer split Phase 3.4: extract `use` deps from an AST, optionally
+// appending an implicit prelude package (if `implicit_prelude` is non-empty
+// AND the file does not carry `#![no_implicit_prelude]`).
+static std::vector<std::string> extract_uses(hermes::HermesView ast,
+                                              std::string_view implicit_prelude = {}) {
     std::vector<std::string> result;
     auto holder = ast.holder();
     auto root = ast.root_object().as_tiny_map();
 
-    if (!root.has_key(la::USES)) return result;
+    // Helper: implicit-prelude tail used by every exit path. Idempotent
+    // (deduped against already-collected explicit uses).
+    auto finalize = [&]() -> std::vector<std::string> {
+        if (!implicit_prelude.empty() && !file_opts_out_of_implicit_prelude(ast)) {
+            if (std::find(result.begin(), result.end(), implicit_prelude)
+                == result.end())
+                result.emplace_back(implicit_prelude);
+        }
+        return std::move(result);
+    };
+
+    if (!root.has_key(la::USES)) return finalize();
     AnyVal uses_av = root.get(la::USES);
-    if (uses_av.is_null() || !uses_av.is_pointer()) return result;
+    if (uses_av.is_null() || !uses_av.is_pointer()) return finalize();
 
     auto uses = ArrayView(uses_av.to_offset(), holder);
     for (uint64_t i = 0; i < uses.size(); ++i) {
@@ -139,7 +181,7 @@ static std::vector<std::string> extract_uses(hermes::HermesView ast) {
             result.push_back(dotted);
     }
 
-    return result;
+    return finalize();
 }
 
 // Cheap text-level scan for a file's `package` declaration.
@@ -171,6 +213,11 @@ static std::string scan_package_decl(const std::string& path) {
         }
         if (i + 1 < line.size() && line[i] == '/' && line[i + 1] == '/') continue;
         if (i >= line.size()) continue;
+        // Three-layer split Phase 3.4: skip inner attribute lines
+        // (`#![...]`) that may legitimately precede `package`. Coarse
+        // single-line skip — true multi-line attrs not supported by
+        // this scanner (none currently exist in practice).
+        if (i + 1 < line.size() && line[i] == '#' && line[i + 1] == '!') continue;
         // Look for "package".
         const std::string_view kw = "package";
         if (line.compare(i, kw.size(), kw) != 0) return {};
@@ -796,7 +843,8 @@ std::vector<ParsedModule> load_modules(
     const std::string& root_path,
     const std::vector<std::string>& search_paths,
     bool* out_had_error,
-    const std::vector<std::string>& extra_archive_files) noexcept
+    const std::vector<std::string>& extra_archive_files,
+    std::string_view implicit_prelude) noexcept
 {
     const bool trace = std::getenv("LOGOS_TRACE_PHASES") != nullptr;
     bool had_error = false;
@@ -899,7 +947,7 @@ std::vector<ParsedModule> load_modules(
                 err_line, err_col, hint);
             return {};
         }
-        auto uses = extract_uses(ast);
+        auto uses = extract_uses(ast, implicit_prelude);
         return {std::move(ast), std::move(uses)};
     };
 

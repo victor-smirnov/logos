@@ -1256,6 +1256,14 @@ struct SemaOptions {
     // the output archive — invisible until a downstream JIT (showcase, etc.)
     // tries to call them and crashes on the unresolved symbol.
     bool disable_blob_skeletons = false;
+
+    // Three-layer split Phase 3.4: dotted package name to inject as an
+    // implicit wildcard import for every NON-binary AST in this run that
+    // does not carry `#![no_implicit_prelude]`. Empty means "no implicit
+    // prelude" (legacy). Sourced from emit_module's manifest.prelude.
+    // Files loaded from binary archives skip injection (their producer
+    // already applied its own prelude when the archive was built).
+    std::string implicit_prelude;
 };
 
 // Run semantic analysis and produce L-IR from all parsed module ASTs.
