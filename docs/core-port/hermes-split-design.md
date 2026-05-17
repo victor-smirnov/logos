@@ -294,6 +294,55 @@ that lang-tier is smaller than the original design imagined — or
 (B) as the architecturally correct fix that unlocks both Step 5
 and Step 6 cleanly.
 
+### Post-mortem: (B) was misframed
+
+Empirical follow-up 2026-05-17 disproved the audit's premise.
+A minimal repro (a single function in lang-tier accessing
+`Map<Bitmap, AnyVal>.header` from mem-tier source) compiles fine
+under current code. Diagnostic dump of mono's `struct_templates_`
+confirms the base `Map<K, V>` template IS loaded from monolith
+binary AST when needed.
+
+Re-analysis of the original "no field 'size'" error:
+- `Map<Bitmap, AnyVal>` matches TWO partial specs:
+  - `Map<Bitmap, V>` → fields `{header, schema_type_code, data}`
+  - `Map<K, AnyVal>` → fields `{size, capacity, keys, vals}`
+- `find_best_struct_spec` (mono_clone.cpp:3691) picks the more
+  specific via `specificity_vec`, but ties exist for {1 pinned,
+  1 free} on both. Tie-break appears stable single-archive.
+- Mangling collapses both into `Map$G2$Bitmap$AnyVal` — one
+  registration wins last-write. When `impl HermesStringify for
+  Map<Bitmap, V>` is processed cross-archive, the surviving
+  registration may have come from `Map<K, AnyVal>` (different
+  field layout), so the impl's `map.size` access fails.
+
+This isn't a cross-archive bug, it's a **partial-spec mangling
+collision** that monolith builds happen to resolve consistently
+(single mono pass with stable iteration order). Step 5/6 split
+exposed it because cross-archive load order changes which spec
+gets registered first.
+
+The actual fixes for the Hermes split are therefore:
+- **(C) Loader-level dedup** — when monolith absorbs mem/ AND
+  layer-mem text-walks the same package, prevent the auto-load
+  prelude path from re-registering. Attempted as a `wanted()`
+  predicate update, but broke metaprog JIT (which also calls
+  load_modules at runtime with different visibility expectations).
+  Needs careful per-call-site analysis.
+- **(D) Mangling fix** — disambiguate concrete specialisations
+  by the chosen partial-spec identity, not just type args. E.g.
+  `Map$G2$BitmapPart$Bitmap$AnyVal` vs `Map$G2$AnyValPart$Bitmap$AnyVal`.
+  Avoids collision but ripples through dispatch tables and the
+  trait-impl registry.
+- **(A) Surgical moves** still works as a workaround for the
+  immediate Step 5/6 deadlock, without touching the underlying
+  partial-spec bug.
+
+Recommend (C) as the cleanest fix for the loader-side duplicate
+issue, but the metaprog JIT interaction needs investigation
+first. (D) is a deeper structural fix worth doing eventually for
+correctness regardless of the split.
+
 ### Step 6 — Mem-tier remainder
 
 `string`, `array`, `map`, `objectmap`, `ctr`, `document`, `parser`,
