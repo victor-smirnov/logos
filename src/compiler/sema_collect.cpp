@@ -359,6 +359,25 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
                     enums_[key] = {};
                     first_enum[key] = {holder_, item_off(item)};
                 }
+            } else if (ic == la::TRAIT_DEF) {
+                // Pre-register trait names so collect_impl in pass2 can
+                // resolve `impl Trait for X` regardless of the iteration
+                // order between the impl's file and the trait's defining
+                // file. Without this, cross-file impl-of-trait fails when
+                // the trait's file is iterated AFTER the impl's file —
+                // critical for cross-archive cases where binary-loaded
+                // trait packages arrive later in `asts`. collect_trait
+                // (pass2) populates the body and treats this pre-existing
+                // empty entry as a no-op (see traits_.count(tname) guard).
+                if (item.has_key(la::NAME.code)) {
+                    auto tname = std::string(str_of(item.get(la::NAME.code)));
+                    if (!traits_.count(tname)) {
+                        SemaTraitInfo placeholder{};
+                        placeholder.package = cur_package_;
+                        placeholder.predeclared = true;
+                        traits_[tname] = std::move(placeholder);
+                    }
+                }
             }
         }
     }
@@ -1817,18 +1836,27 @@ void SemaChecker::collect_trait(TinyMapView node) {
     // field; those aren't duplicates of each other.
     if (!tname.empty() && traits_.count(tname)) {
         auto& existing = traits_[tname];
+        // Three-layer split fix: pass0 pre-registered an empty placeholder
+        // entry so collect_impl in pass2 could find the trait by name
+        // regardless of iteration order. Now that we have the real body,
+        // overwrite the placeholder (don't treat as duplicate).
+        if (existing.predeclared) {
+            // fall through to assignment below
+        } else
         // B-mv-02: cross-pkg same-name traits hit this path because traits_
         // is keyed by bare name (legacy).  Make the diagnostic explicit.
-        std::string existing_pkg = existing.package;
-        if (existing_pkg != cur_package_ &&
-            !existing_pkg.empty() && !cur_package_.empty()) {
-            error(std::format(
-                "trait '{}' defined in both packages '{}' and '{}' — "
-                "cross-package same-name traits clobber each other in "
-                "the legacy trait registry (B-mv-02); rename one of them",
-                tname, existing_pkg, cur_package_));
-        } else {
-            error(std::format("duplicate trait '{}'", tname));
+        {
+            std::string existing_pkg = existing.package;
+            if (existing_pkg != cur_package_ &&
+                !existing_pkg.empty() && !cur_package_.empty()) {
+                error(std::format(
+                    "trait '{}' defined in both packages '{}' and '{}' — "
+                    "cross-package same-name traits clobber each other in "
+                    "the legacy trait registry (B-mv-02); rename one of them",
+                    tname, existing_pkg, cur_package_));
+            } else {
+                error(std::format("duplicate trait '{}'", tname));
+            }
         }
     }
     info.package = cur_package_;  // record so future cross-pkg dup diag can show pkg

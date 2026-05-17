@@ -253,6 +253,7 @@ static void apply_only_file_filter(lir::LProgram& prog,
 static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                                std::vector<std::string>& filenames,
                                const std::vector<bool>& ast_only_flags,
+                               const std::vector<bool>& from_binary_module_flags,
                                const std::string& obj_path,
                                const std::string& only_file = "",
                                StdlibExports* out_exports = nullptr,
@@ -267,7 +268,21 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
     // need to JIT-compile + register triggers) but get from_binary=
     // true for the post-dispatch sema pass — host externs in their
     // bodies (logos_emit_*, etc.) make them unsuitable for codegen.
+    //
+    // Three-layer split fix: pre-stamp from_binary with the
+    // ParsedModule::from_binary_module flag BEFORE dispatch runs sema.
+    // Without this, the dispatch sema pass registers binary-loaded
+    // traits/structs with from_binary=false; the lir_bundle filter
+    // at sema.cpp:489 then drops them from the binary cache (which
+    // keeps only from_binary=true entries), so the second
+    // post-dispatch sema starts with an empty trait registry for
+    // binary-sourced packages and emits "unknown trait" diagnostics
+    // for cross-archive impls.
     std::vector<bool> from_binary(asts.size(), false);
+    for (size_t i = 0; i < from_binary.size(); ++i) {
+        if (i < from_binary_module_flags.size() && from_binary_module_flags[i])
+            from_binary[i] = true;
+    }
     {
         MetaprogDispatchOpts mopts;
         // Stdlib build chicken-and-egg: dispatch needs to JIT-compile
@@ -346,8 +361,21 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
     // docs appended by dispatch (filename "<metaprog-blob-subst>" /
     // "<metaprog>") stay non-binary so their items get lowered.
     from_binary.assign(asts.size(), false);
-    for (size_t i = 0; i < ast_only_flags.size() && i < from_binary.size(); ++i)
-        from_binary[i] = ast_only_flags[i];
+    for (size_t i = 0; i < from_binary.size(); ++i) {
+        bool ao = (i < ast_only_flags.size()) && ast_only_flags[i];
+        // Three-layer split fix: also propagate the ParsedModule
+        // from_binary_module flag (modules loaded from a .a archive's
+        // .hermes0 member). Pre-fix, this was silently set to false →
+        // sema_collect's cur_from_binary_ never tripped for archive-
+        // sourced traits/structs → the binary-cache filter
+        // (only_binary_vec at sema.cpp:489) dropped them → user
+        // sema saw empty traits_/structs_/... and emitted
+        // "unknown trait / unknown struct" diagnostics for
+        // cross-archive references.
+        bool bm = (i < from_binary_module_flags.size())
+                  && from_binary_module_flags[i];
+        from_binary[i] = ao || bm;
+    }
     // Sema — all files in the module are being compiled from source.
     // Phase 4 fix: disable blob skeletons for emit_module's library-build
     // sema. ast_only files are stamped from_binary=true here so the codegen
@@ -750,14 +778,16 @@ bool emit_module(const ModuleManifest& manifest,
     // codegen for host-extern-using fns).
     std::vector<hermes::Hermes> asts;
     std::vector<std::string> filenames;
-    std::vector<bool>        ast_only_flags;   // parallel to asts
+    std::vector<bool>        ast_only_flags;       // parallel to asts
+    std::vector<bool>        from_binary_module_flags;  // parallel to asts
     std::vector<ParsedModule> modules_for_h0;
     for (auto& m : modules) {
         modules_for_h0.push_back({m.path, m.package, m.ast});  // Hermes is copy-on-write safe
         bool ao = is_ast_only_path(m.path);
         filenames.push_back(m.path);
-        asts.push_back(std::move(m.ast));
         ast_only_flags.push_back(ao);
+        from_binary_module_flags.push_back(m.from_binary_module);
+        asts.push_back(std::move(m.ast));
     }
 
     // Phase 6 lazy mode: skip compile_to_object entirely. The lazy archive
@@ -782,7 +812,8 @@ bool emit_module(const ModuleManifest& manifest,
                          only_file_canon.empty() ? "" : ")",
                          obj_path.c_str());
         }
-        if (!compile_to_object(asts, filenames, ast_only_flags, obj_path,
+        if (!compile_to_object(asts, filenames, ast_only_flags,
+                               from_binary_module_flags, obj_path,
                                only_file_canon, &exports, &lir_blob,
                                /*module_name=*/manifest.name,
                                /*implicit_prelude=*/manifest.prelude)) {

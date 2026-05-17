@@ -1543,6 +1543,12 @@ private:
                                               // reflect::<T>() routes through
                                               // Hermes path
         std::string doc;     // outer `///` doc-comment
+        // Three-layer split fix: pass0 pre-registers trait NAMES (predeclared=true)
+        // so collect_impl in pass2 finds them regardless of iteration order
+        // between the impl's file and the trait's defining file. pass2's
+        // collect_trait sees the predeclared entry and overwrites it with
+        // the real body (vs treating it as a duplicate-trait error).
+        bool predeclared = false;
     };
     struct SemaImplInfo {
         std::string trait_name;
