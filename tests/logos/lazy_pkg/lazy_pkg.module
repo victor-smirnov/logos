@@ -1,0 +1,4 @@
+module lazy_pkg
+version 0.1
+root tests/logos/lazy_pkg/
+lowering lazy

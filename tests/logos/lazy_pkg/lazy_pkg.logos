@@ -1,0 +1,27 @@
+// Phase 6 (multi-arena IR) lazy-mode smoke fixture.
+// Consumer compiles its own copy of these items; the .a archive ships
+// only the parsed AST (no .o, no LIR blob).
+
+package lazy_pkg;
+
+use std.collections.vec;
+
+pub fn add_one(x: i32) -> i32 {
+    return x + 1i32;
+}
+
+pub fn sum_vec(n: i32) -> i64 {
+    let mut v = vec_new::<i64>();
+    let mut i: i64 = 0;
+    while i < (n as i64) {
+        v.push(i);
+        i = i + 1i64;
+    }
+    let mut total: i64 = 0;
+    let mut j: i64 = 0;
+    while j < v.length() {
+        total = total + v.get(j);
+        j = j + 1i64;
+    }
+    return total;
+}

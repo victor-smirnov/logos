@@ -1,0 +1,14 @@
+// Phase 6 (multi-arena IR) lazy-mode smoke test.
+// Consumer pulls liblazy_pkg.a (lowering=lazy) and exercises both a
+// trivial fn and one that uses stdlib generic Vec.
+
+package lazy_pkg_basic;
+
+use lazy_pkg;
+
+fn main() -> i32 {
+    if add_one(41i32) != 42i32 { return 1; }
+    if sum_vec(5i32) != 10i64  { return 2; }  // 0+1+2+3+4
+    if sum_vec(0i32) != 0i64   { return 3; }  // empty
+    return 0;
+}

@@ -1,0 +1,13 @@
+// Phase 6 (multi-arena IR) lazy→lazy dependency chain test.
+// Consumer uses lazy_upper which itself uses lazy_lower; both archives
+// are lowering=lazy.
+
+package lazy_pkg_chain;
+
+use lazy_upper;
+
+fn main() -> i32 {
+    if upper_calc(32i32) != 42i32 { return 1; }
+    if upper_calc(0i32)  != 10i32 { return 2; }
+    return 0;
+}

@@ -63,6 +63,56 @@ add_custom_command(
 )
 add_custom_target(coex_binary ALL DEPENDS ${COEX_BIN})
 
+# Build liblazy_pkg.a from the lazy-mode fixture (Phase 6 multi-arena IR).
+# Manifest has `lowering lazy`, so the archive ships only parsed AST
+# (.hm0 member; no .o, no LIR blob). Consumer compile lowers locally.
+set(LAZY_PKG_DIR      ${CMAKE_CURRENT_SOURCE_DIR}/lazy_pkg)
+set(LAZY_PKG_MANIFEST ${LAZY_PKG_DIR}/lazy_pkg.module)
+set(LAZY_PKG_BIN      ${CMAKE_CURRENT_BINARY_DIR}/liblazy_pkg.a)
+file(GLOB LAZY_PKG_SOURCES ${LAZY_PKG_DIR}/*.logos)
+add_custom_command(
+    OUTPUT  ${LAZY_PKG_BIN}
+    COMMAND $<TARGET_FILE:logosc>
+            --emit-module ${LAZY_PKG_MANIFEST}
+            -o ${LAZY_PKG_BIN}
+    DEPENDS logosc ${LAZY_PKG_MANIFEST} ${LAZY_PKG_SOURCES}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building test fixture: liblazy_pkg.a"
+)
+add_custom_target(lazy_pkg_binary ALL DEPENDS ${LAZY_PKG_BIN})
+
+# Lazy→lazy chain fixture: liblazy_lower.a + liblazy_upper.a (both lazy).
+# Exercises the case where a lazy module's `use` resolves to another
+# lazy archive — both ASTs must reach the consumer's sema as user-code
+# equivalent.
+set(LAZY_CHAIN_DIR        ${CMAKE_CURRENT_SOURCE_DIR}/lazy_chain)
+set(LAZY_LOWER_MANIFEST   ${LAZY_CHAIN_DIR}/lazy_lower.module)
+set(LAZY_LOWER_BIN        ${CMAKE_CURRENT_BINARY_DIR}/liblazy_lower.a)
+set(LAZY_UPPER_MANIFEST   ${LAZY_CHAIN_DIR}/lazy_upper.module)
+set(LAZY_UPPER_BIN        ${CMAKE_CURRENT_BINARY_DIR}/liblazy_upper.a)
+file(GLOB LAZY_LOWER_SOURCES ${LAZY_CHAIN_DIR}/lower/*.logos)
+file(GLOB LAZY_UPPER_SOURCES ${LAZY_CHAIN_DIR}/upper/*.logos)
+add_custom_command(
+    OUTPUT  ${LAZY_LOWER_BIN}
+    COMMAND $<TARGET_FILE:logosc>
+            --emit-module ${LAZY_LOWER_MANIFEST}
+            -o ${LAZY_LOWER_BIN}
+    DEPENDS logosc ${LAZY_LOWER_MANIFEST} ${LAZY_LOWER_SOURCES}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building test fixture: liblazy_lower.a"
+)
+add_custom_command(
+    OUTPUT  ${LAZY_UPPER_BIN}
+    COMMAND $<TARGET_FILE:logosc>
+            --emit-module ${LAZY_UPPER_MANIFEST}
+            -o ${LAZY_UPPER_BIN}
+            -l ${LAZY_LOWER_BIN}
+    DEPENDS logosc ${LAZY_UPPER_MANIFEST} ${LAZY_UPPER_SOURCES} ${LAZY_LOWER_BIN}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building test fixture: liblazy_upper.a"
+)
+add_custom_target(lazy_chain_binary ALL DEPENDS ${LAZY_LOWER_BIN} ${LAZY_UPPER_BIN})
+
 set(LOGOS_SUITE_ORDER
     smoke
     semantic_core
@@ -253,6 +303,11 @@ function(logos_pass_extra_args BASE OUT_VAR)
     set(LOCAL_PUBLIB_USERS pub_cross_package pkg_multifile pub_reexport)
     # B-mv-01 fixture: two packages defining same-base+sig fns coexist.
     set(LOCAL_COEX_USERS cross_pkg_coexistence)
+    # Phase 6 (multi-arena IR) lazy-mode fixture: archive ships AST only.
+    set(LOCAL_LAZY_PKG_USERS lazy_pkg_basic)
+    # Phase 6 lazy→lazy chain: consumer pulls upper (lazy) which pulls
+    # lower (also lazy). Both archives must reach sema as user code.
+    set(LOCAL_LAZY_CHAIN_USERS lazy_pkg_chain)
     set(LOCAL_METAPROG_PUBLIB_USERS metacall_item_use_inherit)
     # Tests that use std.compiler.metaprog (excluded from binary stdlib;
     # metaprog_stubs in libstdlib_rt.a satisfies the link).
@@ -287,6 +342,10 @@ function(logos_pass_extra_args BASE OUT_VAR)
         set(_extra -l ${PUB_LIB_BIN})
     elseif (BASE IN_LIST LOCAL_COEX_USERS)
         set(_extra -l ${COEX_BIN})
+    elseif (BASE IN_LIST LOCAL_LAZY_PKG_USERS)
+        set(_extra -l ${LAZY_PKG_BIN})
+    elseif (BASE IN_LIST LOCAL_LAZY_CHAIN_USERS)
+        set(_extra -l ${LAZY_LOWER_BIN} -l ${LAZY_UPPER_BIN})
     else()
         set(_extra "")
     endif()

@@ -1,0 +1,7 @@
+// Phase 6 (multi-arena IR) lazy→lazy chain test — lower tier.
+
+package lazy_lower;
+
+pub fn lower_add(a: i32, b: i32) -> i32 {
+    return a + b;
+}

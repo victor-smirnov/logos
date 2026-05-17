@@ -1,0 +1,10 @@
+// Phase 6 (multi-arena IR) lazy→lazy chain test — upper tier.
+// Depends on lazy_lower (also lazy).
+
+package lazy_upper;
+
+use lazy_lower;
+
+pub fn upper_calc(n: i32) -> i32 {
+    return lower_add(n, 10i32);
+}

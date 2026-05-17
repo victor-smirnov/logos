@@ -1,0 +1,4 @@
+module lazy_upper
+version 0.1
+root tests/logos/lazy_chain/upper/
+lowering lazy

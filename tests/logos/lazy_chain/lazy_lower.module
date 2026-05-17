@@ -1,0 +1,4 @@
+module lazy_lower
+version 0.1
+root tests/logos/lazy_chain/lower/
+lowering lazy
