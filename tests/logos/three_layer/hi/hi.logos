@@ -1,0 +1,12 @@
+// three_layer fixture: top tier. Depends on three_layer.mid (which
+// transitively depends on three_layer.low). Both depends entries are
+// declared explicitly in hi.module — exercises multi-depends resolution.
+
+package three_layer.hi;
+
+use three_layer.mid;
+use three_layer.low;
+
+pub fn hi_sextuple(x: i32) -> i32 {
+    return mid_quadruple(x) + low_double(x);
+}

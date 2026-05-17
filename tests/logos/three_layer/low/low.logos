@@ -1,0 +1,7 @@
+// three_layer fixture: lowest tier, no dependencies.
+
+package three_layer.low;
+
+pub fn low_double(x: i32) -> i32 {
+    return x + x;
+}

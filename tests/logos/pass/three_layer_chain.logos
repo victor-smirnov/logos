@@ -1,0 +1,21 @@
+// Smoke-tests the three_layer fixture end-to-end:
+//   build liblow.a → build libmid.a (depends low) → build libhi.a
+//   (depends mid + low); then this consumer compiles against all three
+//   archives and exits 0 on success.
+//
+// If `depends` plumbing in emit_module breaks, libmid.a / libhi.a
+// fail to build (loader can't resolve the `use` from the bottom-tier
+// package). If chain composition breaks, this consumer fails to link.
+
+package three_layer_chain;
+
+use three_layer.hi;
+
+fn main() -> i32 {
+    // hi_sextuple(7) = mid_quadruple(7) + low_double(7)
+    //               = low_double(low_double(7)) + low_double(7)
+    //               = 28 + 14 = 42
+    if hi_sextuple(7i32) != 42i32 { return 1; }
+    if hi_sextuple(0i32) != 0i32  { return 2; }
+    return 0;
+}

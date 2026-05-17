@@ -1,0 +1,4 @@
+module mid
+version 0.1
+root tests/logos/three_layer/mid/
+depends low

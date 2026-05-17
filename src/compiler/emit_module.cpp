@@ -551,6 +551,46 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
 }
 
 // ---------------------------------------------------------------------------
+// Resolve `depends X` manifest entries to absolute archive paths.
+//
+// Convention: `depends foo` looks for `libfoo.a` in search_paths (front-to-back,
+// first hit wins). Matches the Unix `-lfoo` linker convention. Returns empty
+// vector if any dependency cannot be resolved; err_out describes the first
+// missing dep.
+//
+// This is the single integration point that turns a parsed-but-unused
+// manifest field into something that drives the loader. Resolved paths are
+// merged with EmitModuleOptions::extra_lib_files (depends prepended, so they
+// load before any user-supplied -l files).
+// ---------------------------------------------------------------------------
+static std::vector<std::string>
+resolve_manifest_depends(const ModuleManifest& manifest,
+                         const std::vector<std::string>& search_paths,
+                         std::string& err_out)
+{
+    std::vector<std::string> out;
+    for (const auto& dep : manifest.depends) {
+        std::string filename = "lib" + dep + ".a";
+        bool found = false;
+        for (const auto& dir : search_paths) {
+            std::error_code ec;
+            auto p = fs::path(dir) / filename;
+            if (fs::exists(p, ec) && fs::is_regular_file(p, ec)) {
+                out.push_back(fs::weakly_canonical(p, ec).string());
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            err_out = "manifest 'depends " + dep + "': cannot find '" + filename
+                    + "' in any search path";
+            return {};
+        }
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
 bool emit_module(const ModuleManifest& manifest,
@@ -617,6 +657,27 @@ bool emit_module(const ModuleManifest& manifest,
                      codegen_files.size(), ast_only_files.size());
     }
 
+    // Resolve `depends X` manifest entries to absolute archive paths and
+    // prepend them to the loader's extra-lib list, so a module being built
+    // sees its declared dependencies' .hermes0 packages before any user
+    // -l files contribute. (Phase 1 of the three-layer stdlib split — see
+    // docs/core-port/three-layer-split.md.)
+    std::vector<std::string> all_lib_files;
+    {
+        std::string err;
+        auto dep_archives = resolve_manifest_depends(manifest, search_paths, err);
+        if (!err.empty()) {
+            std::fprintf(stderr, "emit_module: %s\n", err.c_str());
+            return false;
+        }
+        all_lib_files = std::move(dep_archives);
+        for (auto& f : opts.extra_lib_files) all_lib_files.push_back(f);
+        if (verbose && !manifest.depends.empty()) {
+            std::fprintf(stderr, "emit_module: resolved %zu depends entry(ies)\n",
+                         manifest.depends.size());
+        }
+    }
+
     // Parse all files. load_modules follows `use`-deps transitively from
     // each entry; we load both buckets, dedup by path. ast_only files
     // load LAST so transitive deps reachable from codegen files surface
@@ -627,7 +688,7 @@ bool emit_module(const ModuleManifest& manifest,
         auto load_bucket = [&](const std::vector<std::string>& bucket) {
             for (auto& file : bucket) {
                 auto mods = load_modules(file, search_paths, nullptr,
-                                         opts.extra_lib_files);
+                                         all_lib_files);
                 for (auto& m : mods) {
                     if (seen.insert(m.path).second)
                         modules.push_back(std::move(m));

@@ -113,6 +113,54 @@ add_custom_command(
 )
 add_custom_target(lazy_chain_binary ALL DEPENDS ${LAZY_LOWER_BIN} ${LAZY_UPPER_BIN})
 
+# Three-layer fixture (Phase 1 of the three-layer stdlib split): builds
+# liblow.a → libmid.a (manifest `depends low`) → libhi.a (depends mid + low).
+# Validates the manifest.depends → emit_module → load_modules wiring.
+# The mid and hi manifests carry no `-l` flags — depends resolution alone
+# must locate liblow.a / libmid.a in the build directory.
+set(THREE_LAYER_DIR     ${CMAKE_CURRENT_SOURCE_DIR}/three_layer)
+set(THREE_LAYER_OUT_DIR ${CMAKE_CURRENT_BINARY_DIR})
+set(THREE_LAYER_LOW_MANIFEST ${THREE_LAYER_DIR}/low.module)
+set(THREE_LAYER_MID_MANIFEST ${THREE_LAYER_DIR}/mid.module)
+set(THREE_LAYER_HI_MANIFEST  ${THREE_LAYER_DIR}/hi.module)
+set(THREE_LAYER_LOW_BIN ${THREE_LAYER_OUT_DIR}/liblow.a)
+set(THREE_LAYER_MID_BIN ${THREE_LAYER_OUT_DIR}/libmid.a)
+set(THREE_LAYER_HI_BIN  ${THREE_LAYER_OUT_DIR}/libhi.a)
+file(GLOB THREE_LAYER_LOW_SOURCES ${THREE_LAYER_DIR}/low/*.logos)
+file(GLOB THREE_LAYER_MID_SOURCES ${THREE_LAYER_DIR}/mid/*.logos)
+file(GLOB THREE_LAYER_HI_SOURCES  ${THREE_LAYER_DIR}/hi/*.logos)
+add_custom_command(
+    OUTPUT  ${THREE_LAYER_LOW_BIN}
+    COMMAND $<TARGET_FILE:logosc>
+            --emit-module ${THREE_LAYER_LOW_MANIFEST}
+            -o ${THREE_LAYER_LOW_BIN}
+    DEPENDS logosc ${THREE_LAYER_LOW_MANIFEST} ${THREE_LAYER_LOW_SOURCES}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building test fixture: liblow.a (three_layer)"
+)
+add_custom_command(
+    OUTPUT  ${THREE_LAYER_MID_BIN}
+    COMMAND $<TARGET_FILE:logosc>
+            --emit-module ${THREE_LAYER_MID_MANIFEST}
+            -L ${THREE_LAYER_OUT_DIR}
+            -o ${THREE_LAYER_MID_BIN}
+    DEPENDS logosc ${THREE_LAYER_MID_MANIFEST} ${THREE_LAYER_MID_SOURCES} ${THREE_LAYER_LOW_BIN}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building test fixture: libmid.a (three_layer; depends low)"
+)
+add_custom_command(
+    OUTPUT  ${THREE_LAYER_HI_BIN}
+    COMMAND $<TARGET_FILE:logosc>
+            --emit-module ${THREE_LAYER_HI_MANIFEST}
+            -L ${THREE_LAYER_OUT_DIR}
+            -o ${THREE_LAYER_HI_BIN}
+    DEPENDS logosc ${THREE_LAYER_HI_MANIFEST} ${THREE_LAYER_HI_SOURCES} ${THREE_LAYER_MID_BIN} ${THREE_LAYER_LOW_BIN}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building test fixture: libhi.a (three_layer; depends mid + low)"
+)
+add_custom_target(three_layer_binary ALL DEPENDS
+    ${THREE_LAYER_LOW_BIN} ${THREE_LAYER_MID_BIN} ${THREE_LAYER_HI_BIN})
+
 set(LOGOS_SUITE_ORDER
     smoke
     semantic_core
@@ -308,6 +356,9 @@ function(logos_pass_extra_args BASE OUT_VAR)
     # Phase 6 lazy→lazy chain: consumer pulls upper (lazy) which pulls
     # lower (also lazy). Both archives must reach sema as user code.
     set(LOCAL_LAZY_CHAIN_USERS lazy_pkg_chain)
+    # Phase 1 of three-layer stdlib split: consumer pulls hi (which
+    # depends mid + low via manifest, both resolved by emit_module).
+    set(LOCAL_THREE_LAYER_USERS three_layer_chain)
     set(LOCAL_METAPROG_PUBLIB_USERS metacall_item_use_inherit)
     # Tests that use std.compiler.metaprog (excluded from binary stdlib;
     # metaprog_stubs in libstdlib_rt.a satisfies the link).
@@ -346,6 +397,8 @@ function(logos_pass_extra_args BASE OUT_VAR)
         set(_extra -l ${LAZY_PKG_BIN})
     elseif (BASE IN_LIST LOCAL_LAZY_CHAIN_USERS)
         set(_extra -l ${LAZY_LOWER_BIN} -l ${LAZY_UPPER_BIN})
+    elseif (BASE IN_LIST LOCAL_THREE_LAYER_USERS)
+        set(_extra -l ${THREE_LAYER_HI_BIN} -l ${THREE_LAYER_MID_BIN} -l ${THREE_LAYER_LOW_BIN})
     else()
         set(_extra "")
     endif()
