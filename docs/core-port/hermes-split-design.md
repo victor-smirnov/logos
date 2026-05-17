@@ -663,3 +663,75 @@ Both ~1-session compiler work.
 | 3 | 05-17 | Instrumentation pinpointed bug |
 | 4 | 05-17 | (B) fix landed + collections-to-mem |
 | 5 | 05-17 | (C) loader dedup landed; (D) partial-spec mangling = next blocker |
+
+---
+
+## Session 6 (2026-05-17) — (D) attempt: more orthogonal bugs surfaced
+
+Started investigating (D). Empirical findings from instrumented build:
+
+### Monolith vs layer-lang divergence
+
+Monolith's symbol table has ONE function per concrete instantiation:
+```
+T std.hermes.check.Map$G2$Bitmap$AnyVal__check_obj__g__ref_Map$G2$Bitmap$V__pmut_CheckState
+T std.hermes.equal.Map$G2$Bitmap$AnyVal__equal__g__ref_Map$G2$Bitmap$V__pcst_u8__pmut_EqualCtx
+```
+
+The `ref_Map$G2$Bitmap$V` sig suffix is the `impl<V> ... for Map<Bitmap, V>`
+impl. The OTHER `impl<K> ... for Map<K, AnyVal>` doesn't produce a
+corresponding `__g__ref_Map$G2$K$AnyVal__` fn in monolith — it's never
+instantiated for K=Bitmap.
+
+Layer-lang attempt produces BOTH variants → second variant's body
+accesses fields the chosen-by-spec-specificity struct registration
+doesn't have → mlir-gen "no field 'size'".
+
+### Why monolith excludes the K=Bitmap instantiation
+
+`find_best_struct_spec` for `Map<Bitmap, AnyVal>` picks `Map<Bitmap, V>`
+spec (specificity [100, 0] beats `Map<K, AnyVal>`'s [0, 100] in
+lex-compare). `instantiate_struct_templates` clones methods from the
+chosen template only — line 3635 in mono_clone.cpp.
+
+In monolith, this means equal/hashing/check's `impl<K> for Map<K, AnyVal>`
+methods get cloned only when Map<K, AnyVal> wins (K=Varchar, K=i32,
+etc. — NOT K=Bitmap). Single-template cloning is correct.
+
+### Why layer-lang gets both
+
+Unclear without deeper trace. Hypothesis: cross-archive load order
+or scope-of-visibility causes mono to enqueue the OTHER spec's methods
+through a different code path (maybe scan_fn → enqueue_method_inst
+hitting struct_method_templates_ entries from BOTH partial specs).
+
+### Additional bugs surfaced re-attempting Step 5
+
+1. **Cold-build chicken-egg.** Monolith's metaprog dispatch needs
+   prior liblstdlib.a (commented at emit_module.cpp:283-285). Cold
+   build from scratch with rearranged sources fails JIT lookup.
+   Mitigation: keep warm baseline.
+2. **Duplicate const after Step 5 + monolith rebuild.** Even with
+   no binary loads (per loader trace), sema_collect.collect_const
+   fires duplicate-const for layer-lang text-walked consts. Root
+   cause not pinpointed in session window — may be related to
+   multi-pass sema flow inside one sema_lower call.
+
+### Status
+
+(B) trait pre-reg + (C) loader dedup + collections-to-mem all
+landed and verified at 3197/3197. (D) partial-spec mangling issue
+needs deeper mono-investigation, plus the surrounding orthogonal
+bugs (cold-build bootstrap, duplicate-const cascade) need
+classification. Not one-session work.
+
+### Sessions to date
+
+| # | Date | Outcome |
+|---|------|---------|
+| 1 | 05-16 | Steps 0-4 landed |
+| 2 | 05-17 | Step 5+6 attempts blocked, root cause hypothesis |
+| 3 | 05-17 | Instrumentation pinpointed bug |
+| 4 | 05-17 | (B) fix landed + collections-to-mem |
+| 5 | 05-17 | (C) loader dedup landed; (D) partial-spec mangling pinpointed |
+| 6 | 05-17 | (D) investigation; more orthogonal bugs surfaced |
