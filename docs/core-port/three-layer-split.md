@@ -299,17 +299,44 @@ new archives stand up alongside the current `liblstdlib.a`.
 package (rename + grep-replace consumers + `git mv` together; no
 shim period since `pub use` is deferred).
 
+**Transition coexistence model (added 2026-05-16 during Phase 4
+kickoff):**
+
+- The monolith `stdlib/logos.module` keeps `root stdlib/` and
+  globs everything recursively, so migrated packages live in
+  BOTH `liblstdlib.a` (the monolith) AND the relevant layer
+  archive (`liblogos-{lang,mem,std}.a`). Phase 7 cleanup drops
+  the monolith.
+- Symbol duplication at consumer link time is avoided by **archive
+  order**: `tests/logos/run_test.sh` places `liblstdlib*.a` before
+  `liblogos-*.a` in the link line. ld processes archives lazily,
+  so the layer archive's duplicates aren't pulled in once the
+  monolith satisfies the references.
+- Metacall JIT excludes `liblogos-*.a` from `archive_paths`
+  (same pattern as `*_fibers.a`). Otherwise multiple definitions
+  break symbol materialization at JIT load time.
+  ([src/compiler/main.cpp](../../src/compiler/main.cpp) —
+  `is_jit_unsafe_archive`).
+- Migrated packages can keep using OLD-prefixed `use std.X.Y;`
+  inside their bodies (which transitively reference monolith
+  content) — the monolith still provides those packages via its
+  recursive root. Internal `use` updates happen as those
+  dependencies migrate.
+
 Per package:
 
 1. Decide own-vs-imported placement:
    - **Logos-native (no Rust analog)** → `stdlib/<layer>/<pkg-path>/`.
    - **Adapted from rustc** → `stdlib/<layer>/imported/<pkg-path>/`
      with provenance header per `stdlib/imported/README.md`.
-2. Mass-sed `package std.X.Y` → `package logos.<layer>.Y` in files.
-3. Mass-sed `use std.X.Y;` → `use logos.<layer>.Y;` across the
+2. `git mv` source files to the new physical location.
+3. Edit moved files: `package std.X.Y` → `package logos.<layer>.Y`.
+4. Mass-sed `use std.X.Y;` → `use logos.<layer>.Y;` across the
    repo (stdlib + tests + examples + tools/lforge).
-4. `git mv` files to the new physical location.
 5. Build clean → full ctest.
+
+**First migration (2026-05-16):** `std.log` → `logos.std.log`
+(isolated; 1 stdlib file, 1 consumer test).
 
 **Consumer scope** (everything outside `stdlib/`):
 - `tests/` — pass/fail/imported/lazy/coex/diag/lforge fixtures.

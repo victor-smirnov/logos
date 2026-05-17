@@ -1,11 +1,11 @@
-// Logos standard library -- std.log
+// Logos standard library -- logos.std.log
 //
 // Level-based line logging to stderr.  The minimum level is read from the
 // LOGOS_LOG env variable on each emit call — values TRACE/DEBUG/INFO/WARN/
 // ERROR/OFF (case-insensitive) are accepted; anything else defaults to INFO.
 // Messages at a lower level than the threshold are silently dropped.
 
-package std.log;
+package logos.std.log;
 
 use std.lang.text;
 

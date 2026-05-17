@@ -63,7 +63,7 @@ add_custom_command(
             -o ${LOGOS_MEM_BIN}
     DEPENDS logosc ${LOGOS_MEM_MANIFEST} ${LOGOS_MEM_SOURCES} ${LOGOS_LANG_BIN}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    COMMENT "Building stdlib layer: liblogos-mem.a (depends logos-lang)"
+    COMMENT "Building stdlib layer: liblogos-mem.a (depends logos-lang via manifest)"
 )
 add_custom_command(
     OUTPUT  ${LOGOS_STD_BIN}
@@ -73,7 +73,7 @@ add_custom_command(
             -o ${LOGOS_STD_BIN}
     DEPENDS logosc ${LOGOS_STD_MANIFEST} ${LOGOS_STD_SOURCES} ${LOGOS_MEM_BIN} ${LOGOS_LANG_BIN}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    COMMENT "Building stdlib layer: liblogos-std.a (depends logos-mem + logos-lang)"
+    COMMENT "Building stdlib layer: liblogos-std.a (depends logos-mem + logos-lang via manifest)"
 )
 add_custom_target(stdlib_layers ALL DEPENDS
     ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN})

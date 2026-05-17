@@ -84,8 +84,25 @@ BIN="$TMPD/test"
 #   3. -l flags in EXTRA — specific archive files (passed verbatim).
 LINK_ARCHIVES=()
 if [ -n "${LOGOS_LIB_DIR:-}" ]; then
-    for a in "$LOGOS_LIB_DIR"/*.a; do
+    # Phase 4 transition (three-layer split): order matters during the
+    # migration window when liblstdlib.a (monolith) and liblogos-{lang,
+    # mem,std}.a (layer archives) coexist. ld processes archives
+    # lazily — symbols only pulled when still undefined — so putting the
+    # monolith first lets it satisfy template-specialization references
+    # before the layer archives are reached, avoiding "multiple
+    # definition" errors for shared post-mono instantiations. Phase 7
+    # cleanup removes the monolith and this ordering becomes moot.
+    for a in "$LOGOS_LIB_DIR"/liblstdlib*.a; do
         [ -f "$a" ] && LINK_ARCHIVES+=("$a")
+    done
+    for a in "$LOGOS_LIB_DIR"/liblogos-*.a; do
+        [ -f "$a" ] && LINK_ARCHIVES+=("$a")
+    done
+    for a in "$LOGOS_LIB_DIR"/*.a; do
+        case "$(basename "$a")" in
+            liblstdlib*|liblogos-*) ;; # already added above
+            *) [ -f "$a" ] && LINK_ARCHIVES+=("$a") ;;
+        esac
     done
 fi
 _take_next_dir=0

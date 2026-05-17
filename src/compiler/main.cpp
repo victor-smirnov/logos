@@ -2860,7 +2860,17 @@ int main(int argc, char** argv) {
     auto is_jit_unsafe_archive = [](std::string_view sv) {
         auto last = sv.rfind('/');
         std::string_view base = (last == std::string_view::npos) ? sv : sv.substr(last + 1);
-        return base.find("_fibers.a") != std::string_view::npos;
+        if (base.find("_fibers.a") != std::string_view::npos) return true;
+        // Three-layer split Phase 4 transition: layer archives
+        // (liblogos-{lang,mem,std}.a) contain templates re-specialized
+        // from the monolith via pkg_in_prelude auto-load. The user-link
+        // path tolerates duplicates via archive order (run_test.sh puts
+        // monolith first), but the metacall JIT loads all archives and
+        // can't disambiguate, breaking metaprog-hook symbol resolution.
+        // Filter them out — metaprog hooks resolve fine from liblstdlib.a
+        // alone during the transition. Phase 7 cleanup removes this.
+        if (base.size() >= 8 && base.compare(0, 8, "liblogos") == 0) return true;
+        return false;
     };
     for (const auto& dir : search_paths) {
         std::string cmd = "ls " + dir + "/*.a 2>/dev/null";
