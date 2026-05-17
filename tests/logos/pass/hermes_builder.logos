@@ -3,7 +3,7 @@
 package hermes_builder;
 
 use std.hermes.ctr;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 
 extern fn write(fd: i32, buf: *const u8, count: i64) -> i64;
 

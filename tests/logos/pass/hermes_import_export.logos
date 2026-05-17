@@ -1,7 +1,7 @@
 // Cross-container import/export of Hermes object graphs.
 package hermes_import_export;
 use std.hermes.ctr;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 use logos.mem.string;
 use logos.lang.str;
 

@@ -23,7 +23,7 @@ use std.compiler.metaprog;
 use std.hermes.ctr;
 use logos.lang.hermes.view;
 use std.hermes.view;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 
 // A user struct, just enough surface for kind/uid/template flights.
 pub struct Pair<A, B> { pub a: A, pub b: B, }

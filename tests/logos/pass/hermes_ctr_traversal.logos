@@ -4,7 +4,7 @@
 package hermes_ctr_traversal;
 
 use std.hermes.ctr;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 
 // write a single byte into a raw buffer at a given offset.
 unsafe fn wb(buf: *mut u8, i: i64, v: u8) {

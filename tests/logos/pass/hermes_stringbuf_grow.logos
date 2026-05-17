@@ -5,7 +5,7 @@
 package hermes_stringbuf_grow;
 
 use logos.lang.hermes.zone;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 use logos.lang.hermes.typetag;
 use logos.lang.hermes.datatag;
 use std.hermes.array;

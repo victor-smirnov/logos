@@ -32,7 +32,7 @@ use logos.lang.hermes.fabric;
 use logos.lang.drop;
 use logos.lang.hermes.view;
 use std.hermes.view;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 
 use std.data.persistent.node;
 use std.data.persistent.cow;

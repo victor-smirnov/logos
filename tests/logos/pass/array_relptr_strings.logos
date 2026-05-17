@@ -4,7 +4,7 @@
 package array_relptr_strings;
 
 use logos.lang.hermes.zone;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 use std.hermes.array;
 use std.hermes.map;
 use std.hermes.typed_value;

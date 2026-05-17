@@ -1,7 +1,7 @@
 package hermes_comp_coerce_bad;
 
 use std.hermes.ctr;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 
 fn main() -> i32 {
     let xs: [i64; 2] = [1 as i64, 2 as i64];

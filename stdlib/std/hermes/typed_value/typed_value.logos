@@ -10,7 +10,7 @@
 
 package std.hermes.typed_value;
 
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 use logos.lang.hermes.tags;
 use logos.lang.hermes.relptr;
 use logos.lang.hermes.view;

@@ -2,7 +2,7 @@ package hermes_document;
 // Phase 13: DocumentHeader — 8-byte root descriptor at zone offset 0.
 
 use logos.lang.hermes.zone;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 use std.hermes.document;
 
 unsafe fn main() -> i32 {

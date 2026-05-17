@@ -15,7 +15,7 @@
 
 package std.hermes.array;
 
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 use logos.lang.hermes.tags;
 use logos.lang.hermes.mem_holder;
 use logos.lang.hermes.relptr;

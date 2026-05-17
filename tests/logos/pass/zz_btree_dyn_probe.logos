@@ -25,7 +25,7 @@ use std.collections.vec;
 use logos.mem.mem;
 use logos.lang.drop;
 use logos.lang.cmp; use logos.lang.cmp; use logos.lang.hermes.fabric;
-use logos.lang.hermes.view; use std.hermes.view; use std.hermes.anyval;
+use logos.lang.hermes.view; use std.hermes.view; use logos.lang.hermes.anyval;
 
 // ── StoreCfg sketch ─────────────────────────────────────────────────────
 // v1 minimal: ctr_id / snp_id / block_id all u64. Pulled into NodeBase

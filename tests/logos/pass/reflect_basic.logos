@@ -2,7 +2,7 @@ package reflect_basic;
 
 use logos.lang.hermes.view;
 use std.hermes.view;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 
 #[annotation]
 #[zoned] struct Deprecated {

@@ -5,7 +5,7 @@
 package template_item_handle_smoke;
 
 use std.compiler.metaprog;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 
 fn make_item() -> Item {
     return Item { raw: AnyVal::null_ptr() };

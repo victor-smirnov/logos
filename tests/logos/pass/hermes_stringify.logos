@@ -2,7 +2,7 @@ package hermes_stringify;
 // Phase: stringify — trait-based recursive serialisation of Hermes zone documents.
 
 use logos.lang.hermes.zone;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 use logos.lang.hermes.view;
 use std.hermes.string;
 use logos.lang.hermes.typetag;

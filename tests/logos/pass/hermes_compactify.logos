@@ -7,7 +7,7 @@
 //   4. (Where possible) verifies that the compacted zone is smaller or equal.
 package hermes_compactify;
 use std.hermes.ctr;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 use std.hermes.decimal;
 use logos.mem.string;
 use logos.lang.str;

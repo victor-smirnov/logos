@@ -6,7 +6,7 @@
 
 package std.hermes.pat;
 
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 use logos.lang.hermes.typetag;
 use logos.lang.hermes.view;
 use std.hermes.string;
@@ -14,6 +14,30 @@ use std.hermes.objectmap;
 use std.hermes.array;
 use std.hermes.map;
 use std.hermes.typed_value;
+
+// hermes_pat_eq_str — moved here from std.hermes.anyval (which became
+// logos.lang.hermes.anyval after the three-layer split). It's the only
+// pattern helper that dereferences a HermesString into bytes, so it
+// stays in mem-tier alongside its container dep.
+pub unsafe fn hermes_pat_eq_str(av: *const AnyVal, base: *const u8,
+                                s: str) -> bool {
+    if av.is_null() { return false; }
+    if !av.is_string(base) { return false; }
+    let hs: *const HermesString =
+        base.byte_add(av.as_offset() as i64) as *const HermesString;
+    let n: u64 = s.len() as u64;
+    if hs.len() != n { return false; }
+    let p: *const u8 = hs.bytes();
+    let sp: *const u8 = s.as_ptr();
+    let mut i: u64 = 0;
+    while i < n {
+        let a: *const u8 = p.byte_add(i as i64);
+        let b: *const u8 = sp.byte_add(i as i64);
+        if *a != *b { return false; }
+        i = i + (1);
+    }
+    return true;
+}
 
 // True iff scrutinee is a map (ObjectMap or TinyObjectMap).
 pub unsafe fn hermes_pat_is_map(av: *const AnyVal, base: *const u8) -> bool {

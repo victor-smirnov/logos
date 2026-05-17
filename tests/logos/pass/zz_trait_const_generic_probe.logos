@@ -7,7 +7,7 @@
 package zz_trait_const_generic_probe;
 
 use logos.lang.cmp; use logos.lang.cmp; use logos.lang.hermes.fabric;
-use logos.lang.hermes.view; use std.hermes.view; use std.hermes.anyval;
+use logos.lang.hermes.view; use std.hermes.view; use logos.lang.hermes.anyval;
 
 pub const StoreA: HermesStatic = @{ "name": "A", "tag": <type:u64> };
 pub const StoreB: HermesStatic = @{ "name": "B", "tag": <type:u64> };

@@ -22,7 +22,7 @@ use logos.lang.hermes.fabric;
 use logos.lang.cmp;
 use logos.lang.hermes.view;
 use std.hermes.view;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 
 pub struct ShuttleResult {
     pub idx:       u64,   // child index to descend into

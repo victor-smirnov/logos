@@ -19,7 +19,7 @@ package std.hermes.decimal;
 use logos.lang.hermes.zone;
 use logos.lang.hermes.mem_holder;
 use logos.lang.hermes.tags;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 use logos.lang.hermes.typetag;
 use logos.lang.hermes.datatag;
 use logos.mem.string;

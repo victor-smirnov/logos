@@ -15,7 +15,7 @@
 
 package tag_dispatch_sibling_concrete;
 
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 use std.hermes.map;
 use std.hermes.objectmap;
 use logos.lang.hermes.datatag;

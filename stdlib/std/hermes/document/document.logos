@@ -17,7 +17,7 @@
 
 package std.hermes.document;
 
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 use logos.lang.hermes.tags;
 
 // ---------------------------------------------------------------------------

@@ -11,7 +11,7 @@ package generic_ref_registry_shape;
 
 use logos.lang.hermes.view;
 use std.hermes.view;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 
 // (1) Const-generic thunks — distinct N values yield distinct functions.
 fn add_n<const N: i64>(x: i32) -> i32 {

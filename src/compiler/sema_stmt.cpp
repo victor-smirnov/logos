@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <format>
 #include <functional>
 #include <map>
@@ -3173,9 +3174,16 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         for (auto* c : cands)
             if (c->param_types.size() == want_arity) { fi = c; break; }
         if (!fi) {
+            // After the three-layer split: AnyVal predicates live in
+            // logos.lang.hermes.anyval; the str-eq helper (one HermesString
+            // user) lives in std.hermes.pat.
+            const char* hint =
+                std::strcmp(helper, "hermes_pat_eq_str") == 0
+                ? "use std.hermes.pat;"
+                : "use logos.lang.hermes.anyval;";
             error(std::format(
-                "Hermes pattern needs stdlib helper `{}`; `use std.hermes.anyval;`",
-                helper));
+                "Hermes pattern needs stdlib helper `{}`; `{}`",
+                helper, hint));
             return builder().lit_bool(false, bool_t());
         }
         std::vector<lir::LExprPtr> args;

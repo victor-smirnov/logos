@@ -27,7 +27,7 @@ use logos.lang.hermes.view;
 use std.hermes.view;
 use std.hermes.string;
 use logos.lang.hermes.zone;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 use logos.lang.hermes.datatag;
 use std.hermes.array;
 use std.hermes.map;

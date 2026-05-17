@@ -5,7 +5,7 @@ package hermes_parse;
 // zone data directly so that regressions in parsing logic are caught.
 
 use logos.lang.hermes.zone;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 use logos.lang.hermes.view;
 use std.hermes.string;
 use logos.lang.hermes.typetag;

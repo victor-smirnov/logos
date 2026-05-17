@@ -18,7 +18,7 @@ package persistent_fork_chain;
 use std.collections.vec;
 use logos.mem.mem;
 use logos.lang.cmp; use logos.lang.cmp; use logos.lang.hermes.fabric;
-use logos.lang.hermes.view; use std.hermes.view; use std.hermes.anyval;
+use logos.lang.hermes.view; use std.hermes.view; use logos.lang.hermes.anyval;
 
 use std.data.persistent.node;
 use std.data.persistent.cow;

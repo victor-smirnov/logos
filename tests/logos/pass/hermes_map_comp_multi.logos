@@ -1,7 +1,7 @@
 package hermes_map_comp_multi;
 
 use std.hermes.ctr;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 use std.hermes.array;
 use std.hermes.map;
 use std.hermes.typed_value;

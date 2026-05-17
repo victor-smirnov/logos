@@ -15,7 +15,7 @@ use logos.lang.hermes.zone;
 use logos.lang.hermes.mem_holder;
 use std.hermes.document;
 use std.hermes.stringify;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 use logos.lang.hermes.scalar;
 use std.hermes.objectmap;
 use std.hermes.array;

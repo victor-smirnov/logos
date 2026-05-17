@@ -13,7 +13,7 @@ use std.data.persistent.iter;
 use logos.lang.hermes.fabric;
 use logos.lang.hermes.view;
 use std.hermes.view;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 
 pub const StoreCfg: HermesStatic = @{
     "name": "iback", "ctr_id": <type:u64>, "snp_id": <type:u64>, "block_id": <type:u64>,

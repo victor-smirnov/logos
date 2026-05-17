@@ -3,7 +3,7 @@ package hermes_registry_lookup;
 // call) yields the same output as direct tagged-trait dispatch.
 
 use logos.lang.hermes.zone;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 use logos.lang.hermes.view;
 use std.hermes.string;
 use logos.lang.hermes.typetag;

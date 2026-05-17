@@ -1,7 +1,7 @@
 // Test: $N param placeholder parsing in the Hermes SDN parser.
 package hermes_param_roundtrip;
 use std.hermes.ctr;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 
 unsafe fn main() -> i32 {
     // ── 1. AnyVal::embed_param encoding ──────────────────────────────────

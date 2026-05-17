@@ -27,12 +27,14 @@
 //
 // See openspec/specs/hermes-wire-format.md §3 for the authoritative bit encoding.
 
-package std.hermes.anyval;
+package logos.lang.hermes.anyval;
 
 use logos.lang.hermes.datatag;
 use logos.lang.hermes.typetag;
 use logos.lang.hermes.view;
-use std.hermes.string;
+// hermes_pat_eq_str (the one mem-tier user of HermesString) lives in
+// [std.hermes.pat](../../../std/hermes/pat/pat.logos). This package
+// stays pure lang-tier.
 
 // AnyVal layout: single 4-byte raw field.
 #[zoned] pub struct AnyVal {
@@ -265,23 +267,8 @@ pub unsafe fn hermes_pat_is_present(av: *const AnyVal) -> bool {
     return !av.is_null();
 }
 
-pub unsafe fn hermes_pat_eq_str(av: *const AnyVal, base: *const u8,
-                                s: str) -> bool {
-    if av.is_null() { return false; }
-    if !av.is_string(base) { return false; }
-    let hs: *const HermesString =
-        base.byte_add(av.as_offset() as i64) as *const HermesString;
-    let n: u64 = s.len() as u64;
-    if hs.len() != n { return false; }
-    let p: *const u8 = hs.bytes();
-    let sp: *const u8 = s.as_ptr();
-    let mut i: u64 = 0;
-    while i < n {
-        let a: *const u8 = p.byte_add(i as i64);
-        let b: *const u8 = sp.byte_add(i as i64);
-        if *a != *b { return false; }
-        i = i + (1);
-    }
-    return true;
-}
+// hermes_pat_eq_str moved to std.hermes.pat — the only AnyVal helper
+// that dereferences zone-resident HermesString. Compiler-synthesized
+// callers (sema_stmt.cpp PAT_HERMES_STR lowering) emit a bare-name
+// call and need `use std.hermes.pat;` in the consumer.
 

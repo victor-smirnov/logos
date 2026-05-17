@@ -19,7 +19,7 @@ package std.compiler.metaprog;
 // same module surface as `std.hermes.view` itself imports.
 use logos.lang.hermes.view;
 use std.hermes.view;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 use std.hermes.string;
 use logos.lang.hermes.scalar;
 use std.hermes.objectmap;

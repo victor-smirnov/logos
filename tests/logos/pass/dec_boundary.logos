@@ -2,7 +2,7 @@
 // Looking for: sign/limb interaction, boundary precision, negative-zero normalization
 package dec_boundary;
 use std.hermes.ctr;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 use logos.mem.string;
 use logos.lang.str;
 

@@ -2,7 +2,7 @@ package metacall_hermes;
 use std.hermes.ctr;
 use logos.lang.hermes.view;
 use std.hermes.view;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 
 unsafe fn build_cfg() -> Hermes {
     let arr: [i32; 4] = [10, 20, 30, 40];

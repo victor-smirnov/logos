@@ -2,7 +2,7 @@ package hermes_containers;
 // Phase 8: TinyObjectMap and ObjectArray — Hermes container datatypes.
 
 use logos.lang.hermes.zone;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 use std.hermes.array;
 use std.hermes.map;
 use std.hermes.typed_value;

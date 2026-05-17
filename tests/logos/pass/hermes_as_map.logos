@@ -1,7 +1,7 @@
 // Hermes C6: MapSliceI32 → <I32,AnyVal>{} cast produces Map<i32, AnyVal> Hermes.
 package hermes_as_map;
 use std.hermes.ctr;
-use std.hermes.anyval;
+use logos.lang.hermes.anyval;
 use logos.mem.string;
 use logos.lang.str;
 
