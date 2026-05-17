@@ -8,9 +8,26 @@ alone because `std.lang.any` and `std.lang.cmp` use `std.hermes.view`
 and `std.lang.text` (both in monolith), creating a circular dep with
 layer-lang's `logos.lang.*` content.
 
-Status: **design phase.** Implementation deferred to next session.
-Companion to [three-layer-split.md](three-layer-split.md) and
+Status: **partial implementation.** Steps 0–4b landed; Step 4
+remainder (anyval/typed_value/string structs + relptr_traits) and
+Steps 5–8 still pending. Companion to
+[three-layer-split.md](three-layer-split.md) and
 [layer-assignment.md](layer-assignment.md).
+
+### Progress log
+
+| Step | Status | Commit | Note |
+|------|--------|--------|------|
+| 0    | ✅ done | excludes-aware loader plumbing (no activation) |
+| 1    | ✅ done | 4 hermes leaves (datatag/tags/typetag/relptr) → lang |
+| 2    | ✅ done | hermes lifecycle (mem_holder/zone/own) → lang. release deferred |
+| 3    | ✅ done | text split (str/utf8/split → lang; String/Display → mem). 391 consumers |
+| 4a   | ✅ done | scalar → lang (no split) |
+| 4b   | ✅ done | HermesView/HermesStatic structs → lang. Traits stay in mem |
+| 4c   | ⏸️ pending | anyval split — AnyVal value-mode helpers lang; hermes_pat_eq_str + HermesString-deref methods mem |
+| 4d   | ⏸️ pending | typed_value split — struct field references HermesString. Needs forward-decl strategy |
+| 4e   | ⏸️ pending | StringView extraction — separate from HermesString |
+| 4f   | ⏸️ pending | relptr_traits — defer until stringify/equal/hashing/clone/release are in lang (Step 5) |
 
 ---
 
