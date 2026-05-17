@@ -3,7 +3,7 @@
 // Miscellaneous OS-level queries: pid, uid, hostname, arch/os identification,
 // exit.
 
-package std.sys.os;
+package logos.std.os;
 
 use std.lang.text;
 

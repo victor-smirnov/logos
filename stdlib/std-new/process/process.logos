@@ -3,7 +3,7 @@
 // Process spawning: fork + execvp + waitpid.
 // Pipe-based stdin/stdout/stderr redirect via std.pipe.
 
-package std.sys.process;
+package logos.std.process;
 
 use std.io.pipe;
 use std.lang.text;

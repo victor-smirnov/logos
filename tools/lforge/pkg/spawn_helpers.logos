@@ -5,7 +5,7 @@ package lforge.spawn_helpers;
 use std.lang.text;
 use std.collections.vec;
 use std.io.fs.path;
-use std.sys.process;
+use logos.std.process;
 
 use lforge.proc;
 

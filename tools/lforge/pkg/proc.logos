@@ -6,7 +6,7 @@ package lforge.proc;
 use std.lang.text;
 use std.lang.option;
 use std.collections.vec;
-use std.sys.process;
+use logos.std.process;
 
 use lforge.util;
 
