@@ -1,11 +1,11 @@
-// Logos standard library -- std.testing
+// Logos standard library -- logos.std.testing
 //
 // Minimal in-process unit-test framework.  Tests accumulate pass/fail
 // counts in a TestCtx; each failing assertion prints a diagnostic to
 // stderr.  Call `ctx.summary()` at the end of main to get an exit code
 // (0 on success, 1 on any failure).
 
-package std.testing;
+package logos.std.testing;
 
 use std.lang.text;
 

@@ -2,7 +2,7 @@
 // suite where every assertion passes; report summary and expect 0 failures.
 package test;
 
-use std.testing;
+use logos.std.testing;
 
 fn main() -> i32 {
     let mut t: TestCtx = TestCtx::new();

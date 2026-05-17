@@ -1,7 +1,7 @@
 // Tests std.random: deterministic PRNG + OS entropy.
 package test;
 
-use std.math.random;
+use logos.std.random;
 
 fn main() -> i32 {
     // Deterministic: same seed → same sequence.

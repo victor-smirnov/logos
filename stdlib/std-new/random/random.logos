@@ -1,10 +1,10 @@
-// Logos standard library -- std.random
+// Logos standard library -- logos.std.random
 //
 // Two sources:
 //   - getrandom(2): cryptographic-quality bytes from the OS
 //   - Rng: fast pseudo-random with splitmix64 (deterministic, seedable)
 
-package std.math.random;
+package logos.std.random;
 
 use std.lang.arith;
 
