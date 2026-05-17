@@ -15,8 +15,12 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <deque>
+#include <functional>
 #include <set>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace logos::compiler {
@@ -137,6 +141,237 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
         return prog.binary_symbols.count(fn.name) > 0;
     };
 
+    // Phase 6 (multi-arena IR) item-level lazy reach analysis.
+    //
+    // For lazy modules (LFunction.from_lazy_module=true), sema lowered the
+    // body but we only want to emit it if some non-lazy caller reaches it.
+    // Roots: every non-lazy fn + every extern (its body might live in a
+    // foreign .a). BFS through direct calls (ECall.callee /
+    // EMethodCall.resolved_symbol) and trait/dyn dispatch tables.
+    //
+    // Coverage: direct calls + method calls. Fn-pointer / closure values
+    // pointing at lazy fns are conservatively over-pruned (a real workload
+    // that hits this can extend the walker; today's stdlib fixtures don't).
+    std::unordered_set<std::string> lazy_emit;
+    bool any_lazy = false;
+    for (auto& fn : prog.functions) if (fn && fn->from_lazy_module) { any_lazy = true; break; }
+    if (!any_lazy)
+        for (auto& sd : prog.structs)
+            for (auto& m : sd.methods) if (m && m->from_lazy_module) { any_lazy = true; break; }
+
+    if (any_lazy) {
+        // Index all fn definitions for cheap callee→fn lookup.
+        std::unordered_map<std::string, const lir::LFunction*> by_name;
+        for (auto& fn : prog.functions) if (fn) by_name[fn->name] = fn.get();
+        for (auto& sd : prog.structs)
+            for (auto& m : sd.methods) if (m) by_name[m->name] = m.get();
+
+        std::deque<std::string> worklist;
+        auto seed_root = [&](const lir::LFunction& fn) {
+            if (fn.from_lazy_module) return;     // not a root
+            if (lazy_emit.insert(fn.name).second) worklist.push_back(fn.name);
+        };
+        for (auto& fn : prog.functions) if (fn) seed_root(*fn);
+        for (auto& sd : prog.structs)
+            for (auto& m : sd.methods) if (m) seed_root(*m);
+
+        // prog is const; use the const arena() accessor (returns nullptr if
+        // the pool was never initialised — in that case there are no bodies
+        // to walk, so we early-out below).
+        const hermes::Arena* walk_arena_p = prog.type_pool.arena();
+        std::function<void(lir_view::BlockRef)> walk_block;
+        std::function<void(lir_view::StmtRef)>  walk_stmt;
+        std::function<void(lir_view::ExprRef)>  walk_expr;
+
+        auto note_callee = [&](std::string_view name) {
+            if (name.empty()) return;
+            std::string s(name);
+            if (by_name.find(s) == by_name.end()) return;
+            if (lazy_emit.insert(s).second) worklist.push_back(std::move(s));
+        };
+
+        walk_expr = [&](lir_view::ExprRef e) {
+            if (!e) return;
+            using C = lir_schema::expr::Code;
+            switch (e.kind()) {
+            case C::Call: {
+                lir_view::ECallView v{e};
+                note_callee(v.callee());
+                v.each_arg([&](lir_view::ExprRef a) { walk_expr(a); });
+                break;
+            }
+            case C::MethodCall: {
+                lir_view::EMethodCallView v{e};
+                note_callee(v.resolved_symbol());
+                walk_expr(v.receiver());
+                v.each_arg([&](lir_view::ExprRef a) { walk_expr(a); });
+                break;
+            }
+            case C::ClosureCall: {
+                lir_view::EClosureCallView v{e};
+                walk_expr(v.callee());
+                v.each_arg([&](lir_view::ExprRef a) { walk_expr(a); });
+                break;
+            }
+            case C::FnPtrCall: {
+                lir_view::EFnPtrCallView v{e};
+                walk_expr(v.callee());
+                v.each_arg([&](lir_view::ExprRef a) { walk_expr(a); });
+                break;
+            }
+            case C::AddrOf: {
+                // `&fn_name` as a fn-pointer reference — keeps fn reachable.
+                note_callee(lir_view::EAddrOfView{e}.var_name());
+                break;
+            }
+            case C::GenericRef: {
+                // Generic-fn turbofish at value position — name is the fn.
+                lir_view::EGenericRefView v{e};
+                note_callee(v.name());
+                break;
+            }
+            case C::VarRef:
+                note_callee(lir_view::EVarRefView{e}.name());
+                break;
+            default: {
+                // Generic child walk for all other variants: read every
+                // sub-expr key that may carry an expression payload. The
+                // dedicated cases above cover call shapes; here we just
+                // recurse so nested calls inside arithmetic / struct lits /
+                // match arms etc. get visited.
+                auto recurse_arr = [&](uint8_t key) {
+                    auto av = e.mirror()->get(key, e.base());
+                    if (av.is_null()) return;
+                    auto* arr = av.as_ptr<const hermes::ObjectArray>(e.base());
+                    for (uint64_t i = 0; i < arr->size(); ++i) {
+                        auto el = arr->get(i, e.base());
+                        if (!el.is_null())
+                            walk_expr(lir_view::detail::make_sub_ref<lir_view::ExprRef>(e, el.to_offset()));
+                    }
+                };
+                auto recurse_sub = [&](uint8_t key) {
+                    walk_expr(e.sub_expr(key));
+                };
+                namespace ek = lir_schema::expr_keys;
+                recurse_sub(ek::LHS.code);
+                recurse_sub(ek::RHS.code);
+                recurse_sub(ek::OPERAND.code);
+                recurse_sub(ek::RECEIVER.code);
+                recurse_sub(ek::SCRUT.code);
+                recurse_sub(ek::INDEX.code);
+                recurse_sub(ek::CALLEE.code);
+                recurse_sub(ek::FMT.code);
+                recurse_arr(ek::ARGS.code);
+                recurse_arr(ek::ELEMS.code);
+                recurse_arr(ek::FIELD_VALUES.code);
+                recurse_arr(ek::PAYLOAD.code);
+                // Match arms: each arm has (pat, guard, value).
+                {
+                    auto av = e.mirror()->get(ek::ARMS.code, e.base());
+                    if (!av.is_null()) {
+                        auto* arr = av.as_ptr<const hermes::ObjectArray>(e.base());
+                        for (uint64_t i = 0; i < arr->size(); ++i) {
+                            auto el = arr->get(i, e.base());
+                            if (el.is_null()) continue;
+                            lir_view::EMatchArmRef arm =
+                                lir_view::detail::make_sub_ref<lir_view::EMatchArmRef>(e, el.to_offset());
+                            walk_expr(arm.guard());
+                            walk_expr(arm.value());
+                            walk_block(arm.body());
+                        }
+                    }
+                }
+                break;
+            }
+            }
+        };
+
+        walk_stmt = [&](lir_view::StmtRef s) {
+            if (!s) return;
+            using SC = lir_schema::stmt::Code;
+            switch (s.kind()) {
+            case SC::Let:     walk_expr(lir_view::SLetView{s}.value()); break;
+            case SC::Assign:  walk_expr(lir_view::SAssignView{s}.value()); break;
+            case SC::Return:  walk_expr(lir_view::SReturnView{s}.value()); break;
+            case SC::ExprStmt: walk_expr(lir_view::SExprStmtView{s}.expr()); break;
+            case SC::If: {
+                lir_view::SIfView v{s};
+                walk_expr(v.cond()); walk_block(v.then_block()); walk_block(v.else_block());
+                break;
+            }
+            case SC::While: {
+                lir_view::SWhileView v{s};
+                walk_expr(v.cond()); walk_block(v.body());
+                break;
+            }
+            case SC::For: {
+                lir_view::SForView v{s};
+                walk_expr(v.lo()); walk_expr(v.hi()); walk_block(v.body());
+                break;
+            }
+            case SC::Loop:   walk_block(lir_view::SLoopView{s}.body()); break;
+            case SC::Block:  walk_block(lir_view::SBlockView{s}.body()); break;
+            case SC::Match: {
+                lir_view::SMatchView v{s};
+                walk_expr(v.scrut());
+                v.each_arm([&](lir_view::EMatchArmRef arm) {
+                    walk_expr(arm.guard());
+                    walk_expr(arm.value());
+                    walk_block(arm.body());
+                });
+                break;
+            }
+            case SC::FieldWrite:      walk_expr(lir_view::SFieldWriteView{s}.value()); break;
+            case SC::DerefFieldWrite: walk_expr(lir_view::SDerefFieldWriteView{s}.value()); break;
+            case SC::IndexWrite: {
+                lir_view::SIndexWriteView v{s};
+                walk_expr(v.index()); walk_expr(v.value());
+                break;
+            }
+            default: break;
+            }
+        };
+
+        walk_block = [&](lir_view::BlockRef b) {
+            if (!b) return;
+            b.each_stmt([&](lir_view::StmtRef s) { walk_stmt(s); });
+        };
+
+        while (walk_arena_p && !worklist.empty()) {
+            auto name = std::move(worklist.front());
+            worklist.pop_front();
+            auto it = by_name.find(name);
+            if (it == by_name.end()) continue;
+            auto& fn = *it->second;
+            if (fn.body.mirror_offset_ == hermes::arena_offset_t{}) continue;
+            walk_block(lir_view::BlockRef(walk_arena_p, fn.body.mirror_offset_));
+        }
+
+        if (std::getenv("LOGOS_TRACE_PHASES")) {
+            size_t lazy_total = 0, lazy_kept = 0;
+            for (auto& fn : prog.functions)
+                if (fn && fn->from_lazy_module) {
+                    ++lazy_total;
+                    if (lazy_emit.count(fn->name)) ++lazy_kept;
+                }
+            for (auto& sd : prog.structs)
+                for (auto& m : sd.methods)
+                    if (m && m->from_lazy_module) {
+                        ++lazy_total;
+                        if (lazy_emit.count(m->name)) ++lazy_kept;
+                    }
+            std::fprintf(stderr,
+                "mlir_gen: lazy reach = %zu/%zu kept (%zu pruned)\n",
+                lazy_kept, lazy_total, lazy_total - lazy_kept);
+        }
+    }
+
+    auto is_lazy_skip = [&](const lir::LFunction& fn) -> bool {
+        if (!any_lazy) return false;
+        if (!fn.from_lazy_module) return false;
+        return lazy_emit.find(fn.name) == lazy_emit.end();
+    };
+
     if (std::getenv("LOGOS_TRACE_PHASES")) {
         size_t total = 0, skipped = 0;
         for (auto& sd : prog.structs) for (auto& m : sd.methods) { ++total; if (is_binary_skip(*m)) ++skipped; }
@@ -149,12 +384,20 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     // provides the implementation from the archive. Pass is_binary_skip
     // through so forward_declare sets the FuncOp private at creation time
     // — saves the second by-name lookup pass over 3500+ symbols.
+    //
+    // Phase 6: lazy fns unreached by any non-lazy caller are skipped
+    // entirely (no forward-decl, no body) — nothing references them, so
+    // there's nothing to link against.
     for (auto& sd : prog.structs)
-        for (auto& m : sd.methods)
+        for (auto& m : sd.methods) {
+            if (is_lazy_skip(*m)) continue;
             forward_declare(mod, *m, is_binary_skip(*m));
+        }
 
-    for (auto& fn : prog.functions)
+    for (auto& fn : prog.functions) {
+        if (is_lazy_skip(*fn)) continue;
         forward_declare(mod, *fn, is_binary_skip(*fn));
+    }
     pt.tick("pass1 forward_declare");
 
     // Pass 1b: emit vtable globals for trait impls (&dyn Trait support).
@@ -189,14 +432,14 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     size_t fn_bodies = 0;
     for (auto& sd : prog.structs) {
         for (auto& m : sd.methods) {
-            if (is_binary_skip(*m)) continue;
+            if (is_binary_skip(*m) || is_lazy_skip(*m)) continue;
             auto func = mod.lookupSymbol<mlir::func::FuncOp>(m->name);
             if (!gen_function_body(func, *m)) return nullptr;
             ++method_bodies; ++bodies_emitted;
         }
     }
     for (auto& fn : prog.functions) {
-        if (fn->is_extern || is_binary_skip(*fn)) continue;
+        if (fn->is_extern || is_binary_skip(*fn) || is_lazy_skip(*fn)) continue;
         auto func = mod.lookupSymbol<mlir::func::FuncOp>(fn->name);
         if (!gen_function_body(func, *fn)) return nullptr;
         ++fn_bodies; ++bodies_emitted;

@@ -357,6 +357,7 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         holder_ = asts[ai].holder();
         file_ = (filenames_ && ai < filenames_->size()) ? (*filenames_)[ai] : std::string{};
         cur_from_binary_ = (from_binary_ && ai < from_binary_->size()) ? (*from_binary_)[ai] : false;
+        cur_from_lazy_   = (is_lazy_     && ai < is_lazy_->size())     ? (*is_lazy_)[ai]     : false;
         auto root = asts[ai].root_object().as_tiny_map();
         cur_package_ = read_package_name(root);
         cur_imports_ = build_import_scope(root);
@@ -380,6 +381,7 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         holder_ = asts[ai].holder();
         file_ = (filenames_ && ai < filenames_->size()) ? (*filenames_)[ai] : std::string{};
         cur_from_binary_ = (from_binary_ && ai < from_binary_->size()) ? (*from_binary_)[ai] : false;
+        cur_from_lazy_   = (is_lazy_     && ai < is_lazy_->size())     ? (*is_lazy_)[ai]     : false;
         auto root = asts[ai].root_object().as_tiny_map();
         cur_package_ = read_package_name(root);
         cur_imports_ = build_import_scope(root);
@@ -3094,6 +3096,7 @@ lir::LFunction SemaChecker::lower_spec_fn(TinyMapView node) {
     fn.doc  = take_pending_doc();
     fn.is_specialization = true;
     fn.from_binary_module = cur_from_binary_;
+    fn.from_lazy_module   = cur_from_lazy_;
 
     // Parse spec type-param list: populate fn.spec_patterns and scope TypeVars.
     std::vector<TypeParam> pattern_tvars;

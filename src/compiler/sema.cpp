@@ -4993,6 +4993,7 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
         holder_ = asts[i].holder();
         file_ = (filenames_ && i < filenames_->size()) ? (*filenames_)[i] : std::string{};
         cur_from_binary_ = (from_binary_ && i < from_binary_->size()) ? (*from_binary_)[i] : false;
+        cur_from_lazy_   = (is_lazy_     && i < is_lazy_->size())     ? (*is_lazy_)[i]     : false;
         auto root = asts[i].root_object().as_tiny_map();
         cur_root_ = root;
         cur_package_ = read_package_name(root);
@@ -6204,7 +6205,8 @@ void SemaChecker::compute_variances() {
 lir::LProgram sema_lower(const std::vector<logos::hermes::Hermes>& asts,
                           const std::vector<std::string>& filenames,
                           const std::vector<bool>& from_binary,
-                          SemaOptions opts) {
+                          SemaOptions opts,
+                          const std::vector<bool>& is_lazy) {
     auto t_outer = std::chrono::steady_clock::now();
     const bool phase_dbg = []{
         const char* e = std::getenv("LOGOS_SEMA_PHASE_TIMING");
@@ -6246,6 +6248,10 @@ lir::LProgram sema_lower(const std::vector<logos::hermes::Hermes>& asts,
         // bare flags (no `=`) are placeholder for future target-key
         // overrides like `--cfg target_pointer_width=32`. No-op for now.
     }
+    // Phase 6: thread is_lazy[] through SemaChecker so lower_fn can stamp
+    // LFunction.from_lazy_module. Default empty → all lazy_=false → no
+    // behaviour change (back-compat).
+    checker.set_is_lazy(&is_lazy);
     auto prog = checker.run(asts, filenames, from_binary);
     if (phase_dbg) {
         auto t_after_run = std::chrono::steady_clock::now();

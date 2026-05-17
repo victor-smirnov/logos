@@ -81,6 +81,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     lir::LFunction fn;
     fn.name               = mangled;
     fn.from_binary_module = cur_from_binary_;
+    fn.from_lazy_module   = cur_from_lazy_;
     fn.doc                = take_pending_doc();
     // Phase #[test] attributes. Consume here so they don't leak into the
     // next fn lowered in the same item-loop iteration.

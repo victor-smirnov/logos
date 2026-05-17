@@ -3286,6 +3286,11 @@ lir::LFunction Mono::clone_fn(const lir::LFunction& fn, const SubstMap& s,
     // called by mono to create instantiations, which are new functions not
     // present in the binary archive. The archive contains only the pre-compiled
     // non-generic originals (identified via LProgram::binary_symbols in mlir_gen).
+    // Phase 6 (multi-arena IR): from_lazy_module IS propagated. The lazy
+    // archive ships only parsed AST, so cloned items are still "originating
+    // from a lazy module" — their bodies need the same reach-based emit
+    // filter that mlir_gen applies to the originals.
+    nf.from_lazy_module  = fn.from_lazy_module;
     nf.ret_type  = subst_type(fn.ret_type, s);
     // B65: lifetime params + outlives bounds are preserved verbatim through
     // mono. Lifetime substitution is identity (lifetimes are not in the
@@ -3366,6 +3371,7 @@ lir::LFunction Mono::clone_fn_signature(const lir::LFunction& fn,
     nf.package            = fn.package;
     nf.is_extern          = fn.is_extern;
     nf.is_vararg          = fn.is_vararg;
+    nf.from_lazy_module   = fn.from_lazy_module;  // Phase 6 — see clone_fn.
     nf.ret_type           = subst_type(fn.ret_type, s);
     nf.lifetime_params    = fn.lifetime_params;
     nf.lifetime_outlives  = fn.lifetime_outlives;

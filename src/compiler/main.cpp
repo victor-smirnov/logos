@@ -2243,7 +2243,10 @@ int run_metaprog_dispatch(
             opts_iter.delta_start_idx = next_delta_start;
             next_delta_start = asts.size();
         }
-        prog = sema_lower(asts, filenames, from_binary, opts_iter);
+        // Phase 6: metaprog dispatch loop doesn't currently thread is_lazy
+        // through (no use case yet — metaprog handlers + their callees stay
+        // eager regardless). Pass {} to keep the existing behaviour.
+        prog = sema_lower(asts, filenames, from_binary, opts_iter, {});
         stat_step(_t, "sema_lower", iter);
         prog.print_diags(stderr);
         if (!prog.ok()) return 1;
@@ -2311,7 +2314,7 @@ int run_metaprog_dispatch(
                 resema_opts.cache = nullptr;
                 resema_opts.delta_start_idx = 0;
             }
-            meta_prog = sema_lower(asts, filenames, from_binary, resema_opts);
+            meta_prog = sema_lower(asts, filenames, from_binary, resema_opts, {});
             if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
         }
         meta_prog.functions.erase(
@@ -2827,6 +2830,7 @@ int main(int argc, char** argv) {
     std::vector<logos::hermes::Hermes> asts;
     std::vector<std::string> filenames;
     std::vector<bool> from_binary;
+    std::vector<bool> is_lazy;
     logos::compiler::StrSet binary_archives_seen;
     logos::compiler::StrSet binary_symbols;
     for (auto& m : modules) {
@@ -2835,9 +2839,10 @@ int main(int argc, char** argv) {
         // (no source dir scan) but ship parsed AST only — no .o text, no
         // LIR blob. Treat them as non-binary for sema so bodies get
         // lowered locally into the consumer's LProgram (same path as
-        // user-authored code). The resulting .o then carries the lazy
-        // module's items inline.
+        // user-authored code). Stamp is_lazy[] in parallel so sema can
+        // tag LFunction.from_lazy_module for post-mono reach filtering.
         from_binary.push_back(m.from_binary_module && !m.is_lazy);
+        is_lazy.push_back(m.is_lazy);
         asts.push_back(std::move(m.ast));
     }
     // Collect symbol tables from binary archives on the search path.
@@ -3251,7 +3256,8 @@ int main(int argc, char** argv) {
         // on the next compile would duplicate emitted items.
         std::set<std::string> consumed_triggers;
         {
-            auto post_prog = logos::compiler::sema_lower(asts, filenames, from_binary);
+            auto post_prog = logos::compiler::sema_lower(asts, filenames, from_binary,
+                                                          logos::compiler::SemaOptions{}, is_lazy);
             for (auto& mh : post_prog.metaprog_handlers) {
                 if (mh.trigger != "<missing>") consumed_triggers.insert(mh.trigger);
             }
@@ -3398,7 +3404,7 @@ int main(int argc, char** argv) {
     logos::compiler::SemaOptions default_opts;
     default_opts.cfg_flags = cfg_flags;
     default_opts.cache     = &sema_cache;  // M5
-    prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts);
+    prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts, is_lazy);
     prog.print_diags(stderr);
     if (!prog.ok()) return 1;
 
@@ -3436,7 +3442,7 @@ int main(int argc, char** argv) {
             if (emitted_any_thunk) {
                 // Re-sema so the JIT module below picks up the new thunks.
                 auto _t_resema = std::chrono::steady_clock::now();
-                prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts);
+                prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts, is_lazy);
                 mc_stat_step(_t_resema, "resema_after_emit", mi);
                 prog.print_diags(stderr);
                 if (!prog.ok()) return 1;
@@ -3800,7 +3806,7 @@ int main(int argc, char** argv) {
             // Loop continues only if new sites somehow appeared.
             (void)any_spliced;
             auto _mc_t_resema = std::chrono::steady_clock::now();
-            prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts);
+            prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts, is_lazy);
             mc_stat_step(_mc_t_resema, "resema_after_splice", mi);
             prog.print_diags(stderr);
             if (!prog.ok()) return 1;

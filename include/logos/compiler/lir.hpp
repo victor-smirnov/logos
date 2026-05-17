@@ -710,6 +710,14 @@ struct LFunction {
     // resolves them from the archive's .o member.
     bool from_binary_module = false;
 
+    // Phase 6 (multi-arena IR) item-level lazy. Set when this function comes
+    // from a `lowering lazy` archive: its body is lowered into the consumer's
+    // LProgram (same path as user code), but a post-mono reach analysis
+    // determines whether mlir-gen actually emits a body. Lazy fns not in the
+    // reach closure of any non-lazy fn are skipped at codegen, eliminating
+    // the per-consumer "lower-everything" tax for big lazy libraries.
+    bool from_lazy_module = false;
+
     // Phase 4.A (multi-arena IR): when LOGOS_SEMA_USE_BLOB=1, sema skips
     // body lowering for non-generic from_binary_module fns and stores a
     // cross-arena handle here pointing into the registered library arena.
@@ -1255,10 +1263,15 @@ struct SemaOptions {
 // filenames[i] is the source path for asts[i] — used in diagnostics.
 // from_binary: parallel to asts/filenames; true means the file came from a
 // binary module archive and its non-generic symbols should not be re-emitted.
+// is_lazy: parallel to asts/filenames; true means the file came from a
+// `lowering lazy` archive. Lazy fns get LFunction.from_lazy_module=true and
+// participate in post-mono reach analysis (mlir-gen skips unreached lazy
+// bodies). Default: empty → no lazy modules (back-compat).
 lir::LProgram sema_lower(const std::vector<hermes::Hermes>& asts,
                           const std::vector<std::string>& filenames = {},
                           const std::vector<bool>& from_binary = {},
-                          SemaOptions opts = {});
+                          SemaOptions opts = {},
+                          const std::vector<bool>& is_lazy = {});
 
 // Build TypeInfo rodata blobs for types in reflect_requests and annotated datatypes.
 // Populates prog.reflection_globals with LReflectGlobal entries.

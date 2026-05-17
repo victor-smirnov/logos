@@ -148,6 +148,10 @@ public:
     // Their state is expected to be in the cache (which must be in
     // metaprog_delta mode — see SemaCache).
     void set_delta_start_idx(size_t idx) { delta_start_idx_ = idx; }
+    // Phase 6 (multi-arena IR) item-level lazy: per-AST flag. Lifetime-
+    // borrowed; caller (sema_lower) keeps the vector alive across run().
+    // Null or empty → all asts treated as non-lazy (back-compat).
+    void set_is_lazy(const std::vector<bool>* v) { is_lazy_ = v; }
     bool fn_is_metaprog_keep(std::string_view name) const {
         // metacall_sites store the raw callee token (bare base name);
         // compare against the bare form of `name` (which may carry
@@ -592,10 +596,17 @@ private:
 
     const std::vector<std::string>* filenames_    = nullptr;
     const std::vector<bool>*        from_binary_  = nullptr;
+    // Phase 6 (multi-arena IR) item-level lazy. Parallel to from_binary_;
+    // per-AST flag indicating the source archive shipped only parsed AST
+    // (no .o, no LIR blob — see ModuleManifest::lazy). Stamped onto
+    // LFunction.from_lazy_module; consumed by post-mono reach analysis to
+    // skip mlir-gen for lazy fns not reached from any non-lazy caller.
+    const std::vector<bool>*        is_lazy_      = nullptr;
     std::string  file_;
     std::string  cur_package_;
     lir::LProgram* cur_prog_ = nullptr;  // set during lower_module_items, used by lower_generic_call
     bool         cur_from_binary_ = false;   // current file is from a binary module
+    bool         cur_from_lazy_   = false;   // current file is from a lazy archive
     uint32_t     node_line_ = 0;
 
     // Per-file import scope (wildcard: `use foo.bar;` makes all pub symbols of foo.bar visible)
