@@ -13,7 +13,7 @@ use std.hermes.string;
 use std.hermes.objectmap;
 use std.hermes.array;
 use std.hermes.map;
-use std.hermes.typed_value;
+use logos.lang.hermes.typed_value;
 
 // hermes_pat_eq_str — moved here from std.hermes.anyval (which became
 // logos.lang.hermes.anyval after the three-layer split). It's the only

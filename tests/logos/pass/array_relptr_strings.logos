@@ -7,7 +7,7 @@ use logos.lang.hermes.zone;
 use logos.lang.hermes.anyval;
 use std.hermes.array;
 use std.hermes.map;
-use std.hermes.typed_value;
+use logos.lang.hermes.typed_value;
 use logos.lang.hermes.relptr;
 use std.hermes.relptr_traits;
 use logos.lang.hermes.view;

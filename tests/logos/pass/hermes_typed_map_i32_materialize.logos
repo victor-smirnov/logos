@@ -7,7 +7,7 @@ use logos.lang.hermes.typetag;
 use logos.lang.hermes.datatag;
 use std.hermes.array;
 use std.hermes.map;
-use std.hermes.typed_value;
+use logos.lang.hermes.typed_value;
 use logos.mem.string;
 use logos.lang.str;
 

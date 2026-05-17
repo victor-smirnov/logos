@@ -20,7 +20,7 @@ use logos.lang.hermes.scalar;
 use std.hermes.objectmap;
 use std.hermes.array;
 use std.hermes.map;
-use std.hermes.typed_value;
+use logos.lang.hermes.typed_value;
 use logos.lang.hermes.relptr;
 use std.hermes.decimal;
 use std.hermes.string;

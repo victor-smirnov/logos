@@ -24,7 +24,7 @@ use logos.lang.hermes.typetag;
 use std.hermes.tag_system;
 use std.hermes.array;
 use std.hermes.map;
-use std.hermes.typed_value;
+use logos.lang.hermes.typed_value;
 use std.hermes.objectmap;
 use std.hermes.document;
 use logos.lang.hermes.scalar;

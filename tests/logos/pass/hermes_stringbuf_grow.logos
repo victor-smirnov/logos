@@ -10,7 +10,7 @@ use logos.lang.hermes.typetag;
 use logos.lang.hermes.datatag;
 use std.hermes.array;
 use std.hermes.map;
-use std.hermes.typed_value;
+use logos.lang.hermes.typed_value;
 use std.hermes.objectmap;
 use std.hermes.document;
 use std.hermes.stringify;

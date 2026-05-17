@@ -4,7 +4,7 @@ use std.hermes.ctr;
 use logos.lang.hermes.anyval;
 use std.hermes.array;
 use std.hermes.map;
-use std.hermes.typed_value;
+use logos.lang.hermes.typed_value;
 
 fn main() -> i32 {
     let arr: [i32; 4] = [10, 20, 30, 40];

@@ -7,7 +7,7 @@ use std.hermes.view;
 use std.hermes.stringify;
 use std.hermes.array;
 use std.hermes.map;
-use std.hermes.typed_value;
+use logos.lang.hermes.typed_value;
 use logos.mem.string;
 use logos.lang.str;
 

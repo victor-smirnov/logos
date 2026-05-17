@@ -8,7 +8,7 @@ use std.hermes.view;
 use logos.lang.hermes.anyval;
 use std.hermes.array;
 use std.hermes.map;
-use std.hermes.typed_value;
+use logos.lang.hermes.typed_value;
 
 unsafe fn main() -> i32 {
     // Array<i32>: build cap=8, push 5 ints, read back via Array trait on header.
