@@ -18,7 +18,6 @@ package logos.lang.any;
 use std.hermes.view;
 use std.hermes.anyval;
 use std.hermes.string;
-use logos.mem.string;
 use logos.lang.str;
 
 // ── TypeInfo ─────────────────────────────────────────────────────────────────
