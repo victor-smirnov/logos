@@ -1,5 +1,5 @@
 package int_inherent_methods;
-use std.lang.ord;
+use logos.lang.cmp;
 
 fn main() -> i32 {
     // clamp

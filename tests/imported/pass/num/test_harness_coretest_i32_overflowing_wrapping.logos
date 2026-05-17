@@ -16,7 +16,7 @@ package test_i32_overflowing_wrapping;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.ord;
+use logos.lang.cmp;
 
 #[test]
 fn test_overflowing_add() {

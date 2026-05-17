@@ -18,7 +18,7 @@ package test_i32_bitcount;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.ord;
+use logos.lang.cmp;
 
 #[test]
 fn test_count_ones() {

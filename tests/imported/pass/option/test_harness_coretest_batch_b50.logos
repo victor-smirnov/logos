@@ -33,8 +33,7 @@ use std.fmt;
 use std.lang.text;
 use std.lang.option;
 use std.lang.result;
-use std.lang.ord;
-use std.lang.cmp;
+use logos.lang.cmp;
 use logos.lang.bool;
 
 fn dbl(x: i32) -> i32 { return x + x; }

@@ -7,7 +7,7 @@ package assert_eq_tuple;
 use std.fmt;
 use std.lang.text;
 use logos.lang.panic;
-use std.lang.cmp;
+use logos.lang.cmp;
 
 fn main() -> i32 {
     let a: (i32, bool) = (1i32, true);

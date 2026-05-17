@@ -13,7 +13,7 @@
 package std.collections.btree;
 
 use std.mem;
-use std.lang.ord;
+use logos.lang.cmp;
 use std.lang.iter;
 use std.lang.option;
 

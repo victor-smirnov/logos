@@ -5,7 +5,7 @@ package zz_vec_drop_probe;
 
 use std.collections.vec;
 use logos.lang.drop;
-use std.lang.cmp; use std.lang.ord; use std.lang.datatypes;
+use logos.lang.cmp; use logos.lang.cmp; use std.lang.datatypes;
 use std.hermes.view; use std.hermes.anyval;
 
 // Bumper owns a *mut u64 and bumps it at Drop. Verifies that Vec<T>'s

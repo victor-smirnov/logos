@@ -2,7 +2,7 @@
 // Original path: library/coretests/tests/bool.rs (test_bool only)
 //
 // Modifications:
-// - `use core::cmp::Ordering::{Equal, ...}` → `use std.lang.ord;` (path syntax)
+// - `use core::cmp::Ordering::{Equal, ...}` → `use logos.lang.cmp;` (path syntax)
 // - `use core::ops::{BitAnd, BitOr, BitXor}` → `use logos.lang.ops;`
 // - `Equal` / `Less` / `Greater` → `Ordering::Equal` / etc. (no bare-variant
 //   re-export shorthand in Logos's import surface yet)
@@ -21,8 +21,7 @@ package test_bool;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.cmp;
-use std.lang.ord;
+use logos.lang.cmp;
 use logos.lang.ops;
 
 #[test]

@@ -9,8 +9,7 @@
 package std.data.persistent.descent;
 
 use std.collections.vec;
-use std.lang.cmp;
-use std.lang.ord;
+use logos.lang.cmp;
 use std.lang.datatypes;
 use std.hermes.view;
 use std.hermes.anyval;

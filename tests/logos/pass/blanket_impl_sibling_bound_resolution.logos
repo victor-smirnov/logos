@@ -20,8 +20,7 @@
 
 package blanket_impl_sibling_bound_resolution;
 
-use std.lang.cmp;
-use std.lang.ord;
+use logos.lang.cmp;
 use std.lang.datatypes;
 
 pub struct U64Key { pub x: u64, }

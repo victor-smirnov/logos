@@ -8,8 +8,7 @@ package test_coretest_ordering_methods;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.ord;
-use std.lang.cmp;
+use logos.lang.cmp;
 
 fn abs_cmp(a: i32, b: i32) -> Ordering {
     let aa: i32 = a.abs();

@@ -1,5 +1,5 @@
 package mutref_cmp;
-use std.lang.ord;
+use logos.lang.cmp;
 fn main() -> i32 {
     match (&mut 5i32).cmp(&10i32) {
         Ordering::Less => { return 0i32; }

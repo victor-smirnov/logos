@@ -15,7 +15,7 @@
 
 package str_eq_method;
 
-use std.lang.cmp;
+use logos.lang.cmp;
 
 fn main() -> i32 {
     let a: str = "foo";

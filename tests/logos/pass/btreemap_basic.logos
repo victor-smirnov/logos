@@ -2,7 +2,7 @@
 package test;
 
 use std.collections.btree;
-use std.lang.ord;
+use logos.lang.cmp;
 use std.lang.iter;
 use std.lang.option;
 

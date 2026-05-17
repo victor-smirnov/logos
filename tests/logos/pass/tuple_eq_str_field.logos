@@ -12,7 +12,7 @@
 
 package tuple_eq_str_field;
 
-use std.lang.cmp;
+use logos.lang.cmp;
 
 fn main() -> i32 {
     let a: (str, i32) = ("foo", 1i32);

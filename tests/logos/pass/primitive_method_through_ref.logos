@@ -5,8 +5,7 @@
 
 package primitive_method_through_ref;
 
-use std.lang.cmp;
-use std.lang.ord;
+use logos.lang.cmp;
 
 fn check_eq(a: &i32, b: &i32) -> bool { return a.eq(b); }
 fn check_ne(a: &i32, b: &i32) -> bool { return a.ne(b); }

@@ -17,7 +17,7 @@ package persistent_dag_topology;
 
 use std.collections.vec;
 use std.mem;
-use std.lang.cmp; use std.lang.ord; use std.lang.datatypes;
+use logos.lang.cmp; use logos.lang.cmp; use std.lang.datatypes;
 use std.hermes.view; use std.hermes.anyval;
 
 use std.data.persistent.node;

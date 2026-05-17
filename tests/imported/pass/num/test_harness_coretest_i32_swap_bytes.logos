@@ -15,7 +15,7 @@ package test_i32_swap_bytes;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.ord;
+use logos.lang.cmp;
 
 #[test]
 fn test_swap_bytes_i32() {

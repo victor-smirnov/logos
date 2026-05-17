@@ -8,7 +8,7 @@ package std.collections.vec;
 use std.mem;
 use std.lang.option;
 use std.lang.iter;
-use std.lang.cmp;
+use logos.lang.cmp;
 use logos.lang.panic;
 use std.lang.result;
 

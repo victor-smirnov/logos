@@ -22,7 +22,7 @@ use std.lang.text;
 use std.lang.iter;
 use logos.lang.range;
 use std.lang.option;
-use std.lang.ord;
+use logos.lang.cmp;
 
 #[test]
 fn test_iter_max_i32() {

@@ -8,7 +8,7 @@ package test_coretest_u32;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.ord;
+use logos.lang.cmp;
 
 const A: u32 = 0b0101100u32;
 const B: u32 = 0b0100001u32;

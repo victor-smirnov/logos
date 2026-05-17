@@ -17,7 +17,7 @@ package test_i32_checked;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.ord;
+use logos.lang.cmp;
 use std.lang.option;
 
 #[test]

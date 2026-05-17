@@ -11,7 +11,7 @@ package std.collections.hashmap;
 
 use std.mem;
 use logos.lang.hash;
-use std.lang.cmp;
+use logos.lang.cmp;
 use std.lang.option;
 use std.lang.iter;
 

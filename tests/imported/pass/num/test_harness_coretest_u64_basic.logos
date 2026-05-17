@@ -14,7 +14,7 @@ package test_coretest_u64;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.ord;
+use logos.lang.cmp;
 
 const A: u64 = 0b0101100u64;
 const B: u64 = 0b0100001u64;

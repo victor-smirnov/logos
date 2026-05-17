@@ -27,8 +27,7 @@ use std.lang.text;
 use std.lang.iter;
 use logos.lang.range;
 use std.lang.option;
-use std.lang.cmp;
-use std.lang.ord;
+use logos.lang.cmp;
 use std.collections.vec;
 
 fn abs_i32(x: i32) -> i32 {

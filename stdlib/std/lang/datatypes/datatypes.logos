@@ -8,7 +8,7 @@
 package std.lang.datatypes;
 
 use logos.lang.drop;
-use std.lang.ord;
+use logos.lang.cmp;
 use std.mem;
 
 // ---------------------------------------------------------------------------

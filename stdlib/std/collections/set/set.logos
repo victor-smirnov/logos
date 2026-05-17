@@ -7,7 +7,7 @@ package std.collections.set;
 
 use std.collections.hashmap;
 use logos.lang.hash;
-use std.lang.cmp;
+use logos.lang.cmp;
 use std.lang.iter;
 use std.lang.option;
 

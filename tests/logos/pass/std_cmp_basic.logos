@@ -1,6 +1,6 @@
 package std_cmp_basic;
 
-use std.lang.cmp;
+use logos.lang.cmp;
 
 fn main() -> i32 {
     let a: i32 = 7;

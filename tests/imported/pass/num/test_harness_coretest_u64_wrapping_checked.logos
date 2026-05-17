@@ -9,7 +9,7 @@ package test_coretest_u64_extended;
 use std.fmt;
 use std.lang.text;
 use std.lang.option;
-use std.lang.ord;
+use logos.lang.cmp;
 
 const U64_MAX: u64 = 0xFFFFFFFFFFFFFFFFu64;
 const U32_MAX: u32 = 0xFFFFFFFFu32;

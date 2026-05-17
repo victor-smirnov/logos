@@ -23,8 +23,7 @@ use std.fmt;
 use std.lang.text;
 use std.lang.iter;
 use std.lang.option;
-use std.lang.cmp;
-use std.lang.ord;
+use logos.lang.cmp;
 
 #[test]
 fn test_iter_cmp_equal() {

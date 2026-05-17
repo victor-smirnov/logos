@@ -3,7 +3,7 @@ package test;
 
 use std.collections.set;
 use logos.lang.hash;
-use std.lang.cmp;
+use logos.lang.cmp;
 use std.lang.iter;
 use std.lang.option;
 

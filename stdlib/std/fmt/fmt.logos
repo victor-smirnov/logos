@@ -13,7 +13,7 @@ package std.fmt;
 
 use std.lang.text;
 use logos.lang.panic;
-use std.lang.ord;
+use logos.lang.cmp;
 use std.compiler.metaprog;
 use std.collections.vec;
 use std.io;

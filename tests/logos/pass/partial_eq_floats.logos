@@ -8,7 +8,7 @@
 
 package partial_eq_floats;
 
-use std.lang.cmp;
+use logos.lang.cmp;
 
 fn pair_eq<T: PartialEq>(a: T, b: T) -> bool {
     return a.eq(&b);

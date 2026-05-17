@@ -2,13 +2,13 @@
 //
 // Bare `Equal` / `Less` / `Greater` resolve to `Ordering::Equal` etc. at
 // value position, in match-arm patterns, and across both forms in the
-// same fn. The wildcard `use std.lang.ord;` brings the type itself into
+// same fn. The wildcard `use logos.lang.cmp;` brings the type itself into
 // scope; the brace-list adds the variants to the bare alias map.
 
 package use_variants_bare;
 
-use std.lang.ord;
-use std.lang.ord.Ordering.{Less, Equal, Greater};
+use logos.lang.cmp;
+use logos.lang.cmp.Ordering.{Less, Equal, Greater};
 
 fn classify(x: i32) -> Ordering {
     if x == 0 { return Equal; }

@@ -4,7 +4,7 @@
 // because NaN != NaN breaks total equality; use a separate PartialEq
 // later if needed. For HashMap<K, V> K must be Eq + Hash.
 
-package std.lang.cmp;
+package logos.lang.cmp;
 
 use std.lang.text;
 

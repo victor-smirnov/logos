@@ -1,5 +1,5 @@
 package cmp_min_max_by_test;
-use std.lang.ord;
+use logos.lang.cmp;
 
 fn cmp_i32(a: i32, b: i32) -> Ordering {
     if a < b { return Ordering::Less; }
