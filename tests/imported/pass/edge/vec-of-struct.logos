@@ -1,5 +1,5 @@
 package vec_of_struct;
-use std.collections.vec;
+use logos.mem.collections.vec;
 struct Item { id: i32 }
 fn main() -> i32 {
     let mut v: Vec<Item> = vec_new::<Item>();

@@ -9,7 +9,7 @@ use logos.lang.str;
 use logos.lang.result;
 use logos.lang.option;
 use logos.lang.iter;
-use std.collections.vec;
+use logos.mem.collections.vec;
 
 unsafe fn cstr(s: str) -> *const u8 {
     let mut buf: String = String::new();

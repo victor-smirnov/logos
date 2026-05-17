@@ -1,5 +1,5 @@
 package vec_string;
-use std.collections.vec;
+use logos.mem.collections.vec;
 use logos.mem.string;
 use logos.lang.str;
 fn main() -> i32 {

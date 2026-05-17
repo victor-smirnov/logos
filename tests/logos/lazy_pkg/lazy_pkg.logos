@@ -4,7 +4,7 @@
 
 package lazy_pkg;
 
-use std.collections.vec;
+use logos.mem.collections.vec;
 
 pub fn add_one(x: i32) -> i32 {
     return x + 1i32;

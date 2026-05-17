@@ -5,7 +5,7 @@
 package fn_macro_arr_basic;
 
 use std.compiler.metaprog;
-use std.collections.vec;
+use logos.mem.collections.vec;
 
 #[fn_macro]
 pub fn arr_macro(elems: Vec<ExprBlob>) -> ExprBlob {

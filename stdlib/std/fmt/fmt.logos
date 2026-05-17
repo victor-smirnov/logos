@@ -16,7 +16,7 @@ use logos.lang.str;
 use logos.lang.panic;
 use logos.lang.cmp;
 use std.compiler.metaprog;
-use std.collections.vec;
+use logos.mem.collections.vec;
 use std.io;
 
 // ── Debug trait ───────────────────────────────────────────────────────────

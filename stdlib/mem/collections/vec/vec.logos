@@ -3,7 +3,7 @@
 // Vec<T> — growable heap-allocated generic array.
 // Uses malloc/realloc/free from std.mem.
 
-package std.collections.vec;
+package logos.mem.collections.vec;
 
 use logos.mem.mem;
 use logos.lang.option;

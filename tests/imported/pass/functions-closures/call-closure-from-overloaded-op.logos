@@ -9,7 +9,7 @@ package call_closure_from_overloaded_op;
 use std.fmt;
 use logos.mem.string;
 use logos.lang.str;
-use std.collections.vec;
+use logos.mem.collections.vec;
 
 fn foo() -> isize { return 22isize; }
 

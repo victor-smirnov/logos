@@ -17,7 +17,7 @@ use logos.lang.str;
 use logos.lang.iter;
 use logos.lang.range;
 use logos.lang.option;
-use std.collections.vec;
+use logos.mem.collections.vec;
 
 #[test]
 fn test_range_collect() {

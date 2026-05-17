@@ -5,7 +5,7 @@ package lforge.manifest;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.result;
-use std.collections.vec;
+use logos.mem.collections.vec;
 use std.io.fs;
 use logos.lang.hermes.zone;
 use logos.lang.hermes.anyval;

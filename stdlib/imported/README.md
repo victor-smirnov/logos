@@ -45,7 +45,7 @@ Imported stdlib files live under
 structure (e.g. `stdlib/imported/std/collections/btree/node.logos`
 declares `package std.collections.btree;`). The build system globs
 every `.logos` file under `stdlib/`, so callers continue to write
-`use std.collections.btree;` regardless of physical location —
+`use logos.mem.collections.btree;` regardless of physical location —
 import semantics is package-name-based; file placement is the
 build system's concern, not the user's.
 

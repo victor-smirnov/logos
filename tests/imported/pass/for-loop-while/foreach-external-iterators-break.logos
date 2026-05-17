@@ -8,7 +8,7 @@ use std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.option;
-use std.collections.vec;
+use logos.mem.collections.vec;
 
 fn main() -> i32 {
     let x: [i64; 100] = [1i64; 100];

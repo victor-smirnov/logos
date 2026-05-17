@@ -3,7 +3,7 @@
 
 package std.io.http;
 
-use std.collections.vec;
+use logos.mem.collections.vec;
 use std.io.read;
 use std.io.write;
 

@@ -7,7 +7,7 @@ use std.io.http;
 use std.io.buffered;
 use std.io.pipe;
 use std.io.read;
-use std.collections.vec;
+use logos.mem.collections.vec;
 use logos.mem.string;
 use logos.lang.str;
 

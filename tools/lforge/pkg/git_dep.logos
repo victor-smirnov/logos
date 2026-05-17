@@ -6,7 +6,7 @@ package lforge.git_dep;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.result;
-use std.collections.vec;
+use logos.mem.collections.vec;
 use std.io.fs;
 
 use lforge.schema;

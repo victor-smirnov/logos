@@ -1,7 +1,7 @@
 // pass — HashSet<K> smoke test.
 package test;
 
-use std.collections.set;
+use logos.mem.collections.set;
 use logos.lang.hash;
 use logos.lang.cmp;
 use logos.lang.iter;

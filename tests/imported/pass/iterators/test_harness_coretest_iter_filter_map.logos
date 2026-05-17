@@ -20,7 +20,7 @@ use logos.lang.str;
 use logos.lang.iter;
 use logos.lang.range;
 use logos.lang.option;
-use std.collections.vec;
+use logos.mem.collections.vec;
 
 fn square_if_even(x: i32) -> Option<i32> {
     if (x % 2i32) == 0i32 { return Some(x * x); }

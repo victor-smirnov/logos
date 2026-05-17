@@ -11,7 +11,7 @@
 
 package std.compiler.tokens;
 
-use std.collections.vec;
+use logos.mem.collections.vec;
 use logos.mem.string;
 use logos.lang.str;
 

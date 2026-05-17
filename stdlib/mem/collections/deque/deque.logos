@@ -9,7 +9,7 @@
 //
 // Invariant: 0 <= len <= cap; head < cap (always masked).
 
-package std.collections.deque;
+package logos.mem.collections.deque;
 
 use logos.mem.mem;
 use logos.lang.option;

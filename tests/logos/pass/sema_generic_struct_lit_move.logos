@@ -6,7 +6,7 @@
 // the source's auto-drop, once via the constructed struct's
 // field-walk drop).
 package sema_generic_struct_lit_move;
-use std.collections.vec;
+use logos.mem.collections.vec;
 
 pub struct Holder<const N: i64> {
     pub items: Vec<i64>,

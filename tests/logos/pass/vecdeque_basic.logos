@@ -1,7 +1,7 @@
 // pass — VecDeque<T> smoke test.
 package test;
 
-use std.collections.deque;
+use logos.mem.collections.deque;
 use logos.lang.option;
 
 fn main() -> i32 {

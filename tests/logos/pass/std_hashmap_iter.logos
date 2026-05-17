@@ -1,6 +1,6 @@
 package test;
 
-use std.collections.hashmap;
+use logos.mem.collections.hashmap;
 use logos.lang.iter;
 use logos.lang.option;
 

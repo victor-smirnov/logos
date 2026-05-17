@@ -29,7 +29,7 @@ use logos.lang.iter;
 use logos.lang.range;
 use logos.lang.option;
 use logos.lang.cmp;
-use std.collections.vec;
+use logos.mem.collections.vec;
 
 fn abs_i32(x: i32) -> i32 {
     if x < 0i32 { return 0i32 - x; }

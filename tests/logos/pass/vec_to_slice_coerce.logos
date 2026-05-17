@@ -4,7 +4,7 @@
 // through verbatim at runtime.
 package vec_to_slice_coerce;
 
-use std.collections.vec;
+use logos.mem.collections.vec;
 
 fn first(s: &[i64]) -> i64 {
     // Slice fat-ptr layout matches Vec layout; we don't peek into it

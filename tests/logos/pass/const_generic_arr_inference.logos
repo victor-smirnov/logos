@@ -3,7 +3,7 @@
 // element type) AND N=3 (from the array length) — no `::<i32, 3i64>`.
 package const_generic_arr_inference;
 
-use std.collections.vec;
+use logos.mem.collections.vec;
 
 pub fn vec_from_arr<T: Copy, const N: i64>(arr: [T; N]) -> Vec<T> {
     let mut v: Vec<T> = vec_new::<T>();

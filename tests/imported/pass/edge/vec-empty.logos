@@ -1,5 +1,5 @@
 package vec_empty;
-use std.collections.vec;
+use logos.mem.collections.vec;
 fn main() -> i32 {
     let v: Vec<i32> = vec_new::<i32>();
     return v.length() as i32;

@@ -23,7 +23,7 @@
 
 package std.data.persistent.handle;
 
-use std.collections.vec;
+use logos.mem.collections.vec;
 use logos.mem.mem;
 use logos.mem.sync;
 use logos.mem.rc;

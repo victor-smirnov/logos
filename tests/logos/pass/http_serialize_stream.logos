@@ -8,7 +8,7 @@ use std.io.pipe;
 use std.io.read;
 use std.io.write;
 use std.io.net.url;
-use std.collections.vec;
+use logos.mem.collections.vec;
 use logos.lang.option;
 use logos.lang.result;
 use logos.mem.string;

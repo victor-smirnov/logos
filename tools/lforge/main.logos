@@ -63,7 +63,7 @@ use logos.lang.str;
 use logos.lang.option;
 use logos.lang.result;
 use logos.lang.iter;
-use std.collections.vec;
+use logos.mem.collections.vec;
 use logos.std.process;
 use logos.std.env;
 

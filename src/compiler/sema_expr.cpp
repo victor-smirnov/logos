@@ -7135,7 +7135,7 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
 // List comprehension:  [elem_expr for x in iter_expr (if guard)?]
 // Desugars to a block expression that creates a Vec<T>, iterates over
 // iter_expr, optionally filters by guard, and pushes elem_expr into the Vec.
-// Requires `use std.collections.vec;` in scope.
+// Requires `use logos.mem.collections.vec;` in scope.
 // Iterator support: array / slice (via SForEach); generic iterator path
 // (types with .next() returning Option<T>) is deferred.
 lir::LExprPtr SemaChecker::lower_list_comp(TinyMapView node) {
@@ -7166,13 +7166,13 @@ lir::LExprPtr SemaChecker::lower_list_comp(TinyMapView node) {
     {
         auto [vpkg, vsi] = find_struct_by_name("Vec");
         if (!vsi) {
-            error("list comprehension requires `use std.collections.vec;`");
+            error("list comprehension requires `use logos.mem.collections.vec;`");
             return error_expr();
         }
     }
     auto* vec_new_fi = find_generic_func("vec_new");
     if (!vec_new_fi) {
-        error("list comprehension: vec_new not found; add `use std.collections.vec;`");
+        error("list comprehension: vec_new not found; add `use logos.mem.collections.vec;`");
         return error_expr();
     }
 
@@ -7243,7 +7243,7 @@ lir::LExprPtr SemaChecker::lower_list_comp(TinyMapView node) {
 // Map comprehension:  {kexpr: vexpr for x in iter_expr (if guard)?}
 // Desugars to a block that creates a HashMap<K,V>, iterates over iter_expr,
 // optionally filters by guard, and inserts (kexpr, vexpr) pairs.
-// Requires `use std.collections.hashmap;` in scope.
+// Requires `use logos.mem.collections.hashmap;` in scope.
 lir::LExprPtr SemaChecker::lower_map_comp(TinyMapView node) {
     auto var_name = str_of(node.get(la::NAME.code));
 
@@ -7270,13 +7270,13 @@ lir::LExprPtr SemaChecker::lower_map_comp(TinyMapView node) {
     {
         auto [hmpkg, hmsi] = find_struct_by_name("HashMap");
         if (!hmsi) {
-            error("map comprehension requires `use std.collections.hashmap;`");
+            error("map comprehension requires `use logos.mem.collections.hashmap;`");
             return error_expr();
         }
     }
     auto* hm_new_fi = find_generic_func("hashmap_new");
     if (!hm_new_fi) {
-        error("map comprehension: hashmap_new not found; add `use std.collections.hashmap;`");
+        error("map comprehension: hashmap_new not found; add `use logos.mem.collections.hashmap;`");
         return error_expr();
     }
 
@@ -13336,7 +13336,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
             "package {};\n"
             "use std.compiler.metaprog;\n"
             "use std.hermes.view;\n"
-            "use std.collections.vec;\n"
+            "use logos.mem.collections.vec;\n"
             "fn {}() -> ExprBlob {{\n"
             "    let mut v: Vec<ExprBlob> = vec_new::<ExprBlob>();\n"
             "{}"
@@ -13584,7 +13584,7 @@ void SemaChecker::lower_fn_macro_call_item(hermes::TinyMapView node,
         thunk_src = std::format(
             "package {};\n"
             "use std.compiler.metaprog;\n"
-            "use std.collections.vec;\n"
+            "use logos.mem.collections.vec;\n"
             "use std.hermes.view;\n"
             "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
             "extern fn logos_qib_free_idents(blob: *const u8);\n"
@@ -13611,7 +13611,7 @@ void SemaChecker::lower_fn_macro_call_item(hermes::TinyMapView node,
         thunk_src = std::format(
             "package {};\n"
             "use std.compiler.metaprog;\n"
-            "use std.collections.vec;\n"
+            "use logos.mem.collections.vec;\n"
             "use std.hermes.view;\n"
             "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
             "extern fn logos_qib_free_idents(blob: *const u8);\n"
@@ -13859,7 +13859,7 @@ void SemaChecker::lower_metacall_item(hermes::TinyMapView node,
         site.thunk_source = std::format(
             "package {};\n"
             "use std.compiler.metaprog;\n"
-            "use std.collections.vec;\n"
+            "use logos.mem.collections.vec;\n"
             "use std.hermes.view;\n"
             "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
             "extern fn logos_qib_free_idents(blob: *const u8);\n"

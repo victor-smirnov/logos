@@ -1,6 +1,6 @@
 package test;
 
-use std.collections.hashmap;
+use logos.mem.collections.hashmap;
 
 fn main() -> i32 {
     unsafe {

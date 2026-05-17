@@ -15,7 +15,7 @@
 
 package std.compiler.metaprog;
 
-use std.collections.vec;
+use logos.mem.collections.vec;
 use logos.lang.hermes.view;
 use std.hermes.view;
 use logos.lang.hermes.anyval;

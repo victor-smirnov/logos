@@ -4,7 +4,7 @@
 // array-literal length is NOT (yet) wired up — turbofish required.
 package const_generic_numeric;
 
-use std.collections.vec;
+use logos.mem.collections.vec;
 
 pub fn vec_from_arr<T: Copy, const N: i64>(arr: [T; N]) -> Vec<T> {
     let mut v: Vec<T> = vec_new::<T>();

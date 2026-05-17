@@ -4,7 +4,7 @@
 // (Logos has no `vec!` macro yet — planned, tracked under macro work).
 package generic_ivec_leak;
 
-use std.collections.vec;
+use logos.mem.collections.vec;
 
 enum wrapper<T> { wrapped(T) }
 

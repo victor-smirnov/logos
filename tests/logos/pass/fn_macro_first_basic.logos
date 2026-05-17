@@ -4,7 +4,7 @@
 package fn_macro_first_basic;
 
 use std.compiler.metaprog;
-use std.collections.vec;
+use logos.mem.collections.vec;
 
 #[fn_macro]
 pub fn first_macro(elems: Vec<ExprBlob>) -> ExprBlob {

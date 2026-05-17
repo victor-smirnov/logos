@@ -1,7 +1,7 @@
 // pass — BTreeMap<K: Ord, V> smoke test.
 package test;
 
-use std.collections.btree;
+use logos.mem.collections.btree;
 use logos.lang.cmp;
 use logos.lang.iter;
 use logos.lang.option;

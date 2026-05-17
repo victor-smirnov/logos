@@ -1,5 +1,5 @@
 package vec_for_each;
-use std.collections.vec;
+use logos.mem.collections.vec;
 fn main() -> i32 {
     let mut v: Vec<i32> = vec_new::<i32>();
     v.push(1i32);

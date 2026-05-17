@@ -6,7 +6,7 @@ package loop_scope_test;
 use std.fmt;
 use logos.mem.string;
 use logos.lang.str;
-use std.collections.vec;
+use logos.mem.collections.vec;
 
 fn main() -> i32 {
     let mut x: Vec<i64> = vec_new::<i64>();

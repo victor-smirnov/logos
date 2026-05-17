@@ -10,7 +10,7 @@
 // API and is simple enough to verify by inspection. A real B-tree can be
 // swapped in later without changing callers.
 
-package std.collections.btree;
+package logos.mem.collections.btree;
 
 use logos.mem.mem;
 use logos.lang.cmp;

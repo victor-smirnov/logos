@@ -1,7 +1,7 @@
 // B82: vec.push(vec[0] + vec[1]) — receiver auto-borrow reserved
 // while arg-eval reads same vec via indexing.
 package tpb_vec_extend_from_self;
-use std.collections.vec;
+use logos.mem.collections.vec;
 
 fn main() -> i32 {
     let mut v: Vec<i32> = vec_new::<i32>();

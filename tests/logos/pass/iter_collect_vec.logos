@@ -1,6 +1,6 @@
 package iter_collect_vec_test;
 use logos.lang.iter;
-use std.collections.vec;
+use logos.mem.collections.vec;
 
 fn main() -> i32 {
     let arr: [i32; 5] = [10i32, 20i32, 30i32, 40i32, 50i32];

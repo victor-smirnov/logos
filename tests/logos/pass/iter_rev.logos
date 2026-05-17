@@ -8,7 +8,7 @@ package iter_rev_test;
 
 use logos.lang.iter;
 use logos.lang.option;
-use std.collections.vec;
+use logos.mem.collections.vec;
 
 fn main() -> i32 {
     let arr: [i32; 5] = [1i32, 2i32, 3i32, 4i32, 5i32];

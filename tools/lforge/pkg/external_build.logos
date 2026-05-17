@@ -11,7 +11,7 @@ package lforge.external_build;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.result;
-use std.collections.vec;
+use logos.mem.collections.vec;
 
 use lforge.schema;
 use lforge.util;

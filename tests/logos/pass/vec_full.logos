@@ -1,7 +1,7 @@
 // pass — comprehensive Vec<T> test (pop, set, remove, iter, contains).
 package test;
 
-use std.collections.vec;
+use logos.mem.collections.vec;
 use logos.lang.option;
 use logos.lang.iter;
 use logos.lang.cmp;

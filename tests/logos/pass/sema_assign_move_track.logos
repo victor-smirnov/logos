@@ -6,7 +6,7 @@
 // dealloc the same heap pointer without the move-tracking fix.
 package sema_assign_move_track;
 
-use std.collections.vec;
+use logos.mem.collections.vec;
 use logos.mem.mem;
 
 struct Owner {

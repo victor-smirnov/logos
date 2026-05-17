@@ -4,7 +4,7 @@
 // free-fn factory).
 package empty_mutable_vec;
 
-use std.collections.vec;
+use logos.mem.collections.vec;
 
 fn main() -> i32 {
     let mut _v: Vec<isize> = vec_new::<isize>();

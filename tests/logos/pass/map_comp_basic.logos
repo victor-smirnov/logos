@@ -1,6 +1,6 @@
 package map_comp_basic;
 
-use std.collections.hashmap;
+use logos.mem.collections.hashmap;
 
 fn main() -> i32 {
     let arr: [i32; 5] = [1, 2, 3, 4, 5];

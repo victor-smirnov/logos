@@ -6,7 +6,7 @@ package lforge.proc;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.option;
-use std.collections.vec;
+use logos.mem.collections.vec;
 use logos.std.process;
 
 use lforge.util;

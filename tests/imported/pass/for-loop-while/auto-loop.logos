@@ -12,7 +12,7 @@ use std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.option;
-use std.collections.vec;
+use logos.mem.collections.vec;
 
 fn main() -> i32 {
     let mut sum: i64 = 0i64;

@@ -4,7 +4,7 @@ package lforge.schema;
 
 use logos.mem.string;
 use logos.lang.str;
-use std.collections.vec;
+use logos.mem.collections.vec;
 
 pub enum TargetKind { Bin, Lib }
 

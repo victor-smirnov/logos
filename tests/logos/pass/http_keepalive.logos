@@ -9,7 +9,7 @@ use std.io.http;
 use std.io.net;
 use logos.mem.string;
 use logos.lang.str;
-use std.collections.vec;
+use logos.mem.collections.vec;
 use logos.lang.option;
 use logos.lang.result;
 use logos.std.rt.fiber;

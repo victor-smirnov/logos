@@ -9,7 +9,7 @@ package iter_collect_test;
 
 use logos.lang.iter;
 use logos.lang.option;
-use std.collections.vec;
+use logos.mem.collections.vec;
 
 struct Counter { cur: i32, max: i32 }
 
