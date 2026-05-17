@@ -15,7 +15,7 @@
 //     marker.
 package generic_ref_registry_dispatch;
 
-use std.lang.datatypes;
+use logos.lang.hermes.fabric;
 use std.hermes.view;
 use std.hermes.anyval;
 

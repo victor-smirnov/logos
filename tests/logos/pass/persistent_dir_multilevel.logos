@@ -11,7 +11,7 @@ use std.data.persistent.node;
 use std.data.persistent.cow;
 use std.data.persistent.descent;
 use std.data.persistent.mutate;
-use std.lang.datatypes;
+use logos.lang.hermes.fabric;
 use std.hermes.view;
 use std.hermes.anyval;
 

@@ -28,7 +28,7 @@ use std.mem;
 use std.mem.arc;
 use std.mem.rc;
 use logos.lang.cmp;
-use std.lang.datatypes;
+use logos.lang.hermes.fabric;
 use logos.lang.drop;
 use std.hermes.view;
 use std.hermes.anyval;

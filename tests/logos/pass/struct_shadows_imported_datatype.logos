@@ -5,7 +5,7 @@
 package struct_shadows_imported_datatype;
 
 use std.hermes.map;
-use std.lang.datatypes;
+use logos.lang.hermes.fabric;
 
 pub struct Map<K, V> {
     pub k: K,

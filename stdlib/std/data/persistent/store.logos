@@ -18,7 +18,7 @@ package std.data.persistent.store;
 
 use std.collections.vec;
 use logos.lang.cmp;
-use std.lang.datatypes;
+use logos.lang.hermes.fabric;
 use std.sync;
 use std.hermes.view;
 use std.hermes.anyval;

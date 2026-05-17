@@ -3,7 +3,7 @@
 // values in a PrimVec<DT>, reads hand back pointers into the store.
 package podref_buffer;
 
-use std.lang.datatypes;
+use logos.lang.hermes.fabric;
 
 #[zoned] pub struct Vec3 {
     pub x: i64,

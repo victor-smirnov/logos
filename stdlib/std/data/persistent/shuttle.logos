@@ -18,7 +18,7 @@
 
 package std.data.persistent.shuttle;
 
-use std.lang.datatypes;
+use logos.lang.hermes.fabric;
 use logos.lang.cmp;
 use std.hermes.view;
 use std.hermes.anyval;

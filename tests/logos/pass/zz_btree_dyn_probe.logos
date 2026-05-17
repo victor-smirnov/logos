@@ -24,7 +24,7 @@ package zz_btree_dyn_probe;
 use std.collections.vec;
 use std.mem;
 use logos.lang.drop;
-use logos.lang.cmp; use logos.lang.cmp; use std.lang.datatypes;
+use logos.lang.cmp; use logos.lang.cmp; use logos.lang.hermes.fabric;
 use std.hermes.view; use std.hermes.anyval;
 
 // ── StoreCfg sketch ─────────────────────────────────────────────────────

@@ -28,7 +28,7 @@ package std.data.persistent.cow;
 use std.collections.vec;
 use std.mem;
 use logos.lang.cmp;
-use std.lang.datatypes;
+use logos.lang.hermes.fabric;
 use std.hermes.view;
 use std.hermes.anyval;
 

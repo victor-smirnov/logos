@@ -13,7 +13,7 @@ use std.collections.vec;
 use std.hermes.view;
 use std.hermes.anyval;
 use std.hermes.string;
-use std.lang.datatypes;
+use logos.lang.hermes.fabric;
 
 #[metaprog_handler("derive_struct_with_cols")]
 fn derive_struct_with_cols_hook(target_offset: u32) -> () {

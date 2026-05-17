@@ -23,7 +23,7 @@ package std.data.persistent.node;
 
 use std.mem;
 use logos.lang.cmp;
-use std.lang.datatypes;
+use logos.lang.hermes.fabric;
 use logos.lang.drop;
 use std.hermes.view;
 use std.hermes.anyval;
