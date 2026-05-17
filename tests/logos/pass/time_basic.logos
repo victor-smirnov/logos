@@ -1,7 +1,7 @@
 // Tests std.time: Duration, Instant, SystemTime.
 package test;
 
-use std.time;
+use logos.std.time;
 
 fn check_duration() -> i32 {
     let d0: Duration = duration_from_nanos(0 as i64);

@@ -4,7 +4,7 @@
 // proleptic-Gregorian algorithms (public domain), valid for all
 // years representable in i64 seconds.
 
-package std.time.datetime;
+package logos.std.time.datetime;
 
 use std.lang.text;
 

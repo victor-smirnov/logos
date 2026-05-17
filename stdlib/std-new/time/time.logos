@@ -12,7 +12,7 @@
 //   CLOCK_REALTIME  = 0  — wall clock (affected by NTP / settimeofday)
 //   CLOCK_MONOTONIC = 1  — monotonic, never goes backwards
 
-package std.time;
+package logos.std.time;
 
 use std.mem;
 

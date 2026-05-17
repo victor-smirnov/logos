@@ -12,7 +12,7 @@
 package bench;
 
 use std.io;
-use std.time;
+use logos.std.time;
 use std.data.persistent.map;
 use std.lang.cmp;
 use std.lang.ord;
