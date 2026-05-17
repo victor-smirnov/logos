@@ -39,7 +39,7 @@ use std.hermes.map;
 use std.hermes.typed_value;
 use std.hermes.objectmap;
 use std.hermes.document;
-use std.hermes.scalar;
+use logos.lang.hermes.scalar;
 use std.hermes.decimal;
 
 extern fn malloc(size: i64) -> *mut u8;

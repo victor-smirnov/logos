@@ -26,7 +26,7 @@ use std.hermes.map;
 use std.hermes.typed_value;
 use std.hermes.objectmap;
 use std.hermes.document;
-use std.hermes.scalar;
+use logos.lang.hermes.scalar;
 use std.hermes.decimal;
 use logos.lang.hermes.mem_holder;
 use logos.mem.string;

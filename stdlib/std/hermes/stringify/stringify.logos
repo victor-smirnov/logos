@@ -33,7 +33,7 @@ use std.hermes.map;
 use std.hermes.typed_value;
 use std.hermes.objectmap;
 use std.hermes.document;
-use std.hermes.scalar;
+use logos.lang.hermes.scalar;
 use std.hermes.decimal;
 use logos.mem.string;
 use logos.lang.str;

@@ -20,7 +20,7 @@ package std.compiler.metaprog;
 use std.hermes.view;
 use std.hermes.anyval;
 use std.hermes.string;
-use std.hermes.scalar;
+use logos.lang.hermes.scalar;
 use std.hermes.objectmap;
 use std.hermes.array;
 use std.hermes.map;

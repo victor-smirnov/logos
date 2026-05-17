@@ -15,7 +15,7 @@ use std.hermes.view;
 use std.hermes.anyval;
 use std.hermes.string;
 use std.hermes.map;
-use std.hermes.scalar;
+use logos.lang.hermes.scalar;
 use logos.mem.string;
 use logos.lang.str;
 
