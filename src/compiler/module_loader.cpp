@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <queue>
 #include <sstream>
 #include <system_error>
 #include <unordered_map>
@@ -182,6 +183,195 @@ static std::vector<std::string> extract_uses(hermes::HermesView ast,
     }
 
     return finalize();
+}
+
+// Topologically sort modules by package-level `use` deps.
+//
+// Rationale (post-mortem of bug (D)): the loader's DFS produces dep-first
+// order for the text-only path, but binary-archive loading bypasses that
+// invariant — packages from a .a may end up in `modules` at indices that
+// don't reflect actual dependency order (e.g. text `logos.lang.hermes.check`
+// before binary `std.hermes.map` even though check has `use std.hermes.map;`).
+// Lower-pass lookups that walk `prog.struct_specializations` etc. break
+// when a dependent module is processed before its dep has populated those
+// data structures.
+//
+// This sort makes the dep-order invariant explicit. It runs on the final
+// `modules` vector after load and is independent of how each module got
+// loaded (text vs binary).
+//
+// Cycles are legitimate in Logos at the package level (e.g. option ↔ result:
+// Option methods return Result and vice versa). We handle them via
+// Tarjan SCC + condensation: each SCC collapses to a single node, and
+// the resulting (provably acyclic) condensation graph is topo-sorted.
+// Within an SCC, packages keep original (first-seen) load order; this is
+// safe because by construction nothing outside the SCC orders them.
+//
+// Stable: when no dep edge forces a reorder, original (load-order) position
+// is preserved.
+//
+// Sort granularity is package-level: all files of a package move together.
+// Within a package, original (load-order) order is preserved.
+//
+// `implicit_prelude`: when non-empty, adds an edge from every text module
+// (those not from a binary archive AND not opted out via
+// `#![no_implicit_prelude]`) to the prelude package. Binary modules already
+// baked in their producer's prelude at original-build time.
+static std::vector<ParsedModule>
+topo_sort_modules(std::vector<ParsedModule> in,
+                  std::string_view implicit_prelude)
+{
+    const size_t N_in = in.size();
+    // Group modules by package, capturing first-seen order.
+    std::unordered_map<std::string, std::vector<size_t>> pkg_to_indices;
+    std::vector<std::string> pkg_order;  // stable, first-seen
+    std::unordered_map<std::string, size_t> rank;
+    for (size_t i = 0; i < in.size(); ++i) {
+        const auto& pkg = in[i].package;
+        if (!pkg_to_indices.count(pkg)) {
+            rank[pkg] = pkg_order.size();
+            pkg_order.push_back(pkg);
+        }
+        pkg_to_indices[pkg].push_back(i);
+    }
+
+    const size_t N = pkg_order.size();
+    // adj[u] = list of package ids that u depends on (i.e. u → dep edge).
+    std::vector<std::vector<size_t>> adj(N);
+    {
+        std::unordered_set<size_t> seen_edges;  // (u<<32)|v dedup
+        for (size_t i = 0; i < in.size(); ++i) {
+            const auto& pkg = in[i].package;
+            std::string_view ip = in[i].from_binary_module
+                ? std::string_view{} : implicit_prelude;
+            auto uses = extract_uses(in[i].ast, ip);
+            size_t u = rank[pkg];
+            for (auto& used : uses) {
+                if (used == pkg) continue;
+                auto it = rank.find(used);
+                if (it == rank.end()) continue;
+                size_t v = it->second;
+                size_t key = (u << 32) | v;
+                if (!seen_edges.insert(key).second) continue;
+                adj[u].push_back(v);
+            }
+        }
+    }
+
+    // Tarjan's SCC algorithm. Iterative to avoid stack blow-up on large
+    // dep graphs. Each SCC gets an id in scc_id[v]; SCCs are output in
+    // reverse topological order of the condensation (which is exactly the
+    // order Tarjan produces them — deepest SCCs first).
+    std::vector<int> index_of(N, -1);
+    std::vector<int> lowlink(N, 0);
+    std::vector<char> on_stack(N, 0);
+    std::vector<size_t> stack;
+    std::vector<int> scc_id(N, -1);
+    int next_index = 0;
+    int next_scc = 0;
+    // Reverse-topo-order list of SCC ids as Tarjan emits them.
+    std::vector<int> scc_rev_topo;
+
+    // Iterative DFS state.
+    struct Frame { size_t v; size_t next_child; };
+    std::vector<Frame> dfs;
+
+    for (size_t s = 0; s < N; ++s) {
+        if (index_of[s] != -1) continue;
+        dfs.push_back({s, 0});
+        index_of[s] = next_index;
+        lowlink[s] = next_index;
+        ++next_index;
+        stack.push_back(s);
+        on_stack[s] = 1;
+
+        while (!dfs.empty()) {
+            auto& fr = dfs.back();
+            size_t v = fr.v;
+            if (fr.next_child < adj[v].size()) {
+                size_t w = adj[v][fr.next_child++];
+                if (index_of[w] == -1) {
+                    index_of[w] = next_index;
+                    lowlink[w] = next_index;
+                    ++next_index;
+                    stack.push_back(w);
+                    on_stack[w] = 1;
+                    dfs.push_back({w, 0});
+                } else if (on_stack[w]) {
+                    if (index_of[w] < lowlink[v]) lowlink[v] = index_of[w];
+                }
+            } else {
+                // Done with v. If root of an SCC, pop it.
+                if (lowlink[v] == index_of[v]) {
+                    int id = next_scc++;
+                    while (true) {
+                        size_t w = stack.back();
+                        stack.pop_back();
+                        on_stack[w] = 0;
+                        scc_id[w] = id;
+                        if (w == v) break;
+                    }
+                    scc_rev_topo.push_back(id);
+                }
+                dfs.pop_back();
+                if (!dfs.empty()) {
+                    size_t parent = dfs.back().v;
+                    if (lowlink[v] < lowlink[parent]) lowlink[parent] = lowlink[v];
+                }
+            }
+        }
+    }
+
+    // Group packages by SCC, preserving each SCC's internal first-seen order.
+    std::vector<std::vector<size_t>> scc_members(next_scc);
+    for (size_t v = 0; v < N; ++v) {
+        scc_members[scc_id[v]].push_back(v);
+    }
+    // scc_members[i] is already in first-seen order of vertices (we
+    // iterated v from 0 to N-1 above, where v is the rank/first-seen id).
+
+    // Diagnostic: report any non-trivial SCC (cycle of ≥2 packages).
+    if (std::getenv("LOGOS_TRACE_PHASES") != nullptr) {
+        for (int id = 0; id < next_scc; ++id) {
+            if (scc_members[id].size() <= 1) continue;
+            std::fprintf(stderr, "module_loader: package SCC (%zu members):\n",
+                         scc_members[id].size());
+            for (size_t v : scc_members[id]) {
+                std::fprintf(stderr, "  - %s\n",
+                             pkg_order[v].empty() ? "<root>" : pkg_order[v].c_str());
+            }
+        }
+    }
+
+    // Tarjan emits SCCs in "reverse topological order of the condensation"
+    // where edges u→v mean "u before v". Our edges are inverse — u→v means
+    // "u depends on v", so v must be processed first. Tarjan emits deepest-
+    // first, which in our semantics is dependencies-first. No reversal.
+    std::vector<int>& scc_topo = scc_rev_topo;
+
+    // Re-emit modules: walk SCCs in topo order; within an SCC, walk member
+    // packages in first-seen order; within a package, preserve module order.
+    std::vector<ParsedModule> out;
+    out.reserve(in.size());
+    for (int id : scc_topo) {
+        for (size_t v : scc_members[id]) {
+            for (size_t idx : pkg_to_indices[pkg_order[v]]) {
+                out.push_back(std::move(in[idx]));
+            }
+        }
+    }
+    // Output must be a permutation of input — the algorithm partitions
+    // vertices across SCCs (each in exactly one SCC) and walks every SCC
+    // member's indices exactly once. A count mismatch indicates an
+    // implementation bug.
+    if (out.size() != N_in) {
+        std::fprintf(stderr,
+            "module_loader: topo_sort_modules INVARIANT VIOLATED — "
+            "in=%zu out=%zu (returning input unchanged)\n",
+            N_in, out.size());
+        return in;  // refuse to corrupt the build; fall back to original
+    }
+    return out;
 }
 
 // Cheap text-level scan for a file's `package` declaration.
@@ -1173,6 +1363,14 @@ std::vector<ParsedModule> load_modules(
     auto root_canonical = fs::weakly_canonical(root_path).string();
     auto root_pkg = scan_package_decl(root_canonical);
     visit_file(root_canonical, root_pkg);
+
+    // Restore the dep-order invariant: text-only loads naturally produce
+    // dep-first order via post-order DFS, but binary-archive loads bypass
+    // that — packages from a .a land in `modules` at indices that don't
+    // reflect actual deps. The topo-sort makes the invariant uniform
+    // across both code paths. See topo_sort_modules() for the post-mortem
+    // of bug (D) that motivated this.
+    modules = topo_sort_modules(std::move(modules), implicit_prelude);
 
     if (out_had_error) *out_had_error = had_error;
     return modules;
