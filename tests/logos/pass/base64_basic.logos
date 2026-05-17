@@ -1,7 +1,7 @@
 // Tests std.base64: encode, decode, padding, round-trip.
 package test;
 
-use std.encoding.base64;
+use logos.mem.encoding.base64;
 use std.lang.text;
 
 fn main() -> i32 {

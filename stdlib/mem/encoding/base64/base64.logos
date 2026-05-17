@@ -1,9 +1,9 @@
-// Logos standard library -- std.base64
+// Logos standard library -- logos.mem.encoding.base64
 //
 // RFC 4648 base64.  Standard alphabet; pads with '=' to a multiple of 4.
 // Decoder ignores nothing — malformed input is rejected (returns -1).
 
-package std.encoding.base64;
+package logos.mem.encoding.base64;
 
 use std.lang.text;
 
