@@ -1,8 +1,8 @@
-// Logos standard library -- std.hex
+// Logos standard library -- logos.mem.encoding.hex
 //
 // Hex encode/decode.  Lowercase on encode; both cases accepted on decode.
 
-package std.encoding.hex;
+package logos.mem.encoding.hex;
 
 use std.lang.text;
 
