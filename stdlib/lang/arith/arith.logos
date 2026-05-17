@@ -10,7 +10,7 @@
 // directly. The bodies below exist only so the fn signatures
 // type-check; they are never actually executed.
 
-package std.lang.arith;
+package logos.lang.arith;
 
 pub fn wrapping_add<T>(a: T, b: T) -> T { return a; }
 pub fn wrapping_sub<T>(a: T, b: T) -> T { return a; }

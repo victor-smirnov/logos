@@ -3,7 +3,7 @@
 // intrinsics in std.lang.arith.
 package wrapping_arith;
 
-use std.lang.arith;
+use logos.lang.arith;
 
 unsafe fn main() -> i32 {
     // Wrap is intentional here — wrapping_add gives silent two's-complement.

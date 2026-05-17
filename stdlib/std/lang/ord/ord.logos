@@ -7,7 +7,7 @@
 package std.lang.ord;
 
 use std.lang.option;
-use std.lang.arith;
+use logos.lang.arith;
 
 pub enum Ordering {
     Less,

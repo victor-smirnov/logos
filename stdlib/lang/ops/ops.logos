@@ -9,7 +9,7 @@
 // codegen directly on integer / bool types — these traits provide the
 // METHOD-CALL surface (`a.bitand(b)`) used by ported Rust code.
 
-package std.lang.ops;
+package logos.lang.ops;
 
 // ── Arithmetic ────────────────────────────────────────────────────
 //

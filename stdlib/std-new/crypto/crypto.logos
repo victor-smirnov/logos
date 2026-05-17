@@ -10,7 +10,7 @@
 package logos.std.crypto;
 
 use std.lang.text;
-use std.lang.arith;
+use logos.lang.arith;
 
 // ── SHA-256 ───────────────────────────────────────────────────────────────
 

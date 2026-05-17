@@ -9,7 +9,7 @@ use std.fmt;
 use std.lang.text;
 use std.lang.option;
 use std.lang.result;
-use std.lang.convert;
+use logos.lang.convert;
 
 #[test]
 fn test_from_i8_to_i64() {

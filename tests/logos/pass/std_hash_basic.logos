@@ -1,6 +1,6 @@
 package std_hash_basic;
 
-use std.lang.hash;
+use logos.lang.hash;
 
 fn main() -> i32 {
     let mut h: FxHasher = fx_hasher_new();

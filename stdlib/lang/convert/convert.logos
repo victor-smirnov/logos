@@ -7,7 +7,7 @@
 // their respective modules (text.logos / vec.logos) where the receiver
 // types are defined.
 
-package std.lang.convert;
+package logos.lang.convert;
 
 use std.lang.option;
 use std.lang.result;

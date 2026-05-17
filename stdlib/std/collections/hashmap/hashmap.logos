@@ -10,7 +10,7 @@
 package std.collections.hashmap;
 
 use std.mem;
-use std.lang.hash;
+use logos.lang.hash;
 use std.lang.cmp;
 use std.lang.option;
 use std.lang.iter;

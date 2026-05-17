@@ -5,9 +5,9 @@
 // adequate for HashMap collision distribution on non-adversarial inputs.
 // SipHash-2-4 can be slotted in later with the same trait surface.
 
-package std.lang.hash;
+package logos.lang.hash;
 
-use std.lang.arith;
+use logos.lang.arith;
 
 pub trait Hasher {
     fn write_u64(&mut self, val: u64);

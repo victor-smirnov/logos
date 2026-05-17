@@ -10,7 +10,7 @@
 
 package std.hermes.hashing;
 
-use std.lang.arith;
+use logos.lang.arith;
 use std.hermes.anyval;
 use std.hermes.string;
 use std.hermes.tags;

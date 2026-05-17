@@ -3,7 +3,7 @@
 //
 // Modifications:
 // - `use core::cmp::Ordering::{Equal, ...}` → `use std.lang.ord;` (path syntax)
-// - `use core::ops::{BitAnd, BitOr, BitXor}` → `use std.lang.ops;`
+// - `use core::ops::{BitAnd, BitOr, BitXor}` → `use logos.lang.ops;`
 // - `Equal` / `Less` / `Greater` → `Ordering::Equal` / etc. (no bare-variant
 //   re-export shorthand in Logos's import surface yet)
 // - Other test fns (test_bool_not, test_bool_to_option, test_bool_to_result)
@@ -23,7 +23,7 @@ use std.fmt;
 use std.lang.text;
 use std.lang.cmp;
 use std.lang.ord;
-use std.lang.ops;
+use logos.lang.ops;
 
 #[test]
 fn test_bool() {

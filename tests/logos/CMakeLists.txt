@@ -126,7 +126,12 @@ add_custom_command(
     COMMAND $<TARGET_FILE:logosc>
             --emit-module ${LAZY_PKG_MANIFEST}
             -o ${LAZY_PKG_BIN}
-    DEPENDS logosc ${LAZY_PKG_MANIFEST} ${LAZY_PKG_SOURCES}
+    # Phase 4 transition: lazy archives bake transitive stdlib package
+    # names into their .hm0 — when stdlib renames a package (e.g. ops →
+    # logos.lang.ops), the stale name in this archive collides with the
+    # fresh name at consumer sema time. Add STDLIB_SOURCES so any stdlib
+    # change triggers rebuild. Phase 7 cleanup removes the need.
+    DEPENDS logosc ${LAZY_PKG_MANIFEST} ${LAZY_PKG_SOURCES} ${STDLIB_SOURCES}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Building test fixture: liblazy_pkg.a"
 )
@@ -148,7 +153,7 @@ add_custom_command(
     COMMAND $<TARGET_FILE:logosc>
             --emit-module ${LAZY_LOWER_MANIFEST}
             -o ${LAZY_LOWER_BIN}
-    DEPENDS logosc ${LAZY_LOWER_MANIFEST} ${LAZY_LOWER_SOURCES}
+    DEPENDS logosc ${LAZY_LOWER_MANIFEST} ${LAZY_LOWER_SOURCES} ${STDLIB_SOURCES}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Building test fixture: liblazy_lower.a"
 )
@@ -158,7 +163,7 @@ add_custom_command(
             --emit-module ${LAZY_UPPER_MANIFEST}
             -o ${LAZY_UPPER_BIN}
             -l ${LAZY_LOWER_BIN}
-    DEPENDS logosc ${LAZY_UPPER_MANIFEST} ${LAZY_UPPER_SOURCES} ${LAZY_LOWER_BIN}
+    DEPENDS logosc ${LAZY_UPPER_MANIFEST} ${LAZY_UPPER_SOURCES} ${LAZY_LOWER_BIN} ${STDLIB_SOURCES}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Building test fixture: liblazy_upper.a"
 )

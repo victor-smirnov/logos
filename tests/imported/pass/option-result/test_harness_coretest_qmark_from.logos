@@ -17,7 +17,7 @@ use std.fmt;
 use std.lang.text;
 use std.lang.option;
 use std.lang.result;
-use std.lang.convert;
+use logos.lang.convert;
 
 fn inner_result(x: i32) -> Result<i32, i32> {
     if x < 0i32 { return Result::Err(7i32); }

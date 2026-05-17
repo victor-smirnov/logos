@@ -6,7 +6,7 @@
 
 package logos.std.random;
 
-use std.lang.arith;
+use logos.lang.arith;
 
 // glibc exposes getrandom(3) via <sys/random.h> — the symbol is always
 // available on recent glibc. Flags=0 means blocking on /dev/urandom.

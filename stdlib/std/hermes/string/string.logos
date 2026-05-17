@@ -13,7 +13,7 @@
 package std.hermes.string;
 
 use std.lang.datatypes;
-use std.lang.arith;
+use logos.lang.arith;
 use std.hermes.tags;
 use std.mem;
 
