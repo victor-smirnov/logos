@@ -142,3 +142,28 @@ fn test_or_else() {
     assert_eq!(y.or_else(two).unwrap(), 2isize);
     assert!(y.or_else(nothing).is_none());
 }
+
+// Rust: `const fn two_val() -> isize { 2 }` then `x.unwrap_or_else(two_val)`.
+// Logos drops `const` (CP-cm-04 — comptime is via metacall, not const fn).
+fn two_val() -> isize {
+    return 2isize;
+}
+
+#[test]
+fn test_unwrap_or_else() {
+    let x: Option<isize> = Some(1isize);
+    assert_eq!(x.unwrap_or_else(two_val), 1isize);
+
+    let x: Option<isize> = None;
+    assert_eq!(x.unwrap_or_else(two_val), 2isize);
+}
+
+// Rust's `test_unwrap_panic2` uses `Option<String>` to verify unwrap panics
+// on None. Logos adapts to Option<i32> (avoids cross-tier String dep at
+// the test boundary — same panic semantics).
+#[test]
+#[should_panic]
+fn test_unwrap_panic_none() {
+    let x: Option<i32> = None;
+    x.unwrap();
+}
