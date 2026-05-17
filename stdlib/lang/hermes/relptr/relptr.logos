@@ -15,7 +15,7 @@
 //   let rp: RelPtr<Node> = RelPtr { offset: some_u32 };
 //   let np: *const Node  = rp.resolve(zone.base);
 
-package std.hermes.relptr;
+package logos.lang.hermes.relptr;
 
 // Thin relative pointer — just 4 bytes stored in zone.
 // T must itself be a Datatype (Rule 9).

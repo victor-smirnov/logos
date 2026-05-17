@@ -23,7 +23,7 @@
 //   3    = Document   (Logos extension — DocumentHeader at zone offset 0)
 // (Canonical registry: stdlib/hermes/tags.logos :: HermesTag)
 
-package std.hermes.typetag;
+package logos.lang.hermes.typetag;
 
 // ---------------------------------------------------------------------------
 // Canonical type-hash constants

@@ -6,7 +6,7 @@ package tag_dispatch_table;
 // is populated but calling through it requires &tagged syntax, deferred).
 // Primary check: compilation succeeds and the impls produce correct results.
 
-use std.hermes.datatag;
+use logos.lang.hermes.datatag;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);

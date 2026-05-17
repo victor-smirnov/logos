@@ -8,7 +8,7 @@ use std.hermes.mem_holder;
 use std.hermes.array;
 use std.hermes.map;
 use std.hermes.typed_value;
-use std.hermes.relptr;
+use logos.lang.hermes.relptr;
 
 impl<T> Array<T> {
     pub unsafe fn push_grow(self: *mut Array<T>, holder: *mut MemHolder, val_ptr: *const T) {

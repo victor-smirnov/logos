@@ -25,8 +25,8 @@ package std.hermes.stringify;
 
 use std.hermes.anyval;
 use std.hermes.string;
-use std.hermes.typetag;
-use std.hermes.datatag;
+use logos.lang.hermes.typetag;
+use logos.lang.hermes.datatag;
 use std.hermes.tag_system;
 use std.hermes.array;
 use std.hermes.map;

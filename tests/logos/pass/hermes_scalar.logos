@@ -5,7 +5,7 @@ package hermes_scalar;
 use std.hermes.zone;
 use std.hermes.anyval;
 use std.hermes.string;
-use std.hermes.typetag;
+use logos.lang.hermes.typetag;
 use std.hermes.tag_system;
 use std.hermes.array;
 use std.hermes.map;

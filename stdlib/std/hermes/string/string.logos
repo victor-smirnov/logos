@@ -14,7 +14,7 @@ package std.hermes.string;
 
 use logos.lang.hermes.fabric;
 use logos.lang.arith;
-use std.hermes.tags;
+use logos.lang.hermes.tags;
 use logos.mem.mem;
 
 // ---------------------------------------------------------------------------

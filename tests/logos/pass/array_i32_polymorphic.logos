@@ -9,7 +9,7 @@ use std.hermes.anyval;
 use std.hermes.array;
 use std.hermes.map;
 use std.hermes.typed_value;
-use std.hermes.relptr;
+use logos.lang.hermes.relptr;
 use std.hermes.stringify;
 use std.hermes.equal;
 use std.hermes.hashing;

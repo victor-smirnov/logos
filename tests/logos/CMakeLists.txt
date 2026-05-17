@@ -51,7 +51,14 @@ add_custom_command(
     COMMAND $<TARGET_FILE:logosc>
             --emit-module ${LOGOS_LANG_MANIFEST}
             -o ${LOGOS_LANG_BIN}
-    DEPENDS logosc ${LOGOS_LANG_MANIFEST} ${LOGOS_LANG_SOURCES}
+    # During the Phase 4 coexistence window, layer-lang depends on the
+    # monolith because (a) some layer-lang files still `use std.*` for
+    # not-yet-migrated packages, and (b) any stale `std.X` package name
+    # left in the monolith's last build can collide with the layer's
+    # `logos.lang.X` mangled symbols at load time (ambiguous-call
+    # diagnostics). Forcing monolith to rebuild first guarantees its
+    # binary AST is fresh and consistent with current source.
+    DEPENDS logosc ${LOGOS_LANG_MANIFEST} ${LOGOS_LANG_SOURCES} ${STDLIB_BIN}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Building stdlib layer: liblogos-lang.a"
 )

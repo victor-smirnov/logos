@@ -3,7 +3,7 @@ package datatype_relptr;
 // Demonstrates: zone-relative singly-linked list.
 
 use std.hermes.zone;
-use std.hermes.relptr;
+use logos.lang.hermes.relptr;
 
 #[zoned] struct Node {
     value: i32,

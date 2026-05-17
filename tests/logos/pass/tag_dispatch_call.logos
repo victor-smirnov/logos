@@ -7,7 +7,7 @@ package tag_dispatch_call;
 //   3. A function accepting &tagged<DataTypeTagSystem> Checksum can dispatch
 //      to the correct impl method based on the type_code in memory.
 
-use std.hermes.datatag;
+use logos.lang.hermes.datatag;
 use std.hermes.tag_system;
 
 extern fn malloc(size: i64) -> *mut u8;

@@ -15,8 +15,8 @@
 package std.hermes.map;
 
 use std.hermes.anyval;
-use std.hermes.tags;
-use std.hermes.relptr;
+use logos.lang.hermes.tags;
+use logos.lang.hermes.relptr;
 
 // popcount_u64 etc. are compiler intrinsics (see sema_expr.cpp).
 

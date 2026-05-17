@@ -10,7 +10,7 @@
 //   128..222   — single-byte zone tags
 //   223+       — multi-byte zone tags (56-bit hash-derived)
 
-package std.hermes.tags;
+package logos.lang.hermes.tags;
 
 pub enum HermesTag {
     // Document root (special).

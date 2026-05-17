@@ -3,8 +3,8 @@ package hermes_typed_datatype_trait_coverage;
 
 use std.hermes.ctr;
 use std.hermes.anyval;
-use std.hermes.typetag;
-use std.hermes.datatag;
+use logos.lang.hermes.typetag;
+use logos.lang.hermes.datatag;
 use std.hermes.registry;
 use std.hermes.stringify;
 use std.hermes.equal;

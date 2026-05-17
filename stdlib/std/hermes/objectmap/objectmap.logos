@@ -23,12 +23,12 @@
 package std.hermes.objectmap;
 
 use std.hermes.anyval;
-use std.hermes.tags;
+use logos.lang.hermes.tags;
 use std.hermes.array;
 use std.hermes.map;
 use std.hermes.typed_value;
 use std.hermes.string;
-use std.hermes.relptr;
+use logos.lang.hermes.relptr;
 
 // ---------------------------------------------------------------------------
 // MapEntry — one slot in the hash table (8 bytes)

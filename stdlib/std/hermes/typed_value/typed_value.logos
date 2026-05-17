@@ -11,8 +11,8 @@
 package std.hermes.typed_value;
 
 use std.hermes.anyval;
-use std.hermes.tags;
-use std.hermes.relptr;
+use logos.lang.hermes.tags;
+use logos.lang.hermes.relptr;
 use std.hermes.string;
 
 #[type_code = HermesTag::TypedValue]

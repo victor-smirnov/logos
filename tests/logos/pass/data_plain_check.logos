@@ -9,7 +9,7 @@ package data_plain_check;
 //   4. Datatype with a generic Datatype field → DataNode (false).
 //      (RelPtr<Node> is generic → conservative DataNode rule.)
 
-use std.hermes.relptr;
+use logos.lang.hermes.relptr;
 
 // Only primitive fields → DataPlain.
 #[zoned] struct Point {

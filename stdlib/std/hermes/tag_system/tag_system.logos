@@ -20,7 +20,7 @@
 
 package std.hermes.tag_system;
 
-use std.hermes.datatag;
+use logos.lang.hermes.datatag;
 
 // ---------------------------------------------------------------------------
 // TagSystem trait

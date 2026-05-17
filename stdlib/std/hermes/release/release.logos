@@ -12,7 +12,7 @@ package std.hermes.release;
 
 use std.hermes.string;
 use std.hermes.anyval;
-use std.hermes.typetag;
+use logos.lang.hermes.typetag;
 use std.hermes.tag_system;
 use std.hermes.array;
 use std.hermes.map;

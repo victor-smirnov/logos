@@ -22,7 +22,7 @@
 package std.hermes.scalar;
 
 use logos.lang.hermes.fabric;
-use std.hermes.tags;
+use logos.lang.hermes.tags;
 
 // ── TinyInt (i8) ─────────────────────────────────────────────────────────
 

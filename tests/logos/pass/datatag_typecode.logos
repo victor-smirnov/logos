@@ -4,7 +4,7 @@ package datatag_typecode;
 // 2. hermes.datatag write_tag / read_type_code roundtrip
 // 3. tag_size for single-byte and multi-byte codes
 
-use std.hermes.datatag;
+use logos.lang.hermes.datatag;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);

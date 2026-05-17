@@ -5,10 +5,10 @@ package hermes_ex_arena;
 // so that silent changes to encoding constants or bit-field positions fail here.
 
 use std.hermes.zone;
-use std.hermes.relptr;
+use logos.lang.hermes.relptr;
 use std.hermes.anyval;
-use std.hermes.typetag;
-use std.hermes.datatag;
+use logos.lang.hermes.typetag;
+use logos.lang.hermes.datatag;
 use std.hermes.string;
 
 #[zoned] struct Slot { pub val: i32 }

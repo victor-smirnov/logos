@@ -7,7 +7,7 @@ package hermes_parse;
 use std.hermes.zone;
 use std.hermes.anyval;
 use std.hermes.string;
-use std.hermes.typetag;
+use logos.lang.hermes.typetag;
 use std.hermes.array;
 use std.hermes.map;
 use std.hermes.typed_value;

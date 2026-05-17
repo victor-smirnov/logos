@@ -16,9 +16,9 @@
 package std.hermes.array;
 
 use std.hermes.anyval;
-use std.hermes.tags;
+use logos.lang.hermes.tags;
 use std.hermes.mem_holder;
-use std.hermes.relptr;
+use logos.lang.hermes.relptr;
 
 // Canonical operation on any Array #[zoned] struct: the current element count.
 #[type_code = HermesTag::Array]

@@ -18,7 +18,7 @@
 package std.hermes.document;
 
 use std.hermes.anyval;
-use std.hermes.tags;
+use logos.lang.hermes.tags;
 
 // ---------------------------------------------------------------------------
 // Document — logical genos for Hermes documents; DocumentHeader is the zone

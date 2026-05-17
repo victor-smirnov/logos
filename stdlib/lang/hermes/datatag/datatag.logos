@@ -20,7 +20,7 @@
 //   read_type_code(ptr)       — read type_code from tag before *ptr
 //   tag_size(type_code)       — byte count of the tag for a given type_code
 
-package std.hermes.datatag;
+package logos.lang.hermes.datatag;
 
 // ---------------------------------------------------------------------------
 // Tag size computation
