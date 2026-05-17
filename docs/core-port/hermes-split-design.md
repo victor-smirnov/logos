@@ -140,13 +140,20 @@ actually drop the layer trees, and the chain becomes:
 
 In dependency order — each step verified with full ctest before the next.
 
-### Step 0 — Land excludes-aware loader
+### Step 0 — Land excludes-aware loader (PLUMBING ONLY)
 
-Standalone commit. Monolith manifest gets `exclude lang|mem|std-new`.
-Layer archives need to be reachable: monolith's circular use of
-already-migrated `logos.X` packages (via my sed in earlier Phase 4)
-will surface here. Likely need monolith CMake to also pull `-l
-liblogos-lang.a` etc. for the build (chicken-egg breakdown below).
+Standalone commit. Adds the `abs_excludes` parameter to
+`load_modules` and threads it through `build_package_index` and
+`emit_module`. **Excludes are not activated** — the monolith
+manifest still does NOT carry `exclude lang|mem|std-new` because
+activating it now would create an immediate broken-build window:
+monolith has 37 files using `use logos.lang.X;` (needs layers),
+and layer-lang's `any.logos`/`cmp.logos` use `std.lang.text` /
+`std.hermes.view` (needs monolith) — circular.
+
+Revised sequencing: do steps 1-7 first (which break the cycle by
+migrating the contested packages out of monolith). Activate excludes
+in step 8 once layer-lang truly stands alone.
 
 ### Step 0.5 — Break monolith → layer cycle
 
@@ -214,9 +221,16 @@ but all stay in the same tier.
   `use logos.lang.hermes.view` (now lang-side). No circular.
 - Move `std.lang.cmp` — same for text dependency.
 
-### Step 8 — Resume Phase 4
+### Step 8 — Activate excludes + resume Phase 4
 
-Collections, fmt, io, sync, persistent, compiler etc. now migrate
+Now that layer-lang stands alone, add `exclude lang|mem|std-new` to
+the monolith manifest. Verify cold build: monolith stops absorbing
+the layer trees; its 37 `use logos.lang.X;` files resolve via the
+binary archives that built in earlier steps. Flip CMake dependency
+order so monolith builds AFTER the layer archives (currently it
+builds first and absorbs them).
+
+Then collections, fmt, io, sync, persistent, compiler etc. migrate
 cleanly because layer-lang truly stands alone with no monolith
 dependency.
 

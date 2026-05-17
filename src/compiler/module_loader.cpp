@@ -809,9 +809,27 @@ using PackageIndex = std::unordered_map<std::string, std::vector<std::string>>;
 // Walk all search paths recursively, collecting every .logos file and
 // bucketing by its declared `package` name. Files without a package
 // declaration are skipped (not reachable via `use`).
-static PackageIndex build_package_index(const std::vector<std::string>& search_paths) {
+//
+// abs_excludes: absolute path prefixes that filter the walk — any
+// discovered file whose canonical path starts with one of these
+// prefixes is dropped from the index, so a `use foo.bar;` resolving
+// to such a file falls back to the binary index (and ultimately to
+// the "package not found" diagnostic if nothing supplies it). This
+// is the loader-side mirror of the manifest `exclude` directive
+// (see emit_module.cpp): when the monolith excludes `lang/` etc.,
+// dependants must satisfy those imports via binary archives, not
+// by re-absorbing the excluded sub-tree.
+static PackageIndex build_package_index(
+    const std::vector<std::string>& search_paths,
+    const std::vector<std::string>& abs_excludes = {})
+{
     PackageIndex idx;
     std::unordered_set<std::string> seen;
+    auto excluded = [&](const std::string& path) {
+        for (auto& p : abs_excludes)
+            if (path.compare(0, p.size(), p) == 0) return true;
+        return false;
+    };
     for (const auto& dir : search_paths) {
         std::error_code ec;
         if (!fs::exists(dir, ec) || !fs::is_directory(dir, ec)) continue;
@@ -824,6 +842,7 @@ static PackageIndex build_package_index(const std::vector<std::string>& search_p
             if (it->path().extension() != ".logos") continue;
             auto canonical = fs::weakly_canonical(it->path(), ec).string();
             if (ec) continue;
+            if (excluded(canonical)) continue;
             if (!seen.insert(canonical).second) continue;
             auto pkg = scan_package_decl(canonical);
             if (pkg.empty()) continue;
@@ -844,12 +863,13 @@ std::vector<ParsedModule> load_modules(
     const std::vector<std::string>& search_paths,
     bool* out_had_error,
     const std::vector<std::string>& extra_archive_files,
-    std::string_view implicit_prelude) noexcept
+    std::string_view implicit_prelude,
+    const std::vector<std::string>& abs_excludes) noexcept
 {
     const bool trace = std::getenv("LOGOS_TRACE_PHASES") != nullptr;
     bool had_error = false;
 
-    PackageIndex index = build_package_index(search_paths);
+    PackageIndex index = build_package_index(search_paths, abs_excludes);
     auto binary_index  = build_binary_index(search_paths);
 
     // Fold explicit `-l FILE` archives into the binary index. Each file

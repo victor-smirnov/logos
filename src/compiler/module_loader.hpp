@@ -122,6 +122,13 @@ LirBlobOpt extract_hermes0_lir_blob(const std::vector<uint8_t>& data,
 //   `#![no_implicit_prelude]`. Files loaded from binary archives are
 //   never auto-augmented (their producer's prelude was already applied
 //   at their original build). Empty means "no implicit prelude" (legacy).
+// abs_excludes: absolute path prefixes that are excluded from the text
+//   package index — when a `use` resolves to a path beginning with any
+//   of these prefixes, the file is NOT picked up as source. This mirrors
+//   the manifest `exclude` directive (emit_module.cpp) and lets a module
+//   that absorbs sub-trees via recursive root still defer some packages
+//   to a binary archive. (Three-layer split: monolith excludes the
+//   `lang/`, `mem/`, `std-new/` sub-trees so layer archives win.)
 // Returns all modules in dependency order (dependencies first, root last).
 // If `out_had_error` is non-null, it is set to true when at least one
 // `use <pkg>;` could not be resolved (B-mv-03/04). The diagnostic is still
@@ -131,6 +138,7 @@ std::vector<ParsedModule> load_modules(
     const std::vector<std::string>& search_paths,
     bool* out_had_error = nullptr,
     const std::vector<std::string>& extra_archive_files = {},
-    std::string_view implicit_prelude = {}) noexcept;
+    std::string_view implicit_prelude = {},
+    const std::vector<std::string>& abs_excludes = {}) noexcept;
 
 } // namespace logos::compiler

@@ -690,7 +690,8 @@ bool emit_module(const ModuleManifest& manifest,
         auto load_bucket = [&](const std::vector<std::string>& bucket) {
             for (auto& file : bucket) {
                 auto mods = load_modules(file, search_paths, nullptr,
-                                         all_lib_files, manifest.prelude);
+                                         all_lib_files, manifest.prelude,
+                                         abs_excludes);
                 for (auto& m : mods) {
                     if (seen.insert(m.path).second)
                         modules.push_back(std::move(m));
