@@ -6,7 +6,7 @@
 package std.io.fs;
 
 use std.lang.text;
-use std.lang.result;
+use logos.lang.result;
 use std.lang.iter;
 use std.lang.option;
 use std.io.fs.path;

@@ -16,7 +16,7 @@ package test_coretest_qmark_from;
 use std.fmt;
 use std.lang.text;
 use std.lang.option;
-use std.lang.result;
+use logos.lang.result;
 use logos.lang.convert;
 
 fn inner_result(x: i32) -> Result<i32, i32> {

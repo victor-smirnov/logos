@@ -25,7 +25,7 @@ package test_result_combinators;
 use std.fmt;
 use std.lang.text;
 use std.lang.option;
-use std.lang.result;
+use logos.lang.result;
 
 fn op1() -> Result<i32, str> { return Ok(666i32); }
 fn op2() -> Result<i32, str> { return Err("sadface"); }

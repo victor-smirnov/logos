@@ -1,5 +1,5 @@
 package result_map_test;
-use std.lang.result;
+use logos.lang.result;
 
 fn main() -> i32 {
     let r: Result<i32, str> = Ok(1i32);

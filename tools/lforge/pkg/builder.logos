@@ -5,7 +5,7 @@ package lforge.builder;
 
 use std.lang.text;
 use std.lang.option;
-use std.lang.result;
+use logos.lang.result;
 use std.collections.vec;
 use std.io.fs;
 use logos.std.process;

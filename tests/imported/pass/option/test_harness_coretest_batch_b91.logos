@@ -11,7 +11,7 @@ package test_batch_b91;
 use std.fmt;
 use std.lang.text;
 use std.lang.option;
-use std.lang.result;
+use logos.lang.result;
 
 fn mk_err()   -> i32 { return 7i32; }
 fn mk_err_99() -> i32 { return 99i32; }

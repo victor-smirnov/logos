@@ -5,7 +5,7 @@ use std.io.http;
 use std.lang.text;
 use std.collections.vec;
 use std.lang.option;
-use std.lang.result;
+use logos.lang.result;
 
 fn main() -> i32 {
     // ── Direct codec round-trip ──────────────────────────────────────────

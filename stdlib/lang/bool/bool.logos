@@ -12,7 +12,7 @@
 package logos.lang.bool;
 
 use std.lang.option;
-use std.lang.result;
+use logos.lang.result;
 
 impl bool {
     pub fn then<T>(self: bool, f: fn() -> T) -> Option<T> {

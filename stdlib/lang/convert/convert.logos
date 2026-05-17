@@ -10,7 +10,7 @@
 package logos.lang.convert;
 
 use std.lang.option;
-use std.lang.result;
+use logos.lang.result;
 
 pub trait From<T> {
     fn from(val: T) -> Self;

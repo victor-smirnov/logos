@@ -20,7 +20,7 @@ package std.lang.option;
 
 use logos.lang.panic;
 use logos.lang.default;
-use std.lang.result;
+use logos.lang.result;
 
 pub enum Option<T> {
     Some(T),

@@ -4,7 +4,8 @@
 
 package use_group_test;
 
-use std.lang.{option, result};
+use std.lang.{option};
+use logos.lang.result;
 
 fn main() -> i32 {
     let o: Option<i32> = Option::Some(42i32);

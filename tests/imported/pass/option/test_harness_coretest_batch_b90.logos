@@ -15,7 +15,7 @@ package test_batch_b90;
 use std.fmt;
 use std.lang.text;
 use std.lang.option;
-use std.lang.result;
+use logos.lang.result;
 
 fn dbl(x: i32) -> i32     { return x + x; }
 fn nine()    -> i32       { return 9i32; }

@@ -5,7 +5,7 @@ package json_parse;
 use logos.mem.encoding.json;
 use std.lang.text;
 use std.lang.option;
-use std.lang.result;
+use logos.lang.result;
 use std.collections.vec;
 
 fn check_null(j: &Json) -> bool {

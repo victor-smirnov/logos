@@ -3,7 +3,7 @@ package test;
 
 use std.io.linux.uring;
 use std.mem;
-use std.lang.result;
+use logos.lang.result;
 
 fn main() -> i32 {
     let mut ring: IoRing = match IoRing::new(8) {

@@ -4,7 +4,7 @@
 package lforge.git_dep;
 
 use std.lang.text;
-use std.lang.result;
+use logos.lang.result;
 use std.collections.vec;
 use std.io.fs;
 

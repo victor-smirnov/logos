@@ -10,7 +10,7 @@ use std.io.write;
 use std.io.net.url;
 use std.collections.vec;
 use std.lang.option;
-use std.lang.result;
+use logos.lang.result;
 use std.lang.text;
 
 fn main() -> i32 {

@@ -8,7 +8,7 @@ package std.io.http;
 use std.lang.text;
 use std.collections.vec;
 use std.lang.option;
-use std.lang.result;
+use logos.lang.result;
 use std.io.net.url;
 use std.io.net;
 

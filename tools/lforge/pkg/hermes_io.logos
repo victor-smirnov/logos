@@ -4,7 +4,7 @@
 package lforge.hermes_io;
 
 use std.lang.text;
-use std.lang.result;
+use logos.lang.result;
 use std.collections.vec;
 use std.hermes.view;
 use std.hermes.anyval;

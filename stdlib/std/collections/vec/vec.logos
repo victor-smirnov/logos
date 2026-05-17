@@ -10,7 +10,7 @@ use std.lang.option;
 use std.lang.iter;
 use logos.lang.cmp;
 use logos.lang.panic;
-use std.lang.result;
+use logos.lang.result;
 
 pub struct Vec<T> {
     ptr: *mut T,

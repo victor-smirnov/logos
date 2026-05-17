@@ -29,7 +29,7 @@ package logos.mem.encoding.json;
 
 use std.lang.text;
 use std.lang.option;
-use std.lang.result;
+use logos.lang.result;
 use std.collections.vec;
 
 // ── AST ───────────────────────────────────────────────────────────────────

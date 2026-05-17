@@ -5,7 +5,7 @@
 //
 // Phase 4a SL-sl-04: faithful Rust method surface mirroring SL-sl-03 (Option).
 
-package std.lang.result;
+package logos.lang.result;
 
 use std.lang.option;
 use logos.lang.panic;

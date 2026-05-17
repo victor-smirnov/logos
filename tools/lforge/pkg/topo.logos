@@ -5,7 +5,7 @@
 package lforge.topo;
 
 use std.lang.text;
-use std.lang.result;
+use logos.lang.result;
 use std.collections.vec;
 
 use lforge.schema;

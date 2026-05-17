@@ -31,7 +31,7 @@ use std.hermes.document;
 use std.hermes.parser;
 use std.lang.text;
 use std.lang.option;
-use std.lang.result;
+use logos.lang.result;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);

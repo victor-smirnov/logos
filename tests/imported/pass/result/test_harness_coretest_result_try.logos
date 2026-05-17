@@ -13,7 +13,7 @@ package test_result_try;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.result;
+use logos.lang.result;
 use std.lang.option;
 
 fn try_result_ok() -> Result<i32, i32> {

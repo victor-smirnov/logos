@@ -32,7 +32,7 @@ package test_batch_b50;
 use std.fmt;
 use std.lang.text;
 use std.lang.option;
-use std.lang.result;
+use logos.lang.result;
 use logos.lang.cmp;
 use logos.lang.bool;
 

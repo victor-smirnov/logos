@@ -21,7 +21,7 @@ use std.lang.text;
 use logos.lang.panic;
 use logos.lang.bool;
 use std.lang.option;
-use std.lang.result;
+use logos.lang.result;
 
 fn zero() -> i32 { return 0i32; }
 
