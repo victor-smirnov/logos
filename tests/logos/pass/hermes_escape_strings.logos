@@ -18,7 +18,7 @@ use logos.mem.hermes.string;
 use logos.lang.hermes.typetag;
 use logos.mem.hermes.array;
 use logos.mem.hermes.map;
-use logos.lang.hermes.typed_value;
+use logos.mem.hermes.typed_value;
 use logos.mem.hermes.objectmap;
 use logos.mem.hermes.document;
 use logos.mem.hermes.parser;

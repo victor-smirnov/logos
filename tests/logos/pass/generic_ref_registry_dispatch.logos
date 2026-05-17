@@ -15,7 +15,7 @@
 //     marker.
 package generic_ref_registry_dispatch;
 
-use logos.lang.hermes.fabric;
+use logos.mem.hermes.fabric;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;

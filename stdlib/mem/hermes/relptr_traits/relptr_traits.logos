@@ -4,12 +4,12 @@
 // `Array<RelPtr<HermesString>>` and similar pointer-indirect containers
 // work with the standard Hermes traits via static dispatch on T.
 
-package logos.lang.hermes.relptr_traits;
+package logos.mem.hermes.relptr_traits;
 
 use logos.lang.hermes.relptr;
-use logos.lang.hermes.stringify;
-use logos.lang.hermes.equal;
-use logos.lang.hermes.hashing;
+use logos.mem.hermes.stringify;
+use logos.mem.hermes.equal;
+use logos.mem.hermes.hashing;
 use logos.mem.hermes.clone;
 use logos.mem.hermes.release;
 use logos.mem.string;

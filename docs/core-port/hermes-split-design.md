@@ -8,9 +8,10 @@ alone because `std.lang.any` and `std.lang.cmp` use `std.hermes.view`
 and `std.lang.text` (both in monolith), creating a circular dep with
 layer-lang's `logos.lang.*` content.
 
-Status: **Steps 0–6 complete.** Steps 7–8 (unblock any/cmp, then
-activate excludes) still pending. Companion to
-[three-layer-split.md](three-layer-split.md) and
+Status: **Steps 0–8 complete.** Three-layer split landed end-to-end:
+monolith excludes lang/mem/std-new; layer archives are the canonical
+source for those tiers; build order flipped (layers → monolith).
+Companion to [three-layer-split.md](three-layer-split.md) and
 [layer-assignment.md](layer-assignment.md).
 
 ### Progress log
@@ -29,6 +30,8 @@ activate excludes) still pending. Companion to
 | 4f   | ✅ done | relptr_traits → lang (orphan rule allows impl-of-foreign-trait-for-local-RelPtr) |
 | 5    | ✅ done | stringify/pat/check/equal/hashing/hbs_read → logos.lang.hermes.*. Unblocked by fundamental (D) fix: explicit Tarjan-SCC topo-sort of `modules[]` in `module_loader.cpp` after load. 3197/3197. |
 | 6    | ✅ done | 15 mem-tier packages (alloc/array/clone/ctr/decimal/document/hbs_write/map/objectmap/parser/registry/release/string/tag_system/view) → `logos.mem.hermes.*` + physical move to `stdlib/mem/hermes/`. Prior session's blockers (duplicate clobber, lang↔mem cycle) did NOT re-fire — already mitigated by (C) loader dedup + Tarjan topo-sort. All 4 archives build cleanly (liblstdlib + liblogos-lang/mem/std). 3197/3197. |
+| 7    | ✅ done | 11 lang-but-pulls-mem packages relocated to `logos.mem.hermes.*` / `logos.mem.any`: any/fabric/stringify/typed_value/relptr_traits/pat/check/hbs_read/hashing/equal + scalar (Primitive trait blanket). Plus `std.sync.atomic` → `logos.lang.atomic` (CPU intrinsics are tier-agnostic); `std-new/process` reverted to `std/process` (had std.io.pipe transitive dep). |
+| 8    | ✅ done | Monolith manifest excludes lang/mem/std-new. CMake build order flipped: layers (lang → mem → std-new) build FIRST, monolith LAST consuming them via `-L`. Linker flags `--start-group/--end-group` (lazy archive re-scan) + `--allow-multiple-definition` (cross-archive template instantiations) restore link-time symbol resolution. All 4 archives are now strictly independent. 3197/3197. |
 
 ---
 
@@ -750,6 +753,7 @@ classification. Not one-session work.
 | 6 | 05-17 | (D) investigation; more orthogonal bugs surfaced |
 | 7 | 05-17 | (D) **fundamental fix**: explicit module-level dep-DAG + Tarjan SCC + condensation topo-sort in `module_loader.cpp`. Replaces implicit DFS-natural-order invariant lost when binary archives were added. Step 5 landed (stringify/pat/check/equal/hashing/hbs_read → logos.lang.hermes.*). 3197/3197. |
 | 8 | 05-17 | Step 6 landed without any new compiler work: 15 mem-tier pkgs renamed + moved (std.hermes.* → logos.mem.hermes.*, into stdlib/mem/hermes/). Both feared blockers (duplicate clobber, lang↔mem cycle) failed to materialise — the prior (C)+(D) fixes had fully neutralised them. All 4 archives build clean. 3197/3197. |
+| 9 | 05-17 | **Steps 7 + 8 landed together.** 11 lang-but-pulls-mem pkgs relocated to mem; std.sync.atomic → logos.lang.atomic; std-new/process → std/process. Monolith excludes activated; cmake build order flipped (layers → monolith); linker flags `--start-group/--end-group` + `--allow-multiple-definition` for cross-archive template-instantiation dedup. Three-layer split now structurally complete. 3197/3197. |
 
 ---
 

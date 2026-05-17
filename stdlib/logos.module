@@ -2,14 +2,17 @@ module stdlib
 version 0.1
 root stdlib/
 
-# Three-layer split Phase 4 transition: the monolith deliberately
-# ABSORBS the layer trees (stdlib/{lang,mem,std-new}/) via this
-# recursive root. Migrated packages thus live in BOTH the monolith
-# and their layer archive — link-order (monolith first; see
-# tests/logos/run_test.sh + main.cpp is_jit_unsafe_archive) ensures
-# the layer archive's duplicates aren't pulled in at consumer link
-# time. Phase 7 removes the monolith and the layer archives become
-# the canonical source.
+# Three-layer split Step 8 (2026-05-17): excludes activated. The
+# monolith now ONLY indexes packages under stdlib/std/; the
+# stdlib/lang/ and stdlib/mem/ subtrees are owned by liblogos-lang.a
+# and liblogos-mem.a respectively. Consumers resolve lang/mem deps
+# via the binary archives at compile-time.
+#
+# Build order: layer archives (lang → mem → std-new) build FIRST;
+# monolith builds AFTER, consuming them. See lib/logos/CMakeLists.txt.
+exclude lang
+exclude mem
+exclude std-new
 
 # Metaprog plumbing references host externs (logos_emit_source,
 # logos_get_module_ast_oview, ...) defined inside logosc itself for

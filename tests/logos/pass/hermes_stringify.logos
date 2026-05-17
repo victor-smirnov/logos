@@ -10,10 +10,10 @@ use logos.lang.hermes.datatag;
 use logos.mem.hermes.tag_system;
 use logos.mem.hermes.array;
 use logos.mem.hermes.map;
-use logos.lang.hermes.typed_value;
+use logos.mem.hermes.typed_value;
 use logos.mem.hermes.objectmap;
 use logos.mem.hermes.document;
-use logos.lang.hermes.stringify;
+use logos.mem.hermes.stringify;
 use logos.mem.string;
 use logos.lang.str;
 

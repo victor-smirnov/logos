@@ -12,7 +12,7 @@ package main;
 use std.compiler.metaprog;
 use std.data.persistent.node;
 use std.data.persistent.shuttle;
-use logos.lang.hermes.fabric;
+use logos.mem.hermes.fabric;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 use logos.mem.mem;

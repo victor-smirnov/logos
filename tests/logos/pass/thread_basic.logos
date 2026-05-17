@@ -2,7 +2,7 @@
 package test;
 
 use logos.std.thread;
-use std.sync.atomic;
+use logos.lang.atomic;
 
 // Shared state: a single AtomicI64 counter.
 fn worker(arg: *mut u8) -> *mut u8 {

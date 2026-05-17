@@ -2,7 +2,7 @@
 // even without an explicit reflect::<T>() call elsewhere in the program.
 package reflect_annotated_auto;
 
-use logos.lang.any;
+use logos.mem.any;
 use logos.lang.hermes.view;
 use logos.mem.hermes.string;
 

@@ -4,7 +4,7 @@ use logos.mem.hermes.ctr;
 use logos.lang.hermes.anyval;
 use logos.mem.hermes.array;
 use logos.mem.hermes.map;
-use logos.lang.hermes.typed_value;
+use logos.mem.hermes.typed_value;
 
 fn main() -> i32 {
     // Edge 1: empty result via always-false guard.

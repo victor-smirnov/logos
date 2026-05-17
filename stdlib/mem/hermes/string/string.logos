@@ -13,7 +13,7 @@
 package logos.mem.hermes.string;
 
 use logos.lang.hermes.view;
-use logos.lang.hermes.fabric;
+use logos.mem.hermes.fabric;
 use logos.lang.arith;
 use logos.lang.hermes.tags;
 use logos.mem.mem;

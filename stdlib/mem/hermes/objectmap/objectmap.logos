@@ -26,7 +26,7 @@ use logos.lang.hermes.anyval;
 use logos.lang.hermes.tags;
 use logos.mem.hermes.array;
 use logos.mem.hermes.map;
-use logos.lang.hermes.typed_value;
+use logos.mem.hermes.typed_value;
 use logos.lang.hermes.view;
 use logos.mem.hermes.string;
 use logos.lang.hermes.relptr;

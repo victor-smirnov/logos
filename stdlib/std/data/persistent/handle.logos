@@ -28,7 +28,7 @@ use logos.mem.mem;
 use logos.mem.sync;
 use logos.mem.rc;
 use logos.lang.cmp;
-use logos.lang.hermes.fabric;
+use logos.mem.hermes.fabric;
 use logos.lang.drop;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;

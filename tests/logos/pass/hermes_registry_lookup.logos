@@ -8,7 +8,7 @@ use logos.lang.hermes.view;
 use logos.mem.hermes.string;
 use logos.lang.hermes.typetag;
 use logos.mem.hermes.tag_system;
-use logos.lang.hermes.stringify;
+use logos.mem.hermes.stringify;
 use logos.mem.hermes.registry;
 use logos.mem.string;
 use logos.lang.str;

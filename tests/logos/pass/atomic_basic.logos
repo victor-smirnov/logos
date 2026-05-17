@@ -1,7 +1,7 @@
 // pass — AtomicI32/I64/Bool/Ptr single-threaded correctness test.
 package test;
 
-use std.sync.atomic;
+use logos.lang.atomic;
 use logos.lang.option;
 
 fn main() -> i32 {

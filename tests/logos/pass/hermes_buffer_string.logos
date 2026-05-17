@@ -4,7 +4,7 @@ package hermes_buffer_string;
 
 use logos.lang.hermes.view;
 use logos.mem.hermes.string;
-use logos.lang.hermes.fabric;
+use logos.mem.hermes.fabric;
 
 unsafe fn bytes_eq(a: *const u8, b: *const u8, n: u64) -> bool {
     let mut i: u64 = 0 as u64;

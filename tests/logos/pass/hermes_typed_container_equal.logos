@@ -6,7 +6,7 @@
 package hermes_typed_container_equal;
 
 use logos.mem.hermes.ctr;
-use logos.lang.hermes.equal;
+use logos.mem.hermes.equal;
 use logos.mem.string;
 use logos.lang.str;
 

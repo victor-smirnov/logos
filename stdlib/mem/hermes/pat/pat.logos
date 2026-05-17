@@ -4,7 +4,7 @@
 // AnyVal scrutinees into ObjectMap / ObjectArray and return the AnyVal at
 // the requested position (null AnyVal on miss / wrong type).
 
-package logos.lang.hermes.pat;
+package logos.mem.hermes.pat;
 
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.typetag;
@@ -13,7 +13,7 @@ use logos.mem.hermes.string;
 use logos.mem.hermes.objectmap;
 use logos.mem.hermes.array;
 use logos.mem.hermes.map;
-use logos.lang.hermes.typed_value;
+use logos.mem.hermes.typed_value;
 
 // hermes_pat_eq_str — moved here from std.hermes.anyval (which became
 // logos.lang.hermes.anyval after the three-layer split). It's the only

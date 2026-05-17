@@ -11,7 +11,7 @@
 package std.io.bytes;
 
 use logos.mem.mem;
-use std.sync.atomic;
+use logos.lang.atomic;
 use logos.mem.string;
 use logos.lang.str;
 

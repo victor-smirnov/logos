@@ -19,7 +19,7 @@
 package logos.mem.sync;
 
 use logos.mem.mem;
-use std.sync.atomic;
+use logos.lang.atomic;
 use logos.lang.marker;
 use logos.lang.drop;
 

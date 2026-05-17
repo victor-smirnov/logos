@@ -10,33 +10,14 @@ set(TEST_RUNNER ${CMAKE_CURRENT_SOURCE_DIR}/run_test.sh)
 set(STDLIB      ${CMAKE_SOURCE_DIR}/stdlib)
 set(PUB_LIB     ${CMAKE_CURRENT_SOURCE_DIR}/pub_lib)
 
-# Build liblstdlib.a from the stdlib module manifest into the system
-# library dir (mirrors the install-tree layout).
+# Three-layer split Step 8 (2026-05-17): build order FLIPPED.
+# Layer archives are now built FIRST (lang → mem → std-new); the
+# monolith builds LAST, consuming them via -L and now-active
+# `exclude lang|mem|std-new` in stdlib/logos.module. Layer-lang stands
+# alone with no monolith dependency; monolith holds only std/ content.
 set(STDLIB_MODULE_MANIFEST ${CMAKE_SOURCE_DIR}/stdlib/logos.module)
 set(STDLIB_BIN_DIR ${LOGOS_BUILD_LIB_DIR})
 set(STDLIB_BIN ${STDLIB_BIN_DIR}/liblstdlib.a)
-file(GLOB_RECURSE STDLIB_SOURCES ${CMAKE_SOURCE_DIR}/stdlib/*.logos)
-add_custom_command(
-    OUTPUT  ${STDLIB_BIN}
-    COMMAND $<TARGET_FILE:logosc>
-            --emit-module ${STDLIB_MODULE_MANIFEST}
-            -o ${STDLIB_BIN}
-    DEPENDS logosc ${STDLIB_MODULE_MANIFEST} ${STDLIB_SOURCES}
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    COMMENT "Building binary stdlib: liblstdlib.a"
-)
-add_custom_target(stdlib_binary ALL DEPENDS ${STDLIB_BIN})
-
-# Three-layer split Phase 3.6: build the three layer archives
-# (liblogos-lang.a, liblogos-mem.a, liblogos-std.a) alongside the
-# monolithic liblstdlib.a. Until Phase 4 migrates real packages, each
-# layer ships a single placeholder package — enough to validate the
-# build chain end-to-end (depends resolution, archive emission, lib
-# discovery).
-#
-# Output goes into ${LOGOS_BUILD_LIB_DIR} (same as liblstdlib.a) so
-# logosc auto-discovery picks them up. They coexist with the monolith
-# during the Phase 4 migration window; the monolith is removed in Phase 7.
 set(LOGOS_LANG_MANIFEST ${CMAKE_SOURCE_DIR}/stdlib/lang/logos.module)
 set(LOGOS_MEM_MANIFEST  ${CMAKE_SOURCE_DIR}/stdlib/mem/logos.module)
 set(LOGOS_STD_MANIFEST  ${CMAKE_SOURCE_DIR}/stdlib/std-new/logos.module)
@@ -46,19 +27,14 @@ set(LOGOS_STD_BIN  ${STDLIB_BIN_DIR}/liblogos-std.a)
 file(GLOB_RECURSE LOGOS_LANG_SOURCES ${CMAKE_SOURCE_DIR}/stdlib/lang/*.logos)
 file(GLOB_RECURSE LOGOS_MEM_SOURCES  ${CMAKE_SOURCE_DIR}/stdlib/mem/*.logos)
 file(GLOB_RECURSE LOGOS_STD_SOURCES  ${CMAKE_SOURCE_DIR}/stdlib/std-new/*.logos)
+file(GLOB_RECURSE STDLIB_SOURCES ${CMAKE_SOURCE_DIR}/stdlib/std/*.logos
+                                  ${CMAKE_SOURCE_DIR}/stdlib/rt/*.logos)
 add_custom_command(
     OUTPUT  ${LOGOS_LANG_BIN}
     COMMAND $<TARGET_FILE:logosc>
             --emit-module ${LOGOS_LANG_MANIFEST}
             -o ${LOGOS_LANG_BIN}
-    # During the Phase 4 coexistence window, layer-lang depends on the
-    # monolith because (a) some layer-lang files still `use std.*` for
-    # not-yet-migrated packages, and (b) any stale `std.X` package name
-    # left in the monolith's last build can collide with the layer's
-    # `logos.lang.X` mangled symbols at load time (ambiguous-call
-    # diagnostics). Forcing monolith to rebuild first guarantees its
-    # binary AST is fresh and consistent with current source.
-    DEPENDS logosc ${LOGOS_LANG_MANIFEST} ${LOGOS_LANG_SOURCES} ${STDLIB_BIN}
+    DEPENDS logosc ${LOGOS_LANG_MANIFEST} ${LOGOS_LANG_SOURCES}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Building stdlib layer: liblogos-lang.a"
 )
@@ -84,6 +60,21 @@ add_custom_command(
 )
 add_custom_target(stdlib_layers ALL DEPENDS
     ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN})
+
+# Monolith builds LAST, with -L pointing at layer archives so excluded
+# lang/mem/std-new packages resolve from binary.
+add_custom_command(
+    OUTPUT  ${STDLIB_BIN}
+    COMMAND $<TARGET_FILE:logosc>
+            --emit-module ${STDLIB_MODULE_MANIFEST}
+            -L ${STDLIB_BIN_DIR}
+            -o ${STDLIB_BIN}
+    DEPENDS logosc ${STDLIB_MODULE_MANIFEST} ${STDLIB_SOURCES}
+            ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building binary stdlib: liblstdlib.a (depends layer archives)"
+)
+add_custom_target(stdlib_binary ALL DEPENDS ${STDLIB_BIN})
 
 # Build libpub_lib.a from the pub_lib test fixture manifest. Used as a
 # realistic `-l <user-archive>` smoke test in the publib suite, replacing

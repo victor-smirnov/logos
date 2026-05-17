@@ -12,13 +12,13 @@ use logos.lang.hermes.typetag;
 use logos.mem.hermes.tag_system;
 use logos.mem.hermes.array;
 use logos.mem.hermes.map;
-use logos.lang.hermes.typed_value;
+use logos.mem.hermes.typed_value;
 use logos.mem.hermes.objectmap;
 use logos.mem.hermes.document;
 use logos.mem.hermes.ctr;
-use logos.lang.hermes.stringify;
+use logos.mem.hermes.stringify;
 use logos.mem.hermes.parser;
-use logos.lang.hermes.fabric;
+use logos.mem.hermes.fabric;
 
 unsafe fn views_eq(a: StringView, b: StringView) -> bool {
     if a.len != b.len { return false; }

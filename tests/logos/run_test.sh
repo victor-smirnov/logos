@@ -125,7 +125,7 @@ for arg in "${EXTRA[@]}"; do
         esac
     fi
 done
-if ! cc "$OBJ" "${LINK_ARCHIVES[@]}" -lpthread -lm -lstdc++ -Wl,--gc-sections -o "$BIN" 2>/dev/null; then
+if ! cc "$OBJ" -Wl,--start-group "${LINK_ARCHIVES[@]}" -Wl,--end-group -lpthread -lm -lstdc++ -Wl,--gc-sections -Wl,--allow-multiple-definition -o "$BIN" 2>/dev/null; then
     echo "FAIL: cc link failed"
     exit 1
 fi

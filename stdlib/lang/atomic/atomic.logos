@@ -10,7 +10,7 @@
 // Types:
 //   AtomicI32, AtomicU32, AtomicI64, AtomicU64, AtomicBool, AtomicPtr<T>
 
-package std.sync.atomic;
+package logos.lang.atomic;
 
 use logos.lang.option;
 

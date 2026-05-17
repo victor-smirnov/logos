@@ -9,7 +9,7 @@ use logos.lang.hermes.anyval;
 use logos.mem.hermes.parser;
 use logos.mem.hermes.document;
 use logos.mem.hermes.ctr;
-use logos.lang.hermes.stringify;
+use logos.mem.hermes.stringify;
 use logos.mem.string;
 use logos.lang.str;
 

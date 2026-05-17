@@ -7,9 +7,9 @@ use logos.lang.hermes.anyval;
 use logos.lang.hermes.typetag;
 use logos.lang.hermes.datatag;
 use logos.mem.hermes.registry;
-use logos.lang.hermes.stringify;
-use logos.lang.hermes.equal;
-use logos.lang.hermes.hashing;
+use logos.mem.hermes.stringify;
+use logos.mem.hermes.equal;
+use logos.mem.hermes.hashing;
 use logos.mem.string;
 use logos.lang.str;
 

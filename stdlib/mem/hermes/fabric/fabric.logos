@@ -5,7 +5,7 @@
 // *storage* format (how it lives in a typed homogeneous container like
 // `Buffer<DT>`).
 
-package logos.lang.hermes.fabric;
+package logos.mem.hermes.fabric;
 
 use logos.lang.drop;
 use logos.lang.cmp;

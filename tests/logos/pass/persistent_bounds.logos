@@ -8,7 +8,7 @@ use std.data.persistent.cow;
 use std.data.persistent.descent;
 use std.data.persistent.mutate;
 use std.data.persistent.iter;
-use logos.lang.hermes.fabric;
+use logos.mem.hermes.fabric;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;

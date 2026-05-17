@@ -1,6 +1,6 @@
 package reflect_api;
 
-use logos.lang.any;
+use logos.mem.any;
 use logos.lang.hermes.view;
 use logos.mem.hermes.string;
 

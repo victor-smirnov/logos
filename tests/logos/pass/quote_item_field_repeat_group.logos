@@ -14,7 +14,7 @@ use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;
 use logos.mem.hermes.string;
-use logos.lang.hermes.fabric;
+use logos.mem.hermes.fabric;
 
 #[metaprog_handler("derive_struct_with_cols")]
 fn derive_struct_with_cols_hook(target_offset: u32) -> () {

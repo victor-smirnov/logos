@@ -13,7 +13,7 @@
 //       i = i + 1;
 //   }
 
-package logos.lang.any;
+package logos.mem.any;
 
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;

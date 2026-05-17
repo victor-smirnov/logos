@@ -26,7 +26,7 @@
 // Inline AnyVals (boolean, integer, null) carry no zone address and are
 // always considered valid.
 
-package logos.lang.hermes.check;
+package logos.mem.hermes.check;
 
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.zone;
@@ -37,10 +37,10 @@ use logos.lang.hermes.datatag;
 use logos.mem.hermes.tag_system;
 use logos.mem.hermes.array;
 use logos.mem.hermes.map;
-use logos.lang.hermes.typed_value;
+use logos.mem.hermes.typed_value;
 use logos.mem.hermes.objectmap;
 use logos.mem.hermes.document;
-use logos.lang.hermes.scalar;
+use logos.mem.hermes.scalar;
 use logos.mem.hermes.decimal;
 use logos.lang.hermes.mem_holder;
 
