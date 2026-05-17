@@ -8,7 +8,7 @@
 // literals just like Rust.
 package m_issue_26251;
 
-use std.lang.panic;
+use logos.lang.panic;
 
 fn pick(x: char) -> str {
     return match x {

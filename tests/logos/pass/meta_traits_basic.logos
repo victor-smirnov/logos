@@ -2,7 +2,7 @@
 package test;
 
 use logos.lang.default;
-use std.lang.clone;
+use logos.lang.clone;
 use std.mem;
 
 fn main() -> i32 {

@@ -27,7 +27,7 @@ EOF
 cat > "$PROJ/src/main.logos" <<'EOF'
 package main;
 use std.compiler.metaprog;
-use std.lang.clone;
+use logos.lang.clone;
 #[derive_clone]
 struct Pair { a: i32, b: i32 }
 #[derive_clone]

@@ -5,7 +5,7 @@
 // doesn't matter — point is that the parser accepts the construct.
 package parse_panic;
 
-use std.lang.panic;
+use logos.lang.panic;
 use std.fmt;
 use std.lang.text;
 

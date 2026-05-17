@@ -6,7 +6,7 @@ package assert_eq_tuple;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.panic;
+use logos.lang.panic;
 use std.lang.cmp;
 
 fn main() -> i32 {

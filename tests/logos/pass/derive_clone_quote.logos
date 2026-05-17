@@ -11,7 +11,7 @@ use std.collections.vec;
 use std.hermes.view;
 use std.hermes.anyval;
 use std.hermes.string;
-use std.lang.clone;
+use logos.lang.clone;
 
 #[metaprog_handler("derive_clone_q")]
 fn derive_clone_q_hook(target_offset: u32) -> () {

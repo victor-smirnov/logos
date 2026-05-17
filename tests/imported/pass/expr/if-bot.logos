@@ -3,7 +3,7 @@
 // Modifications: `panic!()` → `panic("")`; `println!` dropped.
 package if_bot;
 
-use std.lang.panic;
+use logos.lang.panic;
 use std.fmt;
 use std.lang.text;
 

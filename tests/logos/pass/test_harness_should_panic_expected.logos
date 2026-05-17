@@ -9,7 +9,7 @@
 
 package test_harness_should_panic_expected;
 
-use std.lang.panic;
+use logos.lang.panic;
 
 #[test]
 #[should_panic(expected = "boom")]

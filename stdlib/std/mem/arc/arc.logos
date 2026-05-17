@@ -20,8 +20,8 @@ package std.mem.arc;
 
 use std.mem;
 use std.sync.atomic;
-use std.lang.marker;
-use std.lang.drop;
+use logos.lang.marker;
+use logos.lang.drop;
 
 // ── Internal heap block ───────────────────────────────────────────────────────
 

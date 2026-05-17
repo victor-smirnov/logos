@@ -8,7 +8,7 @@
 package std.lang.result;
 
 use std.lang.option;
-use std.lang.panic;
+use logos.lang.panic;
 
 pub enum Result<T, E> {
     Ok(T),

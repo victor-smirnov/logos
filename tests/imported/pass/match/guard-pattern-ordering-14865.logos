@@ -8,7 +8,7 @@ package m_guard_pattern_ordering_14865;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.panic;
+use logos.lang.panic;
 
 enum X { Foo(usize), Bar(bool) }
 

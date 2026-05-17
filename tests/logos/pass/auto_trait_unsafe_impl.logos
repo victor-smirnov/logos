@@ -3,7 +3,7 @@
 
 package auto_trait_unsafe_impl;
 
-use std.lang.marker;
+use logos.lang.marker;
 
 struct MyBuf {
     ptr: *mut i32,

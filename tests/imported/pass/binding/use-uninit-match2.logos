@@ -10,7 +10,7 @@
 // dropped — we exercise the some-arm at runtime instead.
 package b_use_uninit_match2;
 
-use std.lang.panic;
+use logos.lang.panic;
 
 enum myoption<T> { none, some(T) }
 

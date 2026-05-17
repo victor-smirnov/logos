@@ -6,7 +6,7 @@
 // inference yet). The nesting and exhaustiveness check is preserved.
 package binding_expr_match_panic_all;
 
-use std.lang.panic;
+use logos.lang.panic;
 
 fn main() -> i32 {
     let _x: i32 = match true {

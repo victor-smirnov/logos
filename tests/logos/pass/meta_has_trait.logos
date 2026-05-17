@@ -2,7 +2,7 @@
 
 package meta_has_trait_probe;
 
-use std.lang.clone;
+use logos.lang.clone;
 
 pub struct Plain { pub x: i32, }
 pub struct Boxed { pub a: i32, pub b: i64, }

@@ -3,7 +3,7 @@
 
 package auto_trait_send_scalar;
 
-use std.lang.marker;
+use logos.lang.marker;
 
 fn accept<T: Send>(x: T) -> i32 {
     return 1;

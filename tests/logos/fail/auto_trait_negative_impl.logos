@@ -3,7 +3,7 @@
 
 package auto_trait_negative_impl;
 
-use std.lang.marker;
+use logos.lang.marker;
 
 struct Foo { x: i32 }
 

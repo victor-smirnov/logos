@@ -5,7 +5,7 @@
 package main;
 
 use std.compiler.metaprog;
-use std.lang.clone;
+use logos.lang.clone;
 
 #[derive_clone]
 struct PairS { a: i32, b: i64 }

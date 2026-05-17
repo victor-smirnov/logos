@@ -7,7 +7,7 @@
 package iter_cycle_test;
 
 use std.compiler.metaprog;
-use std.lang.clone;
+use logos.lang.clone;
 use std.lang.iter;
 use std.lang.option;
 

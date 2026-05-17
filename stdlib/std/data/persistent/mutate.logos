@@ -27,7 +27,7 @@ use std.hermes.anyval;
 use std.data.persistent.node;
 use std.data.persistent.cow;
 use std.data.persistent.descent;
-use std.lang.panic;
+use logos.lang.panic;
 
 // ── Vec<NodeARC> insert helper ────────────────────────────────────────
 // Vec lacks `insert_at`. We push a NodeARC carrying the same fat-handle

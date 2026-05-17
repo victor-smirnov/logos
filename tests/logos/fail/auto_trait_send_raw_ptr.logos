@@ -3,7 +3,7 @@
 
 package auto_trait_send_raw_ptr;
 
-use std.lang.marker;
+use logos.lang.marker;
 
 struct NotSend {
     ptr: *mut i32,

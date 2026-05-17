@@ -7,7 +7,7 @@
 
 package test_harness_should_panic_mismatch;
 
-use std.lang.panic;
+use logos.lang.panic;
 
 #[test]
 #[should_panic(expected = "needle-not-in-message")]

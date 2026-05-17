@@ -6,7 +6,7 @@
 // wiring; Box<T> not in Logos.
 package binding_expr_match_panic;
 
-use std.lang.panic;
+use logos.lang.panic;
 
 fn test_simple() {
     let r: bool = match true {

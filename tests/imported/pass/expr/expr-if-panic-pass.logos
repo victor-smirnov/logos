@@ -7,7 +7,7 @@
 // type so the if-expr unifier picks the non-divergent arm's type.
 package expr_if_panic_pass;
 
-use std.lang.panic;
+use logos.lang.panic;
 
 fn test_if_panic() -> i32 {
     let x: i32 = if false { panic("never") } else { 10i32 };

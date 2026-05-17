@@ -46,7 +46,7 @@ use std.hermes.hbs_write;
 use std.hermes.hbs_read;
 use std.hermes.mem_holder;
 use std.lang.text;
-use std.lang.drop;
+use logos.lang.drop;
 
 // cstr_len — byte length of a null-terminated C string.
 unsafe fn cstr_len(s: *const u8) -> i64 {

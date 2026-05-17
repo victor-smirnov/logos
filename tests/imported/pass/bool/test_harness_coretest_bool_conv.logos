@@ -18,7 +18,7 @@ package test_bool_conv;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.panic;
+use logos.lang.panic;
 use logos.lang.bool;
 use std.lang.option;
 use std.lang.result;

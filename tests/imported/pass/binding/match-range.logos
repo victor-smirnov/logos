@@ -6,7 +6,7 @@
 // `panic!()` becomes `panic(str)`.
 package b_match_range;
 
-use std.lang.panic;
+use logos.lang.panic;
 
 fn main() -> i32 {
     match 5usize {

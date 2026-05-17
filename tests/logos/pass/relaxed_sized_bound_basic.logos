@@ -6,7 +6,7 @@
 
 package relaxed_sized_bound_basic;
 
-use std.lang.marker;
+use logos.lang.marker;
 
 fn identity<T: ?Sized>(x: T) -> T {
     return x;

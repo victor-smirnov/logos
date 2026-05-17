@@ -19,7 +19,7 @@
 package std.sync;
 
 use std.mem;
-use std.lang.marker;
+use logos.lang.marker;
 use std.lang.option;
 
 // ── POSIX externals ──────────────────────────────────────────────────────────

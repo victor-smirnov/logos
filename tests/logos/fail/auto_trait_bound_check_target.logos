@@ -3,7 +3,7 @@
 
 package auto_trait_bound_check_target;
 
-use std.lang.marker;
+use logos.lang.marker;
 
 struct Wrap<T> {
     inner: T,

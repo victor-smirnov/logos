@@ -9,7 +9,7 @@ use std.mem;
 use std.lang.option;
 use std.lang.iter;
 use std.lang.cmp;
-use std.lang.panic;
+use logos.lang.panic;
 use std.lang.result;
 
 pub struct Vec<T> {

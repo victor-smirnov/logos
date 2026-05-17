@@ -12,7 +12,7 @@
 package m_guards_parenthesized_and;
 
 use std.lang.option;
-use std.lang.panic;
+use logos.lang.panic;
 
 fn eq_str(a: str, b: str) -> bool {
     let alen: i64 = a.len();

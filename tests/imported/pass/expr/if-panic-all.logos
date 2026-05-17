@@ -8,7 +8,7 @@
 // the non-divergent arm's type).
 package expr_if_panic_all;
 
-use std.lang.panic;
+use logos.lang.panic;
 
 fn main() -> i32 {
     let _x: i32 = if true {

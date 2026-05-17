@@ -16,7 +16,7 @@
 package std.mem.rc;
 
 use std.mem;
-use std.lang.drop;
+use logos.lang.drop;
 
 pub struct RcInner<T> {
     pub strong: i32,

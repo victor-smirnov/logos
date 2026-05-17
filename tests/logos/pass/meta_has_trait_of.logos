@@ -2,7 +2,7 @@
 
 package meta_has_trait_of_probe;
 
-use std.lang.clone;
+use logos.lang.clone;
 use std.compiler.metaprog;
 
 pub struct Plain { pub x: i32, }

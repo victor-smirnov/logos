@@ -8,7 +8,7 @@
 package let_else_basic;
 
 use std.lang.option;
-use std.lang.panic;
+use logos.lang.panic;
 use std.fmt;
 use std.lang.text;
 
