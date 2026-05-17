@@ -1,7 +1,7 @@
 // Tests std.thread: spawn a worker, pass arg, join, verify side effect.
 package test;
 
-use std.lang.thread;
+use logos.std.thread;
 use std.sync.atomic;
 
 // Shared state: a single AtomicI64 counter.

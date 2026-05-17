@@ -1,9 +1,13 @@
-// Logos standard library -- std.thread
+// Logos standard library -- logos.std.thread
 //
 // Thin wrapper over pthread: spawn, join, detach, yield, self.
 // Higher-level concurrency lives in fiber/ (green threads) and std.sync.
+//
+// NOTE: pre-rename this lived at std.lang.thread, but pthread is an OS
+// dependency — it doesn't belong in the no-OS lang tier. Moved to
+// logos.std.thread as part of the three-layer split (catalog correction).
 
-package std.lang.thread;
+package logos.std.thread;
 
 // pthread_t is 8 bytes on Linux x86-64; represented as i64.
 extern fn pthread_create(tid: *mut i64, attr: *const u8,
