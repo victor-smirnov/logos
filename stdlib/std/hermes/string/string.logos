@@ -12,6 +12,7 @@
 
 package std.hermes.string;
 
+use logos.lang.hermes.view;
 use logos.lang.hermes.fabric;
 use logos.lang.arith;
 use logos.lang.hermes.tags;
@@ -212,12 +213,10 @@ impl HermesString {
 //     within `bytes`.  Start offset of string i = (i==0) ? 0 : ends[i-1].
 // ---------------------------------------------------------------------------
 
-pub struct StringView {
-    pub ptr: *const u8,
-    pub len: u64,
-}
-
-impl Copy for StringView {}
+// StringView moved to lang-tier
+// [logos.lang.hermes.view](../../../lang/hermes/view/view.logos). The
+// `use logos.lang.hermes.view;` line at the top of this file pulls it
+// back into scope for the HermesStringStorage Storage impl below.
 
 pub struct HermesStringStorage {
     pub bytes: *mut u8,

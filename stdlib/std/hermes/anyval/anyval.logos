@@ -31,6 +31,7 @@ package std.hermes.anyval;
 
 use logos.lang.hermes.datatag;
 use logos.lang.hermes.typetag;
+use logos.lang.hermes.view;
 use std.hermes.string;
 
 // AnyVal layout: single 4-byte raw field.

@@ -9,6 +9,7 @@ use logos.lang.hermes.relptr;
 use std.hermes.anyval;
 use logos.lang.hermes.typetag;
 use logos.lang.hermes.datatag;
+use logos.lang.hermes.view;
 use std.hermes.string;
 
 #[zoned] struct Slot { pub val: i32 }

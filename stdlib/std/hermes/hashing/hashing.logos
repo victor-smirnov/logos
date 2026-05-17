@@ -12,6 +12,7 @@ package std.hermes.hashing;
 
 use logos.lang.arith;
 use std.hermes.anyval;
+use logos.lang.hermes.view;
 use std.hermes.string;
 use logos.lang.hermes.tags;
 use logos.lang.hermes.typetag;

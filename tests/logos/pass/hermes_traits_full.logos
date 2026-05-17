@@ -3,6 +3,7 @@ package hermes_traits_full;
 
 use logos.lang.hermes.zone;
 use std.hermes.anyval;
+use logos.lang.hermes.view;
 use std.hermes.string;
 use logos.mem.string;
 use logos.lang.str;

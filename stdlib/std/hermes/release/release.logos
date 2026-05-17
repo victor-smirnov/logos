@@ -10,6 +10,7 @@
 
 package std.hermes.release;
 
+use logos.lang.hermes.view;
 use std.hermes.string;
 use std.hermes.anyval;
 use logos.lang.hermes.typetag;

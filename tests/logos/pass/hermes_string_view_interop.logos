@@ -6,6 +6,7 @@ package hermes_string_view_interop;
 
 use logos.lang.hermes.zone;
 use std.hermes.anyval;
+use logos.lang.hermes.view;
 use std.hermes.string;
 use logos.lang.hermes.typetag;
 use std.hermes.tag_system;

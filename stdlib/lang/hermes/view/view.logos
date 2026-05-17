@@ -51,3 +51,16 @@ pub struct HermesStatic {
 pub unsafe fn hermes_static_size(ptr: *const u8) -> u64 {
     return *((ptr as i64 - 8) as *const u64);
 }
+
+// ── StringView ───────────────────────────────────────────────────────────────
+//
+// Non-owning byte-slice view: pointer + length. Returned by reads of
+// zone-resident strings (HermesString) and used as the call-site type
+// for str arguments at the C boundary. Pure value — no allocation.
+
+pub struct StringView {
+    pub ptr: *const u8,
+    pub len: u64,
+}
+
+impl Copy for StringView {}

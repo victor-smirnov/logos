@@ -2,6 +2,7 @@ package hermes_buffer_string;
 // Buffer<HermesString>: SoA storage (packed bytes + end offsets).  Push three
 // strings, read them back via StringView, verify each byte.
 
+use logos.lang.hermes.view;
 use std.hermes.string;
 use logos.lang.hermes.fabric;
 

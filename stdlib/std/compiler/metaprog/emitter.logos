@@ -18,6 +18,7 @@ package std.compiler.metaprog;
 
 use logos.mem.string;
 use logos.lang.str;
+use logos.lang.hermes.view;
 use std.hermes.string;
 use std.collections.vec;
 

@@ -8,6 +8,7 @@ package std.hermes.pat;
 
 use std.hermes.anyval;
 use logos.lang.hermes.typetag;
+use logos.lang.hermes.view;
 use std.hermes.string;
 use std.hermes.objectmap;
 use std.hermes.array;

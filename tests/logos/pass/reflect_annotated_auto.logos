@@ -3,6 +3,7 @@
 package reflect_annotated_auto;
 
 use logos.lang.any;
+use logos.lang.hermes.view;
 use std.hermes.string;
 
 #[annotation]

@@ -2,6 +2,7 @@ package hermes_string;
 // Phase 10: HermesString — vlen encoding and UTF-8 string anchored in a zone.
 
 use logos.lang.hermes.zone;
+use logos.lang.hermes.view;
 use std.hermes.string;
 
 unsafe fn main() -> i32 {

@@ -8,6 +8,7 @@ package std.hermes.hbs_read;
 
 use std.hermes.anyval;
 use logos.lang.hermes.zone;
+use logos.lang.hermes.view;
 use std.hermes.string;
 use logos.lang.hermes.typetag;
 use std.hermes.array;
