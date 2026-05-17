@@ -8,26 +8,25 @@ alone because `std.lang.any` and `std.lang.cmp` use `std.hermes.view`
 and `std.lang.text` (both in monolith), creating a circular dep with
 layer-lang's `logos.lang.*` content.
 
-Status: **partial implementation.** Steps 0–4b landed; Step 4
-remainder (anyval/typed_value/string structs + relptr_traits) and
-Steps 5–8 still pending. Companion to
+Status: **Steps 0–4 complete.** Steps 5–8 (mem-tier batch, then
+unblock any/cmp, then activate excludes) still pending. Companion to
 [three-layer-split.md](three-layer-split.md) and
 [layer-assignment.md](layer-assignment.md).
 
 ### Progress log
 
-| Step | Status | Commit | Note |
-|------|--------|--------|------|
+| Step | Status | Note |
+|------|--------|------|
 | 0    | ✅ done | excludes-aware loader plumbing (no activation) |
 | 1    | ✅ done | 4 hermes leaves (datatag/tags/typetag/relptr) → lang |
 | 2    | ✅ done | hermes lifecycle (mem_holder/zone/own) → lang. release deferred |
 | 3    | ✅ done | text split (str/utf8/split → lang; String/Display → mem). 391 consumers |
-| 4a   | ✅ done | scalar → lang (no split) |
-| 4b   | ✅ done | HermesView/HermesStatic structs → lang. Traits stay in mem |
-| 4c   | ⏸️ pending | anyval split — AnyVal value-mode helpers lang; hermes_pat_eq_str + HermesString-deref methods mem |
-| 4d   | ⏸️ pending | typed_value split — struct field references HermesString. Needs forward-decl strategy |
-| 4e   | ⏸️ pending | StringView extraction — separate from HermesString |
-| 4f   | ⏸️ pending | relptr_traits — defer until stringify/equal/hashing/clone/release are in lang (Step 5) |
+| 4a   | ✅ done | scalar → lang (no split needed) |
+| 4b   | ✅ done | HermesView/HermesStatic structs → lang. HermesRead trait stays mem |
+| 4c   | ✅ done | anyval → lang. hermes_pat_eq_str (only HermesString user) moved to std.hermes.pat |
+| 4d   | ✅ done | typed_value → lang (transitive name-resolution dep on HermesString via RelPtr<T> field accepted) |
+| 4e   | ✅ done | StringView → lang.hermes.view. HermesString stays mem |
+| 4f   | ✅ done | relptr_traits → lang (orphan rule allows impl-of-foreign-trait-for-local-RelPtr) |
 
 ---
 
