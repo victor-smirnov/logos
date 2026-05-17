@@ -532,3 +532,72 @@ operations should be unblocked.
 
 3197/3197 baseline preserved. Three sessions of debugging
 produced a precise actionable diagnosis.
+
+---
+
+## Session 4 (2026-05-17) — (B) fix landed + (D) partial-spec bug now blocks Step 5
+
+### Fix landed
+
+Implemented the (B) fix surfaced in session 3:
+- emit_module.cpp now propagates `ParsedModule::from_binary_module`
+  into the `from_binary` vector that feeds `compile_to_object`'s
+  sema runs (pre-fix it was hard-coded all-false for binary-loaded
+  modules, only ast_only flag fed it).
+- sema_collect.cpp pass0 pre-registers trait NAMES alongside the
+  existing struct/enum/datatype name pre-registration. Pass2's
+  `collect_impl` can now resolve `impl Trait for X` regardless of
+  iteration order between the impl's file and the trait's file.
+
+This was the actual root cause discovered in session 3 (the
+from_binary flag was real but tangential; the load-bearing issue
+was pass2 trait registration happening AFTER impl registration in
+iteration order).
+
+**Demonstrated:** collections migrated from `std.collections` to
+`logos.mem.collections` and layer-mem now builds with real content.
+143 consumer files swept. 3197/3197.
+
+### (D) partial-spec mangling collision — still open
+
+Re-attempted Step 5 (stringify/equal/hashing/check/pat/hbs_read →
+lang) with the (B) fix in place. Trait dispatch now works, but
+mlir-gen fails for `Map<Bitmap, AnyVal>`:
+
+    mlir_gen: struct 'std.hermes.map.Map$G2$Bitmap$AnyVal' has no field 'size'
+
+Map<...> has TWO matching partial specs for that concrete
+instantiation:
+- `struct Map<Bitmap, V>` → fields {header, schema_type_code, data}
+- `struct Map<K, AnyVal>` → fields {size, capacity, keys, vals}
+
+`find_best_struct_spec` picks one (by specificity). Mono materializes
+ONE spec under the mangled name `Map$G2$Bitmap$AnyVal`. Impls on the
+OTHER spec (equal/hashing/etc.'s `impl Map<K, AnyVal>`) access fields
+absent in the picked spec → mlir-gen error.
+
+In monolith builds, this still works (3197/3197 there). Either
+monolith mono picks differently per impl-context, or impl-side field
+resolution uses the impl's self-type rather than the canonical struct
+registration. Needs investigation.
+
+### Path forward
+
+To unblock Step 5/6/all-Hermes-in-lang:
+- **(D1)** Fix `find_best_struct_spec` / mono materialization so each
+  impl gets fields from its own declared partial spec. Likely the
+  right architectural fix.
+- **(D2)** Mangle partial-spec instantiations distinctly (e.g.
+  `Map$G2$BitmapPartial$Bitmap$AnyVal` vs
+  `Map$G2$AnyValPartial$Bitmap$AnyVal`). Touches dispatch tables.
+
+Both ~1-session compiler work. After (D), Step 5 becomes a sed.
+
+### Sessions to date
+
+| # | Date | Outcome |
+|---|------|---------|
+| 1 | 05-16 | Steps 0-4 landed (lang carve-out: leaves/lifecycle/text/scalar/view-structs/StringView/anyval/typed_value/relptr_traits) |
+| 2 | 05-17 | Step 5+6 attempts blocked, root cause hypothesis |
+| 3 | 05-17 | Instrumentation pinpointed bug: from_binary + pass2 order |
+| 4 | 05-17 | (B) fix landed + collections-to-mem; (D) now the next blocker |
