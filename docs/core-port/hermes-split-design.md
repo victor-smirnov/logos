@@ -601,3 +601,65 @@ Both ~1-session compiler work. After (D), Step 5 becomes a sed.
 | 2 | 05-17 | Step 5+6 attempts blocked, root cause hypothesis |
 | 3 | 05-17 | Instrumentation pinpointed bug: from_binary + pass2 order |
 | 4 | 05-17 | (B) fix landed + collections-to-mem; (D) now the next blocker |
+
+---
+
+## Session 5 (2026-05-17) — (C) loader dedup landed; (D) needs mono investigation
+
+### (C) loader fix landed
+
+Re-attempt of the "skip prelude auto-load when text has package" fix
+from session 3. Narrower predicate (only filter by `index.count()`,
+NOT `visited_packages.count()`) avoids the metaprog JIT regression
+that broke session 3's attempt. Verified at 3197/3197 baseline.
+
+### (D) still blocks Step 5
+
+With (B) trait pre-registration + (C) loader dedup both in place,
+Step 5 (hermes read-side packages → lang) progresses past sema to
+mlir-gen and hits the partial-spec issue:
+
+    mlir_gen: struct 'std.hermes.map.Map$G2$Bitmap$AnyVal' has no field 'size'
+              (in fn 'Map$G2$Bitmap$AnyVal__check_obj__g__ref_Map$G2$Bitmap$V__pmut_CheckState')
+    mlir_gen: struct 'Map$G2$Bitmap$AnyVal' has no field 'keys'
+              (in fn '...__check_obj__g__ref_Map$G2$K$AnyVal__pmut_CheckState')
+
+Diagnostics revealed:
+- 3 partial Map specs declared: `Map<K, V>` empty base, `Map<Bitmap, V>`
+  {header, schema_type_code, data}, `Map<K, AnyVal>` {size, capacity,
+  keys, vals}, `Map<Varchar, AnyVal>` {entries_off, capacity, count,
+  reserved}.
+- For `Map<Bitmap, AnyVal>`, `find_best_struct_spec` picks
+  `Map<Bitmap, V>` (specificity wins). Struct registered with
+  {header, data} fields.
+- check.logos has BOTH `impl<V> HermesCheck for Map<Bitmap, V>` and
+  `impl<K> HermesCheck for Map<K, AnyVal>` — neither bound on K/V.
+- Mono instantiates BOTH for K=Bitmap, V=AnyVal. The Map<Bitmap, V>
+  impl body accesses {header, data} (OK). The Map<K, AnyVal> impl
+  body accesses {size, keys, vals} which the registered struct
+  doesn't have → mlir-gen error.
+
+In monolith builds this works (3197/3197 there). Either:
+- monolith's mono skips the Map<K, AnyVal> instantiation for K=Bitmap
+  (some bound or impl-coherence rule fires that doesn't in cross-archive)
+- or monolith's mlir-gen does per-impl struct field lookup
+
+Needs targeted mono investigation. The fix is either:
+- **(D1)** Per-impl struct field resolution: each impl's body
+  reads fields from ITS OWN declared partial spec, not the
+  globally-picked one.
+- **(D2)** Mono coherence check: when multiple impls of same trait
+  apply to a concrete type, instantiate ONLY the one whose
+  self-type matches the winning struct spec.
+
+Both ~1-session compiler work.
+
+### Sessions to date
+
+| # | Date | Outcome |
+|---|------|---------|
+| 1 | 05-16 | Steps 0-4 landed |
+| 2 | 05-17 | Step 5+6 attempts blocked, root cause hypothesis |
+| 3 | 05-17 | Instrumentation pinpointed bug |
+| 4 | 05-17 | (B) fix landed + collections-to-mem |
+| 5 | 05-17 | (C) loader dedup landed; (D) partial-spec mangling = next blocker |
