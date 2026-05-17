@@ -36,6 +36,14 @@ std::optional<ModuleManifest> parse_module_manifest(const std::string& path,
         else if (key == "depends")  { if (!val.empty()) m.depends.push_back(val); }
         else if (key == "exclude")  { if (!val.empty()) m.excludes.push_back(val); }
         else if (key == "ast_only") { if (!val.empty()) m.ast_only.push_back(val); }
+        else if (key == "lowering") {
+            // Phase 6 (multi-arena IR): hybrid lazy mode. Default is eager
+            // (existing behaviour — ship .o + LIR blob). `lazy` writes only
+            // the parsed AST .hermes0; consumer lowers locally on use.
+            if      (val == "lazy")  m.lazy = true;
+            else if (val == "eager") m.lazy = false;
+            else { err_out = "manifest: 'lowering' must be 'lazy' or 'eager', got '" + val + "'"; return {}; }
+        }
         // ignore unknown keys for forward compat
     }
 

@@ -398,6 +398,7 @@ static std::vector<ParsedModule> parse_hermes0(const std::vector<uint8_t>& data,
     // M3: v3 has a trailing exports section (u64 length + bytes). Skip it
     // here — consumers needing the exports pull them via
     // extract_hermes0_exports() on the same blob. v2 has no trailer.
+    bool is_lazy = false;
     if (version == 3 && p + 8 <= end) {
         uint64_t exports_len = read_le_u64(p);
         p += 8;
@@ -419,7 +420,18 @@ static std::vector<ParsedModule> parse_hermes0(const std::vector<uint8_t>& data,
                 return {};
             }
             p += blob_len;  // skip; consumers use extract_hermes0_lir_blob()
+            // Phase 6: optional module_flags u64. Pre-Phase-6 archives stop
+            // here (EOF after lir_blob) — they're eager by default.
+            if (p + 8 <= end) {
+                uint64_t mflags = read_le_u64(p);
+                p += 8;
+                constexpr uint64_t LAZY_BIT = 1ULL << 0;
+                if (mflags & LAZY_BIT) is_lazy = true;
+            }
         }
+    }
+    if (is_lazy) {
+        for (auto& m : result) m.is_lazy = true;
     }
     return result;
 }
@@ -1002,7 +1014,9 @@ std::vector<ParsedModule> load_modules(
             if (!wanted(pm.package)) continue;
             if (!visited_files.insert(pm.path).second) continue;
             if (!pm.package.empty()) visited_packages.insert(pm.package);
-            modules.push_back({pm.path, pm.package, pm.ast, /*from_binary_module=*/true});
+            modules.push_back({pm.path, pm.package, pm.ast,
+                               /*from_binary_module=*/true,
+                               /*is_lazy=*/pm.is_lazy});
         }
     };
 

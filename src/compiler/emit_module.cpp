@@ -126,10 +126,19 @@ static std::string encode_stdlib_exports(const StdlibExports& exp) {
     return out;
 }
 
+// Phase 6 (multi-arena IR): module-level flags stored as a trailing u64
+// after lir_blob. Old (v3) readers stop after lir_blob — they ignore this
+// section and treat the archive as eager (the previous default), so
+// adding the section is forward-compatible.
+namespace module_flag {
+    constexpr uint64_t LAZY = 1ULL << 0;
+}
+
 static bool write_hermes0(const std::string& path,
                            const std::vector<ParsedModule>& modules,
                            const StdlibExports* exports = nullptr,
-                           const std::vector<uint8_t>* lir_blob = nullptr) {
+                           const std::vector<uint8_t>* lir_blob = nullptr,
+                           uint64_t module_flags = 0) {
     std::ofstream f(path, std::ios::binary);
     if (!f) {
         std::fprintf(stderr, "emit_module: cannot create %s\n", path.c_str());
@@ -178,6 +187,12 @@ static bool write_hermes0(const std::string& path,
                 lir_blob->size());
     } else {
         write_u64(f, 0);
+    }
+    // Phase 6: module-flags trailing u64. Omit when zero so old archives
+    // and the eager-default case stay byte-identical to pre-Phase-6
+    // output (this section is recognised only when non-zero is needed).
+    if (module_flags) {
+        write_u64(f, module_flags);
     }
     return f.good();
 }
@@ -681,23 +696,34 @@ bool emit_module(const ModuleManifest& manifest,
         ast_only_flags.push_back(ao);
     }
 
-    // Compile to object file.
-    if (verbose) {
-        std::fprintf(stderr, "emit_module: compiling %zu file(s)%s%s%s → %s\n",
-                     filenames.size(),
-                     only_file_canon.empty() ? "" : " (filtering to ",
-                     only_file_canon.empty() ? "" : only_file_canon.c_str(),
-                     only_file_canon.empty() ? "" : ")",
-                     obj_path.c_str());
-    }
+    // Phase 6 lazy mode: skip compile_to_object entirely. The lazy archive
+    // ships only the parsed AST; the consumer's sema lowers items locally
+    // on use. No .o, no LIR blob, no exports trailer.
     size_t original_ast_count = asts.size();
     StdlibExports exports;
     std::vector<uint8_t> lir_blob;
-    if (!compile_to_object(asts, filenames, ast_only_flags, obj_path,
-                           only_file_canon, &exports, &lir_blob,
-                           /*module_name=*/manifest.name)) {
-        std::fprintf(stderr, "emit_module: compilation failed\n");
-        return false;
+    if (manifest.lazy) {
+        if (verbose) {
+            std::fprintf(stderr,
+                "emit_module: lazy mode — skipping codegen for %zu file(s)\n",
+                filenames.size());
+        }
+    } else {
+        // Compile to object file (eager — the default).
+        if (verbose) {
+            std::fprintf(stderr, "emit_module: compiling %zu file(s)%s%s%s → %s\n",
+                         filenames.size(),
+                         only_file_canon.empty() ? "" : " (filtering to ",
+                         only_file_canon.empty() ? "" : only_file_canon.c_str(),
+                         only_file_canon.empty() ? "" : ")",
+                         obj_path.c_str());
+        }
+        if (!compile_to_object(asts, filenames, ast_only_flags, obj_path,
+                               only_file_canon, &exports, &lir_blob,
+                               /*module_name=*/manifest.name)) {
+            std::fprintf(stderr, "emit_module: compilation failed\n");
+            return false;
+        }
     }
     if (verbose) {
         std::fprintf(stderr,
@@ -818,7 +844,11 @@ bool emit_module(const ModuleManifest& manifest,
     if (verbose) {
         std::fprintf(stderr, "emit_module: writing → %s\n", h0_path.c_str());
     }
-    if (!write_hermes0(h0_path, modules_for_h0, &exports, &lir_blob)) {
+    uint64_t mflags = manifest.lazy ? module_flag::LAZY : 0;
+    if (!write_hermes0(h0_path, modules_for_h0,
+                       manifest.lazy ? nullptr : &exports,
+                       manifest.lazy ? nullptr : &lir_blob,
+                       mflags)) {
         std::fprintf(stderr, "emit_module: .hermes0 write failed\n");
         return false;
     }
@@ -847,12 +877,13 @@ bool emit_module(const ModuleManifest& manifest,
         }
     }
 
-    // Create .a archive: ar rcs output.a NAME.o NAME.hermes0.o
+    // Create .a archive: lazy mode has no .o (codegen skipped), pack just
+    // the .hm0 wrapper. Eager mode packs both NAME.o + NAME.hermes0.o.
     {
         std::ostringstream cmd;
-        cmd << "ar rcs " << output_path
-            << " " << obj_path
-            << " " << h0_obj_path;
+        cmd << "ar rcs " << output_path;
+        if (!manifest.lazy) cmd << " " << obj_path;
+        cmd << " " << h0_obj_path;
         if (verbose) {
             std::fprintf(stderr, "emit_module: %s\n", cmd.str().c_str());
         }

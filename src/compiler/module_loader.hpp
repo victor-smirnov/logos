@@ -19,6 +19,12 @@ struct ParsedModule {
     std::string    package;               // dotted package name (e.g. "std.io"); may be empty
     hermes::Hermes ast;
     bool           from_binary_module = false;  // loaded from a .hermes0 in a .a archive
+    // Phase 6 (multi-arena IR): lazy-mode archive. When true, the consumer
+    // must lower this module's items locally (sema/mono/mlir-gen treats
+    // them as user code) even though they came from a binary archive —
+    // because the lazy archive ships only the parsed AST, no .o text, no
+    // LIR blob. Default false (eager — current behaviour).
+    bool           is_lazy = false;
 };
 
 // M3: stdlib exports payload carried in the .hermes0 v3 trailer.

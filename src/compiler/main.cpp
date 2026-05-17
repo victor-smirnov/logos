@@ -2831,7 +2831,13 @@ int main(int argc, char** argv) {
     logos::compiler::StrSet binary_symbols;
     for (auto& m : modules) {
         filenames.push_back(m.path);
-        from_binary.push_back(m.from_binary_module);
+        // Phase 6 (multi-arena IR): lazy modules came from a binary archive
+        // (no source dir scan) but ship parsed AST only — no .o text, no
+        // LIR blob. Treat them as non-binary for sema so bodies get
+        // lowered locally into the consumer's LProgram (same path as
+        // user-authored code). The resulting .o then carries the lazy
+        // module's items inline.
+        from_binary.push_back(m.from_binary_module && !m.is_lazy);
         asts.push_back(std::move(m.ast));
     }
     // Collect symbol tables from binary archives on the search path.
