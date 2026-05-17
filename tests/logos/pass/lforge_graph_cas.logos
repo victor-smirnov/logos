@@ -23,7 +23,7 @@ use std.lang.option;
 use std.lang.result;
 use std.lang.iter;
 use std.collections.vec;
-use std.crypto;
+use logos.std.crypto;
 
 // ── Graph types ───────────────────────────────────────────────────────────
 

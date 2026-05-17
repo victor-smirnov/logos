@@ -1,4 +1,4 @@
-// Logos standard library -- std.crypto
+// Logos standard library -- logos.std.crypto
 //
 // SHA-256 and MD5 digests.  One-shot API: feed a byte buffer, get the
 // digest as 32 or 16 raw bytes (appended to a String) or as a lowercase
@@ -7,7 +7,7 @@
 // NOTE: MD5 is cryptographically broken — provided only for legacy formats.
 // Use SHA-256 for anything security-sensitive.
 
-package std.crypto;
+package logos.std.crypto;
 
 use std.lang.text;
 use std.lang.arith;

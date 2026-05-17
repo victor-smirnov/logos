@@ -1,7 +1,7 @@
 // Tests std.crypto: SHA-256 and MD5 against known vectors.
 package test;
 
-use std.crypto;
+use logos.std.crypto;
 use std.lang.text;
 
 fn main() -> i32 {
