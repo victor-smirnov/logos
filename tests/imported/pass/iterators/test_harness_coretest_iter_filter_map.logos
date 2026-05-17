@@ -16,7 +16,7 @@ package test_iter_filter_map;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.iter;
+use logos.lang.iter;
 use logos.lang.range;
 use logos.lang.option;
 use std.collections.vec;

@@ -24,7 +24,7 @@ package test_iter_batch_b60_esi_take_dei;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.iter;
+use logos.lang.iter;
 use logos.lang.option;
 
 #[test]

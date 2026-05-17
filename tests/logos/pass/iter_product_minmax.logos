@@ -1,5 +1,5 @@
 package iter_product_minmax_test;
-use std.lang.iter;
+use logos.lang.iter;
 use logos.lang.option;
 
 fn cmp_i32(a: i32, b: i32) -> i32 {

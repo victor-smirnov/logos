@@ -11,7 +11,7 @@ package test_iter_take_while;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.iter;
+use logos.lang.iter;
 use logos.lang.option;
 
 fn lt15(x: i32) -> bool { return x < 15i32; }

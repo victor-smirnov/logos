@@ -24,7 +24,7 @@ package test_iter_batch_b51_dei;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.iter;
+use logos.lang.iter;
 use logos.lang.option;
 
 fn neg(x: i32) -> i32 { return 0i32 - x; }

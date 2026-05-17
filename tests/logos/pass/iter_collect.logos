@@ -7,7 +7,7 @@
 
 package iter_collect_test;
 
-use std.lang.iter;
+use logos.lang.iter;
 use logos.lang.option;
 use std.collections.vec;
 

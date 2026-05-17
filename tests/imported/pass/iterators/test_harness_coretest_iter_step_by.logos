@@ -14,7 +14,7 @@ package test_iter_step_by;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.iter;
+use logos.lang.iter;
 use logos.lang.option;
 
 #[test]

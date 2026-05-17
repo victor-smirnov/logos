@@ -4,7 +4,7 @@
 package string_strops;
 
 use std.lang.text;
-use std.lang.iter;
+use logos.lang.iter;
 use logos.lang.option;
 
 fn main() -> i32 {

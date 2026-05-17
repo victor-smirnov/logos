@@ -17,7 +17,7 @@ package test_iter_rposition;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.iter;
+use logos.lang.iter;
 use logos.lang.option;
 
 fn eq_3(x: i32)  -> bool { return x == 3i32; }

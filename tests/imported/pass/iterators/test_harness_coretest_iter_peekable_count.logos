@@ -11,7 +11,7 @@ package test_iter_peekable_count;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.iter;
+use logos.lang.iter;
 use logos.lang.option;
 
 #[test]

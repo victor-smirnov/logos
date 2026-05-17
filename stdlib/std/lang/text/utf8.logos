@@ -10,7 +10,7 @@
 
 package std.lang.text;
 
-use std.lang.iter;
+use logos.lang.iter;
 use logos.lang.option;
 
 // ── Encoding / decoding ───────────────────────────────────────────────────

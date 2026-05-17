@@ -1,5 +1,5 @@
 package iter_min_max_typed_test;
-use std.lang.iter;
+use logos.lang.iter;
 use logos.lang.option;
 
 fn main() -> i32 {

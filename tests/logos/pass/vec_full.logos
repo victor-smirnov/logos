@@ -3,7 +3,7 @@ package test;
 
 use std.collections.vec;
 use logos.lang.option;
-use std.lang.iter;
+use logos.lang.iter;
 use logos.lang.cmp;
 
 fn main() -> i32 {

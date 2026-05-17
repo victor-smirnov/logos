@@ -1,5 +1,5 @@
 package iter_collect_vec_test;
-use std.lang.iter;
+use logos.lang.iter;
 use std.collections.vec;
 
 fn main() -> i32 {

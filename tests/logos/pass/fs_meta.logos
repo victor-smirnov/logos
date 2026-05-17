@@ -7,7 +7,7 @@ use std.io.fs.path;
 use std.lang.text;
 use logos.lang.result;
 use logos.lang.option;
-use std.lang.iter;
+use logos.lang.iter;
 use std.collections.vec;
 
 unsafe fn cstr(s: str) -> *const u8 {

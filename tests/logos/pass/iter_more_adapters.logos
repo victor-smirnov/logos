@@ -7,7 +7,7 @@
 
 package iter_more_adapters;
 
-use std.lang.iter;
+use logos.lang.iter;
 use logos.lang.option;
 
 fn lt5(x: i32) -> bool { return x < 5i32; }

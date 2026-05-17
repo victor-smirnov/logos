@@ -21,7 +21,7 @@ package test_iter_sum_product;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.iter;
+use logos.lang.iter;
 use logos.lang.range;
 use logos.lang.option;
 

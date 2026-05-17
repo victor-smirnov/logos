@@ -12,7 +12,7 @@ package test_iter_take_short;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.iter;
+use logos.lang.iter;
 use logos.lang.option;
 
 #[test]

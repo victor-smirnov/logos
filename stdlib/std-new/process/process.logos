@@ -8,7 +8,7 @@ package logos.std.process;
 use std.io.pipe;
 use std.lang.text;
 use logos.lang.option;
-use std.lang.iter;
+use logos.lang.iter;
 
 extern fn fork() -> i32;
 extern fn execvp(file: *const u8, argv: *const *const u8) -> i32;

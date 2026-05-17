@@ -21,7 +21,7 @@
 
 package iter_chain_map_fold;
 
-use std.lang.iter;
+use logos.lang.iter;
 use logos.lang.option;
 
 fn add(acc: i32, x: i32) -> i32 { return acc + x; }

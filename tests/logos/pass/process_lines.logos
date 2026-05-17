@@ -6,7 +6,7 @@ package process_lines;
 use logos.std.process;
 use std.lang.text;
 use logos.lang.option;
-use std.lang.iter;
+use logos.lang.iter;
 
 unsafe fn cstr(s: str) -> *const u8 {
     let len: i64 = s.len();

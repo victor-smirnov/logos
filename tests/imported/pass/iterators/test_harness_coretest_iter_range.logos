@@ -19,7 +19,7 @@ package test_iter_range;
 use std.fmt;
 use std.lang.text;
 use logos.lang.range;
-use std.lang.iter;
+use logos.lang.iter;
 use logos.lang.option;
 
 #[test]

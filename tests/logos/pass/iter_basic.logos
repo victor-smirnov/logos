@@ -3,7 +3,7 @@
 package iter_basic;
 
 use logos.lang.range;
-use std.lang.iter;
+use logos.lang.iter;
 use logos.lang.option;
 
 unsafe fn main() -> i32 {

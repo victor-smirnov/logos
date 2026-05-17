@@ -13,7 +13,7 @@
 
 package std.lang.text;
 
-use std.lang.iter;
+use logos.lang.iter;
 use logos.lang.option;
 
 // Multi-byte separator splitter.

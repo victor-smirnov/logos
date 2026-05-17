@@ -8,7 +8,7 @@ package std.collections.set;
 use std.collections.hashmap;
 use logos.lang.hash;
 use logos.lang.cmp;
-use std.lang.iter;
+use logos.lang.iter;
 use logos.lang.option;
 
 pub struct HashSet<K> {

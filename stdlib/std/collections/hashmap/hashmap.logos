@@ -13,7 +13,7 @@ use std.mem;
 use logos.lang.hash;
 use logos.lang.cmp;
 use logos.lang.option;
-use std.lang.iter;
+use logos.lang.iter;
 
 let SLOT_EMPTY:     u8 = 0 as u8;
 let SLOT_OCCUPIED:  u8 = 1 as u8;

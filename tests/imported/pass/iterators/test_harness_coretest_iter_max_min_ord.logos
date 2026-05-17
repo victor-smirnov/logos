@@ -19,7 +19,7 @@ package test_iter_max_min_ord;
 
 use std.fmt;
 use std.lang.text;
-use std.lang.iter;
+use logos.lang.iter;
 use logos.lang.range;
 use logos.lang.option;
 use logos.lang.cmp;

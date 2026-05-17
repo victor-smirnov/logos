@@ -16,7 +16,7 @@ use std.fmt;
 use std.lang.text;
 use std.compiler.metaprog;
 use logos.lang.clone;
-use std.lang.iter;
+use logos.lang.iter;
 use logos.lang.option;
 
 #[derive_clone]

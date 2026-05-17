@@ -3,7 +3,7 @@
 // Iterator trait + adapters + terminal operations.
 // Adapters take fn-pointer transformers; non-capturing closures coerce automatically.
 
-package std.lang.iter;
+package logos.lang.iter;
 
 use logos.lang.option;
 use logos.lang.cmp;

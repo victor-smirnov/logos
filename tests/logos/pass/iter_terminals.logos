@@ -12,7 +12,7 @@
 
 package iter_terminals;
 
-use std.lang.iter;
+use logos.lang.iter;
 use logos.lang.option;
 
 fn is_pos(x: i32) -> bool { return x > 0i32; }
