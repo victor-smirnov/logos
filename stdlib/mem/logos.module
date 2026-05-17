@@ -1,0 +1,5 @@
+module logos-mem
+version 0.1
+root stdlib/mem/
+tier mem
+depends logos-lang

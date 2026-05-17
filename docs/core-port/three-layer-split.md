@@ -227,34 +227,71 @@ existing tests pass; one new test added.
 
 **Reviewable, no commits to stdlib.**
 
-### Phase 3 — Build infra (parallel path)
+### Phase 3 — Build infra (parallel path) — DONE 2026-05-16
 
 **No removal of existing monolith.** Three new manifests + three
 new archives stand up alongside the current `liblstdlib.a`.
 
-- Create `stdlib/lang/logos.module`, `stdlib/mem/logos.module`,
-  `stdlib/std-new/logos.module` (`std-new` is temporary; renamed
-  to `std/` after the old monolith is removed in Phase 7).
-- Each manifest contains:
-  - `module logos-lang | logos-mem | logos-std`
-  - `prelude logos.lang.prelude | logos.mem.prelude | logos.std.prelude`
-  - `tier lang | mem | std`
-  - `depends logos-lang` (and `depends logos-mem` for std)
-- Drop one placeholder package per layer for chain validation.
-- CMake: three `add_custom_command` invocations modeled on the
-  current `liblstdlib.a` build, plus depends-chain ordering.
-- logosc system-discovery extends `liblstdlib.a` lookup to all
-  three names; both old and new coexist during migration.
-- Grammar adds:
-  - `#![no_implicit_prelude]` parsing.
-  - Glob `use <pkg>.*` (only if Phase 1 found it missing).
-- Sema adds:
-  - Manifest's `prelude` directive → implicit `use <prelude-pkg>`
-    injection in collect phase.
-  - `#![no_implicit_prelude]` opt-out.
-- Smoke-test: trilayer fixture importing from each layer.
+**Work delivered:**
 
-**Blast radius:** zero for existing code — parallel path.
+- **Manifest fields** ([src/compiler/module_manifest.{hpp,cpp}](../../src/compiler/module_manifest.hpp)):
+  `tier {lang|mem|std}` and `prelude <pkg>` directives. `tier`
+  validated against closed set. `prelude` stored only (enforcement
+  via sema injection — see below).
+- **Grammar** ([tools/peg_gen/grammars/logos.peg](../../tools/peg_gen/grammars/logos.peg)):
+  new `inner_annotation` production parses `#![name]` /
+  `#![name(args)]` / `#![name=val]` before the `package` directive.
+  New AST code `INNER_ANNOTATION` (242). Glob `use pkg.*` deferred —
+  Phase 1 audit confirmed `use pkg;` already de-facto glob.
+- **Sema implicit-prelude injection** ([sema_collect.cpp](../../src/compiler/sema_collect.cpp)
+  + [sema.cpp](../../src/compiler/sema.cpp)): manifest's `prelude`
+  package added to `cur_imports_.wildcard_packages` for every
+  non-binary file that doesn't carry `#![no_implicit_prelude]`.
+  Threaded via `SemaOptions::implicit_prelude` →
+  `SemaChecker::implicit_prelude_`. Self-import and
+  explicit-`use` dedup. Binary-archive files skip (producer
+  already applied its own prelude).
+- **Loader thread** ([module_loader.cpp](../../src/compiler/module_loader.cpp)):
+  `extract_uses` takes optional `implicit_prelude` arg; appends
+  via `finalize` lambda after explicit-uses loop. `load_modules`
+  signature extended. Plus a fix to `scan_package_decl` to skip
+  `#![...]` lines that may legitimately precede `package`.
+- **emit_module wiring** ([emit_module.cpp](../../src/compiler/emit_module.cpp)):
+  `compile_to_object` takes `implicit_prelude` arg; passes
+  `manifest.prelude` through to both `load_modules` and
+  `sema_lower`.
+- **Three layer manifests** (placeholder content):
+  - `stdlib/lang/logos.module` — `module logos-lang`, `tier lang`
+  - `stdlib/mem/logos.module` — `module logos-mem`, `tier mem`,
+    `depends logos-lang`
+  - `stdlib/std-new/logos.module` — `module logos-std`, `tier std`,
+    `depends logos-mem`, `depends logos-lang`
+  - One `_placeholder/_placeholder.logos` per layer carrying
+    `#![no_implicit_prelude]` (defensive — no items in scope
+    yet, but verifies the opt-out attribute parses everywhere).
+  - `std-new` is the temporary name — renamed to `std` in Phase 7
+    after the old monolith is removed.
+- **CMake** ([tests/logos/CMakeLists.txt](../../tests/logos/CMakeLists.txt)):
+  three `add_custom_command` invocations modeled on the existing
+  `liblstdlib.a` build, with depends-chain ordering. Outputs to
+  `${LOGOS_BUILD_LIB_DIR}` (same dir as monolith) so existing
+  logosc auto-discovery picks them up without changes.
+- **Trilayer fixture extension**
+  ([tests/logos/three_layer/](../../tests/logos/three_layer/)):
+  mid.module declares `prelude three_layer.low`; mid.logos uses
+  `low_double` without explicit `use` — exercises injection.
+  hi.module declares `prelude three_layer.mid`; hi.logos carries
+  `#![no_implicit_prelude]` and falls back to explicit uses —
+  exercises opt-out.
+
+**Discovery — no changes needed.** The existing
+`build_binary_index` globs `lib*.a` in search paths, so
+`liblogos-lang.a` etc. are auto-discovered alongside
+`liblstdlib.a`. During Phase 4 migration the two paths coexist
+(first archive in scan order wins on duplicate package).
+
+**Blast radius:** zero for existing code — parallel path. All
+3197/3197 tests pass.
 
 ### Phase 4 — Per-package migration
 

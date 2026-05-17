@@ -1,0 +1,6 @@
+module logos-std
+version 0.1
+root stdlib/std-new/
+tier std
+depends logos-mem
+depends logos-lang

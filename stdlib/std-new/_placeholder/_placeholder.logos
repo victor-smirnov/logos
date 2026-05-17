@@ -1,0 +1,11 @@
+// Three-layer split Phase 3.6: bootstrap placeholder for the std
+// layer. Removed in Phase 7 when the layer has real content.
+// Source lives under stdlib/std-new/ during migration so the existing
+// monolithic stdlib/std/ tree is undisturbed; renamed to stdlib/std/
+// in Phase 7 after the old monolith is removed.
+
+#![no_implicit_prelude]
+
+package logos.std._placeholder;
+
+pub fn std_placeholder_noop() { }

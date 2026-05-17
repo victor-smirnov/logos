@@ -1,0 +1,4 @@
+module logos-lang
+version 0.1
+root stdlib/lang/
+tier lang

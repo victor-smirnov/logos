@@ -1,0 +1,8 @@
+// Three-layer split Phase 3.6: bootstrap placeholder for the mem
+// layer. Removed in Phase 7 when the layer has real content.
+
+#![no_implicit_prelude]
+
+package logos.mem._placeholder;
+
+pub fn mem_placeholder_noop() { }
