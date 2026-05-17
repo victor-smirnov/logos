@@ -3,7 +3,8 @@
 package i8_incr_test;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     let mut x: i8 = -12i8;

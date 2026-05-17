@@ -4,7 +4,8 @@
 package loop_break_cont_1;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     let _i: usize = 0usize;

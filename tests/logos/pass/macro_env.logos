@@ -1,5 +1,6 @@
 package macro_env;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     // PATH is virtually guaranteed in CI/dev envs.

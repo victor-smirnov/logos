@@ -4,7 +4,8 @@
 package c_coerce_reborrow_imm_ptr_rcvr;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 struct SpeechMaker { speeches: usize }
 

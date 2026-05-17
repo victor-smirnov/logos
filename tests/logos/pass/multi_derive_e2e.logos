@@ -14,7 +14,8 @@ use std.hermes.anyval;
 use std.hermes.string;
 use std.compiler.metaprog;
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use std.io;
 
 #[metaprog_handler("derive_dbg_md")]

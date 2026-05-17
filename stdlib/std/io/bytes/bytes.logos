@@ -12,7 +12,8 @@ package std.io.bytes;
 
 use logos.mem.mem;
 use std.sync.atomic;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 // ── Inner heap block ──────────────────────────────────────────────────────────
 

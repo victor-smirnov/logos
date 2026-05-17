@@ -3,7 +3,8 @@ package test;
 
 use std.io.buffered;
 use std.io.pipe;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     unsafe {

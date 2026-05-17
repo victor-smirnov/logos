@@ -19,7 +19,8 @@
 package test_option_combinators;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.option;
 
 fn plus_one(x: i32) -> Option<i32> { return Some(x + 1i32); }

@@ -35,7 +35,8 @@ use std.hermes.objectmap;
 use std.hermes.document;
 use std.hermes.scalar;
 use std.hermes.decimal;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 // ---------------------------------------------------------------------------
 // StringifyOpts — formatting options passed through the recursive walk.

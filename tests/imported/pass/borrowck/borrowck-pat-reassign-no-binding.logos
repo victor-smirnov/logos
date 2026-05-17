@@ -7,7 +7,8 @@ package borrowck_pat_reassign_no_binding;
 
 use logos.lang.option;
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     let mut x: Option<i32> = Option::None;

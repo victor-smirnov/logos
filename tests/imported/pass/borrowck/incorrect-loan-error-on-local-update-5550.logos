@@ -8,7 +8,8 @@
 package b_incorrect_loan_error_on_local_update_5550;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     let s: str = "foobar";

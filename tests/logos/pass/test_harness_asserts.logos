@@ -21,7 +21,8 @@
 package test_harness_asserts;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 #[test]
 fn t_eq_pass() {

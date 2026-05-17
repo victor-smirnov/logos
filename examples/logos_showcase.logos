@@ -21,7 +21,8 @@ use std.hermes.anyval;
 use std.hermes.string;
 use std.compiler.metaprog;
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use std.io;
 
 // ── hook 1: derive(Debug) for a struct (handles generic params) ────────────
@@ -69,7 +70,7 @@ fn derive_show_struct_hook(target_offset: u32) -> () {
     let mut em: Emitter = Emitter::new();
     em.emit_target_pkg(&view);
     em.emit_raw("use std.fmt;");
-    em.emit_raw("use std.lang.text;");
+    em.emit_raw("use logos.mem.string;\nuse logos.lang.str;");
 
     em.tpl3(
         "impl$BOUNDS Debug for $T$TYS { fn dbg(self: $T$TYS, buf: &mut String) { buf.push_str(\"$T {\"); ",
@@ -111,7 +112,7 @@ fn derive_show_enum_hook(target_offset: u32) -> () {
     let mut em: Emitter = Emitter::new();
     em.emit_target_pkg(&view);
     em.emit_raw("use std.fmt;");
-    em.emit_raw("use std.lang.text;");
+    em.emit_raw("use logos.mem.string;\nuse logos.lang.str;");
 
     em.tpl1(
         "impl Debug for $T { fn dbg(self: $T, buf: &mut String) { match self { ",

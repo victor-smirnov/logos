@@ -5,7 +5,8 @@
 
 package std.io.fs;
 
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.result;
 use logos.lang.iter;
 use logos.lang.option;

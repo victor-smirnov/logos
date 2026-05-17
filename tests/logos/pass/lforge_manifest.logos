@@ -29,7 +29,8 @@ use std.hermes.typed_value;
 use std.hermes.objectmap;
 use std.hermes.document;
 use std.hermes.parser;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.option;
 use logos.lang.result;
 

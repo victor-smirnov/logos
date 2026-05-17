@@ -12,7 +12,8 @@
 
 package logos.mem.encoding.csv;
 
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 pub struct CsvReader {
     src: *const u8,

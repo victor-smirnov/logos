@@ -5,7 +5,8 @@ package if_bot;
 
 use logos.lang.panic;
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     let i: isize = if false { panic(""); 0isize } else { 5isize };

@@ -7,7 +7,8 @@ package token_stream_basic;
 
 use std.compiler.tokens;
 use std.collections.vec;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     let mut ts: TokenStream = token_stream_new();

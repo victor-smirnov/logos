@@ -18,7 +18,8 @@ use std.hermes.stringify;
 use std.hermes.equal;
 use std.hermes.hashing;
 use std.hermes.clone;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 unsafe fn main() -> i32 {
     // ── build a doc with a zone I64 (too big for inline Integer's 24 bits)

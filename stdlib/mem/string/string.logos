@@ -1,4 +1,4 @@
-// Logos standard library — std.string
+// Logos mem-tier standard library — logos.mem.string
 //
 // String — owned, heap-allocated, growable byte buffer.
 // Analogous to Rust's String / C++'s std::string.
@@ -14,139 +14,16 @@
 //   s.push_str("hello, ");
 //   s.push_str("world");
 //   write(1, s.as_ptr(), s.len());
+//
+// Also defines the Display + ToString traits with primitive impls.
+// Read-only `str` helpers (str_eq, str_trim, etc.) live in lang-tier
+// [logos.lang.str](../../lang/str/str.logos).
 
-package std.lang.text;
+package logos.mem.string;
 
 use logos.mem.mem;
 use logos.lang.drop;
-
-// ── Low-level primitives (used by std.fmt and String internals) ────────────
-
-// Construct a str fat-pointer from a raw pointer and explicit byte count.
-// Compiler intrinsic — no body needed; intercepted in sema_expr.cpp by name.
-// Analogous to Rust's std::slice::from_raw_parts::<u8>.
-// Safety: ptr must be valid for `len` bytes and remain alive for the str lifetime.
-pub unsafe fn str_from_raw(ptr: *const u8, len: i64) -> str {
-    // Compiler intrinsic: sema intercepts all call sites and emits the
-    // fat-pointer {ptr, len} construction directly (mlir_gen_expr.cpp).
-    // This body is compiled but never called.
-    return "";
-}
-
-// Construct a str from a null-terminated C string (length via str_len).
-// Safety: ptr must be a valid non-null null-terminated byte string.
-pub unsafe fn str_from_cstr(ptr: *const u8) -> str {
-    let n: i64 = str_len(ptr);
-    return str_from_raw(ptr, n);
-}
-
-pub fn str_len(s: *const u8) -> i64 {
-    let mut n: i64 = 0;
-    while (unsafe { s[n]; } as i32) != 0 {
-        n = n + 1;
-    }
-    return n;
-}
-
-pub fn mem_copy(dst: *mut u8, dst_off: i64, src: *const u8, n: i64) {
-    let mut i: i64 = 0;
-    while i < n {
-        unsafe { dst[dst_off + i] = src[i]; }
-        i = i + 1;
-    }
-}
-
-// Write decimal representation of n into buf[off..], return bytes written.
-pub fn write_i32(buf: *mut u8, off: i64, n: i32) -> i64 {
-    if n == 0 {
-        unsafe { buf[off] = 48 as u8; }
-        return 1;
-    }
-    let neg: bool = n < 0;
-    let mut m: i32 = n;
-    if neg {
-        m = 0 - n;
-        if m < 0 {
-            // n == i32::MIN (-2147483648): negation overflows, hardcode output.
-            let s: str = "-2147483648";
-            mem_copy(buf, off, s.as_ptr(), 11);
-            return 11;
-        }
-    }
-    let mut tmp: [i32; 12] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    let mut pos: i64 = 0;
-    while m > 0 {
-        tmp[pos] = m % 10 + 48;
-        m = m / 10;
-        pos = pos + 1;
-    }
-    let mut out: i64 = 0;
-    if neg {
-        unsafe { buf[off + out] = 45 as u8; }
-        out = out + 1;
-    }
-    let mut i: i64 = pos - 1;
-    while i >= 0 {
-        unsafe { buf[off + out] = tmp[i] as u8; }
-        out = out + 1;
-        i = i - 1;
-    }
-    return out;
-}
-
-pub fn write_i64(buf: *mut u8, off: i64, n: i64) -> i64 {
-    if n == 0 {
-        unsafe { buf[off] = 48 as u8; }
-        return 1;
-    }
-    let neg: bool = n < 0;
-    let mut m: i64 = n;
-    if neg {
-        m = 0 as i64 - n;
-        if m < 0 as i64 {
-            // n == i64::MIN (-9223372036854775808): negation overflows, hardcode output.
-            let s: str = "-9223372036854775808";
-            mem_copy(buf, off, s.as_ptr(), 20);
-            return 20;
-        }
-    }
-    let mut tmp: [i32; 22] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    let mut pos: i64 = 0;
-    while m > 0 {
-        tmp[pos] = (m % 10 as i64) as i32 + 48;
-        m = m / 10 as i64;
-        pos = pos + 1;
-    }
-    let mut out: i64 = 0;
-    if neg {
-        unsafe { buf[off + out] = 45 as u8; }
-        out = out + 1;
-    }
-    let mut i: i64 = pos - 1;
-    while i >= 0 {
-        unsafe { buf[off + out] = tmp[i] as u8; }
-        out = out + 1;
-        i = i - 1;
-    }
-    return out;
-}
-
-pub fn write_bool(buf: *mut u8, off: i64, v: bool) -> i64 {
-    if v {
-        unsafe { buf[off + 0 as i64] = 116 as u8; }
-        unsafe { buf[off + 1 as i64] = 114 as u8; }
-        unsafe { buf[off + 2 as i64] = 117 as u8; }
-        unsafe { buf[off + 3 as i64] = 101 as u8; }
-        return 4;
-    } else {
-        unsafe { buf[off + 0 as i64] = 102 as u8; }
-        unsafe { buf[off + 1 as i64] = 97  as u8; }
-        unsafe { buf[off + 2 as i64] = 108 as u8; }
-        unsafe { buf[off + 3 as i64] = 115 as u8; }
-        unsafe { buf[off + 4 as i64] = 101 as u8; }
-        return 5;
-    }
-}
+use logos.lang.str;
 
 // ── String ─────────────────────────────────────────────────────────────────
 
@@ -393,30 +270,6 @@ trait Display {
     fn fmt(self: Self, buf: &mut String);
 }
 
-pub fn write_u64(buf: *mut u8, off: i64, n: u64) -> i64 {
-    if n == 0 as u64 {
-        unsafe { buf[off] = 48 as u8; }
-        return 1;
-    }
-    let mut tmp: [i32; 22] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    let mut pos: i64 = 0;
-    let mut m: u64 = n;
-    while m > 0 as u64 {
-        let rem: u64 = m - (m / 10 as u64) * 10 as u64;
-        tmp[pos] = rem as i32 + 48;
-        m = m / 10 as u64;
-        pos = pos + 1;
-    }
-    let mut out: i64 = 0;
-    let mut i: i64 = pos - 1;
-    while i >= 0 {
-        unsafe { buf[off + out] = tmp[i] as u8; }
-        out = out + 1;
-        i = i - 1;
-    }
-    return out;
-}
-
 impl Display for i32 {
     fn fmt(self: i32, buf: &mut String) {
         let ptr: *mut u8 = buf.spare_ptr(12);
@@ -540,132 +393,7 @@ impl Display for f32 {
     }
 }
 
-// ── Predicates and trimming on `str` ───────────────────────────────────────
-// Free functions are prefixed `str_` because `str` is a primitive and cannot
-// host inherent methods. When `impl str { ... }` lands these will move into it.
-
-// P4-pm-07: byte-array equality used by const-pattern match arms over
-// `[u8; N]` consts. Generic over the array length via the `len` const-
-// parameter so a single fn covers every const-typed array literal.
-pub fn bytes_arr_eq<const N: i64>(a: [u8; N], b: [u8; N]) -> bool {
-    let mut i: i64 = 0 as i64;
-    while i < N {
-        if a[i] != b[i] { return false; }
-        i = i + 1 as i64;
-    }
-    return true;
-}
-
-// True iff `a` and `b` have the same length and byte content. Used by
-// P4-pm-06 (str-typed const-pattern match arms) — sema synthesizes a
-// `__str_<n> == CONST` guard that lowers to a call here.
-pub fn str_eq(a: str, b: str) -> bool {
-    let n: i64 = a.len();
-    if n != b.len() { return false; }
-    let mut i: i64 = 0 as i64;
-    unsafe {
-        while i < n {
-            if a.as_ptr()[i] != b.as_ptr()[i] { return false; }
-            i = i + 1 as i64;
-        }
-    }
-    return true;
-}
-
-pub fn str_starts_with(s: str, prefix: str) -> bool {
-    if s.len() < prefix.len() { return false; }
-    let n: i64 = prefix.len();
-    let mut i: i64 = 0 as i64;
-    unsafe {
-        while i < n {
-            if s.as_ptr()[i] != prefix.as_ptr()[i] { return false; }
-            i = i + 1 as i64;
-        }
-    }
-    return true;
-}
-
-pub fn str_ends_with(s: str, suffix: str) -> bool {
-    let n: i64 = suffix.len();
-    let m: i64 = s.len();
-    if n > m { return false; }
-    let off: i64 = m - n;
-    let mut i: i64 = 0 as i64;
-    unsafe {
-        while i < n {
-            if s.as_ptr()[off + i] != suffix.as_ptr()[i] { return false; }
-            i = i + 1 as i64;
-        }
-    }
-    return true;
-}
-
-// Byte offset of first occurrence of `needle` in `s`, or -1 if not found.
-// Empty needle returns 0. Naive search.
-pub fn str_index_of(s: str, needle: str) -> i64 {
-    let n: i64 = needle.len();
-    let m: i64 = s.len();
-    if n == 0 as i64 { return 0 as i64; }
-    if n > m { return 0 as i64 - 1 as i64; }
-    let last: i64 = m - n;
-    let mut i: i64 = 0 as i64;
-    unsafe {
-        while i <= last {
-            let mut j: i64 = 0 as i64;
-            let mut eq: bool = true;
-            while j < n {
-                if s.as_ptr()[i + j] != needle.as_ptr()[j] {
-                    eq = false;
-                    j = n;
-                } else {
-                    j = j + 1 as i64;
-                }
-            }
-            if eq { return i; }
-            i = i + 1 as i64;
-        }
-    }
-    return 0 as i64 - 1 as i64;
-}
-
-pub fn str_contains(s: str, needle: str) -> bool {
-    return str_index_of(s, needle) >= 0 as i64;
-}
-
-// True if a byte is ASCII whitespace.
-fn is_ws_byte(b: u8) -> bool {
-    let c: i32 = b as i32;
-    return c == 32 || c == 9 || c == 10 || c == 13 || c == 11 || c == 12;
-}
-
-// Trim leading ASCII whitespace, return a sub-`str` of `s`.
-pub fn str_trim_start(s: str) -> str {
-    let n: i64 = s.len();
-    let mut i: i64 = 0 as i64;
-    unsafe {
-        while i < n && is_ws_byte(s.as_ptr()[i]) {
-            i = i + 1 as i64;
-        }
-        let p: *const u8 = (s.as_ptr() as i64 + i) as *const u8;
-        return str_from_raw(p, n - i);
-    }
-}
-
-// Trim trailing ASCII whitespace, return a sub-`str` of `s`.
-pub fn str_trim_end(s: str) -> str {
-    let mut n: i64 = s.len();
-    unsafe {
-        while n > 0 as i64 && is_ws_byte(s.as_ptr()[n - 1 as i64]) {
-            n = n - 1 as i64;
-        }
-        return str_from_raw(s.as_ptr(), n);
-    }
-}
-
-// Trim leading and trailing ASCII whitespace, return a sub-`str` of `s`.
-pub fn str_trim(s: str) -> str {
-    return str_trim_start(str_trim_end(s));
-}
+// ── ToString ──────────────────────────────────────────────────────────────
 
 // Convert any Display value to an owned String.
 pub fn to_string<T: Display>(val: T) -> String {
@@ -758,5 +486,3 @@ unsafe fn std_utf8_encode(cp: u32, buf: *mut u8) -> i64 {
     buf[0] = 0xEF as u8; buf[1] = 0xBF as u8; buf[2] = 0xBD as u8;
     return 3;
 }
-
-

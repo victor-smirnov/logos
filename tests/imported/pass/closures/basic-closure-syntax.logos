@@ -6,7 +6,8 @@
 package basic_closure_syntax;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn f<F: FnOnce(isize) -> isize>(i: isize, f: F) -> isize {
     return f(i);

@@ -5,7 +5,8 @@
 package impl_for_tuple;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 impl<A: Debug, B: Debug> Debug for (A, B) {
     fn dbg(self: (A, B), buf: &mut String) {

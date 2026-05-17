@@ -29,7 +29,8 @@ use std.hermes.document;
 use std.hermes.scalar;
 use std.hermes.decimal;
 use logos.lang.hermes.mem_holder;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 extern fn calloc(count: i64, size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);

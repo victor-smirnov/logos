@@ -11,7 +11,8 @@
 package test_assert_macros;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 #[test]
 fn assert_eq_trailing_comma() {

@@ -5,7 +5,8 @@
 package pointer_reassignment_after_deref_78192;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     let a: u32 = 1u32;

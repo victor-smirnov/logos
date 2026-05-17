@@ -8,7 +8,8 @@
 
 package lforge.external_build;
 
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.result;
 use std.collections.vec;
 

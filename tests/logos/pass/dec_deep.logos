@@ -2,7 +2,8 @@
 package dec_deep;
 use std.hermes.ctr;
 use std.hermes.anyval;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 unsafe fn main() -> i32 {
     // ── 1. S == P (all fractional digits): parse + stringify ─────────────────

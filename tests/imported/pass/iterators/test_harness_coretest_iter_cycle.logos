@@ -13,7 +13,8 @@
 package test_iter_cycle;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use std.compiler.metaprog;
 use logos.lang.clone;
 use logos.lang.iter;

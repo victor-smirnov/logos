@@ -45,7 +45,8 @@ use std.hermes.check;
 use std.hermes.hbs_write;
 use std.hermes.hbs_read;
 use logos.lang.hermes.mem_holder;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.drop;
 
 // cstr_len — byte length of a null-terminated C string.

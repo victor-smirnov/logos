@@ -12,7 +12,8 @@
 package borrowck_mut_vec_as_imm_slice;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.option;
 use std.collections.vec;
 

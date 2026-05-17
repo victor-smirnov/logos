@@ -11,7 +11,7 @@
 //   "abc"        split on ","   ->  ["abc"]
 //   ",a,"        split on ","   ->  ["", "a", ""]
 
-package std.lang.text;
+package logos.lang.str;
 
 use logos.lang.iter;
 use logos.lang.option;

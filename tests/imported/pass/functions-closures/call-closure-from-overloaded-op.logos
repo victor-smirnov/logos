@@ -7,7 +7,8 @@
 package call_closure_from_overloaded_op;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use std.collections.vec;
 
 fn foo() -> isize { return 22isize; }

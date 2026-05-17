@@ -7,7 +7,8 @@
 package fc_fn_bare_assign;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn f(i: isize, called: &mut bool) {
     assert_eq!(i, 10isize);

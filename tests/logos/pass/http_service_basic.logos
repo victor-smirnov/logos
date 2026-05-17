@@ -5,7 +5,8 @@ package test;
 use std.io.http;
 use std.io.net.url;
 use std.collections.vec;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn handler(req: &Request) -> Response {
     let mut resp: Response = Response::new(200);

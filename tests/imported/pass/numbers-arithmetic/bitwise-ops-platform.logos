@@ -5,7 +5,8 @@
 package bitwise_ops_platform_test;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn general() {
     let mut a: i64 = 1i64;

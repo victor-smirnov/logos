@@ -7,7 +7,8 @@
 package debug_primitives;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use std.io;
 
 fn dbg_to<T: Debug>(v: T, buf: &mut String) {

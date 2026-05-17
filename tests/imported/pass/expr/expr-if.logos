@@ -3,7 +3,8 @@
 package expr_if_test;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn test_if() { let rs: bool = if true { true } else { false }; assert!(rs); }
 

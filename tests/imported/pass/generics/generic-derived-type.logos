@@ -9,7 +9,8 @@
 package g_generic_derived_type;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn g<X>(x: X) -> X { return x; }
 

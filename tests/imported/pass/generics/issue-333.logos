@@ -6,7 +6,8 @@
 package issue_333;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn id<T>(x: T) -> T { return x; }
 

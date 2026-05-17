@@ -2,7 +2,8 @@
 package test;
 
 use logos.std.time.datetime;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     // 0 secs = 1970-01-01 00:00:00 UTC, Thursday (wday = 4)

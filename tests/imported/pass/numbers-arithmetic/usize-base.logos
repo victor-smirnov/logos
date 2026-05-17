@@ -3,7 +3,8 @@
 package usize_base_test;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn return_val() -> usize {
     return 42usize;

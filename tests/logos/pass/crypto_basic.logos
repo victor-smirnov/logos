@@ -2,7 +2,8 @@
 package test;
 
 use logos.std.crypto;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     // SHA-256 of "" → e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855

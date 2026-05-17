@@ -10,7 +10,8 @@
 package trait_method_resolution_7575;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 trait Foo {
     fn new() -> bool;

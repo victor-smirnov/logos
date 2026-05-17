@@ -11,7 +11,8 @@
 package s_basic_newtype_pattern;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 struct Counter(CounterData);
 

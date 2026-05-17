@@ -20,7 +20,8 @@
 package test_iter_batch_b88_cmp;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.iter;
 use logos.lang.option;
 use logos.lang.cmp;

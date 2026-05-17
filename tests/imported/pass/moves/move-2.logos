@@ -4,7 +4,8 @@
 package move_2_test;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 struct X { x: i64, y: i64, z: i64 }
 

@@ -12,7 +12,8 @@
 package std.compiler.tokens;
 
 use std.collections.vec;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 // ── Span ────────────────────────────────────────────────────────────────
 // Source location of a token. Slice 2: scaffolding only. Slice 3 wires

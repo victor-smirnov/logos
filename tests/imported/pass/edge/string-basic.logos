@@ -1,5 +1,6 @@
 package string_basic;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 fn main() -> i32 {
     let s: String = String::new();
     return s.len() as i32;

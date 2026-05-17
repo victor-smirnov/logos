@@ -16,7 +16,8 @@
 package test_i32_arith;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 #[test]
 fn test_arith_operation() {

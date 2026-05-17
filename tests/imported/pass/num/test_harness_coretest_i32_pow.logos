@@ -15,7 +15,8 @@
 package test_i32_pow;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.cmp;
 
 #[test]

@@ -3,7 +3,8 @@
 package u8_incr_test;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     let mut x: u8 = 12u8;

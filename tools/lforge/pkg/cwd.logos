@@ -2,7 +2,8 @@
 
 package lforge.cwd;
 
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use lforge.util;
 
 extern fn chdir(path: *const u8) -> i32;

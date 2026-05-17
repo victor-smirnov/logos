@@ -26,7 +26,8 @@
 package test_option;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.option;
 
 #[test]

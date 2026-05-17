@@ -6,7 +6,8 @@
 
 package logos.lang.cmp;
 
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 pub trait Eq {
     fn eq(&self, other: &Self) -> bool;

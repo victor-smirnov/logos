@@ -15,7 +15,8 @@ use std.hermes.equal;
 use std.hermes.hashing;
 use std.hermes.clone;
 use std.hermes.release;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 unsafe fn main() -> i32 {
     let mut zone: Zone<Mutable> = zone_create(4096);

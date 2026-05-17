@@ -8,7 +8,8 @@
 package inf_generic_type_inference_10436;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.option;
 use std.collections.vec;
 

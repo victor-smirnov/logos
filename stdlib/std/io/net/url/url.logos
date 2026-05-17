@@ -8,7 +8,8 @@
 
 package std.io.net.url;
 
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.option;
 
 // unreserved: A-Z a-z 0-9 '-' '.' '_' '~'

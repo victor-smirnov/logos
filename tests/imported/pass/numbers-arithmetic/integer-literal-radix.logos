@@ -3,7 +3,8 @@
 package integer_literal_radix;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     let a = 0xBEEFisize;

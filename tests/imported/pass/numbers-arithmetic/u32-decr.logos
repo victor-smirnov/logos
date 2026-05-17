@@ -3,7 +3,8 @@
 package u32_decr_test;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     let mut word: u32 = 200000u32;

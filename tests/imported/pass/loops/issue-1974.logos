@@ -9,7 +9,8 @@
 package l_issue_1974;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn eq_str(a: str, b: str) -> bool {
     let alen: i64 = a.len();

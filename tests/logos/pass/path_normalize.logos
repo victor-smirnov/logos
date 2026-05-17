@@ -3,7 +3,8 @@
 package path_normalize;
 
 use std.io.fs.path;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 unsafe fn check(got: &String, expected: str, code: i32) -> i32 {
     if !got.eq_str(expected) {

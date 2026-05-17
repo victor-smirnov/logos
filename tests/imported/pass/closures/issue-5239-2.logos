@@ -8,7 +8,8 @@
 package issue_5239_2;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     let f = |ref x: isize| -> isize { return *x; };

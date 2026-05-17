@@ -2,7 +2,8 @@
 package test;
 
 use logos.mem.encoding.json;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     // Escape quotes + backslash + control chars.

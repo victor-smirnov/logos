@@ -6,7 +6,8 @@
 package test_coretest_convert_from;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.option;
 use logos.lang.result;
 use logos.lang.convert;

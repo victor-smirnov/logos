@@ -20,7 +20,8 @@ use std.hermes.anyval;
 use std.hermes.pat;
 use std.hermes.view;
 use std.hermes.map;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use std.io;
 
 fn section(title: str) {

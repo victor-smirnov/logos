@@ -15,7 +15,8 @@
 package test_tuple_eq;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 #[test]
 fn test_partial_eq() {

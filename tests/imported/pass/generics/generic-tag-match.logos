@@ -8,7 +8,8 @@
 package generic_tag_match;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 enum foo<T> { arm(T) }
 

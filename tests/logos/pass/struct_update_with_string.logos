@@ -5,7 +5,8 @@
 //   - struct update `..base` carrying the rest of fields from user1.
 package struct_update_with_string;
 
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 pub struct User {
     active: bool,

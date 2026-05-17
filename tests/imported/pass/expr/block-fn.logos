@@ -6,7 +6,8 @@
 package expr_block_fn;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn ten() -> isize { return 10isize; }
 

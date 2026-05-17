@@ -1,6 +1,7 @@
 // MC-mc-03: line!() / column!() / file!() / module_path!() builtins.
 package macro_positional_builtins;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     let l: u32 = line!();

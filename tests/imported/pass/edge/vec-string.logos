@@ -1,6 +1,7 @@
 package vec_string;
 use std.collections.vec;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 fn main() -> i32 {
     let mut v: Vec<String> = vec_new::<String>();
     v.push(String::new());

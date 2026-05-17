@@ -2,7 +2,8 @@
 package test;
 
 use std.io.net.url;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.option;
 
 fn main() -> i32 {

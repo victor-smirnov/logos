@@ -2,7 +2,8 @@
 
 package std.io;
 
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
 

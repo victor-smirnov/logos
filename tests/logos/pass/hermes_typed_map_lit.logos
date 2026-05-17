@@ -7,7 +7,8 @@ use std.hermes.stringify;
 use std.hermes.array;
 use std.hermes.map;
 use std.hermes.typed_value;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 unsafe fn check(hs: &HermesStatic, expected: str, err_code: i32) -> i32 {
     let s: String = hs.to_string();

@@ -4,7 +4,8 @@
 package operator_associativity;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     assert_eq!(3i64 * 5i64 / 2i64, 7i64);

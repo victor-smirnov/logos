@@ -25,7 +25,8 @@ use std.hermes.decimal;
 use std.hermes.string;
 use logos.lang.hermes.datatag;
 use logos.lang.hermes.typetag;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 pub unsafe fn view_cstr_len(s: *const u8) -> i64 {
     let mut n: i64 = 0;

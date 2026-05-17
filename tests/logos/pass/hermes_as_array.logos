@@ -3,7 +3,8 @@
 package hermes_as_array;
 use std.hermes.ctr;
 use std.hermes.anyval;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 unsafe fn main() -> i32 {
     // Build an i32 slice from a local array and cast to Array<i32> Hermes.

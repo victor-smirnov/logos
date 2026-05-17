@@ -7,7 +7,8 @@
 
 package logos.std.log;
 
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 extern fn getenv(name: *const u8) -> *const u8;
 

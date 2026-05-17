@@ -10,7 +10,8 @@
 package test_iter_take_while;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.iter;
 use logos.lang.option;
 

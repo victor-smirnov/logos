@@ -5,7 +5,8 @@
 package match_bot;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.option;
 
 fn main() -> i32 {

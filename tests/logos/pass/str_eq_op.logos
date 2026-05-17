@@ -3,7 +3,8 @@
 
 package str_eq_op;
 
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn echo(s: str) -> str { return s; }
 

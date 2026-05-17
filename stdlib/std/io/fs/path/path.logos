@@ -4,7 +4,8 @@
 
 package std.io.fs.path;
 
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 // ---- predicates -------------------------------------------------------------
 

@@ -13,7 +13,8 @@ use logos.lang.hermes.zone;
 use std.hermes.document;
 use std.hermes.stringify;
 use logos.lang.hermes.mem_holder;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 unsafe fn check(hs: &HermesStatic, expected: str, err_code: i32) -> i32 {
     let s: String = hs.to_string();

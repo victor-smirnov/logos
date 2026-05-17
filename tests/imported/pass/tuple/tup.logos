@@ -4,7 +4,8 @@
 package tup_test;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn f(p: (i64, i64), x: i64, y: i64) {
     let (a, b) = p;

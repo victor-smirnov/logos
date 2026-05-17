@@ -3,7 +3,8 @@ package hermes_decimal_methods;
 
 use std.hermes.ctr;
 use std.hermes.anyval;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 unsafe fn main() -> i32 {
     let mut doc: Hermes = Hermes::builder(16384);

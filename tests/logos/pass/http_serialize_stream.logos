@@ -11,7 +11,8 @@ use std.io.net.url;
 use std.collections.vec;
 use logos.lang.option;
 use logos.lang.result;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     unsafe {

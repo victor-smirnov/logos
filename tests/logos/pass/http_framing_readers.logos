@@ -7,7 +7,8 @@ use std.io.buffered;
 use std.io.pipe;
 use std.io.read;
 use std.io.write;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     // ── Test 1: ChunkedWriter round-trip ────────────────────────────────────

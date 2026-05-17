@@ -7,7 +7,8 @@
 package test_coretest_u64_extended;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.option;
 use logos.lang.cmp;
 

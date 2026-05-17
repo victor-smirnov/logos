@@ -1,5 +1,6 @@
 package macro_concat;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     let a: str = concat!("hello", " ", "world");

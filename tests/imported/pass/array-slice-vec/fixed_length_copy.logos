@@ -8,7 +8,8 @@
 package fixed_length_copy;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     let arr:  [i32; 3] = [1i32, 2i32, 3i32];

@@ -5,7 +5,8 @@
 package format_macro_float;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     let a: String = format!("{}", 3.14f64);             // "3.14"

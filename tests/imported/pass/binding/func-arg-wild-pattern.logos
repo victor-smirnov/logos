@@ -7,7 +7,8 @@
 package b_func_arg_wild_pattern;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn foo((x, _): (isize, isize)) -> isize {
     return x;

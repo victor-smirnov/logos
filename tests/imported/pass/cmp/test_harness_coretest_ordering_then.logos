@@ -16,7 +16,8 @@
 package test_ordering_then;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.cmp;
 
 fn ret_less()    -> Ordering { return Ordering::Less; }

@@ -6,7 +6,8 @@
 package binops_bool_corner_cases_test;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn test_bool() {
     assert!(!(true < false));

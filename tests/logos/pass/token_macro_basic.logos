@@ -5,7 +5,8 @@
 package token_macro_basic;
 
 use std.compiler.metaprog;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 #[token_macro]
 pub fn raw_demo(s: str) -> ExprBlob {

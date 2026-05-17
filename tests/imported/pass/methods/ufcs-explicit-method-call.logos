@@ -7,7 +7,8 @@
 package ufcs_explicit_method_call;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 struct Foo { x: i32 }
 

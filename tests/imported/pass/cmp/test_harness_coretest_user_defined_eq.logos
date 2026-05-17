@@ -12,7 +12,8 @@
 package test_user_defined_eq;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.cmp;
 
 struct SketchyNum { num: i32 }

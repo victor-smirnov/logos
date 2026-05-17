@@ -31,7 +31,8 @@ use logos.lang.hermes.datatag;
 use logos.lang.hermes.typetag;
 use std.hermes.stringify;
 use std.hermes.document;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 // ── Host runtime hooks ─────────────────────────────────────────────────────
 //

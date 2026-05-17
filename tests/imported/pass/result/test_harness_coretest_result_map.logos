@@ -16,7 +16,8 @@
 package test_result_map;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.result;
 use logos.lang.option;
 

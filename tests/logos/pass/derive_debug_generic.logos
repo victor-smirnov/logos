@@ -16,7 +16,8 @@ use std.hermes.anyval;
 use std.hermes.string;
 use std.compiler.metaprog;
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use std.io;
 
 #[metaprog_handler("derive_debug_g")]
@@ -34,7 +35,7 @@ fn derive_debug_g_hook(target_offset: u32) -> () {
     let mut em: Emitter = Emitter::new();
     em.emit_target_pkg(&view);
     em.emit_raw("use std.fmt;");
-    em.emit_raw("use std.lang.text;");
+    em.emit_raw("use logos.mem.string;\nuse logos.lang.str;");
 
     // impl<T: Debug, ...> Debug for Name<T, ...>
     em.buf.push_str("impl");

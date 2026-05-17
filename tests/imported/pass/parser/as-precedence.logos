@@ -6,7 +6,8 @@
 package as_precedence;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     assert_eq!(3i64 as usize * 3usize, 9usize);

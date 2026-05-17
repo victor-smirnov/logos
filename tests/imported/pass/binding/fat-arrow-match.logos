@@ -7,7 +7,8 @@
 package binding_fat_arrow_match;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 enum color { red, green, blue }
 

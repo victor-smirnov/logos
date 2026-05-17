@@ -9,7 +9,8 @@
 package fun_call_variants;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn ho<F: FnOnce(isize) -> isize>(f: F) -> isize {
     return f(3isize);

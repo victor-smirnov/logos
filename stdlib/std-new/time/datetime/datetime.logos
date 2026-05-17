@@ -6,7 +6,8 @@
 
 package logos.std.time.datetime;
 
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 pub struct CivilTime {
     pub year:   i64,   // proleptic Gregorian; may be negative

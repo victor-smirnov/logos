@@ -1,5 +1,6 @@
 package macro_include_str;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     let s: str = include_str!("include_str_data/payload.txt");

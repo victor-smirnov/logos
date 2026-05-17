@@ -3,7 +3,8 @@
 package dec_boundary;
 use std.hermes.ctr;
 use std.hermes.anyval;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 unsafe fn main() -> i32 {
     // ── 1. S > P must be rejected ─────────────────────────────────────────────

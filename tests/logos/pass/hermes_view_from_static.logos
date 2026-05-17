@@ -2,7 +2,8 @@
 package hermes_view_from_static;
 use std.hermes.ctr;
 use std.hermes.view;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 unsafe fn check_view(v: &HermesView, expected: str, err_code: i32) -> i32 {
     let text: String = v.to_string();

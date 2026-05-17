@@ -6,7 +6,8 @@
 package old_closure_arg_call_as;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn asBlock<F: FnOnce() -> usize>(f: F) -> usize {
     return f();

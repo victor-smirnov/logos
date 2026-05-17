@@ -11,7 +11,8 @@
 package fl_foreach_simple_outer_slot;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn first_ten<F: FnMut(i64) -> i32>(it: F) {
     let mut local = it;

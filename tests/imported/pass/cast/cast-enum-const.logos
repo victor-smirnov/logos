@@ -6,7 +6,8 @@
 package cast_enum_const;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 enum Stuff { Bar = metacall { 5i64 } }
 

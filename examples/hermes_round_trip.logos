@@ -4,7 +4,8 @@
 package hermes_example;
 
 use std.hermes.ctr;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use std.io;
 
 fn main() -> i32 {

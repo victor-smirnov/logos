@@ -4,7 +4,8 @@ package fs_meta;
 
 use std.io.fs;
 use std.io.fs.path;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.result;
 use logos.lang.option;
 use logos.lang.iter;

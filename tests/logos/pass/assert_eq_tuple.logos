@@ -5,7 +5,8 @@
 package assert_eq_tuple;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.panic;
 use logos.lang.cmp;
 

@@ -3,7 +3,8 @@
 
 package string_strops;
 
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.iter;
 use logos.lang.option;
 

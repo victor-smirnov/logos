@@ -13,7 +13,8 @@ use std.hermes.typed_value;
 use std.hermes.objectmap;
 use std.hermes.document;
 use std.hermes.stringify;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 // Helper: stringify one AnyVal into `sb` with compact options and the given base.
 unsafe fn stringify_one(val: AnyVal, base: *const u8, sb: *mut String) {

@@ -6,7 +6,8 @@
 package issue_868;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn f<T, F: FnOnce() -> T>(g: F) -> T {
     return g();

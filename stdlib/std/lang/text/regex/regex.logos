@@ -20,7 +20,8 @@
 
 package std.lang.text.regex;
 
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 pub struct Regex {
     pat: *const u8,

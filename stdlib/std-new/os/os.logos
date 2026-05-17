@@ -5,7 +5,8 @@
 
 package logos.std.os;
 
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 extern fn getpid()  -> i32;
 extern fn getppid() -> i32;

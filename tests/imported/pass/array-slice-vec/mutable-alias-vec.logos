@@ -6,7 +6,8 @@
 package asv_mutable_alias_vec;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.option;
 use std.collections.vec;
 

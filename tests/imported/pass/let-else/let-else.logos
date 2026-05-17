@@ -6,7 +6,8 @@
 package le_let_else;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.option;
 
 fn main() -> i32 {

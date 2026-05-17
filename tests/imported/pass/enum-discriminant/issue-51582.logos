@@ -9,7 +9,8 @@
 package enum_discriminant_issue_51582;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 pub enum Enum : i8 {
     VariantA = 0,

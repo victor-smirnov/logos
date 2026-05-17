@@ -9,7 +9,8 @@
 package b_borrowed_ptr_pattern;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn foo_i32(x: &i32) -> i32 {
     match x { &ref a => { return *a; } }

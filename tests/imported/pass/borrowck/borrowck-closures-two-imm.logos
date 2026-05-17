@@ -9,7 +9,8 @@
 package borrowck_closures_two_imm;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn a() -> i32 {
     let mut x: i32 = 3i32;

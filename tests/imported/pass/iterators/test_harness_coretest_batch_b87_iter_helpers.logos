@@ -23,7 +23,8 @@
 package test_iter_batch_b87_helpers;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.iter;
 use logos.lang.range;
 use logos.lang.option;

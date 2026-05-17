@@ -5,7 +5,8 @@
 package b_let_destruct_ref;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     let x: usize = 3usize;

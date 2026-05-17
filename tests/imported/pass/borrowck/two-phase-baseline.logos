@@ -6,7 +6,8 @@
 package two_phase_baseline;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use std.collections.vec;
 
 fn main() -> i32 {

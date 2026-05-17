@@ -10,7 +10,8 @@ package let_else_basic;
 use logos.lang.option;
 use logos.lang.panic;
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     let x: Option<i64> = Option::Some(3i64);

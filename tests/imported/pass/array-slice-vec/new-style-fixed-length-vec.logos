@@ -9,7 +9,8 @@
 package new_style_fixed_length_vec;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 pub const FOO: [isize; 3] = [1isize, 2isize, 3isize];
 

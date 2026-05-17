@@ -7,7 +7,8 @@
 package enum_disr_val;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 enum color { red = 1, green, blue, imaginary = -1 }
 

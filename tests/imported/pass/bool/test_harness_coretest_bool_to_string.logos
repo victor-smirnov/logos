@@ -6,7 +6,8 @@
 package test_coretest_bool_to_string;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 #[test]
 fn test_bool_to_string_true() {

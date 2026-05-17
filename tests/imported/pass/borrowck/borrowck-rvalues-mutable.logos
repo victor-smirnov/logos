@@ -6,7 +6,8 @@
 package borrowck_rvalues_mutable;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 struct Counter { value: usize }
 

@@ -21,7 +21,8 @@ use std.hermes.typed_value;
 use std.hermes.objectmap;
 use std.hermes.document;
 use std.hermes.parser;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn append_str(buf: &mut String, s: str) {
     buf.push_str(s);

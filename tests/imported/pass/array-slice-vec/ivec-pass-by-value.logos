@@ -4,7 +4,8 @@
 package asv_ivec_pass_by_value;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.option;
 use std.collections.vec;
 

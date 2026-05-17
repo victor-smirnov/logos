@@ -8,7 +8,8 @@
 package e_enum_variants;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 enum Animal {
     Dog(str, f64),

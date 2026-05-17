@@ -4,7 +4,8 @@
 package format_macro_arity_mismatch;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     let s: String = format!("n={}, m={}", 40i32);

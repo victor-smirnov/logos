@@ -4,7 +4,8 @@
 package mir_temp_promotions_test;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn test1(f: f32) -> bool {
     let is_nan: bool = f != f;

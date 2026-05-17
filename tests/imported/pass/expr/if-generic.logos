@@ -9,7 +9,8 @@
 package expr_if_generic;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn test_generic<T>(expected: T, not_expected: T, eq: fn(T, T) -> bool) {
     let actual: T = if true { expected } else { not_expected };

@@ -3,7 +3,8 @@
 
 package lforge.util;
 
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use lforge.schema;
 
 extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;

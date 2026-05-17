@@ -5,7 +5,8 @@
 package b_nullary_or_pattern;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 enum blah { a, b }
 

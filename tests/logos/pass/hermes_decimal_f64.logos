@@ -2,7 +2,8 @@
 package hermes_decimal_f64;
 use std.hermes.ctr;
 use std.hermes.anyval;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 unsafe fn main() -> i32 {
     // ── decimal_to_f64 ────────────────────────────────────────────────────────

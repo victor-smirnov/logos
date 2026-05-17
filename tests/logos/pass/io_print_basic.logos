@@ -2,7 +2,8 @@
 package test;
 
 use std.io;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     // stdout

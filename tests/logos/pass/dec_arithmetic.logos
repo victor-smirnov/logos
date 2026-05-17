@@ -2,7 +2,8 @@
 package dec_arithmetic;
 use std.hermes.ctr;
 use std.hermes.anyval;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 unsafe fn main() -> i32 {
     // ── 1. add(max_limb, 1) crosses limb boundary ────────────────────────────

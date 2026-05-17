@@ -3,7 +3,8 @@
 
 package lforge.proc;
 
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.option;
 use std.collections.vec;
 use logos.std.process;

@@ -5,7 +5,8 @@
 package match_constant_and_byte_literal_test;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 const X: u8 = 0u8;
 

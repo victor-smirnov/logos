@@ -10,7 +10,8 @@
 package c_old_closure_fn_coerce;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn force(f: fn() -> isize) -> isize { return f(); }
 

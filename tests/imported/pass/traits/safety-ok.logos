@@ -4,7 +4,8 @@
 package safety_ok_test;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 trait Foo {
     fn foo(&self) -> i64;

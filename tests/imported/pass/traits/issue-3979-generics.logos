@@ -8,7 +8,8 @@
 package issue_3979_generics;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 trait Positioned<S> {
     fn SetX(self: &mut Self, val: S);

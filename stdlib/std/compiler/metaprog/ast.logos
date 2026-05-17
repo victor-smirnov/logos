@@ -16,7 +16,8 @@ use std.hermes.anyval;
 use std.hermes.string;
 use std.hermes.map;
 use std.hermes.scalar;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 // ── AST handle types ──────────────────────────────────────────────
 //

@@ -15,7 +15,8 @@
 package test_size_of;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 #[test]
 fn size_of_basic() {

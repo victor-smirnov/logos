@@ -7,7 +7,8 @@
 package binding_expr_match;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn test_basic() {
     let mut rs: bool = match true  { true => { true  } false => { false } };

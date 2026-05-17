@@ -13,7 +13,8 @@
 package evec_slice;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     let x: &[isize]     = &[1isize, 2isize, 3isize, 4isize, 5isize];

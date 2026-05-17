@@ -5,7 +5,8 @@
 package fc_fn_bare_spawn;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn spawn<T>(val: T, f: fn(T)) { f(val); }
 

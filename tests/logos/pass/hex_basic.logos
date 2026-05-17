@@ -2,7 +2,8 @@
 package test;
 
 use logos.mem.encoding.hex;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     // Encode: [0xde, 0xad, 0xbe, 0xef] → "deadbeef".

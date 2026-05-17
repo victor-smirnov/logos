@@ -3,7 +3,8 @@
 package recursion_tail_cps_test;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn checktrue(rs: bool) -> bool {
     assert!(rs);

@@ -2,7 +2,8 @@
 // deserialize into a fresh container; verify that stringify output matches.
 package hermes_hbs;
 use std.hermes.ctr;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 extern fn write(fd: i32, buf: *const u8, count: i64) -> i32;
 

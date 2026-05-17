@@ -18,7 +18,8 @@
 package test_batch_b89;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.option;
 
 fn is_even(x: i32) -> bool { return (x & 1i32) == 0i32; }

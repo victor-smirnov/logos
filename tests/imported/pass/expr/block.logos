@@ -5,7 +5,8 @@
 package expr_block;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 struct RS { v1: isize, v2: isize }
 

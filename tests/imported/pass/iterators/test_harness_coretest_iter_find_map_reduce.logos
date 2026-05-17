@@ -15,7 +15,8 @@
 package test_iter_find_map_reduce;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.iter;
 use logos.lang.range;
 use logos.lang.option;

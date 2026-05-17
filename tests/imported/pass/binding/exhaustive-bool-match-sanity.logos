@@ -6,7 +6,8 @@
 package exhaustive_bool_match_sanity;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn foo(x: bool, y: bool) -> u32 {
     match (x, y) {

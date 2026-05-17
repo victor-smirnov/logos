@@ -8,7 +8,8 @@
 package fn_expr_fn;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn ten_int() -> isize { return 10isize; }
 fn test_int() { assert_eq!(ten_int(), 10isize); }

@@ -6,7 +6,8 @@
 package match_large_array;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     let r: usize = match [0u8; 1024] {

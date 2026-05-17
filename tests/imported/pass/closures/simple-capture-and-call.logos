@@ -4,7 +4,8 @@
 package simple_capture_and_call;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     let x: usize = 1usize;

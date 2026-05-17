@@ -4,7 +4,8 @@
 package move_4_test;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 struct Triple { a: i64, b: i64, c: i64 }
 

@@ -11,7 +11,8 @@
 
 package logos.mem.encoding.json;
 
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 // ── String escape ─────────────────────────────────────────────────────────
 // Append a JSON string literal (including the surrounding double quotes) that

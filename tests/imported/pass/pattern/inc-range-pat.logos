@@ -9,7 +9,8 @@
 package inc_range_pat;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     let a: bool = match 42i32 { 0i32 ..= 100i32 => true, _ => false };

@@ -6,7 +6,8 @@
 package cast_main;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     let i: isize = 'Q' as isize;

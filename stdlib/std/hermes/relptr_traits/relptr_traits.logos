@@ -12,7 +12,8 @@ use std.hermes.equal;
 use std.hermes.hashing;
 use std.hermes.clone;
 use std.hermes.release;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 impl<T: HermesStringify> HermesStringify for RelPtr<T> {
     pub fn stringify(&self, ctx: *mut StringifyCtx) {

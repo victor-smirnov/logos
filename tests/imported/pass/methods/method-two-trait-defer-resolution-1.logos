@@ -6,7 +6,8 @@
 package method_two_trait_defer_resolution_1;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use std.collections.vec;
 
 trait foo {

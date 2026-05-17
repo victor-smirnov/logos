@@ -29,7 +29,8 @@
 package test_char_ascii;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.char;
 
 #[test]

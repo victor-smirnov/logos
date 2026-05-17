@@ -6,7 +6,8 @@
 package fc_closure_immediate;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn main() -> i32 {
     let c = |a: u8, b: u16, cc: u8| {

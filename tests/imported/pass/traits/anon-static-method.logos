@@ -6,7 +6,8 @@
 package anon_static_method;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 struct Foo { x: isize }
 

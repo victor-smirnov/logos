@@ -1,7 +1,8 @@
 // Tests UTF-8 encode/decode, Chars iterator, is_valid, char_count, push_char.
 package test;
 
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.option;
 
 fn check_encode_decode() -> i32 {

@@ -9,7 +9,8 @@
 package m_issue_115681;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 enum Bits { None_v = 0, Low = 0x40, High = 0x80, Both = 0xC0 }
 

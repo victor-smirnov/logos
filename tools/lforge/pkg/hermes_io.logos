@@ -3,7 +3,8 @@
 
 package lforge.hermes_io;
 
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.result;
 use std.collections.vec;
 use std.hermes.view;

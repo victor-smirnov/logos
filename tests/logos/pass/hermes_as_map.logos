@@ -2,7 +2,8 @@
 package hermes_as_map;
 use std.hermes.ctr;
 use std.hermes.anyval;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 unsafe fn main() -> i32 {
     let keys_arr: [i32; 3] = [1, 2, 3];

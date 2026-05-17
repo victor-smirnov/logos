@@ -6,7 +6,8 @@
 package mutability_inherits_through_fixed_length_vec;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 fn test1() {
     let mut ints: [i64; 32] = [0i64; 32];

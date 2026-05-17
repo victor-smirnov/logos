@@ -6,7 +6,8 @@
 // stdlib `str_eq`.
 package issue_11940;
 
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 const TEST_STR: str = "abcd";
 

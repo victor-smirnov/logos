@@ -11,7 +11,8 @@
 package test_harness_panic_macro;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 
 #[test]
 #[should_panic(expected = "static text")]

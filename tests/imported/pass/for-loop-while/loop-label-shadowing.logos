@@ -5,7 +5,8 @@
 package fl_loop_label_shadowing;
 
 use std.fmt;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use logos.lang.option;
 use std.collections.vec;
 

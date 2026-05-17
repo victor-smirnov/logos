@@ -26,7 +26,8 @@ use std.collections.vec;
 use std.hermes.view;
 use std.hermes.anyval;
 use std.hermes.string;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 // Note (debt #13 closure): the handler used to import
 // `std.lang.datatypes`, `std.data.persistent.node` and
 // `std.data.persistent.shuttle` to make NodeBase / Buffer / NodeARC /

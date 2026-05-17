@@ -11,7 +11,8 @@
 package std.io.buffered;
 
 use logos.mem.mem;
-use std.lang.text;
+use logos.mem.string;
+use logos.lang.str;
 use std.io.read;
 use std.io.write;
 
