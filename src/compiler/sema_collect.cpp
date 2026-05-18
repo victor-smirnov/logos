@@ -1206,14 +1206,42 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                 pending_is_test_      = false;
                 pending_should_panic_ = false;
                 pending_ignore_       = false;
+                pending_should_panic_expected_.clear();
                 for (auto& ann : pending_annots) {
                     auto nm = str_of(ann.get(la::NAME.code));
                     if (nm == "no_mangle")    pending_no_mangle_ = true;
                     if (nm == "fn_macro")     pending_fn_macro_  = true;
                     if (nm == "token_macro")  pending_token_macro_ = true;
                     if (nm == "test")         pending_is_test_      = true;
-                    if (nm == "should_panic") pending_should_panic_ = true;
                     if (nm == "ignore")       pending_ignore_       = true;
+                    if (nm == "should_panic") {
+                        pending_should_panic_ = true;
+                        // TH-th-02: extract `expected = "..."` from ARGS.
+                        // ANNOT_KV with NAME="expected", VALUE=LIT_STR.
+                        if (ann.has_key(la::ARGS.code)) {
+                            auto args_map = map_of(ann.get(la::ARGS.code));
+                            if (args_map.has_key(la::ITEMS.code)) {
+                                auto items_arr = arr_of(args_map.get(la::ITEMS.code));
+                                for (uint64_t kk = 0; kk < items_arr.size(); ++kk) {
+                                    auto a = map_of(items_arr.get(kk));
+                                    if (code_of(a) != la::ANNOT_KV) continue;
+                                    if (!a.has_key(la::NAME.code) ||
+                                        !a.has_key(la::VALUE.code)) continue;
+                                    auto kname = str_of(a.get(la::NAME.code));
+                                    if (kname != "expected") continue;
+                                    auto v = map_of(a.get(la::VALUE.code));
+                                    if (code_of(v) != la::LIT_STR) continue;
+                                    auto raw = str_of(v.get(la::VALUE.code));
+                                    if (raw.size() >= 2 && raw.front() == '"'
+                                        && raw.back() == '"') {
+                                        pending_should_panic_expected_.assign(
+                                            raw.substr(1, raw.size() - 2));
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 }
                 // Phase 7 slice 12: record `#[metaprog_handler("trigger")]`
                 // hooks. The annotation's first positional arg is the

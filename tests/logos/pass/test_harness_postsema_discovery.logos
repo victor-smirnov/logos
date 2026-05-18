@@ -1,0 +1,45 @@
+// Verifies that `#[test]` fns spliced into the program by
+// item-position `name!{}` fn-macros are picked up by `--test`
+// harness discovery, even when they don't exist in the source AST.
+//
+// Pre-fix: the harness scanned only the user's pre-sema AST for
+// `#[test]` annotations and synthesised a runner that called those.
+// Item-position macros emit code DURING sema (the metafn returns an
+// ItemList that gets spliced via logos_emit_item_blob_subst), so
+// their `#[test]` fns weren't visible to the runner-synth pass.
+//
+// Fix: defer runner synthesis to AFTER the metacall splice loop
+// converges, then walk `prog.functions` for `is_test` and add any
+// metacall-discovered tests to the ast-level list before building
+// the runner.
+
+package test_harness_postsema_discovery;
+
+use std.compiler.metaprog;
+use std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.panic;
+use logos.mem.collections.vec;
+use logos.lang.hermes.view;
+use logos.mem.hermes.view;
+
+#[fn_macro]
+pub fn emit_count_ones_test(args: Vec<ExprBlob>) -> ItemList {
+    let mut out: ItemList = item_list_new();
+    let s_fn: str = "test_count_ones_synth";
+    let s_ty: str = "i32";
+    let fn_id: Ident = Ident { ptr: s_fn.as_ptr(), len: s_fn.len() as u64 };
+    let ty_id: Ident = Ident { ptr: s_ty.as_ptr(), len: s_ty.len() as u64 };
+    let b: QuoteItemBlob = quote_item! {
+        #[test]
+        fn #(fn_id)() {
+            let got: u32 = (0b1011 as #ty_id).count_ones();
+            if got != 3u32 { panic("count_ones mismatch"); }
+        }
+    };
+    unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(b); }
+    return out;
+}
+
+emit_count_ones_test!{}

@@ -755,9 +755,12 @@ struct LFunction {
     std::string                   doc;
     // Test harness attributes. is_test = `#[test]`; should_panic / ignored
     // are modifiers (only meaningful when is_test is true, validated in sema).
+    // should_panic_expected_msg = optional `expected = "..."` arg on
+    // `#[should_panic]`; empty means any panic accepted (matches Rust).
     bool                          is_test       = false;
     bool                          should_panic  = false;
     bool                          ignored       = false;
+    std::string                   should_panic_expected_msg;
 };
 
 struct LField {

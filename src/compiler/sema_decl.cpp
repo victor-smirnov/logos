@@ -88,9 +88,11 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     fn.is_test            = pending_is_test_;
     fn.should_panic       = pending_should_panic_;
     fn.ignored            = pending_ignore_;
+    fn.should_panic_expected_msg = std::move(pending_should_panic_expected_);
     pending_is_test_      = false;
     pending_should_panic_ = false;
     pending_ignore_       = false;
+    pending_should_panic_expected_.clear();
     int32_t node_code = code_of(node);
     fn.is_extern = (node_code == la::EXTERN_FN);
 

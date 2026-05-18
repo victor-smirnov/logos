@@ -5924,6 +5924,49 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
         else if (c == la::FN || c == la::EXTERN_FN) {
             // lower_fn / lower_spec_fn read pending_doc_ at entry — no
             // post-hoc assignment needed.
+            //
+            // Translate `#[test]` / `#[should_panic]` / `#[ignore]` from
+            // the pending_annots buffer to the SemaChecker pending_*
+            // flags lower_fn consumes (sema_decl.cpp:88). Mirrors
+            // sema_collect.cpp:1206-1217 — without this, lower_fn reads
+            // residual flag state left over from the collect phase,
+            // which mistakenly tags the first lower'd fn with
+            // is_test=true if the last fn collect saw was #[test].
+            pending_is_test_      = false;
+            pending_should_panic_ = false;
+            pending_ignore_       = false;
+            pending_should_panic_expected_.clear();
+            for (auto& ann : pending_annots) {
+                auto nm = str_of(ann.get(la::NAME.code));
+                if (nm == "test")    pending_is_test_      = true;
+                if (nm == "ignore")  pending_ignore_       = true;
+                if (nm == "should_panic") {
+                    pending_should_panic_ = true;
+                    if (ann.has_key(la::ARGS.code)) {
+                        auto args_map = map_of(ann.get(la::ARGS.code));
+                        if (args_map.has_key(la::ITEMS.code)) {
+                            auto items_arr = arr_of(args_map.get(la::ITEMS.code));
+                            for (uint64_t kk = 0; kk < items_arr.size(); ++kk) {
+                                auto a = map_of(items_arr.get(kk));
+                                if (code_of(a) != la::ANNOT_KV) continue;
+                                if (!a.has_key(la::NAME.code) ||
+                                    !a.has_key(la::VALUE.code)) continue;
+                                auto kname = str_of(a.get(la::NAME.code));
+                                if (kname != "expected") continue;
+                                auto v = map_of(a.get(la::VALUE.code));
+                                if (code_of(v) != la::LIT_STR) continue;
+                                auto raw = str_of(v.get(la::VALUE.code));
+                                if (raw.size() >= 2 && raw.front() == '"'
+                                    && raw.back() == '"') {
+                                    pending_should_panic_expected_.assign(
+                                        raw.substr(1, raw.size() - 2));
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
             if (is_specialization_fn(item)) {
                 auto fp = std::make_unique<lir::LFunction>(lower_spec_fn(item));
                 prog.specializations.push_back(std::move(fp));

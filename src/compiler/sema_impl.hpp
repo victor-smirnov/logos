@@ -1613,6 +1613,9 @@ private:
     bool pending_is_test_      = false;
     bool pending_should_panic_ = false;
     bool pending_ignore_       = false;
+    // `#[should_panic(expected = "msg")]` — TH-th-02. Empty when no expected
+    // arg supplied. Consumed by collect_fn / lower_fn alongside the booleans.
+    std::string pending_should_panic_expected_;
     // Outer doc-comment buffer accumulated from `///` lines preceding the
     // next real item. Cleared by each collect_* after consuming. Joined with
     // '\n'; each line has had its leading `/// ` (or `///`) stripped.

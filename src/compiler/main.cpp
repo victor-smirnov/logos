@@ -2939,32 +2939,35 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "[trace] binary_symbols: %zu from %zu archive(s)\n",
                      binary_symbols.size(), binary_archives_seen.size());
 
-    // ── Step 2a.5: --test synthesis ────────────────────────────────────
-    // Walk the user-provided asts for `#[test]` annotations, synthesise a
-    // tiny extra `package <entry>;` source carrying a `main()` that runs
-    // each test under panic-recovery, parse it, and append to the asts
-    // vector so sema_lower picks it up. The synthesized main calls each
-    // test fn by its bare name, which resolves because the synth shares
-    // the entry file's package.
+    // ── Step 2a.5: --test pre-scan ─────────────────────────────────────
+    // Walk the user-provided asts to capture #[test] / #[should_panic] /
+    // #[ignore] annotations + validate user_has_main + capture entry_pkg.
+    // Runner synthesis is DEFERRED until after the metacall splice loop
+    // converges — that's the only way to pick up #[test] fns emitted by
+    // item-position macros (`int_module!{...}`). The post-sema augment
+    // pass below walks prog.functions for is_test and merges with the
+    // ast-level list (de-duped by name).
+    struct TestEntry {
+        std::string name;
+        bool        should_panic = false;
+        bool        ignored      = false;
+        // TH-th-02: `#[should_panic(expected = "msg")]`. Empty when no
+        // expected arg supplied — matches Rust semantics (any panic
+        // accepted). For ast-level tests this is captured at parse from
+        // the annotation args; for post-sema-discovered tests it comes
+        // from LFunction::should_panic_expected_msg.
+        std::string expected_msg;
+    };
+    std::vector<TestEntry> tests;
+    std::string entry_pkg;
+    bool user_has_main = false;
+
     if (test_mode) {
         namespace la = logos::compiler::ast;
         using logos::hermes::AnyVal;
         using logos::hermes::TinyMapView;
         using logos::hermes::ArrayView;
         using logos::hermes::StringView;
-
-        struct TestEntry {
-            std::string name;
-            bool        should_panic = false;
-            bool        ignored      = false;
-            // TH-th-02: `#[should_panic(expected = "msg")]`. Empty when
-            // no expected arg was supplied — matches Rust semantics
-            // (any panic accepted).
-            std::string expected_msg;
-        };
-        std::vector<TestEntry> tests;
-        std::string entry_pkg;
-        bool user_has_main = false;
 
         auto entry_idx = asts.empty() ? 0 : asts.size() - 1;
         // Helper: compute the dotted package name of a parsed module AST.
@@ -3107,107 +3110,16 @@ int main(int argc, char** argv) {
                 "test runner; remove it or compile without --test\n");
             return 1;
         }
-        if (tests.empty()) {
-            std::fprintf(stderr, "logosc: --test: no `#[test]` functions found\n");
-            return 1;
-        }
         if (entry_pkg.empty()) {
             std::fprintf(stderr,
                 "logosc: --test: entry file has no `package` declaration\n");
             return 1;
         }
-
-        // Synthesize Logos source for the test-runner main.
-        std::string s;
-        s  = "package " + entry_pkg + ";\n";
-        s += "extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;\n";
-        s += "extern fn logos_run_with_recovery(fn_ptr: fn()) -> i32;\n";
-        s += "extern fn logos_test_print_start(name: *const u8, n: i64);\n";
-        s += "extern fn logos_test_print_ok();\n";
-        s += "extern fn logos_test_print_failed();\n";
-        s += "extern fn logos_test_print_failed_no_panic();\n";
-        s += "extern fn logos_test_print_failed_expected_mismatch(p: *const u8, n: i64);\n";
-        s += "extern fn logos_panic_msg_contains(p: *const u8, n: i64) -> i32;\n";
-        s += "extern fn logos_test_print_ignored();\n";
-        s += "extern fn logos_test_print_summary(p: i32, f: i32, i: i32) -> i32;\n";
-        s += "pub unsafe fn main() -> i32 {\n";
-        s += "    let mut passed: i32 = 0 as i32;\n";
-        s += "    let mut failed: i32 = 0 as i32;\n";
-        s += "    let mut ignored: i32 = 0 as i32;\n";
-        for (const auto& t : tests) {
-            std::string nm_lit = "\"" + t.name + "\"";
-            s += "    {\n";
-            s += "        let nm: str = " + nm_lit + ";\n";
-            s += "        logos_test_print_start(nm.as_ptr(), nm.len());\n";
-            if (t.ignored) {
-                s += "        logos_test_print_ignored();\n";
-                s += "        ignored = ignored + (1 as i32);\n";
-            } else {
-                s += "        let rv: i32 = logos_run_with_recovery(" + t.name + ");\n";
-                if (t.should_panic) {
-                    if (!t.expected_msg.empty()) {
-                        // Escape "..." and \ for Logos string literal.
-                        std::string esc;
-                        esc.reserve(t.expected_msg.size() + 2);
-                        for (char c : t.expected_msg) {
-                            if (c == '\\' || c == '"') esc.push_back('\\');
-                            esc.push_back(c);
-                        }
-                        std::string lit = "\"" + esc + "\"";
-                        s += "        if rv != (0 as i32) {\n";
-                        s += "            let exp: str = " + lit + ";\n";
-                        s += "            let ok: i32 = logos_panic_msg_contains(exp.as_ptr(), exp.len());\n";
-                        s += "            if ok != (0 as i32) {\n";
-                        s += "                logos_test_print_ok();\n";
-                        s += "                passed = passed + (1 as i32);\n";
-                        s += "            } else {\n";
-                        s += "                logos_test_print_failed_expected_mismatch(exp.as_ptr(), exp.len());\n";
-                        s += "                failed = failed + (1 as i32);\n";
-                        s += "            }\n";
-                        s += "        } else {\n";
-                        s += "            logos_test_print_failed_no_panic();\n";
-                        s += "            failed = failed + (1 as i32);\n";
-                        s += "        }\n";
-                    } else {
-                        s += "        if rv != (0 as i32) {\n";
-                        s += "            logos_test_print_ok();\n";
-                        s += "            passed = passed + (1 as i32);\n";
-                        s += "        } else {\n";
-                        s += "            logos_test_print_failed_no_panic();\n";
-                        s += "            failed = failed + (1 as i32);\n";
-                        s += "        }\n";
-                    }
-                } else {
-                    s += "        if rv == (0 as i32) {\n";
-                    s += "            logos_test_print_ok();\n";
-                    s += "            passed = passed + (1 as i32);\n";
-                    s += "        } else {\n";
-                    s += "            logos_test_print_failed();\n";
-                    s += "            failed = failed + (1 as i32);\n";
-                    s += "        }\n";
-                }
-            }
-            s += "    }\n";
-        }
-        s += "    return logos_test_print_summary(passed, failed, ignored);\n";
-        s += "}\n";
-
-        // Parse and append. Filename uses a marker so diagnostics make
-        // clear the source is synthesised.
-        logos::compiler::LogosParser parser(s);
-        auto ast = parser.parse_module();
-        if (ast.is_null()) {
-            std::fprintf(stderr, "logosc: --test: failed to parse synthesised main:\n%s\n", s.c_str());
-            return 1;
-        }
-        filenames.push_back("<test_main_synth>");
-        from_binary.push_back(false);
-        asts.push_back(std::move(ast));
-        if (trace) {
-            std::fprintf(stderr,
-                "[trace] --test: synthesised main calling %zu test fn(s)\n",
-                tests.size());
-        }
+        // Runner synthesis is DEFERRED to after the metacall splice loop
+        // converges — see the post-sema augment + synth block below.
+        // The "no tests found" check moves there too: tests emitted by
+        // item-position macros (`int_module!{...}` etc.) only appear in
+        // prog.functions, not in the pre-sema AST.
     }
 
     // ── Step 2b: Semantic analysis + L-IR lowering, with metaprog loop ──
@@ -3221,16 +3133,12 @@ int main(int argc, char** argv) {
     // Capture entry idx BEFORE dispatch — synth docs append to asts so
     // `asts.size()-1` no longer points at the user's input file after
     // dispatch returns.
-    // In --test mode the synthesised main was appended last, so asts.size()-1
-    // points at the test runner blob rather than the user file. Step back one
-    // so metaprog dispatch treats the user file as the entry (the synth main
-    // is skipped via the is_synth_blob filename check in sema_decl).
+    // --test mode used to splice the runner here too, so the
+    // `<test_main_synth>` filename appeared at asts.back(); runner
+    // synthesis is now deferred until after the metacall splice loop
+    // converges so item-position macro-emitted `#[test]` fns are
+    // visible. No back-step needed.
     size_t pre_dispatch_entry_idx = asts.empty() ? 0 : asts.size() - 1;
-    if (test_mode && pre_dispatch_entry_idx > 0 &&
-        pre_dispatch_entry_idx < filenames.size() &&
-        filenames[pre_dispatch_entry_idx] == "<test_main_synth>") {
-        pre_dispatch_entry_idx -= 1;
-    }
 
     // M5: one SemaCache shared by every sema_lower invocation in this
     // compile session. Holds the TypePool alive across the 5+ calls so
@@ -3823,6 +3731,154 @@ int main(int argc, char** argv) {
         }
     }
     report("sema+lower (final)");
+
+    // ── --test post-sema runner synthesis ──────────────────────────────
+    // Augment the ast-level test list with `#[test]` fns that surfaced
+    // only after metacall expansion (item-position macros like
+    // `int_module!{...}` emit their test fns during sema). Then build
+    // the runner source from the unified list, parse it, append, and
+    // re-run sema one final time so the runner's `main()` is part of
+    // the program before mono/mlir-gen.
+    if (test_mode) {
+        // Dedup pre-sema discovered tests by name so they can be
+        // matched against the post-sema scan.
+        std::set<std::string> seen_names;
+        for (const auto& t : tests) seen_names.insert(t.name);
+        for (const auto& fp : prog.functions) {
+            if (!fp) continue;
+            if (!fp->is_test) continue;
+            // Filter to user-package fns only — stdlib modules also
+            // contain `#[test]` fns (placeholders, internal smoke
+            // tests) that would otherwise leak into the runner.
+            if (fp->from_binary_module) continue;
+            if (!entry_pkg.empty() && fp->package != entry_pkg) continue;
+            // The runner calls test fns by their source name. fp->name
+            // carries the post-collect mangled form (`pkg$base__f__sig`);
+            // use the shared bare_fn_name helper to recover the base.
+            std::string nm(logos::compiler::bare_fn_name(fp->name));
+            if (seen_names.insert(nm).second) {
+                tests.push_back({nm, fp->should_panic, fp->ignored,
+                                 fp->should_panic_expected_msg});
+            }
+        }
+        if (tests.empty()) {
+            std::fprintf(stderr, "logosc: --test: no `#[test]` functions found\n");
+            return 1;
+        }
+        // Synthesise the runner source. Same shape as the pre-sema
+        // synth used to be — package matches entry_pkg so bare-name
+        // calls resolve to the user-visible test fns.
+        std::string s;
+        s  = "package " + entry_pkg + ";\n";
+        s += "extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;\n";
+        s += "extern fn logos_run_with_recovery(fn_ptr: fn()) -> i32;\n";
+        s += "extern fn logos_test_print_start(name: *const u8, n: i64);\n";
+        s += "extern fn logos_test_print_ok();\n";
+        s += "extern fn logos_test_print_failed();\n";
+        s += "extern fn logos_test_print_failed_no_panic();\n";
+        s += "extern fn logos_test_print_failed_expected_mismatch(p: *const u8, n: i64);\n";
+        s += "extern fn logos_panic_msg_contains(p: *const u8, n: i64) -> i32;\n";
+        s += "extern fn logos_test_print_ignored();\n";
+        s += "extern fn logos_test_print_summary(p: i32, f: i32, i: i32) -> i32;\n";
+        s += "pub unsafe fn main() -> i32 {\n";
+        s += "    let mut passed: i32 = 0 as i32;\n";
+        s += "    let mut failed: i32 = 0 as i32;\n";
+        s += "    let mut ignored: i32 = 0 as i32;\n";
+        for (const auto& t : tests) {
+            std::string nm_lit = "\"" + t.name + "\"";
+            s += "    {\n";
+            s += "        let nm: str = " + nm_lit + ";\n";
+            s += "        logos_test_print_start(nm.as_ptr(), nm.len());\n";
+            if (t.ignored) {
+                s += "        logos_test_print_ignored();\n";
+                s += "        ignored = ignored + (1 as i32);\n";
+            } else {
+                s += "        let rv: i32 = logos_run_with_recovery(" + t.name + ");\n";
+                if (t.should_panic) {
+                    if (!t.expected_msg.empty()) {
+                        std::string esc;
+                        esc.reserve(t.expected_msg.size() + 2);
+                        for (char c : t.expected_msg) {
+                            if (c == '\\' || c == '"') esc.push_back('\\');
+                            esc.push_back(c);
+                        }
+                        std::string lit = "\"" + esc + "\"";
+                        s += "        if rv != (0 as i32) {\n";
+                        s += "            let exp: str = " + lit + ";\n";
+                        s += "            let ok: i32 = logos_panic_msg_contains(exp.as_ptr(), exp.len());\n";
+                        s += "            if ok != (0 as i32) {\n";
+                        s += "                logos_test_print_ok();\n";
+                        s += "                passed = passed + (1 as i32);\n";
+                        s += "            } else {\n";
+                        s += "                logos_test_print_failed_expected_mismatch(exp.as_ptr(), exp.len());\n";
+                        s += "                failed = failed + (1 as i32);\n";
+                        s += "            }\n";
+                        s += "        } else {\n";
+                        s += "            logos_test_print_failed_no_panic();\n";
+                        s += "            failed = failed + (1 as i32);\n";
+                        s += "        }\n";
+                    } else {
+                        s += "        if rv != (0 as i32) {\n";
+                        s += "            logos_test_print_ok();\n";
+                        s += "            passed = passed + (1 as i32);\n";
+                        s += "        } else {\n";
+                        s += "            logos_test_print_failed_no_panic();\n";
+                        s += "            failed = failed + (1 as i32);\n";
+                        s += "        }\n";
+                    }
+                } else {
+                    s += "        if rv == (0 as i32) {\n";
+                    s += "            logos_test_print_ok();\n";
+                    s += "            passed = passed + (1 as i32);\n";
+                    s += "        } else {\n";
+                    s += "            logos_test_print_failed();\n";
+                    s += "            failed = failed + (1 as i32);\n";
+                    s += "        }\n";
+                }
+            }
+            s += "    }\n";
+        }
+        s += "    return logos_test_print_summary(passed, failed, ignored);\n";
+        s += "}\n";
+
+        logos::compiler::LogosParser parser(s);
+        auto runner_ast = parser.parse_module();
+        if (runner_ast.is_null()) {
+            std::fprintf(stderr,
+                "logosc: --test: failed to parse synthesised main:\n%s\n", s.c_str());
+            return 1;
+        }
+        filenames.push_back("<test_main_synth>");
+        from_binary.push_back(false);
+        asts.push_back(std::move(runner_ast));
+        if (trace) {
+            std::fprintf(stderr,
+                "[trace] --test: synthesised main calling %zu test fn(s)\n",
+                tests.size());
+        }
+        // Re-run sema with the runner included. The metacall splice loop
+        // has already converged so this should be a single straight pass
+        // (no new metacall_sites). g_user_root_idx points to the runner
+        // file by convention (asts.back()).
+        //
+        // Use fresh SemaOptions (no shared cache) — the cache's persisted
+        // user-fn tables would re-flag every already-collected fn as
+        // duplicate when this sema pass walks the asts vector again.
+        g_user_root_idx = asts.size() - 1;
+        logos::compiler::SemaOptions runner_opts;
+        runner_opts.cfg_flags = cfg_flags;
+        prog = logos::compiler::sema_lower(asts, filenames, from_binary, runner_opts, is_lazy);
+        prog.print_diags(stderr);
+        if (!prog.ok()) return 1;
+        if (!prog.metacall_sites.empty()) {
+            std::fprintf(stderr,
+                "logosc: --test: synthesised runner introduced new metacall sites; "
+                "this isn't supported. Avoid macros that emit metacall in the test "
+                "harness path.\n");
+            return 1;
+        }
+        report("sema+lower (test runner)");
+    }
 
     // ── --dump-metaprog: write metafn-emitted ASTs as Logos source ──────────
     // Iterates ast_provenance (parallel to asts, sparse — only emit-tracked
