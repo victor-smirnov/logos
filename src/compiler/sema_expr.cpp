@@ -4087,15 +4087,15 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         auto k = TypeRef(self_formal).kind();
         if (k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef ||
             k == LogosType::Kind::Ptr) return;  // by-ref / by-ptr: no move
-        // Trait-method formal `self: Self` shows up as TypeVar — at this site
-        // we don't know whether the resolved impl will actually move. The
-        // canonical example is Logos's `trait Clone { fn clone(self: Self) -> Self; }`
-        // where every impl just returns a fresh value derived from self,
-        // typically leaving the caller's binding usable. Keeping the conservative
-        // skip here matches existing stdlib patterns
-        // (e.g. `let copy = iter.clone(); return CycleIter { orig: iter, … }`).
-        // Concrete-receiver paths (e.g. `vec.into_iter()` → formal `Vec<T>`)
-        // resolve formal0 to Struct/Enum and ARE marked.
+        // TypeVar-formal skip — needed for Logos's `Clone::clone(self: Self)`
+        // convention (impls return a fresh value from self; caller's binding
+        // typically stays usable). At trait dispatch through a TypeVar
+        // receiver we can't tell whether the resolved impl moves, so be
+        // conservative. A clean Clone-to-`&self` migration is blocked by a
+        // hermes binary-codec bug — REF_TYPE silently downgrades to
+        // TYPE_REF on .hermes0 roundtrip, so `&self` parses correctly on
+        // first build but loads as `self: Self` from the binary archive.
+        // [[baghunt-hermes-codec-ref-type-downgrade]]
         if (k == LogosType::Kind::TypeVar) return;
         if (!is_move_type(recv->type)) return;
         mark_moved_expr(expr_ref_of(*recv));
