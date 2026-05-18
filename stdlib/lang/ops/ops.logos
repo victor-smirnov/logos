@@ -73,3 +73,43 @@ impl BitXor for bool {
 impl Not for bool {
     fn not(self: Self) -> Self { return !self; }
 }
+
+// ── Fn / FnMut / FnOnce — callable traits ─────────────────────────
+//
+// Mirrors `core::ops::{Fn, FnMut, FnOnce}`. Uses Logos's value-level
+// variadic pack (`A...`) for the argument list and an associated
+// `Output` type for the return — matches Rust's `FnOnce<Args>`
+// shape with associated `type Output;` and `fn call_once(self,
+// args: Args) -> Self::Output`.
+//
+// Semantic ladder:
+//   FnOnce  — consumes self (one-shot, e.g. closures owning move-only
+//             captures). Receiver: `self: Self`.
+//   FnMut   — mutable reuse (closure mutates its captures). Receiver:
+//             `&mut self`.
+//   Fn      — shared reuse (closure only reads its captures). Receiver:
+//             `&self`.
+//
+// In Rust these form a supertrait chain `Fn: FnMut: FnOnce`. Logos
+// trait supertraits exist, but enforcing the chain here forces every
+// implementor (closures, fn ptrs) to provide all three method bodies,
+// which the compiler can't auto-derive yet. They're declared as
+// independent traits now; Step B will add the supertrait relations
+// once closure / fn-ptr blanket impls are wired and the auto-derive
+// of weaker-from-stronger methods (`call_mut` from `call`, etc.) is
+// in place.
+
+pub trait FnOnce<A...> {
+    type Output;
+    fn call_once(self: Self, args: A...) -> Self::Output;
+}
+
+pub trait FnMut<A...> {
+    type Output;
+    fn call_mut(&mut self, args: A...) -> Self::Output;
+}
+
+pub trait Fn<A...> {
+    type Output;
+    fn call(&self, args: A...) -> Self::Output;
+}

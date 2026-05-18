@@ -1,0 +1,44 @@
+// Step A of the Fn/FnMut/FnOnce epic — trait declarations only.
+//
+// Confirms that the variadic-pack-shaped traits `FnOnce<A...>`,
+// `FnMut<A...>`, `Fn<A...>` in `logos.lang.ops` can be implemented
+// for a user struct and dispatched through method-call syntax at the
+// single-arg arity. Multi-arity impls (where `A...` expands to >1
+// concrete arg) need an impl-signature matcher extension — that's
+// Step B work; not exercised here.
+package fn_traits_decl_test;
+
+use logos.lang.ops;
+
+pub struct AdderFn { pub bias: i32 }
+
+impl FnOnce<i32> for AdderFn {
+    type Output = i32;
+    fn call_once(self: AdderFn, x: i32) -> i32 { return self.bias + x; }
+}
+
+impl FnMut<i32> for AdderFn {
+    type Output = i32;
+    fn call_mut(&mut self, x: i32) -> i32 { return self.bias + x; }
+}
+
+impl Fn<i32> for AdderFn {
+    type Output = i32;
+    fn call(&self, x: i32) -> i32 { return self.bias + x; }
+}
+
+unsafe fn main() -> i32 {
+    let mut a = AdderFn { bias: 10 };
+
+    // Fn  — shared ref
+    if a.call(5)         != 15 { return 1; }
+
+    // FnMut — mut ref
+    if a.call_mut(7)     != 17 { return 2; }
+
+    // FnOnce — by-value
+    let r = AdderFn { bias: 100 }.call_once(3);
+    if r != 103 { return 3; }
+
+    return 42;
+}
