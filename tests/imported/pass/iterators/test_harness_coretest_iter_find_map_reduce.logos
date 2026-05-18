@@ -34,7 +34,7 @@ fn test_find_map_empty() {
     let xs: [i32; 4] = [3i32, 5i32, 7i32, 9i32];
     // All odd → no half_if_even produces Some → None.
     unsafe {
-        let it = iter_over_slice(&xs);
+        let mut it = iter_over_slice(&xs);
         match it.find_map::<i32>(half_if_even) {
             Option::Some(_) => { assert_eq!(true, false); }
             Option::None    => { }
@@ -47,7 +47,7 @@ fn test_find_map_first_even() {
     let xs: [i32; 4] = [3i32, 4i32, 5i32, 6i32];
     // First even = 4, half = 2.
     unsafe {
-        let it = iter_over_slice(&xs);
+        let mut it = iter_over_slice(&xs);
         match it.find_map::<i32>(half_if_even) {
             Option::Some(v) => { assert_eq!(v, 2i32); }
             Option::None    => { assert_eq!(true, false); }

@@ -622,20 +622,65 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     out_, result->type, callee, args);
             } else if (k == LogosType::Kind::Struct ||
                        k == LogosType::Kind::ZonedStruct) {
-                // Deferred-2: F was bound by Fn/FnMut/FnOnce and
+                // Deferred-2: F was bound by Fn / FnMut / FnOnce and
                 // substituted to a user struct with an explicit
                 // `impl Fn[Mut|Once]<...> for Struct { fn call[_mut|
                 // _once](...) }`. Route the call through the struct's
-                // matching method. Today we hardcode method name
-                // "call" — works for `F: Fn(...)` bounds. FnMut /
-                // FnOnce struct-impls (with `call_mut` / `call_once`)
-                // need the original bound's trait name threaded
-                // through ClosureCall metadata; tracked separately.
-                std::string struct_name = concrete_struct_name(ct);
+                // matching method. The original bound's trait name
+                // isn't currently threaded through ClosureCall
+                // metadata, so probe the struct's method registry
+                // for "call" / "call_mut" / "call_once" and pick the
+                // first that exists. Covers all three Fn-family
+                // bounds with O(1) lookups per call site.
+                std::string base_name{ct.struct_name()};
+                if (auto p = base_name.find("$G"); p != std::string::npos)
+                    base_name = base_name.substr(0, p);
                 std::string pkg{ct.pkg_name()};
+                std::string struct_name = concrete_struct_name(ct);
+                // Probe out_.functions for a matching <pkg.>?<Concrete>__<m>
+                // entry. The Fn-bound was Fn / FnMut / FnOnce; we don't
+                // know which without threading bound metadata, so try
+                // call / call_mut / call_once and pick the first that
+                // exists. Inputs to out_.functions are mangled with the
+                // concrete struct name (incl. type-args) for generic
+                // impls, hence the lookup uses `struct_name` not `base`.
+                std::string picked;
+                // Look at sema-collected impl methods (in_.functions
+                // for non-generic structs; struct_method_templates_ for
+                // generic structs). Probe with concrete struct name +
+                // base struct name to cover both shapes.
+                auto try_find_method = [&](const std::string& mname) -> bool {
+                    auto base_pfx = base_name + "__" + mname;
+                    auto concrete_pfx = struct_name + "__" + mname;
+                    for (auto& fn : in_.functions) {
+                        if (!fn) continue;
+                        const auto& fname = fn->name;
+                        // Match `[pkg.]<base|concrete>__<m>[__f__sig|__g__sig]?`
+                        auto p = fname.rfind('.');
+                        std::string_view tail = (p == std::string::npos)
+                            ? std::string_view(fname)
+                            : std::string_view(fname).substr(p + 1);
+                        if (tail == base_pfx || tail == concrete_pfx) return true;
+                        if (tail.size() > base_pfx.size() + 5 &&
+                            tail.compare(0, base_pfx.size(), base_pfx) == 0 &&
+                            (tail.compare(base_pfx.size(), 5, "__f__") == 0 ||
+                             tail.compare(base_pfx.size(), 5, "__g__") == 0))
+                            return true;
+                        if (tail.size() > concrete_pfx.size() + 5 &&
+                            tail.compare(0, concrete_pfx.size(), concrete_pfx) == 0 &&
+                            (tail.compare(concrete_pfx.size(), 5, "__f__") == 0 ||
+                             tail.compare(concrete_pfx.size(), 5, "__g__") == 0))
+                            return true;
+                    }
+                    return false;
+                };
+                for (std::string_view m : {"call", "call_mut", "call_once"}) {
+                    if (try_find_method(std::string(m))) { picked = m; break; }
+                }
+                if (picked.empty()) picked = "call";  // fallback — matches Fn-bound default
                 std::string callee_name = pkg.empty()
-                    ? struct_name + "__call"
-                    : pkg + "." + struct_name + "__call";
+                    ? struct_name + "__" + picked
+                    : pkg + "." + struct_name + "__" + picked;
                 // Method-style: prepend the receiver as the self arg.
                 std::vector<lir::LExprPtr> call_args;
                 call_args.push_back(std::move(callee));
@@ -3638,16 +3683,26 @@ bool Mono::method_bound_ok(const lir::LFunction& m, const SubstMap& s) {
         };
         for (auto& tb : itp.bounds) {
             // Fn / FnMut / FnOnce parenthesized bounds are compiler-
-            // intrinsic — satisfied by any fn-pointer or closure type.
-            // Sema accepts these at sema_collect.cpp:982; mono's trait
-            // engine has no FnMut-for-fn-ptr impl registered, so
-            // without this short-circuit method_bound_ok returns false
-            // and the impl method silently disappears from dispatch.
-            // See [[baghunt-mapiter-fn-param-mono-loop]].
+            // intrinsic — satisfied by any fn-pointer or closure type
+            // (per sema_collect.cpp:982; mono's trait engine has no
+            // FnMut-for-fn-ptr impl registered). Without this short-
+            // circuit method_bound_ok returns false and the impl
+            // method silently disappears from dispatch. See
+            // [[baghunt-mapiter-fn-param-mono-loop]].
+            //
+            // TypeVar passes too: this happens in nested generic
+            // calls (e.g. `reduce` → `fold` where F is still
+            // `ReduceFn` TypeVar at fold's mono-enqueue site —
+            // the outer reduce's own mono will resolve it later);
+            // struct-with-Fn-impl also accepted (see Deferred-2
+            // bridge in the ClosureCall handler).
             if (tb.is_fn_family) {
                 auto k = TypeRef(concrete).kind();
                 if (k == LogosType::Kind::FnPtr ||
-                    k == LogosType::Kind::Closure)
+                    k == LogosType::Kind::Closure ||
+                    k == LogosType::Kind::TypeVar ||
+                    k == LogosType::Kind::Struct ||
+                    k == LogosType::Kind::ZonedStruct)
                     continue;
                 return false;
             }

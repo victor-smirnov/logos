@@ -242,21 +242,15 @@ pub trait Iterator<Item> {
     // FilterMapIter, ChainIter, ZipIter, MapIter all use single-letter
     // tparams like B/R that collide with conventional Rust-style names).
     // Sema treats same-name method/impl tparams as specialisation,
-    // silently losing the method-level generic — see the sema warning.
-    // Keeps a bare `fn(Item) -> Option<Out>` (not `F: FnMut(...)`)
-    // because adding a second method-level type-param (F alongside
-    // Out) trips a mono runtime crash on the
-    // `it.find_map::<i32>(half_if_even)` call shape — the trait
-    // method ends up with the wrong specialisation. Migration here
-    // is gated on the same trait-default-method mono baghunt that
-    // affects iter `.map`/etc. on struct receivers.
-    fn find_map<Out>(self: Self, f: fn(Item) -> Option<Out>) -> Option<Out> {
+    // silently losing the method-level generic.
+    fn find_map<Out, FindMapFn: FnMut(Item) -> Option<Out>>(self: Self, f: FindMapFn) -> Option<Out> {
         let mut it: Self = self;
+        let mut g: FindMapFn = f;
         loop {
             match it.next() {
                 Option::None    => { return Option::None; }
                 Option::Some(v) => {
-                    let r: Option<Out> = f(v);
+                    let r: Option<Out> = g(v);
                     match r {
                         Option::Some(_) => { return r; }
                         Option::None    => { }
@@ -270,21 +264,27 @@ pub trait Iterator<Item> {
     // item. Returns None on an empty iterator. Mirrors Rust's
     // `Iterator::reduce`.
     //
-    // Keeps a bare `fn(Item, Item) -> Item` (not `F: FnMut(...)`)
-    // because chaining the generic F through to `it.fold(init, f)`
-    // — itself FnMut-bound — segfaults at runtime under the
-    // trait-default-method mono path. Migration here is gated on
-    // the same baghunt that pinned `find_map` and `find`/`position`.
-    fn reduce(self: Self, f: fn(Item, Item) -> Item) -> Option<Item> {
+    // Inlined fold (rather than `it.fold(init, f)`) because chaining
+    // an FnMut-bounded method into another FnMut-bounded method drops
+    // the inner call at sema-time in some cases — the type-arg
+    // propagation from outer F-tparam into inner F-tparam isn't
+    // wired through trait-default-method-default-method dispatch.
+    // Tracked as a follow-up to [[baghunt-mapiter-fn-param-mono-loop]].
+    fn reduce<ReduceFn: FnMut(Item, Item) -> Item>(self: Self, f: ReduceFn) -> Option<Item> {
         let mut it: Self = self;
+        let mut g: ReduceFn = f;
         let first: Option<Item> = it.next();
         match first {
             Option::None    => { return Option::None; }
             Option::Some(v) => {
                 unsafe {
-                    let init: Item = *((&v) as *const Item);
-                    let acc: Item = it.fold(init, f);
-                    return Option::Some(acc);
+                    let mut acc: Item = *((&v) as *const Item);
+                    loop {
+                        match it.next() {
+                            Option::None    => { return Option::Some(acc); }
+                            Option::Some(x) => { acc = g(acc, x); }
+                        }
+                    }
                 }
             }
         }
@@ -359,35 +359,28 @@ pub trait Iterator<Item> {
     }
 
     // Terminal: first item satisfying the predicate. Rust shape: `&mut self`.
-    //
-    // Keeps a bare `fn(Item) -> bool` (not `F: FnMut(...)`) because adding
-    // a method-level type-param trips the receiver auto-borrow ladder:
-    // `iter_over_slice(&v).find(is_even)` parses as a by-value SliceIter
-    // receiver, which Logos can't reborrow to `&mut Self` when method
-    // resolution goes through the generic-method path. Method-chain
-    // capturing-closure use cases route through `.fold`/`.any`/`.all`
-    // (migrated to FnMut) or via the free-fn forms.
-    unsafe fn find(self: &mut Self, pred: fn(Item) -> bool) -> Option<Item> {
+    unsafe fn find<FindFn: FnMut(Item) -> bool>(self: &mut Self, pred: FindFn) -> Option<Item> {
+        let mut p: FindFn = pred;
         loop {
             match self.next() {
                 Option::None    => { return Option::None; }
                 Option::Some(v) => {
                     let v_copy: Item = *((&v) as *const Item);
-                    if pred(v_copy) { return Option::Some(v); }
+                    if p(v_copy) { return Option::Some(v); }
                 }
             }
         }
     }
 
     // Terminal: index of first item satisfying the predicate. `&mut self`.
-    // Same Fn-bound caveat as `find` above — kept on `fn(...)` ptr.
-    unsafe fn position(self: &mut Self, pred: fn(Item) -> bool) -> Option<i64> {
+    unsafe fn position<PosFn: FnMut(Item) -> bool>(self: &mut Self, pred: PosFn) -> Option<i64> {
+        let mut p: PosFn = pred;
         let mut idx: i64 = 0i64;
         loop {
             match self.next() {
                 Option::None    => { return Option::None; }
                 Option::Some(v) => {
-                    if pred(v) { return Option::Some(idx); }
+                    if p(v) { return Option::Some(idx); }
                     idx = idx + 1i64;
                 }
             }

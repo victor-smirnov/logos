@@ -6230,6 +6230,22 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             if (!ta || TypeRef(ta).kind() == LogosType::Kind::TypeVar ||
                 TypeRef(ta).kind() == LogosType::Kind::Error) { all_concrete = false; break; }
         if (all_concrete) {
+            // Auto-ref receiver if method expects `&Self` / `&mut Self`
+            // and recv came in by value (common with method-chain
+            // temporaries: `iter_over_slice(&v).find(...)`). Mirrors
+            // the primitive-receiver auto-ref at sema_expr.cpp:5311.
+            if (!fi.param_types.empty()) {
+                auto formal0 = struct_subst.empty()
+                    ? fi.param_types[0]
+                    : subst_type_sema(fi.param_types[0], struct_subst);
+                if (formal0 && is_ref_like(TypeRef(formal0).kind()) && recv->type &&
+                    !is_ref_like(TypeRef(recv->type).kind()) &&
+                    TypeRef(recv->type).kind() != LogosType::Kind::Ptr) {
+                    bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
+                    auto ref_ty = make_ref(is_mut, recv->type);
+                    recv = builder().addr_of_temp(std::move(recv), is_mut, ref_ty);
+                }
+            }
             track_args_moved(arg_exprs);
             if (!fi.param_types.empty()) track_recv_moved(recv, fi.param_types[0]);
             std::vector<lir::LExprPtr> pargs;
@@ -6294,6 +6310,31 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         ? fi.ret_type
         : subst_type_sema(fi.ret_type, struct_subst, lt_subst);
 
+    // Auto-ref receiver if method expects `&Self` / `&mut Self` and recv
+    // came in by value (common for method-chain temporaries:
+    // `iter_over_slice(&v).find(p)`). Narrowly gated to methods with
+    // *method-level* type-params — Arc / Vec / Box-style by-value
+    // receivers calling struct-only-generic methods (`arc.deref_mut()`
+    // where deref_mut has no method-level tparams) keep their existing
+    // (no-auto-ref) lowering, which relies on a downstream auto-ref
+    // path. Without the gate, auto-ref'ing arc here triggers mono-time
+    // re-emit of Arc::deref_mut's body in the caller package and
+    // exposes private ArcInner — a separate cross-package mono fragility.
+    bool fi_has_method_level_tparam = false;
+    if (!fi.type_params.empty() && !struct_subst.empty()) {
+        for (auto& tp : fi.type_params)
+            if (!struct_subst.count(tp.name)) { fi_has_method_level_tparam = true; break; }
+    }
+    if (fi_has_method_level_tparam && !fi.param_types.empty()) {
+        auto formal0 = subst_type_sema(fi.param_types[0], struct_subst);
+        if (formal0 && is_ref_like(TypeRef(formal0).kind()) && recv->type &&
+            !is_ref_like(TypeRef(recv->type).kind()) &&
+            TypeRef(recv->type).kind() != LogosType::Kind::Ptr) {
+            bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
+            auto ref_ty = make_ref(is_mut, recv->type);
+            recv = builder().addr_of_temp(std::move(recv), is_mut, ref_ty);
+        }
+    }
     track_args_moved(arg_exprs);
     if (!fi.param_types.empty()) track_recv_moved(recv, fi.param_types[0]);
     lir::EMethodCall mc;

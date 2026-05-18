@@ -1,9 +1,13 @@
 // Regression test: Iterator trait terminal default methods that take
 // `F: FnMut(...)` now accept capturing closures.
 //
-// Migrated terminals: fold, for_each, any, all.
-// Still on fn-ptr (compiler limits — see iter.logos comments):
-// find, find_map, reduce, position.
+// All eight terminals migrated: fold, for_each, any, all,
+// find, find_map, reduce, position. The find/position
+// auto-borrow gap closed in the same sweep
+// (sema_expr.cpp:6234 / 6298 — added auto-ref in the struct-method
+// generic-method dispatch path); the find_map mono-segfault closed
+// via method_bound_ok's TypeVar-deferred branch; reduce inlines
+// fold's body to dodge a chained-FnMut-bound sema bug.
 package iter_fnmut_terminals_test;
 
 use logos.lang.range;
@@ -39,6 +43,33 @@ unsafe fn main() -> i32 {
         count = count + 1;
     });
     if count != 7 { return 4; }
+
+    // find with capturing closure.
+    let needle = 3;
+    let mut it_find = range_i32(0, 10);
+    unsafe {
+        match it_find.find(|x: i32| -> bool { return x == needle; }) {
+            Option::Some(v) => { if v != 3 { return 5; } }
+            Option::None    => { return 6; }
+        }
+    }
+
+    // position with capturing closure.
+    let target = 5;
+    let mut it_pos = range_i32(0, 10);
+    unsafe {
+        match it_pos.position(|x: i32| -> bool { return x == target; }) {
+            Option::Some(idx) => { if idx != 5 as i64 { return 7; } }
+            Option::None      => { return 8; }
+        }
+    }
+
+    // reduce with capturing closure.
+    let extra = 100;
+    match range_i32(1, 4).reduce(|acc: i32, x: i32| -> i32 { return acc + x + extra; }) {
+        Option::Some(v) => { if v != 1 + (2 + 100) + (3 + 100) { return 9; } }
+        Option::None    => { return 10; }
+    }
 
     return 42;
 }
