@@ -1,0 +1,44 @@
+// Regression test: Iterator trait terminal default methods that take
+// `F: FnMut(...)` now accept capturing closures.
+//
+// Migrated terminals: fold, for_each, any, all.
+// Still on fn-ptr (compiler limits — see iter.logos comments):
+// find, find_map, reduce, position.
+package iter_fnmut_terminals_test;
+
+use logos.lang.range;
+use logos.lang.iter;
+use logos.lang.option;
+
+unsafe fn main() -> i32 {
+    // fold with capturing closure (bias is captured).
+    let bias = 100;
+    let s = range_i32(1, 5).fold(0, |acc: i32, x: i32| -> i32 {
+        return acc + bias + x;
+    });
+    // (100+1)+(100+2)+(100+3)+(100+4) = 410
+    if s != 410 { return 1; }
+
+    // any with capturing closure (threshold captured).
+    let threshold = 3;
+    let any_over = range_i32(0, 5).any(|x: i32| -> bool {
+        return x > threshold;
+    });
+    if !any_over { return 2; }
+
+    // all with capturing closure (max captured).
+    let max = 10;
+    let all_under = range_i32(0, 5).all(|x: i32| -> bool {
+        return x < max;
+    });
+    if !all_under { return 3; }
+
+    // for_each with capturing closure mutating a counter.
+    let mut count = 0;
+    range_i32(0, 7).for_each(|_x: i32| {
+        count = count + 1;
+    });
+    if count != 7 { return 4; }
+
+    return 42;
+}

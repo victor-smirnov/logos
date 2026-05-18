@@ -216,13 +216,14 @@ pub trait Iterator<Item> {
     }
 
     // Terminal: fold items into an accumulator.
-    fn fold<Acc>(self: Self, init: Acc, f: fn(Acc, Item) -> Acc) -> Acc {
+    fn fold<Acc, F: FnMut(Acc, Item) -> Acc>(self: Self, init: Acc, f: F) -> Acc {
         let mut it: Self = self;
         let mut acc: Acc = init;
+        let mut g: F = f;
         loop {
             match it.next() {
                 Option::None    => { return acc; }
-                Option::Some(v) => { acc = f(acc, v); }
+                Option::Some(v) => { acc = g(acc, v); }
             }
         }
     }
@@ -237,6 +238,13 @@ pub trait Iterator<Item> {
     // tparams like B/R that collide with conventional Rust-style names).
     // Sema treats same-name method/impl tparams as specialisation,
     // silently losing the method-level generic — see the sema warning.
+    // Keeps a bare `fn(Item) -> Option<Out>` (not `F: FnMut(...)`)
+    // because adding a second method-level type-param (F alongside
+    // Out) trips a mono runtime crash on the
+    // `it.find_map::<i32>(half_if_even)` call shape — the trait
+    // method ends up with the wrong specialisation. Migration here
+    // is gated on the same trait-default-method mono baghunt that
+    // affects iter `.map`/etc. on struct receivers.
     fn find_map<Out>(self: Self, f: fn(Item) -> Option<Out>) -> Option<Out> {
         let mut it: Self = self;
         loop {
@@ -256,6 +264,12 @@ pub trait Iterator<Item> {
     // Terminal: like fold but seeds the accumulator from the first
     // item. Returns None on an empty iterator. Mirrors Rust's
     // `Iterator::reduce`.
+    //
+    // Keeps a bare `fn(Item, Item) -> Item` (not `F: FnMut(...)`)
+    // because chaining the generic F through to `it.fold(init, f)`
+    // — itself FnMut-bound — segfaults at runtime under the
+    // trait-default-method mono path. Migration here is gated on
+    // the same baghunt that pinned `find_map` and `find`/`position`.
     fn reduce(self: Self, f: fn(Item, Item) -> Item) -> Option<Item> {
         let mut it: Self = self;
         let first: Option<Item> = it.next();
@@ -285,34 +299,37 @@ pub trait Iterator<Item> {
     }
 
     // Terminal: visit each item.
-    fn for_each(self: Self, f: fn(Item) -> ()) {
+    fn for_each<F: FnMut(Item) -> ()>(self: Self, f: F) {
         let mut it: Self = self;
+        let mut g: F = f;
         loop {
             match it.next() {
                 Option::None    => { return; }
-                Option::Some(v) => { f(v); }
+                Option::Some(v) => { g(v); }
             }
         }
     }
 
     // Terminal: any item satisfies the predicate?
-    fn any(self: Self, pred: fn(Item) -> bool) -> bool {
+    fn any<F: FnMut(Item) -> bool>(self: Self, pred: F) -> bool {
         let mut it: Self = self;
+        let mut p: F = pred;
         loop {
             match it.next() {
                 Option::None    => { return false; }
-                Option::Some(v) => { if pred(v) { return true; } }
+                Option::Some(v) => { if p(v) { return true; } }
             }
         }
     }
 
     // Terminal: every item satisfies the predicate?
-    fn all(self: Self, pred: fn(Item) -> bool) -> bool {
+    fn all<F: FnMut(Item) -> bool>(self: Self, pred: F) -> bool {
         let mut it: Self = self;
+        let mut p: F = pred;
         loop {
             match it.next() {
                 Option::None    => { return true; }
-                Option::Some(v) => { if !pred(v) { return false; } }
+                Option::Some(v) => { if !p(v) { return false; } }
             }
         }
     }
@@ -336,6 +353,14 @@ pub trait Iterator<Item> {
     }
 
     // Terminal: first item satisfying the predicate. Rust shape: `&mut self`.
+    //
+    // Keeps a bare `fn(Item) -> bool` (not `F: FnMut(...)`) because adding
+    // a method-level type-param trips the receiver auto-borrow ladder:
+    // `iter_over_slice(&v).find(is_even)` parses as a by-value SliceIter
+    // receiver, which Logos can't reborrow to `&mut Self` when method
+    // resolution goes through the generic-method path. Method-chain
+    // capturing-closure use cases route through `.fold`/`.any`/`.all`
+    // (migrated to FnMut) or via the free-fn forms.
     unsafe fn find(self: &mut Self, pred: fn(Item) -> bool) -> Option<Item> {
         loop {
             match self.next() {
@@ -349,6 +374,7 @@ pub trait Iterator<Item> {
     }
 
     // Terminal: index of first item satisfying the predicate. `&mut self`.
+    // Same Fn-bound caveat as `find` above — kept on `fn(...)` ptr.
     unsafe fn position(self: &mut Self, pred: fn(Item) -> bool) -> Option<i64> {
         let mut idx: i64 = 0i64;
         loop {
@@ -1573,6 +1599,13 @@ pub fn iter_count<I: Iterator<T>, T>(iter: I) -> i64 {
     return n;
 }
 
+// Free-fn iter_fold / iter_for_each keep their concrete `fn(...) -> R`
+// signatures for now — the natural Fn-bound generalisation
+// (`F: FnMut(B, T) -> B`) trips Logos's type-arg inference when F's
+// bound references multiple unresolved type-vars at once (B and T).
+// Method-chain form (`it.fold(init, |...|)`) already takes FnMut via
+// the trait default, so capturing-closure use cases route through
+// the trait. Free-fn callers can either stick to fn-pointers or wrap.
 pub fn iter_fold<I: Iterator<T>, T, B>(iter: I, init: B, f: fn(B, T) -> B) -> B {
     let mut it: I = iter;
     let mut acc: B = init;
