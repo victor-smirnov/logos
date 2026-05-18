@@ -1,8 +1,15 @@
 // Logos standard library — std.panic
 //
 // panic() — unrecoverable error: aborts execution (does not return).
+// catch_unwind() — run a fn-ptr under panic recovery; returns
+//                  Ok on normal return, Err(msg) if the fn panicked.
+// Location, PanicInfo — diagnostic structs for the panic surface.
 
 package logos.lang.panic;
+
+use logos.lang.result;
+use logos.lang.option;
+use logos.lang.str;
 
 extern fn abort();
 extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
@@ -11,6 +18,13 @@ extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
 // longjmps out (never returns). Otherwise it's a no-op and we fall through
 // to the normal abort() path.
 extern fn logos_panic_maybe_longjmp(msg: *const u8, n: i64);
+
+// catch_unwind / Last-panic accessor primitives (defined in
+// stdlib/rt/test_recovery.c). The recovery infra is the same one
+// #[test] uses for assertion-failure isolation.
+extern fn logos_run_with_recovery(fn_ptr: fn()) -> i32;
+extern fn logos_panic_last_msg() -> *const u8;
+extern fn logos_panic_last_msg_len() -> i64;
 
 pub fn panic(msg: str) {
     unsafe {
@@ -26,4 +40,59 @@ pub fn panic(msg: str) {
 
 pub fn assert(cond: bool, msg: str) {
     if !cond { panic(msg); }
+}
+
+// ── Location ─────────────────────────────────────────────────────────────
+//
+// Mirrors `core::panic::Location`. Where in source a panic
+// originated. Today populated only via explicit construction —
+// `Location::caller()` (Rust's compiler-injected caller location)
+// requires sema-side automatic threading of `#[track_caller]` which
+// isn't yet wired. Use it as a diagnostic carrier in user panic
+// helpers; rely on the `panic: <msg>` line printed by `panic()` for
+// fallback context.
+
+pub struct Location {
+    pub file:   str,
+    pub line:   u32,
+    pub column: u32,
+}
+
+pub fn location(file: str, line: u32, column: u32) -> Location {
+    return Location { file: file, line: line, column: column };
+}
+
+// ── PanicInfo ────────────────────────────────────────────────────────────
+//
+// Mirrors `core::panic::PanicInfo`. Pair of message + location.
+// Used by `catch_unwind` consumers that want both pieces; today
+// the Location is `Option::None` because the panic hook doesn't
+// capture call-site location (would need `#[track_caller]`).
+
+pub struct PanicInfo {
+    pub message:  str,
+    pub location: Option<Location>,
+}
+
+// ── catch_unwind ─────────────────────────────────────────────────────────
+//
+// Mirrors `core::panic::catch_unwind`. Runs `f` under panic
+// recovery: returns Ok(()) on normal return, Err(msg) if `f`
+// panicked. The captured message is the str passed to panic().
+//
+// Divergence: Rust's signature is `catch_unwind<F: FnOnce() -> R>(f: F)
+// -> Result<R, Box<dyn Any + Send>>`. Logos uses fn-ptr (no closure
+// captures), returns nothing on success, and captures the panic
+// message as str instead of Any. Sufficient for test-harness-style
+// isolation; richer Any-based capture waits on a Box<dyn Any> port.
+pub fn catch_unwind(f: fn()) -> Result<(), str> {
+    unsafe {
+        let rv: i32 = logos_run_with_recovery(f);
+        if rv == 0 {
+            return Result::<(), str>::Ok(());
+        }
+        let p: *const u8 = logos_panic_last_msg();
+        let n: i64       = logos_panic_last_msg_len();
+        return Result::<(), str>::Err(str_from_raw(p, n));
+    }
 }

@@ -1,0 +1,33 @@
+// Tests std.panic::catch_unwind — Ok on normal return, Err(msg) on panic.
+package test;
+
+use logos.lang.panic;
+use logos.lang.result;
+use logos.lang.str;
+
+fn good() {
+    let x: i32 = 1;
+    let y: i32 = 2;
+    let _z: i32 = x + y;
+}
+
+fn bad() {
+    panic("boom");
+}
+
+fn main() -> i32 {
+    let r1: Result<(), str> = catch_unwind(good);
+    match r1 {
+        Ok(_)  => {}
+        Err(_) => { return 1; }
+    }
+
+    let r2: Result<(), str> = catch_unwind(bad);
+    match r2 {
+        Ok(_)    => { return 2; }
+        Err(msg) => {
+            if !str_eq(msg, "boom") { return 3; }
+        }
+    }
+    return 42;
+}

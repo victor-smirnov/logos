@@ -58,7 +58,7 @@ Source roots:
 | `ops.rs` (re-exports from `ops/`) | `lang/ops/ops.logos` | ⚠️ partial | — | `Add/Sub/Mul/Div/Rem/Neg/Shl/Shr/BitAnd/BitOr/BitXor/Not` traits. No `*Assign` traits, no `Fn`/`FnMut`/`FnOnce`, no `Deref`/`DerefMut`, no `Index`/`IndexMut`, no `ControlFlow`, no `Range*` types (Logos has its own `lang/range/RangeI32`/`RangeI64`), no `Try`/`FromResidual` (compiler-builtin in TRY_EXPR). |
 | `option.rs` | `lang/option/option.logos` | ⚠️ partial | 11 `option/test_harness_coretest_*.logos` | Surface: `is_some`/`is_none`/`unwrap`/`expect`/`unwrap_or`/`unwrap_or_default`/`unwrap_or_else`/`map`/`map_or`/`map_or_else`/`ok_or`/`ok_or_else`/`and`/`and_then`/`is_some_and`/`or`/`or_else`/`take`/`replace`/`as_ref`/`as_mut`/`xor`/`filter` + free fns `option_zip`/`option_flatten`. Missing: `iter`/`into_iter`/`as_deref`/`copied`/`cloned`/`unzip`/`flatten` (as method)/`zip`/`get_or_insert*`/`insert`. |
 | `os/` | `std-new/os/os.logos` + `std-new/os/unix/signal/` | 🔁 | — | core::os has `darwin/` shims only; Logos exposes process/host info via `os.logos`. |
-| `panic/` + `panicking.rs` + `panic.rs` | `lang/panic/panic.logos` + `rt/test_recovery.c` | ⚠️ partial | — | `panic(msg: str)` + `assert(cond, msg)`. No `Location` / `PanicInfo` / `UnwindSafe` / `catch_unwind`. Test harness uses setjmp recovery. |
+| `panic/` + `panicking.rs` + `panic.rs` | `lang/panic/panic.logos` + `rt/test_recovery.c` | ⚠️ partial | `panic_catch_unwind.logos` | `panic(msg: str)` + `assert(cond, msg)` + `Location {file,line,column}` (constructed explicitly — no `#[track_caller]` auto-threading yet) + `PanicInfo {message, location: Option<Location>}` + `catch_unwind(f: fn()) -> Result<(), str>` (fn-ptr only; Rust's FnOnce+R+Box<dyn Any> divergence — closure capture + arbitrary payloads pending). No `UnwindSafe`/`RefUnwindSafe`/`AssertUnwindSafe`. Test harness setjmp recovery shared with `#[test]`. |
 | `pat.rs` | — | 🔁 | — | Nightly `pattern_type!` macro; not on Logos roadmap. |
 | `pin.rs` + `pin/unsafe_pinned.rs` | — | 🔁 | — | No `Pin`/`Unpin`; Logos has no `async`/no self-referential generators. |
 | `prelude/` | implicit (no prelude module yet) | ❌ TODO | — | Logos requires explicit `use logos.lang.*` for now. |
@@ -297,8 +297,8 @@ Source roots:
 
 | File | Logos | Status | Notes |
 |---|---|---|---|
-| `location.rs` | — | ❌ TODO | `Location` (file:line:col). |
-| `panic_info.rs` | — | ❌ TODO | `PanicInfo`. |
+| `location.rs` | `lang/panic/panic.logos` | ⚠️ partial | `Location {file,line,column}` + `location(...)` constructor. No `Location::caller()` (needs `#[track_caller]` auto-threading). |
+| `panic_info.rs` | `lang/panic/panic.logos` | ⚠️ partial | `PanicInfo {message, location: Option<Location>}`. Hook doesn't auto-populate location (see above). |
 | `unwind_safe.rs` | — | ❌ TODO | `UnwindSafe`/`RefUnwindSafe`/`AssertUnwindSafe`. |
 
 #### core/pin/
@@ -439,4 +439,4 @@ Cross-referenced from individual rows above:
 9. ~~`core::cell::{Cell,RefCell,OnceCell,LazyCell}`~~ — landed 2026-05-18. Cell (Copy), RefCell (Ref/RefMut + Drop counter), OnceCell + LazyCell (Default-bound storage, fn-ptr init). `Ref::map`/`filter_map` and `try_borrow*` Result-extraction deferred behind [[baghunt-match-arm-binding-no-drop]].
 10. ~~`core::sync::atomic::Ordering`~~ — landed 2026-05-18. Enum + `_ordered` method variants on AtomicI32 (Relaxed/Acquire/Release/AcqRel/SeqCst). All variants currently lower to seq-cst on x86 (TSO + LOCK-RMW already provides it); weaker-memory backends (AArch64/RISC-V) would route to dmb / lr-sc as backend-codegen work. Other Atomic* types need the same `_ordered` overloads (mechanical, deferred).
 11. `core::fmt::{Formatter,Arguments,Write}` — replace metacall `fmt_pad` with trait-based formatting.
-12. `core::panic::{Location,PanicInfo,catch_unwind}` — panic introspection / recovery API.
+12. ~~`core::panic::{Location,PanicInfo,catch_unwind}`~~ — landed 2026-05-18. `Location {file,line,column}` (explicit construct only — no `#[track_caller]` auto-threading), `PanicInfo {message, location: Option<Location>}`, `catch_unwind(f: fn()) -> Result<(), str>` reuses the same setjmp recovery the `#[test]` harness installs (`logos_run_with_recovery` + `logos_panic_last_msg{,_len}`). Divergence from Rust: fn-ptr (no closure capture / no R / no Box<dyn Any> payload). `UnwindSafe`/`RefUnwindSafe`/`AssertUnwindSafe` marker traits still TODO.
