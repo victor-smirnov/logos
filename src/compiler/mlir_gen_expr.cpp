@@ -1106,6 +1106,28 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef) {
                     inner_t.kind() == LogosType::Kind::Slice ||
                     inner_t.kind() == LogosType::Kind::TraitObject))
         return val;
+    // CP-cm-17 leg (b): Enum values use a two-level convention — the value
+    // is a heap-ptr-to-struct, and `&enum` is a stack-slot-of-ptr_type
+    // holding that heap-ptr. gen_match's via_ref auto-deref loads through
+    // the slot to recover the ptr-to-struct. Whether `val` arrived as
+    // ptr (heap-ptr from EEnumLitData) or as struct (by-value return from
+    // a func.call) we need the final layout to be `ptr-to-(ptr-to-struct)`;
+    // for the struct case spill once into a struct-typed slot to obtain
+    // the inner ptr, then wrap that in the outer ptr_type slot.
+    if (inner_t && inner_t.kind() == LogosType::Kind::Enum) {
+        mlir::Value enum_ptr = val;
+        if (val.getType() != ptr_type()) {
+            auto* te = resolve_tagged_enum(std::string(inner_t.enum_name()), inner_t);
+            if (te) {
+                auto struct_slot = create_entry_alloca(te->llvm_type);
+                builder_.create<mlir::LLVM::StoreOp>(loc_, val, struct_slot);
+                enum_ptr = struct_slot;
+            }
+        }
+        auto ref_slot = create_entry_alloca(ptr_type());
+        builder_.create<mlir::LLVM::StoreOp>(loc_, enum_ptr, ref_slot);
+        return ref_slot;
+    }
     auto llvm_type = logos_to_mlir(inner_t);
     if (!llvm_type) llvm_type = builder_.getI32Type();
     auto alloca = create_entry_alloca(llvm_type);

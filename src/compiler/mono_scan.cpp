@@ -305,6 +305,15 @@ void Mono::scan_expr(lir_view::ExprRef e) {
         if (auto r = v.result()) scan_expr(r);
         break;
     }
+    case ECode::AddrOfTemp:
+        // CP-cm-17 leg (b) — sema's autoref-on-rvalue wraps the inner
+        // expression in AddrOfTemp when an outer `&self` method is
+        // chained off an rvalue Call (`make_opt::<i32>(7).is_some()`).
+        // Without recursing into the operand, mono never sees the
+        // inner generic Call's callee/type_args and the specialisation
+        // is never enqueued → mlir-gen forward-decl reference dangles.
+        scan_expr(lir_view::EAddrOfTempView{e}.inner());
+        break;
     // Leaf / no-recurse variants.
     case ECode::LitInt:
     case ECode::LitFloat:
@@ -313,7 +322,6 @@ void Mono::scan_expr(lir_view::ExprRef e) {
     case ECode::VarRef:
     case ECode::EnumLit:
     case ECode::AddrOf:
-    case ECode::AddrOfTemp:
     case ECode::PackExpand:
     case ECode::SizeOf:
     case ECode::AlignOf:

@@ -28,15 +28,17 @@ pub enum Option<T> {
 }
 
 impl<T> Option<T> {
-    // Querying the contained values
-    pub fn is_some(self: Option<T>) -> bool {
+    // CP-cm-17 leg (b): `&self` rather than by-value so chained-temporary
+    // callers (`a.and(n).is_some()`) and non-Copy payloads don't get
+    // consumed by the predicate.
+    pub fn is_some(&self) -> bool {
         match self {
             Option::Some(_) => { return true; }
             Option::None    => { return false; }
         }
     }
 
-    pub fn is_none(self: Option<T>) -> bool {
+    pub fn is_none(&self) -> bool {
         match self {
             Option::Some(_) => { return false; }
             Option::None    => { return true; }
