@@ -1,0 +1,30 @@
+// Nested generic enum construction `Option::Some(Result::Ok(42i32))`
+// previously had the inner `Result::Ok(_)`'s E type-param fall back to
+// `error_t()` because lower_enum_lit_data_from_static's hint check
+// required `enum_name == Result` — but the active hint was `Option<…>`.
+// Mono then cloned every Result method for `Result<i32, Error>`, which
+// downstream produced `OptionIter$G1$<error>` cnames and tripped the
+// mlir_gen "unknown field type" diagnostic.
+//
+// Fix: propagate hint into payload args by projecting the outer hint's
+// type-args through the variant's payload TypeVars.
+package nested_enum_hint;
+
+use logos.lang.option;
+use logos.lang.result;
+
+fn main() -> i32 {
+    let o: Option<Result<i32, i32>> = Option::Some(Result::Ok(42i32));
+    match o {
+        Option::None    => { return 1; }
+        Option::Some(r) => {
+            match r {
+                Result::Ok(v)  => {
+                    if v == 42i32 { return 0; }
+                    return 2;
+                }
+                Result::Err(_) => { return 3; }
+            }
+        }
+    }
+}

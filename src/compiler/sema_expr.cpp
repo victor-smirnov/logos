@@ -8306,13 +8306,45 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
     //
     // Note: do NOT filter void-typed payload here. `Result::Ok(())` etc.
     // wants the unit literal as a real payload entry.
+    // CP-cm-19 follow-up: derive a per-payload hint by projecting the outer
+    // hint's type-args through the variant's payload TypeVars. Without this,
+    // `Option::Some(Result::Ok(42))` lowers the inner `Result::Ok` with the
+    // outer's `Option<Result<i32,i32>>` hint — Result::Ok's check requires
+    // `enum_name == "Result"` and misses, so E falls back to `error_t()` at
+    // the per-tparam loop below. Pre-compute a substitution from einfo's
+    // type-params to the outer hint's type-args, then substitute each
+    // payload-type formal to get a concrete expected type per arg.
+    auto& einfo = eit->second;
+    SemaSubst pre_subst;
+    if (hint_enum_type_ &&
+        TypeRef(hint_enum_type_).kind() == LogosType::Kind::Enum &&
+        TypeRef(hint_enum_type_).enum_name() == ename &&
+        !einfo.type_params.empty()) {
+        auto hta = TypeRef(hint_enum_type_).type_args();
+        for (size_t i = 0; i < einfo.type_params.size() && i < hta.size(); ++i) {
+            if (!hta[i] || TypeRef(hta[i]).kind() == LogosType::Kind::Error) continue;
+            pre_subst[einfo.type_params[i].name] = hta[i];
+        }
+    }
     std::vector<lir::LExprPtr> payload;
     if (node.has_key(la::ARGS)) {
         AnyVal args_av = node.get(la::ARGS.code);
         if (!args_av.is_null()) {
             auto run = [&](auto items) {
-                for (uint64_t i = 0; i < items.size(); ++i)
+                for (uint64_t i = 0; i < items.size(); ++i) {
+                    // Push hint_enum_type_ if the payload slot resolves
+                    // to a concrete enum via the pre-subst projection.
+                    TypeRef saved_hint = hint_enum_type_;
+                    if (i < vinfo->payload_types.size()) {
+                        TypeRef pt_i = vinfo->payload_types[i];
+                        if (pt_i && !pre_subst.empty())
+                            pt_i = subst_type_sema(pt_i, pre_subst);
+                        if (pt_i && TypeRef(pt_i).kind() == LogosType::Kind::Enum)
+                            hint_enum_type_ = pt_i;
+                    }
                     payload.push_back(lower_expr(map_of(items.get(i))));
+                    hint_enum_type_ = saved_hint;
+                }
             };
             if (args_av.is_pointer()) {
                 auto m = map_of(args_av);
@@ -8324,7 +8356,6 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
         }
     }
     // Build result type + type-check (same logic as lower_enum_lit_data)
-    auto& einfo = eit->second;
     std::vector<TypeRef> resolved_payload_types = vinfo->payload_types;
 
     // B81: lifetime-arg inference (mirror of lower_enum_lit_data path).
