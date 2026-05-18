@@ -220,3 +220,119 @@ impl Iterator<u32> for Chars {
         }
     }
 }
+
+// ── CharIndices iterator ──────────────────────────────────────────────────
+//
+// Mirrors `core::str::CharIndices`. Yields `(byte_offset, codepoint)`
+// pairs as a Logos struct (we don't have anonymous tuples in trait-
+// method return positions yet). Byte offset is the position of the
+// codepoint's first byte in the source slice.
+
+pub struct CharIndex {
+    pub idx: i64,
+    pub ch:  u32,
+}
+
+pub struct CharIndices {
+    ptr: *const u8,
+    pos: i64,
+    len: i64,
+}
+
+pub fn str_char_indices(s: str) -> CharIndices {
+    return CharIndices { ptr: s.as_ptr(), pos: 0, len: s.len() };
+}
+
+impl Iterator<CharIndex> for CharIndices {
+    fn next(self: &mut CharIndices) -> Option<CharIndex> {
+        if self.pos >= self.len {
+            return Option::None;
+        }
+        unsafe {
+            let start: i64 = self.pos;
+            let b0: u8 = self.ptr[self.pos];
+            let slen: i64 = seq_len(b0);
+            let avail: i64 = self.len - self.pos;
+            if slen > avail {
+                self.pos = self.pos + 1;
+                return Option::Some(CharIndex { idx: start, ch: 0xFFFD as u32 });
+            }
+            let p: *const u8 = (self.ptr as i64 + self.pos) as *const u8;
+            let cp: u32 = decode(p);
+            self.pos = self.pos + slen;
+            return Option::Some(CharIndex { idx: start, ch: cp });
+        }
+    }
+}
+
+// ── Bytes iterator ────────────────────────────────────────────────────────
+//
+// Mirrors `core::str::Bytes` — yields the raw bytes of a string
+// slice without UTF-8 decoding. Equivalent to `s.as_bytes().iter()`
+// in Rust; Logos exposes it as a typed struct so `for b in s.bytes()`
+// dispatches uniformly.
+
+pub struct Bytes {
+    ptr: *const u8,
+    pos: i64,
+    len: i64,
+}
+
+pub fn str_bytes(s: str) -> Bytes {
+    return Bytes { ptr: s.as_ptr(), pos: 0, len: s.len() };
+}
+
+impl Iterator<u8> for Bytes {
+    fn next(self: &mut Bytes) -> Option<u8> {
+        if self.pos >= self.len { return Option::None; }
+        unsafe {
+            let b: u8 = self.ptr[self.pos];
+            self.pos = self.pos + 1;
+            return Option::Some(b);
+        }
+    }
+}
+
+// ── Lines iterator ────────────────────────────────────────────────────────
+//
+// Mirrors `core::str::Lines`. Yields successive lines split on `\n`,
+// with an optional preceding `\r` consumed (so CRLF endings work).
+// The trailing newline (and CR) are stripped from each yielded
+// slice. Final empty line after a trailing newline is NOT yielded
+// (Rust semantics — `"a\nb\n".lines()` yields "a", "b").
+
+pub struct Lines {
+    ptr: *const u8,
+    pos: i64,
+    len: i64,
+}
+
+pub fn str_lines(s: str) -> Lines {
+    return Lines { ptr: s.as_ptr(), pos: 0, len: s.len() };
+}
+
+impl Iterator<str> for Lines {
+    fn next(self: &mut Lines) -> Option<str> {
+        if self.pos >= self.len { return Option::None; }
+        unsafe {
+            let start: i64 = self.pos;
+            // Advance to next '\n' or end.
+            while self.pos < self.len {
+                let b: u8 = self.ptr[self.pos];
+                if b == 10u8 { break; }
+                self.pos = self.pos + 1;
+            }
+            // Slice end = self.pos, possibly stripping preceding \r.
+            let mut end: i64 = self.pos;
+            if end > start {
+                let prev: u8 = self.ptr[end - 1];
+                if prev == 13u8 { end = end - 1; }
+            }
+            // Skip the \n if we landed on one.
+            if self.pos < self.len { self.pos = self.pos + 1; }
+            let base: *const u8 = (self.ptr as i64 + start) as *const u8;
+            let length: i64 = end - start;
+            return Option::Some(str_from_raw(base, length));
+        }
+    }
+}

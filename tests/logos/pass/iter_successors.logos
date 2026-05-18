@@ -1,0 +1,26 @@
+// iter_successors: start at first, apply succ repeatedly, stop on None.
+// Re-enabled after Fn-family migration unblocked the previously-
+// deferred `<T, F: FnMut(T) -> Option<T>>` SuccessorsIter shape.
+//
+// Capturing-closure form (`|x| ... bias ...`) compiles but crashes
+// at runtime in iter-consumer loops (sibling of the MapIter chain
+// bugs). Stick to fn-ptr `step` here until that's untangled.
+package iter_successors_test;
+
+use logos.lang.iter;
+use logos.lang.option;
+
+// 2 → 4 → 8 → None (stop when > 10)
+fn step(x: i32) -> Option<i32> {
+    let nx: i32 = x * 2;
+    if nx > 10 { return Option::None; }
+    return Option::Some(nx);
+}
+
+unsafe fn main() -> i32 {
+    let it = iter_successors(Option::Some(2), step);
+    // emits 2, 4, 8 → sum = 14
+    let s = iter_sum_i32(it);
+    if s != 14 { return 1; }
+    return 42;
+}

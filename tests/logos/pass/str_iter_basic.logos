@@ -1,0 +1,79 @@
+// Priority #7 — str iteration: Chars/CharIndices/Bytes/Lines.
+//
+// Chars existed already (utf8.logos); this commit adds CharIndices,
+// Bytes, Lines + a single end-to-end smoke that exercises each one.
+package str_iter_basic_test;
+
+use logos.lang.str;
+use logos.lang.iter;
+use logos.lang.option;
+
+unsafe fn main() -> i32 {
+    let s = "hi";
+
+    // Bytes — yields raw u8.
+    let mut bs = str_bytes(s);
+    match bs.next() {
+        Option::Some(b) => { if b != 104u8 { return 1; } }   // 'h'
+        Option::None    => { return 2; }
+    }
+    match bs.next() {
+        Option::Some(b) => { if b != 105u8 { return 3; } }   // 'i'
+        Option::None    => { return 4; }
+    }
+    match bs.next() {
+        Option::Some(_) => { return 5; }
+        Option::None    => {}
+    }
+
+    // CharIndices — yields {idx, ch} struct for each codepoint.
+    let mut ci = str_char_indices(s);
+    match ci.next() {
+        Option::Some(p) => {
+            if p.idx != 0 { return 10; }
+            if p.ch != 104u32 { return 11; }
+        }
+        Option::None => { return 12; }
+    }
+    match ci.next() {
+        Option::Some(p) => {
+            if p.idx != 1 { return 13; }
+            if p.ch != 105u32 { return 14; }
+        }
+        Option::None => { return 15; }
+    }
+
+    // Lines — yields successive str slices split on \n.
+    let multi = "first\nsecond\nthird";
+    let mut ls = str_lines(multi);
+    match ls.next() {
+        Option::Some(l) => { if !str_eq(l, "first") { return 20; } }
+        Option::None    => { return 21; }
+    }
+    match ls.next() {
+        Option::Some(l) => { if !str_eq(l, "second") { return 22; } }
+        Option::None    => { return 23; }
+    }
+    match ls.next() {
+        Option::Some(l) => { if !str_eq(l, "third") { return 24; } }
+        Option::None    => { return 25; }
+    }
+    match ls.next() {
+        Option::Some(_) => { return 26; }
+        Option::None    => {}
+    }
+
+    // CRLF handling.
+    let crlf = "a\r\nb";
+    let mut ls2 = str_lines(crlf);
+    match ls2.next() {
+        Option::Some(l) => { if !str_eq(l, "a") { return 30; } }
+        Option::None    => { return 31; }
+    }
+    match ls2.next() {
+        Option::Some(l) => { if !str_eq(l, "b") { return 32; } }
+        Option::None    => { return 33; }
+    }
+
+    return 42;
+}

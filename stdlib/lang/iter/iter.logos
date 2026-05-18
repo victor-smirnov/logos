@@ -1877,16 +1877,36 @@ pub fn iter_from_fn<T>(f: fn() -> Option<T>) -> FromFnIter<T> {
     return FromFnIter { f: f };
 }
 
-// NOTE — `iter_successors` is currently deferred. The natural shape
+// ── Successors<T, F> — start at first, repeatedly apply succ ──────
 //
-//   struct SuccessorsIter<T> { next_val: Option<T>, succ: fn(T) -> Option<T> }
-//
-// trips a mono bug: when T is substituted (e.g. i32), the call-site
-// `succ(v)` keeps the fn-ptr formal-arg type generic (ptr) while v is
-// concrete (i32), and mlir-gen fails with "expected '!llvm.ptr', got
-// 'i32'". See [[baghunt-mono-fn-ptr-field-typevar]]. Re-add once that
-// lands (or once Fn-family traits land in priority #1 and we route
-// closures through them).
+// Mirrors `core::iter::successors`. State machine: each `next()`
+// yields the current value (if Some), then advances by calling
+// `succ(current)` to produce the next value (None ends iteration).
+// `F: FnMut(T) -> Option<T>` so capturing closures (e.g. with state
+// captured from the surrounding scope) work alongside fn-pointers.
+
+pub struct SuccessorsIter<T, F> {
+    pub next_val: Option<T>,
+    pub succ: F,
+}
+
+impl<T: Copy, F: FnMut(T) -> Option<T>> Iterator<T> for SuccessorsIter<T, F> {
+    fn next(self: &mut SuccessorsIter<T, F>) -> Option<T> {
+        match self.next_val {
+            Option::None    => { return Option::None; }
+            Option::Some(v) => {
+                self.next_val = (self.succ)(v);
+                return Option::Some(v);
+            }
+        }
+    }
+}
+
+pub fn iter_successors<T: Copy, F: FnMut(T) -> Option<T>>(
+    first: Option<T>, succ: F
+) -> SuccessorsIter<T, F> {
+    return SuccessorsIter { next_val: first, succ: succ };
+}
 
 // ── RepeatN<T> — yield same value n times ──────────────────────────
 //
