@@ -12,10 +12,12 @@ unsafe fn main() -> i32 {
     let s1 = iter_sum_i32::<RangeI32>(r1);
     if s1 != 10 { return 1; }
 
-    // iter_map: double each element — non-capturing closure coerces to fn ptr
+    // iter_map: double each element. After the F-parameter migration,
+    // MapIter carries the mapper type as a 4th type-arg — rely on
+    // inference rather than spell it out at the turbofish.
     let r2 = range_i32(1, 6);     // 1,2,3,4,5
-    let m2 = iter_map::<RangeI32, i32, i32>(r2, |x: i32| -> i32 { return x * 2; });
-    let s2 = iter_sum_i32::<MapIter<RangeI32, i32, i32>>(m2);
+    let m2 = iter_map(r2, |x: i32| -> i32 { return x * 2; });
+    let s2 = iter_sum_i32(m2);
     if s2 != 30 { return 2; }     // 2+4+6+8+10 = 30
 
     // iter_filter: keep only even numbers in 0..8

@@ -1,0 +1,41 @@
+// Regression test for the MapIter F-param migration. Until this
+// session MapIter stored its mapper as a bare `fn(T) -> R` field —
+// capturing closures (which compile to anonymous closure types, not
+// coercible to fn-ptr) couldn't be used as the mapper at any of:
+// `.map(|x| bias + x)`, `iter_map(it, |x| bias + x)`.
+//
+// Migration carried two compiler-side fixes:
+//   1. `method_bound_ok` in mono_clone.cpp now special-cases
+//      Fn-family bounds (`F: Fn(...) / FnMut(...) / FnOnce(...)`)
+//      and treats fn-pointer / closure types as satisfying them —
+//      sema already accepts these at sema_collect.cpp:982, but
+//      mono's trait-engine has no FnMut-for-fn-ptr impl registered,
+//      so without the short-circuit method_bound_ok dropped the impl
+//      method from dispatch.
+//   2. infer_type_args propagates Fn-family bound's fn_params /
+//      fn_ret against the actual closure signature so type-vars
+//      that appear only inside the bound (R in `F: FnMut(T) -> R`)
+//      get inferred — used by the iter_fold migration in f4cc4817.
+package iter_map_capture_test;
+
+use logos.lang.range;
+use logos.lang.iter;
+use logos.lang.option;
+
+unsafe fn main() -> i32 {
+    // Method form with capturing closure.
+    let bias = 100;
+    let it = range_i32(1, 5).map(|x: i32| -> i32 { return bias + x; });
+    let s = it.fold(0, |acc: i32, x: i32| -> i32 { return acc + x; });
+    // (100+1) + (100+2) + (100+3) + (100+4) = 410
+    if s != 410 { return 1; }
+
+    // Free-fn form with capturing closure.
+    let bias2 = 1000;
+    let it2 = iter_map(range_i32(1, 4), |x: i32| -> i32 { return bias2 + x; });
+    let s2 = iter_sum_i32(it2);
+    // (1000+1) + (1000+2) + (1000+3) = 3006
+    if s2 != 3006 { return 2; }
+
+    return 42;
+}

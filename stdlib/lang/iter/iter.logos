@@ -105,7 +105,7 @@ pub trait Iterator<Item> {
         return FilterIter { inner: self, pred: pred };
     }
 
-    fn map<MapOut>(self: Self, f: fn(Item) -> MapOut) -> MapIter<Self, Item, MapOut> {
+    fn map<MapOut, MapFn: FnMut(Item) -> MapOut>(self: Self, f: MapFn) -> MapIter<Self, Item, MapOut, MapFn> {
         return MapIter { inner: self, f: f };
     }
 
@@ -712,45 +712,34 @@ pub fn iter_rev<I: DoubleEndedIterator<T>, T>(iter: I) -> RevIter<I, T> {
     return RevIter { inner: iter, _t_marker: 0i32 };
 }
 
-// ── MapIter<I, T, R> — lazy map ──────────────────────────────────────────────
+// ── MapIter<I, T, R, F> — lazy map ──────────────────────────────────────────
 //
-// Stores the mapper as `fn(T) -> R` (a function pointer). Migration to
-// a generic `F: FnMut(T) -> R` parameter — which would unblock
-// capturing closures at the call site — was attempted but reverted:
-// monomorphisation of `MapIter<I,T,R,F>.next` with F=fn-ptr causes an
-// infinite loop in the SliceIter → MapIter chain (the `(self.f)(v)`
-// dispatch reads stale storage somewhere along the substitution
-// path). Filed as a baghunt for a future compiler-side fix; until
-// then capturing closures route through the terminal methods
-// (`.fold`/`.for_each`/`.any`/`.all`) or stay on fn-ptrs.
+// Carries the mapper type F as an explicit parameter so capturing
+// closures (which have anonymous closure types) work as the mapper.
+// fn-pointer call sites pass `F = fn(T) -> R` unchanged.
 
-pub struct MapIter<I, T, R> {
+pub struct MapIter<I, T, R, F> {
     pub inner: I,
-    pub f: fn(T) -> R,
+    pub f: F,
 }
 
-impl<I: Iterator<T>, T, R> Iterator<R> for MapIter<I, T, R> {
-    fn next(self: &mut MapIter<I, T, R>) -> Option<R> {
-        let f = self.f;
+impl<I: Iterator<T>, T, R, F: FnMut(T) -> R> Iterator<R> for MapIter<I, T, R, F> {
+    fn next(self: &mut MapIter<I, T, R, F>) -> Option<R> {
         match self.inner.next() {
-            Option::Some(v) => { return Option::Some(f(v)); }
+            Option::Some(v) => { return Option::Some((self.f)(v)); }
             Option::None    => { return Option::None; }
         }
     }
 }
 
-pub fn iter_map<I: Iterator<T>, T, R>(iter: I, f: fn(T) -> R) -> MapIter<I, T, R> {
+pub fn iter_map<I: Iterator<T>, T, R, F: FnMut(T) -> R>(iter: I, f: F) -> MapIter<I, T, R, F> {
     return MapIter { inner: iter, f: f };
 }
 
-// DEI: forwards next_back through the same fn-ptr. The mapping
-// function is pure-by-signature (no side effects expected), so
-// front and back evaluation are independent.
-impl<I: DoubleEndedIterator<T>, T, R> DoubleEndedIterator<R> for MapIter<I, T, R> {
-    fn next_back(self: &mut MapIter<I, T, R>) -> Option<R> {
-        let f = self.f;
+impl<I: DoubleEndedIterator<T>, T, R, F: FnMut(T) -> R> DoubleEndedIterator<R> for MapIter<I, T, R, F> {
+    fn next_back(self: &mut MapIter<I, T, R, F>) -> Option<R> {
         match self.inner.next_back() {
-            Option::Some(v) => { return Option::Some(f(v)); }
+            Option::Some(v) => { return Option::Some((self.f)(v)); }
             Option::None    => { return Option::None; }
         }
     }

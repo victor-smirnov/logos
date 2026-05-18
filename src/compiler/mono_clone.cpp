@@ -3615,6 +3615,20 @@ bool Mono::method_bound_ok(const lir::LFunction& m, const SubstMap& s) {
             return mono_has_impl_recursive(trait, cn, seen);
         };
         for (auto& tb : itp.bounds) {
+            // Fn / FnMut / FnOnce parenthesized bounds are compiler-
+            // intrinsic — satisfied by any fn-pointer or closure type.
+            // Sema accepts these at sema_collect.cpp:982; mono's trait
+            // engine has no FnMut-for-fn-ptr impl registered, so
+            // without this short-circuit method_bound_ok returns false
+            // and the impl method silently disappears from dispatch.
+            // See [[baghunt-mapiter-fn-param-mono-loop]].
+            if (tb.is_fn_family) {
+                auto k = TypeRef(concrete).kind();
+                if (k == LogosType::Kind::FnPtr ||
+                    k == LogosType::Kind::Closure)
+                    continue;
+                return false;
+            }
             bool is_auto = false;
             for (auto& td : out_.traits)
                 if (td.name == tb.trait_name) { is_auto = td.is_auto; break; }

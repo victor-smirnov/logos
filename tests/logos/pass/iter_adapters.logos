@@ -68,11 +68,13 @@ unsafe fn main() -> i32 {
     if zacc != 36 { return 6; }
 
     // ── MapIter chained with take ─────────────────────────────────────────────
-    // range 1..100, map x*2, take 5 → 2+4+6+8+10 = 30
+    // range 1..100, map x*2, take 5 → 2+4+6+8+10 = 30.
+    // Post-F-migration MapIter has a 4th tparam (mapper type) — use
+    // inference rather than spelling closure types in turbofish.
     let r5: RangeI32 = range_i32(1, 100);
-    let m5: MapIter<RangeI32, i32, i32> = iter_map::<RangeI32, i32, i32>(r5, |x: i32| -> i32 { return x * 2; });
-    let t5: TakeIter<MapIter<RangeI32, i32, i32>, i32> = iter_take::<MapIter<RangeI32, i32, i32>, i32>(m5, 5 as i64, 0);
-    let s5: i32 = iter_sum_i32::<TakeIter<MapIter<RangeI32, i32, i32>, i32>>(t5);
+    let m5 = iter_map(r5, |x: i32| -> i32 { return x * 2; });
+    let t5 = iter_take(m5, 5 as i64, 0);
+    let s5: i32 = iter_sum_i32(t5);
     if s5 != 30 { return 7; }
 
     return 42;

@@ -14,10 +14,12 @@ unsafe fn main() -> i32 {
     }
     if s != 45 { return 1; }
 
-    // Sum through a map adapter: (x*2) for x in 1..5 → 2+4+6+8 = 20
+    // Sum through a map adapter: (x*2) for x in 1..5 → 2+4+6+8 = 20.
+    // Post-F-migration MapIter has a 4th tparam for the mapper type;
+    // let inference resolve it instead of spelling out the closure
+    // type at the let-binding.
     let r2: RangeI32 = range_i32(1, 5);
-    let m: MapIter<RangeI32, i32, i32> =
-        iter_map::<RangeI32, i32, i32>(r2, |x: i32| -> i32 { return x * 2; });
+    let m = iter_map(r2, |x: i32| -> i32 { return x * 2; });
     let mut s2: i32 = 0;
     for y in m {
         s2 = s2 + y;
