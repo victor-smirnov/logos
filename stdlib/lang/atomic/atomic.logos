@@ -9,10 +9,40 @@
 //
 // Types:
 //   AtomicI32, AtomicU32, AtomicI64, AtomicU64, AtomicBool, AtomicPtr<T>
+//
+// Memory ordering:
+//   Logos atomics ship with `Ordering` variants matching
+//   `core::sync::atomic::Ordering` for source-level Rust parity. On
+//   the x86-64 backend every ordering currently lowers to the same
+//   seq-cst primitive (TSO + LOCK-prefixed RMW already provides
+//   acquire / release semantics for plain loads / stores; LOCK-RMW
+//   provides full SeqCst). On weaker-memory targets (AArch64,
+//   RISC-V) the ordering would route to dmb / lr-sc variants —
+//   that's a backend codegen change, not an API change.
 
 package logos.lang.atomic;
 
 use logos.lang.option;
+
+// ── Memory ordering ──────────────────────────────────────────────────────────
+//
+// Mirrors `core::sync::atomic::Ordering`. Variants in load-vs-store
+// applicability order:
+//   Relaxed — no synchronisation, only atomicity
+//   Acquire — for loads (and the load half of RMW)
+//   Release — for stores (and the store half of RMW)
+//   AcqRel  — for RMW (acquire-load + release-store)
+//   SeqCst  — total order across all SeqCst ops
+//
+// All variants degrade to seq-cst on x86 today (see module header).
+
+pub enum Ordering {
+    Relaxed,
+    Acquire,
+    Release,
+    AcqRel,
+    SeqCst,
+}
 
 // ── Assembly primitives ────────────────────────────────────────────────────────
 extern fn logos_atomic_load32(ptr: *const i32) -> i32;
@@ -47,6 +77,25 @@ impl AtomicI32 {
     }
     // Returns true if exchange happened.
     pub fn compare_exchange(self: *mut AtomicI32, expected: i32, desired: i32) -> bool {
+        unsafe { return logos_atomic_cas32(&mut self.val as *mut i32, expected, desired); }
+    }
+
+    // Ordering-aware variants (Rust API parity; all currently lower
+    // to the same seq-cst primitive on x86).
+    pub fn load_ordered(&self, _ord: Ordering) -> i32 {
+        unsafe { return logos_atomic_load32(&self.val as *const i32); }
+    }
+    pub fn store_ordered(self: *mut AtomicI32, v: i32, _ord: Ordering) {
+        unsafe { logos_atomic_store32(&mut self.val as *mut i32, v); }
+    }
+    pub fn fetch_add_ordered(self: *mut AtomicI32, delta: i32, _ord: Ordering) -> i32 {
+        unsafe { return logos_atomic_fetch_add32(&mut self.val as *mut i32, delta); }
+    }
+    pub fn fetch_sub_ordered(self: *mut AtomicI32, delta: i32, _ord: Ordering) -> i32 {
+        unsafe { return logos_atomic_fetch_add32(&mut self.val as *mut i32, 0 - delta); }
+    }
+    pub fn compare_exchange_ordered(self: *mut AtomicI32, expected: i32, desired: i32,
+                                    _success: Ordering, _failure: Ordering) -> bool {
         unsafe { return logos_atomic_cas32(&mut self.val as *mut i32, expected, desired); }
     }
 }

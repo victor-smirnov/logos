@@ -1,0 +1,42 @@
+// Priority #10: atomic Ordering enum + ordering-aware atomic methods.
+//
+// On x86 every Ordering variant currently lowers to the same seq-cst
+// primitive (TSO + LOCK-prefixed RMW), so this test exercises the
+// API surface — that the Ordering arg parses, dispatches, and the
+// underlying value updates correctly.
+package atomic_ordering_test;
+
+use logos.lang.atomic;
+
+unsafe fn main() -> i32 {
+    let mut a: AtomicI32 = atomic_i32_new(10);
+
+    // Plain (no-ordering) form still works.
+    if a.load() != 10 { return 1; }
+    a.store(20);
+    if a.load() != 20 { return 2; }
+
+    // Ordering-aware variants.
+    a.store_ordered(100, Ordering::Release);
+    if a.load_ordered(Ordering::Acquire) != 100 { return 3; }
+
+    let prev = a.fetch_add_ordered(5, Ordering::AcqRel);
+    if prev != 100 { return 4; }
+    if a.load_ordered(Ordering::SeqCst) != 105 { return 5; }
+
+    let prev2 = a.fetch_sub_ordered(10, Ordering::Relaxed);
+    if prev2 != 105 { return 6; }
+    if a.load() != 95 { return 7; }
+
+    // compare_exchange_ordered: takes both success + failure ordering.
+    let ok = a.compare_exchange_ordered(95, 999, Ordering::AcqRel, Ordering::Acquire);
+    if !ok { return 8; }
+    if a.load() != 999 { return 9; }
+
+    // CAS failure: expected mismatch → no change.
+    let ok2 = a.compare_exchange_ordered(0, 1, Ordering::Release, Ordering::Relaxed);
+    if ok2 { return 10; }
+    if a.load() != 999 { return 11; }
+
+    return 42;
+}
