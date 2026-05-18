@@ -17,6 +17,7 @@ use logos.lang.panic;
 use logos.lang.cmp;
 use logos.lang.option;
 use logos.lang.result;
+use logos.mem.collections.vec;
 use std.compiler.metaprog;
 use logos.mem.collections.vec;
 use std.io;
@@ -225,6 +226,24 @@ impl<T: Debug, E: Debug> Debug for Result<T, E> {
                 buf.push_str(")");
             }
         }
+    }
+}
+
+// Rust's `impl<T: Debug> Debug for Vec<T>` in alloc. Lives in std.fmt
+// rather than mem.collections.vec because Debug itself is in std.fmt
+// and mem-tier can't pull std (tier rule). Render: "[a, b, c]".
+impl<T: Debug> Debug for Vec<T> {
+    fn dbg(self: &Vec<T>, buf: &mut String) {
+        buf.push_str("[");
+        let n: i64 = self.length();
+        let mut i: i64 = 0i64;
+        while i < n {
+            if i > 0i64 { buf.push_str(", "); }
+            let v: T = self.get(i);
+            v.dbg(buf);
+            i = i + 1i64;
+        }
+        buf.push_str("]");
     }
 }
 

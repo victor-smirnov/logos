@@ -2303,7 +2303,21 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         TypeRef t = it->second;
                         if (TypeRef(t).kind() == LogosType::Kind::Struct)
                             cname = concrete_struct_name(t);
-                        else
+                        else if (TypeRef(t).kind() == LogosType::Kind::Enum) {
+                            // CP-cm-16: trait-static dispatch through an enum
+                            // tparam receiver (e.g. `.collect::<Result<...>>()`
+                            // desugars to `C::from_iter(self)` with C bound to
+                            // Result<...>). Compose the canonical enum cname
+                            // `<base>__<arg1>__<arg2>...` mirroring
+                            // record_needed_enum's mangling so the rewritten
+                            // callee matches the spec produced by
+                            // instantiate_enum_templates.
+                            cname = std::string(TypeRef(t).enum_name());
+                            for (auto a : TypeRef(t).type_args()) {
+                                cname += "__";
+                                cname += mangle_type(a);
+                            }
+                        } else
                             cname = type_str(t);
                         if (cname == "&[u8]") cname = "str";
                         if (!cname.empty()) {
@@ -2339,6 +2353,14 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                 std::string struct_pkg;
                                 if (TypeRef(t).kind() == LogosType::Kind::Struct) {
                                     struct_base = std::string(TypeRef(t).struct_name());
+                                    struct_pkg  = std::string(TypeRef(t).pkg_name());
+                                } else if (TypeRef(t).kind() == LogosType::Kind::Enum) {
+                                    // CP-cm-16: enum templates register under
+                                    // the bare enum name (`Result__method__g__...`),
+                                    // not the concretized cname. struct_base
+                                    // must be the bare name for the templates_
+                                    // lookup to succeed.
+                                    struct_base = std::string(TypeRef(t).enum_name());
                                     struct_pkg  = std::string(TypeRef(t).pkg_name());
                                 } else {
                                     struct_base = cname;
@@ -2387,11 +2409,23 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                         // Primitive receivers won't have a
                                         // struct_templates_ entry; treat them
                                         // as having zero struct-level tparams.
+                                        // CP-cm-16: enum receivers consult
+                                        // enum_templates_ to get the right
+                                        // receiver-level tparam set
+                                        // (otherwise from_iter<I> on Result
+                                        // sees [T,E,I] all as method-level
+                                        // and tries to infer T,E from args).
                                         auto* stt_ptr = find_struct_template_pkg_first(
                                             struct_pkg, struct_base);
                                         const std::vector<TypeParam> empty_tpars;
-                                        const std::vector<TypeParam>& sd_tpars =
-                                            stt_ptr ? stt_ptr->type_params : empty_tpars;
+                                        const std::vector<TypeParam>* sd_tpars_ptr = &empty_tpars;
+                                        if (stt_ptr) {
+                                            sd_tpars_ptr = &stt_ptr->type_params;
+                                        } else if (TypeRef(t).kind() == LogosType::Kind::Enum) {
+                                            auto* edt = find_enum_template_bare(struct_base);
+                                            if (edt) sd_tpars_ptr = &edt->type_params;
+                                        }
+                                        const std::vector<TypeParam>& sd_tpars = *sd_tpars_ptr;
                                         {
                                             std::vector<const TypeParam*> meth_tps;
                                             for (auto& tp : tmpl->type_params) {

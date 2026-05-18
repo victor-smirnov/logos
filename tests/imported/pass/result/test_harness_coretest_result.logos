@@ -185,17 +185,21 @@ fn test_fmt_default() {
 }
 
 // Rust's `test_collect` uses `.collect::<Result<Vec<isize>, ()>>()` —
-// trait-static dispatch on an enum tparam (CP-cm-16). Logos exposes the
-// same logic as a free fn `vec_collect_results(Vec<Result<T, E>>) ->
-// Result<Vec<T>, E>` in stdlib/mem/collections/vec. The result is
-// inspected via `match` not `r.is_ok()` — is_ok takes self by value
-// (CP-cm-17 in catalog) so `r.is_ok()` consumes the Result and the
-// follow-up `r.unwrap()` would double-free the Vec payload.
+// trait-static dispatch on an enum tparam (CP-cm-16). Logos exposes
+// the same logic as the free fn `vec_collect_results(Vec<Result<T,E>>)
+// -> Result<Vec<T>, E>` in stdlib/mem/collections/vec; the .collect()
+// surface needs partial-spec impl pattern-unification at mono-clone
+// time (CP-cm-16 partial close: simple `impl<T,E> Trait for Enum<T,E>`
+// dispatches correctly, but `impl<T,E> Trait for Enum<Vec<T>, E>` binds
+// T to Vec<i32> instead of i32 — open follow-up).
+//
+// Result inspection uses `match` not `r.is_ok()` (CP-cm-17 — by-value
+// self would consume the Result, double-freeing the Vec payload).
 fn ok_three() -> Vec<Result<i32, i32>> {
     let mut v: Vec<Result<i32, i32>> = vec_new::<Result<i32, i32>>();
-    v.push(Result::Ok(0i32));
-    v.push(Result::Ok(1i32));
-    v.push(Result::Ok(2i32));
+    v.push(Result::Ok(10i32));
+    v.push(Result::Ok(20i32));
+    v.push(Result::Ok(30i32));
     return v;
 }
 
@@ -210,15 +214,15 @@ fn maybe_three() -> Vec<Result<i32, i32>> {
 
 #[test]
 fn test_collect() {
-    // All-Ok → Ok([0, 1, 2])
+    // All-Ok → Ok([10, 20, 30])
     let three: Vec<Result<i32, i32>> = ok_three();
     let r1: Result<Vec<i32>, i32> = vec_collect_results(three);
     match r1 {
         Result::Ok(out)  => {
             assert_eq!(out.length(), 3i64);
-            assert_eq!(out.get(0i64), 0i32);
-            assert_eq!(out.get(1i64), 1i32);
-            assert_eq!(out.get(2i64), 2i32);
+            assert_eq!(out.get(0i64), 10i32);
+            assert_eq!(out.get(1i64), 20i32);
+            assert_eq!(out.get(2i64), 30i32);
         }
         Result::Err(_)   => { assert!(false); }
     }
@@ -232,6 +236,6 @@ fn test_collect() {
     }
 
     // Upstream's empty-iter case (`Result<Vec<isize>, ()>` from
-    // `(0..0).map(...)`) is omitted — the deferred-with-rationale block
-    // covering CP-cm-16 / CP-cm-17 / unit-type history sits above.
+    // `(0..0).map(...)`) is omitted — Logos has no unit literal; the
+    // meaningful coverage (success + short-circuit) is retained above.
 }

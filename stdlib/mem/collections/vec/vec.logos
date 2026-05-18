@@ -281,8 +281,12 @@ impl<T> FromIterator<T> for Vec<T> {
 
 // Rust's `impl<T, E, V: FromIterator<T>> FromIterator<Result<T, E>>
 // for Result<V, E>` specialised to V = Vec<T> — driver:
-// result::test_collect. Free fn (not trait) because trait-static
-// dispatch through C::from_iter where C=Result<...> hits CP-cm-16.
+// result::test_collect. Implemented as a free fn rather than the
+// natural `impl FromIterator<Result<T,E>> for Result<Vec<T>,E>` form
+// because of CP-cm-16 (partial-spec impl target type pattern needs
+// pattern-unification at mono-clone time, otherwise the impl-level T
+// gets bound to `Vec<i32>` instead of `i32` from the receiver enum's
+// type-args). The trait form lives in stdlib once that's resolved.
 pub fn vec_collect_results<T, E>(input: Vec<Result<T, E>>) -> Result<Vec<T>, E> {
     let mut out: Vec<T> = vec_new::<T>();
     let mut i: i64 = 0i64;
