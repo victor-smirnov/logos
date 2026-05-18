@@ -1,11 +1,23 @@
-// Step A of the Fn/FnMut/FnOnce epic — trait declarations only.
+// Steps A+B of the Fn/FnMut/FnOnce epic.
 //
-// Confirms that the variadic-pack-shaped traits `FnOnce<A...>`,
-// `FnMut<A...>`, `Fn<A...>` in `logos.lang.ops` can be implemented
-// for a user struct and dispatched through method-call syntax at the
-// single-arg arity. Multi-arity impls (where `A...` expands to >1
-// concrete arg) need an impl-signature matcher extension — that's
-// Step B work; not exercised here.
+// Step A — trait declarations `FnOnce<A...>` / `FnMut<A...>` /
+// `Fn<A...>` in `logos.lang.ops`.
+// Step B (matcher half) — the trait-impl matcher in
+// sema_collect.cpp now recognises a variadic trait type-param and
+// allows the impl to expose any concrete arity from the pack
+// position onward.
+//
+// Coverage in this test:
+//   1. All three traits implemented on one struct at unary arity.
+//   2. Binary + ternary impls of Fn dispatch through method syntax.
+//
+// Still pending (later Step B + Step C work):
+//   - Nullary `Fn<>` impls (empty type-arg list is a syntax error).
+//   - Per-element pack/impl type-arg cross-check (today's matcher is
+//     loose past the pack position).
+//   - Supertrait chain `Fn: FnMut: FnOnce`.
+//   - fn-ptr blanket impl + closure auto-impl.
+//   - Iter adapter migration from `fn(T) -> R` to `impl Fn<T>`.
 package fn_traits_decl_test;
 
 use logos.lang.ops;
@@ -27,6 +39,19 @@ impl Fn<i32> for AdderFn {
     fn call(&self, x: i32) -> i32 { return self.bias + x; }
 }
 
+// Arity-2 / arity-3 Fn impls to exercise the variadic-pack matcher.
+pub struct AddBoth {}
+impl Fn<i32, i32> for AddBoth {
+    type Output = i32;
+    fn call(&self, x: i32, y: i32) -> i32 { return x + y; }
+}
+
+pub struct AddTriple {}
+impl Fn<i32, i32, i32> for AddTriple {
+    type Output = i32;
+    fn call(&self, x: i32, y: i32, z: i32) -> i32 { return x + y + z; }
+}
+
 unsafe fn main() -> i32 {
     let mut a = AdderFn { bias: 10 };
 
@@ -39,6 +64,12 @@ unsafe fn main() -> i32 {
     // FnOnce — by-value
     let r = AdderFn { bias: 100 }.call_once(3);
     if r != 103 { return 3; }
+
+    // Multi-arity Fn (matcher fix from Step B)
+    let b = AddBoth {};
+    if b.call(3, 4) != 7 { return 4; }
+    let t = AddTriple {};
+    if t.call(1, 2, 3) != 6 { return 5; }
 
     return 42;
 }

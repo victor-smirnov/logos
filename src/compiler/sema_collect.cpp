@@ -2511,11 +2511,45 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     return tv.kind() == LogosType::Kind::TypeVar ||
                            tv.kind() == LogosType::Kind::AssocType;
                 };
+                // Fn-family epic step B: detect a variadic trait type
+                // param (`pub trait Fn<A...> { fn call(&self, args: A...)
+                // ... }`). If the trait method uses the pack TypeVar at
+                // some position, the impl is allowed to expose any number
+                // of concrete params from that position onward — pack
+                // absorbs them. Strict element-equality is skipped past
+                // the pack position (proper per-element matching against
+                // `trait_type_args[i..]` is future work; today's looseness
+                // matches the rest of the type-arg pack handling at line
+                // 2256–2258).
+                std::string variadic_tp_name;
+                for (auto& tp : tit->second.type_params) {
+                    if (tp.is_variadic) { variadic_tp_name = tp.name; break; }
+                }
                 const SemaFuncInfo* matching = nullptr;
                 for (auto* c : cands) {
-                    if (c->param_types.size() != m.param_types.size()) continue;
+                    int variadic_pos = -1;
+                    if (!variadic_tp_name.empty()) {
+                        for (size_t k = 1; k < m.param_types.size(); ++k) {
+                            auto tp = m.param_types[k];
+                            if (tp &&
+                                TypeRef(tp).kind() == LogosType::Kind::TypeVar &&
+                                TypeRef(tp).type_var_name() == variadic_tp_name) {
+                                variadic_pos = (int)k;
+                                break;
+                            }
+                        }
+                    }
+                    bool has_pack = (variadic_pos >= 0);
+                    if (has_pack) {
+                        if (c->param_types.size() < (size_t)variadic_pos) continue;
+                    } else {
+                        if (c->param_types.size() != m.param_types.size()) continue;
+                    }
                     bool sig_match = true;
-                    for (size_t k = 1; k < m.param_types.size(); ++k) {
+                    size_t check_end = has_pack
+                        ? (size_t)variadic_pos
+                        : m.param_types.size();
+                    for (size_t k = 1; k < check_end; ++k) {
                         auto tp = m.param_types[k];
                         auto cp = c->param_types[k];
                         if (!tp || !cp) { sig_match = false; break; }
