@@ -1,0 +1,189 @@
+// Logos standard library — std.slice
+//
+// Slice ops paralleling `core::slice`. Existing iterator construction
+// (`iter_over_slice`) lives in `lang/iter`; this module covers the
+// non-iter method surface: split_at, chunks, windows, binary_search,
+// sort.
+
+package logos.lang.slice;
+
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.cmp;
+
+// ── split_at ──────────────────────────────────────────────────────────────
+//
+// Mirrors `slice::split_at(mid) -> (&[T], &[T])`. Returns a struct
+// carrying raw `(ptr, len)` for each half. Reconstructing typed
+// `&[T]` slices inline as struct fields tripped a fat-pointer
+// materialisation hazard, so we return raw pairs; callers can call
+// `slice_from_raw::<T>(left_ptr, left_len)` if they want a typed
+// `&[T]` (or just use the raw form for iteration).
+
+pub struct SplitPair<T> {
+    pub left_ptr:  *const T,
+    pub left_len:  i64,
+    pub right_ptr: *const T,
+    pub right_len: i64,
+}
+
+pub fn slice_split_at<T>(s: &[T], mid: i64) -> SplitPair<T> {
+    let n: i64 = s.len() as i64;
+    let m: i64 = if mid > n { n } else { mid };
+    unsafe {
+        let base: *const T = s.as_ptr() as *const T;
+        let right_p: *const T = (base as i64 + m * (sizeof::<T>() as i64)) as *const T;
+        return SplitPair {
+            left_ptr:  base,
+            left_len:  m,
+            right_ptr: right_p,
+            right_len: n - m,
+        };
+    }
+}
+
+// Compiler intrinsic — mirrors `str_from_raw` in lang/str/str.logos.
+// Constructs an `&[T]` fat pointer from raw ptr + element count.
+pub unsafe fn slice_from_raw<T>(ptr: *const T, len: i64) -> &[T] {
+    // Body unreachable — sema intercepts the call.
+    let dummy: &[T] = &[];
+    return dummy;
+}
+
+// ── Chunks<T> — non-overlapping consecutive chunks of size `n` ───────────
+//
+// Mirrors `slice::chunks(size)`. Last chunk may be shorter than `size`
+// if `len % size != 0`. Empty input yields no chunks.
+
+pub struct Chunks<T> {
+    pub data: *const T,
+    pub len:  i64,
+    pub pos:  i64,
+    pub step: i64,
+}
+
+pub fn slice_chunks<T>(s: &[T], size: i64) -> Chunks<T> {
+    return Chunks {
+        data: s.as_ptr() as *const T,
+        len:  s.len() as i64,
+        pos:  0i64,
+        step: size,
+    };
+}
+
+impl<T> Iterator<&[T]> for Chunks<T> {
+    fn next(self: &mut Chunks<T>) -> Option<&[T]> {
+        if self.pos >= self.len { return Option::None; }
+        let take: i64 = if self.pos + self.step > self.len
+                        { self.len - self.pos }
+                        else { self.step };
+        unsafe {
+            let p: *const T = (self.data as i64 + self.pos * (sizeof::<T>() as i64)) as *const T;
+            self.pos = self.pos + take;
+            return Option::Some(slice_from_raw::<T>(p, take));
+        }
+    }
+}
+
+// ── Windows<T> — overlapping size-`n` slices ─────────────────────────────
+//
+// Mirrors `slice::windows(size)`. Each yielded slice is exactly `size`
+// elements; advances by 1 each step. Yields nothing if `size > len` or
+// `size == 0`.
+
+pub struct Windows<T> {
+    pub data: *const T,
+    pub len:  i64,
+    pub pos:  i64,
+    pub size: i64,
+}
+
+pub fn slice_windows<T>(s: &[T], size: i64) -> Windows<T> {
+    return Windows {
+        data: s.as_ptr() as *const T,
+        len:  s.len() as i64,
+        pos:  0i64,
+        size: size,
+    };
+}
+
+impl<T> Iterator<&[T]> for Windows<T> {
+    fn next(self: &mut Windows<T>) -> Option<&[T]> {
+        if self.size <= 0i64 { return Option::None; }
+        if self.pos + self.size > self.len { return Option::None; }
+        unsafe {
+            let p: *const T = (self.data as i64 + self.pos * (sizeof::<T>() as i64)) as *const T;
+            self.pos = self.pos + 1i64;
+            return Option::Some(slice_from_raw::<T>(p, self.size));
+        }
+    }
+}
+
+// ── binary_search ─────────────────────────────────────────────────────────
+//
+// Mirrors `slice::binary_search(&target) -> Result<usize, usize>`. Ok
+// = index where target is found; Err = index where target could be
+// inserted to keep the slice sorted.
+//
+// Requires `T: Ord + Copy` (Copy because we read elements by value
+// via raw-ptr arithmetic — Logos doesn't have a `[T]::get(i) -> &T`
+// surface tied to slice index syntax yet).
+
+pub fn slice_binary_search<T: Ord + Copy>(s: &[T], target: T) -> Result<i64, i64> {
+    let n: i64 = s.len() as i64;
+    let mut lo: i64 = 0i64;
+    let mut hi: i64 = n;
+    unsafe {
+        let base: *const T = s.as_ptr() as *const T;
+        let esz:  i64 = sizeof::<T>() as i64;
+        while lo < hi {
+            let mid: i64 = lo + (hi - lo) / 2i64;
+            let elem: T = *((base as i64 + mid * esz) as *const T);
+            match elem.cmp(&target) {
+                Ordering::Less    => { lo = mid + 1i64; }
+                Ordering::Greater => { hi = mid; }
+                Ordering::Equal   => { return Result::Ok(mid); }
+            }
+        }
+    }
+    return Result::Err(lo);
+}
+
+// ── sort_in_place (insertion sort) ────────────────────────────────────────
+//
+// Mirrors `slice::sort()` for the small-N case. Insertion sort is
+// O(N²) but trivial to implement without recursion/quicksort
+// partition logic — and `Vec::sort` callers are usually < a few
+// hundred elements where it's competitive. For larger inputs a
+// later pass should switch to merge-sort or pdqsort.
+//
+// Takes a raw `*mut T, len` pair instead of `&mut [T]` because the
+// implicit `&mut arr` → `&mut [T]` coercion at fn-arg only fires
+// for array LITERALS today, not for var-bound arrays. Callers pass
+// `&mut arr as *mut T` once arr is a binding.
+
+pub unsafe fn slice_sort<T: Ord + Copy>(base: *mut T, n: i64) {
+    let esz: i64 = sizeof::<T>() as i64;
+    let mut i: i64 = 1i64;
+    while i < n {
+        let cur: T = *((base as i64 + i * esz) as *const T);
+        let mut j: i64 = i;
+        while j > 0i64 {
+            let prev_p: *mut T = (base as i64 + (j - 1i64) * esz) as *mut T;
+            let prev: T = *prev_p;
+            match prev.cmp(&cur) {
+                Ordering::Greater => {
+                    let cur_p: *mut T = (base as i64 + j * esz) as *mut T;
+                    *cur_p = prev;
+                    j = j - 1i64;
+                }
+                Ordering::Less    => { break; }
+                Ordering::Equal   => { break; }
+            }
+        }
+        let slot: *mut T = (base as i64 + j * esz) as *mut T;
+        *slot = cur;
+        i = i + 1i64;
+    }
+}

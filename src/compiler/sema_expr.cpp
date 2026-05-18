@@ -2850,6 +2850,37 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                               prim(LogosType::Kind::Bool));
     }
 
+    // slice_from_raw::<T>(ptr: *const T, len: i64) -> &[T] — parametric
+    // mirror of `str_from_raw`. Both build a Slice fat-pointer; layout
+    // is uniform across element types so we share the str_from_raw
+    // codegen at mlir-gen.
+    if (callee == "slice_from_raw") {
+        auto ts = collect_type_args();
+        if (ts.size() != 1 || !ts[0]) {
+            error("slice_from_raw::<T>(ptr, len) requires exactly one type argument");
+            return error_expr();
+        }
+        std::vector<lir::LExprPtr> args;
+        if (node.has_key(la::ARGS)) {
+            auto args_av = node.get(la::ARGS.code);
+            auto args_map = map_of(args_av);
+            if (args_map.has_key(la::ITEMS)) {
+                auto items = arr_of(args_map.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i)
+                    args.push_back(lower_expr(map_of(items.get(i))));
+            }
+        }
+        if (args.size() != 2) {
+            error("slice_from_raw requires exactly 2 args: (ptr: *const T, len: i64)");
+            return error_expr();
+        }
+        auto slice_t = make_slice_type(ts[0]);
+        lir::ECall ec;
+        ec.callee = "str_from_raw";  // shared codegen — uniform fat-ptr layout
+        for (auto& a : args) ec.args.push_back(std::move(a));
+        return builder().call_v(std::move(ec), slice_t);
+    }
+
     // hstatic_hash_of::<CFG>() — byte-hash identity of a HermesStatic value
     // as u64. Mono folds after substitution: nc.type_args[0] is HStaticLit
     // post-subst, with const_val carrying the hash. Inside a generic body
