@@ -450,13 +450,14 @@ static uint64_t read_le_u64(const uint8_t* p) {
     return lo | (hi << 32);
 }
 
-// If `data` is an ELF64 relocatable object that wraps a .hermes0 in a
-// `.lhermes` section, return the section's bytes; otherwise return `data`
-// unchanged (backwards-compat with the legacy raw-.hermes0-in-archive
-// format). Tolerates corrupt/truncated ELF by falling through to the raw
-// path — caller's hermes0 magic check will reject garbage.
+// If `data` is an ELF64 relocatable object containing a section named
+// `section_name`, return that section's bytes; otherwise return `data`
+// unchanged (backwards-compat with legacy raw-in-archive members + a
+// pass-through path when callers receive non-ELF input). Tolerates
+// corrupt/truncated ELF by falling through to the raw path — the caller
+// validates the payload (.hermes0 magic / .pkgi line shape / etc.).
 static std::vector<uint8_t>
-unwrap_lhermes(const std::vector<uint8_t>& data) {
+unwrap_elf_section(const std::vector<uint8_t>& data, const char* section_name) {
     constexpr uint8_t kElfMagic[4] = {0x7f, 'E', 'L', 'F'};
     if (data.size() < 64 || std::memcmp(data.data(), kElfMagic, 4) != 0)
         return data;
@@ -492,13 +493,19 @@ unwrap_lhermes(const std::vector<uint8_t>& data) {
         const char* nm = shstr + name_off;
         size_t nm_max = shstr_sz - name_off;
         if (strnlen(nm, nm_max) >= nm_max) continue;
-        if (std::strcmp(nm, ".lhermes") != 0) continue;
+        if (std::strcmp(nm, section_name) != 0) continue;
         uint64_t off = sh_offset(i);
         uint64_t sz  = sh_size(i);
         if (off + sz > data.size()) return data;
         return std::vector<uint8_t>(data.data() + off, data.data() + off + sz);
     }
     return data;
+}
+
+// Legacy alias — .hm0 members are ELF-wrapped with section ".lhermes".
+static std::vector<uint8_t>
+unwrap_lhermes(const std::vector<uint8_t>& data) {
+    return unwrap_elf_section(data, ".lhermes");
 }
 
 // Read member data from an AR archive by member name suffix.
@@ -961,61 +968,104 @@ hermes0_packages(const std::vector<uint8_t>& data) {
     return pkgs;
 }
 
-// Disk cache for package list of an archive. Stored next to the .a as
-// `<archive>.pkgindex`. Format: ASCII text, one package per line; first
-// line is "# mtime_ns=<ns>" header for validation. Three-layer split
-// scaled build_binary_index from 1 archive (~30MB, 15ms) to 4 archives
-// (~75MB, 40ms+) per test — disk cache cuts each warm run to ~0.5ms.
-static std::vector<std::string>
-read_pkgindex_cache(const std::string& archive,
-                    std::filesystem::file_time_type expected_mtime) {
-    std::ifstream f(archive + ".pkgindex");
-    if (!f) return {};
-    std::string line;
-    if (!std::getline(f, line)) return {};
-    // Validate mtime header.
-    constexpr std::string_view hdr_prefix = "# mtime_ns=";
-    if (line.size() <= hdr_prefix.size() ||
-        line.compare(0, hdr_prefix.size(), hdr_prefix) != 0) return {};
-    long long stored_ns = 0;
-    try { stored_ns = std::stoll(line.substr(hdr_prefix.size())); }
-    catch (...) { return {}; }
-    auto cur_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
-        expected_mtime.time_since_epoch()).count();
-    if (stored_ns != cur_ns) return {};
-    std::vector<std::string> pkgs;
-    while (std::getline(f, line)) if (!line.empty()) pkgs.push_back(line);
-    return pkgs;
+// Streaming AR-member reader: walks member headers sequentially via seeks,
+// only loads the bytes of members matching `suffix`. Critical for fast
+// build_binary_index — without it, getting at the small `.pkgi` member
+// would still cost the full 30-40MB memcpy of ar_read_members_raw.
+// Returns empty when no match (or on parse error). Caller pays only the
+// header walk (60 bytes per member, plus optional GNU long-name table)
+// plus the matching member's actual bytes.
+//
+// Mirrors ar_read_members_raw's GNU-ar long-name handling.
+static std::vector<std::vector<uint8_t>>
+ar_read_members_streaming(const std::string& archive_path,
+                          const std::string& member_suffix) {
+    std::vector<std::vector<uint8_t>> result;
+    std::ifstream f(archive_path, std::ios::binary);
+    if (!f) return result;
+    char magic[8];
+    if (!f.read(magic, 8) || std::memcmp(magic, "!<arch>\n", 8) != 0) return result;
+    std::vector<uint8_t> longnames;
+    char hdr[60];
+    while (f.read(hdr, 60)) {
+        std::string raw_name(hdr, 16);
+        while (!raw_name.empty() && raw_name.back() == ' ')
+            raw_name.pop_back();
+        char size_str[11] = {};
+        std::memcpy(size_str, hdr + 48, 10);
+        long long member_size = std::atoll(size_str);
+        if (member_size < 0) break;
+        if (hdr[58] != '`' || hdr[59] != '\n') break;
+        std::streampos data_start = f.tellg();
+        std::string name;
+        if (raw_name == "//") {
+            longnames.resize(member_size);
+            if (!f.read(reinterpret_cast<char*>(longnames.data()), member_size)) break;
+        } else if (!raw_name.empty() && raw_name[0] == '/' &&
+                   raw_name.size() > 1 && std::isdigit((unsigned char)raw_name[1])) {
+            size_t off = (size_t)std::atoll(raw_name.c_str() + 1);
+            if (off < longnames.size()) {
+                const uint8_t* s = longnames.data() + off;
+                const uint8_t* e = longnames.data() + longnames.size();
+                const uint8_t* q = s;
+                while (q < e && *q != '/') ++q;
+                name.assign(reinterpret_cast<const char*>(s), q - s);
+            }
+        } else {
+            name = raw_name;
+            if (!name.empty() && name.back() == '/') name.pop_back();
+        }
+        bool match = !name.empty() && name.size() >= member_suffix.size() &&
+                     name.compare(name.size() - member_suffix.size(),
+                                  member_suffix.size(), member_suffix) == 0;
+        if (match) {
+            // Read this member's bytes; if we just consumed longnames
+            // above, the read pointer was advanced — seek back to data
+            // start before reading.
+            f.seekg(data_start);
+            std::vector<uint8_t> buf(member_size);
+            if (!f.read(reinterpret_cast<char*>(buf.data()), member_size)) break;
+            result.push_back(std::move(buf));
+        }
+        // Advance to next header (member_size + pad).
+        auto next = std::streamoff(data_start) + member_size + (member_size & 1);
+        f.seekg(next);
+    }
+    return result;
 }
 
-static void write_pkgindex_cache(const std::string& archive,
-                                 std::filesystem::file_time_type mtime,
-                                 const std::vector<std::string>& pkgs) {
-    // Write atomically: tmp + rename. Failure to write is non-fatal —
-    // caller already has the data in memory.
-    auto tmp = archive + ".pkgindex.tmp";
-    std::ofstream f(tmp);
-    if (!f) return;
-    auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
-        mtime.time_since_epoch()).count();
-    f << "# mtime_ns=" << ns << "\n";
-    for (const auto& p : pkgs) f << p << "\n";
-    if (!f) return;
-    f.close();
-    std::error_code ec;
-    fs::rename(tmp, archive + ".pkgindex", ec);
-    if (ec) fs::remove(tmp, ec);
+// Parse a `.pkgi` text member: one package per line, comments (# …) skipped.
+static std::vector<std::string>
+parse_pkgi_member(const std::vector<uint8_t>& data) {
+    std::vector<std::string> out;
+    std::string line;
+    for (uint8_t b : data) {
+        if (b == '\n') {
+            if (!line.empty() && line[0] != '#') out.push_back(std::move(line));
+            line.clear();
+        } else {
+            line += (char)b;
+        }
+    }
+    if (!line.empty() && line[0] != '#') out.push_back(std::move(line));
+    return out;
 }
 
 // Scan search paths for lib*.a files. Returns map: package_name → archive_path.
 // Each archive may provide multiple packages (e.g. libstdlib.a provides std.*, hermes.*, etc.)
+//
+// Fast path: each emit_module-built archive embeds a `.pkgi` member with
+// the package list as ASCII text. ar_read_members_streaming pulls it out
+// with only a header walk + small member read — no 30MB memcpy of the
+// .hm0 blob. Legacy archives without `.pkgi` fall through to scanning
+// the .hm0 directly (slow but correct).
 static std::unordered_map<std::string, std::string>
 build_binary_index(const std::vector<std::string>& search_paths) {
     auto t0 = std::chrono::steady_clock::now();
     std::unordered_map<std::string, std::string> idx;
     size_t bytes_read = 0;
     size_t archives_seen = 0;
-    size_t disk_hits = 0;
+    size_t pkgi_hits = 0;
     for (const auto& dir : search_paths) {
         std::error_code ec;
         if (!fs::exists(dir, ec) || !fs::is_directory(dir, ec)) continue;
@@ -1027,37 +1077,33 @@ build_binary_index(const std::vector<std::string>& search_paths) {
             if (stem.size() < 4 || stem.substr(0, 3) != "lib") continue;
             auto archive = fs::weakly_canonical(p, ec).string();
             ++archives_seen;
-            auto mtime = fs::last_write_time(p, ec);
-            // Disk-cache fast path.
-            if (!ec) {
-                auto cached = read_pkgindex_cache(archive, mtime);
-                if (!cached.empty()) {
-                    ++disk_hits;
-                    for (auto& pkg : cached)
+            // Fast path: streaming-read .pkgi members from the archive.
+            auto pkgi_members = ar_read_members_streaming(archive, ".pkgi");
+            if (!pkgi_members.empty()) {
+                ++pkgi_hits;
+                for (auto& m : pkgi_members) {
+                    bytes_read += m.size();
+                    auto unwrapped = unwrap_elf_section(m, ".lpkgindex");
+                    for (auto& pkg : parse_pkgi_member(unwrapped))
                         if (!idx.count(pkg)) idx[pkg] = archive;
-                    continue;
                 }
+                continue;
             }
-            // Cache miss: scan + write cache.
+            // Fallback: legacy archive without .pkgi — scan .hm0 the slow way.
             auto members = ar_read_members(archive, ".hm0");
-            std::vector<std::string> all_pkgs;
             for (auto& member : members) {
                 bytes_read += member.size();
-                auto pkgs = hermes0_packages(member);
-                for (auto& pkg : pkgs) {
+                for (auto& pkg : hermes0_packages(member))
                     if (!idx.count(pkg)) idx[pkg] = archive;
-                    all_pkgs.push_back(pkg);
-                }
             }
-            if (!ec) write_pkgindex_cache(archive, mtime, all_pkgs);
         }
     }
     if (std::getenv("LOGOS_TIME_INDEX") != nullptr) {
         auto us = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::steady_clock::now() - t0).count();
         std::fprintf(stderr,
-            "build_binary_index: %zu archives (%zu disk-cache hits), %zu pkgs, %zu bytes, %lldus\n",
-            archives_seen, disk_hits, idx.size(), bytes_read, (long long)us);
+            "build_binary_index: %zu archives (%zu pkgi-hits), %zu pkgs, %zu bytes, %lldus\n",
+            archives_seen, pkgi_hits, idx.size(), bytes_read, (long long)us);
     }
     return idx;
 }

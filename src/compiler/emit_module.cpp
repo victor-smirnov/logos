@@ -30,6 +30,7 @@
 #include <filesystem>
 #include <unordered_set>
 #include <fstream>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -973,13 +974,53 @@ bool emit_module(const ModuleManifest& manifest,
         }
     }
 
+    // Embedded package-name index. The loader's build_binary_index needs
+    // to know which packages each archive provides; reading the full .hm0
+    // is ~30-40MB of memcpy per archive (filesystem cache is warm, but
+    // alloc + zero-init + copy still costs ~40ms across 4-archive layer
+    // builds). The .pkgi member ships the package list as ASCII (one
+    // package per line) wrapped in an ELF .lpkgindex non-ALLOC section
+    // (mirrors the .hm0 → .lhermes wrap so ld.lld doesn't warn about
+    // non-ET_REL archive members). The streaming AR reader pulls it out
+    // without touching .hm0 bytes. Member name must stay <=15 chars.
+    std::string pkgi_raw_path =
+        h0_path.substr(0, h0_path.find_last_of('.')) + ".pkgi.raw";
+    {
+        std::ofstream f(pkgi_raw_path);
+        if (!f) {
+            std::fprintf(stderr, "emit_module: cannot write pkgi raw '%s'\n",
+                         pkgi_raw_path.c_str());
+            return false;
+        }
+        std::set<std::string> seen;
+        for (auto& m : modules_for_h0) {
+            if (m.package.empty()) continue;
+            if (seen.insert(m.package).second) f << m.package << "\n";
+        }
+    }
+    std::string pkgi_obj_path =
+        h0_path.substr(0, h0_path.find_last_of('.')) + ".pkgi";
+    {
+        std::ostringstream cmd;
+        cmd << "objcopy -I binary -O elf64-x86-64 "
+            << "--rename-section .data=.lpkgindex "
+            << pkgi_raw_path << " " << pkgi_obj_path;
+        if (verbose) {
+            std::fprintf(stderr, "emit_module: %s\n", cmd.str().c_str());
+        }
+        if (std::system(cmd.str().c_str()) != 0) {
+            std::fprintf(stderr, "emit_module: objcopy pkgi wrap failed\n");
+            return false;
+        }
+    }
+
     // Create .a archive: lazy mode has no .o (codegen skipped), pack just
-    // the .hm0 wrapper. Eager mode packs both NAME.o + NAME.hermes0.o.
+    // the .hm0 wrapper + pkgi index. Eager mode also packs NAME.o.
     {
         std::ostringstream cmd;
         cmd << "ar rcs " << output_path;
         if (!manifest.lazy) cmd << " " << obj_path;
-        cmd << " " << h0_obj_path;
+        cmd << " " << h0_obj_path << " " << pkgi_obj_path;
         if (verbose) {
             std::fprintf(stderr, "emit_module: %s\n", cmd.str().c_str());
         }
