@@ -3526,8 +3526,14 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         std::vector<TypeRef> types;
         v.each_binding([&](std::string_view n) { names.push_back(n); });
         v.each_binding_type(pool, [&](TypeRef t) { types.push_back(t); });
+        // CP-cm-17: skip `_` payload bindings. Without this, `Some(_)`
+        // pulls a "_" binding into scope; collect_drops at scope end
+        // then emits a drop on the payload (Vec.drop, String.drop, …)
+        // even though the user wrote a wildcard. Mirrors the Tuple
+        // branch's filter below.
         for (size_t i = 0; i < names.size() && i < types.size(); ++i)
-            define(std::string(names[i]), types[i]);
+            if (names[i] != "_")
+                define(std::string(names[i]), types[i]);
     } else if (k == ps::Code::Tuple) {
         lir_view::PatTupleView v{pr};
         std::vector<std::string_view> names;
