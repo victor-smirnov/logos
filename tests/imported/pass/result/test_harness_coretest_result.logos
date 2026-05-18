@@ -30,6 +30,9 @@ use std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.result;
+use logos.lang.option;
+use logos.lang.iter;
+use logos.mem.collections.vec;
 
 #[test]
 fn test_unwrap_or() {
@@ -180,3 +183,14 @@ fn test_fmt_default() {
     let s2: String = format!("{:?}", err);
     assert_eq!(s2.as_str(), "Err(\"Err\")");
 }
+
+// Rust's `test_collect` — `.collect::<Result<Vec<isize>, ()>>()` —
+// deferred. Blocked by CP-cm-16 (trait-static `C::from_iter(self)`
+// dispatch with C = Result<...>: mono can't synthesise the cloned-spec
+// callee name) plus CP-cm-17 (Vec-as-enum-payload via Result<Vec<T>, E>
+// returns garbage on Vec.length() and double-frees empty Vecs — wrong
+// GEP offsets / drop tracking inside the enum payload area). The
+// free-fn workaround `vec_collect_results(input: Vec<Result<T,E>>)
+// -> Result<Vec<T>, E>` in stdlib/mem/collections/vec sidesteps
+// CP-cm-16 but the same Result<Vec, E> return type re-trips CP-cm-17.
+// Reopen when either gap closes.

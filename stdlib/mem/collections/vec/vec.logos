@@ -279,6 +279,28 @@ impl<T> FromIterator<T> for Vec<T> {
     }
 }
 
+// Rust's `impl<T, E, V: FromIterator<T>> FromIterator<Result<T, E>> for Result<V, E>`
+// (specialised here to V = Vec<T>) walks a Vec<Result<T, E>> and short-
+// circuits on the first Err — driver: result::test_collect. Exposed as a
+// free fn rather than a trait impl because mono's trait-static dispatch
+// through `C::from_iter(self)` where C = Result<...> can't yet resolve
+// the cloned spec name (CP-cm-16 gap — see coretests-port-gaps.md). The
+// Vec-shaped input is also a deliberate sidestep — Vec::iter()-style
+// IterAdapter passed by value double-frees on the borrowed source.
+pub fn vec_collect_results<T, E>(input: Vec<Result<T, E>>) -> Result<Vec<T>, E> {
+    let mut out: Vec<T> = vec_new::<T>();
+    let mut i: i64 = 0i64;
+    while i < input.length() {
+        let r: Result<T, E> = input.get(i);
+        match r {
+            Result::Ok(x)  => { out.push(x); }
+            Result::Err(e) => { return Result::Err(e); }
+        }
+        i = i + 1i64;
+    }
+    return Result::Ok(out);
+}
+
 // Linear-search contains; requires T: Eq (free function to avoid bound on main impl).
 pub fn vec_contains<T: Eq>(v: &Vec<T>, val: &T) -> bool {
     let mut i: i64 = 0;        
