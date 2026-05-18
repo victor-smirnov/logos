@@ -1,0 +1,555 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/num/int_macros.rs (expanded
+// for i32 / i64 / u32 / u64) + library/coretests/tests/num/uint_macros.rs.
+//
+// Upstream uses `int_module!(i32, u32);` / etc. — a Rust `macro_rules!`
+// that expands a large block of test fns per type. Logos doesn't have
+// macro_rules! yet (MC-mc-01), so this file expands the macro by hand
+// for the four widths we currently test against. Each expanded fn keeps
+// the upstream name with a `_<type>` suffix so the failure reports name
+// the specific type.
+//
+// Modifications vs upstream (the same in every expanded fn):
+//   - `$T::MAX` / `$T::MIN` constants → literal values (no associated-
+//     const surface on primitives yet, separate gap).
+//   - `assert_eq_const_safe!` macro (compile-time-friendly assert_eq)
+//     → plain `assert_eq!`. Logos has no const-eval channel; the
+//     compile-time assertions in upstream become runtime asserts here.
+//   - `test_runtime_and_compiletime!` blocks expanded inline — the
+//     wrapper is purely a const-eval scaffold.
+//   - `.bitor()` / `.bitand()` / `.bitxor()` / `.shl()` / `.shr()` /
+//     `.not()` method form (upstream tests the BitOr/BitAnd/etc.
+//     trait surface) → operator form `|` / `&` / `^` / `<<` / `>>` /
+//     `!`. The operator path is what driver code uses; the trait-
+//     method form is a Rust-specific surface that doesn't reach
+//     beyond this one upstream test.
+//   - `from_str` / `pow` over very large exponents / `MIN.saturating_*`
+//     boundary cases dropped only where they need primitive MIN/MAX
+//     constants and the literal form would obscure the test's intent.
+
+package test_harness_coretest_int_battery;
+
+use std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.panic;
+use logos.lang.option;
+
+// MAX/MIN literals — repeated here because Logos has no `i32::MAX`
+// associated-const surface yet. The MIN values are computed as
+// `-MAX - 1` rather than spelled out directly because `-2147483648i32`
+// parses as `-(2147483648i32)` and the `2147483648i32` token overflows
+// its suffix type (Logos has no negative-literal sugar).
+const I32_MAX: i32 = 2147483647i32;
+const I32_MIN: i32 = -2147483647i32 - 1i32;
+const I64_MAX: i64 = 9223372036854775807i64;
+const I64_MIN: i64 = -9223372036854775807i64 - 1i64;
+const U32_MAX: u32 = 4294967295u32;
+const U64_MAX: u64 = 18446744073709551615u64;
+
+// ════════════════════════════════════════════════════════════════════
+// i32 battery (16 tests)
+// ════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_overflows_i32() {
+    assert!(I32_MAX > 0i32);
+    assert!(I32_MIN <= 0i32);
+    assert_eq!(I32_MIN + I32_MAX + 1i32, 0i32);
+}
+
+#[test]
+fn test_bitwise_operators_i32() {
+    assert_eq!(0b1110i32, 0b1100i32 | 0b1010i32);
+    assert_eq!(0b1000i32, 0b1100i32 & 0b1010i32);
+    assert_eq!(0b0110i32, 0b1100i32 ^ 0b1010i32);
+    assert_eq!(0b1110i32, 0b0111i32 << 1i32);
+    assert_eq!(0b0111i32, 0b1110i32 >> 1i32);
+}
+
+#[test]
+fn test_abs_i32() {
+    assert_eq!(1i32.abs(), 1i32);
+    assert_eq!(0i32.abs(), 0i32);
+    assert_eq!((-1i32).abs(), 1i32);
+    assert_eq!(123i32.abs(), 123i32);
+    assert_eq!((-123i32).abs(), 123i32);
+}
+
+#[test]
+fn test_signum_i32() {
+    assert_eq!(1i32.signum(), 1i32);
+    assert_eq!(0i32.signum(), 0i32);
+    assert_eq!((-1i32).signum(), -1i32);
+    assert_eq!(I32_MAX.signum(), 1i32);
+    assert_eq!(I32_MIN.signum(), -1i32);
+}
+
+#[test]
+fn test_is_positive_i32() {
+    assert!(1i32.is_positive());
+    assert!(!0i32.is_positive());
+    assert!(!(-1i32).is_positive());
+    assert!(I32_MAX.is_positive());
+    assert!(!I32_MIN.is_positive());
+}
+
+#[test]
+fn test_is_negative_i32() {
+    assert!(!1i32.is_negative());
+    assert!(!0i32.is_negative());
+    assert!((-1i32).is_negative());
+    assert!(!I32_MAX.is_negative());
+    assert!(I32_MIN.is_negative());
+}
+
+#[test]
+fn test_count_ones_i32() {
+    assert_eq!(0b0101100i32.count_ones(), 3u32);
+    assert_eq!(0b0100001i32.count_ones(), 2u32);
+    assert_eq!(0b1111001i32.count_ones(), 5u32);
+    assert_eq!(0i32.count_ones(), 0u32);
+}
+
+#[test]
+fn test_count_zeros_i32() {
+    assert_eq!(0b0101100i32.count_zeros(), 32u32 - 3u32);
+    assert_eq!(0b0100001i32.count_zeros(), 32u32 - 2u32);
+    assert_eq!(0b1111001i32.count_zeros(), 32u32 - 5u32);
+    assert_eq!(0i32.count_zeros(), 32u32);
+}
+
+#[test]
+fn test_rotate_i32() {
+    let a: i32 = 0b0101100i32;
+    assert_eq!(a.rotate_left(6u32).rotate_right(2u32).rotate_right(4u32), a);
+    assert_eq!(a.rotate_left(0u32), a);
+    assert_eq!(0i32.rotate_left(7u32), 0i32);
+}
+
+#[test]
+fn test_swap_bytes_i32() {
+    let a: i32 = 0b0101100i32;
+    assert_eq!(a.swap_bytes().swap_bytes(), a);
+    assert_eq!(0i32.swap_bytes(), 0i32);
+    assert_eq!((-1i32).swap_bytes(), -1i32);
+}
+
+#[test]
+fn test_to_from_le_be_i32() {
+    let a: i32 = 0b0101100i32;
+    assert_eq!(i32::from_le(a.to_le()), a);
+    assert_eq!(i32::from_be(a.to_be()), a);
+    assert_eq!(0i32.to_le(), 0i32);
+    assert_eq!(0i32.to_be(), 0i32);
+}
+
+#[test]
+fn test_pow_i32() {
+    assert_eq!(2i32.pow(0u32), 1i32);
+    assert_eq!(2i32.pow(1u32), 2i32);
+    assert_eq!(2i32.pow(10u32), 1024i32);
+    assert_eq!(3i32.pow(4u32), 81i32);
+    assert_eq!((-2i32).pow(3u32), -8i32);
+    assert_eq!((-2i32).pow(4u32), 16i32);
+}
+
+#[test]
+fn test_saturating_abs_i32() {
+    assert_eq!(0i32.saturating_abs(), 0i32);
+    assert_eq!(123i32.saturating_abs(), 123i32);
+    assert_eq!((-123i32).saturating_abs(), 123i32);
+    assert_eq!(I32_MAX.saturating_abs(), I32_MAX);
+    assert_eq!(I32_MIN.saturating_abs(), I32_MAX);
+}
+
+#[test]
+fn test_saturating_neg_i32() {
+    assert_eq!(0i32.saturating_neg(), 0i32);
+    assert_eq!(123i32.saturating_neg(), -123i32);
+    assert_eq!((-123i32).saturating_neg(), 123i32);
+    assert_eq!(I32_MAX.saturating_neg(), I32_MIN + 1i32);
+    assert_eq!(I32_MIN.saturating_neg(), I32_MAX);
+}
+
+fn expect_some_i32(o: Option<i32>, want: i32) {
+    match o {
+        Option::Some(v) => { assert_eq!(v, want); }
+        Option::None    => { panic("expected Some"); }
+    }
+}
+
+fn expect_none_i32(o: Option<i32>) {
+    match o {
+        Option::Some(_) => { panic("expected None"); }
+        Option::None    => {}
+    }
+}
+
+#[test]
+fn test_checked_div_i32() {
+    expect_some_i32(10i32.checked_div(2i32), 5i32);
+    expect_none_i32(5i32.checked_div(0i32));
+    expect_none_i32(I32_MIN.checked_div(-1i32));
+}
+
+#[test]
+fn test_wrapping_ops_i32() {
+    assert_eq!(I32_MAX.wrapping_add(1i32), I32_MIN);
+    assert_eq!(I32_MIN.wrapping_sub(1i32), I32_MAX);
+    assert_eq!(I32_MAX.wrapping_mul(2i32), -2i32);
+    assert_eq!(I32_MIN.wrapping_neg(), I32_MIN);
+}
+
+// ════════════════════════════════════════════════════════════════════
+// i64 battery (16 tests)
+// ════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_overflows_i64() {
+    assert!(I64_MAX > 0i64);
+    assert!(I64_MIN <= 0i64);
+    assert_eq!(I64_MIN + I64_MAX + 1i64, 0i64);
+}
+
+#[test]
+fn test_bitwise_operators_i64() {
+    assert_eq!(0b1110i64, 0b1100i64 | 0b1010i64);
+    assert_eq!(0b1000i64, 0b1100i64 & 0b1010i64);
+    assert_eq!(0b0110i64, 0b1100i64 ^ 0b1010i64);
+    assert_eq!(0b1110i64, 0b0111i64 << 1i64);
+    assert_eq!(0b0111i64, 0b1110i64 >> 1i64);
+}
+
+#[test]
+fn test_abs_i64() {
+    assert_eq!(1i64.abs(), 1i64);
+    assert_eq!(0i64.abs(), 0i64);
+    assert_eq!((-1i64).abs(), 1i64);
+    assert_eq!(123i64.abs(), 123i64);
+    assert_eq!((-123i64).abs(), 123i64);
+}
+
+#[test]
+fn test_signum_i64() {
+    assert_eq!(1i64.signum(), 1i64);
+    assert_eq!(0i64.signum(), 0i64);
+    assert_eq!((-1i64).signum(), -1i64);
+    assert_eq!(I64_MAX.signum(), 1i64);
+    assert_eq!(I64_MIN.signum(), -1i64);
+}
+
+#[test]
+fn test_is_positive_i64() {
+    assert!(1i64.is_positive());
+    assert!(!0i64.is_positive());
+    assert!(!(-1i64).is_positive());
+    assert!(I64_MAX.is_positive());
+    assert!(!I64_MIN.is_positive());
+}
+
+#[test]
+fn test_is_negative_i64() {
+    assert!(!1i64.is_negative());
+    assert!(!0i64.is_negative());
+    assert!((-1i64).is_negative());
+    assert!(!I64_MAX.is_negative());
+    assert!(I64_MIN.is_negative());
+}
+
+#[test]
+fn test_count_ones_i64() {
+    assert_eq!(0b0101100i64.count_ones(), 3u32);
+    assert_eq!(0b0100001i64.count_ones(), 2u32);
+    assert_eq!(0b1111001i64.count_ones(), 5u32);
+    assert_eq!(0i64.count_ones(), 0u32);
+}
+
+#[test]
+fn test_count_zeros_i64() {
+    assert_eq!(0b0101100i64.count_zeros(), 64u32 - 3u32);
+    assert_eq!(0b0100001i64.count_zeros(), 64u32 - 2u32);
+    assert_eq!(0b1111001i64.count_zeros(), 64u32 - 5u32);
+    assert_eq!(0i64.count_zeros(), 64u32);
+}
+
+#[test]
+fn test_rotate_i64() {
+    let a: i64 = 0b0101100i64;
+    assert_eq!(a.rotate_left(6u32).rotate_right(2u32).rotate_right(4u32), a);
+    assert_eq!(a.rotate_left(0u32), a);
+    assert_eq!(0i64.rotate_left(7u32), 0i64);
+}
+
+#[test]
+fn test_swap_bytes_i64() {
+    let a: i64 = 0b0101100i64;
+    assert_eq!(a.swap_bytes().swap_bytes(), a);
+    assert_eq!(0i64.swap_bytes(), 0i64);
+    assert_eq!((-1i64).swap_bytes(), -1i64);
+}
+
+#[test]
+fn test_to_from_le_be_i64() {
+    let a: i64 = 0b0101100i64;
+    assert_eq!(i64::from_le(a.to_le()), a);
+    assert_eq!(i64::from_be(a.to_be()), a);
+    assert_eq!(0i64.to_le(), 0i64);
+    assert_eq!(0i64.to_be(), 0i64);
+}
+
+#[test]
+fn test_pow_i64() {
+    assert_eq!(2i64.pow(0u32), 1i64);
+    assert_eq!(2i64.pow(1u32), 2i64);
+    assert_eq!(2i64.pow(10u32), 1024i64);
+    assert_eq!(3i64.pow(4u32), 81i64);
+    assert_eq!((-2i64).pow(3u32), -8i64);
+    assert_eq!((-2i64).pow(4u32), 16i64);
+}
+
+#[test]
+fn test_saturating_abs_i64() {
+    assert_eq!(0i64.saturating_abs(), 0i64);
+    assert_eq!(123i64.saturating_abs(), 123i64);
+    assert_eq!((-123i64).saturating_abs(), 123i64);
+    assert_eq!(I64_MAX.saturating_abs(), I64_MAX);
+    assert_eq!(I64_MIN.saturating_abs(), I64_MAX);
+}
+
+#[test]
+fn test_saturating_neg_i64() {
+    assert_eq!(0i64.saturating_neg(), 0i64);
+    assert_eq!(123i64.saturating_neg(), -123i64);
+    assert_eq!((-123i64).saturating_neg(), 123i64);
+    assert_eq!(I64_MAX.saturating_neg(), I64_MIN + 1i64);
+    assert_eq!(I64_MIN.saturating_neg(), I64_MAX);
+}
+
+fn expect_some_i64(o: Option<i64>, want: i64) {
+    match o {
+        Option::Some(v) => { assert_eq!(v, want); }
+        Option::None    => { panic("expected Some"); }
+    }
+}
+
+fn expect_none_i64(o: Option<i64>) {
+    match o {
+        Option::Some(_) => { panic("expected None"); }
+        Option::None    => {}
+    }
+}
+
+#[test]
+fn test_checked_div_i64() {
+    expect_some_i64(10i64.checked_div(2i64), 5i64);
+    expect_none_i64(5i64.checked_div(0i64));
+    expect_none_i64(I64_MIN.checked_div(-1i64));
+}
+
+#[test]
+fn test_wrapping_ops_i64() {
+    assert_eq!(I64_MAX.wrapping_add(1i64), I64_MIN);
+    assert_eq!(I64_MIN.wrapping_sub(1i64), I64_MAX);
+    assert_eq!(I64_MAX.wrapping_mul(2i64), -2i64);
+    assert_eq!(I64_MIN.wrapping_neg(), I64_MIN);
+}
+
+// ════════════════════════════════════════════════════════════════════
+// u32 battery (10 tests)
+// ════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_overflows_u32() {
+    assert!(U32_MAX > 0u32);
+    assert_eq!(U32_MAX - 1u32 + 1u32, U32_MAX);
+}
+
+#[test]
+fn test_bitwise_operators_u32() {
+    assert_eq!(0b1110u32, 0b1100u32 | 0b1010u32);
+    assert_eq!(0b1000u32, 0b1100u32 & 0b1010u32);
+    assert_eq!(0b0110u32, 0b1100u32 ^ 0b1010u32);
+    assert_eq!(0b1110u32, 0b0111u32 << 1u32);
+    assert_eq!(0b0111u32, 0b1110u32 >> 1u32);
+}
+
+#[test]
+fn test_count_ones_u32() {
+    assert_eq!(0b0101100u32.count_ones(), 3u32);
+    assert_eq!(0b0100001u32.count_ones(), 2u32);
+    assert_eq!(0b1111001u32.count_ones(), 5u32);
+    assert_eq!(0u32.count_ones(), 0u32);
+    assert_eq!(U32_MAX.count_ones(), 32u32);
+}
+
+#[test]
+fn test_count_zeros_u32() {
+    assert_eq!(0b0101100u32.count_zeros(), 32u32 - 3u32);
+    assert_eq!(0b0100001u32.count_zeros(), 32u32 - 2u32);
+    assert_eq!(0b1111001u32.count_zeros(), 32u32 - 5u32);
+    assert_eq!(0u32.count_zeros(), 32u32);
+    assert_eq!(U32_MAX.count_zeros(), 0u32);
+}
+
+#[test]
+fn test_rotate_u32() {
+    let a: u32 = 0b0101100u32;
+    assert_eq!(a.rotate_left(6u32).rotate_right(2u32).rotate_right(4u32), a);
+    assert_eq!(a.rotate_left(0u32), a);
+    assert_eq!(0u32.rotate_left(7u32), 0u32);
+    assert_eq!(U32_MAX.rotate_left(13u32), U32_MAX);
+}
+
+#[test]
+fn test_swap_bytes_u32() {
+    let a: u32 = 0b0101100u32;
+    assert_eq!(a.swap_bytes().swap_bytes(), a);
+    assert_eq!(0u32.swap_bytes(), 0u32);
+    assert_eq!(U32_MAX.swap_bytes(), U32_MAX);
+}
+
+#[test]
+fn test_to_from_le_be_u32() {
+    let a: u32 = 0b0101100u32;
+    assert_eq!(u32::from_le(a.to_le()), a);
+    assert_eq!(u32::from_be(a.to_be()), a);
+    assert_eq!(0u32.to_le(), 0u32);
+    assert_eq!(0u32.to_be(), 0u32);
+}
+
+#[test]
+fn test_pow_u32() {
+    assert_eq!(2u32.pow(0u32), 1u32);
+    assert_eq!(2u32.pow(1u32), 2u32);
+    assert_eq!(2u32.pow(10u32), 1024u32);
+    assert_eq!(3u32.pow(4u32), 81u32);
+}
+
+fn expect_some_u32(o: Option<u32>, want: u32) {
+    match o {
+        Option::Some(v) => { assert_eq!(v, want); }
+        Option::None    => { panic("expected Some"); }
+    }
+}
+
+fn expect_none_u32(o: Option<u32>) {
+    match o {
+        Option::Some(_) => { panic("expected None"); }
+        Option::None    => {}
+    }
+}
+
+#[test]
+fn test_checked_div_u32() {
+    expect_some_u32(10u32.checked_div(2u32), 5u32);
+    expect_none_u32(5u32.checked_div(0u32));
+}
+
+#[test]
+fn test_wrapping_ops_u32() {
+    assert_eq!(U32_MAX.wrapping_add(1u32), 0u32);
+    assert_eq!(0u32.wrapping_sub(1u32), U32_MAX);
+    assert_eq!(U32_MAX.wrapping_mul(2u32), U32_MAX - 1u32);
+    assert_eq!(0u32.wrapping_neg(), 0u32);
+    assert_eq!(1u32.wrapping_neg(), U32_MAX);
+}
+
+// ════════════════════════════════════════════════════════════════════
+// u64 battery (10 tests)
+// ════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_overflows_u64() {
+    assert!(U64_MAX > 0u64);
+}
+
+#[test]
+fn test_bitwise_operators_u64() {
+    assert_eq!(0b1110u64, 0b1100u64 | 0b1010u64);
+    assert_eq!(0b1000u64, 0b1100u64 & 0b1010u64);
+    assert_eq!(0b0110u64, 0b1100u64 ^ 0b1010u64);
+    assert_eq!(0b1110u64, 0b0111u64 << 1u64);
+    assert_eq!(0b0111u64, 0b1110u64 >> 1u64);
+}
+
+#[test]
+fn test_count_ones_u64() {
+    assert_eq!(0b0101100u64.count_ones(), 3u32);
+    assert_eq!(0b0100001u64.count_ones(), 2u32);
+    assert_eq!(0b1111001u64.count_ones(), 5u32);
+    assert_eq!(0u64.count_ones(), 0u32);
+    assert_eq!(U64_MAX.count_ones(), 64u32);
+}
+
+#[test]
+fn test_count_zeros_u64() {
+    assert_eq!(0b0101100u64.count_zeros(), 64u32 - 3u32);
+    assert_eq!(0b0100001u64.count_zeros(), 64u32 - 2u32);
+    assert_eq!(0b1111001u64.count_zeros(), 64u32 - 5u32);
+    assert_eq!(0u64.count_zeros(), 64u32);
+    assert_eq!(U64_MAX.count_zeros(), 0u32);
+}
+
+#[test]
+fn test_rotate_u64() {
+    let a: u64 = 0b0101100u64;
+    assert_eq!(a.rotate_left(6u32).rotate_right(2u32).rotate_right(4u32), a);
+    assert_eq!(a.rotate_left(0u32), a);
+    assert_eq!(0u64.rotate_left(7u32), 0u64);
+    assert_eq!(U64_MAX.rotate_left(13u32), U64_MAX);
+}
+
+#[test]
+fn test_swap_bytes_u64() {
+    let a: u64 = 0b0101100u64;
+    assert_eq!(a.swap_bytes().swap_bytes(), a);
+    assert_eq!(0u64.swap_bytes(), 0u64);
+    assert_eq!(U64_MAX.swap_bytes(), U64_MAX);
+}
+
+#[test]
+fn test_to_from_le_be_u64() {
+    let a: u64 = 0b0101100u64;
+    assert_eq!(u64::from_le(a.to_le()), a);
+    assert_eq!(u64::from_be(a.to_be()), a);
+    assert_eq!(0u64.to_le(), 0u64);
+    assert_eq!(0u64.to_be(), 0u64);
+}
+
+#[test]
+fn test_pow_u64() {
+    assert_eq!(2u64.pow(0u32), 1u64);
+    assert_eq!(2u64.pow(1u32), 2u64);
+    assert_eq!(2u64.pow(10u32), 1024u64);
+    assert_eq!(3u64.pow(4u32), 81u64);
+}
+
+fn expect_some_u64(o: Option<u64>, want: u64) {
+    match o {
+        Option::Some(v) => { assert_eq!(v, want); }
+        Option::None    => { panic("expected Some"); }
+    }
+}
+
+fn expect_none_u64(o: Option<u64>) {
+    match o {
+        Option::Some(_) => { panic("expected None"); }
+        Option::None    => {}
+    }
+}
+
+#[test]
+fn test_checked_div_u64() {
+    expect_some_u64(10u64.checked_div(2u64), 5u64);
+    expect_none_u64(5u64.checked_div(0u64));
+}
+
+#[test]
+fn test_wrapping_ops_u64() {
+    assert_eq!(U64_MAX.wrapping_add(1u64), 0u64);
+    assert_eq!(0u64.wrapping_sub(1u64), U64_MAX);
+    assert_eq!(U64_MAX.wrapping_mul(2u64), U64_MAX - 1u64);
+    assert_eq!(0u64.wrapping_neg(), 0u64);
+    assert_eq!(1u64.wrapping_neg(), U64_MAX);
+}
