@@ -4064,6 +4064,30 @@ lir::LExprPtr SemaChecker::lower_invoke_expr(TinyMapView node) {
             arg_exprs.push_back(lower_expr(map_of(args.get(i))));
     }
     auto rt = recv ? recv->type : nullptr;
+    // Mirror lower_call's Sprint 5.7c special case: if the receiver
+    // expression has TypeVar type bounded by Fn / FnMut / FnOnce
+    // (e.g. `(self.f)(v)` where field f has type F: FnMut(T) -> R),
+    // synthesise a closure type from the bound and route through the
+    // ClosureCall path. Mono rewrites to FnPtrCall at substitution
+    // time when F resolves to a fn-pointer.
+    if (rt && TypeRef(rt).kind() == LogosType::Kind::TypeVar) {
+        std::string tvname(TypeRef(rt).type_var_name());
+        auto bit = current_type_bounds_.find(tvname);
+        if (bit != current_type_bounds_.end()) {
+            for (auto& b : bit->second) {
+                if (!b.is_fn_family) continue;
+                std::vector<TypeRef> ps = b.fn_params;
+                TypeRef ret = b.fn_ret ? b.fn_ret : void_t();
+                auto synth = make_closure_type(std::move(ps), ret);
+                // Retype the receiver expression's static type to the
+                // synthesised closure so downstream arity / arg-type
+                // checks see the concrete signature.
+                builder().retype_expr(recv, synth);
+                rt = synth;
+                break;
+            }
+        }
+    }
     if (rt && TypeRef(rt).kind() == LogosType::Kind::Closure) {
         uint64_t n_args   = arg_exprs.size();
         uint64_t n_params = TypeRef(rt).closure_params().size();

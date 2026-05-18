@@ -216,10 +216,15 @@ pub trait Iterator<Item> {
     }
 
     // Terminal: fold items into an accumulator.
-    fn fold<Acc, F: FnMut(Acc, Item) -> Acc>(self: Self, init: Acc, f: F) -> Acc {
+    //
+    // Method tparam `FoldFn` is named to avoid clashing with a struct-
+    // level `F` on Iterator implementors (e.g. MapIter<I, T, R, F>);
+    // sema treats same-name method/impl tparams as specialisation and
+    // silently loses the method-level generic.
+    fn fold<Acc, FoldFn: FnMut(Acc, Item) -> Acc>(self: Self, init: Acc, f: FoldFn) -> Acc {
         let mut it: Self = self;
         let mut acc: Acc = init;
-        let mut g: F = f;
+        let mut g: FoldFn = f;
         loop {
             match it.next() {
                 Option::None    => { return acc; }
@@ -298,10 +303,11 @@ pub trait Iterator<Item> {
         return n;
     }
 
-    // Terminal: visit each item.
-    fn for_each<F: FnMut(Item) -> ()>(self: Self, f: F) {
+    // Terminal: visit each item. Tparam `EachFn` avoids clashing with
+    // a struct-level `F` on Iterator implementors.
+    fn for_each<EachFn: FnMut(Item) -> ()>(self: Self, f: EachFn) {
         let mut it: Self = self;
-        let mut g: F = f;
+        let mut g: EachFn = f;
         loop {
             match it.next() {
                 Option::None    => { return; }
@@ -311,9 +317,9 @@ pub trait Iterator<Item> {
     }
 
     // Terminal: any item satisfies the predicate?
-    fn any<F: FnMut(Item) -> bool>(self: Self, pred: F) -> bool {
+    fn any<AnyFn: FnMut(Item) -> bool>(self: Self, pred: AnyFn) -> bool {
         let mut it: Self = self;
-        let mut p: F = pred;
+        let mut p: AnyFn = pred;
         loop {
             match it.next() {
                 Option::None    => { return false; }
@@ -323,9 +329,9 @@ pub trait Iterator<Item> {
     }
 
     // Terminal: every item satisfies the predicate?
-    fn all<F: FnMut(Item) -> bool>(self: Self, pred: F) -> bool {
+    fn all<AllFn: FnMut(Item) -> bool>(self: Self, pred: AllFn) -> bool {
         let mut it: Self = self;
-        let mut p: F = pred;
+        let mut p: AllFn = pred;
         loop {
             match it.next() {
                 Option::None    => { return true; }
@@ -707,6 +713,16 @@ pub fn iter_rev<I: DoubleEndedIterator<T>, T>(iter: I) -> RevIter<I, T> {
 }
 
 // ── MapIter<I, T, R> — lazy map ──────────────────────────────────────────────
+//
+// Stores the mapper as `fn(T) -> R` (a function pointer). Migration to
+// a generic `F: FnMut(T) -> R` parameter — which would unblock
+// capturing closures at the call site — was attempted but reverted:
+// monomorphisation of `MapIter<I,T,R,F>.next` with F=fn-ptr causes an
+// infinite loop in the SliceIter → MapIter chain (the `(self.f)(v)`
+// dispatch reads stale storage somewhere along the substitution
+// path). Filed as a baghunt for a future compiler-side fix; until
+// then capturing closures route through the terminal methods
+// (`.fold`/`.for_each`/`.any`/`.all`) or stay on fn-ptrs.
 
 pub struct MapIter<I, T, R> {
     pub inner: I,
