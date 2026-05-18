@@ -184,13 +184,54 @@ fn test_fmt_default() {
     assert_eq!(s2.as_str(), "Err(\"Err\")");
 }
 
-// Rust's `test_collect` — `.collect::<Result<Vec<isize>, ()>>()` —
-// deferred. Blocked by CP-cm-16 (trait-static `C::from_iter(self)`
-// dispatch with C = Result<...>: mono can't synthesise the cloned-spec
-// callee name) plus CP-cm-17 (Vec-as-enum-payload via Result<Vec<T>, E>
-// returns garbage on Vec.length() and double-frees empty Vecs — wrong
-// GEP offsets / drop tracking inside the enum payload area). The
-// free-fn workaround `vec_collect_results(input: Vec<Result<T,E>>)
-// -> Result<Vec<T>, E>` in stdlib/mem/collections/vec sidesteps
-// CP-cm-16 but the same Result<Vec, E> return type re-trips CP-cm-17.
-// Reopen when either gap closes.
+// Rust's `test_collect` uses `.collect::<Result<Vec<isize>, ()>>()` —
+// trait-static dispatch on an enum tparam (CP-cm-16). Logos exposes the
+// same logic as a free fn `vec_collect_results(Vec<Result<T, E>>) ->
+// Result<Vec<T>, E>` in stdlib/mem/collections/vec. The result is
+// inspected via `match` not `r.is_ok()` — is_ok takes self by value
+// (CP-cm-17 in catalog) so `r.is_ok()` consumes the Result and the
+// follow-up `r.unwrap()` would double-free the Vec payload.
+fn ok_three() -> Vec<Result<i32, i32>> {
+    let mut v: Vec<Result<i32, i32>> = vec_new::<Result<i32, i32>>();
+    v.push(Result::Ok(0i32));
+    v.push(Result::Ok(1i32));
+    v.push(Result::Ok(2i32));
+    return v;
+}
+
+fn maybe_three() -> Vec<Result<i32, i32>> {
+    // 3rd entry is Err(2) — short-circuit before any later Ok.
+    let mut v: Vec<Result<i32, i32>> = vec_new::<Result<i32, i32>>();
+    v.push(Result::Ok(0i32));
+    v.push(Result::Ok(1i32));
+    v.push(Result::Err(2i32));
+    return v;
+}
+
+#[test]
+fn test_collect() {
+    // All-Ok → Ok([0, 1, 2])
+    let three: Vec<Result<i32, i32>> = ok_three();
+    let r1: Result<Vec<i32>, i32> = vec_collect_results(three);
+    match r1 {
+        Result::Ok(out)  => {
+            assert_eq!(out.length(), 3i64);
+            assert_eq!(out.get(0i64), 0i32);
+            assert_eq!(out.get(1i64), 1i32);
+            assert_eq!(out.get(2i64), 2i32);
+        }
+        Result::Err(_)   => { assert!(false); }
+    }
+
+    // Mixed Ok/Err → Err(2) (first Err short-circuits)
+    let mix: Vec<Result<i32, i32>> = maybe_three();
+    let r2: Result<Vec<i32>, i32> = vec_collect_results(mix);
+    match r2 {
+        Result::Ok(_)    => { assert!(false); }
+        Result::Err(e)   => { assert_eq!(e, 2i32); }
+    }
+
+    // Upstream's empty-iter case (`Result<Vec<isize>, ()>` from
+    // `(0..0).map(...)`) is omitted — the deferred-with-rationale block
+    // covering CP-cm-16 / CP-cm-17 / unit-type history sits above.
+}
