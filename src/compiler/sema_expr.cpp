@@ -1569,6 +1569,33 @@ lir::LExprPtr SemaChecker::lower_deref(TinyMapView node) {
         auto ptr_read = builder().field_read(std::move(operand), "ptr", ptr_t);
         return builder().deref(std::move(ptr_read), inner);
     }
+    // User-defined Deref dispatch: `*x` for struct x where x impls Deref<T>
+    // → `*(x.deref())`. Mirrors the unary-operator-overload pattern at
+    // line ~1505. The method's `&self` receiver requires materializing
+    // &operand via addr_of_temp.
+    if (TypeRef(vt).kind() == LogosType::Kind::Struct) {
+        auto type_name = concrete_struct_name(vt);
+        auto base_name = std::string(TypeRef(vt).struct_name());
+        bool has_deref = impls_.count("Deref::" + type_name) ||
+                         (!base_name.empty() && impls_.count("Deref::" + base_name));
+        if (has_deref) {
+            auto mangled = type_name + "__deref";
+            auto ref_t = make_ref(false, vt);
+            auto recv_ref = builder().addr_of_temp(std::move(operand), false, ref_t);
+            std::vector<lir::LExprPtr> args;
+            args.push_back(std::move(recv_ref));
+            auto fit = find_func_by_base_and_signature(mangled, {ref_t}, false);
+            if (fit) {
+                auto call_e = builder().call(
+                    fit->symbol_name.empty() ? mangled : fit->symbol_name,
+                    {}, std::move(args), fit->ret_type);
+                auto pointee = TypeRef(call_e->type).pointee()
+                    ? TypeRef(call_e->type).pointee()
+                    : error_t();
+                return builder().deref(std::move(call_e), pointee);
+            }
+        }
+    }
     if (TypeRef(vt).kind() != LogosType::Kind::Ptr &&
         TypeRef(vt).kind() != LogosType::Kind::Ref &&
         TypeRef(vt).kind() != LogosType::Kind::MutRef) {
@@ -7138,6 +7165,42 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
     lir::LExprPtr idx = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code)))
         : error_expr();
+
+    // User-defined Index dispatch: `a[i]` for struct a where a impls
+    // Index<Idx, Out> → `*(a.index(i))`. Tried before the built-in
+    // integer-index check so a user impl can accept non-integer keys.
+    if (TypeRef(arr_type).kind() == LogosType::Kind::Struct) {
+        auto type_name = concrete_struct_name(arr_type);
+        auto base_name = std::string(TypeRef(arr_type).struct_name());
+        bool has_index = impls_.count("Index::" + type_name) ||
+                         (!base_name.empty() && impls_.count("Index::" + base_name));
+        if (has_index) {
+            auto mangled = type_name + "__index";
+            auto ref_t = make_ref(false, arr_type);
+            // Pick the unique 2-param candidate (recv + idx). Widen
+            // integer-literal idx to the formal type so `m[3]`-style
+            // literal indexes match.
+            const SemaFuncInfo* fit = nullptr;
+            for (auto* c : find_func_candidates(mangled)) {
+                if (c->param_types.size() == 2) { fit = c; break; }
+            }
+            if (fit) {
+                widen_int_expr(idx, fit->param_types[1], builder());
+                auto recv_ref = builder().addr_of_temp(std::move(recv), false, ref_t);
+                std::vector<lir::LExprPtr> args;
+                args.push_back(std::move(recv_ref));
+                args.push_back(std::move(idx));
+                auto call_e = builder().call(
+                    fit->symbol_name.empty() ? mangled : fit->symbol_name,
+                    {}, std::move(args), fit->ret_type);
+                auto pointee = TypeRef(call_e->type).pointee()
+                    ? TypeRef(call_e->type).pointee()
+                    : error_t();
+                return builder().deref(std::move(call_e), pointee);
+            }
+        }
+    }
+
     if (!is_integer(idx->type))
         error(std::format("array index must be integer, got {}", type_str(idx->type)));
 

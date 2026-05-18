@@ -1,0 +1,45 @@
+// Tests user-trait dispatch for `*x` (Deref) and `a[i]` (Index).
+package test;
+
+use logos.lang.ops;
+
+struct MyBox {
+    value: i32,
+}
+
+impl Deref<i32> for MyBox {
+    fn deref(&self) -> &i32 {
+        return &self.value;
+    }
+}
+
+struct StringMap {
+    keys:   [i32; 4],
+    values: [i32; 4],
+}
+
+impl Index<i32, i32> for StringMap {
+    fn index(&self, key: i32) -> &i32 {
+        let mut i: i64 = 0;
+        while i < 4 {
+            if self.keys[i] == key { return &self.values[i]; }
+            i = i + 1;
+        }
+        return &self.values[0];
+    }
+}
+
+fn main() -> i32 {
+    let b: MyBox = MyBox { value: 100 };
+    if *b != 100 { return 1; }
+
+    let m: StringMap = StringMap {
+        keys:   [10, 20, 30, 40],
+        values: [1,  2,  3,  4],
+    };
+    if m[30] != 3 { return 2; }
+    if m[10] != 1 { return 3; }
+    if m[40] != 4 { return 4; }
+
+    return 42;
+}

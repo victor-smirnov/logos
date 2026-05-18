@@ -113,3 +113,51 @@ pub trait Fn<A...> {
     type Output;
     fn call(&self, args: A...) -> Self::Output;
 }
+
+// ── Deref / DerefMut — pointer-like indirection traits ────────────────
+//
+// Mirrors `core::ops::{Deref, DerefMut}`. Rust uses an associated type
+// `type Target;`; Logos models `Target` as a trait type-parameter to
+// share the trait machinery used by `Iterator<Item>` (associated types
+// outside the Fn-family aren't wired yet).
+//
+// Semantic surface today:
+//   `*x` for `x: T` where `T: Deref<U>` → `*(x.deref())` → U.
+//   `*x = v` requires `DerefMut` (not yet auto-dispatched; write today
+//   via explicit `*x.deref_mut() = v`).
+//   Method-autoderef-through-Deref (Rust's `box.method()` calling a
+//   method on the pointee) is deferred — call explicitly via `(*box).m()`
+//   or `box.deref().m()`.
+//
+// Box<T> auto-deref for `*box` is special-cased in sema; it predates
+// these traits. New types should `impl Deref` to opt into the same
+// surface.
+
+pub trait Deref<Target> {
+    fn deref(&self) -> &Target;
+}
+
+pub trait DerefMut<Target>: Deref<Target> {
+    fn deref_mut(&mut self) -> &mut Target;
+}
+
+// ── Index / IndexMut — `[]` operator traits ──────────────────────────
+//
+// Mirrors `core::ops::{Index, IndexMut}`. Like Deref above, `Output` is
+// a trait type-parameter rather than an associated type.
+//
+// Semantic surface today:
+//   `a[i]` for `a: T` where `T: Index<I, U>` → `*(a.index(i))` → U.
+//   `a[i] = v` requires `IndexMut` (not yet auto-dispatched; write via
+//   explicit `*a.index_mut(i) = v`).
+//
+// Primitive `[i]` on arrays/slices/refs is handled directly by codegen
+// (no trait dispatch); this trait covers user types like maps.
+
+pub trait Index<Idx, Output> {
+    fn index(&self, idx: Idx) -> &Output;
+}
+
+pub trait IndexMut<Idx, Output>: Index<Idx, Output> {
+    fn index_mut(&mut self, idx: Idx) -> &mut Output;
+}
