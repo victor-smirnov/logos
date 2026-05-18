@@ -246,7 +246,7 @@ Source roots:
 | `drop_guard.rs` | — | ❌ TODO | — | `DropGuard`. |
 | `manually_drop.rs` | — | ❌ TODO | — | `ManuallyDrop<T>`. |
 | `maybe_dangling.rs` | — | ❌ TODO | — | `MaybeDangling<T>`. |
-| `maybe_uninit.rs` | — | ❌ TODO | — | `MaybeUninit<T>` — broadly useful, blocked on opt-in init semantics. |
+| `maybe_uninit.rs` | `mem/uninit/uninit.logos` | ⚠️ partial | `mem/test_harness_coretest_mem_maybe_uninit.logos` | `new`/`uninit`/`zeroed`/`write`/`as_ptr`/`as_mut_ptr`/`assume_init`/`assume_init_read`/`assume_init_ref`/`assume_init_mut`. Storage is `value: T` (not union); `uninit()` is zero-fill via alloc+memset, not true-undef. Caveat with `T: Drop` documented in module header. Slice / array surface (`transpose`/`as_bytes`/`write_copy_of_slice`/etc.) deferred. |
 | `transmutability.rs` | — | 🔁 | — | Unstable `TransmuteFrom`. |
 | `type_info.rs` | `mem/any/any.logos` | 🔁 | — | Different shape (see `any.rs`). |
 
@@ -430,7 +430,7 @@ for completeness but no Rust port is meaningful.
 Cross-referenced from individual rows above:
 1. `core::ops::{Fn,FnMut,FnOnce}` — blocks closure trait surface; affects iter `.map`/etc. taking closures vs `fn` ptrs.
 2. `core::ops::{Deref,DerefMut,Index,IndexMut}` — current method-based shape is a Logos divergence; surfaces on each port.
-3. `core::mem::MaybeUninit` — needed for any uninit-init port.
+3. ~~`core::mem::MaybeUninit`~~ — initial port landed (mem/uninit, B105). Drop-T variant + slice/array surface remain.
 4. `core::ptr` standalone `read`/`write`/`copy_nonoverlapping` / `NonNull` — needed for safe-abstraction ports.
 5. `core::num::NonZero` + `core::num::error::*` — needed for parse APIs.
 6. `core::iter` adapters: `cloned`/`copied`/`flatten`/`from_fn`/`successors`/`repeat_n` — round out adapter set.

@@ -1,0 +1,109 @@
+// Logos standard library — std.mem.uninit
+//
+// MaybeUninit<T> — wrapper for memory that may be uninitialized.
+//
+// Mirrors `core::mem::MaybeUninit` for porting purposes. Common shape:
+//
+//   let mut x: MaybeUninit<i32> = MaybeUninit::<i32>::uninit();
+//   x.write(42i32);
+//   let v: i32 = unsafe { x.assume_init() };
+//
+// Surface ported: `new` / `uninit` / `zeroed` / `write` / `as_ptr` /
+// `as_mut_ptr` / `assume_init` / `assume_init_read` / `assume_init_ref` /
+// `assume_init_mut`.
+//
+// Lives in mem-tier (not lang) because `zeroed`/`uninit` use the
+// allocator (alloc + zero_bytes + dealloc) to produce a zero-filled
+// value of type `T` without taking a `T` by-value first — Logos has no
+// "leave bytes undef" primitive at the type level.
+//
+// Divergence from Rust:
+//   - Storage is the inner `value: T` field, not a `union { uninit, T }`.
+//     `uninit()` returns memory zero-filled via the workaround above; the
+//     contract is identical (caller MUST initialize before reading).
+//   - If `T: Drop`, MaybeUninit<T> still has a droppable `value` field;
+//     Logos's auto-field-drop would call drop on the zero-shaped value
+//     if MaybeUninit goes out of scope without `assume_init`. Workaround
+//     for the initial port: use only with `T: Copy`, OR explicitly
+//     consume via `assume_init` before drop. A byte-storage form (no
+//     droppable field) would need per-instantiation const-array sizing
+//     that the language doesn't currently support.
+
+package logos.mem.uninit;
+
+use logos.mem.mem;
+
+pub struct MaybeUninit<T> {
+    value: T,
+}
+
+impl<T> MaybeUninit<T> {
+    // Wrap an initialized value.
+    pub fn new(val: T) -> MaybeUninit<T> {
+        return MaybeUninit { value: val };
+    }
+
+    // Zero-filled storage. Always sound to read as bytes; reading as `T`
+    // is sound only when zero is a valid bit-pattern for T (true for
+    // integer / pointer-typed primitives; not generally for enums / refs).
+    pub fn zeroed() -> MaybeUninit<T> {
+        unsafe {
+            let sz: i64 = sizeof::<MaybeUninit<T>>();
+            let raw: *mut u8 = alloc(sz);
+            zero_bytes(raw, sz);
+            let m: MaybeUninit<T> = *(raw as *const MaybeUninit<T>);
+            dealloc(raw);
+            return m;
+        }
+    }
+
+    // Caller swears to write before read. In Logos this is the same as
+    // `zeroed()` (no "true undef" representation); the contract / safety
+    // notes are inherited from Rust.
+    pub fn uninit() -> MaybeUninit<T> {
+        return MaybeUninit::<T>::zeroed();
+    }
+
+    // Initialize the slot with `val` and hand back a `&mut T` for further
+    // mutation. Subsequent `assume_init*` calls are safe (provided no
+    // intervening uninit-write happens).
+    pub fn write(self: &mut MaybeUninit<T>, val: T) -> &mut T {
+        self.value = val;
+        return &mut self.value;
+    }
+
+    // Pointer to the underlying storage. Safe to call; using the pointer
+    // before initialization is the caller's responsibility.
+    pub fn as_ptr(&self) -> *const T {
+        unsafe { return (&self.value) as *const T; }
+    }
+
+    pub fn as_mut_ptr(self: &mut MaybeUninit<T>) -> *mut T {
+        unsafe { return (&mut self.value) as *mut T; }
+    }
+
+    // Consume the wrapper and return the inner value. Caller MUST have
+    // written a valid `T` first (via `write`, `as_mut_ptr` + ptr-write,
+    // or `new`). Reading from a freshly-uninited MaybeUninit is UB by
+    // Rust's contract; in Logos the bytes are zero so behavior is
+    // defined but the value is whatever the zero bit-pattern means for T.
+    pub unsafe fn assume_init(self: MaybeUninit<T>) -> T {
+        return self.value;
+    }
+
+    // Same as assume_init but takes `&self`. Useful when T is `Copy`
+    // (Rust permits this for any T; Logos shadows the same shape).
+    pub unsafe fn assume_init_read(&self) -> T {
+        unsafe {
+            return *((&self.value) as *const T);
+        }
+    }
+
+    pub unsafe fn assume_init_ref(&self) -> &T {
+        return &self.value;
+    }
+
+    pub unsafe fn assume_init_mut(self: &mut MaybeUninit<T>) -> &mut T {
+        return &mut self.value;
+    }
+}

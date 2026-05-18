@@ -1,0 +1,10 @@
+// MaybeUninit<T> — basic new / write / assume_init cycle.
+
+package uninit_basic;
+
+use logos.mem.uninit;
+
+fn main() -> i32 {
+    let m: MaybeUninit<i32> = MaybeUninit::new(7i32);
+    unsafe { return m.assume_init(); }
+}

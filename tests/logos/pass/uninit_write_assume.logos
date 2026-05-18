@@ -1,0 +1,11 @@
+// MaybeUninit<T> — uninit() / write() / assume_init() — deferred init pattern.
+
+package uninit_write_assume;
+
+use logos.mem.uninit;
+
+fn main() -> i32 {
+    let mut m: MaybeUninit<i32> = MaybeUninit::<i32>::uninit();
+    m.write(42i32);
+    unsafe { return m.assume_init(); }
+}

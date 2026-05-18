@@ -1,0 +1,14 @@
+// MaybeUninit<T>::as_mut_ptr() — write through raw ptr (gradual init).
+
+package uninit_as_mut_ptr;
+
+use logos.mem.uninit;
+
+fn main() -> i32 {
+    let mut m: MaybeUninit<i64> = MaybeUninit::<i64>::uninit();
+    unsafe {
+        let p: *mut i64 = m.as_mut_ptr();
+        p[0] = 123i64;
+        return m.assume_init() as i32;
+    }
+}

@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/mem.rs (assume_init_good).
+//
+// Modifications vs upstream:
+//   - `const TRUE: bool = unsafe { ... };` — Logos has no const-eval
+//     channel for arbitrary fn calls; the const becomes a runtime let.
+//     The `assume_init` call still runs at runtime, which is what the
+//     test exercises.
+//   - `uninit_array_assume_init` not ported here — relies on
+//     `[MaybeUninit; N].transpose()` which is a separate stdlib
+//     addition (array-of-MaybeUninit ↔ MaybeUninit-of-array view).
+
+package test_harness_coretest_mem_maybe_uninit;
+
+use std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.panic;
+use logos.mem.uninit;
+
+#[test]
+fn assume_init_good() {
+    let t: bool = unsafe { MaybeUninit::<bool>::new(true).assume_init() };
+    assert!(t);
+}

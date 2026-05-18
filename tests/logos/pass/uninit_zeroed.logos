@@ -1,0 +1,14 @@
+// MaybeUninit<T>::zeroed() — verify zero bit-pattern.
+
+package uninit_zeroed;
+
+use logos.mem.uninit;
+
+fn main() -> i32 {
+    let z: MaybeUninit<u64> = MaybeUninit::<u64>::zeroed();
+    unsafe {
+        let v: u64 = z.assume_init();
+        if v == 0u64 { return 0i32; }
+        return 1i32;
+    }
+}
