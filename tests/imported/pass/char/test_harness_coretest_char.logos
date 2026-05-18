@@ -1,0 +1,120 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/char.rs (subset).
+//
+// Ported tests:
+//   - test_is_whitespace (faithful semantically; the upstream U+2007
+//     figure-space char literal `'\u{2007}'` is constructed via
+//     `(0x2007u32 as char)` because Logos's char-literal lexer only
+//     accepts single-char `\X` escapes — `\u{HEX}` and `\xNN` aren't
+//     in the grammar yet).
+//   - test_is_control (faithful for the ASCII range; the upstream
+//     '\u{92}' (Unicode C1 control) assertion is dropped — Logos's
+//     `char.is_control` is ASCII-only).
+//   - test_is_numeric (faithful for the ASCII range; the upstream
+//     '¾' (U+00BE) assertion is dropped — Logos's `char.is_numeric`
+//     is ASCII-only).
+//   - test_to_digit (faithful — all upstream cases covered, including
+//     the radix-36 alphabet and the boundary chars).
+//
+// Modifications vs upstream:
+//   - `assert_eq!(opt, Some(x))` → `match opt { Option::Some(v) =>
+//     assert_eq!(v, x), Option::None => panic("...") }` because
+//     Option<u32> doesn't yet impl Eq (SL-sl-12).
+//   - `assert!(!c.is_X())` → `assert!(!(c.is_X()))` — `!` immediately
+//     before a `'..'` char literal in `assert!` macro args confuses
+//     the macro arg parser; parens disambiguate.
+//   - Non-printable / non-ASCII Unicode codepoints via `(0xNNu32 as
+//     char)` since `\u{...}` escape isn't in the char-literal lexer.
+
+package test_harness_coretest_char;
+
+use std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.panic;
+use logos.lang.option;
+use logos.lang.char;
+
+#[test]
+fn test_is_whitespace() {
+    assert!(' '.is_whitespace());
+    let figure_space: char = 0x2007u32 as char;
+    assert!(figure_space.is_whitespace());
+    assert!('\t'.is_whitespace());
+    assert!('\n'.is_whitespace());
+    assert!(!('a'.is_whitespace()));
+    assert!(!('_'.is_whitespace()));
+    assert!(!('\0'.is_whitespace()));
+}
+
+#[test]
+fn test_is_control() {
+    let c0:   char = 0x00u32 as char;
+    let c3:   char = 0x03u32 as char;
+    let c6:   char = 0x06u32 as char;
+    let c9:   char = 0x09u32 as char;
+    let c7f:  char = 0x7Fu32 as char;
+    let c20:  char = 0x20u32 as char;
+    let c55:  char = 0x55u32 as char;
+    let c68:  char = 0x68u32 as char;
+    assert!(c0.is_control());
+    assert!(c3.is_control());
+    assert!(c6.is_control());
+    assert!(c9.is_control());
+    assert!(c7f.is_control());
+    // '\u{92}' (Unicode C1 control) — dropped, Logos is ASCII-only.
+    assert!(!(c20.is_control()));
+    assert!(!(c55.is_control()));
+    assert!(!(c68.is_control()));
+}
+
+#[test]
+fn test_is_numeric() {
+    assert!('2'.is_numeric());
+    assert!('7'.is_numeric());
+    // '¾' (U+00BE) — dropped, Logos is_numeric is ASCII-only.
+    assert!(!('c'.is_numeric()));
+    assert!(!('i'.is_numeric()));
+    assert!(!('z'.is_numeric()));
+    assert!(!('Q'.is_numeric()));
+}
+
+fn expect_some(d: Option<u32>, want: u32) {
+    match d {
+        Option::Some(v) => { assert_eq!(v, want); }
+        Option::None    => { panic("expected Some"); }
+    }
+}
+
+fn expect_none(d: Option<u32>) {
+    match d {
+        Option::Some(_) => { panic("expected None"); }
+        Option::None    => {}
+    }
+}
+
+#[test]
+fn test_to_digit() {
+    expect_some('0'.to_digit(10u32), 0u32);
+    expect_some('1'.to_digit(2u32),  1u32);
+    expect_some('2'.to_digit(3u32),  2u32);
+    expect_some('9'.to_digit(10u32), 9u32);
+    expect_some('a'.to_digit(16u32), 10u32);
+    expect_some('A'.to_digit(16u32), 10u32);
+    expect_some('b'.to_digit(16u32), 11u32);
+    expect_some('B'.to_digit(16u32), 11u32);
+    expect_some('A'.to_digit(36u32), 10u32);
+    expect_some('z'.to_digit(36u32), 35u32);
+    expect_some('Z'.to_digit(36u32), 35u32);
+    expect_none('['.to_digit(36u32));
+    expect_none('`'.to_digit(36u32));
+    expect_none('{'.to_digit(36u32));
+    expect_none('$'.to_digit(36u32));
+    expect_none('@'.to_digit(16u32));
+    expect_none('G'.to_digit(16u32));
+    expect_none('g'.to_digit(16u32));
+    expect_none(' '.to_digit(10u32));
+    expect_none('/'.to_digit(10u32));
+    expect_none(':'.to_digit(10u32));
+    expect_none(':'.to_digit(11u32));
+}
