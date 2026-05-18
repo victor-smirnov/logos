@@ -4074,6 +4074,32 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             mark_moved_expr(expr_ref_of(*a));
         }
     };
+    // Mirror of track_args_moved for the receiver: when the resolved
+    // method takes `self` by-value (formal self type is not Ref/MutRef/Ptr),
+    // the call consumes ownership of the receiver. Without marking it
+    // moved, scope-end auto-drop fires Drop on the caller's binding —
+    // causing double-Drop for any method that internally transfers
+    // ownership to a returned struct (e.g. `Vec::into_iter` leaks
+    // `self.ptr` into `VecIter`; the auto-drop then frees the buffer
+    // out from under the returned iterator).
+    auto track_recv_moved = [this](const lir::LExprPtr& recv, TypeRef self_formal) {
+        if (!recv || !self_formal) return;
+        auto k = TypeRef(self_formal).kind();
+        if (k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef ||
+            k == LogosType::Kind::Ptr) return;  // by-ref / by-ptr: no move
+        // Trait-method formal `self: Self` shows up as TypeVar — at this site
+        // we don't know whether the resolved impl will actually move. The
+        // canonical example is Logos's `trait Clone { fn clone(self: Self) -> Self; }`
+        // where every impl just returns a fresh value derived from self,
+        // typically leaving the caller's binding usable. Keeping the conservative
+        // skip here matches existing stdlib patterns
+        // (e.g. `let copy = iter.clone(); return CycleIter { orig: iter, … }`).
+        // Concrete-receiver paths (e.g. `vec.into_iter()` → formal `Vec<T>`)
+        // resolve formal0 to Struct/Enum and ARE marked.
+        if (k == LogosType::Kind::TypeVar) return;
+        if (!is_move_type(recv->type)) return;
+        mark_moved_expr(expr_ref_of(*recv));
+    };
 
     // Optional explicit method-level turbofish: `recv.method::<T1, T2>(args)`.
     // The turbofish-bearing METHOD_CALL alt wraps ARGS as { ITEMS: [...] }
@@ -4989,6 +5015,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 }
             }
             track_args_moved(arg_exprs);
+            if (chosen_method && !chosen_method->param_types.empty())
+                track_recv_moved(mc.receiver, chosen_method->param_types[0]);
             mc.args     = std::move(arg_exprs);
             mc.vtable_index = -1;
             mc.resolved_type = "";
@@ -6103,6 +6131,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 TypeRef(ta).kind() == LogosType::Kind::Error) { all_concrete = false; break; }
         if (all_concrete) {
             track_args_moved(arg_exprs);
+            if (!fi.param_types.empty()) track_recv_moved(recv, fi.param_types[0]);
             std::vector<lir::LExprPtr> pargs;
             pargs.push_back(std::move(recv));
             for (auto& a : arg_exprs) pargs.push_back(std::move(a));
@@ -6166,6 +6195,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         : subst_type_sema(fi.ret_type, struct_subst, lt_subst);
 
     track_args_moved(arg_exprs);
+    if (!fi.param_types.empty()) track_recv_moved(recv, fi.param_types[0]);
     lir::EMethodCall mc;
     mc.receiver     = std::move(recv);
     mc.method       = std::string(method_name);

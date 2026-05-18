@@ -185,14 +185,17 @@ fn test_fmt_default() {
 }
 
 // Rust's `test_collect` uses `.collect::<Result<Vec<isize>, ()>>()` —
-// trait-static dispatch on an enum tparam (CP-cm-16). The partial-spec
-// `impl<T, E> FromIterator<Result<T, E>> for Result<Vec<T>, E>` is now
-// present in stdlib (mem/collections/vec) and dispatches correctly
-// (CP-cm-16 follow-up). Driving it through `.collect()` is blocked on a
-// separate nested generic enum mangling bug (Option<Result<T, E>> in
-// `it.next()`; see baghunt_mono_nested_generic_enum.md). Until that
-// closes, this test uses the free-fn `vec_collect_results` shim — the
-// same body, takes a Vec directly, no Iterator in the chain.
+// trait-static dispatch on an enum tparam (CP-cm-16). End-to-end:
+//   1. Vec.into_iter() consumes self (move-tracking through by-value
+//      receivers fires correctly, suppressing the caller's auto-Drop),
+//      yielding a VecIter that owns the buffer.
+//   2. .collect::<Result<Vec<i32>, i32>>() dispatches through Iterator's
+//      default-method to `Result::from_iter(self)`, picking up the
+//      partial-spec `impl<T, E> FromIterator<Result<T, E>> for
+//      Result<Vec<T>, E>` (CP-cm-16 follow-up: pattern-unification at
+//      mono-clone time binds T=i32 from Vec<T> against Vec<i32>).
+//   3. from_iter's body walks `it.next()` (typed Option<Result<i32, i32>> —
+//      formerly broken nested-enum hint propagation, fixed too).
 //
 // Result inspection uses `match` not `r.is_ok()` (CP-cm-17 — by-value
 // self would consume the Result, double-freeing the Vec payload).
@@ -217,7 +220,7 @@ fn maybe_three() -> Vec<Result<i32, i32>> {
 fn test_collect() {
     // All-Ok → Ok([10, 20, 30])
     let three: Vec<Result<i32, i32>> = ok_three();
-    let r1: Result<Vec<i32>, i32> = vec_collect_results(three);
+    let r1: Result<Vec<i32>, i32> = three.into_iter().collect::<Result<Vec<i32>, i32>>();
     match r1 {
         Result::Ok(out)  => {
             assert_eq!(out.length(), 3i64);
@@ -230,7 +233,7 @@ fn test_collect() {
 
     // Mixed Ok/Err → Err(2) (first Err short-circuits)
     let mix: Vec<Result<i32, i32>> = maybe_three();
-    let r2: Result<Vec<i32>, i32> = vec_collect_results(mix);
+    let r2: Result<Vec<i32>, i32> = mix.into_iter().collect::<Result<Vec<i32>, i32>>();
     match r2 {
         Result::Ok(_)    => { assert!(false); }
         Result::Err(e)   => { assert_eq!(e, 2i32); }

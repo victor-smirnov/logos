@@ -178,7 +178,10 @@ impl<T> Vec<T> {
 
     // Return a read-only iterator over elements.
     pub fn iter(&self) -> VecIter<T> {
-        return VecIter { data: self.ptr as *const T, len: self.len, idx: 0, back_idx: self.len };
+        return VecIter {
+            data: self.ptr as *const T, len: self.len,
+            idx: 0i64, back_idx: self.len, owns_buf: false,
+        };
     }
 
     // Return a mutable iterator yielding &mut T.
@@ -194,6 +197,11 @@ pub struct VecIter<T> {
     len:  i64,
     idx:  i64,
     back_idx: i64,
+    // Ownership marker. true when this iter owns `data` (constructed by
+    // `Vec::into_iter` consuming Self) — Drop will dealloc the buffer.
+    // false when borrowing into another Vec's storage (`&Vec::into_iter`,
+    // `Vec::iter()`) — Drop is a no-op.
+    owns_buf: bool,
 }
 
 impl<T> Iterator<T> for VecIter<T> {
@@ -227,6 +235,28 @@ impl<T> ExactSizeIterator<T> for VecIter<T> {
     fn len(&self) -> i64 { return self.back_idx - self.idx; }
 }
 
+// VecIter owns the buffer when constructed by `Vec::into_iter`
+// (consuming form). Drop walks un-yielded elements (firing T's Drop on
+// each, mirroring Vec::drop) and deallocates. Borrowing iters (built by
+// `Vec::iter` or `&Vec::into_iter`) carry `owns_buf=false` and Drop
+// no-ops.
+impl<T> Drop for VecIter<T> {
+    fn drop(self: VecIter<T>) {
+        if !self.owns_buf { return; }
+        unsafe {
+            let p: *mut T = self.data as *mut T;
+            if p != 0 as *mut T {
+                let mut i: i64 = self.idx;
+                while i < self.back_idx {
+                    let _x: T = p[i];   // move-and-drop on scope exit
+                    i = i + 1i64;
+                }
+                dealloc(p as *mut u8);
+            }
+        }
+    }
+}
+
 // ── VecIterMut<T> ─────────────────────────────────────────────────────────────
 
 pub struct VecIterMut<T> {
@@ -253,14 +283,29 @@ impl<T> Iterator<&mut T> for VecIterMut<T> {
 impl<T> IntoIterator<T> for Vec<T> {
     type Iter = VecIter<T>;
     fn into_iter(self: Vec<T>) -> VecIter<T> {
-        return VecIter { data: self.ptr as *const T, len: self.len, idx: 0, back_idx: self.len };
+        // Transfer buffer ownership to the iterator (owns_buf=true): the
+        // iterator's Drop frees the heap. Suppress self's auto-Drop by
+        // zeroing self.ptr through unsafe pointer aliasing — Vec::drop's
+        // null-ptr guard then no-ops, avoiding a double-free.
+        let it: VecIter<T> = VecIter {
+            data: self.ptr as *const T, len: self.len,
+            idx: 0i64, back_idx: self.len, owns_buf: true,
+        };
+        unsafe {
+            let pp: *mut *mut T = (&self.ptr) as *const *mut T as *mut *mut T;
+            *pp = 0 as *mut T;
+        }
+        return it;
     }
 }
 
 impl<T> IntoIterator<T> for &Vec<T> {
     type Iter = VecIter<T>;
     fn into_iter(self: &Vec<T>) -> VecIter<T> {
-        return VecIter { data: self.ptr as *const T, len: self.len, idx: 0, back_idx: self.len };
+        return VecIter {
+            data: self.ptr as *const T, len: self.len,
+            idx: 0i64, back_idx: self.len, owns_buf: false,
+        };
     }
 }
 
@@ -284,16 +329,8 @@ impl<T> FromIterator<T> for Vec<T> {
 // is `Result<Vec<T>, E>` (partial spec — T appears inside Vec, not as
 // the receiver's first type-arg directly). Mono unifies the pattern
 // against the concrete receiver `Result<Vec<i32>, i32>` to bind T=i32
-// (CP-cm-16 follow-up).
-//
-// Direct invocation via `Result::<Vec<i32>, i32>::build(vec)`-shaped
-// dispatch works end-to-end (regression: tests/logos/pass/
-// partial_spec_impl_for_enum.logos). Driving it through Iterator's
-// `.collect()` chain currently segfaults because the body's `it.next()`
-// returns `Option<Result<T,E>>` — a nested generic enum that triggers
-// the mangling bug in baghunt_mono_nested_generic_enum.md. The free
-// fn `vec_collect_results` below is the workaround used by
-// result::test_collect until that gap closes.
+// (CP-cm-16 follow-up). Driven end-to-end by result::test_collect via
+// `vec.into_iter().collect::<Result<Vec<i32>, i32>>()`.
 impl<T, E> FromIterator<Result<T, E>> for Result<Vec<T>, E> {
     fn from_iter<I: Iterator<Result<T, E>>>(iter: I) -> Result<Vec<T>, E> {
         let mut it: I = iter;
@@ -310,22 +347,6 @@ impl<T, E> FromIterator<Result<T, E>> for Result<Vec<T>, E> {
             }
         }
     }
-}
-
-// Free-fn shim used by result::test_collect until nested generic enum
-// mangling lands. Same behavior as the impl above, takes a Vec directly.
-pub fn vec_collect_results<T, E>(input: Vec<Result<T, E>>) -> Result<Vec<T>, E> {
-    let mut out: Vec<T> = vec_new::<T>();
-    let mut i: i64 = 0i64;
-    while i < input.length() {
-        let r: Result<T, E> = input.get(i);
-        match r {
-            Result::Ok(x)  => { out.push(x); }
-            Result::Err(e) => { return Result::Err(e); }
-        }
-        i = i + 1i64;
-    }
-    return Result::Ok(out);
 }
 
 // Linear-search contains; requires T: Eq (free function to avoid bound on main impl).
