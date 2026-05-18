@@ -48,7 +48,7 @@ Source roots:
 | `internal_macros.rs` | — | ➖ | — | Internal `forward_ref_*!` macros. |
 | `intrinsics/` | compiler builtins in `src/compiler/*` | 🔁 | — | All `intrinsics::*` are compiler-emitted; `popcount_u64`/`leading_zeros_u64`/`sqrt`/etc. exposed via `lang/cmp/ord.logos` + `lang/math/math.logos`. |
 | `io/` | `std/io/` (read/write/buffered/bytes/fs/net/pipe/http/linux-uring) | ⚠️ partial | — | core::io is just `Read`/`Write` + `BorrowedBuf`; Logos's `std/io` is closer to `std::io` (sockets, fs, http, io_uring). `Read`/`Write` traits in `std/io/read|write` but no `BorrowedBuf`. |
-| `iter/` | `lang/iter/iter.logos` (1.8K LOC) | ⚠️ partial | 41 `iterators/test_harness_coretest_iter_*.logos` files | Most adapters ported (map/filter/filter_map/scan/fuse/take/skip/take_while/skip_while/step_by/inspect/peekable/once/empty/repeat/cycle/chain/zip/enumerate/rev). `flatten`/`array_chunks`/`map_windows`/`intersperse`/`successors`/`from_fn`/`repeat_with` absent. `DoubleEndedIterator`/`ExactSizeIterator` present; `FusedIterator`/`TrustedLen` absent. |
+| `iter/` | `lang/iter/iter.logos` (1.9K LOC) | ⚠️ partial | 41 `iterators/test_harness_coretest_iter_*.logos` files | Most adapters ported (map/filter/filter_map/scan/fuse/take/skip/take_while/skip_while/step_by/inspect/peekable/once/empty/repeat/cycle/chain/zip/enumerate/rev/from_fn/repeat_n). `flatten`/`array_chunks`/`map_windows`/`intersperse`/`successors` absent (successors blocked on [[baghunt-mono-fn-ptr-field-typevar]]). `cloned`/`copied` intentionally omitted (Logos iters yield by value, not refs). `DoubleEndedIterator`/`ExactSizeIterator` present; `FusedIterator`/`TrustedLen` absent. |
 | `lib.miri.rs` / `lib.rs` | `stdlib/logos.module` | ➖ | — | Crate entry. |
 | `macros/` | `std/fmt/fmt.logos` (metacalls) + grammar macros | 🔁 | `macros/test_harness_coretest_assert_macros.logos` | `assert!`/`assert_eq!`/`assert_ne!`/`println!`/etc. implemented as metaprog handlers. `macro_rules!` (MC-mc-01) still Open. |
 | `marker.rs` | `lang/marker/marker.logos` | ⚠️ partial | — | `Sized` + `Never` exposed. `Send`/`Sync` referenced (e.g. `Arc`) but not declared. `Unpin`/`PhantomData`/`PhantomPinned`/`Destruct`/`Tuple` absent. |
@@ -433,7 +433,7 @@ Cross-referenced from individual rows above:
 3. ~~`core::mem::MaybeUninit`~~ — initial port landed (mem/uninit, B105). Drop-T variant + slice/array surface remain.
 4. ~~`core::ptr` standalone `read`/`write`/`copy_nonoverlapping` / `NonNull`~~ — initial port landed (`lang/ptr`, follow-up to B105). Volatile/unaligned/provenance variants remain.
 5. ~~`core::num::NonZero` + `core::num::error::*`~~ — landed (`lang/num/nonzero`, `lang/num/error`, follow-up to B105). NonZero method surface (count_ones/leading_zeros/checked_*) deferred.
-6. `core::iter` adapters: `cloned`/`copied`/`flatten`/`from_fn`/`successors`/`repeat_n` — round out adapter set.
+6. ~~`core::iter` adapters: `from_fn`/`repeat_n`~~ — landed (2026-05-18). `cloned`/`copied` intentionally omitted (Logos iters yield by value). `successors` deferred → [[baghunt-mono-fn-ptr-field-typevar]]. `flatten` deferred → needs Fn-family traits (#1).
 7. `core::str::{Chars,CharIndices,Bytes,Lines}` + `Pattern` trait — string iteration parity.
 8. `core::slice` method surface (`split_at`/`chunks`/`windows`/`sort`/`binary_search`) — currently iter-only.
 9. `core::cell::{Cell,RefCell,OnceCell,LazyCell}` — interior mutability beyond `UnsafeCell`.

@@ -1,0 +1,32 @@
+// iter_from_fn: build an iterator from a fn ptr returning Option<T>.
+package iter_from_fn_test;
+
+use logos.lang.iter;
+use logos.lang.option;
+
+// State held in a static-ish module global isn't available; instead this
+// emulates a finite source via fn-local static state in two helper fns.
+fn next3() -> Option<i32> {
+    // We can't capture state in a non-closure fn, so return a fixed
+    // None to drain immediately — verifies the wiring.
+    return Option::None;
+}
+
+fn yield_one() -> Option<i32> {
+    return Option::Some(7);
+}
+
+unsafe fn main() -> i32 {
+    // 1. Drain-immediately: from_fn(|| None) yields nothing → count=0
+    let it = iter_from_fn::<i32>(next3);
+    let c = iter_count::<FromFnIter<i32>, i32>(it);
+    if c != 0 as i64 { return 1; }
+
+    // 2. Take 5 from an "always-Some(7)" source via iter_take.
+    let it2 = iter_from_fn::<i32>(yield_one);
+    let t = iter_take::<FromFnIter<i32>, i32>(it2, 5 as i64, 0);
+    let s = iter_sum_i32::<TakeIter<FromFnIter<i32>, i32>>(t);
+    if s != 35 { return 2; }   // 7*5 = 35
+
+    return 42;
+}

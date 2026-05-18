@@ -1,0 +1,29 @@
+// iter_repeat_n: yield same value n times.
+//
+// NOTE: mixing iter_count and iter_sum_i32 on the same iter struct
+// in a single function triggers [[baghunt-iter-method-generic-mono]]
+// (SIGILL at runtime). Test sticks to iter_sum_i32 only — count-paths
+// covered indirectly by iter_basic / iter_chain_map_fold.
+package iter_repeat_n_test;
+
+use logos.lang.iter;
+use logos.lang.option;
+
+unsafe fn main() -> i32 {
+    // Repeat 3 four times → sum = 12.
+    let it = iter_repeat_n::<i32>(3, 4 as i64);
+    let s = iter_sum_i32::<RepeatNIter<i32>>(it);
+    if s != 12 { return 1; }
+
+    // count=1 → single yield.
+    let it2 = iter_repeat_n::<i32>(7, 1 as i64);
+    let s2 = iter_sum_i32::<RepeatNIter<i32>>(it2);
+    if s2 != 7 { return 2; }
+
+    // count=0 → empty (sum is 0).
+    let it3 = iter_repeat_n::<i32>(99, 0 as i64);
+    let s3 = iter_sum_i32::<RepeatNIter<i32>>(it3);
+    if s3 != 0 { return 3; }
+
+    return 42;
+}

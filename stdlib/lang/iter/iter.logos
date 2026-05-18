@@ -1811,3 +1811,78 @@ pub unsafe fn iter_sum_i64<I: Iterator<i64>>(iter: I) -> i64 {
     }
     return s;
 }
+
+// ────────────────────────────────────────────────────────────────────
+// Adapters: cloned / copied / from_fn / successors / repeat_n
+// ────────────────────────────────────────────────────────────────────
+//
+// All follow the existing pattern: per-adapter struct + impl Iterator +
+// free-fn constructor. Closure-taking adapters (from_fn, successors)
+// accept `fn(...) -> ...` ptr; capturing closures are not yet usable
+// until Fn-family traits land at the API surface (priority #1).
+
+// NOTE — `cloned`/`copied` adapters are intentionally omitted.
+// Rust's Cloned/Copied bridge `Iterator<Item=&T>` → `Iterator<Item=T>`
+// because Rust's slice-style iterators yield references by default.
+// In Logos, SliceIter<T> already yields T by value (Iterator yields
+// owned values throughout the stdlib), so these adapters would be
+// degenerate identity wrappers. Skipped.
+
+// ── FromFn<T> — iterator from a closure ─────────────────────────────
+//
+// Mirrors `core::iter::from_fn`. The closure is called for each `.next()`;
+// it returns Option<T> (None ends the iteration).
+
+pub struct FromFnIter<T> {
+    pub f: fn() -> Option<T>,
+}
+
+impl<T> Iterator<T> for FromFnIter<T> {
+    fn next(self: &mut FromFnIter<T>) -> Option<T> {
+        let f = self.f;
+        return f();
+    }
+}
+
+pub fn iter_from_fn<T>(f: fn() -> Option<T>) -> FromFnIter<T> {
+    return FromFnIter { f: f };
+}
+
+// NOTE — `iter_successors` is currently deferred. The natural shape
+//
+//   struct SuccessorsIter<T> { next_val: Option<T>, succ: fn(T) -> Option<T> }
+//
+// trips a mono bug: when T is substituted (e.g. i32), the call-site
+// `succ(v)` keeps the fn-ptr formal-arg type generic (ptr) while v is
+// concrete (i32), and mlir-gen fails with "expected '!llvm.ptr', got
+// 'i32'". See [[baghunt-mono-fn-ptr-field-typevar]]. Re-add once that
+// lands (or once Fn-family traits land in priority #1 and we route
+// closures through them).
+
+// ── RepeatN<T> — yield same value n times ──────────────────────────
+//
+// Mirrors `core::iter::repeat_n`. Bound is `T: Copy` (vs Rust's
+// `T: Clone`): trait-method dispatch on `T: Clone` from inside a
+// generic Iterator impl hits a mono crash today
+// ([[baghunt-iter-method-generic-mono]]). When that lands we can
+// relax to Clone and call .clone() per yield.
+
+pub struct RepeatNIter<T> {
+    pub count: i64,
+    pub value: T,
+}
+
+impl<T: Copy> Iterator<T> for RepeatNIter<T> {
+    fn next(self: &mut RepeatNIter<T>) -> Option<T> {
+        if self.count <= 0i64 { return Option::None; }
+        self.count = self.count - 1i64;
+        unsafe {
+            let v_copy: T = *((&self.value) as *const T);
+            return Option::Some(v_copy);
+        }
+    }
+}
+
+pub fn iter_repeat_n<T: Copy>(value: T, count: i64) -> RepeatNIter<T> {
+    return RepeatNIter { value: value, count: count };
+}
