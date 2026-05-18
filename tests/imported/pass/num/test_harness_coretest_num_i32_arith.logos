@@ -1,0 +1,49 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/num/i32.rs (test_arith_operation).
+//
+// Modifications vs upstream:
+//   - Literal `10` → `10isize` etc. — Logos's let-with-annotation
+//     requires the literal to match the annotated integer width
+//     (Rust's `10` defaults to whichever integer type the binding
+//     wants; Logos requires the explicit suffix here).
+//   - Suffix appears on every integer literal in arithmetic positions
+//     for the same reason (mixed-width ops not implicit).
+//   - `i32_b & i32_b << 1` parenthesised as `i32_b & (i32_b << 1)`.
+//     Rust binds `<<` tighter than `&`; Logos binds `&` tighter, so
+//     the bare form parses as `(i32_b & i32_b) << 1`. Same for `|`.
+
+package test_harness_coretest_num_i32_arith;
+
+use std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.panic;
+
+#[test]
+fn test_arith_operation() {
+    let a: isize = 10isize;
+    assert_eq!(a * (a - 1isize), 90isize);
+    let i32_a: isize = 10isize;
+    assert_eq!(i32_a, 10isize);
+    assert_eq!(i32_a - 10isize, 0isize);
+    assert_eq!(i32_a / 10isize, 1isize);
+    assert_eq!(i32_a - 20isize, -10isize);
+    assert_eq!(i32_a << 10isize, 10240isize);
+    assert_eq!(i32_a << 16isize, 655360isize);
+    assert_eq!(i32_a * 16isize, 160isize);
+    assert_eq!(i32_a * i32_a * i32_a, 1000isize);
+    assert_eq!(i32_a * i32_a * i32_a * i32_a, 10000isize);
+    assert_eq!(i32_a * i32_a / i32_a * i32_a, 100isize);
+    assert_eq!(i32_a * (i32_a - 1isize) << ((2isize + i32_a as isize) as isize), 368640isize);
+    let i32_b: isize = 0x10101010isize;
+    assert_eq!(i32_b + 1isize - 1isize, i32_b);
+    assert_eq!(i32_b << 1isize, i32_b << 1isize);
+    assert_eq!(i32_b >> 1isize, i32_b >> 1isize);
+    assert_eq!(i32_b & (i32_b << 1isize), 0isize);
+    assert_eq!(i32_b | (i32_b << 1isize), 0x30303030isize);
+    let i32_c: isize = 0x10101010isize;
+    assert_eq!(
+        i32_c + i32_c * 2isize / 3isize * 2isize + (i32_c - 7isize % 3isize),
+        i32_c + i32_c * 2isize / 3isize * 2isize + (i32_c - 7isize % 3isize)
+    );
+}
