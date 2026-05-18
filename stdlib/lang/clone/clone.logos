@@ -1,29 +1,34 @@
 // Logos standard library — std.clone
 //
-// Clone — explicit deep copy.
+// Clone — explicit deep copy (Rust-style: `fn clone(&self) -> Self`).
 // Copy  — marker trait for types that can be bitwise-copied implicitly.
+//
+// `clone` takes `&self` (not by-value `self: Self`) so the caller's binding
+// stays usable after the call — mirrors Rust and lets generic adapters that
+// need both the original and a clone (e.g. CycleIter) write the natural
+// `let copy = iter.clone(); use(iter, copy)`.
 
 package logos.lang.clone;
 
 pub trait Clone {
-    fn clone(self: Self) -> Self;
+    fn clone(&self) -> Self;
 }
 
 // Copy is a marker trait — no methods.
 pub trait Copy {}
 
-impl Clone for i8    { fn clone(self: i8)    -> i8    { return self; } }
-impl Clone for i16   { fn clone(self: i16)   -> i16   { return self; } }
-impl Clone for i32   { fn clone(self: i32)   -> i32   { return self; } }
-impl Clone for i64   { fn clone(self: i64)   -> i64   { return self; } }
-impl Clone for u8    { fn clone(self: u8)    -> u8    { return self; } }
-impl Clone for u16   { fn clone(self: u16)   -> u16   { return self; } }
-impl Clone for u32   { fn clone(self: u32)   -> u32   { return self; } }
-impl Clone for u64   { fn clone(self: u64)   -> u64   { return self; } }
-impl Clone for usize { fn clone(self: usize) -> usize { return self; } }
-impl Clone for f32   { fn clone(self: f32)   -> f32   { return self; } }
-impl Clone for f64   { fn clone(self: f64)   -> f64   { return self; } }
-impl Clone for bool  { fn clone(self: bool)  -> bool  { return self; } }
+impl Clone for i8    { fn clone(&self) -> i8    { return *self; } }
+impl Clone for i16   { fn clone(&self) -> i16   { return *self; } }
+impl Clone for i32   { fn clone(&self) -> i32   { return *self; } }
+impl Clone for i64   { fn clone(&self) -> i64   { return *self; } }
+impl Clone for u8    { fn clone(&self) -> u8    { return *self; } }
+impl Clone for u16   { fn clone(&self) -> u16   { return *self; } }
+impl Clone for u32   { fn clone(&self) -> u32   { return *self; } }
+impl Clone for u64   { fn clone(&self) -> u64   { return *self; } }
+impl Clone for usize { fn clone(&self) -> usize { return *self; } }
+impl Clone for f32   { fn clone(&self) -> f32   { return *self; } }
+impl Clone for f64   { fn clone(&self) -> f64   { return *self; } }
+impl Clone for bool  { fn clone(&self) -> bool  { return *self; } }
 
 impl Copy for i8    {}
 impl Copy for i16   {}

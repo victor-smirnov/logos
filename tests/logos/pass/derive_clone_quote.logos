@@ -42,7 +42,7 @@ fn derive_clone_q_hook(target_offset: u32) -> () {
     };
     let blob: QuoteItemBlob = quote_item! {
         impl Clone for #(nm) {
-            fn clone(self: #(nm)) -> #(nm) {
+            fn clone(&self) -> #(nm) {
                 return #(body);
             }
         }

@@ -3,12 +3,12 @@ package where_clause;
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 
-trait Show { fn show(self: Self) -> i32; }
-trait Double { fn double(self: Self) -> i32; }
+trait Show { fn show(&self) -> i32; }
+trait Double { fn double(&self) -> i32; }
 
 struct Num { val: i32, }
-impl Show   for Num { fn show(self: Num) -> i32   { return self.val; } }
-impl Double for Num { fn double(self: Num) -> i32 { return self.val * 2; } }
+impl Show   for Num { fn show(&self) -> i32   { return self.val; } }
+impl Double for Num { fn double(&self) -> i32 { return self.val * 2; } }
 
 // where with single bound
 fn print_show<T>(x: T) -> i32 where T: Show {

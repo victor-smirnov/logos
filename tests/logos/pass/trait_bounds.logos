@@ -4,7 +4,7 @@ extern fn printf(fmt: *const u8, ...) -> i32;
 fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 
 trait Printable {
-    fn print_val(self: Self) -> i32;
+    fn print_val(&self) -> i32;
 }
 
 fn print_twice<T: Printable>(x: T) -> i32 {
@@ -18,7 +18,7 @@ struct Num {
 }
 
 impl Printable for Num {
-    fn print_val(self: Num) -> i32 {
+    fn print_val(&self) -> i32 {
         printi("%d\n", self.val);
         return self.val;
     }

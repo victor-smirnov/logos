@@ -19,13 +19,13 @@ fn main() -> i32 {
     let d: u64 = u64::default();
     if d != 0 as u64 { return 4; }
 
-    // Clone (primitive copy)
+    // Clone (primitive copy) — Rust-style `fn clone(&self) -> Self`.
     let x: i32 = 42;
-    let y: i32 = i32::clone(x);
+    let y: i32 = x.clone();
     if y != 42 { return 5; }
 
     let p: f64 = 3.14;
-    let q: f64 = f64::clone(p);
+    let q: f64 = p.clone();
     if q != 3.14 { return 6; }
 
     // mem::swap

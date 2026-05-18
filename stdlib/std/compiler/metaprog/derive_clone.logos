@@ -3,7 +3,7 @@
 // Hook for `#[derive_clone]`. Emits
 //
 //   impl<T1, T2, ...> Clone for Name<T1, T2, ...> {
-//       fn clone(self: Name<T1, T2, ...>) -> Name<T1, T2, ...> {
+//       fn clone(&self) -> Name<T1, T2, ...> {
 //           return Name { f: self.f.clone(), ... };
 //       }
 //   }
@@ -64,7 +64,7 @@ fn derive_clone_hook(target_offset: u32) -> () {
     if np == (0 as u64) {
         let blob: QuoteItemBlob = quote_item! {
             impl Clone for #(nm) {
-                fn clone(self: #(nm)) -> #(nm) {
+                fn clone(&self) -> #(nm) {
                     return #(body);
                 }
             }
@@ -73,7 +73,7 @@ fn derive_clone_hook(target_offset: u32) -> () {
     } else {
         let blob2: QuoteItemBlob = quote_item! {
             impl<#( #tparams: Clone ),*> Clone for #nm<#( #tparams ),*> {
-                fn clone(self: #nm<#( #tparams ),*>) -> #nm<#( #tparams ),*> {
+                fn clone(&self) -> #nm<#( #tparams ),*> {
                     return #(body);
                 }
             }

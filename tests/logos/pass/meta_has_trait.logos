@@ -8,7 +8,7 @@ pub struct Plain { pub x: i32, }
 pub struct Boxed { pub a: i32, pub b: i64, }
 
 impl Clone for Boxed {
-    fn clone(self: Boxed) -> Boxed {
+    fn clone(&self) -> Boxed {
         return Boxed { a: self.a, b: self.b };
     }
 }

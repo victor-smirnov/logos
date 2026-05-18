@@ -1,12 +1,12 @@
 // Multiple trait bounds: T: A + B
 package trait_multi_bound;
 
-trait ToVal { fn to_val(self: Self) -> i32; }
-trait Name  { fn name(self: Self) -> i32; }
+trait ToVal { fn to_val(&self) -> i32; }
+trait Name  { fn name(&self) -> i32; }
 
 struct Pair { x: i32, y: i32, }
-impl ToVal for Pair { fn to_val(self: Pair) -> i32 { return self.x; } }
-impl Name  for Pair { fn name(self: Pair) -> i32 { return self.y; } }
+impl ToVal for Pair { fn to_val(&self) -> i32 { return self.x; } }
+impl Name  for Pair { fn name(&self) -> i32 { return self.y; } }
 
 fn combine<T: ToVal + Name>(t: T) -> i32 {
     return t.to_val() + t.name();
