@@ -73,3 +73,44 @@ pub unsafe fn take<T: Default>(ptr: *mut T) -> T {
     ptr[0] = T::default();
     return old;
 }
+
+// ── Safe ref-based variants (mirror `core::mem::{swap, replace, take}`) ──
+//
+// These match Rust's API shape: callers pass exclusive references rather
+// than raw pointers, so the borrow checker enforces the non-aliasing
+// invariant that the raw-pointer forms above leave to the caller. The
+// body still goes through raw pointers because Logos's move/copy rules
+// don't yet allow the natural `std::mem::swap` body `let tmp = *a; *a =
+// *b; *b = tmp;` without flagging it as a move-of-borrowed; the unsafe
+// block is an implementation detail that doesn't leak to callers.
+
+// Swap the values pointed to by two exclusive references.
+pub fn swap_ref<T>(a: &mut T, b: &mut T) {
+    unsafe {
+        let pa = a as *mut T;
+        let pb = b as *mut T;
+        let tmp: T = pa[0];
+        pa[0] = pb[0];
+        pb[0] = tmp;
+    }
+}
+
+// Move `src` into `dst`, returning the previous value at `dst`.
+pub fn replace_ref<T>(dst: &mut T, src: T) -> T {
+    unsafe {
+        let p = dst as *mut T;
+        let old: T = p[0];
+        p[0] = src;
+        return old;
+    }
+}
+
+// Move out of `dst`, replacing it with `T::default()`.
+pub fn take_ref<T: Default>(dst: &mut T) -> T {
+    unsafe {
+        let p = dst as *mut T;
+        let old: T = p[0];
+        p[0] = T::default();
+        return old;
+    }
+}

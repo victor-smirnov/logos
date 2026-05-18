@@ -3299,7 +3299,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAlignOfView v, TypeRef) {
         case K::I32: case K::U32: case K::F32:                       align = 4; break;
         case K::I56: case K::U56:                                    align = 1; break;
         case K::I64: case K::U64: case K::F64:
-        case K::Ptr: case K::Ref: case K::MutRef:                    align = 8; break;
+        case K::Ptr: case K::Ref: case K::MutRef:
+        case K::Usize: case K::Isize:                                align = 8; break;
         case K::I128: case K::U128:                                  align = 16; break;
         default: {
             mlir::Type elem_mlir = nullptr;
