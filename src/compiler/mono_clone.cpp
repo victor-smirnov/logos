@@ -615,11 +615,33 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             // var-ref now carries the substituted type (sema emitted
             // var_ref with TypeVar F; mono's subst_type rewrites it
             // to the concrete instantiation).
-            bool route_to_fn_ptr = callee && callee->type &&
-                TypeRef(callee->type).kind() == LogosType::Kind::FnPtr;
-            if (route_to_fn_ptr) {
+            TypeRef ct = callee ? TypeRef(callee->type) : TypeRef{};
+            auto k = ct ? ct.kind() : LogosType::Kind::Error;
+            if (k == LogosType::Kind::FnPtr) {
                 result->mirror_offset_ = lir_mirror_emit_fn_ptr_call(
                     out_, result->type, callee, args);
+            } else if (k == LogosType::Kind::Struct ||
+                       k == LogosType::Kind::ZonedStruct) {
+                // Deferred-2: F was bound by Fn/FnMut/FnOnce and
+                // substituted to a user struct with an explicit
+                // `impl Fn[Mut|Once]<...> for Struct { fn call[_mut|
+                // _once](...) }`. Route the call through the struct's
+                // matching method. Today we hardcode method name
+                // "call" — works for `F: Fn(...)` bounds. FnMut /
+                // FnOnce struct-impls (with `call_mut` / `call_once`)
+                // need the original bound's trait name threaded
+                // through ClosureCall metadata; tracked separately.
+                std::string struct_name = concrete_struct_name(ct);
+                std::string pkg{ct.pkg_name()};
+                std::string callee_name = pkg.empty()
+                    ? struct_name + "__call"
+                    : pkg + "." + struct_name + "__call";
+                // Method-style: prepend the receiver as the self arg.
+                std::vector<lir::LExprPtr> call_args;
+                call_args.push_back(std::move(callee));
+                for (auto& a : args) call_args.push_back(std::move(a));
+                result->mirror_offset_ = lir_mirror_emit_call(
+                    out_, result->type, callee_name, {}, call_args);
             } else {
                 result->mirror_offset_ = lir_mirror_emit_closure_call(
                     out_, result->type, callee, args);

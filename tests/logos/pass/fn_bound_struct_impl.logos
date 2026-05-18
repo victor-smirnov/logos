@@ -1,0 +1,40 @@
+// Deferred-2 regression: a struct with explicit `impl Fn<Args...> for
+// Struct { fn call(...) }` now satisfies the parenthesized `F: Fn(...)
+// -> R` bound and dispatches at runtime to the struct's `call` method.
+//
+// Pre-fix: the bound was accepted at sema (sema_collect.cpp:982 +
+// sema_has_impl_recursive) but mono's ClosureCall handler lowered
+// the call as a closure-pair (fn-ptr + env-ptr) dispatch — segfault
+// at runtime when the struct value was read as that layout.
+//
+// Fix in mono_clone.cpp::ClosureCall handler: detect struct callee
+// after substitution, route through `<StructName>__call` as a
+// method-style direct call (receiver prepended as first arg).
+package fn_bound_struct_impl_test;
+
+use logos.lang.ops;
+
+pub struct Adder { pub bias: i32 }
+
+impl Fn<i32> for Adder {
+    type Output = i32;
+    fn call(&self, x: i32) -> i32 { return self.bias + x; }
+}
+
+fn apply<F: Fn(i32) -> i32>(f: F, x: i32) -> i32 {
+    return f(x);
+}
+
+unsafe fn main() -> i32 {
+    let a = Adder { bias: 100 };
+    let r = apply::<Adder>(a, 5);
+    if r != 105 { return 1; }
+
+    // Second instance — verify struct field is read per-instance,
+    // not from a stale or aliased location.
+    let b = Adder { bias: 7 };
+    let r2 = apply::<Adder>(b, 3);
+    if r2 != 10 { return 2; }
+
+    return 42;
+}
