@@ -1,0 +1,20 @@
+// LazyCell<T> — OnceCell + stored init fn.
+package lazycell_basic_test;
+
+use logos.lang.cell;
+
+fn make_value() -> i32 { return 1234; }
+
+unsafe fn main() -> i32 {
+    let lc = lazy_cell_new::<i32>(make_value);
+
+    // first force runs init
+    let r1 = lc.force();
+    if *r1 != 1234 { return 1; }
+
+    // second force returns cached value
+    let r2 = lc.force();
+    if *r2 != 1234 { return 2; }
+
+    return 42;
+}

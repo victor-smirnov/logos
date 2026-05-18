@@ -1,0 +1,43 @@
+// OnceCell<T> — write-once interior mutability.
+package oncecell_basic_test;
+
+use logos.lang.cell;
+use logos.lang.option;
+use logos.lang.result;
+
+fn make_42() -> i32 { return 42; }
+
+unsafe fn main() -> i32 {
+    let c = once_cell_new::<i32>();
+    if c.is_set() { return 1; }
+
+    // first set succeeds
+    match c.set(7) {
+        Result::Ok(_)  => {}
+        Result::Err(_) => { return 2; }
+    }
+    if !c.is_set() { return 3; }
+
+    // second set returns Err with the input
+    match c.set(99) {
+        Result::Ok(_)  => { return 4; }
+        Result::Err(v) => { if v != 99 { return 5; } }
+    }
+
+    // get_ptr returns pointer to wrapped value
+    let p = c.get_ptr();
+    if p == (0 as *const i32) { return 6; }
+    if *p != 7 { return 7; }
+
+    // get_or_init on already-set returns existing
+    let r = c.get_or_init(make_42);
+    if *r != 7 { return 8; }
+
+    // get_or_init on empty calls init
+    let c2 = once_cell_new::<i32>();
+    let r2 = c2.get_or_init(make_42);
+    if *r2 != 42 { return 9; }
+    if !c2.is_set() { return 10; }
+
+    return 42;
+}

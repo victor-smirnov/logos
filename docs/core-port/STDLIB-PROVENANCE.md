@@ -31,7 +31,7 @@ Source roots:
 | `asserting.rs` | — | ➖ | — | Internal `assert!` formatter machinery; Logos's `assert!`/`assert_eq!`/`assert_ne!` are metacall handlers in `std/fmt/fmt.logos`. |
 | `bool.rs` | `lang/bool/bool.logos` | ✅ | `bool/test_harness_coretest_bool.logos`, `bool/test_harness_coretest_bool_conv.logos`, `bool/test_harness_coretest_bool_to_string.logos` | `then`, `then_some`, `ok_or`, `ok_or_else`. Bitwise via `lang/ops`. |
 | `borrow.rs` | — | ❌ TODO | — | `Borrow<T>` / `BorrowMut<T>` traits not declared. Mostly cosmetic; Logos uses `&T` directly. |
-| `cell.rs` | `lang/cell/cell.logos` | ⚠️ partial | `cell/test_harness_coretest_unsafe_cell.logos` | `UnsafeCell` ported (B100). `Cell` / `RefCell` not yet. |
+| `cell.rs` | `lang/cell/cell.logos` | ⚠️ partial | `cell/test_harness_coretest_unsafe_cell.logos` | `UnsafeCell` (B100) + `Cell` (Copy bound) + `RefCell` (Ref/RefMut guards with Drop-based counter, panic on conflict). `CoerceUnsized`/`DispatchFromDyn` impls absent (no language support). `Ref::map`/`filter_map`/`map_split` absent. `try_borrow*` Result-extraction footgunned by [[baghunt-match-arm-binding-no-drop]] — workaround: use panicking `borrow()` variants. |
 | `clone.rs` | `lang/clone/clone.logos` | ⚠️ partial | `clone/test_harness_coretest_clone.logos` | `Clone` + `Copy` traits. `CloneToUninit` / `TrivialClone` absent. Logos `Clone::clone` takes `self: Self` (vs Rust `&self`) — pending migration. |
 | `cmp.rs` | `lang/cmp/cmp.logos` + `lang/cmp/ord.logos` | ✅ | `cmp/test_harness_coretest_cmp.logos`, `cmp/test_harness_coretest_ordering_*.logos`, `cmp/test_harness_coretest_user_defined_eq.logos` | `Eq`/`PartialEq`/`PartialOrd`/`Ord`, `Ordering` (+reverse/is_lt/then/then_with), per-type min/max/clamp. |
 | `contracts.rs` | — | 🔁 | — | Unstable `#[requires]`/`#[ensures]`; no Logos equivalent. |
@@ -110,8 +110,8 @@ Source roots:
 
 | File | Logos | Status | Coretest | Notes |
 |---|---|---|---|---|
-| `once.rs` | — | ❌ TODO | — | `OnceCell<T>`. |
-| `lazy.rs` | — | ❌ TODO | — | `LazyCell<T,F>`. |
+| `once.rs` | `lang/cell/cell.logos` | ⚠️ partial | — | `OnceCell<T>` ported via free-fn `once_cell_new::<T>()` (T: Default workaround for lack of MaybeUninit-in-lang). Surface: `is_set`/`get_ptr`/`set`/`get_or_init`/`into_inner`. `get(&self) -> Option<&T>` returns raw `*const T` via `get_ptr` instead — pattern-binding `&T` extraction is blocked on the same Option-payload issue that affects [[baghunt-mono-void-payload-specs]]. `wait`/blocking variants live in `std::sync::OnceLock`, not core. |
+| `lazy.rs` | `lang/cell/cell.logos` | ⚠️ partial | — | `LazyCell<T>` ported via free-fn `lazy_cell_new::<T>(init: fn() -> T)` (Default bound inherited from OnceCell). Surface: `force`. `into_inner` deferred (needs Result<T, fn()->T> returning the unconsumed closure on empty). Closure type is plain `fn`, not Fn-family — captures wait on priority #1. |
 
 (`UnsafeCell` lives in parent `cell.rs` → `lang/cell/cell.logos`, see above.)
 
@@ -436,7 +436,7 @@ Cross-referenced from individual rows above:
 6. ~~`core::iter` adapters: `from_fn`/`repeat_n`~~ — landed (2026-05-18). `cloned`/`copied` intentionally omitted (Logos iters yield by value). `successors` deferred → [[baghunt-mono-fn-ptr-field-typevar]]. `flatten` deferred → needs Fn-family traits (#1).
 7. `core::str::{Chars,CharIndices,Bytes,Lines}` + `Pattern` trait — string iteration parity.
 8. `core::slice` method surface (`split_at`/`chunks`/`windows`/`sort`/`binary_search`) — currently iter-only.
-9. `core::cell::{Cell,RefCell,OnceCell,LazyCell}` — interior mutability beyond `UnsafeCell`.
+9. ~~`core::cell::{Cell,RefCell,OnceCell,LazyCell}`~~ — landed 2026-05-18. Cell (Copy), RefCell (Ref/RefMut + Drop counter), OnceCell + LazyCell (Default-bound storage, fn-ptr init). `Ref::map`/`filter_map` and `try_borrow*` Result-extraction deferred behind [[baghunt-match-arm-binding-no-drop]].
 10. `core::sync::atomic::Ordering` — memory-order parameter on every atomic op.
 11. `core::fmt::{Formatter,Arguments,Write}` — replace metacall `fmt_pad` with trait-based formatting.
 12. `core::panic::{Location,PanicInfo,catch_unwind}` — panic introspection / recovery API.

@@ -1,0 +1,33 @@
+// Cell<T> — interior mutability for Copy types.
+package cell_basic_test;
+
+use logos.lang.cell;
+
+unsafe fn main() -> i32 {
+    let c = Cell::new(10i32);
+    if c.get() != 10 { return 1; }
+
+    c.set(42);
+    if c.get() != 42 { return 2; }
+
+    let old = c.replace(99);
+    if old != 42 { return 3; }
+    if c.get() != 99 { return 4; }
+
+    let other = Cell::new(7);
+    c.swap(&other);
+    if c.get() != 7 { return 5; }
+    if other.get() != 99 { return 6; }
+
+    c.update(|x: i32| -> i32 { return x + 1; });
+    if c.get() != 8 { return 7; }
+
+    let t = cell_take::<i32>(&c);
+    if t != 8 { return 8; }
+    if c.get() != 0 { return 9; }   // default i32 = 0
+
+    let inner = c.into_inner();
+    if inner != 0 { return 10; }
+
+    return 42;
+}
