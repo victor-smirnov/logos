@@ -1,0 +1,35 @@
+// Regression test for Deferred-1c: iter_fold + iter_for_each free fns
+// now accept capturing closures via `F: FnMut(...)` bound. Inference
+// deduces the type-params (B/T for fold) through the Fn-family
+// bound-propagation pass in sema_expr.cpp::infer_type_args.
+package iter_fold_for_each_fnmut_test;
+
+use logos.lang.range;
+use logos.lang.iter;
+use logos.lang.option;
+
+unsafe fn main() -> i32 {
+    // iter_fold with capturing closure (bias captured by the folder).
+    let bias = 1000;
+    let s = iter_fold(range_i32(1, 5), 0, |acc: i32, x: i32| -> i32 {
+        return acc + bias + x;
+    });
+    // (1000+1) + (1000+2) + (1000+3) + (1000+4) = 4010
+    if s != 4010 { return 1; }
+
+    // iter_fold with bare fn-ptr (back-compat).
+    let s2 = iter_fold(range_i32(1, 5), 0, add_pair);
+    // 0 + 1 + 2 + 3 + 4 = 10
+    if s2 != 10 { return 2; }
+
+    // iter_for_each with capturing closure mutating an outer counter.
+    let mut count = 0;
+    iter_for_each(range_i32(0, 6), |_x: i32| {
+        count = count + 1;
+    });
+    if count != 6 { return 3; }
+
+    return 42;
+}
+
+fn add_pair(acc: i32, x: i32) -> i32 { return acc + x; }

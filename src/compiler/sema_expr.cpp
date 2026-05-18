@@ -2420,6 +2420,42 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
         unify_types(pt, arg_exprs[i]->type, bindings);
     }
 
+    // Fn-family bound propagation: when a fn type-param `F: Fn(X) -> Y`
+    // gets a closure/fn-ptr arg, the primary unify above binds F =
+    // Closure(...) but X / Y stay unresolved if they appear only in the
+    // bound (not elsewhere in the param list). Walk the type-params:
+    // for each with an Fn-family bound and an inferred callable, unify
+    // the bound's fn_params / fn_ret against the actual callable's
+    // signature so X and Y get inferred too. Without this,
+    // `fn iter_fold<I, T, B, F: FnMut(B,T)->B>(it: I, init: B, f: F)`
+    // can't deduce B/T from f when init is also generic.
+    for (size_t i = 0; i + param_offset < fi.param_types.size(); ++i) {
+        if (i >= arg_exprs.size()) break;
+        auto formal = fi.param_types[param_offset + i];
+        if (!formal || TypeRef(formal).kind() != LogosType::Kind::TypeVar) continue;
+        std::string tv_name(TypeRef(formal).type_var_name());
+        const TypeParam* tp_ptr = nullptr;
+        for (auto& tp : fi.type_params) {
+            if (tp.name == tv_name) { tp_ptr = &tp; break; }
+        }
+        if (!tp_ptr) continue;
+        auto bit = bindings.find(tv_name);
+        if (bit == bindings.end()) continue;
+        TypeRef actual = bit->second;
+        if (!actual ||
+            (TypeRef(actual).kind() != LogosType::Kind::Closure &&
+             TypeRef(actual).kind() != LogosType::Kind::FnPtr))
+            continue;
+        for (auto& b : tp_ptr->bounds) {
+            if (!b.is_fn_family) continue;
+            auto ap = TypeRef(actual).closure_params();
+            for (size_t k = 0; k < b.fn_params.size() && k < ap.size(); ++k)
+                unify_types(b.fn_params[k], ap[k], bindings);
+            if (b.fn_ret && TypeRef(actual).closure_ret())
+                unify_types(b.fn_ret, TypeRef(actual).closure_ret(), bindings);
+        }
+    }
+
     // Return-type-driven inference: when the caller (lower_let) set a hint,
     // unify the fn's return type against the expected type. Captures
     // type-params that appear only in the return position (e.g. a no-arg

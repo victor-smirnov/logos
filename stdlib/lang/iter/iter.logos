@@ -1615,31 +1615,29 @@ pub fn iter_count<I: Iterator<T>, T>(iter: I) -> i64 {
     return n;
 }
 
-// Free-fn iter_fold / iter_for_each keep their concrete `fn(...) -> R`
-// signatures for now — the natural Fn-bound generalisation
-// (`F: FnMut(B, T) -> B`) trips Logos's type-arg inference when F's
-// bound references multiple unresolved type-vars at once (B and T).
-// Method-chain form (`it.fold(init, |...|)`) already takes FnMut via
-// the trait default, so capturing-closure use cases route through
-// the trait. Free-fn callers can either stick to fn-pointers or wrap.
-pub fn iter_fold<I: Iterator<T>, T, B>(iter: I, init: B, f: fn(B, T) -> B) -> B {
+// Free-fn forms — same `F: FnMut(...)` bound as the trait-default
+// terminals. Type-arg inference deduces B and T from f's signature
+// via the Fn-family bound-propagation pass in infer_type_args.
+pub fn iter_fold<I: Iterator<T>, T, B, F: FnMut(B, T) -> B>(iter: I, init: B, f: F) -> B {
     let mut it: I = iter;
     let mut acc: B = init;
+    let mut g: F = f;
     loop {
         match it.next() {
             Option::None    => { return acc; }
-            Option::Some(v) => { acc = f(acc, v); }
+            Option::Some(v) => { acc = g(acc, v); }
         }
     }
     return acc;
 }
 
-pub fn iter_for_each<I: Iterator<T>, T>(iter: I, f: fn(T) -> ()) {
+pub fn iter_for_each<I: Iterator<T>, T, F: FnMut(T) -> ()>(iter: I, f: F) {
     let mut it: I = iter;
+    let mut g: F = f;
     loop {
         match it.next() {
             Option::None    => { return; }
-            Option::Some(v) => { f(v); }
+            Option::Some(v) => { g(v); }
         }
     }
 }
