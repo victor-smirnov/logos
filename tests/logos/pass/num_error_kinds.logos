@@ -1,0 +1,19 @@
+// IntErrorKind enum + ParseIntError / TryFromIntError shape check.
+
+package num_error_kinds;
+
+use logos.lang.num.error;
+
+fn main() -> i32 {
+    let e: ParseIntError = ParseIntError::new(IntErrorKind::PosOverflow);
+    let t: TryFromIntError = TryFromIntError::new(IntErrorKind::NegOverflow);
+    match e.kind {
+        IntErrorKind::PosOverflow => {}
+        _ => { return 1i32; }
+    }
+    match t.kind {
+        IntErrorKind::NegOverflow => {}
+        _ => { return 2i32; }
+    }
+    return 0i32;
+}

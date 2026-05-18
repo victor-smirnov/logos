@@ -1,0 +1,29 @@
+// NonZero<T> per-type aliases (NonZeroI32 / NonZeroU64 / etc.) used
+// at TYPE position. Note: static methods don't dispatch through
+// aliases in Logos — `NonZeroI32::new(...)` doesn't resolve, must use
+// `NonZero::<i32>::new(...)`. Documented divergence; aliases still
+// serve as readable type names.
+
+package nonzero_aliases;
+
+use logos.lang.num.nonzero;
+use logos.lang.option;
+
+fn main() -> i32 {
+    let a: NonZeroI32 = match NonZero::<i32>::new(5i32) {
+        Option::Some(v) => v,
+        Option::None    => { return 1i32; }
+    };
+    let b: NonZeroU64 = match NonZero::<u64>::new(99u64) {
+        Option::Some(v) => v,
+        Option::None    => { return 2i32; }
+    };
+    let c: NonZeroIsize = match NonZero::<isize>::new(-3isize) {
+        Option::Some(v) => v,
+        Option::None    => { return 3i32; }
+    };
+    if a.get() != 5i32 { return 4i32; }
+    if b.get() != 99u64 { return 5i32; }
+    if c.get() != -3isize { return 6i32; }
+    return 0i32;
+}

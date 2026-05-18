@@ -259,11 +259,11 @@ Source roots:
 |---|---|---|---|---|
 | `mod.rs` | `lang/cmp/ord.logos` | ⚠️ partial | `num/test_harness_coretest_int_battery.logos`, `num/test_harness_coretest_*` (i32/i64/u32/u64) | Heavy method coverage; missing newtype wrappers + parse error types. |
 | `int_macros.rs` / `uint_macros.rs` | `lang/cmp/ord.logos` (impl blocks per-type) | ⚠️ partial | per-type batteries (B104) | Logos enumerates explicitly (no `macro_rules!`). Coverage: arith/bitcount/rotate/swap_bytes/pow/checked/wrapping/overflowing/saturating/signum/abs. |
-| `nonzero.rs` | — | ❌ TODO | — | `NonZero*` newtype. |
+| `nonzero.rs` | `lang/num/nonzero.logos` | ⚠️ partial | — | `NonZero<T>` generic + per-type aliases (`NonZeroI8`..`NonZeroI64`, `NonZeroU8`..`NonZeroU64`, `NonZeroIsize`/`NonZeroUsize`). Methods: `new`/`new_unchecked`/`get`. Bound is `T: Default + Eq + Copy` (vs Rust's sealed `ZeroablePrimitive`). NO niche optimization — `Option<NonZero<i32>>` is 8 bytes (Rust: 4). Aliases work at type position only; static methods don't dispatch through aliases (must use `NonZero::<T>::new`). Method surface (`leading_zeros`/`count_ones`/`rotate_left`/checked_*/etc.) absent. |
 | `wrapping.rs` | `lang/arith/arith.logos` (free fns `wrapping_add`/etc.) | ⚠️ partial | `num/test_harness_coretest_u64_wrapping_checked.logos` | Method form (`x.wrapping_add(y)`) ported; `Wrapping<T>` newtype absent. |
 | `saturating.rs` | inline `saturating_add`/etc. methods | ⚠️ partial | `num/test_harness_coretest_i32_saturating.logos` | Method form ported; `Saturating<T>` newtype absent. |
 | `niche_types.rs` | — | ➖ | Internal compiler-niche helpers. |
-| `error.rs` | — | ❌ TODO | — | `ParseIntError`/`TryFromIntError`/`IntErrorKind`. |
+| `error.rs` | `lang/num/error.logos` | ✅ | — | `IntErrorKind` (Empty/InvalidDigit/PosOverflow/NegOverflow/Zero), `ParseIntError { kind }`, `TryFromIntError { kind }`. |
 | `f128.rs` / `f16.rs` | — | ❌ TODO | — | Logos has f32/f64 only. |
 | `f32.rs` / `f64.rs` | `lang/math/math.logos` | ⚠️ partial | — | Transcendentals + constants via wrapper fns; method form on `f64` partial. |
 | `float_parse.rs` | — | ❌ TODO | — | No `.parse::<f64>()` yet. |
@@ -432,7 +432,7 @@ Cross-referenced from individual rows above:
 2. `core::ops::{Deref,DerefMut,Index,IndexMut}` — current method-based shape is a Logos divergence; surfaces on each port.
 3. ~~`core::mem::MaybeUninit`~~ — initial port landed (mem/uninit, B105). Drop-T variant + slice/array surface remain.
 4. ~~`core::ptr` standalone `read`/`write`/`copy_nonoverlapping` / `NonNull`~~ — initial port landed (`lang/ptr`, follow-up to B105). Volatile/unaligned/provenance variants remain.
-5. `core::num::NonZero` + `core::num::error::*` — needed for parse APIs.
+5. ~~`core::num::NonZero` + `core::num::error::*`~~ — landed (`lang/num/nonzero`, `lang/num/error`, follow-up to B105). NonZero method surface (count_ones/leading_zeros/checked_*) deferred.
 6. `core::iter` adapters: `cloned`/`copied`/`flatten`/`from_fn`/`successors`/`repeat_n` — round out adapter set.
 7. `core::str::{Chars,CharIndices,Bytes,Lines}` + `Pattern` trait — string iteration parity.
 8. `core::slice` method surface (`split_at`/`chunks`/`windows`/`sort`/`binary_search`) — currently iter-only.

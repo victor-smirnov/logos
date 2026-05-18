@@ -1,0 +1,69 @@
+// Logos standard library — std.lang.num.nonzero
+//
+// NonZero<T> — wrapper guaranteeing the inner value is non-zero.
+// Mirrors `core::num::NonZero<T>` (Rust 1.79+) and provides type
+// aliases matching the older `NonZeroI32` / `NonZeroU32` / etc. names.
+//
+// Use case: store an integer-typed handle / capacity / discriminant
+// where zero is an invalid sentinel. In Rust this also unlocks
+// niche-optimization for Option<NonZeroI32> (single-word layout, no
+// tag); Logos doesn't yet niche-optimize Option, so the wrapper is
+// purely a type-level documentation/check today.
+//
+// Surface ported: `new` (checked → Option), `new_unchecked`, `get`.
+//
+// Per-type aliases (NonZeroI8 .. NonZeroI64, NonZeroU8 .. NonZeroU64,
+// NonZeroIsize, NonZeroUsize) are at the bottom of the file.
+//
+// Divergence from Rust:
+//   - No niche optimization yet (Option<NonZero<i32>> is 8 bytes here,
+//     not 4). Layout-equivalent to wrapping a plain T.
+//   - Constrained to `T: Default + Eq + Copy` — Rust uses a sealed
+//     `ZeroablePrimitive` trait; here the bound is checked at sema
+//     time and only the integer types provide all three. `T::default()`
+//     gives the zero sentinel.
+
+package logos.lang.num.nonzero;
+
+use logos.lang.option;
+use logos.lang.default;
+use logos.lang.cmp;
+use logos.lang.clone;
+
+pub struct NonZero<T> {
+    val: T,
+}
+
+impl<T: Default + Eq + Copy> NonZero<T> {
+    // Checked construction. Returns None if `n` equals `T::default()`
+    // (the zero sentinel for integer types).
+    pub fn new(n: T) -> Option<NonZero<T>> {
+        if n == T::default() {
+            return Option::None;
+        }
+        return Option::Some(NonZero { val: n });
+    }
+
+    // Unchecked construction. Caller swears `n != 0`. UB if not.
+    pub unsafe fn new_unchecked(n: T) -> NonZero<T> {
+        return NonZero { val: n };
+    }
+
+    // Extract the inner value (always non-zero by invariant).
+    pub fn get(self: NonZero<T>) -> T {
+        return self.val;
+    }
+}
+
+// ── Per-type aliases ───────────────────────────────────────────────
+// Match Rust's `NonZeroI32` etc. naming so ports read as expected.
+pub type NonZeroI8    = NonZero<i8>;
+pub type NonZeroI16   = NonZero<i16>;
+pub type NonZeroI32   = NonZero<i32>;
+pub type NonZeroI64   = NonZero<i64>;
+pub type NonZeroIsize = NonZero<isize>;
+pub type NonZeroU8    = NonZero<u8>;
+pub type NonZeroU16   = NonZero<u16>;
+pub type NonZeroU32   = NonZero<u32>;
+pub type NonZeroU64   = NonZero<u64>;
+pub type NonZeroUsize = NonZero<usize>;

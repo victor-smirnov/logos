@@ -1,0 +1,27 @@
+// NonZero<T> — checked new + get + reject-zero.
+
+package nonzero_basic;
+
+use logos.lang.num.nonzero;
+use logos.lang.option;
+
+fn main() -> i32 {
+    // Non-zero value: Some
+    let nz: NonZero<i32> = match NonZero::<i32>::new(7i32) {
+        Option::Some(v) => v,
+        Option::None    => { return 1i32; }
+    };
+    if nz.get() != 7i32 { return 2i32; }
+
+    // Zero value: None
+    match NonZero::<i32>::new(0i32) {
+        Option::Some(_) => { return 3i32; }
+        Option::None    => {}
+    }
+
+    // Unchecked path also works
+    let u: NonZero<u64> = unsafe { NonZero::<u64>::new_unchecked(99u64) };
+    if u.get() != 99u64 { return 4i32; }
+
+    return 0i32;
+}

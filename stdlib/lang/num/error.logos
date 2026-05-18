@@ -1,0 +1,44 @@
+// Logos standard library — std.lang.num.error
+//
+// Error types for integer / number parsing and conversion. Mirrors
+// `core::num::{ParseIntError, TryFromIntError, IntErrorKind}`.
+//
+// These plug into:
+//   - NonZero::new (NonZero::Zero variant of IntErrorKind)
+//   - TryFrom<i32> for i8 / etc. (Overflow variants)
+//   - i32::from_str_radix and friends (Empty / InvalidDigit / overflow)
+
+package logos.lang.num.error;
+
+// Kind of error encountered when parsing an integer or trying to fit
+// it into a narrower type. Same variants as Rust's IntErrorKind.
+pub enum IntErrorKind {
+    Empty,
+    InvalidDigit,
+    PosOverflow,
+    NegOverflow,
+    Zero,
+}
+
+// Returned by `i32::from_str_radix` / `from_ascii` / etc.
+pub struct ParseIntError {
+    pub kind: IntErrorKind,
+}
+
+impl ParseIntError {
+    pub fn new(kind: IntErrorKind) -> ParseIntError {
+        return ParseIntError { kind: kind };
+    }
+}
+
+// Returned by `i32::try_from(big)` / etc. when the value doesn't fit
+// the target type. Mirrors core::num::TryFromIntError(IntErrorKind).
+pub struct TryFromIntError {
+    pub kind: IntErrorKind,
+}
+
+impl TryFromIntError {
+    pub fn new(kind: IntErrorKind) -> TryFromIntError {
+        return TryFromIntError { kind: kind };
+    }
+}
