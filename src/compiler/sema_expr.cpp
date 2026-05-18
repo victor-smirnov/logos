@@ -2441,7 +2441,33 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
             // (if available) the let-binding's annotated type as the
             // expected return type.
             StrMap<TypeRef> bindings;
-            for (size_t i = 0; i < type_args.size(); ++i)
+            // CP-cm-16 follow-up: partial-spec impl-target unification —
+            // use pattern-walk for the impl-level tparam prefix instead
+            // of positional binding. Parallels the same logic in the
+            // build-subst block below; the method-level tail is left to
+            // arg-driven inference (the existing unify loop).
+            bool used_impl_pattern_head = false;
+            size_t impl_head_n = 0;
+            if (fi.impl_target_pattern) {
+                auto pat_h = TypeRef(fi.impl_target_pattern);
+                auto pa_h = pat_h.type_args();
+                if (!pa_h.empty() && pa_h.size() <= type_args.size()) {
+                    StrMap<TypeRef> impl_bind_h;
+                    for (size_t i = 0; i < pa_h.size(); ++i)
+                        unify_types(pa_h[i], type_args[i], impl_bind_h);
+                    bool all_bound = true;
+                    for (size_t i = 0; i < pa_h.size() && i < fi.type_params.size(); ++i)
+                        if (!impl_bind_h.count(fi.type_params[i].name))
+                            { all_bound = false; break; }
+                    if (all_bound) {
+                        for (auto& [k, v] : impl_bind_h) bindings[k] = v;
+                        impl_head_n = pa_h.size();
+                        used_impl_pattern_head = true;
+                    }
+                }
+            }
+            for (size_t i = used_impl_pattern_head ? impl_head_n : 0;
+                 i < type_args.size(); ++i)
                 bindings[fi.type_params[i].name] = type_args[i];
             for (size_t i = 0; i < fi.param_types.size() && i < arg_exprs.size(); ++i) {
                 auto pt = subst_type_sema(fi.param_types[i], bindings);
@@ -2468,9 +2494,43 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
         }
     }
 
-    // Build substitution map for non-variadic type params
+    // Build substitution map for non-variadic type params.
+    //
+    // CP-cm-16 follow-up: partial-spec impl-target unification. When the
+    // callee is a method on an `impl<T,E> Trait for Foo<Vec<T>, E>`
+    // block, the receiver-positional type_args [Vec<i32>, i32] do NOT
+    // line up positionally with the impl-level tparams [T, E] — `T` is
+    // bound by structurally matching the pattern `Vec<T>` against the
+    // concrete `Vec<i32>` (→ T=i32), not by `type_args[0]` (= Vec<i32>).
+    // Unify pattern↔type_args first, then layer any method-level
+    // type_args positionally on top. Fall through to positional binding
+    // when no pattern was recorded (the common case).
     StrMap<TypeRef> subst;
-    for (size_t i = 0; i < non_variadic_count && i < type_args.size(); ++i)
+    size_t impl_level_n = 0;
+    bool used_impl_pattern = false;
+    if (fi.impl_target_pattern) {
+        auto pat = TypeRef(fi.impl_target_pattern);
+        auto pa = pat.type_args();
+        if (!pa.empty() && pa.size() <= type_args.size()) {
+            StrMap<TypeRef> impl_bind;
+            for (size_t i = 0; i < pa.size(); ++i)
+                unify_types(pa[i], type_args[i], impl_bind);
+            // Require every impl-level (= first pa.size()) tparam bound;
+            // method-level tail layers in below.
+            bool all_bound = true;
+            for (size_t i = 0; i < pa.size() && i < fi.type_params.size(); ++i) {
+                auto it = impl_bind.find(fi.type_params[i].name);
+                if (it == impl_bind.end()) { all_bound = false; break; }
+            }
+            if (all_bound) {
+                for (auto& [k, v] : impl_bind) subst[k] = v;
+                impl_level_n = pa.size();
+                used_impl_pattern = true;
+            }
+        }
+    }
+    for (size_t i = used_impl_pattern ? impl_level_n : 0;
+         i < non_variadic_count && i < type_args.size(); ++i)
         subst[fi.type_params[i].name] = type_args[i];
     // Variadic-pack length under the symbolic key "__sizeof_pack:P" so that
     // a `[T; sizeof...(P)]` return-type annotation (lowered by the ARR_TYPE

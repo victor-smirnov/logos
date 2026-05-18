@@ -280,13 +280,40 @@ impl<T> FromIterator<T> for Vec<T> {
 }
 
 // Rust's `impl<T, E, V: FromIterator<T>> FromIterator<Result<T, E>>
-// for Result<V, E>` specialised to V = Vec<T> — driver:
-// result::test_collect. Implemented as a free fn rather than the
-// natural `impl FromIterator<Result<T,E>> for Result<Vec<T>,E>` form
-// because of CP-cm-16 (partial-spec impl target type pattern needs
-// pattern-unification at mono-clone time, otherwise the impl-level T
-// gets bound to `Vec<i32>` instead of `i32` from the receiver enum's
-// type-args). The trait form lives in stdlib once that's resolved.
+// for Result<V, E>` specialised to V = Vec<T>. The impl-target pattern
+// is `Result<Vec<T>, E>` (partial spec — T appears inside Vec, not as
+// the receiver's first type-arg directly). Mono unifies the pattern
+// against the concrete receiver `Result<Vec<i32>, i32>` to bind T=i32
+// (CP-cm-16 follow-up).
+//
+// Direct invocation via `Result::<Vec<i32>, i32>::build(vec)`-shaped
+// dispatch works end-to-end (regression: tests/logos/pass/
+// partial_spec_impl_for_enum.logos). Driving it through Iterator's
+// `.collect()` chain currently segfaults because the body's `it.next()`
+// returns `Option<Result<T,E>>` — a nested generic enum that triggers
+// the mangling bug in baghunt_mono_nested_generic_enum.md. The free
+// fn `vec_collect_results` below is the workaround used by
+// result::test_collect until that gap closes.
+impl<T, E> FromIterator<Result<T, E>> for Result<Vec<T>, E> {
+    fn from_iter<I: Iterator<Result<T, E>>>(iter: I) -> Result<Vec<T>, E> {
+        let mut it: I = iter;
+        let mut out: Vec<T> = vec_new::<T>();
+        loop {
+            match it.next() {
+                Option::None    => { return Result::Ok(out); }
+                Option::Some(r) => {
+                    match r {
+                        Result::Ok(x)  => { out.push(x); }
+                        Result::Err(e) => { return Result::Err(e); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Free-fn shim used by result::test_collect until nested generic enum
+// mangling lands. Same behavior as the impl above, takes a Vec directly.
 pub fn vec_collect_results<T, E>(input: Vec<Result<T, E>>) -> Result<Vec<T>, E> {
     let mut out: Vec<T> = vec_new::<T>();
     let mut i: i64 = 0i64;

@@ -1468,6 +1468,15 @@ private:
                           };
     struct SemaFuncInfo   { std::vector<TypeRef> param_types; TypeRef ret_type;
                             std::vector<TypeParam> type_params; bool is_vararg = false;
+                            // CP-cm-16 follow-up: full impl-target pattern (with
+                            // TypeVars unsubstituted) for impl-block-derived
+                            // methods on partial-spec impls
+                            // (`impl<T,E> Trait for Foo<Vec<T>, E>`).
+                            // finish_generic_call unifies this against the
+                            // concrete receiver to bind impl-level T,E
+                            // correctly instead of positional binding of
+                            // type_args. Null otherwise.
+                            TypeRef impl_target_pattern = nullptr;
                             std::vector<std::string> lifetime_params;  // for B-gn-09 lint
                             // B69: declared `where 'a: 'b` outlives pairs.
                             // Used by call-site cross-check: caller must
@@ -1581,6 +1590,11 @@ private:
     // Set by collect_impl/lower_impl_block for `impl<T>` blocks so that
     // collect_fn/lower_fn include the impl-level type params in the function.
     std::vector<TypeParam> impl_type_params_;
+    // CP-cm-16 follow-up: full impl-target pattern of the enclosing impl
+    // block (set by collect_impl/lower_impl_block, cleared at block end).
+    // Propagated to SemaFuncInfo::impl_target_pattern for impl methods so
+    // finish_generic_call can pattern-unify against concrete receivers.
+    TypeRef impl_target_typeref_ = nullptr;
     // Set when the upcoming collect_fn/lower_fn carries `#[no_mangle]` on
     // its annotation list. Reset to false at the end of each collect_fn /
     // lower_fn invocation so the flag never leaks across items.

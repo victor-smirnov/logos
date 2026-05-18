@@ -1,0 +1,39 @@
+// CP-cm-16 follow-up — partial-spec impl on an enum receiver.
+//
+// `impl<T, E> Maker<T> for Result<Vec<T>, E>` partially specialises:
+// the receiver pattern is `Result<Vec<T>, E>` (not `Result<T, E>`),
+// so when called on a concrete `Result<Vec<i32>, i32>`, mono must
+// unify the pattern against the receiver to bind impl-level T to i32
+// (the Vec element type), not Vec<i32> (positional first type-arg).
+//
+// Without the unification fix the cloned method body would type the
+// freshly-allocated Vec as `Vec<Vec<i32>>` and either crash mlir-gen
+// or push the i32 argument at the wrong type, asserting at codegen.
+package partial_spec_impl_for_enum;
+
+use logos.mem.collections.vec;
+use logos.lang.result;
+
+trait Maker<T> {
+    fn make(x: T) -> Self;
+}
+
+impl<T, E> Maker<T> for Result<Vec<T>, E> {
+    fn make(x: T) -> Result<Vec<T>, E> {
+        let mut v: Vec<T> = vec_new::<T>();
+        v.push(x);
+        return Result::Ok(v);
+    }
+}
+
+fn main() -> i32 {
+    let r: Result<Vec<i32>, i32> = Result::<Vec<i32>, i32>::make(42i32);
+    match r {
+        Result::Ok(v)  => {
+            if v.length() != 1i64 { return 1; }
+            if v.get(0i64) != 42i32 { return 2; }
+            return 0;
+        }
+        Result::Err(_) => { return 3; }
+    }
+}

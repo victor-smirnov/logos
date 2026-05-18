@@ -642,6 +642,71 @@ private:
         }
     }
 
+    // CP-cm-16 follow-up: deep unification used by instantiate_enum_templates
+    // to bind impl-level type-params from a partial-spec impl-target pattern
+    // (`Result<Vec<T>, E>`) against the concrete receiver (`Result<Vec<i32>, i32>`).
+    // Walks Struct / Enum / Tuple / Slice / Array / Ptr / Ref type-args
+    // (which `match_type` deliberately doesn't, since several spec-pattern
+    // callers rely on shallow name-only matching). Returns false on
+    // structural mismatch or conflicting TypeVar bindings; succeeds with
+    // partial binding when the concrete side has TypeVars (binds pattern's
+    // TypeVar to concrete's TypeVar).
+    static bool unify_impl_target(TypeRef c, TypeRef p,
+                                  SubstMap& bindings) noexcept {
+        if (!c || !p) return false;
+        if (p.kind() == LogosType::Kind::TypeVar) {
+            auto tvn = p.type_var_name();
+            auto it = bindings.find(tvn);
+            if (it != bindings.end())
+                return types_equal(c, TypeRef(it->second));
+            bindings[std::string(tvn)] = c;
+            return true;
+        }
+        if (p.kind() != c.kind()) return false;
+        switch (p.kind()) {
+        case LogosType::Kind::Ptr:
+            if (p.mut_ptr() != c.mut_ptr()) return false;
+            return unify_impl_target(c.pointee(), p.pointee(), bindings);
+        case LogosType::Kind::Ref:
+        case LogosType::Kind::MutRef:
+            return unify_impl_target(c.pointee(), p.pointee(), bindings);
+        case LogosType::Kind::Array:
+            if (p.arr_size() != c.arr_size()) return false;
+            return unify_impl_target(c.elem(), p.elem(), bindings);
+        case LogosType::Kind::Slice:
+            return unify_impl_target(c.elem(), p.elem(), bindings);
+        case LogosType::Kind::Struct:
+        case LogosType::Kind::ZonedStruct: {
+            if (p.struct_name() != c.struct_name()) return false;
+            auto pa = p.type_args();
+            auto ca = c.type_args();
+            if (pa.size() != ca.size()) return false;
+            for (size_t i = 0; i < pa.size(); ++i)
+                if (!unify_impl_target(ca[i], pa[i], bindings)) return false;
+            return true;
+        }
+        case LogosType::Kind::Enum: {
+            if (p.enum_name() != c.enum_name()) return false;
+            auto pa = p.type_args();
+            auto ca = c.type_args();
+            if (pa.size() != ca.size()) return false;
+            for (size_t i = 0; i < pa.size(); ++i)
+                if (!unify_impl_target(ca[i], pa[i], bindings)) return false;
+            return true;
+        }
+        case LogosType::Kind::Tuple: {
+            auto pe = p.tuple_elems();
+            auto ce = c.tuple_elems();
+            if (pe.size() != ce.size()) return false;
+            for (size_t i = 0; i < pe.size(); ++i)
+                if (!unify_impl_target(ce[i], pe[i], bindings)) return false;
+            return true;
+        }
+        default:
+            return types_equal(c, p);
+        }
+    }
+
     static int type_specificity(TypeRef tr) noexcept {
         if (!tr || tr.kind() == LogosType::Kind::TypeVar) return 0;
         if (tr.kind() == LogosType::Kind::Ptr)   return 1 + type_specificity(tr.pointee());

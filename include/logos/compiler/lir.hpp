@@ -741,6 +741,15 @@ struct LFunction {
     // Each entry: bound on struct's type-param at position `index` within the
     // struct's type_params.  Empty when no impl-level type params.
     std::vector<TypeParam>        impl_type_params;
+    // CP-cm-16 follow-up: full impl-target type pattern (with TypeVars
+    // unsubstituted) for impl-block-derived methods on **enum** receivers.
+    // E.g. for `impl<T,E> FromIterator<Result<T,E>> for Result<Vec<T>, E>`
+    // this carries `Result<Vec<T>, E>`. Mono's `instantiate_enum_templates`
+    // unifies this pattern against the concrete receiver to bind impl-level
+    // T,E correctly when the impl is partially specialised (e.g. T appears
+    // inside a Vec<…> in the target). Null for non-impl fns + for impls
+    // whose target pattern is a bare enum (positional binding suffices).
+    TypeRef                       impl_target_pattern = nullptr;
     // Outer doc-comment (`/// ...`) lines joined with '\n', leading `/// ` (or
     // `///`) stripped from each. Empty when the fn has no doc-comment.
     std::string                   doc;

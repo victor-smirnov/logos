@@ -541,7 +541,38 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
     PackMap  packs;
     bool has_variadic = !tmpl->type_params.empty() && tmpl->type_params.back().is_variadic;
     size_t non_variadic_count = tmpl->type_params.size() - (has_variadic ? 1 : 0);
-    for (size_t i = 0; i < non_variadic_count && i < type_args.size(); ++i)
+    // CP-cm-16 follow-up: partial-spec impl-target unification (parallel to
+    // finish_generic_call in sema_expr.cpp). When the template is a method
+    // of `impl<T,E> Trait for Foo<Vec<T>, E>`, the receiver-positional
+    // type_args [Vec<i32>, i32] do NOT line up positionally with the impl-
+    // level tparams [T, E] — unify the pattern against type_args' head to
+    // bind T=i32, then layer any method-level type_args positionally.
+    size_t impl_level_n = 0;
+    bool used_impl_pattern = false;
+    if (tmpl->impl_target_pattern) {
+        auto pat = TypeRef(tmpl->impl_target_pattern);
+        auto pa = pat.type_args();
+        if (!pa.empty() && pa.size() <= type_args.size()) {
+            SubstMap impl_bind;
+            bool ok = true;
+            for (size_t i = 0; i < pa.size(); ++i)
+                if (!unify_impl_target(type_args[i], pa[i], impl_bind))
+                    { ok = false; break; }
+            if (ok) {
+                for (size_t i = 0; i < pa.size() && i < tmpl->type_params.size(); ++i) {
+                    auto it = impl_bind.find(tmpl->type_params[i].name);
+                    if (it == impl_bind.end()) { ok = false; break; }
+                }
+                if (ok) {
+                    for (auto& [k, v] : impl_bind) subst[k] = v;
+                    impl_level_n = pa.size();
+                    used_impl_pattern = true;
+                }
+            }
+        }
+    }
+    for (size_t i = used_impl_pattern ? impl_level_n : 0;
+         i < non_variadic_count && i < type_args.size(); ++i)
         subst[tmpl->type_params[i].name] = type_args[i];
     if (has_variadic) {
         auto& vtp = tmpl->type_params.back();

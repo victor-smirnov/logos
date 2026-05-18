@@ -1913,6 +1913,10 @@ void SemaChecker::collect_impl(TinyMapView node) {
         extract_impl_lt(la::TYPE_PARAMS.code);
         impl_lt_outlives = read_lifetime_outlives(node);
     }
+    // CP-cm-16 follow-up: capture impl-target pattern (set later, after target_resolved
+    // is computed). RAII-style restore handled by impl_type_params_.clear() at end of
+    // collect_impl — we reset impl_target_typeref_ in the same teardown block.
+    impl_target_typeref_ = nullptr;
     // B67: pick up the where-clause's outlives + type-outlives bounds too.
     {
         auto where_outlives = read_lifetime_outlives_from(node, la::WHERE.code);
@@ -2082,6 +2086,11 @@ void SemaChecker::collect_impl(TinyMapView node) {
         }
     }
     // Note: impl_tps are left in current_type_params_ until after collect_fn calls below.
+    // CP-cm-16 follow-up: publish impl-target pattern so collect_fn can plant
+    // it onto each method's SemaFuncInfo. Carries the full pattern with
+    // unsubstituted TypeVars (e.g. `Result<Vec<T>, E>`); finish_generic_call
+    // unifies against the concrete receiver to recover impl-level bindings.
+    impl_target_typeref_ = target_resolved;
     if (trait_name.empty())
         ctx_ = std::format("{}impl {}", impl_is_unsafe ? "unsafe " : "", target);
     else
@@ -2595,6 +2604,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
     current_type_params_.erase("Self");
     // Clean up impl's own type params (pushed at top for standalone generic impl)
     if (!impl_tps.empty()) { pop_type_params(impl_tps); impl_type_params_.clear(); }
+    impl_target_typeref_ = nullptr;
     // Register the impl mapping (only for trait impls)
     if (!trait_name.empty()) {
         SemaImplInfo info{trait_name, target, impl_is_unsafe, impl_is_negative,
@@ -3405,6 +3415,10 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
         auto combined = impl_type_params_;
         combined.insert(combined.end(), info.type_params.begin(), info.type_params.end());
         info.type_params = std::move(combined);
+        // CP-cm-16 follow-up: stamp impl-target pattern onto methods of
+        // generic impl blocks (impl_type_params_ non-empty). Null for
+        // non-generic impls / blanket impls / primitive targets / etc.
+        info.impl_target_pattern = impl_target_typeref_;
     }
 
     info.signature_key = function_signature_key(base_name, info.param_types, info.is_vararg);

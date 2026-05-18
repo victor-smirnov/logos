@@ -185,13 +185,14 @@ fn test_fmt_default() {
 }
 
 // Rust's `test_collect` uses `.collect::<Result<Vec<isize>, ()>>()` —
-// trait-static dispatch on an enum tparam (CP-cm-16). Logos exposes
-// the same logic as the free fn `vec_collect_results(Vec<Result<T,E>>)
-// -> Result<Vec<T>, E>` in stdlib/mem/collections/vec; the .collect()
-// surface needs partial-spec impl pattern-unification at mono-clone
-// time (CP-cm-16 partial close: simple `impl<T,E> Trait for Enum<T,E>`
-// dispatches correctly, but `impl<T,E> Trait for Enum<Vec<T>, E>` binds
-// T to Vec<i32> instead of i32 — open follow-up).
+// trait-static dispatch on an enum tparam (CP-cm-16). The partial-spec
+// `impl<T, E> FromIterator<Result<T, E>> for Result<Vec<T>, E>` is now
+// present in stdlib (mem/collections/vec) and dispatches correctly
+// (CP-cm-16 follow-up). Driving it through `.collect()` is blocked on a
+// separate nested generic enum mangling bug (Option<Result<T, E>> in
+// `it.next()`; see baghunt_mono_nested_generic_enum.md). Until that
+// closes, this test uses the free-fn `vec_collect_results` shim — the
+// same body, takes a Vec directly, no Iterator in the chain.
 //
 // Result inspection uses `match` not `r.is_ok()` (CP-cm-17 — by-value
 // self would consume the Result, double-freeing the Vec payload).

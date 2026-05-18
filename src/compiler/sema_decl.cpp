@@ -1076,6 +1076,14 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                         }
                     }
                 }
+            } else {
+                // CP-cm-16 follow-up: parallel to sema_collect.cpp:2037 —
+                // generic-target impl (`impl<T,E> ... for Foo<Vec<T>, E>`)
+                // captures the full pattern with TypeVars unsubstituted so
+                // mono can pattern-unify against concrete receivers and
+                // bind impl-level T,E correctly (vs naive positional
+                // binding which conflates Vec<i32> with T).
+                target_resolved = resolve_type(tnode);
             }
         } else if (code_of(tnode) == la::TUPLE_TYPE) {
             // SL-sl-08: parallel to sema_collect.cpp — `impl Trait for
@@ -1119,6 +1127,14 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     lir::LImplBlock ib;
     ib.trait_name   = trait_name;
     ib.target_type  = target;
+    // CP-cm-16 follow-up: full impl-target pattern with TypeVars unsubstituted.
+    // Set for generic-target impls (`impl<T,E> ... for Foo<Vec<T>, E>`) so
+    // mono can pattern-unify against the concrete receiver. Null for the
+    // concrete + non-generic + primitive + special-target cases (only
+    // GENERIC_INST + non-empty impl_tps populates target_resolved on
+    // this path; mono falls back to positional binding when null).
+    ib.target_typeref = target_resolved;
+    ib.impl_type_params = impl_tps;
     // B62: copy trait-arg region info captured by collect_impl, so mono's
     // method_bound_ok can detect HRTB satisfaction mismatch.
     if (!trait_name.empty()) {
@@ -1400,6 +1416,13 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     fn.impl_type_params = impl_tps;
                     target_struct_tmpl->methods.push_back(std::make_unique<lir::LFunction>(std::move(fn)));
                 } else {
+                    // CP-cm-16 follow-up: enum-impl path (impl<T,E> Trait for
+                    // Result<Vec<T>, E>). Methods go to prog.functions with
+                    // impl-level T,E flattened into fn.type_params (per the
+                    // existing comment at mono_clone.cpp:4319). Carry the
+                    // impl-target pattern so mono's instantiate_enum_templates
+                    // can unify pattern↔receiver instead of positional binding.
+                    fn.impl_target_pattern = ib.target_typeref;
                     prog.functions.push_back(std::make_unique<lir::LFunction>(std::move(fn)));
                 }
             } else {
@@ -1476,6 +1499,9 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                         fn.impl_type_params = impl_tps;
                         target_struct_tmpl->methods.push_back(std::make_unique<lir::LFunction>(std::move(fn)));
                     } else {
+                        // CP-cm-16 follow-up: parallel propagation for
+                        // trait-default methods on enum-impl path.
+                        fn.impl_target_pattern = ib.target_typeref;
                         prog.functions.push_back(std::make_unique<lir::LFunction>(std::move(fn)));
                     }
                     current_type_params_.erase("Self");

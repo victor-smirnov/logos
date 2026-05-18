@@ -2464,9 +2464,53 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                                 }
                                                 if (all_bound) {
                                                     std::vector<TypeRef> full;
-                                                    auto sta = TypeRef(t).type_args();
-                                                    for (auto a : sta)
-                                                        full.push_back(a);
+                                                    // CP-cm-16 follow-up: partial-spec
+                                                    // impl target. When the impl's
+                                                    // target pattern is `Foo<Vec<T>, E>`
+                                                    // (vs the bare `Foo<T, E>` shape),
+                                                    // positional receiver-args bind
+                                                    // impl-level T to Vec<i32> instead
+                                                    // of i32. Unify the pattern
+                                                    // against the concrete receiver
+                                                    // to recover correct impl-level
+                                                    // bindings; fall back to
+                                                    // positional when unification
+                                                    // fails / no pattern recorded.
+                                                    bool used_pattern = false;
+                                                    if (tmpl->impl_target_pattern && t) {
+                                                        SubstMap impl_bind;
+                                                        if (unify_impl_target(
+                                                                t,
+                                                                tmpl->impl_target_pattern,
+                                                                impl_bind)) {
+                                                            std::vector<TypeRef> ia;
+                                                            bool ok = true;
+                                                            // First sd_tpars.size()
+                                                            // entries of fn.type_params
+                                                            // are impl-level (flattened
+                                                            // at sema-collect time).
+                                                            for (size_t i = 0;
+                                                                 i < sd_tpars.size() &&
+                                                                 i < tmpl->type_params.size();
+                                                                 ++i) {
+                                                                auto& nm = tmpl->type_params[i].name;
+                                                                auto it_b = impl_bind.find(nm);
+                                                                if (it_b == impl_bind.end()) {
+                                                                    ok = false; break;
+                                                                }
+                                                                ia.push_back(it_b->second);
+                                                            }
+                                                            if (ok && ia.size() == sd_tpars.size()) {
+                                                                for (auto a : ia) full.push_back(a);
+                                                                used_pattern = true;
+                                                            }
+                                                        }
+                                                    }
+                                                    if (!used_pattern) {
+                                                        auto sta = TypeRef(t).type_args();
+                                                        for (auto a : sta)
+                                                            full.push_back(a);
+                                                    }
                                                     for (auto a : method_args)
                                                         full.push_back(a);
                                                     nc.type_args = std::move(full);
@@ -4297,14 +4341,51 @@ void Mono::instantiate_enum_templates() {
                 if (is_self_referential(fn)) continue;
                 SubstMap fn_subst = subst;
                 PackMap fn_packs = packs;
-                // Override type params with the enum's type param names if different
-                for (size_t i = 0, j = 0; i < fn.type_params.size(); ++i) {
-                    if (fn.type_params[i].is_variadic) {
-                         std::vector<TypeRef> pack;
-                         while (j < args.size()) pack.push_back(args[j++]);
-                         fn_packs[fn.type_params[i].name] = std::move(pack);
-                    } else if (j < args.size()) {
-                        fn_subst[fn.type_params[i].name] = args[j++];
+                // CP-cm-16 follow-up: partial-spec impl target. If the fn
+                // carries an impl_target_pattern that's NOT just the bare
+                // enum (e.g. `Result<Vec<T>, E>` vs `Result<T, E>`), unify
+                // against the concrete receiver type to bind impl-level
+                // T,E from the nested type-constructors instead of from
+                // positional `args[j]`. Method-level tparams (if any)
+                // would have caused the matches-check above to fail; this
+                // path is reached only for fns with no method-level
+                // tparams, so the unified bindings cover all of
+                // fn.type_params for impl-target-bearing impls.
+                bool used_pattern = false;
+                if (fn.impl_target_pattern) {
+                    TypeRef pat = fn.impl_target_pattern;
+                    if (pat.kind() == LogosType::Kind::Enum &&
+                        std::string(pat.enum_name()) == base) {
+                        auto pa = pat.type_args();
+                        if (pa.size() == args.size()) {
+                            SubstMap impl_bind;
+                            bool ok = true;
+                            for (size_t i = 0; i < pa.size(); ++i) {
+                                if (!unify_impl_target(args[i], pa[i], impl_bind)) {
+                                    ok = false; break;
+                                }
+                            }
+                            if (ok) {
+                                for (auto& tp : fn.type_params) {
+                                    auto it_b = impl_bind.find(tp.name);
+                                    if (it_b == impl_bind.end()) { ok = false; break; }
+                                    fn_subst[tp.name] = it_b->second;
+                                }
+                                if (ok) used_pattern = true;
+                            }
+                        }
+                    }
+                }
+                if (!used_pattern) {
+                    // Override type params with the enum's type param names if different
+                    for (size_t i = 0, j = 0; i < fn.type_params.size(); ++i) {
+                        if (fn.type_params[i].is_variadic) {
+                             std::vector<TypeRef> pack;
+                             while (j < args.size()) pack.push_back(args[j++]);
+                             fn_packs[fn.type_params[i].name] = std::move(pack);
+                        } else if (j < args.size()) {
+                            fn_subst[fn.type_params[i].name] = args[j++];
+                        }
                     }
                 }
                 // CP-cm-15: gate by type-param bound satisfaction. Without
