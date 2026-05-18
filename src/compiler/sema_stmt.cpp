@@ -2353,6 +2353,12 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                 error(std::format("malformed char literal '{}'", sv));
                 return 0;
             }
+            auto hex = [&](char c) -> int {
+                if (c >= '0' && c <= '9') return c - '0';
+                if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+                if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+                return -1;
+            };
             switch (body[1]) {
                 case 'n': return '\n';
                 case 't': return '\t';
@@ -2361,6 +2367,39 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                 case '\\': return '\\';
                 case '\'': return '\'';
                 case '"': return '"';
+                case 'x': {
+                    if (body.size() != 4) {
+                        error(std::format("char literal '{}': '\\x' requires exactly 2 hex digits", sv));
+                        return 0;
+                    }
+                    int h1 = hex(body[2]), h2 = hex(body[3]);
+                    if (h1 < 0 || h2 < 0) {
+                        error(std::format("char literal '{}': '\\x' requires hex digits", sv));
+                        return 0;
+                    }
+                    return (int64_t)((h1 << 4) | h2);
+                }
+                case 'u': {
+                    if (body.size() < 5 || body[2] != '{' || body.back() != '}') {
+                        error(std::format("char literal '{}': '\\u' requires '{{HEX}}' form", sv));
+                        return 0;
+                    }
+                    uint32_t cp = 0;
+                    size_t end = body.size() - 1;
+                    for (size_t i = 3; i < end; ++i) {
+                        int h = hex(body[i]);
+                        if (h < 0) {
+                            error(std::format("char literal '{}': '\\u' requires hex digits", sv));
+                            return 0;
+                        }
+                        cp = (cp << 4) | (uint32_t)h;
+                    }
+                    if (cp > 0x10FFFFu || (cp >= 0xD800u && cp <= 0xDFFFu)) {
+                        error(std::format("char literal '{}': invalid Unicode scalar U+{:X}", sv, cp));
+                        return 0;
+                    }
+                    return (int64_t)cp;
+                }
                 default:
                     error(std::format("char literal '{}': unknown escape '\\{}'",
                           sv, body[1]));

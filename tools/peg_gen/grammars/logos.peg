@@ -1978,19 +1978,37 @@
                        => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
                    )*
 
-    cmp_expr_ns <- bitwise_expr_ns (EQ / NE / LE / GE / LT / GT) bitwise_expr_ns
-                   (EQ / NE / LE / GE / LT / GT) bitwise_expr_ns
-                   ((EQ / NE / LE / GE / LT / GT) bitwise_expr_ns)*
+    cmp_expr_ns <- bitor_expr_ns (EQ / NE / LE / GE / LT / GT) bitor_expr_ns
+                   (EQ / NE / LE / GE / LT / GT) bitor_expr_ns
+                   ((EQ / NE / LE / GE / LT / GT) bitor_expr_ns)*
                    => { CODE: CHAINED_CMP, ITEMS: $... }
-                 / bitwise_expr_ns
-                   ( (EQ / NE / LE / GE / LT / GT) bitwise_expr_ns
+                 / bitor_expr_ns
+                   ( (EQ / NE / LE / GE / LT / GT) bitor_expr_ns
                        => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
                    )?
 
-    bitwise_expr_ns <- add_expr_ns
-                       ( (SHL / SHR / AMP / CARET / PIPE) add_expr_ns
-                           => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
-                       )*
+    // No-struct-lit variant of the bitwise/shift precedence cascade.
+    // Same shape as the bitor_expr / bitxor_expr / bitand_expr / shift_expr
+    // chain in the main expr path — see comment there for the rationale.
+    bitor_expr_ns <- bitxor_expr_ns
+                     ( PIPE bitxor_expr_ns
+                         => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
+                     )*
+
+    bitxor_expr_ns <- bitand_expr_ns
+                      ( CARET bitand_expr_ns
+                          => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
+                      )*
+
+    bitand_expr_ns <- shift_expr_ns
+                      ( AMP shift_expr_ns
+                          => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
+                      )*
+
+    shift_expr_ns <- add_expr_ns
+                     ( (SHL / SHR) add_expr_ns
+                         => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
+                     )*
 
     add_expr_ns <- mul_expr_ns
                    ( (PLUS / MINUS) mul_expr_ns
@@ -2110,21 +2128,39 @@
     // Non-chainable: at most one comparison.  The CHAINED_CMP alt comes first
     // so 2+ comparators (`a < b < c`) parse cleanly and sema rejects with a
     // helpful diagnostic instead of a generic "syntax error" (B-ex-08).
-    cmp_expr <- bitwise_expr (EQ / NE / LE / GE / LT / GT) bitwise_expr
-                (EQ / NE / LE / GE / LT / GT) bitwise_expr
-                ((EQ / NE / LE / GE / LT / GT) bitwise_expr)*
+    cmp_expr <- bitor_expr (EQ / NE / LE / GE / LT / GT) bitor_expr
+                (EQ / NE / LE / GE / LT / GT) bitor_expr
+                ((EQ / NE / LE / GE / LT / GT) bitor_expr)*
                 => { CODE: CHAINED_CMP, ITEMS: $... }
-              / bitwise_expr
-                ( (EQ / NE / LE / GE / LT / GT) bitwise_expr
+              / bitor_expr
+                ( (EQ / NE / LE / GE / LT / GT) bitor_expr
                     => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
                 )?
 
-    // Bitwise and shift operators (higher precedence than comparison)
-    // (zero-or-more to avoid PEG backtracking when no operator follows)
-    bitwise_expr <- add_expr
-                    ( (SHL / SHR / AMP / CARET / PIPE) add_expr
-                        => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
-                    )*
+    // Bitwise and shift operators, split into 4 precedence levels to
+    // mirror Rust (low → high): `|` < `^` < `&` < `<<`/`>>`. The earlier
+    // single-level form parsed `i32_b & i32_b << 1` as `(i32_b & i32_b)
+    // << 1` because all five ops shared the same left-associative
+    // chain; Rust parses it as `i32_b & (i32_b << 1)`.
+    bitor_expr <- bitxor_expr
+                  ( PIPE bitxor_expr
+                      => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
+                  )*
+
+    bitxor_expr <- bitand_expr
+                   ( CARET bitand_expr
+                       => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
+                   )*
+
+    bitand_expr <- shift_expr
+                   ( AMP shift_expr
+                       => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
+                   )*
+
+    shift_expr <- add_expr
+                  ( (SHL / SHR) add_expr
+                      => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
+                  )*
 
     add_expr <- mul_expr
                 ( (PLUS / MINUS) mul_expr

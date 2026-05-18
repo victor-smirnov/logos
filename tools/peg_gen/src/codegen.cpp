@@ -1508,10 +1508,31 @@ private:
                 w.line("size_t save = pos_;");
                 w.line("size_t p = pos_ + 1;");
                 w.line("bool ok = false;");
-                // Escape: `\<any>` is one char.
+                // Escape: `\<any>` is one char by default; `\xNN` consumes the
+                // two hex digits; `\u{HHH...}` consumes up to the closing `}`.
+                // The wider escape forms mirror Rust's char-literal syntax —
+                // needed for porting coretests that spell out non-printable
+                // codepoints directly (e.g. `'\u{2007}'` FIGURE SPACE).
                 w.line("if (p + 2 < source_.size() && source_[p] == '\\\\') {");
-                w.line("    p += 2;");
-                w.line("    if (source_[p] == '\\'') { pos_ = p + 1; ok = true; }");
+                w.line("    char esc = source_[p + 1];");
+                w.line("    if (esc == 'x') {");
+                w.line("        // `\\xNN` — 2 hex digits.");
+                w.line("        size_t hx = p + 2;");
+                w.line("        if (hx + 2 < source_.size() && std::isxdigit((unsigned char)source_[hx]) && std::isxdigit((unsigned char)source_[hx + 1]) && source_[hx + 2] == '\\'') {");
+                w.line("            pos_ = hx + 3; ok = true;");
+                w.line("        }");
+                w.line("    } else if (esc == 'u' && p + 2 < source_.size() && source_[p + 2] == '{') {");
+                w.line("        // `\\u{HHH...}` — 1..6 hex digits in braces.");
+                w.line("        size_t hx = p + 3;");
+                w.line("        size_t hx_end = hx;");
+                w.line("        while (hx_end < source_.size() && std::isxdigit((unsigned char)source_[hx_end]) && hx_end - hx < 6) ++hx_end;");
+                w.line("        if (hx_end > hx && hx_end + 1 < source_.size() && source_[hx_end] == '}' && source_[hx_end + 1] == '\\'') {");
+                w.line("            pos_ = hx_end + 2; ok = true;");
+                w.line("        }");
+                w.line("    } else {");
+                w.line("        p += 2;");
+                w.line("        if (source_[p] == '\\'') { pos_ = p + 1; ok = true; }");
+                w.line("    }");
                 // Plain char: a single Unicode codepoint that isn't `'` or `\`.
                 // Lead byte determines UTF-8 length (1..4 bytes).
                 w.line("} else if (p < source_.size() && source_[p] != '\\'' && source_[p] != '\\\\') {");

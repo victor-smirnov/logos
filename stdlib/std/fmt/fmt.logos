@@ -663,13 +663,24 @@ pub fn assert(args: Vec<ExprBlob>) -> ExprBlob {
 
 #[fn_macro]
 pub fn assert_eq(args: Vec<ExprBlob>) -> ExprBlob {
+    // Bind only `__a` up-front; inline `#b` into the comparison so
+    // IntLit on the b side stays IntLit through the BinOp site, where
+    // sema's IntLit-vs-concrete-int coercion fires. With the earlier
+    // `let __b = #b;` form, an IntLit `#b` got defaulted to i32 before
+    // the comparison saw it, so `assert_eq!(isize_val, 90)` and any
+    // other "literal RHS, sized LHS" shape failed type-check.
+    //
+    // The format path stays inside the failure branch with its own
+    // local `__b` binding (`#b` re-evaluated only when the assertion
+    // actually fails). Pure value RHS double-evals are cheap; side-
+    // effectful RHS still gets at-most one extra eval (failure-only).
     let a: ExprBlob = args.get(0i64);
     let b: ExprBlob = args.get(1i64);
     return quote_expr! {
         {
             let __a = #a;
-            let __b = #b;
-            if __a != __b {
+            if __a != (#b) {
+                let __b = #b;
                 let __m: String = format_args_str(
                     "assertion failed: {:?} != {:?}", __a, __b);
                 __fmt_panic(__m.as_str());
@@ -681,13 +692,15 @@ pub fn assert_eq(args: Vec<ExprBlob>) -> ExprBlob {
 
 #[fn_macro]
 pub fn assert_ne(args: Vec<ExprBlob>) -> ExprBlob {
+    // See assert_eq for the rationale behind the bind-only-on-failure
+    // shape.
     let a: ExprBlob = args.get(0i64);
     let b: ExprBlob = args.get(1i64);
     return quote_expr! {
         {
             let __a = #a;
-            let __b = #b;
-            if __a == __b {
+            if __a == (#b) {
+                let __b = #b;
                 let __m: String = format_args_str(
                     "assertion failed: {:?} == {:?}", __a, __b);
                 __fmt_panic(__m.as_str());
