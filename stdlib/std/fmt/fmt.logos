@@ -15,6 +15,8 @@ use logos.mem.string;
 use logos.lang.str;
 use logos.lang.panic;
 use logos.lang.cmp;
+use logos.lang.option;
+use logos.lang.result;
 use std.compiler.metaprog;
 use logos.mem.collections.vec;
 use std.io;
@@ -186,6 +188,43 @@ impl Debug for str {
         buf.push_u8(34u8);     // "
         buf.push_str(self);
         buf.push_u8(34u8);     // "
+    }
+}
+
+// Debug for Option<T> / Result<T, E>. Rust ships these in
+// core::option/result; in Logos they live here because Debug itself is
+// in std.fmt and lang-tier can't pull std (tier rule). Gated by
+// CP-cm-15 fix: mono now skips cloning these impls for T's that don't
+// implement Debug (e.g. Option<&mut i32>).
+impl<T: Debug> Debug for Option<T> {
+    fn dbg(self: Option<T>, buf: &mut String) {
+        match self {
+            Option::Some(v) => {
+                buf.push_str("Some(");
+                v.dbg(buf);
+                buf.push_str(")");
+            }
+            Option::None => {
+                buf.push_str("None");
+            }
+        }
+    }
+}
+
+impl<T: Debug, E: Debug> Debug for Result<T, E> {
+    fn dbg(self: Result<T, E>, buf: &mut String) {
+        match self {
+            Result::Ok(v) => {
+                buf.push_str("Ok(");
+                v.dbg(buf);
+                buf.push_str(")");
+            }
+            Result::Err(e) => {
+                buf.push_str("Err(");
+                e.dbg(buf);
+                buf.push_str(")");
+            }
+        }
     }
 }
 

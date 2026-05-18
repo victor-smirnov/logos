@@ -2517,15 +2517,31 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 new_recv && new_recv->type) {
                 std::string cname;
                 auto rt = new_recv->type;
+                // Helper: concrete enum cname mirroring record_needed_enum's
+                // mangling (`<enum_name>__<arg1>__<arg2>...`). CP-cm-15
+                // follow-up: needed by generic-Debug-for-enum dispatch from
+                // wrappers like `fmt_debug<T>(t.dbg(buf))` so the callee
+                // resolves to e.g. `Result__isize__refmut_u8__dbg__...`
+                // instead of the bare-template `Result__dbg__...` name.
+                auto enum_cname = [&](TypeRef et) -> std::string {
+                    if (!et || et.kind() != LogosType::Kind::Enum) return {};
+                    std::string n(et.enum_name());
+                    for (auto a : et.type_args()) { n += "__"; n += mangle_type(a); }
+                    return n;
+                };
                 if (TypeRef(rt).kind() == LogosType::Kind::Struct ||
                     TypeRef(rt).kind() == LogosType::Kind::ZonedStruct)
                     cname = concrete_struct_name(rt);
+                else if (TypeRef(rt).kind() == LogosType::Kind::Enum)
+                    cname = enum_cname(rt);
                 else if ((TypeRef(rt).kind() == LogosType::Kind::Ptr ||
                           TypeRef(rt).kind() == LogosType::Kind::Ref ||
                           TypeRef(rt).kind() == LogosType::Kind::MutRef) && TypeRef(rt).pointee()) {
                     if (TypeRef(rt).pointee().kind() == LogosType::Kind::Struct ||
                         TypeRef(rt).pointee().kind() == LogosType::Kind::ZonedStruct)
                         cname = concrete_struct_name(TypeRef(rt).pointee());
+                    else if (TypeRef(rt).pointee().kind() == LogosType::Kind::Enum)
+                        cname = enum_cname(TypeRef(rt).pointee());
                     else {
                         std::string ptr_cname = type_str(rt);
                         std::string ptr_fn = ptr_cname + "__" + method;
@@ -2609,6 +2625,49 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                     tmpl_key = kn; break;
                                 }
                             }
+                    }
+                    // CP-cm-15 follow-up: enum-receiver dispatch from a
+                    // generic-Trait-for-Enum<T> impl. The template is
+                    // registered with the bare base name (e.g.
+                    // `std.fmt.Result__dbg__g__Result__refmut_String`),
+                    // and instantiate_enum_templates clones it into a
+                    // concrete spec by inserting the cname's __-separated
+                    // type-args between base and method (`Result__isize__&[u8]__dbg__...`).
+                    // Mirror that synthesis here so the call site resolves
+                    // to the cloned spec instead of leaving the bare-base
+                    // template name (which has no body of the right shape).
+                    if (tmpl_key == base_fn && rt &&
+                        (TypeRef(rt).kind() == LogosType::Kind::Enum ||
+                         ((TypeRef(rt).kind() == LogosType::Kind::Ptr ||
+                           TypeRef(rt).kind() == LogosType::Kind::Ref ||
+                           TypeRef(rt).kind() == LogosType::Kind::MutRef) &&
+                          TypeRef(rt).pointee() &&
+                          TypeRef(rt).pointee().kind() == LogosType::Kind::Enum))) {
+                        auto et = TypeRef(rt).kind() == LogosType::Kind::Enum
+                            ? rt : TypeRef(rt).pointee();
+                        std::string base_name(et.enum_name());
+                        std::string bare_method_p = base_name + "__" + method + "__g__";
+                        std::string bare_method_p_dot = "." + bare_method_p;
+                        std::string found_tmpl;
+                        for (auto& [kn, _] : templates_) {
+                            if (kn.rfind(bare_method_p, 0) == 0 ||
+                                kn.find(bare_method_p_dot) != std::string::npos) {
+                                found_tmpl = kn; break;
+                            }
+                        }
+                        if (!found_tmpl.empty()) {
+                            // Split into pkg + bare to mirror instantiate_enum_templates.
+                            std::string pkg, bare = found_tmpl;
+                            if (auto dot = bare.rfind('.'); dot != std::string::npos) {
+                                pkg = bare.substr(0, dot);
+                                bare = bare.substr(dot + 1);
+                            }
+                            // bare = "Result__dbg__g__Result__refmut_String"
+                            // suffix from base_name onwards = "__dbg__g__..."
+                            std::string suffix = bare.substr(base_name.size());
+                            std::string inst_bare = cname + suffix;
+                            tmpl_key = pkg.empty() ? inst_bare : pkg + "." + inst_bare;
+                        }
                     }
                     nc.callee = tmpl_key;
                     nc.args.push_back(std::move(new_recv));
@@ -4214,6 +4273,62 @@ void Mono::instantiate_enum_templates() {
                         fn_subst[fn.type_params[i].name] = args[j++];
                     }
                 }
+                // CP-cm-15: gate by type-param bound satisfaction. Without
+                // this, `impl<T: Echo> Echo for Option<T>` clones for EVERY
+                // Option<X> mono creates (incl. Option<&mut i32> arising
+                // from stdlib's `.take()` chains), even when X doesn't
+                // implement Echo. The clone's body method-dispatches on T
+                // and lowers to a wrong-arity call (`&mut i32` passed to a
+                // fn expecting `i32`), tripping mlir-gen verification.
+                //
+                // Bounds on impl-block-derived enum methods live in
+                // fn.type_params[i].bounds (impl_type_params is empty
+                // for this path — the impl's T flattens into the fn's
+                // type_params at sema-collect time). Mirror method_bound_ok
+                // logic against type_params.
+                bool bounds_ok = true;
+                for (auto& tp : fn.type_params) {
+                    if (tp.bounds.empty()) continue;
+                    auto sit = fn_subst.find(tp.name);
+                    if (sit == fn_subst.end()) continue;
+                    TypeRef concrete = sit->second;
+                    if (!concrete) continue;
+                    std::string cname;
+                    auto ck = TypeRef(concrete).kind();
+                    if (ck == LogosType::Kind::Struct ||
+                        ck == LogosType::Kind::ZonedStruct)
+                        cname = concrete_struct_name(concrete);
+                    else if (ck == LogosType::Kind::Enum)
+                        cname = TypeRef(concrete).enum_name();
+                    else
+                        cname = type_str(concrete);
+                    if (auto p = cname.find("$G"); p != std::string::npos)
+                        cname = cname.substr(0, p);
+                    // &[u8] is the canonical wire form for str; impls
+                    // register under "str" in the trait engine.
+                    if (cname == "&[u8]") cname = "str";
+                    for (auto& tb : tp.bounds) {
+                        // Auto-trait check parity with method_bound_ok.
+                        bool is_auto = false;
+                        for (auto& td : out_.traits)
+                            if (td.name == tb.trait_name) {
+                                is_auto = td.is_auto; break;
+                            }
+                        if (is_auto) {
+                            StrSet visited;
+                            if (!is_auto_satisfied(concrete, tb.trait_name, visited)) {
+                                bounds_ok = false; break;
+                            }
+                            continue;
+                        }
+                        StrSet seen;
+                        if (!mono_has_impl_recursive(tb.trait_name, cname, seen)) {
+                            bounds_ok = false; break;
+                        }
+                    }
+                    if (!bounds_ok) break;
+                }
+                if (!bounds_ok) continue;
                 auto nm = clone_fn(fn, fn_subst, fn_packs);
                 nm.name = inst_name;
                 done_.insert(inst_name);

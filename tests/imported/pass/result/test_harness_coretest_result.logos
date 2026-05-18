@@ -163,3 +163,20 @@ fn test_or_else() {
     assert_eq!(a.or_else(err_lift).unwrap(), 1i32);
     assert_eq!(err.or_else(err_lift).unwrap(), 199i32);
 }
+
+// Upstream uses `format!("{ok:?}")` (Rust 2021 named-capture). Logos's
+// format! follows the positional form `format!("{:?}", ok)`. CP-cm-15
+// closed (2026-05-17) lets `impl<T: Debug, E: Debug> Debug for Result<T, E>`
+// instantiate cleanly — previously mono cloned the impl for &mut-T cases
+// surfaced by stdlib's `.take()` chains and emitted wrong-arity calls.
+#[test]
+fn test_fmt_default() {
+    let ok:  Result<isize, str> = Ok(100isize);
+    let err: Result<isize, str> = Err("Err");
+
+    let s1: String = format!("{:?}", ok);
+    assert_eq!(s1.as_str(), "Ok(100)");
+
+    let s2: String = format!("{:?}", err);
+    assert_eq!(s2.as_str(), "Err(\"Err\")");
+}
