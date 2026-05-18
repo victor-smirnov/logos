@@ -1,0 +1,18 @@
+// std.lang.ptr::null/null_mut/eq/addr_eq.
+
+package ptr_null_eq;
+
+use logos.lang.ptr;
+
+fn main() -> i32 {
+    let np: *const i32 = null::<i32>();
+    let nm: *mut i64 = null_mut::<i64>();
+    if (np as i64) != 0i64 { return 1i32; }
+    if (nm as i64) != 0i64 { return 2i32; }
+    let a: i32 = 42i32;
+    let pa: *const i32 = &a as *const i32;
+    if !eq::<i32>(pa, pa) { return 3i32; }
+    if eq::<i32>(pa, np) { return 4i32; }
+    if !addr_eq::<i32, i64>(pa, pa as *const i64) { return 5i32; }
+    return 0i32;
+}

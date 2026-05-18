@@ -1,0 +1,18 @@
+// std.lang.ptr::copy / copy_nonoverlapping.
+
+package ptr_copy;
+
+use logos.lang.ptr;
+
+fn main() -> i32 {
+    let src: [i32; 4] = [10i32, 20i32, 30i32, 40i32];
+    let mut dst: [i32; 4] = [0i32, 0i32, 0i32, 0i32];
+    unsafe {
+        let sp: *const i32 = &src[0] as *const i32;
+        let dp: *mut i32 = &mut dst[0] as *mut i32;
+        copy_nonoverlapping::<i32>(sp, dp, 4i64);
+    }
+    let sum: i32 = dst[0] + dst[1] + dst[2] + dst[3];
+    if sum == 100i32 { return 0i32; }
+    return 1i32;
+}

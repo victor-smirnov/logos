@@ -1,0 +1,225 @@
+// Logos standard library — std.lang.ptr
+//
+// Raw pointer helpers — mirror `core::ptr` standalone fns and the
+// `NonNull<T>` newtype.
+//
+// All free fns are `unsafe` because they bypass borrow-check and the
+// runtime owns no provenance/aliasing tracking. Use behind explicit
+// abstractions (Vec / Box / Cell / etc.) rather than ad-hoc in driver
+// code.
+//
+// Surface ported:
+//   Free fns: null / null_mut / read / write / copy / copy_nonoverlapping
+//   / swap / replace / drop_in_place / eq / addr_eq
+//   NonNull<T>: new (checked) / new_unchecked / dangling / from_ref /
+//   from_mut / as_ptr / as_ref / as_mut / cast / add / sub / offset
+//
+// Divergence from Rust:
+//   - `core::ptr::drop_in_place` calls T's `Drop::drop`. Logos's
+//     equivalent does the same when T has a user `impl Drop`, but
+//     does NOT recursively drop fields (matches Logos's "explicit
+//     Drop only" convention).
+//   - `core::ptr::read` returns `T` by-value bit-copy. In Logos this
+//     uses `*((p) as *const T)` which is the same operation; for
+//     non-Copy T the caller is responsible for honouring "this is
+//     now a fresh owner, original location must not be read again".
+//   - `dangling()` returns a non-null but unsafe-to-deref ptr formed
+//     from `align_of::<T>()` (Rust uses the same trick).
+//   - `NonNull::cast<U>` is a bare ptr reinterpret; no provenance
+//     bookkeeping (Logos has no Stacked-Borrows-style model).
+
+package logos.lang.ptr;
+
+use logos.lang.option;
+
+// ───────────────────────────────────────────────────────────────────
+// Free fns
+// ───────────────────────────────────────────────────────────────────
+
+// Null `*const T` / `*mut T`. Safe to call (allocating the null
+// constant doesn't dereference). Reading / writing through the
+// returned ptr is UB.
+pub fn null<T>() -> *const T {
+    return 0i64 as *const T;
+}
+
+pub fn null_mut<T>() -> *mut T {
+    return 0i64 as *mut T;
+}
+
+// Read a `T` bit-for-bit from `src`. Logos has no per-byte memcpy
+// builtin at this layer, so we lean on the generic pointer deref
+// `*((p) as *const T)` which the codegen lowers to a struct load.
+// Caller MUST ensure `src` points at a properly initialized `T` and
+// that the original location isn't read again (Rust's by-value-move
+// semantics).
+pub unsafe fn read<T>(src: *const T) -> T {
+    unsafe { return src[0]; }
+}
+
+pub unsafe fn write<T>(dst: *mut T, src: T) {
+    unsafe { dst[0] = src; }
+}
+
+// Memmove-style copy (overlapping allowed). Currently routed through
+// the per-element `src[i] = …` loop; future revision will lean on the
+// `memmove` runtime intrinsic via `mem/mem::move_bytes` once Logos
+// supports a `count: usize` parameter on the slice copy primitives
+// without per-arch lowering.
+pub unsafe fn copy<T: Copy>(src: *const T, dst: *mut T, count: i64) {
+    unsafe {
+        // If source < destination, copy backwards to handle overlap.
+        let dp: i64 = dst as i64;
+        let sp: i64 = src as i64;
+        if dp > sp && dp < sp + count * (sizeof::<T>() as i64) {
+            let mut i: i64 = count;
+            while i > 0i64 {
+                i = i - 1i64;
+                dst[i] = src[i];
+            }
+        } else {
+            let mut i: i64 = 0i64;
+            while i < count {
+                dst[i] = src[i];
+                i = i + 1i64;
+            }
+        }
+    }
+}
+
+// Non-overlapping copy — caller swears regions don't overlap.
+// Cheaper than `copy` because no direction check.
+pub unsafe fn copy_nonoverlapping<T: Copy>(src: *const T, dst: *mut T, count: i64) {
+    unsafe {
+        let mut i: i64 = 0i64;
+        while i < count {
+            dst[i] = src[i];
+            i = i + 1i64;
+        }
+    }
+}
+
+// Swap the `T` at two raw pointers.
+pub unsafe fn swap<T>(x: *mut T, y: *mut T) {
+    unsafe {
+        let tmp: T = x[0];
+        x[0] = y[0];
+        y[0] = tmp;
+    }
+}
+
+// Replace `dst` with `src`, return previous `T`.
+pub unsafe fn replace<T>(dst: *mut T, src: T) -> T {
+    unsafe {
+        let old: T = dst[0];
+        dst[0] = src;
+        return old;
+    }
+}
+
+// Run `T`'s Drop without affecting the storage. Caller is responsible
+// for the storage afterwards (no read / no re-drop). Lowers to a
+// regular `let _ = read(p);` so the borrow checker triggers the drop
+// at the end of the statement — equivalent observable effect.
+pub unsafe fn drop_in_place<T>(p: *mut T) {
+    unsafe {
+        let _v: T = p[0];
+        // _v falls out of scope → Drop fires.
+    }
+}
+
+// Pointer equality (compares address bits, not pointee value).
+pub fn eq<T>(a: *const T, b: *const T) -> bool {
+    return (a as i64) == (b as i64);
+}
+
+// Same as `eq` but cross-type — accepts mismatched pointee types.
+pub fn addr_eq<T, U>(a: *const T, b: *const U) -> bool {
+    return (a as i64) == (b as i64);
+}
+
+// ───────────────────────────────────────────────────────────────────
+// NonNull<T>
+// ───────────────────────────────────────────────────────────────────
+
+// A `*mut T` that's guaranteed non-null. Used inside smart pointers
+// (Box, Rc, Arc, Vec) to make "I never hold null here" a type-level
+// invariant. Construction via `new` (checked, returns Option) or
+// `new_unchecked` (unsafe, caller swears non-null).
+pub struct NonNull<T> {
+    ptr: *mut T,
+}
+
+impl<T> NonNull<T> {
+    // Checked construction. Returns None if `ptr` is null.
+    pub fn new(ptr: *mut T) -> Option<NonNull<T>> {
+        if (ptr as i64) == 0i64 {
+            return Option::None;
+        }
+        return Option::Some(NonNull { ptr: ptr });
+    }
+
+    // Unchecked construction. Caller swears `ptr` is non-null.
+    pub unsafe fn new_unchecked(ptr: *mut T) -> NonNull<T> {
+        return NonNull { ptr: ptr };
+    }
+
+    // Sentinel pointer for empty / zero-capacity collections. The
+    // address equals `align_of::<T>()`, which is non-null and properly
+    // aligned but doesn't point at valid storage. Never dereference.
+    pub fn dangling() -> NonNull<T> {
+        return NonNull { ptr: align_of::<T>() as *mut T };
+    }
+
+    // From a live reference.
+    pub fn from_ref(r: &T) -> NonNull<T> {
+        unsafe { return NonNull { ptr: (r as *const T) as *mut T }; }
+    }
+
+    pub fn from_mut(r: &mut T) -> NonNull<T> {
+        unsafe { return NonNull { ptr: r as *mut T }; }
+    }
+
+    // Extract the raw `*mut T`. Always safe; the pointer is non-null
+    // but using it still requires `unsafe`.
+    pub fn as_ptr(self: NonNull<T>) -> *mut T {
+        return self.ptr;
+    }
+
+    // Reborrow as a Rust-shaped reference. Caller promises:
+    //   - the pointee is initialized and aliasing-rule-compatible
+    //   - the resulting borrow's lifetime doesn't outlive the storage.
+    pub unsafe fn as_ref(&self) -> &T {
+        unsafe { return &(self.ptr)[0]; }
+    }
+
+    pub unsafe fn as_mut(self: &mut NonNull<T>) -> &mut T {
+        unsafe { return &mut (self.ptr)[0]; }
+    }
+
+    // Reinterpret as a different pointee type. Address preserved; no
+    // alignment or validity check.
+    pub fn cast<U>(self: NonNull<T>) -> NonNull<U> {
+        return NonNull { ptr: self.ptr as *mut U };
+    }
+
+    // Pointer arithmetic, scaled by `sizeof::<T>()`. `count` may be
+    // negative; same semantics as Rust's `add`/`sub`/`offset`.
+    pub unsafe fn add(self: NonNull<T>, count: i64) -> NonNull<T> {
+        unsafe {
+            let new_ptr: *mut T = ((self.ptr as i64) + count * (sizeof::<T>() as i64)) as *mut T;
+            return NonNull { ptr: new_ptr };
+        }
+    }
+
+    pub unsafe fn sub(self: NonNull<T>, count: i64) -> NonNull<T> {
+        unsafe {
+            let new_ptr: *mut T = ((self.ptr as i64) - count * (sizeof::<T>() as i64)) as *mut T;
+            return NonNull { ptr: new_ptr };
+        }
+    }
+
+    pub unsafe fn offset(self: NonNull<T>, count: i64) -> NonNull<T> {
+        unsafe { return self.add(count); }
+    }
+}

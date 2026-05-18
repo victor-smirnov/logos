@@ -1,0 +1,46 @@
+// NonNull<T> — new / from_ref / as_ptr / as_ref / cast / add / sub.
+
+package ptr_nonnull;
+
+use logos.lang.ptr;
+use logos.lang.option;
+
+fn main() -> i32 {
+    let arr: [i32; 4] = [10i32, 20i32, 30i32, 40i32];
+    unsafe {
+        let first: *mut i32 = &arr[0] as *const i32 as *mut i32;
+
+        // new — checked
+        let nn: NonNull<i32> = match NonNull::new(first) {
+            Option::Some(p) => p,
+            Option::None    => { return 1i32; }
+        };
+
+        // null gets rejected
+        let np: *mut i32 = null_mut::<i32>();
+        match NonNull::new(np) {
+            Option::Some(_) => { return 2i32; }
+            Option::None    => {}
+        }
+
+        // as_ref
+        if (nn.as_ref())[0] != 10i32 { return 3i32; }
+
+        // add: advance to arr[2]
+        let nn2: NonNull<i32> = nn.add(2i64);
+        if (nn2.as_ref())[0] != 30i32 { return 4i32; }
+
+        // sub: back to arr[1]
+        let nn1: NonNull<i32> = nn2.sub(1i64);
+        if (nn1.as_ref())[0] != 20i32 { return 5i32; }
+
+        // cast: reinterpret as u32 (same bytes)
+        let nnu: NonNull<u32> = nn.cast::<u32>();
+        if (nnu.as_ref())[0] != 10u32 { return 6i32; }
+
+        // dangling — non-null, non-zero address
+        let d: NonNull<i64> = NonNull::<i64>::dangling();
+        if (d.as_ptr() as i64) == 0i64 { return 7i32; }
+    }
+    return 0i32;
+}

@@ -1,0 +1,30 @@
+// std.lang.ptr::read/write/swap/replace.
+
+package ptr_read_write_swap_replace;
+
+use logos.lang.ptr;
+
+fn main() -> i32 {
+    let mut a: i32 = 10i32;
+    let mut b: i32 = 20i32;
+    unsafe {
+        let pa: *mut i32 = &mut a as *mut i32;
+        let pb: *mut i32 = &mut b as *mut i32;
+
+        // read
+        if read::<i32>(pa as *const i32) != 10i32 { return 1i32; }
+
+        // write
+        write::<i32>(pa, 100i32);
+        if a != 100i32 { return 2i32; }
+
+        // swap
+        swap::<i32>(pa, pb);
+        if a != 20i32 || b != 100i32 { return 3i32; }
+
+        // replace
+        let prev: i32 = replace::<i32>(pa, 7i32);
+        if prev != 20i32 || a != 7i32 { return 4i32; }
+    }
+    return 0i32;
+}

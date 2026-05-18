@@ -66,7 +66,7 @@ Source roots:
 | `primitive_docs.rs` | — | ➖ | — | Doc-only. |
 | `process.rs` | `std/process/process.logos` | ⚠️ partial | — | core::process is `ExitCode`/`Termination`/`abort`/`exit`; Logos exposes `exit_process` etc. |
 | `profiling.rs` | — | 🔁 | — | Internal `#[profiling]` scaffolding. |
-| `ptr/` | compiler builtins (`*const T`/`*mut T` syntax) + `dst_from_raw_parts` (Phase 1B-14) | ⚠️ partial | — | Raw pointer arithmetic, deref, cast — all language-level. `NonNull`/`Unique` newtype + `ptr::null`/`null_mut`/`read`/`write`/`copy`/`copy_nonoverlapping` standalone fns absent as a `ptr` module. |
+| `ptr/` | `lang/ptr/ptr.logos` (+ compiler builtins `*const T`/`*mut T` syntax + `dst_from_raw_parts` from Phase 1B-14) | ⚠️ partial | — | `null`/`null_mut`/`read`/`write`/`copy`/`copy_nonoverlapping`/`swap`/`replace`/`drop_in_place`/`eq`/`addr_eq` + `NonNull<T>` (`new`/`new_unchecked`/`dangling`/`from_ref`/`from_mut`/`as_ptr`/`as_ref`/`as_mut`/`cast`/`add`/`sub`/`offset`). Missing: `read_volatile`/`write_volatile`/`read_unaligned`/`write_unaligned`/`without_provenance`/`with_exposed_provenance`/`slice_from_raw_parts`/`hash`/`fn_addr_eq`, `Unique<T>`. |
 | `random.rs` | `std-new/random/random.logos` | 🔁 | — | core::random is `RandomSource`/`Distribution` traits (unstable). Logos exposes concrete `Rng` (xorshift-ish) + `os_random` directly. |
 | `range/` + `range.rs` | `lang/range/range.logos` | 🔁 | `iterators/test_harness_coretest_iter_range*.logos` | Logos has `RangeI32`/`RangeI64`/`RevRangeI32`/`RevRangeI64`. Generic `Range<T>`/`RangeFrom`/`RangeTo`/`RangeFull`/`RangeInclusive` + `RangeBounds` absent. |
 | `result.rs` | `lang/result/result.logos` | ⚠️ partial | 4 `result/test_harness_coretest_result*.logos`, `option-result/test_harness_coretest_qmark_from.logos` | Surface: `is_ok`/`is_err`/`is_ok_and`/`is_err_and`/`unwrap`/`unwrap_err`/`expect`/`expect_err`/`unwrap_or`/`unwrap_or_else`/`ok`/`err`/`map`/`map_err`/`map_or`/`map_or_else`/`and`/`or`/`and_then`/`or_else`. Missing: `iter`/`as_ref`/`as_mut`/`contains`/`contains_err`/`flatten`/`transpose`/`unwrap_or_default`/`into_ok`. |
@@ -311,9 +311,9 @@ Source roots:
 
 | File | Logos | Status | Notes |
 |---|---|---|---|
-| `mod.rs` | compiler-builtin pointer ops | ⚠️ partial | `*const T` / `*mut T` syntax; `ptr::read`/`ptr::write`/`copy_nonoverlapping` not exposed as a `ptr` module. |
+| `mod.rs` | `lang/ptr/ptr.logos` (+ compiler-builtin pointer ops) | ⚠️ partial | `null`/`null_mut`/`read`/`write`/`copy`/`copy_nonoverlapping`/`swap`/`replace`/`drop_in_place`/`eq`/`addr_eq` ported. Volatile / unaligned / provenance / slice-from-raw-parts variants pending. |
 | `const_ptr.rs` / `mut_ptr.rs` | — | ⚠️ partial | Method-form on raw pointers absent (use deref + offset). |
-| `non_null.rs` | — | ❌ TODO | `NonNull<T>`. |
+| `non_null.rs` | `lang/ptr/ptr.logos` (`NonNull<T>`) | ⚠️ partial | `new`/`new_unchecked`/`dangling`/`from_ref`/`from_mut`/`as_ptr`/`as_ref`/`as_mut`/`cast`/`add`/`sub`/`offset` ported. Address/provenance/byte-offset/aligned-cast variants pending. |
 | `unique.rs` | — | ❌ TODO | `Unique<T>` (internal). |
 | `metadata.rs` | compiler-builtin (DST metadata, Phase 1B-14) | 🔁 | `dst_from_raw_parts` builtin instead of `Pointee::Metadata`. |
 
@@ -431,7 +431,7 @@ Cross-referenced from individual rows above:
 1. `core::ops::{Fn,FnMut,FnOnce}` — blocks closure trait surface; affects iter `.map`/etc. taking closures vs `fn` ptrs.
 2. `core::ops::{Deref,DerefMut,Index,IndexMut}` — current method-based shape is a Logos divergence; surfaces on each port.
 3. ~~`core::mem::MaybeUninit`~~ — initial port landed (mem/uninit, B105). Drop-T variant + slice/array surface remain.
-4. `core::ptr` standalone `read`/`write`/`copy_nonoverlapping` / `NonNull` — needed for safe-abstraction ports.
+4. ~~`core::ptr` standalone `read`/`write`/`copy_nonoverlapping` / `NonNull`~~ — initial port landed (`lang/ptr`, follow-up to B105). Volatile/unaligned/provenance variants remain.
 5. `core::num::NonZero` + `core::num::error::*` — needed for parse APIs.
 6. `core::iter` adapters: `cloned`/`copied`/`flatten`/`from_fn`/`successors`/`repeat_n` — round out adapter set.
 7. `core::str::{Chars,CharIndices,Bytes,Lines}` + `Pattern` trait — string iteration parity.
