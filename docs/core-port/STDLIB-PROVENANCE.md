@@ -31,7 +31,7 @@ Source roots:
 | `asserting.rs` | — | ➖ | — | Internal `assert!` formatter machinery; Logos's `assert!`/`assert_eq!`/`assert_ne!` are metacall handlers in `std/fmt/fmt.logos`. |
 | `bool.rs` | `lang/bool/bool.logos` | ✅ | `bool/test_harness_coretest_bool.logos`, `bool/test_harness_coretest_bool_conv.logos`, `bool/test_harness_coretest_bool_to_string.logos` | `then`, `then_some`, `ok_or`, `ok_or_else`. Bitwise via `lang/ops`. |
 | `borrow.rs` | — | ❌ TODO | — | `Borrow<T>` / `BorrowMut<T>` traits not declared. Mostly cosmetic; Logos uses `&T` directly. |
-| `cell.rs` | `lang/cell/cell.logos` | ⚠️ partial | `cell/test_harness_coretest_unsafe_cell.logos` | `UnsafeCell` (B100) + `Cell` (Copy bound) + `RefCell` (Ref/RefMut guards with Drop-based counter, panic on conflict). `CoerceUnsized`/`DispatchFromDyn` impls absent (no language support). `Ref::map`/`filter_map`/`map_split` absent. `try_borrow*` Result-extraction footgunned by [[baghunt-match-arm-binding-no-drop]] — workaround: use panicking `borrow()` variants. |
+| `cell.rs` | `lang/cell/cell.logos` | ⚠️ partial | `cell/test_harness_coretest_unsafe_cell.logos` | `UnsafeCell` (B100) + `Cell` (Copy bound) + `RefCell` (Ref/RefMut guards with Drop-based counter, panic on conflict). `CoerceUnsized`/`DispatchFromDyn` impls absent (no language support). `Ref::map`/`filter_map`/`map_split` absent. Pattern-extraction `try_borrow*` now works (match-arm Drop gap fixed 2026-05-18). |
 | `clone.rs` | `lang/clone/clone.logos` | ⚠️ partial | `clone/test_harness_coretest_clone.logos` | `Clone` + `Copy` traits. `CloneToUninit` / `TrivialClone` absent. Logos `Clone::clone` takes `self: Self` (vs Rust `&self`) — pending migration. |
 | `cmp.rs` | `lang/cmp/cmp.logos` + `lang/cmp/ord.logos` | ✅ | `cmp/test_harness_coretest_cmp.logos`, `cmp/test_harness_coretest_ordering_*.logos`, `cmp/test_harness_coretest_user_defined_eq.logos` | `Eq`/`PartialEq`/`PartialOrd`/`Ord`, `Ordering` (+reverse/is_lt/then/then_with), per-type min/max/clamp. |
 | `contracts.rs` | — | 🔁 | — | Unstable `#[requires]`/`#[ensures]`; no Logos equivalent. |
@@ -110,7 +110,7 @@ Source roots:
 
 | File | Logos | Status | Coretest | Notes |
 |---|---|---|---|---|
-| `once.rs` | `lang/cell/cell.logos` | ⚠️ partial | — | `OnceCell<T>` ported via free-fn `once_cell_new::<T>()` (T: Default workaround for lack of MaybeUninit-in-lang). Surface: `is_set`/`get_ptr`/`set`/`get_or_init`/`into_inner`. `get(&self) -> Option<&T>` returns raw `*const T` via `get_ptr` instead — pattern-binding `&T` extraction is blocked on the same Option-payload issue that affects [[baghunt-mono-void-payload-specs]]. `wait`/blocking variants live in `std::sync::OnceLock`, not core. |
+| `once.rs` | `lang/cell/cell.logos` | ⚠️ partial | — | `OnceCell<T>` ported via free-fn `once_cell_new::<T>()` (T: Default workaround for lack of MaybeUninit-in-lang). Surface: `is_set`/`get`/`get_ptr`/`set`/`get_or_init`/`into_inner`. `wait`/blocking variants live in `std::sync::OnceLock`, not core. |
 | `lazy.rs` | `lang/cell/cell.logos` | ⚠️ partial | — | `LazyCell<T>` ported via free-fn `lazy_cell_new::<T>(init: fn() -> T)` (Default bound inherited from OnceCell). Surface: `force`. `into_inner` deferred (needs Result<T, fn()->T> returning the unconsumed closure on empty). Closure type is plain `fn`, not Fn-family — captures wait on priority #1. |
 
 (`UnsafeCell` lives in parent `cell.rs` → `lang/cell/cell.logos`, see above.)

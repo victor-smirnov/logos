@@ -29,6 +29,19 @@ unsafe fn main() -> i32 {
     if p == (0 as *const i32) { return 6; }
     if *p != 7 { return 7; }
 
+    // get returns Some(&value) when set
+    match c.get() {
+        Option::Some(r) => { if *r != 7 { return 11; } }
+        Option::None    => { return 12; }
+    }
+
+    // get on empty returns None
+    let c_empty = once_cell_new::<i32>();
+    match c_empty.get() {
+        Option::Some(_) => { return 13; }
+        Option::None    => {}
+    }
+
     // get_or_init on already-set returns existing
     let r = c.get_or_init(make_42);
     if *r != 7 { return 8; }

@@ -5596,6 +5596,46 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
                     std::make_move_iterator(prologue.begin()),
                     std::make_move_iterator(prologue.end()));
             }
+            // [[baghunt-match-arm-binding-no-drop]]: arm-scope
+            // pattern bindings (e.g. `Ok(g)` where g is a Drop-typed
+            // guard) need their Drop emitted before the arm exits.
+            // lower_block handles inner-scope vars and (via
+            // collect_all_drops) also drops arm-scope bindings before
+            // Return — but for natural fall-through, the arm scope is
+            // popped without emitting anything for the pattern
+            // bindings. Append drops here, but only when the body
+            // doesn't already end with Return (which already handled
+            // all-frame drops). Break/Continue paths are buggy in
+            // their own way (collect_drops vs collect_all_drops in
+            // lower_block) — not in scope here.
+            //
+            // For stmt-form match arms with a TAIL_EXPR (`{ s }`),
+            // the binding is being moved out as the body's last
+            // value — mark it moved first so collect_drops skips it.
+            // For tail-position match (match_in_tail_position_), the
+            // last stmt is already an SReturn handled by lower_block
+            // via collect_all_drops (which scans all frames). So the
+            // mark-moved walk applies only to the non-return tail.
+            {
+                bool body_returns = false;
+                lir_view::StmtRef last_stmt_ref;
+                if (!body->stmts.empty()) {
+                    last_stmt_ref = stmt_ref_of(body->stmts.back());
+                    if (last_stmt_ref && last_stmt_ref.kind() == lir_schema::stmt::Code::Return)
+                        body_returns = true;
+                }
+                if (!body_returns) {
+                    // Walk the body's last stmt: if it's an ExprStmt
+                    // whose value moves a pattern binding, mark it.
+                    if (last_stmt_ref &&
+                        last_stmt_ref.kind() == lir_schema::stmt::Code::ExprStmt) {
+                        auto er = lir_view::SExprStmtView{last_stmt_ref}.expr();
+                        mark_moved_in_expr_recursive(er);
+                    }
+                    for (auto& d : collect_drops())
+                        body->stmts.push_back(std::move(d));
+                }
+            }
             pop_scope();
 
             // Detect divergence: arm body's last stmt is a terminator.
@@ -6037,6 +6077,45 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                         int64_t v = lir_view::ELitIntView{er}.value();
                         if (v > (int64_t)INT32_MAX || v < (int64_t)INT32_MIN)
                             result_type = prim(LogosType::Kind::I64);
+                    }
+                }
+            }
+
+            // [[baghunt-match-arm-binding-no-drop]] — see lower_match
+            // (stmt form) above for the rationale. Arm-scope pattern
+            // bindings need their Drop emitted before the arm value
+            // escapes. For value-form arms the arm value is an
+            // expression we must preserve, so hoist it into a temp,
+            // emit drops, then yield the temp. Skip when the arm
+            // value is error-typed (divergent block arms already
+            // emitted drops via lower_block::collect_all_drops on the
+            // inner Returns).
+            if (val && TypeRef(val->type).kind() != LogosType::Kind::Error) {
+                // Mark bindings consumed by val as moved before
+                // computing drops (matches lower_return semantics).
+                mark_moved_in_expr_recursive(expr_ref_of(*val));
+                auto arm_drops = collect_drops();
+                if (!arm_drops.empty()) {
+                    TypeRef vt = val->type;
+                    auto blk = lir::alloc_block(*cur_prog_);
+                    if (TypeRef(vt).kind() == LogosType::Kind::Void) {
+                        // Void: evaluate val for effect, then drops.
+                        lir::SExprStmt es; es.expr = std::move(val);
+                        blk->stmts.push_back(make_stmt_emit(node_line_, std::move(es)));
+                        for (auto& d : arm_drops)
+                            blk->stmts.push_back(std::move(d));
+                        val = builder().block_expr(std::move(blk), error_expr(), vt);
+                    } else {
+                        std::string tmp = "__match_arm_tmp_" +
+                                          std::to_string(tmp_var_count_++);
+                        lir::SLet sl;
+                        sl.name = tmp; sl.type = vt; sl.is_mut = false;
+                        sl.value = std::move(val);
+                        blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+                        for (auto& d : arm_drops)
+                            blk->stmts.push_back(std::move(d));
+                        val = builder().block_expr(std::move(blk),
+                            builder().var_ref(tmp, vt), vt);
                     }
                 }
             }

@@ -1400,6 +1400,49 @@ private:
     std::vector<lir::LStmt> collect_drops() const;
     std::vector<lir::LStmt> collect_all_drops() const;
 
+    // Recursive variant of mark_moved_expr that descends into composite
+    // producer expressions (Call args, StructLit fields, TupleLit elems,
+    // EnumLitData payloads, BlockExpr result). Used by lower_return and
+    // by lower_match's arm-value consumer position so any move-typed
+    // VarRef carried into the produced value is taken off the
+    // collect_drops list — preventing double-drop / use-after-move.
+    void mark_moved_in_expr_recursive(lir_view::ExprRef er) {
+        if (!er) return;
+        using C = lir_schema::expr::Code;
+        switch (er.kind()) {
+            case C::VarRef:
+                if (is_move_type(er.type(cur_prog_->type_pool.impl())))
+                    mark_moved(std::string(lir_view::EVarRefView{er}.name()));
+                return;
+            case C::FieldRead:
+                mark_moved_expr(er);
+                return;
+            case C::EnumLitData:
+                lir_view::EEnumLitDataView{er}.each_payload(
+                    [&](lir_view::ExprRef a) { mark_moved_in_expr_recursive(a); });
+                return;
+            case C::Call:
+                lir_view::ECallView{er}.each_arg(
+                    [&](lir_view::ExprRef a) { mark_moved_in_expr_recursive(a); });
+                return;
+            case C::StructLit:
+                lir_view::EStructLitView{er}.each_field(
+                    [&](std::string_view, lir_view::ExprRef v) {
+                        mark_moved_in_expr_recursive(v);
+                    });
+                return;
+            case C::TupleLit:
+                lir_view::ETupleLitView{er}.each_elem(
+                    [&](lir_view::ExprRef a) { mark_moved_in_expr_recursive(a); });
+                return;
+            case C::BlockExpr:
+                mark_moved_in_expr_recursive(lir_view::EBlockExprView{er}.result());
+                return;
+            default:
+                return;
+        }
+    }
+
     void define(std::string_view name, TypeRef t, bool is_mut = false) {
         if (!scope_.empty()) {
             auto sname = std::string(name);

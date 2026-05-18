@@ -1,24 +1,18 @@
 // RefCell<T> — runtime-checked borrow with Ref/RefMut guards.
-//
-// Note: this test uses explicit `{...}` scopes around every borrow so
-// the guard Drop fires before the next borrow. NLL-style shrinking
-// isn't implemented in Logos's borrow checker yet, and pattern
-// bindings extracted via `match Result::Ok(g)` don't currently fire
-// the Drop on `g` at arm end — so we route around try_borrow* /
-// try_borrow_mut* by using the panic variants in straight-line code
-// and verifying conflict detection via `is_borrowed` + a separate
-// scope.
 package refcell_basic_test;
 
 use logos.lang.cell;
+use logos.lang.result;
 
 unsafe fn main() -> i32 {
     let c = RefCell::new(10i32);
 
-    // borrow → read → drop
+    // try_borrow succeeds when unborrowed; guard Drop fires at arm end.
     {
-        let g = c.borrow();
-        if *g.get() != 10 { return 1; }
+        match c.try_borrow() {
+            Result::Ok(g)  => { if *g.get() != 10 { return 1; } }
+            Result::Err(_) => { return 2; }
+        }
     }
 
     // borrow_mut → write → drop
@@ -30,19 +24,28 @@ unsafe fn main() -> i32 {
     // verify mutation
     {
         let g = c.borrow();
-        if *g.get() != 42 { return 2; }
+        if *g.get() != 42 { return 3; }
     }
 
     // replace returns old
     let old = c.replace(99);
-    if old != 42 { return 3; }
+    if old != 42 { return 4; }
 
     // multiple simultaneous shared borrows
     {
         let g1 = c.borrow();
         let g2 = c.borrow();
-        if *g1.get() != 99 { return 4; }
-        if *g2.get() != 99 { return 5; }
+        if *g1.get() != 99 { return 5; }
+        if *g2.get() != 99 { return 6; }
+    }
+
+    // borrow_mut blocks while a shared borrow is held.
+    {
+        let _g = c.borrow();
+        match c.try_borrow_mut() {
+            Result::Ok(_)  => { return 7; }
+            Result::Err(_) => {}
+        }
     }
 
     // swap
@@ -51,12 +54,12 @@ unsafe fn main() -> i32 {
     {
         let gc = c.borrow();
         let gd = d.borrow();
-        if *gc.get() != 123 { return 6; }
-        if *gd.get() != 99 { return 7; }
+        if *gc.get() != 123 { return 8; }
+        if *gd.get() != 99 { return 9; }
     }
 
     let inner = c.into_inner();
-    if inner != 123 { return 8; }
+    if inner != 123 { return 10; }
 
     return 42;
 }
