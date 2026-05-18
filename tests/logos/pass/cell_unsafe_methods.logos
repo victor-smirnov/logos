@@ -1,0 +1,18 @@
+// UnsafeCell — get_mut + raw_get + into_inner round-trip.
+
+package cell_unsafe_methods;
+
+use logos.lang.cell;
+
+fn main() -> i32 {
+    let mut c: UnsafeCell<i32> = UnsafeCell::new(5i32);
+    {
+        let r: &mut i32 = c.get_mut();
+        *r = *r * 4i32;
+    }
+    unsafe {
+        let p = UnsafeCell::<i32>::raw_get(&c as *const UnsafeCell<i32>);
+        *p = *p + 2i32;
+    }
+    return c.into_inner();
+}

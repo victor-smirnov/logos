@@ -1,0 +1,23 @@
+// UnsafeCell — mutation through `&UnsafeCell<T>` shared across
+// helper calls. Verifies the "shared-borrow lets you mutate" escape
+// hatch survives across function boundaries (the Cell/RefCell
+// abstraction relies on it).
+
+package cell_unsafe_shared_mut;
+
+use logos.lang.cell;
+
+fn bump(c: &UnsafeCell<i32>) {
+    unsafe {
+        let p = c.get();
+        *p = *p + 1i32;
+    }
+}
+
+fn main() -> i32 {
+    let c: UnsafeCell<i32> = UnsafeCell::new(10i32);
+    bump(&c);
+    bump(&c);
+    bump(&c);
+    return c.into_inner();
+}

@@ -1,0 +1,18 @@
+// UnsafeCell — basic get / write / read cycle.
+//
+// Verifies the core interior-mutability escape hatch: `cell.get()`
+// from `&UnsafeCell<T>` returns a writable `*mut T`. Holding only a
+// shared reference does NOT prevent mutation through the raw pointer.
+
+package cell_unsafe_basic;
+
+use logos.lang.cell;
+
+fn main() -> i32 {
+    let c: UnsafeCell<i32> = UnsafeCell::new(7i32);
+    unsafe {
+        let p = c.get();
+        *p = 42i32;
+        return *p;
+    }
+}

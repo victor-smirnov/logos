@@ -1,0 +1,78 @@
+// Logos standard library — std.cell
+//
+// UnsafeCell<T> — the core interior-mutability primitive. Mirrors
+// `core::cell::UnsafeCell` from Rust's stdlib.
+//
+// Semantics: a transparent wrapper around `T` whose `.get(&self)`
+// hands back a `*mut T` pointing at the wrapped value. Holding only
+// `&UnsafeCell<T>` does NOT prevent the caller from writing through
+// the returned raw pointer; this is the documented escape hatch
+// that Cell / RefCell / Mutex / Atomic / OnceCell etc. build on top
+// of. Misusing it (overlapping `&mut T` and `&T` borrows derived
+// from the same cell, racing writes from multiple threads, etc.) is
+// UB, hence the unsafe-block requirement at every dereference site.
+//
+// Logos already allows the `&self.value as *const T as *mut T` cast
+// in `unsafe` blocks, so UnsafeCell is just a typed wrapper — no
+// compiler magic, no `#[lang_item]` registration. (Rust's UnsafeCell
+// is also "just a struct" at the type-system level; the magic is in
+// the alias-analysis rules the borrow checker applies. Logos's
+// borrow checker doesn't yet track interior-mutability divergence;
+// matching Rust's exact rules is a separate workstream.)
+
+package logos.lang.cell;
+
+// `#[repr(transparent)]` — same layout / ABI as `T`. Required for
+// `UnsafeCell::from_mut` to be a sound `&mut T → &mut UnsafeCell<T>`
+// reinterpret, and for the documented zero-cost guarantee.
+#[repr(transparent)]
+pub struct UnsafeCell<T> {
+    value: T,
+}
+
+impl<T> UnsafeCell<T> {
+    // Construct a new cell wrapping `value`.
+    pub fn new(value: T) -> UnsafeCell<T> {
+        return UnsafeCell { value: value };
+    }
+
+    // Hand back the underlying value, consuming the cell. The only
+    // way to recover `T` without involving raw pointers — useful
+    // when ownership of the cell is being released.
+    pub fn into_inner(self: UnsafeCell<T>) -> T {
+        return self.value;
+    }
+
+    // Returns a raw `*mut T` aimed at the wrapped value. Despite
+    // taking `&self`, the returned pointer is writable — this is
+    // the whole point of the type. Mirrors Rust's
+    // `UnsafeCell::get(&self) -> *mut T`.
+    //
+    // SAFETY (caller): writes through the returned pointer create
+    // an aliasing hazard if any `&T` or `&mut T` derived from the
+    // same cell is alive; concurrent writes from multiple threads
+    // without external synchronisation are UB.
+    pub fn get(&self) -> *mut T {
+        unsafe {
+            return (&self.value) as *const T as *mut T;
+        }
+    }
+
+    // `&mut self` access — the proper compile-time exclusive view.
+    // Since we already hold `&mut UnsafeCell<T>`, no aliasing can
+    // exist; the borrow checker enforces the rest.
+    pub fn get_mut(&mut self) -> &mut T {
+        return &mut self.value;
+    }
+
+    // Same as `get` but takes a raw `*const Self` instead of `&self`,
+    // for callers that don't want to materialise a reference (e.g.
+    // a MaybeUninit-style gradual init where `&` would touch
+    // uninitialised memory). Mirrors Rust's
+    // `UnsafeCell::raw_get(this: *const Self) -> *mut T`.
+    pub fn raw_get(this: *const UnsafeCell<T>) -> *mut T {
+        unsafe {
+            return this as *const T as *mut T;
+        }
+    }
+}

@@ -1,0 +1,59 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/cell.rs
+//   (smoketest_unsafe_cell + unsafe_cell_raw_get).
+//
+// Modifications vs upstream:
+//   - `assert_eq!(*p, 10)` etc. retained verbatim — they format and
+//     panic on mismatch under Logos's #[test] harness exactly like Rust.
+//   - Rust's `&mut x` followed by `.get()` works because `Deref` /
+//     auto-borrow rules let the `&mut x` flow into the `&self` method.
+//     Logos's autoref ladder handles the same case (see CP-cm-01); no
+//     code change needed.
+//   - `ref_mut` scoped with an explicit `{...}` block so the borrow ends
+//     before `x.into_inner()`. Rust's NLL infers the same drop point
+//     from last-use analysis; Logos's borrow checker doesn't yet
+//     shrink-fit borrows that way, so spelling out the scope keeps
+//     the test functionally identical without depending on NLL.
+
+package test_harness_coretest_unsafe_cell;
+
+use std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.panic;
+use logos.lang.cell;
+
+#[test]
+fn smoketest_unsafe_cell() {
+    let mut x = UnsafeCell::new(10i32);
+    {
+        let ref_mut = &mut x;
+        unsafe {
+            // The asserts are repeated in order to ensure that `.get()`
+            // is non-mutating.
+            assert_eq!(*ref_mut.get(), 10i32);
+            assert_eq!(*ref_mut.get(), 10i32);
+            *ref_mut.get_mut() = *ref_mut.get_mut() + 5i32;
+            assert_eq!(*ref_mut.get(), 15i32);
+            assert_eq!(*ref_mut.get(), 15i32);
+        }
+    }
+    assert_eq!(x.into_inner(), 15i32);
+}
+
+#[test]
+fn unsafe_cell_raw_get() {
+    let x = UnsafeCell::new(10i32);
+    let ptr = &x as *const UnsafeCell<i32>;
+    unsafe {
+        // The asserts are repeated in order to ensure that `raw_get()`
+        // is non-mutating.
+        assert_eq!(*UnsafeCell::<i32>::raw_get(ptr), 10i32);
+        assert_eq!(*UnsafeCell::<i32>::raw_get(ptr), 10i32);
+        let q = UnsafeCell::<i32>::raw_get(ptr);
+        *q = *q + 5i32;
+        assert_eq!(*UnsafeCell::<i32>::raw_get(ptr), 15i32);
+        assert_eq!(*UnsafeCell::<i32>::raw_get(ptr), 15i32);
+        assert_eq!(x.into_inner(), 15i32);
+    }
+}
