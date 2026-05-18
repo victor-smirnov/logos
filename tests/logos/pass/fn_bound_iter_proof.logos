@@ -1,0 +1,50 @@
+// Proof that Logos's parenthesized `Fn(args) -> ret` bound (the
+// compiler's built-in Fn-family mechanism, originally Sprint 5.7c)
+// works in an iter-adapter shape end-to-end with *capturing*
+// closures — the central capability the priority-#1 epic is about.
+//
+// Wire-up details:
+//   - Generic free fn `each_doubled<I, F>` where F: Fn(i32) -> i32
+//     consumes an iterator, applies f to every yield, sums the
+//     results. Mirrors the shape of iter_map + iter_sum_i32 fused
+//     into one.
+//   - Called with a *capturing* closure (`|x| bias + x` where `bias`
+//     is a local). Pre-existing iter_map takes a bare `fn(T) -> R`,
+//     which capturing closures don't coerce to — so this is the
+//     first iter-style call exercising the Fn-bound path.
+//
+// Bigger-scope migration of MapIter / FilterIter / etc. to carry an
+// `F` type-param and use the Fn-bound is deferred — it touches ~33
+// existing call sites and is a separate piece of work.
+package fn_bound_iter_proof_test;
+
+use logos.lang.range;
+use logos.lang.iter;
+use logos.lang.option;
+
+unsafe fn each_doubled<I: Iterator<i32>, F: Fn(i32) -> i32>(iter: I, f: F) -> i32 {
+    let mut it: I = iter;
+    let mut s: i32 = 0;
+    loop {
+        match it.next() {
+            Option::Some(v) => { s = s + f(v); }
+            Option::None    => { return s; }
+        }
+    }
+    return s;
+}
+
+unsafe fn main() -> i32 {
+    // Capturing closure: bias lives in main's frame.
+    let bias = 100;
+    let r1 = each_doubled(range_i32(1, 5), |x: i32| -> i32 { return bias + x; });
+    // Expected: (100+1) + (100+2) + (100+3) + (100+4) = 410
+    if r1 != 410 { return 1; }
+
+    // Non-capturing closure: same path through Fn-bound.
+    let r2 = each_doubled(range_i32(1, 5), |x: i32| -> i32 { return x * 2; });
+    // Expected: 2 + 4 + 6 + 8 = 20
+    if r2 != 20 { return 2; }
+
+    return 42;
+}
