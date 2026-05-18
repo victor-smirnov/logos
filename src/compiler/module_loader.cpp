@@ -961,11 +961,61 @@ hermes0_packages(const std::vector<uint8_t>& data) {
     return pkgs;
 }
 
+// Disk cache for package list of an archive. Stored next to the .a as
+// `<archive>.pkgindex`. Format: ASCII text, one package per line; first
+// line is "# mtime_ns=<ns>" header for validation. Three-layer split
+// scaled build_binary_index from 1 archive (~30MB, 15ms) to 4 archives
+// (~75MB, 40ms+) per test — disk cache cuts each warm run to ~0.5ms.
+static std::vector<std::string>
+read_pkgindex_cache(const std::string& archive,
+                    std::filesystem::file_time_type expected_mtime) {
+    std::ifstream f(archive + ".pkgindex");
+    if (!f) return {};
+    std::string line;
+    if (!std::getline(f, line)) return {};
+    // Validate mtime header.
+    constexpr std::string_view hdr_prefix = "# mtime_ns=";
+    if (line.size() <= hdr_prefix.size() ||
+        line.compare(0, hdr_prefix.size(), hdr_prefix) != 0) return {};
+    long long stored_ns = 0;
+    try { stored_ns = std::stoll(line.substr(hdr_prefix.size())); }
+    catch (...) { return {}; }
+    auto cur_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        expected_mtime.time_since_epoch()).count();
+    if (stored_ns != cur_ns) return {};
+    std::vector<std::string> pkgs;
+    while (std::getline(f, line)) if (!line.empty()) pkgs.push_back(line);
+    return pkgs;
+}
+
+static void write_pkgindex_cache(const std::string& archive,
+                                 std::filesystem::file_time_type mtime,
+                                 const std::vector<std::string>& pkgs) {
+    // Write atomically: tmp + rename. Failure to write is non-fatal —
+    // caller already has the data in memory.
+    auto tmp = archive + ".pkgindex.tmp";
+    std::ofstream f(tmp);
+    if (!f) return;
+    auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        mtime.time_since_epoch()).count();
+    f << "# mtime_ns=" << ns << "\n";
+    for (const auto& p : pkgs) f << p << "\n";
+    if (!f) return;
+    f.close();
+    std::error_code ec;
+    fs::rename(tmp, archive + ".pkgindex", ec);
+    if (ec) fs::remove(tmp, ec);
+}
+
 // Scan search paths for lib*.a files. Returns map: package_name → archive_path.
 // Each archive may provide multiple packages (e.g. libstdlib.a provides std.*, hermes.*, etc.)
 static std::unordered_map<std::string, std::string>
 build_binary_index(const std::vector<std::string>& search_paths) {
+    auto t0 = std::chrono::steady_clock::now();
     std::unordered_map<std::string, std::string> idx;
+    size_t bytes_read = 0;
+    size_t archives_seen = 0;
+    size_t disk_hits = 0;
     for (const auto& dir : search_paths) {
         std::error_code ec;
         if (!fs::exists(dir, ec) || !fs::is_directory(dir, ec)) continue;
@@ -976,17 +1026,38 @@ build_binary_index(const std::vector<std::string>& search_paths) {
             auto stem = p.stem().string();
             if (stem.size() < 4 || stem.substr(0, 3) != "lib") continue;
             auto archive = fs::weakly_canonical(p, ec).string();
-            // Read every .hermes0 member to discover which packages this
-            // archive provides. Per-file emit (B1.7) puts one .hermes0
-            // per source file into the archive; monolithic emit puts one.
+            ++archives_seen;
+            auto mtime = fs::last_write_time(p, ec);
+            // Disk-cache fast path.
+            if (!ec) {
+                auto cached = read_pkgindex_cache(archive, mtime);
+                if (!cached.empty()) {
+                    ++disk_hits;
+                    for (auto& pkg : cached)
+                        if (!idx.count(pkg)) idx[pkg] = archive;
+                    continue;
+                }
+            }
+            // Cache miss: scan + write cache.
             auto members = ar_read_members(archive, ".hm0");
+            std::vector<std::string> all_pkgs;
             for (auto& member : members) {
+                bytes_read += member.size();
                 auto pkgs = hermes0_packages(member);
                 for (auto& pkg : pkgs) {
                     if (!idx.count(pkg)) idx[pkg] = archive;
+                    all_pkgs.push_back(pkg);
                 }
             }
+            if (!ec) write_pkgindex_cache(archive, mtime, all_pkgs);
         }
+    }
+    if (std::getenv("LOGOS_TIME_INDEX") != nullptr) {
+        auto us = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - t0).count();
+        std::fprintf(stderr,
+            "build_binary_index: %zu archives (%zu disk-cache hits), %zu pkgs, %zu bytes, %lldus\n",
+            archives_seen, disk_hits, idx.size(), bytes_read, (long long)us);
     }
     return idx;
 }
