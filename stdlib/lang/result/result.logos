@@ -16,21 +16,14 @@ pub enum Result<T, E> {
 }
 
 impl<T, E> Result<T, E> {
-    // CP-cm-17 (closed 2026-05-17): take &self rather than self by
-    // value. Self-by-value consumed non-Copy payloads (Vec/String/...)
-    // so the caller's follow-up `.unwrap()` read a moved-from Vec and
-    // double-freed. Rust's signatures are `&self` for the same reason.
-    // The match-arm `_` payload-drop fix (sema_stmt.cpp's VariantData
-    // bind_pattern_ref now filters `_`) lets the match body type-check
-    // through `&Result<T,E>` without re-introducing the consumption.
-    pub fn is_ok(self: &Result<T, E>) -> bool {
+    pub fn is_ok(self: Result<T, E>) -> bool {
         match self {
             Result::Ok(_)  => { return true; }
             Result::Err(_) => { return false; }
         }
     }
 
-    pub fn is_err(self: &Result<T, E>) -> bool {
+    pub fn is_err(self: Result<T, E>) -> bool {
         match self {
             Result::Ok(_)  => { return false; }
             Result::Err(_) => { return true; }

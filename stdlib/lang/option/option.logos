@@ -28,17 +28,15 @@ pub enum Option<T> {
 }
 
 impl<T> Option<T> {
-    // CP-cm-17 (closed 2026-05-17): take &self. Self-by-value consumed
-    // non-Copy payloads (Vec/String/…) so a follow-up .unwrap() read
-    // moved-from data and double-freed. See result.rs's matching note.
-    pub fn is_some(self: &Option<T>) -> bool {
+    // Querying the contained values
+    pub fn is_some(self: Option<T>) -> bool {
         match self {
             Option::Some(_) => { return true; }
             Option::None    => { return false; }
         }
     }
 
-    pub fn is_none(self: &Option<T>) -> bool {
+    pub fn is_none(self: Option<T>) -> bool {
         match self {
             Option::Some(_) => { return false; }
             Option::None    => { return true; }
