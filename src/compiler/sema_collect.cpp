@@ -2516,11 +2516,15 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 // ... }`). If the trait method uses the pack TypeVar at
                 // some position, the impl is allowed to expose any number
                 // of concrete params from that position onward — pack
-                // absorbs them. Strict element-equality is skipped past
-                // the pack position (proper per-element matching against
-                // `trait_type_args[i..]` is future work; today's looseness
-                // matches the rest of the type-arg pack handling at line
-                // 2256–2258).
+                // absorbs them.
+                //
+                // Step B.4 (Deferred-3): per-element type check past the
+                // pack position. The impl block carries `trait_type_args`
+                // (e.g. `impl Fn<i32, i32> for Foo` → [i32, i32]); we
+                // unify each post-pack impl-method param against the
+                // corresponding `trait_type_args` element so an impl that
+                // exposes `fn call(&self, x: u8, y: bool)` against
+                // `Fn<i32, i32>` gets rejected instead of silently bound.
                 std::string variadic_tp_name;
                 for (auto& tp : tit->second.type_params) {
                     if (tp.is_variadic) { variadic_tp_name = tp.name; break; }
@@ -2558,6 +2562,39 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         if (is_generic_param(tp)) continue;
                         if (is_generic_param(cp)) continue;
                         if (!types_equal(tp, cp)) { sig_match = false; break; }
+                    }
+                    // Per-element check past the pack position: each
+                    // impl-method param at index k (where k >=
+                    // variadic_pos) corresponds to trait_type_args[k -
+                    // variadic_pos]. Mismatch rejects the candidate.
+                    if (has_pack && sig_match) {
+                        for (size_t k = (size_t)variadic_pos;
+                             k < c->param_types.size(); ++k) {
+                            size_t targ_idx = k - (size_t)variadic_pos;
+                            if (targ_idx >= trait_type_args.size()) {
+                                // Impl exposes more args than the pack
+                                // instantiation has — concrete arity
+                                // overflow.
+                                sig_match = false; break;
+                            }
+                            auto exp = trait_type_args[targ_idx];
+                            auto cp  = c->param_types[k];
+                            if (!exp || !cp) continue;
+                            if (is_generic_param(exp)) continue;
+                            if (is_generic_param(cp)) continue;
+                            if (!types_equal(exp, cp)) {
+                                sig_match = false; break;
+                            }
+                        }
+                        // Trait pack carries more args than impl exposes —
+                        // arity underflow (less common; the
+                        // `c->param_types.size() < variadic_pos` guard
+                        // catches the leading-args case but not the
+                        // pack-itself-arity).
+                        if (sig_match &&
+                            (c->param_types.size() - (size_t)variadic_pos)
+                                != trait_type_args.size())
+                            sig_match = false;
                     }
                     if (sig_match) { matching = c; break; }
                 }
