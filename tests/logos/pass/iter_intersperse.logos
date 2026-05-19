@@ -1,0 +1,51 @@
+// iter::intersperse — yield items separated by `sep`.
+package iter_intersperse;
+
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.range;
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    // 3-element source → 1, 0, 2, 0, 3.
+    let r: RangeI32 = range_i32(1i32, 4i32);
+    let mut it: IntersperseIter<RangeI32, i32> =
+        iter_intersperse::<RangeI32, i32>(r, 0i32, 0i32);
+    let v0: Option<i32> = it.next();
+    if !v0.is_some() { return fail(1); }
+    if v0.unwrap() != 1i32 { return fail(2); }
+    let v1: Option<i32> = it.next();
+    if !v1.is_some() { return fail(3); }
+    if v1.unwrap() != 0i32 { return fail(4); }
+    let v2: Option<i32> = it.next();
+    if !v2.is_some() { return fail(5); }
+    if v2.unwrap() != 2i32 { return fail(6); }
+    let v3: Option<i32> = it.next();
+    if !v3.is_some() { return fail(7); }
+    if v3.unwrap() != 0i32 { return fail(8); }
+    let v4: Option<i32> = it.next();
+    if !v4.is_some() { return fail(9); }
+    if v4.unwrap() != 3i32 { return fail(10); }
+    let v5: Option<i32> = it.next();
+    if v5.is_some() { return fail(11); }
+
+    // 1-element source: yield the item, no separator.
+    let r1: RangeI32 = range_i32(7i32, 8i32);
+    let mut it1: IntersperseIter<RangeI32, i32> =
+        iter_intersperse::<RangeI32, i32>(r1, 99i32, 0i32);
+    let w0: Option<i32> = it1.next();
+    if !w0.is_some() { return fail(20); }
+    if w0.unwrap() != 7i32 { return fail(21); }
+    let w1: Option<i32> = it1.next();
+    if w1.is_some() { return fail(22); }
+
+    // Empty source: no yields at all.
+    let r0: RangeI32 = range_i32(5i32, 5i32);
+    let mut it0: IntersperseIter<RangeI32, i32> =
+        iter_intersperse::<RangeI32, i32>(r0, 1i32, 0i32);
+    let e0: Option<i32> = it0.next();
+    if e0.is_some() { return fail(30); }
+
+    return 0;
+}

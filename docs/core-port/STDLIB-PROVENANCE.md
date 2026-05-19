@@ -209,11 +209,11 @@ Source roots:
 | `adapters/cycle.rs` | `CycleIter` | ✅ | — |
 | `adapters/cloned.rs` | — | ❌ TODO | — |
 | `adapters/copied.rs` | — | ❌ TODO | — |
-| `adapters/flatten.rs` | — | ❌ TODO | `Flatten` / `FlatMap`. |
-| `adapters/array_chunks.rs` | — | ❌ TODO | — |
-| `adapters/map_windows.rs` | — | ❌ TODO | — |
-| `adapters/intersperse.rs` | — | ❌ TODO | — |
-| `adapters/by_ref_sized.rs` | — | ❌ TODO | — |
+| `adapters/flatten.rs` | `lang/iter/iter.logos` (`FlattenIter`) | ⚠️ partial | `iter_flatten.logos` | `FlattenIter<O, I, T>` + free fn `iter_flatten<O, I, T>(outer: O, zero_inner: I)`. `FlatMap` not yet (closure flow). |
+| `adapters/array_chunks.rs` | — | ❌ TODO | Blocked by [[baghunt-const-n-array-field-codegen]] — `[T; N]` struct field reads stack garbage at mono-instantiation time. |
+| `adapters/map_windows.rs` | — | ❌ TODO | Blocked by the same `[T; N]` field issue. |
+| `adapters/intersperse.rs` | `lang/iter/iter.logos` (`IntersperseIter`) | ✅ | `iter_intersperse.logos` | `IntersperseIter<I, T>` + free fn `iter_intersperse<I, T>(iter, sep, zero)`. Empty/single-element sources emit no separator. |
+| `adapters/by_ref_sized.rs` | — | ❌ TODO | Blocked: needs `impl<I> Iterator for &mut I` blanket with `Self: Sized` on Iterator's trait default methods (otherwise trait defaults clone for `Self = &mut I` and hit `(&mut &mut I).next()` — Logos's auto-deref doesn't unwrap two levels). |
 | `sources/once.rs` | `OnceIter` + `iter_once` | ✅ | — |
 | `sources/empty.rs` | `EmptyIter` + `iter_empty` | ✅ | — |
 | `sources/repeat.rs` | `RepeatIter` + `iter_repeat` | ✅ | — |

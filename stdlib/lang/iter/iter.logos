@@ -1316,6 +1316,162 @@ impl<I: DoubleEndedIterator<T>, T> DoubleEndedIterator<T> for PeekableIter<I, T>
     }
 }
 
+// ── IntersperseIter<I, T> — yield items separated by `sep` ────────────────
+//
+// Mirrors Rust's unstable `Iterator::intersperse(self, separator)`:
+// yields `a, sep, b, sep, c, …` when the underlying iterator yields
+// `a, b, c, …`. Empty / single-element iterators don't emit any
+// separator.
+//
+// Uses two-state buffer (`has_peeked: bool` + `peeked_val: T`) same
+// as PeekableIter does — Logos's struct-lit `Option::None` init
+// stores an i32 disc into a ptr-typed field slot (mlir-gen layout
+// mismatch), so we can't keep an `Option<T>` field directly.
+// Separator is stored once (`sep: T`) and re-emitted by raw-ptr
+// copy each time, mirroring how `OnceIter` re-uses a cached value.
+
+pub struct IntersperseIter<I, T> {
+    pub inner:      I,
+    pub sep:        T,
+    pub has_peeked: bool,
+    pub peeked_val: T,
+    pub emit_sep:   bool,
+}
+
+impl<I: Iterator<T>, T> Iterator<T> for IntersperseIter<I, T> {
+    fn next(self: &mut IntersperseIter<I, T>) -> Option<T> {
+        if self.emit_sep {
+            // Only emit a separator when a follow-up item is actually
+            // queued in `peeked_val`. has_peeked stays true through
+            // the sep yield so the cached item flows out next call.
+            self.emit_sep = false;
+            unsafe {
+                let s_copy: T = *((&self.sep) as *const T);
+                return Option::Some(s_copy);
+            }
+        }
+        // Pop the cached peeked item, if any, and pre-fetch one more
+        // from `inner` so we know whether a separator is needed.
+        if self.has_peeked {
+            self.has_peeked = false;
+            unsafe {
+                let v_copy: T = *((&self.peeked_val) as *const T);
+                let nxt: Option<T> = self.inner.next();
+                match nxt {
+                    Option::Some(n) => {
+                        self.peeked_val = n;
+                        self.has_peeked = true;
+                        self.emit_sep   = true;
+                    }
+                    Option::None => {}
+                }
+                return Option::Some(v_copy);
+            }
+        }
+        // First call: prime from `inner`; if a second item exists,
+        // queue it + arm separator for the call after this one.
+        let first: Option<T> = self.inner.next();
+        match first {
+            Option::None    => { return Option::None; }
+            Option::Some(v) => {
+                let nxt: Option<T> = self.inner.next();
+                match nxt {
+                    Option::Some(n) => {
+                        self.peeked_val = n;
+                        self.has_peeked = true;
+                        self.emit_sep   = true;
+                    }
+                    Option::None => {}
+                }
+                return Option::Some(v);
+            }
+        }
+    }
+}
+
+// Free fn — matches the established `iter_*` adapter pattern.
+// `zero: T` is the same workaround the other adapters use for
+// `peeked_val` initialisation when `T` has no `Default` impl
+// reachable from the iter pkg.
+pub fn iter_intersperse<I: Iterator<T>, T>(iter: I, sep: T, zero: T)
+    -> IntersperseIter<I, T>
+{
+    return IntersperseIter {
+        inner:      iter,
+        sep:        sep,
+        has_peeked: false,
+        peeked_val: zero,
+        emit_sep:   false,
+    };
+}
+
+// ── FlattenIter<O, I, T> — flatten Iter<Iter<T>> into Iter<T> ───────────
+//
+// Mirrors `core::iter::Flatten`. Each outer item is itself an
+// iterator; flatten yields the elements of those inner iterators in
+// sequence. Same `has_cur: bool` + `cur: I` two-state pattern as
+// PeekableIter to dodge Logos's struct-lit `Option<I>` layout bug.
+
+pub struct FlattenIter<O, I, T> {
+    pub outer:   O,
+    pub has_cur: bool,
+    pub cur:     I,
+}
+
+impl<O: Iterator<I>, I: Iterator<T>, T> Iterator<T> for FlattenIter<O, I, T> {
+    fn next(self: &mut FlattenIter<O, I, T>) -> Option<T> {
+        loop {
+            if self.has_cur {
+                let v: Option<T> = self.cur.next();
+                if v.is_some() { return v; }
+                self.has_cur = false;
+            }
+            let next_inner: Option<I> = self.outer.next();
+            match next_inner {
+                Option::None    => { return Option::None; }
+                Option::Some(i) => {
+                    self.cur     = i;
+                    self.has_cur = true;
+                }
+            }
+        }
+    }
+}
+
+// `zero_inner: I` is the sentinel placeholder for the cur field
+// before the first outer pull; same workaround the other adapters
+// use for typed phantom fields when T has no Default in scope.
+pub fn iter_flatten<O: Iterator<I>, I: Iterator<T>, T>(outer: O, zero_inner: I)
+    -> FlattenIter<O, I, T>
+{
+    return FlattenIter {
+        outer:   outer,
+        has_cur: false,
+        cur:     zero_inner,
+    };
+}
+
+// array_chunks — deferred. A `pub struct ArrayChunksIter<I, T, const N>
+// { buf: [T; N] }` builds, but writes via `self.buf[i] = x` and the
+// returned `[T; N]` value read back as stack garbage at runtime —
+// the const-N-sized struct field's element offsets don't survive the
+// `Option<[T;N]>` return / call boundary. Likely mlir-gen layout
+// asymmetry between the field's array slot and the return-value
+// array copy. Filed as a follow-up; the const-N infrastructure
+// works on plain `[u8; N]` fn params (see stdlib/lang/str/str.logos:
+// `bytes_arr_eq<const N: i64>`).
+
+// by_ref_sized — deferred. Rust's `Iterator::by_ref(&mut self) ->
+// &mut Self` requires `impl<I: Iterator<Item>, Item> Iterator<Item>
+// for &mut I`, which makes every Iterator trait default method
+// (nth/find/position/...) clone for `Self = &mut I`. The default
+// bodies invoke `self.next()`, which becomes `(&mut &mut I).next()`
+// at mono — Logos's auto-deref doesn't unwrap two ref levels, so
+// mono can't synthesize the inner `next` call. Closing this needs
+// either a `Self: Sized` constraint on the trait default methods
+// (to exclude `&mut I`) or a one-deeper auto-deref in lower_method_call.
+// Filed as a follow-up.
+
 // ── Source iterators: once / empty / repeat ──────────────────────────────────
 //
 // Matches Rust's `core::iter::{once, empty, repeat}` shape: free fn

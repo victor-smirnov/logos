@@ -1,0 +1,36 @@
+// iter::flatten — Iter<Iter<T>> → Iter<T>.
+package iter_flatten;
+
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.range;
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    // Build three RangeI32 inner iterators and chain them through
+    // an `OnceIter`-style outer iterator.
+    // For a self-contained smoke test, use SuccessorsIter:
+    //   Successors(RangeI32::new(1, 3), fn(_) -> Option<RangeI32>::None)
+    // — yields one inner iter then stops. Then flatten gives [1, 2].
+    let r1: RangeI32 = range_i32(1i32, 3i32);
+    let once_r: OnceIter<RangeI32> = iter_once::<RangeI32>(r1);
+    let mut flat: FlattenIter<OnceIter<RangeI32>, RangeI32, i32> =
+        iter_flatten::<OnceIter<RangeI32>, RangeI32, i32>(once_r, range_i32(0i32, 0i32));
+    let v0: Option<i32> = flat.next();
+    if !v0.is_some() { return fail(1); }
+    if v0.unwrap() != 1i32 { return fail(2); }
+    let v1: Option<i32> = flat.next();
+    if !v1.is_some() { return fail(3); }
+    if v1.unwrap() != 2i32 { return fail(4); }
+    let v2: Option<i32> = flat.next();
+    if v2.is_some() { return fail(5); }
+
+    // Empty outer: no yields.
+    let empty_outer: EmptyIter<RangeI32> = iter_empty::<RangeI32>(range_i32(0i32, 0i32));
+    let mut flat0: FlattenIter<EmptyIter<RangeI32>, RangeI32, i32> =
+        iter_flatten::<EmptyIter<RangeI32>, RangeI32, i32>(empty_outer, range_i32(0i32, 0i32));
+    if flat0.next().is_some() { return fail(10); }
+
+    return 0;
+}
