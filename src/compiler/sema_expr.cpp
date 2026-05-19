@@ -1170,14 +1170,29 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             args.push_back(std::move(lref_e));
             args.push_back(std::move(rref_e));
             if (!fi_eq->type_params.empty()) {
-                // Positional A→elems[0], B→elems[1], …
                 std::vector<TypeRef> m_type_args;
-                size_t i = 0;
-                for (auto& tp : fi_eq->type_params) {
-                    if (i < arity) m_type_args.push_back(elems[i]);
-                    else m_type_args.push_back(error_t());
-                    ++i;
-                    (void)tp;
+                bool is_variadic_impl =
+                    fi_eq->type_params.size() == 1 &&
+                    fi_eq->type_params[0].is_variadic;
+                if (is_variadic_impl) {
+                    // `impl<A...> Eq for (A...)` — bind A to the
+                    // concrete tuple's elements as a pack. mono's
+                    // PackMap stores `A → [T1, T2, ...]`; sema's
+                    // SubstMap (single-TypeRef-per-name) can't carry
+                    // this directly, so we splice the elems into
+                    // type_args. The variadic-handling at
+                    // finish_generic_call:non_variadic_count=0 then
+                    // treats type_args as the pack contents.
+                    for (auto e : elems) m_type_args.push_back(e);
+                } else {
+                    // Per-arity impl: positional A→elems[0], B→elems[1], …
+                    size_t i = 0;
+                    for (auto& tp : fi_eq->type_params) {
+                        if (i < arity) m_type_args.push_back(elems[i]);
+                        else m_type_args.push_back(error_t());
+                        ++i;
+                        (void)tp;
+                    }
                 }
                 return finish_generic_call(
                     fi_eq->symbol_name.empty() ? used_key : fi_eq->symbol_name,
@@ -2658,6 +2673,19 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
         cv.const_val = (int64_t)pack_len;
         TypeRef pack_size_t = pool_->alloc(std::move(cv));
         subst[std::string("__sizeof_pack:") + fi.type_params.back().name] = pack_size_t;
+        // Variadic-tuple impl dispatch (Phase 4 step 3): build the
+        // "pack as concrete tuple" binding so `Tuple<[TypeVar(A)]>`
+        // expands to `(T1, T2, ...)` via subst_type_sema's Tuple
+        // pack-expansion fast-path. Without this the param type
+        // `&(A)` stays unsubstituted and arg-type check fails.
+        if (fi.type_params.size() == 1 && type_args.size() >= 0) {
+            std::vector<TypeRef> pack_elems(type_args.begin() + non_variadic_count,
+                                            type_args.end());
+            LogosTypeBuilder pt; pt.kind = LogosType::Kind::Tuple;
+            pt.tuple_elems = pack_elems;
+            TypeRef pack_as_tuple = pool_->alloc(std::move(pt));
+            subst[fi.type_params[0].name] = pack_as_tuple;
+        }
     }
 
     // Phase 1B-5/9: Sized-enforcement at substitution. Every type param has

@@ -2141,69 +2141,95 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 LirBuilder lb(out_);
                 LogosTypeBuilder bb; bb.kind = LogosType::Kind::Bool;
                 TypeRef bool_t = out_.type_pool.alloc(std::move(bb));
-                if (!T || T.kind() != LogosType::Kind::Tuple) {
-                    auto lit = lb.lit_bool(true, bool_t);
-                    result->type = bool_t;
-                    result->mirror_offset_ = lit->mirror_offset_;
-                    break;
-                }
-                auto elems = T.tuple_elems();
-                if (elems.empty()) {
-                    auto lit = lb.lit_bool(true, bool_t);
-                    result->type = bool_t;
-                    result->mirror_offset_ = lit->mirror_offset_;
-                    break;
-                }
                 std::vector<lir::LExprPtr> sub_args;
                 v.each_arg([&](lir_view::ExprRef ar) {
                     sub_args.push_back(subst_child_expr(ar));
                 });
-                if (sub_args.size() < 2) {
+                if (!T || T.kind() != LogosType::Kind::Tuple ||
+                    sub_args.size() < 2) {
                     auto lit = lb.lit_bool(true, bool_t);
                     result->type = bool_t;
                     result->mirror_offset_ = lit->mirror_offset_;
                     break;
                 }
-                auto a_ref = sub_args[0];
-                auto b_ref = sub_args[1];
-                lir::LExprPtr chain = nullptr;
-                for (size_t i = 0; i < elems.size(); ++i) {
-                    TypeRef et = elems[i];
-                    auto a_f = lb.tuple_index(a_ref, (uint32_t)i, et);
-                    auto b_f = lb.tuple_index(b_ref, (uint32_t)i, et);
-                    // &elem ref type.
-                    LogosTypeBuilder rb;
-                    rb.kind    = LogosType::Kind::Ref;
-                    rb.pointee = et;
-                    TypeRef et_ref = out_.type_pool.alloc(std::move(rb));
-                    // Resolve the elem-type's eq symbol: stdlib registers
-                    // primitive impls as `logos.lang.cmp.<T>__eq__f__ref_<T>__ref_<T>`.
-                    // Walk in_/out_ function tables to find any function
-                    // whose name suffix matches the pattern.
-                    std::string suffix = type_str(et) + "__eq__f__ref_"
-                                         + type_str(et) + "__ref_"
-                                         + type_str(et);
-                    std::string callee_sym;
-                    auto endswith = [&](const std::string& full) {
-                        return full.size() >= suffix.size() &&
-                               full.compare(full.size() - suffix.size(),
-                                            suffix.size(), suffix) == 0;
-                    };
-                    for (auto& fn : out_.functions)
-                        if (endswith(fn->name)) { callee_sym = fn->name; break; }
-                    if (callee_sym.empty()) {
-                        for (auto& fn : in_.functions)
-                            if (endswith(fn->name)) { callee_sym = fn->name; break; }
+                // Recursive chain builder: handles nested tuple elements
+                // by inlining the inner chain rather than emitting another
+                // `__tuple_all_eq__` call (mono doesn't re-process emitted
+                // intrinsics, so deferred re-entry would leave an
+                // unresolved symbol).
+                std::function<lir::LExprPtr(TypeRef, lir::LExprPtr, lir::LExprPtr)>
+                build_chain = [&](TypeRef TT,
+                                   lir::LExprPtr a_r,
+                                   lir::LExprPtr b_r) -> lir::LExprPtr {
+                    auto es = TT.tuple_elems();
+                    if (es.empty()) return lb.lit_bool(true, bool_t);
+                    lir::LExprPtr ch = nullptr;
+                    for (size_t i = 0; i < es.size(); ++i) {
+                        TypeRef et = es[i];
+                        auto a_f = lb.tuple_index(a_r, (uint32_t)i, et);
+                        auto b_f = lb.tuple_index(b_r, (uint32_t)i, et);
+                        LogosTypeBuilder rb;
+                        rb.kind    = LogosType::Kind::Ref;
+                        rb.pointee = et;
+                        TypeRef et_ref = out_.type_pool.alloc(std::move(rb));
+                        lir::LExprPtr cmp;
+                        if (et.kind() == LogosType::Kind::Tuple) {
+                            // Nested — inline the inner chain. Use the
+                            // field refs as the new receivers.
+                            auto inner_a_ref = lb.addr_of_temp(a_f, false, et_ref);
+                            auto inner_b_ref = lb.addr_of_temp(b_f, false, et_ref);
+                            cmp = build_chain(et, inner_a_ref, inner_b_ref);
+                        } else {
+                            // Primitive/user-struct/slice elem — resolve
+                            // `<T>__eq` by walking the function table
+                            // and matching the `<T>__eq__f__` prefix
+                            // anywhere in the symbol (accommodates pkg
+                            // prefixes + Slice ABI for str which uses
+                            // `str__eq__f__slice_u8__slice_u8` instead
+                            // of `__ref_str__ref_str`).
+                            // Slice<u8> canonicalises to "str" for stdlib
+                            // impl registration; type_str renders "&[u8]".
+                            std::string et_name = type_str(et);
+                            if (et.kind() == LogosType::Kind::Slice &&
+                                et.elem() && et.elem().kind() == LogosType::Kind::U8)
+                                et_name = "str";
+                            std::string prefix = et_name + "__eq__f__";
+                            std::string callee_sym;
+                            auto contains_prefix = [&](const std::string& full) {
+                                size_t pos = full.find(prefix);
+                                if (pos == std::string::npos) return false;
+                                return pos == 0 || full[pos - 1] == '.';
+                            };
+                            for (auto& fn : out_.functions)
+                                if (contains_prefix(fn->name)) { callee_sym = fn->name; break; }
+                            if (callee_sym.empty()) {
+                                for (auto& fn : in_.functions)
+                                    if (contains_prefix(fn->name)) { callee_sym = fn->name; break; }
+                            }
+                            if (callee_sym.empty()) callee_sym = type_str(et) + "__eq";
+                            // For Slice elems (str), pass by-value — the
+                            // impl signature is `(slice, slice)`, not
+                            // `(&str, &str)`. mlir-gen's primitive-receiver
+                            // fast-path doesn't apply (slice receiver).
+                            // Use a direct func call instead of method_call.
+                            if (et.kind() == LogosType::Kind::Slice) {
+                                std::vector<lir::LExprPtr> dargs;
+                                dargs.push_back(a_f);
+                                dargs.push_back(b_f);
+                                cmp = lb.call(callee_sym, {}, dargs, bool_t);
+                            } else {
+                                auto b_f_ref = lb.addr_of_temp(b_f, false, et_ref);
+                                std::vector<lir::LExprPtr> margs;
+                                margs.push_back(b_f_ref);
+                                cmp = lb.method_call(a_f, "eq", callee_sym, {},
+                                                      margs, -1, bool_t);
+                            }
+                        }
+                        ch = ch ? lb.bin_op("&&", ch, cmp, bool_t) : cmp;
                     }
-                    if (callee_sym.empty()) callee_sym = type_str(et) + "__eq";
-                    auto b_f_ref = lb.addr_of_temp(b_f, false, et_ref);
-                    std::vector<lir::LExprPtr> margs;
-                    margs.push_back(b_f_ref);
-                    auto cmp = lb.method_call(a_f, "eq", callee_sym, {},
-                                              margs, -1, bool_t);
-                    chain = chain ? lb.bin_op("&&", chain, cmp, bool_t)
-                                  : cmp;
-                }
+                    return ch;
+                };
+                auto chain = build_chain(T, sub_args[0], sub_args[1]);
                 result->type = bool_t;
                 result->mirror_offset_ = chain->mirror_offset_;
                 break;

@@ -3331,6 +3331,26 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         return pool_->alloc(std::move(nt));
     }
     case LogosType::Kind::Tuple: {
+        // Variadic-tuple pack expansion: `(A...)` is represented as
+        // `Tuple<[TypeVar(A)]>` (single-elem with a pack TypeVar).
+        // When subst maps A to a concrete Tuple, splice its elements
+        // in place of the pack — yielding the full concrete tuple.
+        // Used by variadic-tuple impl dispatch (Phase 4 step 3).
+        auto orig_elems = t.tuple_elems();
+        if (orig_elems.size() == 1 && orig_elems[0] &&
+            TypeRef(orig_elems[0]).kind() == LogosType::Kind::TypeVar) {
+            std::string tv_name(TypeRef(orig_elems[0]).type_var_name());
+            auto it = s.find(tv_name);
+            if (it != s.end()) {
+                TypeRef mapped(it->second);
+                if (mapped.kind() == LogosType::Kind::Tuple) {
+                    std::vector<TypeRef> new_elems;
+                    for (auto e : mapped.tuple_elems())
+                        new_elems.push_back(subst_type_sema(e, s, ls));
+                    return make_tuple_type(std::move(new_elems));
+                }
+            }
+        }
         std::vector<TypeRef> new_elems;
         bool changed = false;
         for (auto e : t.tuple_elems()) {

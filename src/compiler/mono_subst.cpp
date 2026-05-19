@@ -229,6 +229,39 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         return out_.type_pool.alloc(std::move(nt));
     }
     case LogosType::Kind::Tuple: {
+        // Variadic-tuple pack expansion (Phase 4 step 3, mono mirror of
+        // sema's subst_type_sema fast-path): `Tuple<[TypeVar(A)]>` where
+        // A maps to a concrete Tuple → splice the concrete tuple's
+        // elements in place. Lets `&(A...)` substitute to `&(T1, T2, ...)`
+        // inside cloned variadic-tuple impl method bodies.
+        auto orig_elems = tv.tuple_elems();
+        if (orig_elems.size() == 1 && orig_elems[0] &&
+            TypeRef(orig_elems[0]).kind() == LogosType::Kind::TypeVar) {
+            std::string tv_name(TypeRef(orig_elems[0]).type_var_name());
+            auto it = s.find(tv_name);
+            if (it != s.end()) {
+                TypeRef mapped(it->second);
+                if (mapped.kind() == LogosType::Kind::Tuple) {
+                    std::vector<TypeRef> new_elems;
+                    for (auto e : mapped.tuple_elems())
+                        new_elems.push_back(subst_type(e, s));
+                    LogosTypeBuilder nt; nt.kind = LogosType::Kind::Tuple;
+                    nt.tuple_elems = std::move(new_elems);
+                    return out_.type_pool.alloc(std::move(nt));
+                }
+            }
+            // Also check cur_packs_ — variadic fn-param convention
+            // stores pack contents under the pack name. A → [T1, T2, ...].
+            auto pit = cur_packs_.find(tv_name);
+            if (pit != cur_packs_.end()) {
+                std::vector<TypeRef> new_elems;
+                for (auto e : pit->second)
+                    new_elems.push_back(subst_type(e, s));
+                LogosTypeBuilder nt; nt.kind = LogosType::Kind::Tuple;
+                nt.tuple_elems = std::move(new_elems);
+                return out_.type_pool.alloc(std::move(nt));
+            }
+        }
         std::vector<TypeRef> new_elems;
         bool changed = false;
         for (auto e : tv.tuple_elems()) {

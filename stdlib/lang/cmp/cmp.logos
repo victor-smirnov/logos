@@ -65,31 +65,19 @@ impl Eq for str   {
     }
 }
 
-// CP-cm-08b: tuple Eq impls. Per-arity 2/3/4 stay hand-rolled until
-// sema's variadic-dispatch site learns to pack-bind `A` to the
-// receiver's tuple elements (B110 added mono-time deferred expansion
-// of `tuple_all_eq::<Self>`, but the call-site dispatch path still
-// fails arg-type check for `&(A)` vs `&(i32, ...)` when the impl is
-// variadic). Add larger arities on demand.
-//
-// User code can still use the variadic-tuple shape directly via
-// `tuple_all_eq::<(T1, T2, ...)>(a, b)` for concrete tuples (B109)
-// or by writing their own variadic impl + calling the deferred
-// intrinsic from a method body (B110).
-impl<A: Eq, B: Eq> Eq for (A, B) {
-    fn eq(&self, other: &Self) -> bool {
-        return self.0.eq(&other.0) && self.1.eq(&other.1);
+// Tuple Eq — single variadic-arity impl covering any tuple shape.
+// Replaces the per-arity hand-rolled impls (2/3/4) that lived here
+// previously. `tuple_all_eq::<Self>(self, other)` defers to mono-time
+// expansion (B110) when `Self = (A...)` is still pack-bound. Sema's
+// variadic-tuple dispatch site (lower_binop `==`/`!=`, B111)
+// pack-binds A to the concrete tuple's element list, so
+// `Self → (T1, T2, ...)` substitutes correctly through
+// `subst_type_sema`'s Tuple-pack-expansion fast-path.
+impl<A...: Eq> Eq for (A...) {
+    fn eq(self: &Self, other: &Self) -> bool {
+        return tuple_all_eq::<Self>(self, other);
     }
-}
-impl<A: Eq, B: Eq, C: Eq> Eq for (A, B, C) {
-    fn eq(&self, other: &Self) -> bool {
-        return self.0.eq(&other.0) && self.1.eq(&other.1)
-            && self.2.eq(&other.2);
-    }
-}
-impl<A: Eq, B: Eq, C: Eq, D: Eq> Eq for (A, B, C, D) {
-    fn eq(&self, other: &Self) -> bool {
-        return self.0.eq(&other.0) && self.1.eq(&other.1)
-            && self.2.eq(&other.2) && self.3.eq(&other.3);
+    fn ne(self: &Self, other: &Self) -> bool {
+        return !tuple_all_eq::<Self>(self, other);
     }
 }
