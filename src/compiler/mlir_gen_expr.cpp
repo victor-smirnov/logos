@@ -1539,6 +1539,47 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
         return gen_tagged_dispatch(v, ret_logos_type);
     if (recv_t && recv_t.kind() == LogosType::Kind::TraitObject && vtable_index >= 0)
         return gen_dyn_dispatch(v, ret_logos_type);
+    // Primitive receiver fast-path: when the receiver isn't a struct
+    // but `resolved_symbol` is supplied, emit a direct func.call to
+    // that symbol. The receiver gets auto-ref'd to match the impl's
+    // `&self` shape. Used by sema-time chain expansion for variadic-
+    // tuple impls (Phase 3 of `[[baghunt-variadic-tuple-impl]]`).
+    if (!resolved_symbol.empty() && recv_t) {
+        auto k = recv_t.kind();
+        bool primitive_recv =
+            k == LogosType::Kind::I8  || k == LogosType::Kind::I16 ||
+            k == LogosType::Kind::I32 || k == LogosType::Kind::I64 ||
+            k == LogosType::Kind::U8  || k == LogosType::Kind::U16 ||
+            k == LogosType::Kind::U32 || k == LogosType::Kind::U64 ||
+            k == LogosType::Kind::F32 || k == LogosType::Kind::F64 ||
+            k == LogosType::Kind::Bool || k == LogosType::Kind::Char;
+        if (primitive_recv) {
+            auto parent_mod = builder_.getBlock()->getParent()
+                              ->getParentOfType<mlir::ModuleOp>();
+            auto callee_fn = find_func_op(parent_mod, resolved_symbol);
+            if (callee_fn) {
+                auto recv_val = gen_expr(*recv_le);
+                if (!recv_val) return nullptr;
+                // Auto-ref: spill scalar to alloca + pass alloca ptr.
+                // Mirrors the gen_expr_kind(EAddrOfTempView) scalar path.
+                auto recv_t_mlir = logos_to_mlir(recv_t);
+                if (!recv_t_mlir) recv_t_mlir = builder_.getI32Type();
+                auto recv_slot = create_entry_alloca(recv_t_mlir);
+                builder_.create<mlir::LLVM::StoreOp>(loc_, recv_val, recv_slot);
+                llvm::SmallVector<mlir::Value> all_args;
+                all_args.push_back(recv_slot);
+                for (auto* le : arg_les) {
+                    auto av = gen_expr(*le);
+                    if (!av) return nullptr;
+                    all_args.push_back(av);
+                }
+                auto call = builder_.create<mlir::func::CallOp>(
+                    loc_, callee_fn, all_args);
+                if (call.getNumResults() > 0) return call.getResult(0);
+                return nullptr;
+            }
+        }
+    }
     auto [ptr, tname] = gen_recv_struct(*recv_le);
     if (!ptr || tname.empty()) return nullptr;
     if (strip_struct_pkg(tname) == "AnyVal" && ptr.getType() != ptr_type()) {

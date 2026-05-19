@@ -1,0 +1,32 @@
+// Phase 3 — `tuple_all_eq::<T>(a, b)` intrinsic on concrete tuple types.
+// Sema-time chain expansion drives `a.{i}.eq(&b.{i})` per element, with
+// mlir-gen's primitive-receiver fast-path handling each `eq` call.
+package variadic_tuple_eq;
+
+use logos.lang.cmp;
+
+fn check2(a: &(i32, i32), b: &(i32, i32)) -> bool {
+    return tuple_all_eq::<(i32, i32)>(a, b);
+}
+
+fn check3(a: &(i32, i32, i32), b: &(i32, i32, i32)) -> bool {
+    return tuple_all_eq::<(i32, i32, i32)>(a, b);
+}
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    let a: (i32, i32) = (1, 2);
+    let b: (i32, i32) = (1, 2);
+    let c: (i32, i32) = (1, 3);
+    if !check2(&a, &b) { return fail(1); }
+    if  check2(&a, &c) { return fail(2); }
+
+    let x: (i32, i32, i32) = (1, 2, 3);
+    let y: (i32, i32, i32) = (1, 2, 3);
+    let z: (i32, i32, i32) = (1, 2, 4);
+    if !check3(&x, &y) { return fail(3); }
+    if  check3(&x, &z) { return fail(4); }
+
+    return 0;
+}

@@ -3283,6 +3283,97 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                               std::move(targs), {}, arr_placeholder);
     }
 
+    // tuple_all_eq::<T>(a, b) — sema-time chain expansion for
+    // `a.0.eq(&b.0) && ... && a.{N-1}.eq(&b.{N-1})`. Used by the
+    // variadic-tuple Eq impl `impl<A...: Eq> Eq for (A...)`.
+    // mlir-gen's method_call primitive-receiver fast-path (added 2026-05-19)
+    // routes the per-element eq call directly to the registered impl.
+    if (callee == "tuple_all_eq") {
+        TypeRef elem = nullptr;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                if (items.size() == 1)
+                    elem = resolve_type(map_of(items.get(0)));
+            }
+        }
+        if (!elem) {
+            error("tuple_all_eq::<T>(a, b) requires exactly one type argument");
+            return error_expr();
+        }
+        if (TypeRef(elem).kind() != LogosType::Kind::Tuple) {
+            error("tuple_all_eq::<T>: T must be a tuple type");
+            return error_expr();
+        }
+        // Lower the two ref-to-tuple args. ARGS is a map { ITEMS: [...] }.
+        std::vector<lir::LExprPtr> arg_exprs;
+        if (node.has_key(la::ARGS)) {
+            AnyVal av = node.get(la::ARGS.code);
+            if (!av.is_null()) {
+                auto args_map = map_of(av);
+                if (args_map.has_key(la::ITEMS)) {
+                    auto items = arr_of(args_map.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < items.size(); ++i)
+                        arg_exprs.push_back(lower_expr(map_of(items.get(i))));
+                }
+            }
+        }
+        if (arg_exprs.size() != 2) {
+            error("tuple_all_eq::<T>(a, b) requires exactly two arguments");
+            return error_expr();
+        }
+        auto tuple_elems = TypeRef(elem).tuple_elems();
+        if (tuple_elems.empty()) {
+            return builder().lit_bool(true, bool_t());
+        }
+        // tuple_index auto-derefs &Tuple — pass refs directly.
+        auto a_ref = std::move(arg_exprs[0]);
+        auto b_ref = std::move(arg_exprs[1]);
+        lir::LExprPtr chain = nullptr;
+        for (size_t i = 0; i < tuple_elems.size(); ++i) {
+            TypeRef et = tuple_elems[i];
+            auto a_f = builder().tuple_index(a_ref, (uint32_t)i, et);
+            auto b_f = builder().tuple_index(b_ref, (uint32_t)i, et);
+            // Resolve the elem-type's `eq` impl through sema's normal
+            // candidate lookup — finds the pkg-qualified symbol like
+            // `logos.lang.cmp.i32__eq__f__ref_i32__ref_i32`.
+            auto et_ref = make_ref(false, et);
+            std::string base_mangled = type_str(et) + "__eq";
+            std::vector<TypeRef> sig{et_ref, et_ref};
+            std::string callee_sym;
+            auto cands = find_func_candidates(base_mangled);
+            for (auto* fi2 : cands) {
+                if (fi2->param_types.size() == 2 &&
+                    types_equal(fi2->param_types[0], et_ref) &&
+                    types_equal(fi2->param_types[1], et_ref)) {
+                    callee_sym = fi2->symbol_name.empty() ? base_mangled
+                                                          : fi2->symbol_name;
+                    break;
+                }
+            }
+            if (callee_sym.empty()) {
+                error(std::format(
+                    "tuple_all_eq::<T>: no `eq` impl found for element type '{}'",
+                    type_str(et)));
+                return error_expr();
+            }
+            // Emit method_call with the explicit resolved_symbol. mlir-gen's
+            // primitive-receiver fast-path will route the call directly.
+            auto b_f_ref = builder().addr_of_temp(std::move(b_f), false, et_ref);
+            std::vector<lir::LExprPtr> margs;
+            margs.push_back(std::move(b_f_ref));
+            auto cmp = builder().method_call(std::move(a_f), "eq",
+                                              callee_sym, {},
+                                              std::move(margs), -1,
+                                              bool_t());
+            chain = chain ? builder().bin_op("&&", std::move(chain),
+                                              std::move(cmp), bool_t())
+                          : std::move(cmp);
+        }
+        return chain;
+    }
+
     // tuple_count_of::<T>() — number of elements in tuple T (0 for non-tuple).
     if (callee == "tuple_count_of") {
         TypeRef elem = nullptr;
