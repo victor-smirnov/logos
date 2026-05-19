@@ -3,7 +3,7 @@
 // Hook walks ENUM.ITEMS (wrapped variant_list), reads each VARIANT_DEF
 // for NAME + payload arity, and synthesises a `match self { ... }`
 // body. Unit variants emit just the name; tuple variants bind their
-// payloads as `_v0, _v1, ...` and recurse with `.fmt_debug(__f)`. Each
+// payloads as `_v0, _v1, ...` and recurse with `.fmt(__f)`. Each
 // payload field dispatches into its own Debug impl through the
 // generic-context path.
 
@@ -40,7 +40,7 @@ fn derive_debug_enum_hook(target_offset: u32) -> () {
     em.buf.push_str(" {");
     em.buf.push_u8(10 as u8);
 
-    em.buf.push_str("    fn fmt_debug(&self, __f: &mut Formatter) -> Result<(), Error> {");
+    em.buf.push_str("    fn fmt(&self, __f: &mut Formatter) -> Result<(), Error> {");
     em.buf.push_u8(10 as u8);
 
     em.buf.push_str("        match *self {");
@@ -78,9 +78,9 @@ fn derive_debug_enum_hook(target_offset: u32) -> () {
                 if k2 > (0 as u64) {
                     em.buf.push_str("let _ = __f.write_str(\", \"); ");
                 }
-                em.buf.push_str("let _ = (&_v");
+                em.buf.push_str("let _ = fmt_debug(&_v");
                 em.buf.push_u64(k2);
-                em.buf.push_str(").fmt_debug(__f); ");
+                em.buf.push_str(", __f); ");
                 k2 = k2 + (1 as u64);
             }
             em.buf.push_str("let _ = __f.write_char(41 as u8); }");

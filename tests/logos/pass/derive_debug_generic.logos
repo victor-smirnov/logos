@@ -4,7 +4,7 @@
 // carry TYPE_PARAMS. Hook reads them via OView::ast_type_param_count
 // + ast_type_param_name and emits an `impl<T: Debug, ...> Debug
 // for Pair<T, ...>` header. The body's per-field call
-// `self.<name>.fmt_debug(f)` dispatches into `T::fmt_debug` through
+// `self.<name>.fmt(f)` dispatches into `T::fmt_debug` through
 // the generic-context path.
 //
 // Test instantiates Pair<i32> and asserts the printed length —
@@ -69,7 +69,7 @@ fn derive_debug_g_hook(target_offset: u32) -> () {
     em.buf.push_str(" {");
     em.buf.push_u8(10 as u8);
 
-    em.buf.push_str("    fn fmt_debug(&self, __f: &mut Formatter) -> Result<(), Error> {");
+    em.buf.push_str("    fn fmt(&self, __f: &mut Formatter) -> Result<(), Error> {");
     em.buf.push_u8(10 as u8);
 
     em.buf.push_str("        let _ = __f.write_str(\"");
@@ -94,9 +94,9 @@ fn derive_debug_g_hook(target_offset: u32) -> () {
         em.buf.push_str(": \");");
         em.buf.push_u8(10 as u8);
 
-        em.buf.push_str("        let _ = (&self.");
+        em.buf.push_str("        let _ = fmt_debug(&self.");
         unsafe { em.buf.push_bytes(fname.ptr, fname.len as i64); }
-        em.buf.push_str(").fmt_debug(__f);");
+        em.buf.push_str(", __f);");
         em.buf.push_u8(10 as u8);
 
         i = i + (1 as u64);

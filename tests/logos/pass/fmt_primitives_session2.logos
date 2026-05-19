@@ -55,14 +55,14 @@ fn main() -> i32 {
     let mut f: Formatter = formatter_for(&mut buf);
     f.width = 6i64;
     f.align_code = 3u8;   // Center
-    let _ = "ab".fmt_display(&mut f);
+    let _ = fmt_display(&"ab", &mut f);
     if !str_eq(buf.as_str(), "  ab  ") { return 20; }
 
     // Precision truncation on str.
     let mut buf2: String = String::new();
     let mut f2: Formatter = formatter_for(&mut buf2);
     f2.precision = 3i64;
-    let _ = "abcdef".fmt_display(&mut f2);
+    let _ = fmt_display(&"abcdef", &mut f2);
     if !str_eq(buf2.as_str(), "abc") { return 21; }
 
     return 42;

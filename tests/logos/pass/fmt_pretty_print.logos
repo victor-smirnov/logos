@@ -13,7 +13,7 @@ pub struct Point {
 }
 
 impl Debug for Point {
-    fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         let mut s: DebugStruct = f.debug_struct("Point");
         let _ = s.field::<i32>("x", &self.x);
         let _ = s.field::<i32>("y", &self.y);

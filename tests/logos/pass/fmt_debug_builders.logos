@@ -14,7 +14,7 @@ use logos.mem.collections.vec;
 struct Widget { x: i32, y: i32 }
 
 impl Debug for Widget {
-    fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         let mut s: DebugStruct = f.debug_struct("Widget");
         let _ = s.field::<i32>("x", &self.x);
         let _ = s.field::<i32>("y", &self.y);
@@ -25,7 +25,7 @@ impl Debug for Widget {
 struct Wrap(i32);
 
 impl Debug for Wrap {
-    fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         let mut t: DebugTuple = f.debug_tuple("Wrap");
         let _ = t.field::<i32>(&self.0);
         return t.finish();
@@ -35,7 +35,7 @@ impl Debug for Wrap {
 struct Pair(i32, i64);
 
 impl Debug for Pair {
-    fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         let mut t: DebugTuple = f.debug_tuple("Pair");
         let _ = t.field::<i32>(&self.0);
         let _ = t.field::<i64>(&self.1);
@@ -46,7 +46,7 @@ impl Debug for Pair {
 struct Empty {}
 
 impl Debug for Empty {
-    fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         let mut s: DebugStruct = f.debug_struct("Empty");
         return s.finish();
     }

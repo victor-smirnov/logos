@@ -34,7 +34,7 @@ use std.io;
 // and str receivers (returns "slice has no method '<name>'"). Generic-
 // context dispatch through a trait bound still works, so the metacall
 // lowering routes every placeholder through one of these thin wrappers
-// instead of emitting `(arg).fmt_display(&mut __f)` directly.
+// instead of emitting `(arg).fmt(&mut __f)` directly.
 //
 // Each helper takes the arg by value (matching the metacall call-site
 // shape); the trait methods then take `&self`, so the wrapper bridges
@@ -42,30 +42,12 @@ use std.io;
 // fat-ptr or scalar copy; for owned types it consumes — same semantics
 // as the legacy variadic `format_args_str` had.
 
-pub fn fmt_display<T: Display>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
-    return arg.fmt_display(f);
-}
-pub fn fmt_debug<T: Debug>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
-    return arg.fmt_debug(f);
-}
-pub fn fmt_lower_hex<T: LowerHex>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
-    return arg._fmt_lower_hex(f);
-}
-pub fn fmt_upper_hex<T: UpperHex>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
-    return arg._fmt_upper_hex(f);
-}
-pub fn fmt_octal<T: Octal>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
-    return arg._fmt_octal(f);
-}
-pub fn fmt_binary<T: Binary>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
-    return arg._fmt_binary(f);
-}
-pub fn fmt_lower_exp<T: LowerExp>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
-    return arg._fmt_lower_exp(f);
-}
-pub fn fmt_upper_exp<T: UpperExp>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
-    return arg._fmt_upper_exp(f);
-}
+// The single-trait dispatcher free fns (`fmt_display` / `fmt_debug` / ...)
+// live in `logos.mem.fmt` alongside the traits + Formatter (and are
+// re-exported here via `pub use logos.mem.fmt`). They bind one fmt trait
+// through a generic bound so a bare `.fmt()` — ambiguous now that every
+// fmt-family trait declares `fmt` — resolves unambiguously. The format-family
+// metacall lowering emits calls to them by bare name.
 
 // ── Runtime format-args fallback (dynamic-pattern path) ───────────────────
 //
@@ -102,7 +84,9 @@ unsafe fn fmt_into<H: Display + Debug, T...>(pat: str, fi: i64, flen: i64,
             // `{}` — Display.
             if (pat[i + 1] as i32) == 125 {
                 f.reset_spec();
-                let _ = (&first).fmt_display(f);
+                // `H: Display + Debug` makes a bare `.fmt()` ambiguous; route
+                // through the single-trait dispatcher to select Display.
+                let _ = fmt_display::<H>(&first, f);
                 fmt_into(pat, i + 2, flen, f, rest...);
                 return;
             }
@@ -112,7 +96,8 @@ unsafe fn fmt_into<H: Display + Debug, T...>(pat: str, fi: i64, flen: i64,
                 && (pat[i + 2] as i32) == 63       // '?'
                 && (pat[i + 3] as i32) == 125 {    // '}'
                 f.reset_spec();
-                let _ = (&first).fmt_debug(f);
+                // Debug placeholder `{:?}` — select Debug via its dispatcher.
+                let _ = fmt_debug::<H>(&first, f);
                 fmt_into(pat, i + 4, flen, f, rest...);
                 return;
             }

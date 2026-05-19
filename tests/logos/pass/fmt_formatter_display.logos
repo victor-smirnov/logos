@@ -23,7 +23,7 @@ fn main() -> i32 {
     let mut buf3: String = String::new();
     let mut f3: Formatter = formatter_for(&mut buf3);
     f3.width = 5i64;
-    let _ = (&123i32).fmt_display(&mut f3);
+    let _ = fmt_display(&123i32, &mut f3);
     if !str_eq(buf3.as_str(), "  123") { return 3; }
 
     // Width + zero-pad: `{:05}`.
@@ -31,7 +31,7 @@ fn main() -> i32 {
     let mut f4: Formatter = formatter_for(&mut buf4);
     f4.width = 5i64;
     f4.fill = 48u8;        // '0'
-    let _ = (&7i32).fmt_display(&mut f4);
+    let _ = fmt_display(&7i32, &mut f4);
     if !str_eq(buf4.as_str(), "00007") { return 4; }
 
     // Width + left-align: `{:<5}`.
@@ -39,7 +39,7 @@ fn main() -> i32 {
     let mut f5: Formatter = formatter_for(&mut buf5);
     f5.width = 5i64;
     f5.align_code = 1u8;   // Left
-    let _ = (&7i32).fmt_display(&mut f5);
+    let _ = fmt_display(&7i32, &mut f5);
     if !str_eq(buf5.as_str(), "7    ") { return 5; }
 
     // Hex radix render via Formatter helper. (Trait impls for

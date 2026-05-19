@@ -61,36 +61,36 @@ fn main() -> i32 {
     // Numeric format traits via Formatter helpers.
     let mut hbuf: String = String::new();
     let mut hf: Formatter = formatter_for(&mut hbuf);
-    let _ = (&255u32)._fmt_lower_hex(&mut hf);
+    let _ = fmt_lower_hex(&255u32, &mut hf);
     if !str_eq(hbuf.as_str(), "ff") { return 9; }
 
     let mut Hbuf: String = String::new();
     let mut Hf: Formatter = formatter_for(&mut Hbuf);
-    let _ = (&255u32)._fmt_upper_hex(&mut Hf);
+    let _ = fmt_upper_hex(&255u32, &mut Hf);
     if !str_eq(Hbuf.as_str(), "FF") { return 10; }
 
     let mut obuf: String = String::new();
     let mut of_: Formatter = formatter_for(&mut obuf);
-    let _ = (&8u32)._fmt_octal(&mut of_);
+    let _ = fmt_octal(&8u32, &mut of_);
     if !str_eq(obuf.as_str(), "10") { return 11; }
 
     let mut bbuf: String = String::new();
     let mut bf: Formatter = formatter_for(&mut bbuf);
-    let _ = (&5u32)._fmt_binary(&mut bf);
+    let _ = fmt_binary(&5u32, &mut bf);
     if !str_eq(bbuf.as_str(), "101") { return 12; }
 
     // Hex of -1i32 → "ffffffff" (Rust convention).
     let mut neg_buf: String = String::new();
     let mut neg_f: Formatter = formatter_for(&mut neg_buf);
     let neg: i32 = -1i32;
-    let _ = (&neg)._fmt_lower_hex(&mut neg_f);
+    let _ = fmt_lower_hex(&neg, &mut neg_f);
     if !str_eq(neg_buf.as_str(), "ffffffff") { return 13; }
 
     // Alt form (#) applied via Formatter.alternate flag.
     let mut alt_buf: String = String::new();
     let mut alt_f: Formatter = formatter_for(&mut alt_buf);
     alt_f.alternate = true;
-    let _ = (&255u32)._fmt_lower_hex(&mut alt_f);
+    let _ = fmt_lower_hex(&255u32, &mut alt_f);
     if !str_eq(alt_buf.as_str(), "0xff") { return 14; }
 
     return 42;

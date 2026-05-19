@@ -74,7 +74,7 @@ fn derive_show_struct_hook(target_offset: u32) -> () {
     em.emit_raw("use logos.mem.string;\nuse logos.lang.str;\nuse logos.lang.result;");
 
     em.tpl3(
-        "impl$BOUNDS Debug for $T$TYS { fn fmt_debug(&self, __f: &mut Formatter) -> Result<(), Error> { let _ = __f.write_str(\"$T {\"); ",
+        "impl$BOUNDS Debug for $T$TYS { fn fmt(&self, __f: &mut Formatter) -> Result<(), Error> { let _ = __f.write_str(\"$T {\"); ",
         "BOUNDS", view_of_string(&bounds),
         "T",      name,
         "TYS",    view_of_string(&tys));
@@ -85,7 +85,7 @@ fn derive_show_struct_hook(target_offset: u32) -> () {
         let fname: StringView = view.ast_field_name(fld);
         let lead:  str        = if i == 0 { " " } else { ", " };
         em.tpl2(
-            "let _ = __f.write_str(\"$LEAD$F: \"); let _ = (&self.$F).fmt_debug(__f); ",
+            "let _ = __f.write_str(\"$LEAD$F: \"); let _ = fmt_debug(&self.$F, __f); ",
             "LEAD", view_of_str(lead),
             "F",    fname);
         i = i + 1;
@@ -116,7 +116,7 @@ fn derive_show_enum_hook(target_offset: u32) -> () {
     em.emit_raw("use logos.mem.string;\nuse logos.lang.str;\nuse logos.lang.result;");
 
     em.tpl1(
-        "impl Debug for $T { fn fmt_debug(&self, __f: &mut Formatter) -> Result<(), Error> { match *self { ",
+        "impl Debug for $T { fn fmt(&self, __f: &mut Formatter) -> Result<(), Error> { match *self { ",
         "T", name);
 
     let mut i: u64 = 0;
@@ -142,7 +142,7 @@ fn derive_show_enum_hook(target_offset: u32) -> () {
             let mut k2: u64 = 0;
             while k2 < arity {
                 if k2 > 0 { em.push_text("let _ = __f.write_str(\", \"); "); }
-                em.push_text("let _ = (&_v"); em.push_num(k2); em.push_text(").fmt_debug(__f); ");
+                em.push_text("let _ = fmt_debug(&_v"); em.push_num(k2); em.push_text(", __f); ");
                 k2 = k2 + 1;
             }
             em.push_text("let _ = __f.write_char(41u8); } ");   // ')'
