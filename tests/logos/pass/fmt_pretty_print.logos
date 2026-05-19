@@ -1,0 +1,53 @@
+// Pretty-print Debug ({:#?}) smoke — DebugStruct/Tuple/List.
+package fmt_pretty_print;
+
+use std.fmt;
+use logos.mem.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.result;
+
+pub struct Point {
+    pub x: i32,
+    pub y: i32,
+}
+
+impl Debug for Point {
+    fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {
+        let mut s: DebugStruct = f.debug_struct("Point");
+        let _ = s.field::<i32>("x", &self.x);
+        let _ = s.field::<i32>("y", &self.y);
+        return s.finish();
+    }
+}
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    let p: Point = Point { x: 1, y: 2 };
+
+    // Single-line form: {:?}
+    let one_line: String = format!("{:?}", p);
+    if one_line.len() != 20i64 { return fail(1); }
+    // "Point { x: 1, y: 2 }"
+
+    // Pretty-print form: {:#?}
+    // Expected: "Point {\n    x: 1,\n    y: 2,\n}" — 29 bytes.
+    let pretty: String = format!("{:#?}", p);
+    if pretty.len() != 29i64 { return fail(100 + pretty.len() as i32); }
+
+    // Verify newline + 4-space indent for first field.
+    let bs: *const u8 = pretty.as_str().as_ptr();
+    unsafe {
+        if bs[6] != 123u8 { return fail(3); }   // '{' after "Point "
+        if bs[7] != 10u8 { return fail(4); }    // newline
+        if bs[8] != 32u8 { return fail(5); }    // first space of indent
+        if bs[11] != 32u8 { return fail(6); }   // fourth space
+        if bs[12] != 120u8 { return fail(7); }  // 'x'
+        if bs[13] != 58u8 { return fail(8); }   // ':'
+        // Last byte is '}'
+        if bs[28] != 125u8 { return fail(9); }
+    }
+
+    return 0;
+}

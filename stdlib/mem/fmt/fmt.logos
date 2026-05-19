@@ -92,6 +92,7 @@ pub struct Formatter {
     pub zero_pad:   bool,
     pub width:      i64,   // -1 = unspecified
     pub precision:  i64,   // -1 = unspecified
+    pub indent:     i64,   // pretty-print depth (alternate `{:#?}` only)
 }
 
 pub fn formatter_for(buf: &mut String) -> Formatter {
@@ -105,6 +106,7 @@ pub fn formatter_for(buf: &mut String) -> Formatter {
             zero_pad:   false,
             width:      -1i64,
             precision:  -1i64,
+            indent:     0i64,
         };
     }
 }
@@ -121,6 +123,8 @@ impl Formatter {
     // Reset spec fields to no-format defaults (matches a placeholder
     // with no spec). Emitted by sema-resident before each placeholder
     // so the per-placeholder field writes start from a clean state.
+    // `indent` is preserved across resets — it's nesting state, not
+    // a per-placeholder flag.
     pub fn reset_spec(&mut self) {
         self.fill       = 32u8;     // ' '
         self.align_code = 0u8;
@@ -130,6 +134,21 @@ impl Formatter {
         self.width      = -1i64;
         self.precision  = -1i64;
     }
+
+    // Pretty-print helper: emit a newline followed by `indent * 4`
+    // spaces. Used by DebugBuilders when `alternate` is true.
+    pub fn write_indent(&mut self) -> Result<(), Error> {
+        let _ = self.write_str("\n");
+        let mut i: i64 = 0i64;
+        while i < self.indent {
+            let _ = self.write_str("    ");
+            i = i + 1i64;
+        }
+        return Result::<(), Error>::Ok(());
+    }
+
+    pub fn indent_inc(&mut self) { self.indent = self.indent + 1i64; }
+    pub fn indent_dec(&mut self) { self.indent = self.indent - 1i64; }
 }
 
 impl Formatter {
@@ -858,10 +877,22 @@ impl Formatter {
 impl DebugStruct {
     pub fn field<T: Debug>(&mut self, name: str, value: &T) -> &mut DebugStruct {
         unsafe {
+            let pretty: bool = (*self.f).alternate;
             if self.has_fields {
-                let _ = (*self.f).write_str(", ");
+                if pretty {
+                    let _ = (*self.f).write_str(",");
+                    let _ = (*self.f).write_indent();
+                } else {
+                    let _ = (*self.f).write_str(", ");
+                }
             } else {
-                let _ = (*self.f).write_str(" { ");
+                if pretty {
+                    let _ = (*self.f).write_str(" {");
+                    (*self.f).indent_inc();
+                    let _ = (*self.f).write_indent();
+                } else {
+                    let _ = (*self.f).write_str(" { ");
+                }
             }
             let _ = (*self.f).write_str(name);
             let _ = (*self.f).write_str(": ");
@@ -873,7 +904,16 @@ impl DebugStruct {
 
     pub fn finish(&mut self) -> Result<(), Error> {
         if self.has_fields {
-            unsafe { let _ = (*self.f).write_str(" }"); }
+            unsafe {
+                if (*self.f).alternate {
+                    (*self.f).indent_dec();
+                    let _ = (*self.f).write_str(",");
+                    let _ = (*self.f).write_indent();
+                    let _ = (*self.f).write_str("}");
+                } else {
+                    let _ = (*self.f).write_str(" }");
+                }
+            }
         }
         return self.result;
     }
@@ -883,10 +923,23 @@ impl DebugStruct {
     // it clear the struct has private fields not in the output.
     pub fn finish_non_exhaustive(&mut self) -> Result<(), Error> {
         unsafe {
-            if self.has_fields {
-                let _ = (*self.f).write_str(", .. }");
+            if (*self.f).alternate {
+                if self.has_fields {
+                    let _ = (*self.f).write_str(",");
+                    let _ = (*self.f).write_indent();
+                    let _ = (*self.f).write_str("..");
+                    (*self.f).indent_dec();
+                    let _ = (*self.f).write_indent();
+                    let _ = (*self.f).write_str("}");
+                } else {
+                    let _ = (*self.f).write_str(" { .. }");
+                }
             } else {
-                let _ = (*self.f).write_str(" { .. }");
+                if self.has_fields {
+                    let _ = (*self.f).write_str(", .. }");
+                } else {
+                    let _ = (*self.f).write_str(" { .. }");
+                }
             }
         }
         return self.result;
@@ -896,10 +949,22 @@ impl DebugStruct {
 impl DebugTuple {
     pub fn field<T: Debug>(&mut self, value: &T) -> &mut DebugTuple {
         unsafe {
+            let pretty: bool = (*self.f).alternate;
             if self.fields == 0i64 {
-                let _ = (*self.f).write_str("(");
+                if pretty {
+                    let _ = (*self.f).write_str("(");
+                    (*self.f).indent_inc();
+                    let _ = (*self.f).write_indent();
+                } else {
+                    let _ = (*self.f).write_str("(");
+                }
             } else {
-                let _ = (*self.f).write_str(", ");
+                if pretty {
+                    let _ = (*self.f).write_str(",");
+                    let _ = (*self.f).write_indent();
+                } else {
+                    let _ = (*self.f).write_str(", ");
+                }
             }
             let _ = value.fmt_debug(&mut *self.f);
             self.fields = self.fields + 1i64;
@@ -909,7 +974,16 @@ impl DebugTuple {
 
     pub fn finish(&mut self) -> Result<(), Error> {
         if self.fields > 0i64 {
-            unsafe { let _ = (*self.f).write_str(")"); }
+            unsafe {
+                if (*self.f).alternate {
+                    (*self.f).indent_dec();
+                    let _ = (*self.f).write_str(",");
+                    let _ = (*self.f).write_indent();
+                    let _ = (*self.f).write_str(")");
+                } else {
+                    let _ = (*self.f).write_str(")");
+                }
+            }
         }
         return self.result;
     }
@@ -918,7 +992,20 @@ impl DebugTuple {
 impl DebugList {
     pub fn entry<T: Debug>(&mut self, value: &T) -> &mut DebugList {
         unsafe {
-            if self.has_any { let _ = (*self.f).write_str(", "); }
+            let pretty: bool = (*self.f).alternate;
+            if self.has_any {
+                if pretty {
+                    let _ = (*self.f).write_str(",");
+                    let _ = (*self.f).write_indent();
+                } else {
+                    let _ = (*self.f).write_str(", ");
+                }
+            } else {
+                if pretty {
+                    (*self.f).indent_inc();
+                    let _ = (*self.f).write_indent();
+                }
+            }
             let _ = value.fmt_debug(&mut *self.f);
             self.has_any = true;
         }
@@ -926,7 +1013,14 @@ impl DebugList {
     }
 
     pub fn finish(&mut self) -> Result<(), Error> {
-        unsafe { let _ = (*self.f).write_str("]"); }
+        unsafe {
+            if (*self.f).alternate && self.has_any {
+                (*self.f).indent_dec();
+                let _ = (*self.f).write_str(",");
+                let _ = (*self.f).write_indent();
+            }
+            let _ = (*self.f).write_str("]");
+        }
         return self.result;
     }
 }
@@ -934,7 +1028,20 @@ impl DebugList {
 impl DebugSet {
     pub fn entry<T: Debug>(&mut self, value: &T) -> &mut DebugSet {
         unsafe {
-            if self.has_any { let _ = (*self.f).write_str(", "); }
+            let pretty: bool = (*self.f).alternate;
+            if self.has_any {
+                if pretty {
+                    let _ = (*self.f).write_str(",");
+                    let _ = (*self.f).write_indent();
+                } else {
+                    let _ = (*self.f).write_str(", ");
+                }
+            } else {
+                if pretty {
+                    (*self.f).indent_inc();
+                    let _ = (*self.f).write_indent();
+                }
+            }
             let _ = value.fmt_debug(&mut *self.f);
             self.has_any = true;
         }
@@ -942,7 +1049,14 @@ impl DebugSet {
     }
 
     pub fn finish(&mut self) -> Result<(), Error> {
-        unsafe { let _ = (*self.f).write_str("}"); }
+        unsafe {
+            if (*self.f).alternate && self.has_any {
+                (*self.f).indent_dec();
+                let _ = (*self.f).write_str(",");
+                let _ = (*self.f).write_indent();
+            }
+            let _ = (*self.f).write_str("}");
+        }
         return self.result;
     }
 }
@@ -952,7 +1066,20 @@ impl DebugMap {
     // separate `.key().value()` calls.
     pub fn entry<K: Debug, V: Debug>(&mut self, k: &K, v: &V) -> &mut DebugMap {
         unsafe {
-            if self.has_any { let _ = (*self.f).write_str(", "); }
+            let pretty: bool = (*self.f).alternate;
+            if self.has_any {
+                if pretty {
+                    let _ = (*self.f).write_str(",");
+                    let _ = (*self.f).write_indent();
+                } else {
+                    let _ = (*self.f).write_str(", ");
+                }
+            } else {
+                if pretty {
+                    (*self.f).indent_inc();
+                    let _ = (*self.f).write_indent();
+                }
+            }
             let _ = k.fmt_debug(&mut *self.f);
             let _ = (*self.f).write_str(": ");
             let _ = v.fmt_debug(&mut *self.f);
@@ -962,7 +1089,14 @@ impl DebugMap {
     }
 
     pub fn finish(&mut self) -> Result<(), Error> {
-        unsafe { let _ = (*self.f).write_str("}"); }
+        unsafe {
+            if (*self.f).alternate && self.has_any {
+                (*self.f).indent_dec();
+                let _ = (*self.f).write_str(",");
+                let _ = (*self.f).write_indent();
+            }
+            let _ = (*self.f).write_str("}");
+        }
         return self.result;
     }
 }

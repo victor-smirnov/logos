@@ -1,0 +1,33 @@
+// ByRefIter — thread a borrowed iterator through adapters without
+// consuming it; resume on the original after.
+package iter_by_ref;
+
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.range;
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    let mut r: RangeI32 = range_i32(10i32, 20i32);
+
+    // Take 3 via a by_ref wrapper — original `r` continues from 13.
+    {
+        let mut br: ByRefIter<RangeI32, i32> = iter_by_ref::<RangeI32, i32>(&mut r);
+        let v0: Option<i32> = br.next();
+        if !v0.is_some() || v0.unwrap() != 10i32 { return fail(1); }
+        let v1: Option<i32> = br.next();
+        if !v1.is_some() || v1.unwrap() != 11i32 { return fail(2); }
+        let v2: Option<i32> = br.next();
+        if !v2.is_some() || v2.unwrap() != 12i32 { return fail(3); }
+        // br drops at end of block; r resumes from 13.
+    }
+
+    // Original iter resumes here.
+    let v3: Option<i32> = r.next();
+    if !v3.is_some() || v3.unwrap() != 13i32 { return fail(10); }
+    let v4: Option<i32> = r.next();
+    if !v4.is_some() || v4.unwrap() != 14i32 { return fail(11); }
+
+    return 0;
+}

@@ -1629,16 +1629,37 @@ pub fn iter_flat_map<I: Iterator<T>, T, F: FnMut(T) -> II, II: Iterator<U>, U>(
 // adapters that yield `&T`. Add them once a `IterRef<T>` style adapter
 // exists.
 
-// by_ref_sized — deferred. Rust's `Iterator::by_ref(&mut self) ->
-// &mut Self` requires `impl<I: Iterator<Item>, Item> Iterator<Item>
-// for &mut I`, which makes every Iterator trait default method
-// (nth/find/position/...) clone for `Self = &mut I`. The default
-// bodies invoke `self.next()`, which becomes `(&mut &mut I).next()`
-// at mono — Logos's auto-deref doesn't unwrap two ref levels, so
-// mono can't synthesize the inner `next` call. Closing this needs
-// either a `Self: Sized` constraint on the trait default methods
-// (to exclude `&mut I`) or a one-deeper auto-deref in lower_method_call.
-// Filed as a follow-up.
+// ── ByRefIter<I> — explicit "by-ref" iterator wrapper ───────────────────
+//
+// Rust's `Iterator::by_ref(&mut self) -> &mut Self` lets callers thread a
+// borrowed iterator through chained adapters without consuming it. The
+// natural Logos shape — `impl<I: Iterator<T>, T> Iterator<T> for &mut I`
+// — is blocked on a sema/mono refactor: the trait default-method bodies
+// invoke `self.next()`, which after substitution becomes `(&mut &mut
+// I).next()` and Logos's auto-deref peels only one ref level.
+//
+// Workaround: an explicit struct that holds the `&mut I` raw pointer
+// and forwards every `next()` call. Callers wrap once with
+// `iter_by_ref(&mut iter)`, then chain adapters on the returned
+// `ByRefIter<I>`. The original `iter` keeps its position.
+//
+// Divergence: Rust's by_ref is a trait method; ours is a free fn that
+// returns the wrapper. Functionally equivalent.
+
+pub struct ByRefIter<I, T> {
+    pub p:  *mut I,
+    pub _t: T,
+}
+
+pub fn iter_by_ref<I: Iterator<T>, T: Default>(it: &mut I) -> ByRefIter<I, T> {
+    return ByRefIter::<I, T> { p: it as *mut I, _t: T::default() };
+}
+
+impl<I: Iterator<T>, T> Iterator<T> for ByRefIter<I, T> {
+    fn next(self: &mut ByRefIter<I, T>) -> Option<T> {
+        unsafe { return (*self.p).next(); }
+    }
+}
 
 // ── Source iterators: once / empty / repeat ──────────────────────────────────
 //
