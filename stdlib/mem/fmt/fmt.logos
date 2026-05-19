@@ -19,6 +19,14 @@ use logos.lang.result;
 use logos.lang.str;
 use logos.mem.string;
 
+// f32/f64 extern decls — same symbols mem.string uses for legacy
+// Display. The forward decls live up here so they precede the impl
+// bodies that call them. (mem.string's identical decls don't
+// re-export across pkg, so we re-declare locally; the linker
+// dedupes since both bind the same C symbol.)
+extern fn logos_fmt_f64_g(buf: *mut u8, cap: i32, x: f64) -> i32;
+extern fn logos_fmt_f32_g(buf: *mut u8, cap: i32, x: f32) -> i32;
+
 // ── fmt::Error / fmt::Result ─────────────────────────────────────────
 //
 // `fmt::Error` is the unit error returned by every formatter operation
@@ -287,20 +295,183 @@ pub fn fmt_debug_to_string<T: FmtDebug>(val: &T) -> String {
     return buf;
 }
 
-// First migrated impl — primitive i32. Used as the proof-of-shape
-// for Session 1; the rest of the primitive family rolls out in
-// Session 2. Debug for i32 reuses Display's rendering (Rust mirrors
-// the same for all integer primitives).
+// ── Primitive impls ─────────────────────────────────────────────────
+//
+// Display and Debug for every integer/float/bool/str primitive +
+// `*const u8` (C string) + unit `()`. For integer/float/bool/unit/str
+// primitives Rust uses identical Display and Debug rendering (modulo
+// `Debug for str` which quotes), so the impls below pair Display +
+// Debug per type. Tuples ship below.
+//
+// All routes through Formatter helpers so the spec fields (width /
+// fill / align / precision / sign / alt / zero) take effect uniformly.
 
+// ── Signed integers ─────────────────────────────────────────────────
+impl FmtDisplay for i8    { fn fmt_display(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_dec_i64(*self as i64); } }
+impl FmtDebug   for i8    { fn fmt_debug  (&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_dec_i64(*self as i64); } }
+impl FmtDisplay for i16   { fn fmt_display(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_dec_i64(*self as i64); } }
+impl FmtDebug   for i16   { fn fmt_debug  (&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_dec_i64(*self as i64); } }
 impl FmtDisplay for i32 {
     fn fmt_display(&self, f: &mut Formatter) -> Result<(), Error> {
         return f.write_int_dec_i64(*self as i64);
     }
 }
-
 impl FmtDebug for i32 {
     fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {
         return f.write_int_dec_i64(*self as i64);
+    }
+}
+impl FmtDisplay for i64   { fn fmt_display(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_dec_i64(*self);        } }
+impl FmtDebug   for i64   { fn fmt_debug  (&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_dec_i64(*self);        } }
+impl FmtDisplay for isize { fn fmt_display(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_dec_i64(*self as i64); } }
+impl FmtDebug   for isize { fn fmt_debug  (&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_dec_i64(*self as i64); } }
+
+// ── Unsigned integers ───────────────────────────────────────────────
+impl FmtDisplay for u8    { fn fmt_display(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_dec_u64(*self as u64); } }
+impl FmtDebug   for u8    { fn fmt_debug  (&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_dec_u64(*self as u64); } }
+impl FmtDisplay for u16   { fn fmt_display(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_dec_u64(*self as u64); } }
+impl FmtDebug   for u16   { fn fmt_debug  (&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_dec_u64(*self as u64); } }
+impl FmtDisplay for u32   { fn fmt_display(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_dec_u64(*self as u64); } }
+impl FmtDebug   for u32   { fn fmt_debug  (&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_dec_u64(*self as u64); } }
+impl FmtDisplay for u64   { fn fmt_display(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_dec_u64(*self);        } }
+impl FmtDebug   for u64   { fn fmt_debug  (&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_dec_u64(*self);        } }
+impl FmtDisplay for usize { fn fmt_display(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_dec_u64(*self as u64); } }
+impl FmtDebug   for usize { fn fmt_debug  (&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_dec_u64(*self as u64); } }
+
+// ── bool ────────────────────────────────────────────────────────────
+impl FmtDisplay for bool { fn fmt_display(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_bool(*self); } }
+impl FmtDebug   for bool { fn fmt_debug  (&self, f: &mut Formatter) -> Result<(), Error> { return f.write_bool(*self); } }
+
+// ── str ─────────────────────────────────────────────────────────────
+// Display = raw bytes through pad (width/precision apply).
+// Debug   = '"' content '"' — minimal escape (no backslash-escaping
+//   of control chars yet; matches `format!("{:?}", "x")` for the
+//   non-control-char common case). Full Rust-style escape ladder
+//   ('\\n'/'\\t'/'\\u{…}') is a follow-up alongside the Utf8/escape
+//   work later in the roadmap.
+impl FmtDisplay for str {
+    fn fmt_display(&self, f: &mut Formatter) -> Result<(), Error> {
+        return f.pad(*self, "");
+    }
+}
+impl FmtDebug for str {
+    fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {
+        let _ = f.write_char(34u8);  // '"'
+        let _ = f.write_str(*self);
+        return f.write_char(34u8);
+    }
+}
+
+// ── *const u8 — Display of C strings ────────────────────────────────
+// Mirrors the legacy `Display for *const u8` in mem.string: walks
+// null-terminated bytes and writes them as one str chunk. Used by
+// FFI surfaces returning `char *`. No Debug — Rust doesn't define
+// it on raw pointers either; cast to *const () or use ptr::eq.
+impl FmtDisplay for *const u8 {
+    fn fmt_display(&self, f: &mut Formatter) -> Result<(), Error> {
+        let p: *const u8 = *self;
+        let n: i64 = str_len(p);
+        let s: str = str_from_raw(p, n);
+        return f.pad(s, "");
+    }
+}
+
+// ── f32 / f64 ───────────────────────────────────────────────────────
+// Same extern bridge the legacy Display impls use: `snprintf("%g", x)`
+// gives the shortest round-trippable representation. Render into a
+// scratch String, then route through pad.
+impl FmtDisplay for f64 {
+    fn fmt_display(&self, f: &mut Formatter) -> Result<(), Error> {
+        let mut scratch: String = String::new();
+        let cap: i32 = 32i32;
+        let ptr: *mut u8 = scratch.spare_ptr(cap as i64);
+        let n: i32 = unsafe { logos_fmt_f64_g(ptr, cap, *self) };
+        scratch.advance_len(n as i64);
+        return f.pad(scratch.as_str(), "");
+    }
+}
+impl FmtDebug for f64 {
+    fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {
+        let mut scratch: String = String::new();
+        let cap: i32 = 32i32;
+        let ptr: *mut u8 = scratch.spare_ptr(cap as i64);
+        let n: i32 = unsafe { logos_fmt_f64_g(ptr, cap, *self) };
+        scratch.advance_len(n as i64);
+        return f.pad(scratch.as_str(), "");
+    }
+}
+impl FmtDisplay for f32 {
+    fn fmt_display(&self, f: &mut Formatter) -> Result<(), Error> {
+        let mut scratch: String = String::new();
+        let cap: i32 = 32i32;
+        let ptr: *mut u8 = scratch.spare_ptr(cap as i64);
+        let n: i32 = unsafe { logos_fmt_f32_g(ptr, cap, *self) };
+        scratch.advance_len(n as i64);
+        return f.pad(scratch.as_str(), "");
+    }
+}
+impl FmtDebug for f32 {
+    fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {
+        let mut scratch: String = String::new();
+        let cap: i32 = 32i32;
+        let ptr: *mut u8 = scratch.spare_ptr(cap as i64);
+        let n: i32 = unsafe { logos_fmt_f32_g(ptr, cap, *self) };
+        scratch.advance_len(n as i64);
+        return f.pad(scratch.as_str(), "");
+    }
+}
+
+// ── unit `()` — deferred ─────────────────────────────────────────────
+// `impl FmtDisplay for () { ... }` fails to parse — Logos doesn't yet
+// accept `()` in impl-target position. Tuples-of-arity-1+ work below
+// (per-arity hand-rolled until variadic-tuple-impl lands). Display
+// for unit is rarely needed at user level since `()` has one
+// inhabitant; metacall lowering for `format!("{}", ())` can be
+// special-cased at Session 4. Filed as a follow-up.
+
+// ── Tuples ──────────────────────────────────────────────────────────
+// Tuples have Debug (not Display) in Rust. Per-arity hand-rolled
+// impls until variadic-tuple-impl baghunt lands
+// ([[baghunt-variadic-tuple-impl]]).
+
+impl<A: FmtDebug> FmtDebug for (A,) {
+    fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {
+        let _ = f.write_str("(");
+        let _ = self.0.fmt_debug(f);
+        return f.write_str(",)");
+    }
+}
+impl<A: FmtDebug, B: FmtDebug> FmtDebug for (A, B) {
+    fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {
+        let _ = f.write_str("(");
+        let _ = self.0.fmt_debug(f);
+        let _ = f.write_str(", ");
+        let _ = self.1.fmt_debug(f);
+        return f.write_str(")");
+    }
+}
+impl<A: FmtDebug, B: FmtDebug, C: FmtDebug> FmtDebug for (A, B, C) {
+    fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {
+        let _ = f.write_str("(");
+        let _ = self.0.fmt_debug(f);
+        let _ = f.write_str(", ");
+        let _ = self.1.fmt_debug(f);
+        let _ = f.write_str(", ");
+        let _ = self.2.fmt_debug(f);
+        return f.write_str(")");
+    }
+}
+impl<A: FmtDebug, B: FmtDebug, C: FmtDebug, D: FmtDebug> FmtDebug for (A, B, C, D) {
+    fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {
+        let _ = f.write_str("(");
+        let _ = self.0.fmt_debug(f);
+        let _ = f.write_str(", ");
+        let _ = self.1.fmt_debug(f);
+        let _ = f.write_str(", ");
+        let _ = self.2.fmt_debug(f);
+        let _ = f.write_str(", ");
+        let _ = self.3.fmt_debug(f);
+        return f.write_str(")");
     }
 }
 

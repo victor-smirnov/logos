@@ -59,18 +59,22 @@ through `Display::fmt` / `Debug::fmt`. `fmt_pad` /
 - [x] Smoke: `fmt_formatter_display.logos` exercises bare render,
       width+right, width+zero, width+left, hex radix, bool.
 
-### Session 2 — Primitive migration
+### Session 2 — Primitive migration ✅ (2026-05-18)
 
-- [ ] `i8` `i16` `i64` `isize` — Display + Debug
-- [ ] `u8` `u16` `u32` `u64` `usize` — Display + Debug
-- [ ] `bool` — Display + Debug
-- [ ] `str` — Display + Debug
-- [ ] `*const u8` (C string) — Display
-- [ ] `f32` `f64` — Display + Debug (route through existing
-      `logos_fmt_f64_g`/etc. extern, then `pad`)
-- [ ] `()` unit — Display + Debug
-- [ ] tuples `(A,)`, `(A,B)`, `(A,B,C)`, `(A,B,C,D)` — Debug; Logos
-      already has Display=Debug for tuples in std.fmt
+- [x] `i8` `i16` `i64` `isize` — Display + Debug
+- [x] `u8` `u16` `u32` `u64` `usize` — Display + Debug
+- [x] `bool` — Display + Debug
+- [x] `str` — Display (pad), Debug (`"<content>"` — minimal quote, full
+      `\n`/`\t`/`\u{…}` escape ladder is a follow-up alongside utf8 work)
+- [x] `*const u8` (C string) — Display
+- [x] `f32` `f64` — Display + Debug (extern bridge into
+      `logos_fmt_f{32,64}_g` then `pad`)
+- [ ] `()` unit — DEFERRED. Logos parser doesn't accept `()` in
+      impl-target position (`impl X for () {...}` errors). Tuples of
+      arity ≥ 1 work fine. Metacall path for `format!("{}", ())` can
+      special-case at Session 4 or wait for a grammar fix.
+- [x] tuples `(A,)`, `(A,B)`, `(A,B,C)`, `(A,B,C,D)` — Debug
+      (`&self` recv, recurse into each field's `fmt_debug`)
 
 ### Session 3 — Stdlib structs + numeric format traits
 

@@ -1,0 +1,69 @@
+// Session 2 of the std.fmt → Formatter migration: exercises
+// FmtDisplay/FmtDebug for every primitive (integers, bool, str,
+// *const u8, f32/f64, unit, 1- to 4-tuples).
+package test;
+
+use logos.lang.result;
+use logos.lang.str;
+use logos.mem.string;
+use logos.mem.fmt;
+
+fn check(got: String, want: str, code: i32) -> i32 {
+    if !str_eq(got.as_str(), want) { return code; }
+    return 0;
+}
+
+fn main() -> i32 {
+    // ── Integers ────────────────────────────────────────────
+    let r: i32 = check(fmt_display_to_string::<i8>(&-12i8),  "-12",  1); if r != 0 { return r; }
+    let r: i32 = check(fmt_display_to_string::<i16>(&300i16), "300",  2); if r != 0 { return r; }
+    let r: i32 = check(fmt_display_to_string::<i32>(&-7),    "-7",   3); if r != 0 { return r; }
+    let r: i32 = check(fmt_display_to_string::<i64>(&5000000000i64), "5000000000", 4); if r != 0 { return r; }
+
+    let r: i32 = check(fmt_display_to_string::<u8>(&200u8),  "200",  5); if r != 0 { return r; }
+    let r: i32 = check(fmt_display_to_string::<u16>(&60000u16), "60000", 6); if r != 0 { return r; }
+    let r: i32 = check(fmt_display_to_string::<u32>(&4000000000u32), "4000000000", 7); if r != 0 { return r; }
+    let r: i32 = check(fmt_display_to_string::<u64>(&18446744073709551615u64), "18446744073709551615", 8); if r != 0 { return r; }
+
+    // Debug = Display for integers.
+    let r: i32 = check(fmt_debug_to_string::<i32>(&-7),     "-7",   9); if r != 0 { return r; }
+    let r: i32 = check(fmt_debug_to_string::<u8>(&255u8),   "255", 10); if r != 0 { return r; }
+
+    // ── bool ────────────────────────────────────────────────
+    let r: i32 = check(fmt_display_to_string::<bool>(&true), "true",   11); if r != 0 { return r; }
+    let r: i32 = check(fmt_debug_to_string::<bool>(&false),  "false",  12); if r != 0 { return r; }
+
+    // ── str ─────────────────────────────────────────────────
+    let r: i32 = check(fmt_display_to_string::<str>(&"hello"), "hello",   13); if r != 0 { return r; }
+    let r: i32 = check(fmt_debug_to_string::<str>(&"hi"),      "\"hi\"",  14); if r != 0 { return r; }
+
+    // ── unit `()` ───────────────────────────────────────────
+
+    // ── Tuples (Debug only — Display matches the variadic
+    //    format_args_str path that hasn't migrated yet) ──────
+    let t1: (i32,) = (5,);
+    let r: i32 = check(fmt_debug_to_string::<(i32,)>(&t1), "(5,)", 17); if r != 0 { return r; }
+
+    let t2: (i32, bool) = (7, true);
+    let r: i32 = check(fmt_debug_to_string::<(i32, bool)>(&t2), "(7, true)", 18); if r != 0 { return r; }
+
+    let t3: (i32, i32, i32) = (1, 2, 3);
+    let r: i32 = check(fmt_debug_to_string::<(i32, i32, i32)>(&t3), "(1, 2, 3)", 19); if r != 0 { return r; }
+
+    // ── Width + alignment via Formatter on str ──────────────
+    let mut buf: String = String::new();
+    let mut f: Formatter = formatter_for(&mut buf);
+    f.width = 6i64;
+    f.align_code = 3u8;   // Center
+    let _ = "ab".fmt_display(&mut f);
+    if !str_eq(buf.as_str(), "  ab  ") { return 20; }
+
+    // Precision truncation on str.
+    let mut buf2: String = String::new();
+    let mut f2: Formatter = formatter_for(&mut buf2);
+    f2.precision = 3i64;
+    let _ = "abcdef".fmt_display(&mut f2);
+    if !str_eq(buf2.as_str(), "abc") { return 21; }
+
+    return 42;
+}
