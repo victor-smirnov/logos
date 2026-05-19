@@ -117,24 +117,46 @@ generic point). Real fix: mono needs to honour bounds at
 blanket-instantiation time and skip Xs that don't satisfy the bound.
 Filed as a follow-up; container Debug impls re-add once that lands.
 
-### Session 4 — Metacall migration + legacy delete
+### Session 4 — Metacall migration + legacy delete + rename ✅ (2026-05-19)
 
-- [ ] Rewrite `format_args_str` to parse the spec string into a
-      Formatter, then call `arg.fmt_display(&mut f)` per placeholder.
-- [ ] Rewrite `format!`/`print!`/`println!`/`eprint!`/`eprintln!`/
-      `panic!`/`assert!`/`assert_eq!`/`assert_ne!` metacalls to use
-      the new path (most just funnel through `format_args_str` —
-      change is local).
-- [ ] Delete `fmt_display` / `fmt_debug` / `fmt_lower_hex` / etc.
-      helper fns.
-- [ ] Delete `fmt_pad` / `pad_into`.
-- [ ] Delete legacy `mem.string::Display` trait + every `impl Display
-      for X { fn fmt(self, &mut String) }` impl.
-- [ ] Delete legacy `std.fmt::Debug` trait + every `impl Debug for X
-      { fn dbg(self, &mut String) }` impl.
-- [ ] Rename `FmtDisplay` → `Display`, `FmtDebug` → `Debug`, and
-      method names `fmt_display`/`fmt_debug` → `fmt`. Trait-registry
-      collision risk lifts because legacy is gone.
+- [x] Sema-resident lowering (sema_expr.cpp:13400+) emits Formatter-
+      shape block: builds `Formatter::new(&mut __buf)`, writes spec
+      fields per placeholder (`__f.width = …; __f.align_code = …;`),
+      dispatches through free-fn dispatcher (`fmt_display(&arg, &mut
+      __f)` / `fmt_debug` / `fmt_lower_hex` / `fmt_upper_hex` /
+      `fmt_octal` / `fmt_binary` / `fmt_lower_exp` / `fmt_upper_exp`).
+      Dispatchers take `&T` (not by-value) so the format!-supplied
+      arg isn't moved/dropped through the synthesized block.
+- [x] `format_args_str` joins the format-family intercept list, so
+      `assert_eq!`/`assert_ne!`/`panic!` expansions (now emitting
+      `format!(…)` instead of direct `format_args_str(…)`) lower
+      through sema-resident interception. Runtime variadic-bound
+      `T...: Display + Debug` never has to bind to non-Display types
+      (Result<i32,str>, tuples with only Debug, etc.).
+- [x] Helper fns `fmt_display`/`fmt_debug`/`fmt_lower_hex`/etc.
+      kept (now in std.fmt, new signature) since the slice/str
+      dot-method short-circuit still applies; bodies just delegate
+      to `arg.fmt_display(f)`. `fmt_pad`/`pad_into` gone — spec
+      lives on Formatter and is applied by `Formatter::pad`.
+- [x] Legacy `mem.string::Display` trait + per-primitive impls
+      deleted. `to_string<T: Display>` free fn deleted. ToString
+      trait stays in mem.string with primitive impls that don't go
+      through Display; blanket `impl<T: Display> ToString for T`
+      moves to mem.fmt.
+- [x] Legacy `std.fmt::Debug` trait + per-primitive `dbg` impls
+      deleted alongside the 5 test files + logos_showcase example
+      that used to consume it (debug_primitives, derive_debug_e2e/
+      enum/generic, impl_for_tuple, logos_showcase). All migrated
+      to FmtDebug shape; derive metaprog hooks emit `impl Debug for
+      X { fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error>
+      { ... } }`.
+- [x] Renamed `FmtDisplay` → `Display`, `FmtDebug` → `Debug`,
+      `FmtLowerHex` → `LowerHex`, etc. Methods stay distinct
+      (`fmt_display`/`fmt_debug`/`_fmt_lower_hex`/…) — Logos's flat
+      method registry per type can't currently host two traits'
+      `fmt(&self, &mut Formatter)` on the same primitive without
+      collision. Trait-aware method mangling lifts that and lets
+      methods rename to plain `fmt` in a follow-up.
 
 ## Risk register
 
