@@ -930,7 +930,11 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             // The element-level bounds (A: X for elem 0, B: X for elem 1)
             // are checked recursively below by the same machinery as
             // generic-struct impls — at monomorphisation time.
+            // Variadic form `impl<A...> Trait for (A...)` registers under
+            // `$tuple$variadic` — accept any tuple arity.
             if (cv.kind() == LogosType::Kind::Tuple) {
+                auto key_variadic = bound.trait_name + "::$tuple$variadic";
+                if (impls_.count(key_variadic)) continue;
                 size_t arity = cv.tuple_elems().size();
                 auto key_arity = bound.trait_name + "::$tuple$"
                                  + std::to_string(arity);
@@ -2073,29 +2077,39 @@ void SemaChecker::collect_impl(TinyMapView node) {
             // Resolve to a Tuple TypeRef and mangle by arity (generic
             // impl with TypeVar elems → `$tuple$N`) or by element types
             // (concrete impl with monomorphic elems → `$tuple$N$<t1>$<t2>…`).
-            // Mirrors the $slice$ / $dyn$ shape; coherence rules keep
-            // one impl per (trait, arity) for the generic form.
+            // Variadic form `impl<A...> Trait for (A...)` → `$tuple$variadic`.
             auto resolved = resolve_type(tnode);
             target_resolved = resolved;
-            // `()` resolves to Kind::Void (per sema.cpp::resolve_type on
-            // an empty TUPLE_TYPE), not a Tuple — register under the
-            // canonical "void" name so use-site bound checks for
-            // T = () (which sema types as Void) find the impl.
             if (resolved && TypeRef(resolved).kind() == LogosType::Kind::Void) {
                 target = "void";
             } else {
-                size_t arity = resolved ? TypeRef(resolved).tuple_elems().size() : 0;
-                bool any_tvar = false;
-                if (resolved) {
-                    for (auto e : TypeRef(resolved).tuple_elems())
+                auto elems = TypeRef(resolved).tuple_elems();
+                bool is_variadic_target = false;
+                if (elems.size() == 1) {
+                    TypeRef e0(elems[0]);
+                    if (e0 && e0.kind() == LogosType::Kind::TypeVar) {
+                        std::string tvn(e0.type_var_name());
+                        for (auto& itp : impl_tps)
+                            if (itp.name == tvn && itp.is_variadic) {
+                                is_variadic_target = true;
+                                break;
+                            }
+                    }
+                }
+                if (is_variadic_target) {
+                    target = "$tuple$variadic";
+                } else {
+                    size_t arity = elems.size();
+                    bool any_tvar = false;
+                    for (auto e : elems)
                         if (e && TypeRef(e).kind() == LogosType::Kind::TypeVar)
                             { any_tvar = true; break; }
-                }
-                target = "$tuple$" + std::to_string(arity);
-                if (resolved && !any_tvar) {
-                    for (auto e : TypeRef(resolved).tuple_elems()) {
-                        target += "$";
-                        target += (e ? type_str(e) : std::string("?"));
+                    target = "$tuple$" + std::to_string(arity);
+                    if (!any_tvar) {
+                        for (auto e : elems) {
+                            target += "$";
+                            target += (e ? type_str(e) : std::string("?"));
+                        }
                     }
                 }
             }

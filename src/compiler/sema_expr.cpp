@@ -1129,7 +1129,8 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         auto elems = TypeRef(lt).tuple_elems();
         size_t arity = elems.size();
         std::string method_name = (op == "==") ? "eq" : "ne";
-        // Try concrete-key first then generic blanket.
+        // Try concrete-key first, then arity-keyed generic blanket, then
+        // variadic-arity blanket (`impl<A...> Eq for (A...)`).
         std::vector<std::string> keys;
         {
             std::string ck = "$tuple$" + std::to_string(arity);
@@ -1141,6 +1142,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             keys.push_back(std::move(ck));
         }
         keys.push_back("$tuple$" + std::to_string(arity) + "__" + method_name);
+        keys.push_back("$tuple$variadic__" + method_name);
         const SemaFuncInfo* fi_eq = nullptr;
         std::string used_key;
         for (auto& k : keys) {

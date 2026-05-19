@@ -1091,28 +1091,39 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             // SL-sl-08: parallel to sema_collect.cpp — `impl Trait for
             // (A, B, …)` mangling. Generic form (TypeVar elems) →
             // `$tuple$N`; concrete form → `$tuple$N$<t1>$<t2>…`.
+            // Variadic form `impl<A...> Trait for (A...)` → `$tuple$variadic`.
             auto resolved = resolve_type(tnode);
             target_resolved = resolved;
-            // `()` resolves to Kind::Void — register under "void"
-            // (matches sema_collect.cpp's parallel branch). Without
-            // this the LIR impl block targets `$tuple$0` while
-            // collect_fn registered methods under "void", and
-            // dispatch loses the link.
             if (resolved && TypeRef(resolved).kind() == LogosType::Kind::Void) {
                 target = "void";
             } else {
-                size_t arity = resolved ? TypeRef(resolved).tuple_elems().size() : 0;
-                bool any_tvar = false;
-                if (resolved) {
-                    for (auto e : TypeRef(resolved).tuple_elems())
+                auto elems = TypeRef(resolved).tuple_elems();
+                bool is_variadic_target = false;
+                if (elems.size() == 1) {
+                    TypeRef e0(elems[0]);
+                    if (e0 && e0.kind() == LogosType::Kind::TypeVar) {
+                        std::string tvn(e0.type_var_name());
+                        for (auto& itp : impl_tps)
+                            if (itp.name == tvn && itp.is_variadic) {
+                                is_variadic_target = true;
+                                break;
+                            }
+                    }
+                }
+                if (is_variadic_target) {
+                    target = "$tuple$variadic";
+                } else {
+                    size_t arity = elems.size();
+                    bool any_tvar = false;
+                    for (auto e : elems)
                         if (e && TypeRef(e).kind() == LogosType::Kind::TypeVar)
                             { any_tvar = true; break; }
-                }
-                target = "$tuple$" + std::to_string(arity);
-                if (resolved && !any_tvar) {
-                    for (auto e : TypeRef(resolved).tuple_elems()) {
-                        target += "$";
-                        target += (e ? type_str(e) : std::string("?"));
+                    target = "$tuple$" + std::to_string(arity);
+                    if (!any_tvar) {
+                        for (auto e : elems) {
+                            target += "$";
+                            target += (e ? type_str(e) : std::string("?"));
+                        }
                     }
                 }
             }

@@ -2745,6 +2745,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     };
                     if (has(concrete_full))      cname = concrete_full;
                     else if (has(concrete_n))    cname = concrete_n;
+                    else if (has("$tuple$variadic")) cname = "$tuple$variadic";
                 }
                 if (cname.empty()) cname = type_str(rt);
                 if (cname == "&[u8]") cname = "str";

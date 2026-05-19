@@ -1,0 +1,37 @@
+// Phase 2: tuple `==` dispatch falls back to `impl<A...> Eq for (A...)`
+// when no concrete or arity-keyed impl exists. Method body returns
+// a constant (fold-expand for proper per-element comparison is Phase 3).
+package variadic_tuple_dispatch;
+
+use logos.lang.cmp;
+
+pub struct Tag {}
+
+pub trait MyEq {
+    fn my_eq(self: &Self, other: &Self) -> bool;
+}
+
+// Variadic-tuple impl that always returns true (cosmetic).
+impl<A...> MyEq for (A...) {
+    fn my_eq(self: &Self, other: &Self) -> bool {
+        return true;
+    }
+}
+
+fn check_my_eq<T: MyEq>(a: &T, b: &T) -> bool {
+    return a.my_eq(b);
+}
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    let t2a: (i32, i32) = (10, 20);
+    let t2b: (i32, i32) = (1, 2);
+    if !check_my_eq::<(i32, i32)>(&t2a, &t2b) { return fail(1); }
+
+    let t3a: (i32, i32, i32) = (1, 2, 3);
+    let t3b: (i32, i32, i32) = (4, 5, 6);
+    if !check_my_eq::<(i32, i32, i32)>(&t3a, &t3b) { return fail(2); }
+
+    return 0;
+}
