@@ -133,15 +133,21 @@ above all pass, no new regressions in iter / fmt suites.
 
 ## Phase 2 — Unify eager+lazy under worklist + deep bounds everywhere
 
-**Status**: STEP 1 LANDED 2026-05-19 (commit 8821a5d4). Eager
-blanket-impl extra-bound check now routes through
-`mono_concrete_satisfies_bound` (deep) for struct/enum candidates;
-primitive candidates keep shallow fallback. Lint baseline bumped
-8→10 for two added inline TypeBuilders (queued for the worklist
-refactor). 3259/3259 ctest. Remaining: audit the other 3
-`mono_has_impl_recursive` call sites (mono.cpp:263, 296, 300),
-convert eager blanket method-clone into worklist enqueue, add
-cycle detection.
+**Status**: COMPLETE 2026-05-19.
+- Step 1 (commit 8821a5d4): eager blanket extra-bound check routes
+  through deep `mono_concrete_satisfies_bound`.
+- Step 2 (commit d8a83871): `Mono::build_concrete_typeref` helper
+  consolidates per-candidate TypeRef construction. Remaining three
+  `mono_has_impl_recursive` sites (mono.cpp:263, 296, 300) routed
+  through deep check. Lint baseline 10 → 7.
+- Step 3 (commit 76f70fe1): eager blanket method-clone converted to
+  `WorkItem` enqueue; main worklist drain handles them along with
+  generic fn instances. Removes ~25 lines of duplicate logic.
+- Cycle detection: existing `done_` memo (mangled-name keyed) +
+  `depth_` counter already provide cycle protection. `enqueue_if_needed`
+  dedupes at entry (mono_scan.cpp:398). No additional explicit cycle
+  detection needed — design audit observation was on the eager loop
+  which now goes through worklist.
 
 **Scope**: ~800 LOC, 3–5 days, medium risk.
 
@@ -184,7 +190,17 @@ mlir-gen's expectations.
 
 ## Phase 3 — Inline struct instantiation in scan path
 
-**Scope**: ~400 LOC, 2–3 days, medium risk.
+**Status**: ALREADY-IN-PLACE 2026-05-19. The L1.1 lazy-method
+fixpoint loop (mono.cpp:591-627) already interleaves
+`drain_method_worklist` + fn worklist drain +
+`instantiate_struct_templates` + `instantiate_enum_templates` in
+one convergence loop. The pre-fixpoint calls at mono.cpp:524/527
+remain as a seed for eidos/pinned-method ordering invariants —
+removing them would require careful audit of the
+`#[type_code=N] eidos` annotation processing at mono.cpp:530+.
+The cleanup is tracked but not load-bearing: the fixpoint already
+provides the "no cloned body references an undefined struct"
+invariant for the worklist phase. Skipped this session.
 
 **Goal**: tighten the "no cloned body references an undefined
 struct" invariant.
