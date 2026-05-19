@@ -1,0 +1,53 @@
+// SipHasher + DefaultBuildHasher smoke.
+package sip_hasher_basic;
+
+use logos.lang.hash;
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    // Same input → same hash (determinism with zero key).
+    let mut h1: SipHasher = sip_hasher_new();
+    h1.write_u64(0x1234_5678_9ABC_DEF0u64);
+    let r1: u64 = h1.finish();
+
+    let mut h2: SipHasher = sip_hasher_new();
+    h2.write_u64(0x1234_5678_9ABC_DEF0u64);
+    let r2: u64 = h2.finish();
+    if r1 != r2 { return fail(1); }
+
+    // Different input → different hash.
+    let mut h3: SipHasher = sip_hasher_new();
+    h3.write_u64(0x0u64);
+    let r3: u64 = h3.finish();
+    if r1 == r3 { return fail(2); }
+
+    // Different key → different hash (same input).
+    let mut h4: SipHasher = sip_hasher_with_keys(1u64, 2u64);
+    h4.write_u64(0x1234_5678_9ABC_DEF0u64);
+    let r4: u64 = h4.finish();
+    if r1 == r4 { return fail(3); }
+
+    // Hash trait dispatch through write_i32 / write_bool.
+    let mut h5: SipHasher = sip_hasher_new();
+    (42i32).hash::<SipHasher>(&mut h5);
+    let r5a: u64 = h5.finish();
+
+    let mut h6: SipHasher = sip_hasher_new();
+    (42i32).hash::<SipHasher>(&mut h6);
+    let r6: u64 = h6.finish();
+    if r5a != r6 { return fail(4); }
+
+    let mut h7: SipHasher = sip_hasher_new();
+    (43i32).hash::<SipHasher>(&mut h7);
+    let r7: u64 = h7.finish();
+    if r5a == r7 { return fail(5); }
+
+    // DefaultBuildHasher.
+    let bh: DefaultBuildHasher = default_build_hasher();
+    let mut hh: SipHasher = bh.build_hasher();
+    hh.write_u64(7u64);
+    let _: u64 = hh.finish();
+
+    return 0;
+}

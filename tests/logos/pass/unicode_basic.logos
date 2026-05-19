@@ -1,0 +1,56 @@
+// Unicode predicates — ASCII + Latin-1 Supplement coverage.
+package unicode_basic;
+
+use logos.lang.unicode;
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    // ASCII letters / digits.
+    if !unicode_is_alphabetic(65u32) { return fail(1); }   // 'A'
+    if !unicode_is_alphabetic(97u32) { return fail(2); }   // 'a'
+    if  unicode_is_alphabetic(48u32) { return fail(3); }   // '0'
+    if !unicode_is_uppercase(65u32) { return fail(4); }
+    if  unicode_is_uppercase(97u32) { return fail(5); }
+    if !unicode_is_lowercase(97u32) { return fail(6); }
+    if !unicode_is_numeric(48u32) { return fail(7); }
+
+    // Latin-1 Supplement letters.
+    if !unicode_is_alphabetic(0xC0u32) { return fail(10); }    // À (Lu)
+    if !unicode_is_uppercase(0xC0u32) { return fail(11); }
+    if !unicode_is_alphabetic(0xE0u32) { return fail(12); }    // à (Ll)
+    if !unicode_is_lowercase(0xE0u32) { return fail(13); }
+    if !unicode_is_alphabetic(0xDFu32) { return fail(14); }    // ß (Ll)
+    if !unicode_is_lowercase(0xDFu32) { return fail(15); }
+    if  unicode_is_alphabetic(0xD7u32) { return fail(16); }    // × (Sm — not letter)
+    if  unicode_is_alphabetic(0xF7u32) { return fail(17); }    // ÷
+
+    // Whitespace coverage.
+    if !unicode_is_whitespace(0x20u32) { return fail(20); }    // SPACE
+    if !unicode_is_whitespace(0xA0u32) { return fail(21); }    // NBSP
+    if !unicode_is_whitespace(0x2003u32) { return fail(22); }  // EM SPACE
+    if !unicode_is_whitespace(0x3000u32) { return fail(23); }  // IDEOGRAPHIC SPACE
+    if  unicode_is_whitespace(0x41u32)   { return fail(24); }  // 'A'
+
+    // Control.
+    if !unicode_is_control(0x00u32) { return fail(30); }
+    if !unicode_is_control(0x7Fu32) { return fail(31); }       // DEL
+    if !unicode_is_control(0x80u32) { return fail(32); }       // C1 control
+    if  unicode_is_control(0x20u32) { return fail(33); }       // SPACE
+
+    // GeneralCategory smoke.
+    match unicode_general_category(0xC0u32) {
+        GeneralCategory::Lu => {}
+        _                   => { return fail(40); }
+    }
+    match unicode_general_category(0xD7u32) {
+        GeneralCategory::Sm => {}
+        _                   => { return fail(41); }
+    }
+    match unicode_general_category(0x10000u32) {
+        GeneralCategory::Other => {}
+        _                      => { return fail(42); }
+    }
+
+    return 0;
+}

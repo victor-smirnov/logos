@@ -1,0 +1,134 @@
+// Logos standard library — std.unicode
+//
+// Minimal Unicode property predicates and `GeneralCategory` enum.
+// Covers the ASCII (U+0000–U+007F) and Latin-1 Supplement (U+0080–
+// U+00FF) blocks fully; beyond that the predicates fall back to
+// "not classified" (Lo / Cn). Full Unicode tables would compile in
+// a 100K+ codepoint property table — deferred until needed.
+
+package logos.lang.unicode;
+
+// Subset of Unicode general-category codes. Variants follow Rust's
+// `core::unicode::category::Category` (which itself mirrors UCD's
+// GC abbreviations) — we expose just the ones our scaffolded tables
+// actually populate; the rest map to `Other` (Cn = unassigned).
+pub enum GeneralCategory {
+    Lu,  // Uppercase Letter
+    Ll,  // Lowercase Letter
+    Lo,  // Other Letter
+    Nd,  // Decimal Number
+    Zs,  // Space Separator
+    Cc,  // Control
+    Po,  // Other Punctuation
+    Sm,  // Math Symbol
+    Sc,  // Currency Symbol
+    So,  // Other Symbol
+    Other,
+}
+
+pub fn unicode_general_category(cp: u32) -> GeneralCategory {
+    // Control: U+0000-001F, U+007F-009F.
+    if cp <= 0x1Fu32 { return GeneralCategory::Cc; }
+    if cp >= 0x7Fu32 && cp <= 0x9Fu32 { return GeneralCategory::Cc; }
+
+    // ASCII letters / digits.
+    if cp >= 0x30u32 && cp <= 0x39u32 { return GeneralCategory::Nd; }
+    if cp >= 0x41u32 && cp <= 0x5Au32 { return GeneralCategory::Lu; }
+    if cp >= 0x61u32 && cp <= 0x7Au32 { return GeneralCategory::Ll; }
+
+    // Space, ASCII.
+    if cp == 0x20u32 { return GeneralCategory::Zs; }
+
+    // ASCII punctuation / symbols — Po + Sm + Sc + So as appropriate.
+    // Coarse mapping is fine; per-codepoint UCD assignments would
+    // distinguish Pd / Ps / Pe / Po — we lump into Po.
+    if cp == 0x24u32 { return GeneralCategory::Sc; }  // $
+    if cp == 0x2Bu32 { return GeneralCategory::Sm; }  // +
+    if cp == 0x3Cu32 { return GeneralCategory::Sm; }  // <
+    if cp == 0x3Du32 { return GeneralCategory::Sm; }  // =
+    if cp == 0x3Eu32 { return GeneralCategory::Sm; }  // >
+    if cp == 0x7Cu32 { return GeneralCategory::Sm; }  // |
+    if cp == 0x7Eu32 { return GeneralCategory::Sm; }  // ~
+    if cp == 0x5Eu32 { return GeneralCategory::Sm; }  // ^
+    if cp >= 0x21u32 && cp <= 0x2Fu32 { return GeneralCategory::Po; }
+    if cp >= 0x3Au32 && cp <= 0x40u32 { return GeneralCategory::Po; }
+    if cp >= 0x5Bu32 && cp <= 0x60u32 { return GeneralCategory::Po; }
+    if cp >= 0x7Bu32 && cp <= 0x7Eu32 { return GeneralCategory::Po; }
+
+    // Latin-1 Supplement letters / spaces / symbols.
+    if cp == 0xA0u32 { return GeneralCategory::Zs; }   // NBSP
+    if cp == 0xA2u32 || cp == 0xA3u32 || cp == 0xA4u32 || cp == 0xA5u32 {
+        return GeneralCategory::Sc;
+    }
+    if cp == 0xACu32 || cp == 0xD7u32 || cp == 0xF7u32 {
+        return GeneralCategory::Sm;
+    }
+    if cp == 0xA6u32 || cp == 0xA9u32 || cp == 0xAEu32 || cp == 0xB0u32 ||
+       cp == 0xB1u32 || cp == 0xB2u32 || cp == 0xB3u32 {
+        return GeneralCategory::So;
+    }
+    if cp >= 0xC0u32 && cp <= 0xD6u32 { return GeneralCategory::Lu; }
+    if cp >= 0xD8u32 && cp <= 0xDEu32 { return GeneralCategory::Lu; }
+    if cp == 0xDFu32                  { return GeneralCategory::Ll; }
+    if cp >= 0xE0u32 && cp <= 0xF6u32 { return GeneralCategory::Ll; }
+    if cp >= 0xF8u32 && cp <= 0xFFu32 { return GeneralCategory::Ll; }
+    if cp >= 0xA1u32 && cp <= 0xBFu32 { return GeneralCategory::Po; }
+
+    // Outside ASCII + Latin-1 Supplement: not classified.
+    return GeneralCategory::Other;
+}
+
+pub fn unicode_is_alphabetic(cp: u32) -> bool {
+    match unicode_general_category(cp) {
+        GeneralCategory::Lu => { return true; }
+        GeneralCategory::Ll => { return true; }
+        GeneralCategory::Lo => { return true; }
+        _                   => { return false; }
+    }
+}
+
+pub fn unicode_is_lowercase(cp: u32) -> bool {
+    match unicode_general_category(cp) {
+        GeneralCategory::Ll => { return true; }
+        _                   => { return false; }
+    }
+}
+
+pub fn unicode_is_uppercase(cp: u32) -> bool {
+    match unicode_general_category(cp) {
+        GeneralCategory::Lu => { return true; }
+        _                   => { return false; }
+    }
+}
+
+pub fn unicode_is_numeric(cp: u32) -> bool {
+    match unicode_general_category(cp) {
+        GeneralCategory::Nd => { return true; }
+        _                   => { return false; }
+    }
+}
+
+pub fn unicode_is_whitespace(cp: u32) -> bool {
+    if cp == 0x20u32 { return true; }   // SPACE
+    if cp == 0x09u32 { return true; }   // TAB
+    if cp == 0x0Au32 { return true; }   // LF
+    if cp == 0x0Bu32 { return true; }   // VT
+    if cp == 0x0Cu32 { return true; }   // FF
+    if cp == 0x0Du32 { return true; }   // CR
+    if cp == 0xA0u32 { return true; }   // NBSP
+    if cp == 0x1680u32 { return true; } // OGHAM SPACE MARK
+    if cp >= 0x2000u32 && cp <= 0x200Au32 { return true; }   // EN QUAD .. HAIR SPACE
+    if cp == 0x2028u32 { return true; } // LINE SEPARATOR
+    if cp == 0x2029u32 { return true; } // PARAGRAPH SEPARATOR
+    if cp == 0x202Fu32 { return true; } // NARROW NBSP
+    if cp == 0x205Fu32 { return true; } // MEDIUM MATHEMATICAL SPACE
+    if cp == 0x3000u32 { return true; } // IDEOGRAPHIC SPACE
+    return false;
+}
+
+pub fn unicode_is_control(cp: u32) -> bool {
+    match unicode_general_category(cp) {
+        GeneralCategory::Cc => { return true; }
+        _                   => { return false; }
+    }
+}
