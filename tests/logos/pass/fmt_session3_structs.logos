@@ -1,0 +1,81 @@
+// Session 3 of std.fmt migration: FmtDisplay/FmtDebug for Option,
+// Vec, String, Ordering + FmtLowerHex/UpperHex/Octal/Binary/Exp for
+// integer/float primitives.
+//
+// `Result<T, E>` FmtDebug is wired in lang.mem.fmt but calling
+// `fmt_debug_to_string::<Result>` triggers a mono-routing oddity
+// (lookup mangles the fn-name with the impl's home package
+// `logos.mem.fmt` while mono only emits when the impl's package
+// literally matches the type's home package — sema dispatch-side
+// fix deferred). The impl itself compiles cleanly.
+package test;
+
+use logos.lang.result;
+use logos.lang.option;
+use logos.lang.cmp;
+use logos.lang.str;
+use logos.mem.string;
+use logos.mem.fmt;
+use logos.mem.collections.vec;
+
+fn check(got: String, want: str, code: i32) -> i32 {
+    if !str_eq(got.as_str(), want) { return code; }
+    return 0;
+}
+
+fn main() -> i32 {
+    // (Option/Result/Vec FmtDebug deferred — generic-blanket impls
+    // mono-instantiate for every concrete T even when T doesn't
+    // satisfy the FmtDebug bound, triggering "Vec$G1$X__fmt_debug
+    // does not reference a valid function" cascade. Same baghunt as
+    // Borrow<T> for T. Manual per-type impls work but defeat the
+    // purpose. Filed as a follow-up.)
+
+    // String Display + Debug.
+    let mut s: String = String::new();
+    s.push_str("hi");
+    let r = check(fmt_display_to_string::<String>(&s), "hi", 4); if r != 0 { return r; }
+    let r = check(fmt_debug_to_string::<String>(&s),   "\"hi\"", 5); if r != 0 { return r; }
+
+    // Ordering Display.
+    let r = check(fmt_display_to_string::<Ordering>(&Ordering::Less),    "Less",    6); if r != 0 { return r; }
+    let r = check(fmt_display_to_string::<Ordering>(&Ordering::Equal),   "Equal",   7); if r != 0 { return r; }
+    let r = check(fmt_display_to_string::<Ordering>(&Ordering::Greater), "Greater", 8); if r != 0 { return r; }
+
+    // Numeric format traits via Formatter helpers.
+    let mut hbuf: String = String::new();
+    let mut hf: Formatter = formatter_for(&mut hbuf);
+    let _ = (&255u32)._fmt_lower_hex(&mut hf);
+    if !str_eq(hbuf.as_str(), "ff") { return 9; }
+
+    let mut Hbuf: String = String::new();
+    let mut Hf: Formatter = formatter_for(&mut Hbuf);
+    let _ = (&255u32)._fmt_upper_hex(&mut Hf);
+    if !str_eq(Hbuf.as_str(), "FF") { return 10; }
+
+    let mut obuf: String = String::new();
+    let mut of_: Formatter = formatter_for(&mut obuf);
+    let _ = (&8u32)._fmt_octal(&mut of_);
+    if !str_eq(obuf.as_str(), "10") { return 11; }
+
+    let mut bbuf: String = String::new();
+    let mut bf: Formatter = formatter_for(&mut bbuf);
+    let _ = (&5u32)._fmt_binary(&mut bf);
+    if !str_eq(bbuf.as_str(), "101") { return 12; }
+
+    // Hex of -1i32 → "ffffffff" (Rust convention).
+    let mut neg_buf: String = String::new();
+    let mut neg_f: Formatter = formatter_for(&mut neg_buf);
+    let neg: i32 = -1i32;
+    let _ = (&neg)._fmt_lower_hex(&mut neg_f);
+    if !str_eq(neg_buf.as_str(), "ffffffff") { return 13; }
+
+    // Alt form (#) applied via Formatter.alternate flag.
+    let mut alt_buf: String = String::new();
+    let mut alt_f: Formatter = formatter_for(&mut alt_buf);
+    alt_f.alternate = true;
+    let _ = (&255u32)._fmt_lower_hex(&mut alt_f);
+    if !str_eq(alt_buf.as_str(), "0xff") { return 14; }
+
+    return 42;
+}

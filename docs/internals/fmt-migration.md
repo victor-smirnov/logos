@@ -76,16 +76,35 @@ through `Display::fmt` / `Debug::fmt`. `fmt_pad` /
 - [x] tuples `(A,)`, `(A,B)`, `(A,B,C)`, `(A,B,C,D)` — Debug
       (`&self` recv, recurse into each field's `fmt_debug`)
 
-### Session 3 — Stdlib structs + numeric format traits
+### Session 3 — Stdlib structs + numeric format traits (2026-05-18, partial)
 
-- [ ] `Option<T>` Debug (`Some(7)` / `None`)
-- [ ] `Result<T, E>` Debug
-- [ ] `Vec<T>` Debug (`[1, 2, 3]`)
-- [ ] `String` Display = pass-through to as_str(); Debug = quoted
-- [ ] `Ordering` Display + Debug
-- [ ] `LowerHex`/`UpperHex`/`Octal`/`Binary` — either migrate to take
-      `&mut Formatter` OR fold into Display via spec field check.
-- [ ] `LowerExp`/`UpperExp` — same choice.
+- [ ] `Option<T>` Debug — DEFERRED (generic-blanket cascade).
+- [ ] `Result<T, E>` Debug — DEFERRED.
+- [ ] `Vec<T>` Debug — DEFERRED.
+- [x] `String` Display = pass-through `as_str()` through `pad`; Debug
+      = `"<content>"` quoted (same minimal-escape caveat as str).
+- [x] `Ordering` Display + Debug. NB: `match *self`
+      (deref-before-match) sidesteps an icmp-on-ptr cascade that
+      fires when matching directly on `&Self` for an enum scrutinee.
+- [x] `FmtLowerHex`/`FmtUpperHex`/`FmtOctal`/`FmtBinary` — new
+      Rust-shape traits + impls for every integer primitive
+      (i8..i64+isize, u8..u64+usize). Method names suffixed
+      `_fmt_lower_hex` etc. for the same legacy-mangling reason as
+      `fmt_display`/`fmt_debug`; rename back to plain method names
+      in Session 4.
+- [x] `FmtLowerExp`/`FmtUpperExp` — same, for f32/f64. Extern bridge
+      `logos_fmt_f{32,64}_{e,E}` to libc snprintf.
+
+**Generic-blanket deferral.** `impl<T: FmtDebug> FmtDebug for Vec<T>`
+(and Option/Result) triggers mono to instantiate
+`Vec$G1$X__fmt_debug` for EVERY concrete `X` that exists in the
+program, even when `X` has no `FmtDebug` impl. Bodies then reference
+`v.fmt_debug(f)` against an unimplemented X → "func.call does not
+reference a valid function". Same baghunt class as identity
+`impl<T> Borrow<T> for T`. Workaround is per-type impls (defeats the
+generic point). Real fix: mono needs to honour bounds at
+blanket-instantiation time and skip Xs that don't satisfy the bound.
+Filed as a follow-up; container Debug impls re-add once that lands.
 
 ### Session 4 — Metacall migration + legacy delete
 

@@ -16,8 +16,11 @@
 package logos.mem.fmt;
 
 use logos.lang.result;
+use logos.lang.option;
+use logos.lang.cmp;
 use logos.lang.str;
 use logos.mem.string;
+use logos.mem.collections.vec;
 
 // f32/f64 extern decls — same symbols mem.string uses for legacy
 // Display. The forward decls live up here so they precede the impl
@@ -475,6 +478,148 @@ impl<A: FmtDebug, B: FmtDebug, C: FmtDebug, D: FmtDebug> FmtDebug for (A, B, C, 
     }
 }
 
+// ── stdlib struct impls (Session 3) ─────────────────────────────────
+//
+// Live in mem.fmt rather than each owning module so we can hold a
+// FmtDisplay/FmtDebug supertrait bound on the payload type. The
+// legacy `Debug for Option<T>` etc. similarly live in `std.fmt` for
+// the same reason — Rust hand-rolls these in `core::fmt`.
+
+
+
+
+// String — Display is content pass-through (with width/precision via
+// pad), Debug is quoted (minimal — full Rust escape ladder is a
+// follow-up alongside the str Debug story).
+
+// Ordering — Display "Less"/"Equal"/"Greater", Debug same.
+
+// ── Numeric format traits (Session 3) ───────────────────────────────
+//
+// Mirror of `core::fmt::{LowerHex, UpperHex, Octal, Binary, LowerExp,
+// UpperExp}`. Same Rust-shape method as Display/Debug: take `&self`
+// and a `&mut Formatter`, route through Formatter helpers.
+//
+// Trait names `FmtLowerHex` etc. — `LowerHex`/`Octal`/etc. already
+// exist as legacy traits in std.fmt. Same B-mv-02 reason as
+// FmtDisplay/FmtDebug. Renamed to plain `LowerHex` etc. in Session 4
+// alongside the legacy delete.
+
+pub trait FmtLowerHex {
+    fn _fmt_lower_hex(&self, f: &mut Formatter) -> Result<(), Error>;
+}
+pub trait FmtUpperHex {
+    fn _fmt_upper_hex(&self, f: &mut Formatter) -> Result<(), Error>;
+}
+pub trait FmtOctal {
+    fn _fmt_octal(&self, f: &mut Formatter) -> Result<(), Error>;
+}
+pub trait FmtBinary {
+    fn _fmt_binary(&self, f: &mut Formatter) -> Result<(), Error>;
+}
+pub trait FmtLowerExp {
+    fn _fmt_lower_exp(&self, f: &mut Formatter) -> Result<(), Error>;
+}
+pub trait FmtUpperExp {
+    fn _fmt_upper_exp(&self, f: &mut Formatter) -> Result<(), Error>;
+}
+
+// Per-primitive radix impls. Signed types u32-mask first so the
+// rendered width matches Rust's `format!("{:x}", -1i32)` → "ffffffff"
+// (rather than full-width "ffffffffffffffff"). u64/i64 pass through.
+
+impl FmtLowerHex for u64   { fn _fmt_lower_hex(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self,        16u64, false); } }
+impl FmtLowerHex for u32   { fn _fmt_lower_hex(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u64, 16u64, false); } }
+impl FmtLowerHex for u16   { fn _fmt_lower_hex(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u64, 16u64, false); } }
+impl FmtLowerHex for u8    { fn _fmt_lower_hex(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u64, 16u64, false); } }
+impl FmtLowerHex for usize { fn _fmt_lower_hex(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u64, 16u64, false); } }
+impl FmtLowerHex for i64   { fn _fmt_lower_hex(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u64, 16u64, false); } }
+impl FmtLowerHex for i32   { fn _fmt_lower_hex(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u32 as u64, 16u64, false); } }
+impl FmtLowerHex for i16   { fn _fmt_lower_hex(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u16 as u64, 16u64, false); } }
+impl FmtLowerHex for i8    { fn _fmt_lower_hex(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u8  as u64, 16u64, false); } }
+impl FmtLowerHex for isize { fn _fmt_lower_hex(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u64, 16u64, false); } }
+
+impl FmtUpperHex for u64   { fn _fmt_upper_hex(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self,        16u64, true); } }
+impl FmtUpperHex for u32   { fn _fmt_upper_hex(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u64, 16u64, true); } }
+impl FmtUpperHex for u16   { fn _fmt_upper_hex(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u64, 16u64, true); } }
+impl FmtUpperHex for u8    { fn _fmt_upper_hex(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u64, 16u64, true); } }
+impl FmtUpperHex for usize { fn _fmt_upper_hex(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u64, 16u64, true); } }
+impl FmtUpperHex for i64   { fn _fmt_upper_hex(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u64, 16u64, true); } }
+impl FmtUpperHex for i32   { fn _fmt_upper_hex(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u32 as u64, 16u64, true); } }
+impl FmtUpperHex for i16   { fn _fmt_upper_hex(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u16 as u64, 16u64, true); } }
+impl FmtUpperHex for i8    { fn _fmt_upper_hex(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u8  as u64, 16u64, true); } }
+impl FmtUpperHex for isize { fn _fmt_upper_hex(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u64, 16u64, true); } }
+
+impl FmtOctal for u64   { fn _fmt_octal(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self,        8u64, false); } }
+impl FmtOctal for u32   { fn _fmt_octal(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u64, 8u64, false); } }
+impl FmtOctal for u16   { fn _fmt_octal(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u64, 8u64, false); } }
+impl FmtOctal for u8    { fn _fmt_octal(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u64, 8u64, false); } }
+impl FmtOctal for usize { fn _fmt_octal(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u64, 8u64, false); } }
+impl FmtOctal for i64   { fn _fmt_octal(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u64, 8u64, false); } }
+impl FmtOctal for i32   { fn _fmt_octal(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u32 as u64, 8u64, false); } }
+impl FmtOctal for i16   { fn _fmt_octal(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u16 as u64, 8u64, false); } }
+impl FmtOctal for i8    { fn _fmt_octal(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u8  as u64, 8u64, false); } }
+impl FmtOctal for isize { fn _fmt_octal(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u64, 8u64, false); } }
+
+impl FmtBinary for u64   { fn _fmt_binary(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self,        2u64, false); } }
+impl FmtBinary for u32   { fn _fmt_binary(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u64, 2u64, false); } }
+impl FmtBinary for u16   { fn _fmt_binary(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u64, 2u64, false); } }
+impl FmtBinary for u8    { fn _fmt_binary(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u64, 2u64, false); } }
+impl FmtBinary for usize { fn _fmt_binary(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u64, 2u64, false); } }
+impl FmtBinary for i64   { fn _fmt_binary(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u64, 2u64, false); } }
+impl FmtBinary for i32   { fn _fmt_binary(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u32 as u64, 2u64, false); } }
+impl FmtBinary for i16   { fn _fmt_binary(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u16 as u64, 2u64, false); } }
+impl FmtBinary for i8    { fn _fmt_binary(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u8  as u64, 2u64, false); } }
+impl FmtBinary for isize { fn _fmt_binary(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_radix_u64(*self as u64, 2u64, false); } }
+
+// Float scientific — extern bridge to libc snprintf "%e"/"%E".
+// Symbols pre-declared up top alongside the "%g" pair.
+extern fn logos_fmt_f64_e(buf: *mut u8, cap: i32, x: f64) -> i32;
+extern fn logos_fmt_f64_E(buf: *mut u8, cap: i32, x: f64) -> i32;
+extern fn logos_fmt_f32_e(buf: *mut u8, cap: i32, x: f32) -> i32;
+extern fn logos_fmt_f32_E(buf: *mut u8, cap: i32, x: f32) -> i32;
+
+impl FmtLowerExp for f64 {
+    fn _fmt_lower_exp(&self, f: &mut Formatter) -> Result<(), Error> {
+        let mut scratch: String = String::new();
+        let cap: i32 = 32i32;
+        let ptr: *mut u8 = scratch.spare_ptr(cap as i64);
+        let n: i32 = unsafe { logos_fmt_f64_e(ptr, cap, *self) };
+        scratch.advance_len(n as i64);
+        return f.pad(scratch.as_str(), "");
+    }
+}
+impl FmtUpperExp for f64 {
+    fn _fmt_upper_exp(&self, f: &mut Formatter) -> Result<(), Error> {
+        let mut scratch: String = String::new();
+        let cap: i32 = 32i32;
+        let ptr: *mut u8 = scratch.spare_ptr(cap as i64);
+        let n: i32 = unsafe { logos_fmt_f64_E(ptr, cap, *self) };
+        scratch.advance_len(n as i64);
+        return f.pad(scratch.as_str(), "");
+    }
+}
+impl FmtLowerExp for f32 {
+    fn _fmt_lower_exp(&self, f: &mut Formatter) -> Result<(), Error> {
+        let mut scratch: String = String::new();
+        let cap: i32 = 32i32;
+        let ptr: *mut u8 = scratch.spare_ptr(cap as i64);
+        let n: i32 = unsafe { logos_fmt_f32_e(ptr, cap, *self) };
+        scratch.advance_len(n as i64);
+        return f.pad(scratch.as_str(), "");
+    }
+}
+impl FmtUpperExp for f32 {
+    fn _fmt_upper_exp(&self, f: &mut Formatter) -> Result<(), Error> {
+        let mut scratch: String = String::new();
+        let cap: i32 = 32i32;
+        let ptr: *mut u8 = scratch.spare_ptr(cap as i64);
+        let n: i32 = unsafe { logos_fmt_f32_E(ptr, cap, *self) };
+        scratch.advance_len(n as i64);
+        return f.pad(scratch.as_str(), "");
+    }
+}
+
 // ── Arguments ────────────────────────────────────────────────────────
 //
 // Mirrors `core::fmt::Arguments` — the opaque carrier produced by
@@ -490,4 +635,39 @@ impl<A: FmtDebug, B: FmtDebug, C: FmtDebug, D: FmtDebug> FmtDebug for (A, B, C, 
 
 pub struct Arguments {
     pub rendered: String,
+}
+
+
+impl FmtDisplay for String {
+    fn fmt_display(&self, f: &mut Formatter) -> Result<(), Error> {
+        return f.pad(self.as_str(), "");
+    }
+}
+impl FmtDebug for String {
+    fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {
+        let _ = f.write_char(34u8);
+        let _ = f.write_str(self.as_str());
+        return f.write_char(34u8);
+    }
+}
+
+impl FmtDisplay for Ordering {
+    fn fmt_display(&self, f: &mut Formatter) -> Result<(), Error> {
+        let me: Ordering = *self;
+        match me {
+            Ordering::Less    => { return f.write_str("Less"); }
+            Ordering::Equal   => { return f.write_str("Equal"); }
+            Ordering::Greater => { return f.write_str("Greater"); }
+        }
+    }
+}
+impl FmtDebug for Ordering {
+    fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {
+        let me: Ordering = *self;
+        match me {
+            Ordering::Less    => { return f.write_str("Less"); }
+            Ordering::Equal   => { return f.write_str("Equal"); }
+            Ordering::Greater => { return f.write_str("Greater"); }
+        }
+    }
 }
