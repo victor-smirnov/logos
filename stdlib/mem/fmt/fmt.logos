@@ -424,16 +424,18 @@ impl FmtDebug for f32 {
     }
 }
 
-// ── unit `()` — partial ─────────────────────────────────────────────
-// Grammar now accepts `()` in impl-target position (PEG simple_type
-// gained `LPAREN RPAREN` → TUPLE_TYPE 2026-05-19) and sema-collect
-// registers it under target `"void"` (canonical name for the unit
-// type kind). But use-site dispatch then emits a call to
-// `void__fmt_display` without the impl's pkg prefix and the
-// matching method emission doesn't fire. Likely a sema/mono
-// interaction with target="void" being treated as primitive-shape.
-// Filed as a follow-up; the grammar change is the load-bearing
-// piece. Re-enable impl when the dispatch routing is sorted.
+// ── unit `()` ────────────────────────────────────────────────────────
+// Rust renders both Display and Debug as "()".
+impl FmtDisplay for () {
+    fn fmt_display(&self, f: &mut Formatter) -> Result<(), Error> {
+        return f.pad("()", "");
+    }
+}
+impl FmtDebug for () {
+    fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {
+        return f.pad("()", "");
+    }
+}
 
 // ── Tuples ──────────────────────────────────────────────────────────
 // Tuples have Debug (not Display) in Rust. Per-arity hand-rolled

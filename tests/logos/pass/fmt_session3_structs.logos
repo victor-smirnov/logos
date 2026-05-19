@@ -38,8 +38,9 @@ fn main() -> i32 {
     let err_r: Result<i32, i32> = Result::<i32, i32>::Err(99);
     let r = check(fmt_debug_to_string::<Result<i32, i32>>(&err_r), "Err(99)", 44); if r != 0 { return r; }
 
-    // Unit `()` Display + Debug — grammar accepts () in impl-target;
-    // dispatch-side routing for target="void" deferred.
+    // Unit `()` Display + Debug.
+    let r = check(fmt_display_to_string::<()>(&()), "()", 45); if r != 0 { return r; }
+    let r = check(fmt_debug_to_string::<()>(&()),   "()", 46); if r != 0 { return r; }
 
     // Vec Debug.
     let mut v: Vec<i32> = vec_new::<i32>();

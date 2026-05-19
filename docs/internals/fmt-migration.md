@@ -69,14 +69,15 @@ through `Display::fmt` / `Debug::fmt`. `fmt_pad` /
 - [x] `*const u8` (C string) — Display
 - [x] `f32` `f64` — Display + Debug (extern bridge into
       `logos_fmt_f{32,64}_g` then `pad`)
-- [ ] `()` unit — PARTIAL. Grammar accepts `()` in impl-target
-      position now (logos.peg `simple_type` gained `LPAREN RPAREN`
-      → `TUPLE_TYPE` 2026-05-19) and sema-collect registers under
-      target `"void"`. But use-site dispatch emits a call to
-      `void__fmt_display` without the impl's pkg prefix and the
-      matching method emission doesn't fire — sema/mono treats
-      target="void" as primitive-shape somewhere. Dispatch-routing
-      fix is the load-bearing follow-up; the grammar is done.
+- [x] `()` unit — Display + Debug. Grammar accepts `()` in
+      impl-target position (logos.peg `simple_type` gained
+      `LPAREN RPAREN` → `TUPLE_TYPE` 2026-05-19). Both
+      `sema_collect.cpp` and `sema_decl.cpp` TUPLE_TYPE branches
+      detect `resolved.kind() == Kind::Void` after `resolve_type`
+      and register impl-target under `"void"` (instead of the
+      arity-keyed `$tuple$0`), keeping collect-side method
+      mangling and decl-side LImplBlock target_type in sync so
+      mono lookup links use-sites to the emitted body.
 - [x] tuples `(A,)`, `(A,B)`, `(A,B,C)`, `(A,B,C,D)` — Debug
       (`&self` recv, recurse into each field's `fmt_debug`)
 
