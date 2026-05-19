@@ -189,14 +189,28 @@ pub fn result_unwrap_or_default<T: Default, E>(r: Result<T, E>) -> T {
 
 // `flatten` (Result<Result<T,E>,E> -> Result<T,E>) and `transpose`
 // (Result<Option<T>,E> -> Option<Result<T,E>>) live as free-fn forms
-// because Logos doesn't support partial-spec INHERENT impls on
-// nested generic shapes.
-// `result_flatten` / `result_transpose` — deferred. Both shapes
-// (`Result<Result<T, E>, E>` and `Result<Option<T>, E>`) trigger a
-// mono cascade: eager-instantiation of `OptionIter<T>` trait default
-// methods (take_while/step_by/...) with TypeVar T leaves
-// `OptionIter$G1$<error>` references the mlir-gen can't lower.
-// See [[baghunt-mono-eager-typevar-default-clone]].
+// because Logos doesn't yet support partial-spec INHERENT impl blocks
+// on nested generic shapes. The cascade that previously broke these
+// signatures is now closed (sema turbofish-on-enum-lit fix + mono
+// Phase 1 `contains_typevar` gate).
+pub fn result_flatten<T, E>(r: Result<Result<T, E>, E>) -> Result<T, E> {
+    match r {
+        Result::Ok(inner) => { return inner; }
+        Result::Err(e)    => { return Result::<T, E>::Err(e); }
+    }
+}
+
+pub fn result_transpose<T, E>(r: Result<Option<T>, E>) -> Option<Result<T, E>> {
+    match r {
+        Result::Ok(inner) => {
+            match inner {
+                Option::Some(v) => { return Option::<Result<T, E>>::Some(Result::<T, E>::Ok(v)); }
+                Option::None    => { return Option::<Result<T, E>>::None; }
+            }
+        }
+        Result::Err(e) => { return Option::<Result<T, E>>::Some(Result::<T, E>::Err(e)); }
+    }
+}
 
 // Free-function shims for compat with pre-existing call-sites.
 pub fn unwrap_or_i32(r: Result<i32, i32>, def: i32) -> i32 {

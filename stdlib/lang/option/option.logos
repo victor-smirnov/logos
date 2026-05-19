@@ -236,17 +236,24 @@ impl<T> Option<T> {
     }
 }
 
-// Option::unzip / Option::flatten (method form) / Option::zip method
-// form are deferred. Generic free fns over `Option<(A, B)>` /
-// `Option<Option<T>>` / `Option<Result<T,E>>` shapes trigger a mono
-// eager-clone cascade — OptionIter<X>'s trait default methods
-// (take_while/step_by/etc.) get instantiated for the nested type
-// while X is still a TypeVar, leaving `<error>` references mlir-gen
-// can't lower. Method form requires partial-spec INHERENT impl on
-// `Option<(A, B)>` which also isn't supported yet. Equivalent
-// `option_zip` / `option_flatten` (single-level) work; user code
-// can hand-roll an unzip via two .map() chains if needed. See
-// [[baghunt-mono-eager-typevar-default-clone]].
+// Option::unzip — inverse of zip. Free fn rather than method because
+// Logos doesn't yet support partial-spec INHERENT impl blocks on
+// nested generic shapes like `impl<A, B> Option<(A, B)>`. The cascade
+// that previously broke this signature is now closed by sema's
+// turbofish-on-enum-lit fix (sema_expr.cpp:8660+ — explicit
+// `Option::<A>::None` now picks up A from the turbofish instead of
+// falling through to `error_t()` at the type-args build site) plus
+// mono's Phase 1 `contains_typevar` gate.
+pub fn option_unzip<A, B>(opt: Option<(A, B)>) -> (Option<A>, Option<B>) {
+    match opt {
+        Option::None => {
+            return (Option::<A>::None, Option::<B>::None);
+        }
+        Option::Some(t) => {
+            return (Option::<A>::Some(t.0), Option::<B>::Some(t.1));
+        }
+    }
+}
 
 // Option::zip — combines two Options into Option<(T, U)>.
 // Returns Some((t, u)) iff both are Some; else None. Free fn

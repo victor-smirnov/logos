@@ -1,22 +1,19 @@
-// Option/Result method-surface fill-in (post Fmt-Session-4).
+// Option/Result method-surface fill-in (post Fmt-Session-4, post-
+// mono-Phase-1 + sema turbofish-on-enum-lit fix).
 //
 // Direct-method coverage:
 //   - Result::as_ref / as_mut (ref/mut-ref into inner via `ref v` /
 //     `ref mut v` match bindings).
 //
 // Free-fn forms (Logos's inherent-impl partial-spec on nested generic
-// shapes doesn't dispatch through method position yet, and `T:
-// Default`-bounded impl blocks cause mono cascades — see
-// baghunt-partial-spec-inherent-impl):
+// shapes still doesn't dispatch through method position):
 //   - option_zip<T, U>
+//   - option_unzip<A, B>           — UNBLOCKED by sema fix.
 //   - option_flatten<T>
 //   - option_unwrap_or_default<T: Default>
 //   - result_unwrap_or_default<T: Default, E>
-//
-// Skipped (deferred — see baghunt-mono-eager-typevar-default-clone):
-//   - option_unzip<A, B>      — Option<(A, B)> cascade.
-//   - result_flatten<T, E>    — Result<Result<T, E>, E> cascade.
-//   - result_transpose<T, E>  — Result<Option<T>, E> cascade.
+//   - result_flatten<T, E>         — UNBLOCKED by sema fix.
+//   - result_transpose<T, E>       — UNBLOCKED by sema fix.
 
 package option_result_method_surface;
 
@@ -45,7 +42,24 @@ fn main() -> i32 {
         Option::None    => {}
     }
 
-    // option_unzip deferred — mono cascade on Option<(A,B)> shape.
+    // ── option_unzip ────────────────────────────────────────────────
+    let pair: Option<(i32, i64)> = Option::<(i32, i64)>::Some((10i32, 20i64));
+    let parts: (Option<i32>, Option<i64>) = option_unzip::<i32, i64>(pair);
+    match parts.0 {
+        Option::Some(v) => { if v != 10i32 { return fail(10); } }
+        Option::None    => { return fail(11); }
+    }
+    match parts.1 {
+        Option::Some(v) => { if v != 20i64 { return fail(12); } }
+        Option::None    => { return fail(13); }
+    }
+
+    let nope: Option<(i32, i64)> = Option::<(i32, i64)>::None;
+    let parts2: (Option<i32>, Option<i64>) = option_unzip::<i32, i64>(nope);
+    match parts2.0 {
+        Option::Some(_) => { return fail(14); }
+        Option::None    => {}
+    }
 
     // ── option_flatten free fn ──────────────────────────────────────
     let nested: Option<Option<i32>> = Option::<Option<i32>>::Some(Option::<i32>::Some(42i32));
@@ -95,9 +109,39 @@ fn main() -> i32 {
     let err2: Result<i32, i64> = Result::<i32, i64>::Err(0i64);
     if result_unwrap_or_default::<i32, i64>(err2) != 0i32 { return fail(61); }
 
-    // result_flatten + result_transpose deferred — both trigger a
-    // mono eager-clone cascade on nested Option/Result generics
-    // (see baghunt-mono-eager-typevar-default-clone).
+    // ── result_flatten ──────────────────────────────────────────────
+    let inner_ok: Result<Result<i32, i64>, i64> =
+        Result::<Result<i32, i64>, i64>::Ok(Result::<i32, i64>::Ok(70i32));
+    let flat_ok: Result<i32, i64> = result_flatten::<i32, i64>(inner_ok);
+    if !flat_ok.is_ok() { return fail(70); }
+    if flat_ok.unwrap() != 70i32 { return fail(71); }
+
+    let outer_err: Result<Result<i32, i64>, i64> =
+        Result::<Result<i32, i64>, i64>::Err(81i64);
+    let flat_err: Result<i32, i64> = result_flatten::<i32, i64>(outer_err);
+    if !flat_err.is_err() { return fail(72); }
+    if flat_err.unwrap_err() != 81i64 { return fail(73); }
+
+    // ── result_transpose ────────────────────────────────────────────
+    let ok_some: Result<Option<i32>, i64> =
+        Result::<Option<i32>, i64>::Ok(Option::<i32>::Some(91i32));
+    let t_some: Option<Result<i32, i64>> = result_transpose::<i32, i64>(ok_some);
+    if !t_some.is_some() { return fail(80); }
+    let r_ok: Result<i32, i64> = t_some.unwrap();
+    if !r_ok.is_ok() { return fail(81); }
+    if r_ok.unwrap() != 91i32 { return fail(82); }
+
+    let ok_none: Result<Option<i32>, i64> =
+        Result::<Option<i32>, i64>::Ok(Option::<i32>::None);
+    let t_none: Option<Result<i32, i64>> = result_transpose::<i32, i64>(ok_none);
+    if t_none.is_some() { return fail(83); }
+
+    let err_t: Result<Option<i32>, i64> = Result::<Option<i32>, i64>::Err(99i64);
+    let t_err: Option<Result<i32, i64>> = result_transpose::<i32, i64>(err_t);
+    if !t_err.is_some() { return fail(84); }
+    let r_err: Result<i32, i64> = t_err.unwrap();
+    if !r_err.is_err() { return fail(85); }
+    if r_err.unwrap_err() != 99i64 { return fail(86); }
 
     return 0;
 }

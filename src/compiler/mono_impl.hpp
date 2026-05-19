@@ -813,6 +813,13 @@ private:
         ++depth_;
         auto fn = clone_fn(tmpl, subst, packs);
         fn.name = mangled_name;
+        // Phase 2: clear type_params on the instance. Without this the
+        // cloned instance still claims to be generic, which can confuse
+        // downstream passes (mlir-gen treats it as a template, dispatch
+        // resolution miscategorises it, etc.). Mirror of the eager
+        // blanket-instantiation path which already does this clear at
+        // mono.cpp:491,565.
+        fn.type_params.clear();
         --depth_;
         return fn;
     }

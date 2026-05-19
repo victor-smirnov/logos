@@ -8658,12 +8658,34 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
     TypeRef result_type = make_enum_type(ename);
     if (!einfo.type_params.empty()) {
         SemaSubst subst;
+        // Explicit turbofish: `Option::<A>::None` carries TYPE_PARAMS
+        // on the STATIC_CALL node. Consume those FIRST so a no-payload
+        // variant (None / unit-variant) still picks up the user-given
+        // type-args instead of falling through to error_t() at the
+        // "any type-param without a subst entry" gate below. Without
+        // this, sema would emit Option<Error> for `Option::<A>::None`
+        // in a generic-fn body, which mono then mangled as
+        // `Option__<error>` and mlir-gen rejected.
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                for (size_t i = 0; i < items.size() && i < einfo.type_params.size(); ++i) {
+                    auto ta = resolve_type(map_of(items.get(i)));
+                    if (ta && TypeRef(ta).kind() != LogosType::Kind::Error)
+                        subst[einfo.type_params[i].name] = ta;
+                }
+            }
+        }
         for (size_t i = 0; i < vinfo->payload_types.size() && i < payload.size(); ++i) {
             auto pt = vinfo->payload_types[i];
             if (pt && TypeRef(pt).kind() == LogosType::Kind::TypeVar) {
                 auto inferred = payload[i]->type;
                 if (TypeRef(inferred).kind() == LogosType::Kind::IntLit) inferred = i32_t();
-                subst[std::string(TypeRef(pt).type_var_name())] = inferred;
+                // Payload-derived inference fills any slot still
+                // missing after the explicit turbofish pass above.
+                auto& slot = subst[std::string(TypeRef(pt).type_var_name())];
+                if (!slot) slot = inferred;
             }
         }
         // SL-sl-03 follow-up: when the let / return context hint says
