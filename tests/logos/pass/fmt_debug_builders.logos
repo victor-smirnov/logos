@@ -1,0 +1,140 @@
+// DebugBuilders smoke — DebugStruct/Tuple/List/Set/Map ports of
+// core::fmt's fluent helpers. Each exercises the standard Debug
+// shape (single-line, no pretty-print) and verifies the assembled
+// string against the canonical Rust rendering.
+
+package fmt_debug_builders;
+
+use std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.result;
+use logos.mem.collections.vec;
+
+struct Widget { x: i32, y: i32 }
+
+impl Debug for Widget {
+    fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {
+        let mut s: DebugStruct = f.debug_struct("Widget");
+        let _ = s.field::<i32>("x", &self.x);
+        let _ = s.field::<i32>("y", &self.y);
+        return s.finish();
+    }
+}
+
+struct Wrap(i32);
+
+impl Debug for Wrap {
+    fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {
+        let mut t: DebugTuple = f.debug_tuple("Wrap");
+        let _ = t.field::<i32>(&self.0);
+        return t.finish();
+    }
+}
+
+struct Pair(i32, i64);
+
+impl Debug for Pair {
+    fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {
+        let mut t: DebugTuple = f.debug_tuple("Pair");
+        let _ = t.field::<i32>(&self.0);
+        let _ = t.field::<i64>(&self.1);
+        return t.finish();
+    }
+}
+
+struct Empty {}
+
+impl Debug for Empty {
+    fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {
+        let mut s: DebugStruct = f.debug_struct("Empty");
+        return s.finish();
+    }
+}
+
+fn fail(code: i32) -> i32 { return code; }
+
+fn main() -> i32 {
+    // DebugStruct multi-field.
+    let w: Widget = Widget { x: 1, y: 2 };
+    let s1: String = fmt_debug_to_string::<Widget>(&w);
+    if s1.as_str() != "Widget { x: 1, y: 2 }" { return fail(1); }
+
+    // DebugTuple single field — no trailing comma (Rust shape).
+    let one: Wrap = Wrap(42);
+    let s2: String = fmt_debug_to_string::<Wrap>(&one);
+    if s2.as_str() != "Wrap(42)" { return fail(2); }
+
+    // DebugTuple multi field.
+    let p: Pair = Pair(7, 11);
+    let s3: String = fmt_debug_to_string::<Pair>(&p);
+    if s3.as_str() != "Pair(7, 11)" { return fail(3); }
+
+    // DebugStruct with zero fields — just the name (no braces).
+    let e: Empty = Empty {};
+    let s4: String = fmt_debug_to_string::<Empty>(&e);
+    if s4.as_str() != "Empty" { return fail(4); }
+
+    // DebugList directly through Formatter (without a struct impl).
+    let mut buf: String = String::new();
+    let mut f: Formatter = Formatter::new(&mut buf);
+    let mut dl: DebugList = f.debug_list();
+    let a: i32 = 1i32; let b: i32 = 2i32; let c: i32 = 3i32;
+    let _ = dl.entry::<i32>(&a);
+    let _ = dl.entry::<i32>(&b);
+    let _ = dl.entry::<i32>(&c);
+    let _ = dl.finish();
+    if buf.as_str() != "[1, 2, 3]" { return fail(5); }
+
+    // DebugSet — same as List but braces.
+    let mut buf2: String = String::new();
+    let mut f2: Formatter = Formatter::new(&mut buf2);
+    let mut ds: DebugSet = f2.debug_set();
+    let _ = ds.entry::<i32>(&a);
+    let _ = ds.entry::<i32>(&b);
+    let _ = ds.finish();
+    if buf2.as_str() != "{1, 2}" { return fail(6); }
+
+    // DebugMap with key-value entries. Uses i32 keys to dodge the
+    // `K: Sized` bound (str is unsized in Logos's current type system).
+    let mut buf3: String = String::new();
+    let mut f3: Formatter = Formatter::new(&mut buf3);
+    let mut dm: DebugMap = f3.debug_map();
+    let k1: i32 = 1i32; let v1: i32 = 10i32;
+    let k2: i32 = 2i32; let v2: i32 = 20i32;
+    let _ = dm.entry::<i32, i32>(&k1, &v1);
+    let _ = dm.entry::<i32, i32>(&k2, &v2);
+    let _ = dm.finish();
+    if buf3.as_str() != "{1: 10, 2: 20}" { return fail(7); }
+
+    // Container Debug via DebugList — render a Vec<i32> through the
+    // builder. Same shape as the existing stdlib Vec Debug impl, so
+    // this just verifies entry()-chain on a real collection.
+    let mut v: Vec<i32> = vec_new::<i32>();
+    v.push(10i32);
+    v.push(20i32);
+    v.push(30i32);
+    let mut buf_vec: String = String::new();
+    let mut f_vec: Formatter = Formatter::new(&mut buf_vec);
+    let mut dvec: DebugList = f_vec.debug_list();
+    let n: i64 = v.length();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let x: i32 = v.get(i);
+        let _ = dvec.entry::<i32>(&x);
+        i = i + 1i64;
+    }
+    let _ = dvec.finish();
+    if buf_vec.as_str() != "[10, 20, 30]" { return fail(9); }
+
+    // finish_non_exhaustive — emits "Widget { x: 1, .. }".
+    let w2: Widget = Widget { x: 1, y: 0 };
+    let mut buf4: String = String::new();
+    let mut f4: Formatter = Formatter::new(&mut buf4);
+    let mut ne: DebugStruct = f4.debug_struct("Widget");
+    let _ = ne.field::<i32>("x", &w2.x);
+    let _ = ne.finish_non_exhaustive();
+    if buf4.as_str() != "Widget { x: 1, .. }" { return fail(8); }
+
+    return 0;
+}
