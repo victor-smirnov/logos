@@ -1,11 +1,6 @@
 // Tests Iterator::try_fold + try_for_each with ControlFlow<B, C>.
-//
-// Uses fn-ptr reducers rather than closures: closures returning
-// ControlFlow currently misroute through the FnMut bound and the
-// outer match sees Break instead of the actually-returned Continue.
-// fn-ptr form is the documented surface for now; closure form follows
-// once the chain through the FnMut bound is fixed (sibling of the
-// fold-chain limitation already noted in iter.logos::reduce).
+// Closure form (mlir-gen llvm_fn_ret_type fix unblocked closures that
+// return aggregate-by-value types like ControlFlow).
 package test;
 
 use logos.lang.iter;
@@ -13,46 +8,47 @@ use logos.lang.option;
 use logos.lang.ops;
 use logos.lang.range;
 
-fn add_cont(acc: i32, x: i32) -> ControlFlow<i32, i32> {
-    return ControlFlow::<i32, i32>::Continue(acc + x);
-}
-fn break_over_10(acc: i32, x: i32) -> ControlFlow<i32, i32> {
-    let next: i32 = acc + x;
-    if next > 10i32 { return ControlFlow::<i32, i32>::Break(next); }
-    return ControlFlow::<i32, i32>::Continue(next);
-}
-fn break_over_3(x: i32) -> ControlFlow<i32, ()> {
-    if x > 3i32 { return ControlFlow::<i32, ()>::Break(x); }
-    return ControlFlow::<i32, ()>::Continue(());
-}
-fn never_break(_x: i32) -> ControlFlow<i32, ()> {
-    return ControlFlow::<i32, ()>::Continue(());
-}
-
 fn main() -> i32 {
     // try_fold: sum 1..6 = 15 (no break).
-    let r1 = range_i32(1, 6).try_fold(0i32, add_cont);
+    let r1 = range_i32(1, 6).try_fold(0i32,
+        |acc: i32, x: i32| -> ControlFlow<i32, i32> {
+            return ControlFlow::<i32, i32>::Continue(acc + x);
+        });
     match r1 {
         ControlFlow::Continue(s) => { if s != 15i32 { return 1; } }
         ControlFlow::Break(_)    => { return 2; }
     }
 
-    // try_fold: break when accumulator > 10. 1+2+3+4+5 = 15 > 10.
-    let r2 = range_i32(1, 100).try_fold(0i32, break_over_10);
+    // try_fold: break when accumulator > 10 (captures threshold).
+    let threshold = 10i32;
+    let r2 = range_i32(1, 100).try_fold(0i32,
+        |acc: i32, x: i32| -> ControlFlow<i32, i32> {
+            let next: i32 = acc + x;
+            if next > threshold { return ControlFlow::<i32, i32>::Break(next); }
+            return ControlFlow::<i32, i32>::Continue(next);
+        });
     match r2 {
         ControlFlow::Continue(_) => { return 3; }
         ControlFlow::Break(v)    => { if v != 15i32 { return 4; } }
     }
 
-    // try_for_each: break with first item > 3.
-    let r3 = range_i32(1, 100).try_for_each(break_over_3);
+    // try_for_each: break with first item > captured limit.
+    let limit = 3i32;
+    let r3 = range_i32(1, 100).try_for_each(
+        |x: i32| -> ControlFlow<i32, ()> {
+            if x > limit { return ControlFlow::<i32, ()>::Break(x); }
+            return ControlFlow::<i32, ()>::Continue(());
+        });
     match r3 {
         ControlFlow::Continue(_) => { return 5; }
         ControlFlow::Break(v)    => { if v != 4i32 { return 6; } }
     }
 
     // try_for_each: never breaks → Continue(()).
-    let r4 = range_i32(0, 3).try_for_each(never_break);
+    let r4 = range_i32(0, 3).try_for_each(
+        |_x: i32| -> ControlFlow<i32, ()> {
+            return ControlFlow::<i32, ()>::Continue(());
+        });
     match r4 {
         ControlFlow::Continue(_) => { }
         ControlFlow::Break(_)    => { return 7; }

@@ -384,6 +384,33 @@ private:
     // ── Type conversion ──────────────────────────────────────────
     mlir::Type logos_to_mlir(TypeRef tv);
 
+    // LLVM type used in fn-return position. Differs from logos_to_mlir
+    // only for aggregate-by-value returns (Struct/ZonedStruct/Enum):
+    // logos_to_mlir returns ptr_type for these (the "passed by ptr"
+    // shorthand used at param/field/scope positions), but the actual
+    // fn-def returns the literal LLVM struct value. Indirect calls
+    // and closure-fn synthesis must use this struct type for the
+    // return slot, otherwise the call gets typed `() -> ptr` while
+    // the callee writes the full aggregate — silent corruption that
+    // segfaults the next match on the result. See
+    // [[baghunt-dyn-in-enum-payload]] for the originating fix.
+    mlir::Type llvm_fn_ret_type(TypeRef ret_t) {
+        if (!ret_t) return mlir::Type{};
+        TypeRef rt{ret_t};
+        if (rt.kind() == LogosType::Kind::Struct ||
+            rt.kind() == LogosType::Kind::ZonedStruct) {
+            auto sit = struct_types_.find(mlir_struct_key(rt));
+            if (sit == struct_types_.end())
+                sit = struct_types_.find(std::string(rt.struct_name()));
+            if (sit != struct_types_.end()) return sit->second.llvm_type;
+        }
+        if (rt.kind() == LogosType::Kind::Enum) {
+            if (auto* te = resolve_tagged_enum(std::string(rt.enum_name()), rt))
+                return te->llvm_type;
+        }
+        return logos_to_mlir(ret_t);
+    }
+
     // MLIR type for a C-style enum's discriminant.  Uses the enum's
     // explicit backing type if declared (`enum Foo : u64 {}`), else i32.
     mlir::Type enum_disc_mlir(const std::string& enum_name) {

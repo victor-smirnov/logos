@@ -1,0 +1,68 @@
+// Regression: closure returning an aggregate-by-value type (Option /
+// ControlFlow / user enum). mlir-gen used to type the synthesised
+// closure function as `(...) -> ptr` because the ret slot went through
+// `logos_to_mlir(Enum)` which returns the ptr-shorthand. The callee
+// then wrote the full enum struct (e.g. 8 bytes for Option<i32>) into
+// the small return slot — silent corruption surfaced as wrong-arm
+// hits on the next match. Fixed by routing fn-ret-position through
+// `llvm_fn_ret_type` which honours Enum/Struct/ZonedStruct.
+package test;
+
+use logos.lang.option;
+use logos.lang.ops;
+
+fn apply(f: fn(i32) -> Option<i32>, x: i32) -> Option<i32> {
+    return f(x);
+}
+
+fn apply_cf(f: fn(i32) -> ControlFlow<i32, i32>, x: i32) -> ControlFlow<i32, i32> {
+    return f(x);
+}
+
+fn main() -> i32 {
+    // Closure returning Option<i32>.
+    let r1: Option<i32> = apply(
+        |x: i32| -> Option<i32> {
+            if x > 0i32 { return Option::<i32>::Some(x); }
+            return Option::<i32>::None;
+        },
+        7i32);
+    match r1 {
+        Option::Some(v) => { if v != 7i32 { return 1; } }
+        Option::None    => { return 2; }
+    }
+
+    let r2: Option<i32> = apply(
+        |x: i32| -> Option<i32> {
+            if x > 0i32 { return Option::<i32>::Some(x); }
+            return Option::<i32>::None;
+        },
+        -3i32);
+    match r2 {
+        Option::Some(_) => { return 3; }
+        Option::None    => { }
+    }
+
+    // Closure returning ControlFlow.
+    let r3: ControlFlow<i32, i32> = apply_cf(
+        |x: i32| -> ControlFlow<i32, i32> {
+            return ControlFlow::<i32, i32>::Continue(x * 2i32);
+        },
+        5i32);
+    match r3 {
+        ControlFlow::Continue(v) => { if v != 10i32 { return 4; } }
+        ControlFlow::Break(_)    => { return 5; }
+    }
+
+    let r4: ControlFlow<i32, i32> = apply_cf(
+        |x: i32| -> ControlFlow<i32, i32> {
+            return ControlFlow::<i32, i32>::Break(x);
+        },
+        99i32);
+    match r4 {
+        ControlFlow::Continue(_) => { return 6; }
+        ControlFlow::Break(v)    => { if v != 99i32 { return 7; } }
+    }
+
+    return 42;
+}

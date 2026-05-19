@@ -1145,37 +1145,10 @@ mlir::Value MLIRGenImpl::gen_dyn_dispatch(lir_view::EMethodCallView v,
 
     mlir::Type ret_type;
     if (ret_logos_type && TypeRef(ret_logos_type).kind() != LogosType::Kind::Void) {
-        // Struct returns: the actual fn signature returns the LLVM struct
-        // value (see Logos's struct-return convention — register_struct
-        // emits LLVMStructType for each concrete instantiation). The
-        // logos_to_mlir(Struct) shorthand returns ptr_type for "passed by
-        // ptr" use cases (params, fields), but for return-position we need
-        // the struct itself so the indirect call type matches the fn def.
-        if (TypeRef(ret_logos_type).kind() == LogosType::Kind::Struct ||
-            TypeRef(ret_logos_type).kind() == LogosType::Kind::ZonedStruct) {
-            auto sit = struct_types_.find(mlir_struct_key(ret_logos_type));
-            if (sit == struct_types_.end())
-                sit = struct_types_.find(std::string(TypeRef(ret_logos_type).struct_name()));
-            if (sit != struct_types_.end()) ret_type = sit->second.llvm_type;
-        }
-        // Same rationale as Struct above, but for tagged enums: the actual
-        // fn-def returns the {i32 disc, [N x i8] payload} struct by value,
-        // not a pointer. `logos_to_mlir(Enum)` returns ptr_type for the
-        // "passed by ptr" use case (params/fields/scope_) — at indirect-
-        // call return position we need the enum's literal LLVM struct
-        // type so the call's return matches the fn-def's. Without this,
-        // the call gets typed `() -> ptr` while the callee returns the
-        // 20+ byte enum struct, and any downstream GEP through the
-        // returned `ptr` walks adjacent stack instead of the enum's
-        // disc/payload — silent corruption that segfaults the next time
-        // the result is matched on.
-        if (!ret_type && TypeRef(ret_logos_type).kind() == LogosType::Kind::Enum) {
-            auto* te = resolve_tagged_enum(
-                std::string(TypeRef(ret_logos_type).enum_name()),
-                ret_logos_type);
-            if (te) ret_type = te->llvm_type;
-        }
-        if (!ret_type) ret_type = logos_to_mlir(ret_logos_type);
+        // llvm_fn_ret_type handles the by-value aggregate return shape
+        // (Struct/ZonedStruct/Enum) — see helper docs and
+        // [[baghunt-dyn-in-enum-payload]] for the rationale.
+        ret_type = llvm_fn_ret_type(ret_logos_type);
     }
     if (!ret_type)
         ret_type = mlir::LLVM::LLVMVoidType::get(builder_.getContext());
@@ -1227,7 +1200,7 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
             if (pt) fn_params.push_back(pt);
         }
         mlir::Type llvm_ret = ret_t
-            ? logos_to_mlir(ret_t)
+            ? llvm_fn_ret_type(ret_t)
             : mlir::LLVM::LLVMVoidType::get(builder_.getContext());
         if (!llvm_ret) llvm_ret = mlir::LLVM::LLVMVoidType::get(builder_.getContext());
         auto llvm_fn_type = mlir::LLVM::LLVMFunctionType::get(llvm_ret, fn_params, false);
@@ -1256,7 +1229,7 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         var_struct_.clear(); var_class_.clear(); var_subscript_.clear();
         var_tuple_.clear(); var_tagged_enum_.clear(); var_tagged_enum_ptr_.clear();
         var_local_ptrs_.clear(); var_dyn_trait_.clear(); loop_stack_.clear();
-        cur_ret_type_ = ret_t ? logos_to_mlir(ret_t) : mlir::Type{};
+        cur_ret_type_ = ret_t ? llvm_fn_ret_type(ret_t) : mlir::Type{};
         // Bind params starting from arg 0 (no env_ptr)
         for (size_t i = 0; i < params.size(); ++i)
             scope_[params[i].first] = entry->getArgument(i);
@@ -1353,7 +1326,7 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     }
     llvm::SmallVector<mlir::Type> fn_rets;
     if (ret_t) {
-        auto rt = logos_to_mlir(ret_t);
+        auto rt = llvm_fn_ret_type(ret_t);
         if (rt) fn_rets.push_back(rt);
     }
     // Create the closure function as llvm.func (so llvm.mlir.addressof works)
