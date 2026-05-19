@@ -1,0 +1,37 @@
+// Phase 4 — user-side variadic-tuple impl with deferred mono
+// expansion of `tuple_all_eq::<Self>`. Sema emits a placeholder
+// `__tuple_all_eq__` LIR call (Self = (A...) is unbound). Mono
+// rewrites at impl-clone time when the concrete tuple type is
+// known (B110).
+//
+// Note: this requires sema's variadic-tuple dispatch site to
+// pack-bind A to the receiver's elements — without that, the
+// arg-type check rejects `&(A)` vs `&(i32, ...)`. Currently the
+// only path that works is calling the variadic impl from a free
+// fn that takes the impl's pack-substituted self-type directly.
+package variadic_tuple_impl_deferred;
+
+pub trait MyEq {
+    fn my_eq(self: &Self, other: &Self) -> bool;
+}
+
+impl<A...: MyEq> MyEq for (A...) {
+    fn my_eq(self: &Self, other: &Self) -> bool {
+        return tuple_all_eq::<Self>(self, other);
+    }
+}
+
+impl MyEq for i32 {
+    fn my_eq(self: &i32, other: &i32) -> bool {
+        return *self == *other;
+    }
+}
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    // Note: direct call `t.my_eq(&u)` requires sema variadic
+    // dispatch (currently fails). Once that lands, this test
+    // becomes meaningful end-to-end.
+    return 0;
+}

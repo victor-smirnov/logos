@@ -65,16 +65,17 @@ impl Eq for str   {
     }
 }
 
-// CP-cm-08b: tuple Eq impls. Logos's per-arity tuple-impl-target
-// mangling (SL-sl-08) registers each arity under `$tuple$N`. Common
-// arities 2..=4 covered here; mirror Rust's core::cmp surface (arity
-// 12 in Rust). Add larger arities on demand.
+// CP-cm-08b: tuple Eq impls. Per-arity 2/3/4 stay hand-rolled until
+// sema's variadic-dispatch site learns to pack-bind `A` to the
+// receiver's tuple elements (B110 added mono-time deferred expansion
+// of `tuple_all_eq::<Self>`, but the call-site dispatch path still
+// fails arg-type check for `&(A)` vs `&(i32, ...)` when the impl is
+// variadic). Add larger arities on demand.
 //
-// Variadic-tuple form (`impl<A...: Eq> Eq for (A...)`) is gated on
-// mono-time deferred expansion of `tuple_all_eq::<Self>` — sema can't
-// expand the chain while `A` is unbound. User-side concrete-tuple call
-// sites can use `tuple_all_eq::<(T1, T2, ...)>(a, b)` directly today
-// (Phase 3 sema-time chain, B109).
+// User code can still use the variadic-tuple shape directly via
+// `tuple_all_eq::<(T1, T2, ...)>(a, b)` for concrete tuples (B109)
+// or by writing their own variadic impl + calling the deferred
+// intrinsic from a method body (B110).
 impl<A: Eq, B: Eq> Eq for (A, B) {
     fn eq(&self, other: &Self) -> bool {
         return self.0.eq(&other.0) && self.1.eq(&other.1);

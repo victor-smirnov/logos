@@ -3286,8 +3286,15 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
     // tuple_all_eq::<T>(a, b) — sema-time chain expansion for
     // `a.0.eq(&b.0) && ... && a.{N-1}.eq(&b.{N-1})`. Used by the
     // variadic-tuple Eq impl `impl<A...: Eq> Eq for (A...)`.
-    // mlir-gen's method_call primitive-receiver fast-path (added 2026-05-19)
-    // routes the per-element eq call directly to the registered impl.
+    //
+    // Two paths:
+    //   * If T is a concrete tuple (all elements known), expand the
+    //     chain at sema time. mlir-gen's primitive-receiver fast-path
+    //     routes per-element eq calls directly.
+    //   * If any element is a TypeVar (e.g. T = (A...) inside a
+    //     variadic-tuple impl body), emit a `__tuple_all_eq__`
+    //     placeholder LIR call. Mono expands the chain at clone time
+    //     when the impl is instantiated for a concrete arity (B110).
     if (callee == "tuple_all_eq") {
         TypeRef elem = nullptr;
         if (node.has_key(la::TYPE_PARAMS)) {
@@ -3327,6 +3334,24 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         if (tuple_elems.empty()) {
             return builder().lit_bool(true, bool_t());
         }
+        // Defer to mono if any element is unbound (TypeVar). This
+        // covers the variadic-tuple impl body case where T = (A...)
+        // and A is the impl's pack TypeVar.
+        bool has_typevar = false;
+        for (auto e : tuple_elems) {
+            if (e && TypeRef(e).kind() == LogosType::Kind::TypeVar) {
+                has_typevar = true;
+                break;
+            }
+        }
+        if (has_typevar) {
+            std::vector<TypeRef> targs; targs.push_back(elem);
+            return builder().call("__tuple_all_eq__",
+                                  std::move(targs),
+                                  std::move(arg_exprs),
+                                  bool_t());
+        }
+        // Concrete path: expand the chain in-line at sema time.
         // tuple_index auto-derefs &Tuple — pass refs directly.
         auto a_ref = std::move(arg_exprs[0]);
         auto b_ref = std::move(arg_exprs[1]);

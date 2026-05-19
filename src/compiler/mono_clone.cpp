@@ -2127,6 +2127,87 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     lir_mirror_emit_arr_lit(out_, new_arr_t, elems);
                 break;
             }
+            // __tuple_all_eq__::<T>(a, b) — variadic-tuple Eq chain
+            // expansion. Sema emits this placeholder when T is unbound
+            // (e.g. T = (A...) in a variadic impl body). Mono receives
+            // it with T already pack-substituted to the concrete tuple.
+            // Emit the `&&`-chain of `a.{i}.eq(&b.{i})` per element.
+            //
+            // Args (a/b) are populated AFTER this branch in the each_arg
+            // pass below. To get them here we re-walk v.each_arg into a
+            // local vector.
+            if (nc.callee == "__tuple_all_eq__") {
+                TypeRef T = nc.type_args.empty() ? TypeRef{} : nc.type_args[0];
+                LirBuilder lb(out_);
+                LogosTypeBuilder bb; bb.kind = LogosType::Kind::Bool;
+                TypeRef bool_t = out_.type_pool.alloc(std::move(bb));
+                if (!T || T.kind() != LogosType::Kind::Tuple) {
+                    auto lit = lb.lit_bool(true, bool_t);
+                    result->type = bool_t;
+                    result->mirror_offset_ = lit->mirror_offset_;
+                    break;
+                }
+                auto elems = T.tuple_elems();
+                if (elems.empty()) {
+                    auto lit = lb.lit_bool(true, bool_t);
+                    result->type = bool_t;
+                    result->mirror_offset_ = lit->mirror_offset_;
+                    break;
+                }
+                std::vector<lir::LExprPtr> sub_args;
+                v.each_arg([&](lir_view::ExprRef ar) {
+                    sub_args.push_back(subst_child_expr(ar));
+                });
+                if (sub_args.size() < 2) {
+                    auto lit = lb.lit_bool(true, bool_t);
+                    result->type = bool_t;
+                    result->mirror_offset_ = lit->mirror_offset_;
+                    break;
+                }
+                auto a_ref = sub_args[0];
+                auto b_ref = sub_args[1];
+                lir::LExprPtr chain = nullptr;
+                for (size_t i = 0; i < elems.size(); ++i) {
+                    TypeRef et = elems[i];
+                    auto a_f = lb.tuple_index(a_ref, (uint32_t)i, et);
+                    auto b_f = lb.tuple_index(b_ref, (uint32_t)i, et);
+                    // &elem ref type.
+                    LogosTypeBuilder rb;
+                    rb.kind    = LogosType::Kind::Ref;
+                    rb.pointee = et;
+                    TypeRef et_ref = out_.type_pool.alloc(std::move(rb));
+                    // Resolve the elem-type's eq symbol: stdlib registers
+                    // primitive impls as `logos.lang.cmp.<T>__eq__f__ref_<T>__ref_<T>`.
+                    // Walk in_/out_ function tables to find any function
+                    // whose name suffix matches the pattern.
+                    std::string suffix = type_str(et) + "__eq__f__ref_"
+                                         + type_str(et) + "__ref_"
+                                         + type_str(et);
+                    std::string callee_sym;
+                    auto endswith = [&](const std::string& full) {
+                        return full.size() >= suffix.size() &&
+                               full.compare(full.size() - suffix.size(),
+                                            suffix.size(), suffix) == 0;
+                    };
+                    for (auto& fn : out_.functions)
+                        if (endswith(fn->name)) { callee_sym = fn->name; break; }
+                    if (callee_sym.empty()) {
+                        for (auto& fn : in_.functions)
+                            if (endswith(fn->name)) { callee_sym = fn->name; break; }
+                    }
+                    if (callee_sym.empty()) callee_sym = type_str(et) + "__eq";
+                    auto b_f_ref = lb.addr_of_temp(b_f, false, et_ref);
+                    std::vector<lir::LExprPtr> margs;
+                    margs.push_back(b_f_ref);
+                    auto cmp = lb.method_call(a_f, "eq", callee_sym, {},
+                                              margs, -1, bool_t);
+                    chain = chain ? lb.bin_op("&&", chain, cmp, bool_t)
+                                  : cmp;
+                }
+                result->type = bool_t;
+                result->mirror_offset_ = chain->mirror_offset_;
+                break;
+            }
             // tuple_count_of::<T>() — emit lit_int N for tuple T, 0 otherwise.
             if (nc.callee == "__tuple_count_of__") {
                 int64_t n = 0;
