@@ -992,9 +992,30 @@ bool emit_module(const ModuleManifest& manifest,
                          pkgi_raw_path.c_str());
             return false;
         }
+        // Advertise only packages this archive OWNS — the modules from the
+        // manifest's own sources (+ synth docs), NOT the dependency modules it
+        // merely embeds for self-containment. modules_for_h0's first
+        // from_binary_module_flags.size() entries are the loaded modules (in
+        // order; from_binary_module=true means pulled from a lower-layer
+        // archive); the tail are owned synth docs.
+        //
+        // Why this matters: build_binary_index (module_loader) maps
+        // package→archive first-wins by filesystem iteration order. If a layer
+        // archive advertised the dependency packages it embeds (e.g. mem.a
+        // listing logos.lang.option), a STALE such archive sitting in the -L
+        // dir could shadow the fresh canonical owner (lang.a) during an
+        // incremental rebuild — silently embedding stale dependency bytes.
+        // Advertising owned-only makes the canonical owner the sole index
+        // entry, so resolution always finds the fresh archive. (The embedded
+        // copy in .hm0 stays for sema self-containment but is never selected
+        // over the owner.)
         std::set<std::string> seen;
-        for (auto& m : modules_for_h0) {
+        for (size_t i = 0; i < modules_for_h0.size(); ++i) {
+            auto& m = modules_for_h0[i];
             if (m.package.empty()) continue;
+            // Skip dependency modules embedded from a lower-layer archive.
+            if (i < from_binary_module_flags.size() && from_binary_module_flags[i])
+                continue;
             if (seen.insert(m.package).second) f << m.package << "\n";
         }
     }
