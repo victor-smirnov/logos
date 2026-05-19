@@ -1301,6 +1301,36 @@ void MLIRGenImpl::gen_field_write(lir_view::SFieldWriteView v) {
     if (!gep) return;
     auto val = gen_expr(*val_le);
     if (!val) return;
+    // Heap-promote Enum values before storing into a struct field that uses
+    // Logos's heap-ptr Enum convention (field type is ptr_type). gen_expr
+    // for a let-bound Enum returns its alloca pointer — that alloca lives
+    // on the *current* fn's stack, so if the containing struct outlives the
+    // fn the field would dangle. Likewise fn-call returns spill the
+    // aggregate to a fresh stack alloca. Copy contents into a heap region
+    // so the field stays valid past return.
+    {
+        TypeRef val_lt(val_le->type);
+        if (val_lt && val_lt.kind() == LogosType::Kind::Enum &&
+            val.getType() == ptr_type()) {
+            auto* te = resolve_tagged_enum(std::string(val_lt.enum_name()), val_lt);
+            if (te) {
+                bool field_is_enum_slot = false;
+                for (auto& f : info.fields)
+                    if (f.name == field && f.type == ptr_type()) {
+                        field_is_enum_slot = true;
+                        break;
+                    }
+                if (field_is_enum_slot) {
+                    auto size = sizeof_struct(te->llvm_type);
+                    auto heap = call_malloc(size);
+                    if (heap) {
+                        builder_.create<mlir::LLVM::MemcpyOp>(loc_, heap, val, size, false);
+                        val = heap;
+                    }
+                }
+            }
+        }
+    }
     for (auto& f : info.fields) {
         if (f.name == field) {
             if (mlir::isa<mlir::LLVM::LLVMStructType>(f.type) &&

@@ -1,0 +1,38 @@
+// SuccessorsIter end-to-end — yields current value, advances via succ closure.
+// Tests both the generic-F + FnMut bound shape and the raw-fn-ptr-field shape.
+// Both were blocked on the Enum-field heap-promotion bug (closed B106).
+package iter_successors_full;
+
+use logos.lang.option;
+use logos.lang.iter;
+use logos.lang.ops;
+
+fn dbl_or_stop(x: i32) -> Option<i32> {
+    if x >= 10 { return Option::None; }
+    return Option::Some(x * 2);
+}
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    let mut it: SuccessorsIter<i32, fn(i32) -> Option<i32>> =
+        iter_successors::<i32, fn(i32) -> Option<i32>>(
+            Option::<i32>::Some(1), dbl_or_stop);
+
+    // Expected sequence: 1, 2, 4, 8, 16 (after yielding 16 the next
+    // succ call returns None and iteration ends).
+    let v0: Option<i32> = it.next();
+    if !v0.is_some() || v0.unwrap() != 1 { return fail(1); }
+    let v1: Option<i32> = it.next();
+    if !v1.is_some() || v1.unwrap() != 2 { return fail(2); }
+    let v2: Option<i32> = it.next();
+    if !v2.is_some() || v2.unwrap() != 4 { return fail(3); }
+    let v3: Option<i32> = it.next();
+    if !v3.is_some() || v3.unwrap() != 8 { return fail(4); }
+    let v4: Option<i32> = it.next();
+    if !v4.is_some() || v4.unwrap() != 16 { return fail(5); }
+    let v5: Option<i32> = it.next();
+    if v5.is_some() { return fail(6); }
+
+    return 0;
+}
