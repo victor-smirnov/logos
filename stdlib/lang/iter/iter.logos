@@ -1452,15 +1452,118 @@ pub fn iter_flatten<O: Iterator<I>, I: Iterator<T>, T>(outer: O, zero_inner: I)
     };
 }
 
-// array_chunks — deferred. A `pub struct ArrayChunksIter<I, T, const N>
-// { buf: [T; N] }` builds, but writes via `self.buf[i] = x` and the
-// returned `[T; N]` value read back as stack garbage at runtime —
-// the const-N-sized struct field's element offsets don't survive the
-// `Option<[T;N]>` return / call boundary. Likely mlir-gen layout
-// asymmetry between the field's array slot and the return-value
-// array copy. Filed as a follow-up; the const-N infrastructure
-// works on plain `[u8; N]` fn params (see stdlib/lang/str/str.logos:
-// `bytes_arr_eq<const N: i64>`).
+// ── ArrayChunksIter<I, T, const N> — group items into [T; N] chunks ──────
+//
+// Mirrors `Iterator::array_chunks::<N>(self)` (Rust unstable). The
+// inner iterator's items get collected into a buffer of N; once filled
+// the chunk is yielded as `[T; N]`. On exhaustion of inner, any
+// partial chunk is dropped (Rust returns `Remainder` separately —
+// we don't model that yet).
+
+pub struct ArrayChunksIter<I, T, const N: i64> {
+    pub inner: I,
+    pub buf:   [T; N],
+    pub _t:    T,
+}
+
+impl<I: Iterator<T>, T, const N: i64> Iterator<[T; N]> for ArrayChunksIter<I, T, N> {
+    fn next(self: &mut ArrayChunksIter<I, T, N>) -> Option<[T; N]> {
+        let mut i: i64 = 0i64;
+        while i < N {
+            let v: Option<T> = self.inner.next();
+            match v {
+                Option::None    => { return Option::<[T; N]>::None; }
+                Option::Some(x) => {
+                    self.buf[i] = x;
+                    i = i + 1i64;
+                }
+            }
+        }
+        unsafe {
+            return Option::<[T; N]>::Some(*((&self.buf) as *const [T; N]));
+        }
+    }
+}
+
+pub fn iter_array_chunks<I: Iterator<T>, T, const N: i64>(
+    iter: I, zero_buf: [T; N], anchor: T) -> ArrayChunksIter<I, T, N>
+{
+    return ArrayChunksIter::<I, T, N> {
+        inner: iter,
+        buf:   zero_buf,
+        _t:    anchor,
+    };
+}
+
+// ── MapWindowsIter<I, T, R, const N> — sliding window across the source ──
+//
+// Mirrors `Iterator::map_windows::<N>(self, f)` (Rust unstable). Pulls
+// `N` items from `inner` to prime; thereafter each `.next()` shifts the
+// window left by one (drops the oldest item, pulls a new one) and yields
+// `f(&[T; N])`. End of inner stream → None.
+
+pub struct MapWindowsIter<I, T, R, F, const N: i64> {
+    pub inner: I,
+    pub buf:   [T; N],
+    pub f:     F,
+    pub primed: bool,
+    pub _t:    T,
+    pub _r:    R,
+}
+
+impl<I: Iterator<T>, T, R, F: FnMut([T; N]) -> R, const N: i64>
+    Iterator<R> for MapWindowsIter<I, T, R, F, N>
+{
+    fn next(self: &mut MapWindowsIter<I, T, R, F, N>) -> Option<R> {
+        if !self.primed {
+            // Initial fill — pull N items.
+            let mut i: i64 = 0i64;
+            while i < N {
+                let v: Option<T> = self.inner.next();
+                match v {
+                    Option::None    => { return Option::<R>::None; }
+                    Option::Some(x) => {
+                        self.buf[i] = x;
+                        i = i + 1i64;
+                    }
+                }
+            }
+            self.primed = true;
+        } else {
+            // Shift left + pull one fresh item.
+            let v: Option<T> = self.inner.next();
+            match v {
+                Option::None    => { return Option::<R>::None; }
+                Option::Some(x) => {
+                    let mut j: i64 = 0i64;
+                    while j < N - 1i64 {
+                        self.buf[j] = self.buf[j + 1i64];
+                        j = j + 1i64;
+                    }
+                    self.buf[N - 1i64] = x;
+                }
+            }
+        }
+        unsafe {
+            let snapshot: [T; N] = *((&self.buf) as *const [T; N]);
+            return Option::<R>::Some((self.f)(snapshot));
+        }
+    }
+}
+
+pub fn iter_map_windows<I: Iterator<T>, T, R, F: FnMut([T; N]) -> R, const N: i64>(
+    iter: I, f: F, zero_buf: [T; N], anchor: T, zero_r: R)
+    -> MapWindowsIter<I, T, R, F, N>
+{
+    return MapWindowsIter::<I, T, R, F, N> {
+        inner:  iter,
+        buf:    zero_buf,
+        f:      f,
+        primed: false,
+        _t:     anchor,
+        _r:     zero_r,
+    };
+}
 
 // ── FlatMapIter<I, T, F, II, U> — map each item to an iter, flatten ───────
 //

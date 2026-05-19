@@ -1,0 +1,38 @@
+// Iterator::map_windows::<N>(f) — sliding window of N items, mapped to R.
+package iter_map_windows;
+
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.range;
+
+fn pair_sum(w: [i32; 2]) -> i32 {
+    return w[0i64] + w[1i64];
+}
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    // [10, 11, 12, 13] / N=2 → pair sums [21, 23, 25].
+    let r: RangeI32 = range_i32(10i32, 14i32);
+    let zero_arr: [i32; 2] = [0i32, 0i32];
+    let mut mw: MapWindowsIter<RangeI32, i32, i32, fn([i32; 2]) -> i32, 2i64> =
+        iter_map_windows::<RangeI32, i32, i32, fn([i32; 2]) -> i32, 2i64>(
+            r, pair_sum, zero_arr, 0i32, 0i32);
+
+    let v0: Option<i32> = mw.next();
+    if !v0.is_some() { return fail(1); }
+    if v0.unwrap() != 21i32 { return fail(2); }
+
+    let v1: Option<i32> = mw.next();
+    if !v1.is_some() { return fail(3); }
+    if v1.unwrap() != 23i32 { return fail(4); }
+
+    let v2: Option<i32> = mw.next();
+    if !v2.is_some() { return fail(5); }
+    if v2.unwrap() != 25i32 { return fail(6); }
+
+    let v3: Option<i32> = mw.next();
+    if v3.is_some() { return fail(7); }
+
+    return 0;
+}

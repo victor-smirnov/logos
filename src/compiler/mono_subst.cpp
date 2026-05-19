@@ -241,6 +241,27 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         nt.tuple_elems = std::move(new_elems);
         return out_.type_pool.alloc(std::move(nt));
     }
+    case LogosType::Kind::FnPtr:
+    case LogosType::Kind::Closure: {
+        // Substitute fn-ptr / closure signatures: `fn(T, U) -> V` carries
+        // its argument list and return type in closure_params/closure_ret
+        // (same slots as Closure). When T/U/V are TypeVars bound by the
+        // surrounding generic, recurse into them; otherwise pass through.
+        std::vector<TypeRef> new_params;
+        bool changed = false;
+        for (auto p : tv.closure_params()) {
+            auto np = subst_type(p, s);
+            changed |= (np != p);
+            new_params.push_back(np);
+        }
+        TypeRef new_ret = subst_type(tv.closure_ret(), s);
+        changed |= (new_ret != tv.closure_ret());
+        if (!changed) return tv;
+        LogosTypeBuilder nt = tv.to_builder();
+        nt.closure_params = std::move(new_params);
+        nt.closure_ret    = new_ret;
+        return out_.type_pool.alloc(std::move(nt));
+    }
     case LogosType::Kind::AssocType: {
         // Resolve: recursively substitute the base, then look up TraitName::ConcreteType::AssocName
         auto subbed_base = subst_type(tv.assoc_base(), s);

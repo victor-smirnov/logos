@@ -1,0 +1,64 @@
+// Logos standard library — std.lang.array
+//
+// Mirrors `core::array`:
+//   `IntoIter<T, N>` — owned-array iterator.
+//   `from_ref<T>(t: &T) -> &[T; 1]` — view a single ref as a 1-array.
+//   `from_mut<T>(t: &mut T) -> &mut [T; 1]` — mutable counterpart.
+//
+// The owned IntoIter uses the const-N field codegen fixed in B104. The
+// `from_ref`/`from_mut` helpers are zero-cost pointer reinterprets.
+
+package logos.lang.array;
+
+use logos.lang.option;
+use logos.lang.iter;
+use logos.lang.ops;
+
+// ── ArrayIntoIter<T, const N> — owned-array iterator ─────────────────────
+
+pub struct ArrayIntoIter<T, const N: i64> {
+    pub buf: [T; N],
+    pub idx: i64,
+}
+
+pub fn array_into_iter<T, const N: i64>(buf: [T; N]) -> ArrayIntoIter<T, N> {
+    return ArrayIntoIter::<T, N> { buf: buf, idx: 0i64 };
+}
+
+impl<T, const N: i64> Iterator<T> for ArrayIntoIter<T, N> {
+    fn next(self: &mut ArrayIntoIter<T, N>) -> Option<T> {
+        if self.idx >= N { return Option::<T>::None; }
+        let v: T = self.buf[self.idx];
+        self.idx = self.idx + 1i64;
+        return Option::<T>::Some(v);
+    }
+}
+
+impl<T, const N: i64> ExactSizeIterator<T> for ArrayIntoIter<T, N> {
+    fn len(&self) -> i64 {
+        if self.idx >= N { return 0i64; }
+        return N - self.idx;
+    }
+}
+
+impl<T, const N: i64> FusedIterator<T> for ArrayIntoIter<T, N> {}
+
+// ── from_ref / from_mut ─────────────────────────────────────────────────
+//
+// Reinterpret a single reference as a 1-element array reference. The
+// underlying memory layout is identical for `T` and `[T; 1]`, so this
+// is a no-op cast.
+
+pub fn array_from_ref<T>(t: &T) -> &[T; 1] {
+    unsafe {
+        let p: *const T = t as *const T;
+        return &*(p as *const [T; 1]);
+    }
+}
+
+pub fn array_from_mut<T>(t: &mut T) -> &mut [T; 1] {
+    unsafe {
+        let p: *mut T = t as *mut T;
+        return &mut *(p as *mut [T; 1]);
+    }
+}

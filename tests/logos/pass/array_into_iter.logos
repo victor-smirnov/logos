@@ -1,0 +1,48 @@
+// array::IntoIter + from_ref + from_mut smoke.
+package array_into_iter;
+
+use logos.lang.array;
+use logos.lang.iter;
+use logos.lang.option;
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    // ArrayIntoIter
+    let buf: [i32; 3] = [10i32, 20i32, 30i32];
+    let mut it: ArrayIntoIter<i32, 3i64> = array_into_iter::<i32, 3i64>(buf);
+
+    if it.len() != 3i64 { return fail(1); }
+    let v0: Option<i32> = it.next();
+    if !v0.is_some() || v0.unwrap() != 10i32 { return fail(2); }
+    if it.len() != 2i64 { return fail(3); }
+    let v1: Option<i32> = it.next();
+    if !v1.is_some() || v1.unwrap() != 20i32 { return fail(4); }
+    let v2: Option<i32> = it.next();
+    if !v2.is_some() || v2.unwrap() != 30i32 { return fail(5); }
+    if it.len() != 0i64 { return fail(6); }
+    let v3: Option<i32> = it.next();
+    if v3.is_some() { return fail(7); }
+
+    // from_ref — view as 1-array, read via deref-copy. Sema doesn't
+    // auto-deref `&[T; N]` on direct index access yet, so we go
+    // through an explicit copy.
+    let x: i32 = 42i32;
+    let single: &[i32; 1] = array_from_ref::<i32>(&x);
+    let a: [i32; 1] = *single;
+    if a[0i64] != 42i32 { return fail(20); }
+
+    // from_mut — verify aliasing by writing through a raw `*mut i32`
+    // recast from the `&mut [T; N]`. The `&mut [T; N]` index-write
+    // path through the reference isn't yet wired in sema, so we
+    // sidestep through the raw pointer.
+    let mut y: i32 = 7i32;
+    let single_mut: &mut [i32; 1] = array_from_mut::<i32>(&mut y);
+    unsafe {
+        let p: *mut i32 = (single_mut as *mut [i32; 1]) as *mut i32;
+        *p = 99i32;
+    }
+    if y != 99i32 { return fail(31); }
+
+    return 0;
+}

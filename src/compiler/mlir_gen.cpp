@@ -895,6 +895,20 @@ mlir::Value MLIRGenImpl::gen_struct_lit(lir_view::EStructLitView v) {
                 val = coerce_numeric(val, fi->type);
             }
         }
+        // Inline array field initialized from a non-ArrLit expression
+        // (e.g. local var of type `[T; N]`): val is a *pointer* to the
+        // source array, not the array value. Memcpy the data into the
+        // field slot instead of storing the pointer bits.
+        if (fi && mlir::isa<mlir::LLVM::LLVMArrayType>(fi->type) &&
+            val.getType() == ptr_type()) {
+            auto arr_t = mlir::cast<mlir::LLVM::LLVMArrayType>(fi->type);
+            auto dl    = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
+            uint64_t sz = dl.getTypeSize(arr_t);
+            auto sz_val = builder_.create<mlir::arith::ConstantIntOp>(
+                loc_, (int64_t)sz, 64);
+            builder_.create<mlir::LLVM::MemcpyOp>(loc_, gep, val, sz_val, false);
+            return;
+        }
         builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
     });
     return ok ? alloca : nullptr;

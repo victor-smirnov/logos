@@ -305,12 +305,15 @@ private:
             loc_, ptr_type(), elem_type, cnt);
     }
 
-    // Spill an aggregate value (struct/enum returned by value) to an alloca.
-    // Used when passing such a value to a function that expects a pointer.
+    // Spill an aggregate value (struct/enum/array returned by value) to an
+    // alloca. Used when passing such a value to a function that expects a
+    // pointer.
     mlir::Value spill_to_alloca(mlir::Value v) {
-        auto st = mlir::dyn_cast<mlir::LLVM::LLVMStructType>(v.getType());
-        if (!st) return v;
-        auto alloca = create_entry_alloca(st);
+        auto t = v.getType();
+        if (!mlir::isa<mlir::LLVM::LLVMStructType>(t) &&
+            !mlir::isa<mlir::LLVM::LLVMArrayType>(t))
+            return v;
+        auto alloca = create_entry_alloca(t);
         builder_.create<mlir::LLVM::StoreOp>(loc_, v, alloca);
         return alloca;
     }

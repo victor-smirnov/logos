@@ -1,0 +1,34 @@
+// Iterator::array_chunks::<N> — group items into [T; N] chunks.
+package iter_array_chunks;
+
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.range;
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    // [10, 11, 12, 13, 14] / N=2 → [10,11], [12,13]; 14 dropped.
+    let r: RangeI32 = range_i32(10i32, 15i32);
+    let zero_arr: [i32; 2] = [0i32, 0i32];
+    let mut ac: ArrayChunksIter<RangeI32, i32, 2i64> =
+        iter_array_chunks::<RangeI32, i32, 2i64>(r, zero_arr, 0i32);
+
+    let c0: Option<[i32; 2]> = ac.next();
+    if !c0.is_some() { return fail(1); }
+    let a0: [i32; 2] = c0.unwrap();
+    if a0[0i64] != 10i32 { return fail(2); }
+    if a0[1i64] != 11i32 { return fail(3); }
+
+    let c1: Option<[i32; 2]> = ac.next();
+    if !c1.is_some() { return fail(4); }
+    let a1: [i32; 2] = c1.unwrap();
+    if a1[0i64] != 12i32 { return fail(5); }
+    if a1[1i64] != 13i32 { return fail(6); }
+
+    // 14 is left over; not enough for a full chunk → None.
+    let c2: Option<[i32; 2]> = ac.next();
+    if c2.is_some() { return fail(7); }
+
+    return 0;
+}

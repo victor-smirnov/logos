@@ -424,15 +424,18 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitDataView v, TypeRef typ
                                         TypeRef(lt).kind() == LogosType::Kind::ZonedStruct ||
                                         TypeRef(lt).kind() == LogosType::Kind::Tuple ||
                                         TypeRef(lt).kind() == LogosType::Kind::Slice ||
-                                        TypeRef(lt).kind() == LogosType::Kind::Closure);
+                                        TypeRef(lt).kind() == LogosType::Kind::Closure ||
+                                        TypeRef(lt).kind() == LogosType::Kind::Array);
                 if (is_inline) {
                     std::unordered_set<std::string> seen;
                     uint64_t sz = logos_abi_byte_size(lt, seen);
                     auto sz_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, (int64_t)sz, 64);
-                    // val may be a struct value (e.g. result of a function
-                    // call returning a struct) rather than a pointer. memcpy
-                    // requires a pointer source — spill aggregate values.
-                    if (mlir::isa<mlir::LLVM::LLVMStructType>(val.getType()))
+                    // val may be a struct / array value (e.g. result of a
+                    // function call or pointer-deref returning an aggregate)
+                    // rather than a pointer. memcpy requires a pointer
+                    // source — spill aggregate values.
+                    if (mlir::isa<mlir::LLVM::LLVMStructType>(val.getType()) ||
+                        mlir::isa<mlir::LLVM::LLVMArrayType>(val.getType()))
                         val = spill_to_alloca(val);
                     builder_.create<mlir::LLVM::MemcpyOp>(loc_, fp, val, sz_val, false);
                 } else {
