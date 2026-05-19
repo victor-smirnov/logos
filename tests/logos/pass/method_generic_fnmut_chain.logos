@@ -1,0 +1,25 @@
+package fnmut_chain;
+
+trait Acc {
+    fn seed(self: &Self) -> i32;
+    // method-generic, FnMut-bounded (mirrors Iterator::fold's shape)
+    fn run<A, F: FnMut(A, i32) -> A>(self: &Self, init: A, f: F) -> A {
+        let mut g: F = f;
+        return g(init, self.seed());
+    }
+    // trait-default calling the FnMut-bounded method-generic method on self
+    fn chained<A, F: FnMut(A, i32) -> A>(self: &Self, init: A, f: F) -> A {
+        return self.run::<A, F>(init, f);
+    }
+}
+
+struct Foo {}
+impl Acc for Foo { fn seed(self: &Self) -> i32 { return 5i32; } }
+
+fn addf(a: i32, b: i32) -> i32 { return a + b; }
+
+fn main() -> i32 {
+    let f: Foo = Foo {};
+    // run: g(10, 5) = 15; chained delegates to run.
+    return f.chained::<i32, fn(i32,i32)->i32>(10i32, addf);
+}

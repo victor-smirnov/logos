@@ -1,0 +1,28 @@
+// A trait-default method whose body calls another method-generic method on
+// `self` (here `self.wrap::<U>(x)` from inside `chained<U>`). Such inner calls
+// were previously mangled but never enqueued into mono's worklist, so the spec
+// was never cloned and mlir-gen silently dropped the call — the body returned
+// garbage. Mono now enqueues the inner method-generic spec.
+//
+// This is the minimal form of the stdlib `Iterator::reduce -> it.fold(...)`
+// pattern (which was inlined as a workaround; see iter.logos reduce comment).
+
+package method_generic_trait_default_chain;
+
+trait Gen {
+    fn base(self: &Self) -> i32;
+    // method-generic trait-default method
+    fn wrap<U>(self: &Self, x: U) -> U { return x; }
+    // trait-default method that calls another method-generic method on self
+    fn chained<U>(self: &Self, x: U) -> U {
+        return self.wrap::<U>(x);
+    }
+}
+
+struct Foo {}
+impl Gen for Foo { fn base(self: &Self) -> i32 { return 7i32; } }
+
+fn main() -> i32 {
+    let f: Foo = Foo {};
+    return f.chained::<i32>(42i32);
+}

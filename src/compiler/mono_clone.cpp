@@ -2992,12 +2992,37 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     } else if (auto sit = specs_.find(tmpl_key);
                                sit != specs_.end() && !sit->second.empty()) {
                         tmpl_tparam_count = sit->second.front()->type_params.size();
+                    } else if (auto* smt = find_struct_method_templates_unguarded(cname)) {
+                        // Trait-default / inherent method-generic methods live in
+                        // struct_method_templates_ keyed by the bare method name
+                        // (possibly with a `__g__sig` tail), not in templates_.
+                        // Consult them so an inner `self.<method>::<U>(...)` call
+                        // inside a trait-default body keeps its method-level
+                        // type-args and gets mangled + enqueued below.
+                        auto mit = smt->find(method);
+                        if (mit == smt->end())
+                            for (auto& [k, fn] : *smt)
+                                if (k.size() > method.size() + 5 &&
+                                    k.compare(0, method.size(), method) == 0 &&
+                                    k.compare(method.size(), 5, "__g__") == 0)
+                                    { mit = smt->find(k); break; }
+                        if (mit != smt->end() && mit->second)
+                            tmpl_tparam_count = mit->second->type_params.size();
                     }
                     if (tmpl_tparam_count == 0) nc.type_args.clear();
                     else if (nc.type_args.size() > tmpl_tparam_count)
                         nc.type_args.resize(tmpl_tparam_count);
-                    if (!nc.type_args.empty())
+                    if (!nc.type_args.empty()) {
                         nc.callee = mangle(tmpl_key, nc.type_args);
+                        // A trait-default method whose body calls another
+                        // method-generic method on `self` (e.g. `it.fold(...)`
+                        // inside a default terminal) lowers that inner call as
+                        // a TypeVar-receiver MethodCall. Mangling alone names
+                        // the spec but doesn't pull it into the worklist — the
+                        // spec is never cloned and mlir-gen silently drops the
+                        // call (producing a broken body). Enqueue it explicitly.
+                        enqueue_if_needed(nc.callee, nc.type_args);
+                    }
                     result->mirror_offset_ = lir_mirror_emit_call(
                         out_, result->type, nc.callee, nc.type_args, nc.args);
                     break;
@@ -3056,13 +3081,24 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     }
                     std::string base_name = base_struct + "__" + method;
                     auto pick_mono_template_key = [&]() -> std::string {
+                        // The call's resolved_symbol (set by sema) is often the
+                        // exact pkg-qualified template key — e.g. a trait-default
+                        // body calling another method-generic method on `self`
+                        // resolves to `pkg.Struct__method__g__<sig-with-tvars>`.
+                        // Prefer it directly.
+                        if (!resolved_symbol.empty() &&
+                            (templates_.count(resolved_symbol) || specs_.count(resolved_symbol)))
+                            return resolved_symbol;
                         if (templates_.count(base_name) || specs_.count(base_name))
                             return base_name;
                         std::string p = base_name + "__";
+                        std::string p_dot = "." + p;   // pkg-qualified keys
                         for (auto& [kname, _] : templates_)
-                            if (kname.rfind(p, 0) == 0) return kname;
+                            if (kname.rfind(p, 0) == 0 ||
+                                kname.find(p_dot) != std::string::npos) return kname;
                         for (auto& [kname, _] : specs_)
-                            if (kname.rfind(p, 0) == 0) return kname;
+                            if (kname.rfind(p, 0) == 0 ||
+                                kname.find(p_dot) != std::string::npos) return kname;
                         return {};
                     };
                     std::string mono_base = pick_mono_template_key();
@@ -3083,6 +3119,12 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         v.each_arg([&](lir_view::ExprRef ar) {
                             args.push_back(subst_child_expr(ar));
                         });
+                        // Pull the specialisation into the worklist — without
+                        // this the spec is named but never cloned, and mlir-gen
+                        // silently drops the call (broken body). Fires for a
+                        // trait-default method calling another method-generic
+                        // method on `self`.
+                        enqueue_if_needed(callee, combined_args);
                         result->mirror_offset_ = lir_mirror_emit_call(
                             out_, result->type, callee, combined_args, args);
                         rewritten = true;

@@ -300,12 +300,13 @@ pub trait Iterator<Item> {
     // item. Returns None on an empty iterator. Mirrors Rust's
     // `Iterator::reduce`.
     //
-    // Inlined fold (rather than `it.fold(init, f)`) because chaining
-    // an FnMut-bounded method into another FnMut-bounded method drops
-    // the inner call at sema-time in some cases — the type-arg
-    // propagation from outer F-tparam into inner F-tparam isn't
-    // wired through trait-default-method-default-method dispatch.
-    // Tracked as a follow-up to [[baghunt-mapiter-fn-param-mono-loop]].
+    // Inlined fold (rather than `it.fold(init, f)`) because the inner
+    // method-generic call on a *generic-struct* `self` (Self = SliceIter<T>)
+    // still mis-resolves: the call carries the generic template symbol with
+    // mixed struct-level + method-level type-args and mono's nm-path mangle
+    // doesn't compose the concrete spec name. The non-generic-struct form of
+    // this pattern IS fixed (see the method_generic_trait_default_chain
+    // compiler test); the generic-struct facet remains.
     fn reduce<ReduceFn: FnMut(Item, Item) -> Item>(self: Self, f: ReduceFn) -> Option<Item> {
         let mut it: Self = self;
         let mut g: ReduceFn = f;
