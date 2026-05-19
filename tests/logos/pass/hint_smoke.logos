@@ -1,0 +1,19 @@
+// hint::{black_box, spin_loop} smoke.
+package hint_smoke;
+
+use logos.lang.hint;
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    let x: i32 = black_box::<i32>(42);
+    if x != 42 { return fail(1); }
+
+    spin_loop();
+    spin_loop();
+
+    let s: str = black_box::<str>("hello");
+    if s.len() != 5i64 { return fail(2); }
+
+    return 0;
+}

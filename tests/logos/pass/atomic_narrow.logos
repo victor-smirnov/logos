@@ -1,0 +1,56 @@
+// AtomicI8/I16/U8/U16 + AtomicI64/U64/Bool _ordered overloads smoke.
+package atomic_narrow;
+
+use logos.lang.atomic;
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    // AtomicI8
+    let mut a8: AtomicI8 = atomic_i8_new(5i8);
+    if a8.load() != 5i8 { return fail(1); }
+    a8.store(-3i8);
+    if a8.load() != -3i8 { return fail(2); }
+    let old: i8 = a8.fetch_add(2i8);
+    if old != -3i8 { return fail(3); }
+    if a8.load() != -1i8 { return fail(4); }
+
+    // AtomicU8
+    let mut au8: AtomicU8 = atomic_u8_new(250u8);
+    if au8.load() != 250u8 { return fail(10); }
+    au8.store(7u8);
+    if au8.load() != 7u8 { return fail(11); }
+
+    // AtomicI16
+    let mut a16: AtomicI16 = atomic_i16_new(1000i16);
+    if a16.load() != 1000i16 { return fail(20); }
+    let _old: i16 = a16.fetch_add(500i16);
+    if a16.load() != 1500i16 { return fail(21); }
+
+    // AtomicU16
+    let mut au16: AtomicU16 = atomic_u16_new(65000u16);
+    if au16.load() != 65000u16 { return fail(30); }
+
+    // _ordered variants on existing types (smoke — they should be observationally
+    // equivalent to non-ordered on x86).
+    let mut a64: AtomicI64 = atomic_i64_new(100i64);
+    if a64.load_ordered(Ordering::Relaxed) != 100i64 { return fail(40); }
+    a64.store_ordered(200i64, Ordering::SeqCst);
+    if a64.load() != 200i64 { return fail(41); }
+    let _: i64 = a64.fetch_add_ordered(50i64, Ordering::AcqRel);
+    if a64.load() != 250i64 { return fail(42); }
+    if !a64.compare_exchange_ordered(250i64, 300i64, Ordering::SeqCst, Ordering::Relaxed) {
+        return fail(43);
+    }
+    if a64.load() != 300i64 { return fail(44); }
+
+    let mut au64: AtomicU64 = atomic_u64_new(5u64);
+    au64.store_ordered(10u64, Ordering::Release);
+    if au64.load_ordered(Ordering::Acquire) != 10u64 { return fail(50); }
+
+    let mut ab: AtomicBool = atomic_bool_new(false);
+    ab.store_ordered(true, Ordering::SeqCst);
+    if !ab.load_ordered(Ordering::Acquire) { return fail(60); }
+
+    return 0;
+}

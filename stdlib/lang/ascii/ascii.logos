@@ -1,0 +1,121 @@
+// Logos standard library — std.ascii
+//
+// `AsciiChar` — a u8 known to be in the 0..=127 range (the ASCII subset).
+//
+// Divergence from Rust: `core::ascii::AsciiChar` is a 128-variant enum
+// with implicit `#[repr(u8)]` so the discriminant equals the byte value.
+// Logos enums don't carry an explicit numeric repr, so we represent
+// AsciiChar as a single-field newtype struct. The validation invariant
+// (byte < 128) is preserved by the constructors.
+//
+// Surface:
+//   AsciiChar::from_u8(b)             — Option<AsciiChar>, validated
+//   AsciiChar::from_u8_unchecked(b)   — unsafe, caller asserts byte<128
+//   AsciiChar::as_u8(self)            — byte value
+//   AsciiChar::as_char(self)          — widened to char (= u32 codepoint)
+//   AsciiChar::is_*(self)             — common ASCII class predicates
+//   AsciiChar::to_ascii_{lower,upper}case(self)
+//
+// `as_str` (Rust returns a static 1-byte slice into a 128-entry table)
+// is deferred — the static-table-of-strs shape doesn't yet fit cleanly
+// into Logos's read-side str surface. `[u8; N]::as_ascii` is also
+// deferred, gated on the const-N array-field codegen baghunt.
+
+package logos.lang.ascii;
+
+use logos.lang.option;
+
+pub struct AsciiChar {
+    byte: u8,
+}
+
+impl AsciiChar {
+    pub fn from_u8(b: u8) -> Option<AsciiChar> {
+        if b < 128u8 {
+            return Option::<AsciiChar>::Some(AsciiChar { byte: b });
+        }
+        return Option::<AsciiChar>::None;
+    }
+
+    pub unsafe fn from_u8_unchecked(b: u8) -> AsciiChar {
+        return AsciiChar { byte: b };
+    }
+
+    pub fn as_u8(self: AsciiChar) -> u8 { return self.byte; }
+
+    pub fn as_char(self: AsciiChar) -> char { return self.byte as char; }
+
+    pub fn is_alphabetic(self: AsciiChar) -> bool {
+        let v: i32 = self.byte as i32;
+        if v >= 97 && v <= 122 { return true; }
+        if v >= 65 && v <= 90  { return true; }
+        return false;
+    }
+
+    pub fn is_lowercase(self: AsciiChar) -> bool {
+        let v: i32 = self.byte as i32;
+        return v >= 97 && v <= 122;
+    }
+
+    pub fn is_uppercase(self: AsciiChar) -> bool {
+        let v: i32 = self.byte as i32;
+        return v >= 65 && v <= 90;
+    }
+
+    pub fn is_digit(self: AsciiChar) -> bool {
+        let v: i32 = self.byte as i32;
+        return v >= 48 && v <= 57;
+    }
+
+    pub fn is_alphanumeric(self: AsciiChar) -> bool {
+        if self.is_alphabetic() { return true; }
+        return self.is_digit();
+    }
+
+    pub fn is_hexdigit(self: AsciiChar) -> bool {
+        let v: i32 = self.byte as i32;
+        if v >= 48 && v <= 57  { return true; }
+        if v >= 65 && v <= 70  { return true; }
+        if v >= 97 && v <= 102 { return true; }
+        return false;
+    }
+
+    pub fn is_whitespace(self: AsciiChar) -> bool {
+        let v: i32 = self.byte as i32;
+        return v == 32 || v == 9 || v == 10 || v == 13 || v == 11 || v == 12;
+    }
+
+    pub fn is_control(self: AsciiChar) -> bool {
+        let v: i32 = self.byte as i32;
+        return v < 32 || v == 127;
+    }
+
+    pub fn to_ascii_lowercase(self: AsciiChar) -> AsciiChar {
+        if self.is_uppercase() {
+            return AsciiChar { byte: self.byte + 32u8 };
+        }
+        return self;
+    }
+
+    pub fn to_ascii_uppercase(self: AsciiChar) -> AsciiChar {
+        if self.is_lowercase() {
+            return AsciiChar { byte: self.byte - 32u8 };
+        }
+        return self;
+    }
+}
+
+// Free-fn constructors for common named values. Mirrors Rust's
+// AsciiChar::Null / AsciiChar::Tab / etc. — Logos uses fns instead of
+// enum variants since we're a struct wrapper.
+pub fn ascii_null()         -> AsciiChar { return AsciiChar { byte:   0u8 }; }
+pub fn ascii_bell()         -> AsciiChar { return AsciiChar { byte:   7u8 }; }
+pub fn ascii_backspace()    -> AsciiChar { return AsciiChar { byte:   8u8 }; }
+pub fn ascii_tab()          -> AsciiChar { return AsciiChar { byte:   9u8 }; }
+pub fn ascii_line_feed()    -> AsciiChar { return AsciiChar { byte:  10u8 }; }
+pub fn ascii_vert_tab()     -> AsciiChar { return AsciiChar { byte:  11u8 }; }
+pub fn ascii_form_feed()    -> AsciiChar { return AsciiChar { byte:  12u8 }; }
+pub fn ascii_carriage_ret() -> AsciiChar { return AsciiChar { byte:  13u8 }; }
+pub fn ascii_escape()       -> AsciiChar { return AsciiChar { byte:  27u8 }; }
+pub fn ascii_space()        -> AsciiChar { return AsciiChar { byte:  32u8 }; }
+pub fn ascii_delete()       -> AsciiChar { return AsciiChar { byte: 127u8 }; }

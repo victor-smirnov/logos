@@ -1,0 +1,41 @@
+// Logos standard library — std.hint
+//
+// Mirrors `core::hint` — optimisation hints that should be no-ops
+// semantically but may influence codegen.
+//
+// Today:
+//   black_box(x) — identity that the optimiser is expected to treat as
+//                  opaque (return value computed; can't be eliminated).
+//                  Logos's current optimiser doesn't fold across calls,
+//                  so the plain identity is already a good-enough
+//                  barrier; backend codegen can later widen to a true
+//                  inline-asm barrier with an empty-clobber.
+//   spin_loop()  — hint that we're in a busy-wait. On x86 this would
+//                  emit `pause` (REP NOP); on AArch64 `yield`. Today
+//                  it's a no-op — the call instruction itself bounds
+//                  any short busy-wait.
+//   unreachable_unchecked() — caller asserts this branch can't fire.
+//                  Diverges via abort if it ever does (defensive).
+//
+// Divergence: `must_use`, `assert_unchecked`, `cold_path`, `likely`,
+// `unlikely` not yet exposed — they require attribute / intrinsic
+// support the language hasn't surfaced.
+
+package logos.lang.hint;
+
+extern fn abort();
+
+pub fn black_box<T>(x: T) -> T {
+    return x;
+}
+
+pub fn spin_loop() {
+    // No-op today; backend would emit `pause` / `yield` here.
+}
+
+pub unsafe fn unreachable_unchecked() {
+    // Defensive: callers promise this is unreachable, but if it fires
+    // we abort rather than miscompile downstream code. Logos doesn't
+    // surface a `!` return type; this fn diverges via abort().
+    abort();
+}

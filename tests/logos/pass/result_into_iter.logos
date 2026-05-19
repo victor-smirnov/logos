@@ -1,0 +1,39 @@
+// Result IntoIterator — yields Ok value once, drops Err.
+package result_into_iter;
+
+use logos.lang.iter;
+use logos.lang.result;
+use logos.lang.option;
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    // Ok(7) → yields 7 once, then None.
+    let r1: Result<i32, str> = Result::<i32, str>::Ok(7);
+    let mut it1: ResultIter<i32> = r1.into_iter();
+    let a: Option<i32> = it1.next();
+    if !a.is_some() { return fail(1); }
+    if a.unwrap() != 7 { return fail(2); }
+    let b: Option<i32> = it1.next();
+    if b.is_some() { return fail(3); }
+
+    // Err("oops") → yields nothing.
+    let r2: Result<i32, str> = Result::<i32, str>::Err("oops");
+    let mut it2: ResultIter<i32> = r2.into_iter();
+    let c: Option<i32> = it2.next();
+    if c.is_some() { return fail(10); }
+
+    // Manual sum via explicit next-loop (for-in dispatch through
+    // IntoIterator at this call shape is a separate sema hookup).
+    let r3: Result<i32, str> = Result::<i32, str>::Ok(42);
+    let mut it3: ResultIter<i32> = r3.into_iter();
+    let mut sum: i32 = 0;
+    loop {
+        let v: Option<i32> = it3.next();
+        if !v.is_some() { break; }
+        sum = sum + v.unwrap();
+    }
+    if sum != 42 { return fail(20); }
+
+    return 0;
+}

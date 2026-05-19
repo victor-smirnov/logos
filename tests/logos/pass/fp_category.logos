@@ -1,0 +1,54 @@
+// FpCategory + classify + bit-pattern access smoke.
+package fp_category;
+
+use logos.lang.num.float;
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    // Bit-pattern round-trip.
+    let one_bits: u32 = f32_to_bits(1.0f32);
+    if one_bits != 0x3F800000u32 { return fail(1); }
+    let back: f32 = f32_from_bits(0x3F800000u32);
+    if back != 1.0f32 { return fail(2); }
+
+    let one_bits64: u64 = f64_to_bits(1.0);
+    if one_bits64 != 0x3FF0000000000000u64 { return fail(3); }
+
+    // Classification.
+    match f64_classify(0.0) {
+        FpCategory::Zero => {}
+        _ => { return fail(10); }
+    }
+    match f64_classify(1.0) {
+        FpCategory::Normal => {}
+        _ => { return fail(11); }
+    }
+    match f64_classify(0.0 / 0.0) {
+        FpCategory::Nan => {}
+        _ => { return fail(12); }
+    }
+    let big: f64 = 1.0e308 * 10.0;     // overflow → infinity
+    match f64_classify(big) {
+        FpCategory::Infinite => {}
+        _ => { return fail(13); }
+    }
+
+    // Predicates.
+    if !f64_is_finite(1.5) { return fail(20); }
+    if  f64_is_finite(0.0 / 0.0) { return fail(21); }
+    if !f64_is_nan(0.0 / 0.0) { return fail(22); }
+    if  f64_is_normal(0.0) { return fail(23); }
+
+    // f32 path.
+    match f32_classify(0.0f32) {
+        FpCategory::Zero => {}
+        _ => { return fail(30); }
+    }
+    match f32_classify(2.5f32) {
+        FpCategory::Normal => {}
+        _ => { return fail(31); }
+    }
+
+    return 0;
+}

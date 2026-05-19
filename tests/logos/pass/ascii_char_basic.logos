@@ -1,0 +1,43 @@
+// AsciiChar smoke — validated newtype, predicates, case-fold.
+package ascii_char_basic;
+
+use logos.lang.ascii;
+use logos.lang.option;
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    // from_u8 — valid range.
+    let a: Option<AsciiChar> = AsciiChar::from_u8(65u8);
+    if !a.is_some() { return fail(1); }
+    let ch: AsciiChar = a.unwrap();
+    if ch.as_u8() != 65u8 { return fail(2); }
+    if ch.as_char() != 65u32 as char { return fail(3); }
+    if !ch.is_uppercase()  { return fail(4); }
+    if !ch.is_alphabetic() { return fail(5); }
+    if  ch.is_digit()      { return fail(6); }
+
+    // from_u8 — out of range.
+    let b: Option<AsciiChar> = AsciiChar::from_u8(200u8);
+    if b.is_some() { return fail(10); }
+
+    // to_ascii_lowercase / uppercase.
+    let lower: AsciiChar = ch.to_ascii_lowercase();
+    if lower.as_u8() != 97u8 { return fail(20); }
+    let upper: AsciiChar = lower.to_ascii_uppercase();
+    if upper.as_u8() != 65u8 { return fail(21); }
+
+    // Whitespace, control.
+    let sp: AsciiChar = ascii_space();
+    if !sp.is_whitespace() { return fail(30); }
+    let nul: AsciiChar = ascii_null();
+    if !nul.is_control() { return fail(31); }
+
+    // Hexdigit.
+    let f_ch: AsciiChar = AsciiChar::from_u8(70u8).unwrap();    // 'F'
+    let z_ch: AsciiChar = AsciiChar::from_u8(122u8).unwrap();   // 'z'
+    if !f_ch.is_hexdigit() { return fail(40); }
+    if  z_ch.is_hexdigit() { return fail(41); }
+
+    return 0;
+}

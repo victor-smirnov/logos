@@ -1,0 +1,25 @@
+// ptr::{read_volatile, write_volatile, read_unaligned, write_unaligned} smoke.
+package ptr_volatile_unaligned;
+
+use logos.lang.ptr;
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    let mut x: i32 = 7;
+    let p: *mut i32 = &mut x as *mut i32;
+
+    unsafe {
+        write_volatile::<i32>(p, 42);
+        let v: i32 = read_volatile::<i32>(p as *const i32);
+        if v != 42 { return fail(1); }
+
+        write_unaligned::<i32>(p, 99);
+        let v2: i32 = read_unaligned::<i32>(p as *const i32);
+        if v2 != 99 { return fail(2); }
+    }
+
+    if x != 99 { return fail(3); }
+
+    return 0;
+}

@@ -6,6 +6,7 @@
 package logos.lang.iter;
 
 use logos.lang.option;
+use logos.lang.result;
 use logos.lang.cmp;
 use logos.lang.ops;
 
@@ -1601,6 +1602,35 @@ impl<T> IntoIterator<T> for Option<T> {
     type Iter = OptionIter<T>;
     fn into_iter(self: Option<T>) -> OptionIter<T> {
         return OptionIter { state: self };
+    }
+}
+
+// ── ResultIter<T> — 0-or-1-element iterator over a Result<T, E> ──────────────
+//
+// Mirrors Rust's `impl<T, E> IntoIterator for Result<T, E>` — yields the
+// Ok value once if present, never yields the Err value. The Err arm is
+// dropped at into_iter construction time (this matches Rust semantics;
+// if the caller needs the error, they should consume the Result before
+// iteration). E is consumed during the conversion, so ResultIter
+// doesn't need to carry it as a type-param.
+
+pub struct ResultIter<T> {
+    pub state: Option<T>,
+}
+
+impl<T> Iterator<T> for ResultIter<T> {
+    fn next(self: &mut ResultIter<T>) -> Option<T> {
+        return self.state.take();
+    }
+}
+
+impl<T, E> IntoIterator<T> for Result<T, E> {
+    type Iter = ResultIter<T>;
+    fn into_iter(self: Result<T, E>) -> ResultIter<T> {
+        match self {
+            Result::Ok(v)  => { return ResultIter::<T> { state: Option::<T>::Some(v) }; }
+            Result::Err(_) => { return ResultIter::<T> { state: Option::<T>::None }; }
+        }
     }
 }
 

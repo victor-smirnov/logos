@@ -1,0 +1,147 @@
+// Logos standard library — std.lang.num.float
+//
+// Floating-point classification, bit-pattern access, and FpCategory.
+// Mirrors `core::num::FpCategory` + `f32::classify` / `f64::classify`
+// + `f32::to_bits` / `f64::to_bits` / `from_bits`.
+
+package logos.lang.num.float;
+
+// Mirrors `core::num::FpCategory`. Variants in IEEE-754-classification
+// order: Nan / Infinite / Zero / Subnormal / Normal.
+pub enum FpCategory {
+    Nan,
+    Infinite,
+    Zero,
+    Subnormal,
+    Normal,
+}
+
+// ── Bit-pattern access ───────────────────────────────────────────────────
+//
+// IEEE 754 bit-pattern reinterpret. Logos doesn't expose a transmute
+// intrinsic, so we route through pointer casts — the underlying values
+// are stack-resident scalars, so this is well-defined.
+
+pub fn f32_to_bits(x: f32) -> u32 {
+    unsafe {
+        let p: *const u32 = &x as *const f32 as *const u32;
+        return *p;
+    }
+}
+
+pub fn f32_from_bits(b: u32) -> f32 {
+    unsafe {
+        let p: *const f32 = &b as *const u32 as *const f32;
+        return *p;
+    }
+}
+
+pub fn f64_to_bits(x: f64) -> u64 {
+    unsafe {
+        let p: *const u64 = &x as *const f64 as *const u64;
+        return *p;
+    }
+}
+
+pub fn f64_from_bits(b: u64) -> f64 {
+    unsafe {
+        let p: *const f64 = &b as *const u64 as *const f64;
+        return *p;
+    }
+}
+
+// ── Classification ───────────────────────────────────────────────────────
+//
+// IEEE 754 bit layout:
+//   f32: 1 sign + 8 exp + 23 mantissa  (exp mask 0x7F800000, mant 0x007FFFFF)
+//   f64: 1 sign + 11 exp + 52 mantissa (exp mask 0x7FF00000_00000000)
+
+pub fn f32_classify(x: f32) -> FpCategory {
+    let bits: u32 = f32_to_bits(x);
+    let exp:  u32 = bits & 0x7F800000u32;
+    let mant: u32 = bits & 0x007FFFFFu32;
+    if exp == 0x7F800000u32 {
+        if mant != 0u32 { return FpCategory::Nan; }
+        return FpCategory::Infinite;
+    }
+    if exp == 0u32 {
+        if mant == 0u32 { return FpCategory::Zero; }
+        return FpCategory::Subnormal;
+    }
+    return FpCategory::Normal;
+}
+
+pub fn f64_classify(x: f64) -> FpCategory {
+    let bits: u64 = f64_to_bits(x);
+    let exp:  u64 = bits & 0x7FF0000000000000u64;
+    let mant: u64 = bits & 0x000FFFFFFFFFFFFFu64;
+    if exp == 0x7FF0000000000000u64 {
+        if mant != 0u64 { return FpCategory::Nan; }
+        return FpCategory::Infinite;
+    }
+    if exp == 0u64 {
+        if mant == 0u64 { return FpCategory::Zero; }
+        return FpCategory::Subnormal;
+    }
+    return FpCategory::Normal;
+}
+
+// ── Predicate sugar — match the Rust-side method names ──────────────────
+
+pub fn f32_is_nan(x: f32) -> bool {
+    match f32_classify(x) {
+        FpCategory::Nan => { return true; }
+        _               => { return false; }
+    }
+}
+
+pub fn f32_is_infinite(x: f32) -> bool {
+    match f32_classify(x) {
+        FpCategory::Infinite => { return true; }
+        _                    => { return false; }
+    }
+}
+
+pub fn f32_is_finite(x: f32) -> bool {
+    match f32_classify(x) {
+        FpCategory::Nan      => { return false; }
+        FpCategory::Infinite => { return false; }
+        _                    => { return true; }
+    }
+}
+
+pub fn f32_is_normal(x: f32) -> bool {
+    match f32_classify(x) {
+        FpCategory::Normal => { return true; }
+        _                  => { return false; }
+    }
+}
+
+pub fn f64_is_nan(x: f64) -> bool {
+    match f64_classify(x) {
+        FpCategory::Nan => { return true; }
+        _               => { return false; }
+    }
+}
+
+pub fn f64_is_infinite(x: f64) -> bool {
+    match f64_classify(x) {
+        FpCategory::Infinite => { return true; }
+        _                    => { return false; }
+    }
+}
+
+pub fn f64_is_finite(x: f64) -> bool {
+    match f64_classify(x) {
+        FpCategory::Nan      => { return false; }
+        FpCategory::Infinite => { return false; }
+        _                    => { return true; }
+    }
+}
+
+pub fn f64_is_normal(x: f64) -> bool {
+    match f64_classify(x) {
+        FpCategory::Normal => { return true; }
+        _                  => { return false; }
+    }
+}

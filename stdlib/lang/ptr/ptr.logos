@@ -138,6 +138,40 @@ pub fn addr_eq<T, U>(a: *const T, b: *const U) -> bool {
     return (a as i64) == (b as i64);
 }
 
+// ── Volatile / unaligned access ─────────────────────────────────────────
+//
+// Mirrors `core::ptr::{read_volatile, write_volatile, read_unaligned,
+// write_unaligned}`.
+//
+// Today Logos's backend doesn't have a separate volatile load/store
+// MLIR op exposed at this layer — every load/store is performed
+// directly, and the optimiser doesn't yet reorder around side-effecting
+// loads aggressively, so plain ptr deref already has the observable
+// effect Rust's volatile guarantees. When LLVM volatile is plumbed
+// through, these wrappers become the natural opt-in surface and the
+// callers don't change.
+//
+// For unaligned access: x86-64 hardware tolerates unaligned 1/2/4/8-byte
+// loads and stores natively (no #AC trap in normal mode), so the plain
+// pointer deref is correct. Other targets would route these to a
+// byte-wise memcpy fallback.
+
+pub unsafe fn read_volatile<T>(src: *const T) -> T {
+    unsafe { return src[0]; }
+}
+
+pub unsafe fn write_volatile<T>(dst: *mut T, src: T) {
+    unsafe { dst[0] = src; }
+}
+
+pub unsafe fn read_unaligned<T>(src: *const T) -> T {
+    unsafe { return src[0]; }
+}
+
+pub unsafe fn write_unaligned<T>(dst: *mut T, src: T) {
+    unsafe { dst[0] = src; }
+}
+
 // ───────────────────────────────────────────────────────────────────
 // NonNull<T>
 // ───────────────────────────────────────────────────────────────────
