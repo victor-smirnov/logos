@@ -1,8 +1,8 @@
-// Session 3 of std.fmt migration: FmtDisplay/FmtDebug for Option,
-// Vec, String, Ordering + FmtLowerHex/UpperHex/Octal/Binary/Exp for
+// Session 3 of std.fmt migration: Display/Debug for Option,
+// Vec, String, Ordering + LowerHex/UpperHex/Octal/Binary/Exp for
 // integer/float primitives.
 //
-// `Result<T, E>` FmtDebug is wired in lang.mem.fmt but calling
+// `Result<T, E>` Debug is wired in lang.mem.fmt but calling
 // `fmt_debug_to_string::<Result>` triggers a mono-routing oddity
 // (lookup mangles the fn-name with the impl's home package
 // `logos.mem.fmt` while mono only emits when the impl's package

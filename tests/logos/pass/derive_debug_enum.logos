@@ -3,9 +3,9 @@
 // Hook walks ENUM.ITEMS (wrapped variant_list), reads each VARIANT_DEF
 // for NAME + payload arity, and synthesises a `match self { ... }`
 // body. Unit variants emit just the name; tuple variants bind their
-// payloads as `_v0, _v1, ...` and recurse with `<v>.dbg(buf)`. Each
+// payloads as `_v0, _v1, ...` and recurse with `.fmt_debug(__f)`. Each
 // payload field dispatches into its own Debug impl through the
-// generic-context path (same trick as in 24a).
+// generic-context path.
 
 package main;
 
@@ -33,19 +33,17 @@ fn derive_debug_enum_hook(target_offset: u32) -> () {
     let mut em: Emitter = Emitter::new();
     em.emit_target_pkg(&view);
     em.emit_raw("use std.fmt;");
-    em.emit_raw("use logos.mem.string;\nuse logos.lang.str;");
+    em.emit_raw("use logos.mem.string;\nuse logos.lang.str;\nuse logos.lang.result;");
 
     em.buf.push_str("impl Debug for ");
     unsafe { em.buf.push_bytes(name.ptr, name.len as i64); }
     em.buf.push_str(" {");
     em.buf.push_u8(10 as u8);
 
-    em.buf.push_str("    fn dbg(self: ");
-    unsafe { em.buf.push_bytes(name.ptr, name.len as i64); }
-    em.buf.push_str(", buf: &mut String) {");
+    em.buf.push_str("    fn fmt_debug(&self, __f: &mut Formatter) -> Result<(), Error> {");
     em.buf.push_u8(10 as u8);
 
-    em.buf.push_str("        match self {");
+    em.buf.push_str("        match *self {");
     em.buf.push_u8(10 as u8);
 
     let mut i: u64 = 0 as u64;
@@ -54,19 +52,16 @@ fn derive_debug_enum_hook(target_offset: u32) -> () {
         let vname: StringView = view.ast_node_name(v);
         let arity: u64 = view.ast_variant_arity(v);
 
-        // <EnumName>::<VariantName>
         em.buf.push_str("            ");
         unsafe { em.buf.push_bytes(name.ptr, name.len as i64); }
         em.buf.push_str("::");
         unsafe { em.buf.push_bytes(vname.ptr, vname.len as i64); }
 
         if arity == (0 as u64) {
-            // Unit: print just the name.
-            em.buf.push_str(" => { buf.push_str(\"");
+            em.buf.push_str(" => { let _ = __f.write_str(\"");
             unsafe { em.buf.push_bytes(vname.ptr, vname.len as i64); }
             em.buf.push_str("\"); }");
         } else {
-            // Tuple: bind payloads as _v0, _v1, ... and recurse.
             em.buf.push_str("(");
             let mut k: u64 = 0 as u64;
             while k < arity {
@@ -75,20 +70,20 @@ fn derive_debug_enum_hook(target_offset: u32) -> () {
                 em.buf.push_u64(k);
                 k = k + (1 as u64);
             }
-            em.buf.push_str(") => { buf.push_str(\"");
+            em.buf.push_str(") => { let _ = __f.write_str(\"");
             unsafe { em.buf.push_bytes(vname.ptr, vname.len as i64); }
             em.buf.push_str("(\"); ");
             let mut k2: u64 = 0 as u64;
             while k2 < arity {
                 if k2 > (0 as u64) {
-                    em.buf.push_str("buf.push_str(\", \"); ");
+                    em.buf.push_str("let _ = __f.write_str(\", \"); ");
                 }
-                em.buf.push_str("_v");
+                em.buf.push_str("let _ = (&_v");
                 em.buf.push_u64(k2);
-                em.buf.push_str(".dbg(buf); ");
+                em.buf.push_str(").fmt_debug(__f); ");
                 k2 = k2 + (1 as u64);
             }
-            em.buf.push_str("buf.push_u8(41 as u8); }");
+            em.buf.push_str("let _ = __f.write_char(41 as u8); }");
         }
         em.buf.push_u8(10 as u8);
 
@@ -96,6 +91,8 @@ fn derive_debug_enum_hook(target_offset: u32) -> () {
     }
 
     em.buf.push_str("        }");
+    em.buf.push_u8(10 as u8);
+    em.buf.push_str("        return ok();");
     em.buf.push_u8(10 as u8);
     em.buf.push_str("    }");
     em.buf.push_u8(10 as u8);
@@ -112,11 +109,14 @@ unsafe fn main() -> i32 {
     let s2: Shape = Shape::Circle(7);
     let s3: Shape = Shape::Empty;
     let mut buf: String = String::new();
-    s1.dbg(&mut buf);
+    let t1: String = fmt_debug_to_string::<Shape>(&s1);
+    buf.push_str(t1.as_str());
     buf.push_u8(32 as u8);
-    s2.dbg(&mut buf);
+    let t2: String = fmt_debug_to_string::<Shape>(&s2);
+    buf.push_str(t2.as_str());
     buf.push_u8(32 as u8);
-    s3.dbg(&mut buf);
+    let t3: String = fmt_debug_to_string::<Shape>(&s3);
+    buf.push_str(t3.as_str());
     println_string(&buf);
     // "Rect(3, 4) Circle(7) Empty" = 26 bytes
     return buf.len() as i32;

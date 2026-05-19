@@ -3778,7 +3778,7 @@ bool Mono::method_bound_ok(const lir::LFunction& m, const SubstMap& s) {
             return mono_has_impl_recursive(trait, cn, seen);
         };
         // Deeper variant: when the concrete type has type-args, the
-        // bare-name lookup above can lie ("Vec impls FmtDebug" without
+        // bare-name lookup above can lie ("Vec impls Debug" without
         // checking T satisfies its own bound). Recurse via
         // mono_concrete_satisfies_bound; see
         // [[baghunt-mono-blanket-bound-recursion]].
@@ -4494,7 +4494,7 @@ void Mono::instantiate_enum_templates() {
             // contain TypeVars from the fn's own type params. A fully-
             // concrete `Result<(), Error>` return type doesn't recurse on
             // mono — substitution leaves it identical. Without this
-            // refinement, my `impl<T,E> FmtDebug for Result<T,E> { fn
+            // refinement, my `impl<T,E> Debug for Result<T,E> { fn
             // fmt_debug(&self,f)->Result<(),Error> }` is rejected because
             // the return mentions Result with concrete `()`/`Error` args.
             auto type_contains_typevar = [](TypeRef t) -> bool {

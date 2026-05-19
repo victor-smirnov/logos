@@ -28,90 +28,6 @@ pub use logos.mem.fmt;
 use std.compiler.metaprog;
 use std.io;
 
-// ── Legacy Debug trait (Session-4-followup deletion) ─────────────────────
-//
-// Pre-Session-4 shape: `trait Debug { fn dbg(self: Self, buf: &mut String); }`
-// Still consumed by:
-//   - `tests/logos/pass/derive_debug_e2e.logos` and friends — derive
-//     metaprog still emits `.dbg(buf)` impls. Migrate to FmtDebug shape
-//     and the trait below can be deleted alongside.
-//   - `examples/logos_showcase.logos`, `examples/hermes_showcase.logos`.
-//
-// Bodies dispatch to mem.fmt's FmtDebug via `fmt_debug_to_string` so
-// the same content shows up regardless of which trait the caller
-// reaches first. New code should target FmtDebug directly.
-
-pub trait Debug {
-    fn dbg(self: Self, buf: &mut String);
-}
-
-impl Debug for i8 {
-    fn dbg(self: i8, buf: &mut String) {
-        let s: String = fmt_debug_to_string::<i8>(&self);
-        buf.push_str(s.as_str());
-    }
-}
-impl Debug for i16 {
-    fn dbg(self: i16, buf: &mut String) {
-        let s: String = fmt_debug_to_string::<i16>(&self);
-        buf.push_str(s.as_str());
-    }
-}
-impl Debug for i32 {
-    fn dbg(self: i32, buf: &mut String) {
-        let s: String = fmt_debug_to_string::<i32>(&self);
-        buf.push_str(s.as_str());
-    }
-}
-impl Debug for i64 {
-    fn dbg(self: i64, buf: &mut String) {
-        let s: String = fmt_debug_to_string::<i64>(&self);
-        buf.push_str(s.as_str());
-    }
-}
-impl Debug for u8 {
-    fn dbg(self: u8, buf: &mut String) {
-        let s: String = fmt_debug_to_string::<u8>(&self);
-        buf.push_str(s.as_str());
-    }
-}
-impl Debug for u16 {
-    fn dbg(self: u16, buf: &mut String) {
-        let s: String = fmt_debug_to_string::<u16>(&self);
-        buf.push_str(s.as_str());
-    }
-}
-impl Debug for u32 {
-    fn dbg(self: u32, buf: &mut String) {
-        let s: String = fmt_debug_to_string::<u32>(&self);
-        buf.push_str(s.as_str());
-    }
-}
-impl Debug for u64 {
-    fn dbg(self: u64, buf: &mut String) {
-        let s: String = fmt_debug_to_string::<u64>(&self);
-        buf.push_str(s.as_str());
-    }
-}
-impl Debug for usize {
-    fn dbg(self: usize, buf: &mut String) {
-        let s: String = fmt_debug_to_string::<usize>(&self);
-        buf.push_str(s.as_str());
-    }
-}
-impl Debug for isize {
-    fn dbg(self: isize, buf: &mut String) {
-        let s: String = fmt_debug_to_string::<isize>(&self);
-        buf.push_str(s.as_str());
-    }
-}
-impl Debug for bool {
-    fn dbg(self: bool, buf: &mut String) {
-        let s: String = fmt_debug_to_string::<bool>(&self);
-        buf.push_str(s.as_str());
-    }
-}
-
 // ── Per-trait dispatch helpers (sema-resident lowering hook) ──────────────
 //
 // Sema's `lower_method_call` short-circuits dot-method dispatch on slice
@@ -126,28 +42,28 @@ impl Debug for bool {
 // fat-ptr or scalar copy; for owned types it consumes — same semantics
 // as the legacy variadic `format_args_str` had.
 
-pub fn fmt_display<T: FmtDisplay>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
+pub fn fmt_display<T: Display>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
     return arg.fmt_display(f);
 }
-pub fn fmt_debug<T: FmtDebug>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
+pub fn fmt_debug<T: Debug>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
     return arg.fmt_debug(f);
 }
-pub fn fmt_lower_hex<T: FmtLowerHex>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
+pub fn fmt_lower_hex<T: LowerHex>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
     return arg._fmt_lower_hex(f);
 }
-pub fn fmt_upper_hex<T: FmtUpperHex>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
+pub fn fmt_upper_hex<T: UpperHex>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
     return arg._fmt_upper_hex(f);
 }
-pub fn fmt_octal<T: FmtOctal>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
+pub fn fmt_octal<T: Octal>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
     return arg._fmt_octal(f);
 }
-pub fn fmt_binary<T: FmtBinary>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
+pub fn fmt_binary<T: Binary>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
     return arg._fmt_binary(f);
 }
-pub fn fmt_lower_exp<T: FmtLowerExp>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
+pub fn fmt_lower_exp<T: LowerExp>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
     return arg._fmt_lower_exp(f);
 }
-pub fn fmt_upper_exp<T: FmtUpperExp>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
+pub fn fmt_upper_exp<T: UpperExp>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
     return arg._fmt_upper_exp(f);
 }
 
@@ -166,7 +82,7 @@ unsafe fn fmt_into(pat: str, fi: i64, flen: i64, f: &mut Formatter) {
     while i < flen { unsafe { (*f.buf).push_u8(pat[i]); } i = i + 1; }
 }
 
-unsafe fn fmt_into<H: FmtDisplay + FmtDebug, T...>(pat: str, fi: i64, flen: i64,
+unsafe fn fmt_into<H: Display + Debug, T...>(pat: str, fi: i64, flen: i64,
                                                    f: &mut Formatter,
                                                    first: H, rest: T...) {
     let mut i: i64 = fi;
@@ -211,7 +127,7 @@ unsafe fn fmt_into<H: FmtDisplay + FmtDebug, T...>(pat: str, fi: i64, flen: i64,
 // Runtime fn that `format!` and the variadic `format` alias both lower
 // to when sema-resident lowering can't fire (dynamic pattern). Owns
 // the buffer + Formatter; returns the assembled String (Drop frees).
-pub fn format_args_str<T...: FmtDisplay + FmtDebug>(pat: str, args: T...) -> String {
+pub fn format_args_str<T...: Display + Debug>(pat: str, args: T...) -> String {
     let mut buf: String = String::new();
     let mut f: Formatter = Formatter::new(&mut buf);
     unsafe { fmt_into(pat, 0i64, pat.len(), &mut f, args...); }
@@ -219,7 +135,7 @@ pub fn format_args_str<T...: FmtDisplay + FmtDebug>(pat: str, args: T...) -> Str
 }
 
 // Back-compat alias. Some pre-macro test code wrote `format::<T...>("...", a, b)`.
-pub fn format<T...: FmtDisplay + FmtDebug>(pat: str, args: T...) -> String {
+pub fn format<T...: Display + Debug>(pat: str, args: T...) -> String {
     return format_args_str(pat, args...);
 }
 
@@ -287,7 +203,7 @@ pub fn __fmt_panic(msg: str) { panic(msg); }
 // `panic!(...)` macro — formats per Rust's panic! and aborts.
 // Bodies emit `format!(...)` (not `format_args_str(...)`) so sema's
 // format-family interception fires on the per-placeholder dispatch and
-// the variadic bound `T...: FmtDisplay + FmtDebug` on the runtime fn
+// the variadic bound `T...: Display + Debug` on the runtime fn
 // never has to bind to non-Display types (Result<i32, str>, tuples
 // with only Debug, etc.).
 #[fn_macro]

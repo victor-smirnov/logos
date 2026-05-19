@@ -1,5 +1,5 @@
 // Session 2 of the std.fmt → Formatter migration: exercises
-// FmtDisplay/FmtDebug for every primitive (integers, bool, str,
+// Display/Debug for every primitive (integers, bool, str,
 // *const u8, f32/f64, unit, 1- to 4-tuples).
 package test;
 

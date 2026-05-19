@@ -2,13 +2,14 @@
 //
 // Same pre-sema hook pattern as derive_debug_e2e, but the target may
 // carry TYPE_PARAMS. Hook reads them via OView::ast_type_param_count
-// + ast_type_param_name and emits an `impl<T: Debug, ...> Debug for
-// Pair<T, ...>` header. The body's per-field call `self.<name>.dbg(buf)`
-// dispatches into `T::dbg` through the generic-context path (same as
-// debug_primitives.logos's `dbg_to<T: Debug>`).
+// + ast_type_param_name and emits an `impl<T: Debug, ...> Debug
+// for Pair<T, ...>` header. The body's per-field call
+// `self.<name>.fmt_debug(f)` dispatches into `T::fmt_debug` through
+// the generic-context path.
 //
 // Test instantiates Pair<i32> and asserts the printed length —
 // proves type-param plumbing in OView and the synth template work.
+
 package main;
 
 use logos.lang.hermes.view;
@@ -36,7 +37,7 @@ fn derive_debug_g_hook(target_offset: u32) -> () {
     let mut em: Emitter = Emitter::new();
     em.emit_target_pkg(&view);
     em.emit_raw("use std.fmt;");
-    em.emit_raw("use logos.mem.string;\nuse logos.lang.str;");
+    em.emit_raw("use logos.mem.string;\nuse logos.lang.str;\nuse logos.lang.result;");
 
     // impl<T: Debug, ...> Debug for Name<T, ...>
     em.buf.push_str("impl");
@@ -68,23 +69,10 @@ fn derive_debug_g_hook(target_offset: u32) -> () {
     em.buf.push_str(" {");
     em.buf.push_u8(10 as u8);
 
-    em.buf.push_str("    fn dbg(self: ");
-    unsafe { em.buf.push_bytes(name.ptr, name.len as i64); }
-    if np > (0 as u64) {
-        em.buf.push_str("<");
-        let mut k: u64 = 0 as u64;
-        while k < np {
-            if k > (0 as u64) { em.buf.push_str(", "); }
-            let tp: StringView = view.ast_type_param_name(item, k);
-            unsafe { em.buf.push_bytes(tp.ptr, tp.len as i64); }
-            k = k + (1 as u64);
-        }
-        em.buf.push_str(">");
-    }
-    em.buf.push_str(", buf: &mut String) {");
+    em.buf.push_str("    fn fmt_debug(&self, __f: &mut Formatter) -> Result<(), Error> {");
     em.buf.push_u8(10 as u8);
 
-    em.buf.push_str("        buf.push_str(\"");
+    em.buf.push_str("        let _ = __f.write_str(\"");
     unsafe { em.buf.push_bytes(name.ptr, name.len as i64); }
     em.buf.push_str(" {\");");
     em.buf.push_u8(10 as u8);
@@ -95,26 +83,26 @@ fn derive_debug_g_hook(target_offset: u32) -> () {
         let fname: StringView = view.ast_field_name(fld);
 
         if i == (0 as u64) {
-            em.buf.push_str("        buf.push_str(\" \");");
+            em.buf.push_str("        let _ = __f.write_str(\" \");");
         } else {
-            em.buf.push_str("        buf.push_str(\", \");");
+            em.buf.push_str("        let _ = __f.write_str(\", \");");
         }
         em.buf.push_u8(10 as u8);
 
-        em.buf.push_str("        buf.push_str(\"");
+        em.buf.push_str("        let _ = __f.write_str(\"");
         unsafe { em.buf.push_bytes(fname.ptr, fname.len as i64); }
         em.buf.push_str(": \");");
         em.buf.push_u8(10 as u8);
 
-        em.buf.push_str("        self.");
+        em.buf.push_str("        let _ = (&self.");
         unsafe { em.buf.push_bytes(fname.ptr, fname.len as i64); }
-        em.buf.push_str(".dbg(buf);");
+        em.buf.push_str(").fmt_debug(__f);");
         em.buf.push_u8(10 as u8);
 
         i = i + (1 as u64);
     }
 
-    em.buf.push_str("        buf.push_str(\" }\");");
+    em.buf.push_str("        return __f.write_str(\" }\");");
     em.buf.push_u8(10 as u8);
 
     em.buf.push_str("    }");
@@ -129,8 +117,7 @@ struct Pair<T> { a: T, b: T }
 
 unsafe fn main() -> i32 {
     let p: Pair<i32> = Pair { a: 7, b: 11 };
-    let mut s: String = String::new();
-    p.dbg(&mut s);
+    let s: String = fmt_debug_to_string::<Pair<i32>>(&p);
     println_string(&s);
     // "Pair { a: 7, b: 11 }" = 20 bytes
     return s.len() as i32;

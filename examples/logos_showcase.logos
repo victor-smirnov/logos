@@ -71,10 +71,10 @@ fn derive_show_struct_hook(target_offset: u32) -> () {
     let mut em: Emitter = Emitter::new();
     em.emit_target_pkg(&view);
     em.emit_raw("use std.fmt;");
-    em.emit_raw("use logos.mem.string;\nuse logos.lang.str;");
+    em.emit_raw("use logos.mem.string;\nuse logos.lang.str;\nuse logos.lang.result;");
 
     em.tpl3(
-        "impl$BOUNDS Debug for $T$TYS { fn dbg(self: $T$TYS, buf: &mut String) { buf.push_str(\"$T {\"); ",
+        "impl$BOUNDS Debug for $T$TYS { fn fmt_debug(&self, __f: &mut Formatter) -> Result<(), Error> { let _ = __f.write_str(\"$T {\"); ",
         "BOUNDS", view_of_string(&bounds),
         "T",      name,
         "TYS",    view_of_string(&tys));
@@ -85,13 +85,13 @@ fn derive_show_struct_hook(target_offset: u32) -> () {
         let fname: StringView = view.ast_field_name(fld);
         let lead:  str        = if i == 0 { " " } else { ", " };
         em.tpl2(
-            "buf.push_str(\"$LEAD$F: \"); self.$F.dbg(buf); ",
+            "let _ = __f.write_str(\"$LEAD$F: \"); let _ = (&self.$F).fmt_debug(__f); ",
             "LEAD", view_of_str(lead),
             "F",    fname);
         i = i + 1;
     }
 
-    em.push_text("buf.push_str(\" }\"); } }");
+    em.push_text("return __f.write_str(\" }\"); } }");
     em.commit();
     return;
 }
@@ -113,10 +113,10 @@ fn derive_show_enum_hook(target_offset: u32) -> () {
     let mut em: Emitter = Emitter::new();
     em.emit_target_pkg(&view);
     em.emit_raw("use std.fmt;");
-    em.emit_raw("use logos.mem.string;\nuse logos.lang.str;");
+    em.emit_raw("use logos.mem.string;\nuse logos.lang.str;\nuse logos.lang.result;");
 
     em.tpl1(
-        "impl Debug for $T { fn dbg(self: $T, buf: &mut String) { match self { ",
+        "impl Debug for $T { fn fmt_debug(&self, __f: &mut Formatter) -> Result<(), Error> { match *self { ",
         "T", name);
 
     let mut i: u64 = 0;
@@ -127,7 +127,7 @@ fn derive_show_enum_hook(target_offset: u32) -> () {
 
         if arity == 0 {
             em.tpl2(
-                "$T::$V => { buf.push_str(\"$V\"); } ",
+                "$T::$V => { let _ = __f.write_str(\"$V\"); } ",
                 "T", name,
                 "V", vname);
         } else {
@@ -138,19 +138,18 @@ fn derive_show_enum_hook(target_offset: u32) -> () {
                 em.push_text("_v"); em.push_num(k);
                 k = k + 1;
             }
-            em.tpl1(") => { buf.push_str(\"$V(\"); ", "V", vname);
+            em.tpl1(") => { let _ = __f.write_str(\"$V(\"); ", "V", vname);
             let mut k2: u64 = 0;
             while k2 < arity {
-                if k2 > 0 { em.push_text("buf.push_str(\", \"); "); }
-                em.push_text("_v"); em.push_num(k2);
-                em.push_text(".dbg(buf); ");
+                if k2 > 0 { em.push_text("let _ = __f.write_str(\", \"); "); }
+                em.push_text("let _ = (&_v"); em.push_num(k2); em.push_text(").fmt_debug(__f); ");
                 k2 = k2 + 1;
             }
-            em.push_text("buf.push_u8(41u8); } ");   // ')'
+            em.push_text("let _ = __f.write_char(41u8); } ");   // ')'
         }
         i = i + 1;
     }
-    em.push_text("} } }");
+    em.push_text("} return ok(); } }");
     em.commit();
     return;
 }
@@ -193,11 +192,12 @@ enum Shape { Circle(i32), Rect(i32, i32), Empty }
 
 // ── runtime: exercise every synthesised item ──────────────────────────────
 
-unsafe fn show<T: Debug>(label: str, v: T) {
+unsafe fn show<T: Debug>(label: str, v: &T) {
     let mut s: String = String::new();
     s.push_str(label);
     s.push_str(" = ");
-    v.dbg(&mut s);
+    let body: String = fmt_debug_to_string::<T>(v);
+    s.push_str(body.as_str());
     println_string(&s);
 }
 
@@ -209,12 +209,12 @@ unsafe fn main() -> i32 {
     let s2: Shape = Shape::Circle(9);
     let s3: Shape = Shape::Empty;
 
-    show::<Widget>("widget   ", w);
-    show::<Pair<i32>>("pair_i32 ", pi);
-    show::<Pair<bool>>("pair_bool", pb);
-    show::<Shape>("shape_R  ", s1);
-    show::<Shape>("shape_C  ", s2);
-    show::<Shape>("shape_E  ", s3);
+    show::<Widget>("widget   ", &w);
+    show::<Pair<i32>>("pair_i32 ", &pi);
+    show::<Pair<bool>>("pair_bool", &pb);
+    show::<Shape>("shape_R  ", &s1);
+    show::<Shape>("shape_C  ", &s2);
+    show::<Shape>("shape_E  ", &s3);
 
     let mut a: String = String::new();
     a.push_str("arity_Widget = ");

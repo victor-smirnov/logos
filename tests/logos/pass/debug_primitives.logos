@@ -1,9 +1,6 @@
-// std.fmt::Debug — primitive impls. Slice 15 of Phase 7 (path to derive-Debug).
-// Direct `x.dbg(buf)` works on typed primitive receivers (let x: i32 = ...,
-// or struct fields). The remaining gap is unannotated integer literals
-// (`{integer}` falls through method dispatch before defaulting to i32) —
-// here we exercise the trait via generic dispatch (`dbg_to(...)`) so we
-// can mix bool/u64/i64 in one driver without per-call `as` casts.
+// Debug — primitive impls. Exercises the trait via generic dispatch
+// (`dbg_to(...)`) so we can mix bool/u64/i64 in one driver without
+// per-call `as` casts.
 package debug_primitives;
 
 use std.fmt;
@@ -11,18 +8,22 @@ use logos.mem.string;
 use logos.lang.str;
 use std.io;
 
-fn dbg_to<T: Debug>(v: T, buf: &mut String) {
-    v.dbg(buf);
+fn dbg_to<T: Debug>(v: &T, buf: &mut String) {
+    let s: String = fmt_debug_to_string::<T>(v);
+    buf.push_str(s.as_str());
     buf.push_u8(32 as u8);
 }
 
 unsafe fn main() -> i32 {
     let mut s: String = String::new();
-    dbg_to::<i32>(0 - 7, &mut s);
-    dbg_to::<bool>(true, &mut s);
-    dbg_to::<u64>(42 as u64, &mut s);
+    let a: i32 = 0 - 7;
+    dbg_to::<i32>(&a, &mut s);
+    let b: bool = true;
+    dbg_to::<bool>(&b, &mut s);
+    let c: u64 = 42 as u64;
+    dbg_to::<u64>(&c, &mut s);
     let n: i64 = 0 - 999;
-    dbg_to::<i64>(n, &mut s);
+    dbg_to::<i64>(&n, &mut s);
     println_string(&s);
     return 42;
 }

@@ -17,7 +17,7 @@
 //
 // Also defines the ToString trait with primitive impls. The Display
 // trait (Rust-shape `fn fmt(&self, &mut Formatter) -> Result<(), Error>`)
-// lives in `mem.fmt` (named `FmtDisplay` pending the cross-pkg trait
+// lives in `mem.fmt` (named `Display` pending the cross-pkg trait
 // registry collision fix), with format-macro plumbing in `std.fmt`.
 // Read-only `str` helpers (str_eq, str_trim, etc.) live in lang-tier
 // [logos.lang.str](../../lang/str/str.logos).
@@ -182,7 +182,7 @@ impl String {
     }
 
     // Ensure `reserve` spare bytes, return pointer to first spare byte.
-    // Used by FmtDisplay impls and Formatter helpers to write
+    // Used by Display impls and Formatter helpers to write
     // directly into the buffer.
     pub fn spare_ptr(&mut self, reserve: i64) -> *mut u8 {
         self.grow(reserve);
@@ -262,7 +262,7 @@ impl Drop for String {
 
 // ── ToString + float bridge ───────────────────────────────────────────────
 
-// Float-to-decimal extern bridge (used by FmtDisplay for f32/f64 in
+// Float-to-decimal extern bridge (used by Display for f32/f64 in
 // mem.fmt and by `f64`/`f32` ToString impls below). Forwards to
 // libc's snprintf via fmt_native.c — same dependency surface as
 // malloc/free/memcpy that the rest of stdlib already extern's.
@@ -278,7 +278,7 @@ extern fn logos_fmt_f32_g(buf: *mut u8, cap: i32, x: f32) -> i32;
 // declare the trait here in mem.string (so callers can invoke
 // `.to_string()` without pulling `mem.fmt`) and provide direct
 // per-primitive impls below. The auto-deriving blanket
-// `impl<T: FmtDisplay> ToString for T` lives in `mem.fmt` (FmtDisplay
+// `impl<T: Display> ToString for T` lives in `mem.fmt` (Display
 // is defined there; mem.string sits below mem.fmt in the import order).
 //
 // Method shape uses `self: Self` (by value) — primitives are Copy, so
