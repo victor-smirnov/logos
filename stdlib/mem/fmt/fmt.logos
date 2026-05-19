@@ -1,0 +1,127 @@
+// Logos standard library — std.mem.fmt
+//
+// Rust-shape formatting infrastructure: `Formatter`, `Write`,
+// `Arguments`, `fmt::Error`. Mirrors `core::fmt`.
+//
+// Status: type surface declared, primitive operations on `Formatter`
+// (write_str/write_char/pad) wired against a `&mut String` backing
+// buffer. The full migration of stdlib `Display`/`Debug` impls (today
+// in `std.fmt`, shaped as `fn fmt(self, &mut String)`) over to the
+// Rust shape `fn fmt(&self, f: &mut Formatter) -> Result<(), Error>`
+// is deferred — it touches every primitive and stdlib impl plus the
+// `format!`/`println!` metacalls. New code that wants the Rust shape
+// can use this module directly; new traits matching Rust names go in
+// `std.fmt` to avoid splitting the Display/Debug namespace.
+
+package logos.mem.fmt;
+
+use logos.lang.result;
+use logos.lang.str;
+use logos.mem.string;
+
+// ── fmt::Error / fmt::Result ─────────────────────────────────────────
+//
+// `fmt::Error` is the unit error returned by every formatter operation
+// in Rust. In Logos it is similarly an empty struct — instances are
+// only ever constructed to signal failure; the variant carries no
+// payload. Most uses pattern-match it as the `Err` arm of
+// `Result<(), Error>` (Rust's `fmt::Result`).
+
+pub struct Error {}
+
+pub fn ok() -> Result<(), Error> {
+    return Result::<(), Error>::Ok(());
+}
+
+pub fn err() -> Result<(), Error> {
+    return Result::<(), Error>::Err(Error {});
+}
+
+// ── Write trait ──────────────────────────────────────────────────────
+//
+// Mirrors `core::fmt::Write`: the abstract sink any formatter writes
+// into. Implementors are typically buffers (String) or streams.
+// `write_char` defaults to a single-byte `write_str` for ASCII; full
+// UTF-8 char encoding lives at the call site for now (Logos `char`
+// is byte-shaped pending Phase 1B-13 utf8 char ports).
+
+// Named `FmtWrite` (not `Write`) because Logos's trait registry is
+// flat across packages — `std.io.write::Write` already owns that
+// name. Rust gets away with `core::fmt::Write` distinct from
+// `std::io::Write` because the conflict resolves at import; the
+// underlying B-mv-02 bug here forces the rename until the trait
+// registry becomes package-aware.
+pub trait FmtWrite {
+    fn write_str(&mut self, s: str) -> Result<(), Error>;
+    fn write_char(&mut self, c: u8) -> Result<(), Error>;
+}
+
+// ── Formatter ────────────────────────────────────────────────────────
+//
+// Mirrors `core::fmt::Formatter`. Holds a backing `*mut String` buffer
+// plus the spec parameters Rust threads through the formatter (width,
+// fill, alignment, precision, sign/alt/zero flags). Today's primitive
+// implementations just call `Formatter::write_str` / `Formatter::pad`;
+// the spec fields are populated by the eventual `format!`/`println!`
+// metacall rewrite but ignored by the legacy `fmt_pad` path until the
+// stdlib Display/Debug migration lands.
+//
+// Divergence from Rust: `Formatter` carries a raw `*mut String` rather
+// than a `&mut dyn Write` because Logos doesn't yet have stable dyn-
+// trait-objects-with-method-dispatch through the formatter machinery.
+// Migrating to `&mut dyn Write` is straightforward once the dyn path
+// is exercised.
+
+pub struct Formatter {
+    pub buf:        *mut String,
+    pub fill:       u8,
+    pub align_code: u8,    // 0=Unknown→Right, 1=Left, 2=Right, 3=Center
+    pub sign_plus:  bool,
+    pub alternate:  bool,
+    pub zero_pad:   bool,
+    pub width:      i64,   // -1 = unspecified
+    pub precision:  i64,   // -1 = unspecified
+}
+
+pub fn formatter_for(buf: &mut String) -> Formatter {
+    unsafe {
+        return Formatter {
+            buf:        buf as *mut String,
+            fill:       32u8,   // ' '
+            align_code: 0u8,
+            sign_plus:  false,
+            alternate:  false,
+            zero_pad:   false,
+            width:      -1i64,
+            precision:  -1i64,
+        };
+    }
+}
+
+impl Formatter {
+    pub fn write_str(&mut self, s: str) -> Result<(), Error> {
+        unsafe { (*self.buf).push_str(s); }
+        return ok();
+    }
+    pub fn write_char(&mut self, c: u8) -> Result<(), Error> {
+        unsafe { (*self.buf).push_u8(c); }
+        return ok();
+    }
+}
+
+// ── Arguments ────────────────────────────────────────────────────────
+//
+// Mirrors `core::fmt::Arguments` — the opaque carrier produced by
+// `format_args!` and consumed by `write!`/`writeln!`/`println!`. In
+// Rust it bundles the format string and a slice of argument pointers
+// along with their formatter functions. Logos's `format!`/`println!`
+// metacalls today expand the spec inline at the call site, so
+// `Arguments` is currently a placeholder type — the field carries the
+// already-formatted result string. Once the metacall is rewritten to
+// produce a deferred `Arguments` instead of an immediate `String`,
+// this struct will hold the spec + arg pointers and grow a
+// `format()` method that writes through a `Formatter`.
+
+pub struct Arguments {
+    pub rendered: String,
+}
