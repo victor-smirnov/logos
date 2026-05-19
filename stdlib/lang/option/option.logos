@@ -236,6 +236,18 @@ impl<T> Option<T> {
     }
 }
 
+// Option::unzip / Option::flatten (method form) / Option::zip method
+// form are deferred. Generic free fns over `Option<(A, B)>` /
+// `Option<Option<T>>` / `Option<Result<T,E>>` shapes trigger a mono
+// eager-clone cascade — OptionIter<X>'s trait default methods
+// (take_while/step_by/etc.) get instantiated for the nested type
+// while X is still a TypeVar, leaving `<error>` references mlir-gen
+// can't lower. Method form requires partial-spec INHERENT impl on
+// `Option<(A, B)>` which also isn't supported yet. Equivalent
+// `option_zip` / `option_flatten` (single-level) work; user code
+// can hand-roll an unzip via two .map() chains if needed. See
+// [[baghunt-mono-eager-typevar-default-clone]].
+
 // Option::zip — combines two Options into Option<(T, U)>.
 // Returns Some((t, u)) iff both are Some; else None. Free fn
 // rather than method because the U tparam isn't on the impl side.

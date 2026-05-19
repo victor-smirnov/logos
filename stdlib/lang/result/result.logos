@@ -160,7 +160,43 @@ impl<T, E> Result<T, E> {
             Result::Err(e) => { return f(e); }
         }
     }
+
+    // Borrowing introspectors — Rust shape.
+    pub fn as_ref(self: &Result<T, E>) -> Result<&T, &E> {
+        match self {
+            Result::Ok(ref v)  => { return Result::<&T, &E>::Ok(v); }
+            Result::Err(ref e) => { return Result::<&T, &E>::Err(e); }
+        }
+    }
+
+    pub fn as_mut(self: &mut Result<T, E>) -> Result<&mut T, &mut E> {
+        match self {
+            Result::Ok(ref mut v)  => { return Result::<&mut T, &mut E>::Ok(v); }
+            Result::Err(ref mut e) => { return Result::<&mut T, &mut E>::Err(e); }
+        }
+    }
 }
+
+// `unwrap_or_default` lives as a free fn (an `impl<T: Default, E>
+// Result<T, E>` block triggers a mono cascade — see
+// [[baghunt-partial-spec-inherent-impl]] for the broader pattern).
+pub fn result_unwrap_or_default<T: Default, E>(r: Result<T, E>) -> T {
+    match r {
+        Result::Ok(v)  => { return v; }
+        Result::Err(_) => { return T::default(); }
+    }
+}
+
+// `flatten` (Result<Result<T,E>,E> -> Result<T,E>) and `transpose`
+// (Result<Option<T>,E> -> Option<Result<T,E>>) live as free-fn forms
+// because Logos doesn't support partial-spec INHERENT impls on
+// nested generic shapes.
+// `result_flatten` / `result_transpose` — deferred. Both shapes
+// (`Result<Result<T, E>, E>` and `Result<Option<T>, E>`) trigger a
+// mono cascade: eager-instantiation of `OptionIter<T>` trait default
+// methods (take_while/step_by/...) with TypeVar T leaves
+// `OptionIter$G1$<error>` references the mlir-gen can't lower.
+// See [[baghunt-mono-eager-typevar-default-clone]].
 
 // Free-function shims for compat with pre-existing call-sites.
 pub fn unwrap_or_i32(r: Result<i32, i32>, def: i32) -> i32 {

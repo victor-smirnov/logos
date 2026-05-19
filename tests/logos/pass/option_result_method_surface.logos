@@ -1,0 +1,103 @@
+// Option/Result method-surface fill-in (post Fmt-Session-4).
+//
+// Direct-method coverage:
+//   - Result::as_ref / as_mut (ref/mut-ref into inner via `ref v` /
+//     `ref mut v` match bindings).
+//
+// Free-fn forms (Logos's inherent-impl partial-spec on nested generic
+// shapes doesn't dispatch through method position yet, and `T:
+// Default`-bounded impl blocks cause mono cascades — see
+// baghunt-partial-spec-inherent-impl):
+//   - option_zip<T, U>
+//   - option_flatten<T>
+//   - option_unwrap_or_default<T: Default>
+//   - result_unwrap_or_default<T: Default, E>
+//
+// Skipped (deferred — see baghunt-mono-eager-typevar-default-clone):
+//   - option_unzip<A, B>      — Option<(A, B)> cascade.
+//   - result_flatten<T, E>    — Result<Result<T, E>, E> cascade.
+//   - result_transpose<T, E>  — Result<Option<T>, E> cascade.
+
+package option_result_method_surface;
+
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.default;
+
+fn fail(code: i32) -> i32 { return code; }
+
+fn main() -> i32 {
+    // ── option_zip free fn ──────────────────────────────────────────
+    let a: Option<i32> = Option::<i32>::Some(1i32);
+    let b: Option<i64> = Option::<i64>::Some(2i64);
+    match option_zip::<i32, i64>(a, b) {
+        Option::Some(t) => {
+            if t.0 != 1i32 { return fail(1); }
+            if t.1 != 2i64 { return fail(2); }
+        }
+        Option::None => { return fail(3); }
+    }
+
+    let none_a: Option<i32> = Option::<i32>::None;
+    let b2:     Option<i64> = Option::<i64>::Some(5i64);
+    match option_zip::<i32, i64>(none_a, b2) {
+        Option::Some(_) => { return fail(4); }
+        Option::None    => {}
+    }
+
+    // option_unzip deferred — mono cascade on Option<(A,B)> shape.
+
+    // ── option_flatten free fn ──────────────────────────────────────
+    let nested: Option<Option<i32>> = Option::<Option<i32>>::Some(Option::<i32>::Some(42i32));
+    match option_flatten::<i32>(nested) {
+        Option::Some(v) => { if v != 42i32 { return fail(20); } }
+        Option::None    => { return fail(21); }
+    }
+
+    let nested_none: Option<Option<i32>> = Option::<Option<i32>>::Some(Option::<i32>::None);
+    match option_flatten::<i32>(nested_none) {
+        Option::Some(_) => { return fail(22); }
+        Option::None    => {}
+    }
+
+    // ── option_unwrap_or_default free fn ────────────────────────────
+    let some_i32: Option<i32> = Option::<i32>::Some(7i32);
+    if option_unwrap_or_default::<i32>(some_i32) != 7i32 { return fail(30); }
+    let none_i32: Option<i32> = Option::<i32>::None;
+    if option_unwrap_or_default::<i32>(none_i32) != 0i32 { return fail(31); }
+
+    // ── Result::as_ref ──────────────────────────────────────────────
+    let ok_r:  Result<i32, i64> = Result::<i32, i64>::Ok(99i32);
+    let err_r: Result<i32, i64> = Result::<i32, i64>::Err(123i64);
+    match ok_r.as_ref() {
+        Result::Ok(v)  => { if *v != 99i32 { return fail(40); } }
+        Result::Err(_) => { return fail(41); }
+    }
+    match err_r.as_ref() {
+        Result::Ok(_)  => { return fail(42); }
+        Result::Err(e) => { if *e != 123i64 { return fail(43); } }
+    }
+
+    // ── Result::as_mut ──────────────────────────────────────────────
+    let mut ok_mut: Result<i32, i64> = Result::<i32, i64>::Ok(50i32);
+    match ok_mut.as_mut() {
+        Result::Ok(v)  => { *v = *v + 1i32; }
+        Result::Err(_) => { return fail(50); }
+    }
+    match ok_mut {
+        Result::Ok(v)  => { if v != 51i32 { return fail(51); } }
+        Result::Err(_) => { return fail(52); }
+    }
+
+    // ── result_unwrap_or_default free fn ────────────────────────────
+    let ok2:  Result<i32, i64> = Result::<i32, i64>::Ok(8i32);
+    if result_unwrap_or_default::<i32, i64>(ok2) != 8i32 { return fail(60); }
+    let err2: Result<i32, i64> = Result::<i32, i64>::Err(0i64);
+    if result_unwrap_or_default::<i32, i64>(err2) != 0i32 { return fail(61); }
+
+    // result_flatten + result_transpose deferred — both trigger a
+    // mono eager-clone cascade on nested Option/Result generics
+    // (see baghunt-mono-eager-typevar-default-clone).
+
+    return 0;
+}
