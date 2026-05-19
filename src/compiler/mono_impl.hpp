@@ -592,6 +592,22 @@ private:
                                  const std::string& concrete_name,
                                  StrSet& seen);
 
+    // Stronger sibling of mono_has_impl_recursive that takes a full
+    // TypeRef instead of a stripped name. For a blanket impl
+    // `impl<T: Foo> Bar for Vec<T>`, mono_has_impl_recursive on
+    // "Bar" + "Vec" returns true unconditionally — even when
+    // T=NoFoo. mono_concrete_satisfies_bound additionally
+    // pattern-unifies the impl's `target_typeref` against the
+    // concrete TypeRef and recurses into the impl's own
+    // impl_type_params bounds with the unified substitution. So
+    // `concrete_satisfies("Bar", Vec<NoFoo>)` correctly returns
+    // false. Used by method_bound_ok to close the
+    // `Option<Vec<NoFoo>>` cascade (see
+    // [[baghunt-mono-blanket-bound-recursion]]).
+    bool mono_concrete_satisfies_bound(const std::string& trait_name,
+                                       TypeRef concrete,
+                                       StrSet& seen);
+
     // ── Struct/enum cloning (large — defined in mono_clone.cpp) ─────
     lir::LStructDef clone_struct_def(const lir::LStructDef& tmpl,
                                       const SubstMap& s,

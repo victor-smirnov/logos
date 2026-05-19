@@ -78,13 +78,16 @@ through `Display::fmt` / `Debug::fmt`. `fmt_pad` /
 
 ### Session 3 — Stdlib structs + numeric format traits (2026-05-18)
 
-- [ ] `Option<T>` Debug — DEFERRED. Adding the impl on top of `Vec<T>`
-      triggers the trait_engine blanket-bound-recursion bug (see
-      Risk register below + [[baghunt-mono-blanket-bound-recursion]]).
-- [ ] `Result<T, E>` Debug — DEFERRED, same root cause.
-- [x] `Vec<T>` Debug — works in isolation. The cascade only fires
-      when an outer container (Option/Result) re-asks the bound
-      through the leaky path.
+- [x] `Option<T>` Debug — works. Blanket-bound recursion fix
+      landed 2026-05-19 via `mono_concrete_satisfies_bound` —
+      see baghunt_mono_blanket_bound_recursion (CLOSED).
+- [ ] `Result<T, E>` Debug — DEFERRED. Distinct mono bug:
+      enum-method-template instantiation skips multi-param
+      generic-enum impls. `Result<i32,i32>::fmt_debug` never
+      emits even when needed by Option<Result<...>> body.
+      Vec/Option work because inner-call resolves to concrete
+      leaf.
+- [x] `Vec<T>` Debug — works (fix above).
 - [x] `String` Display = pass-through `as_str()` through `pad`; Debug
       = `"<content>"` quoted (same minimal-escape caveat as str).
 - [x] `Ordering` Display + Debug. NB: `match *self`

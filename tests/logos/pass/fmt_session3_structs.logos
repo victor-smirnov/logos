@@ -24,7 +24,18 @@ fn check(got: String, want: str, code: i32) -> i32 {
 }
 
 fn main() -> i32 {
+    // Option Debug (re-added 2026-05-18 after fix to mono blanket-bound
+    // recursion — see baghunt-mono-blanket-bound-recursion).
+    let some_n: Option<i32> = Option::<i32>::Some(42);
+    let r = check(fmt_debug_to_string::<Option<i32>>(&some_n), "Some(42)", 41); if r != 0 { return r; }
+    let none_n: Option<i32> = Option::<i32>::None;
+    let r = check(fmt_debug_to_string::<Option<i32>>(&none_n), "None", 42); if r != 0 { return r; }
 
+    // Result<T,E> Debug — wired but enum-method-template
+    // instantiation skips it. Distinct mono baghunt; see
+    // mem/fmt/fmt.logos comment.
+
+    // Vec Debug.
     let mut v: Vec<i32> = vec_new::<i32>();
     v.push(1); v.push(2); v.push(3);
     let r = check(fmt_debug_to_string::<Vec<i32>>(&v), "[1, 2, 3]", 51); if r != 0 { return r; }

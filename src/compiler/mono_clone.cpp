@@ -3657,6 +3657,102 @@ bool Mono::mono_has_impl_recursive(const std::string& trait_name,
     return trait_engine_.satisfies(trait_name, concrete_name);
 }
 
+// See header comment. Steps:
+//   1) Quick reject via mono_has_impl_recursive on the stripped
+//      concrete name. If no impl at all matches, false.
+//   2) If concrete has no type-args (primitive / non-generic struct /
+//      enum), the stripped-name check is sufficient — return true.
+//   3) Otherwise, find an impl in out_.impls matching trait + bare
+//      target_type. Unify its target_typeref against `concrete` to
+//      extract a TypeVar→arg substitution. For each impl_type_param,
+//      recursively check every bound against the substituted arg.
+//   4) If any impl satisfies all its bounds against the concrete's
+//      type-args, return true. Otherwise false.
+bool Mono::mono_concrete_satisfies_bound(const std::string& trait_name,
+                                         TypeRef concrete,
+                                         StrSet& seen) {
+    if (!concrete) return false;
+
+    // Strip the concrete name the same way method_bound_ok does so
+    // the trait-engine lookup keys line up.
+    std::string cname;
+    TypeRef ct{concrete};
+    if (ct.kind() == LogosType::Kind::Struct ||
+        ct.kind() == LogosType::Kind::ZonedStruct) {
+        cname = concrete_struct_name(ct);
+    } else if (ct.kind() == LogosType::Kind::Enum) {
+        cname = std::string(ct.enum_name());
+    } else {
+        cname = type_str(ct);
+    }
+    if (auto p = cname.find("$G"); p != std::string::npos)
+        cname = cname.substr(0, p);
+    // `&[u8]` is the canonical wire form for `str`; impls register
+    // under "str" in the trait engine. The legacy enum method_bound
+    // check at mono_clone.cpp ~line 4613 does this rename; mirror
+    // here so the new helper doesn't regress the legacy path.
+    if (cname == "&[u8]") cname = "str";
+
+    // Step 1+2: quick path. trait_engine returns true via concrete
+    // impls (no bound) or blanket impls. For a primitive / no-args
+    // type that's the whole story. Also keep simple-path semantics
+    // for non-Struct/Enum kinds — only generic struct/enum
+    // instantiations need the deep blanket-bound recursion.
+    if (!mono_has_impl_recursive(trait_name, cname, seen)) return false;
+    if (ct.kind() != LogosType::Kind::Struct &&
+        ct.kind() != LogosType::Kind::ZonedStruct &&
+        ct.kind() != LogosType::Kind::Enum)
+        return true;
+    auto args = ct.type_args();
+    if (args.empty()) return true;
+
+    // Step 3: find the blanket impl. Multiple impls can match by
+    // (trait, target_type) when sema accepts specialisation —
+    // walk all candidates and accept the first whose own bounds
+    // hold under the unified subst. Skip impls without
+    // target_typeref (the partial-spec pattern signal) — those
+    // are non-generic concrete impls that already passed the
+    // step-1 check.
+    for (auto& cand : out_.impls) {
+        if (cand.trait_name  != trait_name) continue;
+        if (cand.target_type != cname)      continue;
+        if (cand.impl_type_params.empty())  return true;   // direct concrete
+        TypeRef pat{cand.target_typeref};
+        if (!pat) continue;
+
+        SubstMap subst;
+        if (!unify_impl_target(concrete, pat, subst)) continue;
+
+        bool all_ok = true;
+        for (auto& itp : cand.impl_type_params) {
+            if (itp.bounds.empty()) continue;
+            auto sit = subst.find(itp.name);
+            if (sit == subst.end()) continue;        // not directly type-arg
+            TypeRef inner{sit->second};
+            for (auto& tb : itp.bounds) {
+                // Fn-family shorthand: any callable shape passes
+                // (mirrors method_bound_ok's intrinsic branch).
+                if (tb.is_fn_family) {
+                    auto k = TypeRef(inner).kind();
+                    if (k == LogosType::Kind::FnPtr ||
+                        k == LogosType::Kind::Closure ||
+                        k == LogosType::Kind::TypeVar ||
+                        k == LogosType::Kind::Struct ||
+                        k == LogosType::Kind::ZonedStruct)
+                        continue;
+                    all_ok = false; break;
+                }
+                if (!mono_concrete_satisfies_bound(tb.trait_name, inner, seen)) {
+                    all_ok = false; break;
+                }
+            }
+            if (!all_ok) break;
+        }
+        if (all_ok) return true;
+    }
+    return false;
+}
+
 bool Mono::method_bound_ok(const lir::LFunction& m, const SubstMap& s) {
     for (auto& itp : m.impl_type_params) {
         if (itp.bounds.empty()) continue;
@@ -3680,6 +3776,15 @@ bool Mono::method_bound_ok(const lir::LFunction& m, const SubstMap& s) {
         auto has_impl = [&](const std::string& trait, const std::string& cn) {
             StrSet seen;
             return mono_has_impl_recursive(trait, cn, seen);
+        };
+        // Deeper variant: when the concrete type has type-args, the
+        // bare-name lookup above can lie ("Vec impls FmtDebug" without
+        // checking T satisfies its own bound). Recurse via
+        // mono_concrete_satisfies_bound; see
+        // [[baghunt-mono-blanket-bound-recursion]].
+        auto concrete_has_impl = [&](const std::string& trait) {
+            StrSet seen;
+            return mono_concrete_satisfies_bound(trait, concrete, seen);
         };
         for (auto& tb : itp.bounds) {
             // Fn / FnMut / FnOnce parenthesized bounds are compiler-
@@ -3715,7 +3820,7 @@ bool Mono::method_bound_ok(const lir::LFunction& m, const SubstMap& s) {
                     return false;
                 continue;
             }
-            if (!has_impl(tb.trait_name, cname)) return false;
+            if (!concrete_has_impl(tb.trait_name)) return false;
             // B62/B63: HRTB satisfaction — universal-position + bijectivity
             // checks. Bound binders (any non-empty, non-'static lifetime in
             // type_args) must align with impl-level lifetime params, and the
@@ -4528,7 +4633,11 @@ void Mono::instantiate_enum_templates() {
                             continue;
                         }
                         StrSet seen;
-                        if (!mono_has_impl_recursive(tb.trait_name, cname, seen)) {
+                        // Recurse-aware: handles `impl<U: Bound> Trait
+                        // for Wrapper<U>` correctly when concrete is
+                        // Wrapper<X> with X not satisfying Bound.
+                        // See [[baghunt-mono-blanket-bound-recursion]].
+                        if (!mono_concrete_satisfies_bound(tb.trait_name, concrete, seen)) {
                             bounds_ok = false; break;
                         }
                     }

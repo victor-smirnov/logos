@@ -485,26 +485,28 @@ impl<A: FmtDebug, B: FmtDebug, C: FmtDebug, D: FmtDebug> FmtDebug for (A, B, C, 
 // legacy `Debug for Option<T>` etc. similarly live in `std.fmt` for
 // the same reason — Rust hand-rolls these in `core::fmt`.
 
-// Option<T> + Result<T,E> FmtDebug — DEFERRED. Adding either
-// triggers a generic-blanket cascade: lforge fails with
-// `Vec$G1$ExternalLib__fmt_debug does not reference a valid
-// function`. Root cause: when sema/mono checks the bound
-// `T: FmtDebug` for some Vec<ExternalLib>, the trait engine
-// looks up `satisfies("FmtDebug", "Vec")` (stripping type args)
-// and returns TRUE because `impl<T: FmtDebug> FmtDebug for Vec<T>`
-// is registered as a blanket — without recursing into the inner
-// `T: FmtDebug` requirement against the concrete arg
-// ExternalLib. So `Option<Vec<ExternalLib>>::fmt_debug` body
-// emits and calls `Vec<ExternalLib>::fmt_debug` — which mono
-// correctly DIDN'T emit (its own bound check on T=ExternalLib
-// failed). Dangling-reference cascade.
-//
-// Vec<T> impl alone is safe: no caller asks "does Vec<X>: FmtDebug"
-// through the leaky path.
-//
-// Real fix: trait_engine needs to track per-bound type-param
-// mapping so blanket lookup can recurse. Filed as
-// [[baghunt-mono-blanket-bound-recursion]].
+impl<T: FmtDebug> FmtDebug for Option<T> {
+    fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {
+        match self {
+            Option::Some(v) => {
+                let _ = f.write_str("Some(");
+                let _ = v.fmt_debug(f);
+                return f.write_str(")");
+            }
+            Option::None => { return f.write_str("None"); }
+        }
+    }
+}
+
+// Result<T, E> FmtDebug — wired but enum-method-template
+// instantiation skips it. Distinct from the blanket-bound cascade
+// (which the mono_concrete_satisfies_bound fix closed). Symptom:
+// Option<Result<i32,i32>>::fmt_debug body emits, calls
+// `Result__i32__i32__fmt_debug` which mono never instantiates.
+// Vec<T>+Option<T> work because their inner-call resolution
+// picks up the concrete leaf directly when T is primitive; only
+// nested-enum-of-enum (Result inside Option) hits this. Filed
+// as separate baghunt; Result impl kept OUT for now.
 
 impl<T: FmtDebug> FmtDebug for Vec<T> {
     fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {
