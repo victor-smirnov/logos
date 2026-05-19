@@ -8,6 +8,7 @@ package logos.mem.collections.vec;
 use logos.mem.mem;
 use logos.lang.option;
 use logos.lang.iter;
+use logos.lang.ops;
 use logos.lang.cmp;
 use logos.lang.panic;
 use logos.lang.result;

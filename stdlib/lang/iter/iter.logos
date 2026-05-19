@@ -7,6 +7,7 @@ package logos.lang.iter;
 
 use logos.lang.option;
 use logos.lang.cmp;
+use logos.lang.ops;
 
 // ── FromIterator trait ───────────────────────────────────────────────────────
 //
@@ -233,6 +234,40 @@ pub trait Iterator<Item> {
         }
     }
 
+    // Terminal: short-circuiting fold. The reducer returns
+    // ControlFlow<BV, Acc> per step — `Continue(new_acc)` keeps going,
+    // `Break(bv)` halts and surfaces `bv` immediately. Mirrors Rust's
+    // `Iterator::try_fold` minus the Try-trait indirection — Rust
+    // signatures it as `try_fold<B, R: Try<...>, F: FnMut(B, Item)->R>`
+    // and routes `?`-style values through R; Logos doesn't yet have a
+    // Try-trait surface (?'s lowering is compiler-builtin), so we take
+    // ControlFlow directly. Same shape Rust uses internally before
+    // generalising to Try.
+    //
+    // Type-param naming follows `fold` — `Acc`/`BV`/`TryFoldFn` to
+    // avoid impl-tparam shadowing on iterator adapters.
+    fn try_fold<Acc, BV, TryFoldFn: FnMut(Acc, Item) -> ControlFlow<BV, Acc>>(
+        self: Self, init: Acc, f: TryFoldFn) -> ControlFlow<BV, Acc>
+    {
+        let mut it: Self = self;
+        let mut acc: Acc = init;
+        let mut g: TryFoldFn = f;
+        loop {
+            match it.next() {
+                Option::None    => { return ControlFlow::<BV, Acc>::Continue(acc); }
+                Option::Some(v) => {
+                    let r: ControlFlow<BV, Acc> = g(acc, v);
+                    match r {
+                        ControlFlow::Continue(new_acc) => { acc = new_acc; }
+                        ControlFlow::Break(bv)         => {
+                            return ControlFlow::<BV, Acc>::Break(bv);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Terminal: applies f to each item, returns the first Some.
     // Equivalent to `.filter_map(f).next()` once filter_map exists.
     // Mirrors Rust's `Iterator::find_map`.
@@ -312,6 +347,31 @@ pub trait Iterator<Item> {
             match it.next() {
                 Option::None    => { return; }
                 Option::Some(v) => { g(v); }
+            }
+        }
+    }
+
+    // Terminal: short-circuiting for_each. Visitor returns
+    // ControlFlow<BV, ()> — `Continue(())` keeps iterating, `Break(bv)`
+    // halts and returns the BV. Mirrors Rust's `try_for_each` minus
+    // the Try-trait indirection (see try_fold rationale above).
+    fn try_for_each<BV, TryEachFn: FnMut(Item) -> ControlFlow<BV, ()>>(
+        self: Self, f: TryEachFn) -> ControlFlow<BV, ()>
+    {
+        let mut it: Self = self;
+        let mut g: TryEachFn = f;
+        loop {
+            match it.next() {
+                Option::None    => { return ControlFlow::<BV, ()>::Continue(()); }
+                Option::Some(v) => {
+                    let r: ControlFlow<BV, ()> = g(v);
+                    match r {
+                        ControlFlow::Continue(_) => { }
+                        ControlFlow::Break(bv)   => {
+                            return ControlFlow::<BV, ()>::Break(bv);
+                        }
+                    }
+                }
             }
         }
     }

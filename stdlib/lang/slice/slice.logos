@@ -8,6 +8,7 @@
 package logos.lang.slice;
 
 use logos.lang.iter;
+use logos.lang.ops;
 use logos.lang.option;
 use logos.lang.result;
 use logos.lang.cmp;

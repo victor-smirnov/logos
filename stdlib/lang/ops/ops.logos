@@ -161,3 +161,40 @@ pub trait Index<Idx, Output> {
 pub trait IndexMut<Idx, Output>: Index<Idx, Output> {
     fn index_mut(&mut self, idx: Idx) -> &mut Output;
 }
+
+// ── ControlFlow — `Iterator::try_*` / short-circuit driver ────────────
+//
+// Mirrors `core::ops::ControlFlow<B, C>`. Drives the short-circuit
+// iterator terminals (`try_fold`, `try_for_each`, etc.): `Continue(c)`
+// keeps iterating with new accumulator `c`, `Break(b)` halts and
+// surfaces `b` as the terminal result.
+//
+// Divergence from Rust:
+//   - Rust default-parameterises `C = ()`; Logos doesn't carry default
+//     generic args yet, so the continue payload is always spelled
+//     explicitly. Use `ControlFlow<E, ()>` for "Break-only" flows.
+//   - Rust gives `ControlFlow` an unstable `Try`/`FromResidual` impl
+//     used to let `?` route ControlFlow values. Logos's `?` operator
+//     lowering is compiler-builtin (B100 TRY_EXPR desugar) and doesn't
+//     consult traits; routing `?` through ControlFlow is a follow-up
+//     once the broader `core::ops::try_trait` surface lands.
+
+pub enum ControlFlow<B, C> {
+    Continue(C),
+    Break(B),
+}
+
+impl<B, C> ControlFlow<B, C> {
+    pub fn is_continue(&self) -> bool {
+        match self {
+            ControlFlow::Continue(_) => { return true; }
+            ControlFlow::Break(_)    => { return false; }
+        }
+    }
+    pub fn is_break(&self) -> bool {
+        match self {
+            ControlFlow::Continue(_) => { return false; }
+            ControlFlow::Break(_)    => { return true; }
+        }
+    }
+}

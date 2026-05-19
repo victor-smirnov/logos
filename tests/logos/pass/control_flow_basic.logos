@@ -1,0 +1,24 @@
+// Tests core::ops::ControlFlow<B, C> — Continue/Break variants, helpers.
+package test;
+
+use logos.lang.ops;
+
+fn main() -> i32 {
+    let c: ControlFlow<str, i32> = ControlFlow::<str, i32>::Continue(7i32);
+    if !c.is_continue() { return 1; }
+    if  c.is_break()    { return 2; }
+    match c {
+        ControlFlow::Continue(n) => { if n != 7i32 { return 3; } }
+        ControlFlow::Break(_)    => { return 4; }
+    }
+
+    let b: ControlFlow<str, i32> = ControlFlow::<str, i32>::Break("stop");
+    if  b.is_continue() { return 5; }
+    if !b.is_break()    { return 6; }
+    match b {
+        ControlFlow::Continue(_) => { return 7; }
+        ControlFlow::Break(m)    => { if !str_eq(m, "stop") { return 8; } }
+    }
+
+    return 42;
+}

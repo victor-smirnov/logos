@@ -10,6 +10,7 @@ use logos.mem.string;
 use logos.lang.str;
 use logos.lang.option;
 use logos.lang.iter;
+use logos.lang.ops;
 
 extern fn fork() -> i32;
 extern fn execvp(file: *const u8, argv: *const *const u8) -> i32;

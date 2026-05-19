@@ -11,6 +11,7 @@
 package logos.lang.str;
 
 use logos.lang.iter;
+use logos.lang.ops;
 use logos.lang.option;
 
 // ── Encoding / decoding ───────────────────────────────────────────────────

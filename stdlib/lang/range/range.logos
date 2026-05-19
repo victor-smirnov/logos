@@ -8,6 +8,7 @@ package logos.lang.range;
 
 use logos.lang.option;
 use logos.lang.iter;
+use logos.lang.ops;
 
 // ── RangeI32 — exclusive range [start, end) over i32 ─────────────────────────
 

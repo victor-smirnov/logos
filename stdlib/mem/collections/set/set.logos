@@ -9,6 +9,7 @@ use logos.mem.collections.hashmap;
 use logos.lang.hash;
 use logos.lang.cmp;
 use logos.lang.iter;
+use logos.lang.ops;
 use logos.lang.option;
 
 pub struct HashSet<K> {

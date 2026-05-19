@@ -15,6 +15,7 @@ package logos.lang.str;
 
 use logos.lang.iter;
 use logos.lang.option;
+use logos.lang.ops;
 
 // Multi-byte separator splitter.
 pub struct Splitter {

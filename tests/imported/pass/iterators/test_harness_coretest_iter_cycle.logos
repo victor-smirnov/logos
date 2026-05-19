@@ -18,6 +18,7 @@ use logos.lang.str;
 use std.compiler.metaprog;
 use logos.lang.clone;
 use logos.lang.iter;
+use logos.lang.ops;
 use logos.lang.option;
 
 #[derive_clone]

@@ -14,6 +14,7 @@ use logos.lang.hash;
 use logos.lang.cmp;
 use logos.lang.option;
 use logos.lang.iter;
+use logos.lang.ops;
 
 let SLOT_EMPTY:     u8 = 0 as u8;
 let SLOT_OCCUPIED:  u8 = 1 as u8;

@@ -15,6 +15,7 @@ package logos.mem.collections.btree;
 use logos.mem.mem;
 use logos.lang.cmp;
 use logos.lang.iter;
+use logos.lang.ops;
 use logos.lang.option;
 
 pub struct BTreeMap<K, V> {

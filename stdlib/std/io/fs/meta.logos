@@ -9,6 +9,7 @@ use logos.mem.string;
 use logos.lang.str;
 use logos.lang.result;
 use logos.lang.iter;
+use logos.lang.ops;
 use logos.lang.option;
 use std.io.fs.path;
 use logos.mem.collections.vec;
