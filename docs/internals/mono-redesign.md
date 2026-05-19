@@ -133,6 +133,16 @@ above all pass, no new regressions in iter / fmt suites.
 
 ## Phase 2 — Unify eager+lazy under worklist + deep bounds everywhere
 
+**Status**: STEP 1 LANDED 2026-05-19 (commit 8821a5d4). Eager
+blanket-impl extra-bound check now routes through
+`mono_concrete_satisfies_bound` (deep) for struct/enum candidates;
+primitive candidates keep shallow fallback. Lint baseline bumped
+8→10 for two added inline TypeBuilders (queued for the worklist
+refactor). 3259/3259 ctest. Remaining: audit the other 3
+`mono_has_impl_recursive` call sites (mono.cpp:263, 296, 300),
+convert eager blanket method-clone into worklist enqueue, add
+cycle detection.
+
 **Scope**: ~800 LOC, 3–5 days, medium risk.
 
 **Goal**: eliminate the asymmetry between eager blanket and lazy
