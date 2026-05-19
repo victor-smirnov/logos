@@ -1,0 +1,59 @@
+// Tests Rust-shape Display via Formatter: `fmt_display_to_string(&v)`
+// + per-impl Formatter.write_int_dec / write_int_radix / write_bool /
+// pad spec routing. Session 1 of the std.fmt migration — proof of
+// shape for the new trait surface that the rest of the primitive +
+// stdlib impls roll out into in Sessions 2-3.
+package test;
+
+use logos.lang.result;
+use logos.lang.str;
+use logos.mem.string;
+use logos.mem.fmt;
+
+fn main() -> i32 {
+    // Default spec: bare integer renders unchanged.
+    let s1: String = fmt_display_to_string::<i32>(&42i32);
+    if !str_eq(s1.as_str(), "42") { return 1; }
+
+    // Default spec: bare debug renders the same as display for i32.
+    let s2: String = fmt_debug_to_string::<i32>(&-7i32);
+    if !str_eq(s2.as_str(), "-7") { return 2; }
+
+    // Width + right-align (default): 5-wide.
+    let mut buf3: String = String::new();
+    let mut f3: Formatter = formatter_for(&mut buf3);
+    f3.width = 5i64;
+    let _ = (&123i32).fmt_display(&mut f3);
+    if !str_eq(buf3.as_str(), "  123") { return 3; }
+
+    // Width + zero-pad: `{:05}`.
+    let mut buf4: String = String::new();
+    let mut f4: Formatter = formatter_for(&mut buf4);
+    f4.width = 5i64;
+    f4.fill = 48u8;        // '0'
+    let _ = (&7i32).fmt_display(&mut f4);
+    if !str_eq(buf4.as_str(), "00007") { return 4; }
+
+    // Width + left-align: `{:<5}`.
+    let mut buf5: String = String::new();
+    let mut f5: Formatter = formatter_for(&mut buf5);
+    f5.width = 5i64;
+    f5.align_code = 1u8;   // Left
+    let _ = (&7i32).fmt_display(&mut f5);
+    if !str_eq(buf5.as_str(), "7    ") { return 5; }
+
+    // Hex radix render via Formatter helper. (Trait impls for
+    // LowerHex roll out in Session 2.)
+    let mut buf6: String = String::new();
+    let mut f6: Formatter = formatter_for(&mut buf6);
+    let _ = f6.write_int_radix_u64(255u64, 16u64, false);
+    if !str_eq(buf6.as_str(), "ff") { return 6; }
+
+    // Bool via Formatter helper.
+    let mut buf7: String = String::new();
+    let mut f7: Formatter = formatter_for(&mut buf7);
+    let _ = f7.write_bool(true);
+    if !str_eq(buf7.as_str(), "true") { return 7; }
+
+    return 42;
+}

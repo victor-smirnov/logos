@@ -107,6 +107,201 @@ impl Formatter {
         unsafe { (*self.buf).push_u8(c); }
         return ok();
     }
+
+    // pad() — apply the Formatter's spec fields (width / fill / align /
+    // precision / sign_plus / alternate / zero_pad) to `content`,
+    // optionally prefixed by `prefix` (e.g. "0x" / "0o" / "0b" under
+    // `alternate`). Mirrors Rust's `Formatter::pad` and replaces the
+    // standalone `std.fmt::fmt_pad` driver. The migrated Display/Debug
+    // impls funnel every value here so spec parsing only happens once
+    // per `{...}` placeholder.
+    //
+    // Layout: zero-pad shape (fill='0' and align defaults to Right)
+    // emits  sign / prefix / zero-fill / content;  otherwise
+    //        fill-left / sign / prefix / content / fill-right.
+    // Matches Rust's `{:05x}` → "000ff" / `{:#05x}` → "0x0ff".
+    pub fn pad(&mut self, content: str, prefix: str) -> Result<(), Error> {
+        unsafe {
+            let n_full: i64 = content.len();
+            let n_eff: i64 =
+                if self.precision >= 0i64 && n_full > self.precision { self.precision }
+                else { n_full };
+
+            let mut emit_sign: bool = false;
+            if self.sign_plus && n_eff > 0i64 {
+                let c0: u8 = content[0i64];
+                if c0 != 45u8 && c0 != 43u8 {  // not '-' or '+'
+                    emit_sign = true;
+                }
+            }
+            let body: i64 =
+                (if emit_sign { 1i64 } else { 0i64 }) + prefix.len() + n_eff;
+            let mut left_pad:  i64 = 0i64;
+            let mut right_pad: i64 = 0i64;
+            if self.width > body {
+                let pad_n: i64 = self.width - body;
+                if self.align_code == 1u8 {
+                    right_pad = pad_n;
+                } else if self.align_code == 3u8 {
+                    left_pad  = pad_n / 2i64;
+                    right_pad = pad_n - left_pad;
+                } else {
+                    left_pad = pad_n;
+                }
+            }
+
+            let is_zero_pad: bool = (self.fill == 48u8) && (self.align_code != 1u8);
+            let mut i: i64 = 0i64;
+            if !is_zero_pad {
+                while i < left_pad { (*self.buf).push_u8(self.fill); i = i + 1i64; }
+            }
+            if emit_sign { (*self.buf).push_u8(43u8); }
+            (*self.buf).push_str(prefix);
+            if is_zero_pad {
+                i = 0i64;
+                while i < left_pad { (*self.buf).push_u8(48u8); i = i + 1i64; }
+            }
+            i = 0i64;
+            while i < n_eff { (*self.buf).push_u8(content[i]); i = i + 1i64; }
+            if !is_zero_pad {
+                i = 0i64;
+                while i < right_pad { (*self.buf).push_u8(self.fill); i = i + 1i64; }
+            } else {
+                i = 0i64;
+                while i < right_pad { (*self.buf).push_u8(48u8); i = i + 1i64; }
+            }
+        }
+        return ok();
+    }
+
+    // Writes a signed-decimal integer through `pad()`. Renders to a
+    // scratch String first so width/align/precision apply uniformly
+    // (a sign-prefixed body counts toward the body width for centring).
+    pub fn write_int_dec_i64(&mut self, n: i64) -> Result<(), Error> {
+        let mut scratch: String = String::new();
+        scratch.push_i64(n);
+        return self.pad(scratch.as_str(), "");
+    }
+    pub fn write_int_dec_u64(&mut self, n: u64) -> Result<(), Error> {
+        let mut scratch: String = String::new();
+        scratch.push_u64(n);
+        return self.pad(scratch.as_str(), "");
+    }
+    pub fn write_bool(&mut self, b: bool) -> Result<(), Error> {
+        if b { return self.pad("true",  ""); }
+        return self.pad("false", "");
+    }
+    // Signless radix render (base 2/8/16). Caller responsible for
+    // sign-extension or u32-cast-via-mask for signed types — same
+    // contract as Rust's `LowerHex`/`UpperHex`/`Octal`/`Binary` on
+    // signed types (`format!("{:x}", -1i32)` → "ffffffff").
+    pub fn write_int_radix_u64(&mut self, n: u64, radix: u64, upper: bool) -> Result<(), Error> {
+        let mut scratch: String = String::new();
+        if n == 0u64 {
+            scratch.push_u8(48u8);
+        } else {
+            let mut tmp: [u8; 64] = [0u8; 64];
+            let mut pos: i64 = 0i64;
+            let mut m: u64 = n;
+            while m > 0u64 {
+                let d: u64 = m % radix;
+                let c: u8 =
+                    if d < 10u64 {
+                        (d as u8) + 48u8
+                    } else if upper {
+                        (d as u8) - 10u8 + 65u8
+                    } else {
+                        (d as u8) - 10u8 + 97u8
+                    };
+                tmp[pos] = c;
+                pos = pos + 1i64;
+                m = m / radix;
+            }
+            let mut i: i64 = pos - 1i64;
+            while i >= 0i64 { scratch.push_u8(tmp[i]); i = i - 1i64; }
+        }
+        // Pick the alt-form prefix when `#` (alternate) is set.
+        let prefix: str =
+            if self.alternate {
+                if radix == 16u64 { if upper { "0x" } else { "0x" } }
+                else if radix == 8u64  { "0o" }
+                else if radix == 2u64  { "0b" }
+                else                    { "" }
+            } else { "" };
+        return self.pad(scratch.as_str(), prefix);
+    }
+}
+
+// ── Display / Debug — Rust-shape format traits ────────────────────────
+//
+// Sits ALONGSIDE the legacy `mem.string::Display` and `std.fmt::Debug`
+// (which both take `&mut String` directly). Migration plan:
+//
+//   Session 1 (this commit): infrastructure — Formatter helpers above,
+//     traits below, FmtDisplay impl for i32 as proof-of-shape.
+//   Session 2: migrate every primitive (i8…i64, u8…u64, f32/f64, bool,
+//     str, *const u8, tuples) to FmtDisplay/FmtDebug — bridge legacy
+//     traits to delegate.
+//   Session 3: migrate stdlib struct impls (Option, Result, Vec) and
+//     the LowerHex/UpperHex/Octal/Binary/LowerExp/UpperExp families.
+//   Session 4: rewrite `format!`/`println!`/`print!`/`eprintln!`/
+//     `eprint!`/`panic!`/`assert*!` metacalls to spec-parse into a
+//     Formatter then dispatch through FmtDisplay; drop fmt_pad +
+//     fmt_display/fmt_debug helpers; rename FmtDisplay→Display once
+//     legacy gone (and the cross-pkg trait-registry collision lifts).
+//
+// Traits named `FmtDisplay`/`FmtDebug` rather than `Display`/`Debug`
+// for the same reason FmtWrite is — Logos's flat trait registry would
+// clobber the legacy names cross-package (B-mv-02). The rename happens
+// in Session 4 alongside the legacy delete.
+
+// Method names `fmt_display` / `fmt_debug` (rather than the canonical
+// Rust `fmt`) — Logos's method-mangling doesn't include the trait name
+// so an `impl FmtDisplay for i32 { fn fmt(...) }` would clash with the
+// legacy `impl Display for i32 { fn fmt(...) }` already in
+// `mem.string`. After Session 4's legacy delete the trait registry is
+// clean and the methods rename back to plain `fmt`.
+
+pub trait FmtDisplay {
+    fn fmt_display(&self, f: &mut Formatter) -> Result<(), Error>;
+}
+
+pub trait FmtDebug {
+    fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error>;
+}
+
+// Render any FmtDisplay value to an owned String using a default-spec
+// Formatter (no width/precision/sign). Equivalent to Rust's
+// `format!("{}", v)` once the metacall migration lands.
+pub fn fmt_display_to_string<T: FmtDisplay>(val: &T) -> String {
+    let mut buf: String = String::new();
+    let mut f: Formatter = formatter_for(&mut buf);
+    let _ = val.fmt_display(&mut f);
+    return buf;
+}
+
+pub fn fmt_debug_to_string<T: FmtDebug>(val: &T) -> String {
+    let mut buf: String = String::new();
+    let mut f: Formatter = formatter_for(&mut buf);
+    let _ = val.fmt_debug(&mut f);
+    return buf;
+}
+
+// First migrated impl — primitive i32. Used as the proof-of-shape
+// for Session 1; the rest of the primitive family rolls out in
+// Session 2. Debug for i32 reuses Display's rendering (Rust mirrors
+// the same for all integer primitives).
+
+impl FmtDisplay for i32 {
+    fn fmt_display(&self, f: &mut Formatter) -> Result<(), Error> {
+        return f.write_int_dec_i64(*self as i64);
+    }
+}
+
+impl FmtDebug for i32 {
+    fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {
+        return f.write_int_dec_i64(*self as i64);
+    }
 }
 
 // ── Arguments ────────────────────────────────────────────────────────
