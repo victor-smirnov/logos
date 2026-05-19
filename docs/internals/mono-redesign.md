@@ -257,18 +257,57 @@ info → schema change cascade.
 **Realistic scope**: 3-5 days of focused work, including method-
 dispatch regression testing (hot path, subtle).
 
-**Next-session plan**:
-  - Day 1: schema change (`EMethodCall::trait_name` field). Build +
-    ctest baseline.
-  - Day 2: sema's trait-bound dispatch populates `mc.trait_name`.
-    sema_collect's registration uses trait-prefixed mangling for
-    trait-impl methods.
-  - Day 3: mono's MethodCall lowering routes through trait-prefixed
-    key. `find_func_by_base_and_signature` consumers audit.
+**Next-session plan** (refined 2026-05-19 after partial attempt
+revealed the full cascade):
+
+  - Day 1: registration site + default-method emission.
+    - `sema_collect.cpp:2328` mangles trait-impl method as
+      `<target>__<trait>__<method>`.
+    - `sema_collect.cpp:2660` (default method emission via
+      `collect_fn`) uses trait-prefixed context.
+    - `sema_collect.cpp:2501-2512` (impl completeness check)
+      looks up trait-prefixed.
+    - `sema_decl.cpp:1452` (lower_impl_block's "overridden" set)
+      uses trait-prefixed mangled key.
+    - `sema_decl.cpp:1490` (lower_fn for default-method) passes
+      trait-prefixed struct_ctx.
+    - Verify stdlib builds — `mlir-gen: duplicate function body
+      for symbol 'i32__from'` indicates one of the above paths
+      is still emitting bare form.
+
+  - Day 2: concrete dispatch + static call.
+    - `sema_expr.cpp:5651` (lower_method_call) — bare-key
+      candidate search + trait-prefixed scan fallback. Ambiguity
+      check across traits.
+    - `sema_expr.cpp:8935` (lower_static_call) — `Type::method`
+      shape. Same scan fallback for trait-impl methods.
+    - `sema_expr.cpp:8849` (lower_enum_lit_data_from_static) —
+      already calls lower_static_call; check coverage.
+    - Helper `find_trait_prefixed_methods` in sema.cpp.
+
+  - Day 3: mono propagation.
+    - mono's `MethodCall` lowering (mono_clone.cpp:2643+) handles
+      trait-prefixed names without re-mangling.
+    - `find_func_by_base_and_signature` consumers audit
+      (~30 sites listed in baghunt_trait_aware_method_mangling).
+    - Run ctest at every commit; baseline 3259/3259.
+
   - Day 4: disambiguation grammar + sema for
     `<Type as Trait>::method`.
-  - Day 5: `fmt_display`/`fmt_debug`/`_fmt_lower_hex` → `fmt` rename
-    across stdlib + tests + derive metaprog.
+
+  - Day 5: `fmt_display`/`fmt_debug`/`_fmt_lower_hex` → `fmt`
+    rename across stdlib + tests + derive metaprog. Update
+    sema_fmt.cpp's `format_trait_method` strings.
+
+**Partial-attempt findings (2026-05-19 session)**:
+Attempted Days 1+2 in one go. Build broke at stdlib with
+`mlir-gen: duplicate function body for symbol 'i32__from'` —
+multiple `From<X> for i32` impls had `function_symbol_name`
+producing identical symbols despite the trait-prefixed base_name
+change in sema_collect.cpp:2328. Root cause not pinned in this
+session; reverted to maintain 3259/3259 baseline. Day 1 needs to
+trace where the trait prefix is dropped between sema_collect's
+registration and the final fn.name in out_.functions.
 
 For now, `fmt_display`/`fmt_debug` etc. stay as the per-trait
 suffix workaround. The Display/Debug + LowerHex/UpperHex/Octal/
