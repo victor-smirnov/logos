@@ -1,0 +1,32 @@
+// Marker traits + PhantomData/PhantomPinned + AssertUnwindSafe smoke.
+package marker_basic;
+
+use logos.lang.marker;
+use logos.lang.panic;
+
+fn fail(c: i32) -> i32 { return c; }
+
+// Struct with a PhantomData<T> field — anchors T without storage.
+pub struct WithPhantom<T> {
+    pub n: i32,
+    pub _t: PhantomData<T>,
+}
+
+fn make_with<T>(n: i32) -> WithPhantom<T> {
+    return WithPhantom::<T> { n: n, _t: PhantomData::<T> {} };
+}
+
+fn main() -> i32 {
+    let w: WithPhantom<i64> = make_with::<i64>(42);
+    if w.n != 42 { return fail(1); }
+
+    // PhantomPinned compiles as a marker field carrier.
+    let pp: PhantomPinned = PhantomPinned {};
+    let _pp2: PhantomPinned = pp;
+
+    // AssertUnwindSafe wraps a value.
+    let a: AssertUnwindSafe<i32> = AssertUnwindSafe::<i32> { value: 7 };
+    if a.value != 7 { return fail(2); }
+
+    return 0;
+}

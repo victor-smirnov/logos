@@ -1,0 +1,55 @@
+// Range family — RangeFrom/RangeTo/RangeFull/RangeInclusive smoke.
+package range_family;
+
+use logos.lang.range;
+use logos.lang.iter;
+use logos.lang.option;
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    // RangeInclusive i32 — 3..=5 yields 3, 4, 5.
+    let mut ri: RangeInclI32 = range_incl_i32(3, 5);
+    let a: Option<i32> = ri.next();
+    if !a.is_some() || a.unwrap() != 3 { return fail(1); }
+    let b: Option<i32> = ri.next();
+    if !b.is_some() || b.unwrap() != 4 { return fail(2); }
+    let c: Option<i32> = ri.next();
+    if !c.is_some() || c.unwrap() != 5 { return fail(3); }
+    let d: Option<i32> = ri.next();
+    if d.is_some() { return fail(4); }
+
+    // RangeInclusive i64 — empty case (lo > hi).
+    let mut empty: RangeInclI64 = range_incl_i64(10i64, 5i64);
+    let e: Option<i64> = empty.next();
+    if e.is_some() { return fail(10); }
+
+    // RangeFrom — take 3, get 7, 8, 9.
+    let mut rf: RangeFromI32 = range_from_i32(7);
+    let v1: Option<i32> = rf.next();
+    if !v1.is_some() || v1.unwrap() != 7 { return fail(20); }
+    let v2: Option<i32> = rf.next();
+    if !v2.is_some() || v2.unwrap() != 8 { return fail(21); }
+    let v3: Option<i32> = rf.next();
+    if !v3.is_some() || v3.unwrap() != 9 { return fail(22); }
+    // (don't drain — infinite)
+
+    // contains
+    let r: RangeInclI32 = range_incl_i32(0, 10);
+    if !r.contains(5)  { return fail(30); }
+    if !r.contains(10) { return fail(31); }
+    if  r.contains(11) { return fail(32); }
+
+    let rt: RangeToI32 = range_to_i32(100);
+    if !rt.contains(50)  { return fail(40); }
+    if  rt.contains(100) { return fail(41); }
+
+    let rfrom: RangeFromI32 = range_from_i32(7);
+    if !rfrom.contains(99) { return fail(50); }
+    if  rfrom.contains(0)  { return fail(51); }
+
+    // RangeFull is a unit carrier.
+    let _full: RangeFull = range_full();
+
+    return 0;
+}

@@ -1,0 +1,64 @@
+// Option/Result inherent flatten/transpose/unzip method syntax.
+package option_result_inherent;
+
+use logos.lang.option;
+use logos.lang.result;
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    // Option::<Option<T>>::flatten
+    let opt: Option<Option<i32>> = Option::<Option<i32>>::Some(Option::<i32>::Some(42));
+    let flat: Option<i32> = opt.flatten();
+    if !flat.is_some() { return fail(1); }
+    if flat.unwrap() != 42 { return fail(2); }
+
+    let opt_none: Option<Option<i32>> = Option::<Option<i32>>::Some(Option::<i32>::None);
+    let flat_none: Option<i32> = opt_none.flatten();
+    if flat_none.is_some() { return fail(3); }
+
+    let outer_none: Option<Option<i32>> = Option::<Option<i32>>::None;
+    let flat_outer_none: Option<i32> = outer_none.flatten();
+    if flat_outer_none.is_some() { return fail(4); }
+
+    // Option::<(A, B)>::unzip
+    let pair: Option<(i32, i64)> = Option::<(i32, i64)>::Some((7, 99i64));
+    let (a, b): (Option<i32>, Option<i64>) = pair.unzip();
+    if !a.is_some() { return fail(10); }
+    if a.unwrap() != 7 { return fail(11); }
+    if !b.is_some() { return fail(12); }
+    if b.unwrap() != 99i64 { return fail(13); }
+
+    // Option::<Result<T, E>>::transpose
+    let or_ok: Option<Result<i32, str>> = Option::<Result<i32, str>>::Some(
+        Result::<i32, str>::Ok(5));
+    let trans: Result<Option<i32>, str> = or_ok.transpose();
+    match trans {
+        Result::Ok(o)  => {
+            if !o.is_some() { return fail(20); }
+            if o.unwrap() != 5 { return fail(21); }
+        }
+        Result::Err(_) => { return fail(22); }
+    }
+
+    // Result::<Result<T, E>, E>::flatten
+    let rr: Result<Result<i32, str>, str> = Result::<Result<i32, str>, str>::Ok(
+        Result::<i32, str>::Ok(11));
+    let rf: Result<i32, str> = rr.flatten();
+    match rf {
+        Result::Ok(v)  => { if v != 11 { return fail(30); } }
+        Result::Err(_) => { return fail(31); }
+    }
+
+    // Result::<Option<T>, E>::transpose
+    let ro: Result<Option<i32>, str> = Result::<Option<i32>, str>::Ok(
+        Option::<i32>::Some(13));
+    let rt: Option<Result<i32, str>> = ro.transpose();
+    if !rt.is_some() { return fail(40); }
+    match rt.unwrap() {
+        Result::Ok(v)  => { if v != 13 { return fail(41); } }
+        Result::Err(_) => { return fail(42); }
+    }
+
+    return 0;
+}

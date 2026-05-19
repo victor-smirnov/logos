@@ -212,6 +212,36 @@ pub fn result_transpose<T, E>(r: Result<Option<T>, E>) -> Option<Result<T, E>> {
     }
 }
 
+// ── Inherent partial-spec impls — Rust-shape method syntax ──────────────
+//
+// Mirror Rust's `Result::<Result<T,E>,E>::flatten` /
+// `Result::<Option<T>,E>::transpose`. Sema partial-spec inherent impl
+// on nested generic shapes works after the turbofish-on-enum-lit fix +
+// mono Phase 1 contains_typevar gate.
+
+impl<T, E> Result<Result<T, E>, E> {
+    pub fn flatten(self: Result<Result<T, E>, E>) -> Result<T, E> {
+        match self {
+            Result::Ok(inner) => { return inner; }
+            Result::Err(e)    => { return Result::<T, E>::Err(e); }
+        }
+    }
+}
+
+impl<T, E> Result<Option<T>, E> {
+    pub fn transpose(self: Result<Option<T>, E>) -> Option<Result<T, E>> {
+        match self {
+            Result::Ok(inner) => {
+                match inner {
+                    Option::Some(v) => { return Option::<Result<T, E>>::Some(Result::<T, E>::Ok(v)); }
+                    Option::None    => { return Option::<Result<T, E>>::None; }
+                }
+            }
+            Result::Err(e) => { return Option::<Result<T, E>>::Some(Result::<T, E>::Err(e)); }
+        }
+    }
+}
+
 // Free-function shims for compat with pre-existing call-sites.
 pub fn unwrap_or_i32(r: Result<i32, i32>, def: i32) -> i32 {
     return r.unwrap_or(def);

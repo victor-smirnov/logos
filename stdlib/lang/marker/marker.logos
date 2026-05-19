@@ -18,6 +18,25 @@ pub auto trait Send {}
 pub auto trait Sync {}
 pub trait Sized {}
 
+// Unpin — a type that can be safely moved even after being pinned. Mirrors
+// `core::marker::Unpin`. Auto-trait in Rust (auto-impl'd unless the type
+// stores a `PhantomPinned`). For now `Unpin` is a regular marker — Logos
+// doesn't ship a Pin<T> ergonomics layer yet, so no impls are wired.
+pub auto trait Unpin {}
+
+// PhantomPinned — a zero-sized field that opts a struct out of Unpin in
+// Rust's auto-trait machinery. Logos doesn't have Pin<T> yet; this lives
+// here as a forward-compatible placeholder so port targets that name it
+// (e.g. self-referential generators) parse.
+pub struct PhantomPinned {}
+
+// PhantomData<T> — a zero-sized type-anchor. In Rust this controls
+// dropck + variance + auto-traits; in Logos today it serves just the
+// type-anchor role (same as our existing `_t: T` idiom but without
+// needing an actual T value at construction). Construction:
+// `PhantomData::<T>{}` — empty struct literal.
+pub struct PhantomData<T> {}
+
 // Empty (uninhabited) enum — Logos's replacement for Rust's `!` (never)
 // type. Use as the error variant of `Result<T, Never>` to signal
 // "Err is impossible", or as a stand-in for `fn foo() -> !` divergent

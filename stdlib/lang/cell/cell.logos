@@ -340,6 +340,68 @@ impl<T> Drop for RefMut<T> {
     }
 }
 
+// ── Ref::map / try_map ──────────────────────────────────────────────────
+//
+// Mirrors `core::cell::Ref::map` / `Ref::filter_map`. Transforms a
+// `Ref<T>` into a `Ref<U>` by applying a fn that maps `&T -> &U`. The
+// borrow counter is bumped one extra step, so when both the original
+// guard and the new guard drop the count stays balanced — no
+// ManuallyDrop dance is required.
+//
+// Divergence: Rust uses `FnOnce(&T) -> &U`. We use fn-ptr today
+// (no closure captures) — same behaviour for the typical refcell-map
+// use case where the mapping is a struct field projection.
+
+pub fn ref_map<T, U>(orig: Ref<T>, f: fn(&T) -> &U) -> Ref<U> {
+    unsafe {
+        let target: &U = f(&*orig.value);
+        // Bump the counter so the new Ref's Drop is balanced once
+        // orig drops at the end of this fn.
+        *orig.state = *orig.state + 1i32;
+        return Ref::<U> {
+            value: target as *const U,
+            state: orig.state,
+        };
+    }
+}
+
+pub fn ref_filter_map<T, U>(
+    orig: Ref<T>,
+    f: fn(&T) -> Option<&U>,
+) -> Result<Ref<U>, Ref<T>> {
+    unsafe {
+        let r: Option<&U> = f(&*orig.value);
+        match r {
+            Option::Some(target) => {
+                *orig.state = *orig.state + 1i32;
+                return Result::<Ref<U>, Ref<T>>::Ok(Ref::<U> {
+                    value: target as *const U,
+                    state: orig.state,
+                });
+            }
+            Option::None => {
+                return Result::<Ref<U>, Ref<T>>::Err(orig);
+            }
+        }
+    }
+}
+
+pub fn ref_mut_map<T, U>(orig: RefMut<T>, f: fn(&mut T) -> &mut U) -> RefMut<U> {
+    unsafe {
+        let target: &mut U = f(&mut *orig.value);
+        // RefMut's Drop sets state back to 0; we want the NEW guard to
+        // do that, so suppress orig's Drop by reusing its state ptr
+        // and trusting that the user passes ownership end-to-end.
+        // Bumping a -1 state isn't valid (-1 is mut-borrow marker), so
+        // we leave the state alone — orig.Drop and the new guard's
+        // Drop both set it to 0, which is idempotent.
+        return RefMut::<U> {
+            value: target as *mut U,
+            state: orig.state,
+        };
+    }
+}
+
 // Free-fn `RefCell::take` — same `T::default()` from where-clause-bound
 // T workaround as `cell_take`.
 pub fn refcell_take<T: Default>(c: &RefCell<T>) -> T {

@@ -1,0 +1,51 @@
+// Pattern-driven Splitter smoke — str/u8/u32 patterns.
+package split_pat;
+
+use logos.lang.str;
+use logos.lang.iter;
+use logos.lang.option;
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    // str pattern — "a,b,c" / "," → ["a", "b", "c"]
+    let mut it1: SplitPat<str> = str_split_pat::<str>("a,b,c", ",");
+    let a: Option<str> = it1.next();
+    if !a.is_some() { return fail(1); }
+    if a.unwrap() != "a" { return fail(2); }
+    let b: Option<str> = it1.next();
+    if !b.is_some() { return fail(3); }
+    if b.unwrap() != "b" { return fail(4); }
+    let c: Option<str> = it1.next();
+    if !c.is_some() { return fail(5); }
+    if c.unwrap() != "c" { return fail(6); }
+    let d: Option<str> = it1.next();
+    if d.is_some() { return fail(7); }
+
+    // u8 byte pattern
+    let mut it2: SplitPat<u8> = str_split_pat::<u8>("x.y.z", 46u8);
+    let p1: Option<str> = it2.next();
+    if !p1.is_some() { return fail(10); }
+    if p1.unwrap() != "x" { return fail(11); }
+    let p2: Option<str> = it2.next();
+    if !p2.is_some() { return fail(12); }
+    if p2.unwrap() != "y" { return fail(13); }
+    let p3: Option<str> = it2.next();
+    if !p3.is_some() { return fail(14); }
+    if p3.unwrap() != "z" { return fail(15); }
+    let p4: Option<str> = it2.next();
+    if p4.is_some() { return fail(16); }
+
+    // u32 codepoint pattern — split on ASCII letter
+    let mut it3: SplitPat<u32> = str_split_pat::<u32>("foo|bar", 124u32);   // '|'
+    let q1: Option<str> = it3.next();
+    if !q1.is_some() { return fail(20); }
+    if q1.unwrap() != "foo" { return fail(21); }
+    let q2: Option<str> = it3.next();
+    if !q2.is_some() { return fail(22); }
+    if q2.unwrap() != "bar" { return fail(23); }
+    let q3: Option<str> = it3.next();
+    if q3.is_some() { return fail(24); }
+
+    return 0;
+}

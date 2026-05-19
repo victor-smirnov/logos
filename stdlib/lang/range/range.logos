@@ -154,3 +154,142 @@ impl FusedIterator<i32> for RangeI32 {}
 impl FusedIterator<i32> for RevRangeI32 {}
 impl FusedIterator<i64> for RangeI64 {}
 impl FusedIterator<i64> for RevRangeI64 {}
+
+// ── Range family — RangeFrom / RangeTo / RangeFull / RangeInclusive ──────────
+//
+// Mirror Rust's `core::ops::{RangeFrom, RangeTo, RangeFull, RangeInclusive}`.
+// Logos doesn't parameterise Range over Idx, so we ship per-{i32,i64}
+// variants (same shape pattern as the existing RangeI32 / RangeI64).
+//
+// `RangeFrom` is infinite — `next()` never returns None. Treat as a
+// "use with `.take(n)`" iterator.
+// `RangeTo` and `RangeFull` are bound-only carriers (not iterators in
+// Rust either) — used as slice-index endpoints. Present here as marker
+// structs so port targets parse.
+// `RangeInclusive` includes both endpoints; `next()` yields None after
+// the end has been emitted (uses an internal `done` flag).
+
+pub struct RangeFromI32 { pub current: i32 }
+pub struct RangeFromI64 { pub current: i64 }
+
+pub fn range_from_i32(start: i32) -> RangeFromI32 { return RangeFromI32 { current: start }; }
+pub fn range_from_i64(start: i64) -> RangeFromI64 { return RangeFromI64 { current: start }; }
+
+impl Iterator<i32> for RangeFromI32 {
+    fn next(self: &mut RangeFromI32) -> Option<i32> {
+        let v: i32 = self.current;
+        self.current = self.current + 1;
+        return Option::Some(v);
+    }
+}
+
+impl Iterator<i64> for RangeFromI64 {
+    fn next(self: &mut RangeFromI64) -> Option<i64> {
+        let v: i64 = self.current;
+        self.current = self.current + 1i64;
+        return Option::Some(v);
+    }
+}
+
+impl RangeFromI32 {
+    pub fn contains(self: RangeFromI32, item: i32) -> bool {
+        return self.current <= item;
+    }
+}
+
+impl RangeFromI64 {
+    pub fn contains(self: RangeFromI64, item: i64) -> bool {
+        return self.current <= item;
+    }
+}
+
+// RangeTo<Idx> — exclusive upper-bound carrier. Used as slice index;
+// not iterable in Rust either.
+pub struct RangeToI32 { pub end: i32 }
+pub struct RangeToI64 { pub end: i64 }
+
+pub fn range_to_i32(end: i32) -> RangeToI32 { return RangeToI32 { end: end }; }
+pub fn range_to_i64(end: i64) -> RangeToI64 { return RangeToI64 { end: end }; }
+
+impl RangeToI32 {
+    pub fn contains(self: RangeToI32, item: i32) -> bool {
+        return item < self.end;
+    }
+}
+
+impl RangeToI64 {
+    pub fn contains(self: RangeToI64, item: i64) -> bool {
+        return item < self.end;
+    }
+}
+
+// RangeFull — bound-less marker. Single value carries no state.
+pub struct RangeFull {}
+
+pub fn range_full() -> RangeFull { return RangeFull {}; }
+
+// RangeInclusive — [start..=end].
+pub struct RangeInclI32 {
+    pub current: i32,
+    pub end:     i32,
+    pub done:    bool,
+}
+
+pub struct RangeInclI64 {
+    pub current: i64,
+    pub end:     i64,
+    pub done:    bool,
+}
+
+pub fn range_incl_i32(lo: i32, hi: i32) -> RangeInclI32 {
+    return RangeInclI32 { current: lo, end: hi, done: lo > hi };
+}
+
+pub fn range_incl_i64(lo: i64, hi: i64) -> RangeInclI64 {
+    return RangeInclI64 { current: lo, end: hi, done: lo > hi };
+}
+
+impl Iterator<i32> for RangeInclI32 {
+    fn next(self: &mut RangeInclI32) -> Option<i32> {
+        if self.done { return Option::None; }
+        let v: i32 = self.current;
+        if self.current == self.end {
+            self.done = true;
+        } else {
+            self.current = self.current + 1;
+        }
+        return Option::Some(v);
+    }
+}
+
+impl Iterator<i64> for RangeInclI64 {
+    fn next(self: &mut RangeInclI64) -> Option<i64> {
+        if self.done { return Option::None; }
+        let v: i64 = self.current;
+        if self.current == self.end {
+            self.done = true;
+        } else {
+            self.current = self.current + 1i64;
+        }
+        return Option::Some(v);
+    }
+}
+
+impl RangeInclI32 {
+    pub fn contains(self: RangeInclI32, item: i32) -> bool {
+        return self.current <= item && item <= self.end;
+    }
+    pub fn is_empty(self: RangeInclI32) -> bool { return self.done; }
+}
+
+impl RangeInclI64 {
+    pub fn contains(self: RangeInclI64, item: i64) -> bool {
+        return self.current <= item && item <= self.end;
+    }
+    pub fn is_empty(self: RangeInclI64) -> bool { return self.done; }
+}
+
+impl FusedIterator<i32> for RangeFromI32 {}
+impl FusedIterator<i64> for RangeFromI64 {}
+impl FusedIterator<i32> for RangeInclI32 {}
+impl FusedIterator<i64> for RangeInclI64 {}

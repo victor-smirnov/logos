@@ -1,0 +1,71 @@
+// Ref::map / Ref::filter_map smoke.
+package ref_map_basic;
+
+use logos.lang.cell;
+use logos.lang.option;
+use logos.lang.result;
+
+pub struct Box2 {
+    pub a: i32,
+    pub b: i64,
+}
+
+fn project_a(b: &Box2) -> &i32 { return &b.a; }
+fn project_b(b: &Box2) -> &i64 { return &b.b; }
+
+fn project_a_opt(b: &Box2) -> Option<&i32> {
+    if b.a > 0 { return Option::Some(&b.a); }
+    return Option::None;
+}
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    let cell: RefCell<Box2> = RefCell::<Box2>::new(Box2 { a: 7, b: 100i64 });
+
+    {
+        let g: Ref<Box2> = cell.borrow();
+        let ga: Ref<i32> = ref_map::<Box2, i32>(g, project_a);
+        if *ga.get() != 7 { return fail(1); }
+        // ga drops here; orig's Drop fired before; counter back to 0.
+    }
+
+    {
+        let g2: Ref<Box2> = cell.borrow();
+        let gb: Ref<i64> = ref_map::<Box2, i64>(g2, project_b);
+        if *gb.get() != 100i64 { return fail(2); }
+    }
+
+    // filter_map — Ok branch
+    {
+        let g: Ref<Box2> = cell.borrow();
+        let r: Result<Ref<i32>, Ref<Box2>> = ref_filter_map::<Box2, i32>(g, project_a_opt);
+        match r {
+            Result::Ok(g_a) => {
+                if *g_a.get() != 7 { return fail(10); }
+            }
+            Result::Err(_) => { return fail(11); }
+        }
+    }
+
+    // After all guards dropped, mut-borrow should succeed.
+    {
+        let mut gm: RefMut<Box2> = cell.borrow_mut();
+        let r: &mut Box2 = gm.get_mut();
+        r.a = -5;
+    }
+
+    // Now filter_map's predicate fails (a < 0), expect Err branch.
+    {
+        let g_in: Ref<Box2> = cell.borrow();
+        let r: Result<Ref<i32>, Ref<Box2>> = ref_filter_map::<Box2, i32>(g_in, project_a_opt);
+        match r {
+            Result::Ok(_)    => { return fail(20); }
+            Result::Err(g_out) => {
+                if g_out.get().a != -5 { return fail(21); }
+            }
+        }
+    }
+
+    return 0;
+}

@@ -296,6 +296,49 @@ pub fn option_flatten<T>(opt: Option<Option<T>>) -> Option<T> {
     }
 }
 
+// ── Inherent partial-spec impls — Rust-shape method syntax ──────────────
+//
+// Mirror Rust's `Option::<Option<T>>::flatten` etc. Sema partial-spec
+// inherent impl on nested generic shapes now works after the
+// turbofish-on-enum-lit fix + mono Phase 1 contains_typevar gate.
+
+impl<T> Option<Option<T>> {
+    pub fn flatten(self: Option<Option<T>>) -> Option<T> {
+        match self {
+            Option::Some(inner) => { return inner; }
+            Option::None        => { return Option::None; }
+        }
+    }
+}
+
+impl<A, B> Option<(A, B)> {
+    pub fn unzip(self: Option<(A, B)>) -> (Option<A>, Option<B>) {
+        match self {
+            Option::None => {
+                return (Option::<A>::None, Option::<B>::None);
+            }
+            Option::Some(t) => {
+                return (Option::<A>::Some(t.0), Option::<B>::Some(t.1));
+            }
+        }
+    }
+}
+
+// `Option::<Result<T, E>>::transpose() -> Result<Option<T>, E>`
+impl<T, E> Option<Result<T, E>> {
+    pub fn transpose(self: Option<Result<T, E>>) -> Result<Option<T>, E> {
+        match self {
+            Option::None    => { return Result::<Option<T>, E>::Ok(Option::<T>::None); }
+            Option::Some(r) => {
+                match r {
+                    Result::Ok(v)  => { return Result::<Option<T>, E>::Ok(Option::<T>::Some(v)); }
+                    Result::Err(e) => { return Result::<Option<T>, E>::Err(e); }
+                }
+            }
+        }
+    }
+}
+
 // Free-function shims for compat with pre-existing call-sites in stdlib
 // and earlier Logos tests. New code should prefer the method form.
 pub fn unwrap_or_i32(opt: Option<i32>, def: i32) -> i32 {

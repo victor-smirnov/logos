@@ -86,3 +86,48 @@ impl Iterator<str> for ByteSplitter {
 pub fn split_byte(s: str, sep: u8) -> ByteSplitter {
     return ByteSplitter { rest: s, sep: sep, done: false };
 }
+
+// ── Pattern-driven Splitter ─────────────────────────────────────────────
+//
+// Mirrors `str::split(P)` where P: Pattern. Generic over the pattern
+// type, so str / u8 / u32-codepoint all work through one type.
+//
+// Behaviour matches the byte/str splitters above:
+//   * empty haystack → one empty-str yield
+//   * pattern at start/end → empty segments
+//   * non-overlapping matches drive the split
+
+pub struct SplitPat<P> {
+    haystack: str,
+    pat:      P,
+    pos:      i64,
+    done:     bool,
+}
+
+pub fn str_split_pat<P: Pattern>(s: str, p: P) -> SplitPat<P> {
+    return SplitPat::<P> { haystack: s, pat: p, pos: 0i64, done: false };
+}
+
+impl<P: Pattern> Iterator<str> for SplitPat<P> {
+    fn next(self: &mut SplitPat<P>) -> Option<str> {
+        if self.done { return Option::None; }
+        // Mirror Matches's "advancing pos over immutable haystack" shape
+        // — mutating `rest` between calls hits a generic-struct-field
+        // staleness in mono dispatch.
+        let idx: i64 = self.pat.find_in(self.haystack, self.pos);
+        let total: i64 = self.haystack.len();
+        unsafe {
+            let base: *const u8 = self.haystack.as_ptr();
+            if idx < 0i64 {
+                self.done = true;
+                let tail_ptr: *const u8 = (base as i64 + self.pos) as *const u8;
+                return Option::Some(str_from_raw(tail_ptr, total - self.pos));
+            }
+            let mlen: i64 = self.pat.match_len();
+            let head_ptr: *const u8 = (base as i64 + self.pos) as *const u8;
+            let head_len: i64 = idx - self.pos;
+            self.pos = idx + mlen;
+            return Option::Some(str_from_raw(head_ptr, head_len));
+        }
+    }
+}

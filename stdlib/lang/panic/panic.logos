@@ -96,3 +96,29 @@ pub fn catch_unwind(f: fn()) -> Result<(), str> {
         return Result::<(), str>::Err(str_from_raw(p, n));
     }
 }
+
+// ── UnwindSafe / RefUnwindSafe / AssertUnwindSafe ────────────────────────
+//
+// Mirrors Rust's `core::panic::{UnwindSafe, RefUnwindSafe,
+// AssertUnwindSafe}`. UnwindSafe is the marker bound on closures passed
+// to `catch_unwind`, asserting that an unwind cannot leave broken
+// invariants visible to callers. RefUnwindSafe is the `&T` analogue.
+//
+// In Rust both are auto traits with explicit `impl !` for the unsafe
+// shapes (UnsafeCell, &mut T, etc.). Logos doesn't auto-derive them
+// today — the markers exist so port targets that name them parse and
+// downstream code can opt in when the auto-derive lands.
+//
+// AssertUnwindSafe<T>(value) is the canonical escape hatch: a newtype
+// that unconditionally asserts UnwindSafe (Rust uses tuple-struct
+// `(pub T)`; Logos uses a named field for the same shape).
+
+pub trait UnwindSafe {}
+pub trait RefUnwindSafe {}
+
+pub struct AssertUnwindSafe<T> {
+    pub value: T,
+}
+
+impl<T> UnwindSafe    for AssertUnwindSafe<T> {}
+impl<T> RefUnwindSafe for AssertUnwindSafe<T> {}
