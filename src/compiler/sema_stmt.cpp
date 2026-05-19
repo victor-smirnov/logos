@@ -1473,6 +1473,49 @@ lir::LStmt SemaChecker::lower_compound_assign(TinyMapView node) {
     auto rhs = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
 
+    // User-defined *Assign dispatch: `x op= rhs` for a user-typed struct
+    // x with `impl OpAssign for X` → emit `X__op_assign(&mut x, rhs)` as
+    // a void-returning call (in-place mutation, no assign-back).
+    // Mirrors the unary-op / binary-op overload patterns. Without the
+    // impl, falls through to the existing `x = x op rhs` desugar that
+    // dispatches via Add/Sub/etc. (creates a fresh Self).
+    if (TypeRef(var_type).kind() == LogosType::Kind::Struct) {
+        std::string assign_trait, assign_method;
+        if      (base_op == "+")  { assign_trait = "AddAssign";    assign_method = "add_assign"; }
+        else if (base_op == "-")  { assign_trait = "SubAssign";    assign_method = "sub_assign"; }
+        else if (base_op == "*")  { assign_trait = "MulAssign";    assign_method = "mul_assign"; }
+        else if (base_op == "/")  { assign_trait = "DivAssign";    assign_method = "div_assign"; }
+        else if (base_op == "%")  { assign_trait = "RemAssign";    assign_method = "rem_assign"; }
+        else if (base_op == "&")  { assign_trait = "BitAndAssign"; assign_method = "bitand_assign"; }
+        else if (base_op == "|")  { assign_trait = "BitOrAssign";  assign_method = "bitor_assign"; }
+        else if (base_op == "^")  { assign_trait = "BitXorAssign"; assign_method = "bitxor_assign"; }
+        else if (base_op == "<<") { assign_trait = "ShlAssign";    assign_method = "shl_assign"; }
+        else if (base_op == ">>") { assign_trait = "ShrAssign";    assign_method = "shr_assign"; }
+        if (!assign_trait.empty()) {
+            auto type_name = concrete_struct_name(var_type);
+            auto base_name = std::string(TypeRef(var_type).struct_name());
+            bool has_impl = impls_.count(assign_trait + "::" + type_name) ||
+                            (!base_name.empty() &&
+                             impls_.count(assign_trait + "::" + base_name));
+            if (has_impl) {
+                auto mangled = type_name + "__" + assign_method;
+                auto mut_ref_t = make_ref(true, var_type);
+                auto recv = builder().addr_of(std::string(name), mut_ref_t);
+                auto fit = find_func_by_base_and_signature(
+                    mangled, {mut_ref_t, var_type}, false);
+                if (fit) {
+                    std::vector<lir::LExprPtr> args;
+                    args.push_back(std::move(recv));
+                    args.push_back(std::move(rhs));
+                    auto call = builder().call(
+                        fit->symbol_name.empty() ? mangled : fit->symbol_name,
+                        {}, std::move(args), fit->ret_type);
+                    return builder().stmt_expr(std::move(call), node_line_);
+                }
+            }
+        }
+    }
+
     // Type-check: RHS must be compatible with the variable's type.
     if (TypeRef(var_type).kind() != LogosType::Kind::Error &&
         TypeRef(rhs->type).kind() != LogosType::Kind::Error &&

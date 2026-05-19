@@ -1,0 +1,77 @@
+// Tests *Assign trait dispatch for user-typed structs: `x op= y`
+// resolves to `x.op_assign(y)` (in-place mutation) when the impl
+// is present. Falls through to `x = x op y` via Add/Sub/etc. when not.
+package test;
+
+use logos.lang.ops;
+
+struct Vec2 { x: i32, y: i32 }
+
+impl AddAssign for Vec2 {
+    fn add_assign(&mut self, rhs: Self) {
+        self.x = self.x + rhs.x;
+        self.y = self.y + rhs.y;
+    }
+}
+
+impl SubAssign for Vec2 {
+    fn sub_assign(&mut self, rhs: Self) {
+        self.x = self.x - rhs.x;
+        self.y = self.y - rhs.y;
+    }
+}
+
+impl MulAssign for Vec2 {
+    fn mul_assign(&mut self, rhs: Self) {
+        self.x = self.x * rhs.x;
+        self.y = self.y * rhs.y;
+    }
+}
+
+struct BitBag { bits: i32 }
+
+impl BitAndAssign for BitBag {
+    fn bitand_assign(&mut self, rhs: Self) { self.bits = self.bits & rhs.bits; }
+}
+impl BitOrAssign for BitBag {
+    fn bitor_assign(&mut self, rhs: Self)  { self.bits = self.bits | rhs.bits; }
+}
+impl BitXorAssign for BitBag {
+    fn bitxor_assign(&mut self, rhs: Self) { self.bits = self.bits ^ rhs.bits; }
+}
+impl ShlAssign for BitBag {
+    fn shl_assign(&mut self, rhs: Self) { self.bits = self.bits << rhs.bits; }
+}
+
+fn main() -> i32 {
+    let mut v: Vec2 = Vec2 { x: 1, y: 2 };
+    v += Vec2 { x: 10, y: 20 };
+    if v.x != 11 || v.y != 22 { return 1; }
+
+    v -= Vec2 { x: 1, y: 2 };
+    if v.x != 10 || v.y != 20 { return 2; }
+
+    v *= Vec2 { x: 2, y: 3 };
+    if v.x != 20 || v.y != 60 { return 3; }
+
+    let mut b: BitBag = BitBag { bits: 0b1100 };
+    b &= BitBag { bits: 0b1010 };
+    if b.bits != 0b1000 { return 4; }
+
+    b |= BitBag { bits: 0b0011 };
+    if b.bits != 0b1011 { return 5; }
+
+    b ^= BitBag { bits: 0b1111 };
+    if b.bits != 0b0100 { return 6; }
+
+    b <<= BitBag { bits: 2 };
+    if b.bits != 0b10000 { return 7; }
+
+    // Primitive += still works (codegen path, no trait dispatch).
+    let mut n: i32 = 5;
+    n += 3;
+    n *= 2;
+    if n != 16 { return 8; }
+
+    return 42;
+}

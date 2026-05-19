@@ -59,6 +59,32 @@ pub trait Not {
     fn not(self: Self) -> Self;
 }
 
+// ── *Assign — in-place compound operators ─────────────────────────
+//
+// Mirrors `core::ops::{AddAssign, SubAssign, MulAssign, DivAssign,
+// RemAssign, BitAndAssign, BitOrAssign, BitXorAssign, ShlAssign,
+// ShrAssign}`. Each takes `&mut self` and a Self-typed rhs, mutates
+// in place, returns nothing. Rust shape: `fn add_assign(&mut self,
+// rhs: Self)` with default param `Rhs = Self`; Logos uses Self=Rhs
+// (default-generic-param not wired).
+//
+// Operator surface: `x += y` for a user-typed struct x that impls
+// AddAssign dispatches to `x.add_assign(y)` (sema-level rewrite).
+// Without the impl, falls through to the existing `x = x + y` desugar
+// which dispatches via Add (creates a new Self). Primitive `+=`/`-=`/
+// etc. are codegen-builtin and don't consult these traits.
+
+pub trait AddAssign    { fn add_assign(&mut self,    rhs: Self); }
+pub trait SubAssign    { fn sub_assign(&mut self,    rhs: Self); }
+pub trait MulAssign    { fn mul_assign(&mut self,    rhs: Self); }
+pub trait DivAssign    { fn div_assign(&mut self,    rhs: Self); }
+pub trait RemAssign    { fn rem_assign(&mut self,    rhs: Self); }
+pub trait BitAndAssign { fn bitand_assign(&mut self, rhs: Self); }
+pub trait BitOrAssign  { fn bitor_assign(&mut self,  rhs: Self); }
+pub trait BitXorAssign { fn bitxor_assign(&mut self, rhs: Self); }
+pub trait ShlAssign    { fn shl_assign(&mut self,    rhs: Self); }
+pub trait ShrAssign    { fn shr_assign(&mut self,    rhs: Self); }
+
 // ── Primitive impls for bool ─────────────────────────────────────
 
 impl BitAnd for bool {
