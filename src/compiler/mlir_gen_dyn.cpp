@@ -1158,6 +1158,23 @@ mlir::Value MLIRGenImpl::gen_dyn_dispatch(lir_view::EMethodCallView v,
                 sit = struct_types_.find(std::string(TypeRef(ret_logos_type).struct_name()));
             if (sit != struct_types_.end()) ret_type = sit->second.llvm_type;
         }
+        // Same rationale as Struct above, but for tagged enums: the actual
+        // fn-def returns the {i32 disc, [N x i8] payload} struct by value,
+        // not a pointer. `logos_to_mlir(Enum)` returns ptr_type for the
+        // "passed by ptr" use case (params/fields/scope_) — at indirect-
+        // call return position we need the enum's literal LLVM struct
+        // type so the call's return matches the fn-def's. Without this,
+        // the call gets typed `() -> ptr` while the callee returns the
+        // 20+ byte enum struct, and any downstream GEP through the
+        // returned `ptr` walks adjacent stack instead of the enum's
+        // disc/payload — silent corruption that segfaults the next time
+        // the result is matched on.
+        if (!ret_type && TypeRef(ret_logos_type).kind() == LogosType::Kind::Enum) {
+            auto* te = resolve_tagged_enum(
+                std::string(TypeRef(ret_logos_type).enum_name()),
+                ret_logos_type);
+            if (te) ret_type = te->llvm_type;
+        }
         if (!ret_type) ret_type = logos_to_mlir(ret_logos_type);
     }
     if (!ret_type)

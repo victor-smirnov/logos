@@ -2047,6 +2047,41 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                                 bound_val = builder_.create<mlir::LLVM::LoadOp>(
                                     loc_, vp->field_types[bi], fp);
                             }
+                            // TraitObject payload (e.g. `Option<&dyn T>`'s
+                            // Some arm). Mirror gen_let's convention at
+                            // line ~494: bind the 8-byte handle DIRECTLY
+                            // as scope_[name] (no wrapping alloca) so
+                            // dyn-dispatch's GEP through `recv_alloca`
+                            // walks the heap-allocated {data,vtable} slot
+                            // the handle points to, rather than the
+                            // alloca's own bytes (which would treat the
+                            // alloca as the fat-pair — only 8 bytes are
+                            // initialised, the vtable load lands in
+                            // adjacent stack garbage and segfaults at
+                            // dispatch). Without this branch, gen_let's
+                            // direct-handle convention and match-extract's
+                            // alloca-of-handle convention diverged at
+                            // every `Option<&dyn T>` use.
+                            TypeRef payload_lt = lt;
+                            bool is_ref_to_trait = payload_lt &&
+                                (TypeRef(payload_lt).kind() == LogosType::Kind::Ref ||
+                                 TypeRef(payload_lt).kind() == LogosType::Kind::MutRef ||
+                                 TypeRef(payload_lt).kind() == LogosType::Kind::Ptr) &&
+                                TypeRef(payload_lt).pointee() &&
+                                TypeRef(TypeRef(payload_lt).pointee()).kind()
+                                    == LogosType::Kind::TraitObject;
+                            bool is_bare_trait = payload_lt &&
+                                TypeRef(payload_lt).kind() == LogosType::Kind::TraitObject;
+                            if (is_bare_trait || is_ref_to_trait) {
+                                TypeRef trait_t = is_bare_trait
+                                    ? payload_lt
+                                    : TypeRef(payload_lt).pointee();
+                                scope_[bindings[bi]] = bound_val;
+                                let_vars_.insert(bindings[bi]);
+                                var_dyn_trait_[bindings[bi]] =
+                                    std::string(TypeRef(trait_t).trait_name());
+                                continue;
+                            }
                             auto alloca = create_entry_alloca(vp->field_types[bi]);
                             builder_.create<mlir::LLVM::StoreOp>(loc_, bound_val, alloca);
                             scope_[bindings[bi]] = alloca;

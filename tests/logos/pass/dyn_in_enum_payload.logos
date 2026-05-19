@@ -1,0 +1,87 @@
+// Regression: `&dyn Trait` / `Box<dyn Trait>` payload inside `Option`
+// (or any enum) used to drop the fat-pointer's vtable across construct
+// → match-extract → dispatch. Two compiler bugs fed into this:
+//
+//  1. mlir-gen's match-extract for VariantData payload wrapped the
+//     loaded 8-byte handle in a stack alloca, but gen_let's TraitObject
+//     convention binds the handle DIRECTLY as scope_[name]. Dispatch
+//     then GEPs through the alloca (treating its 8 bytes as a 16-byte
+//     {data,vtable} fat pair) and the vtable load picks up adjacent
+//     stack garbage.
+//  2. gen_dyn_dispatch's indirect-call return type only special-cased
+//     Struct/ZonedStruct. For Enum returns (e.g. `fn source(&self) ->
+//     Option<&dyn Error>`) it fell back to logos_to_mlir(Enum) = `ptr`
+//     instead of the enum's literal struct type. The call got typed
+//     `() -> ptr` while the fn-def returned a 20-byte enum struct — the
+//     mismatched return silently corrupted the result, and the next
+//     match on it segfaulted.
+//
+// Both fixes are needed for chained dyn-trait method calls — common
+// in `core::error::Error::source` chains.
+
+package test;
+
+use logos.lang.option;
+
+pub trait Speak { fn level(&self) -> i32; }
+
+struct Inner { v: i32 }
+struct Mid   { inner: Inner }
+struct Outer { mid: Mid }
+
+impl Speak for Inner { fn level(&self) -> i32 { return 1; } }
+impl Speak for Mid   { fn level(&self) -> i32 { return 2; } }
+impl Speak for Outer { fn level(&self) -> i32 { return 3; } }
+
+// Trait method returning Option<&dyn Speak> — exercises both the
+// extract convention AND the enum-return indirect-call shape.
+pub trait Chain {
+    fn next(&self) -> Option<&dyn Speak>;
+}
+
+impl Chain for Outer {
+    fn next(&self) -> Option<&dyn Speak> {
+        let d: &dyn Speak = &self.mid;
+        return Option::<&dyn Speak>::Some(d);
+    }
+}
+
+impl Chain for Mid {
+    fn next(&self) -> Option<&dyn Speak> {
+        let d: &dyn Speak = &self.inner;
+        return Option::<&dyn Speak>::Some(d);
+    }
+}
+
+impl Chain for Inner {
+    fn next(&self) -> Option<&dyn Speak> {
+        return Option::<&dyn Speak>::None;
+    }
+}
+
+fn main() -> i32 {
+    let inner: Inner = Inner { v: 0 };
+    let mid:   Mid   = Mid   { inner: inner };
+    let outer: Outer = Outer { mid: mid };
+
+    // Direct Some-construct → match-extract → dispatch
+    let d0: &dyn Speak = &outer;
+    let o0: Option<&dyn Speak> = Option::<&dyn Speak>::Some(d0);
+    match o0 {
+        Option::None    => { return 1; }
+        Option::Some(x) => { if x.level() != 3 { return 2; } }
+    }
+
+    // Now via Chain trait — extract x1, call x1.next() to get next link.
+    // Tests dyn-dispatch return type for `Option<&dyn Speak>`.
+    let c: &dyn Chain = &outer;
+    let o1: Option<&dyn Speak> = c.next();
+    match o1 {
+        Option::None    => { return 3; }
+        Option::Some(x1) => {
+            if x1.level() != 2 { return 4; }   // x1 is &dyn Speak → Mid
+        }
+    }
+
+    return 42;
+}

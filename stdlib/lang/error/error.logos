@@ -4,16 +4,11 @@
 // (`source()`) introspection.
 //
 // Divergence from Rust:
-//   - Rust signature is `fn source(&self) -> Option<&(dyn Error + 'static)>`.
-//     Logos splits this into `has_source(&self) -> bool` + `source(&self)
-//     -> &dyn Error` because `Option<&dyn T>` enum-payload extraction
-//     currently mis-loads the fat-pointer's vtable and segfaults at
-//     dispatch (filed as [[baghunt-dyn-in-enum-payload]]). When that lands,
-//     `source()` will be unified into a single Rust-shape method.
 //   - No `Display + Debug` supertrait bound. Those live in `std.fmt`
 //     (`mem` tier); the Error trait stays in `lang` for early-tier
 //     availability. Rendering helpers in `mem.string` will gain Display
-//     bounds for `dyn Error` after the migration in priority #11.
+//     bounds for `dyn Error` after the Formatter migration in
+//     priority #11.
 //   - No `provide()` / `Request` (Rust unstable surface).
 //   - No deprecated `description()` / `cause()`.
 //
@@ -22,22 +17,27 @@
 
 package logos.lang.error;
 
+use logos.lang.option;
+
 pub trait Error {
-    fn has_source(&self) -> bool;
-    fn source(&self) -> &dyn Error;
+    fn source(&self) -> Option<&dyn Error>;
 }
 
 // Count links in the error chain starting at `e` (1 if `e` has no
-// source, 2 if it sources one error, ...). Walks until `has_source`
-// returns false; bounded by the chain's depth — caller's
-// responsibility if cycles are introduced via `source()`.
+// source, 2 if it sources one error, ...). Walks until `source`
+// returns None; bounded by the chain's depth — caller's responsibility
+// if cycles are introduced via `source()`.
 pub fn error_chain_len(e: &dyn Error) -> i32 {
     let mut n: i32 = 1;
     let mut cur: &dyn Error = e;
     loop {
-        if !cur.has_source() { return n; }
-        let next: &dyn Error = cur.source();
-        n = n + 1;
-        cur = next;
+        let nxt: Option<&dyn Error> = cur.source();
+        match nxt {
+            Option::None    => { return n; }
+            Option::Some(x) => {
+                n = n + 1;
+                cur = x;
+            }
+        }
     }
 }

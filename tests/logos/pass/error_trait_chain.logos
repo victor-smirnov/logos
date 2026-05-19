@@ -1,30 +1,31 @@
 // Tests std.lang.error: Error trait + chained source walking.
+// Uses the Rust-shape `fn source(&self) -> Option<&dyn Error>`.
 package test;
 
 use logos.lang.error;
+use logos.lang.option;
 
 struct DbErr { code: i32 }
 struct ServiceErr { msg: str, cause: DbErr }
 struct HandlerErr { route: str, cause: ServiceErr }
 
 impl Error for DbErr {
-    fn has_source(&self) -> bool { return false; }
-    fn source(&self) -> &dyn Error { return self; }
+    fn source(&self) -> Option<&dyn Error> {
+        return Option::<&dyn Error>::None;
+    }
 }
 
 impl Error for ServiceErr {
-    fn has_source(&self) -> bool { return true; }
-    fn source(&self) -> &dyn Error {
+    fn source(&self) -> Option<&dyn Error> {
         let d: &dyn Error = &self.cause;
-        return d;
+        return Option::<&dyn Error>::Some(d);
     }
 }
 
 impl Error for HandlerErr {
-    fn has_source(&self) -> bool { return true; }
-    fn source(&self) -> &dyn Error {
+    fn source(&self) -> Option<&dyn Error> {
         let d: &dyn Error = &self.cause;
-        return d;
+        return Option::<&dyn Error>::Some(d);
     }
 }
 
