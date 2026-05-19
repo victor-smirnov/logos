@@ -3928,6 +3928,21 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
     }
 
     if (tc == la::TUPLE_TYPE) {
+        // (A...) — variadic-arity tuple target for `impl<A...> Trait
+        // for (A...)`. Represented as a Tuple with a single TypeVar
+        // element naming the pack. Variadic-ness is recovered from
+        // the surrounding impl's TypeParam.is_variadic flag.
+        if (node.has_key(la::IS_VARIADIC) &&
+            node.get(la::IS_VARIADIC.code).as_value<uint8_t>() != 0 &&
+            node.has_key(la::NAME)) {
+            std::string pack_name(str_of(node.get(la::NAME.code)));
+            LogosTypeBuilder tv;
+            tv.kind = LogosType::Kind::TypeVar;
+            tv.type_var_name = pack_name;
+            std::vector<TypeRef> elems;
+            elems.push_back(pool_->alloc(std::move(tv)));
+            return make_tuple_type(std::move(elems));
+        }
         if (!node.has_key(la::ITEMS))
             return void_t();  // () = unit/void type
         std::vector<TypeRef> elems;

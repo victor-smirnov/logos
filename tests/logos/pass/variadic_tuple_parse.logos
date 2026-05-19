@@ -1,0 +1,15 @@
+// Phase 1: parse `impl<A...> Trait for (A...)`. Verifies the grammar
+// + sema accept the variadic-tuple target shape. Mono dispatch + arity
+// binding + fold-expand follow in Phase 2-3 (separate sessions).
+package variadic_tuple_parse;
+
+pub trait Marker {}
+
+// Variadic-tuple impl — should PARSE today even without dispatch.
+impl<A...> Marker for (A...) {}
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    return 0;
+}

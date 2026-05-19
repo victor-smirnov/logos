@@ -1432,7 +1432,13 @@
               => { CODE: TUPLE_TYPE }
 
     // (T1, T2, ...) — tuple type (2+ elements); (T,) — single-element tuple
-    tuple_type <- LPAREN type_ref COMMA type_ref (COMMA type_ref)* COMMA? RPAREN
+    // (A...) — variadic-arity tuple target for `impl<A...> Trait for (A...)`.
+    //          IS_VARIADIC marks the shape; PACK_NAME holds the pack-typevar
+    //          identifier. sema resolves to a Tuple TypeRef with one variadic
+    //          element naming A.
+    tuple_type <- LPAREN IDENT DOTDOTDOT RPAREN
+               => { CODE: TUPLE_TYPE, IS_VARIADIC: 1, NAME: $2 }
+                / LPAREN type_ref COMMA type_ref (COMMA type_ref)* COMMA? RPAREN
                => { CODE: TUPLE_TYPE, ITEMS: $... }
                / LPAREN type_ref COMMA RPAREN
                => { CODE: TUPLE_TYPE, ITEMS: $... }
