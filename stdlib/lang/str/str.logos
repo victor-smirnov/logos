@@ -261,6 +261,82 @@ pub fn str_contains(s: str, needle: str) -> bool {
     return str_index_of(s, needle) >= 0 as i64;
 }
 
+// ── Pattern trait ──────────────────────────────────────────────────
+//
+// Mirrors Rust's `core::str::Pattern` shape simplified to a single
+// `find_in` method that returns the leftmost match's byte offset or
+// -1. Each impl reports `match_len` so callers can compute the
+// matched slice (used by future split / replace helpers).
+//
+// Today's impls: `str` (substring) and `u8` (single byte). Char-as-
+// codepoint requires UTF-8 decode at the haystack scan; deferred to
+// the str/utf8 pass.
+pub trait Pattern {
+    fn find_in(self: Self, haystack: str, from: i64) -> i64;
+    fn match_len(self: Self) -> i64;
+}
+
+impl Pattern for str {
+    // Substring search at or after `from`. Empty needle = match at `from`.
+    fn find_in(self: str, haystack: str, from: i64) -> i64 {
+        let n: i64 = self.len();
+        let m: i64 = haystack.len();
+        if n == 0i64 { return from; }
+        if from < 0i64 { return -1i64; }
+        if from + n > m { return -1i64; }
+        let last: i64 = m - n;
+        let mut i: i64 = from;
+        unsafe {
+            while i <= last {
+                let mut j: i64 = 0i64;
+                let mut eq: bool = true;
+                while j < n {
+                    if haystack.as_ptr()[i + j] != self.as_ptr()[j] {
+                        eq = false;
+                        j = n;
+                    } else {
+                        j = j + 1i64;
+                    }
+                }
+                if eq { return i; }
+                i = i + 1i64;
+            }
+        }
+        return -1i64;
+    }
+    fn match_len(self: str) -> i64 { return self.len(); }
+}
+
+impl Pattern for u8 {
+    // Single-byte search. Char-as-codepoint port is deferred (would
+    // route through UTF-8 decode of the haystack).
+    fn find_in(self: u8, haystack: str, from: i64) -> i64 {
+        let m: i64 = haystack.len();
+        if from < 0i64 || from >= m { return -1i64; }
+        let mut i: i64 = from;
+        unsafe {
+            while i < m {
+                if haystack.as_ptr()[i] == self { return i; }
+                i = i + 1i64;
+            }
+        }
+        return -1i64;
+    }
+    fn match_len(self: u8) -> i64 { return 1i64; }
+}
+
+// Pattern-driven str surface. Free fns wrap the trait so call sites
+// don't need explicit method-call ceremony.
+pub fn str_find_pat<P: Pattern>(s: str, pat: P) -> i64 {
+    return pat.find_in(s, 0i64);
+}
+pub fn str_contains_pat<P: Pattern>(s: str, pat: P) -> bool {
+    return pat.find_in(s, 0i64) >= 0i64;
+}
+pub fn str_starts_with_pat<P: Pattern>(s: str, pat: P) -> bool {
+    return pat.find_in(s, 0i64) == 0i64;
+}
+
 // True if a byte is ASCII whitespace.
 fn is_ws_byte(b: u8) -> bool {
     let c: i32 = b as i32;

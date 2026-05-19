@@ -1,0 +1,101 @@
+// FromStr / parse — i32 / i64 / u32 / u64 from_str + from_str_radix.
+package num_parse;
+
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.num.parse;
+use logos.lang.num.error;
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    // ── Happy path: decimal ─────────────────────────────────────────
+    let r1: Result<i32, ParseIntError> = i32_from_str("42");
+    if !r1.is_ok() { return fail(1); }
+    if r1.unwrap() != 42i32 { return fail(2); }
+
+    let r2: Result<i32, ParseIntError> = i32_from_str("-2147483647");
+    if !r2.is_ok() { return fail(3); }
+    if r2.unwrap() != 0i32 - 2147483647i32 { return fail(4); }
+
+    let r3: Result<i64, ParseIntError> = i64_from_str("9223372036854775807");
+    if !r3.is_ok() { return fail(5); }
+    if r3.unwrap() != 9223372036854775807i64 { return fail(6); }
+
+    let r4: Result<u32, ParseIntError> = u32_from_str("4294967295");
+    if !r4.is_ok() { return fail(7); }
+    if r4.unwrap() != 4294967295u32 { return fail(8); }
+
+    let r5: Result<u64, ParseIntError> = u64_from_str("18446744073709551615");
+    if !r5.is_ok() { return fail(9); }
+    if r5.unwrap() != 18446744073709551615u64 { return fail(10); }
+
+    // ── Hex / binary / octal radix ─────────────────────────────────
+    let r6: Result<i32, ParseIntError> = i32_from_str_radix("ff", 16u32);
+    if !r6.is_ok() { return fail(20); }
+    if r6.unwrap() != 255i32 { return fail(21); }
+
+    let r7: Result<i32, ParseIntError> = i32_from_str_radix("FF", 16u32);
+    if !r7.is_ok() { return fail(22); }
+    if r7.unwrap() != 255i32 { return fail(23); }
+
+    let r8: Result<i32, ParseIntError> = i32_from_str_radix("101", 2u32);
+    if !r8.is_ok() { return fail(24); }
+    if r8.unwrap() != 5i32 { return fail(25); }
+
+    let r9: Result<i32, ParseIntError> = i32_from_str_radix("777", 8u32);
+    if !r9.is_ok() { return fail(26); }
+    if r9.unwrap() != 511i32 { return fail(27); }
+
+    // ── Error paths ────────────────────────────────────────────────
+    let e1: Result<i32, ParseIntError> = i32_from_str("");
+    if !e1.is_err() { return fail(30); }
+    let e1_kind: IntErrorKind = e1.unwrap_err().kind;
+    match e1_kind {
+        IntErrorKind::Empty => {}
+        IntErrorKind::InvalidDigit => { return fail(31); }
+        IntErrorKind::PosOverflow  => { return fail(32); }
+        IntErrorKind::NegOverflow  => { return fail(33); }
+        IntErrorKind::Zero         => { return fail(34); }
+    }
+
+    let e2: Result<i32, ParseIntError> = i32_from_str("12abc");
+    if !e2.is_err() { return fail(40); }
+    let e2_kind: IntErrorKind = e2.unwrap_err().kind;
+    match e2_kind {
+        IntErrorKind::Empty        => { return fail(41); }
+        IntErrorKind::InvalidDigit => {}
+        IntErrorKind::PosOverflow  => { return fail(42); }
+        IntErrorKind::NegOverflow  => { return fail(43); }
+        IntErrorKind::Zero         => { return fail(44); }
+    }
+
+    let e3: Result<i32, ParseIntError> = i32_from_str("99999999999");
+    if !e3.is_err() { return fail(50); }
+    let e3_kind: IntErrorKind = e3.unwrap_err().kind;
+    match e3_kind {
+        IntErrorKind::Empty        => { return fail(51); }
+        IntErrorKind::InvalidDigit => { return fail(52); }
+        IntErrorKind::PosOverflow  => {}
+        IntErrorKind::NegOverflow  => { return fail(53); }
+        IntErrorKind::Zero         => { return fail(54); }
+    }
+
+    let e4: Result<u32, ParseIntError> = u32_from_str("-1");
+    if !e4.is_err() { return fail(60); }
+
+    // ── Sign handling ──────────────────────────────────────────────
+    let r10: Result<i32, ParseIntError> = i32_from_str("+5");
+    if !r10.is_ok() { return fail(70); }
+    if r10.unwrap() != 5i32 { return fail(71); }
+
+    let e5: Result<i32, ParseIntError> = i32_from_str("-");
+    if !e5.is_err() { return fail(80); }
+    let e5_kind: IntErrorKind = e5.unwrap_err().kind;
+    match e5_kind {
+        IntErrorKind::Empty => {}
+        _ => { return fail(81); }
+    }
+
+    return 0;
+}

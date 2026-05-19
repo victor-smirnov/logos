@@ -1,0 +1,28 @@
+// str::Pattern + str_find_pat / str_contains_pat / str_starts_with_pat.
+package str_pattern;
+
+use logos.lang.str;
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    let s: str = "hello, world";
+
+    // str pattern.
+    if str_find_pat::<str>(s, "world") != 7i64 { return fail(1); }
+    if str_find_pat::<str>(s, "xyz")   != 0i64 - 1i64 { return fail(2); }
+    if !str_contains_pat::<str>(s, "lo") { return fail(3); }
+    if str_starts_with_pat::<str>(s, "hello") != true { return fail(4); }
+    if str_starts_with_pat::<str>(s, "world") != false { return fail(5); }
+
+    // u8 pattern.
+    if str_find_pat::<u8>(s, 44u8) != 5i64 { return fail(10); }  // ','
+    if str_find_pat::<u8>(s, 122u8) != 0i64 - 1i64 { return fail(11); }  // 'z'
+    if !str_contains_pat::<u8>(s, 32u8) { return fail(12); }  // ' '
+    if str_starts_with_pat::<u8>(s, 104u8) != true { return fail(13); }  // 'h'
+
+    // Empty needle matches at start.
+    if str_find_pat::<str>(s, "") != 0i64 { return fail(20); }
+
+    return 0;
+}

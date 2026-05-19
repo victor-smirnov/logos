@@ -1,0 +1,224 @@
+// Logos standard library — std.lang.num.parse
+//
+// String → number parsing. Mirrors `core::str::FromStr` (the
+// `s.parse::<T>()` idiom) and `i32::from_str_radix` / etc.
+//
+// The Rust shape carries an associated `Err` type; Logos's trait
+// uses a type-param E for the same purpose. Per-primitive
+// `from_str_radix` free fns hold the actual digit-walk; the trait
+// impls just delegate to them.
+
+package logos.lang.num.parse;
+
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.num.error;
+use logos.lang.str;
+
+// FromStr — Rust's `core::str::FromStr` ported with the Err type as
+// a trait type-param (Logos doesn't carry associated types on traits
+// outside the Fn-family).
+pub trait FromStr<E> {
+    fn from_str(s: str) -> Result<Self, E>;
+}
+
+// ── Per-primitive digit-walk parsers ──────────────────────────────
+//
+// Common scaffolding extracted into a helper:
+//   - leading `+` / `-` (signed only)
+//   - digit accept set per radix (0-9, a-z, A-Z up to radix-1)
+//   - empty / sign-only / invalid-digit / overflow detection
+//
+// Each per-type fn enforces its own bound (i32 / i64 / u32 / u64).
+
+// Returns the digit value of byte `b` interpreted in `radix`, or -1
+// when `b` is not a valid digit in that radix.
+fn parse_digit(b: u8, radix: i64) -> i64 {
+    let mut d: i64 = -1i64;
+    if b >= 48u8 && b <= 57u8           { d = (b as i64) - 48i64; }
+    else if b >= 97u8 && b <= 122u8     { d = (b as i64) - 97i64 + 10i64; }
+    else if b >= 65u8 && b <= 90u8      { d = (b as i64) - 65i64 + 10i64; }
+    if d < 0i64 { return -1i64; }
+    if d >= radix { return -1i64; }
+    return d;
+}
+
+pub fn i32_from_str_radix(s: str, radix: u32) -> Result<i32, ParseIntError> {
+    if s.len() == 0i64 {
+        return Result::<i32, ParseIntError>::Err(
+            ParseIntError::new(IntErrorKind::Empty));
+    }
+    let mut i: i64 = 0i64;
+    let mut neg:  bool = false;
+    let first: u8 = s[0i64];
+    if first == 45u8 { neg = true; i = 1i64; }
+    else if first == 43u8 { i = 1i64; }
+    if i >= s.len() {
+        return Result::<i32, ParseIntError>::Err(
+            ParseIntError::new(IntErrorKind::Empty));
+    }
+    let r: i64 = radix as i64;
+    let mut acc: i64 = 0i64;
+    while i < s.len() {
+        let d: i64 = parse_digit(s[i], r);
+        if d < 0i64 {
+            return Result::<i32, ParseIntError>::Err(
+                ParseIntError::new(IntErrorKind::InvalidDigit));
+        }
+        acc = acc * r + d;
+        if neg {
+            if 0i64 - acc < 0i64 - 2147483648i64 {
+                return Result::<i32, ParseIntError>::Err(
+                    ParseIntError::new(IntErrorKind::NegOverflow));
+            }
+        } else {
+            if acc > 2147483647i64 {
+                return Result::<i32, ParseIntError>::Err(
+                    ParseIntError::new(IntErrorKind::PosOverflow));
+            }
+        }
+        i = i + 1i64;
+    }
+    let final_v: i64 = if neg { 0i64 - acc } else { acc };
+    return Result::<i32, ParseIntError>::Ok(final_v as i32);
+}
+
+pub fn i64_from_str_radix(s: str, radix: u32) -> Result<i64, ParseIntError> {
+    if s.len() == 0i64 {
+        return Result::<i64, ParseIntError>::Err(
+            ParseIntError::new(IntErrorKind::Empty));
+    }
+    let mut i: i64 = 0i64;
+    let mut neg:  bool = false;
+    let first: u8 = s[0i64];
+    if first == 45u8 { neg = true; i = 1i64; }
+    else if first == 43u8 { i = 1i64; }
+    if i >= s.len() {
+        return Result::<i64, ParseIntError>::Err(
+            ParseIntError::new(IntErrorKind::Empty));
+    }
+    let r: i64 = radix as i64;
+    let mut acc: i64 = 0i64;
+    // i64 max = 9223372036854775807; min = -9223372036854775808.
+    // Overflow-check by comparing acc against (MAX - d) / r per step.
+    let i64_max: i64 = 9223372036854775807i64;
+    while i < s.len() {
+        let d: i64 = parse_digit(s[i], r);
+        if d < 0i64 {
+            return Result::<i64, ParseIntError>::Err(
+                ParseIntError::new(IntErrorKind::InvalidDigit));
+        }
+        if acc > (i64_max - d) / r {
+            let kind: IntErrorKind = if neg { IntErrorKind::NegOverflow }
+                                    else { IntErrorKind::PosOverflow };
+            return Result::<i64, ParseIntError>::Err(
+                ParseIntError::new(kind));
+        }
+        acc = acc * r + d;
+        i = i + 1i64;
+    }
+    return Result::<i64, ParseIntError>::Ok(if neg { 0i64 - acc } else { acc });
+}
+
+pub fn u32_from_str_radix(s: str, radix: u32) -> Result<u32, ParseIntError> {
+    if s.len() == 0i64 {
+        return Result::<u32, ParseIntError>::Err(
+            ParseIntError::new(IntErrorKind::Empty));
+    }
+    let mut i: i64 = 0i64;
+    // Allow a leading '+', reject '-' (unsigned).
+    let first: u8 = s[0i64];
+    if first == 43u8 { i = 1i64; }
+    else if first == 45u8 {
+        return Result::<u32, ParseIntError>::Err(
+            ParseIntError::new(IntErrorKind::InvalidDigit));
+    }
+    if i >= s.len() {
+        return Result::<u32, ParseIntError>::Err(
+            ParseIntError::new(IntErrorKind::Empty));
+    }
+    let r: i64 = radix as i64;
+    let mut acc: i64 = 0i64;
+    while i < s.len() {
+        let d: i64 = parse_digit(s[i], r);
+        if d < 0i64 {
+            return Result::<u32, ParseIntError>::Err(
+                ParseIntError::new(IntErrorKind::InvalidDigit));
+        }
+        acc = acc * r + d;
+        if acc > 4294967295i64 {
+            return Result::<u32, ParseIntError>::Err(
+                ParseIntError::new(IntErrorKind::PosOverflow));
+        }
+        i = i + 1i64;
+    }
+    return Result::<u32, ParseIntError>::Ok(acc as u32);
+}
+
+pub fn u64_from_str_radix(s: str, radix: u32) -> Result<u64, ParseIntError> {
+    if s.len() == 0i64 {
+        return Result::<u64, ParseIntError>::Err(
+            ParseIntError::new(IntErrorKind::Empty));
+    }
+    let mut i: i64 = 0i64;
+    let first: u8 = s[0i64];
+    if first == 43u8 { i = 1i64; }
+    else if first == 45u8 {
+        return Result::<u64, ParseIntError>::Err(
+            ParseIntError::new(IntErrorKind::InvalidDigit));
+    }
+    if i >= s.len() {
+        return Result::<u64, ParseIntError>::Err(
+            ParseIntError::new(IntErrorKind::Empty));
+    }
+    let r: u64 = radix as u64;
+    let mut acc: u64 = 0u64;
+    // u64 max = 18446744073709551615. Overflow-check via cap divide.
+    let u64_max: u64 = 18446744073709551615u64;
+    while i < s.len() {
+        let d: i64 = parse_digit(s[i], radix as i64);
+        if d < 0i64 {
+            return Result::<u64, ParseIntError>::Err(
+                ParseIntError::new(IntErrorKind::InvalidDigit));
+        }
+        let du: u64 = d as u64;
+        if acc > (u64_max - du) / r {
+            return Result::<u64, ParseIntError>::Err(
+                ParseIntError::new(IntErrorKind::PosOverflow));
+        }
+        acc = acc * r + du;
+        i = i + 1i64;
+    }
+    return Result::<u64, ParseIntError>::Ok(acc);
+}
+
+// Decimal convenience helpers — `s.parse::<T>()` lowers here.
+pub fn i32_from_str(s: str) -> Result<i32, ParseIntError> {
+    return i32_from_str_radix(s, 10u32);
+}
+pub fn i64_from_str(s: str) -> Result<i64, ParseIntError> {
+    return i64_from_str_radix(s, 10u32);
+}
+pub fn u32_from_str(s: str) -> Result<u32, ParseIntError> {
+    return u32_from_str_radix(s, 10u32);
+}
+pub fn u64_from_str(s: str) -> Result<u64, ParseIntError> {
+    return u64_from_str_radix(s, 10u32);
+}
+
+// ── FromStr trait impls ─────────────────────────────────────────────
+//
+// Each impl delegates to the matching free fn so the parse logic
+// stays in one place.
+impl FromStr<ParseIntError> for i32 {
+    fn from_str(s: str) -> Result<i32, ParseIntError> { return i32_from_str(s); }
+}
+impl FromStr<ParseIntError> for i64 {
+    fn from_str(s: str) -> Result<i64, ParseIntError> { return i64_from_str(s); }
+}
+impl FromStr<ParseIntError> for u32 {
+    fn from_str(s: str) -> Result<u32, ParseIntError> { return u32_from_str(s); }
+}
+impl FromStr<ParseIntError> for u64 {
+    fn from_str(s: str) -> Result<u64, ParseIntError> { return u64_from_str(s); }
+}
