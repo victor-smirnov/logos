@@ -424,13 +424,16 @@ impl FmtDebug for f32 {
     }
 }
 
-// ── unit `()` — deferred ─────────────────────────────────────────────
-// `impl FmtDisplay for () { ... }` fails to parse — Logos doesn't yet
-// accept `()` in impl-target position. Tuples-of-arity-1+ work below
-// (per-arity hand-rolled until variadic-tuple-impl lands). Display
-// for unit is rarely needed at user level since `()` has one
-// inhabitant; metacall lowering for `format!("{}", ())` can be
-// special-cased at Session 4. Filed as a follow-up.
+// ── unit `()` — partial ─────────────────────────────────────────────
+// Grammar now accepts `()` in impl-target position (PEG simple_type
+// gained `LPAREN RPAREN` → TUPLE_TYPE 2026-05-19) and sema-collect
+// registers it under target `"void"` (canonical name for the unit
+// type kind). But use-site dispatch then emits a call to
+// `void__fmt_display` without the impl's pkg prefix and the
+// matching method emission doesn't fire. Likely a sema/mono
+// interaction with target="void" being treated as primitive-shape.
+// Filed as a follow-up; the grammar change is the load-bearing
+// piece. Re-enable impl when the dispatch routing is sorted.
 
 // ── Tuples ──────────────────────────────────────────────────────────
 // Tuples have Debug (not Display) in Rust. Per-arity hand-rolled
@@ -498,15 +501,22 @@ impl<T: FmtDebug> FmtDebug for Option<T> {
     }
 }
 
-// Result<T, E> FmtDebug — wired but enum-method-template
-// instantiation skips it. Distinct from the blanket-bound cascade
-// (which the mono_concrete_satisfies_bound fix closed). Symptom:
-// Option<Result<i32,i32>>::fmt_debug body emits, calls
-// `Result__i32__i32__fmt_debug` which mono never instantiates.
-// Vec<T>+Option<T> work because their inner-call resolution
-// picks up the concrete leaf directly when T is primitive; only
-// nested-enum-of-enum (Result inside Option) hits this. Filed
-// as separate baghunt; Result impl kept OUT for now.
+impl<T: FmtDebug, E: FmtDebug> FmtDebug for Result<T, E> {
+    fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {
+        match self {
+            Result::Ok(v) => {
+                let _ = f.write_str("Ok(");
+                let _ = v.fmt_debug(f);
+                return f.write_str(")");
+            }
+            Result::Err(e) => {
+                let _ = f.write_str("Err(");
+                let _ = e.fmt_debug(f);
+                return f.write_str(")");
+            }
+        }
+    }
+}
 
 impl<T: FmtDebug> FmtDebug for Vec<T> {
     fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {

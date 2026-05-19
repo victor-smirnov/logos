@@ -31,9 +31,15 @@ fn main() -> i32 {
     let none_n: Option<i32> = Option::<i32>::None;
     let r = check(fmt_debug_to_string::<Option<i32>>(&none_n), "None", 42); if r != 0 { return r; }
 
-    // Result<T,E> Debug — wired but enum-method-template
-    // instantiation skips it. Distinct mono baghunt; see
-    // mem/fmt/fmt.logos comment.
+    // Result<T, E> Debug — re-enabled after the is_self_referential
+    // refinement (concrete-arg uses don't count as self-recursive).
+    let ok_r:  Result<i32, i32> = Result::<i32, i32>::Ok(7);
+    let r = check(fmt_debug_to_string::<Result<i32, i32>>(&ok_r), "Ok(7)", 43); if r != 0 { return r; }
+    let err_r: Result<i32, i32> = Result::<i32, i32>::Err(99);
+    let r = check(fmt_debug_to_string::<Result<i32, i32>>(&err_r), "Err(99)", 44); if r != 0 { return r; }
+
+    // Unit `()` Display + Debug — grammar accepts () in impl-target;
+    // dispatch-side routing for target="void" deferred.
 
     // Vec Debug.
     let mut v: Vec<i32> = vec_new::<i32>();

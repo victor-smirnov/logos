@@ -4489,6 +4489,25 @@ void Mono::instantiate_enum_templates() {
             // param type references the same enum base with a TypeVar that's
             // NESTED inside another type-constructor (Ref / Ptr / Array / etc.)
             // — i.e. not bare T — assume self-referential and skip.
+            //
+            // Refinement: "structurally larger" only matters when the args
+            // contain TypeVars from the fn's own type params. A fully-
+            // concrete `Result<(), Error>` return type doesn't recurse on
+            // mono — substitution leaves it identical. Without this
+            // refinement, my `impl<T,E> FmtDebug for Result<T,E> { fn
+            // fmt_debug(&self,f)->Result<(),Error> }` is rejected because
+            // the return mentions Result with concrete `()`/`Error` args.
+            auto type_contains_typevar = [](TypeRef t) -> bool {
+                std::function<bool(TypeRef)> walk_tv = [&](TypeRef u) -> bool {
+                    if (!u) return false;
+                    if (u.kind() == LogosType::Kind::TypeVar) return true;
+                    if (u.pointee() && walk_tv(u.pointee())) return true;
+                    if (u.elem() && walk_tv(u.elem())) return true;
+                    for (auto a : u.type_args()) if (walk_tv(a)) return true;
+                    return false;
+                };
+                return walk_tv(t);
+            };
             auto is_self_referential = [&](const lir::LFunction& fn) -> bool {
                 auto self_ref_type = [&](TypeRef t) -> bool {
                     if (!t) return false;
@@ -4498,8 +4517,12 @@ void Mono::instantiate_enum_templates() {
                     for (auto a : t.type_args()) {
                         if (!a) continue;
                         // Bare TypeVar T is fine; anything else (Ref<T>,
-                        // Ptr<T>, Option<T>, ...) is structurally larger.
-                        if (a.kind() != LogosType::Kind::TypeVar) return true;
+                        // Ptr<T>, Option<T>, ...) is structurally larger
+                        // — but ONLY counts as self-referential if the
+                        // larger structure mentions a TypeVar. Fully
+                        // concrete args (`Result<(), Error>`) don't recurse.
+                        if (a.kind() != LogosType::Kind::TypeVar &&
+                            type_contains_typevar(a)) return true;
                     }
                     return false;
                 };

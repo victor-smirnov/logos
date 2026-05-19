@@ -69,10 +69,14 @@ through `Display::fmt` / `Debug::fmt`. `fmt_pad` /
 - [x] `*const u8` (C string) — Display
 - [x] `f32` `f64` — Display + Debug (extern bridge into
       `logos_fmt_f{32,64}_g` then `pad`)
-- [ ] `()` unit — DEFERRED. Logos parser doesn't accept `()` in
-      impl-target position (`impl X for () {...}` errors). Tuples of
-      arity ≥ 1 work fine. Metacall path for `format!("{}", ())` can
-      special-case at Session 4 or wait for a grammar fix.
+- [ ] `()` unit — PARTIAL. Grammar accepts `()` in impl-target
+      position now (logos.peg `simple_type` gained `LPAREN RPAREN`
+      → `TUPLE_TYPE` 2026-05-19) and sema-collect registers under
+      target `"void"`. But use-site dispatch emits a call to
+      `void__fmt_display` without the impl's pkg prefix and the
+      matching method emission doesn't fire — sema/mono treats
+      target="void" as primitive-shape somewhere. Dispatch-routing
+      fix is the load-bearing follow-up; the grammar is done.
 - [x] tuples `(A,)`, `(A,B)`, `(A,B,C)`, `(A,B,C,D)` — Debug
       (`&self` recv, recurse into each field's `fmt_debug`)
 
@@ -81,12 +85,11 @@ through `Display::fmt` / `Debug::fmt`. `fmt_pad` /
 - [x] `Option<T>` Debug — works. Blanket-bound recursion fix
       landed 2026-05-19 via `mono_concrete_satisfies_bound` —
       see baghunt_mono_blanket_bound_recursion (CLOSED).
-- [ ] `Result<T, E>` Debug — DEFERRED. Distinct mono bug:
-      enum-method-template instantiation skips multi-param
-      generic-enum impls. `Result<i32,i32>::fmt_debug` never
-      emits even when needed by Option<Result<...>> body.
-      Vec/Option work because inner-call resolves to concrete
-      leaf.
+- [x] `Result<T, E>` Debug — works after refining
+      `is_self_referential` (mono_clone.cpp ~line 4500): a fully
+      concrete-arg use of the enum (e.g. `Result<(), Error>` as
+      a return type) no longer counts as self-recursive, only
+      args that contain TypeVars from the fn's own params do.
 - [x] `Vec<T>` Debug — works (fix above).
 - [x] `String` Display = pass-through `as_str()` through `pad`; Debug
       = `"<content>"` quoted (same minimal-escape caveat as str).

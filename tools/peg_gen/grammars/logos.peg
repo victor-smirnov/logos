@@ -1497,6 +1497,8 @@
                 => { CODE: TYPE_REF, NAME_VAR: $2 }
                  / IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE
                 => { CODE: GENERIC_INST, NAME: $1, ITEMS: $... }
+                 / LPAREN RPAREN
+                => { CODE: TUPLE_TYPE }
                  / IDENT
                 => { CODE: TYPE_REF, NAME: $1 }
 
