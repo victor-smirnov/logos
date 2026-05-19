@@ -422,6 +422,55 @@ private:
     lir::Pattern subst_pattern(const lir::Pattern& pat, const SubstMap& s);
     lir::Pattern subst_pattern(lir_view::PatRef pref, const SubstMap& s);
 
+    // Build a TypeRef for a concrete struct/enum/primitive named
+    // `name`. Walks out_.structs / out_.enums to find the pkg-aware
+    // entry; falls back to primitive Kind if `name` is a known scalar.
+    // Returns null TypeRef if `name` doesn't match anything. Centralises
+    // the per-candidate TypeRef construction that previously got
+    // duplicated at every eager-instantiation / deep-bound-check site.
+    TypeRef build_concrete_typeref(const std::string& name) {
+        // Struct (incl. ZonedStruct).
+        for (auto& sd : out_.structs)
+            if (sd.name == name) {
+                LogosTypeBuilder st;
+                st.kind = sd.is_zoned ? LogosType::Kind::ZonedStruct
+                                      : LogosType::Kind::Struct;
+                st.struct_name = name;
+                st.pkg_name    = sd.pkg;
+                return out_.type_pool.alloc(std::move(st));
+            }
+        // Enum.
+        for (auto& ed : out_.enums)
+            if (ed.name == name) {
+                LogosTypeBuilder et;
+                et.kind = LogosType::Kind::Enum;
+                et.enum_name = name;
+                et.pkg_name  = ed.pkg;
+                return out_.type_pool.alloc(std::move(et));
+            }
+        // Primitive scalar.
+        LogosType::Kind sk = LogosType::Kind::Error;
+        if      (name == "u8")    sk = LogosType::Kind::U8;
+        else if (name == "u16")   sk = LogosType::Kind::U16;
+        else if (name == "u32")   sk = LogosType::Kind::U32;
+        else if (name == "u64")   sk = LogosType::Kind::U64;
+        else if (name == "i8")    sk = LogosType::Kind::I8;
+        else if (name == "i16")   sk = LogosType::Kind::I16;
+        else if (name == "i32")   sk = LogosType::Kind::I32;
+        else if (name == "i64")   sk = LogosType::Kind::I64;
+        else if (name == "f32")   sk = LogosType::Kind::F32;
+        else if (name == "f64")   sk = LogosType::Kind::F64;
+        else if (name == "bool")  sk = LogosType::Kind::Bool;
+        else if (name == "usize") sk = LogosType::Kind::Usize;
+        else if (name == "isize") sk = LogosType::Kind::Isize;
+        else if (name == "char")  sk = LogosType::Kind::Char;
+        if (sk != LogosType::Kind::Error) {
+            LogosTypeBuilder pt; pt.kind = sk;
+            return out_.type_pool.alloc(std::move(pt));
+        }
+        return nullptr;
+    }
+
     // Pkg-qualified workspace key. When tr.pkg_name() is set, the key
     // is "pkg.bare"; otherwise just "bare". Two same-named structs from
     // different pkgs (user's `Box<i64>` vs `std.mem.box.Box<i64>`) get

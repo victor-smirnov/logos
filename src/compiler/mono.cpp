@@ -256,11 +256,19 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             // derived from a blanket (e.g. Foo blanket on Container, where
             // K's Container is via the Primitive→Container blanket). Walk
             // every concrete type and ask the recursive resolver.
+            // Phase 2: deep `mono_concrete_satisfies_bound` check when
+            // the candidate has a constructible TypeRef (struct/enum/
+            // primitive); falls back to the shallow recursive check
+            // only when build_concrete_typeref returns null.
             StrSet already(candidates.begin(), candidates.end());
             auto consider = [&](const std::string& cn) {
                 if (already.count(cn)) return;
                 StrSet seen;
-                if (mono_has_impl_recursive(bi.bound_trait, cn, seen)) {
+                auto tref = build_concrete_typeref(cn);
+                bool ok = tref
+                    ? mono_concrete_satisfies_bound(bi.bound_trait, tref, seen)
+                    : mono_has_impl_recursive(bi.bound_trait, cn, seen);
+                if (ok) {
                     candidates.push_back(cn);
                     already.insert(cn);
                 }
@@ -288,18 +296,27 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 } else {
                     // Blanket fallback: walk blankets of `trait`, find one
                     // whose bounds `concrete` satisfies, look up `aname` in
-                    // its assoc_types.
+                    // its assoc_types. Phase 2: deep
+                    // `mono_concrete_satisfies_bound` when the candidate's
+                    // TypeRef is constructible; falls back to shallow.
+                    auto concrete_t_assoc = build_concrete_typeref(concrete);
                     for (auto& bj : blanket_impls_) {
                         if (bj.trait_name != trait) continue;
                         StrSet seen_pri;
                         bool ok = bj.bound_trait.empty()
-                            || mono_has_impl_recursive(bj.bound_trait, concrete, seen_pri);
+                            || (concrete_t_assoc
+                                ? mono_concrete_satisfies_bound(bj.bound_trait,
+                                                                concrete_t_assoc,
+                                                                seen_pri)
+                                : mono_has_impl_recursive(bj.bound_trait,
+                                                          concrete, seen_pri));
                         if (ok) {
                             for (auto& eb : bj.extra_bounds) {
                                 StrSet seen_eb;
-                                if (!mono_has_impl_recursive(eb, concrete, seen_eb)) {
-                                    ok = false; break;
-                                }
+                                bool eb_ok = concrete_t_assoc
+                                    ? mono_concrete_satisfies_bound(eb, concrete_t_assoc, seen_eb)
+                                    : mono_has_impl_recursive(eb, concrete, seen_eb);
+                                if (!eb_ok) { ok = false; break; }
                             }
                         }
                         if (!ok) continue;
@@ -309,28 +326,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                         // recursively resolve so blanket bodies that reference
                         // the typevar (e.g. `type P = DT::Prim`) reduce to the
                         // concrete type before equality compare.
-                        TypeRef concrete_t = nullptr;
-                        for (auto& sd : out_.structs)
-                            if (sd.name == concrete) {
-                                LogosTypeBuilder st;
-                                st.kind = sd.is_zoned ? LogosType::Kind::ZonedStruct
-                                                       : LogosType::Kind::Struct;
-                                st.struct_name = concrete;
-                                st.pkg_name    = sd.pkg;
-                                concrete_t = out_.type_pool.alloc(std::move(st));
-                                break;
-                            }
-                        if (!concrete_t) {
-                            for (auto& ed : out_.enums)
-                                if (ed.name == concrete) {
-                                    LogosTypeBuilder et;
-                                    et.kind = LogosType::Kind::Enum;
-                                    et.enum_name = concrete;
-                                    et.pkg_name  = ed.pkg;
-                                    concrete_t = out_.type_pool.alloc(std::move(et));
-                                    break;
-                                }
-                        }
+                        TypeRef concrete_t = concrete_t_assoc;
                         if (concrete_t) {
                             SubstMap bsubst;
                             bsubst[bj.target_typevar] = concrete_t;
@@ -348,50 +344,25 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         };
         for (auto& concrete_ref : candidates) {
             const std::string& concrete = concrete_ref;
-            // Phase 2: build the candidate TypeRef BEFORE the extra-bounds
-            // check so we can route through the deep
-            // `mono_concrete_satisfies_bound` instead of the shallow
-            // `mono_has_impl_recursive`. The deep helper unifies the
-            // bound's impl pattern against the candidate's type-args and
-            // recurses through the impl's own bounds. Eager blanket loop
-            // used to use shallow check; that allowed blanket impls to
-            // instantiate for concretes whose nested args didn't satisfy
-            // transitive bounds — see
+            // Phase 2: build the candidate TypeRef once via the
+            // shared `build_concrete_typeref` helper and reuse it for
+            // bound checks AND for per-method substitution below. The
+            // deep `mono_concrete_satisfies_bound` unifies the bound's
+            // impl pattern against the candidate's type-args and
+            // recurses through the impl's own bounds — see
             // [[baghunt-mono-blanket-bound-recursion]] for the same fix
-            // applied in `method_bound_ok`.
-            TypeRef early_concrete_t = nullptr;
-            for (auto& sd : out_.structs)
-                if (sd.name == concrete) {
-                    LogosTypeBuilder st;
-                    st.kind = sd.is_zoned ? LogosType::Kind::ZonedStruct
-                                          : LogosType::Kind::Struct;
-                    st.struct_name = concrete;
-                    st.pkg_name    = sd.pkg;
-                    early_concrete_t = out_.type_pool.alloc(std::move(st));
-                    break;
-                }
-            if (!early_concrete_t) {
-                for (auto& ed : out_.enums)
-                    if (ed.name == concrete) {
-                        LogosTypeBuilder et;
-                        et.kind = LogosType::Kind::Enum;
-                        et.enum_name = concrete;
-                        et.pkg_name  = ed.pkg;
-                        early_concrete_t = out_.type_pool.alloc(std::move(et));
-                        break;
-                    }
-            }
+            // pattern applied in `method_bound_ok`.
+            TypeRef candidate_t = build_concrete_typeref(concrete);
             // Multi-bound blanket: `impl<T: A + B + …> Trait for T` — only
             // instantiate for `concrete` types that satisfy *every* extra
-            // bound, not just the primary one. Phase 2: use deep check
-            // when concrete_t is available (struct/enum); fall back to
-            // shallow for primitives where TypeRef construction needs
-            // more scaffolding.
+            // bound, not just the primary one. Falls back to the shallow
+            // recursive check only if `candidate_t` is null (which today
+            // happens only for unknown type names).
             bool all_extra_satisfied = true;
             for (auto& eb : bi.extra_bounds) {
                 StrSet seen;
-                bool ok = early_concrete_t
-                    ? mono_concrete_satisfies_bound(eb, early_concrete_t, seen)
+                bool ok = candidate_t
+                    ? mono_concrete_satisfies_bound(eb, candidate_t, seen)
                     : mono_has_impl_recursive(eb, concrete, seen);
                 if (!ok) {
                     all_extra_satisfied = false;
@@ -421,52 +392,15 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 std::string method = tn.substr(tmpl_prefix.size());
                 std::string concrete_pkg;
                 SubstMap subst;
-                // Build concrete type for substitution.
-                // Target may be a struct or datatype — use the right Kind.
-                TypeRef concrete_t = nullptr;
+                // Phase 2: reuse the candidate_t built once above via
+                // `build_concrete_typeref`. Recover pkg from the struct/
+                // enum entry for the dest qualifier; primitives have no pkg.
+                TypeRef concrete_t = candidate_t;
                 for (auto& sd : out_.structs)
-                    if (sd.name == concrete) {
-                        LogosTypeBuilder st;
-                        st.kind = sd.is_zoned ? LogosType::Kind::ZonedStruct
-                                                 : LogosType::Kind::Struct;
-                        st.struct_name = concrete;
-                        st.pkg_name    = sd.pkg;
-                        concrete_pkg   = sd.pkg;
-                        concrete_t = out_.type_pool.alloc(std::move(st));
-                        break;
-                    }
-                if (!concrete_t) {
+                    if (sd.name == concrete) { concrete_pkg = sd.pkg; break; }
+                if (concrete_pkg.empty())
                     for (auto& ed : out_.enums)
-                        if (ed.name == concrete) {
-                            LogosTypeBuilder et;
-                            et.kind = LogosType::Kind::Enum;
-                            et.enum_name = concrete;
-                            et.pkg_name  = ed.pkg;
-                            concrete_pkg = ed.pkg;
-                            concrete_t = out_.type_pool.alloc(std::move(et));
-                            break;
-                        }
-                }
-                if (!concrete_t) {
-                    // Scalar candidate (`impl Trait for u64` etc.) — build
-                    // the appropriate scalar LogosType directly.
-                    LogosType::Kind sk = LogosType::Kind::Error;
-                    if      (concrete == "u8")   sk = LogosType::Kind::U8;
-                    else if (concrete == "u16")  sk = LogosType::Kind::U16;
-                    else if (concrete == "u32")  sk = LogosType::Kind::U32;
-                    else if (concrete == "u64")  sk = LogosType::Kind::U64;
-                    else if (concrete == "i8")   sk = LogosType::Kind::I8;
-                    else if (concrete == "i16")  sk = LogosType::Kind::I16;
-                    else if (concrete == "i32")  sk = LogosType::Kind::I32;
-                    else if (concrete == "i64")  sk = LogosType::Kind::I64;
-                    else if (concrete == "f32")  sk = LogosType::Kind::F32;
-                    else if (concrete == "f64")  sk = LogosType::Kind::F64;
-                    else if (concrete == "bool") sk = LogosType::Kind::Bool;
-                    if (sk != LogosType::Kind::Error) {
-                        LogosTypeBuilder pt; pt.kind = sk;
-                        concrete_t = out_.type_pool.alloc(std::move(pt));
-                    }
-                }
+                        if (ed.name == concrete) { concrete_pkg = ed.pkg; break; }
                 if (!concrete_t) continue;
                 std::string bare_dest = concrete + "__" + method;
                 std::string dest = concrete_pkg.empty()
