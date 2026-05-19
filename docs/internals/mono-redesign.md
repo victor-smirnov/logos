@@ -232,8 +232,49 @@ mlir-gen field-layout assumptions.
 
 ## Phase 4 — Trait-aware method mangling
 
-**Scope**: ~1100 LOC, ~1 week, high risk. Already speced in
-[[baghunt-trait-aware-method-mangling]] with full dispatch-site map.
+**Status**: DEFERRED 2026-05-19 with refined plan (see below).
+Deeper investigation showed the scope is structurally larger than
+the audit estimated: `EMethodCall` LIR node has no `trait_name` field,
+so sema's trait-bound dispatch (sema_expr.cpp:4898-5186) sets
+`mc.method = "<method>"` with no way to thread the resolved trait
+into mono. Adding that requires:
+
+  1. `EMethodCall` LIR schema field add (lir.hpp + Hermes mirror).
+  2. Sema trait-bound dispatch sets `mc.trait_name`.
+  3. Mono's MethodCall lowering uses `mc.trait_name` to build
+     `<concrete>__<trait>__<method>` lookup key.
+  4. `find_func_by_base_and_signature` and ~30 other lookup sites
+     audit for trait-aware fallback.
+  5. Disambiguation syntax `<Type as Trait>::method(...)` grammar
+     extension.
+
+A scoped POC (trait-prefix-only-on-collision in `sema_collect.cpp:2328`)
+also fails: dispatch sites would silently miss the trait-prefixed
+methods because they only know the bare `<method>` name. So the
+"minimal" version still requires sema's MethodCall to carry trait
+info → schema change cascade.
+
+**Realistic scope**: 3-5 days of focused work, including method-
+dispatch regression testing (hot path, subtle).
+
+**Next-session plan**:
+  - Day 1: schema change (`EMethodCall::trait_name` field). Build +
+    ctest baseline.
+  - Day 2: sema's trait-bound dispatch populates `mc.trait_name`.
+    sema_collect's registration uses trait-prefixed mangling for
+    trait-impl methods.
+  - Day 3: mono's MethodCall lowering routes through trait-prefixed
+    key. `find_func_by_base_and_signature` consumers audit.
+  - Day 4: disambiguation grammar + sema for
+    `<Type as Trait>::method`.
+  - Day 5: `fmt_display`/`fmt_debug`/`_fmt_lower_hex` → `fmt` rename
+    across stdlib + tests + derive metaprog.
+
+For now, `fmt_display`/`fmt_debug` etc. stay as the per-trait
+suffix workaround. The Display/Debug + LowerHex/UpperHex/Octal/
+Binary/LowerExp/UpperExp trait family is the only known collision
+case in Logos's current Rust port surface (see
+[[baghunt-trait-aware-method-mangling]] for the full audit).
 
 **Goal**: replace flat `<target>__<method>` mangling with
 trait-prefixed `<target>__<trait>__<method>` for trait-impl
