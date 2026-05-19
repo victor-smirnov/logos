@@ -2856,9 +2856,31 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 }
                 if (cname.empty()) cname = type_str(rt);
                 if (cname == "&[u8]") cname = "str";
+                // Trait-aware method mangling: when sema flagged this dispatch
+                // as ambiguous-by-name (tag_trait carries the chosen trait),
+                // prefer the trait-qualified base `<cname>__<trait>__<method>`
+                // if such a symbol exists. Falls back to the plain method base
+                // for concrete types whose impls did not collide.
+                std::string method_q = method;
+                if (!tag_trait.empty() && !cname.empty()) {
+                    std::string qbase = cname + "__" + tag_trait + "__" + method;
+                    auto base_exists = [&](const std::string& fb) -> bool {
+                        if (templates_.count(fb) || specs_.count(fb)) return true;
+                        for (auto& f : in_.functions) {
+                            auto t = bare_fn_name(f->name);
+                            if (t == fb || t.rfind(fb + "__", 0) == 0) return true;
+                        }
+                        for (auto& f : out_.functions) {
+                            auto t = bare_fn_name(f->name);
+                            if (t == fb || t.rfind(fb + "__", 0) == 0) return true;
+                        }
+                        return false;
+                    };
+                    if (base_exists(qbase)) method_q = tag_trait + "__" + method;
+                }
                 if (!cname.empty()) {
                     lir::ECall nc;
-                    std::string base_fn = cname + "__" + method;
+                    std::string base_fn = cname + "__" + method_q;
                     std::string tmpl_key = base_fn;
                     if (!templates_.count(tmpl_key) && !specs_.count(tmpl_key)) {
                         // Pkg-qualified at sema: look for any template name

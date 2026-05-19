@@ -33,6 +33,20 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
         ? std::string(raw_name)
         : std::string(struct_ctx) + "__" + std::string(raw_name);
 
+    // Trait-aware method mangling: if this method's name collided with another
+    // trait's same-named method on this type, collect_fn re-keyed it under the
+    // trait-qualified base `<target>__<trait>__<method>`. Switch `mangled` to
+    // that base so the fi_ptr lookup and `fn.name` (and thus the emitted LIR
+    // function symbol) match the qualified registration. Only fires when the
+    // qualified base is actually registered, so non-colliding methods are
+    // byte-identical to before.
+    if (!current_impl_trait_name_.empty() && !struct_ctx.empty()) {
+        std::string qual = std::string(struct_ctx) + "__" +
+                           current_impl_trait_name_ + "__" + std::string(raw_name);
+        if (func_overloads_.count(qual) || generic_overloads_.count(qual))
+            mangled = qual;
+    }
+
     // Blanket impl methods are mangled "$blanket$Trait$Bound$T__method".
     // Render diagnostics under a human-readable name so the synthetic prefix
     // never leaks into user-visible errors.

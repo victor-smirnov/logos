@@ -2340,7 +2340,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     ? ("$blanket$" + trait_name + "$" + blanket_bound_trait + "$" + target)
                     : target;
                 auto mangled = reg_target + "__" + mname;
-                collect_fn(m, reg_target);
+                collect_fn(m, reg_target, trait_name);
                 // Trait-impl methods inherit their trait's accessibility:
                 // if the trait is reachable, so are its methods.  The
                 // grammar disallows `pub fn` inside trait / trait-impl
@@ -2513,7 +2513,12 @@ void SemaChecker::collect_impl(TinyMapView node) {
         if (tit != traits_.end()) {
             for (auto& m : tit->second.methods) {
                 auto mangled = check_target + "__" + m.name;
-                auto cands = find_func_candidates(mangled);
+                // Trait-aware mangling: a method that collided with another
+                // trait's same-named method was re-keyed under the
+                // trait-qualified base; check that first.
+                auto cands = find_func_candidates(
+                    check_target + "__" + trait_name + "__" + m.name);
+                if (cands.empty()) cands = find_func_candidates(mangled);
                 // Find if THIS specific overload was explicitly provided.
                 // Match by arity and non-receiver param types.
                 // Receiver (param[0]) is &TypeVar(Self) in the trait vs
@@ -2660,11 +2665,14 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     // it may live in a different module's zone (cross-module trait).
                     auto* saved_holder = holder_;
                     if (m.default_holder) holder_ = m.default_holder;
-                    collect_fn(map_of(m.default_ast), target);
+                    collect_fn(map_of(m.default_ast), target, trait_name);
                     holder_ = saved_holder;
                     // Default trait-method: inherits trait accessibility.
                     // Mark ALL newly-registered overloads as pub (not just first).
                     auto dmangled = target + "__" + m.name;
+                    for (auto* df : find_func_candidates(
+                             target + "__" + trait_name + "__" + m.name))
+                        const_cast<SemaFuncInfo*>(df)->is_pub = true;
                     for (auto* df : find_func_candidates(dmangled))
                         const_cast<SemaFuncInfo*>(df)->is_pub = true;
                     current_type_params_.erase("Self");
@@ -3400,7 +3408,8 @@ lir::LFunction SemaChecker::lower_spec_fn(TinyMapView node) {
     return fn;
 }
 
-void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
+void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
+                             std::string_view trait_ctx) {
     auto raw_name = str_of(node.get(la::NAME.code));
     std::string base_name = struct_ctx.empty()
         ? std::string(raw_name)
@@ -3448,6 +3457,7 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
     }
 
     SemaFuncInfo info;
+    info.trait_name = std::string(trait_ctx);
     // Free fn: pending_doc_ holds module-level doc. Methods (collect_fn called
     // from collect_impl/collect_trait/collect_struct method loops) — caller
     // has already cleared pending_doc_ via take_pending_doc(), so this is a
@@ -3559,6 +3569,74 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
         overloads.push_back(base_name);
         funcs_[base_name] = std::move(info);
         return;
+    }
+
+    // Trait-aware method mangling: when two distinct traits define a method
+    // with the same name + signature on the same type, Logos's flat
+    // `<target>__<method>` registry would reject the second as a duplicate.
+    // Detect the collision and lazily re-key the colliding methods under the
+    // trait-qualified base `<target>__<trait>__<method>` so both coexist.
+    // The trait is threaded to the call site (TypeVar-bound dispatch emits a
+    // `$traitqual$` sentinel that mono resolves). Non-colliding methods stay
+    // on the plain base — byte-identical to before — so the hot path and the
+    // ~30 plain lookup sites are unaffected for the common case.
+    if (!info.trait_name.empty() && struct_ctx.size() && raw_name.size()) {
+        const std::string plain_base = base_name;
+        const std::string qual_base = std::string(struct_ctx) + "__" +
+                                       info.trait_name + "__" + std::string(raw_name);
+        bool generic = !info.type_params.empty();
+        auto& ov  = generic ? generic_overloads_ : func_overloads_;
+        auto& tbl = generic ? generic_funcs_     : funcs_;
+        const std::string plain_sig =
+            function_signature_key(plain_base, info.param_types, info.is_vararg);
+
+        bool already = trait_method_registry_.count(plain_base) > 0;
+        std::string clash_sym;
+        if (!already) {
+            if (auto oit = ov.find(plain_base); oit != ov.end()) {
+                for (auto& sym : oit->second) {
+                    auto fit = tbl.find(sym);
+                    if (fit == tbl.end()) continue;
+                    std::string esig = function_signature_key(
+                        plain_base, fit->second.param_types, fit->second.is_vararg);
+                    if (esig == plain_sig && !fit->second.trait_name.empty() &&
+                        fit->second.trait_name != info.trait_name) {
+                        clash_sym = sym; break;
+                    }
+                }
+            }
+        }
+        if (already || !clash_sym.empty()) {
+            // First collision: re-key the pre-existing plain entry to its
+            // own trait-qualified base, and pull it out of the plain index.
+            if (!clash_sym.empty()) {
+                if (auto fit = tbl.find(clash_sym); fit != tbl.end()) {
+                    SemaFuncInfo ex = std::move(fit->second);
+                    tbl.erase(fit);
+                    std::string ex_trait = ex.trait_name;
+                    std::string ex_qual = std::string(struct_ctx) + "__" +
+                        ex_trait + "__" + std::string(raw_name);
+                    ex.base_name   = ex_qual;
+                    ex.symbol_name = function_symbol_name(ex_qual, ex);
+                    auto& plist = ov[plain_base];
+                    plist.erase(std::remove(plist.begin(), plist.end(), clash_sym),
+                                plist.end());
+                    ov[ex_qual].push_back(ex.symbol_name);
+                    tbl[ex.symbol_name] = std::move(ex);
+                    trait_method_registry_[plain_base].push_back(ex_trait);
+                }
+            }
+            // Register a registry marker for this trait (plain base → traits).
+            {
+                auto& traits = trait_method_registry_[plain_base];
+                if (std::find(traits.begin(), traits.end(), info.trait_name) == traits.end())
+                    traits.push_back(info.trait_name);
+            }
+            // Re-target this method onto its qualified base; the normal
+            // registration below recomputes symbol_name from it.
+            base_name = qual_base;
+            info.base_name = qual_base;
+        }
     }
 
     if (!info.type_params.empty()) {

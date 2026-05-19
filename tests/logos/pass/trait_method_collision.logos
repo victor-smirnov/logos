@@ -1,0 +1,26 @@
+// Trait-aware method mangling: two distinct traits define a method with the
+// same name + signature on the same type. Logos's flat `<target>__<method>`
+// registry would reject the second as a duplicate; collect_fn now re-keys the
+// colliding methods under the trait-qualified base `<target>__<trait>__<method>`
+// and generic-bound dispatch (T: Trait) resolves each to the right impl.
+
+package trait_method_collision;
+
+trait Speak { fn say(&self) -> i32; }
+trait Yell  { fn say(&self) -> i32; }
+
+struct Dog {}
+
+impl Speak for Dog { fn say(&self) -> i32 { return 1i32; } }
+impl Yell  for Dog { fn say(&self) -> i32 { return 2i32; } }
+
+// Each generic fn is bounded by exactly one of the colliding traits, so the
+// `x.say()` call inside resolves unambiguously through that bound.
+fn speak_it<T: Speak>(x: &T) -> i32 { return x.say(); }
+fn yell_it<T: Yell>(x: &T)  -> i32 { return x.say(); }
+
+fn main() -> i32 {
+    let d: Dog = Dog {};
+    // Speak::say -> 1, Yell::say -> 2  =>  1*10 + 2 = 12
+    return speak_it::<Dog>(&d) * 10i32 + yell_it::<Dog>(&d);
+}

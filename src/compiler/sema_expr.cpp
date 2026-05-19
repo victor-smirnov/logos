@@ -5354,6 +5354,22 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             mc.args     = std::move(arg_exprs);
             mc.vtable_index = -1;
             mc.resolved_type = "";
+            // Trait-aware method mangling: when more than one trait declares a
+            // method with this name, carry the chosen trait so mono resolves to
+            // the trait-qualified symbol `<Concrete>__<Trait>__<method>` if the
+            // concrete type's impls collided. Mono falls back to the plain name
+            // when no qualified symbol exists, so this is harmless for the
+            // common single-provider / non-colliding case.
+            {
+                int provider_traits = 0;
+                for (auto& [tn, ti] : traits_) {
+                    (void)tn;
+                    for (auto& mm : ti.methods)
+                        if (mm.name == method_name) { provider_traits++; break; }
+                    if (provider_traits > 1) break;
+                }
+                if (provider_traits > 1) mc.tag_trait = chosen_trait;
+            }
             return builder().method_call_v(std::move(mc), ret_type);
         }
 
@@ -6199,6 +6215,24 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             return finish_generic_call(
                                        mfi->symbol_name.empty() ? bi.mangled_name : mfi->symbol_name, *mfi,
                                        std::move(type_args), std::move(pargs));
+        }
+        // Trait-aware method mangling: if the method name collided across
+        // multiple traits on this type, the plain base was removed from the
+        // registry — surface a disambiguation hint instead of "no method".
+        if (auto rit = trait_method_registry_.find(
+                std::string(sname) + "__" + std::string(method_name));
+            rit != trait_method_registry_.end() && rit->second.size() > 1) {
+            std::string traits_list;
+            for (size_t i = 0; i < rit->second.size(); ++i) {
+                if (i) traits_list += ", ";
+                traits_list += rit->second[i];
+            }
+            error(std::format(
+                "method '{}' on '{}' is provided by multiple traits ({}); "
+                "disambiguate by calling through the trait, e.g. a generic "
+                "fn bounded `T: {}` or an explicit trait-qualified call",
+                method_name, sname, traits_list, rit->second.front()));
+            return builder().method_call(std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1, error_t());
         }
         error(std::format("method call: '{}' has no method '{}'", sname, method_name));
         return builder().method_call(std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1, error_t());

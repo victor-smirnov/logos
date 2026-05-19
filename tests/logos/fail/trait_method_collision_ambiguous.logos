@@ -1,0 +1,12 @@
+// Concrete-receiver call to a method provided by two traits is ambiguous and
+// must be rejected with disambiguation guidance (no generic bound to select).
+package tcc_ambig;
+trait Speak { fn say(&self) -> i32; }
+trait Yell  { fn say(&self) -> i32; }
+struct Dog {}
+impl Speak for Dog { fn say(&self) -> i32 { return 1i32; } }
+impl Yell  for Dog { fn say(&self) -> i32 { return 2i32; } }
+fn main() -> i32 {
+    let d: Dog = Dog {};
+    return d.say();
+}

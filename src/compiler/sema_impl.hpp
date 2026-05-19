@@ -1535,6 +1535,14 @@ private:
                             std::string symbol_name;
                             std::string source_file; std::string package;
                             std::string doc;     // outer `///` doc-comment
+                            // Trait-aware method mangling: the trait this
+                            // method implements (`impl Trait for X`), empty for
+                            // inherent impls / free fns. When two traits define
+                            // the same method on the same type+signature, the
+                            // colliding methods are lazily re-keyed under the
+                            // trait-qualified base `<target>__<trait>__<method>`
+                            // (see trait_method_registry_).
+                            std::string trait_name;
                           };
     struct SemaVariantInfo{
         std::string_view name; int64_t value;
@@ -1778,6 +1786,13 @@ private:
     logos::compiler::StrMap<SemaFuncInfo>     generic_funcs_;
     // base name -> generic overload symbols stored in generic_funcs_.
     logos::compiler::StrMap<std::vector<std::string>> generic_overloads_;
+    // Trait-aware method mangling: plain base `<target>__<method>` -> the
+    // distinct traits that define a method of that name on that type with the
+    // same signature. Populated lazily when a collision is detected in
+    // collect_fn; the colliding methods get re-keyed under the trait-qualified
+    // base `<target>__<trait>__<method>`. A plain base present here with >1
+    // entry is ambiguous for concrete-receiver dispatch (needs disambiguation).
+    logos::compiler::StrMap<std::vector<std::string>> trait_method_registry_;
     // Generic type alias entry: non-generic aliases have type_params empty.
     struct TypeAliasEntry {
         TypeRef         type;
@@ -2375,7 +2390,8 @@ private:
     bool is_specialization_struct(hermes::TinyMapView node);
     lir::LStructDef lower_spec_struct(hermes::TinyMapView node);
     lir::LFunction lower_spec_fn(hermes::TinyMapView node);
-    void collect_fn(hermes::TinyMapView node, std::string_view struct_ctx = {});
+    void collect_fn(hermes::TinyMapView node, std::string_view struct_ctx = {},
+                    std::string_view trait_ctx = {});
 
     // ── Auto trait satisfaction ───────────────────────────────────
 
