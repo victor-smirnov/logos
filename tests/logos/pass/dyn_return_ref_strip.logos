@@ -1,0 +1,38 @@
+// Regression: returning `&dyn Trait` from a `&T` parameter must strip
+// the Ref wrapper before keying the vtable lookup. Previously mlir-gen's
+// gen_return only stripped Ptr — leaving Ref(Struct) keyed lookups
+// returning null vtables and segfaulting at dispatch.
+package test;
+
+pub trait Speak { fn level(&self) -> i32; }
+struct Inner { v: i32 }
+struct Outer { name: str, inner: Inner }
+
+impl Speak for Inner { fn level(&self) -> i32 { return 7; } }
+impl Speak for Outer { fn level(&self) -> i32 { return 1; } }
+
+// Free fn: bare return.
+fn as_dyn(i: &Inner) -> &dyn Speak {
+    return i;
+}
+
+// Struct method: returns &dyn over a field of self.
+impl Outer {
+    pub fn child(&self) -> &dyn Speak {
+        let d: &dyn Speak = &self.inner;
+        return d;
+    }
+}
+
+fn main() -> i32 {
+    let inner: Inner = Inner { v: 0 };
+    let outer: Outer = Outer { name: "o", inner: inner };
+
+    let d1: &dyn Speak = as_dyn(&Inner { v: 5 });
+    if d1.level() != 7 { return 1; }
+
+    let d2: &dyn Speak = outer.child();
+    if d2.level() != 7 { return 2; }
+
+    return 42;
+}

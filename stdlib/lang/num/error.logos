@@ -10,6 +10,8 @@
 
 package logos.lang.num.error;
 
+use logos.lang.error;
+
 // Kind of error encountered when parsing an integer or trying to fit
 // it into a narrower type. Same variants as Rust's IntErrorKind.
 pub enum IntErrorKind {
@@ -31,6 +33,16 @@ impl ParseIntError {
     }
 }
 
+// ParseIntError sits at the bottom of any int-parsing error chain;
+// has_source returns false. source() is unreachable in that case
+// but the Error trait requires the method — return self as a no-op
+// sentinel (Logos can't express `Option<&dyn Error>` returns yet,
+// see logos.lang.error module header).
+impl Error for ParseIntError {
+    fn has_source(&self) -> bool { return false; }
+    fn source(&self) -> &dyn Error { return self; }
+}
+
 // Returned by `i32::try_from(big)` / etc. when the value doesn't fit
 // the target type. Mirrors core::num::TryFromIntError(IntErrorKind).
 pub struct TryFromIntError {
@@ -41,4 +53,9 @@ impl TryFromIntError {
     pub fn new(kind: IntErrorKind) -> TryFromIntError {
         return TryFromIntError { kind: kind };
     }
+}
+
+impl Error for TryFromIntError {
+    fn has_source(&self) -> bool { return false; }
+    fn source(&self) -> &dyn Error { return self; }
 }

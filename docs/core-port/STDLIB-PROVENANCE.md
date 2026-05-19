@@ -36,7 +36,7 @@ Source roots:
 | `cmp.rs` | `lang/cmp/cmp.logos` + `lang/cmp/ord.logos` | ✅ | `cmp/test_harness_coretest_cmp.logos`, `cmp/test_harness_coretest_ordering_*.logos`, `cmp/test_harness_coretest_user_defined_eq.logos` | `Eq`/`PartialEq`/`PartialOrd`/`Ord`, `Ordering` (+reverse/is_lt/then/then_with), per-type min/max/clamp. |
 | `contracts.rs` | — | 🔁 | — | Unstable `#[requires]`/`#[ensures]`; no Logos equivalent. |
 | `default.rs` | `lang/default/default.logos` | ✅ | `option/test_harness_coretest_option_default.logos`, `option/test_harness_coretest_option_unwrap_or_default.logos` | `Default` trait. |
-| `error.rs` | — | ❌ TODO | — | `Error` trait + source chaining; Logos uses plain `Result<T,E>` so far. |
+| `error.rs` | `lang/error/error.logos` | ⚠️ partial | `error_trait_chain.logos` | `Error` trait + `error_chain_len(&dyn Error)` walker. Wired for `ParseIntError`/`TryFromIntError`. Divergence: Rust's `fn source(&self) -> Option<&dyn Error>` is split into `has_source(&self) -> bool` + `source(&self) -> &dyn Error` because `Option<&dyn T>` enum-payload extract currently mis-loads the fat-pointer's vtable and crashes at dispatch ([[baghunt-dyn-in-enum-payload]]). No `Display+Debug` supertrait bound (lives in `std.fmt`, mem tier). No `provide()`/`description()`/`cause()`. |
 | `escape.rs` | — | ❌ TODO | — | `EscapeIterInner` shared between ascii/char escape iterators. |
 | `ffi/` | extern decls + `rt/*.c` | 🔁 | — | Different FFI shim: Logos uses `unsafe extern fn` declarations + `.c` shim files in `stdlib/rt/`; no `c_int`/`c_void`/`CStr`/`va_list` types. |
 | `field.rs` | `mem/any/any.logos` (`FieldInfo`) | 🔁 | — | Unstable `field_of!` macro / `FieldRepresentingType`. Logos exposes fields via runtime `FieldsView` from `TypeInfo`. |
@@ -263,7 +263,7 @@ Source roots:
 | `wrapping.rs` | `lang/arith/arith.logos` (free fns `wrapping_add`/etc.) | ⚠️ partial | `num/test_harness_coretest_u64_wrapping_checked.logos` | Method form (`x.wrapping_add(y)`) ported; `Wrapping<T>` newtype absent. |
 | `saturating.rs` | inline `saturating_add`/etc. methods | ⚠️ partial | `num/test_harness_coretest_i32_saturating.logos` | Method form ported; `Saturating<T>` newtype absent. |
 | `niche_types.rs` | — | ➖ | Internal compiler-niche helpers. |
-| `error.rs` | `lang/num/error.logos` | ✅ | — | `IntErrorKind` (Empty/InvalidDigit/PosOverflow/NegOverflow/Zero), `ParseIntError { kind }`, `TryFromIntError { kind }`. |
+| `error.rs` | `lang/num/error.logos` | ✅ | — | `IntErrorKind` (Empty/InvalidDigit/PosOverflow/NegOverflow/Zero), `ParseIntError { kind }`, `TryFromIntError { kind }`. Both now `impl Error` (leaf — `has_source` returns false). |
 | `f128.rs` / `f16.rs` | — | ❌ TODO | — | Logos has f32/f64 only. |
 | `f32.rs` / `f64.rs` | `lang/math/math.logos` | ⚠️ partial | — | Transcendentals + constants via wrapper fns; method form on `f64` partial. |
 | `float_parse.rs` | — | ❌ TODO | — | No `.parse::<f64>()` yet. |

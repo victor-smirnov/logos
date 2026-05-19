@@ -1,0 +1,45 @@
+// Tests std.lang.error: Error trait + chained source walking.
+package test;
+
+use logos.lang.error;
+
+struct DbErr { code: i32 }
+struct ServiceErr { msg: str, cause: DbErr }
+struct HandlerErr { route: str, cause: ServiceErr }
+
+impl Error for DbErr {
+    fn has_source(&self) -> bool { return false; }
+    fn source(&self) -> &dyn Error { return self; }
+}
+
+impl Error for ServiceErr {
+    fn has_source(&self) -> bool { return true; }
+    fn source(&self) -> &dyn Error {
+        let d: &dyn Error = &self.cause;
+        return d;
+    }
+}
+
+impl Error for HandlerErr {
+    fn has_source(&self) -> bool { return true; }
+    fn source(&self) -> &dyn Error {
+        let d: &dyn Error = &self.cause;
+        return d;
+    }
+}
+
+fn main() -> i32 {
+    let db: DbErr = DbErr { code: 42 };
+    let svc: ServiceErr = ServiceErr { msg: "lookup failed", cause: db };
+    let h: HandlerErr = HandlerErr { route: "/x", cause: svc };
+
+    // 3 links: handler → service → db
+    let n: i32 = error_chain_len(&h);
+    if n != 3 { return 1; }
+
+    // Leaf reports chain length 1
+    let leaf: DbErr = DbErr { code: 0 };
+    if error_chain_len(&leaf) != 1 { return 2; }
+
+    return 42;
+}

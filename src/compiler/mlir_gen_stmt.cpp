@@ -687,7 +687,14 @@ void MLIRGenImpl::gen_return(lir_view::SReturnView v) {
             auto val = gen_expr(s_value);
             if (!val) return;
             TypeRef src_lt = s_value.type;
-            if (TypeRef(src_lt).kind() == LogosType::Kind::Ptr && TypeRef(src_lt).pointee())
+            // Strip the indirection: source may be `&T`/`&mut T`/`*const T`/
+            // `*mut T` over a concrete struct. vtable is keyed on the bare
+            // struct name. Without unwrapping Ref/MutRef the lookup keys on
+            // "&T" and returns null → null vtable → segfault on dispatch.
+            if ((TypeRef(src_lt).kind() == LogosType::Kind::Ptr ||
+                 TypeRef(src_lt).kind() == LogosType::Kind::Ref ||
+                 TypeRef(src_lt).kind() == LogosType::Kind::MutRef) &&
+                TypeRef(src_lt).pointee())
                 src_lt = TypeRef(src_lt).pointee();
             auto vtable = build_inline_vtable(
                 std::string(TypeRef(cur_fn_ret_logos_type_).trait_name()), type_str(src_lt));
