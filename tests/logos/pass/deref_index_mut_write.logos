@@ -1,0 +1,49 @@
+// Tests DerefMut + IndexMut write-side dispatch:
+//   *x = v    for user struct x with impl DerefMut → x.deref_mut() then write
+//   a[i] = v  for user struct a with impl IndexMut → a.index_mut(i) then write
+package test;
+
+use logos.lang.ops;
+
+struct MyCell { value: i32 }
+
+impl Deref<i32> for MyCell {
+    fn deref(&self) -> &i32 { return &self.value; }
+}
+
+impl DerefMut<i32> for MyCell {
+    fn deref_mut(&mut self) -> &mut i32 { return &mut self.value; }
+}
+
+struct Slot4 { data: [i32; 4] }
+
+impl Index<i32, i32> for Slot4 {
+    fn index(&self, idx: i32) -> &i32 {
+        return &self.data[idx as i64];
+    }
+}
+
+impl IndexMut<i32, i32> for Slot4 {
+    fn index_mut(&mut self, idx: i32) -> &mut i32 {
+        return &mut self.data[idx as i64];
+    }
+}
+
+fn main() -> i32 {
+    let mut c: MyCell = MyCell { value: 7 };
+    if *c != 7 { return 1; }
+    *c = 100;
+    if *c != 100 { return 2; }
+
+    let mut s: Slot4 = Slot4 { data: [0, 0, 0, 0] };
+    s[0] = 11;
+    s[1] = 22;
+    s[2] = 33;
+    s[3] = 44;
+    if s[0] != 11 { return 3; }
+    if s[1] != 22 { return 4; }
+    if s[2] != 33 { return 5; }
+    if s[3] != 44 { return 6; }
+
+    return 42;
+}

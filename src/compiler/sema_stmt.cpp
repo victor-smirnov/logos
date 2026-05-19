@@ -364,6 +364,34 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
         hint_enum_type_   = saved_enum_hint;
         hint_struct_type_ = saved_struct_hint;
         auto pt = ptr->type;
+        // User-defined DerefMut dispatch: `*x = v` for struct x where
+        // x impls DerefMut<T> → call x.deref_mut() (returns &mut T),
+        // then emit `*<that &mut T> = v`. Mirrors the read-side path
+        // in sema_expr.cpp::lower_deref. Requires `let mut x`-style
+        // mutable binding for `&mut self` materialisation.
+        if (TypeRef(pt).kind() == LogosType::Kind::Struct) {
+            auto type_name = concrete_struct_name(pt);
+            auto base_name = std::string(TypeRef(pt).struct_name());
+            bool has_dm = impls_.count("DerefMut::" + type_name) ||
+                          (!base_name.empty() &&
+                           impls_.count("DerefMut::" + base_name));
+            if (has_dm) {
+                auto mangled = type_name + "__deref_mut";
+                auto mut_ref_t = make_ref(true, pt);
+                auto recv_ref = builder().addr_of_temp(std::move(ptr), true, mut_ref_t);
+                std::vector<lir::LExprPtr> args;
+                args.push_back(std::move(recv_ref));
+                auto fit = find_func_by_base_and_signature(mangled, {mut_ref_t}, false);
+                if (fit) {
+                    auto call_e = builder().call(
+                        fit->symbol_name.empty() ? mangled : fit->symbol_name,
+                        {}, std::move(args), fit->ret_type);
+                    track_write_move(val);
+                    return builder().stmt_deref_write(
+                        std::move(call_e), std::move(val), node_line_);
+                }
+            }
+        }
         // Writing through &mut T is safe; writing through raw *mut/*const T requires unsafe
         bool is_mut_ref = TypeRef(pt).kind() == LogosType::Kind::MutRef;
         if (!is_mut_ref && !inside_unsafe_)
@@ -4945,6 +4973,47 @@ lir::LStmt SemaChecker::lower_deref_field_write(TinyMapView node) {
 lir::LStmt SemaChecker::lower_index_write(TinyMapView node) {
     auto arr_name = str_of(node.get(la::NAME.code));
     auto arr_type = lookup(arr_name);
+
+    // User-defined IndexMut dispatch: `a[i] = v` for struct a where
+    // a impls IndexMut<I, O> → call a.index_mut(i) (returns &mut O),
+    // then emit `*<that &mut O> = v`. Mirrors the read-side
+    // dispatch in sema_expr.cpp::lower_index_read.
+    if (arr_type && TypeRef(arr_type).kind() == LogosType::Kind::Struct) {
+        if (!lookup_is_mut(arr_name))
+            error(std::format("index write to immutable struct '{}'", arr_name));
+        auto type_name = concrete_struct_name(arr_type);
+        auto base_name = std::string(TypeRef(arr_type).struct_name());
+        bool has_im = impls_.count("IndexMut::" + type_name) ||
+                      (!base_name.empty() &&
+                       impls_.count("IndexMut::" + base_name));
+        if (has_im) {
+            auto mangled = type_name + "__index_mut";
+            lir::LExprPtr idx_e = node.has_key(la::LHS)
+                ? lower_expr(map_of(node.get(la::LHS.code))) : error_expr();
+            lir::LExprPtr val_e = node.has_key(la::VALUE)
+                ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
+            // Find the unique 2-param impl candidate, widen IntLit idx
+            // (mirrors lower_index_read).
+            const SemaFuncInfo* fit = nullptr;
+            for (auto* c : find_func_candidates(mangled))
+                if (c->param_types.size() == 2) { fit = c; break; }
+            if (fit) {
+                widen_int_expr(idx_e, fit->param_types[1], builder());
+                auto mut_ref_t = make_ref(true, arr_type);
+                auto recv_ref = builder().addr_of(std::string(arr_name), mut_ref_t);
+                std::vector<lir::LExprPtr> args;
+                args.push_back(std::move(recv_ref));
+                args.push_back(std::move(idx_e));
+                auto call_e = builder().call(
+                    fit->symbol_name.empty() ? mangled : fit->symbol_name,
+                    {}, std::move(args), fit->ret_type);
+                track_write_move(val_e);
+                return builder().stmt_deref_write(
+                    std::move(call_e), std::move(val_e), node_line_);
+            }
+        }
+    }
+
     if (!arr_type) {
         error(std::format("index write: undefined variable '{}'", arr_name));
     } else if (TypeRef(arr_type).kind() != LogosType::Kind::Array &&

@@ -737,6 +737,22 @@ pub trait ExactSizeIterator<Item>: Iterator<Item> {
     }
 }
 
+// ── FusedIterator marker ────────────────────────────────────────────
+//
+// Mirrors `core::iter::FusedIterator`. Marker: an iterator that
+// keeps yielding None after the first None. Adapters like Fuse,
+// Map, Take, etc. preserve this property; the marker lets generic
+// code skip defensive bookkeeping when iterating past the end is
+// not a hazard (Rust's stdlib uses it to specialise wrappers like
+// `Peekable::peek` and the `try_fold` short-circuit path).
+//
+// No methods; pure marker trait. Implementors opt in by declaring
+// `impl FusedIterator<Item> for MyIter<...>` (no body needed).
+// The Iterator supertrait bound is what every Rust-shape consumer
+// of `FusedIterator` actually wants.
+
+pub trait FusedIterator<Item>: Iterator<Item> {}
+
 // ── RevIter<I, T> — swap-ends adapter on a DoubleEndedIterator ───────────────
 //
 // `next()` pulls from the source's back; `next_back()` pulls from
@@ -880,6 +896,9 @@ impl<I: Iterator<T>, T> Iterator<T> for FuseIter<I, T> {
         }
     }
 }
+
+// FuseIter is fused by construction.
+impl<I: Iterator<T>, T> FusedIterator<T> for FuseIter<I, T> {}
 
 impl<I: DoubleEndedIterator<T>, T> DoubleEndedIterator<T> for FuseIter<I, T> {
     fn next_back(self: &mut FuseIter<I, T>) -> Option<T> {
@@ -1319,6 +1338,8 @@ impl<T> Iterator<T> for OnceIter<T> {
     }
 }
 
+impl<T> FusedIterator<T> for OnceIter<T> {}
+
 impl<T> DoubleEndedIterator<T> for OnceIter<T> {
     fn next_back(self: &mut OnceIter<T>) -> Option<T> {
         unsafe {
@@ -1373,6 +1394,8 @@ impl<T> Iterator<T> for EmptyIter<T> {
 impl<T> DoubleEndedIterator<T> for EmptyIter<T> {
     fn next_back(self: &mut EmptyIter<T>) -> Option<T> { return Option::None; }
 }
+
+impl<T> FusedIterator<T> for EmptyIter<T> {}
 
 pub fn iter_empty<T>(zero: T) -> EmptyIter<T> {
     return EmptyIter { _t: zero };
@@ -1994,4 +2017,55 @@ impl<T: Copy> Iterator<T> for RepeatNIter<T> {
 
 pub fn iter_repeat_n<T: Copy>(value: T, count: i64) -> RepeatNIter<T> {
     return RepeatNIter { value: value, count: count };
+}
+
+// ── OnceWithIter<T, F> — single-shot iterator from a generator ──────
+//
+// Mirrors `core::iter::once_with`. The generator fires exactly once on
+// the first `.next()`, then returns None. Logos uses `F: FnMut()->T`
+// (Rust uses `FnOnce`) — FnOnce/FnMut distinction at trait-method
+// dispatch isn't currently load-bearing here; once_with's discipline
+// of firing only once is enforced by the `fired` flag.
+//
+// `_t: T` anchor field follows the CycleIter / SuccessorsIter
+// pattern — Logos has no PhantomData; the field carries the
+// instantiation `T` so mono can substitute it into the Iterator impl
+// without depending on `F`'s return-type inference machinery.
+
+pub struct OnceWithIter<T, F> {
+    pub f:     F,
+    pub fired: bool,
+    pub _t:    T,
+}
+
+impl<T, F: FnMut() -> T> Iterator<T> for OnceWithIter<T, F> {
+    fn next(self: &mut OnceWithIter<T, F>) -> Option<T> {
+        if self.fired { return Option::None; }
+        self.fired = true;
+        return Option::Some((self.f)());
+    }
+}
+
+pub fn iter_once_with<T, F: FnMut() -> T>(f: F, zero: T) -> OnceWithIter<T, F> {
+    return OnceWithIter { f: f, fired: false, _t: zero };
+}
+
+// ── RepeatWithIter<T, F> — infinite-fire-on-demand iterator ─────────
+//
+// Mirrors `core::iter::repeat_with`. Fires the generator on every
+// `.next()` and never terminates.
+
+pub struct RepeatWithIter<T, F> {
+    pub f:  F,
+    pub _t: T,
+}
+
+impl<T, F: FnMut() -> T> Iterator<T> for RepeatWithIter<T, F> {
+    fn next(self: &mut RepeatWithIter<T, F>) -> Option<T> {
+        return Option::Some((self.f)());
+    }
+}
+
+pub fn iter_repeat_with<T, F: FnMut() -> T>(f: F, zero: T) -> RepeatWithIter<T, F> {
+    return RepeatWithIter { f: f, _t: zero };
 }

@@ -156,3 +156,50 @@ impl TryFrom<u32> for char {
         return Result::Ok(val as char);
     }
 }
+
+// ─── Borrow / BorrowMut ────────────────────────────────────────────────
+//
+// Mirrors `core::borrow::{Borrow, BorrowMut}`. Generic over a borrowed
+// form `Borrowed`. Used by collection lookup APIs (`HashMap::get<Q>`
+// where `K: Borrow<Q>`) so a `HashMap<String, V>` can be queried with
+// a `&str` without re-allocating a String.
+//
+// Divergence from Rust: Rust ships an identity blanket `impl<T:?Sized>
+// Borrow<T> for T`. In Logos a `impl<T> Borrow<T> for T` blanket
+// causes mlir-gen failures (mono auto-instantiates `T__borrow` for
+// every stdlib type and some `(ptr) -> (ptr)` body shapes fail to
+// lower — operand-type mismatch in the synthetic body). Filed as a
+// follow-up; for now identity impls are per-primitive. Cross-shape
+// impls (`impl Borrow<str> for String`, `impl Borrow<[T]> for
+// Vec<T>`) ship alongside the consuming collections (mem/string,
+// mem/collections).
+
+pub trait Borrow<Borrowed> {
+    fn borrow(&self) -> &Borrowed;
+}
+
+pub trait BorrowMut<Borrowed>: Borrow<Borrowed> {
+    fn borrow_mut(&mut self) -> &mut Borrowed;
+}
+
+// Identity impls for primitives — `T: Borrow<T>` holds for every
+// scalar. Per-type rather than blanket; see header note.
+impl Borrow<i8>   for i8   { fn borrow(&self) -> &i8   { return self; } }
+impl Borrow<i16>  for i16  { fn borrow(&self) -> &i16  { return self; } }
+impl Borrow<i32>  for i32  { fn borrow(&self) -> &i32  { return self; } }
+impl Borrow<i64>  for i64  { fn borrow(&self) -> &i64  { return self; } }
+impl Borrow<u8>   for u8   { fn borrow(&self) -> &u8   { return self; } }
+impl Borrow<u16>  for u16  { fn borrow(&self) -> &u16  { return self; } }
+impl Borrow<u32>  for u32  { fn borrow(&self) -> &u32  { return self; } }
+impl Borrow<u64>  for u64  { fn borrow(&self) -> &u64  { return self; } }
+impl Borrow<bool> for bool { fn borrow(&self) -> &bool { return self; } }
+
+impl BorrowMut<i8>   for i8   { fn borrow_mut(&mut self) -> &mut i8   { return self; } }
+impl BorrowMut<i16>  for i16  { fn borrow_mut(&mut self) -> &mut i16  { return self; } }
+impl BorrowMut<i32>  for i32  { fn borrow_mut(&mut self) -> &mut i32  { return self; } }
+impl BorrowMut<i64>  for i64  { fn borrow_mut(&mut self) -> &mut i64  { return self; } }
+impl BorrowMut<u8>   for u8   { fn borrow_mut(&mut self) -> &mut u8   { return self; } }
+impl BorrowMut<u16>  for u16  { fn borrow_mut(&mut self) -> &mut u16  { return self; } }
+impl BorrowMut<u32>  for u32  { fn borrow_mut(&mut self) -> &mut u32  { return self; } }
+impl BorrowMut<u64>  for u64  { fn borrow_mut(&mut self) -> &mut u64  { return self; } }
+impl BorrowMut<bool> for bool { fn borrow_mut(&mut self) -> &mut bool { return self; } }

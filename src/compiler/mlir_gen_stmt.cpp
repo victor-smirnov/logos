@@ -2087,6 +2087,25 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                             scope_[bindings[bi]] = alloca;
                             let_vars_.insert(bindings[bi]);
                             var_elem_types_[bindings[bi]] = vp->field_types[bi];
+                            // Clear OTHER shape-tracking sets — the name may
+                            // already be bound in the outer scope to a
+                            // different-shape value (e.g. outer
+                            // `let b: ControlFlow<...>` then inner pattern
+                            // `Break(b) => …` binds b: i32). Without
+                            // clearing, gen_expr(VarRef(b)) consults the
+                            // stale var_tagged_enum_ flag and returns the
+                            // alloca-ptr unloaded — yielding `(ptr, i32)`
+                            // type mismatch at the first use of b in the
+                            // arm body. scope_ already overwrote correctly;
+                            // peer-tracking sets need the same eviction.
+                            var_struct_.erase(bindings[bi]);
+                            var_class_.erase(bindings[bi]);
+                            var_subscript_.erase(bindings[bi]);
+                            var_tuple_.erase(bindings[bi]);
+                            var_tagged_enum_.erase(bindings[bi]);
+                            var_tagged_enum_ptr_.erase(bindings[bi]);
+                            var_dyn_trait_.erase(bindings[bi]);
+                            var_local_ptrs_.erase(bindings[bi]);
                         }
                     }
                 }

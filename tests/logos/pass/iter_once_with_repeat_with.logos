@@ -1,0 +1,35 @@
+// Tests iter::once_with + iter::repeat_with.
+package test;
+
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.range;
+
+fn gen_42() -> i32 { return 42; }
+
+fn main() -> i32 {
+    // once_with fires generator exactly once.
+    let mut it1 = iter_once_with::<i32, fn() -> i32>(gen_42, 0i32);
+    match it1.next() {
+        Option::Some(v) => { if v != 42i32 { return 1; } }
+        Option::None    => { return 2; }
+    }
+    match it1.next() {
+        Option::Some(_) => { return 3; }
+        Option::None    => { }
+    }
+
+    // repeat_with fires generator forever — take(5) gets 5 copies.
+    let mut it2 = iter_repeat_with::<i32, fn() -> i32>(gen_42, 0i32);
+    let mut n: i32 = 0;
+    let mut count: i32 = 0;
+    while count < 5 {
+        match it2.next() {
+            Option::Some(v) => { n = n + v; count = count + 1; }
+            Option::None    => { return 4; }
+        }
+    }
+    if n != 210 { return 5; }   // 42 * 5
+
+    return 42;
+}

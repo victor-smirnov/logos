@@ -148,3 +148,9 @@ impl RangeI64 {
 
     // Note: `count()` is inherited from the Iterator trait default.
 }
+
+// FusedIterator: ranges yield None forever after exhaustion.
+impl FusedIterator<i32> for RangeI32 {}
+impl FusedIterator<i32> for RevRangeI32 {}
+impl FusedIterator<i64> for RangeI64 {}
+impl FusedIterator<i64> for RevRangeI64 {}

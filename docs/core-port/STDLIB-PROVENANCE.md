@@ -30,7 +30,7 @@ Source roots:
 | `ascii.rs` | `lang/char/char.logos` (`is_ascii_*` methods) | ⚠️ partial | `char/test_harness_coretest_char_ascii.logos` | `EscapeDefault` iterator + `AsciiChar` enum absent. |
 | `asserting.rs` | — | ➖ | — | Internal `assert!` formatter machinery; Logos's `assert!`/`assert_eq!`/`assert_ne!` are metacall handlers in `std/fmt/fmt.logos`. |
 | `bool.rs` | `lang/bool/bool.logos` | ✅ | `bool/test_harness_coretest_bool.logos`, `bool/test_harness_coretest_bool_conv.logos`, `bool/test_harness_coretest_bool_to_string.logos` | `then`, `then_some`, `ok_or`, `ok_or_else`. Bitwise via `lang/ops`. |
-| `borrow.rs` | — | ❌ TODO | — | `Borrow<T>` / `BorrowMut<T>` traits not declared. Mostly cosmetic; Logos uses `&T` directly. |
+| `borrow.rs` | `lang/convert/convert.logos` | ⚠️ partial | `borrow_trait.logos` | `Borrow<Borrowed>` / `BorrowMut<Borrowed>` traits + identity impls for primitive types. Identity blanket `impl<T> Borrow<T> for T` triggers mlir-gen failures (mono auto-instantiates `T__borrow` for every stdlib type, `(ptr) -> (ptr)` body shape fails to lower) — filed as a follow-up; per-type identity impls are the workaround today. |
 | `cell.rs` | `lang/cell/cell.logos` | ⚠️ partial | `cell/test_harness_coretest_unsafe_cell.logos` | `UnsafeCell` (B100) + `Cell` (Copy bound) + `RefCell` (Ref/RefMut guards with Drop-based counter, panic on conflict). `CoerceUnsized`/`DispatchFromDyn` impls absent (no language support). `Ref::map`/`filter_map`/`map_split` absent. Pattern-extraction `try_borrow*` now works (match-arm Drop gap fixed 2026-05-18). |
 | `clone.rs` | `lang/clone/clone.logos` | ⚠️ partial | `clone/test_harness_coretest_clone.logos` | `Clone` + `Copy` traits. `CloneToUninit` / `TrivialClone` absent. Logos `Clone::clone` takes `self: Self` (vs Rust `&self`) — pending migration. |
 | `cmp.rs` | `lang/cmp/cmp.logos` + `lang/cmp/ord.logos` | ✅ | `cmp/test_harness_coretest_cmp.logos`, `cmp/test_harness_coretest_ordering_*.logos`, `cmp/test_harness_coretest_user_defined_eq.logos` | `Eq`/`PartialEq`/`PartialOrd`/`Ord`, `Ordering` (+reverse/is_lt/then/then_with), per-type min/max/clamp. |
@@ -48,7 +48,7 @@ Source roots:
 | `internal_macros.rs` | — | ➖ | — | Internal `forward_ref_*!` macros. |
 | `intrinsics/` | compiler builtins in `src/compiler/*` | 🔁 | — | All `intrinsics::*` are compiler-emitted; `popcount_u64`/`leading_zeros_u64`/`sqrt`/etc. exposed via `lang/cmp/ord.logos` + `lang/math/math.logos`. |
 | `io/` | `std/io/` (read/write/buffered/bytes/fs/net/pipe/http/linux-uring) | ⚠️ partial | — | core::io is just `Read`/`Write` + `BorrowedBuf`; Logos's `std/io` is closer to `std::io` (sockets, fs, http, io_uring). `Read`/`Write` traits in `std/io/read|write` but no `BorrowedBuf`. |
-| `iter/` | `lang/iter/iter.logos` (1.9K LOC) | ⚠️ partial | 41 `iterators/test_harness_coretest_iter_*.logos` files + `iter_try_fold.logos` | Most adapters ported (map/filter/filter_map/scan/fuse/take/skip/take_while/skip_while/step_by/inspect/peekable/once/empty/repeat/cycle/chain/zip/enumerate/rev/from_fn/repeat_n). Short-circuit terminals `try_fold<Acc, BV, F: FnMut(Acc, Item) -> ControlFlow<BV, Acc>>` + `try_for_each<BV, F: FnMut(Item) -> ControlFlow<BV, ()>>` added 2026-05-18, both fn-ptr and closure form. `flatten`/`array_chunks`/`map_windows`/`intersperse`/`successors` absent (successors blocked on [[baghunt-mono-fn-ptr-field-typevar]]). `cloned`/`copied` intentionally omitted (Logos iters yield by value, not refs). `DoubleEndedIterator`/`ExactSizeIterator` present; `FusedIterator`/`TrustedLen` absent. |
+| `iter/` | `lang/iter/iter.logos` (1.9K LOC) | ⚠️ partial | 41 `iterators/test_harness_coretest_iter_*.logos` files + `iter_try_fold.logos` + `iter_once_with_repeat_with.logos` + `fused_iter_marker.logos` | Most adapters ported (map/filter/filter_map/scan/fuse/take/skip/take_while/skip_while/step_by/inspect/peekable/once/empty/repeat/cycle/chain/zip/enumerate/rev/from_fn/repeat_n/once_with/repeat_with). Short-circuit terminals `try_fold` + `try_for_each` (fn-ptr + closure form). `flatten`/`array_chunks`/`map_windows`/`intersperse`/`successors_with_seed` absent (successors with capturing closures still blocked on [[baghunt-mono-fn-ptr-field-typevar]]). `cloned`/`copied` intentionally omitted (Logos iters yield by value, not refs). `DoubleEndedIterator`/`ExactSizeIterator`/`FusedIterator` present (FusedIterator impls for RangeI32/RangeI64/RevRange/OnceIter/EmptyIter/FuseIter); `TrustedLen` absent. Supertrait-bound dispatch `<I: FusedIterator<...>>` then calling `Iterator::next` on I has wrong-shape lowering — separate baghunt; consumers should bound on `Iterator<...>` and `FusedIterator<...>` separately. |
 | `lib.miri.rs` / `lib.rs` | `stdlib/logos.module` | ➖ | — | Crate entry. |
 | `macros/` | `std/fmt/fmt.logos` (metacalls) + grammar macros | 🔁 | `macros/test_harness_coretest_assert_macros.logos` | `assert!`/`assert_eq!`/`assert_ne!`/`println!`/etc. implemented as metaprog handlers. `macro_rules!` (MC-mc-01) still Open. |
 | `marker.rs` | `lang/marker/marker.logos` | ⚠️ partial | — | `Sized` + `Never` exposed. `Send`/`Sync` referenced (e.g. `Arc`) but not declared. `Unpin`/`PhantomData`/`PhantomPinned`/`Destruct`/`Tuple` absent. |
@@ -188,7 +188,7 @@ Source roots:
 | `traits/exact_size.rs` | `ExactSizeIterator<Item>` | ✅ | — |
 | `traits/collect.rs` | `IntoIterator` + `FromIterator` | ✅ | — |
 | `traits/accum.rs` | `Sum` + `Product` | ✅ | — |
-| `traits/marker.rs` | — | ❌ TODO | `FusedIterator`/`TrustedLen`. |
+| `traits/marker.rs` | `lang/iter/iter.logos` | ⚠️ partial | `FusedIterator<Item>` marker trait landed 2026-05-18 + impls for `RangeI32`/`RangeI64`/`RevRangeI32`/`RevRangeI64`/`OnceIter`/`EmptyIter`/`FuseIter`. `TrustedLen` absent. |
 | `traits/unchecked_iterator.rs` | — | ➖ | Internal. |
 | `adapters/map.rs` | `MapIter` + `iter_map` | ✅ | — |
 | `adapters/filter.rs` | `FilterIter` + `iter_filter` | ✅ | — |
@@ -217,9 +217,9 @@ Source roots:
 | `sources/once.rs` | `OnceIter` + `iter_once` | ✅ | — |
 | `sources/empty.rs` | `EmptyIter` + `iter_empty` | ✅ | — |
 | `sources/repeat.rs` | `RepeatIter` + `iter_repeat` | ✅ | — |
-| `sources/once_with.rs` | — | ❌ TODO | — |
+| `sources/once_with.rs` | `lang/iter/iter.logos` | ✅ | `OnceWithIter<T, F>` + `iter_once_with<T, F: FnMut()->T>(f, zero)`. Carries `_t` anchor field (Logos has no PhantomData). |
 | `sources/repeat_n.rs` | — | ❌ TODO | — |
-| `sources/repeat_with.rs` | — | ❌ TODO | — |
+| `sources/repeat_with.rs` | `lang/iter/iter.logos` | ✅ | `RepeatWithIter<T, F>` + `iter_repeat_with<T, F: FnMut()->T>(f, zero)`. |
 | `sources/from_fn.rs` | — | ❌ TODO | — |
 | `sources/successors.rs` | — | ❌ TODO | — |
 | `sources/from_coroutine.rs` / `generator.rs` | — | 🔁 | No coroutines. |
@@ -279,13 +279,13 @@ Source roots:
 | `arith.rs` | `lang/ops/ops.logos` | ✅ | `Add`/`Sub`/`Mul`/`Div`/`Rem`/`Neg` + `AddAssign`/`SubAssign`/`MulAssign`/`DivAssign`/`RemAssign`. `x op= y` sema-dispatches to `x.op_assign(y)` for user-typed structs (mutating). |
 | `bit.rs` | `lang/ops/ops.logos` | ✅ | `BitAnd`/`BitOr`/`BitXor`/`Not`/`Shl`/`Shr` + `BitAndAssign`/`BitOrAssign`/`BitXorAssign`/`ShlAssign`/`ShrAssign`. |
 | `function.rs` | `lang/ops/ops.logos` | ⚠️ partial | `Fn`/`FnMut`/`FnOnce` with variadic-pack `<A...>` + assoc `Output`. Bound-only use in fn-generics; closure capture working through the Fn-family infrastructure landed earlier. |
-| `deref.rs` | `lang/ops/ops.logos` | ⚠️ partial | `Deref<Target>`/`DerefMut<Target>`. `*x` for user types dispatches to `.deref()` then re-derefs the resulting `&Target` (mirrors built-in Box auto-deref). DerefMut write-side dispatch deferred; method-autoderef-through-Deref-chain deferred. |
-| `index.rs` | `lang/ops/ops.logos` | ⚠️ partial | `Index<Idx,Output>`/`IndexMut<Idx,Output>`. `a[i]` for user-typed structs dispatches to `.index(i)` (any Idx type accepted — non-integer keys like `m["k"]` once str-keyed maps land). IndexMut write-side deferred. |
+| `deref.rs` | `lang/ops/ops.logos` | ⚠️ partial | `Deref<Target>`/`DerefMut<Target>`. `*x` read-side dispatches to `.deref()` then re-derefs the resulting `&Target`. `*x = v` write-side dispatches to `.deref_mut()` then writes through the returned `&mut Target` (added 2026-05-18). Method-autoderef-through-Deref-chain deferred. |
+| `index.rs` | `lang/ops/ops.logos` | ⚠️ partial | `Index<Idx,Output>`/`IndexMut<Idx,Output>`. `a[i]` read-side dispatches to `.index(i)`. `a[i] = v` write-side dispatches to `.index_mut(i)` then writes through (added 2026-05-18). |
 | `index_range.rs` | — | 🔁 | Internal `IndexRange`. |
 | `range.rs` | `lang/range/range.logos` (different shape) | 🔁 | Logos has typed `RangeI32`/`RangeI64`; no `Bound`/`RangeBounds`/`RangeInclusive`. |
 | `drop.rs` | `lang/drop/drop.logos` | ✅ | `Drop` trait. |
 | `try_trait.rs` | compiler-builtin `TRY_EXPR` desugar (B100) | 🔁 | `?` operator implemented in sema; no public `Try`/`FromResidual` traits to impl. From-coerce on heterogeneous-E supported. |
-| `control_flow.rs` | `lang/ops/ops.logos` | ⚠️ partial | `ControlFlow<B, C>` enum + `is_continue`/`is_break`. Used by `Iterator::try_fold` and `try_for_each` (added). Rust default-parameterises `C = ()`; Logos doesn't carry default generic args so the continue payload is always spelled explicitly. `?`-operator routing through ControlFlow (Rust's Try/FromResidual on it) deferred — `?` lowering is compiler-builtin (TRY_EXPR) and doesn't consult traits yet. |
+| `control_flow.rs` | `lang/ops/ops.logos` | ⚠️ partial | `ControlFlow<B, C>` enum + `is_continue`/`is_break`/`continue_value`/`break_value`/`map_continue`/`map_break`. Used by `Iterator::try_fold` and `try_for_each`. Rust default-parameterises `C = ()`; Logos doesn't carry default generic args so the continue payload is always spelled explicitly. `?`-operator routing through ControlFlow (Rust's Try/FromResidual on it) deferred — `?` lowering is compiler-builtin (TRY_EXPR) and doesn't consult traits yet. |
 | `unsize.rs` | compiler-builtin (Phase 1B) | 🔁 | `CoerceUnsized`/`DispatchFromDyn` are intrinsics; coercion works for `&[T;N]`→`&[T]`, `&T`→`&dyn Trait`. |
 | `async_function.rs` | — | 🔁 | No `async fn`. |
 | `coroutine.rs` | — | 🔁 | No coroutines. |

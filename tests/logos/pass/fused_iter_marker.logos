@@ -1,0 +1,25 @@
+// Tests FusedIterator marker — verifies trait declaration + impls
+// for ranges / OnceIter / EmptyIter / FuseIter compile and that
+// generic code can require the bound.
+//
+// NB: supertrait-bound dispatch (`<I: FusedIterator<i32>>` then
+// calling Iterator::next on I) doesn't dispatch correctly today —
+// mono lowers the call with the wrong return-type signature. Filed
+// as a follow-up. Until that lands, generic consumers should bound
+// on `Iterator<...>` directly and add the FusedIterator bound
+// separately when only the marker semantics matter.
+package test;
+
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.range;
+
+// Compile-time check: this fn requires its arg to impl FusedIterator.
+// If the marker impl is missing on RangeI32, the call site below
+// would fail trait-bound resolution.
+fn require_fused<I: FusedIterator<i32>>(_it: I) {}
+
+fn main() -> i32 {
+    require_fused::<RangeI32>(range_i32(0, 1));
+    return 42;
+}

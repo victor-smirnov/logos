@@ -11,6 +11,8 @@
 
 package logos.lang.ops;
 
+use logos.lang.option;
+
 // ── Arithmetic ────────────────────────────────────────────────────
 //
 // SL-sl-01: trait declarations. Primitive `+` etc. are handled by
@@ -221,6 +223,47 @@ impl<B, C> ControlFlow<B, C> {
         match self {
             ControlFlow::Continue(_) => { return false; }
             ControlFlow::Break(_)    => { return true; }
+        }
+    }
+
+    // Convert to Option<C> / Option<B>. Mirror of Rust's
+    // `continue_value`/`break_value`.
+    pub fn continue_value(self: Self) -> Option<C> {
+        match self {
+            ControlFlow::Continue(c) => { return Option::<C>::Some(c); }
+            ControlFlow::Break(_)    => { return Option::<C>::None; }
+        }
+    }
+    pub fn break_value(self: Self) -> Option<B> {
+        match self {
+            ControlFlow::Continue(_) => { return Option::<B>::None; }
+            ControlFlow::Break(b)    => { return Option::<B>::Some(b); }
+        }
+    }
+
+    // Map either side, leaving the other intact. Rust signature uses
+    // FnOnce; FnMut is the wider bound that Logos's iter terminals
+    // already exercise — matches the rest of this module's surface.
+    pub fn map_continue<C2, MapCFn: FnMut(C) -> C2>(self: Self, f: MapCFn) -> ControlFlow<B, C2> {
+        let mut g: MapCFn = f;
+        match self {
+            ControlFlow::Continue(c) => {
+                return ControlFlow::<B, C2>::Continue(g(c));
+            }
+            ControlFlow::Break(b)    => {
+                return ControlFlow::<B, C2>::Break(b);
+            }
+        }
+    }
+    pub fn map_break<B2, MapBFn: FnMut(B) -> B2>(self: Self, f: MapBFn) -> ControlFlow<B2, C> {
+        let mut g: MapBFn = f;
+        match self {
+            ControlFlow::Continue(c) => {
+                return ControlFlow::<B2, C>::Continue(c);
+            }
+            ControlFlow::Break(b)    => {
+                return ControlFlow::<B2, C>::Break(g(b));
+            }
         }
     }
 }

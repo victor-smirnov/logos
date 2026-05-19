@@ -1,0 +1,25 @@
+// Tests Borrow / BorrowMut identity blanket impls.
+package test;
+
+use logos.lang.convert;
+
+fn read_via_borrow<T: Borrow<i32>>(t: T) -> i32 {
+    let r: &i32 = t.borrow();
+    return *r;
+}
+
+fn bump_via_borrow_mut<T: BorrowMut<i32>>(t: &mut T) {
+    let r: &mut i32 = t.borrow_mut();
+    *r = *r + 1;
+}
+
+fn main() -> i32 {
+    let n: i32 = 7;
+    if read_via_borrow::<i32>(n) != 7 { return 1; }
+
+    let mut m: i32 = 41;
+    bump_via_borrow_mut::<i32>(&mut m);
+    if m != 42 { return 2; }
+
+    return 42;
+}

@@ -1,0 +1,73 @@
+// Tests ControlFlow extras: break_value / continue_value /
+// map_continue / map_break.
+package test;
+
+use logos.lang.ops;
+use logos.lang.option;
+
+fn main() -> i32 {
+    let c: ControlFlow<str, i32> = ControlFlow::<str, i32>::Continue(7i32);
+    let b: ControlFlow<str, i32> = ControlFlow::<str, i32>::Break("stop");
+
+    // continue_value: Some on Continue, None on Break.
+    let cv1: Option<i32> = c.continue_value();
+    match cv1 {
+        Option::Some(n) => { if n != 7i32 { return 1; } }
+        Option::None    => { return 2; }
+    }
+    let cv2: Option<i32> = b.continue_value();
+    match cv2 {
+        Option::Some(_) => { return 3; }
+        Option::None    => { }
+    }
+
+    // break_value: Some on Break, None on Continue.
+    let c2: ControlFlow<str, i32> = ControlFlow::<str, i32>::Continue(0i32);
+    let b2: ControlFlow<str, i32> = ControlFlow::<str, i32>::Break("x");
+    let bv1: Option<str> = c2.break_value();
+    match bv1 {
+        Option::Some(_) => { return 4; }
+        Option::None    => { }
+    }
+    let bv2: Option<str> = b2.break_value();
+    match bv2 {
+        Option::Some(m) => { if !str_eq(m, "x") { return 5; } }
+        Option::None    => { return 6; }
+    }
+
+    // map_continue: transforms Continue payload, leaves Break.
+    let c3: ControlFlow<i32, i32> = ControlFlow::<i32, i32>::Continue(10i32);
+    let r1: ControlFlow<i32, i32> = c3.map_continue(
+        |v: i32| -> i32 { return v * 3i32; });
+    match r1 {
+        ControlFlow::Continue(n) => { if n != 30i32 { return 7; } }
+        ControlFlow::Break(_)    => { return 8; }
+    }
+
+    let b3: ControlFlow<i32, i32> = ControlFlow::<i32, i32>::Break(99i32);
+    let r2: ControlFlow<i32, i32> = b3.map_continue(
+        |v: i32| -> i32 { return v * 3i32; });
+    match r2 {
+        ControlFlow::Continue(_) => { return 9; }
+        ControlFlow::Break(b)    => { if b != 99i32 { return 10; } }
+    }
+
+    // map_break: transforms Break payload, leaves Continue.
+    let c4: ControlFlow<i32, i32> = ControlFlow::<i32, i32>::Continue(5i32);
+    let r3: ControlFlow<i32, i32> = c4.map_break(
+        |b: i32| -> i32 { return b + 100i32; });
+    match r3 {
+        ControlFlow::Continue(c) => { if c != 5i32 { return 11; } }
+        ControlFlow::Break(_)    => { return 12; }
+    }
+
+    let b4: ControlFlow<i32, i32> = ControlFlow::<i32, i32>::Break(7i32);
+    let r4: ControlFlow<i32, i32> = b4.map_break(
+        |b: i32| -> i32 { return b + 100i32; });
+    match r4 {
+        ControlFlow::Continue(_) => { return 13; }
+        ControlFlow::Break(b)    => { if b != 107i32 { return 14; } }
+    }
+
+    return 42;
+}
