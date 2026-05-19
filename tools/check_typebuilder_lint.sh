@@ -15,7 +15,15 @@
 
 set -euo pipefail
 ROOT="${1:-$(dirname "$(realpath "$0")")/..}"
-LINT_BASELINE=8
+LINT_BASELINE=10
+# 10 — bumped 2026-05-19 for mono Phase 2: eager blanket loop builds
+# candidate TypeRefs up-front so the extra-bound check can route through
+# `mono_concrete_satisfies_bound` (deep) instead of
+# `mono_has_impl_recursive` (shallow). Two new inline LogosTypeBuilder
+# sites in `mono.cpp` mirror the existing build pattern at the bottom
+# of the candidate loop. Factor candidates: lift the existing
+# per-method build to the candidate level (single shared TypeRef per
+# candidate) — folded into Phase 2 worklist refactor.
 
 count=$(grep -rE "kind = LogosType::Kind::(Struct|Enum|ZonedStruct)\b" \
         "$ROOT/src/compiler/" 2>/dev/null \

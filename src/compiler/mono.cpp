@@ -348,14 +348,52 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         };
         for (auto& concrete_ref : candidates) {
             const std::string& concrete = concrete_ref;
+            // Phase 2: build the candidate TypeRef BEFORE the extra-bounds
+            // check so we can route through the deep
+            // `mono_concrete_satisfies_bound` instead of the shallow
+            // `mono_has_impl_recursive`. The deep helper unifies the
+            // bound's impl pattern against the candidate's type-args and
+            // recurses through the impl's own bounds. Eager blanket loop
+            // used to use shallow check; that allowed blanket impls to
+            // instantiate for concretes whose nested args didn't satisfy
+            // transitive bounds — see
+            // [[baghunt-mono-blanket-bound-recursion]] for the same fix
+            // applied in `method_bound_ok`.
+            TypeRef early_concrete_t = nullptr;
+            for (auto& sd : out_.structs)
+                if (sd.name == concrete) {
+                    LogosTypeBuilder st;
+                    st.kind = sd.is_zoned ? LogosType::Kind::ZonedStruct
+                                          : LogosType::Kind::Struct;
+                    st.struct_name = concrete;
+                    st.pkg_name    = sd.pkg;
+                    early_concrete_t = out_.type_pool.alloc(std::move(st));
+                    break;
+                }
+            if (!early_concrete_t) {
+                for (auto& ed : out_.enums)
+                    if (ed.name == concrete) {
+                        LogosTypeBuilder et;
+                        et.kind = LogosType::Kind::Enum;
+                        et.enum_name = concrete;
+                        et.pkg_name  = ed.pkg;
+                        early_concrete_t = out_.type_pool.alloc(std::move(et));
+                        break;
+                    }
+            }
             // Multi-bound blanket: `impl<T: A + B + …> Trait for T` — only
             // instantiate for `concrete` types that satisfy *every* extra
-            // bound, not just the primary one. concrete_impls_ was indexed
-            // earlier from non-blanket impls (TraitName::TargetType keys).
+            // bound, not just the primary one. Phase 2: use deep check
+            // when concrete_t is available (struct/enum); fall back to
+            // shallow for primitives where TypeRef construction needs
+            // more scaffolding.
             bool all_extra_satisfied = true;
             for (auto& eb : bi.extra_bounds) {
                 StrSet seen;
-                if (!mono_has_impl_recursive(eb, concrete, seen)) {
+                bool ok = early_concrete_t
+                    ? mono_concrete_satisfies_bound(eb, early_concrete_t, seen)
+                    : mono_has_impl_recursive(eb, concrete, seen);
+                if (!ok) {
                     all_extra_satisfied = false;
                     break;
                 }
