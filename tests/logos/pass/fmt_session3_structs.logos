@@ -24,12 +24,10 @@ fn check(got: String, want: str, code: i32) -> i32 {
 }
 
 fn main() -> i32 {
-    // (Option/Result/Vec FmtDebug deferred — generic-blanket impls
-    // mono-instantiate for every concrete T even when T doesn't
-    // satisfy the FmtDebug bound, triggering "Vec$G1$X__fmt_debug
-    // does not reference a valid function" cascade. Same baghunt as
-    // Borrow<T> for T. Manual per-type impls work but defeat the
-    // purpose. Filed as a follow-up.)
+
+    let mut v: Vec<i32> = vec_new::<i32>();
+    v.push(1); v.push(2); v.push(3);
+    let r = check(fmt_debug_to_string::<Vec<i32>>(&v), "[1, 2, 3]", 51); if r != 0 { return r; }
 
     // String Display + Debug.
     let mut s: String = String::new();

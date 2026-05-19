@@ -485,8 +485,41 @@ impl<A: FmtDebug, B: FmtDebug, C: FmtDebug, D: FmtDebug> FmtDebug for (A, B, C, 
 // legacy `Debug for Option<T>` etc. similarly live in `std.fmt` for
 // the same reason — Rust hand-rolls these in `core::fmt`.
 
+// Option<T> + Result<T,E> FmtDebug — DEFERRED. Adding either
+// triggers a generic-blanket cascade: lforge fails with
+// `Vec$G1$ExternalLib__fmt_debug does not reference a valid
+// function`. Root cause: when sema/mono checks the bound
+// `T: FmtDebug` for some Vec<ExternalLib>, the trait engine
+// looks up `satisfies("FmtDebug", "Vec")` (stripping type args)
+// and returns TRUE because `impl<T: FmtDebug> FmtDebug for Vec<T>`
+// is registered as a blanket — without recursing into the inner
+// `T: FmtDebug` requirement against the concrete arg
+// ExternalLib. So `Option<Vec<ExternalLib>>::fmt_debug` body
+// emits and calls `Vec<ExternalLib>::fmt_debug` — which mono
+// correctly DIDN'T emit (its own bound check on T=ExternalLib
+// failed). Dangling-reference cascade.
+//
+// Vec<T> impl alone is safe: no caller asks "does Vec<X>: FmtDebug"
+// through the leaky path.
+//
+// Real fix: trait_engine needs to track per-bound type-param
+// mapping so blanket lookup can recurse. Filed as
+// [[baghunt-mono-blanket-bound-recursion]].
 
-
+impl<T: FmtDebug> FmtDebug for Vec<T> {
+    fn fmt_debug(&self, f: &mut Formatter) -> Result<(), Error> {
+        let _ = f.write_str("[");
+        let n: i64 = self.length();
+        let mut i: i64 = 0i64;
+        while i < n {
+            if i > 0i64 { let _ = f.write_str(", "); }
+            let v: T = self.get(i);
+            let _ = v.fmt_debug(f);
+            i = i + 1i64;
+        }
+        return f.write_str("]");
+    }
+}
 
 // String — Display is content pass-through (with width/precision via
 // pad), Debug is quoted (minimal — full Rust escape ladder is a

@@ -76,11 +76,15 @@ through `Display::fmt` / `Debug::fmt`. `fmt_pad` /
 - [x] tuples `(A,)`, `(A,B)`, `(A,B,C)`, `(A,B,C,D)` — Debug
       (`&self` recv, recurse into each field's `fmt_debug`)
 
-### Session 3 — Stdlib structs + numeric format traits (2026-05-18, partial)
+### Session 3 — Stdlib structs + numeric format traits (2026-05-18)
 
-- [ ] `Option<T>` Debug — DEFERRED (generic-blanket cascade).
-- [ ] `Result<T, E>` Debug — DEFERRED.
-- [ ] `Vec<T>` Debug — DEFERRED.
+- [ ] `Option<T>` Debug — DEFERRED. Adding the impl on top of `Vec<T>`
+      triggers the trait_engine blanket-bound-recursion bug (see
+      Risk register below + [[baghunt-mono-blanket-bound-recursion]]).
+- [ ] `Result<T, E>` Debug — DEFERRED, same root cause.
+- [x] `Vec<T>` Debug — works in isolation. The cascade only fires
+      when an outer container (Option/Result) re-asks the bound
+      through the leaky path.
 - [x] `String` Display = pass-through `as_str()` through `pad`; Debug
       = `"<content>"` quoted (same minimal-escape caveat as str).
 - [x] `Ordering` Display + Debug. NB: `match *self`
