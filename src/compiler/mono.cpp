@@ -376,8 +376,16 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             for (auto& [trait, eqs] : bi.extra_assoc_eqs)
                 if (!assoc_eqs_ok(trait, concrete, eqs)) { extra_eqs_ok = false; break; }
             if (!extra_eqs_ok) continue;
-            // For each method of the blanket, clone template with T→concrete
-            // and emit under `concrete__method`.
+            // For each method of the blanket, enqueue an instantiation
+            // into the main worklist. Phase 2 step 3: previously this
+            // cloned inline (clone_fn + push_back + mirror_emit +
+            // scan_fn), running BEFORE the worklist drain and skipping
+            // depth/dedup invariants the drain enforces. Now both
+            // generic-fn instantiation and blanket-method
+            // instantiation share the same drain loop, the same
+            // done_ memo (cycle protection), and the same depth_
+            // counter; new bodies that the drain discovers are
+            // automatically enqueued.
             for (auto& tfn_up : in_.functions) {
                 auto& tfn = *tfn_up;
                 // Strip pkg prefix (`pkg.`) before matching the
@@ -391,10 +399,9 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 // produce matching final names.
                 std::string method = tn.substr(tmpl_prefix.size());
                 std::string concrete_pkg;
-                SubstMap subst;
-                // Phase 2: reuse the candidate_t built once above via
-                // `build_concrete_typeref`. Recover pkg from the struct/
-                // enum entry for the dest qualifier; primitives have no pkg.
+                // Reuse candidate_t built once at the candidate loop
+                // top. Recover pkg from the struct/enum entry for the
+                // dest qualifier; primitives have no pkg.
                 TypeRef concrete_t = candidate_t;
                 for (auto& sd : out_.structs)
                     if (sd.name == concrete) { concrete_pkg = sd.pkg; break; }
@@ -407,26 +414,14 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                                        ? bare_dest
                                        : concrete_pkg + "." + bare_dest;
                 if (done_.count(dest)) continue;
+                SubstMap subst;
                 subst[bi.target_typevar] = concrete_t;
-                // Binary-symbol fast path (same logic as the non-generic
-                // free-fn loop below): if the linker already provides
-                // `dest`'s body, skip the deep clone + scan.
-                if (!in_.binary_symbols.empty() &&
-                    in_.binary_symbols.count(dest)) {
-                    auto stub = clone_fn_signature(tfn, subst);
-                    stub.name = dest;
-                    stub.type_params.clear();
-                    out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(stub)));
-                    done_.insert(dest);
-                    continue;
-                }
-                auto cloned = clone_fn(tfn, subst);
-                cloned.name = dest;
-                cloned.type_params.clear();
-                out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(cloned)));
-                auto& fn_ref = *out_.functions.back();
-                lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
-                scan_fn(fn_ref);
+                WorkItem wi;
+                wi.mangled = dest;
+                wi.tmpl    = &tfn;
+                wi.subst   = std::move(subst);
+                wi.depth   = 0;
+                worklist_.push_back(std::move(wi));
                 done_.insert(dest);
             }
         }
