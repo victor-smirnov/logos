@@ -15,7 +15,10 @@
 //   s.push_str("world");
 //   write(1, s.as_ptr(), s.len());
 //
-// Also defines the Display + ToString traits with primitive impls.
+// Also defines the ToString trait with primitive impls. The Display
+// trait (Rust-shape `fn fmt(&self, &mut Formatter) -> Result<(), Error>`)
+// lives in `mem.fmt` (named `FmtDisplay` pending the cross-pkg trait
+// registry collision fix), with format-macro plumbing in `std.fmt`.
 // Read-only `str` helpers (str_eq, str_trim, etc.) live in lang-tier
 // [logos.lang.str](../../lang/str/str.logos).
 
@@ -179,7 +182,8 @@ impl String {
     }
 
     // Ensure `reserve` spare bytes, return pointer to first spare byte.
-    // Used by Display impls to write directly into the buffer.
+    // Used by FmtDisplay impls and Formatter helpers to write
+    // directly into the buffer.
     pub fn spare_ptr(&mut self, reserve: i64) -> *mut u8 {
         self.grow(reserve);
         unsafe {
@@ -256,187 +260,142 @@ impl Drop for String {
     }
 }
 
-// ── Display trait ──────────────────────────────────────────────────────────
+// ── ToString + float bridge ───────────────────────────────────────────────
 
-// Display: convert a value to its human-readable string representation.
-// Implement for types that can be formatted as text.
-//
-// Usage:
-//   let mut s: String = String::new();
-//   42.fmt(&mut s);                 // writes "42"
-//   let s: String = to_string(42); // shorthand
-
-trait Display {
-    fn fmt(self: Self, buf: &mut String);
-}
-
-impl Display for i32 {
-    fn fmt(self: i32, buf: &mut String) {
-        let ptr: *mut u8 = buf.spare_ptr(12);
-        let n: i64 = write_i32(ptr, 0, self);
-        buf.advance_len(n);
-    }
-}
-
-impl Display for i64 {
-    fn fmt(self: i64, buf: &mut String) {
-        let ptr: *mut u8 = buf.spare_ptr(22);
-        let n: i64 = write_i64(ptr, 0, self);
-        buf.advance_len(n);
-    }
-}
-
-impl Display for bool {
-    fn fmt(self: bool, buf: &mut String) {
-        if self {
-            buf.push_str("true");
-        } else {
-            buf.push_str("false");
-        }
-    }
-}
-
-impl Display for u64 {
-    fn fmt(self: u64, buf: &mut String) {
-        buf.push_u64(self);
-    }
-}
-
-impl Display for u32 {
-    fn fmt(self: u32, buf: &mut String) {
-        buf.push_u64(self as u64);
-    }
-}
-
-impl Display for u16 {
-    fn fmt(self: u16, buf: &mut String) {
-        buf.push_u64(self as u64);
-    }
-}
-
-impl Display for u8 {
-    fn fmt(self: u8, buf: &mut String) {
-        buf.push_u64(self as u64);
-    }
-}
-
-impl Display for i16 {
-    fn fmt(self: i16, buf: &mut String) {
-        let ptr: *mut u8 = buf.spare_ptr(8);
-        let n: i64 = write_i32(ptr, 0, self as i32);
-        buf.advance_len(n);
-    }
-}
-
-impl Display for i8 {
-    fn fmt(self: i8, buf: &mut String) {
-        let ptr: *mut u8 = buf.spare_ptr(6);
-        let n: i64 = write_i32(ptr, 0, self as i32);
-        buf.advance_len(n);
-    }
-}
-
-impl Display for usize {
-    fn fmt(self: usize, buf: &mut String) {
-        buf.push_u64(self as u64);
-    }
-}
-
-impl Display for isize {
-    fn fmt(self: isize, buf: &mut String) {
-        let ptr: *mut u8 = buf.spare_ptr(22);
-        let n: i64 = write_i64(ptr, 0, self as i64);
-        buf.advance_len(n);
-    }
-}
-
-// Display for null-terminated C strings.
-impl Display for *const u8 {
-    fn fmt(self: *const u8, buf: &mut String) {
-        let n: i64 = str_len(self);
-        buf.push_bytes(self, n);
-    }
-}
-
-// Display for str slices.
-impl Display for str {
-    fn fmt(self: str, buf: &mut String) {
-        buf.push_str(self);
-    }
-}
-
-// ── Float Display ─────────────────────────────────────────────────────────
-//
-// Float-to-decimal correctness is a pile of code (Ryu / Grisu); we
-// forward to libc's snprintf via fmt_native.c — same dependency
-// surface as malloc/free/memcpy that the rest of stdlib already
-// extern's. snprintf's "%g" gives the shortest round-trippable
-// representation, which matches Rust's f64 / f32 default Display.
+// Float-to-decimal extern bridge (used by FmtDisplay for f32/f64 in
+// mem.fmt and by `f64`/`f32` ToString impls below). Forwards to
+// libc's snprintf via fmt_native.c — same dependency surface as
+// malloc/free/memcpy that the rest of stdlib already extern's.
+// "%g" gives the shortest round-trippable representation, which
+// matches Rust's f64 / f32 default Display.
 extern fn logos_fmt_f64_g(buf: *mut u8, cap: i32, x: f64) -> i32;
 extern fn logos_fmt_f32_g(buf: *mut u8, cap: i32, x: f32) -> i32;
 
-impl Display for f64 {
-    fn fmt(self: f64, buf: &mut String) {
-        let cap: i32 = 32i32;
-        let ptr: *mut u8 = buf.spare_ptr(cap as i64);
-        let n: i32 = unsafe { logos_fmt_f64_g(ptr, cap, self) };
-        buf.advance_len(n as i64);
-    }
-}
-
-impl Display for f32 {
-    fn fmt(self: f32, buf: &mut String) {
-        let cap: i32 = 32i32;
-        let ptr: *mut u8 = buf.spare_ptr(cap as i64);
-        let n: i32 = unsafe { logos_fmt_f32_g(ptr, cap, self) };
-        buf.advance_len(n as i64);
-    }
-}
-
 // ── ToString ──────────────────────────────────────────────────────────────
-
-// Convert any Display value to an owned String.
-pub fn to_string<T: Display>(val: T) -> String {
-    let mut s: String = String::new();
-    val.fmt(&mut s);
-    return s;
-}
-
-// SL-sl-07: Rust-style `.to_string()` method form.
 //
-// Rust's `ToString` is auto-implemented for every `T: Display` via a
-// blanket impl. We mirror that here for STRUCT receivers (the blanket
-// dispatches via Logos's per-trait blanket lookup). Primitive method
-// dispatch doesn't try blanket impls, so we also enumerate explicit
-// `impl ToString for <prim>` per built-in type below.
+// Rust-style `.to_string()` method form. Rust auto-implements
+// `ToString` for every `T: Display` via a blanket impl in alloc; we
+// declare the trait here in mem.string (so callers can invoke
+// `.to_string()` without pulling `mem.fmt`) and provide direct
+// per-primitive impls below. The auto-deriving blanket
+// `impl<T: FmtDisplay> ToString for T` lives in `mem.fmt` (FmtDisplay
+// is defined there; mem.string sits below mem.fmt in the import order).
 //
-// Method shape uses `self: Self` (by value) instead of Rust's `&self`
-// because Display.fmt's existing shape is by-value — switching to
-// `&self` would force every Display impl to handle both. Primitives
-// are Copy so the by-value shape is fine.
+// Method shape uses `self: Self` (by value) — primitives are Copy, so
+// the move semantics don't bite; user types that want `&self` can
+// implement ToString directly.
 pub trait ToString {
     fn to_string(self: Self) -> String;
 }
-impl<T: Display> ToString for T {
-    fn to_string(self: T) -> String {
+
+// Explicit primitive impls — Logos's primitive method dispatch looks
+// up `<type>__to_string` directly and doesn't try blanket impls.
+// Bodies write through String's push_i64 / push_u64 / push_str / push_bytes
+// helpers — no dependency on a Display trait.
+impl ToString for bool {
+    fn to_string(self: bool) -> String {
         let mut s: String = String::new();
-        self.fmt(&mut s);
+        if self { s.push_str("true"); } else { s.push_str("false"); }
         return s;
     }
 }
-// Explicit primitive impls (Logos's primitive method dispatch path
-// looks up `<type>__to_string` directly and doesn't try blanket impls).
-impl ToString for bool { fn to_string(self: bool) -> String { let mut s: String = String::new(); self.fmt(&mut s); return s; } }
-impl ToString for i8   { fn to_string(self: i8)   -> String { let mut s: String = String::new(); self.fmt(&mut s); return s; } }
-impl ToString for i16  { fn to_string(self: i16)  -> String { let mut s: String = String::new(); self.fmt(&mut s); return s; } }
-impl ToString for i32  { fn to_string(self: i32)  -> String { let mut s: String = String::new(); self.fmt(&mut s); return s; } }
-impl ToString for i64  { fn to_string(self: i64)  -> String { let mut s: String = String::new(); self.fmt(&mut s); return s; } }
-impl ToString for u8   { fn to_string(self: u8)   -> String { let mut s: String = String::new(); self.fmt(&mut s); return s; } }
-impl ToString for u16  { fn to_string(self: u16)  -> String { let mut s: String = String::new(); self.fmt(&mut s); return s; } }
-impl ToString for u32  { fn to_string(self: u32)  -> String { let mut s: String = String::new(); self.fmt(&mut s); return s; } }
-impl ToString for u64  { fn to_string(self: u64)  -> String { let mut s: String = String::new(); self.fmt(&mut s); return s; } }
-impl ToString for usize { fn to_string(self: usize) -> String { let mut s: String = String::new(); self.fmt(&mut s); return s; } }
-impl ToString for isize { fn to_string(self: isize) -> String { let mut s: String = String::new(); self.fmt(&mut s); return s; } }
+impl ToString for i8 {
+    fn to_string(self: i8) -> String {
+        let mut s: String = String::new();
+        s.push_i64(self as i64);
+        return s;
+    }
+}
+impl ToString for i16 {
+    fn to_string(self: i16) -> String {
+        let mut s: String = String::new();
+        s.push_i64(self as i64);
+        return s;
+    }
+}
+impl ToString for i32 {
+    fn to_string(self: i32) -> String {
+        let mut s: String = String::new();
+        s.push_i64(self as i64);
+        return s;
+    }
+}
+impl ToString for i64 {
+    fn to_string(self: i64) -> String {
+        let mut s: String = String::new();
+        s.push_i64(self);
+        return s;
+    }
+}
+impl ToString for u8 {
+    fn to_string(self: u8) -> String {
+        let mut s: String = String::new();
+        s.push_u64(self as u64);
+        return s;
+    }
+}
+impl ToString for u16 {
+    fn to_string(self: u16) -> String {
+        let mut s: String = String::new();
+        s.push_u64(self as u64);
+        return s;
+    }
+}
+impl ToString for u32 {
+    fn to_string(self: u32) -> String {
+        let mut s: String = String::new();
+        s.push_u64(self as u64);
+        return s;
+    }
+}
+impl ToString for u64 {
+    fn to_string(self: u64) -> String {
+        let mut s: String = String::new();
+        s.push_u64(self);
+        return s;
+    }
+}
+impl ToString for usize {
+    fn to_string(self: usize) -> String {
+        let mut s: String = String::new();
+        s.push_u64(self as u64);
+        return s;
+    }
+}
+impl ToString for isize {
+    fn to_string(self: isize) -> String {
+        let mut s: String = String::new();
+        s.push_i64(self as i64);
+        return s;
+    }
+}
+impl ToString for f32 {
+    fn to_string(self: f32) -> String {
+        let mut s: String = String::new();
+        let cap: i32 = 32i32;
+        let ptr: *mut u8 = s.spare_ptr(cap as i64);
+        let n: i32 = unsafe { logos_fmt_f32_g(ptr, cap, self) };
+        s.advance_len(n as i64);
+        return s;
+    }
+}
+impl ToString for f64 {
+    fn to_string(self: f64) -> String {
+        let mut s: String = String::new();
+        let cap: i32 = 32i32;
+        let ptr: *mut u8 = s.spare_ptr(cap as i64);
+        let n: i32 = unsafe { logos_fmt_f64_g(ptr, cap, self) };
+        s.advance_len(n as i64);
+        return s;
+    }
+}
+impl ToString for str {
+    fn to_string(self: str) -> String {
+        let mut s: String = String::new();
+        s.push_str(self);
+        return s;
+    }
+}
 
 // ── UTF-8 helpers on String ────────────────────────────────────────────────
 

@@ -110,6 +110,29 @@ pub fn formatter_for(buf: &mut String) -> Formatter {
 }
 
 impl Formatter {
+    // Static constructor — used by the format! / println! / etc.
+    // metacall lowering so the synthesized block doesn't need a
+    // package-level `use logos.mem.fmt;`. Struct symbols are visible
+    // globally even without the use, while free-fn names are not.
+    pub static fn new(buf: &mut String) -> Formatter {
+        return formatter_for(buf);
+    }
+
+    // Reset spec fields to no-format defaults (matches a placeholder
+    // with no spec). Emitted by sema-resident before each placeholder
+    // so the per-placeholder field writes start from a clean state.
+    pub fn reset_spec(&mut self) {
+        self.fill       = 32u8;     // ' '
+        self.align_code = 0u8;
+        self.sign_plus  = false;
+        self.alternate  = false;
+        self.zero_pad   = false;
+        self.width      = -1i64;
+        self.precision  = -1i64;
+    }
+}
+
+impl Formatter {
     pub fn write_str(&mut self, s: str) -> Result<(), Error> {
         unsafe { (*self.buf).push_str(s); }
         return ok();
@@ -716,5 +739,20 @@ impl FmtDebug for Ordering {
             Ordering::Equal   => { return f.write_str("Equal"); }
             Ordering::Greater => { return f.write_str("Greater"); }
         }
+    }
+}
+
+// ── Auto-deriving ToString blanket ──────────────────────────────────
+//
+// Rust's `alloc::string::ToString` has a blanket `impl<T: Display> ToString
+// for T`. The Logos analogue lives here (rather than in mem.string)
+// because FmtDisplay is declared in mem.fmt and mem.string sits below
+// it in the import order. Users with `use logos.mem.fmt;` automatically
+// get `.to_string()` on any FmtDisplay-implementing type. Primitive
+// to_string impls live directly in mem.string and don't go through
+// this blanket.
+impl<T: FmtDisplay> ToString for T {
+    fn to_string(self: T) -> String {
+        return fmt_display_to_string::<T>(&self);
     }
 }

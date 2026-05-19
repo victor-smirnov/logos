@@ -1,13 +1,19 @@
 // Logos standard library — std.fmt
 //
-// format() — build a String from a pattern with {} placeholders.
-// Uses the Display trait from std.string for type-to-string conversion.
+// Macro shells (`format!`, `print!`, `println!`, `eprint!`, `eprintln!`,
+// `panic!`, `assert!`, `assert_eq!`, `assert_ne!`) and the runtime
+// `format_args_str` fallback. Per-trait free-fn dispatchers
+// (`fmt_display`/`fmt_debug`/`fmt_lower_hex`/etc.) bridge sema's
+// metacall lowering to the `mem.fmt` traits over `Formatter`.
+//
+// The actual `Display`/`Debug`/`LowerHex`/... traits + impls live in
+// `mem.fmt`; this module exists only to plumb the macros + provide
+// shells callable as `format!(...)` from user code.
 //
 // Usage:
 //   use std.fmt;
-//   let s: String = format::<i32, bool>("n={}, ok={}", 42, true);
-//   println(s);
-//   // s freed automatically by Drop
+//   let s: String = format!("n={}, ok={}", 42, true);
+//   println!(s);
 
 package std.fmt;
 
@@ -18,545 +24,213 @@ use logos.lang.cmp;
 use logos.lang.option;
 use logos.lang.result;
 use logos.mem.collections.vec;
+pub use logos.mem.fmt;
 use std.compiler.metaprog;
-use logos.mem.collections.vec;
 use std.io;
 
-// ── Debug trait ───────────────────────────────────────────────────────────
+// ── Legacy Debug trait (Session-4-followup deletion) ─────────────────────
 //
-// `Debug` mirrors `Display` (same `fn fmt(self, &mut String)` shape) but
-// is a separate trait so that derive-Debug-style metaprograms can target
-// it without colliding with user-written Display impls. Method renamed
-// to `dbg` to avoid two-trait `x.fmt(buf)` ambiguity.
+// Pre-Session-4 shape: `trait Debug { fn dbg(self: Self, buf: &mut String); }`
+// Still consumed by:
+//   - `tests/logos/pass/derive_debug_e2e.logos` and friends — derive
+//     metaprog still emits `.dbg(buf)` impls. Migrate to FmtDebug shape
+//     and the trait below can be deleted alongside.
+//   - `examples/logos_showcase.logos`, `examples/hermes_showcase.logos`.
+//
+// Bodies dispatch to mem.fmt's FmtDebug via `fmt_debug_to_string` so
+// the same content shows up regardless of which trait the caller
+// reaches first. New code should target FmtDebug directly.
 
-trait Debug {
+pub trait Debug {
     fn dbg(self: Self, buf: &mut String);
 }
 
-impl Debug for i32 { fn dbg(self: i32, buf: &mut String) { self.fmt(buf); } }
-impl Debug for i64 { fn dbg(self: i64, buf: &mut String) { self.fmt(buf); } }
-impl Debug for u64 { fn dbg(self: u64, buf: &mut String) { self.fmt(buf); } }
-impl Debug for u32 { fn dbg(self: u32, buf: &mut String) { self.fmt(buf); } }
-impl Debug for u16 { fn dbg(self: u16, buf: &mut String) { self.fmt(buf); } }
-impl Debug for u8 { fn dbg(self: u8, buf: &mut String) { self.fmt(buf); } }
-impl Debug for i16 { fn dbg(self: i16, buf: &mut String) { self.fmt(buf); } }
-impl Debug for i8 { fn dbg(self: i8, buf: &mut String) { self.fmt(buf); } }
-impl Debug for usize { fn dbg(self: usize, buf: &mut String) { self.fmt(buf); } }
-impl Debug for isize { fn dbg(self: isize, buf: &mut String) { self.fmt(buf); } }
-impl Debug for bool { fn dbg(self: bool, buf: &mut String) { self.fmt(buf); } }
-
-// SL-sl-08 follow-up: Display for tuples is not a Rust thing (tuples
-// only have Debug there), but Logos's variadic `format_args_str` bound
-// is `T...: Display + Debug` — same args may flow through `{}` or
-// `{:?}` slots in one format string. Provide Display = Debug rendering
-// so tuples work in either slot.
-impl<A: Debug> Display for (A,) {
-    fn fmt(self: (A,), buf: &mut String) {
-        buf.push_str("(");
-        self.0.dbg(buf);
-        buf.push_str(",)");
+impl Debug for i8 {
+    fn dbg(self: i8, buf: &mut String) {
+        let s: String = fmt_debug_to_string::<i8>(&self);
+        buf.push_str(s.as_str());
     }
 }
-impl<A: Debug, B: Debug> Display for (A, B) {
-    fn fmt(self: (A, B), buf: &mut String) {
-        buf.push_str("(");
-        self.0.dbg(buf);
-        buf.push_str(", ");
-        self.1.dbg(buf);
-        buf.push_str(")");
+impl Debug for i16 {
+    fn dbg(self: i16, buf: &mut String) {
+        let s: String = fmt_debug_to_string::<i16>(&self);
+        buf.push_str(s.as_str());
     }
 }
-impl<A: Debug, B: Debug, C: Debug> Display for (A, B, C) {
-    fn fmt(self: (A, B, C), buf: &mut String) {
-        buf.push_str("(");
-        self.0.dbg(buf);
-        buf.push_str(", ");
-        self.1.dbg(buf);
-        buf.push_str(", ");
-        self.2.dbg(buf);
-        buf.push_str(")");
+impl Debug for i32 {
+    fn dbg(self: i32, buf: &mut String) {
+        let s: String = fmt_debug_to_string::<i32>(&self);
+        buf.push_str(s.as_str());
     }
 }
-impl<A: Debug, B: Debug, C: Debug, D: Debug> Display for (A, B, C, D) {
-    fn fmt(self: (A, B, C, D), buf: &mut String) {
-        buf.push_str("(");
-        self.0.dbg(buf);
-        buf.push_str(", ");
-        self.1.dbg(buf);
-        buf.push_str(", ");
-        self.2.dbg(buf);
-        buf.push_str(", ");
-        self.3.dbg(buf);
-        buf.push_str(")");
+impl Debug for i64 {
+    fn dbg(self: i64, buf: &mut String) {
+        let s: String = fmt_debug_to_string::<i64>(&self);
+        buf.push_str(s.as_str());
     }
 }
-
-// SL-sl-08 follow-up: Debug for tuples — Rust ships impls for arities
-// 1..=12; common arities cover practical use, more on demand. The
-// `$tuple$N` blanket mangling registers under any (A,B,…) shape; the
-// per-field `dbg` dispatch picks up the element types' own Debug impls.
-impl<A: Debug> Debug for (A,) {
-    fn dbg(self: (A,), buf: &mut String) {
-        buf.push_str("(");
-        self.0.dbg(buf);
-        buf.push_str(",)");
+impl Debug for u8 {
+    fn dbg(self: u8, buf: &mut String) {
+        let s: String = fmt_debug_to_string::<u8>(&self);
+        buf.push_str(s.as_str());
     }
 }
-impl<A: Debug, B: Debug> Debug for (A, B) {
-    fn dbg(self: (A, B), buf: &mut String) {
-        buf.push_str("(");
-        self.0.dbg(buf);
-        buf.push_str(", ");
-        self.1.dbg(buf);
-        buf.push_str(")");
+impl Debug for u16 {
+    fn dbg(self: u16, buf: &mut String) {
+        let s: String = fmt_debug_to_string::<u16>(&self);
+        buf.push_str(s.as_str());
     }
 }
-impl<A: Debug, B: Debug, C: Debug> Debug for (A, B, C) {
-    fn dbg(self: (A, B, C), buf: &mut String) {
-        buf.push_str("(");
-        self.0.dbg(buf);
-        buf.push_str(", ");
-        self.1.dbg(buf);
-        buf.push_str(", ");
-        self.2.dbg(buf);
-        buf.push_str(")");
+impl Debug for u32 {
+    fn dbg(self: u32, buf: &mut String) {
+        let s: String = fmt_debug_to_string::<u32>(&self);
+        buf.push_str(s.as_str());
     }
 }
-impl<A: Debug, B: Debug, C: Debug, D: Debug> Debug for (A, B, C, D) {
-    fn dbg(self: (A, B, C, D), buf: &mut String) {
-        buf.push_str("(");
-        self.0.dbg(buf);
-        buf.push_str(", ");
-        self.1.dbg(buf);
-        buf.push_str(", ");
-        self.2.dbg(buf);
-        buf.push_str(", ");
-        self.3.dbg(buf);
-        buf.push_str(")");
+impl Debug for u64 {
+    fn dbg(self: u64, buf: &mut String) {
+        let s: String = fmt_debug_to_string::<u64>(&self);
+        buf.push_str(s.as_str());
+    }
+}
+impl Debug for usize {
+    fn dbg(self: usize, buf: &mut String) {
+        let s: String = fmt_debug_to_string::<usize>(&self);
+        buf.push_str(s.as_str());
+    }
+}
+impl Debug for isize {
+    fn dbg(self: isize, buf: &mut String) {
+        let s: String = fmt_debug_to_string::<isize>(&self);
+        buf.push_str(s.as_str());
+    }
+}
+impl Debug for bool {
+    fn dbg(self: bool, buf: &mut String) {
+        let s: String = fmt_debug_to_string::<bool>(&self);
+        buf.push_str(s.as_str());
     }
 }
 
+// ── Per-trait dispatch helpers (sema-resident lowering hook) ──────────────
+//
+// Sema's `lower_method_call` short-circuits dot-method dispatch on slice
+// and str receivers (returns "slice has no method '<name>'"). Generic-
+// context dispatch through a trait bound still works, so the metacall
+// lowering routes every placeholder through one of these thin wrappers
+// instead of emitting `(arg).fmt_display(&mut __f)` directly.
+//
+// Each helper takes the arg by value (matching the metacall call-site
+// shape); the trait methods then take `&self`, so the wrapper bridges
+// by borrowing internally. For slice/str/primitive types this is a
+// fat-ptr or scalar copy; for owned types it consumes — same semantics
+// as the legacy variadic `format_args_str` had.
 
-// Float Debug — full-precision round-trippable text via libc snprintf
-// "%.17g" (f64) / "%.9g" (f32). Differs from Display ("%g") which
-// drops trailing precision for compactness.
-extern fn logos_fmt_f64_dbg(buf: *mut u8, cap: i32, x: f64) -> i32;
-extern fn logos_fmt_f32_dbg(buf: *mut u8, cap: i32, x: f32) -> i32;
-
-impl Debug for f64 {
-    fn dbg(self: f64, buf: &mut String) {
-        let cap: i32 = 32i32;
-        let ptr: *mut u8 = buf.spare_ptr(cap as i64);
-        let n: i32 = unsafe { logos_fmt_f64_dbg(ptr, cap, self) };
-        buf.advance_len(n as i64);
-    }
+pub fn fmt_display<T: FmtDisplay>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
+    return arg.fmt_display(f);
+}
+pub fn fmt_debug<T: FmtDebug>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
+    return arg.fmt_debug(f);
+}
+pub fn fmt_lower_hex<T: FmtLowerHex>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
+    return arg._fmt_lower_hex(f);
+}
+pub fn fmt_upper_hex<T: FmtUpperHex>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
+    return arg._fmt_upper_hex(f);
+}
+pub fn fmt_octal<T: FmtOctal>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
+    return arg._fmt_octal(f);
+}
+pub fn fmt_binary<T: FmtBinary>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
+    return arg._fmt_binary(f);
+}
+pub fn fmt_lower_exp<T: FmtLowerExp>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
+    return arg._fmt_lower_exp(f);
+}
+pub fn fmt_upper_exp<T: FmtUpperExp>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
+    return arg._fmt_upper_exp(f);
 }
 
-impl Debug for f32 {
-    fn dbg(self: f32, buf: &mut String) {
-        let cap: i32 = 32i32;
-        let ptr: *mut u8 = buf.spare_ptr(cap as i64);
-        let n: i32 = unsafe { logos_fmt_f32_dbg(ptr, cap, self) };
-        buf.advance_len(n as i64);
-    }
+// ── Runtime format-args fallback (dynamic-pattern path) ───────────────────
+//
+// For compile-time format strings the sema-resident metacall lowering
+// rewrites directly to a Formatter pipeline (see sema_expr.cpp's
+// format-family handler), so this code path only fires for the
+// dynamic-pattern shape `format!(s, args)` where `s` is not a string
+// literal. Limited to `{}` / `{:?}` placeholders — full spec parsing
+// at runtime would duplicate the sema-time parser; not worth the
+// complexity until a real use-case surfaces.
+
+unsafe fn fmt_into(pat: str, fi: i64, flen: i64, f: &mut Formatter) {
+    let mut i: i64 = fi;
+    while i < flen { unsafe { (*f.buf).push_u8(pat[i]); } i = i + 1; }
 }
 
-// Ordering — Display and Debug impls so it can appear in format! /
-// assert_eq! mismatch messages. Matches Rust's derive(Debug) for the
-// canonical enum: "Less" / "Equal" / "Greater". Display prints the
-// same name (no separate Display impl in Rust core, but we provide one
-// so `{}` works too).
-impl Display for Ordering {
-    fn fmt(self: Ordering, buf: &mut String) {
-        match self {
-            Ordering::Less    => { buf.push_str("Less"); }
-            Ordering::Equal   => { buf.push_str("Equal"); }
-            Ordering::Greater => { buf.push_str("Greater"); }
-        }
-    }
-}
-impl Debug for Ordering {
-    fn dbg(self: Ordering, buf: &mut String) { self.fmt(buf); }
-}
-
-// Debug for str wraps the content in double quotes (Rust-style). Direct
-// dot-call `"x".dbg(buf)` still trips sema_expr.cpp's slice/str method
-// short-circuit — but trait-bound dispatch from a generic context (the
-// `T...: Debug` bound on `format_args_str`) goes through trait_bound_resolution
-// and works.
-impl Debug for str {
-    fn dbg(self: str, buf: &mut String) {
-        buf.push_u8(34u8);     // "
-        buf.push_str(self);
-        buf.push_u8(34u8);     // "
-    }
-}
-
-// Debug for Option<T> / Result<T, E>. Rust ships these in
-// core::option/result; in Logos they live here because Debug itself is
-// in std.fmt and lang-tier can't pull std (tier rule). Gated by
-// CP-cm-15 fix: mono now skips cloning these impls for T's that don't
-// implement Debug (e.g. Option<&mut i32>).
-impl<T: Debug> Debug for Option<T> {
-    fn dbg(self: Option<T>, buf: &mut String) {
-        match self {
-            Option::Some(v) => {
-                buf.push_str("Some(");
-                v.dbg(buf);
-                buf.push_str(")");
-            }
-            Option::None => {
-                buf.push_str("None");
-            }
-        }
-    }
-}
-
-impl<T: Debug, E: Debug> Debug for Result<T, E> {
-    fn dbg(self: Result<T, E>, buf: &mut String) {
-        match self {
-            Result::Ok(v) => {
-                buf.push_str("Ok(");
-                v.dbg(buf);
-                buf.push_str(")");
-            }
-            Result::Err(e) => {
-                buf.push_str("Err(");
-                e.dbg(buf);
-                buf.push_str(")");
-            }
-        }
-    }
-}
-
-// Rust's `impl<T: Debug> Debug for Vec<T>` in alloc. Lives in std.fmt
-// rather than mem.collections.vec because Debug itself is in std.fmt
-// and mem-tier can't pull std (tier rule). Render: "[a, b, c]".
-impl<T: Debug> Debug for Vec<T> {
-    fn dbg(self: &Vec<T>, buf: &mut String) {
-        buf.push_str("[");
-        let n: i64 = self.length();
-        let mut i: i64 = 0i64;
-        while i < n {
-            if i > 0i64 { buf.push_str(", "); }
-            let v: T = self.get(i);
-            v.dbg(buf);
-            i = i + 1i64;
-        }
-        buf.push_str("]");
-    }
-}
-
-// ── Format engine (variadic) ──────────────────────────────────────────────
-
-// Base case: no more args — copy remaining format string into buf.
-unsafe fn fmt_into(fmt: str, fi: i64, flen: i64, buf: &mut String) {
+unsafe fn fmt_into<H: FmtDisplay + FmtDebug, T...>(pat: str, fi: i64, flen: i64,
+                                                   f: &mut Formatter,
+                                                   first: H, rest: T...) {
     let mut i: i64 = fi;
     while i < flen {
-        buf.push_u8(fmt[i]);
-        i = i + 1;
-    }
-}
-
-// Recursive case: find next `{}` or `{:?}`, format one arg via
-// Display or Debug accordingly, recurse on rest. `{{` and `}}`
-// escape one literal brace each.
-unsafe fn fmt_into<H: Display + Debug, T...>(fmt: str, fi: i64, flen: i64,
-                                              buf: &mut String,
-                                              first: H, rest: T...) {
-    let mut i: i64 = fi;
-    while i < flen {
-        let c: i32 = fmt[i] as i32;
-        // Escaped `{{` / `}}` — emit one literal brace and skip ahead.
-        if c == 123 && i + 1 < flen && (fmt[i + 1] as i32) == 123 {
-            buf.push_u8(fmt[i]);
+        let c: i32 = pat[i] as i32;
+        if c == 123 && i + 1 < flen && (pat[i + 1] as i32) == 123 {
+            unsafe { (*f.buf).push_u8(pat[i]); }
             i = i + 2;
             continue;
         }
-        if c == 125 && i + 1 < flen && (fmt[i + 1] as i32) == 125 {
-            buf.push_u8(fmt[i]);
+        if c == 125 && i + 1 < flen && (pat[i + 1] as i32) == 125 {
+            unsafe { (*f.buf).push_u8(pat[i]); }
             i = i + 2;
             continue;
         }
         if c == 123 && i + 1 < flen {
             // `{}` — Display.
-            if (fmt[i + 1] as i32) == 125 {
-                first.fmt(buf);
-                fmt_into(fmt, i + 2, flen, buf, rest...);
+            if (pat[i + 1] as i32) == 125 {
+                f.reset_spec();
+                let _ = (&first).fmt_display(f);
+                fmt_into(pat, i + 2, flen, f, rest...);
                 return;
             }
             // `{:?}` — Debug.
             if i + 3 < flen
-                && (fmt[i + 1] as i32) == 58       // ':'
-                && (fmt[i + 2] as i32) == 63       // '?'
-                && (fmt[i + 3] as i32) == 125 {    // '}'
-                first.dbg(buf);
-                fmt_into(fmt, i + 4, flen, buf, rest...);
+                && (pat[i + 1] as i32) == 58       // ':'
+                && (pat[i + 2] as i32) == 63       // '?'
+                && (pat[i + 3] as i32) == 125 {    // '}'
+                f.reset_spec();
+                let _ = (&first).fmt_debug(f);
+                fmt_into(pat, i + 4, flen, f, rest...);
                 return;
             }
         }
-        buf.push_u8(fmt[i]);
+        unsafe { (*f.buf).push_u8(pat[i]); }
         i = i + 1;
     }
 }
 
-// ── Public API ────────────────────────────────────────────────────────────
-
 // format_args_str::<T...>(pattern, args...) -> String
-// Runtime fn that the `format!()` macro lowers to. Returns an owned
-// String. Drop frees it automatically. Variadic type-arg inference
-// means callers usually write `format_args_str("n={}", n)` without
-// turbofish; the macro shell takes care of any remaining ergonomics.
-pub fn format_args_str<T...: Display + Debug>(pattern: str, args: T...) -> String {
-    let flen: i64 = pattern.len();
+//
+// Runtime fn that `format!` and the variadic `format` alias both lower
+// to when sema-resident lowering can't fire (dynamic pattern). Owns
+// the buffer + Formatter; returns the assembled String (Drop frees).
+pub fn format_args_str<T...: FmtDisplay + FmtDebug>(pat: str, args: T...) -> String {
     let mut buf: String = String::new();
-    unsafe { fmt_into(pattern, 0 as i64, flen, &mut buf, args...); }
+    let mut f: Formatter = Formatter::new(&mut buf);
+    unsafe { fmt_into(pat, 0i64, pat.len(), &mut f, args...); }
     return buf;
 }
 
-// Back-compat alias: existing callers wrote `format::<T...>("...", args)`
-// before the `format!` macro shell landed. Keep the bare name working
-// so we don't churn unrelated tests on this slice.
-pub fn format<T...: Display + Debug>(pattern: str, args: T...) -> String {
-    return format_args_str(pattern, args...);
+// Back-compat alias. Some pre-macro test code wrote `format::<T...>("...", a, b)`.
+pub fn format<T...: FmtDisplay + FmtDebug>(pat: str, args: T...) -> String {
+    return format_args_str(pat, args...);
 }
 
-// ── Numeric format traits (slice 4.4c) ───────────────────────────────────
+// ── Macro shells ──────────────────────────────────────────────────────────
 //
-// LowerHex / UpperHex / Octal / Binary — Rust-shaped traits, one method
-// each. Per-type impl funnels through one of the four `write_*` helpers
-// below. Signed types cast to their unsigned bit-width counterpart
-// first so the rendered width matches Rust's behaviour
-// (`format!("{:x}", -1i32)` → "ffffffff", not "ffffffffffffffff").
-
-trait LowerHex { fn fmt_lower_hex(self: Self, buf: &mut String); }
-trait UpperHex { fn fmt_upper_hex(self: Self, buf: &mut String); }
-trait Octal    { fn fmt_octal(self: Self, buf: &mut String); }
-trait Binary   { fn fmt_binary(self: Self, buf: &mut String); }
-
-fn write_radix_u64(buf: &mut String, n: u64, radix: u64, upper: bool) {
-    if n == 0u64 { buf.push_u8(48u8); return; }
-    let mut tmp: [u8; 64] = [0u8; 64];
-    let mut pos: i64 = 0i64;
-    let mut m: u64 = n;
-    while m > 0u64 {
-        let d: u64 = m % radix;
-        let c: u8 =
-            if d < 10u64 {
-                (d as u8) + 48u8
-            } else if upper {
-                (d as u8) - 10u8 + 65u8
-            } else {
-                (d as u8) - 10u8 + 97u8
-            };
-        tmp[pos] = c;
-        pos = pos + 1i64;
-        m = m / radix;
-    }
-    let mut i: i64 = pos - 1i64;
-    while i >= 0i64 {
-        buf.push_u8(tmp[i]);
-        i = i - 1i64;
-    }
-}
-
-impl LowerHex for u64   { fn fmt_lower_hex(self: u64,   buf: &mut String) { write_radix_u64(buf, self, 16u64, false); } }
-impl LowerHex for u32   { fn fmt_lower_hex(self: u32,   buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, false); } }
-impl LowerHex for i64   { fn fmt_lower_hex(self: i64,   buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, false); } }
-impl LowerHex for i32   { fn fmt_lower_hex(self: i32,   buf: &mut String) { write_radix_u64(buf, self as u32 as u64, 16u64, false); } }
-impl LowerHex for usize { fn fmt_lower_hex(self: usize, buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, false); } }
-impl LowerHex for isize { fn fmt_lower_hex(self: isize, buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, false); } }
-impl LowerHex for u16   { fn fmt_lower_hex(self: u16,   buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, false); } }
-impl LowerHex for u8    { fn fmt_lower_hex(self: u8,    buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, false); } }
-impl LowerHex for i16   { fn fmt_lower_hex(self: i16,   buf: &mut String) { write_radix_u64(buf, self as u16 as u64, 16u64, false); } }
-impl LowerHex for i8    { fn fmt_lower_hex(self: i8,    buf: &mut String) { write_radix_u64(buf, self as u8 as u64, 16u64, false); } }
-
-impl UpperHex for u64   { fn fmt_upper_hex(self: u64,   buf: &mut String) { write_radix_u64(buf, self, 16u64, true); } }
-impl UpperHex for u32   { fn fmt_upper_hex(self: u32,   buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, true); } }
-impl UpperHex for i64   { fn fmt_upper_hex(self: i64,   buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, true); } }
-impl UpperHex for i32   { fn fmt_upper_hex(self: i32,   buf: &mut String) { write_radix_u64(buf, self as u32 as u64, 16u64, true); } }
-impl UpperHex for usize { fn fmt_upper_hex(self: usize, buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, true); } }
-impl UpperHex for isize { fn fmt_upper_hex(self: isize, buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, true); } }
-impl UpperHex for u16   { fn fmt_upper_hex(self: u16,   buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, true); } }
-impl UpperHex for u8    { fn fmt_upper_hex(self: u8,    buf: &mut String) { write_radix_u64(buf, self as u64, 16u64, true); } }
-impl UpperHex for i16   { fn fmt_upper_hex(self: i16,   buf: &mut String) { write_radix_u64(buf, self as u16 as u64, 16u64, true); } }
-impl UpperHex for i8    { fn fmt_upper_hex(self: i8,    buf: &mut String) { write_radix_u64(buf, self as u8 as u64, 16u64, true); } }
-
-impl Octal for u64   { fn fmt_octal(self: u64,   buf: &mut String) { write_radix_u64(buf, self, 8u64, false); } }
-impl Octal for u32   { fn fmt_octal(self: u32,   buf: &mut String) { write_radix_u64(buf, self as u64, 8u64, false); } }
-impl Octal for i64   { fn fmt_octal(self: i64,   buf: &mut String) { write_radix_u64(buf, self as u64, 8u64, false); } }
-impl Octal for i32   { fn fmt_octal(self: i32,   buf: &mut String) { write_radix_u64(buf, self as u32 as u64, 8u64, false); } }
-impl Octal for usize { fn fmt_octal(self: usize, buf: &mut String) { write_radix_u64(buf, self as u64, 8u64, false); } }
-impl Octal for isize { fn fmt_octal(self: isize, buf: &mut String) { write_radix_u64(buf, self as u64, 8u64, false); } }
-impl Octal for u16   { fn fmt_octal(self: u16,   buf: &mut String) { write_radix_u64(buf, self as u64, 8u64, false); } }
-impl Octal for u8    { fn fmt_octal(self: u8,    buf: &mut String) { write_radix_u64(buf, self as u64, 8u64, false); } }
-impl Octal for i16   { fn fmt_octal(self: i16,   buf: &mut String) { write_radix_u64(buf, self as u16 as u64, 8u64, false); } }
-impl Octal for i8    { fn fmt_octal(self: i8,    buf: &mut String) { write_radix_u64(buf, self as u8 as u64, 8u64, false); } }
-
-impl Binary for u64   { fn fmt_binary(self: u64,   buf: &mut String) { write_radix_u64(buf, self, 2u64, false); } }
-impl Binary for u32   { fn fmt_binary(self: u32,   buf: &mut String) { write_radix_u64(buf, self as u64, 2u64, false); } }
-impl Binary for i64   { fn fmt_binary(self: i64,   buf: &mut String) { write_radix_u64(buf, self as u64, 2u64, false); } }
-impl Binary for i32   { fn fmt_binary(self: i32,   buf: &mut String) { write_radix_u64(buf, self as u32 as u64, 2u64, false); } }
-impl Binary for usize { fn fmt_binary(self: usize, buf: &mut String) { write_radix_u64(buf, self as u64, 2u64, false); } }
-impl Binary for isize { fn fmt_binary(self: isize, buf: &mut String) { write_radix_u64(buf, self as u64, 2u64, false); } }
-impl Binary for u16   { fn fmt_binary(self: u16,   buf: &mut String) { write_radix_u64(buf, self as u64, 2u64, false); } }
-impl Binary for u8    { fn fmt_binary(self: u8,    buf: &mut String) { write_radix_u64(buf, self as u64, 2u64, false); } }
-impl Binary for i16   { fn fmt_binary(self: i16,   buf: &mut String) { write_radix_u64(buf, self as u16 as u64, 2u64, false); } }
-impl Binary for i8    { fn fmt_binary(self: i8,    buf: &mut String) { write_radix_u64(buf, self as u8 as u64, 2u64, false); } }
-
-// LowerExp / UpperExp — scientific notation (`{:e}` / `{:E}`). Floats
-// only; libc snprintf "%e" / "%E" do the conversion.
-trait LowerExp { fn fmt_lower_exp(self: Self, buf: &mut String); }
-trait UpperExp { fn fmt_upper_exp(self: Self, buf: &mut String); }
-
-extern fn logos_fmt_f64_e(buf: *mut u8, cap: i32, x: f64) -> i32;
-extern fn logos_fmt_f64_E(buf: *mut u8, cap: i32, x: f64) -> i32;
-extern fn logos_fmt_f32_e(buf: *mut u8, cap: i32, x: f32) -> i32;
-extern fn logos_fmt_f32_E(buf: *mut u8, cap: i32, x: f32) -> i32;
-
-impl LowerExp for f64 {
-    fn fmt_lower_exp(self: f64, buf: &mut String) {
-        let cap: i32 = 32i32;
-        let ptr: *mut u8 = buf.spare_ptr(cap as i64);
-        let n: i32 = unsafe { logos_fmt_f64_e(ptr, cap, self) };
-        buf.advance_len(n as i64);
-    }
-}
-impl LowerExp for f32 {
-    fn fmt_lower_exp(self: f32, buf: &mut String) {
-        let cap: i32 = 32i32;
-        let ptr: *mut u8 = buf.spare_ptr(cap as i64);
-        let n: i32 = unsafe { logos_fmt_f32_e(ptr, cap, self) };
-        buf.advance_len(n as i64);
-    }
-}
-impl UpperExp for f64 {
-    fn fmt_upper_exp(self: f64, buf: &mut String) {
-        let cap: i32 = 32i32;
-        let ptr: *mut u8 = buf.spare_ptr(cap as i64);
-        let n: i32 = unsafe { logos_fmt_f64_E(ptr, cap, self) };
-        buf.advance_len(n as i64);
-    }
-}
-impl UpperExp for f32 {
-    fn fmt_upper_exp(self: f32, buf: &mut String) {
-        let cap: i32 = 32i32;
-        let ptr: *mut u8 = buf.spare_ptr(cap as i64);
-        let n: i32 = unsafe { logos_fmt_f32_E(ptr, cap, self) };
-        buf.advance_len(n as i64);
-    }
-}
-
-// ── Per-trait dispatch helpers (slice 4.4b) ──────────────────────────────
-//
-// Sema's lower_method_call short-circuits dot-method dispatch on slice
-// and str receivers (returns "slice has no method '<name>'"). Generic-
-// context dispatch through trait bounds still works, so format-family
-// lowering routes every placeholder through one of these thin generic
-// wrappers instead of emitting `(arg).fmt(&mut __buf)` directly.
-//
-// Each helper is by-value in the arg (matching the underlying trait's
-// `self: Self` signature). For slice/str this is free (fat-ptr copy);
-// for owned types it consumes — same semantics the variadic
-// `format_args_str` already had.
-pub fn fmt_display<T: Display>(arg: T, buf: &mut String)     { arg.fmt(buf); }
-pub fn fmt_debug<T: Debug>(arg: T, buf: &mut String)         { arg.dbg(buf); }
-pub fn fmt_lower_hex<T: LowerHex>(arg: T, buf: &mut String)  { arg.fmt_lower_hex(buf); }
-pub fn fmt_upper_hex<T: UpperHex>(arg: T, buf: &mut String)  { arg.fmt_upper_hex(buf); }
-pub fn fmt_octal<T: Octal>(arg: T, buf: &mut String)         { arg.fmt_octal(buf); }
-pub fn fmt_binary<T: Binary>(arg: T, buf: &mut String)       { arg.fmt_binary(buf); }
-pub fn fmt_lower_exp<T: LowerExp>(arg: T, buf: &mut String)  { arg.fmt_lower_exp(buf); }
-pub fn fmt_upper_exp<T: UpperExp>(arg: T, buf: &mut String)  { arg.fmt_upper_exp(buf); }
-
-// Slice 4.4d / 4.4e — full format-spec post-processor. Macro lowering
-// routes every spec'd placeholder through a scratch String, then this
-// helper composes prefix + sign + content (precision-truncated) +
-// padding according to the spec parameters:
-//
-//   precision >= 0    — truncate content to N bytes (str-Display) or
-//                       N digits (numeric kinds) before any padding.
-//   prefix            — alt-form prefix ("0x"/"0o"/"0b") for hex/oct/
-//                       bin when `#` is set; empty string otherwise.
-//   sign_plus         — prepend '+' on positive content (`{:+}`).
-//   width, fill,      — width / fill char / align (0=None→Right,
-//   align_code           1=Left, 2=Right, 3=Center). When fill is '0'
-//                       and align defaults to Right, the zero digits
-//                       appear AFTER the sign and prefix — matching
-//                       Rust's `{:05x}` → "000ff" / `{:#05x}` → "0x0ff".
-pub fn fmt_pad(out: &mut String, content: str, prefix: str,
-               sign_plus: bool, precision: i64,
-               width: i64, fill: i32, align_code: i32) {
-    let n_full: i64 = content.len();
-    let n_eff: i64 =
-        if precision >= 0i64 && n_full > precision { precision } else { n_full };
-
-    let mut emit_sign: bool = false;
-    if sign_plus && n_eff > 0i64 {
-        let c0: u8 = content[0i64];
-        if c0 != 45u8 && c0 != 43u8 {  // not '-' or '+'
-            emit_sign = true;
-        }
-    }
-    let body: i64 =
-        (if emit_sign { 1i64 } else { 0i64 }) + prefix.len() + n_eff;
-    let mut left_pad:  i64 = 0i64;
-    let mut right_pad: i64 = 0i64;
-    if width > body {
-        let pad: i64 = width - body;
-        if align_code == 1i32 {
-            right_pad = pad;
-        } else if align_code == 3i32 {
-            left_pad  = pad / 2i64;
-            right_pad = pad - left_pad;
-        } else {
-            left_pad = pad;
-        }
-    }
-
-    // Zero-pad shape: sign / prefix / zero-fill / content. Otherwise:
-    // fill-left / sign / prefix / content / fill-right.
-    let is_zero_pad: bool = (fill == 48i32) && (align_code != 1i32);
-    let mut i: i64 = 0i64;
-    if !is_zero_pad {
-        while i < left_pad { out.push_u8(fill as u8); i = i + 1i64; }
-    }
-    if emit_sign { out.push_u8(43u8); }
-    out.push_str(prefix);
-    if is_zero_pad {
-        i = 0i64;
-        while i < left_pad { out.push_u8(48u8); i = i + 1i64; }
-    }
-    // Truncated content.
-    i = 0i64;
-    while i < n_eff { out.push_u8(content[i]); i = i + 1i64; }
-    if !is_zero_pad {
-        i = 0i64;
-        while i < right_pad { out.push_u8(fill as u8); i = i + 1i64; }
-    } else {
-        // Left-aligned zero-pad is rare/weird — push right pad with
-        // fill (`0`) to keep numeric semantics consistent.
-        i = 0i64;
-        while i < right_pad { out.push_u8(48u8); i = i + 1i64; }
-    }
-}
-
-// Back-compat shim for slice 4.4d call sites. Drops to fmt_pad with
-// no prefix / no sign / no precision. Sema-resident lowering has
-// already migrated to fmt_pad directly; kept here only to avoid
-// churning external callers (none in tree).
-pub fn pad_into(out: &mut String, content: str, width: i64,
-                fill: i32, align_code: i32) {
-    fmt_pad(out, content, "", false, -1i64, width, fill, align_code);
-}
-
-// ── Macro shells (slice 4.1 of fn-macros) ─────────────────────────────────
-//
-// `format!("pat", args...)` — Rust-style shorthand around `format_args_str`.
-// The macro callee receives every `(args)` element as an `ExprBlob` and
-// splices them back into a single call. Element type and arity of the
-// underlying `format_args_str` are inferred from the spliced AST at the
-// expansion site — same path that lets `format_args_str("...", a, b)`
-// already work without turbofish.
+// `format!("pat", args...)` and friends — Rust-style metacall shells.
+// The macro receives every `(args)` element as `ExprBlob` and splices
+// them back into a single call. Element types and arity of the
+// underlying `format_args_str` are inferred from the spliced AST at
+// the expansion site (same path that lets `format_args_str("...", a, b)`
+// work without turbofish in plain fn-call form).
 
 #[fn_macro]
 pub fn format(args: Vec<ExprBlob>) -> ExprBlob {
@@ -610,15 +284,16 @@ pub fn eprintln(args: Vec<ExprBlob>) -> ExprBlob {
 
 pub fn __fmt_panic(msg: str) { panic(msg); }
 
-// TH-th-03: `panic!(...)` macro — formats per Rust's panic! and aborts.
-// Lives in std.fmt because it shares format_args_str with print!/etc.
-// Distinct from the runtime `panic(str)` fn in std.lang.panic — no
-// name shadowing: lookup by `!` syntax only matches fn_macro-tagged
-// overloads, so call sites can use both forms (rare but legal).
+// `panic!(...)` macro — formats per Rust's panic! and aborts.
+// Bodies emit `format!(...)` (not `format_args_str(...)`) so sema's
+// format-family interception fires on the per-placeholder dispatch and
+// the variadic bound `T...: FmtDisplay + FmtDebug` on the runtime fn
+// never has to bind to non-Display types (Result<i32, str>, tuples
+// with only Debug, etc.).
 #[fn_macro]
 pub fn panic(args: Vec<ExprBlob>) -> ExprBlob {
     return quote_expr! {
-        { let __m: String = format_args_str(#(#args),*); __fmt_panic(__m.as_str()); }
+        { let __m: String = format!(#(#args),*); __fmt_panic(__m.as_str()); }
     };
 }
 
@@ -628,14 +303,6 @@ pub fn panic(args: Vec<ExprBlob>) -> ExprBlob {
 // invocation's value. `panic` aborts, so the `()` tail in the panic
 // branch is unreachable — type-checker only sees that both branches
 // produce ().
-
-// assert! / assert_eq! / assert_ne! — macro-form Rust-compatible asserts.
-//
-// Earlier workaround (committed 2026-05-13 as `let _: () = ();` block
-// terminator) is no longer needed — the underlying sema bug that
-// promoted unit-valued TAIL_EXPR to fn-implicit-return has been fixed
-// in sema_stmt.cpp's TAIL_EXPR handling. Bodies are now back to the
-// faithful Rust shape: `if cond { ...; () } else { () }`.
 #[fn_macro]
 pub fn assert(args: Vec<ExprBlob>) -> ExprBlob {
     let n: i64 = args.length();
@@ -654,7 +321,7 @@ pub fn assert(args: Vec<ExprBlob>) -> ExprBlob {
     }
     return quote_expr! {
         if !(#cond) {
-            let __m: String = format_args_str(#(#tail),*);
+            let __m: String = format!(#(#tail),*);
             __fmt_panic(__m.as_str());
             ()
         } else { () }
@@ -681,7 +348,7 @@ pub fn assert_eq(args: Vec<ExprBlob>) -> ExprBlob {
             let __a = #a;
             if __a != (#b) {
                 let __b = #b;
-                let __m: String = format_args_str(
+                let __m: String = format!(
                     "assertion failed: {:?} != {:?}", __a, __b);
                 __fmt_panic(__m.as_str());
                 ()
@@ -692,8 +359,6 @@ pub fn assert_eq(args: Vec<ExprBlob>) -> ExprBlob {
 
 #[fn_macro]
 pub fn assert_ne(args: Vec<ExprBlob>) -> ExprBlob {
-    // See assert_eq for the rationale behind the bind-only-on-failure
-    // shape.
     let a: ExprBlob = args.get(0i64);
     let b: ExprBlob = args.get(1i64);
     return quote_expr! {
@@ -701,7 +366,7 @@ pub fn assert_ne(args: Vec<ExprBlob>) -> ExprBlob {
             let __a = #a;
             if __a == (#b) {
                 let __b = #b;
-                let __m: String = format_args_str(
+                let __m: String = format!(
                     "assertion failed: {:?} == {:?}", __a, __b);
                 __fmt_panic(__m.as_str());
                 ()
@@ -709,12 +374,3 @@ pub fn assert_ne(args: Vec<ExprBlob>) -> ExprBlob {
         }
     };
 }
-
-// `panic!(...)` macro — landed in a follow-up. Naming collision with the
-// stdlib `panic(str)` fn breaks direct-call resolution in files that
-// import `std.fmt` without `std.lang.panic` (since the macro lives in
-// std.fmt's visibility scope but the fn does not). Closing it cleanly
-// needs either (a) ergonomic macro/fn overload split (e.g. fn_macros
-// not entering the same `func_overloads_` set as regular fns) or (b)
-// move the macro into std.lang.panic so import paths align. Both are
-// larger surface changes than this batch.

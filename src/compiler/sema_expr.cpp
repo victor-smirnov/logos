@@ -13306,7 +13306,8 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
     bool is_format_family =
         callee_name == "format"   || callee_name == "print"   ||
         callee_name == "println"  || callee_name == "eprint"  ||
-        callee_name == "eprintln" || callee_name == "panic";
+        callee_name == "eprintln" || callee_name == "panic"   ||
+        callee_name == "format_args_str";
     if (is_format_family && !arg_avs.empty() && arg_avs[0].is_pointer()) {
         auto* fmt_tom = reinterpret_cast<TinyObjectMap*>(
             const_cast<uint8_t*>(src_base) + arg_avs[0].to_offset().value());
@@ -13419,7 +13420,17 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
                     auto* saved_holder = holder_;
                     holder_ = wrap_doc.holder();
 
-                    std::string blk = "{ let mut __buf: String = String::new(); ";
+                    // Session 4 — Formatter-based lowering. The block
+                    // owns __buf + __f; each placeholder writes spec
+                    // fields onto __f then dispatches through a thin
+                    // free-fn (`fmt_display` / `fmt_debug` /
+                    // `fmt_lower_hex` / ...) that binds the receiver
+                    // through a trait bound. Free-fn dispatchers
+                    // sidestep the slice/str dot-method short-circuit
+                    // in `lower_method_call`.
+                    std::string blk =
+                        "{ let mut __buf: String = String::new(); "
+                        "let mut __f: Formatter = Formatter::new(&mut __buf); ";
                     int32_t auto_idx = 0;
                     for (auto& seg : fmt_result.segments) {
                         if (seg.is_literal) {
@@ -13438,68 +13449,56 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
                             arg_avs[value_idx].to_offset(), holder_);
                         std::string arg_src = render_expr_src(arg_view);
                         const char* dispatcher = format_trait_dispatcher(seg.spec.trait_kind);
-                        bool needs_post =
-                               seg.spec.width > 0
-                            || seg.spec.align != FormatAlign::None
-                            || seg.spec.precision >= 0
-                            || seg.spec.sign != FormatSign::None
-                            || seg.spec.alt
-                            || seg.spec.zero;
-                        if (needs_post) {
-                            // Resolve fill / align with the zero-pad
-                            // shortcut: `{:05}` ≡ fill='0' + align=Right
-                            // when neither was explicitly set.
-                            int32_t align_code =
-                                seg.spec.align == FormatAlign::Left   ? 1 :
-                                seg.spec.align == FormatAlign::Right  ? 2 :
-                                seg.spec.align == FormatAlign::Center ? 3 : 0;
-                            int32_t fill_code = static_cast<int32_t>(
-                                static_cast<unsigned char>(seg.spec.fill));
-                            if (seg.spec.zero && seg.spec.align == FormatAlign::None) {
-                                if (seg.spec.fill == ' ') fill_code = '0';
-                            }
-                            int32_t width = seg.spec.width >= 0
-                                ? seg.spec.width : 0;
-                            int32_t precision = seg.spec.precision;
-                            // Alt-form prefix: only meaningful for the
-                            // numeric kinds. Display/Debug ignore `#`.
-                            const char* prefix = "";
-                            if (seg.spec.alt) {
-                                switch (seg.spec.trait_kind) {
-                                case FormatTrait::LowerHex: prefix = "0x"; break;
-                                case FormatTrait::UpperHex: prefix = "0X"; break;
-                                case FormatTrait::Octal:    prefix = "0o"; break;
-                                case FormatTrait::Binary:   prefix = "0b"; break;
-                                default: break;
-                                }
-                            }
-                            bool sign_plus = seg.spec.sign == FormatSign::Plus;
 
-                            blk += "{ let mut __tmp: String = String::new(); ";
-                            blk += dispatcher;
-                            blk += "(";
-                            blk += arg_src;
-                            blk += ", &mut __tmp); fmt_pad(&mut __buf, __tmp.as_str(), \"";
-                            blk += prefix;
-                            blk += "\", ";
-                            blk += sign_plus ? "true" : "false";
-                            blk += ", ";
-                            blk += std::to_string(precision);
-                            blk += "i64, ";
-                            blk += std::to_string(width);
-                            blk += "i64, ";
-                            blk += std::to_string(fill_code);
-                            blk += "i32, ";
-                            blk += std::to_string(align_code);
-                            blk += "i32); } ";
-                        } else {
-                            blk += dispatcher;
-                            blk += "(";
-                            blk += arg_src;
-                            blk += ", &mut __buf); ";
+                        // Spec field writes. Reset every placeholder so
+                        // a previous spec doesn't leak. `align_code`:
+                        // 0=Unknown→Right, 1=Left, 2=Right, 3=Center.
+                        int32_t align_code =
+                            seg.spec.align == FormatAlign::Left   ? 1 :
+                            seg.spec.align == FormatAlign::Right  ? 2 :
+                            seg.spec.align == FormatAlign::Center ? 3 : 0;
+                        int32_t fill_code = static_cast<int32_t>(
+                            static_cast<unsigned char>(seg.spec.fill));
+                        if (seg.spec.zero && seg.spec.align == FormatAlign::None) {
+                            if (seg.spec.fill == ' ') fill_code = '0';
                         }
+                        int32_t width = seg.spec.width >= 0 ? seg.spec.width : -1;
+                        int32_t precision = seg.spec.precision;
+                        bool sign_plus = seg.spec.sign == FormatSign::Plus;
+
+                        blk += "__f.reset_spec(); ";
+                        if (fill_code != 32) {
+                            blk += "__f.fill = ";
+                            blk += std::to_string(fill_code);
+                            blk += "u8; ";
+                        }
+                        if (align_code != 0) {
+                            blk += "__f.align_code = ";
+                            blk += std::to_string(align_code);
+                            blk += "u8; ";
+                        }
+                        if (sign_plus) blk += "__f.sign_plus = true; ";
+                        if (seg.spec.alt) blk += "__f.alternate = true; ";
+                        if (seg.spec.zero) blk += "__f.zero_pad = true; ";
+                        if (width >= 0) {
+                            blk += "__f.width = ";
+                            blk += std::to_string(width);
+                            blk += "i64; ";
+                        }
+                        if (precision >= 0) {
+                            blk += "__f.precision = ";
+                            blk += std::to_string(precision);
+                            blk += "i64; ";
+                        }
+
+                        blk += "let _ = ";
+                        blk += dispatcher;
+                        blk += "(&(";
+                        blk += arg_src;
+                        blk += "), &mut __f); ";
                     }
-                    if (callee_name == "format") {
+                    if (callee_name == "format" ||
+                        callee_name == "format_args_str") {
                         blk += "__buf }";
                     } else if (callee_name == "println") {
                         blk += "__fmt_println(__buf.as_str()) }";
