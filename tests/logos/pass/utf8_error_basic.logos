@@ -1,0 +1,63 @@
+// utf8::Utf8Error / Utf8Chunks / ParseBoolError smoke.
+package utf8_error_basic;
+
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    // ── ParseBoolError ──
+    let rt: Result<bool, ParseBoolError> = bool_from_str("true");
+    match rt {
+        Result::Ok(b)  => { if !b { return fail(1); } }
+        Result::Err(_) => { return fail(2); }
+    }
+    let rf: Result<bool, ParseBoolError> = bool_from_str("false");
+    match rf {
+        Result::Ok(b)  => { if b { return fail(3); } }
+        Result::Err(_) => { return fail(4); }
+    }
+    let rx: Result<bool, ParseBoolError> = bool_from_str("yes");
+    match rx {
+        Result::Ok(_)  => { return fail(5); }
+        Result::Err(_) => {}
+    }
+
+    // ── Utf8Error: valid input ──
+    let s: str = "hello";
+    let p: *const u8 = s.as_ptr();
+    let r1: Result<(), Utf8Error> = unsafe { utf8_validate(p, s.len()) };
+    match r1 {
+        Result::Ok(_)  => {}
+        Result::Err(_) => { return fail(10); }
+    }
+
+    // ── Utf8Error: invalid lead byte 0xFF ──
+    let mut buf: [u8; 4] = [0u8; 4];
+    buf[0i64] = 65u8;       // 'A'
+    buf[1i64] = 66u8;       // 'B'
+    buf[2i64] = 0xFFu8;     // invalid lead byte
+    buf[3i64] = 67u8;       // 'C'
+    let r2: Result<(), Utf8Error> = unsafe { utf8_validate(&buf[0i64] as *const u8, 4i64) };
+    match r2 {
+        Result::Ok(_)  => { return fail(20); }
+        Result::Err(e) => {
+            if e.valid_up_to != 2i64 { return fail(21); }
+            if e.error_len   != 1i64 { return fail(22); }
+        }
+    }
+
+    // ── Utf8Error::error_len Option mapping ──
+    let e_full: Utf8Error = Utf8Error { valid_up_to: 0i64, error_len: 2i64 };
+    let o1: Option<i64> = utf8_error_len(e_full);
+    if !o1.is_some() { return fail(30); }
+    if o1.unwrap() != 2i64 { return fail(31); }
+
+    let e_trunc: Utf8Error = Utf8Error { valid_up_to: 0i64, error_len: -1i64 };
+    let o2: Option<i64> = utf8_error_len(e_trunc);
+    if o2.is_some() { return fail(32); }
+
+    return 0;
+}

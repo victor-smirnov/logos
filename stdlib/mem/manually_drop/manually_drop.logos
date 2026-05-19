@@ -1,0 +1,148 @@
+// Logos standard library — std.mem.manually_drop
+//
+// `ManuallyDrop<T>`, `MaybeDangling<T>`, `Alignment`, `DropGuard`.
+// Mirror of `core::mem`'s small-but-load-bearing helper types.
+//
+// Scoping note: Logos's `Drop` trait is opt-in (a struct without
+// `impl Drop` has no automatic destructor body). The wrappers here
+// rely on that — they EXPLICITLY don't implement Drop so the inner
+// value's drop logic is suppressed at scope-exit. Caller is
+// responsible for calling `drop_inner` / `into_inner` / `take`
+// at the right moment.
+
+package logos.mem.manually_drop;
+
+use logos.lang.drop;
+use logos.lang.option;
+use logos.lang.panic;
+
+// ── ManuallyDrop<T> ──────────────────────────────────────────────────
+//
+// Wraps a T. Because this struct does NOT impl `Drop`, the inner
+// value's destructor is suppressed at scope-exit — caller must
+// invoke `drop_inner` / `into_inner` / `take` explicitly to recover
+// or destroy the inner value.
+pub struct ManuallyDrop<T> {
+    pub value: T,
+}
+
+pub fn manually_drop_new<T>(v: T) -> ManuallyDrop<T> {
+    return ManuallyDrop::<T> { value: v };
+}
+
+// Move the inner value out of the wrapper, consuming it. The
+// returned value behaves normally (its Drop, if any, fires at the
+// caller's scope-exit).
+pub fn manually_drop_into_inner<T>(md: ManuallyDrop<T>) -> T {
+    return md.value;
+}
+
+// Run the inner value's Drop (if any) without consuming the wrapper.
+// `T: Drop` bound — caller asserts T has a Drop impl.
+pub fn manually_drop_drop<T: Drop>(md: &mut ManuallyDrop<T>) {
+    // Move out + drop. Logos doesn't have a way to read the inner T
+    // by value through &mut self without leaving a placeholder, so
+    // this is a no-op when T's Drop is non-trivial — users should
+    // prefer `into_inner` and let the returned T's auto-drop fire.
+    // (Followup needs `mem::take`-style swap of the inner value.)
+    let _ = md;
+}
+
+// ── MaybeDangling<T> ────────────────────────────────────────────────
+//
+// Marker wrapper that opts out of dangling-reference checks for the
+// inner T. Rust's `MaybeDangling<T>` is internal-only; this Logos
+// port is informational — borrowck doesn't yet honour the marker
+// (when it does, the wrapper passes through transparently).
+pub struct MaybeDangling<T> {
+    pub value: T,
+}
+
+pub fn maybe_dangling_new<T>(v: T) -> MaybeDangling<T> {
+    return MaybeDangling::<T> { value: v };
+}
+
+pub fn maybe_dangling_into_inner<T>(m: MaybeDangling<T>) -> T {
+    return m.value;
+}
+
+// ── Alignment ───────────────────────────────────────────────────────
+//
+// Power-of-2 alignment value, in bytes. Mirrors
+// `core::ptr::alignment::Alignment` (which is `core::mem::Alignment`
+// in newer std). Construction validates the invariant.
+pub struct Alignment {
+    pub bytes: u64,
+}
+
+// Returns Some(alignment) if `n` is a power of 2 > 0, else None.
+pub fn alignment_new(n: u64) -> Option<Alignment> {
+    if n == 0u64 { return Option::<Alignment>::None; }
+    // Power-of-2 check: `n & (n - 1) == 0`.
+    let mask: u64 = n - 1u64;
+    if (n & mask) != 0u64 { return Option::<Alignment>::None; }
+    return Option::<Alignment>::Some(Alignment { bytes: n });
+}
+
+// Construction without the power-of-2 check. Caller must guarantee
+// validity. Mirrors Rust's `Alignment::new_unchecked`.
+pub unsafe fn alignment_new_unchecked(n: u64) -> Alignment {
+    return Alignment { bytes: n };
+}
+
+impl Alignment {
+    pub fn as_u64(&self) -> u64 { return self.bytes; }
+    pub fn log2(&self) -> u32 {
+        // ceil-log2 of a power-of-2 — count trailing zeros.
+        let mut n: u64 = self.bytes;
+        let mut k: u32 = 0u32;
+        while n > 1u64 { n = n >> 1u64; k = k + 1u32; }
+        return k;
+    }
+}
+
+// ── DropGuard<F> ────────────────────────────────────────────────────
+//
+// Runs the closure `f` when the guard is dropped (scope-exit). Rust's
+// `DropGuard` is internal to `core::mem`. Logos closures + Drop
+// trait give us the same shape; closure must be `FnOnce` (called
+// exactly once on drop).
+//
+// Usage:
+//   let g = DropGuard::new(|| cleanup());
+//   // ... work ...
+//   // g goes out of scope → cleanup() runs.
+//
+// `armed` flag lets callers defuse the guard via `disarm()` so the
+// closure doesn't fire (e.g. when the work succeeded and cleanup
+// isn't needed).
+pub struct DropGuard<F> {
+    pub f:     F,
+    pub armed: bool,
+}
+
+pub fn drop_guard_new<F>(f: F) -> DropGuard<F> {
+    return DropGuard::<F> { f: f, armed: true };
+}
+
+impl<F: FnOnce() -> ()> DropGuard<F> {
+    pub fn disarm(&mut self) { self.armed = false; }
+}
+
+// Manual fire — pre-emptively run the cleanup closure and disarm.
+// Rust's pattern: `ScopeGuard::into_inner` returns the F without
+// firing; here we expose the moral equivalent.
+pub fn drop_guard_disarm_into<F>(g: DropGuard<F>) -> F {
+    // Move semantics: `g` is consumed here; its `Drop` doesn't fire
+    // because we extract `f` by value below.
+    return g.f;
+}
+
+impl<F: FnOnce() -> ()> Drop for DropGuard<F> {
+    fn drop(self: DropGuard<F>) {
+        if self.armed {
+            let f = self.f;
+            f();
+        }
+    }
+}

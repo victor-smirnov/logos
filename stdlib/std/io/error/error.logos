@@ -1,0 +1,135 @@
+// Logos standard library — std.io.error
+//
+// `io::Error` + `ErrorKind` — Rust-shape error type for `std::io`.
+// Mirrors `core::io::error` / `std::io::Error`.
+//
+// Existing call sites in `std/io/*` thread raw `-errno` as `i32`.
+// This module adds the structured-error layer; gradual migration
+// of the fs/net surface to return `Result<T, IoError>` is a
+// follow-up.
+
+package logos.std.io.error;
+
+use logos.lang.error;
+use logos.lang.option;
+
+// ── ErrorKind ───────────────────────────────────────────────────────
+//
+// Mirrors the Rust variants users actually reach for. The rare ones
+// (Other / Unsupported / OutOfMemory / etc.) are present so port
+// code can pattern-match against the same enum.
+pub enum ErrorKind {
+    NotFound,
+    PermissionDenied,
+    ConnectionRefused,
+    ConnectionReset,
+    ConnectionAborted,
+    NotConnected,
+    AddrInUse,
+    AddrNotAvailable,
+    BrokenPipe,
+    AlreadyExists,
+    WouldBlock,
+    InvalidInput,
+    InvalidData,
+    TimedOut,
+    WriteZero,
+    Interrupted,
+    Unsupported,
+    UnexpectedEof,
+    OutOfMemory,
+    Other,
+}
+
+// ── IoError ─────────────────────────────────────────────────────────
+//
+// Named `IoError` (not `Error`) to dodge a name-collision with
+// `logos.lang.error::Error` trait. Carries kind + raw_os_error (-1
+// when not OS-derived) + a static message slot.
+pub struct IoError {
+    pub kind:          ErrorKind,
+    pub raw_os_error:  i32,
+    pub message:       str,
+}
+
+pub fn io_error_new(kind: ErrorKind, message: str) -> IoError {
+    return IoError { kind: kind, raw_os_error: 0i32 - 1i32, message: message };
+}
+
+// Wrap an OS-derived errno into a structured IoError. Maps the
+// usual subset to ErrorKind variants; unknown errno → Other.
+pub fn io_error_from_errno(errno: i32) -> IoError {
+    let k: ErrorKind =
+        if errno == 2i32   { ErrorKind::NotFound }            // ENOENT
+        else if errno == 13i32  { ErrorKind::PermissionDenied }  // EACCES
+        else if errno == 1i32   { ErrorKind::PermissionDenied }  // EPERM
+        else if errno == 111i32 { ErrorKind::ConnectionRefused } // ECONNREFUSED
+        else if errno == 104i32 { ErrorKind::ConnectionReset }   // ECONNRESET
+        else if errno == 103i32 { ErrorKind::ConnectionAborted } // ECONNABORTED
+        else if errno == 107i32 { ErrorKind::NotConnected }      // ENOTCONN
+        else if errno == 98i32  { ErrorKind::AddrInUse }         // EADDRINUSE
+        else if errno == 99i32  { ErrorKind::AddrNotAvailable }  // EADDRNOTAVAIL
+        else if errno == 32i32  { ErrorKind::BrokenPipe }        // EPIPE
+        else if errno == 17i32  { ErrorKind::AlreadyExists }     // EEXIST
+        else if errno == 11i32  { ErrorKind::WouldBlock }        // EAGAIN
+        else if errno == 22i32  { ErrorKind::InvalidInput }      // EINVAL
+        else if errno == 110i32 { ErrorKind::TimedOut }          // ETIMEDOUT
+        else if errno == 4i32   { ErrorKind::Interrupted }       // EINTR
+        else if errno == 95i32  { ErrorKind::Unsupported }       // ENOTSUP
+        else if errno == 12i32  { ErrorKind::OutOfMemory }       // ENOMEM
+        else                    { ErrorKind::Other };
+    return IoError { kind: k, raw_os_error: errno, message: "" };
+}
+
+impl IoError {
+    pub fn kind(&self) -> ErrorKind {
+        return self.kind;
+    }
+    pub fn raw_os_error(&self) -> Option<i32> {
+        if self.raw_os_error < 0i32 {
+            return Option::<i32>::None;
+        }
+        return Option::<i32>::Some(self.raw_os_error);
+    }
+}
+
+// Slot into the std-wide Error trait so `IoError` can appear in
+// `error_chain_len` / `source()` walkers.
+impl Error for IoError {
+    fn source(&self) -> Option<&dyn Error> {
+        return Option::<&dyn Error>::None;
+    }
+}
+
+// ── BorrowedBuf ─────────────────────────────────────────────────────
+//
+// Rust's `io::BorrowedBuf` is a fat pointer over a writable byte
+// slice that tracks initialised/uninitialised regions. Used by
+// `Read::read_buf` to feed buffered reads without re-zeroing.
+//
+// Logos port: simplified — assumes the underlying memory is already
+// initialised (no `MaybeUninit` machinery), and tracks `filled` as
+// the count of valid bytes written so far.
+pub struct BorrowedBuf {
+    pub data:     *mut u8,
+    pub capacity: i64,
+    pub filled:   i64,
+}
+
+pub unsafe fn borrowed_buf_new(data: *mut u8, capacity: i64) -> BorrowedBuf {
+    return BorrowedBuf { data: data, capacity: capacity, filled: 0i64 };
+}
+
+impl BorrowedBuf {
+    pub fn capacity(&self) -> i64 { return self.capacity; }
+    pub fn filled(&self) -> i64   { return self.filled; }
+    pub fn remaining(&self) -> i64 { return self.capacity - self.filled; }
+
+    // Advance `filled` by `n`. Caller asserts n bytes are valid in
+    // [self.filled, self.filled + n).
+    pub unsafe fn advance(&mut self, n: i64) {
+        self.filled = self.filled + n;
+    }
+
+    pub fn clear(&mut self) { self.filled = 0i64; }
+}

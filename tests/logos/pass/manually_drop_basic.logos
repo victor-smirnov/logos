@@ -1,0 +1,36 @@
+// ManuallyDrop / MaybeDangling / Alignment basic smoke.
+package manually_drop_basic;
+
+use logos.mem.manually_drop;
+use logos.lang.option;
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    // ManuallyDrop<i32> — into_inner returns the value.
+    let md: ManuallyDrop<i32> = manually_drop_new::<i32>(42i32);
+    let v: i32 = manually_drop_into_inner::<i32>(md);
+    if v != 42i32 { return fail(1); }
+
+    // MaybeDangling<i64> — pass-through.
+    let mdg: MaybeDangling<i64> = maybe_dangling_new::<i64>(123i64);
+    let w: i64 = maybe_dangling_into_inner::<i64>(mdg);
+    if w != 123i64 { return fail(2); }
+
+    // Alignment — valid power-of-2.
+    let a: Option<Alignment> = alignment_new(8u64);
+    if !a.is_some() { return fail(3); }
+    let al: Alignment = a.unwrap();
+    if al.as_u64() != 8u64 { return fail(4); }
+    if al.log2() != 3u32 { return fail(5); }
+
+    // Alignment — non-power-of-2 → None.
+    let bad: Option<Alignment> = alignment_new(3u64);
+    if bad.is_some() { return fail(6); }
+
+    // Alignment — zero → None.
+    let zero: Option<Alignment> = alignment_new(0u64);
+    if zero.is_some() { return fail(7); }
+
+    return 0;
+}

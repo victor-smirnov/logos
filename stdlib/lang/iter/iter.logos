@@ -1461,6 +1461,70 @@ pub fn iter_flatten<O: Iterator<I>, I: Iterator<T>, T>(outer: O, zero_inner: I)
 // works on plain `[u8; N]` fn params (see stdlib/lang/str/str.logos:
 // `bytes_arr_eq<const N: i64>`).
 
+// ── FlatMapIter<I, T, F, II, U> — map each item to an iter, flatten ───────
+//
+// Mirrors `Iterator::flat_map(self, f: F)` — combines `map(f)` then
+// `flatten()`. Each outer item `t: T` maps via closure `f: FnMut(T)
+// -> II` to an inner iterator `II: Iterator<U>`; FlatMapIter yields
+// the elements of those inner iterators in sequence.
+//
+// Two-state buffer mirrors FlattenIter's `has_cur: bool` + `cur: II`
+// pattern. `_t` / `_u` phantoms anchor the type-params through mono
+// (none of them appear in fields otherwise — needed so the impl can
+// recover T / U at substitution time).
+
+pub struct FlatMapIter<I, T, F, II, U> {
+    pub outer:   I,
+    pub f:       F,
+    pub has_cur: bool,
+    pub cur:     II,
+    pub _t:      T,
+    pub _u:      U,
+}
+
+impl<I: Iterator<T>, T, F: FnMut(T) -> II, II: Iterator<U>, U>
+    Iterator<U> for FlatMapIter<I, T, F, II, U>
+{
+    fn next(self: &mut FlatMapIter<I, T, F, II, U>) -> Option<U> {
+        loop {
+            if self.has_cur {
+                let v: Option<U> = self.cur.next();
+                if v.is_some() { return v; }
+                self.has_cur = false;
+            }
+            let next_outer: Option<T> = self.outer.next();
+            match next_outer {
+                Option::None    => { return Option::None; }
+                Option::Some(t) => {
+                    self.cur     = (self.f)(t);
+                    self.has_cur = true;
+                }
+            }
+        }
+    }
+}
+
+pub fn iter_flat_map<I: Iterator<T>, T, F: FnMut(T) -> II, II: Iterator<U>, U>(
+    iter: I, f: F, zero_t: T, zero_inner: II, zero_u: U)
+    -> FlatMapIter<I, T, F, II, U>
+{
+    return FlatMapIter {
+        outer:   iter,
+        f:       f,
+        has_cur: false,
+        cur:     zero_inner,
+        _t:      zero_t,
+        _u:      zero_u,
+    };
+}
+
+// cloned / copied — deferred. Rust's `iter.cloned()` and `iter.copied()`
+// take an `Iterator<Item = &T>` and yield `T` by value. Logos's iter
+// types already yield T by value (no built-in by-ref iter shape), so
+// the cloned/copied surface would only matter for `SliceIter`-style
+// adapters that yield `&T`. Add them once a `IterRef<T>` style adapter
+// exists.
+
 // by_ref_sized — deferred. Rust's `Iterator::by_ref(&mut self) ->
 // &mut Self` requires `impl<I: Iterator<Item>, Item> Iterator<Item>
 // for &mut I`, which makes every Iterator trait default method

@@ -1,0 +1,43 @@
+// iter::flat_map — map each item to an iter, flatten the results.
+package iter_flat_map;
+
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.range;
+
+fn make_range(x: i32) -> RangeI32 {
+    return range_i32(0i32, x);
+}
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    // Source: [2, 3] → flat_map(make_range) → [0, 1, 0, 1, 2].
+    let outer: RangeI32 = range_i32(2i32, 4i32);
+    let zero_outer: i32 = 0i32;
+    let zero_inner: RangeI32 = range_i32(0i32, 0i32);
+    let zero_u: i32 = 0i32;
+    let mut fm: FlatMapIter<RangeI32, i32, fn(i32) -> RangeI32, RangeI32, i32> =
+        iter_flat_map::<RangeI32, i32, fn(i32) -> RangeI32, RangeI32, i32>(
+            outer, make_range, zero_outer, zero_inner, zero_u);
+
+    let v0: Option<i32> = fm.next();
+    if !v0.is_some() { return fail(1); }
+    if v0.unwrap() != 0i32 { return fail(2); }
+    let v1: Option<i32> = fm.next();
+    if !v1.is_some() { return fail(3); }
+    if v1.unwrap() != 1i32 { return fail(4); }
+    let v2: Option<i32> = fm.next();
+    if !v2.is_some() { return fail(5); }
+    if v2.unwrap() != 0i32 { return fail(6); }
+    let v3: Option<i32> = fm.next();
+    if !v3.is_some() { return fail(7); }
+    if v3.unwrap() != 1i32 { return fail(8); }
+    let v4: Option<i32> = fm.next();
+    if !v4.is_some() { return fail(9); }
+    if v4.unwrap() != 2i32 { return fail(10); }
+    let v5: Option<i32> = fm.next();
+    if v5.is_some() { return fail(11); }
+
+    return 0;
+}

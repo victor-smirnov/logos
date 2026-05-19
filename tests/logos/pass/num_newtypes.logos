@@ -1,0 +1,41 @@
+// Wrapping<T> and Saturating<T> newtype wrappers.
+package num_newtypes;
+
+use logos.lang.num.newtypes;
+use logos.lang.ops;
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    // Wrapping<i32>: 2147483647 + 1 → -2147483648.
+    let a: Wrapping<i32> = Wrapping::<i32> { v: 2147483647i32 };
+    let b: Wrapping<i32> = Wrapping::<i32> { v: 1i32 };
+    let c: Wrapping<i32> = a.add(b);
+    if c.v != 0i32 - 2147483647i32 - 1i32 { return fail(1); }
+
+    // Wrapping<u8>: 255 + 1 → 0.
+    let p: Wrapping<u8> = Wrapping::<u8> { v: 255u8 };
+    let q: Wrapping<u8> = Wrapping::<u8> { v: 1u8 };
+    let r: Wrapping<u8> = p.add(q);
+    if r.v != 0u8 { return fail(2); }
+
+    // Wrapping mul: 256 * 256 → 0 on u16.
+    let mp: Wrapping<u16> = Wrapping::<u16> { v: 256u16 };
+    let mq: Wrapping<u16> = Wrapping::<u16> { v: 256u16 };
+    let mr: Wrapping<u16> = mp.mul(mq);
+    if mr.v != 0u16 { return fail(3); }
+
+    // Saturating<i32>: 2147483647 + 1 → 2147483647 (clamped).
+    let sa: Saturating<i32> = Saturating::<i32> { v: 2147483647i32 };
+    let sb: Saturating<i32> = Saturating::<i32> { v: 1i32 };
+    let sc: Saturating<i32> = sa.add(sb);
+    if sc.v != 2147483647i32 { return fail(4); }
+
+    // Saturating<u32>: 0 - 5 → 0 (clamped via sub).
+    let su: Saturating<u32> = Saturating::<u32> { v: 0u32 };
+    let sv: Saturating<u32> = Saturating::<u32> { v: 5u32 };
+    let sw: Saturating<u32> = su.sub(sv);
+    if sw.v != 0u32 { return fail(5); }
+
+    return 0;
+}

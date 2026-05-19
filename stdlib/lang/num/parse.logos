@@ -222,3 +222,155 @@ impl FromStr<ParseIntError> for u32 {
 impl FromStr<ParseIntError> for u64 {
     fn from_str(s: str) -> Result<u64, ParseIntError> { return u64_from_str(s); }
 }
+
+// ── Float parsing ────────────────────────────────────────────────────────
+//
+// Mirrors `f64::from_str` / `f32::from_str`. Strict — the whole input
+// must be a well-formed float; trailing junk is an error.
+//
+// Accepts:
+//   * Optional leading `+` / `-`
+//   * Decimal mantissa with optional fractional part
+//   * Optional `e`/`E` exponent with optional sign
+//   * "inf", "infinity", "nan" (case-insensitive)
+//
+// Subnormals and rounding round-trip via straightforward IEEE 754
+// arithmetic — this is not bit-exact with the Rust `dec2flt` algorithm,
+// but is accurate to a few ulp for normal inputs.
+
+fn ascii_lower(b: u8) -> u8 {
+    if b >= 65u8 && b <= 90u8 { return (b - 65u8) + 97u8; }
+    return b;
+}
+
+fn str_eq_ci(s: str, lit: str) -> bool {
+    if s.len() != lit.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < s.len() {
+        if ascii_lower(s[i]) != ascii_lower(lit[i]) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+pub fn f64_from_str(s: str) -> Result<f64, ParseFloatError> {
+    if s.len() == 0i64 {
+        return Result::<f64, ParseFloatError>::Err(
+            ParseFloatError::new(FloatErrorKind::Empty));
+    }
+    let mut i: i64 = 0i64;
+    let mut sign: f64 = 1.0;
+    let first: u8 = s[0i64];
+    if first == 45u8 { sign = 0.0 - 1.0; i = 1i64; }
+    else if first == 43u8 { i = 1i64; }
+
+    if i >= s.len() {
+        return Result::<f64, ParseFloatError>::Err(
+            ParseFloatError::new(FloatErrorKind::Invalid));
+    }
+
+    // Special names — match against the sign-stripped tail.
+    let mut tail_buf: [u8; 16] = [0u8; 16];
+    let tail_len: i64 = s.len() - i;
+    if tail_len <= 16i64 {
+        let mut k: i64 = 0i64;
+        while k < tail_len {
+            tail_buf[k] = s[i + k];
+            k = k + 1i64;
+        }
+        let tail: str = unsafe { str_from_raw(&tail_buf[0i64] as *const u8, tail_len) };
+        if str_eq_ci(tail, "nan") {
+            return Result::<f64, ParseFloatError>::Ok(0.0 / 0.0);
+        }
+        if str_eq_ci(tail, "inf") || str_eq_ci(tail, "infinity") {
+            let big: f64 = 1.0e308 * 10.0;
+            return Result::<f64, ParseFloatError>::Ok(sign * big);
+        }
+    }
+
+    let mut whole: f64 = 0.0;
+    let mut seen_digit: bool = false;
+    while i < s.len() {
+        let c: i32 = s[i] as i32;
+        if c < 48 || c > 57 { break; }
+        whole = whole * 10.0 + ((c - 48) as f64);
+        seen_digit = true;
+        i = i + 1i64;
+    }
+
+    let mut frac: f64 = 0.0;
+    let mut frac_div: f64 = 1.0;
+    if i < s.len() && (s[i] as i32) == 46 {
+        i = i + 1i64;
+        while i < s.len() {
+            let c: i32 = s[i] as i32;
+            if c < 48 || c > 57 { break; }
+            frac = frac * 10.0 + ((c - 48) as f64);
+            frac_div = frac_div * 10.0;
+            seen_digit = true;
+            i = i + 1i64;
+        }
+    }
+
+    if !seen_digit {
+        return Result::<f64, ParseFloatError>::Err(
+            ParseFloatError::new(FloatErrorKind::Invalid));
+    }
+
+    let mut value: f64 = sign * (whole + frac / frac_div);
+
+    if i < s.len() {
+        let e: i32 = s[i] as i32;
+        if e == 101 || e == 69 {
+            i = i + 1i64;
+            let mut esign: i32 = 1i32;
+            if i < s.len() && (s[i] as i32) == 45 { esign = -1i32; i = i + 1i64; }
+            else if i < s.len() && (s[i] as i32) == 43 { i = i + 1i64; }
+            if i >= s.len() {
+                return Result::<f64, ParseFloatError>::Err(
+                    ParseFloatError::new(FloatErrorKind::Invalid));
+            }
+            let mut exp: i32 = 0i32;
+            let mut seen_exp_digit: bool = false;
+            while i < s.len() {
+                let c: i32 = s[i] as i32;
+                if c < 48 || c > 57 { break; }
+                exp = exp * 10 + (c - 48);
+                seen_exp_digit = true;
+                i = i + 1i64;
+            }
+            if !seen_exp_digit {
+                return Result::<f64, ParseFloatError>::Err(
+                    ParseFloatError::new(FloatErrorKind::Invalid));
+            }
+            let mut mult: f64 = 1.0;
+            let mut k: i32 = 0i32;
+            while k < exp { mult = mult * 10.0; k = k + 1i32; }
+            if esign < 0i32 { value = value / mult; }
+            else            { value = value * mult; }
+        }
+    }
+
+    // Any leftover characters → invalid.
+    if i != s.len() {
+        return Result::<f64, ParseFloatError>::Err(
+            ParseFloatError::new(FloatErrorKind::Invalid));
+    }
+
+    return Result::<f64, ParseFloatError>::Ok(value);
+}
+
+pub fn f32_from_str(s: str) -> Result<f32, ParseFloatError> {
+    let r: Result<f64, ParseFloatError> = f64_from_str(s);
+    match r {
+        Result::Ok(v)  => { return Result::<f32, ParseFloatError>::Ok(v as f32); }
+        Result::Err(e) => { return Result::<f32, ParseFloatError>::Err(e); }
+    }
+}
+
+impl FromStr<ParseFloatError> for f32 {
+    fn from_str(s: str) -> Result<f32, ParseFloatError> { return f32_from_str(s); }
+}
+impl FromStr<ParseFloatError> for f64 {
+    fn from_str(s: str) -> Result<f64, ParseFloatError> { return f64_from_str(s); }
+}

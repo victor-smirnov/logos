@@ -1,0 +1,41 @@
+// io::Error + ErrorKind + BorrowedBuf basic smoke.
+package io_error_basic;
+
+use logos.std.io.error;
+use logos.lang.option;
+
+fn fail(c: i32) -> i32 { return c; }
+
+fn main() -> i32 {
+    // From errno: ENOENT (2) → NotFound; raw_os_error = Some(2).
+    let e: IoError = io_error_from_errno(2i32);
+    match e.kind() {
+        ErrorKind::NotFound => {}
+        _ => { return fail(1); }
+    }
+    let r: Option<i32> = e.raw_os_error();
+    if !r.is_some() { return fail(2); }
+    if r.unwrap() != 2i32 { return fail(3); }
+
+    // Synthetic error: kind = InvalidInput; raw_os_error = None.
+    let e2: IoError = io_error_new(ErrorKind::InvalidInput, "bad arg");
+    match e2.kind() {
+        ErrorKind::InvalidInput => {}
+        _ => { return fail(4); }
+    }
+    if e2.raw_os_error().is_some() { return fail(5); }
+
+    // BorrowedBuf — basic capacity / filled / remaining accounting.
+    let mut buf: [u8; 16] = [0u8; 16];
+    let mut bb: BorrowedBuf = unsafe { borrowed_buf_new(&mut buf[0i64] as *mut u8, 16i64) };
+    if bb.capacity() != 16i64 { return fail(10); }
+    if bb.filled() != 0i64 { return fail(11); }
+    if bb.remaining() != 16i64 { return fail(12); }
+    unsafe { bb.advance(5i64); }
+    if bb.filled() != 5i64 { return fail(13); }
+    if bb.remaining() != 11i64 { return fail(14); }
+    bb.clear();
+    if bb.filled() != 0i64 { return fail(15); }
+
+    return 0;
+}

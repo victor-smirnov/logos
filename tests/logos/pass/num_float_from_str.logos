@@ -1,0 +1,92 @@
+// f32/f64 FromStr smoke.
+package num_float_from_str;
+
+use logos.lang.num.parse;
+use logos.lang.num.error;
+use logos.lang.result;
+
+fn fail(c: i32) -> i32 { return c; }
+
+// Within +/- 1e-6 of expected (loose — hand-rolled parser is not bit-exact).
+fn close64(a: f64, b: f64) -> bool {
+    let d: f64 = if a > b { a - b } else { b - a };
+    return d < 0.000001;
+}
+
+fn main() -> i32 {
+    // 0.0
+    let r1: Result<f64, ParseFloatError> = f64_from_str("0");
+    match r1 {
+        Result::Ok(v)  => { if !close64(v, 0.0) { return fail(1); } }
+        Result::Err(_) => { return fail(2); }
+    }
+
+    // -1.5
+    let r2: Result<f64, ParseFloatError> = f64_from_str("-1.5");
+    match r2 {
+        Result::Ok(v)  => { if !close64(v, 0.0 - 1.5) { return fail(3); } }
+        Result::Err(_) => { return fail(4); }
+    }
+
+    // 3.14
+    let r3: Result<f64, ParseFloatError> = f64_from_str("3.14");
+    match r3 {
+        Result::Ok(v)  => { if !close64(v, 3.14) { return fail(5); } }
+        Result::Err(_) => { return fail(6); }
+    }
+
+    // 1e3 = 1000
+    let r4: Result<f64, ParseFloatError> = f64_from_str("1e3");
+    match r4 {
+        Result::Ok(v)  => { if !close64(v, 1000.0) { return fail(7); } }
+        Result::Err(_) => { return fail(8); }
+    }
+
+    // 2.5e-2 = 0.025
+    let r5: Result<f64, ParseFloatError> = f64_from_str("2.5e-2");
+    match r5 {
+        Result::Ok(v)  => { if !close64(v, 0.025) { return fail(9); } }
+        Result::Err(_) => { return fail(10); }
+    }
+
+    // Empty → Empty
+    let r6: Result<f64, ParseFloatError> = f64_from_str("");
+    match r6 {
+        Result::Ok(_)  => { return fail(11); }
+        Result::Err(e) => {
+            match e.kind {
+                FloatErrorKind::Empty => {}
+                _ => { return fail(12); }
+            }
+        }
+    }
+
+    // "abc" → Invalid
+    let r7: Result<f64, ParseFloatError> = f64_from_str("abc");
+    match r7 {
+        Result::Ok(_)  => { return fail(13); }
+        Result::Err(e) => {
+            match e.kind {
+                FloatErrorKind::Invalid => {}
+                _ => { return fail(14); }
+            }
+        }
+    }
+
+    // Trailing junk → Invalid
+    let r8: Result<f64, ParseFloatError> = f64_from_str("1.5xyz");
+    match r8 {
+        Result::Ok(_)  => { return fail(15); }
+        Result::Err(_) => {}
+    }
+
+    // f32 path
+    let r9: Result<f32, ParseFloatError> = f32_from_str("2.5");
+    match r9 {
+        Result::Ok(v)  => { if (v as f64) - 2.5 > 0.000001 { return fail(16); }
+                            if 2.5 - (v as f64) > 0.000001 { return fail(17); } }
+        Result::Err(_) => { return fail(18); }
+    }
+
+    return 0;
+}
