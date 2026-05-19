@@ -436,13 +436,48 @@ private:
         return r;
     }
 
+    // ── Substitution-complete gate (Phase 1) ──────────────────────────────
+    //
+    // True iff `tv` contains a TypeVar at any depth (own kind, nested
+    // pointee, array element, tuple element, generic type-args, fn
+    // params/return). Used to gate trait-method clones and the
+    // record_needed_* instantiation queue so that nested-generic
+    // shapes like `Option<(A, B)>` or `Result<Option<T>, E>` aren't
+    // eagerly cloned while their inner TypeVars are still unresolved
+    // (the eager-clone path used to produce `OptionIter$G1$<error>`
+    // wrappers mlir-gen couldn't lower —
+    // [[baghunt-mono-eager-typevar-default-clone]]).
+    //
+    // The pre-existing shallow check `t.kind() == Kind::TypeVar` only
+    // caught immediate top-level TypeVars; this recurses through
+    // every kind so nested forms get blocked too.
+    static bool contains_typevar(TypeRef tv) noexcept {
+        if (!tv) return false;
+        if (tv.kind() == LogosType::Kind::TypeVar) return true;
+        // Phase 1: Error-kind types are sema's placeholder for unresolved
+        // references; mangling them produces `<error>` in spec names which
+        // the mlir-gen layer can't lower. Treat them as "unresolved" for
+        // gating purposes — same hazard class as TypeVar.
+        if (tv.kind() == LogosType::Kind::Error) return true;
+        for (auto a : tv.type_args()) if (contains_typevar(a)) return true;
+        if (tv.pointee() && contains_typevar(tv.pointee())) return true;
+        if (tv.elem()    && contains_typevar(tv.elem()))    return true;
+        for (auto e : tv.tuple_elems())    if (contains_typevar(e)) return true;
+        for (auto p : tv.closure_params()) if (contains_typevar(p)) return true;
+        if (tv.closure_ret() && contains_typevar(tv.closure_ret())) return true;
+        return false;
+    }
+
     // ── Record needed instantiations (small — inline) ────────────────────
     void record_needed_struct(TypeRef tr) {
         if (!tr || (tr.kind() != LogosType::Kind::Struct &&
                     tr.kind() != LogosType::Kind::ZonedStruct) ||
             tr.type_args().empty()) return;
+        // Phase 1: recursive TypeVar check (was shallow `kind() == TypeVar`
+        // per-arg; missed nested forms like `Foo<(A, B)>` where the tuple
+        // wraps the TypeVars).
         for (auto a : tr.type_args())
-            if (TypeRef(a).kind() == LogosType::Kind::TypeVar) return;
+            if (contains_typevar(a)) return;
         auto cname = qualified_cname(tr);
         if (!struct_done_.count(cname)) {
             if (depth_ >= max_depth_) {
@@ -457,8 +492,9 @@ private:
 
     void record_needed_enum(TypeRef tr) {
         if (!tr || tr.kind() != LogosType::Kind::Enum || tr.type_args().empty()) return;
+        // Phase 1: recursive TypeVar check (was shallow per-arg).
         for (auto a : tr.type_args())
-            if (TypeRef(a).kind() == LogosType::Kind::TypeVar) return;
+            if (contains_typevar(a)) return;
         std::string cname = std::string(tr.enum_name());
         for (auto a : tr.type_args()) { cname += "__"; cname += mangle_type(a); }
         if (!enum_done_.count(cname)) {

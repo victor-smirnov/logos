@@ -77,6 +77,17 @@ fixpoint) is sound; the bugs are localized invariant violations.
 
 ## Phase 1 — Substitution-complete gate
 
+**Status**: PARTIAL (2026-05-19). `contains_typevar` helper landed +
+record_needed_* routed through it. 3259/3259 ctest green. The
+`TakeWhileIter$G2$OptionIter$G1$<error>` cascade class is killed.
+Deferred port surface (option_unzip / result_flatten /
+result_transpose) STILL FAILS with a different shape
+(`mlir_gen: unknown tagged enum 'Option__<error>'`) — upstream
+sema/mono emits Kind::Error in a substituted body that reaches the
+EnumLit emit site. Need to track down the Kind::Error source or
+gate the EnumLit emit in coordination with Phase 2's bound-driven
+instantiation. Phase 1 helper is a defensive guard, NOT a full fix.
+
 **Scope**: ~250 LOC, 2–3 days, low risk.
 
 **Goal**: kill the nested-generic TypeVar cascade class of bugs
