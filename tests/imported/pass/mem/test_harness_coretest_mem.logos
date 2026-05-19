@@ -19,24 +19,22 @@
 //     Logos doesn't yet have a `target_pointer_width` cfg query, so
 //     the 16/32 variants of the upstream tests are dropped rather
 //     than guarded.
-//   - test_replace upstream uses `Option<String>`. Logos's mono pipeline
-//     hits a mismatch ("expected !llvm.ptr, got i32") when
-//     `replace_ref::<Option<X>>(&mut opt, Option::None)` is instantiated
-//     — appears to be a cascade off Option<i32>'s by-value-through-raw-
-//     pointer copy interacting with the heap-pointer enum convention
-//     (separate baghunt — `replace_ref` with a struct payload works).
-//     Switched to a struct payload `Pair { a, b }` to demonstrate the
-//     non-Copy replace semantics without tripping the cascade.
+//   - test_replace mirrors upstream's `Option<String>` shape directly
+//     (`mem::replace(&mut Some(s), None)`). The earlier
+//     `replace_ref::<Option<X>>` cascade ("expected !llvm.ptr, got i32")
+//     was a sema gap — a payload-less `Option::None` arg kept a bare
+//     `Option` type so mlir-gen emitted a C-style discriminant; fixed by
+//     retyping the literal to the substituted param type. No divergence
+//     remains here.
 
 package test_harness_coretest_mem;
 
 use std.fmt;
+use logos.lang.option;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.panic;
 use logos.mem.mem;
-
-pub struct Pair { a: i32, b: i32 }
 
 #[test]
 fn size_of_basic() {
@@ -76,10 +74,9 @@ fn test_swap() {
 
 #[test]
 fn test_replace() {
-    let mut x: Pair = Pair { a: 1i32, b: 2i32 };
-    let y = replace_ref::<Pair>(&mut x, Pair { a: 10i32, b: 20i32 });
-    assert_eq!(x.a, 10i32);
-    assert_eq!(x.b, 20i32);
-    assert_eq!(y.a, 1i32);
-    assert_eq!(y.b, 2i32);
+    let mut x: Option<String> = Option::Some(String::from("test"));
+    let y = replace_ref::<Option<String>>(&mut x, Option::None);
+    // x is now None; y holds the previous Some("test").
+    match x { Option::Some(s) => { panic("x should be None"); } Option::None => {} }
+    match y { Option::Some(s) => { assert_eq!(s.len(), 4i64); } Option::None => { panic("y should be Some"); } }
 }

@@ -1,0 +1,25 @@
+// Regression: mem::replace_ref::<Option<T>> — payload-less enum-literal
+// arg (`Option::None`) must carry concrete type-args so mlir-gen emits the
+// heap-ptr enum form, not a C-style i32 discriminant. Covers both turbofish
+// (replace_ref::<Option<i32>>) and inferred-from-sibling-arg dispatch.
+
+package replace_ref_option;
+
+use logos.lang.option;
+use logos.mem.mem;
+
+fn main() -> i32 {
+    // turbofish form
+    let mut a: Option<i32> = Option::Some(7i32);
+    let ya = replace_ref::<Option<i32>>(&mut a, Option::None);
+    let mut rc: i32 = 0i32;
+    match ya { Option::Some(v) => { rc = rc + v; } Option::None => { rc = rc + 100i32; } }
+    match a  { Option::Some(w) => { rc = rc + w; } Option::None => { rc = rc + 1i32; } }
+
+    // inferred form (T from the &mut sibling arg)
+    let mut b: Option<i32> = Option::Some(30i32);
+    let yb = replace_ref(&mut b, Option::None);
+    match yb { Option::Some(v) => { rc = rc + v; } Option::None => { rc = rc + 200i32; } }
+
+    return rc; // 7 + 1 + 30 = 38
+}

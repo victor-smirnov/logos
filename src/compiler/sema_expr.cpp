@@ -2730,6 +2730,31 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
     // Substitute return type
     TypeRef ret = subst_type_sema(fi.ret_type, subst);
 
+    // A payload-less enum-literal arg (`Option::None`) lowered before type
+    // inference carries a bare enum type (no type-args). Once `subst` binds
+    // the generic param to a concrete enum (`T = Option<i32>`), retype the
+    // literal so its mirror TYPE carries the type-args — mlir-gen's
+    // `resolve_tagged_enum` then finds the `Option__i32` layout and emits the
+    // heap-ptr form rather than a C-style i32 discriminant. Covers both the
+    // turbofish path (param `T` substituted directly) and the inferred path
+    // (`T` inferred from a sibling `&mut T` arg).
+    auto retype_bare_enum_arg = [&](lir::LExprPtr& a, TypeRef pt) {
+        if (!a || !pt) return;
+        TypeRef at = a->type;
+        if (TypeRef(at).kind() != LogosType::Kind::Enum ||
+            !TypeRef(at).type_args().empty()) return;
+        if (expr_ref_of(*a).kind() != lir_schema::expr::Code::EnumLit) return;
+        TypeRef target = pt;
+        if ((TypeRef(target).kind() == LogosType::Kind::Ref ||
+             TypeRef(target).kind() == LogosType::Kind::MutRef) &&
+            TypeRef(target).pointee())
+            target = TypeRef(target).pointee();
+        if (TypeRef(target).kind() == LogosType::Kind::Enum &&
+            !TypeRef(target).type_args().empty() &&
+            TypeRef(target).enum_name() == TypeRef(at).enum_name())
+            builder().retype_expr(a, target);
+    };
+
     // Validate value argument count and types
     uint64_t n_args = arg_exprs.size();
     bool has_pack_expand = false;
@@ -2751,6 +2776,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                   callee_diag, fixed_params, n_args));
         for (uint64_t i = 0; i < fixed_params && i < n_args; ++i) {
             auto pt = subst_type_sema(fi.param_types[i], subst);
+            retype_bare_enum_arg(arg_exprs[i], pt);
             try_coerce_closure_to_fnptr(arg_exprs[i], pt);
             widen_int_expr(arg_exprs[i], pt, builder());
             auto at = arg_exprs[i]->type;
@@ -2777,6 +2803,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
         } else {
             for (uint64_t i = 0; i < n_args; ++i) {
                 auto pt = subst_type_sema(fi.param_types[i], subst);
+                retype_bare_enum_arg(arg_exprs[i], pt);
                 try_coerce_closure_to_fnptr(arg_exprs[i], pt);
                 try_coerce_array_ref_to_slice(arg_exprs[i], pt);
                 widen_int_expr(arg_exprs[i], pt, builder());
@@ -4158,7 +4185,10 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         }
     }
 
-    // Resolve value arguments
+    // Resolve value arguments. Payload-less enum-literal args (`Option::None`)
+    // are lowered with a bare enum type here; finish_generic_call retypes them
+    // to the concrete param type once `subst` is known (covers both the
+    // turbofish path and the inferred path).
     std::vector<lir::LExprPtr> arg_exprs;
     if (node.has_key(la::ARGS)) {
         AnyVal args_av = node.get(la::ARGS.code);
