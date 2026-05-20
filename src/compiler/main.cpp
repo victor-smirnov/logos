@@ -2860,16 +2860,20 @@ int main(int argc, char** argv) {
     auto is_jit_unsafe_archive = [](std::string_view sv) {
         auto last = sv.rfind('/');
         std::string_view base = (last == std::string_view::npos) ? sv : sv.substr(last + 1);
+        // Native fiber-context archive carries TLS relocations ORC's
+        // RuntimeDyld can't handle (R_X86_64_GOTTPOFF). Metaprog hooks run on
+        // the host main thread, not a Logos fiber, so the JIT doesn't need it.
         if (base.find("_fibers.a") != std::string_view::npos) return true;
-        // Three-layer split Phase 4 transition: layer archives
-        // (liblogos-{lang,mem,std}.a) contain templates re-specialized
-        // from the monolith via pkg_in_prelude auto-load. The user-link
-        // path tolerates duplicates via archive order (run_test.sh puts
-        // monolith first), but the metacall JIT loads all archives and
-        // can't disambiguate, breaking metaprog-hook symbol resolution.
-        // Filter them out — metaprog hooks resolve fine from liblstdlib.a
-        // alone during the transition. Phase 7 cleanup removes this.
-        if (base.size() >= 8 && base.compare(0, 8, "liblogos") == 0) return true;
+        // Modular stdlib: the std layer's .o is SELF-CONTAINED (re-embeds
+        // lang+mem), so the metacall JIT loads `liblogos-std.a` alone — the
+        // way it used the former self-contained monolith. The lower layers
+        // `liblogos-lang.a` / `liblogos-mem.a` carry the SAME symbols (the
+        // embedding), so feeding them to the JIT too would create duplicate
+        // definitions it can't disambiguate. Filter the lower layers; keep
+        // liblogos-std for the JIT. (User-link still gets all three via the
+        // CMake/run_test archive list with --allow-multiple-definition.)
+        if (base.rfind("liblogos-lang", 0) == 0) return true;
+        if (base.rfind("liblogos-mem", 0) == 0)  return true;
         return false;
     };
     for (const auto& dir : search_paths) {

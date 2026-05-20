@@ -30,7 +30,9 @@ add_custom_target(lforge_pkg_binary DEPENDS ${LFORGE_PKG_BIN})
 
 set(_link_archives
     ${LFORGE_PKG_BIN}
-    ${LOGOS_BUILD_LIB_DIR}/liblstdlib.a
+    ${LOGOS_BUILD_LIB_DIR}/liblogos-lang.a
+    ${LOGOS_BUILD_LIB_DIR}/liblogos-mem.a
+    ${LOGOS_BUILD_LIB_DIR}/liblogos-std.a
     ${LOGOS_BUILD_LIB_DIR}/liblstdlib_fibers.a
     ${LOGOS_BUILD_LIB_DIR}/liblstdlib_rt.a
     ${LOGOS_BUILD_LIB_DIR}/liblstdlib_uring.a)
@@ -47,7 +49,7 @@ add_custom_command(
 
 add_custom_command(
     OUTPUT ${LFORGE_BIN}
-    COMMAND ${CMAKE_CXX_COMPILER} -Wl,--gc-sections ${LFORGE_OBJ} ${_link_archives} -lpthread -lm -o ${LFORGE_BIN}
+    COMMAND ${CMAKE_CXX_COMPILER} -Wl,--gc-sections ${LFORGE_OBJ} -Wl,--start-group ${_link_archives} -Wl,--end-group -Wl,--allow-multiple-definition -lpthread -lm -o ${LFORGE_BIN}
     DEPENDS ${LFORGE_OBJ} ${_link_archives}
     COMMENT "link: lforge"
 )

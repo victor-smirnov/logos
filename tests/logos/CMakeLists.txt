@@ -11,24 +11,22 @@ set(STDLIB      ${CMAKE_SOURCE_DIR}/stdlib)
 set(PUB_LIB     ${CMAKE_CURRENT_SOURCE_DIR}/pub_lib)
 
 # Three-layer split Step 8 (2026-05-17): build order FLIPPED.
-# Layer archives are now built FIRST (lang → mem → std-new); the
-# monolith builds LAST, consuming them via -L and now-active
-# `exclude lang|mem|std-new` in stdlib/logos.module. Layer-lang stands
-# alone with no monolith dependency; monolith holds only std/ content.
-set(STDLIB_MODULE_MANIFEST ${CMAKE_SOURCE_DIR}/stdlib/logos.module)
+# Single modular stdlib: three layers lang → mem → std (each built with -L
+# referencing the lower archives; the std layer's .o is self-contained — it
+# re-embeds lang+mem — so the metacall JIT can load liblogos-std.a alone, the
+# way it used the former monolith). The monolith (liblstdlib.a) was folded
+# into the std layer 2026-05-20: stdlib/std now holds ALL logos.std.* packages
+# (io/http/persistent/metaprog/fmt/sync/process + thread/time/crypto/...).
 set(STDLIB_BIN_DIR ${LOGOS_BUILD_LIB_DIR})
-set(STDLIB_BIN ${STDLIB_BIN_DIR}/liblstdlib.a)
 set(LOGOS_LANG_MANIFEST ${CMAKE_SOURCE_DIR}/stdlib/lang/logos.module)
 set(LOGOS_MEM_MANIFEST  ${CMAKE_SOURCE_DIR}/stdlib/mem/logos.module)
-set(LOGOS_STD_MANIFEST  ${CMAKE_SOURCE_DIR}/stdlib/std-new/logos.module)
+set(LOGOS_STD_MANIFEST  ${CMAKE_SOURCE_DIR}/stdlib/std/logos.module)
 set(LOGOS_LANG_BIN ${STDLIB_BIN_DIR}/liblogos-lang.a)
 set(LOGOS_MEM_BIN  ${STDLIB_BIN_DIR}/liblogos-mem.a)
 set(LOGOS_STD_BIN  ${STDLIB_BIN_DIR}/liblogos-std.a)
 file(GLOB_RECURSE LOGOS_LANG_SOURCES ${CMAKE_SOURCE_DIR}/stdlib/lang/*.logos)
 file(GLOB_RECURSE LOGOS_MEM_SOURCES  ${CMAKE_SOURCE_DIR}/stdlib/mem/*.logos)
-file(GLOB_RECURSE LOGOS_STD_SOURCES  ${CMAKE_SOURCE_DIR}/stdlib/std-new/*.logos)
-file(GLOB_RECURSE STDLIB_SOURCES ${CMAKE_SOURCE_DIR}/stdlib/std/*.logos
-                                  ${CMAKE_SOURCE_DIR}/stdlib/rt/*.logos)
+file(GLOB_RECURSE LOGOS_STD_SOURCES  ${CMAKE_SOURCE_DIR}/stdlib/std/*.logos)
 add_custom_command(
     OUTPUT  ${LOGOS_LANG_BIN}
     COMMAND $<TARGET_FILE:logosc>
@@ -61,20 +59,11 @@ add_custom_command(
 add_custom_target(stdlib_layers ALL DEPENDS
     ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN})
 
-# Monolith builds LAST, with -L pointing at layer archives so excluded
-# lang/mem/std-new packages resolve from binary.
-add_custom_command(
-    OUTPUT  ${STDLIB_BIN}
-    COMMAND $<TARGET_FILE:logosc>
-            --emit-module ${STDLIB_MODULE_MANIFEST}
-            -L ${STDLIB_BIN_DIR}
-            -o ${STDLIB_BIN}
-    DEPENDS logosc ${STDLIB_MODULE_MANIFEST} ${STDLIB_SOURCES}
-            ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN}
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    COMMENT "Building binary stdlib: liblstdlib.a (depends layer archives)"
-)
-add_custom_target(stdlib_binary ALL DEPENDS ${STDLIB_BIN})
+# The monolith `stdlib_binary` target is gone (folded into the std layer);
+# keep the name as an alias to the layer set so existing
+# `add_dependencies(... stdlib_binary)` / DEPENDS sites still resolve.
+add_custom_target(stdlib_binary ALL DEPENDS
+    ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN})
 
 # Build libpub_lib.a from the pub_lib test fixture manifest. Used as a
 # realistic `-l <user-archive>` smoke test in the publib suite, replacing

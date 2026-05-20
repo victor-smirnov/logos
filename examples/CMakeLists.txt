@@ -33,7 +33,9 @@ function(logos_add_example NAME)
     set(_compile_deps logosc ${SRC} ${HERMES_STDLIB} stdlib_binary stdlib_uring logos_rt logos_fibers)
     set(_compile_extra)
     set(_link_archives
-        ${LOGOS_BUILD_LIB_DIR}/liblstdlib.a
+        ${LOGOS_BUILD_LIB_DIR}/liblogos-lang.a
+        ${LOGOS_BUILD_LIB_DIR}/liblogos-mem.a
+        ${LOGOS_BUILD_LIB_DIR}/liblogos-std.a
         ${LOGOS_BUILD_LIB_DIR}/liblstdlib_fibers.a
         ${LOGOS_BUILD_LIB_DIR}/liblstdlib_rt.a
         ${LOGOS_BUILD_LIB_DIR}/liblstdlib_uring.a)
@@ -47,7 +49,7 @@ function(logos_add_example NAME)
 
     add_custom_command(
         OUTPUT ${BIN}
-        COMMAND ${CMAKE_CXX_COMPILER} -Wl,--gc-sections ${OBJ} ${_link_archives} -lpthread -lm -lstdc++ -o ${BIN}
+        COMMAND ${CMAKE_CXX_COMPILER} -Wl,--gc-sections ${OBJ} -Wl,--start-group ${_link_archives} -Wl,--end-group -Wl,--allow-multiple-definition -lpthread -lm -lstdc++ -o ${BIN}
         DEPENDS ${OBJ} ${_link_archives}
         COMMENT "link: ${NAME}"
     )

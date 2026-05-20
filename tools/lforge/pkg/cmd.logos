@@ -484,7 +484,7 @@ fn build_test_bin(test_logos: &String,
     }
     let lib_view: str = str_from_raw(lib_dir.as_ptr(), lib_dir.len());
     let mut p1: String = String::new();
-    p1.push_str(lib_view); append_path(&mut p1, "liblstdlib.a"); largv_p.push(p1);
+    p1.push_str(lib_view); append_path(&mut p1, "liblogos-std.a"); largv_p.push(p1);
     let mut p2: String = String::new();
     p2.push_str(lib_view); append_path(&mut p2, "liblstdlib_fibers.a"); largv_p.push(p2);
     let mut p3: String = String::new();

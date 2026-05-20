@@ -79,7 +79,7 @@ add_subdirectory(tests/logos)
 # `cmake --install <build> --prefix <P>` produces a relocatable layout:
 #
 #   <P>/bin/logosc                       — compiler binary
-#   <P>/lib/logos/liblstdlib.a           — compiled stdlib (.o + .hermes0)
+#   <P>/lib/logos/liblogos-{lang,mem,std}.a — modular stdlib (.o + .hermes0)
 #   <P>/lib/logos/liblstdlib_rt.a        — native runtime support
 #   <P>/lib/logos/liblstdlib_uring.a     — liburing wrappers
 #
@@ -90,7 +90,9 @@ add_subdirectory(tests/logos)
 install(TARGETS logosc
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES
-    ${LOGOS_BUILD_LIB_DIR}/liblstdlib.a
+    ${LOGOS_BUILD_LIB_DIR}/liblogos-lang.a
+    ${LOGOS_BUILD_LIB_DIR}/liblogos-mem.a
+    ${LOGOS_BUILD_LIB_DIR}/liblogos-std.a
     ${LOGOS_BUILD_LIB_DIR}/liblstdlib_fibers.a
     ${LOGOS_BUILD_LIB_DIR}/liblstdlib_rt.a
     ${LOGOS_BUILD_LIB_DIR}/liblstdlib_uring.a

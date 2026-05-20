@@ -228,7 +228,15 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // satisfies the blanket's bound.  Each clone produces a function named
     // `Concrete__method` alongside the original `$blanket$...__method`
     // template, so normal call resolution (`I64__storage_new`) works.
+    //
+    // SKIP in reachability/JIT mode (entry_points non-empty): the metacall-JIT
+    // compiles a tiny hook module and lists every program symbol as required.
+    // The eager over-all-types pass would pollute that set with `<Type>__m`
+    // for every program type — incl. ast_only metaprog types (e.g.
+    // `Ident__type_id` from the unbounded `impl<T> Any for T` blanket) whose
+    // bodies are never codegen'd. In JIT mode blanket methods clone lazily.
     for (auto& bi : blanket_impls_) {
+        if (!entry_points_.empty()) break;
         std::string tmpl_prefix =
             "$blanket$" + bi.trait_name + "$" + bi.bound_trait
             + "$" + bi.target_typevar + "__";

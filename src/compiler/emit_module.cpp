@@ -307,7 +307,8 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                     for (auto& ent : fs::directory_iterator(d, dec)) {
                         if (!ent.is_regular_file()) continue;
                         auto fn = ent.path().filename().string();
-                        if (fn.rfind("liblstdlib", 0) == 0 &&
+                        if ((fn.rfind("liblstdlib", 0) == 0 ||
+                             fn.rfind("liblogos-", 0) == 0) &&
                             ent.path().extension() == ".a") {
                             mopts.archive_paths.push_back(ent.path().string());
                         }
@@ -338,7 +339,8 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                         for (auto& ent : fs::directory_iterator(d, dec)) {
                             if (!ent.is_regular_file()) continue;
                             auto fn = ent.path().filename().string();
-                            if (fn.rfind("liblstdlib", 0) == 0 &&
+                            if ((fn.rfind("liblstdlib", 0) == 0 ||
+                                 fn.rfind("liblogos-", 0) == 0) &&
                                 ent.path().extension() == ".a") {
                                 mopts.archive_paths.push_back(ent.path().string());
                             }
