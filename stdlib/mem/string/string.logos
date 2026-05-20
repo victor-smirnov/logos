@@ -24,7 +24,7 @@
 
 package logos.mem.string;
 
-use logos.mem.mem;
+use logos.lang.mem;
 use logos.lang.drop;
 use logos.lang.str;
 

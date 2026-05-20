@@ -5,11 +5,11 @@
 // *storage* format (how it lives in a typed homogeneous container like
 // `Buffer<DT>`).
 
-package logos.mem.hermes.fabric;
+package logos.lang.hermes.fabric;
 
 use logos.lang.drop;
 use logos.lang.cmp;
-use logos.mem.mem;
+use logos.lang.mem;
 
 // ---------------------------------------------------------------------------
 // Storage hierarchy — three orthogonal axes factored into a trait hierarchy.

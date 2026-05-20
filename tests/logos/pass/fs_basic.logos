@@ -5,7 +5,7 @@ use logos.std.io.fs;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.result;
-use logos.mem.mem;
+use logos.lang.mem;
 
 fn main() -> i32 {
     unsafe {

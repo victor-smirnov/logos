@@ -31,7 +31,7 @@
 
 package generic_chain_write_through_ptr;
 
-use logos.mem.mem;
+use logos.lang.mem;
 
 pub struct RcInner<T> { pub strong: i32, pub val: T, }
 pub struct Rc<T> { pub inner: *mut RcInner<T>, }

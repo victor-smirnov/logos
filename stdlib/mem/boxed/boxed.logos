@@ -6,7 +6,7 @@
 
 package logos.mem.boxed;
 
-use logos.mem.mem;
+use logos.lang.mem;
 
 pub struct Box<T> {
     ptr: *mut T,

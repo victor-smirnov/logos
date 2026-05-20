@@ -10,7 +10,7 @@
 
 package logos.std.io.buffered;
 
-use logos.mem.mem;
+use logos.lang.mem;
 use logos.mem.string;
 use logos.lang.str;
 use logos.std.io.read;

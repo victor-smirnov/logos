@@ -2,9 +2,9 @@ package hermes_comp_coerce;
 
 use logos.mem.hermes.ctr;
 use logos.lang.hermes.anyval;
-use logos.mem.hermes.array;
-use logos.mem.hermes.map;
-use logos.mem.hermes.typed_value;
+use logos.lang.hermes.array;
+use logos.lang.hermes.map;
+use logos.lang.hermes.typed_value;
 
 fn main() -> i32 {
     let xs: [i32; 4] = [1, 2, 3, 4];

@@ -15,15 +15,15 @@ package logos.mem.hermes.equal;
 
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.view;
-use logos.mem.hermes.string;
+use logos.lang.hermes.string;
 use logos.lang.hermes.typetag;
 use logos.mem.hermes.tag_system;
-use logos.mem.hermes.array;
-use logos.mem.hermes.map;
-use logos.mem.hermes.typed_value;
-use logos.mem.hermes.objectmap;
+use logos.lang.hermes.array;
+use logos.lang.hermes.map;
+use logos.lang.hermes.typed_value;
+use logos.lang.hermes.objectmap;
 use logos.lang.hermes.document;
-use logos.mem.hermes.scalar;
+use logos.lang.hermes.scalar;
 use logos.mem.hermes.decimal;
 
 pub struct EqualCtx {

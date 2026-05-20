@@ -5,9 +5,9 @@ use logos.mem.hermes.ctr;
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.typetag;
 use logos.lang.hermes.datatag;
-use logos.mem.hermes.array;
-use logos.mem.hermes.map;
-use logos.mem.hermes.typed_value;
+use logos.lang.hermes.array;
+use logos.lang.hermes.map;
+use logos.lang.hermes.typed_value;
 use logos.mem.string;
 use logos.lang.str;
 

@@ -4,8 +4,8 @@
 // "struct 'Map$G2$...' has no field 'k'".
 package struct_shadows_imported_datatype;
 
-use logos.mem.hermes.map;
-use logos.mem.hermes.fabric;
+use logos.lang.hermes.map;
+use logos.lang.hermes.fabric;
 
 pub struct Map<K, V> {
     pub k: K,

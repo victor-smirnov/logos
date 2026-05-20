@@ -8,13 +8,13 @@
 // `init_raw` and `params_raw` store AnyVal raw bits (inline or pointer).
 // `params_raw` is null_ptr (raw=0) when no params are specified.
 
-package logos.mem.hermes.typed_value;
+package logos.lang.hermes.typed_value;
 
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.tags;
 use logos.lang.hermes.relptr;
 use logos.lang.hermes.view;
-use logos.mem.hermes.string;
+use logos.lang.hermes.string;
 
 #[type_code = HermesTag::TypedValue]
 pub trait TypedValueTag {

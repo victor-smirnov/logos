@@ -5,9 +5,9 @@ package hermes_list_comp_basic;
 
 use logos.mem.hermes.ctr;
 use logos.lang.hermes.anyval;
-use logos.mem.hermes.array;
-use logos.mem.hermes.map;
-use logos.mem.hermes.typed_value;
+use logos.lang.hermes.array;
+use logos.lang.hermes.map;
+use logos.lang.hermes.typed_value;
 
 fn main() -> i32 {
     let arr: [i32; 5] = [1, 2, 3, 4, 5];

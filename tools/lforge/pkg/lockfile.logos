@@ -12,8 +12,8 @@ use logos.lang.hermes.zone;
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
-use logos.mem.hermes.map;
-use logos.mem.hermes.array;
+use logos.lang.hermes.map;
+use logos.lang.hermes.array;
 use logos.mem.hermes.parser;
 
 use lforge.schema;

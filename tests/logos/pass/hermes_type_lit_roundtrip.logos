@@ -21,10 +21,10 @@ use logos.mem.hermes.ctr;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;
-use logos.mem.hermes.map;
+use logos.lang.hermes.map;
 use logos.lang.hermes.typetag;
 use logos.lang.hermes.datatag;
-use logos.mem.hermes.string;
+use logos.lang.hermes.string;
 
 unsafe fn main() -> i32 {
     let cfg: HermesStatic = @{"t": <type:i32>};

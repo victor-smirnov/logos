@@ -13,7 +13,7 @@
 //   Array<i32>      — type_code=104
 //   Array<u64>      — type_code=108
 
-package logos.mem.hermes.array;
+package logos.lang.hermes.array;
 
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.tags;

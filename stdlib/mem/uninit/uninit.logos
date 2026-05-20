@@ -31,7 +31,7 @@
 
 package logos.mem.uninit;
 
-use logos.mem.mem;
+use logos.lang.mem;
 
 pub struct MaybeUninit<T> {
     value: T,

@@ -3,7 +3,7 @@ package test;
 
 use logos.std.env;
 use logos.lang.option;
-use logos.mem.mem;
+use logos.lang.mem;
 
 fn main() -> i32 {
     // argc >= 0 always; in sandboxed envs may be 0 if /proc is restricted

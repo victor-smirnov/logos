@@ -34,7 +34,7 @@ use logos.lang.option;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.panic;
-use logos.mem.mem;
+use logos.lang.mem;
 
 #[test]
 fn size_of_basic() {

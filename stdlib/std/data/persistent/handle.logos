@@ -24,11 +24,11 @@
 package logos.std.data.persistent.handle;
 
 use logos.mem.collections.vec;
-use logos.mem.mem;
+use logos.lang.mem;
 use logos.mem.sync;
 use logos.mem.rc;
 use logos.lang.cmp;
-use logos.mem.hermes.fabric;
+use logos.lang.hermes.fabric;
 use logos.lang.drop;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;

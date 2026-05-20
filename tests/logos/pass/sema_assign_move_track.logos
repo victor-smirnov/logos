@@ -7,7 +7,7 @@
 package sema_assign_move_track;
 
 use logos.mem.collections.vec;
-use logos.mem.mem;
+use logos.lang.mem;
 
 struct Owner {
     pub p: *mut u8,

@@ -5,7 +5,7 @@
 
 package logos.std.rt.fiber;
 
-use logos.mem.mem;
+use logos.lang.mem;
 
 // ── Native symbols from fiber_ctx.S ────────────────────────────────────────
 

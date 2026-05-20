@@ -19,9 +19,9 @@
 //   Double    / F64      (type_code=31, f64)
 //   Boolean   / Bool     (type_code=37, bool)
 
-package logos.mem.hermes.scalar;
+package logos.lang.hermes.scalar;
 
-use logos.mem.hermes.fabric;
+use logos.lang.hermes.fabric;
 use logos.lang.hermes.tags;
 
 // ── TinyInt (i8) ─────────────────────────────────────────────────────────

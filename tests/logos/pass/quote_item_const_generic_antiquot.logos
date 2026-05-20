@@ -13,7 +13,7 @@ use logos.mem.collections.vec;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;
-use logos.mem.hermes.string;
+use logos.lang.hermes.string;
 
 #[metaprog_handler("derive_const_g")]
 fn derive_const_g_hook(target_offset: u32) -> () {

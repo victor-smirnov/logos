@@ -20,7 +20,7 @@ use logos.lang.hermes.anyval;
 use logos.mem.hermes.pat;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
-use logos.mem.hermes.map;
+use logos.lang.hermes.map;
 use logos.mem.string;
 use logos.lang.str;
 use logos.std.io;

@@ -14,9 +14,9 @@ package logos.std.compiler.metaprog;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;
-use logos.mem.hermes.string;
-use logos.mem.hermes.map;
-use logos.mem.hermes.scalar;
+use logos.lang.hermes.string;
+use logos.lang.hermes.map;
+use logos.lang.hermes.scalar;
 use logos.mem.string;
 use logos.lang.str;
 

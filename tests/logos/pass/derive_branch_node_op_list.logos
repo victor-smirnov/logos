@@ -14,7 +14,7 @@ package main;
 use logos.std.compiler.metaprog;
 use logos.std.data.persistent.bt.node;
 use logos.std.data.persistent.bt.cow;
-use logos.mem.hermes.fabric;
+use logos.lang.hermes.fabric;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;

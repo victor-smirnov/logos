@@ -10,7 +10,7 @@
 
 package logos.std.rt.fiber;
 
-use logos.mem.mem;
+use logos.lang.mem;
 
 // ── Extras from fiber_ctx.S ───────────────────────────────────────────────
 

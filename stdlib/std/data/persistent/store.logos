@@ -18,7 +18,7 @@ package logos.std.data.persistent.store;
 
 use logos.mem.collections.vec;
 use logos.lang.cmp;
-use logos.mem.hermes.fabric;
+use logos.lang.hermes.fabric;
 use logos.std.sync;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;

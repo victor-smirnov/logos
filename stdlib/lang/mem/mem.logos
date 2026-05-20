@@ -2,7 +2,7 @@
 //
 // Memory allocation and low-level memory utilities.
 
-package logos.mem.mem;
+package logos.lang.mem;
 
 use logos.lang.default;
 

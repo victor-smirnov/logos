@@ -4,9 +4,9 @@ package array_i32_generic_api;
 
 use logos.lang.hermes.zone;
 use logos.lang.hermes.mem_holder;
-use logos.mem.hermes.array;
-use logos.mem.hermes.map;
-use logos.mem.hermes.typed_value;
+use logos.lang.hermes.array;
+use logos.lang.hermes.map;
+use logos.lang.hermes.typed_value;
 
 unsafe fn main() -> i32 {
     let mut zone: Zone<Mutable> = zone_create(4096);

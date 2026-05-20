@@ -191,7 +191,7 @@ static std::vector<std::string> extract_uses(hermes::HermesView ast,
 // order for the text-only path, but binary-archive loading bypasses that
 // invariant — packages from a .a may end up in `modules` at indices that
 // don't reflect actual dependency order (e.g. text `logos.lang.hermes.check`
-// before binary `std.hermes.map` even though check has `use logos.mem.hermes.map;`).
+// before binary `std.hermes.map` even though check has `use logos.lang.hermes.map;`).
 // Lower-pass lookups that walk `prog.struct_specializations` etc. break
 // when a dependent module is processed before its dep has populated those
 // data structures.

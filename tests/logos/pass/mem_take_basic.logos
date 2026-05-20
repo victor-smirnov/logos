@@ -3,7 +3,7 @@
 
 package test;
 
-use logos.mem.mem;
+use logos.lang.mem;
 
 fn main() -> i32 {
     let mut x: i32 = 42;

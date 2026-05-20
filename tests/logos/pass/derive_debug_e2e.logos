@@ -17,7 +17,7 @@ package main;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;
-use logos.mem.hermes.string;
+use logos.lang.hermes.string;
 use logos.std.compiler.metaprog;
 use logos.std.fmt;
 use logos.mem.string;

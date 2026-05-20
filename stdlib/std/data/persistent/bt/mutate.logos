@@ -17,9 +17,9 @@
 package logos.std.data.persistent.bt.mutate;
 
 use logos.mem.collections.vec;
-use logos.mem.mem;
+use logos.lang.mem;
 use logos.lang.cmp;
-use logos.mem.hermes.fabric;
+use logos.lang.hermes.fabric;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;

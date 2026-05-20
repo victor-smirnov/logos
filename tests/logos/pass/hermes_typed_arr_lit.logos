@@ -10,9 +10,9 @@ package hermes_typed_arr_lit;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 use logos.mem.hermes.stringify;
-use logos.mem.hermes.array;
-use logos.mem.hermes.map;
-use logos.mem.hermes.typed_value;
+use logos.lang.hermes.array;
+use logos.lang.hermes.map;
+use logos.lang.hermes.typed_value;
 use logos.mem.string;
 use logos.lang.str;
 

@@ -6,7 +6,7 @@
 package replace_ref_option;
 
 use logos.lang.option;
-use logos.mem.mem;
+use logos.lang.mem;
 
 fn main() -> i32 {
     // turbofish form

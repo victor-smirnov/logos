@@ -18,7 +18,7 @@
 
 package logos.mem.sync;
 
-use logos.mem.mem;
+use logos.lang.mem;
 use logos.lang.atomic;
 use logos.lang.marker;
 use logos.lang.drop;

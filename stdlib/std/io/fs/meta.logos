@@ -13,7 +13,7 @@ use logos.lang.ops;
 use logos.lang.option;
 use logos.std.io.fs.path;
 use logos.mem.collections.vec;
-use logos.mem.mem;
+use logos.lang.mem;
 
 // ── External C helpers (stdlib/rt/fs_meta.c) ──────────────────────────────
 

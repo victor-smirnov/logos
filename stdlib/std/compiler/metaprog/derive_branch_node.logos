@@ -26,7 +26,7 @@ use logos.mem.collections.vec;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;
-use logos.mem.hermes.string;
+use logos.lang.hermes.string;
 use logos.mem.string;
 use logos.lang.str;
 // Note (debt #13 closure): the handler used to import
@@ -36,7 +36,7 @@ use logos.lang.str;
 // emit now inheriting the originating user module's USES, those types
 // resolve through the user's own imports — this handler no longer
 // needs to know about the persistent stack at all.
-use logos.mem.mem;
+use logos.lang.mem;
 
 // Walk module ITEMS to find the ANNOTATION immediately preceding the
 // target item whose NAME matches `trigger`. Returns the ANNOTATION

@@ -11,7 +11,7 @@
 
 package logos.std.rt.fiber;
 
-use logos.mem.mem;
+use logos.lang.mem;
 
 // Externs needed from fiber_ctx.S (also declared in fiber.logos; safe to repeat).
 extern fn logos_fiber_switch(from: *mut FiberCtx, to: *const FiberCtx);

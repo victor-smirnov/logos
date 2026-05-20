@@ -10514,7 +10514,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
         if (!datatypes_.count(kit->second.struct_name) &&
             !type_aliases_.count(kit->second.struct_name)) {
             error(std::format(
-                "typed array @<{}>[...] requires '{}' in scope — add 'use logos.mem.hermes.array;'",
+                "typed array @<{}>[...] requires '{}' in scope — add 'use logos.lang.hermes.array;'",
                 type_name, kit->second.struct_name));
             return nullptr;
         }
@@ -10595,7 +10595,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                               || struct_specs_sema_.count("Map$G2$K$AnyVal") != 0;
             if (!map_available) {
                 error(std::format(
-                    "typed map @<{}>{{...}} requires 'use logos.mem.hermes.map;'",
+                    "typed map @<{}>{{...}} requires 'use logos.lang.hermes.map;'",
                     key_type));
                 return nullptr;
             }

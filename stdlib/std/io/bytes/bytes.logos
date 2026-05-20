@@ -10,7 +10,7 @@
 
 package logos.std.io.bytes;
 
-use logos.mem.mem;
+use logos.lang.mem;
 use logos.lang.atomic;
 use logos.mem.string;
 use logos.lang.str;

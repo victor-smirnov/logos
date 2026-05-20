@@ -2,7 +2,7 @@
 package test;
 
 use logos.std.io.linux.uring;
-use logos.mem.mem;
+use logos.lang.mem;
 use logos.lang.result;
 
 fn main() -> i32 {

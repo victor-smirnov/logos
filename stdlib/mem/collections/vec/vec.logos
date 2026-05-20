@@ -5,7 +5,7 @@
 
 package logos.mem.collections.vec;
 
-use logos.mem.mem;
+use logos.lang.mem;
 use logos.lang.option;
 use logos.lang.iter;
 use logos.lang.ops;

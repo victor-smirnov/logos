@@ -11,7 +11,7 @@ use logos.mem.collections.vec;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;
-use logos.mem.hermes.string;
+use logos.lang.hermes.string;
 use logos.lang.clone;
 
 #[metaprog_handler("derive_clone_q")]

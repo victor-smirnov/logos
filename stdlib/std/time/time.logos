@@ -14,7 +14,7 @@
 
 package logos.std.time;
 
-use logos.mem.mem;
+use logos.lang.mem;
 
 // POSIX clock_gettime.  tp must point to at least 16 bytes (two i64s).
 extern fn clock_gettime(clk_id: i32, tp: *mut u8) -> i32;

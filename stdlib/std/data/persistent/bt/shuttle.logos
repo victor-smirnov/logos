@@ -18,7 +18,7 @@
 
 package logos.std.data.persistent.bt.shuttle;
 
-use logos.mem.hermes.fabric;
+use logos.lang.hermes.fabric;
 use logos.lang.cmp;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;

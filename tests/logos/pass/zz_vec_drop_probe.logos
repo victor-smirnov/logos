@@ -5,7 +5,7 @@ package zz_vec_drop_probe;
 
 use logos.mem.collections.vec;
 use logos.lang.drop;
-use logos.lang.cmp; use logos.lang.cmp; use logos.mem.hermes.fabric;
+use logos.lang.cmp; use logos.lang.cmp; use logos.lang.hermes.fabric;
 use logos.lang.hermes.view; use logos.mem.hermes.view; use logos.lang.hermes.anyval;
 
 // Bumper owns a *mut u64 and bumps it at Drop. Verifies that Vec<T>'s
