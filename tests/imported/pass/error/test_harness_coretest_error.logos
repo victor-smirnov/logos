@@ -1,0 +1,80 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
+//   library/coretests/tests/error.rs.
+//
+// The upstream error.rs tests ONLY the unstable generic-member-access API
+// (`Request` / `request_ref` / `request_value` / `Error::provide`) — a nightly
+// surface Logos does not implement (and which Rust itself gates behind
+// `error_generic_member_access`). So none of upstream's four tests port
+// directly.
+//
+// Ported instead: the STABLE `core::error::Error` contract Logos does provide
+// (stdlib/lang/error) — the `source()` chained-cause walk — exercised with a
+// 3-level error chain and a leaf. This is the stable behavior the Request API
+// is layered on top of upstream.
+//
+// Divergences / skipped (with reason):
+//   - Request / request_ref / request_value / provide (all four upstream
+//     tests) — unstable generic-member-access; not in Logos's Error trait.
+//   - Display/Debug supertrait bound — Logos's Error lives in the `lang` tier
+//     below `mem.fmt`, so it has no Display+Debug supertrait (see the module
+//     header in stdlib/lang/error).
+//   - description() / cause() — deprecated Rust surface, not ported.
+
+package test_coretest_error;
+
+use std.fmt;
+use logos.lang.panic;
+use logos.lang.error;
+use logos.lang.option;
+
+struct DbErr      { code: i32 }
+struct ServiceErr { msg: str, cause: DbErr }
+struct HandlerErr { route: str, cause: ServiceErr }
+
+impl Error for DbErr {
+    fn source(&self) -> Option<&dyn Error> { return Option::<&dyn Error>::None; }
+}
+impl Error for ServiceErr {
+    fn source(&self) -> Option<&dyn Error> {
+        let d: &dyn Error = &self.cause;
+        return Option::<&dyn Error>::Some(d);
+    }
+}
+impl Error for HandlerErr {
+    fn source(&self) -> Option<&dyn Error> {
+        let d: &dyn Error = &self.cause;
+        return Option::<&dyn Error>::Some(d);
+    }
+}
+
+// A leaf error reports a source chain of length 1 (itself, no cause).
+#[test]
+fn test_leaf_no_source() {
+    let leaf: DbErr = DbErr { code: 0i32 };
+    assert!(error_chain_len(&leaf) == 1i32);
+    match leaf.source() {
+        Option::Some(_) => { panic("leaf error must have no source"); }
+        Option::None    => {}
+    }
+}
+
+// A chained error walks handler → service → db: three links.
+#[test]
+fn test_source_chain() {
+    let db: DbErr = DbErr { code: 42i32 };
+    let svc: ServiceErr = ServiceErr { msg: "lookup failed", cause: db };
+    let h: HandlerErr = HandlerErr { route: "/x", cause: svc };
+    assert!(error_chain_len(&h) == 3i32);
+}
+
+// `source()` yields Some for a non-leaf error; one step shortens the chain.
+#[test]
+fn test_source_one_step() {
+    let db: DbErr = DbErr { code: 7i32 };
+    let svc: ServiceErr = ServiceErr { msg: "x", cause: db };
+    assert!(error_chain_len(&svc) == 2i32);
+    match svc.source() {
+        Option::Some(inner) => { assert!(error_chain_len(inner) == 1i32); }
+        Option::None        => { panic("service error must have a source"); }
+    }
+}

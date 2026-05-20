@@ -1,0 +1,132 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
+//   library/coretests/tests/const_ptr.rs + ptr.rs (runtime subset).
+//
+// const_ptr.rs is entirely const-context (`const FOO: i32 = unsafe {
+// ptr::read(...) }`, const fns) — a Logos divergence (compile-time evaluation
+// routes through metacall, not const fns). The RUNTIME pointer surface those
+// tests exercise (`ptr::read` / `write` / `read_unaligned` / `write_unaligned`
+// / `swap` / `replace` / `copy`, raw-ptr `null`/`eq`, and `NonNull`) is what
+// Logos provides in stdlib/lang/ptr — ported here as runtime `#[test]`s.
+//
+// Divergences / skipped (with reason):
+//   - All const-context forms (`const X = unsafe { p.read() }`, const fns) —
+//     const-eval divergence; the runtime read/write round-trips below cover
+//     the same operations.
+//   - Method form on raw pointers (`p.read()`, `p.write(v)`, `p.byte_add(1)`)
+//     — Logos exposes these as free fns in logos.lang.ptr (`read::<T>(p)` /
+//     `write::<T>(p, v)`); pointer byte-arithmetic is done with explicit
+//     `(p as i64 + n) as *T` casts.
+//   - ptr.rs's huge alignment/provenance/metadata/fn-ptr-set surface — not
+//     part of the core read/write/swap/replace contract tested here.
+
+package test_coretest_ptr;
+
+use std.fmt;
+use logos.lang.panic;
+use logos.lang.option;
+use logos.lang.ptr;
+
+// ptr::read / ptr::write round-trip (const_ptr.rs `read` / `write`, runtime).
+#[test]
+fn test_read_write() {
+    let mut x: i32 = 0;
+    let p: *mut i32 = &mut x as *mut i32;
+    unsafe {
+        write::<i32>(p, 42i32);
+        let v: i32 = read::<i32>(p as *const i32);
+        assert!(v == 42i32);
+    }
+    assert!(x == 42i32);
+}
+
+// read_unaligned / write_unaligned (const_ptr.rs `read`/`write` unaligned arm).
+#[test]
+fn test_read_write_unaligned() {
+    let mut x: i32 = 7i32;
+    let p: *mut i32 = &mut x as *mut i32;
+    unsafe {
+        write_unaligned::<i32>(p, 99i32);
+        let v: i32 = read_unaligned::<i32>(p as *const i32);
+        assert!(v == 99i32);
+    }
+    assert!(x == 99i32);
+}
+
+// ptr::swap — exchange the pointees of two pointers (ptr.rs `test_swap`).
+#[test]
+fn test_swap() {
+    let mut a: i32 = 1i32;
+    let mut b: i32 = 2i32;
+    let pa: *mut i32 = &mut a as *mut i32;
+    let pb: *mut i32 = &mut b as *mut i32;
+    unsafe { swap::<i32>(pa, pb); }
+    assert!(a == 2i32);
+    assert!(b == 1i32);
+}
+
+// ptr::replace — write a new value, return the old (ptr.rs `test_replace`).
+#[test]
+fn test_replace() {
+    let mut x: i32 = 10i32;
+    let p: *mut i32 = &mut x as *mut i32;
+    let old: i32 = unsafe { replace::<i32>(p, 20i32) };
+    assert!(old == 10i32);
+    assert!(x == 20i32);
+}
+
+// ptr::null / null_mut / eq / addr_eq (ptr.rs null + pointer-equality checks).
+#[test]
+fn test_null_and_eq() {
+    let np: *const i32 = null::<i32>();
+    assert!((np as i64) == 0i64);
+    let nm: *mut i64 = null_mut::<i64>();
+    assert!((nm as i64) == 0i64);
+
+    let a: i32 = 42i32;
+    let pa: *const i32 = &a as *const i32;
+    assert!(eq::<i32>(pa, pa));
+    assert!(!eq::<i32>(pa, np));
+    assert!(addr_eq::<i32, i64>(pa, pa as *const i64));
+}
+
+// ptr::copy_nonoverlapping — bulk element copy between distinct buffers.
+#[test]
+fn test_copy_nonoverlapping() {
+    let src: [i32; 4] = [10i32, 20i32, 30i32, 40i32];
+    let mut dst: [i32; 4] = [0i32, 0i32, 0i32, 0i32];
+    let sp: *const i32 = &src[0] as *const i32;
+    let dp: *mut i32   = &mut dst[0] as *mut i32;
+    unsafe { copy_nonoverlapping::<i32>(sp, dp, 4i64); }
+    assert!(dst[0] == 10i32 && dst[1] == 20i32 && dst[2] == 30i32 && dst[3] == 40i32);
+}
+
+// NonNull — new (rejects null) / dangling / as_ptr / as_ref / cast / add / sub
+// (ptr.rs `test_const_nonnull_new` + NonNull method surface).
+#[test]
+fn test_nonnull() {
+    let arr: [i32; 4] = [5i32, 6i32, 7i32, 8i32];
+    let first: *mut i32 = &arr[0] as *const i32 as *mut i32;
+    let nn: NonNull<i32> = match NonNull::new(first) {
+        Option::Some(p) => p,
+        Option::None    => { panic("NonNull::new on a non-null ptr must be Some"); }
+    };
+    // new on a null pointer is None.
+    let np: *mut i32 = null_mut::<i32>();
+    match NonNull::new(np) {
+        Option::Some(_) => { panic("NonNull::new(null) must be None"); }
+        Option::None    => {}
+    }
+    // as_ref reads the pointee.
+    unsafe { assert!(*nn.as_ref() == 5i32); }
+    // add / sub walk by element.
+    let nn2: NonNull<i32> = unsafe { nn.add(2i64) };
+    unsafe { assert!(*nn2.as_ref() == 7i32); }
+    let back: NonNull<i32> = unsafe { nn2.sub(1i64) };
+    unsafe { assert!(*back.as_ref() == 6i32); }
+    // cast reinterprets the element type (same address).
+    let nnu: NonNull<u32> = nn.cast::<u32>();
+    assert!((nnu.as_ptr() as i64) == (nn.as_ptr() as i64));
+    // dangling is a well-aligned non-null sentinel.
+    let d: NonNull<i64> = NonNull::<i64>::dangling();
+    assert!((d.as_ptr() as i64) != 0i64);
+}
