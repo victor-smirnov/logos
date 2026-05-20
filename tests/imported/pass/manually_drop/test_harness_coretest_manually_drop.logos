@@ -1,0 +1,74 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
+//   library/coretests/tests/manually_drop.rs (subset).
+//
+// Ported (the ManuallyDrop surface Logos provides — stdlib/mem/manually_drop):
+//   - smoke (suppression half): `ManuallyDrop::new(t); drop(x)` does NOT run
+//     T's Drop — exercised by a Drop that writes a flag through a raw ptr;
+//     the flag stays untouched.
+//   - into_inner: moves the inner value out (its Drop then behaves normally).
+//   - explicit `ManuallyDrop::drop` runs the inner Drop in place — the
+//     runtime analogue of upstream `const_drop_in_place` (which is const).
+//     This exercises the manually_drop_drop fix (was a no-op stub; now calls
+//     ptr::drop_in_place, mirroring Rust's `unsafe fn ManuallyDrop::drop`).
+//
+// Divergences / skipped (with reason):
+//   - `#[derive(Clone)]` + clone / clone_from on ManuallyDrop — Clone for the
+//     wrapper not ported.
+//   - Box unsizing (`Box<ManuallyDrop<[T]>>`) — Box + unsized coercion.
+//   - const context (`const COUNTER = { … }`) — const-eval is a Logos
+//     divergence (metacall is the compile-time channel); the runtime form of
+//     the same drop-counting is tested here instead.
+//   - `drop(x)` free fn on the wrapper — Logos drops the ManuallyDrop binding
+//     at scope exit (it has no Drop impl), same observable effect.
+
+package test_coretest_manually_drop;
+
+use std.fmt;
+use logos.lang.panic;
+use logos.lang.drop;
+use logos.mem.manually_drop;
+
+// A Drop type that records its drop by writing through a raw pointer.
+struct Tracked { flag: *mut i32 }
+impl Drop for Tracked {
+    fn drop(self: Tracked) { unsafe { *self.flag = 1i32; } }
+}
+
+// smoke (suppression): wrapping in ManuallyDrop suppresses the inner Drop.
+#[test]
+fn test_suppresses_drop() {
+    let mut fired: i32 = 0;
+    let p: *mut i32 = &mut fired as *mut i32;
+    {
+        let md = manually_drop_new(Tracked { flag: p });
+        let _ = md;   // md (ManuallyDrop) leaves scope — no Drop on the wrapper,
+                      // so the inner Tracked's Drop never runs.
+    }
+    assert!(fired == 0i32);
+}
+
+// explicit ManuallyDrop::drop runs the inner Drop exactly once (in place).
+#[test]
+fn test_explicit_drop_fires() {
+    let mut fired: i32 = 0;
+    let p: *mut i32 = &mut fired as *mut i32;
+    let mut md = manually_drop_new(Tracked { flag: p });
+    assert!(fired == 0i32);
+    unsafe { manually_drop_drop::<Tracked>(&mut md); }
+    assert!(fired == 1i32);
+}
+
+// into_inner moves the inner value out of the wrapper.
+#[test]
+fn test_into_inner() {
+    let md = manually_drop_new(42i32);
+    let v: i32 = manually_drop_into_inner::<i32>(md);
+    assert!(v == 42i32);
+}
+
+// new + field access (the wrapper is transparent over its single field).
+#[test]
+fn test_new_and_value() {
+    let md = manually_drop_new(7i32);
+    assert!(md.value == 7i32);
+}

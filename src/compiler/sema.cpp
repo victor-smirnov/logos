@@ -2239,6 +2239,10 @@ bool SemaChecker::has_droppable_fields(TypeRef t) const {
     }
     if (sit == structs_.end()) sit = structs_.find(std::string(TypeRef(t).struct_name()));
     if (sit == structs_.end()) return false;
+    // `#[no_auto_drop]` (ManuallyDrop<T> lang-item shape): the compiler must
+    // not run the inner field's destructor at scope exit — the wrapper's
+    // whole purpose is to suppress that. Treat as having no droppable fields.
+    if (sit->second.no_auto_drop) return false;
     for (auto& f : sit->second.fields) {
         if (!drop_fn_for(f.type).empty()) return true;
         if (has_droppable_fields(f.type)) return true;

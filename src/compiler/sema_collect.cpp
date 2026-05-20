@@ -1131,7 +1131,21 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                             if (str_of(ann.get(la::NAME.code)) == "annotation") { pending_is_annot_type = true; break; }
                         }
                         collect_datatype(item, pending_is_annot_type);
-                    } else                              collect_struct(item);
+                    } else {
+                        collect_struct(item);
+                        // `#[no_auto_drop]`: opt the struct out of compiler
+                        // auto-Drop (no user-drop call, no field-drop). The
+                        // lang-item shape behind ManuallyDrop<T> — the wrapper
+                        // must NOT run the inner T's destructor at scope exit.
+                        for (auto& ann : pending_annots)
+                            if (str_of(ann.get(la::NAME.code)) == "no_auto_drop") {
+                                auto skey = sema_key(cur_package_, sname);
+                                auto sit = structs_.find(skey);
+                                if (sit == structs_.end()) sit = structs_.find(sname);
+                                if (sit != structs_.end()) sit->second.no_auto_drop = true;
+                                break;
+                            }
+                    }
                 }
             } else if (c == la::DATATYPE) {
                 // Skip explicit instantiation declarations (no FIELDS key, no NAME key).

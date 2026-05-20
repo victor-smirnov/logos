@@ -15,13 +15,18 @@ package logos.mem.manually_drop;
 use logos.lang.drop;
 use logos.lang.option;
 use logos.lang.panic;
+use logos.lang.ptr;
 
 // ── ManuallyDrop<T> ──────────────────────────────────────────────────
 //
-// Wraps a T. Because this struct does NOT impl `Drop`, the inner
-// value's destructor is suppressed at scope-exit — caller must
-// invoke `drop_inner` / `into_inner` / `take` explicitly to recover
-// or destroy the inner value.
+// Wraps a T. `#[no_auto_drop]` makes the compiler emit NO drop glue for the
+// wrapper (neither a user drop nor field-drop of `value`), so the inner T's
+// destructor is suppressed at scope-exit — the caller must invoke
+// `manually_drop_drop` / `manually_drop_into_inner` explicitly to destroy or
+// recover the inner value. (Without the attribute, Logos's structural
+// auto-Drop would recurse into `value` and run T's destructor, defeating the
+// whole purpose — this is the lang-item shape behind Rust's ManuallyDrop.)
+#[no_auto_drop]
 pub struct ManuallyDrop<T> {
     pub value: T,
 }
@@ -37,15 +42,12 @@ pub fn manually_drop_into_inner<T>(md: ManuallyDrop<T>) -> T {
     return md.value;
 }
 
-// Run the inner value's Drop (if any) without consuming the wrapper.
-// `T: Drop` bound — caller asserts T has a Drop impl.
-pub fn manually_drop_drop<T: Drop>(md: &mut ManuallyDrop<T>) {
-    // Move out + drop. Logos doesn't have a way to read the inner T
-    // by value through &mut self without leaving a placeholder, so
-    // this is a no-op when T's Drop is non-trivial — users should
-    // prefer `into_inner` and let the returned T's auto-drop fire.
-    // (Followup needs `mem::take`-style swap of the inner value.)
-    let _ = md;
+// Run the inner value's Drop (if any) in place, without consuming the
+// wrapper. Mirrors Rust's `unsafe fn ManuallyDrop::drop`, which calls
+// `ptr::drop_in_place(&mut self.value)`. Unsafe: after this the inner
+// value is logically gone — the caller must not read it or drop it again.
+pub unsafe fn manually_drop_drop<T: Drop>(md: &mut ManuallyDrop<T>) {
+    unsafe { drop_in_place::<T>(&mut md.value as *mut T); }
 }
 
 // ── MaybeDangling<T> ────────────────────────────────────────────────

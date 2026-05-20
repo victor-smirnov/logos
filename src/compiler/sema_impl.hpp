@@ -865,6 +865,7 @@ private:
             return bit(AttrTarget::Struct) | bit(AttrTarget::Datatype) |
                    bit(AttrTarget::Enum)   | bit(AttrTarget::Trait);
         if (name == "zoned")           return bit(AttrTarget::Struct);
+        if (name == "no_auto_drop")    return bit(AttrTarget::Struct);
         if (name == "annotation")      return bit(AttrTarget::Struct) | bit(AttrTarget::Datatype);
         if (name == "tag_dispatch")    return bit(AttrTarget::Trait);
         if (name == "metaprog_handler")return bit(AttrTarget::Fn);
@@ -1494,6 +1495,7 @@ private:
                             bool is_data_plain = true;  // false if any field is Kind::ZonedStruct
                             bool is_annotation_type = false;  // #[annotation] datatype (see LStructDef::is_annotation_type)
                             bool is_tuple_struct = false;  // B-ts-01: `struct Foo(T1, T2);` — positional fields, ctor is `Foo(a, b)` and pattern is `Foo(x, y)`
+                            bool no_auto_drop = false;  // `#[no_auto_drop]` — compiler emits NO auto-Drop (user drop + field drop) for this struct. ManuallyDrop<T> lang-item shape.
                             // Phase 1B-13: custom DST — the LAST field has
                             // unsized type (`[T]` / `dyn Trait` / nested DST).
                             // The struct itself becomes unsized; can only
