@@ -18,7 +18,7 @@
 // backreferences, \b / \B, Unicode classes.  Input is treated as
 // bytes; multi-byte UTF-8 sequences are matched byte-at-a-time.
 
-package std.lang.text.regex;
+package logos.std.lang.text.regex;
 
 use logos.mem.string;
 use logos.lang.str;
