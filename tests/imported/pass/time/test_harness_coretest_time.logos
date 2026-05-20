@@ -1,0 +1,83 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
+//   library/coretests/tests/time.rs (Duration subset).
+//
+// Ported (the Duration surface Logos provides — stdlib/std/time):
+//   - construction (from_secs / from_millis / from_micros / from_nanos),
+//   - conversions (as_secs / as_millis / as_micros / as_nanos / subsec_nanos),
+//   - addition + equality expressed over the nanosecond representation,
+//   - is_zero.
+//
+// Logos's `Duration` is a thin signed-`i64`-nanoseconds wrapper with free-fn
+// constructors (`duration_from_*`) and inherent accessors; that shape drives
+// the adaptations below.
+//
+// Divergences / skipped (with reason):
+//   - `Duration::new(secs, nanos)` / `from_mins` / `from_hours` / `from_days` /
+//     `from_weeks` / `from_nanos_u128` — not in Logos's Duration; the seconds/
+//     millis/micros/nanos constructors cover the tested arithmetic.
+//   - `Add` / `PartialEq` / `Ord` trait impls — Logos's Duration has none yet;
+//     `+` and `==` are expressed via `as_nanos()` (and `duration_from_nanos`
+//     of the sum). The value-level contract (`from_secs(1)+from_secs(2)` ==
+//     `from_secs(3)`) is what's checked.
+//   - All `#[should_panic]` overflow tests (`new_overflow`, `from_*_overflow`,
+//     `from_nanos_u128_overflow`) — Logos's Duration is an unchecked `i64`
+//     (no saturating/overflow-panicking constructors); out of scope.
+//   - `u64` range — Logos's Duration is `i64`-nanos; values fit the tested
+//     range, and `is_negative` (a Logos extension) is exercised instead.
+
+package test_coretest_time;
+
+use std.fmt;
+use logos.lang.panic;
+use logos.std.time;
+
+// Helper: Duration "+" over the nanosecond representation (no Add trait yet).
+fn dur_add(a: Duration, b: Duration) -> Duration {
+    return duration_from_nanos(a.as_nanos() + b.as_nanos());
+}
+// Helper: Duration "==" over the nanosecond representation (no PartialEq yet).
+fn dur_eq(a: Duration, b: Duration) -> bool {
+    return a.as_nanos() == b.as_nanos();
+}
+
+// time.rs::creation — sums and cross-unit equalities.
+#[test]
+fn test_creation() {
+    assert!(!dur_eq(duration_from_secs(1i64), duration_from_secs(0i64)));
+    assert!(dur_eq(dur_add(duration_from_secs(1i64), duration_from_secs(2i64)),
+                   duration_from_secs(3i64)));
+    // 10ms + 4s == 4s + 10ms (4_010_000_000 ns).
+    assert!(dur_eq(dur_add(duration_from_millis(10i64), duration_from_secs(4i64)),
+                   duration_from_nanos(4010000000i64)));
+    // 4000ms == 4s.
+    assert!(dur_eq(duration_from_millis(4000i64), duration_from_secs(4i64)));
+}
+
+// Cross-unit accessors round-trip against the nanosecond base.
+#[test]
+fn test_conversions() {
+    let d: Duration = duration_from_secs(5i64);
+    assert!(d.as_secs()   == 5i64);
+    assert!(d.as_millis() == 5000i64);
+    assert!(d.as_micros() == 5000000i64);
+    assert!(d.as_nanos()  == 5000000000i64);
+
+    // subsec_nanos: the fractional-second remainder.
+    let frac: Duration = duration_from_nanos(2500000000i64);  // 2.5s
+    assert!(frac.as_secs() == 2i64);
+    assert!(frac.subsec_nanos() == 500000000i64);
+
+    let us: Duration = duration_from_micros(1500i64);  // 1500us = 1.5ms
+    assert!(us.as_nanos()  == 1500000i64);
+    assert!(us.as_micros() == 1500i64);
+}
+
+// is_zero / is_negative (the latter a Logos extension over signed nanos).
+#[test]
+fn test_is_zero() {
+    assert!(duration_from_secs(0i64).is_zero());
+    assert!(duration_from_nanos(0i64).is_zero());
+    assert!(!duration_from_nanos(1i64).is_zero());
+    assert!(!duration_from_secs(1i64).is_negative());
+    assert!(duration_from_nanos(-1i64).is_negative());
+}
