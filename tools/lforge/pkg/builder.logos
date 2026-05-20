@@ -489,8 +489,19 @@ pub fn build_bin(t: &Target,
         k = k + 1 as i64;
     }
     let lib_view: str = str_from_raw(lib_dir.as_ptr(), lib_dir.len());
+    // Three modular stdlib layers, each carrying only its own codegen
+    // (emit_module's layer dedup forward-declares whatever a lower layer
+    // already defines). They cross-reference (std→mem→lang + mono
+    // instantiations either way), so wrap them in --start-group/--end-group
+    // to let ld resolve in any order.
+    push_arg(largv_p, "-Wl,--start-group");
     let mut p1: String = String::new();
     p1.push_str(lib_view); append_path(&mut p1, "liblogos-std.a"); largv_p.push(p1);
+    let mut p1b: String = String::new();
+    p1b.push_str(lib_view); append_path(&mut p1b, "liblogos-mem.a"); largv_p.push(p1b);
+    let mut p1c: String = String::new();
+    p1c.push_str(lib_view); append_path(&mut p1c, "liblogos-lang.a"); largv_p.push(p1c);
+    push_arg(largv_p, "-Wl,--end-group");
     let mut p2: String = String::new();
     p2.push_str(lib_view); append_path(&mut p2, "liblstdlib_fibers.a"); largv_p.push(p2);
     let mut p3: String = String::new();

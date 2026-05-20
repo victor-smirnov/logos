@@ -260,7 +260,8 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                                StdlibExports* out_exports = nullptr,
                                std::vector<uint8_t>* out_lir_blob = nullptr,
                                const std::string& module_name = "",
-                               const std::string& implicit_prelude = "") {
+                               const std::string& implicit_prelude = "",
+                               const std::vector<std::string>& dep_archives = {}) {
     // Run metaprog discovery loop (#21 closure) so #[derive_*] hooks
     // and metacall thunks fire during stdlib build. asts/filenames
     // grow with synthesised docs that subsequent sema picks up.
@@ -576,6 +577,29 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
     // binary-skip so mlir_gen forward-declares without bodies.
     apply_only_file_filter(prog, only_file);
 
+    // Layer dedup: forward-declare (don't re-emit) any function a `depends`
+    // archive already defines. Each layer's .o then carries only its OWN
+    // codegen + the generic instantiations mono produced for THIS layer's
+    // types (those are absent from the lower archives, so they stay emitted).
+    // Without this, mem.o re-embeds all of lang and std.o re-embeds lang+mem
+    // (the old self-contained-archive scheme). is_binary_skip in mlir_gen
+    // keys on prog.binary_symbols == the exact `nm`-defined symbols of the
+    // deps, so a name match guarantees the linker (and the metacall JIT, which
+    // now loads all layers) finds the body elsewhere.
+    for (const auto& a : dep_archives) {
+        FILE* pipe = ::popen(("nm --defined-only -j " + a + " 2>/dev/null").c_str(), "r");
+        if (!pipe) continue;
+        char line[512];
+        while (std::fgets(line, sizeof(line), pipe)) {
+            std::string_view sv(line);
+            while (!sv.empty() && (sv.back() == '\n' || sv.back() == '\r' || sv.back() == ' '))
+                sv.remove_suffix(1);
+            if (!sv.empty() && sv.front() != '/')
+                prog.binary_symbols.emplace(sv);
+        }
+        ::pclose(pipe);
+    }
+
     // Shared lowering tail (mlir_gen → MLIR→LLVM → object).
     LowerEmitOpts lopts;
     lopts.opt_level = 0;            // stdlib build skips opt pipeline
@@ -819,7 +843,8 @@ bool emit_module(const ModuleManifest& manifest,
                                from_binary_module_flags, obj_path,
                                only_file_canon, &exports, &lir_blob,
                                /*module_name=*/manifest.name,
-                               /*implicit_prelude=*/manifest.prelude)) {
+                               /*implicit_prelude=*/manifest.prelude,
+                               /*dep_archives=*/all_lib_files)) {
             std::fprintf(stderr, "emit_module: compilation failed\n");
             return false;
         }

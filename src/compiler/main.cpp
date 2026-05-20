@@ -2864,16 +2864,13 @@ int main(int argc, char** argv) {
         // RuntimeDyld can't handle (R_X86_64_GOTTPOFF). Metaprog hooks run on
         // the host main thread, not a Logos fiber, so the JIT doesn't need it.
         if (base.find("_fibers.a") != std::string_view::npos) return true;
-        // Modular stdlib: the std layer's .o is SELF-CONTAINED (re-embeds
-        // lang+mem), so the metacall JIT loads `liblogos-std.a` alone — the
-        // way it used the former self-contained monolith. The lower layers
-        // `liblogos-lang.a` / `liblogos-mem.a` carry the SAME symbols (the
-        // embedding), so feeding them to the JIT too would create duplicate
-        // definitions it can't disambiguate. Filter the lower layers; keep
-        // liblogos-std for the JIT. (User-link still gets all three via the
-        // CMake/run_test archive list with --allow-multiple-definition.)
-        if (base.rfind("liblogos-lang", 0) == 0) return true;
-        if (base.rfind("liblogos-mem", 0) == 0)  return true;
+        // Modular stdlib: each layer's .o now carries ONLY its own codegen
+        // (the layer-dedup in emit_module forward-declares whatever a `depends`
+        // archive already defines). So the three layers are DISJOINT — the
+        // metacall JIT loads all of liblogos-{lang,mem,std}.a and ORC resolves
+        // cross-layer refs without duplicate-definition conflicts. (Previously
+        // std.a was self-contained and the lower layers were filtered as
+        // redundant duplicates.)
         return false;
     };
     for (const auto& dir : search_paths) {
