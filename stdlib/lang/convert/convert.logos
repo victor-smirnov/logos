@@ -32,6 +32,26 @@ pub trait TryInto<T> {
 // way (out-of-range), so the error value is information-free.
 pub struct ConvertError {}
 
+// ─── Into / TryInto derived from From / TryFrom (blanket impls) ─────────
+//
+// Mirrors Rust's `impl<T, U: From<T>> Into<U> for T` and
+// `impl<T, U: TryFrom<T>> TryInto<U> for T`: anything `From`/`TryFrom` can
+// build from `S` is reachable via `.into()` / `.try_into()` on an `S` value,
+// with the destination inferred from the call's expected type. So every
+// `From`/`TryFrom` impl below (and any user impl) automatically yields the
+// matching `.into()` / `.try_into()`.
+//
+// (Source param `S`; destination = the trait's own param so the trait/impl
+// param roles don't collide — see the blanket-method-output-param fix,
+// [[baghunt-mono-blanket-body-output-param]].)
+impl<S, T: From<S>> Into<T> for S {
+    fn into(self: S) -> T { return T::from(self); }
+}
+
+impl<S, T: TryFrom<S>> TryInto<T> for S {
+    fn try_into(self: S) -> Result<T, ConvertError> { return T::try_from(self); }
+}
+
 // ─── Lossless widening ─────────────────────────────────────────────────
 // Mirrors Rust's `impl From<u8> for u32` family (every narrow primitive
 // widens losslessly to every wider primitive of the same signedness, and

@@ -4550,11 +4550,21 @@ lir::LExprPtr SemaChecker::try_blanket_method_dispatch(
             }
         }
         std::vector<TypeRef> type_args;
+        bool any_unbound = false;
         for (auto& tp : mfi->type_params) {
             auto it = tv_bind.find(tp.name);
-            type_args.push_back(it != tv_bind.end() ? it->second
-                                 : (tp.name == bi.target_typevar ? recv_inner : error_t()));
+            TypeRef ta = it != tv_bind.end() ? it->second
+                         : (tp.name == bi.target_typevar ? recv_inner : error_t());
+            if (!ta || TypeRef(ta).kind() == LogosType::Kind::Error) any_unbound = true;
+            type_args.push_back(ta);
         }
+        // A blanket param that couldn't be inferred (e.g. the destination of
+        // `x.into()` / `x.try_into()` with no annotated expected type at the
+        // call site) must NOT dispatch — emitting the call with an `<error>`
+        // type-arg lowers to `<error>__method` and crashes mlir-gen. Bail so
+        // the normal "cannot resolve" diagnostic fires instead. Rust requires
+        // the annotation here too ("type annotations needed").
+        if (any_unbound) continue;
         std::vector<lir::LExprPtr> pargs;
         pargs.push_back(std::move(recv));
         for (auto& a : arg_exprs) pargs.push_back(std::move(a));

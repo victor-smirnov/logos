@@ -19,19 +19,16 @@
 // Divergences / skipped (with reason):
 //   - const fn / const context — Logos has no const fn (metacall is the
 //     compile-time channel); the runtime conversions are tested elsewhere.
-//   - From→Into and TryFrom→TryInto BLANKET impls — Rust derives `Into`/
-//     `TryInto` from `From`/`TryFrom` via blanket impls. Logos declares the
-//     Into/TryInto traits; the SEMA half of the blanket now works (value
-//     blanket dispatch on primitive receivers + return-type inference of the
-//     blanket's output param — landed 2026-05-20). The remaining blocker is
-//     in MONO: a blanket body that calls through the output param
-//     (`fn into(self) -> U { U::from(self) }`) emits the unsubstituted
-//     `U::from` (`@D__myfrom`) instead of `Wrap::from` — the blanket method
-//     spec's body isn't specialized for the return-inferred param. So
-//     `42i64.into()` on primitives still does not lower; only explicit
-//     per-type `impl Into` does (tested here). The identity `Borrow<T> for T`
-//     blanket and single-param `impl<T: Bound> Trait for T` blankets DO work
-//     on primitives now. See [[baghunt-mono-blanket-body-output-param]].
+//   - From→Into and TryFrom→TryInto BLANKET impls now WORK (landed
+//     2026-05-20): stdlib/lang/convert ships `impl<S, T: From<S>> Into<T> for
+//     S` and the TryFrom→TryInto analogue, so every From/TryFrom impl yields
+//     `.into()` / `.try_into()` automatically — tested below on primitives.
+//     The one constraint (Rust-faithful): the destination type must be
+//     inferable from the call site (a `let`/return annotation). `match
+//     x.try_into() { … }` with the type only annotated inside an arm gives
+//     "type annotations needed" — same as Rust. See the fix chain in
+//     [[baghunt-mono-blanket-body-output-param]] (sema dispatch+inference +
+//     mono blanket-body output-param specialization).
 
 package test_coretest_convert;
 
@@ -92,4 +89,31 @@ fn test_try_into_user_impl_err() {
 fn test_from_identity_runtime() {
     let x: i32 = i32::from(42i8);
     assert!(x == 42i32);
+}
+
+// `.into()` on primitives via the From→Into blanket (destination inferred from
+// the let annotation). Rust: `let x: i64 = 5i32.into();`.
+#[test]
+fn test_into_primitive_blanket() {
+    let x: i64 = (5i32).into();
+    assert!(x == 5i64);
+    let y: i32 = (7i8).into();
+    assert!(y == 7i32);
+    let z: u64 = (200u8).into();
+    assert!(z == 200u64);
+}
+
+// `.try_into()` on primitives via the TryFrom→TryInto blanket. Ok + Err paths.
+#[test]
+fn test_try_into_primitive_blanket() {
+    let ok: Result<i16, ConvertError> = (300i32).try_into();
+    match ok {
+        Result::Ok(v)  => { assert!(v == 300i16); }
+        Result::Err(_) => { panic("try_into 300→i16 should be Ok"); }
+    }
+    let bad: Result<i8, ConvertError> = (5000i32).try_into();
+    match bad {
+        Result::Ok(_)  => { panic("try_into 5000→i8 should be Err (out of range)"); }
+        Result::Err(_) => {}
+    }
 }

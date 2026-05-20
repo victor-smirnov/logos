@@ -416,6 +416,20 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 if (done_.count(dest)) continue;
                 SubstMap subst;
                 subst[bi.target_typevar] = concrete_t;
+                // Skip blanket methods carrying type-params the target binding
+                // can't supply — e.g. the OUTPUT `D` in
+                // `impl<S, D: From<S>> Into<D> for S`. This eager per-concrete
+                // pass knows only the target (S=concrete); `D` is determined by
+                // the call's expected return type, not by the target. Cloning
+                // with `D` unbound emits an unsubstituted `D::method`
+                // (`@D__myfrom`) that can't lower. Such methods are instantiated
+                // at the real call site (record_needed, full type_args).
+                bool all_tp_bound = true;
+                for (auto& tp : tfn.type_params) {
+                    if (tp.is_variadic) continue;
+                    if (!subst.count(tp.name)) { all_tp_bound = false; break; }
+                }
+                if (!all_tp_bound) continue;
                 WorkItem wi;
                 wi.mangled = dest;
                 wi.tmpl    = &tfn;

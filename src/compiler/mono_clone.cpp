@@ -5001,6 +5001,21 @@ void Mono::instantiate_enum_templates() {
                     if (!bounds_ok) break;
                 }
                 if (!bounds_ok) continue;
+                // Completeness gate: a blanket free-fn whose subst leaves some
+                // type-param unbound (e.g. the OUTPUT `D` in
+                // `impl<S, D: From<S>> Into<D> for S` when this path binds only
+                // the target S=Concrete) must NOT be cloned — its body would
+                // emit unsubstituted `D::method` (`@D__myfrom`) that can't
+                // lower. The real call site (record_needed with full type_args
+                // incl. the return-inferred D) emits the correct spec.
+                bool fully_bound = true;
+                for (auto& tp : fn.type_params) {
+                    if (tp.is_variadic) continue;
+                    if (!fn_subst.count(tp.name) && !fn_packs.count(tp.name)) {
+                        fully_bound = false; break;
+                    }
+                }
+                if (!fully_bound) continue;
                 auto nm = clone_fn(fn, fn_subst, fn_packs);
                 nm.name = inst_name;
                 done_.insert(inst_name);
