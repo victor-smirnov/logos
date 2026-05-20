@@ -1403,11 +1403,21 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         current_type_params_["Self"] = pool_->alloc(std::move(us));
     }
     // SL-sl-08: `impl Trait for (A, B, …)` — Self resolves to the tuple
-    // TypeRef so the impl method bodies can name `Self` / `&Self`.
+    // TypeRef so the impl method bodies can name `Self` / `&Self`. Set it
+    // UNCONDITIONALLY (overriding any stale `Self` left by a prior impl whose
+    // cleanup didn't fire — an impl's Self is definitively its own target),
+    // and save/restore so the tuple Self doesn't leak into the next impl.
+    // Without the override a stale struct Self (e.g. Vec) made
+    // `impl<A...> Trait for (A...)` bodies resolve `Self` to that struct.
+    bool _restore_tuple_self = false;
+    TypeRef _saved_tuple_self = nullptr;
+    bool _had_tuple_self = false;
     if (target_resolved &&
-        TypeRef(target_resolved).kind() == LogosType::Kind::Tuple &&
-        !current_type_params_.count("Self")) {
+        TypeRef(target_resolved).kind() == LogosType::Kind::Tuple) {
+        _had_tuple_self = current_type_params_.count("Self") > 0;
+        if (_had_tuple_self) _saved_tuple_self = current_type_params_["Self"];
         current_type_params_["Self"] = target_resolved;
+        _restore_tuple_self = true;
     }
     if (node.has_key(la::ITEMS)) {
         auto items = arr_of(node.get(la::ITEMS.code));
@@ -1544,6 +1554,11 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 }
             }
         }
+    }
+    // Restore the `Self` binding we overrode for a tuple-target impl.
+    if (_restore_tuple_self) {
+        if (_had_tuple_self) current_type_params_["Self"] = _saved_tuple_self;
+        else current_type_params_.erase("Self");
     }
     // Clean up trait type params
     if (!trait_name.empty()) {

@@ -2234,6 +2234,96 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 result->mirror_offset_ = chain->mirror_offset_;
                 break;
             }
+            // __tuple_each_field_debug__::<T>(self, f) — expand the variadic
+            // tuple Debug impl into a chain of free-fn calls over the
+            // step-helpers (fmt_tuple_open/sep/close + fmt_seq) interleaved
+            // with each field's `fmt`. Mirrors __tuple_all_eq__ but produces a
+            // `fmt_seq`-combined Result chain instead of an `&&` bool chain.
+            if (nc.callee == "__tuple_each_field_debug__") {
+                TypeRef T = nc.type_args.empty() ? TypeRef{} : nc.type_args[0];
+                LirBuilder lb(out_);
+                TypeRef res_t = result->type;  // Result<(), Error>
+                std::vector<lir::LExprPtr> sub_args;
+                v.each_arg([&](lir_view::ExprRef ar) {
+                    sub_args.push_back(subst_child_expr(ar));
+                });
+                auto resolve_fn = [&](const std::string& base) -> std::string {
+                    std::string prefix = base + "__f__";
+                    auto has = [&](const std::string& full) {
+                        size_t p = full.find(prefix);
+                        return p != std::string::npos && (p == 0 || full[p - 1] == '.');
+                    };
+                    for (auto& fn : out_.functions) if (has(fn->name)) return fn->name;
+                    for (auto& fn : in_.functions)  if (has(fn->name)) return fn->name;
+                    return base;
+                };
+                std::string seq_sym    = resolve_fn("fmt_seq");
+                std::string open_sym   = resolve_fn("fmt_tuple_open");
+                std::string sep_sym    = resolve_fn("fmt_tuple_sep");
+                std::string close_sym  = resolve_fn("fmt_tuple_close");
+                std::string close1_sym = resolve_fn("fmt_tuple_close1");
+                // Resolve `<elem>__Debug__fmt` (trait-qualified, since fmt
+                // collides across the fmt-family traits) or plain `<elem>__fmt`.
+                auto resolve_dbg = [&](const std::string& en) -> std::string {
+                    for (const char* infix : {"__Debug__fmt__f__", "__fmt__f__"}) {
+                        std::string prefix = en + infix;
+                        auto has = [&](const std::string& full) {
+                            size_t p = full.find(prefix);
+                            return p != std::string::npos && (p == 0 || full[p - 1] == '.');
+                        };
+                        for (auto& fn : out_.functions) if (has(fn->name)) return fn->name;
+                        for (auto& fn : in_.functions)  if (has(fn->name)) return fn->name;
+                    }
+                    return en + "__fmt";
+                };
+                if (!T || T.kind() != LogosType::Kind::Tuple || sub_args.size() < 2) {
+                    auto cl = lb.call(close_sym, {},
+                        { sub_args.empty() ? nullptr : sub_args.back() }, res_t);
+                    result->type = res_t;
+                    result->mirror_offset_ = cl->mirror_offset_;
+                    break;
+                }
+                auto self_r = sub_args[0];
+                auto f_r    = sub_args[1];
+                std::function<lir::LExprPtr(TypeRef, lir::LExprPtr)>
+                build = [&](TypeRef TT, lir::LExprPtr selfr) -> lir::LExprPtr {
+                    auto es = TT.tuple_elems();
+                    size_t n = es.size();
+                    lir::LExprPtr chain = lb.call(open_sym, {}, { f_r }, res_t);
+                    for (size_t i = 0; i < n; ++i) {
+                        if (i > 0) {
+                            auto sep = lb.call(sep_sym, {}, { f_r }, res_t);
+                            chain = lb.call(seq_sym, {}, { chain, sep }, res_t);
+                        }
+                        TypeRef et = es[i];
+                        auto field = lb.tuple_index(selfr, (uint32_t)i, et);
+                        lir::LExprPtr fld;
+                        if (et.kind() == LogosType::Kind::Tuple) {
+                            LogosTypeBuilder rb; rb.kind = LogosType::Kind::Ref; rb.pointee = et;
+                            TypeRef et_ref = out_.type_pool.alloc(std::move(rb));
+                            auto inner = lb.addr_of_temp(field, false, et_ref);
+                            fld = build(et, inner);
+                        } else {
+                            std::string en = type_str(et);
+                            if (et.kind() == LogosType::Kind::Slice &&
+                                et.elem() && et.elem().kind() == LogosType::Kind::U8)
+                                en = "str";
+                            std::string sym = resolve_dbg(en);
+                            // By-value receiver; mlir-gen's primitive-receiver
+                            // fast-path spills it for the `&self` param.
+                            fld = lb.method_call(field, "fmt", sym, {}, { f_r }, -1, res_t);
+                        }
+                        chain = lb.call(seq_sym, {}, { chain, fld }, res_t);
+                    }
+                    auto cl = lb.call(n == 1 ? close1_sym : close_sym, {}, { f_r }, res_t);
+                    chain = lb.call(seq_sym, {}, { chain, cl }, res_t);
+                    return chain;
+                };
+                auto chain = build(T, self_r);
+                result->type = res_t;
+                result->mirror_offset_ = chain->mirror_offset_;
+                break;
+            }
             // tuple_count_of::<T>() — emit lit_int N for tuple T, 0 otherwise.
             if (nc.callee == "__tuple_count_of__") {
                 int64_t n = 0;

@@ -373,6 +373,27 @@ pub fn fmt_upper_exp<T: UpperExp>(arg: &T, f: &mut Formatter) -> Result<(), Erro
     return arg.fmt(f);
 }
 
+// ── Tuple-Debug step helpers ────────────────────────────────────────
+//
+// The variadic `impl<A...: Debug> Debug for (A...)` body defers to the
+// `tuple_each_field_debug` intrinsic, which mono expands into a chain of these
+// free fns: `fmt_seq(fmt_seq(… fmt_tuple_open(f), <field0>), fmt_tuple_sep(f)),
+// <field1>) , … , fmt_tuple_close(f))`. Building the chain from free-fn calls
+// (vs a block_expr / inline string writes) keeps the mono handler to the same
+// primitives the eq handler uses. `fmt_seq` matches its first arg (so its
+// write side effect isn't dead-code-eliminated) and short-circuits on Err
+// like Rust's `write!(…)?`, otherwise returns the second.
+pub fn fmt_seq(a: Result<(), Error>, b: Result<(), Error>) -> Result<(), Error> {
+    match a {
+        Result::Err(e) => { return Result::<(), Error>::Err(e); }
+        Result::Ok(_)  => { return b; }
+    }
+}
+pub fn fmt_tuple_open(f: &mut Formatter)   -> Result<(), Error> { return f.write_str("("); }
+pub fn fmt_tuple_sep(f: &mut Formatter)    -> Result<(), Error> { return f.write_str(", "); }
+pub fn fmt_tuple_close(f: &mut Formatter)  -> Result<(), Error> { return f.write_str(")"); }
+pub fn fmt_tuple_close1(f: &mut Formatter) -> Result<(), Error> { return f.write_str(",)"); }
+
 // ── Primitive impls ─────────────────────────────────────────────────
 //
 // Display and Debug for every integer/float/bool/str primitive +
@@ -517,44 +538,14 @@ impl Debug for () {
 // impls until variadic-tuple-impl baghunt lands
 // ([[baghunt-variadic-tuple-impl]]).
 
-impl<A: Debug> Debug for (A,) {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let _ = f.write_str("(");
-        let _ = self.0.fmt(f);
-        return f.write_str(",)");
-    }
-}
-impl<A: Debug, B: Debug> Debug for (A, B) {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let _ = f.write_str("(");
-        let _ = self.0.fmt(f);
-        let _ = f.write_str(", ");
-        let _ = self.1.fmt(f);
-        return f.write_str(")");
-    }
-}
-impl<A: Debug, B: Debug, C: Debug> Debug for (A, B, C) {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let _ = f.write_str("(");
-        let _ = self.0.fmt(f);
-        let _ = f.write_str(", ");
-        let _ = self.1.fmt(f);
-        let _ = f.write_str(", ");
-        let _ = self.2.fmt(f);
-        return f.write_str(")");
-    }
-}
-impl<A: Debug, B: Debug, C: Debug, D: Debug> Debug for (A, B, C, D) {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let _ = f.write_str("(");
-        let _ = self.0.fmt(f);
-        let _ = f.write_str(", ");
-        let _ = self.1.fmt(f);
-        let _ = f.write_str(", ");
-        let _ = self.2.fmt(f);
-        let _ = f.write_str(", ");
-        let _ = self.3.fmt(f);
-        return f.write_str(")");
+// Variadic-arity tuple Debug — single impl covering any tuple shape (replaces
+// the former per-arity 1/2/3/4 hand-rolled impls). `tuple_each_field_debug::
+// <Self>(self, f)` defers to mono-time expansion (mirrors the variadic Eq
+// impl's `tuple_all_eq`): renders "(", each field's Debug interleaved with
+// ", ", then ")" (or ",)" for the 1-tuple). Arity 0 keeps its own `()` impl.
+impl<A...: Debug> Debug for (A...) {
+    fn fmt(self: &Self, f: &mut Formatter) -> Result<(), Error> {
+        return tuple_each_field_debug::<Self>(self, f);
     }
 }
 

@@ -3454,6 +3454,49 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         return chain;
     }
 
+    // tuple_each_field_debug::<T>(self, f) — Debug-format every field of tuple
+    // T into Formatter `f`. Used by the variadic `impl<A...: Debug> Debug for
+    // (A...)`. Only caller is that impl body where T = Self = (A...) is
+    // pack-bound, so it always defers: emit a `__tuple_each_field_debug__`
+    // placeholder that mono expands once T is a concrete tuple (mirrors the
+    // deferred branch of tuple_all_eq). Result type = the enclosing fn's
+    // return type (`Result<(), Error>`), from ret_type_.
+    if (callee == "tuple_each_field_debug") {
+        TypeRef elem = nullptr;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                if (items.size() == 1)
+                    elem = resolve_type(map_of(items.get(0)));
+            }
+        }
+        if (!elem || TypeRef(elem).kind() != LogosType::Kind::Tuple) {
+            error("tuple_each_field_debug::<T>(self, f): T must be a tuple type");
+            return error_expr();
+        }
+        std::vector<lir::LExprPtr> arg_exprs;
+        if (node.has_key(la::ARGS)) {
+            AnyVal av = node.get(la::ARGS.code);
+            if (!av.is_null()) {
+                auto args_map = map_of(av);
+                if (args_map.has_key(la::ITEMS)) {
+                    auto items = arr_of(args_map.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < items.size(); ++i)
+                        arg_exprs.push_back(lower_expr(map_of(items.get(i))));
+                }
+            }
+        }
+        if (arg_exprs.size() != 2) {
+            error("tuple_each_field_debug::<T>(self, f) requires exactly two arguments");
+            return error_expr();
+        }
+        TypeRef res_t = ret_type_ ? ret_type_ : void_t();
+        std::vector<TypeRef> targs; targs.push_back(elem);
+        return builder().call("__tuple_each_field_debug__",
+                              std::move(targs), std::move(arg_exprs), res_t);
+    }
+
     // tuple_count_of::<T>() — number of elements in tuple T (0 for non-tuple).
     if (callee == "tuple_count_of") {
         TypeRef elem = nullptr;
