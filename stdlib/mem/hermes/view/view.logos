@@ -71,37 +71,12 @@ pub trait HermesReadExt: HermesRead {
         return buf;
     }
 
-    // DecimalView for a zone Decimal AnyVal.
-    fn decimal_view(self: &Self, val: AnyVal) -> DecimalView {
-        unsafe { return DecimalView::from_anyval(self.base(), val); }
-    }
-
+    // Stringify a zone Decimal AnyVal to a String. The only decimal read that
+    // stays tier-2 (needs the mem-tier String sink); the numeric decimal reads
+    // (decimal_view / decimal_to_f64 / decimal_precision / …) are tier-1 on
+    // lang HermesRead now that DecimalView is a lang type.
     fn decimal_to_string(self: &Self, val: AnyVal) -> String {
-        unsafe { return self.decimal_view(val).to_string_value(); }
-    }
-
-    fn decimal_to_f64(self: &Self, val: AnyVal) -> f64 {
-        unsafe { return self.decimal_view(val).to_f64(); }
-    }
-
-    fn decimal_precision(self: &Self, val: AnyVal) -> u32 {
-        unsafe { return self.decimal_view(val).precision(); }
-    }
-
-    fn decimal_scale(self: &Self, val: AnyVal) -> u32 {
-        unsafe { return self.decimal_view(val).scale(); }
-    }
-
-    fn decimal_len(self: &Self, val: AnyVal) -> u32 {
-        unsafe { return self.decimal_view(val).len(); }
-    }
-
-    fn decimal_is_negative(self: &Self, val: AnyVal) -> bool {
-        unsafe { return self.decimal_view(val).is_negative(); }
-    }
-
-    fn decimal_limb(self: &Self, val: AnyVal, idx: u32) -> u32 {
-        unsafe { return self.decimal_view(val).limb_at(idx); }
+        unsafe { return decimal_to_string_value(self.base(), val); }
     }
 }
 

@@ -1,27 +1,23 @@
-// Logos Hermes stdlib — hermes.decimal
+// Logos Hermes stdlib — mem.hermes.decimal (write/print side)
 //
-// Decimal(P,S) storage:
-//   #[zoned] struct Decimal { spec_and_len: u32, limbs[]: inline u32 tail }
-//
-// Packed spec_and_len (u32):
-//   bits [0..11]   scale S      (0..4095)
-//   bits [12..23]  precision P  (1..4095)
-//   bits [24..30]  limbs_len    (0..127)
-//   bit  [31]      sign         (1 = negative)
-//
-// Limbs are little-endian base 1e9:
-//   value_abs = sum(limbs[i] * (1e9^i))
-// Decimal logical value:
-//   value = sign ? -(value_abs / 10^S) : +(value_abs / 10^S)
+// The READ substrate (Decimal struct + accessors, DecimalView, decimal_ptr,
+// spec helpers, to_f64) lives at lang-tier
+// [logos.lang.hermes.decimal](../../../lang/hermes/decimal/decimal.logos).
+// This module holds the parts that need a mem-tier type or do zone mutation:
+//   • builders: decimal_from_string_in_zone / decimal_from_f64_in_zone
+//   • arithmetic: decimal_add_in_zone / decimal_sub_in_zone (+ abs helpers)
+//   • String-producing stringify: decimal_write_number / decimal_to_string_value
 
 package logos.mem.hermes.decimal;
 
+// Re-export the lang-tier read substrate (Decimal, DecimalView, decimal_ptr,
+// to_f64, spec helpers) so existing `use logos.mem.hermes.decimal` consumers
+// keep seeing the full surface after the read/write tier split.
+pub use logos.lang.hermes.decimal;
 use logos.lang.hermes.zone;
 use logos.lang.hermes.mem_holder;
-use logos.lang.hermes.tags;
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.typetag;
-use logos.lang.hermes.datatag;
 use logos.mem.string;
 use logos.lang.str;
 
@@ -32,152 +28,7 @@ let DECIMAL_MAX_DIGITS: u32 = 1143;  // 127 limbs * 9 digits
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
 
-#[type_code = HermesTag::Decimal]
-#[zoned] pub struct Decimal {
-    pub spec_and_len: u32,
-}
-
-impl Decimal {
-    pub unsafe fn init(raw: *mut u8, p: u32, s: u32, nlimbs: u32, neg: bool) -> *mut Decimal {
-        let d: *mut Decimal = raw as *mut Decimal;
-        d.spec_and_len = decimal_pack_spec(p, s, nlimbs, neg);
-        return d;
-    }
-
-    pub unsafe fn precision(self: *const Decimal) -> u32 {
-        return decimal_precision(self.spec_and_len);
-    }
-
-    pub unsafe fn scale(self: *const Decimal) -> u32 {
-        return decimal_scale(self.spec_and_len);
-    }
-
-    pub unsafe fn len(self: *const Decimal) -> u32 {
-        return decimal_limb_len(self.spec_and_len);
-    }
-
-    pub unsafe fn is_negative(self: *const Decimal) -> bool {
-        return decimal_is_negative(self.spec_and_len);
-    }
-
-    pub unsafe fn limbs(self: *const Decimal) -> *const u32 {
-        return (self as i64 + sizeof::<Decimal>() as i64) as *const u32;
-    }
-
-    pub unsafe fn limbs_mut(self: *const Decimal) -> *mut u32 {
-        return (self as i64 + sizeof::<Decimal>() as i64) as *mut u32;
-    }
-
-    pub unsafe fn limb_at(self: *const Decimal, idx: u32) -> u32 {
-        if idx >= self.len() { return 0; }
-        return *((self.limbs() as i64 + (idx as i64) * 4) as *const u32);
-    }
-
-}
-
-pub struct DecimalView {
-    ptr: *const Decimal,
-}
-
-impl DecimalView {
-    pub unsafe fn from_anyval(base: *const u8, v: AnyVal) -> DecimalView {
-        return DecimalView { ptr: decimal_ptr(base, v) };
-    }
-
-    pub unsafe fn from_ptr(ptr: *const Decimal) -> DecimalView {
-        return DecimalView { ptr: ptr };
-    }
-
-    pub unsafe fn null_view() -> DecimalView {
-        return DecimalView { ptr: 0 as *const Decimal };
-    }
-
-    pub unsafe fn is_null(&self) -> bool {
-        return self.ptr == 0 as *const Decimal;
-    }
-
-    pub unsafe fn precision(&self) -> u32 {
-        if self.ptr == 0 as *const Decimal { return 0; }
-        return self.ptr.precision();
-    }
-    pub unsafe fn scale(&self) -> u32 {
-        if self.ptr == 0 as *const Decimal { return 0; }
-        return self.ptr.scale();
-    }
-    pub unsafe fn len(&self) -> u32 {
-        if self.ptr == 0 as *const Decimal { return 0; }
-        return self.ptr.len();
-    }
-    pub unsafe fn is_negative(&self) -> bool {
-        if self.ptr == 0 as *const Decimal { return false; }
-        return self.ptr.is_negative();
-    }
-    pub unsafe fn limb_at(&self, idx: u32) -> u32 {
-        if self.ptr == 0 as *const Decimal { return 0; }
-        return self.ptr.limb_at(idx);
-    }
-
-    pub unsafe fn to_f64(&self) -> f64 {
-        if self.ptr == 0 as *const Decimal { return 0.0; }
-        let n: u32 = self.ptr.len();
-        if n == 0 { return 0.0; }
-        let limbs: *const u32 = self.ptr.limbs();
-        let mut acc: f64 = 0.0;
-        let mut i: i64 = (n as i64) - 1;
-        while i >= 0 {
-            let lv: u32 = *((limbs as i64 + i * 4) as *const u32);
-            acc = acc * 1000000000.0 + lv as f64;
-            i = i - 1;
-        }
-        let s: u32 = self.ptr.scale();
-        if s > 0 {
-            acc = acc / decimal_pow10_f64(s as i32);
-        }
-        if self.ptr.is_negative() { return 0.0 - acc; }
-        return acc;
-    }
-
-    pub unsafe fn to_string_value(&self) -> String {
-        if self.ptr == 0 as *const Decimal { return String::with_capacity(0); }
-        let mut out: String = String::with_capacity(64);
-        let op: *mut String = (&out as *const String) as *mut String;
-        decimal_write_number(self.ptr, op);
-        return out;
-    }
-}
-
-pub unsafe fn decimal_pack_spec(p: u32, s: u32, nlimbs: u32, neg: bool) -> u32 {
-    let mut sign: u32 = 0;
-    if neg { sign = 1; }
-    return ((s & 0xFFF) << 0)
-         | ((p & 0xFFF) << 12)
-         | ((nlimbs & 0x7F) << 24)
-         | (sign << 31);
-}
-
-pub unsafe fn decimal_precision(spec: u32) -> u32 {
-    return (spec >> 12) & 0xFFF;
-}
-
-pub unsafe fn decimal_scale(spec: u32) -> u32 {
-    return spec & 0xFFF;
-}
-
-pub unsafe fn decimal_limb_len(spec: u32) -> u32 {
-    return (spec >> 24) & 0x7F;
-}
-
-pub unsafe fn decimal_is_negative(spec: u32) -> bool {
-    return ((spec >> 31) & 1) != 0;
-}
-
-pub unsafe fn decimal_ptr(base: *const u8, v: AnyVal) -> *const Decimal {
-    if !v.is_ptr() || v.is_null() { return 0 as *const Decimal; }
-    let obj: *const u8 = (base as i64 + v.as_offset() as i64) as *const u8;
-    let th: u64 = read_type_code(obj);
-    if th != hermes_tag_decimal() { return 0 as *const Decimal; }
-    return obj as *const Decimal;
-}
+// ── unsigned big-int (base 1e9) helpers ──────────────────────────────────────
 
 unsafe fn decimal_digits_u32(v: u32) -> u32 {
     if v >= 1000000000 { return 10; }
@@ -266,6 +117,8 @@ unsafe fn decimal_abs_sub(out: *mut u32, a: *const u32, an: u32, b: *const u32, 
     return decimal_trim_len(out as *const u32, an);
 }
 
+// ── stringify (String output sink) ────────────────────────────────────────────
+
 unsafe fn decimal_append_u32_padded9(out: *mut String, v: u32) {
     let mut div: u32 = 100000000;
     while div > 0 {
@@ -334,6 +187,17 @@ pub unsafe fn decimal_write_number(d: *const Decimal, out: *mut String) {
     out.push_u8(46);  // '.'
     out.push_bytes((digits.as_ptr() as i64 + int_len) as *const u8, s_i);
 }
+
+pub unsafe fn decimal_to_string_value(base: *const u8, v: AnyVal) -> String {
+    let d: *const Decimal = decimal_ptr(base, v);
+    if d == 0 as *const Decimal { return String::with_capacity(0); }
+    let mut out: String = String::with_capacity(64);
+    let op: *mut String = (&out as *const String) as *mut String;
+    decimal_write_number(d, op);
+    return out;
+}
+
+// ── builders (zone mutation) ──────────────────────────────────────────────────
 
 unsafe fn decimal_alloc(zone: *mut Zone<Mutable>, p: u32, s: u32, nlimbs: u32, neg: bool) -> *mut Decimal {
     if p == 0 || p > DECIMAL_MAX_DIGITS { return 0 as *mut Decimal; }
@@ -476,10 +340,6 @@ pub unsafe fn decimal_from_string_in_zone(zone: *mut Zone<Mutable>,
     return AnyVal::from_offset((d as i64 - base as i64) as u32);
 }
 
-pub unsafe fn decimal_to_string_value(base: *const u8, v: AnyVal) -> String {
-    return DecimalView::from_anyval(base, v).to_string_value();
-}
-
 unsafe fn decimal_binary_op(zone: *mut Zone<Mutable>, a: AnyVal, b: AnyVal, sub: bool) -> AnyVal {
     if zone == 0 as *mut Zone<Mutable> { return AnyVal::null_ptr(); }
     let base: *const u8 = zone.holder.base;
@@ -573,25 +433,6 @@ pub unsafe fn decimal_add_in_zone(zone: *mut Zone<Mutable>, a: AnyVal, b: AnyVal
 
 pub unsafe fn decimal_sub_in_zone(zone: *mut Zone<Mutable>, a: AnyVal, b: AnyVal) -> AnyVal {
     return decimal_binary_op(zone, a, b, true);
-}
-
-// ── f64 conversion helpers ──────────────────────────────────────────────────
-
-// Compute 10.0^exp as f64.  For exp > 308 the result overflows to +Inf,
-// which the callers use as a "too large" sentinel.
-unsafe fn decimal_pow10_f64(exp: i32) -> f64 {
-    let mut r: f64 = 1.0;
-    let mut i: i32 = 0;
-    while i < exp {
-        r = r * 10.0;
-        i = i + 1;
-    }
-    return r;
-}
-
-// Convert a zone Decimal (via AnyVal offset) to f64. Returns 0.0 for null/invalid.
-pub unsafe fn decimal_to_f64_value(base: *const u8, v: AnyVal) -> f64 {
-    return DecimalView::from_anyval(base, v).to_f64();
 }
 
 // Convert f64 → Decimal(p_i, s_i), rounding half-up.

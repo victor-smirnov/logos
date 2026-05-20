@@ -99,7 +99,9 @@ unsafe fn main() -> i32 {
     let dst8: Hermes = src8.compactify();
     let view8: DecimalView = dst8.decimal_view(dst8.root());
     if view8.is_null() { return 15; }
-    let s8: String = view8.to_string_value();
+    // to_string_value moved off the (now lang-tier) DecimalView; stringify via
+    // the mem-tier trait method instead.
+    let s8: String = dst8.decimal_to_string(dst8.root());
     if !s8.eq_str("123.45") { return 16; }
 
     return 0;

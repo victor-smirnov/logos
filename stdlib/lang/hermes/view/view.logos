@@ -29,6 +29,7 @@ use logos.lang.hermes.scalar;
 use logos.lang.hermes.array;
 use logos.lang.hermes.map;
 use logos.lang.hermes.objectmap;
+use logos.lang.hermes.decimal;
 use logos.lang.hermes.datatag;
 use logos.lang.hermes.typetag;
 use logos.lang.str;
@@ -243,6 +244,37 @@ pub trait HermesRead {
                 obj as *const Map<Bitmap, AnyVal>;
             return tom.get(base, key);
         }
+    }
+
+    // ── Decimal reads (DecimalView is lang-tier; only to_string needs mem) ──
+
+    // DecimalView for a zone Decimal AnyVal.
+    fn decimal_view(self: &Self, val: AnyVal) -> DecimalView {
+        unsafe { return DecimalView::from_anyval(self.base(), val); }
+    }
+
+    fn decimal_to_f64(self: &Self, val: AnyVal) -> f64 {
+        unsafe { return self.decimal_view(val).to_f64(); }
+    }
+
+    fn decimal_precision(self: &Self, val: AnyVal) -> u32 {
+        unsafe { return self.decimal_view(val).precision(); }
+    }
+
+    fn decimal_scale(self: &Self, val: AnyVal) -> u32 {
+        unsafe { return self.decimal_view(val).scale(); }
+    }
+
+    fn decimal_len(self: &Self, val: AnyVal) -> u32 {
+        unsafe { return self.decimal_view(val).len(); }
+    }
+
+    fn decimal_is_negative(self: &Self, val: AnyVal) -> bool {
+        unsafe { return self.decimal_view(val).is_negative(); }
+    }
+
+    fn decimal_limb(self: &Self, val: AnyVal, idx: u32) -> u32 {
+        unsafe { return self.decimal_view(val).limb_at(idx); }
     }
 }
 
