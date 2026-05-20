@@ -33,6 +33,7 @@ Start here if you want to *work on* Logos itself.
 ## Project Status
 
 - [Roadmap](roadmap.md) — strategic direction (MP1/MP2/MP3, build system pivot, self-hosting plan), current phase, and a snapshot of what is implemented, in progress, and planned.
+- [History Retrospective (2026-05)](retro/2026-05-history-retrospective.md) — statistical analysis of the git history: bug families by subsystem, long-running epics, workaround-vs-fundamental balance, weekly activity × topic. Snapshot at commit `0d981302`, with commands to recompute.
 
 ## Essays
 
