@@ -1,0 +1,93 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
+//   library/alloctests/tests/string.rs (subset).
+//
+// Ported (the String surface Logos provides — stdlib/mem/string):
+//   - new + push_str + as_str + len (the canonical build-a-string flow),
+//   - String::from(str),
+//   - equality (eq_str / eq_string),
+//   - is_empty / clear / truncate,
+//   - push_char (push a Unicode scalar as UTF-8),
+//   - push_i64 (integer → decimal text, a Logos convenience).
+//
+// Divergences / skipped (with reason):
+//   - `String::from("a") + "b"` (Add), `format!`, `s == "..."` operator,
+//     `.chars()` / byte-index slicing, capacity introspection, into_bytes,
+//     from_utf8 validation — broader surface; equality is via `eq_str`.
+//   - push (a `char`) — Logos pushes a Unicode scalar via `push_char(u32)`.
+
+package test_coretest_string;
+
+use std.fmt;
+use logos.lang.panic;
+use logos.mem.string;
+
+// Build a string by pushing; read back via as_str / len.
+#[test]
+fn test_push_str_and_len() {
+    let mut s: String = String::new();
+    assert!(s.is_empty());
+    assert!(s.len() == 0i64);
+    s.push_str("hello");
+    assert!(s.len() == 5i64);
+    s.push_str(", world");
+    assert!(s.len() == 12i64);
+    assert!(s.eq_str("hello, world"));
+}
+
+// String::from(&str) seeds the contents.
+#[test]
+fn test_from_str() {
+    let s: String = String::from("abc");
+    assert!(s.len() == 3i64);
+    assert!(s.eq_str("abc"));
+    assert!(!s.eq_str("abd"));
+}
+
+// eq_string compares two Strings; eq_str compares against a &str.
+#[test]
+fn test_equality() {
+    let a: String = String::from("foo");
+    let b: String = String::from("foo");
+    let c: String = String::from("bar");
+    assert!(a.eq_string(&b));
+    assert!(!a.eq_string(&c));
+    assert!(a.eq_str("foo"));
+    assert!(!a.eq_str("bar"));
+}
+
+// clear empties; truncate shortens to a byte length.
+#[test]
+fn test_clear_and_truncate() {
+    let mut s: String = String::from("hello");
+    s.truncate(3i64);
+    assert!(s.len() == 3i64);
+    assert!(s.eq_str("hel"));
+    s.clear();
+    assert!(s.is_empty());
+    assert!(s.len() == 0i64);
+    // Reusable after clear.
+    s.push_str("x");
+    assert!(s.eq_str("x"));
+}
+
+// push_char appends a Unicode scalar as UTF-8 (ASCII subset here).
+#[test]
+fn test_push_char() {
+    let mut s: String = String::new();
+    s.push_char(72u32);   // 'H'
+    s.push_char(105u32);  // 'i'
+    assert!(s.eq_str("Hi"));
+    assert!(s.len() == 2i64);
+}
+
+// push_i64 renders an integer as decimal text (Logos convenience).
+#[test]
+fn test_push_i64() {
+    let mut s: String = String::new();
+    s.push_str("n=");
+    s.push_i64(42i64);
+    assert!(s.eq_str("n=42"));
+    let mut neg: String = String::new();
+    neg.push_i64(-7i64);
+    assert!(neg.eq_str("-7"));
+}

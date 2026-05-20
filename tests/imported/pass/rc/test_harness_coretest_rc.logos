@@ -1,0 +1,74 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
+//   library/alloctests/tests/rc.rs (strong-count / shared-data subset).
+//
+// Logos's `Rc<T>` (stdlib/mem/rc) is reference-counted shared ownership.
+// Handles are taken via a `*mut Rc<T>` (`&mut r`); `clone_rc` bumps the strong
+// count and returns a second handle, `drop_rc` decrements (freeing the inner
+// block at zero), `strong_count` / `get` / `get_mut` introspect/access. All
+// under `unsafe` (raw inner block).
+//
+// Divergences / skipped (with reason):
+//   - `Rc::clone(&r)` / `*r` deref / `Rc::strong_count(&r)` method form —
+//     Logos uses `(&mut r).clone_rc()` / `.get()` / `.strong_count()`.
+//   - Weak references (`Rc::downgrade` / weak_count) — no Weak in Logos's Rc.
+//   - Drop-on-scope (RAII): `drop_rc` is explicit; the inner block is freed as
+//     raw bytes at strong==0 (T's destructor is not recursively run).
+//   - get_mut-as-Option / make_mut / try_unwrap / CoW — not ported.
+
+package test_coretest_rc;
+
+use std.fmt;
+use logos.lang.panic;
+use logos.mem.rc;
+
+// new + strong_count == 1 + deref reads the value.
+#[test]
+fn test_new_and_count() {
+    unsafe {
+        let mut r: Rc<i32> = rc_new::<i32>(10i32);
+        let pr: *mut Rc<i32> = &mut r;
+        assert!(pr.strong_count() == 1i32);
+        assert!(*pr.get() == 10i32);
+        pr.drop_rc();
+    }
+}
+
+// clone bumps the strong count; both handles see the same allocation.
+#[test]
+fn test_clone_shares() {
+    unsafe {
+        let mut r1: Rc<i32> = rc_new::<i32>(5i32);
+        let p1: *mut Rc<i32> = &mut r1;
+        let mut r2: Rc<i32> = p1.clone_rc();
+        let p2: *mut Rc<i32> = &mut r2;
+        assert!(p1.strong_count() == 2i32);
+        assert!(p2.strong_count() == 2i32);
+        // mutate through one handle, observe through the other (shared data).
+        *p1.get_mut() = 77i32;
+        assert!(*p2.get() == 77i32);
+        p2.drop_rc();
+        assert!(p1.strong_count() == 1i32);
+        p1.drop_rc();
+    }
+}
+
+// drops decrement; the last drop frees and nulls the handle.
+#[test]
+fn test_drop_sequence() {
+    unsafe {
+        let mut a: Rc<i32> = rc_new::<i32>(1i32);
+        let pa: *mut Rc<i32> = &mut a;
+        let mut b: Rc<i32> = pa.clone_rc();
+        let pb: *mut Rc<i32> = &mut b;
+        let mut c: Rc<i32> = pb.clone_rc();
+        let pc: *mut Rc<i32> = &mut c;
+        assert!(pa.strong_count() == 3i32);
+        pc.drop_rc();
+        assert!(pa.strong_count() == 2i32);
+        assert!(pc.is_null());
+        pb.drop_rc();
+        assert!(pa.strong_count() == 1i32);
+        pa.drop_rc();
+        assert!(pa.is_null());
+    }
+}

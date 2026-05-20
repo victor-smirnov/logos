@@ -1,0 +1,42 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
+//   library/alloctests/tests/boxed.rs (the heap-value round-trip core).
+//
+// Logos's `Box<T>` (stdlib/mem/boxed) is a minimal sole-ownership heap box:
+// `box_new::<T>(v)`, `.get()` / `.get_mut()` (through a `*mut Box<T>`), and
+// explicit `box_free`. No `Deref`/`*b` sugar, no allocator parameter, no RAII
+// drop — so the port is the value round-trip + mutation.
+//
+// Divergences / skipped (with reason):
+//   - `*b` deref, `Box::new` method form, `Box<dyn>` coercion-by-value,
+//     allocator API (`new_in`), drop-on-scope, `Box::from_raw`/`into_raw`,
+//     Pin — broader surface; Logos Box is intentionally thin + manually freed.
+
+package test_coretest_boxed;
+
+use std.fmt;
+use logos.lang.panic;
+use logos.mem.boxed;
+
+// Heap round-trip: store a value, read it back, mutate through get_mut.
+#[test]
+fn test_box_roundtrip() {
+    unsafe {
+        let mut b: Box<i32> = box_new::<i32>(42i32);
+        assert!(*b.get() == 42i32);
+        *b.get_mut() = 99i32;
+        assert!(*b.get() == 99i32);
+        box_free::<i32>(&mut b);
+    }
+}
+
+// A larger inner type lays out + round-trips the same way.
+#[test]
+fn test_box_i64() {
+    unsafe {
+        let mut b: Box<i64> = box_new::<i64>(1234567890i64);
+        assert!(*b.get() == 1234567890i64);
+        *b.get_mut() = 0i64;
+        assert!(*b.get() == 0i64);
+        box_free::<i64>(&mut b);
+    }
+}

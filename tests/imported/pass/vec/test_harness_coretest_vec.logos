@@ -1,0 +1,110 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
+//   library/alloctests/tests/vec.rs (subset).
+//
+// Ported (the Vec surface Logos provides — stdlib/mem/collections/vec):
+//   - test_push      — push grows the vec; elements read back in order.
+//   - test_index     — element access (`v.get(i)`; Logos has no `v[i]` on Vec).
+//   - pop / is_empty / length — drain order + emptiness.
+//   - remove         — middle removal shifts the tail.
+//   - set            — in-place element update.
+//   - iteration + contains.
+//
+// Logos's Vec methods run in an `unsafe` context (raw-buffer backing); the
+// `#[test]` bodies wrap accordingly. Construction is `vec_new::<T>()` (no
+// `vec![]` literal on the heap Vec yet), and `vec[i]` indexing reads via
+// `v.get(i)`.
+//
+// Divergences / skipped (with reason):
+//   - `vec![…]` macro literal, `assert_eq!(v, [1,2,3])` slice-compare — Logos
+//     has no Vec literal / Vec==array; checked element-wise via get/length.
+//   - test_index_out_of_bounds / slice_out_of_bounds (`#[should_panic]`) —
+//     bounds-panic on `v[i]` not exercised (no index operator).
+//   - extend / retain / drain / dedup / splice / capacity-reservation / ZST /
+//     double-drop — the large method/iterator surface; not ported here.
+
+package test_coretest_vec;
+
+use std.fmt;
+use logos.lang.panic;
+use logos.lang.option;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.mem.collections.vec;
+
+// test_push — push grows; elements read back in order.
+#[test]
+fn test_push() {
+    unsafe {
+        let mut v: Vec<i32> = vec_new::<i32>();
+        v.push(1i32);
+        assert!(v.length() == 1i64);
+        assert!(v.get(0i64) == 1i32);
+        v.push(2i32);
+        v.push(3i32);
+        assert!(v.length() == 3i64);
+        assert!(v.get(0i64) == 1i32 && v.get(1i64) == 2i32 && v.get(2i64) == 3i32);
+    }
+}
+
+// test_index — element access (Logos `get` stands in for `vec[i]`).
+#[test]
+fn test_index() {
+    unsafe {
+        let mut v: Vec<i32> = vec_new::<i32>();
+        v.push(1i32); v.push(2i32); v.push(3i32);
+        assert!(v.get(1i64) == 2i32);
+    }
+}
+
+// pop drains in LIFO order; is_empty / length track it.
+#[test]
+fn test_pop_is_empty() {
+    unsafe {
+        let mut v: Vec<i32> = vec_new::<i32>();
+        assert!(v.is_empty());
+        v.push(10i32); v.push(20i32);
+        assert!(!v.is_empty());
+        match v.pop() { Option::Some(x) => { assert!(x == 20i32); } Option::None => { panic("pop"); } }
+        match v.pop() { Option::Some(x) => { assert!(x == 10i32); } Option::None => { panic("pop"); } }
+        assert!(v.is_empty());
+        match v.pop() { Option::Some(_) => { panic("pop on empty must be None"); } Option::None => {} }
+    }
+}
+
+// remove(i) returns the element and shifts the tail down.
+#[test]
+fn test_remove() {
+    unsafe {
+        let mut v: Vec<i32> = vec_new::<i32>();
+        v.push(1i32); v.push(2i32); v.push(3i32); v.push(4i32); v.push(5i32);
+        let mid: i32 = v.remove(2i64);   // removes 3
+        assert!(mid == 3i32);
+        assert!(v.length() == 4i64);
+        assert!(v.get(0i64) == 1i32 && v.get(1i64) == 2i32 &&
+                v.get(2i64) == 4i32 && v.get(3i64) == 5i32);
+    }
+}
+
+// set updates an element in place.
+#[test]
+fn test_set() {
+    unsafe {
+        let mut v: Vec<i32> = vec_new::<i32>();
+        v.push(7i32); v.push(8i32);
+        v.set(1i64, 99i32);
+        assert!(v.get(1i64) == 99i32);
+        assert!(v.get(0i64) == 7i32);
+    }
+}
+
+// iteration sum + membership.
+#[test]
+fn test_iter_and_contains() {
+    unsafe {
+        let mut v: Vec<i32> = vec_new::<i32>();
+        v.push(1i32); v.push(2i32); v.push(4i32); v.push(5i32);
+        assert!(iter_sum_i32(v.iter()) == 12i32);
+        assert!(vec_contains::<i32>(&v, &4i32));
+        assert!(!vec_contains::<i32>(&v, &3i32));
+    }
+}
