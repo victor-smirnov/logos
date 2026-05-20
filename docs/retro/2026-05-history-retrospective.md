@@ -1,41 +1,42 @@
-# Logos — историческая ретроспектива по git-истории (срез на 2026-05-19)
+# Logos — git-history retrospective (snapshot 2026-05-19)
 
-Анализ построен из commit-сообщений ветки `main`. Цель — понять, **какие
-проблемы возникали и как они решались**, опираясь на текст коммитов
-(сообщения в этом проекте подробные: 62% имеют тело >10 строк, и почти каждый
-fix-коммит несёт нарратив «симптом → корневая причина → фикс → верификация
-ctest N/N»).
+This analysis is built from commit messages on `main`. The goal is to
+understand **what problems arose and how they were solved**, relying on commit
+text (messages in this project are detailed: 62% have a body >10 lines, and
+nearly every fix commit carries a "symptom → root cause → fix → verification
+ctest N/N" narrative).
 
-> Воспроизводимость: все цифры получены из `git log` на коммите
-> `0d981302` (последний на момент среза). Команды — в [Приложении](#приложение--как-пересчитать).
-> При пересчёте на более поздней истории числа изменятся; этот документ — снимок.
+> Reproducibility: every number here comes from `git log` at commit
+> `0d981302` (the latest at snapshot time). Commands are in the
+> [Appendix](#appendix--how-to-recompute). Recomputing on a later history will
+> change the numbers; this document is a point-in-time snapshot.
 
-## Сводка
+## Summary
 
-| Метрика | Значение |
+| Metric | Value |
 |---|---|
-| Коммитов (non-merge) | 2045 |
-| Период | 2026-03-11 → 2026-05-19 (~69 дней) |
-| Средний темп | ~30 коммитов/день |
-| Коммитов с телом >10 строк | 1276 (62%) |
-| Коммитов только с subject | 66 (3%) |
-| Уникальных bug-ID (B-серия) | 105 (B0…B111) |
+| Commits (non-merge) | 2045 |
+| Span | 2026-03-11 → 2026-05-19 (~69 days) |
+| Average rate | ~30 commits/day |
+| Commits with body >10 lines | 1276 (62%) |
+| Commits with subject only | 66 (3%) |
+| Unique bug-IDs (B series) | 105 (B0…B111) |
 
-Маркеры «проблема/решение» в сообщениях (subject+body):
+"Problem/solution" markers in messages (subject+body):
 `fix` 1260 · `bug` 718 · `close` 383 · `hang` 328 · `defer` 268 ·
 `regress` 243 · `workaround` 103 · `baghunt` 99 · `segfault` 79 ·
 `crash` 69 · `root cause` 60.
 
 ---
 
-## Срез 1 — Семейства багов
+## Slice 1 — Bug families
 
-### Где болело: bug-несущие коммиты по подсистеме
+### Where it hurt: bug-bearing commits by subsystem
 
-«Bug-несущий» = в subject/body есть `bug|fix|segfault|crash|hang|regress|root cause|baghunt`.
-Подсистема — нормализованный subject-префикс до двоеточия (`sema:`, `mono_clone:`→`mono`, …).
+"Bug-bearing" = subject/body contains `bug|fix|segfault|crash|hang|regress|root cause|baghunt`.
+Subsystem = normalized subject prefix before the colon (`sema:`, `mono_clone:`→`mono`, …).
 
-| Подсистема | Коммитов | Bug-несущих | % |
+| Subsystem | Commits | Bug-bearing | % |
 |---|---:|---:|---:|
 | sema | 242 | 123 | 50% |
 | stdlib | 133 | 59 | 44% |
@@ -49,66 +50,66 @@ ctest N/N»).
 | lir | 47 | 12 | 25% |
 | grammar | 18 | 11 | 61% |
 
-**Чтение:** самая высокая доля багов — у молодого кода (`persistent` 67%,
-`compiler` 66%, `mono` 58%): он сразу ловил ошибки на сложной семантике.
-`lir`/`mlir-gen` (25-34%) стабильнее — туда чаще приходили уже законченные
-изменения, а не отладка.
+**Reading:** the highest bug ratios belong to the youngest code
+(`persistent` 67%, `compiler` 66%, `mono` 58%): it caught errors immediately
+on hard semantics. `lir`/`mlir-gen` (25-34%) are steadier — they more often
+received already-finished changes rather than active debugging.
 
-### Цепочки родственных багов
+### Chains of related bugs
 
-Прямых ссылок коммит→коммит по хэшу мало (93 коммита, max 2× цитирования),
-поэтому «семейства» трекаются **bug-ID кодами**, а не графом хэшей:
+Direct commit→commit references by hash are sparse (93 commits, max 2×
+citations), so "families" are tracked by **bug-ID codes**, not a hash graph:
 
-| Серия | Уник. ID | Класс проблем |
+| Series | Unique IDs | Problem class |
 |---|---:|---|
-| `B0…B111` | 105 | главный bug-tracker — тактические батчи |
-| `P4-pm-NN` | 25 | parser/grammar фичи (фаза 2) |
+| `B0…B111` | 105 | main bug tracker — tactical batches |
+| `P4-pm-NN` | 25 | parser/grammar features (phase 2) |
 | `CP-cm-NN` | 18 | core-port compiler gaps |
 | `SL-sl-NN` | 13 | stdlib surface gaps |
-| `C6-cc-NN` | 10 | codegen corner-cases |
-| `T9-tr-NN` | 6 | trait-dispatch |
-| `MC-mc-NN` | 3 | macro-family (line!/stringify!/…) |
+| `C6-cc-NN` | 10 | codegen corner cases |
+| `T9-tr-NN` | 6 | trait dispatch |
+| `MC-mc-NN` | 3 | macro family (line!/stringify!/…) |
 
-Текстовые маркеры родства встречаются явно: `same family as 5efb1bb9`
-(mono per-iter refresh в walk-циклах), `mirrors a08c40a`,
-`closed in 9856866f`. Один корневой механизм (mono-substitution внутри
-циклов) породил несколько багов — и фиксы это отмечают.
+Textual kinship markers appear explicitly: `same family as 5efb1bb9`
+(mono per-iter refresh in walk loops), `mirrors a08c40a`,
+`closed in 9856866f`. A single root mechanism (mono substitution inside
+loops) spawned several bugs — and the fixes note it.
 
 ---
 
-## Срез 2 — Долгие эпопеи
+## Slice 2 — Long-running epics
 
-B-номера закрываются **быстро** (1-4 дня) — это тактические батчи. Настоящие
-эпопеи — сквозные тематические линии, идущие почти через весь проект
-(коммиты подсчитаны по тематическим regex'ам в subject):
+B-numbers close **fast** (1-4 days) — they are tactical batches. The real epics
+are cross-cutting thematic lines running through almost the whole project
+(commit counts measured by thematic regexes over the subject):
 
-| Тема | Коммитов | Дней активна | Период |
+| Theme | Commits | Active days | Span |
 |---|---:|---:|---|
-| Hermes datatype | 310 | 50 | 28.03 → 18.05 |
-| generics/traits | 275 | 47 | 02.04 → 19.05 |
-| metaprog/quote | 160 | 51 | 28.03 → 19.05 |
-| iterator/closures | 113 | 42 | 07.04 → 19.05 |
-| mono substitution | 110 | 43 | 06.04 → 19.05 |
-| imports/archive | 106 | 47 | 02.04 → 19.05 |
-| Drop/ownership | 103 | 51 | 28.03 → 18.05 |
-| persistent/B-tree | 76 | **67** | 12.03 → 19.05 |
-| fiber/runtime | 41 | 47 | 02.04 → 19.05 |
-| multi-arena IR | 31 | 49 | 28.03 → 16.05 |
-| fmt/Formatter | 31 | 49 | 30.03 → 19.05 |
+| Hermes datatype | 310 | 50 | 03-28 → 05-18 |
+| generics/traits | 275 | 47 | 04-02 → 05-19 |
+| metaprog/quote | 160 | 51 | 03-28 → 05-19 |
+| iterator/closures | 113 | 42 | 04-07 → 05-19 |
+| mono substitution | 110 | 43 | 04-06 → 05-19 |
+| imports/archive | 106 | 47 | 04-02 → 05-19 |
+| Drop/ownership | 103 | 51 | 03-28 → 05-18 |
+| persistent/B-tree | 76 | **67** | 03-12 → 05-19 |
+| fiber/runtime | 41 | 47 | 04-02 → 05-19 |
+| multi-arena IR | 31 | 49 | 03-28 → 05-16 |
+| fmt/Formatter | 31 | 49 | 03-30 → 05-19 |
 
-`Phase`-метки подтверждают долготу: Phase 1A span 52 дня, Phase 4 — 38
-коммитов за 40 дней. **Архитектурные фазы тянутся долго; точечные баги — нет.**
-persistent заложен в первый же день и тянется весь проект (фундамент
-co-development с Memoria).
+`Phase` labels confirm the length: Phase 1A span 52 days, Phase 4 — 38 commits
+over 40 days. **Architectural phases run long; point bugs do not.**
+persistent was laid down on day one and runs the whole project (foundation of
+the co-development with Memoria).
 
 ---
 
-## Срез 3 — Workaround vs фундаментальное решение
+## Slice 3 — Workaround vs fundamental fix
 
-Действующая policy — «чинить корень, не обходить». Лексикон сообщений это
-подтверждает:
+The standing policy is "fix the root, don't route around it." The message
+lexicon bears this out:
 
-| Обход / отсрочка | × | | Фундаментальное | × |
+| Workaround / deferral | × | | Fundamental | × |
 |---|---:|---|---|---:|
 | defer/deferred | 268 | | rewrite/rework/refactor | 210 |
 | workaround | 103 | | supersede / no-longer | 96 |
@@ -117,30 +118,31 @@ co-development с Memoria).
 | TODO/FIXME | 17 | | revert | 43 |
 | hack | 3 | | rescind | 6 |
 
-**~172 «обход» против ~474 «фундаментал»** (defer вынесен отдельно — это
-осознанная приоритизация, не технический долг). Ключевой признак здоровья:
-обходы **не накапливаются** — есть отдельный класс коммитов, *снимающих*
-обход фундаментальным фиксом. Примеры:
+**~172 "workaround" vs ~474 "fundamental"** (defer counted separately — it is
+deliberate prioritization, not technical debt). The key health signal:
+workarounds **don't accrete** — there's a distinct class of commits that
+*retire* a workaround with a fundamental fix. Examples:
 
-- `a6a04330` — match-arm pattern bindings теперь вызывают Drop на выходе из arm
-- `9856866f` — quote-walk больше не разыменовывает CALL.CALLEE как TOM
-- `d640cb8d` — устранена коллизия layout `Box` vs stdlib-`Box` между пакетами
-- `a202bbc3` — Slice = 16 байт: исправлено усечение variant-payload
-- `33693de8` — generic-struct Drop dispatch (вместо ручного обхода)
+- `a6a04330` — match-arm pattern bindings now fire Drop at arm exit
+- `9856866f` — quote-walk no longer dereferences CALL.CALLEE as a TOM
+- `d640cb8d` — fixed `Box` vs stdlib-`Box` cross-package layout collision
+- `a202bbc3` — Slice is 16 bytes: fixed variant-payload truncation
+- `33693de8` — generic-struct Drop dispatch (replacing a manual workaround)
 
-`hack`=3, `FIXME`=0 при 210 `refactor` — почерк «фикс корня, а не симптома».
-6 `rescind` — места, где ранее объявленный *gap* оказался уже закрытым и
-метку отозвали (т.е. каталог gaps активно сверяется с реальностью).
+`hack`=3, `FIXME`=0 against 210 `refactor` — the fingerprint of "fix the root,
+not the symptom." 6 `rescind`s mark places where a previously declared *gap*
+turned out to be already closed and the label was withdrawn (i.e. the gap
+catalog is actively reconciled against reality).
 
 ---
 
-## Срез 4 — Активность во времени × тематика
+## Slice 4 — Activity over time × topic
 
-Коммиты по ISO-неделям (bar нормирован на пик):
+Commits by ISO week (bar normalized to the peak):
 
 ```
-2026-03-09  W11      3  ·                     persist (старт проекта)
-2026-03-23  W13      9  ·                     hermes, arena/IR    [W12 = 0: пропуск]
+2026-03-09  W11      3  ·                     persist (project start)
+2026-03-23  W13      9  ·                     hermes, arena/IR    [W12 = 0: gap]
 2026-03-30  W14     59  #####                 hermes:21 runtime:6 mlir-gen:5
 2026-04-06  W15    221  ####################   traits:49 hermes:31 sema:26
 2026-04-13  W16    168  ###############        hermes:101 traits:45 sema:22
@@ -148,66 +150,67 @@ co-development с Memoria).
 2026-04-27  W18    249  #######################  metaprog:73 sema:48 hermes:28
 2026-05-04  W19    308  #############################  sema:85 persist:46 metaprog:33
 2026-05-11  W20    531  ##################################################  imports:121 coreport:92 traits:67
-2026-05-18  W21     93  ########              traits:21 sema:21 mono:19   [неделя не закрыта]
+2026-05-18  W21     93  ########              traits:21 sema:21 mono:19   [week not closed]
 ```
 
-Фазовые волны фокуса:
+Phase-shaped waves of focus:
 
-- **W11-W14 (март):** закладка Hermes + runtime, медленный старт.
-- **W15-W17 (апрель):** взрывной рост, **Hermes-доминанта** (101 коммит за
-  W16) + traits + первый серьёзный заход в mlir-gen. Пик объёма — W17 (404).
-- **W18-W19:** фокус на **metaprog/quote**, затем persistent.
-- **W20 (пик 531):** разворот на **imports/archive + core-port** — массовый
-  ввод rustc-тестов и борьба с архивами/линковкой (здесь жил stale-embed
-  footgun, закрытый `cce5c2f6`).
-- **W21:** остывание на traits/sema/mono polish.
+- **W11-W14 (March):** laying down Hermes + runtime, slow start.
+- **W15-W17 (April):** explosive growth, **Hermes-dominant** (101 commits in
+  W16) + traits + the first serious push into mlir-gen. Volume peak — W17 (404).
+- **W18-W19:** focus on **metaprog/quote**, then persistent.
+- **W20 (peak 531):** pivot to **imports/archive + core-port** — mass intake of
+  rustc tests and the fight with archives/linking (the stale-embed footgun
+  lived here, closed by `cce5c2f6`).
+- **W21:** cooling down on traits/sema/mono polish.
 
-**Слоистость по времени:** Hermes — фундамент (рано, доминировал апрель);
-metaprog и persistent — средние слои; imports + core-port — поздний массовый
-слой, появившийся когда язык стал достаточно зрелым для прогона чужих тестов.
-
----
-
-## Выводы
-
-1. **История самодокументируема.** Подробные сообщения + bug-ID серии +
-   ссылки на родственные коммиты позволяют реконструировать «что ломалось и
-   как чинили» почти без обращения к внешним источникам. (Часть глубокого
-   контекста расследований всё же живёт в out-of-repo memory-файлах
-   `baghunt_*.md` — коммиты на них ссылаются.)
-2. **Здоровый баланс долга:** фундаментальных правок в ~2.7× больше, чем
-   обходов, и обходы активно снимаются, а не копятся.
-3. **Чёткая слоистая архитектурная траектория:** фундамент (Hermes,
-   persistent) → семантика (sema/mono/traits) → метапрограммирование →
-   зрелостный слой (imports + core-port). Каждый слой даёт свою волну в
-   недельном графике.
-4. **Точечные баги дёшевы, архитектура дорога:** B-серия закрывается за
-   дни, Phase-серии живут по 40-52 дня — ожидаемо и здорово.
+**Layering over time:** Hermes is the foundation (early, dominated April);
+metaprog and persistent are middle layers; imports + core-port is the late mass
+layer that appeared once the language was mature enough to run third-party
+tests.
 
 ---
 
-## Приложение — как пересчитать
+## Takeaways
+
+1. **The history is self-documenting.** Detailed messages + bug-ID series +
+   references to related commits make it possible to reconstruct "what broke
+   and how it was fixed" almost without external sources. (Some deep
+   investigation context still lives in out-of-repo memory files
+   `baghunt_*.md` — commits reference them.)
+2. **Healthy debt balance:** ~2.7× more fundamental fixes than workarounds, and
+   workarounds are actively retired rather than accumulated.
+3. **A clear layered architectural trajectory:** foundation (Hermes,
+   persistent) → semantics (sema/mono/traits) → metaprogramming → maturity
+   layer (imports + core-port). Each layer produces its own wave in the weekly
+   chart.
+4. **Point bugs are cheap, architecture is expensive:** the B series closes in
+   days; Phase series live 40-52 days — expected and healthy.
+
+---
+
+## Appendix — how to recompute
 
 ```bash
-# Сводка
+# Summary
 git rev-list --count HEAD
 git log --format='%cI %s' --no-merges | wc -l
 
-# Срез 1: bug-несущие по подсистеме (префикс subject + флаг bug в subject/body)
+# Slice 1: bug-bearing by subsystem (subject prefix + bug flag in subject/body)
 git log --format='%H%x09%s' | while IFS=$'\t' read h s; do
   pre=$(echo "$s" | grep -oP '^[a-zA-Z0-9_+./-]+(?=:)' | head -1)
   bug=$(git log -1 --format='%s %b' $h | grep -ciE 'bug|fix|segfault|crash|hang|regress|root cause|baghunt')
   echo "$pre|$bug"
-done   # затем нормализация префиксов + агрегация (см. awk в истории сессии)
+done   # then normalize prefixes + aggregate (see the awk used in the session)
 
-# bug-ID серии
+# bug-ID series
 git log --format='%s %b' | grep -oP '\b(CP-cm-[0-9]+|SL-sl-[0-9]+|P4-pm-[0-9]+|C6-cc-[0-9]+|T9-tr-[0-9]+|MC-mc-[0-9]+|B[0-9]{1,3})\b' \
   | sort -u | sed -E 's/-[0-9]+$//; s/[0-9]+$//' | sort | uniq -c | sort -rn
 
-# Срез 3: лексикон обход vs фундаментал
+# Slice 3: workaround vs fundamental lexicon
 git log --format='%s %b' --no-merges | grep -ciE 'workaround|work[ -]around'
 git log --format='%s %b' --no-merges | grep -ciE 'rewrit|rework|refactor'
-# (полный список маркеров — в теле документа)
+# (full marker list — in the body of this document)
 
-# Срез 4: коммиты по ISO-неделям + топ-темы — python3 по `git log --format='%cI%x09%s'`
+# Slice 4: commits by ISO week + top topics — python3 over `git log --format='%cI%x09%s'`
 ```
