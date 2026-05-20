@@ -1,0 +1,225 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
+//   library/coretests/tests/slice.rs (subset).
+//
+// Ported (the slice surface Logos provides today — see stdlib/lang/slice):
+//   - test_binary_search — full case sweep from upstream, adapted from
+//     method form `b.binary_search(&x)` to the free fn
+//     `slice_binary_search::<T>(s, x)` returning `Result<i64, i64>`
+//     (Logos has no `[T]::binary_search` inherent method yet).
+//   - test_chunks_count — `chunks(n).count()` adapted to a manual drain
+//     of the `Chunks<T>` iterator (`slice_chunks::<T>(s, n)`).
+//   - windows — first/second window contents (slice.rs `test_windows_*`),
+//     via `slice_windows::<T>(s, n)`.
+//   - split_at — `slice_split_at::<T>(s, mid)` halves' lengths + sums.
+//   - sort — insertion sort over a `*mut T, len` pair (`slice_sort`),
+//     standing in for `[T]::sort()` (upstream `sort.rs` uses pdqsort;
+//     Logos's is insertion sort — same total order, see stdlib note).
+//
+// Divergences / skipped (with reason):
+//   - Method form on `[T]` (`b.binary_search`, `v.chunks`, `s.windows`,
+//     `s.sort`) — Logos exposes these as free fns in `logos.lang.slice`,
+//     not inherent slice methods; the iterator adapters (`.count()`,
+//     `.nth()`, `.rev()`, `.size_hint()`) aren't wired onto Chunks/Windows.
+//   - `[(); usize::MAX]` ZST case from test_binary_search — no ZST arrays.
+//   - test_binary_search_by{,_key} / _overflow — closures + `_by` variants
+//     not ported (the `_by` comparator surface is Vec-side).
+//   - sort stability / pdqsort-specific (`sort_unstable`, `sort_by_cached_key`,
+//     panic-safety, large-N) — insertion sort covers the small-N total-order
+//     contract; perf/stability variants deferred.
+//   - rotate / split / windows-rev / chunks_exact / rchunks / group_by /
+//     partition_point / iter mut — method/iterator surface not ported.
+
+package test_coretest_slice;
+
+use std.fmt;
+use logos.lang.panic;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.slice;
+use logos.lang.iter;
+
+// Encode a binary-search outcome into one i64 for compact assertions:
+//   Ok(i)  →  i           (>= 0)
+//   Err(i) →  -(i + 1)     (< 0)
+fn bs(s: &[i32], target: i32) -> i64 {
+    match slice_binary_search::<i32>(s, target) {
+        Result::Ok(i)  => { return i; }
+        Result::Err(i) => { return -(i + 1i64); }
+    }
+}
+fn ok(i: i64) -> i64  { return i; }
+fn err(i: i64) -> i64 { return -(i + 1i64); }
+
+// Upstream `test_binary_search`, case by case.
+#[test]
+fn test_binary_search() {
+    let b0: [i32; 0] = [];
+    let s0: &[i32] = &b0;
+    assert!(bs(s0, 5i32) == err(0i64));
+
+    let b1: [i32; 1] = [4i32];
+    let s1: &[i32] = &b1;
+    assert!(bs(s1, 3i32) == err(0i64));
+    assert!(bs(s1, 4i32) == ok(0i64));
+    assert!(bs(s1, 5i32) == err(1i64));
+
+    let b2: [i32; 6] = [1i32, 2i32, 4i32, 6i32, 8i32, 9i32];
+    let s2: &[i32] = &b2;
+    assert!(bs(s2, 5i32) == err(3i64));
+    assert!(bs(s2, 6i32) == ok(3i64));
+    assert!(bs(s2, 7i32) == err(4i64));
+    assert!(bs(s2, 8i32) == ok(4i64));
+
+    let b3: [i32; 6] = [1i32, 2i32, 4i32, 5i32, 6i32, 8i32];
+    let s3: &[i32] = &b3;
+    assert!(bs(s3, 9i32) == err(6i64));
+
+    let b4: [i32; 7] = [1i32, 2i32, 4i32, 6i32, 7i32, 8i32, 9i32];
+    let s4: &[i32] = &b4;
+    assert!(bs(s4, 6i32) == ok(3i64));
+    assert!(bs(s4, 5i32) == err(3i64));
+    assert!(bs(s4, 8i32) == ok(5i64));
+
+    let b5: [i32; 7] = [1i32, 2i32, 4i32, 5i32, 6i32, 8i32, 9i32];
+    let s5: &[i32] = &b5;
+    assert!(bs(s5, 7i32) == err(5i64));
+    assert!(bs(s5, 0i32) == err(0i64));
+
+    // Duplicates: [1,3,3,3,7]. Upstream allows Ok(1..=3) for target 3.
+    let b6: [i32; 5] = [1i32, 3i32, 3i32, 3i32, 7i32];
+    let s6: &[i32] = &b6;
+    assert!(bs(s6, 0i32) == err(0i64));
+    assert!(bs(s6, 1i32) == ok(0i64));
+    assert!(bs(s6, 2i32) == err(1i64));
+    let found3: i64 = bs(s6, 3i32);
+    assert!(found3 >= 1i64 && found3 <= 3i64);
+    assert!(bs(s6, 4i32) == err(4i64));
+    assert!(bs(s6, 5i32) == err(4i64));
+    assert!(bs(s6, 6i32) == err(4i64));
+    assert!(bs(s6, 7i32) == ok(4i64));
+    assert!(bs(s6, 8i32) == err(5i64));
+}
+
+// Drain a Chunks<T> iterator and return how many chunks it yields.
+fn chunk_count(s: &[i32], n: i64) -> i64 {
+    let mut it = slice_chunks::<i32>(s, n);
+    let mut count: i64 = 0i64;
+    loop {
+        match it.next() {
+            Option::Some(_) => { count = count + 1i64; }
+            Option::None    => { break; }
+        }
+    }
+    return count;
+}
+
+// Upstream `test_chunks_count`.
+#[test]
+fn test_chunks_count() {
+    let v: [i32; 6] = [0i32, 1i32, 2i32, 3i32, 4i32, 5i32];
+    assert!(chunk_count(&v, 3i64) == 2i64);
+
+    let v2: [i32; 5] = [0i32, 1i32, 2i32, 3i32, 4i32];
+    assert!(chunk_count(&v2, 2i64) == 3i64);
+
+    let v3: [i32; 0] = [];
+    assert!(chunk_count(&v3, 2i64) == 0i64);
+}
+
+// Chunk contents: chunks(2) over [1..7] → (1,2),(3,4),(5,6); sums 3,7,11.
+#[test]
+fn test_chunks_contents() {
+    let arr: [i32; 6] = [1i32, 2i32, 3i32, 4i32, 5i32, 6i32];
+    let s: &[i32] = &arr;
+    let mut it = slice_chunks::<i32>(s, 2);
+    match it.next() {
+        Option::Some(c) => { unsafe { assert!(iter_sum_i32(iter_over_slice::<i32>(c)) == 3i32); } }
+        Option::None    => { panic("chunks: missing chunk 1"); }
+    }
+    match it.next() {
+        Option::Some(c) => { unsafe { assert!(iter_sum_i32(iter_over_slice::<i32>(c)) == 7i32); } }
+        Option::None    => { panic("chunks: missing chunk 2"); }
+    }
+    match it.next() {
+        Option::Some(c) => { unsafe { assert!(iter_sum_i32(iter_over_slice::<i32>(c)) == 11i32); } }
+        Option::None    => { panic("chunks: missing chunk 3"); }
+    }
+    match it.next() {
+        Option::Some(_) => { panic("chunks: unexpected 4th chunk"); }
+        Option::None    => {}
+    }
+}
+
+// windows(3) over [1..7] → (1,2,3),(2,3,4),...; first two sum 6 and 9.
+#[test]
+fn test_windows_contents() {
+    let arr: [i32; 6] = [1i32, 2i32, 3i32, 4i32, 5i32, 6i32];
+    let s: &[i32] = &arr;
+    let mut it = slice_windows::<i32>(s, 3);
+    match it.next() {
+        Option::Some(w) => { unsafe { assert!(iter_sum_i32(iter_over_slice::<i32>(w)) == 6i32); } }
+        Option::None    => { panic("windows: missing window 1"); }
+    }
+    match it.next() {
+        Option::Some(w) => { unsafe { assert!(iter_sum_i32(iter_over_slice::<i32>(w)) == 9i32); } }
+        Option::None    => { panic("windows: missing window 2"); }
+    }
+}
+
+// split_at(mid) halves' lengths + element sums.
+#[test]
+fn test_split_at() {
+    let arr: [i32; 6] = [1i32, 2i32, 3i32, 4i32, 5i32, 6i32];
+    let s: &[i32] = &arr;
+    let pair = slice_split_at::<i32>(s, 3i64);
+    assert!(pair.left_len == 3i64);
+    assert!(pair.right_len == 3i64);
+    unsafe {
+        let left  = slice_from_raw::<i32>(pair.left_ptr, pair.left_len);
+        let right = slice_from_raw::<i32>(pair.right_ptr, pair.right_len);
+        assert!(iter_sum_i32(iter_over_slice::<i32>(left)) == 6i32);   // 1+2+3
+        assert!(iter_sum_i32(iter_over_slice::<i32>(right)) == 15i32);  // 4+5+6
+    }
+
+    // Clamp: mid past the end yields the whole slice on the left.
+    let pair2 = slice_split_at::<i32>(s, 100i64);
+    assert!(pair2.left_len == 6i64);
+    assert!(pair2.right_len == 0i64);
+}
+
+// Insertion sort over a *mut T, len pair (Logos's [T]::sort stand-in).
+#[test]
+fn test_sort() {
+    let mut a: [i32; 8] = [3i32, 1i32, 4i32, 1i32, 5i32, 9i32, 2i32, 6i32];
+    let base: *mut i32 = &mut a[0] as *mut i32;
+    unsafe { slice_sort::<i32>(base, 8i64); }
+    assert!(a[0] == 1i32);
+    assert!(a[1] == 1i32);
+    assert!(a[2] == 2i32);
+    assert!(a[3] == 3i32);
+    assert!(a[4] == 4i32);
+    assert!(a[5] == 5i32);
+    assert!(a[6] == 6i32);
+    assert!(a[7] == 9i32);
+
+    // Already-sorted and reverse inputs.
+    let mut b: [i32; 4] = [10i32, 20i32, 30i32, 40i32];
+    let bb: *mut i32 = &mut b[0] as *mut i32;
+    unsafe { slice_sort::<i32>(bb, 4i64); }
+    assert!(b[0] == 10i32 && b[3] == 40i32);
+
+    let mut c: [i32; 4] = [40i32, 30i32, 20i32, 10i32];
+    let cc: *mut i32 = &mut c[0] as *mut i32;
+    unsafe { slice_sort::<i32>(cc, 4i64); }
+    assert!(c[0] == 10i32 && c[1] == 20i32 && c[2] == 30i32 && c[3] == 40i32);
+}
+
+// Built-in slice surface: .len() + indexing (slice.rs sanity checks).
+#[test]
+fn test_slice_len_index() {
+    let arr: [i32; 5] = [10i32, 20i32, 30i32, 40i32, 50i32];
+    let s: &[i32] = &arr;
+    assert!(s.len() == 5);
+    assert!(s[0] == 10i32);
+    assert!(s[4] == 50i32);
+}
