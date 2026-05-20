@@ -1,0 +1,63 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
+//   library/alloctests/tests/vec_deque.rs (ring-buffer core subset).
+//
+// Logos's `VecDeque<T>` (stdlib/mem/collections/deque) is a power-of-two ring
+// buffer: `vecdeque_new::<T>()`, `push_back`/`push_front`, `pop_front`/
+// `pop_back`, `len`/`is_empty`/`get` (via `*mut`/`*const VecDeque<T>`, unsafe).
+//
+// Divergences / skipped (with reason):
+//   - `VecDeque::from`/`vec_deque![...]` literal, iterators (`.iter()`/drain),
+//     rotate/swap/contains/extend/make_contiguous, capacity introspection,
+//     the huge growth/wraparound stress matrix — broader surface; the FIFO /
+//     LIFO / front-back invariants are what's tested here.
+
+package test_coretest_vec_deque;
+
+use std.fmt;
+use logos.lang.panic;
+use logos.lang.option;
+use logos.mem.collections.deque;
+
+// FIFO: push_back + pop_front drains in insertion order.
+#[test]
+fn test_fifo() {
+    unsafe {
+        let mut d: VecDeque<i32> = vecdeque_new::<i32>();
+        assert!(d.is_empty());
+        d.push_back(1i32); d.push_back(2i32); d.push_back(3i32);
+        assert!(d.len() == 3i64);
+        match d.pop_front() { Option::Some(v) => { assert!(v == 1i32); } Option::None => { panic("pf"); } }
+        match d.pop_front() { Option::Some(v) => { assert!(v == 2i32); } Option::None => { panic("pf"); } }
+        match d.pop_front() { Option::Some(v) => { assert!(v == 3i32); } Option::None => { panic("pf"); } }
+        assert!(d.is_empty());
+        match d.pop_front() { Option::Some(_) => { panic("pop_front on empty"); } Option::None => {} }
+    }
+}
+
+// pop_back drains from the back (LIFO against push_back).
+#[test]
+fn test_pop_back() {
+    unsafe {
+        let mut d: VecDeque<i32> = vecdeque_new::<i32>();
+        d.push_back(10i32); d.push_back(20i32); d.push_back(30i32);
+        match d.pop_back() { Option::Some(v) => { assert!(v == 30i32); } Option::None => { panic("pb"); } }
+        match d.pop_back() { Option::Some(v) => { assert!(v == 20i32); } Option::None => { panic("pb"); } }
+        assert!(d.len() == 1i64);
+    }
+}
+
+// push_front prepends; get indexes front→back.
+#[test]
+fn test_push_front_and_get() {
+    unsafe {
+        let mut d: VecDeque<i32> = vecdeque_new::<i32>();
+        d.push_back(10i32);
+        d.push_front(5i32);   // [5, 10]
+        assert!(d.len() == 2i64);
+        assert!(d.get(0i64) == 5i32);
+        assert!(d.get(1i64) == 10i32);
+        match d.pop_front() { Option::Some(v) => { assert!(v == 5i32); } Option::None => { panic("pf"); } }
+        match d.pop_front() { Option::Some(v) => { assert!(v == 10i32); } Option::None => { panic("pf"); } }
+        assert!(d.is_empty());
+    }
+}

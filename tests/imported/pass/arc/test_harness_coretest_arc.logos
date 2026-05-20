@@ -1,0 +1,60 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
+//   library/alloctests/tests/arc.rs (strong-count / shared-data subset).
+//
+// Logos's `Arc<T>` (stdlib/mem/sync) is the thread-safe analogue of `Rc<T>`:
+// `arc_new::<T: Send + Sync>(v)`, handles via `*mut Arc<T>`, `clone_arc`
+// (count++), `drop_arc` (count--, free at zero), `strong_count` / `get`.
+//
+// Divergences / skipped (with reason):
+//   - method form (`Arc::clone`, `*a`, `Arc::strong_count`) → `*mut Arc`
+//     free-method form; explicit `drop_arc` (no RAII); no Weak/atomic-ordering
+//     introspection; no actual cross-thread sharing exercised here (the count
+//     mechanics are what's tested). Same shape as the rc coretest.
+
+package test_coretest_arc;
+
+use std.fmt;
+use logos.lang.panic;
+use logos.mem.sync;
+
+#[test]
+fn test_new_and_count() {
+    unsafe {
+        let mut a: Arc<i32> = arc_new::<i32>(100i32);
+        let pa: *mut Arc<i32> = &mut a;
+        assert!(pa.strong_count() == 1i32);
+        assert!(*pa.get() == 100i32);
+        pa.drop_arc();
+    }
+}
+
+#[test]
+fn test_clone_shares() {
+    unsafe {
+        let mut a1: Arc<i32> = arc_new::<i32>(7i32);
+        let p1: *mut Arc<i32> = &mut a1;
+        let mut a2: Arc<i32> = p1.clone_arc();
+        let p2: *mut Arc<i32> = &mut a2;
+        assert!(p1.strong_count() == 2i32);
+        // Both handles see the same shared allocation.
+        assert!(*p1.get() == 7i32);
+        assert!(*p2.get() == 7i32);
+        p2.drop_arc();
+        assert!(p1.strong_count() == 1i32);
+        p1.drop_arc();
+    }
+}
+
+#[test]
+fn test_drop_sequence() {
+    unsafe {
+        let mut a: Arc<i32> = arc_new::<i32>(1i32);
+        let pa: *mut Arc<i32> = &mut a;
+        let mut b: Arc<i32> = pa.clone_arc();
+        let pb: *mut Arc<i32> = &mut b;
+        assert!(pa.strong_count() == 2i32);
+        pb.drop_arc();
+        assert!(pa.strong_count() == 1i32);
+        pa.drop_arc();
+    }
+}
