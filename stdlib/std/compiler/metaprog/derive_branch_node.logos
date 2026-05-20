@@ -3,7 +3,7 @@
 // Hook for `#[derive_branch_node(ops = "<CONST_NAME>")]` on a LeafNode-
 // shaped struct. Emits a sibling `BranchNodeMP<K, STORE_CFG, CFG>`
 // whose layout mirrors the existing hand-written
-// logos.std.data.persistent.cow.BranchNode plus one aggregate column per
+// logos.std.data.persistent.bt.cow.BranchNode plus one aggregate column per
 // supported op.
 //
 // Slice-1e: the const-name carrying the op-list is READ from the
@@ -30,8 +30,8 @@ use logos.mem.hermes.string;
 use logos.mem.string;
 use logos.lang.str;
 // Note (debt #13 closure): the handler used to import
-// `std.lang.datatypes`, `logos.std.data.persistent.node` and
-// `logos.std.data.persistent.shuttle` to make NodeBase / Buffer / NodeARC /
+// `std.lang.datatypes`, `logos.std.data.persistent.bt.node` and
+// `logos.std.data.persistent.bt.shuttle` to make NodeBase / Buffer / NodeARC /
 // PrimVec / ShuttleResult resolvable in the emit context. With the
 // emit now inheriting the originating user module's USES, those types
 // resolve through the user's own imports — this handler no longer

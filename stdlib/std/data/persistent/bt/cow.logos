@@ -1,4 +1,4 @@
-// logos.std.data.persistent.cow — concrete node types + alloc helpers +
+// logos.std.data.persistent.bt.cow — concrete node types + alloc helpers +
 // BTreeNode trait impls for the dyn-trait persistent-store rearch.
 //
 // Three concrete node flavours:
@@ -23,7 +23,7 @@
 // counters in tests, custom logging, etc.). For ordinary persistent-store
 // usage no user Drop is needed — the field destructor chain is sufficient.
 
-package logos.std.data.persistent.cow;
+package logos.std.data.persistent.bt.cow;
 
 use logos.mem.collections.vec;
 use logos.mem.mem;
@@ -33,8 +33,8 @@ use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;
 
-use logos.std.data.persistent.node;
-use logos.std.data.persistent.shuttle;  // ShuttleResult — derive emits per-op shuttle wrapper
+use logos.std.data.persistent.bt.node;
+use logos.std.data.persistent.bt.shuttle;  // ShuttleResult — derive emits per-op shuttle wrapper
 use logos.std.compiler.metaprog;        // brings #[derive_branch_node] trigger into scope
 
 // Aggregate columns on BranchNode. SUM aggregate over `subtree_size`

@@ -1,4 +1,4 @@
-// logos.std.data.persistent.mutate — write-side BTree on NodeARC.
+// logos.std.data.persistent.bt.mutate — write-side BTree on NodeARC.
 //
 // Insert / remove descend through the tree, CoW-clone any node that
 // wasn't created in the current snapshot (snapshot_id mismatch),
@@ -14,7 +14,7 @@
 //     (in cow_clone trait impl); no manual node_retain_c.
 //   • Auto-Drop chains the release path — no explicit walker needed.
 
-package logos.std.data.persistent.mutate;
+package logos.std.data.persistent.bt.mutate;
 
 use logos.mem.collections.vec;
 use logos.mem.mem;
@@ -24,9 +24,9 @@ use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;
 
-use logos.std.data.persistent.node;
-use logos.std.data.persistent.cow;
-use logos.std.data.persistent.descent;
+use logos.std.data.persistent.bt.node;
+use logos.std.data.persistent.bt.cow;
+use logos.std.data.persistent.bt.descent;
 use logos.lang.panic;
 
 // ── Vec<NodeARC> insert helper ────────────────────────────────────────

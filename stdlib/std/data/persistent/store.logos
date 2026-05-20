@@ -24,7 +24,7 @@ use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;
 
-use logos.std.data.persistent.node;
+use logos.std.data.persistent.bt.node;
 
 // ── DAG entry ─────────────────────────────────────────────────────────
 // Each commit pins one root NodeARC handle. The root is the directory

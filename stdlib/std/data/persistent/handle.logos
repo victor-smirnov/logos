@@ -34,12 +34,12 @@ use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;
 
-use logos.std.data.persistent.node;
-use logos.std.data.persistent.cow;
+use logos.std.data.persistent.bt.node;
+use logos.std.data.persistent.bt.cow;
 use logos.std.data.persistent.store;
-use logos.std.data.persistent.descent;
-use logos.std.data.persistent.mutate;
-use logos.std.data.persistent.iter;
+use logos.std.data.persistent.bt.descent;
+use logos.std.data.persistent.bt.mutate;
+use logos.std.data.persistent.bt.iter;
 
 // DirCfg — directory layout. Key = ctr_id (u64), val = NodeARC (heterogeneous
 // container roots). fanout drives branch + leaf max-keys. Multi-level: dir

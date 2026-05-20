@@ -1,4 +1,4 @@
-// logos.std.data.persistent.shuttle — typed B+tree descent components.
+// logos.std.data.persistent.bt.shuttle — typed B+tree descent components.
 //
 // A "shuttle" is the per-branch step that picks which child to descend
 // into for one tree dimension. Two kinds today:
@@ -16,7 +16,7 @@
 // wrapper that calls one of these templates with the right column.
 // User-side find(K) / seek(N) compose those wrappers into a descent.
 
-package logos.std.data.persistent.shuttle;
+package logos.std.data.persistent.bt.shuttle;
 
 use logos.mem.hermes.fabric;
 use logos.lang.cmp;

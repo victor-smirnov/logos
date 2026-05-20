@@ -27,8 +27,8 @@ use logos.lang.cmp; use logos.lang.cmp; use logos.mem.hermes.fabric;
 use logos.lang.drop;
 use logos.lang.hermes.view; use logos.mem.hermes.view; use logos.lang.hermes.anyval;
 
-use logos.std.data.persistent.node;
-use logos.std.data.persistent.cow;
+use logos.std.data.persistent.bt.node;
+use logos.std.data.persistent.bt.cow;
 
 pub const StoreCfg: HermesStatic = @{
     "name":     "smoke",
