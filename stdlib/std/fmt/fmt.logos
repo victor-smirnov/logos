@@ -175,6 +175,37 @@ pub fn eprintln(args: Vec<ExprBlob>) -> ExprBlob {
     };
 }
 
+// write!(sink, "fmt", args…) / writeln!(…) — format into a String then flush
+// to the Write sink via `sink.write_str(…)`, returning the sink's
+// Result<(), Error>. The common literal-format-string case is intercepted by
+// sema's format-family lowering (sema_expr.cpp), which applies per-placeholder
+// specs directly; this `#[fn_macro]` body is the non-literal fallback (and the
+// registration that makes `write!`/`writeln!` callable). The sink is args[0];
+// the format string + value args follow.
+#[fn_macro]
+pub fn write(args: Vec<ExprBlob>) -> ExprBlob {
+    let sink: ExprBlob = args.get(0i64);
+    let mut rest: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let n: i64 = args.length();
+    let mut i: i64 = 1i64;
+    while i < n { rest.push(args.get(i)); i = i + 1i64; }
+    return quote_expr! {
+        { let __s: String = format_args_str(#(#rest),*); (#sink).write_str(__s.as_str()) }
+    };
+}
+
+#[fn_macro]
+pub fn writeln(args: Vec<ExprBlob>) -> ExprBlob {
+    let sink: ExprBlob = args.get(0i64);
+    let mut rest: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let n: i64 = args.length();
+    let mut i: i64 = 1i64;
+    while i < n { rest.push(args.get(i)); i = i + 1i64; }
+    return quote_expr! {
+        { let mut __s: String = format_args_str(#(#rest),*); __s.push_str("\n"); (#sink).write_str(__s.as_str()) }
+    };
+}
+
 // ── Assertion macros (Rust-compatible surface) ───────────────────────────
 //
 // `assert!(cond)` / `assert!(cond, fmt, args...)` and

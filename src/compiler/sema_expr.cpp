@@ -13540,9 +13540,19 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
         callee_name == "println"  || callee_name == "eprint"  ||
         callee_name == "eprintln" || callee_name == "panic"   ||
         callee_name == "format_args_str";
-    if (is_format_family && !arg_avs.empty() && arg_avs[0].is_pointer()) {
+    // write!(sink, "fmt", args…) / writeln!(sink, "fmt", args…): the first
+    // arg is the Write sink; the format string is arg[1] and value args start
+    // at arg[2]. Same eager-render pipeline as format! — render into a temp
+    // __buf, then `sink.write_str(__buf)`. (Deferred-Arguments carrier — the
+    // zero-copy path — is a separate refactor; this closes the functional gap
+    // so `write!(custom_sink, …)` works.)
+    bool is_write_family = (callee_name == "write" || callee_name == "writeln");
+    // Index of the format-string literal among the metacall args.
+    size_t fmt_pos = is_write_family ? 1 : 0;
+    if ((is_format_family || is_write_family) &&
+        arg_avs.size() > fmt_pos && arg_avs[fmt_pos].is_pointer()) {
         auto* fmt_tom = reinterpret_cast<TinyObjectMap*>(
-            const_cast<uint8_t*>(src_base) + arg_avs[0].to_offset().value());
+            const_cast<uint8_t*>(src_base) + arg_avs[fmt_pos].to_offset().value());
         int32_t fc = 0;
         if (fmt_tom->has_key(la::CODE.code)) {
             AnyVal cv = fmt_tom->get(la::CODE.code, const_cast<uint8_t*>(src_base));
@@ -13597,7 +13607,10 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
                 int32_t lits = 0;
                 for (auto& s : fmt_result.segments) if (s.is_literal) ++lits;
                 placeholders -= lits;
-                int32_t args_provided = static_cast<int32_t>(arg_avs.size()) - 1;
+                // Value args = total minus the leading non-value args:
+                // the format string (always), plus the sink for write!/writeln!.
+                int32_t args_provided =
+                    static_cast<int32_t>(arg_avs.size()) - static_cast<int32_t>(fmt_pos) - 1;
                 // Required slots = max(positional auto-count, highest
                 // explicit `{N}` index + 1). Named placeholders extend
                 // this in slice 4.4-named.
@@ -13673,7 +13686,9 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
                             continue;
                         }
                         int32_t idx = (seg.arg_idx >= 0) ? seg.arg_idx : auto_idx++;
-                        int32_t value_idx = idx + 1;  // args[0] is the fmt str
+                        // args[fmt_pos] is the fmt str; value args follow it
+                        // (write!/writeln! also have args[0] = the sink).
+                        int32_t value_idx = idx + static_cast<int32_t>(fmt_pos) + 1;
                         if (value_idx >= static_cast<int32_t>(arg_avs.size()))
                             continue;
                         // Render this arg via the existing pretty-printer.
@@ -13742,6 +13757,21 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
                         blk += "__fmt_eprint(__buf.as_str()) }";
                     } else if (callee_name == "panic") {
                         blk += "__fmt_panic(__buf.as_str()) }";
+                    } else if (is_write_family) {
+                        // writeln! appends a newline before flushing to the
+                        // sink. The block evaluates to the sink's write_str
+                        // Result so `write!(…)?` propagates errors.
+                        if (callee_name == "writeln")
+                            blk += "__buf.push_str(\"\\n\"); ";
+                        std::string sink_src = "()";
+                        if (!arg_avs.empty() && arg_avs[0].is_pointer()) {
+                            auto sink_view = hermes::TinyMapView(
+                                arg_avs[0].to_offset(), holder_);
+                            sink_src = render_expr_src(sink_view);
+                        }
+                        blk += "(";
+                        blk += sink_src;
+                        blk += ").write_str(__buf.as_str()) }";
                     }
 
                     holder_ = saved_holder;
