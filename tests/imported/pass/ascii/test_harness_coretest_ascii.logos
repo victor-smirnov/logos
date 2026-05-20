@@ -1,0 +1,246 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
+//   library/coretests/tests/ascii.rs (subset).
+//
+// Ported: the byte-level ASCII surface (`impl u8`) that Logos provides today,
+// plus the `AsciiChar` newtype (Logos's struct-wrapper stand-in for Rust's
+// 128-variant `core::ascii::Char` enum — see stdlib/lang/ascii/ascii.logos):
+//   - is_ascii / is_ascii_uppercase / _lowercase / _alphabetic / _digit /
+//     _alphanumeric / _hexdigit / _octdigit / _whitespace / _control /
+//     _punctuation / _graphic — checked per-byte over the whole 0..256 range
+//     against an "obviously-correct" baseline (mirrors Rust's assert_all! /
+//     assert_none! sweep, which iterates representative strings).
+//   - to_ascii_uppercase / to_ascii_lowercase — full 0..256 sweep vs baseline.
+//   - make_ascii_uppercase / make_ascii_lowercase — `&mut self` in-place mutate
+//     (Rust's test_make_ascii_{upper,lower}_case).
+//   - eq_ignore_ascii_case (Rust's test_eq_ignore_ascii_case, byte form).
+//   - AsciiChar::from_u8 validation incl. test_invalid_u8 (128..=255 → None),
+//     from_u8_unchecked, as_u8, as_char, and the class predicates.
+//
+// Divergences / skipped (with reason):
+//   - String / &str / &[u8] forms (`"…".to_ascii_uppercase()`, `b"…".is_ascii()`,
+//     `assert_all!` over strings) — exercised here on the underlying bytes
+//     instead; the str/Vec ASCII wrappers are a separate port (str coretest).
+//   - test_is_ascii_align_size_thoroughly — SIMD/alignment fast-path probe over
+//     Vec<u8>; the byte predicate it checks is covered by the per-byte sweep.
+//   - test_escape_ascii{,_iter} — `[u8]::escape_ascii` iterator not ported.
+//   - ascii_const / ascii_ctype_const — `const X: bool = b'a'.is_ascii()` is a
+//     const-eval context; Logos routes compile-time evaluation through metacall,
+//     not const fns (project policy), so the const-context form is N/A. The
+//     runtime values are covered by the sweeps above.
+//   - the macro_rules! test scaffolding (assert_all!/assert_none!/suite!) —
+//     Logos has no macro_rules!; metacall is the divergent mechanism. The
+//     assertions are inlined as loops here.
+
+package test_coretest_ascii;
+
+use std.fmt;
+use logos.lang.panic;
+use logos.lang.option;
+use logos.lang.ascii;
+
+// ── Baselines (the "obviously correct" reference, byte form) ──────────
+fn base_is_ascii(b: u8) -> bool { return b < 128u8; }
+fn base_is_upper(b: u8) -> bool { return b >= 65u8 && b <= 90u8; }
+fn base_is_lower(b: u8) -> bool { return b >= 97u8 && b <= 122u8; }
+fn base_is_alpha(b: u8) -> bool { return base_is_upper(b) || base_is_lower(b); }
+fn base_is_digit(b: u8) -> bool { return b >= 48u8 && b <= 57u8; }
+fn base_is_alnum(b: u8) -> bool { return base_is_alpha(b) || base_is_digit(b); }
+fn base_is_hex(b: u8) -> bool {
+    if b >= 48u8 && b <= 57u8 { return true; }
+    if b >= 65u8 && b <= 70u8 { return true; }
+    if b >= 97u8 && b <= 102u8 { return true; }
+    return false;
+}
+fn base_is_oct(b: u8) -> bool { return b >= 48u8 && b <= 55u8; }
+fn base_is_ws(b: u8) -> bool {
+    return b == 32u8 || b == 9u8 || b == 10u8 || b == 12u8 || b == 13u8;
+}
+fn base_is_ctrl(b: u8) -> bool { return b < 32u8 || b == 127u8; }
+fn base_is_punct(b: u8) -> bool {
+    if b >= 33u8 && b <= 47u8 { return true; }
+    if b >= 58u8 && b <= 64u8 { return true; }
+    if b >= 91u8 && b <= 96u8 { return true; }
+    if b >= 123u8 && b <= 126u8 { return true; }
+    return false;
+}
+fn base_is_graphic(b: u8) -> bool { return b >= 33u8 && b <= 126u8; }
+fn base_to_upper(b: u8) -> u8 {
+    if b >= 97u8 && b <= 122u8 { return b - 32u8; }
+    return b;
+}
+fn base_to_lower(b: u8) -> u8 {
+    if b >= 65u8 && b <= 90u8 { return b + 32u8; }
+    return b;
+}
+
+// ── u8 predicate sweeps (mirror assert_all! / assert_none! over all bytes) ──
+#[test]
+fn test_is_ascii_predicates_full_range() {
+    let mut i: i32 = 0;
+    while i < 256 {
+        let b: u8 = i as u8;
+        assert!(b.is_ascii()              == base_is_ascii(b));
+        assert!(b.is_ascii_uppercase()    == base_is_upper(b));
+        assert!(b.is_ascii_lowercase()    == base_is_lower(b));
+        assert!(b.is_ascii_alphabetic()   == base_is_alpha(b));
+        assert!(b.is_ascii_digit()        == base_is_digit(b));
+        assert!(b.is_ascii_alphanumeric() == base_is_alnum(b));
+        assert!(b.is_ascii_hexdigit()     == base_is_hex(b));
+        assert!(b.is_ascii_octdigit()     == base_is_oct(b));
+        assert!(b.is_ascii_whitespace()   == base_is_ws(b));
+        assert!(b.is_ascii_control()      == base_is_ctrl(b));
+        assert!(b.is_ascii_punctuation()  == base_is_punct(b));
+        assert!(b.is_ascii_graphic()      == base_is_graphic(b));
+        i = i + 1;
+    }
+}
+
+// test_to_ascii_uppercase / test_to_ascii_lowercase (byte form, full range).
+#[test]
+fn test_to_ascii_case_full_range() {
+    let mut i: i32 = 0;
+    while i < 256 {
+        let b: u8 = i as u8;
+        assert!(b.to_ascii_uppercase() == base_to_upper(b));
+        assert!(b.to_ascii_lowercase() == base_to_lower(b));
+        i = i + 1;
+    }
+}
+
+// test_make_ascii_upper_case / test_make_ascii_lower_case (byte form).
+#[test]
+fn test_make_ascii_case() {
+    let mut a: u8 = 97u8;       // 'a'
+    a.make_ascii_uppercase();
+    assert!(a == 65u8);          // 'A'
+
+    let mut b: u8 = 65u8;       // 'A' — already upper, unchanged
+    b.make_ascii_uppercase();
+    assert!(b == 65u8);
+
+    let mut c: u8 = 33u8;       // '!' — non-alpha, unchanged
+    c.make_ascii_uppercase();
+    assert!(c == 33u8);
+
+    let mut d: u8 = 65u8;       // 'A'
+    d.make_ascii_lowercase();
+    assert!(d == 97u8);          // 'a'
+
+    let mut e: u8 = 97u8;       // 'a' — already lower, unchanged
+    e.make_ascii_lowercase();
+    assert!(e == 97u8);
+
+    // Full-range round-trip: make_* must agree with to_*.
+    let mut i: i32 = 0;
+    while i < 256 {
+        let mut x: u8 = i as u8;
+        let want: u8 = base_to_upper(x);
+        x.make_ascii_uppercase();
+        assert!(x == want);
+        let mut y: u8 = i as u8;
+        let wantl: u8 = base_to_lower(y);
+        y.make_ascii_lowercase();
+        assert!(y == wantl);
+        i = i + 1;
+    }
+}
+
+// test_eq_ignore_ascii_case (byte form).
+#[test]
+fn test_eq_ignore_ascii_case() {
+    assert!((65u8).eq_ignore_ascii_case(&97u8));   // 'A' vs 'a'
+    assert!((97u8).eq_ignore_ascii_case(&65u8));   // 'a' vs 'A'
+    assert!((90u8).eq_ignore_ascii_case(&122u8));  // 'Z' vs 'z'
+    assert!(!(65u8).eq_ignore_ascii_case(&66u8));  // 'A' vs 'B'
+    assert!(!(48u8).eq_ignore_ascii_case(&49u8));  // '0' vs '1'
+    // Non-alpha bytes compare exactly.
+    assert!((33u8).eq_ignore_ascii_case(&33u8));   // '!' vs '!'
+    assert!(!(33u8).eq_ignore_ascii_case(&34u8));  // '!' vs '"'
+}
+
+// ── AsciiChar newtype (Logos struct-wrapper for core::ascii::Char) ────
+#[test]
+fn test_asciichar_from_u8_valid() {
+    let mut i: i32 = 0;
+    while i < 128 {
+        let b: u8 = i as u8;
+        match AsciiChar::from_u8(b) {
+            Option::Some(ac) => { assert!(ac.as_u8() == b); }
+            Option::None     => { panic("from_u8 rejected a valid ASCII byte"); }
+        }
+        i = i + 1;
+    }
+}
+
+// test_invalid_u8 — 128..=255 must yield None.
+#[test]
+fn test_asciichar_invalid_u8() {
+    let mut i: i32 = 128;
+    while i < 256 {
+        let b: u8 = i as u8;
+        match AsciiChar::from_u8(b) {
+            Option::Some(_) => { panic("from_u8 accepted a non-ASCII byte"); }
+            Option::None    => {}
+        }
+        i = i + 1;
+    }
+}
+
+#[test]
+fn test_asciichar_accessors_and_predicates() {
+    let a: AsciiChar = AsciiChar::from_u8(97u8).unwrap();   // 'a'
+    assert!(a.as_u8() == 97u8);
+    assert!(a.as_char() == 'a');
+    assert!(a.is_alphabetic());
+    assert!(a.is_lowercase());
+    assert!(!a.is_uppercase());
+    assert!(!a.is_digit());
+    assert!(a.is_alphanumeric());
+    assert!(a.is_hexdigit());        // 'a' is a hex digit
+    assert!(!a.is_whitespace());
+    assert!(!a.is_control());
+
+    let nine: AsciiChar = AsciiChar::from_u8(57u8).unwrap();  // '9'
+    assert!(nine.is_digit());
+    assert!(nine.is_alphanumeric());
+    assert!(!nine.is_alphabetic());
+
+    let sp: AsciiChar = AsciiChar::from_u8(32u8).unwrap();    // ' '
+    assert!(sp.is_whitespace());
+    assert!(!sp.is_control());
+
+    let nul: AsciiChar = AsciiChar::from_u8(0u8).unwrap();    // NUL
+    assert!(nul.is_control());
+}
+
+#[test]
+fn test_asciichar_to_case() {
+    let a: AsciiChar = AsciiChar::from_u8(97u8).unwrap();   // 'a'
+    assert!(a.to_ascii_uppercase().as_u8() == 65u8);         // 'A'
+    let upa: AsciiChar = AsciiChar::from_u8(65u8).unwrap();  // 'A'
+    assert!(upa.to_ascii_lowercase().as_u8() == 97u8);       // 'a'
+    // Non-alpha unchanged.
+    let bang: AsciiChar = AsciiChar::from_u8(33u8).unwrap(); // '!'
+    assert!(bang.to_ascii_uppercase().as_u8() == 33u8);
+    assert!(bang.to_ascii_lowercase().as_u8() == 33u8);
+}
+
+#[test]
+fn test_asciichar_from_u8_unchecked() {
+    let c: AsciiChar = unsafe { AsciiChar::from_u8_unchecked(65u8) };
+    assert!(c.as_u8() == 65u8);
+    assert!(c.is_uppercase());
+}
+
+// Named-value free-fn constructors (Logos's stand-in for AsciiChar::Null etc.).
+#[test]
+fn test_asciichar_named_values() {
+    assert!(ascii_null().as_u8()         == 0u8);
+    assert!(ascii_tab().as_u8()          == 9u8);
+    assert!(ascii_line_feed().as_u8()    == 10u8);
+    assert!(ascii_carriage_ret().as_u8() == 13u8);
+    assert!(ascii_space().as_u8()        == 32u8);
+    assert!(ascii_delete().as_u8()       == 127u8);
+    assert!(ascii_tab().is_control());
+    assert!(ascii_space().is_whitespace());
+}

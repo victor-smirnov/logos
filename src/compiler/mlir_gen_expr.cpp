@@ -1095,6 +1095,37 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef) {
             return sc->second;
         }
     }
+    // `&mut self` autoref on a scalar-primitive local (`let mut b: u8;
+    // b.make_ascii_uppercase()`): the receiver is a VarRef to a slot-backed
+    // local, and the method's `*self = …` rebind must reach that slot.
+    // gen_expr(VarRef) loads the value and the scalar tail below spills a
+    // fresh copy — so the write would land in the throwaway copy and never
+    // reach the caller's binding. Hand back the variable's own slot instead
+    // (same lvalue treatment EAddrOf gives a VarRef). Gated on the slot being
+    // a real alloca (scope_ entry of ptr_type) — scalar params bound as SSA
+    // values (type != ptr) keep the spill path, matching by-value semantics.
+    if (inner_ref.kind() == ec::Code::VarRef && inner_t) {
+        auto k = inner_t.kind();
+        bool is_scalar =
+            k == LogosType::Kind::I8   || k == LogosType::Kind::I16  ||
+            k == LogosType::Kind::I24  || k == LogosType::Kind::I32  ||
+            k == LogosType::Kind::I56  || k == LogosType::Kind::I64  ||
+            k == LogosType::Kind::I128 || k == LogosType::Kind::U8   ||
+            k == LogosType::Kind::U16  || k == LogosType::Kind::U24  ||
+            k == LogosType::Kind::U32  || k == LogosType::Kind::U56  ||
+            k == LogosType::Kind::U64  || k == LogosType::Kind::U128 ||
+            k == LogosType::Kind::F32  || k == LogosType::Kind::F64  ||
+            k == LogosType::Kind::Bool || k == LogosType::Kind::Char ||
+            k == LogosType::Kind::Usize|| k == LogosType::Kind::Isize;
+        if (is_scalar) {
+            std::string vn{lir_view::EVarRefView{inner_ref}.name()};
+            auto sc = scope_.find(vn);
+            if (sc != scope_.end() && sc->second &&
+                sc->second.getType() == ptr_type() && let_vars_.count(vn)) {
+                return sc->second;
+            }
+        }
+    }
     auto val = gen_expr(*inner_le);
     if (!val) return nullptr;
     if (inner_t && (inner_t.kind() == LogosType::Kind::Tuple ||

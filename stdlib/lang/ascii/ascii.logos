@@ -25,6 +25,57 @@ package logos.lang.ascii;
 
 use logos.lang.option;
 
+// ── ASCII methods on `u8` ────────────────────────────────────────────
+// Mirror `impl u8`'s ASCII surface from Rust (the byte-level half of
+// core::ascii that coretests/tests/ascii.rs exercises). Same range logic
+// as `impl char`'s ASCII methods, on the raw byte. `make_ascii_*` mutate
+// in place via `&mut self`.
+impl u8 {
+    pub fn is_ascii(self: u8) -> bool { return self < 128u8; }
+    pub fn is_ascii_uppercase(self: u8) -> bool { return self >= 65u8 && self <= 90u8; }
+    pub fn is_ascii_lowercase(self: u8) -> bool { return self >= 97u8 && self <= 122u8; }
+    pub fn is_ascii_alphabetic(self: u8) -> bool {
+        return self.is_ascii_uppercase() || self.is_ascii_lowercase();
+    }
+    pub fn is_ascii_digit(self: u8) -> bool { return self >= 48u8 && self <= 57u8; }
+    pub fn is_ascii_alphanumeric(self: u8) -> bool {
+        return self.is_ascii_alphabetic() || self.is_ascii_digit();
+    }
+    pub fn is_ascii_hexdigit(self: u8) -> bool {
+        if self >= 48u8 && self <= 57u8 { return true; }
+        if self >= 65u8 && self <= 70u8 { return true; }
+        if self >= 97u8 && self <= 102u8 { return true; }
+        return false;
+    }
+    pub fn is_ascii_octdigit(self: u8) -> bool { return self >= 48u8 && self <= 55u8; }
+    pub fn is_ascii_whitespace(self: u8) -> bool {
+        return self == 32u8 || self == 9u8 || self == 10u8 || self == 12u8 || self == 13u8;
+    }
+    pub fn is_ascii_control(self: u8) -> bool { return self < 32u8 || self == 127u8; }
+    pub fn is_ascii_punctuation(self: u8) -> bool {
+        if self >= 33u8  && self <= 47u8  { return true; }
+        if self >= 58u8  && self <= 64u8  { return true; }
+        if self >= 91u8  && self <= 96u8  { return true; }
+        if self >= 123u8 && self <= 126u8 { return true; }
+        return false;
+    }
+    pub fn is_ascii_graphic(self: u8) -> bool { return self >= 33u8 && self <= 126u8; }
+
+    pub fn to_ascii_uppercase(self: u8) -> u8 {
+        if self >= 97u8 && self <= 122u8 { return self - 32u8; }
+        return self;
+    }
+    pub fn to_ascii_lowercase(self: u8) -> u8 {
+        if self >= 65u8 && self <= 90u8 { return self + 32u8; }
+        return self;
+    }
+    pub fn eq_ignore_ascii_case(self: u8, other: &u8) -> bool {
+        return self.to_ascii_lowercase() == (*other).to_ascii_lowercase();
+    }
+    pub fn make_ascii_uppercase(self: &mut u8) { *self = (*self).to_ascii_uppercase(); }
+    pub fn make_ascii_lowercase(self: &mut u8) { *self = (*self).to_ascii_lowercase(); }
+}
+
 pub struct AsciiChar {
     byte: u8,
 }
