@@ -315,13 +315,9 @@ pub trait Iterator<Item> {
             Option::None    => { return Option::None; }
             Option::Some(v) => {
                 unsafe {
-                    let mut acc: Item = *((&v) as *const Item);
-                    loop {
-                        match it.next() {
-                            Option::None    => { return Option::Some(acc); }
-                            Option::Some(x) => { acc = g(acc, x); }
-                        }
-                    }
+                    let init: Item = *((&v) as *const Item);
+                    let acc: Item = it.fold::<Item, ReduceFn>(init, g);
+                    return Option::Some(acc);
                 }
             }
         }

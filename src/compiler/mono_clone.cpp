@@ -3131,6 +3131,63 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     }
                 }
             }
+            // Fallback for a trait-default method whose body calls another
+            // METHOD-GENERIC method on a `self` typed as `Self` (a generic
+            // struct): the call resolved (sema) to the callee's generic
+            // struct-method TEMPLATE name carrying the FULL [impl + method]
+            // type-args (nm.type_args = [T, A, F, …]). The block above can't
+            // place it (its base_struct = struct_name(), not the concrete
+            // `Struct$G…$…`, and combined_args double-counts the struct args).
+            // Mangle the template directly with nm.type_args (== what a direct
+            // concrete call produces) + enqueue.
+            //
+            // GATED to the method-generic case only: fire when the resolved
+            // template has its OWN (method-level) type-params. A method with
+            // only impl-level params (e.g. `Zone<M>::release`) must NOT take
+            // this path — its concrete spec is the struct-name form
+            // `Zone$G1$Mutable__release`, and template-mangling it would emit a
+            // bogus `…__g__…$M__Mutable` (M unsubstituted) the existing path
+            // already handles correctly.
+            if (!rewritten && !resolved_symbol.empty() && !nm.type_args.empty() &&
+                resolved_symbol.find("__g__") != std::string::npos) {
+                bool all_concrete = true;
+                for (auto ta : nm.type_args)
+                    if (!ta || TypeRef(ta).kind() == LogosType::Kind::TypeVar)
+                        { all_concrete = false; break; }
+                std::string rs_tail = resolved_symbol;
+                if (auto dot = rs_tail.rfind('.'); dot != std::string::npos)
+                    rs_tail = rs_tail.substr(dot + 1);
+                std::string rs_struct, rs_method;
+                if (auto sep = rs_tail.find("__"); sep != std::string::npos) {
+                    rs_struct = rs_tail.substr(0, sep);
+                    std::string mt = rs_tail.substr(sep + 2);
+                    if (auto g = mt.find("__g__"); g != std::string::npos)
+                        rs_method = mt.substr(0, g);
+                }
+                const lir::LFunction* tmpl = nullptr;
+                if (all_concrete && !rs_struct.empty() && !rs_method.empty()) {
+                    if (auto* smt = find_struct_method_templates_unguarded(rs_struct)) {
+                        auto mit = smt->find(rs_method);
+                        if (mit == smt->end())
+                            for (auto& [k, fn] : *smt)
+                                if (k.rfind(rs_method + "__g__", 0) == 0) { mit = smt->find(k); break; }
+                        if (mit != smt->end()) tmpl = mit->second;
+                    }
+                }
+                // Only the method-generic case (template has its own tparams).
+                if (tmpl && !tmpl->type_params.empty()) {
+                    std::string callee = mangle(resolved_symbol, nm.type_args);
+                    enqueue_if_needed(callee, nm.type_args);
+                    std::vector<lir::LExprPtr> args;
+                    args.push_back(std::move(nm.receiver));
+                    v.each_arg([&](lir_view::ExprRef ar) {
+                        args.push_back(subst_child_expr(ar));
+                    });
+                    result->mirror_offset_ = lir_mirror_emit_call(
+                        out_, result->type, callee, nm.type_args, args);
+                    rewritten = true;
+                }
+            }
             if (!rewritten) {
                 v.each_arg([&](lir_view::ExprRef ar) {
                     nm.args.push_back(subst_child_expr(ar));

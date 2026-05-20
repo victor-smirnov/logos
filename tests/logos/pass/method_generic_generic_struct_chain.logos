@@ -1,0 +1,27 @@
+package gs_chain;
+
+trait It {
+    fn step(self: &mut Self) -> i32;
+    // method-generic trait-default
+    fn acc<A, F: FnMut(A, i32) -> A>(self: &mut Self, init: A, f: F) -> A {
+        let mut a: A = init;
+        let mut g: F = f;
+        a = g(a, self.step());
+        return a;
+    }
+    // trait-default calling the method-generic method on self (generic struct Self)
+    fn via<A, F: FnMut(A, i32) -> A>(self: &mut Self, init: A, f: F) -> A {
+        return self.acc::<A, F>(init, f);
+    }
+}
+
+struct Counter<T> { v: T, n: i32 }
+impl<T> It for Counter<T> { fn step(self: &mut Self) -> i32 { self.n = self.n + 1i32; return self.n; } }
+
+fn addf(a: i32, b: i32) -> i32 { return a + b; }
+
+fn main() -> i32 {
+    let mut c: Counter<i32> = Counter { v: 0i32, n: 10i32 };
+    // acc: step()->11; g(5,11)=16. via delegates to acc.
+    return c.via::<i32, fn(i32,i32)->i32>(5i32, addf);
+}
