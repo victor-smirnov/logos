@@ -1,0 +1,161 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
+//   library/alloctests/tests/str.rs (subset; the `core::str` half).
+//
+// Ported (the str surface Logos provides today — see stdlib/lang/str):
+//   - test_is_empty       — `.len() == 0` (Logos has no `.is_empty()` on str yet).
+//   - test_starts_with    — `str_starts_with(s, prefix)` (ASCII cases).
+//   - test_ends_with      — `str_ends_with(s, suffix)` (ASCII cases).
+//   - test_contains       — `str_contains(s, needle)` (ASCII cases).
+//   - test_find           — `str_index_of(s, needle)` returning a byte index
+//                           or -1, adapted from upstream `find -> Option<usize>`.
+//   - test_trim_start / _end / trim — `str_trim_*`, compared via `str_eq`.
+//   - Pattern surface      — `str_find_pat` / `str_contains_pat` /
+//                           `str_starts_with_pat` over the `str` and `u8`
+//                           Pattern impls (`core::str::Pattern` analogue).
+//   - str `.eq` / `.ne`    — `impl Eq for str` (CP-cm-08b).
+//
+// Divergences / skipped (with reason):
+//   - char / closure patterns (`"hello".find('l')`, `.find(|c: char| …)`) —
+//     Logos's Pattern impls cover `str` (substring) and `u8` (single byte);
+//     `char` and `FnMut(char)` patterns aren't wired. Byte/substring forms
+//     stand in.
+//   - Non-ASCII / multibyte UTF-8 cases (`"ประเทศไทย中华…".contains("中华")`,
+//     `'华'` indices, `\u{3000}` ideographic space in trim) — Logos's str is
+//     byte-oriented and `is_ws_byte` is ASCII-only; the byte-level contract
+//     is exercised on ASCII inputs. Substring search is byte-exact, so a
+//     byte-equal multibyte needle would match, but index expectations and
+//     non-ASCII whitespace differ from Rust's Unicode semantics.
+//   - replacen / split / chars / rsplit / matches / case mapping — String /
+//     iterator surface, separate ports.
+
+package test_coretest_str;
+
+use std.fmt;
+use logos.lang.panic;
+use logos.lang.cmp;
+use logos.lang.str;
+
+// test_is_empty (adapted: `.is_empty()` → `.len() == 0`).
+#[test]
+fn test_is_empty() {
+    let e: str = "";
+    let a: str = "a";
+    assert!(e.len() == 0i64);
+    assert!(a.len() != 0i64);
+}
+
+// test_starts_with (ASCII cases from upstream).
+#[test]
+fn test_starts_with() {
+    assert!(str_starts_with("", ""));
+    assert!(str_starts_with("abc", ""));
+    assert!(str_starts_with("abc", "a"));
+    assert!(!str_starts_with("a", "abc"));
+    assert!(!str_starts_with("", "abc"));
+    assert!(str_starts_with("abc", "abc"));
+    assert!(str_starts_with("abcde", "abc"));
+    assert!(!str_starts_with("abcde", "bcd"));
+}
+
+// test_ends_with (ASCII cases from upstream).
+#[test]
+fn test_ends_with() {
+    assert!(str_ends_with("", ""));
+    assert!(str_ends_with("abc", ""));
+    assert!(str_ends_with("abc", "c"));
+    assert!(!str_ends_with("a", "abc"));
+    assert!(!str_ends_with("", "abc"));
+    assert!(str_ends_with("abc", "abc"));
+    assert!(str_ends_with("abcde", "cde"));
+    assert!(!str_ends_with("abcde", "cdf"));
+}
+
+// test_contains (ASCII cases from upstream).
+#[test]
+fn test_contains() {
+    assert!(str_contains("abcde", "bcd"));
+    assert!(str_contains("abcde", "abcd"));
+    assert!(str_contains("abcde", "bcde"));
+    assert!(str_contains("abcde", ""));
+    assert!(str_contains("", ""));
+    assert!(!str_contains("abcde", "def"));
+    assert!(!str_contains("", "a"));
+}
+
+// test_find (adapted: `find -> Option<usize>` → `str_index_of -> i64`, -1 = miss).
+#[test]
+fn test_find() {
+    assert!(str_index_of("hello", "l") == 2i64);
+    assert!(str_index_of("hello", "o") == 4i64);
+    assert!(str_index_of("hello", "x") == -1i64);
+    assert!(str_index_of("hello", "he") == 0i64);
+    assert!(str_index_of("hello", "lo") == 3i64);
+    // Empty needle matches at the start.
+    assert!(str_index_of("hello", "") == 0i64);
+}
+
+// test_trim_start (ASCII whitespace).
+#[test]
+fn test_trim_start() {
+    assert!(str_eq(str_trim_start(""), ""));
+    assert!(str_eq(str_trim_start("a"), "a"));
+    assert!(str_eq(str_trim_start("    "), ""));
+    assert!(str_eq(str_trim_start("     blah"), "blah"));
+    assert!(str_eq(str_trim_start("hey "), "hey "));
+    assert!(str_eq(str_trim_start("\t\n  wut"), "wut"));
+}
+
+// test_trim_end (ASCII whitespace).
+#[test]
+fn test_trim_end() {
+    assert!(str_eq(str_trim_end(""), ""));
+    assert!(str_eq(str_trim_end("a"), "a"));
+    assert!(str_eq(str_trim_end("    "), ""));
+    assert!(str_eq(str_trim_end("blah     "), "blah"));
+    assert!(str_eq(str_trim_end(" hey"), " hey"));
+    assert!(str_eq(str_trim_end("wut  \t\n"), "wut"));
+}
+
+// test_trim (ASCII whitespace).
+#[test]
+fn test_trim() {
+    assert!(str_eq(str_trim(""), ""));
+    assert!(str_eq(str_trim("a"), "a"));
+    assert!(str_eq(str_trim("    "), ""));
+    assert!(str_eq(str_trim("    blah     "), "blah"));
+    assert!(str_eq(str_trim(" hey dude "), "hey dude"));
+    assert!(str_eq(str_trim("\nwut\t  "), "wut"));
+}
+
+// str_eq / str.eq / str.ne (impl Eq for str — CP-cm-08b).
+#[test]
+fn test_str_eq() {
+    let a: str = "foo";
+    let b: str = "foo";
+    let c: str = "bar";
+    assert!(str_eq(a, b));
+    assert!(!str_eq(a, c));
+    assert!(a.eq(&b));
+    assert!(!a.eq(&c));
+    assert!(a.ne(&c));
+    assert!(!a.ne(&b));
+}
+
+// core::str::Pattern analogue — substring (str) and single-byte (u8) patterns.
+#[test]
+fn test_pattern() {
+    let s: str = "hello, world";
+    // str pattern.
+    assert!(str_find_pat::<str>(s, "world") == 7i64);
+    assert!(str_find_pat::<str>(s, "xyz") == -1i64);
+    assert!(str_contains_pat::<str>(s, "lo"));
+    assert!(str_starts_with_pat::<str>(s, "hello"));
+    assert!(!str_starts_with_pat::<str>(s, "world"));
+    // u8 pattern.
+    assert!(str_find_pat::<u8>(s, 44u8) == 5i64);     // ','
+    assert!(str_find_pat::<u8>(s, 122u8) == -1i64);   // 'z'
+    assert!(str_contains_pat::<u8>(s, 32u8));         // ' '
+    assert!(str_starts_with_pat::<u8>(s, 104u8));     // 'h'
+    // Empty needle matches at start.
+    assert!(str_find_pat::<str>(s, "") == 0i64);
+}
