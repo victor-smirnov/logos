@@ -1,0 +1,14 @@
+package tup_eq_gen;
+use logos.lang.cmp;
+fn check<T: Eq>(a: &T, b: &T) -> bool { return a.eq(b); }
+fn main() -> i32 {
+    let a: (i32, i32, i32, i32, i32) = (1i32, 2i32, 3i32, 4i32, 5i32);
+    let b: (i32, i32, i32, i32, i32) = (1i32, 2i32, 3i32, 4i32, 5i32);
+    let c: (i32, i32, i32, i32, i32) = (1i32, 2i32, 9i32, 4i32, 5i32);
+    let r1: bool = check::<(i32,i32,i32,i32,i32)>(&a, &b);  // expect true
+    let r2: bool = check::<(i32,i32,i32,i32,i32)>(&a, &c);  // expect false (idx 2 differs)
+    if r1 && !r2 { return 0i32; }
+    if r1 && r2 { return 1i32; }   // bug: pack truncated → only compares prefix
+    if !r1 { return 2i32; }
+    return 3i32;
+}

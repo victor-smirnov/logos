@@ -2987,11 +2987,24 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     // sema-stashed args — otherwise we'd mangle a non-
                     // generic symbol into a non-existent suffix.
                     size_t tmpl_tparam_count = 0;
+                    // A variadic template type-param (`impl<A...> Trait for
+                    // (A...)`) consumes ALL trailing type-args as its pack —
+                    // the spliced tuple elements above. Truncating to the
+                    // param count (1) would bind A to only the first element,
+                    // so the variadic-tuple method (e.g. `$tuple$variadic__eq`)
+                    // would compare/format just a prefix. Track the flag and
+                    // skip the resize when the template is variadic.
+                    bool tmpl_has_variadic = false;
+                    auto note_variadic = [&](const std::vector<TypeParam>& tps) {
+                        for (auto& tp : tps) if (tp.is_variadic) { tmpl_has_variadic = true; break; }
+                    };
                     if (auto tit = templates_.find(tmpl_key); tit != templates_.end()) {
                         tmpl_tparam_count = tit->second->type_params.size();
+                        note_variadic(tit->second->type_params);
                     } else if (auto sit = specs_.find(tmpl_key);
                                sit != specs_.end() && !sit->second.empty()) {
                         tmpl_tparam_count = sit->second.front()->type_params.size();
+                        note_variadic(sit->second.front()->type_params);
                     } else if (auto* smt = find_struct_method_templates_unguarded(cname)) {
                         // Trait-default / inherent method-generic methods live in
                         // struct_method_templates_ keyed by the bare method name
@@ -3006,11 +3019,13 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                     k.compare(0, method.size(), method) == 0 &&
                                     k.compare(method.size(), 5, "__g__") == 0)
                                     { mit = smt->find(k); break; }
-                        if (mit != smt->end() && mit->second)
+                        if (mit != smt->end() && mit->second) {
                             tmpl_tparam_count = mit->second->type_params.size();
+                            note_variadic(mit->second->type_params);
+                        }
                     }
                     if (tmpl_tparam_count == 0) nc.type_args.clear();
-                    else if (nc.type_args.size() > tmpl_tparam_count)
+                    else if (!tmpl_has_variadic && nc.type_args.size() > tmpl_tparam_count)
                         nc.type_args.resize(tmpl_tparam_count);
                     if (!nc.type_args.empty()) {
                         nc.callee = mangle(tmpl_key, nc.type_args);
