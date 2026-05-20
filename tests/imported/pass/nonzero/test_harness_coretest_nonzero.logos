@@ -1,0 +1,84 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
+//   library/coretests/tests/nonzero.rs (subset).
+//
+// Ported (the surface Logos's NonZero<T> supports today — new / new_unchecked
+// / get, plus the derived Eq + Copy added 2026-05-19):
+//   - test_create_nonzero_instance, test_match_on_nonzero_option,
+//     test_from_nonzero, test_from_signed_nonzero, + a checked-new None case
+//     and an Eq case.
+//
+// Divergences / skipped (with reason):
+//   - test_size_nonzero_in_option — Logos doesn't niche-optimize Option, so
+//     size_of::<NonZero<u32>>() != size_of::<Option<NonZero<u32>>>().
+//   - test_match_option_{empty_vec,vec,rc,arc,empty_string,string} — exercise
+//     niche layout of Vec/Rc/Arc/String inside Option; Logos has no niche opt
+//     and no Rc/Arc.
+//   - test_from_ascii{,_radix} / test_from_str{,_radix} — NonZero parsing
+//     surface not ported.
+//   - test_nonzero_bitor{,_assign} / test_nonzero_from_int_* — BitOr / TryFrom
+//     surface not ported.
+//   - isolate_highest/lowest_one, highest/lowest_one, uint_div/rem,
+//     signed_nonzero_neg — bit/arith method surface not ported.
+//   - test_nonzero_fmt — Debug/Display for NonZero<T> (cross-layer generic impl)
+//     hits a mono instantiation gap (NonZero$G1$i32__fmt not cloned); follow-up.
+//     Compare via `.get()` instead.
+
+package test_coretest_nonzero;
+
+use std.fmt;
+use logos.lang.panic;
+use logos.lang.option;
+use logos.lang.num.nonzero;
+
+// test_create_nonzero_instance — `new_unchecked` builds without checking.
+#[test]
+fn test_create_nonzero_instance() {
+    let a: NonZero<i32> = unsafe { NonZero::new_unchecked(21i32) };
+    assert!(a.get() == 21i32);
+}
+
+// test_match_on_nonzero_option — Some(NonZero) matches and binds.
+#[test]
+fn test_match_on_nonzero_option() {
+    let a: Option<NonZero<u32>> = Option::Some(unsafe { NonZero::<u32>::new_unchecked(42u32) });
+    match a {
+        Option::Some(nz) => { assert!(nz.get() == 42u32); }
+        Option::None     => { panic("unexpected None while matching on Some(NonZero(_))"); }
+    }
+}
+
+// test_from_nonzero — checked `new` yields Some for non-zero, get round-trips.
+#[test]
+fn test_from_nonzero() {
+    let nz: NonZero<u32> = NonZero::new(1u32).unwrap();
+    assert!(nz.get() == 1u32);
+}
+
+// test_from_signed_nonzero — same for a signed width.
+#[test]
+fn test_from_signed_nonzero() {
+    let nz: NonZero<i32> = NonZero::new(1i32).unwrap();
+    assert!(nz.get() == 1i32);
+}
+
+// Beyond upstream — exercise the checked `new` zero-rejection and derived Eq.
+#[test]
+fn test_new_rejects_zero() {
+    match NonZero::new(0i32) {
+        Option::Some(_) => { panic("NonZero::new(0) must be None"); }
+        Option::None    => {}
+    }
+    match NonZero::new(0u8) {
+        Option::Some(_) => { panic("NonZero::new(0u8) must be None"); }
+        Option::None    => {}
+    }
+}
+
+#[test]
+fn test_nonzero_eq() {
+    let a: NonZero<i32> = NonZero::new(123i32).unwrap();
+    let b: NonZero<i32> = NonZero::new(123i32).unwrap();
+    let c: NonZero<i32> = NonZero::new(7i32).unwrap();
+    assert!(a.eq(&b));
+    assert!(a.ne(&c));
+}

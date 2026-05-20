@@ -31,7 +31,19 @@ use logos.lang.cmp;
 use logos.lang.clone;
 
 pub struct NonZero<T> {
-    val: T,
+    // `pub` so the Debug/Display impls (which must live in mem.fmt, a layer
+    // above lang.num) can read the wrapped value. The non-zero invariant is
+    // still enforced by the `new` / `new_unchecked` constructors.
+    pub val: T,
+}
+
+// NonZero<T> is Copy when T is (Rust derives this), so by-value `.get()` /
+// pattern moves don't consume the wrapper.
+impl<T: Copy> Copy for NonZero<T> {}
+
+// Two NonZero<T> are equal iff their wrapped values are. (Rust derives this.)
+impl<T: Eq> Eq for NonZero<T> {
+    fn eq(self: &Self, other: &Self) -> bool { return self.val.eq(&other.val); }
 }
 
 impl<T: Default + Eq + Copy> NonZero<T> {
