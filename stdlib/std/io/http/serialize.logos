@@ -1,9 +1,9 @@
 // Logos standard library — std.http: serializers for Request / Response.
 
-package std.io.http;
+package logos.std.io.http;
 
 use logos.mem.collections.vec;
-use std.io.write;
+use logos.std.io.write;
 
 fn write_str_bytes(s: str, out: &mut Vec<u8>) {
     let p: *const u8 = s.as_ptr();

@@ -2,7 +2,7 @@
 // Modifications: Logos main returns i32; added explicit suffixes.
 package i32_sub_test;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

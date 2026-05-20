@@ -5,7 +5,7 @@
 // dispatch and produced a returnless func.return in a non-void fn.
 package match_tuple_tail;
 
-use std.fmt;
+use logos.std.fmt;
 
 fn classify(x: bool, y: bool) -> u32 {
     match (x, y) {

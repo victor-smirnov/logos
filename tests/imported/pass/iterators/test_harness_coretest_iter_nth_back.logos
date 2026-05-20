@@ -9,11 +9,11 @@
 //   pulls from. Both forms exercise the new trait-default.
 // - `iter_over_slice(&v).rev().nth_back(i)` form also kept (cross-
 //   check).
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_iter_nth_back;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

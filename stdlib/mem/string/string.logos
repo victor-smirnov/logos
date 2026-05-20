@@ -18,7 +18,7 @@
 // Also defines the ToString trait with primitive impls. The Display
 // trait (Rust-shape `fn fmt(&self, &mut Formatter) -> Result<(), Error>`)
 // lives in `mem.fmt` (named `Display` pending the cross-pkg trait
-// registry collision fix), with format-macro plumbing in `std.fmt`.
+// registry collision fix), with format-macro plumbing in `logos.std.fmt`.
 // Read-only `str` helpers (str_eq, str_trim, etc.) live in lang-tier
 // [logos.lang.str](../../lang/str/str.logos).
 

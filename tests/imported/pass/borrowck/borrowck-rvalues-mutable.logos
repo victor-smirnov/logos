@@ -5,7 +5,7 @@
 // to `&mut self` automatically); rest ports as-is.
 package borrowck_rvalues_mutable;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

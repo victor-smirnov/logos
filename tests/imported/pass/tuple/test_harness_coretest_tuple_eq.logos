@@ -6,7 +6,7 @@
 //   defaulting to i32 anyway).
 // - assert_eq! macros (Logos's `assert_eq!` on tuples desugars to
 //   Eq.eq via the SL-sl-08 / CP-cm-08b blanket impl).
-// - assert_ne! family imports via std.fmt + std.lang.text.
+// - assert_ne! family imports via logos.std.fmt + std.lang.text.
 //
 // Surfaces exercised (closures of these gaps):
 // - SL-sl-08 / CP-cm-08b: tuple `==` / `!=` via Eq blanket
@@ -14,7 +14,7 @@
 
 package test_tuple_eq;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

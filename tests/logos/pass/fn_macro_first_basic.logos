@@ -3,7 +3,7 @@
 // generated Vec, exercising vec_new + push + dispatch + ExprBlob splice.
 package fn_macro_first_basic;
 
-use std.compiler.metaprog;
+use logos.std.compiler.metaprog;
 use logos.mem.collections.vec;
 
 #[fn_macro]

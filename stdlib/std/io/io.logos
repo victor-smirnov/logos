@@ -1,6 +1,6 @@
-// Logos standard library — std.io
+// Logos standard library — logos.std.io
 
-package std.io;
+package logos.std.io;
 
 use logos.mem.string;
 use logos.lang.str;

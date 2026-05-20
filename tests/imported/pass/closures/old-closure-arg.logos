@@ -5,7 +5,7 @@
 // `assert_eq!` against a counter substitutes for visual inspection.
 package cl_old_closure_arg;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.option;

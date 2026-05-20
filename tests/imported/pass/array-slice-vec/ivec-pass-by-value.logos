@@ -3,7 +3,7 @@
 // Modifications: `vec![…]` → `vec_from_arr([…])`; `isize` → `i64`.
 package asv_ivec_pass_by_value;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.option;

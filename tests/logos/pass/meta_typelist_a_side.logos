@@ -5,7 +5,7 @@
 
 package meta_typelist_a_side_probe;
 
-use std.compiler.metaprog;
+use logos.std.compiler.metaprog;
 
 unsafe fn main() -> i32 {
     if length::<i32, bool, u8>() != (3 as i64) { return 1; }

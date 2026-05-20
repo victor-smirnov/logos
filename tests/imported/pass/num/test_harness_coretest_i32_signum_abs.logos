@@ -9,11 +9,11 @@
 // - `(N as $T)` cast simplified to `Ni32` literal.
 // - `assert_eq_const_safe!` simplified to `assert_eq!` (we don't
 //   have const-context evaluation; runtime evaluation suffices).
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_i32_signum_abs;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.cmp;

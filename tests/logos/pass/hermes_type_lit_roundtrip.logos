@@ -16,7 +16,7 @@
 
 package hermes_type_lit_roundtrip;
 
-use std.compiler.metaprog;
+use logos.std.compiler.metaprog;
 use logos.mem.hermes.ctr;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
@@ -37,7 +37,7 @@ unsafe fn main() -> i32 {
 
     let t: Type = type_from_anyval(v.base(), inner);
 
-    // i32 → LogosType::Kind::I32 = 1 (cf. std.compiler.metaprog.kind_name).
+    // i32 → LogosType::Kind::I32 = 1 (cf. logos.std.compiler.metaprog.kind_name).
     if t.kind != (1 as u32) { return 3; }
     if t.uid == (0 as u64)  { return 4; }
 

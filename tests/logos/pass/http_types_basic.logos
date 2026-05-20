@@ -1,10 +1,10 @@
 // Smoke test for std.http type definitions (Phase E).
 package test;
 
-use std.io.http;
+use logos.std.io.http;
 use logos.mem.string;
 use logos.lang.str;
-use std.io.net.url;
+use logos.std.io.net.url;
 use logos.lang.option;
 
 fn main() -> i32 {

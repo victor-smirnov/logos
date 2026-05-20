@@ -8,7 +8,7 @@
 // direct `assert_eq!`.
 package g_generic_derived_type;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

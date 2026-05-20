@@ -2,8 +2,8 @@
 // Service::call, verify the response.
 package test;
 
-use std.io.http;
-use std.io.net.url;
+use logos.std.io.http;
+use logos.std.io.net.url;
 use logos.mem.collections.vec;
 use logos.mem.string;
 use logos.lang.str;

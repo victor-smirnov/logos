@@ -5,14 +5,14 @@
 // Modifications:
 // - Closure with captured state replaced with explicit ScanState
 //   struct + named fn-ptr (`fn running_sum(s: &mut ScanState, ...)`).
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
 // Stdlib companion: new `ScanIter<I, T, St, B>` struct + free fn
 // `iter_scan<I, T, St, B>(iter, state, f)` in std/lang/iter/iter.logos.
 
 package test_iter_scan;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

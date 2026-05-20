@@ -9,11 +9,11 @@
 //   the surface yet — literals used directly).
 // - `-2147483648i32` lexer-rejected (unary minus applies after the
 //   integer literal); MIN computed as `-2147483647 - 1`.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_i32_bitwise_overflow;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

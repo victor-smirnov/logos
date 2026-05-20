@@ -9,11 +9,11 @@
 // - `.collect()` resolves via CP-cm-14 to `Vec<i32>::from_iter<…>`.
 // - `&v[..]` slice-of-vec equality check unrolled to per-index
 //   assert_eq!.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_iter_array;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

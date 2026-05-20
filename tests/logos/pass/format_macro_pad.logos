@@ -7,7 +7,7 @@
 // padding bytes count toward the produced String length.
 package format_macro_pad;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

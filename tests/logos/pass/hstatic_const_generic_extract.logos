@@ -25,7 +25,7 @@
 
 package hstatic_const_generic_extract;
 
-use std.compiler.metaprog;
+use logos.std.compiler.metaprog;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;

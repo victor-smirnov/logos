@@ -2,7 +2,7 @@
 // Modifications: explicit isize suffixes on rhs of assert_eq.
 package integer_literal_radix;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

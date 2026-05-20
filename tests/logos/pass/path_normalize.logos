@@ -2,7 +2,7 @@
 
 package path_normalize;
 
-use std.io.fs.path;
+use logos.std.io.fs.path;
 use logos.mem.string;
 use logos.lang.str;
 

@@ -3,7 +3,7 @@
 // (Logos has type aliases but inline (i64,i64) is simpler).
 package tup_test;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

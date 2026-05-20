@@ -4,7 +4,7 @@
 // send signals with kill(2), and block/unblock via sigprocmask.
 //
 // A signal handler runs asynchronously — only async-signal-safe code
-// inside (see signal-safety(7)).  std.io write is fine; String/Vec ops
+// inside (see signal-safety(7)).  logos.std.io write is fine; String/Vec ops
 // are not.
 
 package logos.std.os.unix.signal;

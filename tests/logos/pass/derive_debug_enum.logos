@@ -13,11 +13,11 @@ use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;
 use logos.mem.hermes.string;
-use std.compiler.metaprog;
-use std.fmt;
+use logos.std.compiler.metaprog;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
-use std.io;
+use logos.std.io;
 
 #[metaprog_handler("derive_debug_enum")]
 fn derive_debug_enum_hook(target_offset: u32) -> () {
@@ -32,7 +32,7 @@ fn derive_debug_enum_hook(target_offset: u32) -> () {
 
     let mut em: Emitter = Emitter::new();
     em.emit_target_pkg(&view);
-    em.emit_raw("use std.fmt;");
+    em.emit_raw("use logos.std.fmt;");
     em.emit_raw("use logos.mem.string;\nuse logos.lang.str;\nuse logos.lang.result;");
 
     em.buf.push_str("impl Debug for ");

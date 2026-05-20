@@ -5,7 +5,7 @@
 // gap B3-bg-07 still open).
 package mutability_inherits_through_fixed_length_vec;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

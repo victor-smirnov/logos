@@ -1,4 +1,4 @@
-// Smoke test for std.data.persistent — rebuild of the persistent
+// Smoke test for logos.std.data.persistent — rebuild of the persistent
 // store on dyn-trait dispatch. Verifies that the package's primitives
 // (NodeBase header, NodeARC handle, BranchNode/LeafNode/LeafDirNode
 // concrete types) compose into a working rc'd tree with recursive
@@ -27,8 +27,8 @@ use logos.lang.cmp; use logos.lang.cmp; use logos.mem.hermes.fabric;
 use logos.lang.drop;
 use logos.lang.hermes.view; use logos.mem.hermes.view; use logos.lang.hermes.anyval;
 
-use std.data.persistent.node;
-use std.data.persistent.cow;
+use logos.std.data.persistent.node;
+use logos.std.data.persistent.cow;
 
 pub const StoreCfg: HermesStatic = @{
     "name":     "smoke",

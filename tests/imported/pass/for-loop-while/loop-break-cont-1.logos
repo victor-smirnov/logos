@@ -3,7 +3,7 @@
 // Modifications: explicit `usize` suffix.
 package loop_break_cont_1;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

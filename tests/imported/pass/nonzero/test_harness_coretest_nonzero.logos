@@ -25,7 +25,7 @@
 
 package test_coretest_nonzero;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.lang.panic;
 use logos.lang.option;
 use logos.lang.num.nonzero;

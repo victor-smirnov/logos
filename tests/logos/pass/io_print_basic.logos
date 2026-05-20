@@ -1,7 +1,7 @@
-// Tests std.io: print, println, eprint, eprintln.
+// Tests logos.std.io: print, println, eprint, eprintln.
 package test;
 
-use std.io;
+use logos.std.io;
 use logos.mem.string;
 use logos.lang.str;
 

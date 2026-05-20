@@ -3,7 +3,7 @@
 // unsafe-trait marker — Foo is just a trait); isize -> i64.
 package safety_ok_test;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

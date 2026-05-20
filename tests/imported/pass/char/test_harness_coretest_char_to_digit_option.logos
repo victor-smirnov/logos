@@ -7,7 +7,7 @@
 
 package test_coretest_char_to_digit_option;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.option;

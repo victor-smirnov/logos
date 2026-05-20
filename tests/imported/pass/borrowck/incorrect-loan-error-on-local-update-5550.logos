@@ -7,7 +7,7 @@
 // regression, the borrow-checking path is the test surface.
 package b_incorrect_loan_error_on_local_update_5550;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

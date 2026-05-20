@@ -4,7 +4,7 @@
 //
 // Modifications:
 // - Range source `(1..4)` works as a Logos range expression.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
 // Stdlib companion: new `FuseIter<I, T>` adapter + `iter_fuse`
 // free fn in std/lang/iter/iter.logos. Tracks a `done: bool` flag;
@@ -12,7 +12,7 @@
 
 package test_iter_fuse;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

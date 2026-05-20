@@ -5,7 +5,7 @@
 // Modifications:
 // - `$T::from_le(A.to_le()) == A` round-trip preserved.
 // - `int_module!`-$T parametrisation flattened to i32 + u64.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
 // Stdlib companion: swap_bytes / to_le / from_le / to_be / from_be
 // on u32 / i32 / u64 / i64 in std.lang.ord. Wraps `bswap_u64`
@@ -13,7 +13,7 @@
 
 package test_i32_swap_bytes;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.cmp;

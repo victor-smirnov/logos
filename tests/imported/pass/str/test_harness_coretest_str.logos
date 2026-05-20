@@ -30,7 +30,7 @@
 
 package test_coretest_str;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.lang.panic;
 use logos.lang.cmp;
 use logos.lang.str;

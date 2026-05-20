@@ -1,4 +1,4 @@
-// Logos standard library — std.io.bytes
+// Logos standard library — logos.std.io.bytes
 //
 // Bytes — a refcounted immutable byte slice.
 //
@@ -8,7 +8,7 @@
 //
 // Build buffers via BytesMut, then call freeze() to hand out immutable Bytes.
 
-package std.io.bytes;
+package logos.std.io.bytes;
 
 use logos.mem.mem;
 use logos.lang.atomic;

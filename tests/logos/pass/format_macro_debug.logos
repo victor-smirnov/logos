@@ -3,7 +3,7 @@
 // differs from `{}` even though the underlying value is the same.
 package format_macro_debug;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

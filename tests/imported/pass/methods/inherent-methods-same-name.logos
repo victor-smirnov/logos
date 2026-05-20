@@ -6,7 +6,7 @@
 // generic instantiations — is preserved.
 package inherent_methods_same_name;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

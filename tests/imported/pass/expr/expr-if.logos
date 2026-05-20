@@ -1,8 +1,8 @@
 // Imported from rust-lang/rust tests/ui/expr/if/expr-if.rs
-// Modifications: main returns i32; uses std.fmt/std.lang.text for assert!.
+// Modifications: main returns i32; uses logos.std.fmt/std.lang.text for assert!.
 package expr_if_test;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

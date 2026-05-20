@@ -1,7 +1,7 @@
 // Phase G: chunked transfer-encoding codec — round-trip + parser integration.
 package test;
 
-use std.io.http;
+use logos.std.io.http;
 use logos.mem.string;
 use logos.lang.str;
 use logos.mem.collections.vec;

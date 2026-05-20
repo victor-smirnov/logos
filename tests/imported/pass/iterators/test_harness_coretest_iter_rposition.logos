@@ -7,7 +7,7 @@
 //   i32>(iter_over_slice(&v), f)`. Free fn rather than trait-default
 //   method because trait-default with a method-level supertrait
 //   bound on Self isn't reliably dispatching yet.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
 // Stdlib companion: `iter_rposition<I: DEI<T> + ESI<T>, T>(iter,
 // pred) -> Option<i64>` free fn in std/lang/iter/iter.logos.
@@ -15,7 +15,7 @@
 
 package test_iter_rposition;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

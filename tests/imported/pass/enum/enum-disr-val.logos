@@ -6,7 +6,7 @@
 // already has `IDENT ASSIGN MINUS INTEGER` alt at variant_def).
 package enum_disr_val;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

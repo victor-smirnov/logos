@@ -6,7 +6,7 @@
 package borrowck_pat_reassign_no_binding;
 
 use logos.lang.option;
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

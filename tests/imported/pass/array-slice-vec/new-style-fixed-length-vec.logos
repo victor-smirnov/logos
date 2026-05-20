@@ -8,7 +8,7 @@
 // preserved.
 package new_style_fixed_length_vec;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

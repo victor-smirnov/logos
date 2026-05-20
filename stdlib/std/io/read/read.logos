@@ -1,4 +1,4 @@
-// Logos standard library — std.io.read
+// Logos standard library — logos.std.io.read
 //
 // Abstraction for byte-oriented input sources.
 //
@@ -7,7 +7,7 @@
 //   n == 0  : end of stream
 //   n <  0  : -errno
 
-package std.io.read;
+package logos.std.io.read;
 
 pub trait Read {
     fn read(self: &mut Self, buf: *mut u8, len: i64) -> i64;

@@ -12,11 +12,11 @@
 //   TakeIter yet (SL-sl follow-up).
 // - `next_back()` half of the test dropped — TakeIter doesn't
 //   currently impl DoubleEndedIterator (SL-sl follow-up).
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_iter_take;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

@@ -32,11 +32,11 @@
 //
 // `.nth(N)` consumes the iter in Logos (Rust's takes &mut self), so
 // chained `.nth` calls rebuild the source iter per call. assert_eq!
-// macros via std.fmt + std.lang.text.
+// macros via logos.std.fmt + std.lang.text.
 
 package test_iter_batch_b49;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

@@ -8,7 +8,7 @@ use logos.lang.str;
 use logos.lang.option;
 use logos.lang.result;
 use logos.mem.collections.vec;
-use std.io.fs;
+use logos.std.io.fs;
 use logos.std.process;
 
 use lforge.schema;

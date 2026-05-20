@@ -4,7 +4,7 @@
 // rejects integer compound-assign on `let mut` without explicit type).
 package expr_block;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

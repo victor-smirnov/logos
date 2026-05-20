@@ -5,7 +5,7 @@
 // type for unsuffixed literals the way rustc does.
 package as_precedence;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

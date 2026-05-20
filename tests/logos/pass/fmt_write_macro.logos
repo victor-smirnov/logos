@@ -2,7 +2,7 @@ package write_display;
 use logos.lang.str;
 use logos.lang.result;
 use logos.mem.string;
-use std.fmt;
+use logos.std.fmt;
 
 struct Point { x: i32, y: i32 }
 impl Display for Point {

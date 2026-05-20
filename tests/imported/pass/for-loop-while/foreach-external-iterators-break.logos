@@ -4,7 +4,7 @@
 // in &arr` over a fixed-size array works directly. `isize` → `i64`.
 package fl_foreach_external_iterators_break;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.option;

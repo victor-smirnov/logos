@@ -10,11 +10,11 @@
 // - Slice prefixes `v[..N]` modeled via iter_take.
 // - Result / Option fold variants deferred (no Sum/Add traits on
 //   Option<T> / Result<T, E> yet).
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_iter_sum;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

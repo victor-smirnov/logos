@@ -9,11 +9,11 @@
 //   `ZipPair<T, U>` struct, not `(T, U)`; destructure via `.first`
 //   / `.second` fields.
 // - Stops at the shorter iter (Rust semantics).
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_iter_zip;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

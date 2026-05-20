@@ -6,7 +6,7 @@
 // param + body-prologue `let user_k = synth.k;` for each binding).
 package b_func_arg_wild_pattern;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

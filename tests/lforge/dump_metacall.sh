@@ -26,7 +26,7 @@ cat > "$PROJ/lforge.hermes" <<'EOF'
 EOF
 cat > "$PROJ/src/main.logos" <<'EOF'
 package main;
-use std.compiler.metaprog;
+use logos.std.compiler.metaprog;
 use logos.lang.clone;
 #[derive_clone]
 struct Pair { a: i32, b: i32 }

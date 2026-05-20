@@ -19,7 +19,7 @@
 // - Bool i1 comparison signed → unsigned (closed earlier session)
 package test_bool;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.cmp;

@@ -2,7 +2,7 @@
 // Modifications: return_val lifted to module scope (already module-scope in orig).
 package isize_base_test;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

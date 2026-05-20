@@ -5,7 +5,7 @@
 
 package logos.std.process;
 
-use std.io.pipe;
+use logos.std.io.pipe;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.option;

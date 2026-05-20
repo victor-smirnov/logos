@@ -5,7 +5,7 @@
 // and is callable; the print-side output isn't load-bearing).
 package fc_fn_bare_item;
 
-use std.fmt;
+use logos.std.fmt;
 
 fn f() { let _ = 1i32; }
 

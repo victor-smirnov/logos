@@ -1,4 +1,4 @@
-// std.compiler.metaprog.meta — B-side metafunctions over runtime Type lists.
+// logos.std.compiler.metaprog.meta — B-side metafunctions over runtime Type lists.
 //
 // Pure Logos library on top of the introspection intrinsics
 // (`type_refs_of::<T...>()`, `type_of::<T>()`). Each function takes a
@@ -10,7 +10,7 @@
 // a `[Type; N]`-method `len()` (fixed-size arrays don't carry a runtime
 // length API; the bound is a compile-time constant per instantiation).
 
-package std.compiler.metaprog;
+package logos.std.compiler.metaprog;
 
 // ── Kind tag → printable name ──────────────────────────────────────────
 //

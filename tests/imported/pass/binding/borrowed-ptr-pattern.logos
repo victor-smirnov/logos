@@ -8,7 +8,7 @@
 // addr indirection when scrut is already a pointer).
 package b_borrowed_ptr_pattern;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

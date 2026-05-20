@@ -7,7 +7,7 @@
 //   `::Greater` (no bare-variant re-export in std.lang.ord).
 // - `||` closure for then_with replaced with named fn-ptrs (Logos's
 //   closure-as-fn-ptr at method-arg site is partial).
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
 // Stdlib companion added in same commit: `Ordering::then` and
 // `Ordering::then_with(f: fn() -> Ordering)` inherent methods on
@@ -15,7 +15,7 @@
 
 package test_ordering_then;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.cmp;

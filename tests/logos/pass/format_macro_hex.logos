@@ -4,7 +4,7 @@
 // `format!("{:x}", -1i32)` → "ffffffff", not "ffffffffffffffff".
 package format_macro_hex;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

@@ -2,7 +2,7 @@
 
 package meta_field_iter_probe;
 
-use std.compiler.metaprog;
+use logos.std.compiler.metaprog;
 
 pub struct Empty {}
 pub struct OneField { pub x: i32, }

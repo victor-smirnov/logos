@@ -5,7 +5,7 @@
 // the compile-time computation channel. C6-cc-03 closed via MP-mc-01.
 package cast_enum_const;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

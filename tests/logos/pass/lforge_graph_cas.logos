@@ -16,8 +16,8 @@
 
 package lforge_graph_cas;
 
-use std.io.fs;
-use std.io.fs.path;
+use logos.std.io.fs;
+use logos.std.io.fs.path;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.option;

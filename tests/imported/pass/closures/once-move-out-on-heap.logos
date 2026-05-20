@@ -8,7 +8,7 @@
 // since auto-Drop already happens at closure-scope exit.
 package once_move_out_on_heap;
 
-use std.fmt;
+use logos.std.fmt;
 
 fn foo<F>(blk: F) where F: FnOnce() -> i64 {
     let r = blk();

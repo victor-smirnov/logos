@@ -5,7 +5,7 @@
 
 package meta_quote_ty_pack_probe;
 
-use std.compiler.metaprog;
+use logos.std.compiler.metaprog;
 
 pub struct Pair<A, B> { pub a: A, pub b: B, }
 pub struct Triple<A, B, C> { pub a: A, pub b: B, pub c: C, }

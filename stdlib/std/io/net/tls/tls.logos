@@ -10,7 +10,7 @@
 // thread pools that spin threads up and down, prefer to shut the pool
 // down at process end rather than rely on per-thread cleanup.
 
-package std.io.net.tls;
+package logos.std.io.net.tls;
 
 use logos.mem.mem;
 

@@ -5,7 +5,7 @@
 // dropped. Counter assertion preserved via if-return.
 package asv_mutable_alias_vec;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.option;

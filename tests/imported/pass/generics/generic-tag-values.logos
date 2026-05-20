@@ -4,7 +4,7 @@
 // gap, see generic-tag-local); `Pair` unchanged.
 package generic_tag_values;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

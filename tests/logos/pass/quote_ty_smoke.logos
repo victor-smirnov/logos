@@ -3,7 +3,7 @@
 
 package quote_ty_smoke_probe;
 
-use std.compiler.metaprog;
+use logos.std.compiler.metaprog;
 
 pub struct Box { pub x: i32, pub y: i32, }
 

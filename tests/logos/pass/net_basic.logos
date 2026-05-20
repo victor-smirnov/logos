@@ -1,7 +1,7 @@
 // Tests std.net: UDP loopback send/recv (both sockets in same process).
 package test;
 
-use std.io.net;
+use logos.std.io.net;
 
 fn main() -> i32 {
     unsafe {

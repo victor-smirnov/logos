@@ -9,11 +9,11 @@
 //   sibling-of-CP-cm-12 mono bug noted in B31.
 // - Nested fns lifted to top level (Logos doesn't yet support nested
 //   fn declarations inside a fn body the way Rust does).
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_option_try;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.option;

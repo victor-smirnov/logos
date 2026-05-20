@@ -1,4 +1,4 @@
-// std.compiler.tokens — TokenStream / TokenTree (slice 2 of fn-macros).
+// logos.std.compiler.tokens — TokenStream / TokenTree (slice 2 of fn-macros).
 //
 // Foundation for `#[token_macro]` callees (slice 3 lands the lexer
 // balanced-capture path that produces these). For now: types only,
@@ -9,7 +9,7 @@
 // pair. Span is a placeholder (file_id+line) — slice 3 will populate
 // it from the lexer.
 
-package std.compiler.tokens;
+package logos.std.compiler.tokens;
 
 use logos.mem.collections.vec;
 use logos.mem.string;
@@ -55,7 +55,7 @@ pub enum Delim {
 
 // ── Ident ───────────────────────────────────────────────────────────────
 // Local Ident definition keeps tokens.logos free of an upward dep on
-// std.compiler.metaprog (which is ast_only — wouldn't link here).
+// logos.std.compiler.metaprog (which is ast_only — wouldn't link here).
 // Layout matches the metaprog Ident — both are interchangeable byte-wise.
 pub struct Ident {
     pub ptr: *const u8,

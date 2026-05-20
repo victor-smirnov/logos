@@ -1,10 +1,10 @@
 // format() — multiple types: i32, str, bool, negative
 package format_types;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
-use std.io;
+use logos.std.io;
 
 unsafe fn main() -> i32 {
     let s: String = format::<i32, str, bool, i32>("{} {} {} {}", 0 - 1, "hi", true, 0);

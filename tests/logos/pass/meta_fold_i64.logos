@@ -2,7 +2,7 @@
 
 package meta_fold_i64_probe;
 
-use std.compiler.metaprog;
+use logos.std.compiler.metaprog;
 
 fn add_size(acc: i64, t: Type) -> i64 { return acc + t.size; }
 fn size_proj(t: Type) -> i64 { return t.size; }

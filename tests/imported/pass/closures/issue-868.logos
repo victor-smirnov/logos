@@ -5,7 +5,7 @@
 // type, so `| | { 10 }` becomes `|| -> i32 { return 10i32; }`.
 package issue_868;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

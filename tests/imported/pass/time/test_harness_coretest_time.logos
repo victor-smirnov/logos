@@ -27,7 +27,7 @@
 
 package test_coretest_time;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.lang.panic;
 use logos.std.time;
 

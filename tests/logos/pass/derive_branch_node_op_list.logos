@@ -11,9 +11,9 @@
 
 package main;
 
-use std.compiler.metaprog;
-use std.data.persistent.node;
-use std.data.persistent.cow;
+use logos.std.compiler.metaprog;
+use logos.std.data.persistent.node;
+use logos.std.data.persistent.cow;
 use logos.mem.hermes.fabric;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;

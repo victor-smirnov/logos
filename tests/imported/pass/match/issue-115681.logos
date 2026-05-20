@@ -8,7 +8,7 @@
 // across enum variants — is preserved.
 package m_issue_115681;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

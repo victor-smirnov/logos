@@ -4,7 +4,7 @@
 // pattern position); explicit u8 suffixes.
 package match_constant_and_byte_literal_test;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

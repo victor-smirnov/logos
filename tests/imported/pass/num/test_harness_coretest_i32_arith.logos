@@ -11,11 +11,11 @@
 //   (Rust: `<<` binds tighter than `&` / `|`; Logos: same/lower);
 //   `i32_b & i32_b << 1` parses differently. Explicit parens added
 //   to lock the upstream intent `i32_b & (i32_b << 1)`.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_i32_arith;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

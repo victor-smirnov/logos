@@ -8,7 +8,7 @@
 // recognises AddrOf expressions), so `b` and `c` are restored.
 package borrowck_closures_two_imm;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

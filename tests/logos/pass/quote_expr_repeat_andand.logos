@@ -8,7 +8,7 @@
 // At main's scope, a=true b=true c=true → result=true → exit 7.
 package quote_expr_repeat_andand;
 
-use std.compiler.metaprog;
+use logos.std.compiler.metaprog;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 

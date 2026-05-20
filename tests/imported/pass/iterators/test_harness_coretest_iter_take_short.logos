@@ -6,11 +6,11 @@
 // - `xs.iter().take(5)` → free fn iter_take, asking for more items
 //   than the source provides (length-4 source, take 5 → yields 4).
 // - `it.len()` (ExactSizeIterator) assertions dropped.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_iter_take_short;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

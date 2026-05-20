@@ -9,7 +9,7 @@
 // Expected harness summary:  3 passed; 1 failed; 1 ignored  → exit 1.
 //
 // NOTE: this file is compiled with `logosc --test` (run_test.sh test mode).
-// We don't use std.fmt's `assert_eq!` here because the macro has a
+// We don't use logos.std.fmt's `assert_eq!` here because the macro has a
 // pre-existing expansion bug (it never panics on mismatch); the harness
 // itself relies on `panic()` from std.lang.panic, which goes through the
 // test-recovery longjmp hook in stdlib/rt/test_recovery.c.

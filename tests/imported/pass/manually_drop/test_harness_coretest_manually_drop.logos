@@ -23,7 +23,7 @@
 
 package test_coretest_manually_drop;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.lang.panic;
 use logos.lang.drop;
 use logos.mem.manually_drop;

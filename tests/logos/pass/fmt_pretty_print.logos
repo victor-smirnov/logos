@@ -1,7 +1,7 @@
 // Pretty-print Debug ({:#?}) smoke — DebugStruct/Tuple/List.
 package fmt_pretty_print;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.fmt;
 use logos.mem.string;
 use logos.lang.str;

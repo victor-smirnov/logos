@@ -1,4 +1,4 @@
-// Session 2 of the std.fmt → Formatter migration: exercises
+// Session 2 of the logos.std.fmt → Formatter migration: exercises
 // Display/Debug for every primitive (integers, bool, str,
 // *const u8, f32/f64, unit, 1- to 4-tuples).
 package test;

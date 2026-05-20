@@ -11,11 +11,11 @@
 //   with explicit `loop` + match (Logos's `for` over a method-call
 //   chain needs different shape for trait-default + iterator).
 // - `i64` for idx (Logos's EnumPair carries i64); Rust uses `usize`.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_iter_enumerate;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

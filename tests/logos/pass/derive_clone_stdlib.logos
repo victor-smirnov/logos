@@ -1,10 +1,10 @@
-// derive(Clone) via the stdlib hook in std.compiler.metaprog.
+// derive(Clone) via the stdlib hook in logos.std.compiler.metaprog.
 // Exercises `#[derive_clone]` registration from the library, no local hook.
 // Covers both non-generic structs and `<T, ...>` generics.
 
 package main;
 
-use std.compiler.metaprog;
+use logos.std.compiler.metaprog;
 use logos.lang.clone;
 
 #[derive_clone]

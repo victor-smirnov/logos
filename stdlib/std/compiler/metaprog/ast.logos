@@ -1,4 +1,4 @@
-// std.compiler.metaprog — untyped-AST helpers for hook handlers.
+// logos.std.compiler.metaprog — untyped-AST helpers for hook handlers.
 //
 // Hooks fire pre-sema (slice 17), so the AST they walk is freshly
 // parsed: TinyObjectMap nodes keyed by integer codes from
@@ -9,7 +9,7 @@
 // Schema constants mirror ast.hpp directly. They're inlined u8s so
 // the const-fn argument shape of tiny_map_get works without ceremony.
 
-package std.compiler.metaprog;
+package logos.std.compiler.metaprog;
 
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;

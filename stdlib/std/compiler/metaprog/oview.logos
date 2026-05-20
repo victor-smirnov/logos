@@ -1,4 +1,4 @@
-// std.compiler.metaprog — owning view over the user's AST document.
+// logos.std.compiler.metaprog — owning view over the user's AST document.
 //
 // OView (Owning View) is the proper API for metaprog hooks that
 // need to navigate the host's Hermes document. Where HermesView<'a>
@@ -12,7 +12,7 @@
 // std::atomic<int32_t>+Arena. We hide that difference behind two
 // extern host functions and treat the holder pointer as opaque.
 
-package std.compiler.metaprog;
+package logos.std.compiler.metaprog;
 
 // HermesRead's default methods touch AnyVal/StringView/DecimalView/etc.;
 // impl'ing it for OView instantiates those defaults, so we need the

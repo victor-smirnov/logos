@@ -23,9 +23,9 @@
 // fuzzer flags divergence on request-target/version quirks.
 package bench_garden_origin;
 
-use std.io.http;
-use std.io.net;
-use std.io.net.url;
+use logos.std.io.http;
+use logos.std.io.net;
+use logos.std.io.net.url;
 use std.lang.text;
 use std.collections.vec;
 use logos.lang.option;

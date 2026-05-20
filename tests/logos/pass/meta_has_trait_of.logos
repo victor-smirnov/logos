@@ -3,7 +3,7 @@
 package meta_has_trait_of_probe;
 
 use logos.lang.clone;
-use std.compiler.metaprog;
+use logos.std.compiler.metaprog;
 
 pub struct Plain { pub x: i32, }
 pub struct Boxed { pub a: i32, pub b: i64, }

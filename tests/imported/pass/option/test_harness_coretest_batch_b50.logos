@@ -25,11 +25,11 @@
 //   result.rs::test_result_ok_smoke           (`.ok()` extractor)
 //   result.rs::test_result_err_smoke          (`.err()` extractor)
 //
-// assert_eq! macros via std.fmt + std.lang.text.
+// assert_eq! macros via logos.std.fmt + std.lang.text.
 
 package test_batch_b50;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.option;

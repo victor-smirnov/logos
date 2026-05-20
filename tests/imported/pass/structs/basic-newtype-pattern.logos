@@ -10,7 +10,7 @@
 // move-tracker after destructure.
 package s_basic_newtype_pattern;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

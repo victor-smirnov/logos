@@ -19,7 +19,7 @@
 
 package showcase_type_metaprog;
 
-use std.compiler.metaprog;
+use logos.std.compiler.metaprog;
 use logos.mem.hermes.ctr;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;

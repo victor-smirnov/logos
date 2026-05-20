@@ -11,11 +11,11 @@
 //   not yet on PeekableIter (separate SL-sl gap).
 // - `next_back()` follow-ups dropped — DoubleEndedIterator on
 //   PeekableIter not yet wired (deferred).
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_iter_peekable;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

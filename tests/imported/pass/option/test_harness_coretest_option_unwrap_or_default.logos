@@ -9,7 +9,7 @@
 //   on an `impl<T> Option<T>` inherent method doesn't yet bind T
 //   to the Default trait for `T::default()` dispatch in Logos.
 // - `isize` → `i32`.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
 // Stdlib companion: new free fn
 // `option_unwrap_or_default<T: Default>(opt: Option<T>) -> T` in
@@ -17,7 +17,7 @@
 
 package test_option_unwrap_or_default;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.option;

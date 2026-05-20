@@ -4,7 +4,7 @@
 // precision). `{:e}` / `{:E}` get scientific notation.
 package format_macro_float;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

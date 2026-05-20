@@ -1,9 +1,9 @@
-// Test std.io.fs metadata + mkdir_p + rm_rf + walk_dir + canonical.
+// Test logos.std.io.fs metadata + mkdir_p + rm_rf + walk_dir + canonical.
 
 package fs_meta;
 
-use std.io.fs;
-use std.io.fs.path;
+use logos.std.io.fs;
+use logos.std.io.fs.path;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.result;

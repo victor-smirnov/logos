@@ -6,7 +6,7 @@
 // verbatim (Logos uses lowercase variant names just fine).
 package binding_fat_arrow_match;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

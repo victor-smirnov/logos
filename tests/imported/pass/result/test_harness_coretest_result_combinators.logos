@@ -18,11 +18,11 @@
 //   position cleanly when the trait method needs U-substitution.
 // - Closure args `|i| Ok::<i32, str>(i + 1)` lowered to named fn
 //   refs (CP-cm-05 closure-as-fn-ptr at method args is partial).
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_result_combinators;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.option;

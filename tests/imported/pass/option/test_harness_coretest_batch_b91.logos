@@ -8,7 +8,7 @@
 
 package test_batch_b91;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.option;

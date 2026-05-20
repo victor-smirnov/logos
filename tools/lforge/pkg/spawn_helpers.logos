@@ -5,7 +5,7 @@ package lforge.spawn_helpers;
 use logos.mem.string;
 use logos.lang.str;
 use logos.mem.collections.vec;
-use std.io.fs.path;
+use logos.std.io.fs.path;
 use logos.std.process;
 
 use lforge.proc;

@@ -4,7 +4,7 @@
 // the #[fn_macro] marker).
 package fn_macro_item_basic;
 
-use std.compiler.metaprog;
+use logos.std.compiler.metaprog;
 use logos.mem.collections.vec;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;

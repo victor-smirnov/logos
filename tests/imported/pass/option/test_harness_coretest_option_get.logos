@@ -5,7 +5,7 @@
 // - `"test".to_string()` → `String::from_cstr("test".as_ptr())`
 //   (Logos's stdlib has `String::from_cstr` but not `&str.to_string()`
 //   as a free method; ToString trait blanket only does Display types).
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
 // Validates that wrapping a heap-allocated String in `Some(...)` then
 // `.unwrap()`-ing preserves the underlying buffer pointer (no
@@ -13,7 +13,7 @@
 
 package test_option_get;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.option;

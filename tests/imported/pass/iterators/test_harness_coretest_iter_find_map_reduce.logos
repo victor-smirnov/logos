@@ -6,7 +6,7 @@
 // Modifications:
 // - `xs.iter()` → `iter_over_slice(&xs)`.
 // - Closure `|x| half_if_even(x)` lowered to a named fn-ptr.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
 // Stdlib companion: `.find_map<B>(f: fn(Item) -> Option<B>) ->
 // Option<B>` and `.reduce(f: fn(Item, Item) -> Item) ->
@@ -14,7 +14,7 @@
 
 package test_iter_find_map_reduce;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

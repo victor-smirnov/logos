@@ -4,7 +4,7 @@
 package if_bot;
 
 use logos.lang.panic;
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

@@ -1,10 +1,10 @@
 // `println!("pat", args...)` macro shell. Lowers to a block expr that
 // builds a String via format_args_str and feeds it to println through
-// the std.fmt re-export wrapper. Exit code = length of the printed
+// the logos.std.fmt re-export wrapper. Exit code = length of the printed
 // string (for verification without parsing stdout).
 package println_macro_basic;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

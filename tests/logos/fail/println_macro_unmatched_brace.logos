@@ -2,7 +2,7 @@
 // the byte-offset of the offending close-brace.
 package println_macro_unmatched_brace;
 
-use std.fmt;
+use logos.std.fmt;
 
 fn main() -> i32 {
     println!("hello } world");

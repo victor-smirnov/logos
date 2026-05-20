@@ -1,13 +1,13 @@
 // Logos standard library -- std.net
 //
-// TCP/UDP sockets via synchronous syscalls (same style as std.io).
+// TCP/UDP sockets via synchronous syscalls (same style as logos.std.io).
 // IPv4 only for now. SockAddr4 matches struct sockaddr_in layout.
 
-package std.io.net;
+package logos.std.io.net;
 
 use logos.std.rt.fiber;
-use std.io.read;
-use std.io.write;
+use logos.std.io.read;
+use logos.std.io.write;
 
 extern fn socket(domain: i32, typ: i32, protocol: i32) -> i32;
 extern fn bind(fd: i32, addr: *const u8, addrlen: i32) -> i32;

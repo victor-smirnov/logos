@@ -7,7 +7,7 @@
 // `String` → `str`.
 package e_enum_variants;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

@@ -1,7 +1,7 @@
 // Tests std.path: basename, dirname, extension, stem, join, is_absolute.
 package test;
 
-use std.io.fs.path;
+use logos.std.io.fs.path;
 use logos.mem.string;
 use logos.lang.str;
 

@@ -6,7 +6,7 @@
 // KW_NULL alternatives.
 package struct_new_as_field_name;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

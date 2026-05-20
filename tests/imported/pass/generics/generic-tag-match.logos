@@ -7,7 +7,7 @@
 // generic-tag-local.
 package generic_tag_match;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

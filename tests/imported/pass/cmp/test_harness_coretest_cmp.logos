@@ -25,7 +25,7 @@
 
 package test_cmp;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.cmp;

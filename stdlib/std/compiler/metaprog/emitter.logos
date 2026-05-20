@@ -1,4 +1,4 @@
-// std.compiler.metaprog — typed Emitter over logos_emit_source.
+// logos.std.compiler.metaprog — typed Emitter over logos_emit_source.
 //
 // An Emitter buffers a single Logos compilation unit (one `package
 // <name>; ...` chunk) in `self.buf` and flushes it via `commit()`,
@@ -8,13 +8,13 @@
 //
 //   let mut em: Emitter = Emitter::new();
 //   em.emit_target_pkg(&view);              // package <user-pkg>;
-//   em.emit_raw("use std.fmt;");
+//   em.emit_raw("use logos.std.fmt;");
 //   em.buf.push_str("pub fn marker_");      // arbitrary text
 //   unsafe { em.buf.push_bytes(p, n); }
 //   em.buf.push_str("() -> i32 { return 1; }");
 //   em.commit();
 
-package std.compiler.metaprog;
+package logos.std.compiler.metaprog;
 
 use logos.mem.string;
 use logos.lang.str;

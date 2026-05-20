@@ -7,7 +7,7 @@
 // block, return — preserved verbatim with explicit isize/i32 typing.
 package fn_expr_fn;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

@@ -15,7 +15,7 @@
 //   ring.close(fd)?;
 //   // ring is dropped implicitly when it goes out of scope.
 
-package std.io.linux.uring;
+package logos.std.io.linux.uring;
 
 use logos.mem.mem;
 use logos.lang.result;

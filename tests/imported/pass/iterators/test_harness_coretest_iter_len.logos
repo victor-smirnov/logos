@@ -8,11 +8,11 @@
 // - Slice prefixes `v[..N]` modeled via iter_take to bound the
 //   length (Logos doesn't have Rust's range-indexed slicing surface
 //   yet for fixed arrays).
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_iter_len;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

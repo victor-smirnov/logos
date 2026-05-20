@@ -3,7 +3,7 @@
 // Modifications: integer literals carry explicit i64 suffix.
 package operator_associativity;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

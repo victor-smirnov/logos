@@ -13,11 +13,11 @@ use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;
 use logos.mem.hermes.string;
-use std.compiler.metaprog;
-use std.fmt;
+use logos.std.compiler.metaprog;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
-use std.io;
+use logos.std.io;
 
 #[metaprog_handler("derive_dbg_md")]
 fn derive_dbg_md_hook(target_offset: u32) -> () {

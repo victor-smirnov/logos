@@ -12,7 +12,7 @@
 // Net effect: `metacall build_expr()` evaluates to `1 + 2 = 3`.
 package metacall_expr_blob;
 
-use std.compiler.metaprog;
+use logos.std.compiler.metaprog;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 

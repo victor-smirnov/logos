@@ -3,7 +3,7 @@
 // Modifications: same struct, explicit suffixes.
 package issue_1112;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

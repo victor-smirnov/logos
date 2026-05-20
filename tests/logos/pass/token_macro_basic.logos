@@ -4,7 +4,7 @@
 // gibberish to the regular Logos parser, but token_macro accepts it.
 package token_macro_basic;
 
-use std.compiler.metaprog;
+use logos.std.compiler.metaprog;
 use logos.mem.string;
 use logos.lang.str;
 

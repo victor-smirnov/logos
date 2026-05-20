@@ -1,4 +1,4 @@
-// Logos standard library — std.io.error
+// Logos standard library — logos.std.io.error
 //
 // `io::Error` + `ErrorKind` — Rust-shape error type for `std::io`.
 // Mirrors `core::io::error` / `std::io::Error`.

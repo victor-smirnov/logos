@@ -3,7 +3,7 @@
 // Modifications: explicit type annotations + usize suffixes.
 package c_coerce_reborrow_imm_ptr_rcvr;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

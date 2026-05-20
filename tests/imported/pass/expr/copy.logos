@@ -6,7 +6,7 @@
 // derive. Otherwise faithful.
 package expr_copy;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

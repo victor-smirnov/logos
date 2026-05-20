@@ -8,7 +8,7 @@
 // mem::transmute + derive(PartialEq) needed).
 package binops_bool;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

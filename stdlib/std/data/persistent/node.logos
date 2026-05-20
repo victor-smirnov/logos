@@ -1,4 +1,4 @@
-// std.data.persistent.node — uniform node header + BTreeNode trait
+// logos.std.data.persistent.node — uniform node header + BTreeNode trait
 // + NodeARC smart pointer for the dyn-trait persistent-store rearch.
 //
 // Architecture summary:
@@ -19,7 +19,7 @@
 // STORE_CFG carries the ID-types (block_id, snp_id, ctr_id) so different
 // stores can pick e.g. u128 block ids without changing the source.
 
-package std.data.persistent.node;
+package logos.std.data.persistent.node;
 
 use logos.mem.mem;
 use logos.lang.cmp;

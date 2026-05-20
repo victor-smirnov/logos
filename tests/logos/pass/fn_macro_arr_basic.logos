@@ -4,7 +4,7 @@
 //   →  ExprBlob splice (kind=2 cursor) →  re-sema as ARR_LIT.
 package fn_macro_arr_basic;
 
-use std.compiler.metaprog;
+use logos.std.compiler.metaprog;
 use logos.mem.collections.vec;
 
 #[fn_macro]

@@ -6,7 +6,7 @@
 // Expected: `1 + 2 = 3`.
 package quote_expr_smoke;
 
-use std.compiler.metaprog;
+use logos.std.compiler.metaprog;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 

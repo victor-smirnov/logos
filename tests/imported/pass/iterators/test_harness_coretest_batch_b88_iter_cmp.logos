@@ -12,14 +12,14 @@
 //   `iter_lt::<SliceIter<i32>, SliceIter<i32>, i32>(a, b)`.
 // - Empty-slice cases preserved via `iter_take(..., 0)` since
 //   `[i32; 0]` literal triggers a warn.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
 // Stdlib companions: `iter_cmp` / `iter_lt` / `iter_le` /
 // `iter_gt` / `iter_ge` / `iter_ne` free fns in std/lang/iter/iter.logos.
 
 package test_iter_batch_b88_cmp;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

@@ -9,7 +9,7 @@
 // remains open as M7-mt-02. Method name `new` admitted via Sprint 1.1.
 package trait_method_resolution_7575;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

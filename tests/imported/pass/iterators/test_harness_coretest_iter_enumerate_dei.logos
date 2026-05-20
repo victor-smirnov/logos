@@ -7,7 +7,7 @@
 //   (&xs), zero)` (Logos's slice iter yields T by value, .cloned
 //   isn't needed).
 // - `(i, x)` tuple yield → `EnumPair { idx, val }` struct.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
 // Stdlib companion: `impl DoubleEndedIterator<EnumPair<T>> for
 // EnumIter<I, T>` (where I: DEI + ExactSizeIterator). Position
@@ -15,7 +15,7 @@
 
 package test_iter_enumerate_dei;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

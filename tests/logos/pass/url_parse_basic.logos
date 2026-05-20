@@ -1,7 +1,7 @@
 // Tests std.url url_parse / url_format.
 package test;
 
-use std.io.net.url;
+use logos.std.io.net.url;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.option;

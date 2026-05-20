@@ -1,7 +1,7 @@
 // Tests std.url: percent-encode/decode, form-urlencoded variant.
 package test;
 
-use std.io.net.url;
+use logos.std.io.net.url;
 use logos.mem.string;
 use logos.lang.str;
 

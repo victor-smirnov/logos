@@ -8,7 +8,7 @@
 // var_subscript_ entry → GEP stride defaulted to i32 on i64 arrays.
 package auto_loop;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.option;

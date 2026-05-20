@@ -3,7 +3,7 @@ package string_basic;
 
 use logos.mem.string;
 use logos.lang.str;
-use std.io;
+use logos.std.io;
 
 extern fn strlen(s: *const u8) -> i64;
 

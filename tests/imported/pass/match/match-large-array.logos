@@ -5,7 +5,7 @@
 // 2026-05-11), so the original two-`match` body is restored.
 package match_large_array;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

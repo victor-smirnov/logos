@@ -4,7 +4,7 @@
 // the B3-bg-07 deref-as-identity shim.
 package fl_loop_label_shadowing;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.option;

@@ -1,4 +1,4 @@
-// std.data.persistent.iter — forward walker over a multi-level BTree.
+// logos.std.data.persistent.iter — forward walker over a multi-level BTree.
 //
 // Memoria-style snapshot iter: PMapIter holds NodeARC clones for every
 // branch on the path AND for the current leaf. Each clone owns an rc
@@ -14,7 +14,7 @@
 // mono SDrop sentinel→struct path → mlir-gen walks IterFrame's fields
 // → branch_arc.drop fires → rc-- on each branch.
 
-package std.data.persistent.iter;
+package logos.std.data.persistent.iter;
 
 use logos.mem.collections.vec;
 use logos.mem.mem;
@@ -24,10 +24,10 @@ use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;
 
-use std.data.persistent.node;
-use std.data.persistent.cow;
-use std.data.persistent.descent;
-use std.data.persistent.shuttle;
+use logos.std.data.persistent.node;
+use logos.std.data.persistent.cow;
+use logos.std.data.persistent.descent;
+use logos.std.data.persistent.shuttle;
 
 // One descent frame: a branch on the path + the child index whose
 // subtree the iter currently occupies. branch_arc owns an rc share —

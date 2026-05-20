@@ -1,4 +1,4 @@
-// std.compiler.metaprog.itemlist — multi-blob return type for metacalls.
+// logos.std.compiler.metaprog.itemlist — multi-blob return type for metacalls.
 //
 // `ItemList` is a Vec-of-`QuoteItemBlob` used when a metafunction
 // emits more than one item. The metacall thunk synthesised by
@@ -10,7 +10,7 @@
 // Construction: `let mut out: ItemList = item_list_new();`
 // Append:        `unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(b); }`
 
-package std.compiler.metaprog;
+package logos.std.compiler.metaprog;
 
 use logos.mem.collections.vec;
 

@@ -1,4 +1,4 @@
-// Logos standard library — std.fmt
+// Logos standard library — logos.std.fmt
 //
 // Macro shells (`format!`, `print!`, `println!`, `eprint!`, `eprintln!`,
 // `panic!`, `assert!`, `assert_eq!`, `assert_ne!`) and the runtime
@@ -11,11 +11,11 @@
 // shells callable as `format!(...)` from user code.
 //
 // Usage:
-//   use std.fmt;
+//   use logos.std.fmt;
 //   let s: String = format!("n={}, ok={}", 42, true);
 //   println!(s);
 
-package std.fmt;
+package logos.std.fmt;
 
 use logos.mem.string;
 use logos.lang.str;
@@ -25,8 +25,8 @@ use logos.lang.option;
 use logos.lang.result;
 use logos.mem.collections.vec;
 pub use logos.mem.fmt;
-use std.compiler.metaprog;
-use std.io;
+use logos.std.compiler.metaprog;
+use logos.std.io;
 
 // ── Per-trait dispatch helpers (sema-resident lowering hook) ──────────────
 //
@@ -138,8 +138,8 @@ pub fn format(args: Vec<ExprBlob>) -> ExprBlob {
     return quote_expr! { format_args_str(#(#args),*) };
 }
 
-// Thin re-exports of std.io print/println so the macro splices resolve
-// at the user's call-site without forcing a separate `use std.io;`.
+// Thin re-exports of logos.std.io print/println so the macro splices resolve
+// at the user's call-site without forcing a separate `use logos.std.io;`.
 // Marked pub so the spliced expression sees them. Inline-trivial — the
 // optimizer collapses the wrapper.
 pub fn __fmt_print(s: str)    { print(s); }
@@ -211,7 +211,7 @@ pub fn writeln(args: Vec<ExprBlob>) -> ExprBlob {
 // `assert!(cond)` / `assert!(cond, fmt, args...)` and
 // `assert_eq!(a, b)` panic on assertion failure with a Debug-rendered
 // message. Both go through `__fmt_panic` so the splice site only needs
-// `use std.fmt;` — std.lang.panic doesn't have to be in the caller's
+// `use logos.std.fmt;` — std.lang.panic doesn't have to be in the caller's
 // scope.
 
 pub fn __fmt_panic(msg: str) { panic(msg); }

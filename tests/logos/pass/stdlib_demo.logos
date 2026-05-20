@@ -1,7 +1,7 @@
 package stdlib_demo;
 
 use logos.lang.option;
-use std.io;
+use logos.std.io;
 
 fn find_first_gt(arr: &[i32], threshold: i32) -> Option<i32> {
     let mut i: i64 = 0;

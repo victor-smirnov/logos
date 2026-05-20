@@ -7,7 +7,7 @@
 // emits llvm.memcpy(sizeof(array)) instead of an 8-byte ptr StoreOp.
 package fixed_length_copy;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

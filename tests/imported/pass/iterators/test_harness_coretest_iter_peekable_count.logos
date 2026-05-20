@@ -5,11 +5,11 @@
 // Modifications:
 // - `xs.iter().peekable()` → free fn `iter_peekable`.
 // - Empty-array case dropped (Logos warns on empty array literal).
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_iter_peekable_count;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

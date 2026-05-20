@@ -8,14 +8,14 @@
 //
 // Modifications:
 // - `xs.iter().skip(N)` → `iter_skip::<…>(iter_over_slice(&xs), N, zero)`.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
 // Stdlib companion: `impl<I: ESI<T>, T> ExactSizeIterator<T> for
 // SkipIter<I, T>` — len = max(0, inner.len() - remaining).
 
 package test_iter_skip_len;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

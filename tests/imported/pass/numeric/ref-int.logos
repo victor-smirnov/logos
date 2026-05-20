@@ -6,7 +6,7 @@
 // implemented in mlir_gen_expr for &T → &<primitive>.
 package ref_int;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

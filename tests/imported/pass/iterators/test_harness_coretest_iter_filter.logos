@@ -10,11 +10,11 @@
 //   `iter_fold::<…>(iter, init, f)` for the same reason.
 // - DEI / `.rfold` / `try_fold` / `try_rfold` deferred — FilterIter
 //   doesn't currently impl DoubleEndedIterator (separate SL-sl gap).
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_iter_filter;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

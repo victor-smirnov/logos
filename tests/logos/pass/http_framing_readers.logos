@@ -2,11 +2,11 @@
 // ContentLengthReader capping a larger underlying source.
 package test;
 
-use std.io.http;
-use std.io.buffered;
-use std.io.pipe;
-use std.io.read;
-use std.io.write;
+use logos.std.io.http;
+use logos.std.io.buffered;
+use logos.std.io.pipe;
+use logos.std.io.read;
+use logos.std.io.write;
 use logos.mem.string;
 use logos.lang.str;
 

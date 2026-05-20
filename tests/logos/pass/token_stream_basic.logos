@@ -5,7 +5,7 @@
 // slice 3 wires up the real producer side.
 package token_stream_basic;
 
-use std.compiler.tokens;
+use logos.std.compiler.tokens;
 use logos.mem.collections.vec;
 use logos.mem.string;
 use logos.lang.str;

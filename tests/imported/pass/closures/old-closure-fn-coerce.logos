@@ -9,7 +9,7 @@
 // type + return statement).
 package c_old_closure_fn_coerce;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

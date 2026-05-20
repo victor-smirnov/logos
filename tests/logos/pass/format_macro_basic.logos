@@ -4,7 +4,7 @@
 // sema's variadic-T... inference handles per-arg Display dispatch.
 package format_macro_basic;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

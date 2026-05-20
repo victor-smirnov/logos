@@ -6,7 +6,7 @@
 // Logos doesn't).
 package issue_2936;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

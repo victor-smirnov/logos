@@ -2,7 +2,7 @@
 // Modifications: explicit i8 suffixes; main returns i32.
 package i8_incr_test;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

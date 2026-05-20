@@ -26,7 +26,7 @@
 //   - `isize` works in Logos as in Rust.
 package test_result;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.result;

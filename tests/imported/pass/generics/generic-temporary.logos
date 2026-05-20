@@ -4,7 +4,7 @@
 // `fn(T)` (no `-> ()`) accepted as of G3-tg-02 closure 2026-05-11.
 package generic_temporary;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

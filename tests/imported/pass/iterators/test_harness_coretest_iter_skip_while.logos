@@ -4,11 +4,11 @@
 //
 // Modifications:
 // - `xs.iter().skip_while(...)` → free fn `iter_skip_while`.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_iter_skip_while;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

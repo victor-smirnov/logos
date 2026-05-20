@@ -4,7 +4,7 @@
 // negative-literal-pattern surface (now closed S8-en-01).
 package binary_minus_without_space;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

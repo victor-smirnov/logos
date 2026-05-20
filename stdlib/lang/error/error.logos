@@ -4,7 +4,7 @@
 // (`source()`) introspection.
 //
 // Divergence from Rust:
-//   - No `Display + Debug` supertrait bound. Those live in `std.fmt`
+//   - No `Display + Debug` supertrait bound. Those live in `logos.std.fmt`
 //     (`mem` tier); the Error trait stays in `lang` for early-tier
 //     availability. Rendering helpers in `mem.string` will gain Display
 //     bounds for `dyn Error` after the Formatter migration in

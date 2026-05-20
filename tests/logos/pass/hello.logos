@@ -2,7 +2,7 @@
 
 package hello;
 
-use std.io;
+use logos.std.io;
 
 unsafe fn main() -> i32 {
     println("Hello from Logos!");

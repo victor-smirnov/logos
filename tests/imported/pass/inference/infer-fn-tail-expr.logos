@@ -3,7 +3,7 @@
 // Modifications: `Vec::new()` → `vec_new::<i64>()`. `isize` → `i64`.
 package inf_infer_fn_tail_expr;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.option;

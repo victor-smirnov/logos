@@ -6,7 +6,7 @@
 // - `$T` parametrisation flattened to u32/i32.
 // - Three constants A=0b0101100, B=0b0100001, C=0b1111001 from the
 //   upstream test inlined as literals.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
 // Stdlib companion: rotate_left / rotate_right inherent methods on
 // u32 / i32 / u64 / i64 in std.lang.ord. Modular shift amount
@@ -14,7 +14,7 @@
 
 package test_i32_rotate;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.cmp;

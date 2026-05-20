@@ -8,11 +8,11 @@
 //   in Logos is to dereference once and clone the value:
 //   `let z: i32 = (*y).clone();`. Same observable behaviour for a
 //   trivially-copyable receiver.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_clone_borrowed;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.clone;

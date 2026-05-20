@@ -6,7 +6,7 @@
 // method call `Foo::bar(&self)` resolves to the inherent method.
 package ufcs_explicit_method_call;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

@@ -6,11 +6,11 @@
 // - `xs.iter().skip(N)` → `iter_skip::<…>(iter_over_slice(&xs), N, zero)`.
 // - `it.len()` (ExactSizeIterator) assertions dropped — not impl'd.
 // - DoubleEnded variants deferred — SkipIter has no DEI yet.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_iter_skip;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

@@ -5,7 +5,7 @@
 // verbatim — Sprint 5.7 closed the Fn-family bound gap.
 package old_closure_arg_call_as;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

@@ -6,7 +6,7 @@
 // exercises match-as-expression in various nesting positions.
 package binding_expr_match;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

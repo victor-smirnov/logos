@@ -1,4 +1,4 @@
-// std.compiler.metaprog — derive(Clone) for plain and generic structs.
+// logos.std.compiler.metaprog — derive(Clone) for plain and generic structs.
 //
 // Hook for `#[derive_clone]`. Emits
 //
@@ -13,7 +13,7 @@
 // quote_expr! + Vec<Ident> cursor antiquot + STRUCT_LIT/FIELD_INIT/
 // FIELD_READ + impl-level/type-arg HASH antiquots.
 
-package std.compiler.metaprog;
+package logos.std.compiler.metaprog;
 
 use logos.mem.collections.vec;
 use logos.lang.hermes.view;

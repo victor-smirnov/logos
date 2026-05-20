@@ -7,7 +7,7 @@
 // - `xs.iter().copied()` → `iter_over_slice(&xs)` (Logos's slice
 //   iter already yields T by value).
 // - Method form `xs.eq_by(ys, f)` → free fn `iter_eq_by`.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
 // Stdlib companion: `iter_eq_by<I, J, T, U>(a, b, eq)` free fn in
 // std/lang/iter/iter.logos. Returns true iff both iters yield the
@@ -15,7 +15,7 @@
 
 package test_iter_eq_by;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

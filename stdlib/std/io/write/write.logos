@@ -1,4 +1,4 @@
-// Logos standard library — std.io.write
+// Logos standard library — logos.std.io.write
 //
 // Abstraction for byte-oriented output sinks.
 //
@@ -7,7 +7,7 @@
 //   n == 0  : sink refused further bytes (treat as error)
 //   n <  0  : -errno
 
-package std.io.write;
+package logos.std.io.write;
 
 pub trait Write {
     fn write(self: &mut Self, buf: *const u8, len: i64) -> i64;

@@ -9,12 +9,12 @@
 // removing a non-existent key returns false at every stage.
 package persistent_remove_merge_borrow;
 
-use std.data.persistent.handle;
-use std.data.persistent.store;
-use std.data.persistent.node;
-use std.data.persistent.cow;
-use std.data.persistent.descent;
-use std.data.persistent.mutate;
+use logos.std.data.persistent.handle;
+use logos.std.data.persistent.store;
+use logos.std.data.persistent.node;
+use logos.std.data.persistent.cow;
+use logos.std.data.persistent.descent;
+use logos.std.data.persistent.mutate;
 use logos.mem.hermes.fabric;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;

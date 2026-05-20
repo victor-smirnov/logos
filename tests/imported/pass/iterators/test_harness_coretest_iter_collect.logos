@@ -7,7 +7,7 @@
 //   iter_over_slice (Logos has no open-range syntax surface).
 // - Type-arg form `.collect::<Vec<i32>>()` matches Logos's turbofish
 //   syntax exactly.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
 // Surfaces exercised (closures of these gaps):
 // - SL-sl-05: FromIterator<A> trait + impl FromIterator<T> for Vec<T>.
@@ -17,7 +17,7 @@
 
 package test_iter_collect;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

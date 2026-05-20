@@ -6,7 +6,7 @@
 // LIR keeps its fixed-arity layout).
 package b_pat_tuple_1;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

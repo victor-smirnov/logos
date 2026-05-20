@@ -14,11 +14,11 @@
 //   Divergence — Logos uses metacall, no `const fn`).
 // - Bare `None` for receivers when the let-annotation pins T;
 //   `Option::<i32>::None` form not needed once CP-cm-13 lands.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_option_combinators;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.option;

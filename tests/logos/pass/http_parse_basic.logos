@@ -1,10 +1,10 @@
 // Phase F: parse + serialize round-trip on in-memory byte buffers.
 package test;
 
-use std.io.http;
+use logos.std.io.http;
 use logos.mem.string;
 use logos.lang.str;
-use std.io.net.url;
+use logos.std.io.net.url;
 use logos.lang.option;
 use logos.lang.result;
 use logos.mem.collections.vec;

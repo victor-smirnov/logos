@@ -1,10 +1,10 @@
-// Slice 2 smoke: `Item` from std.compiler.metaprog declares as a return
+// Slice 2 smoke: `Item` from logos.std.compiler.metaprog declares as a return
 // type and is constructible. No accessors yet — Slice 4's quote_item!
 // will be the first real producer; this just proves the type exists,
 // can flow through fn signatures, and can be returned/consumed.
 package template_item_handle_smoke;
 
-use std.compiler.metaprog;
+use logos.std.compiler.metaprog;
 use logos.lang.hermes.anyval;
 
 fn make_item() -> Item {

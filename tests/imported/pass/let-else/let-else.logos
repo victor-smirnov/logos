@@ -5,7 +5,7 @@
 // type is inferred from the scrutinee).
 package le_let_else;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.option;

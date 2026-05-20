@@ -6,7 +6,7 @@
 package parse_panic;
 
 use logos.lang.panic;
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

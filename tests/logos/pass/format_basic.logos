@@ -1,10 +1,10 @@
-// format() — std.fmt (variadic generics + Display trait)
+// format() — logos.std.fmt (variadic generics + Display trait)
 package format_basic;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
-use std.io;
+use logos.std.io;
 
 unsafe fn main() -> i32 {
     let s: String = format::<i32, i32>("n={}, m={}", 40, 2);

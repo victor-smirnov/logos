@@ -5,7 +5,7 @@
 // keeping the Vec-receiver shape.
 package method_two_trait_defer_resolution_1;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.mem.collections.vec;

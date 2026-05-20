@@ -6,7 +6,7 @@
 // propagation; arm must produce an i32).
 package m_guard_pattern_ordering_14865;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.panic;

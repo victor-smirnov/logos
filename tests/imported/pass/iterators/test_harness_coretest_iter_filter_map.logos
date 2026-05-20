@@ -6,7 +6,7 @@
 // - Closure `|x| if x % 2 == 0 { Some(x * x) } else { None }` lowered
 //   to a named fn-ptr `square_if_even`.
 // - `(0..).step_by(1).take(10)` → `0i32..10i32` range expression.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
 // Stdlib companion: new `FilterMapIter<I, T, B>` adapter struct +
 // `iter_filter_map<I, T, B>(iter, f)` free fn + Iterator/DEI impls
@@ -14,7 +14,7 @@
 
 package test_iter_filter_map;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

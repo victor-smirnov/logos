@@ -3,7 +3,7 @@
 // isize -> i64; main returns i32.
 package loop_scope_test;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.mem.collections.vec;

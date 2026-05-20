@@ -8,7 +8,7 @@
 // integer value 1 — is preserved.
 package enum_discriminant_issue_51582;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

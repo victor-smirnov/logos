@@ -1,6 +1,6 @@
 // Tests Rust-shape Display via Formatter: `fmt_display_to_string(&v)`
 // + per-impl Formatter.write_int_dec / write_int_radix / write_bool /
-// pad spec routing. Session 1 of the std.fmt migration — proof of
+// pad spec routing. Session 1 of the logos.std.fmt migration — proof of
 // shape for the new trait surface that the rest of the primitive +
 // stdlib impls roll out into in Sessions 2-3.
 package test;

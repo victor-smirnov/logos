@@ -5,7 +5,7 @@
 // comparison block also dropped.
 package binops_bool_corner_cases_test;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

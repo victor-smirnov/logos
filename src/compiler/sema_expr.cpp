@@ -12887,7 +12887,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
                     (site.ret_tag == RT2::HermesStatic)
                     ? "use logos.lang.hermes.view;\nuse logos.mem.hermes.view;\n"
                     : (site.ret_tag == RT2::ExprBlob)
-                    ? "use std.compiler.metaprog;\nuse logos.lang.hermes.view;\nuse logos.mem.hermes.view;\n"
+                    ? "use logos.std.compiler.metaprog;\nuse logos.lang.hermes.view;\nuse logos.mem.hermes.view;\n"
                     : "";
                 // Body shape:
                 //   call/expr forms → `{ return <text>; }`
@@ -13541,7 +13541,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
         std::string thunk_name = std::format("__metacall_thunk_{}", site_id);
         std::string thunk_src = std::format(
             "package {};\n"
-            "use std.compiler.metaprog;\n"
+            "use logos.std.compiler.metaprog;\n"
             "use std.lang.text;\n"
             "fn {}() -> ExprBlob {{\n"
             "    let p: *const u8 = unsafe {{ logos_macro_arg({}u64, 0u64) }};\n"
@@ -14056,7 +14056,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
     if (sig_single) {
         thunk_src = std::format(
             "package {};\n"
-            "use std.compiler.metaprog;\n"
+            "use logos.std.compiler.metaprog;\n"
             "use logos.mem.hermes.view;\n"
             "fn {}() -> ExprBlob {{\n"
             "    let e0: ExprBlob = ExprBlob {{ ptr: unsafe {{ logos_macro_arg({}u64, 0u64) }} }};\n"
@@ -14072,7 +14072,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
         }
         thunk_src = std::format(
             "package {};\n"
-            "use std.compiler.metaprog;\n"
+            "use logos.std.compiler.metaprog;\n"
             "use logos.mem.hermes.view;\n"
             "use logos.mem.collections.vec;\n"
             "fn {}() -> ExprBlob {{\n"
@@ -14321,7 +14321,7 @@ void SemaChecker::lower_fn_macro_call_item(hermes::TinyMapView node,
     if (rt_is_il) {
         thunk_src = std::format(
             "package {};\n"
-            "use std.compiler.metaprog;\n"
+            "use logos.std.compiler.metaprog;\n"
             "use logos.mem.collections.vec;\n"
             "use logos.mem.hermes.view;\n"
             "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
@@ -14348,7 +14348,7 @@ void SemaChecker::lower_fn_macro_call_item(hermes::TinyMapView node,
     } else {
         thunk_src = std::format(
             "package {};\n"
-            "use std.compiler.metaprog;\n"
+            "use logos.std.compiler.metaprog;\n"
             "use logos.mem.collections.vec;\n"
             "use logos.mem.hermes.view;\n"
             "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
@@ -14596,7 +14596,7 @@ void SemaChecker::lower_metacall_item(hermes::TinyMapView node,
     if (rt_is_item_list) {
         site.thunk_source = std::format(
             "package {};\n"
-            "use std.compiler.metaprog;\n"
+            "use logos.std.compiler.metaprog;\n"
             "use logos.mem.collections.vec;\n"
             "use logos.mem.hermes.view;\n"
             "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
@@ -14623,7 +14623,7 @@ void SemaChecker::lower_metacall_item(hermes::TinyMapView node,
     } else {
         site.thunk_source = std::format(
             "package {};\n"
-            "use std.compiler.metaprog;\n"
+            "use logos.std.compiler.metaprog;\n"
             "use logos.mem.hermes.view;\n"
             "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
             "extern fn logos_qib_free_idents(blob: *const u8);\n"

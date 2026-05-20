@@ -1,8 +1,8 @@
-// format() via std.fmt — variadic generics + Display trait
+// format() via logos.std.fmt — variadic generics + Display trait
 package variadic_format;
 
-use std.fmt;
-use std.io;
+use logos.std.fmt;
+use logos.std.io;
 use logos.mem.string;
 use logos.lang.str;
 

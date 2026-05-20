@@ -10,11 +10,11 @@
 //   every implementor's pkg). Pass an explicit i32 comparator.
 // - The `.cloned()` adapter is a no-op for primitive Item-type
 //   slice iters in Logos (which yield T by value), so it's dropped.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_iter_min_max;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

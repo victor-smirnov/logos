@@ -9,7 +9,7 @@
 // Logos-vs-Rust divergence (no implicit Copy).
 package generic_fn;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

@@ -3,8 +3,8 @@
 // the load run finishes.
 package bench_hello;
 
-use std.io.http;
-use std.io.net;
+use logos.std.io.http;
+use logos.std.io.net;
 use std.lang.text;
 use std.collections.vec;
 use logos.lang.option;

@@ -6,11 +6,11 @@
 // - Rust's `r#"☃\backslash"#` raw-string-literal subset not on
 //   the Logos surface yet; assert_escape skipped.
 // - matches!() macro / cfg_select! not on the Logos surface.
-// - assert_eq! / assert_ne! family imports via std.fmt + std.lang.text.
+// - assert_eq! / assert_ne! family imports via logos.std.fmt + std.lang.text.
 
 package test_assert_macros;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

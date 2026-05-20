@@ -4,7 +4,7 @@
 // (P4-pm-14 closed 2026-05-11; emitted as sugar for `let y = &x;`).
 package b_let_destruct_ref;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

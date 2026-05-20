@@ -3,10 +3,10 @@
 // per-call `as` casts.
 package debug_primitives;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
-use std.io;
+use logos.std.io;
 
 fn dbg_to<T: Debug>(v: &T, buf: &mut String) {
     let s: String = fmt_debug_to_string::<T>(v);

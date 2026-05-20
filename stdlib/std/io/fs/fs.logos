@@ -3,9 +3,9 @@
 // High-level file I/O built on std.io_uring.
 // Errors returned as Result<T, i32> where i32 is -errno.
 
-package std.io.fs;
+package logos.std.io.fs;
 
-use std.io.linux.uring;
+use logos.std.io.linux.uring;
 use logos.mem.mem;
 use logos.mem.string;
 use logos.lang.str;

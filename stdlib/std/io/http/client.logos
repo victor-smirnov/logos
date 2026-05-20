@@ -3,15 +3,15 @@
 // Requires a Reactor to be installed as current for this thread; see
 // std.net / stdlib/fiber/reactor.logos.  Not suitable for blocking code.
 
-package std.io.http;
+package logos.std.io.http;
 
 use logos.mem.string;
 use logos.lang.str;
 use logos.mem.collections.vec;
 use logos.lang.option;
 use logos.lang.result;
-use std.io.net.url;
-use std.io.net;
+use logos.std.io.net.url;
+use logos.std.io.net;
 
 // Parse a dotted-quad IPv4 string into host-order u32.
 fn parse_ipv4(s: str) -> Option<u32> {

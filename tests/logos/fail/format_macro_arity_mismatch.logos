@@ -3,7 +3,7 @@
 // diag the mismatch before the macro JIT runs.
 package format_macro_arity_mismatch;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

@@ -1,4 +1,4 @@
-// std.data.persistent.handle — Snap + ContainerRef on top of nodes.
+// logos.std.data.persistent.handle — Snap + ContainerRef on top of nodes.
 //
 // User-facing surface for the persistent stack:
 //
@@ -21,7 +21,7 @@
 // yet); dir leaf is LeafDirNode<u64, ...>. Multi-level + on-disk land
 // in mutate when the BTree algos port over.
 
-package std.data.persistent.handle;
+package logos.std.data.persistent.handle;
 
 use logos.mem.collections.vec;
 use logos.mem.mem;
@@ -34,12 +34,12 @@ use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 use logos.lang.hermes.anyval;
 
-use std.data.persistent.node;
-use std.data.persistent.cow;
-use std.data.persistent.store;
-use std.data.persistent.descent;
-use std.data.persistent.mutate;
-use std.data.persistent.iter;
+use logos.std.data.persistent.node;
+use logos.std.data.persistent.cow;
+use logos.std.data.persistent.store;
+use logos.std.data.persistent.descent;
+use logos.std.data.persistent.mutate;
+use logos.std.data.persistent.iter;
 
 // DirCfg — directory layout. Key = ctr_id (u64), val = NodeARC (heterogeneous
 // container roots). fanout drives branch + leaf max-keys. Multi-level: dir

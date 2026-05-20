@@ -7,7 +7,7 @@
 // &synth;` so the user code sees `x: &isize`.
 package issue_5239_2;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

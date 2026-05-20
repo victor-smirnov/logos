@@ -6,7 +6,7 @@
 // a Vec slot is the same.
 package call_closure_from_overloaded_op;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.mem.collections.vec;

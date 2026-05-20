@@ -7,7 +7,7 @@
 // - `const A: $T = 0b…` constants inlined into the assertions.
 // - `$T::BITS` constant replaced with literal `32` (i32 BITS).
 // - `assert_eq_const_safe!` simplified to `assert_eq!`.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
 // Stdlib companion: bit-counting methods (count_ones, count_zeros,
 // leading_zeros, trailing_zeros) on u32/i32/u64/i64 in std.lang.ord
@@ -16,7 +16,7 @@
 
 package test_i32_bitcount;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.cmp;

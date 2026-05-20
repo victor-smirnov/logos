@@ -5,7 +5,7 @@
 // covers the unit body (C5-cl-06).
 package fc_closure_immediate;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

@@ -22,7 +22,7 @@
 
 package test_iter_batch_b87_helpers;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

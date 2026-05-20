@@ -6,7 +6,7 @@
 // annotation-less unit-returning body work.
 package b_fn_pattern_expected_type;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

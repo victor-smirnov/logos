@@ -29,7 +29,7 @@
 
 package test_harness_coretest_mem;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.lang.option;
 use logos.mem.string;
 use logos.lang.str;

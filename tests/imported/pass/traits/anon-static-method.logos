@@ -5,7 +5,7 @@
 // closed 2026-05-11).
 package anon_static_method;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

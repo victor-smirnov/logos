@@ -1,9 +1,9 @@
-// std.io.read + std.io.write — exercise traits through Pipe.
+// logos.std.io.read + logos.std.io.write — exercise traits through Pipe.
 package test;
 
-use std.io.read;
-use std.io.write;
-use std.io.pipe;
+use logos.std.io.read;
+use logos.std.io.write;
+use logos.std.io.pipe;
 
 fn do_write<W: Write>(w: &mut W, buf: *const u8, len: i64) -> i64 {
     return write_all::<W>(w, buf, len);

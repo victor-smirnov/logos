@@ -1,8 +1,8 @@
 // Imported from rust-lang/rust tests/ui/numbers-arithmetic/u8-incr-decr.rs
-// Modifications: assert_eq! retained via std.fmt prelude.
+// Modifications: assert_eq! retained via logos.std.fmt prelude.
 package u8_incr_decr;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

@@ -4,7 +4,7 @@
 
 package meta_fold_to_type_probe;
 
-use std.compiler.metaprog;
+use logos.std.compiler.metaprog;
 
 // Pick the wider of two numeric Types by `size`.
 fn wider(a: Type, b: Type) -> Type {

@@ -1,4 +1,4 @@
-// Session 3 of std.fmt migration: Display/Debug for Option,
+// Session 3 of logos.std.fmt migration: Display/Debug for Option,
 // Vec, String, Ordering + LowerHex/UpperHex/Octal/Binary/Exp for
 // integer/float primitives.
 //

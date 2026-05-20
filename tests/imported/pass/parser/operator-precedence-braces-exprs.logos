@@ -4,7 +4,7 @@
 // `{ 1 + { 2 } * { 3 } }` evaluates as in Rust.
 package operator_precedence_braces_exprs;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

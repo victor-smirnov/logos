@@ -7,11 +7,11 @@
 //   a fn body the same way Rust does for ad-hoc test types).
 // - `(self.num - other.num).abs()` — hand-rolled abs since i32 in
 //   Logos doesn't have an `.abs()` method on the surface.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_user_defined_eq;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.cmp;

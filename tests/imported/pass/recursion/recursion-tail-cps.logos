@@ -2,7 +2,7 @@
 // Modifications: isize -> i64; println! dropped; main returns i32.
 package recursion_tail_cps_test;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

@@ -2,7 +2,7 @@
 
 package test;
 
-use std.io.bytes;
+use logos.std.io.bytes;
 
 fn main() -> i32 {
     unsafe {

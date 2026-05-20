@@ -8,8 +8,8 @@
 
 package test;
 
-use std.io.pipe;
-use std.io.write;  // IoSlice
+use logos.std.io.pipe;
+use logos.std.io.write;  // IoSlice
 
 fn main() -> i32 {
     let mut p: Pipe = pipe_new();

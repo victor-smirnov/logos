@@ -3,8 +3,8 @@
 // BufReader-over-BufReader.
 package test;
 
-use std.io.buffered;
-use std.io.pipe;
+use logos.std.io.buffered;
+use logos.std.io.pipe;
 use logos.mem.string;
 use logos.lang.str;
 

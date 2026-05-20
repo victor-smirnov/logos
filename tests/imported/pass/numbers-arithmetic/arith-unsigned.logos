@@ -1,11 +1,11 @@
 // Imported from rust-lang/rust tests/ui/numbers-arithmetic/arith-unsigned.rs
 // Modifications: `assert!(...)` calls converted to conditional returns
-// (Logos `assert!` requires fmt context); assert_eq! kept via std.fmt
+// (Logos `assert!` requires fmt context); assert_eq! kept via logos.std.fmt
 // prelude. Comparisons on unsigned types exercise the unsigned-aware
 // codegen (uge / ule predicates).
 package arith_unsigned;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

@@ -4,7 +4,7 @@
 // — Logos requires the cast at the assignment site (no implicit &T → *const T).
 package pointer_reassignment_after_deref_78192;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

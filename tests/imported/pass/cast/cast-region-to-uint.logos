@@ -6,7 +6,7 @@
 // works as in the original. New gap row: F-fm-01.
 package cast_region_to_uint;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

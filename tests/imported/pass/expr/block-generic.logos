@@ -8,7 +8,7 @@
 // inside a generic fn.
 package expr_block_generic;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

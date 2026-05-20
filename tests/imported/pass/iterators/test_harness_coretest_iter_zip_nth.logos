@@ -8,11 +8,11 @@
 //   so the chained `it.nth(0); it.nth(1); it.nth(0)` shape of the
 //   upstream test rebuilds the iter for each call. Same observable
 //   pair sequence, different bookkeeping.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_iter_zip_nth;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

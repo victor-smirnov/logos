@@ -17,7 +17,7 @@
 
 package test_coretest_rc;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.lang.panic;
 use logos.mem.rc;
 

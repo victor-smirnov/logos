@@ -18,11 +18,11 @@
 //     (visit-fn is no-op since closures with captured mut state
 //     aren't on the Logos surface — same as B49's inspect entry)
 //
-// assert_eq! macros via std.fmt + std.lang.text.
+// assert_eq! macros via logos.std.fmt + std.lang.text.
 
 package test_iter_batch_b51_dei;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

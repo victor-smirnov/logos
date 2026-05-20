@@ -6,7 +6,7 @@
 // covers similar ground but mixes in Box ownership.)
 package fn_bound_capture;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

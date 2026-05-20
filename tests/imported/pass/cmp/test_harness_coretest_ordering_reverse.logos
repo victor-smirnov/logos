@@ -7,11 +7,11 @@
 // - `.cmp()` not used here; only `.reverse()`.
 // - .then / .then_with / `Less < Equal` cross-variant comparison
 //   tests deferred (not on the Ordering surface yet).
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_ordering_reverse;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.cmp;

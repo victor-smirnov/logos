@@ -4,7 +4,7 @@
 // in Logos via the standard indexing.
 package borrowck_fixed_length_vecs;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

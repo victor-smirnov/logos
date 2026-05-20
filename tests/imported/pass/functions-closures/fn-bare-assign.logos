@@ -6,7 +6,7 @@
 // Logos's fn-ptr type doesn't carry parameter names.
 package fc_fn_bare_assign;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

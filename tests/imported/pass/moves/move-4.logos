@@ -3,7 +3,7 @@
 // isize -> i64.
 package move_4_test;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

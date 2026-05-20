@@ -4,7 +4,7 @@
 // surface (its concurrency model is fibers, no marker traits).
 package fc_fn_bare_spawn;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

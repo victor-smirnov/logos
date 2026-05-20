@@ -10,7 +10,7 @@
 // path. `println!` calls dropped.
 package fl_foreach_simple_outer_slot;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

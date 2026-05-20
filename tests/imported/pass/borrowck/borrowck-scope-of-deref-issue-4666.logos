@@ -9,7 +9,7 @@
 // gets exercised via `fun2`.
 package borrowck_scope_of_deref_issue_4666;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

@@ -20,10 +20,10 @@ use logos.mem.mem;
 use logos.lang.cmp; use logos.lang.cmp; use logos.mem.hermes.fabric;
 use logos.lang.hermes.view; use logos.mem.hermes.view; use logos.lang.hermes.anyval;
 
-use std.data.persistent.node;
-use std.data.persistent.cow;
-use std.data.persistent.store;
-use std.data.persistent.handle;
+use logos.std.data.persistent.node;
+use logos.std.data.persistent.cow;
+use logos.std.data.persistent.store;
+use logos.std.data.persistent.handle;
 
 pub const StoreCfg: HermesStatic = @{
     "name": "dag", "ctr_id": <type:u64>, "snp_id": <type:u64>, "block_id": <type:u64>,

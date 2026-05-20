@@ -6,7 +6,7 @@ package hermes_example;
 use logos.mem.hermes.ctr;
 use logos.mem.string;
 use logos.lang.str;
-use std.io;
+use logos.std.io;
 
 fn main() -> i32 {
     let mut doc: Hermes = Hermes::new(8192);

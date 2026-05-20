@@ -5,7 +5,7 @@
 // at the binding site.
 package issue_333;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

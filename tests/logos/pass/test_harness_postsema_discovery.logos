@@ -15,8 +15,8 @@
 
 package test_harness_postsema_discovery;
 
-use std.compiler.metaprog;
-use std.fmt;
+use logos.std.compiler.metaprog;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.panic;

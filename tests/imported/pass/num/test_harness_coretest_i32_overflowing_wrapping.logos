@@ -6,7 +6,7 @@
 // - `$T` parametrisation flattened to i32.
 // - MAX/MIN inlined.
 // - `(r, of) = expr` Rust tuple destructure works directly in Logos.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
 // Stdlib companion: overflowing_add / sub / mul / neg / abs and
 // wrapping_add / sub / mul / neg / abs inherent methods on i32 in
@@ -14,7 +14,7 @@
 
 package test_i32_overflowing_wrapping;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.cmp;

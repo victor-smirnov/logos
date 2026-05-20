@@ -7,11 +7,11 @@
 // - Closure predicates lowered to named fn-ptrs (`.all` / `.any` /
 //   `.find` / `.position` accept `fn(T) -> bool`).
 // - `.count` on slice → `iter_filter(...).count()` pattern preserved.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_iter_search;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

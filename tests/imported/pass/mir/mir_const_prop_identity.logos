@@ -2,7 +2,7 @@
 // Modifications: assert!(b) via stdlib; main returns i32.
 package mir_const_prop_identity_test;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

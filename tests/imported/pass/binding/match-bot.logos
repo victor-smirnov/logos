@@ -4,7 +4,7 @@
 // Turbofish on enum variant ctor (G3-tg-01) un-trimmed 2026-05-11.
 package match_bot;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.option;

@@ -6,12 +6,12 @@
 // Status: type surface declared, primitive operations on `Formatter`
 // (write_str/write_char/pad) wired against a `&mut String` backing
 // buffer. The full migration of stdlib `Display`/`Debug` impls (today
-// in `std.fmt`, shaped as `fn fmt(self, &mut String)`) over to the
+// in `logos.std.fmt`, shaped as `fn fmt(self, &mut String)`) over to the
 // Rust shape `fn fmt(&self, f: &mut Formatter) -> Result<(), Error>`
 // is deferred — it touches every primitive and stdlib impl plus the
 // `format!`/`println!` metacalls. New code that wants the Rust shape
 // can use this module directly; new traits matching Rust names go in
-// `std.fmt` to avoid splitting the Display/Debug namespace.
+// `logos.std.fmt` to avoid splitting the Display/Debug namespace.
 
 package logos.mem.fmt;
 
@@ -57,7 +57,7 @@ pub fn err() -> Result<(), Error> {
 // is byte-shaped pending Phase 1B-13 utf8 char ports).
 
 // Named `FmtWrite` (not `Write`) because Logos's trait registry is
-// flat across packages — `std.io.write::Write` already owns that
+// flat across packages — `logos.std.io.write::Write` already owns that
 // name. Rust gets away with `core::fmt::Write` distinct from
 // `std::io::Write` because the conflict resolves at import; the
 // underlying B-mv-02 bug here forces the rename until the trait
@@ -203,7 +203,7 @@ impl Formatter {
     // precision / sign_plus / alternate / zero_pad) to `content`,
     // optionally prefixed by `prefix` (e.g. "0x" / "0o" / "0b" under
     // `alternate`). Mirrors Rust's `Formatter::pad` and replaces the
-    // standalone `std.fmt::fmt_pad` driver. The migrated Display/Debug
+    // standalone `logos.std.fmt::fmt_pad` driver. The migrated Display/Debug
     // impls funnel every value here so spec parsing only happens once
     // per `{...}` placeholder.
     //
@@ -325,7 +325,7 @@ impl Formatter {
 
 // ── Display / Debug — Rust-shape format traits ────────────────────────
 //
-// Sits ALONGSIDE the legacy `mem.string::Display` and `std.fmt::Debug`
+// Sits ALONGSIDE the legacy `mem.string::Display` and `logos.std.fmt::Debug`
 // (which both take `&mut String` directly). Migration plan:
 //
 //   Session 1 (this commit): infrastructure — Formatter helpers above,
@@ -591,7 +591,7 @@ impl<A...: Debug> Debug for (A...) {
 //
 // Live in mem.fmt rather than each owning module so we can hold a
 // Display/Debug supertrait bound on the payload type. The
-// legacy `Debug for Option<T>` etc. similarly live in `std.fmt` for
+// legacy `Debug for Option<T>` etc. similarly live in `logos.std.fmt` for
 // the same reason — Rust hand-rolls these in `core::fmt`.
 
 impl<T: Debug> Debug for Option<T> {
@@ -652,7 +652,7 @@ impl<T: Debug> Debug for Vec<T> {
 // and a `&mut Formatter`, route through Formatter helpers.
 //
 // Trait names `LowerHex` etc. — `LowerHex`/`Octal`/etc. already
-// exist as legacy traits in std.fmt. Same B-mv-02 reason as
+// exist as legacy traits in logos.std.fmt. Same B-mv-02 reason as
 // Display/Debug. Renamed to plain `LowerHex` etc. in Session 4
 // alongside the legacy delete.
 

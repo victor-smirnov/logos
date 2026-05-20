@@ -1,12 +1,12 @@
 // SL-sl-05: `CycleIter<I, T>` — adapter that repeats `iter` forever.
 // Requires `I: Clone`; user struct uses `#[derive_clone]` from
-// std.compiler.metaprog to satisfy the bound. The trait engine's
+// logos.std.compiler.metaprog to satisfy the bound. The trait engine's
 // supertrait check now resolves `I: Iterator<T> + Clone` against an
 // `impl Clone for Counter` emitted by the metaprog hook.
 
 package iter_cycle_test;
 
-use std.compiler.metaprog;
+use logos.std.compiler.metaprog;
 use logos.lang.clone;
 use logos.lang.iter;
 use logos.lang.ops;

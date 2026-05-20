@@ -10,11 +10,11 @@
 // - The size_of_16 / size_of_32 cfg-gated variants are dropped —
 //   only the 64-bit assumption is exercised (matches the build
 //   we test against).
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_size_of;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

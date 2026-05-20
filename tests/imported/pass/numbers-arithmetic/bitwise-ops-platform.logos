@@ -4,7 +4,7 @@
 // isize -> i64; explicit suffixes; main returns i32.
 package bitwise_ops_platform_test;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

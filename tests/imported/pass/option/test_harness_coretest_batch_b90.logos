@@ -12,7 +12,7 @@
 
 package test_batch_b90;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.option;

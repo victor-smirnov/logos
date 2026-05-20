@@ -3,7 +3,7 @@
 // f == 1.0/0.0 for inf); main returns i32.
 package mir_temp_promotions_test;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

@@ -8,7 +8,7 @@
 //   trait-default methods with a `where Item: Ord` clause aren't
 //   reliably dispatching yet for trait-method bodies that call
 //   `v.cmp(&b)` on a tparam.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
 // Stdlib companion: `iter_max<I: Iterator<T>, T: Ord>` and
 // `iter_min<I, T: Ord>` free fns in std/lang/iter/iter.logos.
@@ -17,7 +17,7 @@
 
 package test_iter_max_min_ord;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

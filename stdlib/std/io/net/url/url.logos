@@ -6,7 +6,7 @@
 //  * url_encode_query_form — application/x-www-form-urlencoded style:
 //                           space → '+'; otherwise like encode_component.
 
-package std.io.net.url;
+package logos.std.io.net.url;
 
 use logos.mem.string;
 use logos.lang.str;

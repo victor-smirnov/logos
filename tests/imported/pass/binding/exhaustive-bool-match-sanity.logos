@@ -5,7 +5,7 @@
 // P4-pm-03 + P4-pm-10 + P4-pm-11 closures in Sprint 2/5/this session).
 package exhaustive_bool_match_sanity;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

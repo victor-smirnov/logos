@@ -1,7 +1,7 @@
 // Logos standard library -- logos.std.thread
 //
 // Thin wrapper over pthread: spawn, join, detach, yield, self.
-// Higher-level concurrency lives in fiber/ (green threads) and std.sync.
+// Higher-level concurrency lives in fiber/ (green threads) and logos.std.sync.
 //
 // NOTE: pre-rename this lived at std.lang.thread, but pthread is an OS
 // dependency — it doesn't belong in the no-OS lang tier. Moved to

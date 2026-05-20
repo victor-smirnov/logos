@@ -3,7 +3,7 @@
 
 package meta_kind_preds_probe;
 
-use std.compiler.metaprog;
+use logos.std.compiler.metaprog;
 
 pub struct Point { pub x: i32, pub y: i32, }
 pub struct Vec3  { pub x: f64, pub y: f64, pub z: f64, }

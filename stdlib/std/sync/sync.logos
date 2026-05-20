@@ -1,4 +1,4 @@
-// Logos standard library — std.sync
+// Logos standard library — logos.std.sync
 //
 // Cross-thread synchronisation primitives backed by POSIX:
 //   Mutex<T: Send>            — exclusive lock wrapping pthread_mutex_t
@@ -16,7 +16,7 @@
 // pthread_rwlock_t is 56 bytes on Linux x86-64 (alignment 8).
 // Both are stored as a heap-allocated byte block inside the struct.
 
-package std.sync;
+package logos.std.sync;
 
 use logos.mem.mem;
 use logos.lang.marker;

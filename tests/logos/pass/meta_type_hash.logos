@@ -4,7 +4,7 @@
 
 package meta_type_hash_probe;
 
-use std.compiler.metaprog;
+use logos.std.compiler.metaprog;
 
 pub struct A { pub x: u64, pub y: u64, }
 pub struct B { pub p: u64, pub q: u64, }     // layout-equivalent to A

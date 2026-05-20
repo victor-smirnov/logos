@@ -3,7 +3,7 @@
 // Modifications: Logos closures require explicit return type and `return`.
 package simple_capture_and_call;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

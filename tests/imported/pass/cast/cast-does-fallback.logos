@@ -6,7 +6,7 @@
 // and C6-cc-04 (Sprint 2) closed.
 package cast_does_fallback;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

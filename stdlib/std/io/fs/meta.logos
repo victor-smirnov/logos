@@ -1,9 +1,9 @@
-// Logos standard library — std.io.fs (metadata + directory iteration)
+// Logos standard library — logos.std.io.fs (metadata + directory iteration)
 //
 // File metadata predicates, mkdir/rmdir/unlink, and a recursive directory
 // walker. These wrap the C runtime helpers in stdlib/rt/fs_meta.c.
 
-package std.io.fs;
+package logos.std.io.fs;
 
 use logos.mem.string;
 use logos.lang.str;
@@ -11,7 +11,7 @@ use logos.lang.result;
 use logos.lang.iter;
 use logos.lang.ops;
 use logos.lang.option;
-use std.io.fs.path;
+use logos.std.io.fs.path;
 use logos.mem.collections.vec;
 use logos.mem.mem;
 

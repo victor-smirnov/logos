@@ -8,11 +8,11 @@
 //   half iters at construction time and a zero sentinel for codegen).
 // - `for &x in it` Rust ref-destructure for-loop replaced with
 //   explicit `loop` + match (slice iters yield T by value in Logos).
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_iter_chain;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

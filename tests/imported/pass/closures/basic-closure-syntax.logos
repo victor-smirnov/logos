@@ -5,7 +5,7 @@
 // param/ret type. Sprint 5.7 closed the Fn-family bound gap.
 package basic_closure_syntax;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

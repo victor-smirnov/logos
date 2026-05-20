@@ -6,7 +6,7 @@
 // - `v.iter().cloned().sum::<i32>()` → `iter_over_slice(&v).sum::<i32>()`
 //   (Logos slice iter yields T by value; no `.cloned()` needed).
 // - `(0..N)` open-range constructed via `range_i32(0, N)`.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
 // Stdlib companion: `Sum<A>` + `Product<A>` traits in std.lang.iter,
 // with primitive impls (`impl Sum<i32> for i32` etc.). `.sum<S>()` /
@@ -19,7 +19,7 @@
 
 package test_iter_sum_product;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

@@ -7,11 +7,11 @@
 //   range expression that evaluates to `RangeI32` in Logos, and
 //   `.collect::<Vec<i32>>()` flows through CP-cm-14 / FromIterator.
 // - Vec equality replaced with per-index assertion (no Vec PartialEq).
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_iter_range_full;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;

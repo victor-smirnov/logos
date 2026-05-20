@@ -8,7 +8,7 @@
 // the fn_macro arg parser, so each match is `let`-bound.
 package inc_range_pat;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 

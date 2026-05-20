@@ -5,7 +5,7 @@
 // - `xs.iter().zip(&ys)` → `iter_zip::<…>(iter_over_slice(&xs),
 //   iter_over_slice(&ys), zt, zu)`. Pairs are `ZipPair<T, U>`
 //   structs (`.first` / `.second` fields), not `(T, U)` tuples.
-// - assert_eq! family imports via std.fmt + std.lang.text.
+// - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
 // Stdlib companion: `impl DoubleEndedIterator<ZipPair<T, U>>` +
 // `impl ExactSizeIterator<…>` for ZipIter<A, B, T, U>. Both halves
@@ -15,7 +15,7 @@
 
 package test_iter_zip_dei;
 
-use std.fmt;
+use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 use logos.lang.iter;
