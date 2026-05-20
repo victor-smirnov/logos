@@ -24,6 +24,10 @@ package logos.lang.hermes.view;
 
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.document;
+use logos.lang.hermes.string;
+use logos.lang.hermes.scalar;
+use logos.lang.hermes.array;
+use logos.lang.hermes.datatag;
 
 // Length of a null-terminated C string starting at `s`. Re-exposed
 // here (rather than depending on logos.lang.str) so lang.hermes.view
@@ -76,10 +80,13 @@ impl Copy for StringView {}
 // ── HermesRead trait (tier 1) ─────────────────────────────────────────────────
 //
 // Read-only view over any Hermes zone. Implementations provide the two
-// primitives base() and size(); the default methods here are the reads
-// that need only lang-tier types (the document root + inline AnyVal
-// payloads). Reads that dereference zone-resident container types live on
-// the tier-2 supertrait `HermesReadExt` (mem.hermes.view).
+// primitives base() and size(); the default methods here are every read
+// whose deps now live at the lang tier — the document root, inline AnyVal
+// payloads, zone strings/scalars, and ObjectArray. Reads that still need a
+// mem-tier type (decimals) OR that require importing both lang.hermes.map +
+// lang.hermes.objectmap (map_get/tiny_map_get — see the note at the end of
+// this trait) live on the tier-2 supertrait `HermesReadExt` (mem.hermes.view),
+// alongside the String-producing formatting helpers.
 
 pub trait HermesRead {
     // Pointer to the first byte of the DocumentHeader in zone memory.
@@ -108,6 +115,82 @@ pub trait HermesRead {
             return val.as_bool();
         }
     }
+
+    // StringView over a zone HermesString. Returns {null,0} if not a string.
+    fn get_str_view(self: &Self, val: AnyVal) -> StringView {
+        unsafe {
+            let base: *const u8 = self.base();
+            if !val.is_string(base) {
+                return StringView { ptr: 0 as *const u8, len: 0 };
+            }
+            let hs: *const HermesString =
+                (base as i64 + val.as_offset() as i64) as *const HermesString;
+            return StringView { ptr: hs.bytes(), len: hs.len() };
+        }
+    }
+
+    // Extract i64 from inline Integer (i24) or zone I64 (type_code=26).
+    fn get_i64(self: &Self, val: AnyVal) -> i64 {
+        unsafe {
+            if !val.is_ptr() {
+                if val.is_int() { return val.as_i24() as i64; }
+                return 0;
+            }
+            if val.is_null() { return 0; }
+            let base: *const u8 = self.base();
+            let obj: *const u8 = (base as i64 + val.as_offset() as i64) as *const u8;
+            let tag: u64 = read_type_code(obj);
+            if tag != 26 { return 0; }
+            let p: *const I64 = obj as *const I64;
+            return p.value();
+        }
+    }
+
+    // Extract u64 from inline UInteger (u24) or zone U64 (type_code=27).
+    fn get_u64(self: &Self, val: AnyVal) -> u64 {
+        unsafe {
+            if !val.is_ptr() {
+                if val.is_uint() { return val.as_u24() as u64; }
+                return 0;
+            }
+            if val.is_null() { return 0; }
+            let base: *const u8 = self.base();
+            let obj: *const u8 = (base as i64 + val.as_offset() as i64) as *const u8;
+            let tag: u64 = read_type_code(obj);
+            if tag != 27 { return 0; }
+            let p: *const U64 = obj as *const U64;
+            return p.value();
+        }
+    }
+
+    // Number of elements in an ObjectArray. Returns 0 if not an array.
+    fn array_len(self: &Self, val: AnyVal) -> u64 {
+        unsafe {
+            let base: *const u8 = self.base();
+            if !val.is_array(base) { return 0; }
+            let arr: *const ObjectArray =
+                (base as i64 + val.as_offset() as i64) as *const ObjectArray;
+            return arr.len();
+        }
+    }
+
+    // Get element at idx from an ObjectArray. Returns null_ptr if out of bounds.
+    fn array_get(self: &Self, val: AnyVal, idx: u64) -> AnyVal {
+        unsafe {
+            let base: *const u8 = self.base();
+            if !val.is_array(base) { return AnyVal::null_ptr(); }
+            let arr: *const ObjectArray =
+                (base as i64 + val.as_offset() as i64) as *const ObjectArray;
+            return arr.get(base, idx);
+        }
+    }
+
+    // NOTE: map reads (map_get / map_get_cstr / tiny_map_get) stay on the
+    // tier-2 `HermesReadExt` (mem.hermes.view), not because they need mem, but
+    // because they require importing BOTH lang.hermes.map and
+    // lang.hermes.objectmap, whose overlapping `Map<...>` specializations trip
+    // a cross-module duplicate-datatype limitation when pulled into one
+    // lang-layer module (B-mv-02 family). Promote them once that's fixed.
 }
 
 impl<'a> HermesRead for HermesView<'a> {

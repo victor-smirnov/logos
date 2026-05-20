@@ -2,9 +2,9 @@
 // Hermes read/write trait split (tier 2) + Display/Debug.
 //
 //   HermesRead    — TIER 1 (lang.hermes.view): base()/size()/root()/get_int/get_bool
-//   HermesReadExt — TIER 2 (here): supertrait of HermesRead; container reads
-//                   (strings/arrays/maps/decimals) + String-producing formatting.
-//                   Blanket-impl'd for every HermesRead, so all view types get it.
+//   HermesReadExt — TIER 2 (here): supertrait of HermesRead; map reads +
+//                   decimal reads + String-producing formatting. Opt-in per
+//                   concrete view type via an empty `impl HermesReadExt`.
 //   HermesWrite   — RW API; supertrait of HermesReadExt; primitive: zone_mut()
 //
 // The HermesView/HermesStatic structs and their HermesRead impls live in
@@ -33,11 +33,14 @@ use logos.lang.str;
 
 // ── HermesReadExt trait (tier 2) ──────────────────────────────────────────────
 //
-// Extends the lang-tier HermesRead with reads that dereference mem-tier
-// container types (HermesString / ObjectArray / ObjectMap / Decimal) and the
-// String-producing formatting helpers. Every method is a default, so the
-// blanket `impl<T: HermesRead> HermesReadExt for T {}` below gives all four
-// view types (HermesView, HermesStatic, Hermes, OView) the full read API.
+// Extends the lang-tier HermesRead with the reads that can't yet live at lang:
+// map lookups (need both lang.hermes.map + lang.hermes.objectmap, which trip a
+// cross-module duplicate-datatype limitation when combined in one lang module),
+// decimal reads (Decimal is still mem-tier), and the String-producing
+// formatting helpers (stringify / to_string). Every method is a default;
+// each concrete view type opts in with an empty `impl HermesReadExt` (a blanket
+// `impl<T: HermesRead> HermesReadExt for T {}` would be tidier but hits a
+// blanket-default-method gap — see baghunt-blanket-default-method-dispatch).
 
 pub trait HermesReadExt: HermesRead {
     // Stringify into `buf` with compact formatting (clears buf first).
@@ -68,75 +71,6 @@ pub trait HermesReadExt: HermesRead {
         let mut buf: String = String::with_capacity(256);
         self.stringify_opts(&mut buf, opts);
         return buf;
-    }
-
-    // StringView over a zone HermesString. Returns {null,0} if not a string.
-    fn get_str_view(self: &Self, val: AnyVal) -> StringView {
-        unsafe {
-            let base: *const u8 = self.base();
-            if !val.is_string(base) {
-                return StringView { ptr: 0 as *const u8, len: 0 };
-            }
-            let hs: *const HermesString =
-                (base as i64 + val.as_offset() as i64) as *const HermesString;
-            return StringView { ptr: hs.bytes(), len: hs.len() };
-        }
-    }
-
-    // Extract i64 from inline Integer (i24) or zone I64 (type_code=26).
-    fn get_i64(self: &Self, val: AnyVal) -> i64 {
-        unsafe {
-            if !val.is_ptr() {
-                if val.is_int() { return val.as_i24() as i64; }
-                return 0;
-            }
-            if val.is_null() { return 0; }
-            let base: *const u8 = self.base();
-            let obj: *const u8 = (base as i64 + val.as_offset() as i64) as *const u8;
-            let tag: u64 = read_type_code(obj);
-            if tag != 26 { return 0; }
-            let p: *const I64 = obj as *const I64;
-            return p.value();
-        }
-    }
-
-    // Extract u64 from inline UInteger (u24) or zone U64 (type_code=27).
-    fn get_u64(self: &Self, val: AnyVal) -> u64 {
-        unsafe {
-            if !val.is_ptr() {
-                if val.is_uint() { return val.as_u24() as u64; }
-                return 0;
-            }
-            if val.is_null() { return 0; }
-            let base: *const u8 = self.base();
-            let obj: *const u8 = (base as i64 + val.as_offset() as i64) as *const u8;
-            let tag: u64 = read_type_code(obj);
-            if tag != 27 { return 0; }
-            let p: *const U64 = obj as *const U64;
-            return p.value();
-        }
-    }
-
-    // Number of elements in an ObjectArray. Returns 0 if not an array.
-    fn array_len(self: &Self, val: AnyVal) -> u64 {
-        unsafe {
-            let base: *const u8 = self.base();
-            if !val.is_array(base) { return 0; }
-            let arr: *const ObjectArray =
-                (base as i64 + val.as_offset() as i64) as *const ObjectArray;
-            return arr.len();
-        }
-    }
-
-    // Get element at idx from an ObjectArray. Returns null_ptr if out of bounds.
-    fn array_get(self: &Self, val: AnyVal, idx: u64) -> AnyVal {
-        unsafe {
-            let base: *const u8 = self.base();
-            if !val.is_array(base) { return AnyVal::null_ptr(); }
-            let arr: *const ObjectArray =
-                (base as i64 + val.as_offset() as i64) as *const ObjectArray;
-            return arr.get(base, idx);
-        }
     }
 
     // Look up a key (C-string) in an ObjectMap. Returns null_ptr if not found.
@@ -180,11 +114,9 @@ pub trait HermesReadExt: HermesRead {
         }
     }
 
-    // Look up a u8 key in a TinyObjectMap (the AST/Hermes-schema flavour
-    // of map). Companion to `map_get` for the ObjectMap case: hooks that
-    // walk Hermes documents shouldn't have to drop to raw
-    // `*const Map<Bitmap, AnyVal>` casts. Returns null_ptr if `val` is
-    // not a map, or if it is an ObjectMap rather than a TinyObjectMap.
+    // Look up a u8 key in a TinyObjectMap (the AST/Hermes-schema flavour of
+    // map). Returns null_ptr if `val` is not a map, or is an ObjectMap rather
+    // than a TinyObjectMap.
     fn tiny_map_get(self: &Self, val: AnyVal, key: u8) -> AnyVal {
         unsafe {
             let base: *const u8 = self.base();
