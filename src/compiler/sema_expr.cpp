@@ -13716,16 +13716,40 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
                     // through a trait bound. Free-fn dispatchers
                     // sidestep the slice/str dot-method short-circuit
                     // in `lower_method_call`.
-                    std::string blk =
-                        "{ let mut __buf: String = String::new(); "
-                        "let mut __f: Formatter = Formatter::new(&mut __buf); ";
+                    // write!/writeln! stream straight into the sink — build a
+                    // Formatter over the sink (zero String intermediate).
+                    // `(sink).as_formatter()` auto-refs the sink (value or
+                    // &mut). format!/print!/etc. render into a String __buf.
+                    std::string blk;
+                    if (is_write_family) {
+                        std::string sink_src = "()";
+                        if (!arg_avs.empty() && arg_avs[0].is_pointer()) {
+                            auto sink_view = hermes::TinyMapView(
+                                arg_avs[0].to_offset(), holder_);
+                            sink_src = render_expr_src(sink_view);
+                        }
+                        blk = "{ let mut __f: Formatter = (";
+                        blk += sink_src;
+                        blk += ").as_formatter(); ";
+                    } else {
+                        blk = "{ let mut __buf: String = String::new(); "
+                              "let mut __f: Formatter = Formatter::new(&mut __buf); ";
+                    }
                     int32_t auto_idx = 0;
                     for (auto& seg : fmt_result.segments) {
                         if (seg.is_literal) {
                             if (seg.lit_text.empty()) continue;
-                            blk += "__buf.push_str(";
-                            blk += emit_str_lit(seg.lit_text);
-                            blk += "); ";
+                            // write!/writeln! stream literals straight to the
+                            // sink Formatter; format!/etc. push into __buf.
+                            if (is_write_family) {
+                                blk += "let _ = __f.write_str(";
+                                blk += emit_str_lit(seg.lit_text);
+                                blk += "); ";
+                            } else {
+                                blk += "__buf.push_str(";
+                                blk += emit_str_lit(seg.lit_text);
+                                blk += "); ";
+                            }
                             continue;
                         }
                         int32_t idx = (seg.arg_idx >= 0) ? seg.arg_idx : auto_idx++;
@@ -13801,20 +13825,14 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
                     } else if (callee_name == "panic") {
                         blk += "__fmt_panic(__buf.as_str()) }";
                     } else if (is_write_family) {
-                        // writeln! appends a newline before flushing to the
-                        // sink. The block evaluates to the sink's write_str
-                        // Result so `write!(…)?` propagates errors.
+                        // Placeholders already streamed directly into the sink
+                        // via __f. writeln! adds a trailing newline. The block
+                        // yields a Result<(), Error> (Ok — per-placeholder
+                        // errors are not propagated, matching format!'s
+                        // discard-then-succeed shape).
                         if (callee_name == "writeln")
-                            blk += "__buf.push_str(\"\\n\"); ";
-                        std::string sink_src = "()";
-                        if (!arg_avs.empty() && arg_avs[0].is_pointer()) {
-                            auto sink_view = hermes::TinyMapView(
-                                arg_avs[0].to_offset(), holder_);
-                            sink_src = render_expr_src(sink_view);
-                        }
-                        blk += "(";
-                        blk += sink_src;
-                        blk += ").write_str(__buf.as_str()) }";
+                            blk += "let _ = __f.write_str(\"\\n\"); ";
+                        blk += "ok() }";
                     }
 
                     holder_ = saved_holder;

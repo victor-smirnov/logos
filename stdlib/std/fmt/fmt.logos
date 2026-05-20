@@ -61,7 +61,7 @@ use std.io;
 
 unsafe fn fmt_into(pat: str, fi: i64, flen: i64, f: &mut Formatter) {
     let mut i: i64 = fi;
-    while i < flen { unsafe { (*f.buf).push_u8(pat[i]); } i = i + 1; }
+    while i < flen { unsafe { { let _ = (*f.w).write_char(pat[i]); } } i = i + 1; }
 }
 
 unsafe fn fmt_into<H: Display + Debug, T...>(pat: str, fi: i64, flen: i64,
@@ -71,12 +71,12 @@ unsafe fn fmt_into<H: Display + Debug, T...>(pat: str, fi: i64, flen: i64,
     while i < flen {
         let c: i32 = pat[i] as i32;
         if c == 123 && i + 1 < flen && (pat[i + 1] as i32) == 123 {
-            unsafe { (*f.buf).push_u8(pat[i]); }
+            unsafe { { let _ = (*f.w).write_char(pat[i]); } }
             i = i + 2;
             continue;
         }
         if c == 125 && i + 1 < flen && (pat[i + 1] as i32) == 125 {
-            unsafe { (*f.buf).push_u8(pat[i]); }
+            unsafe { { let _ = (*f.w).write_char(pat[i]); } }
             i = i + 2;
             continue;
         }
@@ -102,7 +102,7 @@ unsafe fn fmt_into<H: Display + Debug, T...>(pat: str, fi: i64, flen: i64,
                 return;
             }
         }
-        unsafe { (*f.buf).push_u8(pat[i]); }
+        unsafe { { let _ = (*f.w).write_char(pat[i]); } }
         i = i + 1;
     }
 }

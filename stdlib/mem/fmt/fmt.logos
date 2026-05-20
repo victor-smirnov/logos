@@ -65,6 +65,20 @@ pub fn err() -> Result<(), Error> {
 pub trait FmtWrite {
     fn write_str(&mut self, s: str) -> Result<(), Error>;
     fn write_char(&mut self, c: u8) -> Result<(), Error>;
+    // Build a Formatter that streams straight into this sink. The write!/
+    // writeln! lowering calls `(sink).as_formatter()` — a method call so the
+    // sink auto-refs whether it's a value (`Collector`) or already a borrow
+    // (`&mut Formatter` inside a Display::fmt). Default body wraps self.
+    fn as_formatter(&mut self) -> Formatter { return formatter_for_sink(self); }
+}
+
+// String is the canonical FmtWrite sink: a Formatter backed by a String
+// writes through this impl. (Lets `Formatter` hold a `*mut dyn FmtWrite`
+// instead of a fixed `*mut String`, so format! renders into a String while
+// write!(sink, …) streams straight to any FmtWrite — zero String intermediate.)
+impl FmtWrite for String {
+    fn write_str(&mut self, s: str) -> Result<(), Error> { self.push_str(s); return ok(); }
+    fn write_char(&mut self, c: u8) -> Result<(), Error> { self.push_u8(c); return ok(); }
 }
 
 // ── Formatter ────────────────────────────────────────────────────────
@@ -84,7 +98,7 @@ pub trait FmtWrite {
 // is exercised.
 
 pub struct Formatter {
-    pub buf:        *mut String,
+    pub w:          *mut dyn FmtWrite,   // sink (String for format!, any FmtWrite for write!)
     pub fill:       u8,
     pub align_code: u8,    // 0=Unknown→Right, 1=Left, 2=Right, 3=Center
     pub sign_plus:  bool,
@@ -98,8 +112,27 @@ pub struct Formatter {
 pub fn formatter_for(buf: &mut String) -> Formatter {
     unsafe {
         return Formatter {
-            buf:        buf as *mut String,
+            w:          buf as *mut dyn FmtWrite,
             fill:       32u8,   // ' '
+            align_code: 0u8,
+            sign_plus:  false,
+            alternate:  false,
+            zero_pad:   false,
+            width:      -1i64,
+            precision:  -1i64,
+            indent:     0i64,
+        };
+    }
+}
+
+// Build a Formatter that streams straight to an arbitrary FmtWrite sink
+// (no String intermediate). The metacall lowering for write!/writeln! uses
+// this so placeholders + their specs render directly into the sink.
+pub fn formatter_for_sink(sink: &mut dyn FmtWrite) -> Formatter {
+    unsafe {
+        return Formatter {
+            w:          sink as *mut dyn FmtWrite,
+            fill:       32u8,
             align_code: 0u8,
             sign_plus:  false,
             alternate:  false,
@@ -151,15 +184,20 @@ impl Formatter {
     pub fn indent_dec(&mut self) { self.indent = self.indent - 1i64; }
 }
 
+// Formatter is itself a FmtWrite sink (delegating to its underlying sink), so
+// `write!(f, …)` inside a Display/Debug impl can wrap the incoming Formatter.
+// FmtWrite is the sole provider of write_str/write_char, so `f.write_str(…)`
+// stays an unambiguous plain dispatch.
+impl FmtWrite for Formatter {
+    fn write_str(&mut self, s: str) -> Result<(), Error> {
+        unsafe { return (*self.w).write_str(s); }
+    }
+    fn write_char(&mut self, c: u8) -> Result<(), Error> {
+        unsafe { return (*self.w).write_char(c); }
+    }
+}
+
 impl Formatter {
-    pub fn write_str(&mut self, s: str) -> Result<(), Error> {
-        unsafe { (*self.buf).push_str(s); }
-        return ok();
-    }
-    pub fn write_char(&mut self, c: u8) -> Result<(), Error> {
-        unsafe { (*self.buf).push_u8(c); }
-        return ok();
-    }
 
     // pad() — apply the Formatter's spec fields (width / fill / align /
     // precision / sign_plus / alternate / zero_pad) to `content`,
@@ -206,22 +244,22 @@ impl Formatter {
             let is_zero_pad: bool = (self.fill == 48u8) && (self.align_code != 1u8);
             let mut i: i64 = 0i64;
             if !is_zero_pad {
-                while i < left_pad { (*self.buf).push_u8(self.fill); i = i + 1i64; }
+                while i < left_pad { let _ = (*self.w).write_char(self.fill); i = i + 1i64; }
             }
-            if emit_sign { (*self.buf).push_u8(43u8); }
-            (*self.buf).push_str(prefix);
+            if emit_sign { let _ = (*self.w).write_char(43u8); }
+            let _ = (*self.w).write_str(prefix);
             if is_zero_pad {
                 i = 0i64;
-                while i < left_pad { (*self.buf).push_u8(48u8); i = i + 1i64; }
+                while i < left_pad { let _ = (*self.w).write_char(48u8); i = i + 1i64; }
             }
             i = 0i64;
-            while i < n_eff { (*self.buf).push_u8(content[i]); i = i + 1i64; }
+            while i < n_eff { let _ = (*self.w).write_char(content[i]); i = i + 1i64; }
             if !is_zero_pad {
                 i = 0i64;
-                while i < right_pad { (*self.buf).push_u8(self.fill); i = i + 1i64; }
+                while i < right_pad { let _ = (*self.w).write_char(self.fill); i = i + 1i64; }
             } else {
                 i = 0i64;
-                while i < right_pad { (*self.buf).push_u8(48u8); i = i + 1i64; }
+                while i < right_pad { let _ = (*self.w).write_char(48u8); i = i + 1i64; }
             }
         }
         return ok();

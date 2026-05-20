@@ -5,32 +5,27 @@ use logos.mem.string;
 use std.fmt;
 
 struct Point { x: i32, y: i32 }
-
-// Display impl that wraps write! — the canonical Rust pattern.
 impl Display for Point {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         return write!(f, "({}, {})", self.x, self.y);
     }
 }
 
-// Custom Write sink (anything with write_str).
+// Custom Write sink — must impl FmtWrite (like Rust's `impl Write`).
 struct Collector { buf: String }
-impl Collector {
-    fn write_str(&mut self, s: str) -> Result<(), Error> {
-        self.buf.push_str(s);
-        return Result::<(), Error>::Ok(());
-    }
+impl FmtWrite for Collector {
+    fn write_str(&mut self, s: str) -> Result<(), Error> { self.buf.push_str(s); return Result::<(), Error>::Ok(()); }
+    fn write_char(&mut self, c: u8) -> Result<(), Error> { self.buf.push_u8(c); return Result::<(), Error>::Ok(()); }
 }
 
 fn main() -> i32 {
     let p: Point = Point { x: 3i32, y: 8i32 };
-    // via Display dispatcher into a String
     let s: String = fmt_display_to_string::<Point>(&p);
     if !str_eq(s.as_str(), "(3, 8)") { return 1i32; }
-
-    // write! to a custom sink
     let mut c: Collector = Collector { buf: String::new() };
     let _ = write!(c, "n={}", 99i32);
     if !str_eq(c.buf.as_str(), "n=99") { return 2i32; }
+    let _ = writeln!(c, " m={}", 7i32);
+    if !str_eq(c.buf.as_str(), "n=99 m=7\n") { return 3i32; }
     return 0i32;
 }
