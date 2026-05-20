@@ -1,0 +1,95 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
+//   library/coretests/tests/convert.rs.
+//
+// convert.rs has two tests:
+//   - `convert`           — const-fn + const-context (`const FOO: i32 = …`)
+//                           + Vec; the const-eval form is a Logos divergence
+//                           (compile-time evaluation routes through metacall,
+//                           not const fns), so only the runtime identity
+//                           `i32::from(x) == x` is meaningful — and that is
+//                           already covered by the `convert_from` coretest.
+//   - `into_as_try_into`  — a user `impl Into<B> for A` plus the blanket
+//                           `TryInto`/`TryFrom` derived from it. Ported below
+//                           as the user-impl Into dispatch (the part Logos
+//                           supports without the blanket).
+//
+// The From / TryFrom numeric surface is covered by the `convert_from`
+// coretest; this file complements it with the Into trait side.
+//
+// Divergences / skipped (with reason):
+//   - const fn / const context — Logos has no const fn (metacall is the
+//     compile-time channel); the runtime conversions are tested elsewhere.
+//   - From→Into and TryFrom→TryInto BLANKET impls — Rust derives `Into`/
+//     `TryInto` from `From`/`TryFrom` via blanket impls. Logos declares the
+//     Into/TryInto traits; the SEMA half of the blanket now works (value
+//     blanket dispatch on primitive receivers + return-type inference of the
+//     blanket's output param — landed 2026-05-20). The remaining blocker is
+//     in MONO: a blanket body that calls through the output param
+//     (`fn into(self) -> U { U::from(self) }`) emits the unsubstituted
+//     `U::from` (`@D__myfrom`) instead of `Wrap::from` — the blanket method
+//     spec's body isn't specialized for the return-inferred param. So
+//     `42i64.into()` on primitives still does not lower; only explicit
+//     per-type `impl Into` does (tested here). The identity `Borrow<T> for T`
+//     blanket and single-param `impl<T: Bound> Trait for T` blankets DO work
+//     on primitives now. See [[baghunt-mono-blanket-body-output-param]].
+
+package test_coretest_convert;
+
+use std.fmt;
+use logos.lang.panic;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.convert;
+
+// Mirrors convert.rs::into_as_try_into — a user-defined `impl Into<B> for A`.
+// Logos dispatches `.into()` to the explicit impl (no blanket needed).
+struct A {}
+struct B { tag: i32 }
+
+impl Into<B> for A {
+    fn into(self: A) -> B { return B { tag: 7i32 }; }
+}
+
+#[test]
+fn test_into_user_impl() {
+    let a: A = A {};
+    let b: B = a.into();
+    assert!(b.tag == 7i32);
+}
+
+// Explicit TryInto impl on a user type — Result<Ok> path.
+struct Celsius { deg: i32 }
+struct Kelvin  { deg: i32 }
+
+impl TryInto<Kelvin> for Celsius {
+    fn try_into(self: Celsius) -> Result<Kelvin, ConvertError> {
+        if self.deg < -273i32 { return Result::Err(ConvertError {}); }
+        return Result::Ok(Kelvin { deg: self.deg + 273i32 });
+    }
+}
+
+#[test]
+fn test_try_into_user_impl_ok() {
+    let c: Celsius = Celsius { deg: 0i32 };
+    match c.try_into() {
+        Result::Ok(k) => { assert!(k.deg == 273i32); }
+        Result::Err(_) => { panic("try_into: expected Ok"); }
+    }
+}
+
+#[test]
+fn test_try_into_user_impl_err() {
+    let c: Celsius = Celsius { deg: -300i32 };
+    match c.try_into() {
+        Result::Ok(_)  => { panic("try_into: expected Err (below absolute zero)"); }
+        Result::Err(_) => {}
+    }
+}
+
+// Runtime identity that convert.rs::convert checks under const: i32::from(x) == x.
+// (The const-context part is the divergence; the value identity holds.)
+#[test]
+fn test_from_identity_runtime() {
+    let x: i32 = i32::from(42i8);
+    assert!(x == 42i32);
+}

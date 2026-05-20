@@ -1,0 +1,132 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
+//   library/coretests/tests/ops.rs (subset).
+//
+// ops.rs is dominated by the Range family (Range / RangeFrom / RangeTo /
+// RangeFull / RangeInclusive / RangeToInclusive) + RangeBounds/Bound +
+// Deref/DerefMut + the ControlFlow / from_residual try-trait submodules.
+//
+// Ported (the Range surface Logos provides — see stdlib/lang/range):
+//   - test_range            — iterate `2..10`, count + per-element checks
+//                             (built-in FOR over a range literal).
+//   - test_range_from       — `range_from_i32(start)` + `.take(n)` drain.
+//   - test_range_inclusive  — `range_incl_i32(lo, hi)` next() incl. endpoint
+//                             + degenerate empty.
+//   - test_range_contains   — `RangeI32::contains` / `RangeInclI32::contains`,
+//                             half-open and inclusive cases from upstream.
+//   - RangeTo / RangeFull   — bound-only carriers (construct + contains).
+//
+// Divergences / skipped (with reason):
+//   - Method/struct-literal form (`Range { start, end }`, `r.enumerate()`,
+//     `RangeInclusive::new`) — Logos exposes the range family as named
+//     structs + constructor fns (`range_i32` / `range_from_i32` /
+//     `range_incl_i32` / `range_to_i32` / `range_full`); the built-in `a..b`
+//     literal lowers to the compiler FOR node. Adapted accordingly.
+//   - RangeInclusive `next_back` (the i8 -128 case) — Logos's RangeInclI32
+//     impls Iterator only, not DoubleEndedIterator; forward `next()` covers
+//     the endpoint-inclusion contract.
+//   - Bound / RangeBounds / OneSidedRange — bound-introspection traits not
+//     ported (Logos ranges expose `contains`/`is_empty` inherent methods).
+//   - Deref / DerefMut — no user-overridable deref in Logos.
+//   - ControlFlow / from_residual submodules — the `?`/Try machinery is its
+//     own surface (result_try / option_try coretests); not part of Range.
+
+package test_coretest_ops;
+
+use std.fmt;
+use logos.lang.panic;
+use logos.lang.option;
+use logos.lang.range;
+use logos.lang.iter;
+
+// test_range — iterate the half-open `2..10`, 8 elements, each == index+2.
+#[test]
+fn test_range() {
+    let mut count: i32 = 0;
+    let mut idx: i32 = 0;
+    for ri in 2..10 {
+        assert!(ri == idx + 2);
+        assert!(ri >= 2 && ri < 10);
+        count = count + 1;
+        idx = idx + 1;
+    }
+    assert!(count == 8);
+}
+
+// test_range_from — RangeFrom { start: 2 }.take(10): 10 elems, each index+2.
+#[test]
+fn test_range_from() {
+    let mut count: i32 = 0;
+    let mut idx: i32 = 0;
+    // RangeFrom { start: 2 }.take(10) — Logos's `.take` is the free fn
+    // iter_take::<I, T>(iter, n, zero) (an unsafe iterator adapter).
+    let mut it = unsafe { iter_take::<RangeFromI32, i32>(range_from_i32(2i32), 10i64, 0i32) };
+    loop {
+        match it.next() {
+            Option::Some(ri) => {
+                assert!(ri == idx + 2);
+                assert!(ri >= 2 && ri < 12);
+                count = count + 1;
+                idx = idx + 1;
+            }
+            Option::None => { break; }
+        }
+    }
+    assert!(count == 10);
+}
+
+// test_range_inclusive — RangeInclusive::new(1, 2) yields 1, 2, then None.
+#[test]
+fn test_range_inclusive() {
+    let mut r = range_incl_i32(1i32, 2i32);
+    match r.next() { Option::Some(v) => { assert!(v == 1i32); } Option::None => { panic("incl: expected 1"); } }
+    match r.next() { Option::Some(v) => { assert!(v == 2i32); } Option::None => { panic("incl: expected 2"); } }
+    match r.next() { Option::Some(_) => { panic("incl: expected None"); } Option::None => {} }
+
+    // Single-point inclusive range yields exactly its endpoint.
+    let mut s = range_incl_i32(127i32, 127i32);
+    match s.next() { Option::Some(v) => { assert!(v == 127i32); } Option::None => { panic("incl: expected 127"); } }
+    match s.next() { Option::Some(_) => { panic("incl: expected None after 127"); } Option::None => {} }
+
+    // Degenerate (lo > hi): empty, immediately None.
+    let mut d = range_incl_i32(1i32, -1i32);
+    assert!(d.is_empty());
+    match d.next() { Option::Some(_) => { panic("incl: degenerate must be empty"); } Option::None => {} }
+}
+
+// test_range_contains — half-open `1..5` membership (upstream uses u32; i32 here).
+#[test]
+fn test_range_contains() {
+    let r = range_i32(1i32, 5i32);
+    assert!(!r.contains(0i32));
+    assert!(r.contains(1i32));
+    assert!(r.contains(4i32));
+    assert!(!r.contains(5i32));
+    assert!(!r.contains(6i32));
+
+    // is_empty: `1..1` and `2..1` are empty; `1..2` is not.
+    assert!(range_i32(1i32, 1i32).is_empty());
+    assert!(range_i32(2i32, 1i32).is_empty());
+    assert!(!range_i32(1i32, 2i32).is_empty());
+}
+
+// RangeInclusive contains — `3..=5` includes both endpoints.
+#[test]
+fn test_range_inclusive_contains() {
+    let r = range_incl_i32(3i32, 5i32);
+    assert!(!r.contains(2i32));
+    assert!(r.contains(3i32));
+    assert!(r.contains(5i32));
+    assert!(!r.contains(6i32));
+}
+
+// test_range_to / test_full_range — bound-only carriers (construct + use).
+#[test]
+fn test_range_to_and_full() {
+    let rt = range_to_i32(42i32);
+    assert!(rt.contains(0i32));
+    assert!(rt.contains(41i32));
+    assert!(!rt.contains(42i32));   // exclusive upper bound
+
+    // RangeFull carries no state — just constructs.
+    let _rf: RangeFull = range_full();
+}

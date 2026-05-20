@@ -2527,6 +2527,19 @@ private:
     lir::LExprPtr lower_generic_call(hermes::TinyMapView node);
     lir::LExprPtr lower_generic_ref(hermes::TinyMapView node);
     lir::LExprPtr lower_method_call(hermes::TinyMapView node);
+    // Blanket-impl method dispatch: `impl<T: Bound> Trait for T { fn m … }`.
+    // Tries every registered blanket against receiver type `type_name`;
+    // on a unique match dispatches via finish_generic_call (moving recv +
+    // arg_exprs) and returns the call expr. Returns nullptr when no blanket
+    // applies (recv/arg_exprs left intact for the caller to continue). On
+    // ambiguous overlap (≥2 viable blankets) emits an error and returns
+    // nullptr. Shared by the struct- and primitive-receiver paths so a
+    // value blanket (`impl<T> Trait for T`) reaches primitives too.
+    lir::LExprPtr try_blanket_method_dispatch(
+        lir::LExprPtr& recv,
+        std::vector<lir::LExprPtr>& arg_exprs,
+        std::string_view method_name,
+        const std::string& type_name);
     lir::LExprPtr lower_invoke_expr(hermes::TinyMapView node);
     lir::LExprPtr lower_field_read(hermes::TinyMapView node);
     lir::LExprPtr lower_struct_lit(hermes::TinyMapView node);

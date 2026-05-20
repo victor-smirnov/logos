@@ -4443,6 +4443,128 @@ lir::LExprPtr SemaChecker::lower_invoke_expr(TinyMapView node) {
                                  std::move(arg_exprs), -1, error_t());
 }
 
+lir::LExprPtr SemaChecker::try_blanket_method_dispatch(
+        lir::LExprPtr& recv,
+        std::vector<lir::LExprPtr>& arg_exprs,
+        std::string_view method_name,
+        const std::string& type_name) {
+    // Strip a generic suffix (`Vec$i32` → `Vec`); primitives have none.
+    std::string base_name(type_name);
+    if (auto d = base_name.find('$'); d != std::string::npos)
+        base_name = base_name.substr(0, d);
+    // Collect all viable blanket matches first so we can diagnose overlap
+    // when two distinct blanket impls would both apply to the same receiver.
+    std::vector<size_t> viable_blanket_idxs;
+    for (size_t bi_idx = 0; bi_idx < blanket_impls_.size(); ++bi_idx) {
+        auto& bi = blanket_impls_[bi_idx];
+        if (bi.method_name != std::string(method_name)) continue;
+        if (!bi.bound_trait.empty()) {
+            logos::compiler::StrSet seen_pri;
+            if (!sema_has_impl_recursive(bi.bound_trait, type_name,
+                                         base_name, seen_pri)) continue;
+            // ADR 0008: assoc-type-equality clauses on the primary bound.
+            if (!assoc_eqs_satisfied(bi.bound_trait, type_name,
+                                      base_name, bi.primary_assoc_eqs)) continue;
+        }
+        bool extras_ok = true;
+        for (auto& eb : bi.extra_bounds) {
+            logos::compiler::StrSet seen_eb;
+            if (!sema_has_impl_recursive(eb, type_name,
+                                         base_name, seen_eb)) { extras_ok = false; break; }
+        }
+        if (!extras_ok) continue;
+        // Assoc-eqs on extra bounds, indexed by trait name.
+        bool extra_eqs_ok = true;
+        for (auto& [trait, eqs] : bi.extra_assoc_eqs) {
+            if (!assoc_eqs_satisfied(trait, type_name, base_name, eqs)) {
+                extra_eqs_ok = false; break;
+            }
+        }
+        if (!extra_eqs_ok) continue;
+        viable_blanket_idxs.push_back(bi_idx);
+    }
+    if (viable_blanket_idxs.size() >= 2) {
+        // Distinct blanket impls of the same trait both apply — overlap.
+        // (Multiple entries from one blanket with several methods are
+        // disambiguated by method_name; here all entries already passed
+        // the method_name filter, so they are *different* impls.)
+        std::string trait1 = blanket_impls_[viable_blanket_idxs[0]].trait_name;
+        std::string trait2 = blanket_impls_[viable_blanket_idxs[1]].trait_name;
+        std::string b1 = blanket_impls_[viable_blanket_idxs[0]].bound_trait;
+        std::string b2 = blanket_impls_[viable_blanket_idxs[1]].bound_trait;
+        if (b1.empty()) b1 = "<unbounded>";
+        if (b2.empty()) b2 = "<unbounded>";
+        error(std::format(
+            "method call: ambiguous blanket impl for '{}.{}': "
+            "both `impl<T: {}> {}` and `impl<T: {}> {}` apply",
+            type_name, method_name, b1, trait1, b2, trait2));
+    }
+    for (size_t bi_idx : viable_blanket_idxs) {
+        auto& bi = blanket_impls_[bi_idx];
+        std::vector<TypeRef> bi_arg_types;
+        bi_arg_types.push_back(recv->type);
+        for (auto& a : arg_exprs) bi_arg_types.push_back(a->type);
+        const SemaFuncInfo* mfi = nullptr;
+        if (auto fit = find_func_by_base_and_signature(bi.mangled_name, bi_arg_types, false))
+            mfi = fit;
+        else if (auto git = find_generic_func(bi.mangled_name))
+            mfi = git;
+        if (!mfi) continue;
+        // Type arg = receiver's concrete type (unwrapped from ref/ptr).
+        TypeRef recv_inner = recv->type;
+        if (recv_inner && (TypeRef(recv_inner).kind() == LogosType::Kind::Ptr ||
+                           is_ref_like(TypeRef(recv_inner).kind())) && TypeRef(recv_inner).pointee())
+            recv_inner = TypeRef(recv_inner).pointee();
+        // Infer the blanket's type-params by NAME (not position): the target
+        // typevar = receiver type; any extra impl/method param that appears
+        // only in arg or return position (e.g. `U` in
+        // `impl<T, U: From<T>> Into<U> for T`) is inferred from arg types and
+        // the let-binding's return-type hint. Positional binding misassigns
+        // when the target isn't type_params[0].
+        StrMap<TypeRef> tv_bind;
+        tv_bind["Self"] = recv_inner;
+        tv_bind[bi.target_typevar] = recv_inner;
+        for (size_t i = 0; i + 1 < mfi->param_types.size() && i < arg_exprs.size(); ++i) {
+            auto pt = subst_type_sema(mfi->param_types[i + 1], tv_bind);
+            unify_types(pt, arg_exprs[i]->type, tv_bind);
+        }
+        if (hint_call_return_type_ && mfi->ret_type) {
+            auto rt = subst_type_sema(mfi->ret_type, tv_bind);
+            unify_types(rt, hint_call_return_type_, tv_bind);
+        }
+        // Auto-ref: if method expects &self / &mut self but recv is a
+        // value, take its address.
+        if (!mfi->param_types.empty()) {
+            TypeRef target_self =
+                subst_type_sema(mfi->param_types[0], tv_bind);
+            if (target_self &&
+                (TypeRef(target_self).kind() == LogosType::Kind::Ref ||
+                 TypeRef(target_self).kind() == LogosType::Kind::MutRef) &&
+                recv->type &&
+                TypeRef(recv->type).kind() != LogosType::Kind::Ref &&
+                TypeRef(recv->type).kind() != LogosType::Kind::MutRef &&
+                TypeRef(recv->type).kind() != LogosType::Kind::Ptr) {
+                bool is_mut = TypeRef(target_self).kind() == LogosType::Kind::MutRef;
+                auto addr = builder().addr_of_temp(std::move(recv), is_mut, target_self);
+                recv = std::move(addr);
+            }
+        }
+        std::vector<TypeRef> type_args;
+        for (auto& tp : mfi->type_params) {
+            auto it = tv_bind.find(tp.name);
+            type_args.push_back(it != tv_bind.end() ? it->second
+                                 : (tp.name == bi.target_typevar ? recv_inner : error_t()));
+        }
+        std::vector<lir::LExprPtr> pargs;
+        pargs.push_back(std::move(recv));
+        for (auto& a : arg_exprs) pargs.push_back(std::move(a));
+        return finish_generic_call(
+                                   mfi->symbol_name.empty() ? bi.mangled_name : mfi->symbol_name, *mfi,
+                                   std::move(type_args), std::move(pargs));
+    }
+    return nullptr;
+}
+
 lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     auto method_name = str_of(node.get(la::NAME.code));
     auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
@@ -5867,6 +5989,12 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             for (auto& a : arg_exprs) pargs.push_back(std::move(a));
             return builder().call(fi_ptr->symbol_name.empty() ? mangled_prim : fi_ptr->symbol_name, {}, std::move(pargs), fi_ptr->ret_type);
         }
+        // Value blanket (`impl<T> Trait for T`) on a primitive receiver:
+        // the struct path's blanket fallback (below) is unreachable here, so
+        // try it explicitly before erroring. Unblocks From→Into / TryFrom→
+        // TryInto / identity-Borrow blankets for primitive types.
+        if (auto e = try_blanket_method_dispatch(recv, arg_exprs, method_name, tname))
+            return e;
         // Same metaprog-discovery suppression as field_read above: silent
         // <error> propagation when the receiver is already <error>.
         bool recv_is_error = recv->type &&
@@ -6161,104 +6289,11 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
 
     if (!fi_ptr) {
         // Blanket-impl fallback: `impl<T: Bound> Trait for T { fn method … }`
-        // provides method on any T satisfying Bound.  Look up whether any
-        // blanket's method matches, the receiver type impls the bound, and
-        // if so dispatch through finish_generic_call with type_args=[recv_T].
-        std::string base_sname(sname);
-        if (auto d = base_sname.find('$'); d != std::string::npos)
-            base_sname = base_sname.substr(0, d);
-        // Collect all viable blanket matches first so we can diagnose overlap
-        // when two distinct blanket impls would both apply to the same receiver.
-        std::vector<size_t> viable_blanket_idxs;
-        for (size_t bi_idx = 0; bi_idx < blanket_impls_.size(); ++bi_idx) {
-            auto& bi = blanket_impls_[bi_idx];
-            if (bi.method_name != std::string(method_name)) continue;
-            if (!bi.bound_trait.empty()) {
-                logos::compiler::StrSet seen_pri;
-                if (!sema_has_impl_recursive(bi.bound_trait, std::string(sname),
-                                             base_sname, seen_pri)) continue;
-                // ADR 0008: assoc-type-equality clauses on the primary bound.
-                if (!assoc_eqs_satisfied(bi.bound_trait, std::string(sname),
-                                          base_sname, bi.primary_assoc_eqs)) continue;
-            }
-            bool extras_ok = true;
-            for (auto& eb : bi.extra_bounds) {
-                logos::compiler::StrSet seen_eb;
-                if (!sema_has_impl_recursive(eb, std::string(sname),
-                                             base_sname, seen_eb)) { extras_ok = false; break; }
-            }
-            if (!extras_ok) continue;
-            // Assoc-eqs on extra bounds, indexed by trait name.
-            bool extra_eqs_ok = true;
-            for (auto& [trait, eqs] : bi.extra_assoc_eqs) {
-                if (!assoc_eqs_satisfied(trait, std::string(sname),
-                                          base_sname, eqs)) {
-                    extra_eqs_ok = false; break;
-                }
-            }
-            if (!extra_eqs_ok) continue;
-            viable_blanket_idxs.push_back(bi_idx);
-        }
-        if (viable_blanket_idxs.size() >= 2) {
-            // Distinct blanket impls of the same trait both apply — overlap.
-            // (Multiple entries from one blanket with several methods are
-            // disambiguated by method_name; here all entries already passed
-            // the method_name filter, so they are *different* impls.)
-            std::string trait1 = blanket_impls_[viable_blanket_idxs[0]].trait_name;
-            std::string trait2 = blanket_impls_[viable_blanket_idxs[1]].trait_name;
-            std::string b1 = blanket_impls_[viable_blanket_idxs[0]].bound_trait;
-            std::string b2 = blanket_impls_[viable_blanket_idxs[1]].bound_trait;
-            if (b1.empty()) b1 = "<unbounded>";
-            if (b2.empty()) b2 = "<unbounded>";
-            error(std::format(
-                "method call: ambiguous blanket impl for '{}.{}': "
-                "both `impl<T: {}> {}` and `impl<T: {}> {}` apply",
-                sname, method_name, b1, trait1, b2, trait2));
-        }
-        for (size_t bi_idx : viable_blanket_idxs) {
-            auto& bi = blanket_impls_[bi_idx];
-            std::vector<TypeRef> bi_arg_types;
-            bi_arg_types.push_back(recv->type);
-            for (auto& a : arg_exprs) bi_arg_types.push_back(a->type);
-            const SemaFuncInfo* mfi = nullptr;
-            if (auto fit = find_func_by_base_and_signature(bi.mangled_name, bi_arg_types, false))
-                mfi = fit;
-            else if (auto git = find_generic_func(bi.mangled_name))
-                mfi = git;
-            if (!mfi) continue;
-            // Type arg = receiver's concrete type (unwrapped from ref/ptr).
-            TypeRef recv_inner = recv->type;
-            if (recv_inner && (TypeRef(recv_inner).kind() == LogosType::Kind::Ptr ||
-                               is_ref_like(TypeRef(recv_inner).kind())) && TypeRef(recv_inner).pointee())
-                recv_inner = TypeRef(recv_inner).pointee();
-            // Auto-ref: if method expects &self / &mut self but recv is a
-            // value, take its address.
-            if (!mfi->param_types.empty()) {
-                SemaSubst s_subst;
-                s_subst["Self"] = recv_inner;
-                s_subst[bi.target_typevar] = recv_inner;
-                TypeRef target_self =
-                    subst_type_sema(mfi->param_types[0], s_subst);
-                if (target_self &&
-                    (TypeRef(target_self).kind() == LogosType::Kind::Ref ||
-                     TypeRef(target_self).kind() == LogosType::Kind::MutRef) &&
-                    recv->type &&
-                    TypeRef(recv->type).kind() != LogosType::Kind::Ref &&
-                    TypeRef(recv->type).kind() != LogosType::Kind::MutRef &&
-                    TypeRef(recv->type).kind() != LogosType::Kind::Ptr) {
-                    bool is_mut = TypeRef(target_self).kind() == LogosType::Kind::MutRef;
-                    auto addr = builder().addr_of_temp(std::move(recv), is_mut, target_self);
-                    recv = std::move(addr);
-                }
-            }
-            std::vector<TypeRef> type_args = { recv_inner };
-            std::vector<lir::LExprPtr> pargs;
-            pargs.push_back(std::move(recv));
-            for (auto& a : arg_exprs) pargs.push_back(std::move(a));
-            return finish_generic_call(
-                                       mfi->symbol_name.empty() ? bi.mangled_name : mfi->symbol_name, *mfi,
-                                       std::move(type_args), std::move(pargs));
-        }
+        // provides method on any T satisfying Bound. Shared with the
+        // primitive-receiver path via try_blanket_method_dispatch.
+        if (auto e = try_blanket_method_dispatch(
+                recv, arg_exprs, method_name, std::string(sname)))
+            return e;
         // Trait-aware method mangling: if the method name collided across
         // multiple traits on this type, the plain base was removed from the
         // registry — surface a disambiguation hint instead of "no method".

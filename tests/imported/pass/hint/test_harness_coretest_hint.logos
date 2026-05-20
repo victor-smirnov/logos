@@ -1,0 +1,42 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
+//   library/coretests/tests/hint.rs (subset).
+//
+// Ported (the stable core::hint surface Logos provides — stdlib/lang/hint):
+//   - black_box — identity barrier; value passes through unchanged.
+//   - spin_loop — callable no-op spin hint.
+//
+// Divergences / skipped (with reason):
+//   - select_unpredictable (both upstream tests) — nightly
+//     `core::hint::select_unpredictable` + `impl const Drop` + Cell-observed
+//     drop-order + #[should_panic] unwind ordering. The intrinsic isn't in
+//     Logos, and the test is fundamentally about const-Drop + unwind drop
+//     order, not the hint surface. unreachable_unchecked exists in
+//     stdlib/lang/hint but isn't exercised here (it diverges via abort()).
+
+package test_coretest_hint;
+
+use std.fmt;
+use logos.lang.hint;
+
+// black_box is an identity function (an optimization barrier). The
+// observable contract is that the value is returned unchanged.
+#[test]
+fn test_black_box_identity() {
+    let a: i32 = black_box::<i32>(42i32);
+    assert!(a == 42i32);
+    let b: i64 = black_box::<i64>(-7i64);
+    assert!(b == -7i64);
+    let t: bool = black_box::<bool>(true);
+    assert!(t);
+}
+
+// spin_loop is a callable no-op CPU hint — exercising it must not crash.
+#[test]
+fn test_spin_loop_callable() {
+    let mut i: i32 = 0;
+    while i < 4 {
+        spin_loop();
+        i = i + 1;
+    }
+    assert!(i == 4);
+}
