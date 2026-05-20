@@ -1,0 +1,83 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
+//   library/coretests/tests/lazy.rs (OnceCell / LazyCell subset).
+//
+// Ported (the surface Logos provides — stdlib/lang/cell):
+//   - once_cell: get_or_init runs the initializer exactly once; a second
+//     get_or_init returns the cached value without re-running (upstream
+//     `once_cell`, with the panic-on-second-init turned into a sentinel).
+//   - OnceCell get / set: empty → None; first set Ok; get Some; second set Err.
+//   - LazyCell::force runs its initializer once and caches the result.
+//
+// Divergences / skipped (with reason):
+//   - Closures (`|| 92`) — Logos's OnceCell/LazyCell take a `fn() -> T`
+//     function pointer (Fn-family-trait storage is a separate surface), so
+//     named init functions are used.
+//   - once_cell_drop / unsync_once_cell_drop_empty — use `AtomicUsize` +
+//     `static`; atomics aren't ported.
+//   - once_cell_const (`const fn` + `OnceCell::from`) — const-eval divergence
+//     + From-for-OnceCell not ported.
+//   - clone / Debug / LazyLock (thread-sync) — not ported.
+
+package test_coretest_lazy;
+
+use std.fmt;
+use logos.lang.panic;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.cell;
+
+fn make_92()  -> i32 { return 92i32; }
+// Stand-in for upstream's `|| panic!("Kaboom!")`: if this ever runs, the
+// cached-value contract is broken and the test fails loudly.
+fn boom()     -> i32 { panic("get_or_init re-ran the initializer"); return 0i32; }
+fn make_7()   -> i32 { return 7i32; }
+
+// once_cell — initialize once, second get_or_init returns the cached value.
+#[test]
+fn test_once_cell_get_or_init() {
+    let c: OnceCell<i32> = once_cell_new::<i32>();
+    assert!(!c.is_set());
+    let first: i32 = *c.get_or_init(make_92);
+    assert!(first == 92i32);
+    assert!(c.is_set());
+    // Second call must NOT run the initializer (boom would panic) — returns 92.
+    let second: i32 = *c.get_or_init(boom);
+    assert!(second == 92i32);
+}
+
+// OnceCell get / set: empty → None, set once Ok, then Err; get reflects it.
+#[test]
+fn test_once_cell_get_set() {
+    let c: OnceCell<i32> = once_cell_new::<i32>();
+    match c.get() {
+        Option::Some(_) => { panic("fresh OnceCell must be empty"); }
+        Option::None    => {}
+    }
+    match c.set(5i32) {
+        Result::Ok(_)  => {}
+        Result::Err(_) => { panic("first set must succeed"); }
+    }
+    match c.get() {
+        Option::Some(v) => { assert!(*v == 5i32); }
+        Option::None    => { panic("set OnceCell must read back"); }
+    }
+    // Second set fails and hands the value back; cell keeps the first.
+    match c.set(9i32) {
+        Result::Ok(_)  => { panic("second set must fail"); }
+        Result::Err(v) => { assert!(v == 9i32); }
+    }
+    match c.get() {
+        Option::Some(v) => { assert!(*v == 5i32); }
+        Option::None    => { panic("value lost after rejected set"); }
+    }
+}
+
+// LazyCell::force — runs the initializer once, caches, returns &T.
+#[test]
+fn test_lazy_cell_force() {
+    let lz: LazyCell<i32> = lazy_cell_new::<i32>(make_7);
+    let a: i32 = *lz.force();
+    assert!(a == 7i32);
+    let b: i32 = *lz.force();   // cached
+    assert!(b == 7i32);
+}

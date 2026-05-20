@@ -1,0 +1,77 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
+//   library/coretests/tests/any.rs (subset).
+//
+// Ported (the sound surface logos.lang.any provides):
+//   - any_referenced — `(&x as &dyn Any).is::<T>()` discrimination, adapted to
+//     struct erased values (`&dyn Any` dispatch is wired for struct/enum;
+//     see the primitive note below). Plus direct `x.type_id()` via the Any
+//     blanket and `TypeId` equality.
+//
+// Divergences / skipped (with reason):
+//   - Primitive erased values (`&5 as &dyn Any`): upstream uses i32 / &str.
+//     Logos's `&dyn Any` is wired for struct/enum types; a primitive behind
+//     `&dyn Any` only dispatches if its `type_id` was also instantiated by a
+//     direct `x.type_id()` use (the eager blanket pass doesn't cover
+//     primitives reached only via dyn-coercion). Direct `i.type_id()` (no
+//     dyn) IS sound and tested. See [[baghunt-any-primitive-dyn-and-downcast]].
+//   - any_downcast_ref / any_downcast_mut — `downcast_ref`/`_mut` not yet in
+//     the module (generic-body `&dyn → ptr` data-word extraction mis-lowers).
+//   - any_owning — `Box<dyn Any>` (Box port).
+//   - Debug / PartialEq derive on the test types — not needed here.
+
+package test_coretest_any;
+
+use std.fmt;
+use logos.lang.panic;
+use logos.lang.any;
+
+struct Alpha { a: i32 }
+struct Beta  { b: i32 }
+
+// any_referenced — `.is::<T>()` discriminates the concrete type behind &dyn Any.
+#[test]
+fn test_any_referenced() {
+    let x: Alpha = Alpha { a: 1i32 };
+    let y: Beta  = Beta  { b: 2i32 };
+    let ax: &dyn Any = &x as &dyn Any;
+    let ay: &dyn Any = &y as &dyn Any;
+
+    assert!(any_is::<Alpha>(ax));
+    assert!(!any_is::<Beta>(ax));
+    assert!(any_is::<Beta>(ay));
+    assert!(!any_is::<Alpha>(ay));
+}
+
+// `type_id()` through &dyn Any equals the static TypeId::of for the concrete.
+#[test]
+fn test_dyn_type_id() {
+    let x: Alpha = Alpha { a: 1i32 };
+    let ax: &dyn Any = &x as &dyn Any;
+    assert!(ax.type_id().code == type_id_of::<Alpha>().code);
+    assert!(ax.type_id().code != type_id_of::<Beta>().code);
+}
+
+// Direct (non-dyn) `.type_id()` via the Any blanket — sound for ALL types,
+// including primitives.
+#[test]
+fn test_direct_type_id() {
+    let i: i32 = 5i32;
+    let x: Alpha = Alpha { a: 1i32 };
+    assert!(i.type_id().code == type_id_of::<i32>().code);
+    assert!(x.type_id().code == type_id_of::<Alpha>().code);
+    assert!(i.type_id().code != x.type_id().code);
+}
+
+// TypeId is a nominal, comparable identity: distinct named types differ,
+// the same type is stable, and TypeId is Eq.
+#[test]
+fn test_type_id_identity() {
+    assert!(type_id_of::<i32>().code == type_id_of::<i32>().code);
+    assert!(type_id_of::<i32>().code != type_id_of::<u32>().code);
+    assert!(type_id_of::<Alpha>().code != type_id_of::<Beta>().code);
+    let a: TypeId = type_id_of::<Alpha>();
+    let b: TypeId = type_id_of::<Alpha>();
+    let c: TypeId = type_id_of::<Beta>();
+    assert!(a.eq(&b));
+    assert!(!a.eq(&c));
+}

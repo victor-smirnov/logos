@@ -1,0 +1,67 @@
+// Logos standard library — logos.lang.any
+//
+// `core::any` mirror: runtime type identity (`TypeId`), the `Any` trait with
+// a blanket `impl<T> Any for T`, and `&dyn Any` downcasting.
+//
+// TypeId is the nominal type UID the compiler already computes for every type
+// via `type_of::<T>().uid` — a 64-bit hash of the canonical (named) type
+// string, so distinct nominal types differ even at identical layout (unlike
+// the structural `type_hash`). This matches Rust's `TypeId` semantics.
+//
+// Divergence from Rust / current limits:
+//   - No `'static` bound on `Any` (Logos has no lifetime-bound trait gating
+//     yet).
+//   - `&dyn Any` works for STRUCT / enum types (the blanket `type_id` is
+//     instantiated for every concrete struct/enum and wired into the dyn
+//     vtable). A PRIMITIVE behind `&dyn Any` (`&5 as &dyn Any`) only works if
+//     that primitive's `type_id` was also instantiated by a direct
+//     `x.type_id()` use — the eager blanket-instantiation pass doesn't cover
+//     primitives reached solely through dyn-coercion. Follow-up:
+//     [[baghunt-any-primitive-dyn-and-downcast]].
+//   - `downcast_ref` / `downcast_mut` are NOT yet provided: recovering `&T`
+//     from `&dyn Any` needs the fat-pointer data word, and the `&dyn → ptr`
+//     cast mis-extracts inside a *generic* body (works non-generically).
+//     Same follow-up. `is` + `type_id` (this module) are the sound surface.
+
+package logos.lang.any;
+
+use logos.lang.option;
+use logos.lang.cmp;
+
+// Opaque, comparable type identity. `code` is the compiler's nominal type UID.
+pub struct TypeId {
+    pub code: u64,
+}
+
+impl Copy for TypeId {}
+
+impl Eq for TypeId {
+    fn eq(self: &Self, other: &Self) -> bool { return self.code == other.code; }
+}
+
+// `TypeId::of::<T>()` analogue. `type_uid::<T>()` is the compiler's nominal
+// type UID (hash of the canonical named type string); folded at mono.
+pub fn type_id_of<T>() -> TypeId {
+    return TypeId { code: type_uid::<T>() };
+}
+
+// The `Any` trait. The blanket impl makes every type `Any` (Rust shape).
+pub trait Any {
+    fn type_id(&self) -> TypeId;
+}
+
+impl<T> Any for T {
+    fn type_id(&self) -> TypeId { return type_id_of::<T>(); }
+}
+
+// `(dyn Any).is::<T>()` analogue — does the erased value hold a `T`?
+// Sound for struct / enum erased values (see the primitive caveat in the
+// module header).
+pub fn any_is<T>(a: &dyn Any) -> bool {
+    return a.type_id().code == type_id_of::<T>().code;
+}
+
+// NOTE: downcast_ref / downcast_mut intentionally omitted until the
+// generic-body `&dyn → ptr` data-word extraction is fixed — see the module
+// header + [[baghunt-any-primitive-dyn-and-downcast]]. `is` + `type_id` are
+// the sound surface today.

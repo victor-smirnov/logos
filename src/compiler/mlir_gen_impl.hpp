@@ -267,6 +267,13 @@ private:
 
     // "Trait::Type" → mangled method names in vtable slot order
     std::unordered_map<std::string, std::vector<std::string>> dyn_vtable_methods_;
+    // Trait name → its method names in vtable slot order, and whether the
+    // trait has a blanket impl (`impl<T> Trait for T`). Used by
+    // build_inline_vtable to synthesize a `<Concrete>__<method>` vtable on the
+    // fly when a concrete type reaches `&dyn Trait` only through a blanket
+    // (whose impl block registered the typevar target, not each concrete).
+    std::unordered_map<std::string, std::vector<std::string>> trait_method_names_;
+    std::unordered_set<std::string> blanket_traits_;
 
     // ── MLIR helpers ─────────────────────────────────────────────
 

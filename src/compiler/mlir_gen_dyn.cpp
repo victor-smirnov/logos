@@ -694,6 +694,22 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
         return it == concrete_targets_by_base.end() ? empty : it->second;
     };
 
+    // Record each trait's method names (vtable slot order) and whether a
+    // blanket impl provides it — so build_inline_vtable can synthesize a
+    // `<Concrete>__<method>` vtable for types that reach `&dyn Trait` only
+    // through the blanket (the blanket impl block registers the typevar
+    // target, not each concrete instantiation).
+    for (auto& td : prog.traits) {
+        auto& mn = trait_method_names_[td.name];
+        mn.clear();
+        for (auto& m : td.methods) mn.push_back(m.name);
+        for (auto& ib : prog.impls)
+            if (ib.trait_name == td.name && ib.is_blanket) {
+                blanket_traits_.insert(td.name);
+                break;
+            }
+    }
+
     for (auto& td : prog.traits) {
         for (auto& ib : prog.impls) {
             if (ib.trait_name != td.name) continue;
@@ -809,7 +825,52 @@ mlir::Value MLIRGenImpl::build_inline_vtable(std::string_view trait_name,
     key.reserve(trait_name.size() + 2 + type_name.size());
     key.append(trait_name); key.append("::"); key.append(type_name);
     auto vit = dyn_vtable_methods_.find(key);
-    if (vit == dyn_vtable_methods_.end()) return nullptr;
+    // Blanket fallback: no explicit (trait, type) vtable was registered, but
+    // the trait has a blanket impl (`impl<T> Trait for T`) — so this concrete
+    // type's methods are the blanket instantiations `<type>__<method>`.
+    // Synthesize + cache the entry (verifying each symbol exists in the
+    // module). Closes `&Concrete as &dyn BlanketTrait` (e.g. core::any::Any).
+    if (vit == dyn_vtable_methods_.end()) {
+        std::string tn(trait_name);
+        if (blanket_traits_.count(tn)) {
+            auto mnit = trait_method_names_.find(tn);
+            if (mnit != trait_method_names_.end()) {
+                auto parent = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+                std::vector<std::string> synth;
+                synth.reserve(mnit->second.size());
+                bool all_found = true;
+                for (auto& mname : mnit->second) {
+                    std::string want = std::string(type_name) + "__" + mname;
+                    std::string sym;
+                    // The blanket instantiation may be pkg-qualified and carry
+                    // a `__g__<sig>` / `__f__<sig>` mangling suffix (the
+                    // method's `&self` over the blanket typevar). Match a
+                    // symbol whose bare tail is `<type>__<method>` exactly or
+                    // followed by `__g__` / `__f__`.
+                    for (auto f : parent.getOps<mlir::func::FuncOp>()) {
+                        std::string_view nm = f.getSymName();
+                        std::string_view bare = nm;
+                        if (auto d = bare.rfind('.'); d != std::string_view::npos)
+                            bare = bare.substr(d + 1);
+                        if (bare.size() < want.size()) continue;
+                        if (bare.compare(0, want.size(), want) != 0) continue;
+                        std::string_view rest = bare.substr(want.size());
+                        if (rest.empty() ||
+                            rest.compare(0, 5, "__g__") == 0 ||
+                            rest.compare(0, 5, "__f__") == 0) {
+                            sym = std::string(nm); break;
+                        }
+                    }
+                    if (sym.empty()) { all_found = false; break; }
+                    synth.push_back(std::move(sym));
+                }
+                if (all_found) {
+                    vit = dyn_vtable_methods_.emplace(key, std::move(synth)).first;
+                }
+            }
+        }
+        if (vit == dyn_vtable_methods_.end()) return nullptr;
+    }
     auto& methods = vit->second;
     size_t n = methods.size();
     // Heap-allocate: n pointers × 8 bytes each.

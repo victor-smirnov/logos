@@ -2994,6 +2994,21 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         return builder().call("__type_hash_of__", std::move(ts), {},
                               prim(LogosType::Kind::U64));
     }
+    // type_uid::<T>() — NOMINAL 64-bit type identity (hash of the canonical
+    // *named* type string, so distinct nominal types differ even at identical
+    // layout — unlike the structural `type_hash`). The same UID `type_of`
+    // exposes as `.uid`, but as a bare u64 with no dependency on the metaprog
+    // `Type` struct (which lives above the lang tier). Foundation for
+    // `logos.lang.any::TypeId`. Folded at mono via __type_uid_of__.
+    if (callee == "type_uid") {
+        auto ts = collect_type_args();
+        if (ts.size() != 1 || !ts[0]) {
+            error("type_uid::<T>() requires exactly one type argument");
+            return error_expr();
+        }
+        return builder().call("__type_uid_of__", std::move(ts), {},
+                              prim(LogosType::Kind::U64));
+    }
     // Phase 1B-14: `dst_from_raw_parts::<DstStruct>(ptr, len)` — unsafe
     // builtin that materialises a `*const DstStruct` fat pointer from a
     // raw data pointer and an i64 tail length. DstStruct must be a
