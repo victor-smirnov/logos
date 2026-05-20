@@ -3,7 +3,7 @@ package hermes_document;
 
 use logos.lang.hermes.zone;
 use logos.lang.hermes.anyval;
-use logos.mem.hermes.document;
+use logos.lang.hermes.document;
 
 unsafe fn main() -> i32 {
     let mut zone: HermesZone = HermesZone::create(4096);

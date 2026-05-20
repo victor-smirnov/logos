@@ -1,19 +1,21 @@
 //
-// Hermes read/write trait split + non-owning view types.
+// Hermes read/write trait split (tier 2) + Display/Debug.
 //
-//   HermesRead  — RO API; primitive: base(), size()
-//   HermesWrite — RW API; supertrait of HermesRead; primitive: zone_mut()
-//   HermesView<'a> — non-owning fat view (base + size), impl HermesRead
-//   HermesStatic      — 'static rodata view; size stored at ptr-8, impl HermesRead
+//   HermesRead    — TIER 1 (lang.hermes.view): base()/size()/root()/get_int/get_bool
+//   HermesReadExt — TIER 2 (here): supertrait of HermesRead; container reads
+//                   (strings/arrays/maps/decimals) + String-producing formatting.
+//                   Blanket-impl'd for every HermesRead, so all view types get it.
+//   HermesWrite   — RW API; supertrait of HermesReadExt; primitive: zone_mut()
 //
-// Hermes impl is in ctr.logos.
+// The HermesView/HermesStatic structs and their HermesRead impls live in
+// lang.hermes.view. Hermes's impl is in ctr.logos.
 
 package logos.mem.hermes.view;
 
 use logos.lang.hermes.view;
 use logos.lang.hermes.zone;
 use logos.lang.hermes.mem_holder;
-use logos.mem.hermes.document;
+use logos.lang.hermes.document;
 use logos.mem.hermes.stringify;
 use logos.lang.hermes.anyval;
 use logos.mem.hermes.scalar;
@@ -29,26 +31,15 @@ use logos.lang.hermes.typetag;
 use logos.mem.string;
 use logos.lang.str;
 
-// ── HermesRead trait ─────────────────────────────────────────────────────────
+// ── HermesReadExt trait (tier 2) ──────────────────────────────────────────────
 //
-// Read-only view over any Hermes zone.
-// Implementations provide base() and size(); everything else is a default impl.
+// Extends the lang-tier HermesRead with reads that dereference mem-tier
+// container types (HermesString / ObjectArray / ObjectMap / Decimal) and the
+// String-producing formatting helpers. Every method is a default, so the
+// blanket `impl<T: HermesRead> HermesReadExt for T {}` below gives all four
+// view types (HermesView, HermesStatic, Hermes, OView) the full read API.
 
-pub trait HermesRead {
-    // Pointer to the first byte of the DocumentHeader in zone memory.
-    fn base(self: &Self) -> *const u8;
-
-    // Byte size of the zone content (used bytes, not capacity).
-    fn size(self: &Self) -> u64;
-
-    // Root AnyVal of the document.
-    fn root(self: &Self) -> AnyVal {
-        unsafe {
-            let doc: *const DocumentHeader = self.base() as *const DocumentHeader;
-            return document_get_root(doc);
-        }
-    }
-
+pub trait HermesReadExt: HermesRead {
     // Stringify into `buf` with compact formatting (clears buf first).
     fn stringify(self: &Self, buf: &mut String) {
         unsafe {
@@ -77,19 +68,6 @@ pub trait HermesRead {
         let mut buf: String = String::with_capacity(256);
         self.stringify_opts(&mut buf, opts);
         return buf;
-    }
-
-    // Integer payload (inline i24, cast to i64). Returns 0 if val is not int.
-    fn get_int(self: &Self, val: AnyVal) -> i64 {
-        unsafe { return val.as_i64(); }
-    }
-
-    // Boolean payload. Returns false if val is not bool.
-    fn get_bool(self: &Self, val: AnyVal) -> bool {
-        unsafe {
-            if !val.is_bool() { return false; }
-            return val.as_bool();
-        }
     }
 
     // StringView over a zone HermesString. Returns {null,0} if not a string.
@@ -257,10 +235,10 @@ pub trait HermesRead {
 // ── HermesWrite trait ─────────────────────────────────────────────────────────
 //
 // Read-write access to a mutable Hermes zone.
-// Supertrait HermesRead gives all getters for free.
+// Supertrait HermesReadExt gives all getters (tier 1 + tier 2) for free.
 // Single primitive: zone_mut().
 
-pub trait HermesWrite: HermesRead {
+pub trait HermesWrite: HermesReadExt {
     fn zone_mut(self: &mut Self) -> *mut Zone<Mutable>;
 
     fn build_i64(self: &mut Self, v: i64) -> AnyVal {
@@ -615,29 +593,15 @@ pub trait HermesWrite: HermesRead {
     }
 }
 
-// HermesView<'a> + HermesStatic + hermes_static_size moved to lang-tier
-// [logos.lang.hermes.view](../../../lang/hermes/view/view.logos). The
-// trait impls below pick the structs back up via the use line above.
+// HermesView<'a> + HermesStatic + their HermesRead impls + as_view moved to
+// lang-tier [logos.lang.hermes.view](../../../lang/hermes/view/view.logos).
+//
+// Tier-2 reach is opt-in per concrete view type: every type that reads a
+// Hermes zone (HermesView, HermesStatic — here; Hermes — ctr.logos; OView —
+// std oview.logos) carries an empty `impl HermesReadExt`, inheriting all the
+// container reads + formatting defaults above.
+// (A blanket `impl<T: HermesRead> HermesReadExt for T {}` would be tidier but
+// hits a blanket-default-method gap — see baghunt-blanket-default-method-dispatch.)
 
-impl<'a> HermesRead for HermesView<'a> {
-    fn base(self: &HermesView<'a>) -> *const u8 { return self.base; }
-    fn size(self: &HermesView<'a>) -> u64 { return self.size; }
-}
-
-impl HermesRead for HermesStatic {
-    fn base(self: &HermesStatic) -> *const u8 { return self.ptr; }
-    fn size(self: &HermesStatic) -> u64 {
-        unsafe { return hermes_static_size(self.ptr); }
-    }
-}
-
-impl HermesStatic {
-    pub fn as_view<'a>(self: &'a HermesStatic) -> HermesView<'a> {
-        unsafe {
-            return HermesView {
-                base: self.ptr,
-                size: hermes_static_size(self.ptr),
-            };
-        }
-    }
-}
+impl<'a> HermesReadExt for HermesView<'a> {}
+impl HermesReadExt for HermesStatic {}

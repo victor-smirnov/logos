@@ -3725,6 +3725,21 @@ void SemaChecker::check_supertrait_impls() {
         }
     }
 
+    // Does `start` reach `goal` through its supertrait chain?
+    std::function<bool(const std::string&, const std::string&,
+                       logos::compiler::StrSet&)> trait_has_supertrait =
+        [&](const std::string& start, const std::string& goal,
+            logos::compiler::StrSet& seen) -> bool {
+        if (!seen.insert(start).second) return false;
+        auto it = traits_.find(start);
+        if (it == traits_.end()) return false;
+        for (auto& s : it->second.supertraits) {
+            if (s.trait_name == goal) return true;
+            if (trait_has_supertrait(s.trait_name, goal, seen)) return true;
+        }
+        return false;
+    };
+
     // For every registered impl "Trait::Type", walk Trait's supertrait chain and
     // verify that a corresponding impl "SuperTrait::Type" also exists.
     for (auto& [key, impl] : impls_) {
@@ -3758,6 +3773,27 @@ void SemaChecker::check_supertrait_impls() {
                 if (all_extra) { via_blanket = true; break; }
             }
             if (via_blanket) continue;
+            // Blanket impl over a bounded type-param: for
+            // `impl<T: Super> Child for T {}`, the supertrait requirement
+            // `T: Super` is discharged by the impl's own where-clause bound
+            // on T. Check whether `target` is one of this impl's type-params
+            // and one of its bounds is (or supertrait-transitively reaches)
+            // the required supertrait.
+            bool via_self_bound = false;
+            for (auto& tp : impl.impl_type_params) {
+                if (tp.name != target) continue;
+                for (auto& b : tp.bounds) {
+                    // direct match, or the bound trait's own supertrait chain
+                    // includes the requirement.
+                    if (b.trait_name == super.trait_name) { via_self_bound = true; break; }
+                    logos::compiler::StrSet seen_super;
+                    if (trait_has_supertrait(b.trait_name, super.trait_name, seen_super)) {
+                        via_self_bound = true; break;
+                    }
+                }
+                if (via_self_bound) break;
+            }
+            if (via_self_bound) continue;
             error(std::format("impl {} for {}: missing impl {} for {} (required by supertrait)",
                               tname, target, super.trait_name, target));
         }

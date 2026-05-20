@@ -11,7 +11,7 @@ package hermes_sdn_lit;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 use logos.lang.hermes.zone;
-use logos.mem.hermes.document;
+use logos.lang.hermes.document;
 use logos.mem.hermes.stringify;
 use logos.lang.hermes.mem_holder;
 use logos.mem.string;

@@ -54,7 +54,7 @@ use logos.mem.hermes.array;
 use logos.mem.hermes.map;
 use logos.mem.hermes.typed_value;
 use logos.mem.hermes.objectmap;
-use logos.mem.hermes.document;
+use logos.lang.hermes.document;
 use logos.mem.hermes.parser;
 use logos.std.io.fs;
 use logos.std.io.fs.path;

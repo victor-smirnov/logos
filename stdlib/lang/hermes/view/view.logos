@@ -6,16 +6,24 @@
 // without owning it. No allocation, no reading of zone-resident
 // container types (HermesString / ObjectMap / ObjectArray / Decimal).
 //
-// The HermesRead / HermesWrite traits and their default methods live
-// in mem-tier [std.hermes.view](../../../std/hermes/view/view.logos)
-// because reading a zone document inherently dereferences mem-tier
-// container types (HermesString, ObjectMap, ObjectArray, ...).
+// This module is the TIER-1 Hermes read substrate: the non-owning view
+// structs PLUS the `HermesRead` trait, whose default methods are exactly
+// the reads that lang can support today (the document root + inline
+// scalar/bool payloads, decoded straight from AnyVal). It pulls only
+// other lang-tier Hermes leaves (anyval, document), so a `--no-std/--no-mem`
+// program can read a static Hermes blob's structure without the mem fabric.
 //
-// Splitting the structs out lets lang-tier code that only needs to
-// pass HermesView values around (e.g. signatures) avoid pulling the
-// trait machinery and its transitive deps.
+// The TIER-2 extension `HermesReadExt` (mem-tier
+// [logos.mem.hermes.view](../../../mem/hermes/view/view.logos)) adds the
+// reads that dereference mem-tier container types (HermesString, ObjectMap,
+// ObjectArray, Decimal, ...) and the String-producing formatting
+// (stringify / to_string / Debug / Display). As container modules migrate
+// down to lang, their reads promote from HermesReadExt up into HermesRead.
 
 package logos.lang.hermes.view;
+
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.document;
 
 // Length of a null-terminated C string starting at `s`. Re-exposed
 // here (rather than depending on logos.lang.str) so lang.hermes.view
@@ -64,3 +72,63 @@ pub struct StringView {
 }
 
 impl Copy for StringView {}
+
+// ── HermesRead trait (tier 1) ─────────────────────────────────────────────────
+//
+// Read-only view over any Hermes zone. Implementations provide the two
+// primitives base() and size(); the default methods here are the reads
+// that need only lang-tier types (the document root + inline AnyVal
+// payloads). Reads that dereference zone-resident container types live on
+// the tier-2 supertrait `HermesReadExt` (mem.hermes.view).
+
+pub trait HermesRead {
+    // Pointer to the first byte of the DocumentHeader in zone memory.
+    fn base(self: &Self) -> *const u8;
+
+    // Byte size of the zone content (used bytes, not capacity).
+    fn size(self: &Self) -> u64;
+
+    // Root AnyVal of the document.
+    fn root(self: &Self) -> AnyVal {
+        unsafe {
+            let doc: *const DocumentHeader = self.base() as *const DocumentHeader;
+            return document_get_root(doc);
+        }
+    }
+
+    // Integer payload (inline i24, cast to i64). Returns 0 if val is not int.
+    fn get_int(self: &Self, val: AnyVal) -> i64 {
+        unsafe { return val.as_i64(); }
+    }
+
+    // Boolean payload. Returns false if val is not bool.
+    fn get_bool(self: &Self, val: AnyVal) -> bool {
+        unsafe {
+            if !val.is_bool() { return false; }
+            return val.as_bool();
+        }
+    }
+}
+
+impl<'a> HermesRead for HermesView<'a> {
+    fn base(self: &HermesView<'a>) -> *const u8 { return self.base; }
+    fn size(self: &HermesView<'a>) -> u64 { return self.size; }
+}
+
+impl HermesRead for HermesStatic {
+    fn base(self: &HermesStatic) -> *const u8 { return self.ptr; }
+    fn size(self: &HermesStatic) -> u64 {
+        unsafe { return hermes_static_size(self.ptr); }
+    }
+}
+
+impl HermesStatic {
+    pub fn as_view<'a>(self: &'a HermesStatic) -> HermesView<'a> {
+        unsafe {
+            return HermesView {
+                base: self.ptr,
+                size: hermes_static_size(self.ptr),
+            };
+        }
+    }
+}
