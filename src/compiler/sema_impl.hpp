@@ -1640,6 +1640,11 @@ private:
     // Type params in scope for the function/struct currently being processed.
     // Maps type param name → TypeVar LogosType*.
     logos::compiler::StrMap<TypeRef> current_type_params_;
+    // Pass-0 only: set of every bare type name (struct/datatype/enum) declared
+    // across ALL modules in this emit, pre-scanned before name registration so
+    // that specialization-vs-base classification (is_specialization_fn) does
+    // not depend on inter-module processing order. nullptr outside pass 0.
+    const logos::compiler::StrSet* pass0_decl_names_ = nullptr;
     // Set by collect_impl/lower_impl_block for `impl<T>` blocks so that
     // collect_fn/lower_fn include the impl-level type params in the function.
     std::vector<TypeParam> impl_type_params_;

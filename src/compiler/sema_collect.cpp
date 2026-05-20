@@ -268,6 +268,34 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         return ast_tom_equal(tom_a, tom_b, ba, bb);
     };
 
+    // Pre-scan: collect every declared type name (struct/datatype/enum) across
+    // ALL modules so is_specialization_fn can tell a concrete type-arg
+    // (e.g. `Map<K, AnyVal>` → partial spec) from a fresh type-param
+    // (`Map<K, V>` → generic base) without depending on whether the arg's
+    // defining module was processed first. Order-independence: without this,
+    // a partial spec whose concrete arg hasn't been registered yet is
+    // mis-classified as a second base and trips a spurious "duplicate datatype".
+    logos::compiler::StrSet pass0_decl_names;
+    for (size_t pre_ai = 0; pre_ai < asts.size(); ++pre_ai) {
+        if (pre_ai < delta_start_idx_) continue;       // already registered earlier
+        auto& ast = asts[pre_ai];
+        bool is_bin = (from_binary_ && pre_ai < from_binary_->size())
+                      ? (*from_binary_)[pre_ai] : false;
+        if (is_bin && collected_holders_.count(ast.holder())) continue;
+        holder_ = ast.holder();                          // tiny-map views resolve against holder_
+        auto root = ast.root_object().as_tiny_map();
+        if (!root.has_key(la::ITEMS)) continue;
+        auto items = arr_of(root.get(la::ITEMS.code));
+        for (uint64_t i = 0; i < items.size(); ++i) {
+            auto item = map_of(items.get(i));
+            int32_t ic = code_of(item);
+            if ((ic == la::STRUCT || ic == la::DATATYPE || ic == la::ENUM)
+                    && item.has_key(la::NAME.code))
+                pass0_decl_names.insert(std::string(str_of(item.get(la::NAME.code))));
+        }
+    }
+    pass0_decl_names_ = &pass0_decl_names;
+
     // First pass: register names (so forward references work).
     for (size_t pass0_ai = 0; pass0_ai < asts.size(); ++pass0_ai) {
         // M6.1: delta mode — skip asts already processed in a prior
@@ -381,6 +409,7 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
             }
         }
     }
+    pass0_decl_names_ = nullptr;  // pre-scan set is pass-0 scoped; goes out of scope below
 
     // Intermediate pass: type aliases and consts (Phase 2). Wait, we execute this FIRST so aliases are known for fn signatures.
     // M5 step 3b: skip ASTs whose collect contributions are already in
@@ -3207,6 +3236,11 @@ bool SemaChecker::is_specialization_fn(TinyMapView node) {
             auto name = str_of(n.get(la::NAME.code));
             if (try_resolve_as_known_type(name))
                 return true;  // concrete type name → specialisation
+            // Pass-0: try_resolve may miss a concrete type whose defining
+            // module hasn't been registered yet; the pre-scanned name set
+            // makes the classification order-independent.
+            if (pass0_decl_names_ && pass0_decl_names_->count(std::string(name)))
+                return true;
         }
     }
     return false;

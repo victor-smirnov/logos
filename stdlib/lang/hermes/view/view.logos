@@ -27,7 +27,11 @@ use logos.lang.hermes.document;
 use logos.lang.hermes.string;
 use logos.lang.hermes.scalar;
 use logos.lang.hermes.array;
+use logos.lang.hermes.map;
+use logos.lang.hermes.objectmap;
 use logos.lang.hermes.datatag;
+use logos.lang.hermes.typetag;
+use logos.lang.str;
 
 // Length of a null-terminated C string starting at `s`. Re-exposed
 // here (rather than depending on logos.lang.str) so lang.hermes.view
@@ -82,11 +86,10 @@ impl Copy for StringView {}
 // Read-only view over any Hermes zone. Implementations provide the two
 // primitives base() and size(); the default methods here are every read
 // whose deps now live at the lang tier — the document root, inline AnyVal
-// payloads, zone strings/scalars, and ObjectArray. Reads that still need a
-// mem-tier type (decimals) OR that require importing both lang.hermes.map +
-// lang.hermes.objectmap (map_get/tiny_map_get — see the note at the end of
-// this trait) live on the tier-2 supertrait `HermesReadExt` (mem.hermes.view),
-// alongside the String-producing formatting helpers.
+// payloads, zone strings/scalars, ObjectArray, and ObjectMap/TinyObjectMap.
+// Only the reads needing a still-mem-tier type (decimals) and the
+// String-producing formatting (stringify/to_string) live on the tier-2
+// supertrait `HermesReadExt` (mem.hermes.view).
 
 pub trait HermesRead {
     // Pointer to the first byte of the DocumentHeader in zone memory.
@@ -185,12 +188,62 @@ pub trait HermesRead {
         }
     }
 
-    // NOTE: map reads (map_get / map_get_cstr / tiny_map_get) stay on the
-    // tier-2 `HermesReadExt` (mem.hermes.view), not because they need mem, but
-    // because they require importing BOTH lang.hermes.map and
-    // lang.hermes.objectmap, whose overlapping `Map<...>` specializations trip
-    // a cross-module duplicate-datatype limitation when pulled into one
-    // lang-layer module (B-mv-02 family). Promote them once that's fixed.
+    // Look up a key (C-string) in an ObjectMap. Returns null_ptr if not found.
+    fn map_get_cstr(self: &Self, val: AnyVal, key: *const u8) -> AnyVal {
+        if key == 0 as *const u8 { return AnyVal::null_ptr(); }
+        unsafe {
+            let base: *const u8 = self.base();
+            if !val.is_map(base) { return AnyVal::null_ptr(); }
+            let obj: *const u8 = (base as i64 + val.as_offset() as i64) as *const u8;
+            let tag_hash: u64 = read_type_code(obj);
+            if tag_hash == hermes_tag_tiny_map() { return AnyVal::null_ptr(); }
+            let omap: *const ObjectMap = obj as *const ObjectMap;
+            let klen: i64 = view_cstr_len(key);
+            return omap.get(base, key, klen as u64);
+        }
+    }
+
+    fn map_get(self: &Self, val: AnyVal, key: *const u8) -> AnyVal {
+        if key == 0 as *const u8 { return AnyVal::null_ptr(); }
+        unsafe {
+            let base: *const u8 = self.base();
+            if !val.is_map(base) { return AnyVal::null_ptr(); }
+            let obj: *const u8 = (base as i64 + val.as_offset() as i64) as *const u8;
+            let tag_hash: u64 = read_type_code(obj);
+            if tag_hash == hermes_tag_tiny_map() { return AnyVal::null_ptr(); }
+            let omap: *const ObjectMap = obj as *const ObjectMap;
+            let klen: i64 = view_cstr_len(key);
+            return omap.get(base, key, klen as u64);
+        }
+    }
+
+    fn map_get(self: &Self, val: AnyVal, key: str) -> AnyVal {
+        unsafe {
+            let base: *const u8 = self.base();
+            if !val.is_map(base) { return AnyVal::null_ptr(); }
+            let obj: *const u8 = (base as i64 + val.as_offset() as i64) as *const u8;
+            let tag_hash: u64 = read_type_code(obj);
+            if tag_hash == hermes_tag_tiny_map() { return AnyVal::null_ptr(); }
+            let omap: *const ObjectMap = obj as *const ObjectMap;
+            return omap.get(base, key.as_ptr(), key.len() as u64);
+        }
+    }
+
+    // Look up a u8 key in a TinyObjectMap (the AST/Hermes-schema flavour of
+    // map). Returns null_ptr if `val` is not a map, or is an ObjectMap rather
+    // than a TinyObjectMap.
+    fn tiny_map_get(self: &Self, val: AnyVal, key: u8) -> AnyVal {
+        unsafe {
+            let base: *const u8 = self.base();
+            if !val.is_map(base) { return AnyVal::null_ptr(); }
+            let obj: *const u8 = (base as i64 + val.as_offset() as i64) as *const u8;
+            let tag_hash: u64 = read_type_code(obj);
+            if tag_hash != hermes_tag_tiny_map() { return AnyVal::null_ptr(); }
+            let tom: *const Map<Bitmap, AnyVal> =
+                obj as *const Map<Bitmap, AnyVal>;
+            return tom.get(base, key);
+        }
+    }
 }
 
 impl<'a> HermesRead for HermesView<'a> {

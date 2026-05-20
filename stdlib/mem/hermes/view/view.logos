@@ -2,9 +2,9 @@
 // Hermes read/write trait split (tier 2) + Display/Debug.
 //
 //   HermesRead    — TIER 1 (lang.hermes.view): base()/size()/root()/get_int/get_bool
-//   HermesReadExt — TIER 2 (here): supertrait of HermesRead; map reads +
-//                   decimal reads + String-producing formatting. Opt-in per
-//                   concrete view type via an empty `impl HermesReadExt`.
+//   HermesReadExt — TIER 2 (here): supertrait of HermesRead; decimal reads
+//                   (Decimal is still mem-tier) + String-producing formatting.
+//                   Opt-in per concrete view type via an empty `impl HermesReadExt`.
 //   HermesWrite   — RW API; supertrait of HermesReadExt; primitive: zone_mut()
 //
 // The HermesView/HermesStatic structs and their HermesRead impls live in
@@ -34,9 +34,7 @@ use logos.lang.str;
 // ── HermesReadExt trait (tier 2) ──────────────────────────────────────────────
 //
 // Extends the lang-tier HermesRead with the reads that can't yet live at lang:
-// map lookups (need both lang.hermes.map + lang.hermes.objectmap, which trip a
-// cross-module duplicate-datatype limitation when combined in one lang module),
-// decimal reads (Decimal is still mem-tier), and the String-producing
+// decimal reads (Decimal is still a mem-tier module) and the String-producing
 // formatting helpers (stringify / to_string). Every method is a default;
 // each concrete view type opts in with an empty `impl HermesReadExt` (a blanket
 // `impl<T: HermesRead> HermesReadExt for T {}` would be tidier but hits a
@@ -71,63 +69,6 @@ pub trait HermesReadExt: HermesRead {
         let mut buf: String = String::with_capacity(256);
         self.stringify_opts(&mut buf, opts);
         return buf;
-    }
-
-    // Look up a key (C-string) in an ObjectMap. Returns null_ptr if not found.
-    fn map_get_cstr(self: &Self, val: AnyVal, key: *const u8) -> AnyVal {
-        if key == 0 as *const u8 { return AnyVal::null_ptr(); }
-        unsafe {
-            let base: *const u8 = self.base();
-            if !val.is_map(base) { return AnyVal::null_ptr(); }
-            let obj: *const u8 = (base as i64 + val.as_offset() as i64) as *const u8;
-            let tag_hash: u64 = read_type_code(obj);
-            if tag_hash == hermes_tag_tiny_map() { return AnyVal::null_ptr(); }
-            let omap: *const ObjectMap = obj as *const ObjectMap;
-            let klen: i64 = view_cstr_len(key);
-            return omap.get(base, key, klen as u64);
-        }
-    }
-
-    fn map_get(self: &Self, val: AnyVal, key: *const u8) -> AnyVal {
-        if key == 0 as *const u8 { return AnyVal::null_ptr(); }
-        unsafe {
-            let base: *const u8 = self.base();
-            if !val.is_map(base) { return AnyVal::null_ptr(); }
-            let obj: *const u8 = (base as i64 + val.as_offset() as i64) as *const u8;
-            let tag_hash: u64 = read_type_code(obj);
-            if tag_hash == hermes_tag_tiny_map() { return AnyVal::null_ptr(); }
-            let omap: *const ObjectMap = obj as *const ObjectMap;
-            let klen: i64 = view_cstr_len(key);
-            return omap.get(base, key, klen as u64);
-        }
-    }
-
-    fn map_get(self: &Self, val: AnyVal, key: str) -> AnyVal {
-        unsafe {
-            let base: *const u8 = self.base();
-            if !val.is_map(base) { return AnyVal::null_ptr(); }
-            let obj: *const u8 = (base as i64 + val.as_offset() as i64) as *const u8;
-            let tag_hash: u64 = read_type_code(obj);
-            if tag_hash == hermes_tag_tiny_map() { return AnyVal::null_ptr(); }
-            let omap: *const ObjectMap = obj as *const ObjectMap;
-            return omap.get(base, key.as_ptr(), key.len() as u64);
-        }
-    }
-
-    // Look up a u8 key in a TinyObjectMap (the AST/Hermes-schema flavour of
-    // map). Returns null_ptr if `val` is not a map, or is an ObjectMap rather
-    // than a TinyObjectMap.
-    fn tiny_map_get(self: &Self, val: AnyVal, key: u8) -> AnyVal {
-        unsafe {
-            let base: *const u8 = self.base();
-            if !val.is_map(base) { return AnyVal::null_ptr(); }
-            let obj: *const u8 = (base as i64 + val.as_offset() as i64) as *const u8;
-            let tag_hash: u64 = read_type_code(obj);
-            if tag_hash != hermes_tag_tiny_map() { return AnyVal::null_ptr(); }
-            let tom: *const Map<Bitmap, AnyVal> =
-                obj as *const Map<Bitmap, AnyVal>;
-            return tom.get(base, key);
-        }
     }
 
     // DecimalView for a zone Decimal AnyVal.
