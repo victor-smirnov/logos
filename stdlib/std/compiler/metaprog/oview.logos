@@ -85,5 +85,3 @@ impl HermesRead for OView {
     fn base(self: &OView) -> *const u8 { return self.base; }
     fn size(self: &OView) -> u64       { return self.size; }
 }
-
-impl HermesReadExt for OView {}

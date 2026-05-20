@@ -4,7 +4,7 @@
 //   HermesRead    — TIER 1 (lang.hermes.view): base()/size()/root()/get_int/get_bool
 //   HermesReadExt — TIER 2 (here): supertrait of HermesRead; decimal reads
 //                   (Decimal is still mem-tier) + String-producing formatting.
-//                   Opt-in per concrete view type via an empty `impl HermesReadExt`.
+//                   Blanket-impl'd for every HermesRead.
 //   HermesWrite   — RW API; supertrait of HermesReadExt; primitive: zone_mut()
 //
 // The HermesView/HermesStatic structs and their HermesRead impls live in
@@ -35,10 +35,8 @@ use logos.lang.str;
 //
 // Extends the lang-tier HermesRead with the reads that can't yet live at lang:
 // decimal reads (Decimal is still a mem-tier module) and the String-producing
-// formatting helpers (stringify / to_string). Every method is a default;
-// each concrete view type opts in with an empty `impl HermesReadExt` (a blanket
-// `impl<T: HermesRead> HermesReadExt for T {}` would be tidier but hits a
-// blanket-default-method gap — see baghunt-blanket-default-method-dispatch).
+// formatting helpers (stringify / to_string). Every method is a default,
+// surfaced on every HermesRead via the blanket impl below.
 
 pub trait HermesReadExt: HermesRead {
     // Stringify into `buf` with compact formatting (clears buf first).
@@ -444,12 +442,7 @@ pub trait HermesWrite: HermesReadExt {
 // HermesView<'a> + HermesStatic + their HermesRead impls + as_view moved to
 // lang-tier [logos.lang.hermes.view](../../../lang/hermes/view/view.logos).
 //
-// Tier-2 reach is opt-in per concrete view type: every type that reads a
-// Hermes zone (HermesView, HermesStatic — here; Hermes — ctr.logos; OView —
-// std oview.logos) carries an empty `impl HermesReadExt`, inheriting all the
-// container reads + formatting defaults above.
-// (A blanket `impl<T: HermesRead> HermesReadExt for T {}` would be tidier but
-// hits a blanket-default-method gap — see baghunt-blanket-default-method-dispatch.)
-
-impl<'a> HermesReadExt for HermesView<'a> {}
-impl HermesReadExt for HermesStatic {}
+// Tier-2 reach is a single blanket: every type that can read a Hermes zone
+// implements HermesRead, so it automatically gets HermesReadExt's defaults
+// (HermesView/HermesStatic — lang; Hermes — ctr.logos; OView — std oview).
+impl<T: HermesRead> HermesReadExt for T {}

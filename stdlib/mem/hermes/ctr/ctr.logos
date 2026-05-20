@@ -117,8 +117,6 @@ impl HermesRead for Hermes {
     }
 }
 
-impl HermesReadExt for Hermes {}
-
 impl HermesWrite for Hermes {
     pub fn zone_mut(self: &mut Hermes) -> *mut Zone<Mutable> {
         unsafe { return &mut self.zone as *mut Zone<Mutable>; }

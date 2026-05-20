@@ -1484,11 +1484,19 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         auto tit = traits_.find(trait_name);
         if (tit != traits_.end()) {
             for (auto& m : tit->second.methods) {
-                auto mangled = target + "__" + m.name;
+                // Blanket impls lower defaults under the synthetic `$blanket$…`
+                // target (matching `lower_target` + the collect-side
+                // registration) with Self = the blanket TypeVar, so the LIR
+                // template `$blanket$Trait$Bound$T__method` exists for mono to
+                // clone per concrete receiver. Without this, the call dispatched
+                // by try_blanket_method_dispatch dangles to an empty stub.
+                auto mangled = lower_target + "__" + m.name;
                 if (m.has_default && !overridden.count(mangled)) {
                     // Push Self → target type; for generic impls include type params as TypeVars.
                     TypeRef self_type = nullptr;
-                    {
+                    if (ib.is_blanket) {
+                        self_type = make_typevar(target);
+                    } else {
                         auto [spkg2, ssi2] = find_struct_by_name(target);
                         auto [dpkg2, dsi2] = find_datatype_by_name(target);
                         if (ssi2) {
@@ -1522,7 +1530,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     // (may be a different module's zone for cross-module traits).
                     auto* saved_holder = holder_;
                     if (m.default_holder) holder_ = m.default_holder;
-                    auto fn = lower_fn(map_of(m.default_ast), target);
+                    auto fn = lower_fn(map_of(m.default_ast), lower_target);
                     holder_ = saved_holder;
                     fn.is_pub = true;  // default trait method inherits trait visibility
                     // Generic impl: the default method must travel as a struct-

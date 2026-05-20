@@ -1,0 +1,40 @@
+// Blanket impl of an extension trait whose methods are all DEFAULTS:
+//   impl<T: Base> Ext for T {}
+// Exercises the two facets of the blanket-default-method gap:
+//  (1) the default body type-checks under the generic blanket TypeVar
+//      (incl. calling a method on a concrete-typed local), and
+//  (2) the default dispatches on a concrete receiver satisfying the bound.
+package blanket_default_method;
+
+struct Helper { n: i32 }
+impl Helper {
+    fn bump(self: &Helper) -> i32 { return self.n + 1; }
+}
+
+trait Base {
+    fn val(self: &Self) -> i32;
+}
+
+trait Ext: Base {
+    fn doubled(self: &Self) -> i32 {
+        return self.val() * 2;
+    }
+    // default body with a concrete-typed local + method call on it (facet 1)
+    fn val_plus_helper(self: &Self, k: i32) -> i32 {
+        let h: Helper = Helper { n: k };
+        return self.val() + h.bump();
+    }
+}
+
+impl<T: Base> Ext for T {}
+
+struct Foo { x: i32 }
+impl Base for Foo {
+    fn val(self: &Foo) -> i32 { return self.x; }
+}
+
+fn main() -> i32 {
+    let f: Foo = Foo { x: 20 };
+    // doubled = 40 ; val_plus_helper(1) = 20 + (1+1) = 22 ; sum = 62
+    return f.doubled() + f.val_plus_helper(1);
+}

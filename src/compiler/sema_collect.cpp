@@ -2702,19 +2702,43 @@ void SemaChecker::collect_impl(TinyMapView node) {
                             }
                         }
                     }
-                    if (self_type)
+                    // Blanket impl `impl<T: Bound> Trait for T {}`: the default
+                    // method must be synthesized as a generic fn under the
+                    // synthetic `$blanket$...` target (so dispatch can find it)
+                    // with Self = the blanket TypeVar, and a blanket_impls_
+                    // entry pushed so try_blanket_method_dispatch surfaces it on
+                    // any concrete receiver satisfying Bound. Without this, the
+                    // trait's defaults are invisible on a blanket impl.
+                    std::string def_reg_target = is_blanket ? check_target : target;
+                    if (is_blanket)
+                        current_type_params_["Self"] = make_typevar(target);
+                    else if (self_type)
                         current_type_params_["Self"] = self_type;
                     // Switch holder to the zone that owns the default AST node —
                     // it may live in a different module's zone (cross-module trait).
                     auto* saved_holder = holder_;
                     if (m.default_holder) holder_ = m.default_holder;
-                    collect_fn(map_of(m.default_ast), target, trait_name);
+                    collect_fn(map_of(m.default_ast), def_reg_target, trait_name);
                     holder_ = saved_holder;
+                    if (is_blanket) {
+                        BlanketImpl bi_rec;
+                        bi_rec.trait_name = trait_name;
+                        bi_rec.target_typevar = target;
+                        bi_rec.bound_trait = blanket_bound_trait;
+                        bi_rec.extra_bounds = blanket_extra_bounds;
+                        bi_rec.method_name = m.name;
+                        bi_rec.mangled_name = def_reg_target + "__" + m.name;
+                        bi_rec.primary_assoc_eqs = blanket_primary_assoc_eqs;
+                        bi_rec.extra_assoc_eqs = blanket_extra_assoc_eqs;
+                        if (!cur_from_binary_)
+                            user_blanket_mangled_.insert(bi_rec.mangled_name);
+                        blanket_impls_.push_back(std::move(bi_rec));
+                    }
                     // Default trait-method: inherits trait accessibility.
                     // Mark ALL newly-registered overloads as pub (not just first).
-                    auto dmangled = target + "__" + m.name;
+                    auto dmangled = def_reg_target + "__" + m.name;
                     for (auto* df : find_func_candidates(
-                             target + "__" + trait_name + "__" + m.name))
+                             def_reg_target + "__" + trait_name + "__" + m.name))
                         const_cast<SemaFuncInfo*>(df)->is_pub = true;
                     for (auto* df : find_func_candidates(dmangled))
                         const_cast<SemaFuncInfo*>(df)->is_pub = true;

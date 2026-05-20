@@ -5313,6 +5313,33 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 search_trait(bound.trait_name);
         }
 
+        // Blanket-derived bounds: if `impl<U: B> Ext for U {}` exists and `T: B`
+        // (directly or via a supertrait of one of T's bounds), then `T: Ext`
+        // holds transitively — so search `Ext` for the method too. This lets a
+        // blanket extension trait's default methods (and sibling-default calls
+        // inside them) resolve on a generic `T`, including inside the blanket
+        // impl's own bodies (Self = the blanket TypeVar).
+        if (bit != current_type_bounds_.end() && !blanket_impls_.empty()) {
+            logos::compiler::StrSet t_bounds;
+            std::function<void(const std::string&)> add_b =
+                [&](const std::string& tn) {
+                    if (!t_bounds.insert(tn).second) return;
+                    auto it = traits_.find(tn);
+                    if (it != traits_.end())
+                        for (auto& s : it->second.supertraits) add_b(s.trait_name);
+                };
+            for (auto& b : bit->second) add_b(b.trait_name);
+            for (auto& bi : blanket_impls_) {
+                if (bi.trait_name.empty()) continue;
+                if (!bi.bound_trait.empty() && !t_bounds.count(bi.bound_trait)) continue;
+                bool extras_ok = true;
+                for (auto& eb : bi.extra_bounds)
+                    if (!t_bounds.count(eb)) { extras_ok = false; break; }
+                if (!extras_ok) continue;
+                search_trait(bi.trait_name);
+            }
+        }
+
         if (chosen_method) {
             if (chosen_method->is_unsafe && !inside_unsafe_)
                 error(std::format("call to unsafe method '{}' requires unsafe context",
