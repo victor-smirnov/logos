@@ -201,6 +201,29 @@ pub fn str_eq(a: str, b: str) -> bool {
     return true;
 }
 
+// Lexicographic byte comparison of two str values. Returns -1 if a < b,
+// 0 if equal, 1 if a > b — matching the Ordering sign convention. Used by
+// sema to lower the relational operators `<` / `<=` / `>` / `>=` on str
+// (which is `Slice<u8>`) to `str_cmp(a, b) <op> 0`.
+pub fn str_cmp(a: str, b: str) -> i32 {
+    let na: i64 = a.len();
+    let nb: i64 = b.len();
+    let n: i64 = if na < nb { na } else { nb };
+    let mut i: i64 = 0 as i64;
+    unsafe {
+        while i < n {
+            let ca: u8 = a.as_ptr()[i];
+            let cb: u8 = b.as_ptr()[i];
+            if ca < cb { return -1i32; }
+            if ca > cb { return 1i32; }
+            i = i + 1 as i64;
+        }
+    }
+    if na < nb { return -1i32; }
+    if na > nb { return 1i32; }
+    return 0i32;
+}
+
 pub fn str_starts_with(s: str, prefix: str) -> bool {
     if s.len() < prefix.len() { return false; }
     let n: i64 = prefix.len();

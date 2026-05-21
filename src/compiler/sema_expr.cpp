@@ -1279,6 +1279,35 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         // ICE. Most users will have stdlib's prelude.
     }
 
+    // str relational ordering: `<` / `<=` / `>` / `>=` on str (Slice<u8>)
+    // route to stdlib `str_cmp` (lexicographic, returns -1/0/1), compared
+    // against 0. Without this, mlir-gen lowers the operator to a pointer
+    // `arith.cmpi` on the slice descriptors (MLIR verify failure).
+    if ((op == "<" || op == "<=" || op == ">" || op == ">=") &&
+        TypeRef(lt).kind() == LogosType::Kind::Slice &&
+        TypeRef(rt).kind() == LogosType::Kind::Slice &&
+        TypeRef(lt).elem() && TypeRef(rt).elem() &&
+        TypeRef(lt).elem().kind() == LogosType::Kind::U8 &&
+        TypeRef(rt).elem().kind() == LogosType::Kind::U8) {
+        auto cands = find_func_candidates("str_cmp");
+        const SemaFuncInfo* fi = nullptr;
+        for (auto* c : cands)
+            if (c->param_types.size() == 2) { fi = c; break; }
+        if (fi) {
+            std::vector<lir::LExprPtr> args;
+            args.push_back(std::move(lhs));
+            args.push_back(std::move(rhs));
+            std::string sym = fi->symbol_name.empty()
+                ? std::string("str_cmp") : fi->symbol_name;
+            auto cmp = builder().call(sym, {}, std::move(args),
+                                      prim(LogosType::Kind::I32));
+            auto zero = builder().lit_int(0, prim(LogosType::Kind::I32));
+            return builder().bin_op(std::string(op), std::move(cmp),
+                                    std::move(zero), bool_t());
+        }
+        // No str_cmp in scope — fall through (historic broken behaviour).
+    }
+
 
     if (TypeRef(lt).kind() == LogosType::Kind::Error || TypeRef(rt).kind() == LogosType::Kind::Error) {
         result_type = error_t();

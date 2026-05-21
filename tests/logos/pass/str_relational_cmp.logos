@@ -1,0 +1,23 @@
+// Regression: str (Slice<u8>) relational operators <, <=, >, >= route to
+// stdlib str_cmp (lexicographic). Previously mlir-gen lowered them to a
+// pointer arith.cmpi (MLIR verify failure). Surfaced by B106 ui import.
+package str_relational_cmp;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+fn main() -> i32 {
+    let a = "abc";
+    let b = "abd";
+    assert!(a < b);
+    assert!(b > a);
+    assert!(a <= a);
+    assert!(a >= a);
+    assert!(a <= b);
+    assert!(b >= a);
+    assert!("ab" < "abc");      // prefix is smaller
+    assert!("abc" > "ab");
+    assert!("z" > "abc");       // first byte dominates
+    assert!(!("abc" < "abc"));
+    assert!(!("abc" > "abc"));
+    return 0;
+}

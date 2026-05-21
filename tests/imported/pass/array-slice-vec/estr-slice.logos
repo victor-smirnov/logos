@@ -1,7 +1,7 @@
 // Imported from rust-lang/rust tests/ui/array-slice-vec/estr-slice.rs
 // Modifications: println! and `.as_bytes()[i]` dropped (str has no as_bytes
-// method in Logos yet); the lexicographic `<`/`<=`/`>`/`>=` comparisons are
-// dropped too (relational ordering on str is a separate codegen slice).
+// method in Logos yet). The lexicographic `<`/`<=`/`>`/`>=` comparisons are
+// RESTORED (str relational ordering now lowers to stdlib str_cmp — B106 gap).
 // The str equality / inequality checks via assert_eq!/assert_ne! are kept.
 package estr_slice_test;
 
@@ -19,10 +19,18 @@ fn main() -> i32 {
     let a = "aaaa";
     let b = "bbbb";
     assert_ne!(a, b);
+    assert!(a < b);
+    assert!(a <= b);
+    assert!(b >= a);
+    assert!(b > a);
 
     let c = "cccc";
     let cc = "ccccc";
     assert_ne!(c, cc);
     assert_ne!(a, c);
+    assert!(a < c);
+    assert!(c > a);
+    assert!(c < cc);     // prefix is smaller
+    assert!(c <= cc);
     return 0;
 }
