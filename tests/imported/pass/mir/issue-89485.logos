@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust tests/ui/mir/issue-89485.rs
+// Modifications: literals suffixed; derives dropped. Regression for rustc
+// #89485 (SimplifyArmIdentity). Tests matching a custom-discriminant C-like
+// enum (A=1, B=2) directly with one named arm and a wildcard.
+package issue_89485_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+enum Type {
+    A = 1,
+    B = 2,
+}
+
+fn encode(v: Type) -> Type {
+    return match v {
+        Type::A => Type::B,
+        _ => v,
+    };
+}
+
+fn main() -> i32 {
+    let r = encode(Type::A);
+    let ok = match r {
+        Type::B => true,
+        _ => false,
+    };
+    assert!(ok);
+    return 0;
+}

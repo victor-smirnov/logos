@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust tests/ui/functions-closures/copy-closure.rs
+// Modifications: `println!` and the explicit `.clone()` are dropped; the
+// closure captures a Copy local `a` and returns it; it is passed to a generic
+// `call<T, F: FnOnce() -> T>` helper. Tests that a closure capturing a Copy
+// value can be invoked via a FnOnce bound and yields the captured value.
+package copy_closure_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn call<T, F: FnOnce() -> T>(f: F) -> T { return f(); }
+
+fn main() -> i32 {
+    let a = 5i64;
+    let hello = || -> i64 { return a; };
+    assert_eq!(5i64, call(hello));
+    return 0;
+}

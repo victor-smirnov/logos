@@ -1,0 +1,43 @@
+// Imported from rust-lang/rust tests/ui/fn/nested-function-names-issue-8587.rs
+// Modifications: isize → i64; `pub struct X;` zero-field struct → `struct X {}`;
+// #[inline(never)] attrs dropped; n.<method> calls kept. Regression for rustc
+// #8587 — nested functions with the same name in different methods stay
+// distinct. Two methods (f, h) each declare a local `fn inner()`.
+package nested_function_names_8587_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+struct X {}
+
+impl X {
+    fn f(&self) -> i64 {
+        fn inner() -> i64 {
+            return 0i64;
+        }
+        return inner();
+    }
+
+    fn g(&self) -> i64 {
+        fn inner_2() -> i64 {
+            return 1i64;
+        }
+        return inner_2();
+    }
+
+    fn h(&self) -> i64 {
+        fn inner() -> i64 {
+            return 2i64;
+        }
+        return inner();
+    }
+}
+
+fn main() -> i32 {
+    let n = X {};
+    assert_eq!(n.f(), 0i64);
+    assert_eq!(n.g(), 1i64);
+    assert_eq!(n.h(), 2i64);
+    return 0;
+}

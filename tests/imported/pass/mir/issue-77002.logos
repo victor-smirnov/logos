@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust tests/ui/mir/issue-77002.rs
+// Modifications: type alias M = [i64;2] kept; `M::default()` (no assoc-fn on
+// array aliases) replaced with an explicit zero-initialized array literal.
+// Tests array-typed local mutation through an indexed write and array return.
+package issue_77002_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn f(a: [i64; 2]) -> [i64; 2] {
+    let mut b: [i64; 2] = [0i64, 0i64];
+    b[0] = a[0] * a[0];
+    return b;
+}
+
+fn main() -> i32 {
+    let mut a: [i64; 2] = [1i64, 1i64];
+    a = f(a);
+    assert_eq!(a[0], 1i64);
+    return 0;
+}

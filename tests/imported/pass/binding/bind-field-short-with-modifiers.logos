@@ -1,0 +1,38 @@
+// Imported from rust-lang/rust tests/ui/binding/bind-field-short-with-modifiers.rs
+// Modifications: isize → i64; the struct is hoisted to module scope (Logos
+// does not declare structs inside fn bodies); shorthand field patterns
+// (`ref mut x`, `ref x`) are written in explicit `field: pattern` form (Logos
+// requires the field name in struct patterns); literals suffixed. Tests
+// struct field-pattern modifiers: `ref mut`, `ref`, and `mut` bindings.
+package bind_field_short_with_modifiers_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+struct Foo {
+    x: i64,
+    y: i64,
+}
+
+fn main() -> i32 {
+    let mut f = Foo { x: 10i64, y: 0i64 };
+    match f {
+        Foo { x: ref mut x, .. } => { *x = 11i64; }
+    }
+    match f {
+        Foo { x: ref x, y: ref y } => {
+            assert_eq!(f.x, 11i64);
+            assert_eq!(f.y, 0i64);
+        }
+    }
+    match f {
+        Foo { x: mut x, y: ref mut y } => {
+            x = 12i64;
+            *y = 1i64;
+        }
+    }
+    assert_eq!(f.x, 11i64);
+    assert_eq!(f.y, 1i64);
+    return 0;
+}

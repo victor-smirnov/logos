@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust tests/ui/structs/struct-literal-dtor.rs
+// Modifications: String field uses logos.mem.string; the `println!("{}", self.x)`
+// in drop is dropped (println! is not ported). Tests that a struct literal with
+// a String field and a Drop impl constructs and drops cleanly.
+package struct_literal_dtor_test;
+
+use logos.mem.string;
+use logos.lang.str;
+
+struct Foo {
+    x: String,
+}
+
+impl Drop for Foo {
+    fn drop(&mut self) {
+        let _ = &self.x;
+    }
+}
+
+fn main() -> i32 {
+    let _z = Foo {
+        x: "Hello".to_string(),
+    };
+    return 0;
+}

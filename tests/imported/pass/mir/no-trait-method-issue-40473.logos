@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust tests/ui/mir/mir-inlining/no-trait-method-issue-40473.rs
+// Modifications: literals suffixed; the `impl Foo for ()` is replaced with an
+// `impl Foo for Unit` on a zero-field struct (Logos has no method surface on
+// the bare `()` type). Regression for rustc #40473. Tests that an overriding
+// trait method is selected over the trait's default body.
+package no_trait_method_issue_40473_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+struct Unit {}
+
+trait Foo {
+    fn bar(self: &Self) -> i64 { return 2i64; }
+}
+
+impl Foo for Unit {
+    fn bar(self: &Unit) -> i64 { return 3i64; }
+}
+
+fn main() -> i32 {
+    let u = Unit {};
+    let result = u.bar();
+    assert_eq!(result, 3i64);
+    return 0;
+}

@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust tests/ui/for-loop-while/liveness-assign-imm-local-after-loop.rs
+// Modifications: isize → i64; lint attrs dropped; `let v` → `let mut v` (the
+// local is assigned twice, which Logos requires `mut` for — Rust allowed it
+// because the second assignment is after a non-terminating loop). As upstream,
+// `test` is compiled but never called (its `loop {}` never terminates). Tests
+// that an assignment after a non-terminating `loop {}` lowers cleanly.
+package liveness_assign_imm_local_after_loop_test;
+
+fn test(_cond: bool) {
+    let mut v: i64;
+    v = 1i64;
+    loop {}
+    v = 2i64;
+}
+
+fn main() -> i32 {
+    return 0;
+}

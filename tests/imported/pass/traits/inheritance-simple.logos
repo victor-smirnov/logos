@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust tests/ui/traits/inheritance/simple.rs
+// Modifications: isize → i64; literals suffixed. Tests a supertrait
+// relationship (`Bar: Foo`) with both traits implemented on a struct, and
+// generic functions bounded on the sub- and super-trait dispatching the right
+// method.
+package inheritance_simple_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+trait Foo { fn f(self: &Self) -> i64; }
+trait Bar: Foo { fn g(self: &Self) -> i64; }
+
+struct A { x: i64 }
+
+impl Foo for A { fn f(self: &A) -> i64 { return 10i64; } }
+impl Bar for A { fn g(self: &A) -> i64 { return 20i64; } }
+
+fn ff<T: Foo>(a: &T) -> i64 {
+    return a.f();
+}
+
+fn gg<T: Bar>(a: &T) -> i64 {
+    return a.g();
+}
+
+fn main() -> i32 {
+    let a = A { x: 3i64 };
+    assert_eq!(ff(&a), 10i64);
+    assert_eq!(gg(&a), 20i64);
+    return 0;
+}

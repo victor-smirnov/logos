@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust tests/ui/traits/inheritance/num.rs
+// Modifications: trait supertrait bounds mapped to Logos's Eq/Ord; the two
+// bound-checking functions keep their `loop {}` bodies and are never called
+// (matching upstream). Tests declaring a trait hierarchy with supertrait
+// bounds (`NumExt: Eq + Ord`, `FloatExt: NumExt`) and bounding generic fns on
+// them.
+package inheritance_num_test;
+
+use logos.lang.cmp;
+
+trait NumExt: Eq + Ord {}
+
+trait FloatExt: NumExt {}
+
+fn greater_than_one<T: NumExt>(n: &T) -> bool { loop {} }
+fn greater_than_one_float<T: FloatExt>(n: &T) -> bool { loop {} }
+
+fn main() -> i32 {
+    return 0;
+}

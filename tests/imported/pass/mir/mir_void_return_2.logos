@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust tests/ui/mir/mir_void_return_2.rs
+// Modifications: faithful; `pub fn main()` → `fn main() -> i32`. Tests that a
+// void-returning function calling another void-returning function lowers and
+// runs cleanly.
+package mir_void_return_2_test;
+
+fn nil() {}
+
+fn mir() {
+    nil()
+}
+
+fn main() -> i32 {
+    mir();
+    return 0;
+}

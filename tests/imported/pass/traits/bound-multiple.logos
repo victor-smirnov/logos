@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust tests/ui/traits/bound/multiple.rs
+// Modifications: literals suffixed; trait names mapped to Logos's Eq/Ord
+// (PartialEq/PartialOrd). Tests a generic function with two trait bounds on a
+// single type parameter (`T: Eq + Ord`).
+package bound_multiple_test;
+
+use logos.lang.cmp;
+
+fn f<T: Eq + Ord>(x: T) {
+    let _ = x;
+}
+
+fn main() -> i32 {
+    f(3i64);
+    return 0;
+}

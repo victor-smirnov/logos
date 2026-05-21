@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust tests/ui/traits/inheritance/diamond.rs
+// Modifications: isize → i64; the unit `bogus: ()` field becomes `bogus: i64`;
+// literals suffixed. Tests diamond trait inheritance — `D: B + C`, with both
+// `B: A` and `C: A` — implemented on a struct and dispatched through a `T: D`
+// bound.
+package inheritance_diamond_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+trait A { fn a(self: &Self) -> i64; }
+trait B: A { fn b(self: &Self) -> i64; }
+trait C: A { fn c(self: &Self) -> i64; }
+trait D: B + C { fn d(self: &Self) -> i64; }
+
+struct S { bogus: i64 }
+
+impl A for S { fn a(self: &S) -> i64 { return 10i64; } }
+impl B for S { fn b(self: &S) -> i64 { return 20i64; } }
+impl C for S { fn c(self: &S) -> i64 { return 30i64; } }
+impl D for S { fn d(self: &S) -> i64 { return 40i64; } }
+
+fn f<T: D>(x: &T) {
+    assert_eq!(x.a(), 10i64);
+    assert_eq!(x.b(), 20i64);
+    assert_eq!(x.c(), 30i64);
+    assert_eq!(x.d(), 40i64);
+}
+
+fn main() -> i32 {
+    let value = S { bogus: 0i64 };
+    f(&value);
+    return 0;
+}

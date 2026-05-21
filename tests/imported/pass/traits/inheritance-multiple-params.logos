@@ -1,0 +1,34 @@
+// Imported from rust-lang/rust tests/ui/traits/inheritance/multiple-params.rs
+// Modifications: isize → i64; the unit `bogus: ()` field becomes `bogus: i64`;
+// literals suffixed. Tests two sibling supertraits (`B: A`, `C: A`) implemented
+// on one struct, dispatched through a generic fn with three separately-bounded
+// type parameters.
+package inheritance_multiple_params_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+trait A { fn a(self: &Self) -> i64; }
+trait B: A { fn b(self: &Self) -> i64; }
+trait C: A { fn c(self: &Self) -> i64; }
+
+struct S { bogus: i64 }
+
+impl A for S { fn a(self: &S) -> i64 { return 10i64; } }
+impl B for S { fn b(self: &S) -> i64 { return 20i64; } }
+impl C for S { fn c(self: &S) -> i64 { return 30i64; } }
+
+fn f<X: A, Y: B, Z: C>(x: &X, y: &Y, z: &Z) {
+    assert_eq!(x.a(), 10i64);
+    assert_eq!(y.a(), 10i64);
+    assert_eq!(y.b(), 20i64);
+    assert_eq!(z.a(), 10i64);
+    assert_eq!(z.c(), 30i64);
+}
+
+fn main() -> i32 {
+    let s = S { bogus: 0i64 };
+    f(&s, &s, &s);
+    return 0;
+}

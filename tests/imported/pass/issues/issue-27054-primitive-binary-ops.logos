@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust tests/ui/issues/issue-27054-primitive-binary-ops.rs
+// Modifications: literals suffixed; `&mut 1` is bound to a mutable local and
+// `x` is taken by `&mut` (Logos has no `&mut <literal>` rvalue ref). Tests
+// evaluation order of `*x + { *x = 2; 1 }` — the left `*x` is read before the
+// block mutates it.
+package issue_27054_primitive_binary_ops_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn main() -> i32 {
+    let mut v: i64 = 1i64;
+    let x = &mut v;
+    let result = *x + { *x = 2i64; 1i64 };
+    assert_eq!(result, 2i64);
+    return 0;
+}

@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust tests/ui/functions-closures/fn-coerce-field.rs
+// Modifications: the generic `r<F: FnOnce()>` is specialized to a concrete
+// fn-pointer field type `field: fn()` (Logos has no FnOnce-bounded generic
+// struct ports here); the `f as fn()` coercion writes a top-level fn into the
+// field. Tests storing a function item into a fn-pointer struct field.
+package fn_coerce_field_test;
+
+struct R {
+    field: fn(),
+}
+
+fn f() {}
+
+fn main() -> i32 {
+    let _i = R { field: f };
+    return 0;
+}

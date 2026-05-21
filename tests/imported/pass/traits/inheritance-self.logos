@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust tests/ui/traits/inheritance/self.rs
+// Modifications: isize → i64; `println!` dropped; the `Sized` bound on the
+// supertrait is dropped (implicit in Logos). Tests a supertrait that mentions
+// `Self` as a type argument (`Bar: Foo<Self>`), with the subtrait method
+// calling the supertrait method via `self.f(self)`.
+package inheritance_self_test;
+
+trait Foo<T> {
+    fn f(self: &Self, x: &T);
+}
+
+trait Bar: Foo<Self> {
+    fn g(self: &Self);
+}
+
+struct S {
+    x: i64,
+}
+
+impl Foo<S> for S {
+    fn f(self: &S, x: &S) {
+        let _ = x.x;
+    }
+}
+
+impl Bar for S {
+    fn g(self: &S) {
+        self.f(self);
+    }
+}
+
+fn main() -> i32 {
+    let s = S { x: 1i64 };
+    s.g();
+    return 0;
+}

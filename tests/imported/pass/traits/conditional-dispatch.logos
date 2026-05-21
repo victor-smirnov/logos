@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust tests/ui/traits/conditional-dispatch.rs
+// Modifications: the `Box<i32>` impl and `Copy`/Option blanket are dropped
+// (Box is out of scope here); the core conditional dispatch — a blanket
+// `impl<T: MyCopy> Get for T` over per-type `MyCopy` impls, reached through a
+// generic `get_it<T: Get>` — is preserved on integer types. Tests resolving a
+// blanket trait impl bounded on another trait.
+package conditional_dispatch_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+trait Get {
+    fn get(self: &Self) -> Self;
+}
+
+trait MyCopy { fn copy(self: &Self) -> Self; }
+impl MyCopy for u16 { fn copy(self: &u16) -> u16 { return *self; } }
+impl MyCopy for u32 { fn copy(self: &u32) -> u32 { return *self; } }
+impl MyCopy for i32 { fn copy(self: &i32) -> i32 { return *self; } }
+
+impl<T: MyCopy> Get for T {
+    fn get(self: &T) -> T { return self.copy(); }
+}
+
+fn get_it<T: Get>(t: &T) -> T {
+    return (*t).get();
+}
+
+fn main() -> i32 {
+    assert_eq!(get_it(&100u16), 100u16);
+    assert_eq!(get_it(&100u32), 100u32);
+    assert_eq!(get_it(&100i32), 100i32);
+    return 0;
+}

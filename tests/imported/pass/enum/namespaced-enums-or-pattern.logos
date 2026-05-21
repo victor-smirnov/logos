@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust tests/ui/enum/namespaced-enums-xcrate.rs
+// Modifications: the cross-crate `aux-build` enum is declared locally (Logos
+// has no aux-crate harness); the `_foo` matcher with an or-pattern spanning a
+// unit variant, a tuple variant, and a struct variant is preserved, and `main`
+// exercises each variant. Tests an or-pattern combining the three enum variant
+// kinds in a single match arm.
+package namespaced_enums_or_pattern_test;
+
+enum Foo {
+    A,
+    B(i64),
+    C { x: i64 },
+}
+
+fn classify(f: Foo) -> i64 {
+    return match f {
+        Foo::A | Foo::B(_) | Foo::C { .. } => 1i64,
+    };
+}
+
+fn main() -> i32 {
+    let _ = classify(Foo::A);
+    let _ = classify(Foo::B(2i64));
+    let _ = classify(Foo::C { x: 3i64 });
+    return 0;
+}

@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust tests/ui/enum/enum-size-variance.rs
+// Modifications: i64 substituted for the i64/isize payloads; lint attributes
+// dropped. Tests that a range of enum shapes — empty, C-like, tuple payloads
+// of varying arity, and a generic two-parameter enum — all declare cleanly.
+package enum_size_variance_test;
+
+enum Enum1 {}
+
+enum Enum2 { A, B, C }
+
+enum Enum3 { D(i64), E, F }
+
+enum Enum4 { H(i64), I(i64), J }
+
+enum Enum5 {
+    L(i64, i64, i64, i64),
+    M(i64),
+    N,
+}
+
+enum Enum6<T, U> {
+    O(T),
+    P(U),
+    Q(i64),
+}
+
+fn main() -> i32 {
+    return 0;
+}

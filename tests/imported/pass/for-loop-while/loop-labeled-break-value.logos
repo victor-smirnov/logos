@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust tests/ui/for-loop-while/loop-labeled-break-value.rs
+// Modifications: the `let _: i32 = loop { break 'outer }` bindings are dropped
+// (in Logos a loop that only breaks an *outer* label is void-typed, so it can't
+// initialize an i32 local) — the inner loops are kept as plain statements that
+// break the outer label. Tests labeled `loop` blocks broken out of from nested
+// inner loops via `break 'label`.
+package loop_labeled_break_value_test;
+
+fn main() -> i32 {
+    'outer: loop {
+        loop { break 'outer; }
+    }
+    'outer2: loop {
+        loop { loop { break 'outer2; } }
+    }
+    return 0;
+}

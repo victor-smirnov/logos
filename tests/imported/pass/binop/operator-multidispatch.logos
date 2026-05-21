@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust tests/ui/binop/operator-multidispatch.rs
+// Modifications: isize → i64; only the same-type `Point + Point` overload is
+// kept (Logos's Add trait is single-type `Self + Self`, with no `Add<Rhs>`
+// for a distinct right-hand side, so the `Point + isize` half is dropped);
+// equality is checked field-wise (no derived PartialEq on the struct). Tests
+// overloading the `+` operator for a user struct.
+package operator_multidispatch_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.ops;
+
+struct Point {
+    x: i64,
+    y: i64,
+}
+
+impl Add for Point {
+    fn add(self: Point, other: Point) -> Point {
+        return Point { x: self.x + other.x, y: self.y + other.y };
+    }
+}
+
+fn main() -> i32 {
+    let p = Point { x: 10i64, y: 20i64 };
+    let q = p + Point { x: 101i64, y: 102i64 };
+    assert_eq!(q.x, 111i64);
+    assert_eq!(q.y, 122i64);
+    return 0;
+}

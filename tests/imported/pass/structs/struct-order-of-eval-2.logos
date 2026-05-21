@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust tests/ui/structs/struct-order-of-eval-2.rs
+// Modifications: String fields use logos.mem.string. Upstream moved `s` into
+// f0 while f1 borrowed it; in Logos `to_string()` consumes its receiver, so
+// each field gets its own freshly-built String from a string literal. Tests
+// out-of-order struct-literal field initialization with String values. The
+// final equality check uses String::eq_str (no String-vs-&str ==).
+package struct_order_of_eval_2_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+struct S {
+    f0: String,
+    f1: String,
+}
+
+fn main() -> i32 {
+    let s = S {
+        f1: "Hello, world!".to_string(),
+        f0: "Hello, world!".to_string(),
+    };
+    assert!(s.f0.eq_str("Hello, world!"));
+    return 0;
+}

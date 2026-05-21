@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust tests/ui/enum/simple-enum-usage-8506.rs
+// Modifications: String fields via logos.mem.string; the module-level `static`
+// is rewritten as a local binding inside `main` (Logos has no String-payload
+// enum at module-static position), preserving the value. Regression for rustc
+// #8506. Tests declaring an enum with a unit variant and a two-String tuple
+// variant, and binding the unit variant.
+package simple_enum_usage_8506_test;
+
+use logos.mem.string;
+use logos.lang.str;
+
+enum Either {
+    One,
+    Other(String, String),
+}
+
+fn main() -> i32 {
+    let _one: Either = Either::One;
+    return 0;
+}

@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust tests/ui/generics/generic-unique.rs
+// Modifications: isize → i64; the `Box<Triple<T>>` boxing is dropped (the
+// `box_it` helper returns the value directly — Logos has no Box wrapper needed
+// here); literals suffixed. Tests a generic struct passed through a generic
+// function and a field read on the result.
+package generic_unique_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+struct Triple<T> { x: T, y: T, z: T }
+
+fn box_it<T>(x: Triple<T>) -> Triple<T> { return x; }
+
+fn main() -> i32 {
+    let x: Triple<i64> = box_it::<i64>(Triple { x: 1i64, y: 2i64, z: 3i64 });
+    assert_eq!(x.y, 2i64);
+    return 0;
+}

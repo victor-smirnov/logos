@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust tests/ui/issues/issue-4759-1.rs
+// Modifications: isize → i64; the receiver `4` is suffixed `4i64`. Tests
+// defining a trait and implementing it for a primitive integer type, then
+// calling the method on an integer literal.
+package issue_4759_1_test;
+
+trait U {
+    fn f(self: i64);
+}
+impl U for i64 {
+    fn f(self: i64) {}
+}
+
+fn main() -> i32 {
+    (4i64).f();
+    return 0;
+}

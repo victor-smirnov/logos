@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust tests/ui/for-loop-while/liveness-move-in-loop.rs
+// Modifications: isize → i64; literals suffixed; `Vec::new()` → `vec_new::<i64>()`
+// (Logos's Vec constructor). As upstream, `the_loop` is compiled but never
+// called from main (its `loop` would not terminate). Tests that moving a value
+// into a Vec::push inside a `loop` (with a `break` arm) type-checks and lowers.
+package liveness_move_in_loop_test;
+
+use logos.mem.collections.vec;
+
+fn take(x: i64) -> i64 { return x; }
+
+fn the_loop() {
+    let mut list: Vec<i64> = vec_new::<i64>();
+    loop {
+        let x = 5i64;
+        if x > 3i64 {
+            list.push(take(x));
+        } else {
+            break;
+        }
+    }
+}
+
+fn main() -> i32 {
+    return 0;
+}

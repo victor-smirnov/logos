@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust tests/ui/enum/enum-with-uninhabited-variant.rs
+// Modifications: i32 kept; the uninhabited variant B(Void) holds an empty enum
+// `Void {}`. Tests that an enum can contain a variant whose payload is an
+// uninhabited (empty) enum, and that a normal variant still constructs.
+package enum_with_uninhabited_variant_test;
+
+enum Void {}
+
+enum Foo {
+    A(i32),
+    B(Void),
+    C(i32),
+}
+
+fn main() -> i32 {
+    let _foo = Foo::A(0i32);
+    return 0;
+}

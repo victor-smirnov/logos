@@ -1,0 +1,45 @@
+// Imported from rust-lang/rust tests/ui/mir/mir_codegen_switch.rs
+// Modifications: literals suffixed; lint attributes dropped. Tests match
+// codegen over a four-variant enum (two tuple-payload, two unit) returning an
+// integer, plus a second match returning bool with a wildcard arm.
+package mir_codegen_switch_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+enum Abc {
+    A(u8),
+    B(i8),
+    C,
+    D,
+}
+
+fn foo(x: Abc) -> i32 {
+    return match x {
+        Abc::C => 3i32,
+        Abc::D => 4i32,
+        Abc::B(_) => 2i32,
+        Abc::A(_) => 1i32,
+    };
+}
+
+fn foo2(x: Abc) -> bool {
+    return match x {
+        Abc::D => true,
+        _ => false,
+    };
+}
+
+fn main() -> i32 {
+    assert_eq!(1i32, foo(Abc::A(42u8)));
+    assert_eq!(2i32, foo(Abc::B(-100i8)));
+    assert_eq!(3i32, foo(Abc::C));
+    assert_eq!(4i32, foo(Abc::D));
+
+    assert_eq!(false, foo2(Abc::A(1u8)));
+    assert_eq!(false, foo2(Abc::B(2i8)));
+    assert_eq!(false, foo2(Abc::C));
+    assert_eq!(true, foo2(Abc::D));
+    return 0;
+}

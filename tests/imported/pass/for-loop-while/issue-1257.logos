@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust tests/ui/for-loop-while/issue-1257.rs
+// Modifications: the `String != String` comparison is written via
+// `!line.eq_str("exit")` (Logos has no String inequality operator); the loop
+// body assigns one of two literal Strings. Tests a while loop whose condition
+// is a String comparison, terminating after a fixed number of iterations.
+package issue_1257_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn main() -> i32 {
+    let mut line = "".to_string();
+    let mut i = 0i64;
+    while !line.eq_str("exit") {
+        if i == 9i64 {
+            line = "exit".to_string();
+        } else {
+            line = "notexit".to_string();
+        }
+        i += 1i64;
+    }
+    assert_eq!(i, 10i64);
+    return 0;
+}

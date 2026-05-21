@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust tests/ui/mir/mir_cast_fn_ret.rs
+// Modifications: the `extern "C"` ABI markers are dropped (Logos fns use the
+// default ABI); literals suffixed. The returned tuple is bound to a local
+// before projecting (`let t = tuple2(); t.1`) — projecting a field directly
+// off a call result (`tuple2().1`) currently fails codegen in Logos. Tests
+// functions returning tuples and projecting single elements out of them.
+package mir_cast_fn_ret_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn tuple2() -> (u16, u8) {
+    return (1u16, 2u8);
+}
+
+fn tuple3() -> (u8, u8, u8) {
+    return (1u8, 2u8, 3u8);
+}
+
+fn test2() -> u8 {
+    let t = tuple2();
+    return t.1;
+}
+
+fn test3() -> u8 {
+    let t = tuple3();
+    return t.2;
+}
+
+fn main() -> i32 {
+    assert_eq!(test2(), 2u8);
+    assert_eq!(test3(), 3u8);
+    return 0;
+}

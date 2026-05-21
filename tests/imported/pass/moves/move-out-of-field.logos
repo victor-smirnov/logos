@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust tests/ui/moves/move-out-of-field.rs
+// Modifications: String via logos.mem.string; the final `assert_eq!(str, "...")`
+// uses String::eq_str (no String-vs-&str ==). Tests building a String field via
+// `&mut self` method calls, then moving the field out of the struct by value.
+package move_out_of_field_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+struct StringBuffer {
+    s: String,
+}
+
+impl StringBuffer {
+    fn append(self: &mut StringBuffer, v: str) {
+        self.s.push_str(v);
+    }
+}
+
+fn to_string(sb: StringBuffer) -> String {
+    return sb.s;
+}
+
+fn main() -> i32 {
+    let mut sb = StringBuffer { s: String::new() };
+    sb.append("Hello, ");
+    sb.append("World!");
+    let result = to_string(sb);
+    assert!(result.eq_str("Hello, World!"));
+    return 0;
+}

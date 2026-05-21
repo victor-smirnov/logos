@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust tests/ui/traits/issue-3683.rs
+// Modifications: isize → i64; literals suffixed; the receiver `3` is suffixed
+// `3i64`. Tests a trait with a default method `b` that calls the required
+// method `a`, implemented on a primitive integer type.
+package issue_3683_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+trait Foo {
+    fn a(self: &Self) -> i64;
+    fn b(self: &Self) -> i64 {
+        return self.a() + 2i64;
+    }
+}
+
+impl Foo for i64 {
+    fn a(self: &i64) -> i64 {
+        return 3i64;
+    }
+}
+
+fn main() -> i32 {
+    assert_eq!((3i64).b(), 5i64);
+    return 0;
+}

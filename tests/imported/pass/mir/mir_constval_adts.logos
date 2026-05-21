@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust tests/ui/mir/mir_constval_adts.rs
+// Modifications: the `const` items become plain locals (Logos routes
+// compile-time values through metacall, not const at type position); the
+// `&'static str` tuple half and the derived-PartialEq tuple equality asserts
+// are dropped (str-tuple consts + struct tuple equality are out of scope);
+// equality is checked field-wise. Tests constructing struct / tuple / generic
+// newtype aggregates and reading their fields back.
+package mir_constval_adts_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+struct Newtype<T> {
+    v: T,
+}
+
+fn main() -> i32 {
+    let s = Point { x: 42i32, y: 42i32 };
+    let t = (42i32, 42i32);
+    let n0 = Newtype::<i32> { v: 42i32 };
+    let n1 = Newtype::<i32> { v: 42i32 };
+
+    assert_eq!(s.x, 42i32);
+    assert_eq!(s.y, 42i32);
+    assert_eq!(t.0, 42i32);
+    assert_eq!(t.1, 42i32);
+    assert_eq!(n0.v, n1.v);
+    return 0;
+}

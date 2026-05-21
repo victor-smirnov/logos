@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust tests/ui/issues/issue-41479.rs
+// Modifications: the unit-typed `()` payloads are replaced with i64 values
+// (Logos tuple elements are concrete values); the nested-tuple shape and the
+// generic field projection (pair.0 / pair.1) are preserved. Tests a generic
+// function destructuring a tuple via field access.
+package issue_41479_test;
+
+fn split<A, B>(pair: (A, B)) {
+    let _a = pair.0;
+    let _b = pair.1;
+}
+
+fn main() -> i32 {
+    split((1i64, (2i64, 3i64)));
+    return 0;
+}

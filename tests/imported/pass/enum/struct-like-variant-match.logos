@@ -1,0 +1,42 @@
+// Imported from rust-lang/rust tests/ui/enum/struct-like-variant-match.rs
+// Modifications: isize → i64; f64 literals suffixed; the `match *x` over a
+// `&Foo` is rewritten to `match x` (Logos auto-derefs the enum reference).
+// Tests matching struct-style enum variants binding the named fields, with
+// fields in a different order than declared in the Bar arm.
+package struct_like_variant_match_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+enum Foo {
+    Bar {
+        x: i64,
+        y: i64,
+    },
+    Baz {
+        x: f64,
+        y: f64,
+    },
+}
+
+fn f(x: &Foo) {
+    match x {
+        Foo::Baz { x, y } => {
+            assert_eq!(x, 1.0f64);
+            assert_eq!(y, 2.0f64);
+        }
+        Foo::Bar { y, x } => {
+            assert_eq!(x, 1i64);
+            assert_eq!(y, 2i64);
+        }
+    }
+}
+
+fn main() -> i32 {
+    let x = Foo::Bar { x: 1i64, y: 2i64 };
+    f(&x);
+    let y = Foo::Baz { x: 1.0f64, y: 2.0f64 };
+    f(&y);
+    return 0;
+}

@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust tests/ui/binding/match-ref-binding-mut.rs
+// Modifications: isize → i64; `match *x` over `&mut Rec` → `match x` (Logos
+// auto-derefs the reference); literals suffixed. Tests a `ref mut` field
+// binding in a struct pattern, mutating through it.
+package match_ref_binding_mut_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+struct Rec {
+    f: i64,
+}
+
+fn destructure(x: &mut Rec) {
+    match x {
+        Rec { f: ref mut f } => { *f += 1i64; }
+    }
+}
+
+fn main() -> i32 {
+    let mut v = Rec { f: 22i64 };
+    destructure(&mut v);
+    assert_eq!(v.f, 23i64);
+    return 0;
+}

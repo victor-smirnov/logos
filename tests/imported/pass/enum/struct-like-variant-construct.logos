@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust tests/ui/enum/struct-like-variant-construct.rs
+// Modifications: isize → i64, f64 literals suffixed; constructs a struct-style
+// enum variant. Tests building a struct-like enum variant with named fields.
+package struct_like_variant_construct_test;
+
+enum Foo {
+    Bar {
+        a: i64,
+        b: i64,
+    },
+    Baz {
+        c: f64,
+        d: f64,
+    },
+}
+
+fn main() -> i32 {
+    let _x = Foo::Bar { a: 2i64, b: 3i64 };
+    return 0;
+}

@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust tests/ui/closures/old-closure-explicit-types.rs
+// Modifications: the nested `fn as_buf` is hoisted to module scope; `println!`
+// dropped; the generic return type `T` is specialized to `()` (Logos couldn't
+// resolve `T` when it appears only in the FnOnce return position). The closure
+// has an explicit `String` parameter type. Tests a FnOnce-bounded helper
+// invoked with an explicitly-typed closure consuming a String.
+package old_closure_explicit_types_test;
+
+use logos.mem.string;
+use logos.lang.str;
+
+fn as_buf<F>(s: String, f: F) where F: FnOnce(String) { f(s); }
+
+fn main() -> i32 {
+    as_buf("foo".to_string(), |foo: String| {});
+    return 0;
+}

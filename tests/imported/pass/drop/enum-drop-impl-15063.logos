@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust tests/ui/drop/enum-drop-impl-15063.rs
+// Modifications: the `println!` in drop is dropped. Regression for rustc
+// #15063. Tests that a Drop impl on a unit-variant enum compiles and runs the
+// destructor when the value goes out of scope.
+package enum_drop_impl_15063_test;
+
+enum Two { A, B }
+
+impl Drop for Two {
+    fn drop(self: &mut Two) {}
+}
+
+fn main() -> i32 {
+    let _k = Two::A;
+    return 0;
+}

@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust tests/ui/mir/simplify-branch-same.rs
+// Modifications: literals suffixed; the `m!` macro is inlined into `f`'s body
+// (the macro expanded to a match with a value-only or-pattern arm and a side
+// effect). Regression for the SimplifyBranchSame miscompilation. Tests an
+// or-pattern match arm (`Fat | Thin`) sharing a body with side effects.
+package simplify_branch_same_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+enum Lto { No, Thin, Fat }
+
+fn f(cookie: u32, lto: Lto) -> u32 {
+    let mut _a = false;
+    let mut c = cookie;
+    match lto {
+        Lto::Fat | Lto::Thin => { _a = true; c = 0u32; }
+        Lto::No => { _a = true; }
+    }
+    return c;
+}
+
+fn main() -> i32 {
+    assert_eq!(f(42u32, Lto::Thin), 0u32);
+    return 0;
+}

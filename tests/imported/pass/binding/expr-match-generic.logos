@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust tests/ui/binding/expr-match-generic.rs
+// Modifications: isize → i64; the `compare<T>` fn-pointer type alias is
+// monomorphized to `fn(i64, i64) -> bool`; `.clone()` is replaced by a plain
+// copy of the (Copy) i64 value; the bool/Pair generic instantiations collapse
+// to a single i64 case. Tests a generic match-as-expression whose result is
+// fed to a fn-pointer comparison.
+package expr_match_generic_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn test_generic(expected: i64, eq: fn(i64, i64) -> bool) {
+    let actual: i64 = match true {
+        true => expected,
+        _ => 0i64,
+    };
+    assert!(eq(expected, actual));
+}
+
+fn compare_int(a: i64, b: i64) -> bool {
+    return a == b;
+}
+
+fn main() -> i32 {
+    test_generic(7i64, compare_int);
+    return 0;
+}

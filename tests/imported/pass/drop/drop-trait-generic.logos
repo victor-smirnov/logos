@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust tests/ui/drop/drop-trait-generic.rs
+// Modifications: the `println!` in drop is dropped; literals suffixed. Tests a
+// Drop impl on a generic struct `S<T>` running its destructor at scope exit.
+package drop_trait_generic_test;
+
+struct S<T> {
+    x: T,
+}
+
+impl<T> Drop for S<T> {
+    fn drop(self: &mut S<T>) {}
+}
+
+fn main() -> i32 {
+    let _x = S::<i64> { x: 1i64 };
+    return 0;
+}

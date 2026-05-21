@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust tests/ui/mir/mir_small_agg_arg.rs
+// Modifications: literals suffixed; the destructuring tuple parameter
+// `(x, y): (i8, i8)` is rewritten to a named tuple parameter that is
+// destructured in the body (Logos does not bind patterns in fn parameter
+// position). Tests passing a small aggregate (a 2-tuple) by value.
+package mir_small_agg_arg_test;
+
+fn foo(p: (i8, i8)) {
+    let x = p.0;
+    let y = p.1;
+    let _ = x;
+    let _ = y;
+}
+
+fn main() -> i32 {
+    foo((0i8, 1i8));
+    return 0;
+}

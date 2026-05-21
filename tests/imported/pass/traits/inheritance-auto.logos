@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust tests/ui/traits/inheritance/auto.rs
+// Modifications: isize → i64; literals suffixed. Tests that a blanket impl
+// `impl<T: Foo + Bar + Baz> Quux for T` makes any type implementing all three
+// supertraits automatically a `Quux`, then dispatches Foo/Bar/Baz methods
+// through a `T: Quux` bound.
+package inheritance_auto_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+trait Foo { fn f(self: &Self) -> i64; }
+trait Bar { fn g(self: &Self) -> i64; }
+trait Baz { fn h(self: &Self) -> i64; }
+
+trait Quux: Foo + Bar + Baz {}
+
+impl<T: Foo + Bar + Baz> Quux for T {}
+
+struct A { x: i64 }
+
+impl Foo for A { fn f(self: &A) -> i64 { return 10i64; } }
+impl Bar for A { fn g(self: &A) -> i64 { return 20i64; } }
+impl Baz for A { fn h(self: &A) -> i64 { return 30i64; } }
+
+fn f<T: Quux>(a: &T) {
+    assert_eq!(a.f(), 10i64);
+    assert_eq!(a.g(), 20i64);
+    assert_eq!(a.h(), 30i64);
+}
+
+fn main() -> i32 {
+    let a = A { x: 1i64 };
+    f(&a);
+    return 0;
+}

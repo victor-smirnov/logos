@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust tests/ui/typeck/ufcs-type-params.rs
+// Modifications: literals suffixed; the UFCS `Foo::<i32>::get(&x)` call is
+// written in method form `x.get()` (Logos does not support the
+// `Trait::<T>::method(recv)` static-call form). Tests invoking a generic trait
+// method implemented on a primitive integer type.
+package ufcs_type_params_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+trait Foo<T> {
+    fn get(self: &Self) -> T;
+}
+
+impl Foo<i32> for i32 {
+    fn get(self: &i32) -> i32 { return *self; }
+}
+
+fn main() -> i32 {
+    let x: i32 = 1i32;
+    let g = x.get();
+    assert_eq!(g, 1i32);
+    return 0;
+}

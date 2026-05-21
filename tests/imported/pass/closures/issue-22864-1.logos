@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust tests/ui/closures/issue-22864-1.rs
+// Modifications: the generic tuple-struct `Fun<F>(F)` holding a closure becomes
+// a named-field generic struct (Logos reads/writes named struct fields); the
+// `let Fun(g) = f` destructure is written as a field access; `println!` →
+// assert on the closure result. Tests storing a closure in a generic struct
+// field and invoking it after extraction.
+package issue_22864_1_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+struct Fun<F> {
+    f: F,
+}
+
+fn main() -> i32 {
+    let f = Fun { f: |x: i64| -> i64 { return 3i64 * x; } };
+    let g = f.f;
+    assert_eq!(g(4i64), 12i64);
+    return 0;
+}
