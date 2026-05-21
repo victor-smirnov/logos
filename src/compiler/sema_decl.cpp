@@ -437,6 +437,12 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
 
     scope_.clear();
     push_scope();
+    // Reset move-tracking at each function boundary. Without this, a synthetic
+    // variable name reused across functions — notably format!'s `__buf` — keeps
+    // its moved state from a previous function, so the second function using
+    // `format!` reports a spurious "use of moved variable '__buf'". User-named
+    // locals never leaked (distinct scopes/names), which masked this.
+    moved_vars_.clear();
 
     // P4-pm-19: tuple-destructure parameters. Track synth-name +
     // user-name list for each; after the body is lowered, prepend

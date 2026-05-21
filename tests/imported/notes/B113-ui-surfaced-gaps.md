@@ -38,7 +38,12 @@ Categories below: `compiler-bug` (crash / wrong runtime value / verifier fail),
 
 ## compiler-bug
 
-### 1. Method-generic trait method on a generic struct → mono emits invalid callee (MLIR verify fail)
+### 1. Method-generic trait method on a generic struct — NOT REPRODUCIBLE (already fixed; 2026-05-21)
+Re-checked: the minimal trigger now compiles AND runs correctly (incl. an
+observable-recursion variant). Likely closed by the in-session generic-struct
+mono method-pinning work (c2659452). No action needed.
+
+_Original:_
 - Surfaced while porting `traits/monomorphized-callees-with-ty-params-3314.rs`
   (SKIPPED).
 - Minimal trigger (MLIR verify abort at compile time):
@@ -60,7 +65,12 @@ Categories below: `compiler-bug` (crash / wrong runtime value / verifier fail),
   struct path (`i64::serialize<S>`) works. Adjacent to the closed
   iter-method-generic mono baghunts but distinct (trait method on generic struct).
 
-### 2. Tuple-by-value parameters through a `&dyn Trait` virtual call get corrupted
+### 2. Tuple-by-value through `&dyn` — FALSE POSITIVE (exit-code truncation; 2026-05-21)
+`run(&u)` returns **303** correctly. The agent read the process EXIT CODE
+(303 & 0xFF = **47**) and mistook the truncation for a wrong value. Verified
+with `return run(&u) - 303` → exit 0. Not a bug.
+
+_Original:_
 - Surfaced while porting `traits/virtual-call-parameter-handling.rs` (SKIPPED).
 - Minimal trigger (compiles + links; wrong runtime value):
   ```
@@ -116,7 +126,18 @@ Categories below: `compiler-bug` (crash / wrong runtime value / verifier fail),
   `tests/logos/pass/match_expr_struct_pattern.logos`. (Refutable struct-field
   literal tests in match-expr remain unsupported — separate feature.)
 
-### 5. `format!` in two trait impls on different primitives → moved `__buf` / func.call mismatch
+### 5. `format!` in two functions → moved `__buf` — FIXED (2026-05-21); + a separate operand-count facet
+**FIXED (the reported symptom):** two functions each using `format!` made the
+second report a spurious `use of moved variable '__buf'`. format!'s synthetic
+`__buf` is moved by `return format!(...)`, and `moved_vars_` was never reset at
+the function boundary, so the next function's `__buf` was seen moved. Fix:
+`moved_vars_.clear()` in `lower_fn`. Regression `tests/logos/pass/format_buf_two_fns.logos`.
+**STILL OPEN (separate, deeper):** the full TRAIT + generic-bound form
+(`print<T: Stringify>(x)` calling `x.stringify()` whose body uses `format!`)
+errors `'func.call' op incorrect number of operands for callee` — a distinct
+generic-bound-dispatch-to-format!-method codegen bug, deferred.
+
+_Original:_
 - Surfaced while porting `traits/issue-23825.rs` (SKIPPED).
 - Two impls of a `stringify(&self) -> String` method (on `u32` and `f32`) each
   using `format!("…: {}", *self)`, then a generic `print<T: Stringify>(x: T)`:

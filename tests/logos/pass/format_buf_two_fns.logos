@@ -1,0 +1,22 @@
+// Regression: two functions each using `format!` — the second reported a
+// spurious "use of moved variable '__buf'". format!'s synthetic `__buf` String
+// is moved by `return format!(...)` in the first function, and move-tracking
+// (`moved_vars_`) was never reset at the function boundary, so the second
+// function's `__buf` was seen as already-moved. User-named locals never leaked
+// (distinct names/scopes), which masked it. Fix: clear moved_vars_ in lower_fn.
+package format_buf_two_fns;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn s_u32(x: u32) -> String { return format!("u32: {}", x); }
+fn s_f32(x: f32) -> String { return format!("f32: {}", x); }
+fn s_i64(x: i64) -> String { return format!("i64: {}", x); }
+
+fn main() -> i32 {
+    if s_u32(5u32).len() < 6i64 { return 1i32; }
+    if s_f32(2.5f32).len() < 6i64 { return 2i32; }
+    if s_i64(7i64).len() < 6i64 { return 3i32; }
+    return 0i32;
+}
