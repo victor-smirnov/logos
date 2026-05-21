@@ -2657,6 +2657,13 @@ private:
     // fn-macros). Resolves CALLEE against #[fn_macro] fns; ARGs are
     // captured as ExprBlobs and passed through the metacall JIT thunk.
     lir::LExprPtr lower_fn_macro_call(hermes::TinyMapView node);
+    // The leading compiler-built-in macro dispatch of lower_fn_macro_call
+    // (cfg!, line!, column!, file!, include!, include_str!/_bytes!, env!,
+    // concat!, concat_bytes!, stringify!, compile_error!). Returns the lowered
+    // result when `callee_name` is a built-in; nullopt to fall through to the
+    // user-defined #[fn_macro] resolution path.
+    std::optional<lir::LExprPtr> lower_builtin_macro(
+        hermes::TinyMapView node, const std::string& callee_name);
     // Bare `{ stmts; tail_expr }` as expression — lowers a BLOCK AST node
     // as an expr whose value is the tail expression (or void if absent).
     lir::LExprPtr lower_block_expr(hermes::TinyMapView node);

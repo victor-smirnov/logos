@@ -12946,23 +12946,12 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
 //
 // On any validation failure we diag and return error_expr() so the rest
 // of sema keeps moving.
-lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
+std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, const std::string& callee_name) {
     using logos::hermes::AnyVal;
     using logos::hermes::HermesAccess;
     using logos::hermes::TinyObjectMap;
     using logos::hermes::make_doc;
     using logos::hermes::copy_object_into;
-
-    if (!node.has_key(la::CALLEE)) {
-        error("fn_macro call: missing callee");
-        return error_expr();
-    }
-    std::string callee_name(str_of(node.get(la::CALLEE.code)));
-
-    // Phase 2-1: cfg!() compile-time built-in. Evaluates configuration
-    // predicate to a bool literal at sema time. Supports built-in target
-    // keys + boolean combinators (all/any/not) + user feature flags
-    // (resolved via cfg_features_ populated by --cfg flags).
     if (callee_name == "cfg") {
         bool result = evaluate_cfg_predicate(node);
         return builder().lit_int(result ? 1LL : 0LL, prim(LogosType::Kind::Bool));
@@ -13452,6 +13441,27 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
         error(std::format("compile_error!: {}", msg));
         return error_expr();
     }
+    return std::nullopt;
+}
+
+lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
+    using logos::hermes::AnyVal;
+    using logos::hermes::HermesAccess;
+    using logos::hermes::TinyObjectMap;
+    using logos::hermes::make_doc;
+    using logos::hermes::copy_object_into;
+
+    if (!node.has_key(la::CALLEE)) {
+        error("fn_macro call: missing callee");
+        return error_expr();
+    }
+    std::string callee_name(str_of(node.get(la::CALLEE.code)));
+
+    // Phase 2-1: cfg!() compile-time built-in. Evaluates configuration
+    // predicate to a bool literal at sema time. Supports built-in target
+    // keys + boolean combinators (all/any/not) + user feature flags
+    // (resolved via cfg_features_ populated by --cfg flags).
+    if (auto r = lower_builtin_macro(node, callee_name)) return *r;
 
     // Resolve against funcs_ (non-generic) only — generic fn_macro is
     // out of scope for slice 1. Look up by base name across overloads.
