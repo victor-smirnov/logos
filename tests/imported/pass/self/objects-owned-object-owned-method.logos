@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/self/objects-owned-object-owned-method.rs
+// Modifications: `usize`→`u64`; the `self: Box<Self>` receiver → a `&self`
+// receiver (no Box receiver shape); `Box::new(..) as Box<dyn FooTrait>` → a
+// stack value dispatched through a `&dyn FooTrait` parameter; `assert_eq!`→
+// return-code check; `pub fn main()`→`fn main()->i32`. Exercises calling a
+// trait method through a `&dyn` trait object.
+package self_objects_owned_object_owned_method;
+
+trait FooTrait { fn foo(&self) -> u64; }
+
+struct BarStruct { x: u64 }
+
+impl FooTrait for BarStruct {
+    fn foo(&self) -> u64 { return self.x; }
+}
+
+fn call_it(f: &dyn FooTrait) -> u64 { return f.foo(); }
+
+fn main() -> i32 {
+    let b = BarStruct { x: 22u64 };
+    if call_it(&b) != 22u64 { return 1; }
+    return 0;
+}

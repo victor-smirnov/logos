@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/numeric-fields.rs
+// Modifications: tuple struct `S(u8, u16)` → named-field `struct S { f0: u8,
+// f1: u16 }` (Logos tuple structs lower to `f0`/`f1` named fields); the
+// numeric-field literal `S { 1: 10, 0: 11 }` (out-of-order) → `S { f1: 10,
+// f0: 11 }`; the `S { 0: a, 1: b, .. }` pattern → `S { f0: a, f1: b }`;
+// `assert_eq!`→return-code checks; `fn main()` returns i32. Exercises building
+// and matching a 2-field struct with fields given out of declaration order.
+package se_numeric_fields;
+
+struct S { f0: u8, f1: u16 }
+
+fn main() -> i32 {
+    let s = S { f1: 10u16, f0: 11u8 };
+    match s {
+        S { f0: a, f1: b } => {
+            if a != 11u8 { return 1; }
+            if b != 10u16 { return 2; }
+        }
+    }
+    return 0;
+}

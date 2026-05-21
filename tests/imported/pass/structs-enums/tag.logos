@@ -1,0 +1,41 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/tag.rs
+// Modifications: `isize`→`i64`; CamelCase `colour`→`Colour`, `red`→`Red`,
+// `green`→`Green`; `use logos.lang.cmp` for `PartialEq`; the explicit `ne`
+// method dropped (Logos derives `!=` from `eq`); inner `match` arms given
+// explicit `return`s; `colour::red(..)` rest pattern → `Colour::Red(_, _)`;
+// `assert!(x != y)` → return-code check. Exercises a hand-written `PartialEq`
+// for an enum with a payload variant, matched via `*self`/`*other`, and the
+// derived `!=`.
+package se_tag;
+
+use logos.lang.cmp;
+
+enum Colour { Red(i64, i64), Green }
+
+impl PartialEq for Colour {
+    fn eq(&self, other: &Colour) -> bool {
+        match *self {
+            Colour::Red(a0, b0) => {
+                match *other {
+                    Colour::Red(a1, b1) => { return a0 == a1 && b0 == b1; }
+                    Colour::Green => { return false; }
+                }
+            }
+            Colour::Green => {
+                match *other {
+                    Colour::Red(_, _) => { return false; }
+                    Colour::Green => { return true; }
+                }
+            }
+        }
+    }
+}
+
+fn main() -> i32 {
+    let x = Colour::Red(1i64, 2i64);
+    let y = Colour::Green;
+    if x == y { return 1; }
+    if !(x != y) { return 2; }
+    return 0;
+}

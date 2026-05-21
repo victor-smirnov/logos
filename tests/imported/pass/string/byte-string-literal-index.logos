@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/consts/const-byte-str-cast.rs
+// Modifications: the original is a no-op cast smoke test (`b"x" as &[u8]`,
+// `as *const u8`, `"ä" as *const str`). Logos types a byte-string literal
+// `b"abc"` as `[u8; N]` (not `&[u8]`), and has no `*const str`, so the casts are
+// dropped; instead this exercises the byte-string literal value by indexing its
+// bytes and checking the ASCII codes. `pub fn main()`→`fn main()->i32`; checks
+// via return code.
+package st_byte_string_literal_index;
+
+fn main() -> i32 {
+    let a = b"abc";
+    if a[0] != 97u8 { return 1; }
+    if a[1] != 98u8 { return 2; }
+    if a[2] != 99u8 { return 3; }
+    let b = b"y";
+    if b[0] != 121u8 { return 4; }
+    return 0;
+}

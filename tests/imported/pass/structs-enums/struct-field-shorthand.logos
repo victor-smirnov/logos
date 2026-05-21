@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/struct-field-shorthand.rs
+// Modifications: `i32`/`bool` kept; `pub fn main()`→`fn main()->i32`;
+// `assert_eq!`→return-code checks; the trailing-comma single-field literal
+// `Bar { x, }` kept. Exercises field-init shorthand (`x`), mixed shorthand +
+// explicit (`y: y`), and out-of-order shorthand (`Foo { z, y, x }`).
+package se_struct_field_shorthand;
+
+struct Foo { x: i32, y: bool, z: i32 }
+struct Bar { x: i32 }
+
+fn main() -> i32 {
+    let x = 1i32;
+    let y = true;
+    let z = 2i32;
+
+    let a = Foo { x, y: y, z };
+    if a.x != x { return 1; }
+    if a.y != y { return 2; }
+    if a.z != z { return 3; }
+
+    let b = Bar { x, };
+    if b.x != x { return 4; }
+
+    let c = Foo { z, y, x };
+    if c.x != x { return 5; }
+    if c.y != y { return 6; }
+    if c.z != z { return 7; }
+    return 0;
+}

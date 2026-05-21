@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/struct-aliases.rs
+// Modifications: `isize`→`i64`; 1-char type `S`→`Srec`; the generic-alias half
+// (`type S4<U> = S3<U, char>` + `mem::size_of_val` checks) is dropped — it
+// relies on generic type aliases and `size_of_val`, out of scope; kept the
+// non-generic alias `type S2 = Srec` used as a type annotation and in a struct
+// literal; the *pattern* uses the base name `Srec` (a type-alias name is not
+// accepted in a struct pattern — see notes/B111); `assert_eq!`→return-code
+// checks; `pub fn main()`→`fn main()->i32`. Exercises a struct type alias in a
+// literal and as a let annotation.
+package se_struct_aliases;
+
+struct Srec { x: i64, y: i64 }
+type S2 = Srec;
+
+fn main() -> i32 {
+    let s = S2 { x: 1i64, y: 2i64 };
+    match s {
+        Srec { x: x, y: y } => {
+            if x != 1i64 { return 1; }
+            if y != 2i64 { return 2; }
+        }
+    }
+    let s2: S2 = Srec { x: 3i64, y: 4i64 };
+    if s2.x != 3i64 { return 3; }
+    if s2.y != 4i64 { return 4; }
+    return 0;
+}

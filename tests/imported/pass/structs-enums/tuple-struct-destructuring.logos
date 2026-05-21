@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/tuple-struct-destructuring.rs
+// Modifications: tuple struct `Foo(isize, isize)` → named-field
+// `struct Foo { f0: i64, f1: i64 }` (Logos tuple structs lower to named fields);
+// the `let Foo(y, z) = x` / `match Foo(a, b)` destructure uses the named-field
+// pattern form `Foo { f0: y, f1: z }`; `println!`/`format!` Debug dropped (no
+// derive(Debug) here); `assert_eq!`→return-code checks; `pub fn main()`→
+// `fn main()->i32`. Exercises destructuring a 2-field struct in `let` and `match`.
+package se_tuple_struct_destructuring;
+
+struct Foo { f0: i64, f1: i64 }
+
+fn main() -> i32 {
+    let x = Foo { f0: 1i64, f1: 2i64 };
+    let Foo { f0: y, f1: z } = x;
+    if y != 1i64 { return 1; }
+    if z != 2i64 { return 2; }
+
+    let x2 = Foo { f0: 1i64, f1: 2i64 };
+    match x2 {
+        Foo { f0: a, f1: b } => {
+            if a != 1i64 { return 3; }
+            if b != 2i64 { return 4; }
+        }
+    }
+    return 0;
+}

@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/break-value.rs
+// Modifications: `isize`→`i64`; `pub fn main()`→`fn main()->i32` with an
+// explicit `return 0`. Exercises a `break` in argument position
+// (`int_id(break)`) — the `break` diverges before the call happens, so the loop
+// exits on the first iteration.
+package fl_break_value;
+
+fn int_id(x: i64) -> i64 { return x; }
+
+fn main() -> i32 {
+    loop { int_id(break); }
+    return 0;
+}

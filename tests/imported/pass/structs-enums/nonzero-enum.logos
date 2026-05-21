@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/nonzero-enum.rs
+// Modifications: the `size_of` layout-assertion arms (the test's nominal point,
+// niche-optimization sizes) are dropped — no `size_of` on arbitrary types; the
+// kept point is the value semantics: a no-payload `None` and a `Some(E::A)`
+// carrying an explicit-discriminant enum, matched via `match`. The stdlib
+// `Option` is replaced by a local `Opt<X>` because stdlib `Some(E::A)` over a
+// custom enum currently mis-codegens (compiler-bug — see notes/B111); the local
+// generic enum with an enum payload works. `panic!()` arms → return codes;
+// `fn main()` returns i32.
+package se_nonzero_enum;
+
+enum E { A = 1, B = 2, C = 3 }
+enum Opt<X> { None, Some(X) }
+
+fn main() -> i32 {
+    let enone: Opt<E> = Opt::None;
+    let esome: Opt<E> = Opt::Some(E::A);
+    match enone {
+        Opt::Some(_) => { return 1; }
+        Opt::None => {}
+    }
+    match esome {
+        Opt::None => { return 2; }
+        Opt::Some(v) => { if (v as i64) != 1i64 { return 3; } }
+    }
+    return 0;
+}

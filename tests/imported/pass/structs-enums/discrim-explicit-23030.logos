@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/discrim-explicit-23030.rs
+// Modifications: the per-int-width fns (`f_i8`/`f_u8`/.../`f_usize`) each used
+// `#[repr(intN)]` + the primitive assoc-consts `iN::MAX`/`iN::MIN` (not
+// available on Logos primitives) to test discriminant wraparound; that whole
+// matrix is collapsed to one enum with concrete explicit discriminants. The
+// kept point: an explicit discriminant followed by *implicit* ones
+// auto-increments (`Ok2 == Ok+1`, `Zero == NotTheEnd+1 == 0`); also exercises
+// reading a discriminant out of a tuple via `.1 as i64`. `#[repr]` dropped;
+// `assert_eq!`→return-code checks; `fn main()` returns i32. In-fn nested enums
+// hoisted to top level.
+package se_discrim_explicit_23030;
+
+enum A { Ok = 100, Ok2, OhNo = -50, NotTheEnd = -1, Zero }
+
+fn main() -> i32 {
+    if (A::Ok as i64) != 100i64 { return 1; }
+    if (A::Ok2 as i64) != 101i64 { return 2; }
+    if (A::OhNo as i64) != -50i64 { return 3; }
+    if (A::Zero as i64) != 0i64 { return 4; }
+    let z = (A::NotTheEnd, A::Zero).1 as i64;
+    if z != 0i64 { return 5; }
+    return 0;
+}

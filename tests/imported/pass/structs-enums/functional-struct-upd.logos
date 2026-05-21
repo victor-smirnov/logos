@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/functional-struct-upd.rs
+// Modifications: `isize`→`i64`; the `println!("{:?}", c)` (which merely prints
+// the FRU result) → field-value checks via return codes (Debug derive not
+// needed to exercise the construct); `pub fn main()`→`fn main()->i32`.
+// Exercises functional struct update: `Foo { x: 4, ..a }` takes `y` from base.
+package se_functional_struct_upd;
+
+struct Foo { x: i64, y: i64 }
+
+fn main() -> i32 {
+    let a = Foo { x: 1i64, y: 2i64 };
+    let c = Foo { x: 4i64, ..a };
+    if c.x != 4i64 { return 1; }
+    if c.y != 2i64 { return 2; }
+    return 0;
+}

@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/self/explicit-self.rs
+// Modifications: `isize`→`i64`; the `static tau` + `shape` enum + `compute_area`
+// / `select` / `select_based_on_unit_circle` portion (lifetime-parametric ref
+// selection through a trait object) is dropped; the `thing`/`A` portion kept
+// with: `#[derive(Clone)]` dropped, `Box<thing>` receiver `bar` dropped (no Box
+// receiver), the `Nus` empty-method trait dropped; `quux(&self)`, `baz(&'a
+// self) -> &'a A`, and `spam(self)` retained (the `Box`-wrapped value → a stack
+// value; the consuming `spam` gets a fresh value). CamelCase `thing`→`Thing`;
+// `assert_eq!`→return-code checks; `fn main()` returns i32. Exercises the
+// receiver shapes `&self`, `&self -> &field`, and by-value `self`.
+package self_explicit_self;
+
+struct A { a: i64 }
+struct Thing { x: A }
+
+impl Thing {
+    fn quux(&self) -> i64 { return self.x.a; }
+    fn baz(&self) -> &A { return &self.x; }
+    fn spam(self: Thing) -> i64 { return self.x.a; }
+}
+
+fn main() -> i32 {
+    let y = Thing { x: A { a: 10i64 } };
+    if y.quux() != 10i64 { return 1; }
+    if y.baz().a != 10i64 { return 2; }
+    let z = Thing { x: A { a: 11i64 } };
+    if z.spam() != 11i64 { return 3; }
+    return 0;
+}

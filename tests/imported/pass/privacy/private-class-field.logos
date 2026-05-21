@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/privacy/private-class-field.rs
+// Modifications: `usize`/`isize`→`u64`/`i64`; the free constructor fn
+// `cat(..)` → a direct struct literal; lower-case type `cat`→`Cat`;
+// `assert_eq!`→return-code check; `pub fn main()`→`fn main()->i32`. Exercises a
+// public accessor method reading a (private-in-Rust) struct field.
+package pv_private_class_field;
+
+struct Cat { meows: u64, how_hungry: i64 }
+
+impl Cat {
+    fn meow_count(&mut self) -> u64 { return self.meows; }
+}
+
+fn main() -> i32 {
+    let mut nyan = Cat { meows: 52u64, how_hungry: 99i64 };
+    if nyan.meow_count() != 52u64 { return 1; }
+    return 0;
+}

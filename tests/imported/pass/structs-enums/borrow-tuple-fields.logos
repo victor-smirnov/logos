@@ -1,0 +1,39 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/borrow-tuple-fields.rs
+// Modifications: `isize`→`i64`; tuple struct `Foo(isize, isize)` → named-field
+// `struct Foo { f0: i64, f1: i64 }`; literal `(1, 2)` tuple kept for the shared
+// `&x.0` aliasing checks; `assert_eq!`→return-code checks; `pub fn main()`→
+// `fn main()->i32`. The disjoint `&mut tuple.1` write-and-read-back portion is
+// expressed over a named-field struct instead of a tuple, because writing
+// through `&mut x.1` on a *tuple* does not persist (compiler-bug — `&mut`
+// tuple-field place-borrow writeback; struct-field writeback works; see
+// notes/B111-ui-surfaced-gaps.md). Exercises shared `&x.0` aliasing and a
+// disjoint `&mut` field write.
+package se_borrow_tuple_fields;
+
+struct Foo { f0: i64, f1: i64 }
+
+fn main() -> i32 {
+    let x = (1i64, 2i64);
+    let a = &x.0;
+    let b = &x.0;
+    if *a != 1i64 { return 1; }
+    if *b != 1i64 { return 2; }
+
+    let xf = Foo { f0: 1i64, f1: 2i64 };
+    let af = &xf.f0;
+    let bf = &xf.f0;
+    if *af != 1i64 { return 3; }
+    if *bf != 1i64 { return 4; }
+
+    let mut xf2 = Foo { f0: 1i64, f1: 2i64 };
+    {
+        let a3 = &xf2.f0;
+        let b3 = &mut xf2.f1;
+        *b3 = 5i64;
+        if *a3 != 1i64 { return 5; }
+    }
+    if xf2.f0 != 1i64 { return 6; }
+    if xf2.f1 != 5i64 { return 7; }
+    return 0;
+}

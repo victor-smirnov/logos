@@ -1,0 +1,50 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/compare-generic-enums.rs
+// Modifications: `isize`→`i64`; the stdlib `Option<isize>` + `x == y` derived
+// PartialEq → a local `Opt<X>` enum and an explicit `cmp` fn that matches both
+// operands (stdlib `Option == Option` over a generic payload mis-codegens — see
+// notes/B111); the enum literals are bound to type-annotated locals before
+// being passed (a bare generic-enum literal passed *directly* as a call argument
+// mis-codegens — compiler-bug, see notes/B111; let/assign retype works); the
+// `type an_int = isize` alias dropped; `assert!`→return-code checks; `pub fn
+// main()`→`fn main()->i32`. Exercises comparing two generic-enum values across
+// the four Some/None combinations.
+package se_compare_generic_enums;
+
+enum Opt<X> { None, Some(X) }
+
+fn cmp(x: Opt<i64>, y: Opt<i64>) -> bool {
+    match x {
+        Opt::Some(a) => {
+            match y {
+                Opt::Some(b) => { return a == b; }
+                Opt::None => { return false; }
+            }
+        }
+        Opt::None => {
+            match y {
+                Opt::Some(_) => { return false; }
+                Opt::None => { return true; }
+            }
+        }
+    }
+}
+
+fn main() -> i32 {
+    let s3: Opt<i64> = Opt::Some(3i64);
+    let nn: Opt<i64> = Opt::None;
+    if cmp(s3, nn) { return 1; }
+
+    let a: Opt<i64> = Opt::Some(3i64);
+    let b: Opt<i64> = Opt::Some(4i64);
+    if cmp(a, b) { return 2; }
+
+    let c: Opt<i64> = Opt::Some(3i64);
+    let d: Opt<i64> = Opt::Some(3i64);
+    if !cmp(c, d) { return 3; }
+
+    let e: Opt<i64> = Opt::None;
+    let f: Opt<i64> = Opt::None;
+    if !cmp(e, f) { return 4; }
+    return 0;
+}

@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/self/explicit-self-generic.rs
+// Modifications: `usize`→`u64`; `#[derive(Copy, Clone)]` dropped; the
+// `Vec<(K,V)>` payload (and `Vec::new` constructor) → two direct `K`/`V` payload
+// fields (the Vec is incidental — the point is the `ref` binding in a `match
+// *self` on a generic-enum receiver via `&mut self`); the free `linear_map<K,V>`
+// constructor → a direct enum literal; the `Box<_>` wrapper dropped;
+// `assert_eq!`→return-code check; `pub fn main()`→`fn main()->i32`. Exercises a
+// generic enum method matching `*self` with a `ref` binder to read a field.
+package self_explicit_self_generic;
+
+struct LM { resize_at: u64, size: u64 }
+enum HashMap<K, V> { HashMapV(LM, K, V) }
+
+impl<K, V> HashMap<K, V> {
+    fn len(&mut self) -> u64 {
+        match *self {
+            HashMap::HashMapV(ref l, _, _) => { return l.size; }
+        }
+    }
+}
+
+fn main() -> i32 {
+    let mut m: HashMap<i64, i64> = HashMap::HashMapV(LM { resize_at: 32u64, size: 0u64 }, 0i64, 0i64);
+    if m.len() != 0u64 { return 1; }
+    return 0;
+}

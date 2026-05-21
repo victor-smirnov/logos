@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/expr-if-struct.rs
+// Modifications: `isize`→`i64`; `#[derive(Copy, Clone)]` dropped; the enum-tag
+// branch (`if true { mood::happy } else { mood::sad }` + a hand-written
+// PartialEq) → compared via `as i64` discriminant instead of `==`; `assert_eq!`→
+// return-code checks; `pub fn main()`→`fn main()->i32`; 1-char type `I`→`Irec`.
+// Exercises `if` as an expression yielding a struct value and an enum value.
+package se_expr_if_struct;
+
+struct Irec { i: i64 }
+enum Mood { Happy, Sad }
+
+fn test_rec() -> i32 {
+    let rs = if true { Irec { i: 100i64 } } else { Irec { i: 101i64 } };
+    if rs.i != 100i64 { return 1; }
+    return 0;
+}
+
+fn test_tag() -> i32 {
+    let rs = if true { Mood::Happy } else { Mood::Sad };
+    if (rs as i64) != (Mood::Happy as i64) { return 1; }
+    return 0;
+}
+
+fn main() -> i32 {
+    let e1 = test_rec();
+    if e1 != 0 { return e1; }
+    let e2 = test_tag();
+    if e2 != 0 { return e2 + 10; }
+    return 0;
+}

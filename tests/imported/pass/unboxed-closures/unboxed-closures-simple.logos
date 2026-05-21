@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/unboxed-closures/unboxed-closures-simple.rs
+// Modifications: `isize`→`i64`; `use std::ops::FnMut` → `use logos.lang.ops`;
+// closure body given explicit param/return types (`|x: i64, y: i64| -> i64`);
+// `assert_eq!`→return-code check; `pub fn main()`→`fn main()->i32`. Exercises
+// defining and immediately calling a two-arg closure.
+package uc_unboxed_closures_simple;
+
+use logos.lang.ops;
+
+fn main() -> i32 {
+    let f = |x: i64, y: i64| -> i64 { return x + y; };
+    let z = f(1i64, 2i64);
+    if z != 3i64 { return 1; }
+    return 0;
+}

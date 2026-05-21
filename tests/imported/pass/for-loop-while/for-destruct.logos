@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/for-destruct.rs
+// Modifications: `isize`→`i64`; `vec![Pair{..}, Pair{..}]` → `vec_new` + `push`
+// (Logos free-fn factory); the `for elt in &v { .. }` loop → an indexed `while`
+// loop over `v.length()` reading `v.get(k)` (the iteration shape Logos provides
+// for Vec); `assert_eq!`→return-code check; assert/fmt imports added; `pub fn
+// main()`→`fn main()->i32`. Exercises iterating a `Vec` of structs and reading
+// each element's fields.
+package fl_for_destruct;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+
+struct Pair { x: i64, y: i64 }
+
+fn main() -> i32 {
+    let mut v: Vec<Pair> = vec_new::<Pair>();
+    v.push(Pair { x: 10i64, y: 20i64 });
+    v.push(Pair { x: 30i64, y: 0i64 });
+    let mut k: i64 = 0i64;
+    while k < v.length() {
+        let elt = v.get(k);
+        if elt.x + elt.y != 30i64 { return 1; }
+        k = k + 1i64;
+    }
+    return 0;
+}

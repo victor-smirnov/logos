@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/class-typarams.rs
+// Modifications: `usize`/`isize`→`u64`/`i64`; the `PhantomData<U>` marker field
+// (no Logos analogue) → a real `m: U` field carrying a value (semantic-equivalent
+// way to make the struct generic over `U`); the free constructor fn `cat<U>(..)`
+// → a direct struct literal; 1-char type `U` kept (multi-letter param, OK here);
+// `assert_eq!`→return-code checks; `pub fn main()`→`fn main()->i32`. Exercises a
+// generic struct `Cat<U>` with `&mut self` methods.
+package se_class_typarams;
+
+struct Cat<U> { meows: u64, how_hungry: i64, m: U }
+
+impl<U> Cat<U> {
+    fn speak(&mut self) { self.meows = self.meows + 1u64; }
+    fn meow_count(&mut self) -> u64 { return self.meows; }
+}
+
+fn main() -> i32 {
+    let mut nyan: Cat<i64> = Cat { meows: 52u64, how_hungry: 99i64, m: 0i64 };
+    if nyan.how_hungry != 99i64 { return 1; }
+    nyan.speak();
+    if nyan.meow_count() != 53u64 { return 2; }
+    return 0;
+}

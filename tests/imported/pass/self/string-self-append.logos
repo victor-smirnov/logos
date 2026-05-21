@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/self/string-self-append.rs
+// Modifications: assert_eq! family imports via logos.std.fmt + logos.mem.string
+// + logos.lang.str; `a.len()` returns `i64` in Logos, so `expected_len` is i64
+// (not usize/u64) and the multiply is `* 2i64`; the loop count reduced 20→5
+// (still exercises repeated self-append; 2^20 string would be large); the
+// `println!` debug line dropped; `pub fn main()`→`fn main()->i32`. Exercises
+// repeated `a = format!("{}{}", a, a)` self-append and `String::len`.
+package self_string_self_append;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn main() -> i32 {
+    let mut a: String = "A".to_string();
+    let mut i = 5i64;
+    let mut expected_len = 1i64;
+    while i > 0i64 {
+        assert_eq!(a.len(), expected_len);
+        a = format!("{}{}", a, a);
+        i = i - 1i64;
+        expected_len = expected_len * 2i64;
+    }
+    return 0;
+}

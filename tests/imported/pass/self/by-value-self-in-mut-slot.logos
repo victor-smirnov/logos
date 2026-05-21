@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/self/by-value-self-in-mut-slot.rs
+// Modifications: `isize`→`i64`; by-value receiver `self`→`self: Self` /
+// `self: X` (Logos spells the by-value receiver explicitly); the `mut self`
+// receiver → rebinding into a local `let mut s = self;` then mutating (Logos
+// has no `mut` on the receiver pattern); `assert_eq!`→return-code check;
+// `pub fn main()`→`fn main()->i32`. Exercises a consuming `self` trait method
+// that mutates and returns `Self`.
+package self_by_value_self_in_mut_slot;
+
+struct X { a: i64 }
+
+trait Changer { fn change(self: Self) -> Self; }
+
+impl Changer for X {
+    fn change(self: X) -> X {
+        let mut s = self;
+        s.a = 55i64;
+        return s;
+    }
+}
+
+fn main() -> i32 {
+    let x = X { a: 32i64 };
+    let new_x = x.change();
+    if new_x.a != 55i64 { return 1; }
+    return 0;
+}

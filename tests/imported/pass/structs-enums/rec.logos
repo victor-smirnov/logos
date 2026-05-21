@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/rec.rs
+// Modifications: `isize`→`i64`; `#[derive(Copy, Clone)]` dropped (the value is
+// copied implicitly via field reads); `assert_eq!`→return-code checks;
+// `pub fn main()`→`fn main()->i32`. Exercises a 4-field record passed by value
+// to a fn that re-reads each field.
+package se_rec;
+
+struct Rect { x: i64, y: i64, w: i64, h: i64 }
+
+fn f(r: Rect, x: i64, y: i64, w: i64, h: i64) -> i32 {
+    if r.x != x { return 1; }
+    if r.y != y { return 2; }
+    if r.w != w { return 3; }
+    if r.h != h { return 4; }
+    return 0;
+}
+
+fn main() -> i32 {
+    let r = Rect { x: 10i64, y: 20i64, w: 100i64, h: 200i64 };
+    if r.x != 10i64 { return 11; }
+    if r.y != 20i64 { return 12; }
+    if r.w != 100i64 { return 13; }
+    if r.h != 200i64 { return 14; }
+    let r2 = Rect { x: 10i64, y: 20i64, w: 100i64, h: 200i64 };
+    let x = r2.x;
+    if x != 10i64 { return 15; }
+    let e1 = f(r, 10i64, 20i64, 100i64, 200i64);
+    if e1 != 0 { return e1; }
+    let e2 = f(r2, 10i64, 20i64, 100i64, 200i64);
+    if e2 != 0 { return e2; }
+    return 0;
+}

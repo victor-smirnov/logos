@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/where-clauses/where-clause-region-outlives.rs
+// Modifications: `isize`→`i64`; added field-read checks (the original only
+// constructs `A`); `pub fn main()`→`fn main()->i32`. Exercises a `where 'a: 'b`
+// region-outlives clause on a struct holding two references with distinct
+// lifetimes.
+package wc_where_clause_region_outlives;
+
+struct A<'a, 'b> where 'a: 'b { x: &'a i64, y: &'b i64 }
+
+fn main() -> i32 {
+    let x = 1i64;
+    let y = 1i64;
+    let a = A { x: &x, y: &y };
+    if *a.x != 1i64 { return 1; }
+    if *a.y != 1i64 { return 2; }
+    return 0;
+}

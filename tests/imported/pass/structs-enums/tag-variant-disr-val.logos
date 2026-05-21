@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/tag-variant-disr-val.rs
+// Modifications: the `purple = 1 << 1` / `orange = 8 >> 1` variants are dropped
+// (a shift expression in discriminant position does not parse — see
+// notes/B111); the hand-written `PartialEq` impl + the `==`/`match`-by-bare-
+// variant-name helpers → a `match`-on-`Color` helper returning the hex value;
+// `usize`/`isize` casts→`i64`; CamelCase variant names; `assert_eq!`→return-code
+// checks; `pub fn main()`→`fn main()->i32`. Exercises hex-literal and negative
+// explicit discriminants, read via `as i64` and recovered via a `match`.
+package se_tag_variant_disr_val;
+
+enum Color { Red = 0xff0000, Green = 0x00ff00, Blue = 0x0000ff, Black = 0x000000, White = 0xFFFFFF, Imaginary = -1 }
+
+fn get_color(c: Color) -> i64 {
+    match c {
+        Color::Red => { return 0xff0000i64; }
+        Color::Green => { return 0x00ff00i64; }
+        Color::Blue => { return 0x0000ffi64; }
+        Color::Black => { return 0x000000i64; }
+        Color::White => { return 0xFFFFFFi64; }
+        Color::Imaginary => { return -1i64; }
+    }
+}
+
+fn main() -> i32 {
+    if (Color::Red as i64) != 0xff0000i64 { return 1; }
+    if (Color::White as i64) != 0xFFFFFFi64 { return 2; }
+    if (Color::Imaginary as i64) != -1i64 { return 3; }
+    if get_color(Color::Green) != 0x00ff00i64 { return 4; }
+    if get_color(Color::Imaginary) != -1i64 { return 5; }
+    return 0;
+}

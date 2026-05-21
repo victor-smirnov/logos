@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/self/move-self.rs
+// Modifications: `x: String`→`x: i64` (the field value is read back rather than
+// printed); by-value receiver `self`→`self: S`; `foo`/`bar` return the field
+// instead of `println!`-ing it, checked via return code; `pub fn main()`→
+// `fn main()->i32`. Exercises a by-value `self` method (`foo`) that consumes
+// `self` by calling another by-value `self` method (`bar`).
+package self_move_self;
+
+struct S { x: i64 }
+
+impl S {
+    fn foo(self: S) -> i64 { return self.bar(); }
+    fn bar(self: S) -> i64 { return self.x; }
+}
+
+fn main() -> i32 {
+    let x = S { x: 42i64 };
+    if x.foo() != 42i64 { return 1; }
+    return 0;
+}

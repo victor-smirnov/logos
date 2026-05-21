@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/simple-match-generic-tag.rs
+// Modifications: 1-char type `T`→`X`; CamelCase variants `none`/`some`→`None`/
+// `Some`; the turbofish-in-pattern `opt::none::<isize>` → a plain `Opt::None`
+// pattern (the value's type is pinned by the `let` annotation); `println!` arm
+// → return-code checks; `pub fn main()`→`fn main()->i32`. Exercises matching a
+// no-payload variant of a generic enum.
+package se_simple_match_generic_tag;
+
+enum Opt<X> { None, Some(X) }
+
+fn main() -> i32 {
+    let x: Opt<i64> = Opt::None;
+    match x {
+        Opt::None => { return 0; }
+        Opt::Some(_) => { return 1; }
+    }
+}

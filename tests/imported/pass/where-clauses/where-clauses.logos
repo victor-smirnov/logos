@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/where-clauses/where-clauses.rs
+// Modifications: `isize`→`i64`; the trait's *method-generic* method
+// `equals<T,U>(..) where T: Eq, U: Eq` is dropped (method-level generic params
+// with a `where` bound are out of scope for this port — see notes/B111); kept
+// the simple `equal(&self, &Self) -> bool` trait method, the blanket
+// `impl<X> Equal for X where X: Eq`, and the free `equal<X>(..) where X: Eq`;
+// `println!` → return-code checks; 1-char type `T`→`X`; `pub fn main()`→
+// `fn main()->i32`. Exercises a where-clause-bounded blanket trait impl plus a
+// where-clause-bounded generic free fn, both over `Eq`.
+package wc_where_clauses;
+
+use logos.lang.cmp;
+
+trait Equal { fn equal(&self, other: &Self) -> bool; }
+
+impl<X> Equal for X where X: Eq {
+    fn equal(&self, other: &X) -> bool { return self == other; }
+}
+
+fn equal<X>(x: &X, y: &X) -> bool where X: Eq { return x == y; }
+
+fn main() -> i32 {
+    if equal(&1i64, &2i64) { return 1; }
+    if !equal(&1i64, &1i64) { return 2; }
+    if !(5i64).equal(&5i64) { return 3; }
+    if (5i64).equal(&6i64) { return 4; }
+    return 0;
+}

@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/privacy/private-method-rpass.rs
+// Modifications: `usize`/`isize`→`u64`/`i64`; the free constructor fn
+// `cat(..)` → a direct struct literal; lower-case type `cat`→`Cat`; the two
+// separate `impl cat` blocks merged into one (the point — a public method
+// calling a private one — is preserved); the `for _ in 1..10 {}` nap loop →
+// an equivalent `while` loop; `pub fn main()`→`fn main()->i32`; result checked
+// via return code. Exercises a public method (`play`) calling a private method
+// (`nap`) on `&mut self`.
+package pv_private_method_rpass;
+
+struct Cat { meows: u64, how_hungry: i64 }
+
+impl Cat {
+    fn play(&mut self) { self.meows = self.meows + 1u64; self.nap(); }
+    fn nap(&mut self) { let mut i = 1u64; while i < 10u64 { i = i + 1u64; } }
+}
+
+fn main() -> i32 {
+    let mut nyan = Cat { meows: 52u64, how_hungry: 99i64 };
+    nyan.play();
+    if nyan.meows != 53u64 { return 1; }
+    return 0;
+}
