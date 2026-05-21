@@ -1906,37 +1906,35 @@ void SemaChecker::collect_trait(TinyMapView node) {
     pop_type_params(info.type_params);
     current_type_params_.erase("Self");
     current_trait_name_.clear();
-    // Trait-def uniqueness (closes B-it-05). Skip empty names — trait_inst
-    // forward-instantiation declarations reach this code path with no NAME
-    // field; those aren't duplicates of each other.
-    if (!tname.empty() && traits_.count(tname)) {
-        auto& existing = traits_[tname];
-        // Three-layer split fix: pass0 pre-registered an empty placeholder
-        // entry so collect_impl in pass2 could find the trait by name
-        // regardless of iteration order. Now that we have the real body,
-        // overwrite the placeholder (don't treat as duplicate).
-        if (existing.predeclared) {
-            // fall through to assignment below
-        } else
-        // B-mv-02: cross-pkg same-name traits hit this path because traits_
-        // is keyed by bare name (legacy).  Make the diagnostic explicit.
-        {
-            std::string existing_pkg = existing.package;
-            if (existing_pkg != cur_package_ &&
-                !existing_pkg.empty() && !cur_package_.empty()) {
-                error(std::format(
-                    "trait '{}' defined in both packages '{}' and '{}' — "
-                    "cross-package same-name traits clobber each other in "
-                    "the legacy trait registry (B-mv-02); rename one of them",
-                    tname, existing_pkg, cur_package_));
-            } else {
-                error(std::format("duplicate trait '{}'", tname));
-            }
-        }
+    info.package = cur_package_;  // record so cross-pkg resolution can pick scope
+    // B-mv-02 fix: by default a trait keeps its legacy BARE-name slot (single
+    // entry — preserves the per-trait iterations over traits_). When a user
+    // trait collides with an already-registered trait of the SAME bare name
+    // from a DIFFERENT package (e.g. a user `trait From` vs the prelude's
+    // `logos.lang.convert::From`), the two are distinct traits (Rust parity):
+    // keep the incumbent in the bare slot and register the newcomer ONLY under
+    // its package-qualified key `pkg::Name`. `find_trait_by_name` probes
+    // `cur_package_::Name` first, so user code resolves to its own trait while
+    // bare/hardcoded lookups (`traits_.find("Iterator")`) and other packages
+    // still see the incumbent. Doubling is thus confined to genuinely-colliding
+    // names. Real duplicate (B-it-05) = same package + same name.
+    auto bit = traits_.find(tname);
+    const bool bare_taken_by_other =
+        !tname.empty() && bit != traits_.end() && !bit->second.predeclared &&
+        !bit->second.package.empty() && bit->second.package != cur_package_;
+    if (bare_taken_by_other) {
+        const std::string qkey = sema_key(cur_package_, tname);
+        if (auto qit = traits_.find(qkey);
+            qit != traits_.end() && !qit->second.predeclared)
+            error(std::format("duplicate trait '{}'", tname));
+        traits_[qkey] = std::move(info);   // qualified-only; bare untouched
+        if (!cur_from_binary_) user_trait_keys_.insert(qkey);
+    } else {
+        if (!tname.empty() && bit != traits_.end() && !bit->second.predeclared)
+            error(std::format("duplicate trait '{}'", tname));
+        traits_[tname] = std::move(info);  // legacy bare slot (canonical)
+        if (!cur_from_binary_) user_trait_keys_.insert(tname);
     }
-    info.package = cur_package_;  // record so future cross-pkg dup diag can show pkg
-    traits_[tname] = std::move(info);
-    if (!cur_from_binary_) user_trait_keys_.insert(tname);
 }
 
 void SemaChecker::collect_impl(TinyMapView node) {
@@ -2316,7 +2314,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 }
             }
         }
-        auto tit = traits_.find(trait_name);
+        auto tit = find_trait_iter_scoped(trait_name);
         if (tit != traits_.end()) {
             for (size_t i = 0; i < tit->second.type_params.size() &&
                                 i < trait_type_args.size(); ++i)
@@ -2458,7 +2456,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                             error(std::format("impl {} for {}: GAT param '{}' shadows impl type param",
                                               trait_name, target, gtp.name));
                 // Bug 4 fix: impl GAT arity must match the trait's declaration.
-                auto tit_gat = traits_.find(trait_name);
+                auto tit_gat = find_trait_iter_scoped(trait_name);
                 if (tit_gat != traits_.end()) {
                     for (auto& at_def : tit_gat->second.assoc_types) {
                         if (at_def.name == aname && at_def.type_params.size() != gat_tps.size()) {
@@ -2495,7 +2493,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     if (m.has_key(la::TYPE))
                         ctype = resolve_type(map_of(m.get(la::TYPE.code)));
                     // Type check: impl's type must match the trait's declared type.
-                    auto tit2 = traits_.find(trait_name);
+                    auto tit2 = find_trait_iter_scoped(trait_name);
                     if (tit2 != traits_.end() && ctype) {
                         for (auto& ac_def : tit2->second.assoc_consts) {
                             if (ac_def.name == cname && ac_def.type) {
@@ -2552,7 +2550,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
         ? ("$blanket$" + trait_name + "$" + blanket_bound_trait + "$" + target)
         : target;
     if (!trait_name.empty()) {
-        auto tit = traits_.find(trait_name);
+        auto tit = find_trait_iter_scoped(trait_name);
         if (tit != traits_.end()) {
             for (auto& m : tit->second.methods) {
                 auto mangled = check_target + "__" + m.name;
@@ -2754,7 +2752,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
     // blanket's assoc types are per-instantiation and not keyed by a single
     // target; the LIR body catches mistakes at monomorphization time).
     if (!trait_name.empty() && !is_blanket) {
-        auto tit = traits_.find(trait_name);
+        auto tit = find_trait_iter_scoped(trait_name);
         if (tit != traits_.end()) {
             for (auto& at : tit->second.assoc_types) {
                 std::string key = trait_name + "::" + target + "::" + at.name;
@@ -2790,7 +2788,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
         error(std::format("unsafe impl {}: standalone impl cannot be unsafe", target));
     // Clean up trait type params from scope
     if (!trait_name.empty() && !trait_type_args.empty()) {
-        auto tit = traits_.find(trait_name);
+        auto tit = find_trait_iter_scoped(trait_name);
         if (tit != traits_.end()) {
             for (auto& tp : tit->second.type_params)
                 current_type_params_.erase(tp.name);

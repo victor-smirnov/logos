@@ -2085,6 +2085,25 @@ private:
     std::pair<std::string, SemaTraitInfo*> find_trait_by_name(std::string_view name) {
         return lookup_qualified_<false>(traits_, name);
     }
+    // Scope-aware iterator into traits_: probes `cur_package_::name`, then each
+    // imported/re-exported package, then the bare name (legacy slot). Same
+    // resolution order as find_trait_by_name / lookup_qualified_, but returns
+    // the map iterator so call sites that need the SemaTraitInfo in place
+    // (collect_impl validation, method/assoc registration) keep working after
+    // the B-mv-02 fix made a user trait that collides with an imported
+    // same-name trait register under its package-qualified key only.
+    logos::compiler::StrMap<SemaTraitInfo>::iterator
+    find_trait_iter_scoped(std::string_view name) {
+        if (!cur_package_.empty()) {
+            auto it = traits_.find(sema_key(cur_package_, name));
+            if (it != traits_.end()) return it;
+        }
+        for (auto& pkg : effective_import_pkgs()) {
+            auto it = traits_.find(sema_key(pkg, name));
+            if (it != traits_.end()) return it;
+        }
+        return traits_.find(std::string(name));
+    }
     bool has_struct(std::string_view name)   { return find_struct_by_name(name).second   != nullptr; }
     bool has_datatype(std::string_view name) { return find_datatype_by_name(name).second != nullptr; }
     bool has_enum(std::string_view name)     { return find_enum_by_name(name).second     != nullptr; }
