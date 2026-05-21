@@ -169,7 +169,15 @@ logos::expected<uint32_t> c_tiny_map(const uint8_t* o, CloneCtx* c) noexcept {
     uint32_t src_off = src_off_of(o, c->base_src);
     uint64_t bm = src->bitmap();
 
-    LOGOS_TRY(auto* dst_map, TinyObjectMap::create(*c->dst, src->capacity()));
+    // Size the clone to its exact entry count, not the source's power-of-two
+    // capacity. A clone packs a final, settled map — there is no amortized-
+    // growth argument for over-allocating, and the dropped slack (capacity -
+    // size, ~33% on average under cap*2 growth) is pure savings in the dumped
+    // arena. TOM reads are capacity-independent (bitmap + popcount index_of),
+    // so a capacity==size map reads identically; a later put() simply grows
+    // via the normal cap*2 path. Mirrors the ObjectArray clone above, which
+    // already sizes to n.
+    LOGOS_TRY(auto* dst_map, TinyObjectMap::create(*c->dst, src->size()));
     uint32_t dst_off = dst_offset_of(dst_map, *c->dst);
     dst_map->set_schema_type_code(src->schema_type_code());
     remember(c, src_off, dst_off);
