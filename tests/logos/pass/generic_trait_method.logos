@@ -1,21 +1,21 @@
 package generic_trait_method;
 
-trait Hasher {
+trait GTMHasher {
     fn write_u64(&mut self, val: u64);
 }
 
-trait Hash {
-    fn hash<H: Hasher>(&self, state: &mut H);
+trait GTMHash {
+    fn hash<H: GTMHasher>(&self, state: &mut H);
 }
 
 struct DummyHasher { s: u64 }
 
-impl Hasher for DummyHasher {
+impl GTMHasher for DummyHasher {
     fn write_u64(&mut self, val: u64) { self.s = self.s + val; }
 }
 
-impl Hash for i32 {
-    fn hash<H: Hasher>(&self, state: &mut H) {
+impl GTMHash for i32 {
+    fn hash<H: GTMHasher>(&self, state: &mut H) {
         state.write_u64(*self as u64);
     }
 }
