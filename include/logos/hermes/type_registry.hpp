@@ -98,6 +98,15 @@ namespace type_hash {
     // the multi-arena IR (LIR mirror arenas; AST arenas keep their existing
     // PROGRAM root).
     inline constexpr uint64_t LirArenaRoot  = 5002;
+
+    // ImportTable: schema_type_code for the TinyObjectMap root of a module's
+    // import-table document — a SEPARATE Hermes doc (own `.imp` archive member)
+    // listing the libraries this module imports, so a tool can read just that
+    // one small member to see the module's dependency set. Maps the module-
+    // local `arena_id` (the index into the IMPORTS array) → (file_name,
+    // doc_name); a cross-arena ExternalRef's arena_id resolves through here.
+    // Like LirArenaRoot, this is a schema_type_code (not a TypeTag prefix).
+    inline constexpr uint64_t ImportTable   = 5003;
 }
 
 // TypeTraits: compile-time properties of a Hermes data type.

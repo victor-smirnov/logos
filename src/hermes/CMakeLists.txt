@@ -2,6 +2,7 @@ add_library(logos_hermes
     arena.cpp
     arena_pool.cpp
     arena_publish.cpp
+    import_table.cpp
     document.cpp
     view.cpp
     binary_codec.cpp

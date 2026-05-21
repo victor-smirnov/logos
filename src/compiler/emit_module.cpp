@@ -21,6 +21,7 @@
 #include <logos/hermes/arena_publish.hpp>
 #include <logos/hermes/binary_codec.hpp>
 #include <logos/hermes/document.hpp>
+#include <logos/hermes/import_table.hpp>
 #include <logos/hermes/type_ops.hpp>
 
 #include <cstdio>
@@ -741,6 +742,9 @@ bool emit_module(const ModuleManifest& manifest,
     // -l files contribute. (Phase 1 of the three-layer stdlib split — see
     // docs/core-port/three-layer-split.md.)
     std::vector<std::string> all_lib_files;
+    // The module's declared dependency archives (manifest `depends`), kept for
+    // the import-table member — the libraries this module imports.
+    std::vector<std::string> import_dep_archives;
     {
         std::string err;
         auto dep_archives = resolve_manifest_depends(manifest, search_paths, err);
@@ -748,6 +752,7 @@ bool emit_module(const ModuleManifest& manifest,
             std::fprintf(stderr, "emit_module: %s\n", err.c_str());
             return false;
         }
+        import_dep_archives = dep_archives;
         all_lib_files = std::move(dep_archives);
         for (auto& f : opts.extra_lib_files) all_lib_files.push_back(f);
         if (verbose && !manifest.depends.empty()) {
@@ -1083,13 +1088,59 @@ bool emit_module(const ModuleManifest& manifest,
         }
     }
 
+    // Import-table member: a standalone Hermes doc listing the libraries this
+    // module imports (its `depends`), one (file_name, doc_name) per local
+    // arena_id. Shipped as its own `.imp` member (wrapped in a `.limports`
+    // ELF section, mirroring the .hm0/.pkgi wrap) so a tool can read just this
+    // small member for fast dependency inspection, and so a cross-arena
+    // ExternalRef's arena_id resolves through it. doc_name is "" today (one
+    // document per .hermes0; multi-doc reserved).
+    std::string imp_obj_path;
+    {
+        std::vector<hermes::ImportEntry> imports;
+        imports.reserve(import_dep_archives.size());
+        for (const auto& a : import_dep_archives) {
+            imports.push_back({fs::path(a).filename().string(), std::string()});
+        }
+        auto blob = hermes::build_import_table_blob(manifest.name, imports);
+        if (!blob) {
+            std::fprintf(stderr, "emit_module: import-table build failed\n");
+            return false;
+        }
+        std::string imp_raw_path =
+            h0_path.substr(0, h0_path.find_last_of('.')) + ".imp.raw";
+        {
+            std::ofstream f(imp_raw_path, std::ios::binary);
+            if (!f) {
+                std::fprintf(stderr, "emit_module: cannot write imp raw '%s'\n",
+                             imp_raw_path.c_str());
+                return false;
+            }
+            f.write(reinterpret_cast<const char*>(blob->data()),
+                    static_cast<std::streamsize>(blob->size()));
+        }
+        imp_obj_path =
+            h0_path.substr(0, h0_path.find_last_of('.')) + ".imp";
+        std::ostringstream cmd;
+        cmd << "objcopy -I binary -O elf64-x86-64 "
+            << "--rename-section .data=.limports "
+            << imp_raw_path << " " << imp_obj_path;
+        if (verbose) {
+            std::fprintf(stderr, "emit_module: %s\n", cmd.str().c_str());
+        }
+        if (std::system(cmd.str().c_str()) != 0) {
+            std::fprintf(stderr, "emit_module: objcopy imp wrap failed\n");
+            return false;
+        }
+    }
+
     // Create .a archive: lazy mode has no .o (codegen skipped), pack just
-    // the .hm0 wrapper + pkgi index. Eager mode also packs NAME.o.
+    // the .hm0 wrapper + pkgi index + import table. Eager mode also packs NAME.o.
     {
         std::ostringstream cmd;
         cmd << "ar rcs " << output_path;
         if (!manifest.lazy) cmd << " " << obj_path;
-        cmd << " " << h0_obj_path << " " << pkgi_obj_path;
+        cmd << " " << h0_obj_path << " " << pkgi_obj_path << " " << imp_obj_path;
         if (verbose) {
             std::fprintf(stderr, "emit_module: %s\n", cmd.str().c_str());
         }
