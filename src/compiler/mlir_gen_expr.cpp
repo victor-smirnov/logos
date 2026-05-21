@@ -2642,6 +2642,45 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                                       lir_view::PatVariantDataView{sp}, added);
                 });
             }
+        } else if (pat_ref.kind() == pc::Code::Struct) {
+            // Struct pattern field bindings (`A { f0: x }`, shorthand `A { x }`,
+            // `A { .. }`). Mirrors the match-statement extract_payload Struct
+            // case: GEP each named field and bind. `{ .. }` binds nothing.
+            lir_view::PatStructView ps{pat_ref};
+            std::string sname(ps.struct_name());
+            auto sit = struct_types_.find(sname);
+            if (sit != struct_types_.end()) {
+                const StructInfo& sinfo = sit->second;
+                mlir::Value sptr = scrut_ptr ? scrut_ptr : scrut;
+                if (sptr && sptr.getType() != ptr_type()) {
+                    auto a = create_entry_alloca(sptr.getType());
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, sptr, a);
+                    sptr = a;
+                }
+                if (sptr) ps.each_field([&](lir_view::PatFieldBindingView pfb) {
+                    std::string field_name(pfb.field_name());
+                    auto bind_field = [&](const std::string& bind_name) {
+                        if (bind_name.empty() || bind_name == "_") return;
+                        auto fp = gep_field(sptr, sinfo, field_name);
+                        if (!fp) return;
+                        mlir::Type fmlir;
+                        for (auto& sf : sinfo.fields)
+                            if (sf.name == field_name) { fmlir = sf.type; break; }
+                        if (!fmlir) return;
+                        auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, fmlir, fp);
+                        auto alloca = create_entry_alloca(fmlir);
+                        builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+                        scope_[bind_name] = alloca;
+                        let_vars_.insert(bind_name);
+                        var_elem_types_[bind_name] = fmlir;
+                        added.push_back(bind_name);
+                    };
+                    auto sub = pfb.sub();
+                    if (!sub) bind_field(field_name);
+                    else if (sub.kind() == pc::Code::Wild)
+                        bind_field(std::string(lir_view::PatWildView{sub}.name()));
+                });
+            }
         } else if (pat_ref.kind() == pc::Code::RefBind) {
             // `ref r` / `ref mut r` — bind name as a pointer to the scrutinee
             // slot so `*r` in a guard or body reads through the original
@@ -2841,8 +2880,15 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
         // guard decide. Without this it fell into the catch-all `else`
         // branch below and was dispatched as `scrut == 0` (get_disc default),
         // so `ref r if <guard>` only entered its guard when scrut == 0.
+        // A struct pattern (`A { .. }` / `A { f: x }`) is irrefutable in
+        // match-expression position — only binding/rest field sub-patterns are
+        // supported here (refutable struct-field literal tests aren't), so it
+        // always matches and binds. Without this it fell into the catch-all
+        // `else` and emitted a discriminant `cmpi` against the struct pointer
+        // → verify fail.
         bool is_wild = arm_pat_ref.kind() == pc::Code::Wild ||
-                       arm_pat_ref.kind() == pc::Code::RefBind;
+                       arm_pat_ref.kind() == pc::Code::RefBind ||
+                       arm_pat_ref.kind() == pc::Code::Struct;
         auto get_disc = [](lir_view::PatRef p) -> int64_t {
             switch (p.kind()) {
             case pc::Code::Variant:     return lir_view::PatVariantView{p}.disc();

@@ -1,0 +1,22 @@
+// Regression: a struct pattern as a match-EXPRESSION arm. The match-expr
+// codegen had no Struct case — `A { .. }` fell into the catch-all scalar
+// dispatch and emitted a discriminant `cmpi` against the struct pointer
+// (MLIR verify fail). Now a struct pattern is irrefutable in match-expr
+// position and its field bindings are extracted (mirrors the match-stmt path).
+package match_expr_struct_pattern;
+
+struct A { f0: i64, f1: i64 }
+
+fn main() -> i32 {
+    let a = A { f0: 3i64, f1: 7i64 };
+    // rest-only (the original bug)
+    let x = match a { A { .. } => 1i64, };
+    if x != 1i64 { return 1i32; }
+    // explicit field bindings
+    let y = match a { A { f0: p, f1: q } => p + q, };
+    if y != 10i64 { return 2i32; }
+    // shorthand + rest
+    let z = match a { A { f0, .. } => f0, };
+    if z != 3i64 { return 3i32; }
+    return 0i32;
+}

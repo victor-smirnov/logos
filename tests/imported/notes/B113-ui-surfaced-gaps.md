@@ -99,7 +99,7 @@ Categories below: `compiler-bug` (crash / wrong runtime value / verifier fail),
   `FnMut`) and into a generic `g` is dropped twice. Move/drop tracking through a
   closure that captures an `F: FnMut` and forwards a moved `String`.
 
-### 4. Struct `{ .. }` rest-pattern in a `match` arm mis-codegens (MLIR verify fail)
+### 4. Struct `{ .. }` rest-pattern in a `match` arm mis-codegens (MLIR verify fail) — FIXED (2026-05-21)
 - Surfaced while porting `pattern/struct-wildcard-pattern-14308.rs` (SKIPPED).
 - Minimal trigger:
   ```
@@ -110,6 +110,11 @@ Categories below: `compiler-bug` (crash / wrong runtime value / verifier fail),
 - Symptom: `'arith.cmpi' op operand #0 must be signless-integer-like, but got
   '!llvm.ptr'` → verify fail. A `Struct { .. }` rest-pattern as a match arm
   emits a discriminant compare against a pointer.
+  **FIXED:** the match-EXPRESSION codegen had no Struct case (only the
+  match-statement path did); a struct pattern is now treated as irrefutable in
+  match-expr dispatch and its field bindings extracted. Regression
+  `tests/logos/pass/match_expr_struct_pattern.logos`. (Refutable struct-field
+  literal tests in match-expr remain unsupported — separate feature.)
 
 ### 5. `format!` in two trait impls on different primitives → moved `__buf` / func.call mismatch
 - Surfaced while porting `traits/issue-23825.rs` (SKIPPED).
