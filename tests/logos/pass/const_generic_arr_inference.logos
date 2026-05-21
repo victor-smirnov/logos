@@ -1,11 +1,11 @@
 // Inference of `const N: i64` from `[T; M]` argument shape. Without
-// turbofish, `vec_from_arr([10, 20, 13])` infers T=i32 (from the
+// turbofish, `cg_vec_from_arr([10, 20, 13])` infers T=i32 (from the
 // element type) AND N=3 (from the array length) — no `::<i32, 3i64>`.
 package const_generic_arr_inference;
 
 use logos.mem.collections.vec;
 
-pub fn vec_from_arr<T: Copy, const N: i64>(arr: [T; N]) -> Vec<T> {
+pub fn cg_vec_from_arr<T: Copy, const N: i64>(arr: [T; N]) -> Vec<T> {
     let mut v: Vec<T> = vec_new::<T>();
     let mut i: i64 = 0i64;
     while i < N { v.push(arr[i]); i = i + 1i64; }
@@ -13,6 +13,6 @@ pub fn vec_from_arr<T: Copy, const N: i64>(arr: [T; N]) -> Vec<T> {
 }
 
 fn main() -> i32 {
-    let v: Vec<i32> = vec_from_arr([10i32, 20i32, 13i32]);
+    let v: Vec<i32> = cg_vec_from_arr([10i32, 20i32, 13i32]);
     return v.get(0i64) + v.get(1i64) + v.get(2i64);
 }

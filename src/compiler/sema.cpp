@@ -1402,20 +1402,20 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_generic_func(std::string_view
 const SemaChecker::SemaFuncInfo* SemaChecker::find_generic_func(std::string_view base_name,
                                                                 size_t n_args) const {
     const SemaFuncInfo* fallback = nullptr;
+    const SemaFuncInfo* first_arity = nullptr;
     if (auto git = generic_overloads_.find(std::string(base_name)); git != generic_overloads_.end()) {
         for (auto& sym : git->second) {
             auto fit = generic_funcs_.find(sym);
             if (fit == generic_funcs_.end()) continue;
             auto& fi = fit->second;
-            if (fi.is_vararg) {
-                if (n_args >= fi.param_types.size()) return &fi;
-            } else if (fi.param_types.size() == n_args) {
-                return &fi;
-            } else if (!fallback) {
-                fallback = &fi;
-            }
+            bool arity_ok = fi.is_vararg ? n_args >= fi.param_types.size()
+                                         : fi.param_types.size() == n_args;
+            if (!arity_ok) { if (!fallback) fallback = &fi; continue; }
+            if (!cur_package_.empty() && fi.package == cur_package_) return &fi;
+            if (!first_arity) first_arity = &fi;
         }
     }
+    if (first_arity) return first_arity;
     return fallback;
 }
 
