@@ -4590,6 +4590,103 @@ lir::LExprPtr SemaChecker::try_blanket_method_dispatch(
     return nullptr;
 }
 
+// SL-sl-08: tuple receiver — dispatch user-defined `impl Trait for (A,B,…)`
+// methods. Mirrors the slice path (sentinel-name lookup against `$tuple$N`
+// generic blanket / `$tuple$N$<t1>$<t2>…` concrete forms). Also handles
+// `&Tuple` / `&mut Tuple` receivers for trait methods that take `&Self`
+// (e.g. Eq.eq). Returns nullopt if the receiver is not a (ref-to-)tuple, or
+// if no tuple impl matched — downstream gets the standard "not a struct"
+// diagnostic at the bottom of lower_method_call.
+std::optional<lir::LExprPtr> SemaChecker::try_method_on_tuple(
+        TinyMapView node, lir::LExprPtr& recv, std::string_view method_name) {
+    if (!(recv->type && (TypeRef(recv->type).kind() == LogosType::Kind::Tuple ||
+        (is_ref_like(TypeRef(recv->type).kind()) &&
+         TypeRef(recv->type).pointee() &&
+         TypeRef(TypeRef(recv->type).pointee()).kind() == LogosType::Kind::Tuple))))
+        return std::nullopt;
+    TypeRef tup_t = recv->type;
+    bool recv_is_ref = false;
+    if (is_ref_like(TypeRef(tup_t).kind())) {
+        recv_is_ref = true;
+        tup_t = TypeRef(tup_t).pointee();
+    }
+    std::vector<lir::LExprPtr> tup_args = lower_call_args(node);
+    auto elems = TypeRef(tup_t).tuple_elems();
+    size_t arity = elems.size();
+    std::vector<std::string> keys;
+    {
+        std::string concrete_key = "$tuple$" + std::to_string(arity);
+        for (auto e : elems) {
+            concrete_key += "$";
+            concrete_key += (e ? type_str(e) : std::string("?"));
+        }
+        concrete_key += "__" + std::string(method_name);
+        keys.push_back(std::move(concrete_key));
+    }
+    keys.push_back("$tuple$" + std::to_string(arity)
+                   + "__" + std::string(method_name));
+    for (auto& key : keys) {
+        const SemaFuncInfo* fi_ptr = nullptr;
+        // Try multiple receiver shapes since `&Self` / `Self` / `&mut Self`
+        // all need to match.
+        std::vector<TypeRef> recv_shapes;
+        recv_shapes.push_back(tup_t);                  // Self (by value)
+        recv_shapes.push_back(make_ref(false, tup_t)); // &Self
+        recv_shapes.push_back(make_ref(true,  tup_t)); // &mut Self
+        for (auto rs : recv_shapes) {
+            std::vector<TypeRef> mtypes;
+            mtypes.push_back(rs);
+            for (auto& a : tup_args) mtypes.push_back(a->type);
+            if (auto fit = find_func_by_base_and_signature(key, mtypes, false)) {
+                fi_ptr = fit; break;
+            }
+        }
+        if (!fi_ptr) {
+            if (auto git = find_generic_func(key)) fi_ptr = git;
+        }
+        if (!fi_ptr) continue;
+
+        // Coerce recv to the formal receiver shape.
+        TypeRef formal0 = !fi_ptr->param_types.empty()
+            ? fi_ptr->param_types[0] : TypeRef(nullptr);
+        // Substitute method type-params to get concrete formal recv.
+        SemaSubst tup_subst;
+        for (size_t i = 0; i < fi_ptr->type_params.size() && i < arity; ++i)
+            tup_subst[fi_ptr->type_params[i].name] = elems[i];
+        if (formal0)
+            formal0 = subst_type_sema(formal0, tup_subst);
+        bool formal_is_ref = formal0 && is_ref_like(TypeRef(formal0).kind());
+        if (formal_is_ref && !recv_is_ref) {
+            bool is_mut = (TypeRef(formal0).kind() == LogosType::Kind::MutRef);
+            auto rty = make_ref(is_mut, tup_t);
+            recv = builder().addr_of_temp(std::move(recv), is_mut, rty);
+        } else if (!formal_is_ref && recv_is_ref) {
+            recv = builder().deref(std::move(recv), tup_t);
+        }
+
+        std::vector<lir::LExprPtr> pargs;
+        pargs.push_back(std::move(recv));
+        for (auto& a : tup_args) pargs.push_back(std::move(a));
+        if (!fi_ptr->type_params.empty()) {
+            std::vector<TypeRef> m_type_args;
+            size_t tp_idx = 0;
+            for (auto& tp : fi_ptr->type_params) {
+                if (tp_idx < arity) m_type_args.push_back(elems[tp_idx]);
+                else m_type_args.push_back(error_t());
+                ++tp_idx;
+                (void)tp;
+            }
+            return finish_generic_call(
+                fi_ptr->symbol_name.empty() ? key : fi_ptr->symbol_name,
+                *fi_ptr, std::move(m_type_args), std::move(pargs));
+        }
+        return builder().call(
+            fi_ptr->symbol_name.empty() ? key : fi_ptr->symbol_name,
+            {}, std::move(pargs), fi_ptr->ret_type);
+    }
+    return std::nullopt;
+}
+
 lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     auto method_name = str_of(node.get(la::NAME.code));
     auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
@@ -4656,95 +4753,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // against `$tuple$N` generic blanket / `$tuple$N$<t1>$<t2>…`
     // concrete forms). Also handles `&Tuple` / `&mut Tuple` receivers
     // for trait methods that take `&Self` (e.g. Eq.eq).
-    if (recv->type && (TypeRef(recv->type).kind() == LogosType::Kind::Tuple ||
-        (is_ref_like(TypeRef(recv->type).kind()) &&
-         TypeRef(recv->type).pointee() &&
-         TypeRef(TypeRef(recv->type).pointee()).kind() == LogosType::Kind::Tuple))) {
-        TypeRef tup_t = recv->type;
-        bool recv_is_ref = false;
-        if (is_ref_like(TypeRef(tup_t).kind())) {
-            recv_is_ref = true;
-            tup_t = TypeRef(tup_t).pointee();
-        }
-        std::vector<lir::LExprPtr> tup_args = lower_call_args(node);
-        auto elems = TypeRef(tup_t).tuple_elems();
-        size_t arity = elems.size();
-        std::vector<std::string> keys;
-        {
-            std::string concrete_key = "$tuple$" + std::to_string(arity);
-            for (auto e : elems) {
-                concrete_key += "$";
-                concrete_key += (e ? type_str(e) : std::string("?"));
-            }
-            concrete_key += "__" + std::string(method_name);
-            keys.push_back(std::move(concrete_key));
-        }
-        keys.push_back("$tuple$" + std::to_string(arity)
-                       + "__" + std::string(method_name));
-        for (auto& key : keys) {
-            const SemaFuncInfo* fi_ptr = nullptr;
-            // Try multiple receiver shapes since `&Self` / `Self` / `&mut Self`
-            // all need to match.
-            std::vector<TypeRef> recv_shapes;
-            recv_shapes.push_back(tup_t);                  // Self (by value)
-            recv_shapes.push_back(make_ref(false, tup_t)); // &Self
-            recv_shapes.push_back(make_ref(true,  tup_t)); // &mut Self
-            for (auto rs : recv_shapes) {
-                std::vector<TypeRef> mtypes;
-                mtypes.push_back(rs);
-                for (auto& a : tup_args) mtypes.push_back(a->type);
-                if (auto fit = find_func_by_base_and_signature(key, mtypes, false)) {
-                    fi_ptr = fit; break;
-                }
-            }
-            if (!fi_ptr) {
-                if (auto git = find_generic_func(key)) fi_ptr = git;
-            }
-            if (!fi_ptr) continue;
-
-            // Coerce recv to the formal receiver shape.
-            TypeRef formal0 = !fi_ptr->param_types.empty()
-                ? fi_ptr->param_types[0] : TypeRef(nullptr);
-            // Substitute method type-params to get concrete formal recv.
-            SemaSubst tup_subst;
-            for (size_t i = 0; i < fi_ptr->type_params.size() && i < arity; ++i)
-                tup_subst[fi_ptr->type_params[i].name] = elems[i];
-            if (formal0)
-                formal0 = subst_type_sema(formal0, tup_subst);
-            bool formal_is_ref = formal0 && is_ref_like(TypeRef(formal0).kind());
-            if (formal_is_ref && !recv_is_ref) {
-                bool is_mut = (TypeRef(formal0).kind() == LogosType::Kind::MutRef);
-                auto rty = make_ref(is_mut, tup_t);
-                recv = builder().addr_of_temp(std::move(recv), is_mut, rty);
-            } else if (!formal_is_ref && recv_is_ref) {
-                recv = builder().deref(std::move(recv), tup_t);
-            }
-
-            std::vector<lir::LExprPtr> pargs;
-            pargs.push_back(std::move(recv));
-            for (auto& a : tup_args) pargs.push_back(std::move(a));
-            if (!fi_ptr->type_params.empty()) {
-                std::vector<TypeRef> m_type_args;
-                size_t tp_idx = 0;
-                for (auto& tp : fi_ptr->type_params) {
-                    if (tp_idx < arity) m_type_args.push_back(elems[tp_idx]);
-                    else m_type_args.push_back(error_t());
-                    ++tp_idx;
-                    (void)tp;
-                }
-                return finish_generic_call(
-                    fi_ptr->symbol_name.empty() ? key : fi_ptr->symbol_name,
-                    *fi_ptr, std::move(m_type_args), std::move(pargs));
-            }
-            return builder().call(
-                fi_ptr->symbol_name.empty() ? key : fi_ptr->symbol_name,
-                {}, std::move(pargs), fi_ptr->ret_type);
-        }
-        // Fall through if no tuple impl matched — downstream may have
-        // primitive/struct paths (e.g. via auto-deref) but tuples don't
-        // get further dispatch. The standard "receiver is not a struct"
-        // diagnostic will fire at the bottom of lower_method_call.
-    }
+    if (auto r = try_method_on_tuple(node, recv, method_name)) return *r;
 
     // Slice / str built-in methods: .len(), .as_ptr()
     if (TypeRef(recv->type).kind() == LogosType::Kind::Slice) {

@@ -2561,6 +2561,13 @@ private:
     lir::LExprPtr lower_generic_call(hermes::TinyMapView node);
     lir::LExprPtr lower_generic_ref(hermes::TinyMapView node);
     lir::LExprPtr lower_method_call(hermes::TinyMapView node);
+    // Per-receiver-shape method-dispatch handlers, factored out of the
+    // lower_method_call cascade. Each checks its own receiver-type guard and
+    // returns nullopt to fall through to the next shape; `recv` is threaded by
+    // reference so a handler's coercions persist across fall-through exactly as
+    // in the original inline code.
+    std::optional<lir::LExprPtr> try_method_on_tuple(
+        hermes::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
     // Blanket-impl method dispatch: `impl<T: Bound> Trait for T { fn m … }`.
     // Tries every registered blanket against receiver type `type_name`;
     // on a unique match dispatches via finish_generic_call (moving recv +
