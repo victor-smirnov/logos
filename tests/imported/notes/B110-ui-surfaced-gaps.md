@@ -144,8 +144,19 @@ Original report:
   payload/heap slot (the old `VSome(10)` allocation) after the discriminant was
   overwritten to the no-payload `VNone`. HIGH-VALUE fix candidate.
 
-### 4. Closure capturing a `&dyn Trait` parameter and calling a method through it
-       SIGSEGVs
+### 4. Closure capturing a `&dyn Trait` parameter and calling a method through it SIGSEGVs — FIXED (2026-05-21)
+**Fixed.** A `&dyn Trait` is a handle (pointer to a heap `{data, vtable}`
+pair). The closure-capture codegen decides "dyn capture?" from `var_dyn_trait_`,
+but `&dyn`/`dyn` PARAMETERS were never registered there (only let-bindings, via
+gen_let). So the capture took the scalar branch — alloca'ing the handle and then
+dispatching as if the alloca itself were the `{data,vtable}` pair → garbage
+vtable load → SIGSEGV. Fix in mlir_gen_fn param binding: register trait-object
+params (`dyn Trait` or `&/&mut/* dyn Trait`) in `var_dyn_trait_`. Var-ref
+returns the handle either way, so the direct (non-closure) path is unchanged.
+Ported the upstream test (Box→`&dyn`, dropped macro_rules); regression
+`tests/logos/pass/closure_captures_dyn_param.logos`.
+
+Original report:
 - Surfaced while porting `closures/closure-type-inference-in-context-9129.rs`.
 - Minimal trigger (compiles + links, segfaults at runtime):
   ```

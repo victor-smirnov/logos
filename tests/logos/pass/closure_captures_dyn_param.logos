@@ -1,0 +1,33 @@
+// Regression: a closure that captures a `&dyn Trait` function parameter and
+// calls a method through it. A `&dyn Trait` is a handle (pointer to a heap
+// {data, vtable} pair). The closure-capture codegen keys "is this a dyn
+// capture?" off var_dyn_trait_, but `&dyn` PARAMETERS were never registered
+// there (only let-bindings were). So the capture took the scalar branch —
+// alloca'ing the handle and then dispatching as if the alloca itself were the
+// {data,vtable} pair → garbage vtable load → SIGSEGV. Now `&dyn`/`dyn` params
+// are registered in var_dyn_trait_ so the capture stores the handle directly.
+package closure_captures_dyn_param;
+
+trait Bomb { fn boom(&self) -> i64; }
+struct S { n: i64 }
+impl Bomb for S { fn boom(&self) -> i64 { return self.n; } }
+
+fn light_fuse(fld: &dyn Bomb) -> i64 {
+    let f = || -> i64 { return fld.boom(); };   // closure captures the &dyn param
+    return f();
+}
+
+fn use_two(a: &dyn Bomb, b: &dyn Bomb) -> i64 {
+    let g = || -> i64 { return a.boom() + b.boom(); };
+    return g();
+}
+
+fn main() -> i32 {
+    let s = S { n: 5i64 };
+    if light_fuse(&s) != 5i64 { return 1i32; }
+
+    let s1 = S { n: 3i64 };
+    let s2 = S { n: 4i64 };
+    if use_two(&s1, &s2) != 7i64 { return 2i32; }
+    return 0i32;
+}

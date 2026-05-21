@@ -262,6 +262,29 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
             }
         }
 
+        // Track trait-object (`dyn Trait` / `&dyn Trait`) parameters. Direct
+        // dispatch works off the param type alone, but a closure capturing
+        // such a param needs `var_dyn_trait_` set so it takes the dyn capture
+        // branch (storing the {data,vtable} handle directly) instead of the
+        // scalar branch (which allocas the handle and then mis-GEPs it as the
+        // fat pair → SIGSEGV). Var-ref returns it->second either way, so this
+        // doesn't change the direct path.
+        if (p.type) {
+            TypeRef pv{p.type};
+            TypeRef trait_t;
+            if (pv.kind() == LogosType::Kind::TraitObject)
+                trait_t = pv;
+            else if ((pv.kind() == LogosType::Kind::Ref ||
+                      pv.kind() == LogosType::Kind::MutRef ||
+                      pv.kind() == LogosType::Kind::Ptr) && pv.pointee() &&
+                     TypeRef(pv.pointee()).kind() == LogosType::Kind::TraitObject)
+                trait_t = pv.pointee();
+            if (trait_t) {
+                var_dyn_trait_[p.name] = std::string(TypeRef(trait_t).trait_name());
+                continue;
+            }
+        }
+
         // Track struct / class type for parameters (including 'self').
         if (p.type) {
             TypeRef pv{p.type};

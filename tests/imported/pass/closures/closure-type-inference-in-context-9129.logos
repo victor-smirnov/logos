@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/closure-type-inference-in-context-9129.rs
+// (regression test for rust-lang/rust#9129)
+// Modifications: `Box<dyn bomb>` → `&dyn bomb` (Logos has no owned Box; the
+// test's point is a closure capturing a trait-object and dispatching through
+// it, which `&dyn` exercises identically); the empty `int3!()` macro_rules
+// invocations are dropped (no macro_rules! in Logos); `boom` takes no Ident and
+// returns an i64 so `fn main() -> i32` can assert the captured-dyn dispatch
+// resolved. This SIGSEGV'd until `&dyn` params were registered as trait-object
+// captures (fixed 2026-05-21).
+package m_closure_type_inference_9129;
+
+trait Bomb { fn boom(&self) -> i64; }
+struct S {}
+impl Bomb for S { fn boom(&self) -> i64 { return 42i64; } }
+
+fn light_fuse(fld: &dyn Bomb) -> i64 {
+    let f = || -> i64 { return fld.boom(); };
+    return f();
+}
+
+fn main() -> i32 {
+    let s = S {};
+    if light_fuse(&s) != 42i64 { return 1i32; }
+    return 0i32;
+}
