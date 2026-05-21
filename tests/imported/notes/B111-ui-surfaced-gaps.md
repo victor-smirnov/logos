@@ -35,7 +35,16 @@ Categories below: `compiler-bug` (crash / wrong runtime value / verifier fail),
 
 ## compiler-bug
 
-### 1. `&mut tuple.N` place-borrow writeback does not persist (struct-field works)
+### 1. `&mut tuple.N` place-borrow writeback does not persist — FIXED (2026-05-21)
+**Fixed.** `&mut x.N` on a tuple field loaded the element by value, so the
+default addr_of_temp took the address of a fresh temp holding the copy and
+`*b = v` never reached the tuple. Fix: the EAddrOfTemp codegen now GEPs the
+tuple element address directly for a `TupleIndex` child (mirrors the existing
+struct-field place-borrow), gated to `&mut` (the immutable `&x.N` path is
+relied on to spill a value-copy by the variadic tuple Eq/Debug recursion).
+Regression `tests/logos/pass/mut_borrow_tuple_field.logos`.
+
+Original report:
 - Surfaced while porting `structs-enums/borrow-tuple-fields.rs`.
 - Minimal trigger (compiles + links; wrong runtime value):
   ```

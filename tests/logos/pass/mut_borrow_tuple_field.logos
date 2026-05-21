@@ -1,0 +1,22 @@
+// Regression: `&mut x.N` on a tuple field must borrow the real place so the
+// write lands. gen_expr(ETupleIndex) loads the element by value, so the
+// default addr_of_temp took the address of a fresh temp holding the copy —
+// `*b = v` updated the copy, not the tuple. Now `&mut x.N` GEPs the tuple
+// element directly (mirrors the struct-field place-borrow). The immutable
+// `&x.N` path is intentionally left as-is (the variadic tuple Eq/Debug
+// recursion relies on its spilled-copy behaviour).
+package mut_borrow_tuple_field;
+
+fn main() -> i32 {
+    let mut x = (1i64, 2i64, 3i64);
+    let b = &mut x.1;
+    *b = 20i64;
+    let c = &mut x.2;
+    *c = 30i64;
+    let r = &x.0;            // immutable place read still works
+    if *r != 1i64 { return 1i32; }
+    if x.0 != 1i64 { return 2i32; }
+    if x.1 != 20i64 { return 3i32; }
+    if x.2 != 30i64 { return 4i32; }
+    return 0i32;
+}

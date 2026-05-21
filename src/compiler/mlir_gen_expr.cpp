@@ -984,6 +984,37 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef) {
         }
         // Fall through.
     }
+    // `&mut x.N` on a tuple element must return a GEP into the tuple, NOT a
+    // copy. gen_expr(ETupleIndex) loads the element by value, so the default
+    // addr_of_temp would take the address of a fresh temp holding the copy and
+    // the write would never reach the tuple (mirrors the struct-field case
+    // above). Gated to `&mut`: the immutable `&x.N` path is relied on to
+    // produce a spilled value-copy by the variadic tuple Eq/Debug recursion
+    // (which borrows nested-aggregate elements), so leave it untouched.
+    if (v.is_mut() && inner_ref.kind() == ec::Code::TupleIndex) {
+        lir_view::ETupleIndexView tv{inner_ref};
+        auto* recv_le = lexpr_of(tv.receiver());
+        if (recv_le) {
+            TypeRef recv_t = recv_le->type;
+            // Auto-deref &(tuple)/&mut(tuple)/*tuple for the GEP base type.
+            if (recv_t && TypeRef(recv_t).pointee() &&
+                TypeRef(recv_t).pointee().kind() == LogosType::Kind::Tuple &&
+                (TypeRef(recv_t).kind() == LogosType::Kind::Ref ||
+                 TypeRef(recv_t).kind() == LogosType::Kind::MutRef ||
+                 TypeRef(recv_t).kind() == LogosType::Kind::Ptr))
+                recv_t = TypeRef(recv_t).pointee();
+            if (recv_t && TypeRef(recv_t).kind() == LogosType::Kind::Tuple) {
+                auto stype = tuple_llvm_type(recv_t);
+                auto recv = gen_expr(*recv_le);  // pointer to the tuple
+                if (stype && recv) {
+                    llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(tv.index())};
+                    return builder_.create<mlir::LLVM::GEPOp>(
+                        loc_, ptr_type(), stype, recv, idx);
+                }
+            }
+        }
+        // Fall through.
+    }
     // `&mut arr[i]` on a struct-element-typed array/pointer: take GEP address
     // directly instead of loading the struct by value and then needing to re-spill.
     if (inner_ref.kind() == ec::Code::IndexRead && inner_t) {
