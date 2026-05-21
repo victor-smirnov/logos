@@ -94,7 +94,25 @@ Original report:
   `record-pat` (whose point is exactly `T3::c(T2 { x: t1::a(m), .. }, _)`) can't
   be ported cleanly; skipped. HIGH-VALUE: struct-in-enum-payload is common.
 
-### 3. stdlib `Option<E>` carrying a custom enum mis-codegens (`func.return` parent error)
+### 3. `if let None` / match-stmt with a no-payload `Option` arm mis-codegens (`func.return` parent error) — DIAGNOSED, deferred
+**Corrected diagnosis (2026-05-21):** the custom-enum framing was a red herring.
+The trigger is a **statement match (or `if let`) over `Option<T>` with a
+no-payload `None` arm** — e.g. `if let None = opt { … }`, which desugars to
+`match opt { None => {…} _ => {} }`. Narrowed:
+- `if let Some(x) = opt` / `match { Some(_) => … _ => {} }` → OK.
+- `match opt { None => { return 0; } _ => {} } return 1;` → `'func.return' op
+  expects parent op 'func.func'` (or a `cf.br` translation error when the None
+  arm is non-diverging).
+- A plain C-like USER enum (`enum E2 { A, B }`, by-value disc — not a heap-ptr
+  tagged enum) with the same shape works fine. So it is specific to a heap-ptr
+  tagged enum (`Option<T>`) + a no-payload `Variant` arm in `gen_match`.
+Root cause not yet isolated (it lives in the large match-statement codegen
+`gen_match`; the MLIR verify-abort prevents an IR dump and several narrowing
+passes have not pinned the orphaned op). Deferred to a focused gen_match pass.
+Workaround in ports: use `if let Some(..)` / a `Some`-first arm / a match-EXPR.
+
+Original report:
+### (orig) stdlib `Option<E>` carrying a custom enum mis-codegens (`func.return` parent error)
 - Surfaced while porting `structs-enums/nonzero-enum.rs`.
 - Minimal trigger (MLIR verify fail at compile time):
   ```
