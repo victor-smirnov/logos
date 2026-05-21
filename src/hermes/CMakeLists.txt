@@ -73,6 +73,13 @@ add_test(NAME hermes_cpp_exerciser_arena_pool COMMAND hermes_exerciser_arena_poo
          WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 set_tests_properties(hermes_cpp_exerciser_arena_pool PROPERTIES LABELS "hermes;cpp")
 
+# Exerciser: import table + module-local arena_id resolution (multi-arena IR)
+add_executable(hermes_exerciser_import_table exerciser_import_table.cpp)
+target_link_libraries(hermes_exerciser_import_table PRIVATE logos_hermes logos_verification)
+add_test(NAME hermes_cpp_exerciser_import_table COMMAND hermes_exerciser_import_table
+         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+set_tests_properties(hermes_cpp_exerciser_import_table PROPERTIES LABELS "hermes;cpp;multi_arena")
+
 # Walkthrough: interactive API tour for debugging
 add_executable(hermes_walkthrough walkthrough.cpp)
 target_link_libraries(hermes_walkthrough PRIVATE logos_hermes)

@@ -6,6 +6,7 @@
 
 #include <logos/hermes/any_val.hpp>
 #include <logos/hermes/arena_string.hpp>
+#include <logos/hermes/document.hpp>
 #include <logos/hermes/object_array.hpp>
 #include <logos/hermes/tiny_object_map.hpp>
 #include <logos/hermes/type_registry.hpp>
@@ -49,6 +50,50 @@ build_import_table_blob(std::string_view                module_name,
 
     const auto& chunk = doc.holder()->arena().head();
     return std::vector<uint8_t>(chunk.data(), chunk.data() + chunk.used);
+}
+
+logos::expected<std::vector<ImportEntry>>
+read_import_table_blob(const uint8_t* data, size_t size) noexcept
+{
+    LOGOS_TRY(auto doc, from_bytes_copy(data, size));
+    auto* holder = doc.holder();
+    if (!holder) return std::unexpected(logos::Err::from_code(1));
+    uint8_t* base = const_cast<uint8_t*>(holder->base());
+
+    auto* hdr = reinterpret_cast<const DocumentHeader*>(base);
+    if (hdr->root_offset == NULL_OFFSET)
+        return std::unexpected(logos::Err::from_code(1));
+    auto* root = reinterpret_cast<const TinyObjectMap*>(
+        base + hdr->root_offset.value());
+    if (root->schema_type_code() != type_hash::ImportTable)
+        return std::unexpected(logos::Err::from_code(1));
+
+    AnyVal imports_av = root->get(import_table::IMPORTS.code, base);
+    if (imports_av.is_null() || !imports_av.is_pointer())
+        return std::unexpected(logos::Err::from_code(1));
+    auto* arr = reinterpret_cast<const ObjectArray*>(
+        base + imports_av.to_offset().value());
+
+    auto read_str = [&](AnyVal av) -> std::string {
+        if (av.is_null() || !av.is_pointer()) return {};
+        return std::string(StringView(av.to_offset(), holder).view());
+    };
+
+    std::vector<ImportEntry> out;
+    out.reserve(arr->size());
+    for (uint64_t i = 0; i < arr->size(); ++i) {
+        AnyVal e_av = const_cast<ObjectArray*>(arr)->get(i, base);
+        if (e_av.is_null() || !e_av.is_pointer()) {
+            out.push_back(ImportEntry{});  // slot 0 sentinel (or sparse)
+            continue;
+        }
+        auto* em = reinterpret_cast<const TinyObjectMap*>(
+            base + e_av.to_offset().value());
+        out.push_back(ImportEntry{
+            read_str(em->get(import_table::entry::FILE_NAME.code, base)),
+            read_str(em->get(import_table::entry::DOC_NAME.code, base))});
+    }
+    return out;
 }
 
 }  // namespace logos::hermes

@@ -132,6 +132,35 @@ InMemoryArenaPool::lookup_export(std::string_view name) noexcept {
     return ExportLookup{};  // INVALID, no hit
 }
 
+void InMemoryArenaPool::set_module_imports(arena_id_t               aid,
+                                            std::string              file_name,
+                                            std::vector<ImportEntry> imports)
+{
+    LOGOS_ASSERT(aid.value < slots_.size(), "ARENA-POOL-IMP-001",
+        "set_module_imports: arena_id {} out of range", aid.value);
+    auto& slot = slots_[aid.value];
+    if (!file_name.empty()) by_file_.insert_or_assign(file_name, aid);
+    slot.file_name = std::move(file_name);
+    slot.imports   = std::move(imports);
+}
+
+arena_id_t InMemoryArenaPool::find_arena_by_file(std::string_view file_name) noexcept {
+    auto it = by_file_.find(std::string(file_name));
+    return it == by_file_.end() ? INVALID_ARENA_ID : it->second;
+}
+
+arena_id_t InMemoryArenaPool::resolve_local_arena_id(arena_id_t source_aid,
+                                                     arena_id_t local_aid) noexcept {
+    if (source_aid.value == 0 || source_aid.value >= slots_.size())
+        return INVALID_ARENA_ID;
+    const auto& slot = slots_[source_aid.value];
+    if (local_aid.value == 0 || local_aid.value >= slot.imports.size())
+        return INVALID_ARENA_ID;
+    const auto& entry = slot.imports[local_aid.value];
+    if (entry.file_name.empty()) return INVALID_ARENA_ID;
+    return find_arena_by_file(entry.file_name);
+}
+
 ArenaPool& global_arena_pool() {
     static InMemoryArenaPool pool;
     return pool;

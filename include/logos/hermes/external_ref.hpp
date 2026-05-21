@@ -138,6 +138,19 @@ ExternalRefResolved resolve_external_ref(
     const ExternalRef& ref,
     ArenaPool&         pool = global_arena_pool()) noexcept;
 
+// Resolve an ExternalRef whose arena_id is MODULE-LOCAL (an index into
+// `source_arena`'s import table) rather than a global arena_id. Translates
+// the local arena_id → global arena_id via pool.resolve_local_arena_id(...)
+// (which walks source_arena's import entry → file_name → loaded document),
+// then resolves the obj_id in that document's directory. ok()=false if the
+// local arena_id can't be resolved (no import entry / file not loaded).
+//
+// `source_arena` is the global arena_id of the document that CONTAINS `ref`.
+ExternalRefResolved resolve_external_ref_local(
+    arena_id_t         source_arena,
+    const ExternalRef& ref,
+    ArenaPool&         pool = global_arena_pool()) noexcept;
+
 // Convenience: detect + resolve in one go. Returns nullopt if `av` is not
 // a pointer to ExternalRef (use this when walking a generic AnyVal slot
 // and you want "transparent" cross-arena traversal).

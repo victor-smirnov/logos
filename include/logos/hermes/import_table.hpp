@@ -69,4 +69,12 @@ struct ImportEntry {
 build_import_table_blob(std::string_view                module_name,
                         const std::vector<ImportEntry>& imports) noexcept;
 
+// Parse an import-table blob (the bytes produced by build_import_table_blob)
+// back into entries INDEXED BY arena_id: result[0] is the null sentinel
+// (empty file_name) and result[arena_id] is the (file_name, doc_name) for
+// that module-local arena_id. So `result[ref.arena_id()]` is the direct
+// lookup. Returns an error if the bytes are not an ImportTable document.
+[[nodiscard]] logos::expected<std::vector<ImportEntry>>
+read_import_table_blob(const uint8_t* data, size_t size) noexcept;
+
 }  // namespace logos::hermes

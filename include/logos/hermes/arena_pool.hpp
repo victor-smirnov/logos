@@ -19,6 +19,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include <logos/hermes/import_table.hpp>  // ImportEntry
+
 namespace logos::hermes {
 
 class MemHolder;
@@ -98,6 +100,32 @@ public:
         constexpr bool ok() const noexcept { return arena_id.is_valid(); }
     };
     virtual ExportLookup lookup_export(std::string_view name) noexcept = 0;
+
+    // ── Module-local arena_id resolution (import tables) ──────────────────
+    //
+    // A cross-arena ExternalRef's arena_id is MODULE-LOCAL — an index into the
+    // referencing module's import table — not a global arena_id. The loader
+    // reads each module's `.imp` member and calls set_module_imports() to
+    // attach (file_name, the import entries) to that module's registered slot.
+    // resolve_local_arena_id() then translates a (source module, local
+    // arena_id) pair to the global arena_id of the imported document.
+
+    // Record `aid`'s own file name (for find_arena_by_file) + its import table
+    // (indexed by local arena_id; slot 0 = sentinel). Idempotent overwrite.
+    virtual void set_module_imports(arena_id_t                aid,
+                                    std::string               file_name,
+                                    std::vector<ImportEntry>  imports) = 0;
+
+    // file_name (basename, e.g. "liblogos-lang.a") → global arena_id of the
+    // module loaded from that file. INVALID if no such file is registered.
+    virtual arena_id_t find_arena_by_file(std::string_view file_name) noexcept = 0;
+
+    // Translate a module-local arena_id into a global arena_id: looks up
+    // source_aid's import entry [local_aid] → (file_name, doc_name) →
+    // find_arena_by_file(file_name). INVALID if unresolvable. (doc_name is
+    // ignored today — one document per file.)
+    virtual arena_id_t resolve_local_arena_id(arena_id_t source_aid,
+                                              arena_id_t local_aid) noexcept = 0;
 };
 
 // In-memory implementation. Single-threaded. Slots are append-only;
@@ -122,16 +150,32 @@ public:
 
     ExportLookup lookup_export(std::string_view name) noexcept override;
 
+    void set_module_imports(arena_id_t                aid,
+                            std::string               file_name,
+                            std::vector<ImportEntry>  imports) override;
+
+    arena_id_t find_arena_by_file(std::string_view file_name) noexcept override;
+
+    arena_id_t resolve_local_arena_id(arena_id_t source_aid,
+                                      arena_id_t local_aid) noexcept override;
+
 private:
     struct Entry {
         MemHolder*              mem = nullptr;  // null after unregister
         std::string             name;
         std::vector<arena_id_t> deps;
+        // Module-local arena_id resolution (import tables). file_name is this
+        // module's own archive basename (key for find_arena_by_file as a
+        // target); imports[local_aid] = (file_name, doc_name) it references.
+        std::string               file_name;
+        std::vector<ImportEntry>  imports;
     };
     // Index = arena_id.value. Slot 0 is the invalid sentinel.
     std::vector<Entry> slots_;
     // name → arena_id for live (registered) entries only.
     std::unordered_map<std::string, arena_id_t> by_name_;
+    // file basename → arena_id (set via set_module_imports).
+    std::unordered_map<std::string, arena_id_t> by_file_;
 };
 
 // Process-global pool accessor. Returns the same InMemoryArenaPool for the

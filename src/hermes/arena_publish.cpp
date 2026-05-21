@@ -223,4 +223,16 @@ ExternalRefResolved resolve_external_ref(
     return ExternalRefResolved{mem, target_av.to_offset()};
 }
 
+ExternalRefResolved resolve_external_ref_local(
+    arena_id_t         source_arena,
+    const ExternalRef& ref,
+    ArenaPool&         pool) noexcept
+{
+    // Translate the module-local arena_id (index into source_arena's import
+    // table) → global arena_id, then resolve the obj_id normally.
+    arena_id_t global = pool.resolve_local_arena_id(source_arena, ref.arena_id());
+    if (!global.is_valid()) return ExternalRefResolved{nullptr, arena_offset_t{}};
+    return resolve_external_ref(ExternalRef::make(global, ref.obj_id()), pool);
+}
+
 } // namespace logos::hermes

@@ -7,6 +7,7 @@
 
 #include <logos/compiler/ast.hpp>
 #include <logos/hermes/arena_publish.hpp>
+#include <logos/hermes/import_table.hpp>
 #include <logos/hermes/binary_codec.hpp>
 #include <logos/hermes/document.hpp>
 #include <logos/hermes/tiny_object_map.hpp>
@@ -1363,6 +1364,32 @@ std::vector<ParsedModule> load_modules(
                                         reg->name.c_str(),
                                         reg->arena_id.value,
                                         reg->depends_on.size());
+                                }
+                                // Loader-side import resolution: read this
+                                // archive's `.imp` member (the module's import
+                                // table) and attach it to the registered arena.
+                                // A module-local arena_id in an ExternalRef then
+                                // resolves via pool.resolve_local_arena_id ->
+                                // (file_name, doc_name) -> the loaded document.
+                                std::string base = archive_path;
+                                if (auto s = base.find_last_of('/');
+                                    s != std::string::npos)
+                                    base = base.substr(s + 1);
+                                for (auto& im : ar_read_members(archive_path, ".imp")) {
+                                    auto blob = unwrap_elf_section(im, ".limports");
+                                    auto entries = hermes::read_import_table_blob(
+                                        blob.data(), blob.size());
+                                    if (entries) {
+                                        size_t n = entries->size();
+                                        hermes::global_arena_pool().set_module_imports(
+                                            reg->arena_id, base, std::move(*entries));
+                                        if (trace) {
+                                            std::fprintf(stderr,
+                                                "module_loader: %s — import table: %zu slot(s)\n",
+                                                archive_path.c_str(), n);
+                                        }
+                                        break;
+                                    }
                                 }
                             } else {
                                 if (trace) {
