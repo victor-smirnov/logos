@@ -15,19 +15,31 @@ Implementation progress:
   EXPLICIT one-line imports: `use logos.lang.prelude;` brings Option/Some/None/
   Result/Ok/Err + core traits; `use logos.mem.prelude;` adds String/Vec; the
   3-level transitive re-export (std→mem→lang→option) resolves.
-- ⏳ IMPLICIT injection (zero `use` line) is NOT YET enabled. Wiring it for
-  single-file `logosc` compiles (set `load_modules(..., implicit_prelude)` +
-  `SemaOptions.implicit_prelude`) was attempted and reverted: with the prelude
-  in `cur_imports_.wildcard_packages` via the implicit path (sema.cpp ~5252), a
-  re-exported type like `Option` still fails to resolve ("unknown generic type
-  'Option'"), whereas the IDENTICAL explicit `use logos.std.prelude;` resolves
-  it. So wildcard resolution of a re-exported name behaves differently for an
-  implicitly-injected prelude vs an explicit `use` of the same package — a
-  loader-transitive-load or wildcard-re-export-expansion gap to root-cause in a
-  focused pass. Plus a blast-radius concern: turning it on changes name
-  resolution for every single-file compile (all tests) — needs a full-ctest
-  validation and tier-awareness (lang vs std prelude) before flipping the
-  default. The stdlib build (emit_module) must stay opted-out (cycles).
+- ✅ IMPLICIT injection MECHANISM works (verified 2026-05-21). It must be wired
+  at THREE sema entry points in `main.cpp` (not one): the loader
+  (`load_modules(..., implicit_prelude)` → dependency edge), the metaprog
+  dispatch (`run_metaprog_dispatch`'s `meta_opts.implicit_prelude`), and the
+  FINAL non-metaprog `sema_lower` (`default_opts.implicit_prelude`). The last is
+  essential: the metaprog passes silently DEFER unknown types (sema.cpp:4114),
+  so the real type-resolution happens (and previously failed) in the final pass.
+  With all three set, a zero-`use`-line program compiles + runs: `Option`/`Some`/
+  `None`/`match`/`String` resolve via `effective_import_pkgs()`'s transitive
+  `pub use` expansion (std→mem→lang→option). Confirmed end-to-end.
+- ⛔ DEFAULT-ON is BLOCKED by a deeper bug. Flipping it on for every single-file
+  compile regressed **99 / 3586** tests (full-ctest, 2026-05-21). The failures
+  are nearly all ONE root: pulling the iterator/collection generic surface
+  (`logos.lang.iter`, `logos.mem.collections.*`) into a consumer via the prelude
+  wildcard RE-LOWERS those stdlib generic templates in the consumer context, and
+  their type-parameters resolve to `<error>` — e.g. `RevIter__filter` →
+  `FilterIter <error>`, `HashSet__iter` → `HashMapKeys<<error>, u8>`,
+  `ObjectMap::init undefined`. This is the B109 #4 / cross-arena-generic-clone
+  family (stdlib generics should use their BINARY form, not re-lower in the
+  consumer; skeleton-skip/binary_symbols apparently doesn't cover the
+  prelude-pulled re-export path). The wiring was reverted to keep the suite
+  green. UNBLOCK PATH: fix the stdlib-generic-re-lowering-in-consumer bug (make
+  prelude-pulled generics resolve to their binary instances / bind type-params
+  correctly), THEN re-apply the 3-point wiring + add tier-awareness (lang vs std)
+  + keep the stdlib emit_module build opted-out (cycles).
 
 ---
 
