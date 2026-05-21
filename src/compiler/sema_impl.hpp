@@ -2547,6 +2547,13 @@ private:
     lir::LExprPtr lower_unary(hermes::TinyMapView node);
     lir::LExprPtr lower_deref(hermes::TinyMapView node);
     lir::LExprPtr lower_call(hermes::TinyMapView node);
+    // lower_expr literal/cast sub-handlers, factored out of its switch so every
+    // case delegates uniformly. Each lowers one expr kind from `expr` + members.
+    lir::LExprPtr lower_int_lit(hermes::TinyMapView expr);
+    lir::LExprPtr lower_char_lit(hermes::TinyMapView expr);
+    lir::LExprPtr lower_bytes_lit(hermes::TinyMapView expr);
+    lir::LExprPtr lower_var_ref(hermes::TinyMapView expr);
+    lir::LExprPtr lower_cast(hermes::TinyMapView expr);
     // resolve_type sub-handlers, factored out of the resolve_type tc-dispatch.
     // Each lowers one type-syntax kind (keyed by node's CODE) to a TypeRef and
     // depends only on `node` + members (no state shared across branches).

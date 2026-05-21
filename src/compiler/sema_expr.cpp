@@ -36,6 +36,528 @@ using hermes::MemHolder;
 
 // Expression lowering methods
 
+lir::LExprPtr SemaChecker::lower_int_lit(TinyMapView expr) {
+    int32_t c = code_of(expr); (void)c;
+    auto sv = str_of(expr.get(la::VALUE.code));
+    if (!valid_int_literal_format(sv)) {
+        error(std::format("malformed integer literal '{}'", sv));
+        return error_expr();
+    }
+    // Sprint 2.3: reject silently-saturating literals (B-ex-07, B-he-04, B-lx-04).
+    if (parse_int_literal_overflows(sv)) {
+        error(std::format("integer literal '{}' is out of range", sv));
+        return error_expr();
+    }
+    int64_t v = parse_int_literal(sv);
+    auto suf = int_suffix_kind(sv);
+    // If the literal carries an explicit suffix, also bound-check against
+    // the suffix-implied type's range.  Without a suffix the literal stays
+    // IntLit and the destination-type coercion handles range later.
+    if (suf != LogosType::Kind::Error) {
+        // Source-text sign matters for bound checking (the int64_t bit
+        // pattern wraps for unsigned literals at 2^63 and above).
+        bool src_negative = !sv.empty() && sv[0] == '-';
+        uint64_t mag = src_negative ? (uint64_t)(-(int64_t)((uint64_t)v))
+                                    : (uint64_t)v;
+        uint64_t max_mag = 0; bool signed_t = false;
+        switch (suf) {
+            case LogosType::Kind::I8:  max_mag = src_negative ? 128ull       : 127ull;        signed_t = true; break;
+            case LogosType::Kind::I16: max_mag = src_negative ? 32768ull     : 32767ull;      signed_t = true; break;
+            case LogosType::Kind::I32: max_mag = src_negative ? 2147483648ull: 2147483647ull; signed_t = true; break;
+            case LogosType::Kind::I64: max_mag = src_negative ? (uint64_t)INT64_MAX + 1 : (uint64_t)INT64_MAX; signed_t = true; break;
+            case LogosType::Kind::U8:  max_mag = 255ull;                 break;
+            case LogosType::Kind::U16: max_mag = 65535ull;               break;
+            case LogosType::Kind::U32: max_mag = 4294967295ull;          break;
+            case LogosType::Kind::U64: max_mag = UINT64_MAX;             break;
+            default: max_mag = UINT64_MAX;  // I24/I56/U24/U56/I128 — skip strict check
+        }
+        if (!signed_t && src_negative) {
+            error(std::format("integer literal '{}': negative value with unsigned suffix", sv));
+            return error_expr();
+        }
+        if (mag > max_mag && max_mag != UINT64_MAX) {
+            error(std::format("integer literal '{}' is out of range for its suffix type", sv));
+            return error_expr();
+        }
+    }
+    TypeRef t = (suf != LogosType::Kind::Error) ? prim(suf) : intlit_t();
+    return builder().lit_int(v, t);
+}
+
+lir::LExprPtr SemaChecker::lower_char_lit(TinyMapView expr) {
+    int32_t c = code_of(expr); (void)c;
+    // Decode `'X'` text. The lexer guarantees the form is either
+    // `'<single non-`'`/`\` char>'` or `'<\esc>'`; we need to map the
+    // contents to a Unicode scalar value.
+    auto sv = str_of(expr.get(la::VALUE.code));
+    // sv is e.g. `'A'` or `'\n'`; strip the outer apostrophes.
+    if (sv.size() < 3 || sv.front() != '\'' || sv.back() != '\'') {
+        error(std::format("malformed char literal '{}'", sv));
+        return error_expr();
+    }
+    std::string_view body = sv.substr(1, sv.size() - 2);
+    int64_t v = 0;
+    if (!body.empty() && body[0] == '\\') {
+        if (body.size() < 2) {
+            error(std::format("malformed char literal '{}'", sv));
+            return error_expr();
+        }
+        switch (body[1]) {
+            case 'n':  v = '\n'; break;
+            case 't':  v = '\t'; break;
+            case 'r':  v = '\r'; break;
+            case '0':  v = 0;    break;
+            case '\\': v = '\\'; break;
+            case '\'': v = '\''; break;
+            case '"':  v = '"';  break;
+            case 'x': {
+                // `\xNN` — 2 hex digits, byte value (0..255).
+                if (body.size() != 4) {
+                    error(std::format("char literal '{}': '\\x' requires exactly 2 hex digits", sv));
+                    return error_expr();
+                }
+                auto hex = [&](char c) -> int {
+                    if (c >= '0' && c <= '9') return c - '0';
+                    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+                    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+                    return -1;
+                };
+                int h1 = hex(body[2]), h2 = hex(body[3]);
+                if (h1 < 0 || h2 < 0) {
+                    error(std::format("char literal '{}': '\\x' requires hex digits", sv));
+                    return error_expr();
+                }
+                v = (h1 << 4) | h2;
+                break;
+            }
+            case 'u': {
+                // `\u{HHH...}` — 1..6 hex digits in braces, Unicode scalar.
+                if (body.size() < 5 || body[2] != '{' || body.back() != '}') {
+                    error(std::format("char literal '{}': '\\u' requires '{{HEX}}' form", sv));
+                    return error_expr();
+                }
+                auto hex = [&](char c) -> int {
+                    if (c >= '0' && c <= '9') return c - '0';
+                    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+                    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+                    return -1;
+                };
+                uint32_t cp = 0;
+                size_t end = body.size() - 1;  // index of '}'
+                for (size_t i = 3; i < end; ++i) {
+                    int h = hex(body[i]);
+                    if (h < 0) {
+                        error(std::format("char literal '{}': '\\u' requires hex digits", sv));
+                        return error_expr();
+                    }
+                    cp = (cp << 4) | (uint32_t)h;
+                }
+                if (cp > 0x10FFFFu || (cp >= 0xD800u && cp <= 0xDFFFu)) {
+                    error(std::format("char literal '{}': invalid Unicode scalar U+{:X}", sv, cp));
+                    return error_expr();
+                }
+                v = (int64_t)cp;
+                break;
+            }
+            default:
+                error(std::format("char literal '{}': unknown escape '\\{}'",
+                      sv, body[1]));
+                return error_expr();
+        }
+    } else if (body.size() == 1) {
+        v = (uint8_t)body[0];
+    } else {
+        // Multi-byte body: decode as a single UTF-8 codepoint. Lexer
+        // already validated the byte length matches the lead byte; we
+        // re-decode here for the actual scalar value.
+        unsigned char lead = static_cast<unsigned char>(body[0]);
+        size_t cp_len = 0;
+        uint32_t cp  = 0;
+        if      ((lead & 0xE0) == 0xC0) { cp_len = 2; cp = lead & 0x1F; }
+        else if ((lead & 0xF0) == 0xE0) { cp_len = 3; cp = lead & 0x0F; }
+        else if ((lead & 0xF8) == 0xF0) { cp_len = 4; cp = lead & 0x07; }
+        if (cp_len == 0 || body.size() != cp_len) {
+            error(std::format("char literal '{}': malformed UTF-8 body", sv));
+            return error_expr();
+        }
+        for (size_t i = 1; i < cp_len; ++i) {
+            unsigned char cb = static_cast<unsigned char>(body[i]);
+            if ((cb & 0xC0) != 0x80) {
+                error(std::format("char literal '{}': malformed UTF-8 body", sv));
+                return error_expr();
+            }
+            cp = (cp << 6) | (cb & 0x3F);
+        }
+        v = static_cast<int64_t>(cp);
+    }
+    return builder().lit_int(v, prim(LogosType::Kind::Char));
+}
+
+lir::LExprPtr SemaChecker::lower_bytes_lit(TinyMapView expr) {
+    int32_t c = code_of(expr); (void)c;
+    // P4-pm-07: `b"…"` at expression position. Decode escapes
+    // (parity with PAT_BYTES decoder above) and emit an `[u8; N]`
+    // ArrLit. Suitable for `let x: [u8; N] = b"…";` and for const
+    // initializers `const X: [u8; N] = b"…";` which downstream
+    // match-pattern code (PAT_BYTES on [u8; N]) consumes.
+    auto sv = str_of(expr.get(la::VALUE.code));
+    std::vector<uint8_t> bytes;
+    if (sv.size() >= 3 && sv.front() == 'b' && sv[1] == '"' && sv.back() == '"') {
+        std::string_view body = sv.substr(2, sv.size() - 3);
+        for (size_t i = 0; i < body.size(); ) {
+            unsigned char c = (unsigned char)body[i];
+            if (c == '\\' && i + 1 < body.size()) {
+                char e = body[i + 1];
+                uint8_t b = 0;
+                switch (e) {
+                    case 'n':  b = '\n'; break;
+                    case 't':  b = '\t'; break;
+                    case 'r':  b = '\r'; break;
+                    case '0':  b = 0;    break;
+                    case '\\': b = '\\'; break;
+                    case '\'': b = '\''; break;
+                    case '"':  b = '"';  break;
+                    case 'x': {
+                        if (i + 3 < body.size()) {
+                            auto hex = [](char c) -> int {
+                                if (c >= '0' && c <= '9') return c - '0';
+                                if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+                                if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+                                return -1;
+                            };
+                            int hi = hex(body[i + 2]), lo = hex(body[i + 3]);
+                            if (hi >= 0 && lo >= 0) {
+                                b = (uint8_t)((hi << 4) | lo);
+                                bytes.push_back(b);
+                                i += 4;
+                                continue;
+                            }
+                        }
+                        error(std::format(
+                            "byte-string literal: malformed \\x escape in '{}'", sv));
+                        i += 2; continue;
+                    }
+                    default:
+                        error(std::format(
+                            "byte-string literal: unknown escape '\\{}' in '{}'",
+                            e, sv));
+                        i += 2; continue;
+                }
+                bytes.push_back(b);
+                i += 2;
+            } else {
+                bytes.push_back(c);
+                ++i;
+            }
+        }
+    } else {
+        error(std::format("byte-string literal: malformed '{}'", sv));
+    }
+    auto u8t = u8_t();
+    std::vector<lir::LExprPtr> elems;
+    elems.reserve(bytes.size());
+    for (auto b : bytes)
+        elems.push_back(builder().lit_int((int64_t)b, u8t));
+    auto arr_t = make_array(u8t, (uint64_t)bytes.size());
+    return builder().arr_lit(std::move(elems), arr_t);
+}
+
+lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
+    int32_t c = code_of(expr); (void)c;
+    auto name = str_of(expr.get(la::NAME.code));
+    auto t = lookup(name);
+    if (!t) {
+        // Const-generic value-use: `<const N: T>` param referenced in
+        // expression position. Emit a VarRef of the underlying numeric
+        // type with magic-prefixed name "__const_param:N"; mono detects
+        // the prefix and lowers to lit_int via the substitution map.
+        auto it = current_type_params_.find(std::string(name));
+        if (it != current_type_params_.end() &&
+            TypeRef(it->second).kind() == LogosType::Kind::ConstVar) {
+            TypeRef under = TypeRef(it->second).pointee();
+            if (!under) under = prim(LogosType::Kind::I64);
+            return builder().var_ref(
+                std::string("__const_param:") + std::string(name), under);
+        }
+        // Check if it's a function name — allow coercion to fn(T)->R type.
+        auto cands = find_func_candidates(name);
+        if (cands.size() == 1) {
+            const SemaFuncInfo& fi = *cands[0];
+            LogosTypeBuilder ft;
+            ft.kind = LogosType::Kind::FnPtr;
+            for (auto pt : fi.param_types)
+                ft.closure_params.push_back(pt);
+            ft.closure_ret = fi.ret_type ? fi.ret_type : void_t();
+            auto fn_type = pool_->alloc(std::move(ft));
+            return builder().var_ref(fi.symbol_name.empty() ? std::string(name) : fi.symbol_name, fn_type);
+        }
+        // CP-cm-02: bare-variant lookup via `use Type.{V1, …};` alias map.
+        // Resolves V1 to the no-payload variant of the registered enum.
+        // Variants with payload are handled via lower_call (CP-cm-03
+        // shape extended below).
+        {
+            auto vit = cur_imports_.variant_aliases.find(std::string(name));
+            if (vit != cur_imports_.variant_aliases.end()) {
+                auto [pkg, esi] = find_enum_by_name(vit->second);
+                if (esi) {
+                    const SemaVariantInfo* vinfo = nullptr;
+                    for (auto& v : esi->variants)
+                        if (v.name == std::string(name)) {
+                            vinfo = &v; break;
+                        }
+                    if (vinfo && vinfo->payload_types.empty()) {
+                        // Construct via lower_enum_lit_data_from_static
+                        // so generic-enum hint propagation kicks in.
+                        std::vector<TypeRef> ta;
+                        for (auto& tp : esi->type_params)
+                            ta.push_back(make_typevar(tp.name));
+                        auto rty = ta.empty()
+                            ? make_enum_type(vit->second)
+                            : make_generic_enum(vit->second, std::move(ta));
+                        return builder().enum_lit(
+                            vit->second, std::string(name),
+                            (int64_t)vinfo->value, rty);
+                    }
+                }
+            }
+        }
+        // CP-cm-03: prelude bareword `None` (Option) — no payload.
+        // (`Some` / `Ok` / `Err` are call-shape; handled in lower_call.
+        //  Only `None` is a bare ident.)
+        if (name == "None") {
+            auto [pkg, esi] = find_enum_by_name("Option");
+            if (esi) {
+                const SemaVariantInfo* vinfo = nullptr;
+                for (auto& v : esi->variants)
+                    if (v.name == "None") { vinfo = &v; break; }
+                if (vinfo) {
+                    // Prefer hint_enum_type_ (let-annotation `Option<T>`)
+                    // so `let r: Option<i32> = None.or(Some(x))` resolves
+                    // T at receiver-construction time. Without this,
+                    // None lowers as Option<TypeVar(T)>, method dispatch
+                    // produces `Option__T__or__…` (unbound), and mlir-gen
+                    // can't find the specialised symbol.
+                    std::vector<TypeRef> ta;
+                    if (hint_enum_type_ &&
+                        TypeRef(hint_enum_type_).kind() == LogosType::Kind::Enum &&
+                        TypeRef(hint_enum_type_).enum_name() == "Option" &&
+                        !TypeRef(hint_enum_type_).type_args().empty()) {
+                        ta.push_back(TypeRef(hint_enum_type_).type_args()[0]);
+                    } else {
+                        ta.push_back(make_typevar("T"));
+                    }
+                    auto rty = make_generic_enum("Option", std::move(ta));
+                    return builder().enum_lit("Option", "None",
+                                               (int64_t)vinfo->value, rty);
+                }
+            }
+        }
+        error(std::format("undefined variable '{}'", name));
+        return error_expr();
+    }
+    if (moved_vars_.count(std::string(name)))
+        error(std::format("use of moved variable '{}'", name));
+    return builder().var_ref(std::string(name), t);
+}
+
+lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
+    int32_t c = code_of(expr); (void)c;
+    lir::LExprPtr inner = expr.has_key(la::VALUE)
+        ? lower_expr(map_of(expr.get(la::VALUE.code)))
+        : error_expr();
+    TypeRef target = expr.has_key(la::TYPE)
+        ? resolve_type(map_of(expr.get(la::TYPE.code)))
+        : error_t();
+
+    // ── Hermes typed container casts: &[T] as <I32>[] → Hermes. ──────
+    if (target && TypeRef(target).kind() == LogosType::Kind::Struct &&
+        (TypeRef(target).struct_name() == "HermesArr" || TypeRef(target).struct_name() == "HermesMap")) {
+        if (TypeRef(target).struct_name() == "HermesArr") {
+            auto src = inner->type;
+            if (!src || TypeRef(src).kind() != LogosType::Kind::Slice) {
+                error(std::format(
+                    "'as <T>[]' requires a &[T] slice as source; got '{}'",
+                    src ? type_str(src) : "?"));
+                return error_expr();
+            }
+            // Validate element type compatibility.
+            // C6-fix3: elem_t must be non-null (resolve_type always sets it for valid types).
+            TypeRef elem_t = !TypeRef(target).type_args().empty()
+                ? TypeRef(target).type_args()[0] : nullptr;
+            if (!elem_t) {
+                error("internal: <T>[] type missing element type");
+                return error_expr();
+            }
+            // C6-fix4: TypeRef(src).elem() must be non-null; don't skip type check silently.
+            if (!TypeRef(src).elem()) {
+                error("'as <T>[]': source slice has unresolved element type");
+                return error_expr();
+            }
+            if (TypeRef(elem_t).kind() != TypeRef(src).elem().kind()) {
+                error(std::format(
+                    "'as <T>[]' element type mismatch: slice has '{}', target needs '{}'",
+                    type_str(TypeRef(src).elem()), type_str(elem_t)));
+                return error_expr();
+            }
+            // Pick the stdlib builder function name.
+            std::string build_fn;
+            if      (TypeRef(elem_t).kind() == LogosType::Kind::I8)  build_fn = "hermes_build_array_i8";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::U8)  build_fn = "hermes_build_array_u8";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::I16) build_fn = "hermes_build_array_i16";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::U16) build_fn = "hermes_build_array_u16";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::U32) build_fn = "hermes_build_array_u32";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::I32) build_fn = "hermes_build_array_i32";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::I64) build_fn = "hermes_build_array_i64";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::U64) build_fn = "hermes_build_array_u64";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::F32) build_fn = "hermes_build_array_f32";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::F64) build_fn = "hermes_build_array_f64";
+            else {
+                error(std::format("'as <T>[]': unsupported element type '{}'; "
+                                  "supported: i8/u8/i16/u16/i32/u32/i64/u64/f32/f64",
+                                  type_str(elem_t)));
+                return error_expr();
+            }
+            // Result type: Hermes.
+            auto ctr_t = lookup_type_by_name("Hermes");
+            if (!ctr_t) ctr_t = make_struct_type("Hermes");
+            return builder().hermes_cast(std::move(inner), std::move(build_fn), ctr_t);
+        }
+        // fix5: explicit guard — outer if allows HermesArr||HermesMap; must be HermesMap here.
+        if (TypeRef(target).struct_name() != "HermesMap") {
+            error("internal: unexpected hermes container type in map cast path");
+            return error_expr();
+        }
+        // HermesMap: source must be MapSliceI32 for <I32,AnyVal>{}.
+        {
+            auto src = inner->type;
+            TypeRef key_t = !TypeRef(target).type_args().empty()
+                ? TypeRef(target).type_args()[0] : nullptr;
+            TypeRef val_t = TypeRef(target).type_args().size() > 1
+                ? TypeRef(target).type_args()[1] : nullptr;
+            if (!key_t || !val_t) {
+                error("internal: <K,V>{} type missing key/val types");
+                return error_expr();
+            }
+            // Helper: check AnyVal val type.
+            bool val_is_anyval = TypeRef(val_t).kind() == LogosType::Kind::Struct &&
+                                 is_anyval(val_t);
+            std::string map_fn;
+            struct MapVariant { LogosType::Kind key_kind; const char* slice_name; const char* fn_name; };
+            static const MapVariant map_variants[] = {
+                {LogosType::Kind::I32, "MapSliceI32", "hermes_build_map_i32_anyval"},
+                {LogosType::Kind::U32, "MapSliceU32", "hermes_build_map_u32_anyval"},
+                {LogosType::Kind::I64, "MapSliceI64", "hermes_build_map_i64_anyval"},
+                {LogosType::Kind::U64, "MapSliceU64", "hermes_build_map_u64_anyval"},
+            };
+            bool found_map = false;
+            if (val_is_anyval) {
+                for (auto& mv : map_variants) {
+                    if (TypeRef(key_t).kind() == mv.key_kind) {
+                        if (!src || TypeRef(src).kind() != LogosType::Kind::Struct ||
+                            TypeRef(src).struct_name() != mv.slice_name) {
+                            error(std::format(
+                                "'as <{},AnyVal>{{}}' requires a {} as source; got '{}'",
+                                type_str(key_t), mv.slice_name,
+                                src ? type_str(src) : "?"));
+                            return error_expr();
+                        }
+                        map_fn = mv.fn_name;
+                        found_map = true;
+                        break;
+                    }
+                }
+            }
+            if (!found_map) {
+                // fix4: guard against calling type_str on error types — check kind first.
+                auto key_str = (TypeRef(key_t).kind() != LogosType::Kind::Error) ? type_str(key_t) : "?";
+                auto val_str = (TypeRef(val_t).kind() != LogosType::Kind::Error) ? type_str(val_t) : "?";
+                error(std::format(
+                    "'as <{},{}>{{}}': unsupported combination; supported: <I32/U32/I64/U64,AnyVal>",
+                    key_str, val_str));
+                return error_expr();
+            }
+            auto ctr_t = lookup_type_by_name("Hermes");
+            if (!ctr_t) ctr_t = make_struct_type("Hermes");
+            return builder().hermes_cast(std::move(inner), std::move(map_fn), ctr_t);
+        }
+    }
+
+    // ── Ordinary numeric/pointer cast. ────────────────────────────────────
+    if (inner->type && target &&
+        TypeRef(inner->type).kind() != LogosType::Kind::Error &&
+        TypeRef(target).kind() != LogosType::Kind::Error) {
+        bool src_agg = TypeRef(inner->type).kind() == LogosType::Kind::Struct ||
+                       TypeRef(inner->type).kind() == LogosType::Kind::Array  ||
+                       TypeRef(inner->type).kind() == LogosType::Kind::Tuple  ||
+                       TypeRef(inner->type).kind() == LogosType::Kind::Enum;
+        bool tgt_scalar = TypeRef(target).kind() == LogosType::Kind::I32  ||
+                          TypeRef(target).kind() == LogosType::Kind::I64  ||
+                          TypeRef(target).kind() == LogosType::Kind::U8   ||
+                          TypeRef(target).kind() == LogosType::Kind::I8   ||
+                          TypeRef(target).kind() == LogosType::Kind::I16  ||
+                          TypeRef(target).kind() == LogosType::Kind::U16  ||
+                          TypeRef(target).kind() == LogosType::Kind::I24  ||
+                          TypeRef(target).kind() == LogosType::Kind::I56  ||
+                          TypeRef(target).kind() == LogosType::Kind::U24  ||
+                          TypeRef(target).kind() == LogosType::Kind::U56  ||
+                          TypeRef(target).kind() == LogosType::Kind::U32  ||
+                          TypeRef(target).kind() == LogosType::Kind::U64  ||
+                          TypeRef(target).kind() == LogosType::Kind::I128 ||
+                          TypeRef(target).kind() == LogosType::Kind::U128 ||
+                          TypeRef(target).kind() == LogosType::Kind::Usize ||
+                          TypeRef(target).kind() == LogosType::Kind::Isize ||
+                          TypeRef(target).kind() == LogosType::Kind::Char ||
+                          TypeRef(target).kind() == LogosType::Kind::F64  ||
+                          TypeRef(target).kind() == LogosType::Kind::F32  ||
+                          TypeRef(target).kind() == LogosType::Kind::Bool ||
+                          TypeRef(target).kind() == LogosType::Kind::Ptr;
+        // C-style enum -> integer/bool is allowed (discriminant cast).
+        bool src_is_cstyle_enum = false;
+        if (TypeRef innt(inner->type); innt.kind() == LogosType::Kind::Enum) {
+            auto en = innt.enum_name();
+            auto [epkg_cast, esi_cast] = find_enum_by_name(en);
+            auto eit = esi_cast ? enums_.find(sema_key(epkg_cast, en)) : enums_.end();
+            if (eit == enums_.end()) eit = enums_.find(en);
+            if (eit != enums_.end()) {
+                bool has_payload = false;
+                for (auto& vv : eit->second.variants)
+                    if (!vv.payload_types.empty()) { has_payload = true; break; }
+                src_is_cstyle_enum = !has_payload;
+            }
+        }
+        if (src_agg && tgt_scalar && !src_is_cstyle_enum)
+            error(std::format("cannot cast '{}' to '{}'",
+                  type_str(inner->type), type_str(target)));
+        // Sprint 3.4: also forbid scalar/pointer → aggregate (closes B-ex-05).
+        // Casting to a struct/enum/tuple/array reinterprets unrelated bits;
+        // there is no well-defined operation here.
+        bool tgt_agg = TypeRef(target).kind() == LogosType::Kind::Struct ||
+                       TypeRef(target).kind() == LogosType::Kind::ZonedStruct ||
+                       TypeRef(target).kind() == LogosType::Kind::Array  ||
+                       TypeRef(target).kind() == LogosType::Kind::Tuple  ||
+                       TypeRef(target).kind() == LogosType::Kind::Enum;
+        // Allow ZonedStruct/Struct → ZonedStruct/Struct only when the
+        // qualified names match (e.g. AnyVal cross-pkg); already handled
+        // by other paths.  Otherwise reject scalar/ptr → aggregate.
+        if (tgt_agg && !src_agg) {
+            error(std::format("cannot cast '{}' to '{}': non-primitive cast target",
+                  type_str(inner->type), type_str(target)));
+        }
+        // str (Slice<u8>) -> *mut u8 is unsound: str points to rodata.
+        TypeRef innt2(inner->type);
+        bool src_is_str = innt2.kind() == LogosType::Kind::Slice &&
+                          innt2.elem() &&
+                          innt2.elem().kind() == LogosType::Kind::U8;
+        bool tgt_is_mut_ptr = TypeRef(target).kind() == LogosType::Kind::Ptr &&
+                              TypeRef(target).mut_ptr() &&
+                              TypeRef(target).pointee() &&
+                              TypeRef(target).pointee().kind() == LogosType::Kind::U8;
+        if (src_is_str && tgt_is_mut_ptr)
+            error("cannot cast 'str' to '*mut u8': str data is read-only; use '*const u8'");
+    }
+    return builder().cast(std::move(inner), target);
+}
+
 lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     if (expr.is_null()) return error_expr();
     node_line_ = get_line(expr);
@@ -43,52 +565,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
 
     switch (c) {
 
-    case la::LIT_INT: {
-        auto sv = str_of(expr.get(la::VALUE.code));
-        if (!valid_int_literal_format(sv)) {
-            error(std::format("malformed integer literal '{}'", sv));
-            return error_expr();
-        }
-        // Sprint 2.3: reject silently-saturating literals (B-ex-07, B-he-04, B-lx-04).
-        if (parse_int_literal_overflows(sv)) {
-            error(std::format("integer literal '{}' is out of range", sv));
-            return error_expr();
-        }
-        int64_t v = parse_int_literal(sv);
-        auto suf = int_suffix_kind(sv);
-        // If the literal carries an explicit suffix, also bound-check against
-        // the suffix-implied type's range.  Without a suffix the literal stays
-        // IntLit and the destination-type coercion handles range later.
-        if (suf != LogosType::Kind::Error) {
-            // Source-text sign matters for bound checking (the int64_t bit
-            // pattern wraps for unsigned literals at 2^63 and above).
-            bool src_negative = !sv.empty() && sv[0] == '-';
-            uint64_t mag = src_negative ? (uint64_t)(-(int64_t)((uint64_t)v))
-                                        : (uint64_t)v;
-            uint64_t max_mag = 0; bool signed_t = false;
-            switch (suf) {
-                case LogosType::Kind::I8:  max_mag = src_negative ? 128ull       : 127ull;        signed_t = true; break;
-                case LogosType::Kind::I16: max_mag = src_negative ? 32768ull     : 32767ull;      signed_t = true; break;
-                case LogosType::Kind::I32: max_mag = src_negative ? 2147483648ull: 2147483647ull; signed_t = true; break;
-                case LogosType::Kind::I64: max_mag = src_negative ? (uint64_t)INT64_MAX + 1 : (uint64_t)INT64_MAX; signed_t = true; break;
-                case LogosType::Kind::U8:  max_mag = 255ull;                 break;
-                case LogosType::Kind::U16: max_mag = 65535ull;               break;
-                case LogosType::Kind::U32: max_mag = 4294967295ull;          break;
-                case LogosType::Kind::U64: max_mag = UINT64_MAX;             break;
-                default: max_mag = UINT64_MAX;  // I24/I56/U24/U56/I128 — skip strict check
-            }
-            if (!signed_t && src_negative) {
-                error(std::format("integer literal '{}': negative value with unsigned suffix", sv));
-                return error_expr();
-            }
-            if (mag > max_mag && max_mag != UINT64_MAX) {
-                error(std::format("integer literal '{}' is out of range for its suffix type", sv));
-                return error_expr();
-            }
-        }
-        TypeRef t = (suf != LogosType::Kind::Error) ? prim(suf) : intlit_t();
-        return builder().lit_int(v, t);
-    }
+    case la::LIT_INT: return lower_int_lit(expr);
     case la::LIT_FLOAT: {
         auto sv = str_of(expr.get(la::VALUE.code));
         if (!valid_float_literal_format(sv)) {
@@ -110,282 +587,15 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
         bool v = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
         return builder().lit_bool(v, bool_t());
     }
-    case la::LIT_CHAR: {
-        // Decode `'X'` text. The lexer guarantees the form is either
-        // `'<single non-`'`/`\` char>'` or `'<\esc>'`; we need to map the
-        // contents to a Unicode scalar value.
-        auto sv = str_of(expr.get(la::VALUE.code));
-        // sv is e.g. `'A'` or `'\n'`; strip the outer apostrophes.
-        if (sv.size() < 3 || sv.front() != '\'' || sv.back() != '\'') {
-            error(std::format("malformed char literal '{}'", sv));
-            return error_expr();
-        }
-        std::string_view body = sv.substr(1, sv.size() - 2);
-        int64_t v = 0;
-        if (!body.empty() && body[0] == '\\') {
-            if (body.size() < 2) {
-                error(std::format("malformed char literal '{}'", sv));
-                return error_expr();
-            }
-            switch (body[1]) {
-                case 'n':  v = '\n'; break;
-                case 't':  v = '\t'; break;
-                case 'r':  v = '\r'; break;
-                case '0':  v = 0;    break;
-                case '\\': v = '\\'; break;
-                case '\'': v = '\''; break;
-                case '"':  v = '"';  break;
-                case 'x': {
-                    // `\xNN` — 2 hex digits, byte value (0..255).
-                    if (body.size() != 4) {
-                        error(std::format("char literal '{}': '\\x' requires exactly 2 hex digits", sv));
-                        return error_expr();
-                    }
-                    auto hex = [&](char c) -> int {
-                        if (c >= '0' && c <= '9') return c - '0';
-                        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-                        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-                        return -1;
-                    };
-                    int h1 = hex(body[2]), h2 = hex(body[3]);
-                    if (h1 < 0 || h2 < 0) {
-                        error(std::format("char literal '{}': '\\x' requires hex digits", sv));
-                        return error_expr();
-                    }
-                    v = (h1 << 4) | h2;
-                    break;
-                }
-                case 'u': {
-                    // `\u{HHH...}` — 1..6 hex digits in braces, Unicode scalar.
-                    if (body.size() < 5 || body[2] != '{' || body.back() != '}') {
-                        error(std::format("char literal '{}': '\\u' requires '{{HEX}}' form", sv));
-                        return error_expr();
-                    }
-                    auto hex = [&](char c) -> int {
-                        if (c >= '0' && c <= '9') return c - '0';
-                        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-                        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-                        return -1;
-                    };
-                    uint32_t cp = 0;
-                    size_t end = body.size() - 1;  // index of '}'
-                    for (size_t i = 3; i < end; ++i) {
-                        int h = hex(body[i]);
-                        if (h < 0) {
-                            error(std::format("char literal '{}': '\\u' requires hex digits", sv));
-                            return error_expr();
-                        }
-                        cp = (cp << 4) | (uint32_t)h;
-                    }
-                    if (cp > 0x10FFFFu || (cp >= 0xD800u && cp <= 0xDFFFu)) {
-                        error(std::format("char literal '{}': invalid Unicode scalar U+{:X}", sv, cp));
-                        return error_expr();
-                    }
-                    v = (int64_t)cp;
-                    break;
-                }
-                default:
-                    error(std::format("char literal '{}': unknown escape '\\{}'",
-                          sv, body[1]));
-                    return error_expr();
-            }
-        } else if (body.size() == 1) {
-            v = (uint8_t)body[0];
-        } else {
-            // Multi-byte body: decode as a single UTF-8 codepoint. Lexer
-            // already validated the byte length matches the lead byte; we
-            // re-decode here for the actual scalar value.
-            unsigned char lead = static_cast<unsigned char>(body[0]);
-            size_t cp_len = 0;
-            uint32_t cp  = 0;
-            if      ((lead & 0xE0) == 0xC0) { cp_len = 2; cp = lead & 0x1F; }
-            else if ((lead & 0xF0) == 0xE0) { cp_len = 3; cp = lead & 0x0F; }
-            else if ((lead & 0xF8) == 0xF0) { cp_len = 4; cp = lead & 0x07; }
-            if (cp_len == 0 || body.size() != cp_len) {
-                error(std::format("char literal '{}': malformed UTF-8 body", sv));
-                return error_expr();
-            }
-            for (size_t i = 1; i < cp_len; ++i) {
-                unsigned char cb = static_cast<unsigned char>(body[i]);
-                if ((cb & 0xC0) != 0x80) {
-                    error(std::format("char literal '{}': malformed UTF-8 body", sv));
-                    return error_expr();
-                }
-                cp = (cp << 6) | (cb & 0x3F);
-            }
-            v = static_cast<int64_t>(cp);
-        }
-        return builder().lit_int(v, prim(LogosType::Kind::Char));
-    }
+    case la::LIT_CHAR: return lower_char_lit(expr);
     case la::LIT_STR: {
         auto sv = str_of(expr.get(la::VALUE.code));
         return builder().lit_str(std::string(sv), make_slice_type(u8_t()));
     }
 
-    case la::LIT_BYTES: {
-        // P4-pm-07: `b"…"` at expression position. Decode escapes
-        // (parity with PAT_BYTES decoder above) and emit an `[u8; N]`
-        // ArrLit. Suitable for `let x: [u8; N] = b"…";` and for const
-        // initializers `const X: [u8; N] = b"…";` which downstream
-        // match-pattern code (PAT_BYTES on [u8; N]) consumes.
-        auto sv = str_of(expr.get(la::VALUE.code));
-        std::vector<uint8_t> bytes;
-        if (sv.size() >= 3 && sv.front() == 'b' && sv[1] == '"' && sv.back() == '"') {
-            std::string_view body = sv.substr(2, sv.size() - 3);
-            for (size_t i = 0; i < body.size(); ) {
-                unsigned char c = (unsigned char)body[i];
-                if (c == '\\' && i + 1 < body.size()) {
-                    char e = body[i + 1];
-                    uint8_t b = 0;
-                    switch (e) {
-                        case 'n':  b = '\n'; break;
-                        case 't':  b = '\t'; break;
-                        case 'r':  b = '\r'; break;
-                        case '0':  b = 0;    break;
-                        case '\\': b = '\\'; break;
-                        case '\'': b = '\''; break;
-                        case '"':  b = '"';  break;
-                        case 'x': {
-                            if (i + 3 < body.size()) {
-                                auto hex = [](char c) -> int {
-                                    if (c >= '0' && c <= '9') return c - '0';
-                                    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-                                    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-                                    return -1;
-                                };
-                                int hi = hex(body[i + 2]), lo = hex(body[i + 3]);
-                                if (hi >= 0 && lo >= 0) {
-                                    b = (uint8_t)((hi << 4) | lo);
-                                    bytes.push_back(b);
-                                    i += 4;
-                                    continue;
-                                }
-                            }
-                            error(std::format(
-                                "byte-string literal: malformed \\x escape in '{}'", sv));
-                            i += 2; continue;
-                        }
-                        default:
-                            error(std::format(
-                                "byte-string literal: unknown escape '\\{}' in '{}'",
-                                e, sv));
-                            i += 2; continue;
-                    }
-                    bytes.push_back(b);
-                    i += 2;
-                } else {
-                    bytes.push_back(c);
-                    ++i;
-                }
-            }
-        } else {
-            error(std::format("byte-string literal: malformed '{}'", sv));
-        }
-        auto u8t = u8_t();
-        std::vector<lir::LExprPtr> elems;
-        elems.reserve(bytes.size());
-        for (auto b : bytes)
-            elems.push_back(builder().lit_int((int64_t)b, u8t));
-        auto arr_t = make_array(u8t, (uint64_t)bytes.size());
-        return builder().arr_lit(std::move(elems), arr_t);
-    }
+    case la::LIT_BYTES: return lower_bytes_lit(expr);
 
-    case la::VAR_REF: {
-        auto name = str_of(expr.get(la::NAME.code));
-        auto t = lookup(name);
-        if (!t) {
-            // Const-generic value-use: `<const N: T>` param referenced in
-            // expression position. Emit a VarRef of the underlying numeric
-            // type with magic-prefixed name "__const_param:N"; mono detects
-            // the prefix and lowers to lit_int via the substitution map.
-            auto it = current_type_params_.find(std::string(name));
-            if (it != current_type_params_.end() &&
-                TypeRef(it->second).kind() == LogosType::Kind::ConstVar) {
-                TypeRef under = TypeRef(it->second).pointee();
-                if (!under) under = prim(LogosType::Kind::I64);
-                return builder().var_ref(
-                    std::string("__const_param:") + std::string(name), under);
-            }
-            // Check if it's a function name — allow coercion to fn(T)->R type.
-            auto cands = find_func_candidates(name);
-            if (cands.size() == 1) {
-                const SemaFuncInfo& fi = *cands[0];
-                LogosTypeBuilder ft;
-                ft.kind = LogosType::Kind::FnPtr;
-                for (auto pt : fi.param_types)
-                    ft.closure_params.push_back(pt);
-                ft.closure_ret = fi.ret_type ? fi.ret_type : void_t();
-                auto fn_type = pool_->alloc(std::move(ft));
-                return builder().var_ref(fi.symbol_name.empty() ? std::string(name) : fi.symbol_name, fn_type);
-            }
-            // CP-cm-02: bare-variant lookup via `use Type.{V1, …};` alias map.
-            // Resolves V1 to the no-payload variant of the registered enum.
-            // Variants with payload are handled via lower_call (CP-cm-03
-            // shape extended below).
-            {
-                auto vit = cur_imports_.variant_aliases.find(std::string(name));
-                if (vit != cur_imports_.variant_aliases.end()) {
-                    auto [pkg, esi] = find_enum_by_name(vit->second);
-                    if (esi) {
-                        const SemaVariantInfo* vinfo = nullptr;
-                        for (auto& v : esi->variants)
-                            if (v.name == std::string(name)) {
-                                vinfo = &v; break;
-                            }
-                        if (vinfo && vinfo->payload_types.empty()) {
-                            // Construct via lower_enum_lit_data_from_static
-                            // so generic-enum hint propagation kicks in.
-                            std::vector<TypeRef> ta;
-                            for (auto& tp : esi->type_params)
-                                ta.push_back(make_typevar(tp.name));
-                            auto rty = ta.empty()
-                                ? make_enum_type(vit->second)
-                                : make_generic_enum(vit->second, std::move(ta));
-                            return builder().enum_lit(
-                                vit->second, std::string(name),
-                                (int64_t)vinfo->value, rty);
-                        }
-                    }
-                }
-            }
-            // CP-cm-03: prelude bareword `None` (Option) — no payload.
-            // (`Some` / `Ok` / `Err` are call-shape; handled in lower_call.
-            //  Only `None` is a bare ident.)
-            if (name == "None") {
-                auto [pkg, esi] = find_enum_by_name("Option");
-                if (esi) {
-                    const SemaVariantInfo* vinfo = nullptr;
-                    for (auto& v : esi->variants)
-                        if (v.name == "None") { vinfo = &v; break; }
-                    if (vinfo) {
-                        // Prefer hint_enum_type_ (let-annotation `Option<T>`)
-                        // so `let r: Option<i32> = None.or(Some(x))` resolves
-                        // T at receiver-construction time. Without this,
-                        // None lowers as Option<TypeVar(T)>, method dispatch
-                        // produces `Option__T__or__…` (unbound), and mlir-gen
-                        // can't find the specialised symbol.
-                        std::vector<TypeRef> ta;
-                        if (hint_enum_type_ &&
-                            TypeRef(hint_enum_type_).kind() == LogosType::Kind::Enum &&
-                            TypeRef(hint_enum_type_).enum_name() == "Option" &&
-                            !TypeRef(hint_enum_type_).type_args().empty()) {
-                            ta.push_back(TypeRef(hint_enum_type_).type_args()[0]);
-                        } else {
-                            ta.push_back(make_typevar("T"));
-                        }
-                        auto rty = make_generic_enum("Option", std::move(ta));
-                        return builder().enum_lit("Option", "None",
-                                                   (int64_t)vinfo->value, rty);
-                    }
-                }
-            }
-            error(std::format("undefined variable '{}'", name));
-            return error_expr();
-        }
-        if (moved_vars_.count(std::string(name)))
-            error(std::format("use of moved variable '{}'", name));
-        return builder().var_ref(std::string(name), t);
-    }
+    case la::VAR_REF: return lower_var_ref(expr);
 
     case la::PACK_EXPAND: {
         auto name = str_of(expr.get(la::NAME.code));
@@ -433,202 +643,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
             return lower_expr(map_of(expr.get(la::VALUE.code)));
         return error_expr();
 
-    case la::CAST: {
-        lir::LExprPtr inner = expr.has_key(la::VALUE)
-            ? lower_expr(map_of(expr.get(la::VALUE.code)))
-            : error_expr();
-        TypeRef target = expr.has_key(la::TYPE)
-            ? resolve_type(map_of(expr.get(la::TYPE.code)))
-            : error_t();
-
-        // ── Hermes typed container casts: &[T] as <I32>[] → Hermes. ──────
-        if (target && TypeRef(target).kind() == LogosType::Kind::Struct &&
-            (TypeRef(target).struct_name() == "HermesArr" || TypeRef(target).struct_name() == "HermesMap")) {
-            if (TypeRef(target).struct_name() == "HermesArr") {
-                auto src = inner->type;
-                if (!src || TypeRef(src).kind() != LogosType::Kind::Slice) {
-                    error(std::format(
-                        "'as <T>[]' requires a &[T] slice as source; got '{}'",
-                        src ? type_str(src) : "?"));
-                    return error_expr();
-                }
-                // Validate element type compatibility.
-                // C6-fix3: elem_t must be non-null (resolve_type always sets it for valid types).
-                TypeRef elem_t = !TypeRef(target).type_args().empty()
-                    ? TypeRef(target).type_args()[0] : nullptr;
-                if (!elem_t) {
-                    error("internal: <T>[] type missing element type");
-                    return error_expr();
-                }
-                // C6-fix4: TypeRef(src).elem() must be non-null; don't skip type check silently.
-                if (!TypeRef(src).elem()) {
-                    error("'as <T>[]': source slice has unresolved element type");
-                    return error_expr();
-                }
-                if (TypeRef(elem_t).kind() != TypeRef(src).elem().kind()) {
-                    error(std::format(
-                        "'as <T>[]' element type mismatch: slice has '{}', target needs '{}'",
-                        type_str(TypeRef(src).elem()), type_str(elem_t)));
-                    return error_expr();
-                }
-                // Pick the stdlib builder function name.
-                std::string build_fn;
-                if      (TypeRef(elem_t).kind() == LogosType::Kind::I8)  build_fn = "hermes_build_array_i8";
-                else if (TypeRef(elem_t).kind() == LogosType::Kind::U8)  build_fn = "hermes_build_array_u8";
-                else if (TypeRef(elem_t).kind() == LogosType::Kind::I16) build_fn = "hermes_build_array_i16";
-                else if (TypeRef(elem_t).kind() == LogosType::Kind::U16) build_fn = "hermes_build_array_u16";
-                else if (TypeRef(elem_t).kind() == LogosType::Kind::U32) build_fn = "hermes_build_array_u32";
-                else if (TypeRef(elem_t).kind() == LogosType::Kind::I32) build_fn = "hermes_build_array_i32";
-                else if (TypeRef(elem_t).kind() == LogosType::Kind::I64) build_fn = "hermes_build_array_i64";
-                else if (TypeRef(elem_t).kind() == LogosType::Kind::U64) build_fn = "hermes_build_array_u64";
-                else if (TypeRef(elem_t).kind() == LogosType::Kind::F32) build_fn = "hermes_build_array_f32";
-                else if (TypeRef(elem_t).kind() == LogosType::Kind::F64) build_fn = "hermes_build_array_f64";
-                else {
-                    error(std::format("'as <T>[]': unsupported element type '{}'; "
-                                      "supported: i8/u8/i16/u16/i32/u32/i64/u64/f32/f64",
-                                      type_str(elem_t)));
-                    return error_expr();
-                }
-                // Result type: Hermes.
-                auto ctr_t = lookup_type_by_name("Hermes");
-                if (!ctr_t) ctr_t = make_struct_type("Hermes");
-                return builder().hermes_cast(std::move(inner), std::move(build_fn), ctr_t);
-            }
-            // fix5: explicit guard — outer if allows HermesArr||HermesMap; must be HermesMap here.
-            if (TypeRef(target).struct_name() != "HermesMap") {
-                error("internal: unexpected hermes container type in map cast path");
-                return error_expr();
-            }
-            // HermesMap: source must be MapSliceI32 for <I32,AnyVal>{}.
-            {
-                auto src = inner->type;
-                TypeRef key_t = !TypeRef(target).type_args().empty()
-                    ? TypeRef(target).type_args()[0] : nullptr;
-                TypeRef val_t = TypeRef(target).type_args().size() > 1
-                    ? TypeRef(target).type_args()[1] : nullptr;
-                if (!key_t || !val_t) {
-                    error("internal: <K,V>{} type missing key/val types");
-                    return error_expr();
-                }
-                // Helper: check AnyVal val type.
-                bool val_is_anyval = TypeRef(val_t).kind() == LogosType::Kind::Struct &&
-                                     is_anyval(val_t);
-                std::string map_fn;
-                struct MapVariant { LogosType::Kind key_kind; const char* slice_name; const char* fn_name; };
-                static const MapVariant map_variants[] = {
-                    {LogosType::Kind::I32, "MapSliceI32", "hermes_build_map_i32_anyval"},
-                    {LogosType::Kind::U32, "MapSliceU32", "hermes_build_map_u32_anyval"},
-                    {LogosType::Kind::I64, "MapSliceI64", "hermes_build_map_i64_anyval"},
-                    {LogosType::Kind::U64, "MapSliceU64", "hermes_build_map_u64_anyval"},
-                };
-                bool found_map = false;
-                if (val_is_anyval) {
-                    for (auto& mv : map_variants) {
-                        if (TypeRef(key_t).kind() == mv.key_kind) {
-                            if (!src || TypeRef(src).kind() != LogosType::Kind::Struct ||
-                                TypeRef(src).struct_name() != mv.slice_name) {
-                                error(std::format(
-                                    "'as <{},AnyVal>{{}}' requires a {} as source; got '{}'",
-                                    type_str(key_t), mv.slice_name,
-                                    src ? type_str(src) : "?"));
-                                return error_expr();
-                            }
-                            map_fn = mv.fn_name;
-                            found_map = true;
-                            break;
-                        }
-                    }
-                }
-                if (!found_map) {
-                    // fix4: guard against calling type_str on error types — check kind first.
-                    auto key_str = (TypeRef(key_t).kind() != LogosType::Kind::Error) ? type_str(key_t) : "?";
-                    auto val_str = (TypeRef(val_t).kind() != LogosType::Kind::Error) ? type_str(val_t) : "?";
-                    error(std::format(
-                        "'as <{},{}>{{}}': unsupported combination; supported: <I32/U32/I64/U64,AnyVal>",
-                        key_str, val_str));
-                    return error_expr();
-                }
-                auto ctr_t = lookup_type_by_name("Hermes");
-                if (!ctr_t) ctr_t = make_struct_type("Hermes");
-                return builder().hermes_cast(std::move(inner), std::move(map_fn), ctr_t);
-            }
-        }
-
-        // ── Ordinary numeric/pointer cast. ────────────────────────────────────
-        if (inner->type && target &&
-            TypeRef(inner->type).kind() != LogosType::Kind::Error &&
-            TypeRef(target).kind() != LogosType::Kind::Error) {
-            bool src_agg = TypeRef(inner->type).kind() == LogosType::Kind::Struct ||
-                           TypeRef(inner->type).kind() == LogosType::Kind::Array  ||
-                           TypeRef(inner->type).kind() == LogosType::Kind::Tuple  ||
-                           TypeRef(inner->type).kind() == LogosType::Kind::Enum;
-            bool tgt_scalar = TypeRef(target).kind() == LogosType::Kind::I32  ||
-                              TypeRef(target).kind() == LogosType::Kind::I64  ||
-                              TypeRef(target).kind() == LogosType::Kind::U8   ||
-                              TypeRef(target).kind() == LogosType::Kind::I8   ||
-                              TypeRef(target).kind() == LogosType::Kind::I16  ||
-                              TypeRef(target).kind() == LogosType::Kind::U16  ||
-                              TypeRef(target).kind() == LogosType::Kind::I24  ||
-                              TypeRef(target).kind() == LogosType::Kind::I56  ||
-                              TypeRef(target).kind() == LogosType::Kind::U24  ||
-                              TypeRef(target).kind() == LogosType::Kind::U56  ||
-                              TypeRef(target).kind() == LogosType::Kind::U32  ||
-                              TypeRef(target).kind() == LogosType::Kind::U64  ||
-                              TypeRef(target).kind() == LogosType::Kind::I128 ||
-                              TypeRef(target).kind() == LogosType::Kind::U128 ||
-                              TypeRef(target).kind() == LogosType::Kind::Usize ||
-                              TypeRef(target).kind() == LogosType::Kind::Isize ||
-                              TypeRef(target).kind() == LogosType::Kind::Char ||
-                              TypeRef(target).kind() == LogosType::Kind::F64  ||
-                              TypeRef(target).kind() == LogosType::Kind::F32  ||
-                              TypeRef(target).kind() == LogosType::Kind::Bool ||
-                              TypeRef(target).kind() == LogosType::Kind::Ptr;
-            // C-style enum -> integer/bool is allowed (discriminant cast).
-            bool src_is_cstyle_enum = false;
-            if (TypeRef innt(inner->type); innt.kind() == LogosType::Kind::Enum) {
-                auto en = innt.enum_name();
-                auto [epkg_cast, esi_cast] = find_enum_by_name(en);
-                auto eit = esi_cast ? enums_.find(sema_key(epkg_cast, en)) : enums_.end();
-                if (eit == enums_.end()) eit = enums_.find(en);
-                if (eit != enums_.end()) {
-                    bool has_payload = false;
-                    for (auto& vv : eit->second.variants)
-                        if (!vv.payload_types.empty()) { has_payload = true; break; }
-                    src_is_cstyle_enum = !has_payload;
-                }
-            }
-            if (src_agg && tgt_scalar && !src_is_cstyle_enum)
-                error(std::format("cannot cast '{}' to '{}'",
-                      type_str(inner->type), type_str(target)));
-            // Sprint 3.4: also forbid scalar/pointer → aggregate (closes B-ex-05).
-            // Casting to a struct/enum/tuple/array reinterprets unrelated bits;
-            // there is no well-defined operation here.
-            bool tgt_agg = TypeRef(target).kind() == LogosType::Kind::Struct ||
-                           TypeRef(target).kind() == LogosType::Kind::ZonedStruct ||
-                           TypeRef(target).kind() == LogosType::Kind::Array  ||
-                           TypeRef(target).kind() == LogosType::Kind::Tuple  ||
-                           TypeRef(target).kind() == LogosType::Kind::Enum;
-            // Allow ZonedStruct/Struct → ZonedStruct/Struct only when the
-            // qualified names match (e.g. AnyVal cross-pkg); already handled
-            // by other paths.  Otherwise reject scalar/ptr → aggregate.
-            if (tgt_agg && !src_agg) {
-                error(std::format("cannot cast '{}' to '{}': non-primitive cast target",
-                      type_str(inner->type), type_str(target)));
-            }
-            // str (Slice<u8>) -> *mut u8 is unsound: str points to rodata.
-            TypeRef innt2(inner->type);
-            bool src_is_str = innt2.kind() == LogosType::Kind::Slice &&
-                              innt2.elem() &&
-                              innt2.elem().kind() == LogosType::Kind::U8;
-            bool tgt_is_mut_ptr = TypeRef(target).kind() == LogosType::Kind::Ptr &&
-                                  TypeRef(target).mut_ptr() &&
-                                  TypeRef(target).pointee() &&
-                                  TypeRef(target).pointee().kind() == LogosType::Kind::U8;
-            if (src_is_str && tgt_is_mut_ptr)
-                error("cannot cast 'str' to '*mut u8': str data is read-only; use '*const u8'");
-        }
-        return builder().cast(std::move(inner), target);
-    }
+    case la::CAST: return lower_cast(expr);
 
     case la::BINOP:       return lower_binop(expr);
     case la::CHAINED_CMP: {
