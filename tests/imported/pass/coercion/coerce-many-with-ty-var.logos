@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/coerce-many-with-ty-var.rs
+// Modifications: the inference-driven `let _: [_; 2]` / `infer(...)` calls are
+// made concrete (`[fn(); 2]` etc.) — Logos needs the element type spelled out.
+// `infer`/`infer_array_element` generic helper calls dropped (they only
+// existed to drive type-var unification, which the explicit annotations cover).
+// Verifies fn-pointer LUB coercion across array elements, if-else arms and
+// match arms, then calls one through to confirm it runs.
+package m_coerce_many_with_ty_var;
+
+fn foo() {}
+fn bar() {}
+
+fn main() -> i32 {
+    let arr: [fn(); 2] = [foo, bar];
+
+    let chosen_if: fn() = if false { foo } else { bar };
+    let chosen_match: fn() = match false {
+        true => foo,
+        false => bar,
+    };
+
+    arr[0i64]();
+    arr[1i64]();
+    chosen_if();
+    chosen_match();
+    return 0;
+}

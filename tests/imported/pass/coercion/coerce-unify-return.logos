@@ -1,0 +1,34 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/coerce-unify-return.rs
+// Modifications: zero-field struct `struct Foo;` → `struct Foo {}`; by-value
+// self → self: Self; `main` used as the fn-pointer payload in Rust is replaced
+// by a local `dummy` fn (Logos `main` returns i32, not the `fn()` the test
+// wants). The turbofish `Some::<_>`/`foo::<_>` explicit-typevar variants are
+// dropped (Logos infers them the same as the implicit forms). Verifies a
+// polymorphic call's expected return type unifies through Option<fn()>.
+package m_coerce_unify_return;
+
+use logos.lang.option;
+
+struct Foo {}
+impl Foo {
+    fn foo<T>(self: Self, x: T) -> Option<T> { return Some(x); }
+}
+
+fn dummy() {}
+
+fn main() -> i32 {
+    let a: Option<fn()> = Some(dummy);
+    let f: Foo = Foo {};
+    let b: Option<fn()> = f.foo(dummy);
+
+    match a {
+        Option::Some(g) => { g(); }
+        Option::None => { return 1; }
+    }
+    match b {
+        Option::Some(g) => { g(); }
+        Option::None => { return 2; }
+    }
+    return 0;
+}

@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cast/coercion-as-explicit-cast.rs
+// Modifications: kept only the trivial numeric `as` casts and the &/&mut → raw
+// pointer (`*const`/`*mut`) casts. The unsize-array (`&[u32;3] as &[u32]`),
+// unsize-trait (`as &dyn Foo`), Box-unsize and fn/closure → `&dyn Fn(..)` rows
+// are dropped — those exercise DST/trait-object/Box coercions not yet covered
+// in Logos (tracked as gaps). The `test_subtyping` lifetime-only fn is dropped
+// (no observable runtime behaviour). Literals suffixed.
+package m_coercion_as_explicit_cast;
+
+fn main() -> i32 {
+    // Numeric
+    let _a = 42i32 as i32;
+    let _b = 42u8 as u8;
+
+    // & to *const
+    let x: &u32 = &42u32;
+    let _c = x as *const u32;
+
+    // &mut to *mut
+    let mut m: u32 = 42u32;
+    let xm: &mut u32 = &mut m;
+    let _d = xm as *mut u32;
+    return 0;
+}

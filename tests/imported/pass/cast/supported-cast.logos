@@ -1,0 +1,53 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cast/supported-cast.rs
+// Modifications: the original is a giant `println!("{:?}", N as T)` matrix over
+// every primitive ↔ primitive (and ptr) cast. Logos has no `*const String`
+// pointer casts to a sized type without a value, and `println!` is incidental,
+// so this is rewritten as `assert_eq!` checks on representative numeric casts
+// across i8/i16/i32/i64/u8/u16/u32/u64/f32/f64, exercising widening,
+// truncation, sign-extension and int↔float in both directions. isize/usize →
+// i64/u64. The pointer-cast rows are dropped (covered by other cast tests).
+package m_supported_cast;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn main() -> i32 {
+    // widening signed
+    assert_eq!(1i8 as i64, 1i64);
+    assert_eq!(-1i8 as i32, -1i32);   // sign extend
+    assert_eq!(-1i16 as i64, -1i64);
+
+    // truncation
+    assert_eq!(257i32 as u8, 1u8);
+    assert_eq!(-1i32 as u8, 255u8);
+    assert_eq!(0x1234i32 as u8, 0x34u8);
+    assert_eq!(0x12345678i32 as u16, 0x5678u16);
+
+    // unsigned widening (zero-extend)
+    assert_eq!(200u8 as u32, 200u32);
+    assert_eq!(200u8 as i32, 200i32);
+    assert_eq!(0xFFu8 as i8, -1i8);
+
+    // int → float
+    assert_eq!(1i32 as f64, 1.0f64);
+    assert_eq!(1i32 as f32, 1.0f32);
+    assert_eq!(255u8 as f64, 255.0f64);
+    assert_eq!(-3i32 as f64, -3.0f64);
+
+    // float → int (truncate toward zero)
+    assert_eq!(3.9f64 as i32, 3i32);
+    assert_eq!(-3.9f64 as i32, -3i32);
+    assert_eq!(2.0f32 as i64, 2i64);
+
+    // float → float
+    assert_eq!(1.5f32 as f64, 1.5f64);
+    assert_eq!(1.5f64 as f32, 1.5f32);
+
+    // identity casts type-check + round-trip
+    assert_eq!(42i32 as i32, 42i32);
+    assert_eq!(42u64 as u64, 42u64);
+    assert_eq!(7i64 as u64 as i64, 7i64);
+    return 0;
+}

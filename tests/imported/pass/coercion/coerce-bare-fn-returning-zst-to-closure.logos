@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/coerce-bare-fn-returning-zst-to-closure.rs
+// Modifications: `struct Foo;` → `struct Foo {}` (Logos zero-field struct);
+// usize → u64; the range `(0..10)` carries u64-suffixed bounds. Test point is
+// that coercing a bare fn returning a zero-sized type into the closure
+// parameter of `Iterator::map` compiles + links cleanly (the original was a
+// regression test for an LLVM ERROR). Adapter is lazy, matching Rust where the
+// result is never consumed.
+package m_coerce_bare_fn_zst;
+
+use logos.lang.iter;
+use logos.lang.range;
+
+struct Foo {}
+
+fn uint_to_foo(_x: u64) -> Foo {
+    return Foo {};
+}
+
+fn main() -> i32 {
+    let r = (0u64..10u64);
+    let _ = r.map(uint_to_foo);
+    return 0;
+}

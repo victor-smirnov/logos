@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/overloaded/subtyping-both-lhs-and-rhs-in-add-impl.rs
+// Modifications: the original (issue #32008) checks that `+` allows lifetime
+// subtyping on both `&'a Foo` operands via `impl Add<&Foo> for &Foo`. Logos's
+// `Add` trait is fixed-shape (`fn add(self, rhs: Self) -> Self`) with no
+// distinct RHS/Output, and lifetime subtyping is not a Logos concern, so the
+// reference-operand form is an intentional divergence. The retained concept is
+// user `Add` operator dispatch for `a + b`: `Foo` carries an i64 so the result
+// is observable (the original returned `()`). Literals suffixed.
+package m_subtyping_add;
+
+use logos.lang.ops;
+
+struct Foo {
+    n: i64,
+}
+
+impl Add for Foo {
+    fn add(self: Self, rhs: Self) -> Foo {
+        return Foo { n: self.n + rhs.n };
+    }
+}
+
+fn main() -> i32 {
+    let a: Foo = Foo { n: 10i64 };
+    let b: Foo = Foo { n: 32i64 };
+    let c: Foo = a + b;
+    if c.n != 42i64 { return 1; }
+    return 0;
+}

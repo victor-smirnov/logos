@@ -1,0 +1,38 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cast/cast-rfc0401.rs
+// Modifications: this kept only the prim-numeric, bool, and chained
+// numeric-cast portion of RFC 0401's cast matrix. The trait-object coercion
+// casts (`&mut dyn Iterator`), `Option`/tuple coercion-casts, raw-pointer
+// addr/ptr casts, fat->thin ptr casts and enum-discriminant casts are dropped
+// (covered elsewhere / not yet supported). isize/usize → i64/u64. The exact
+// hex bit patterns from the upstream test are preserved so the truncation /
+// sign-extension results are byte-identical. The f64-overflow rows the
+// original itself commented out remain dropped.
+package m_cast_rfc0401;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn main() -> i32 {
+    // bool-as-bool (not a prim-int cast — verify it works)
+    assert_eq!(false as bool, false);
+    assert_eq!(true as bool, true);
+
+    let l: u64 = 0x8090a0b0c0d0e0f0u64;
+
+    // numeric truncation
+    assert_eq!(l as u32, 0xc0d0e0f0u32);
+    assert_eq!(l as u8, 0xf0u8);
+    assert_eq!(l as i8, -0x10i8);
+    assert_eq!(l as i32, -0x3f2f1f10i32);
+
+    // chained casts round-trip
+    assert_eq!(l as u32 as u64 as u32, l as u32);
+    assert_eq!(l as i32 as i64 as i32, l as i32);
+
+    // int -> float
+    assert_eq!(0i32 as f64, 0.0f64);
+    assert_eq!(1i32 as f64, 1.0f64);
+    return 0;
+}

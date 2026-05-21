@@ -1,0 +1,52 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/overloaded/overloaded-index-in-field.rs
+// Modifications: isize → i64; Index<i64, i64>; by-value self → self: Self.
+// Tests overloaded `[]` when the indexable map is stored in a struct field
+// and a trait method is called on the index result (f.foo[1].get()).
+package m_overloaded_index_in_field;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.ops;
+
+struct Foo {
+    x: i64,
+    y: i64,
+}
+
+struct Bar {
+    foo: Foo,
+}
+
+impl Index<i64, i64> for Foo {
+    fn index(&self, z: i64) -> &i64 {
+        if z == 0i64 {
+            return &self.x;
+        } else {
+            return &self.y;
+        }
+    }
+}
+
+trait Int {
+    fn get(self: Self) -> i64;
+    fn get_from_ref(&self) -> i64;
+    fn inc(&mut self);
+}
+
+impl Int for i64 {
+    fn get(self: Self) -> i64 { return self; }
+    fn get_from_ref(&self) -> i64 { return *self; }
+    fn inc(&mut self) { *self += 1i64; }
+}
+
+fn main() -> i32 {
+    let f: Bar = Bar { foo: Foo {
+        x: 1i64,
+        y: 2i64,
+    } };
+    let v: i64 = f.foo[1i64];
+    assert_eq!(v.get(), 2i64);
+    return 0;
+}

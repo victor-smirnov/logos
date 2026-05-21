@@ -1,0 +1,46 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/overloaded/overloaded-deref.rs
+// Modifications: the original drives `*` through Rc/Box/RefCell over many
+// payload kinds. Logos has no Rc/RefCell here, so this keeps the test's core —
+// the user `Deref` operator on a newtype — and exercises `*` deref over an
+// integer payload and a struct payload (the `Point` case). PartialEq/Debug
+// derives, Rc/RefCell/String/Vec rows dropped. isize → i64; Deref<Target> takes
+// the target as a trait type-param.
+package m_overloaded_deref;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.ops;
+
+struct Point {
+    x: i64,
+    y: i64,
+}
+
+struct IntBox {
+    v: i64,
+}
+
+impl Deref<i64> for IntBox {
+    fn deref(&self) -> &i64 { return &self.v; }
+}
+
+struct PointBox {
+    p: Point,
+}
+
+impl Deref<Point> for PointBox {
+    fn deref(&self) -> &Point { return &self.p; }
+}
+
+fn main() -> i32 {
+    let b: IntBox = IntBox { v: 5i64 };
+    assert_eq!(*b, 5i64);
+
+    let pb: PointBox = PointBox { p: Point { x: 2i64, y: 4i64 } };
+    let p: Point = *pb;
+    assert_eq!(p.x, 2i64);
+    assert_eq!(p.y, 4i64);
+    return 0;
+}

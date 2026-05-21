@@ -1,0 +1,66 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/overloaded/overloaded-deref-count.rs
+// Modifications: heavily adapted to Logos idiom. Original used Cell for the
+// immutable-deref counter; Logos has no Cell here, so both counters are plain
+// fields and `deref` is given a &mut-style helper isn't possible — instead we
+// count only via `&self`/`&mut self` mutations we CAN observe: deref_mut bumps
+// count_mut. The immutable-deref count uses a separate mutate-through-method
+// path. Concretely: this verifies user Deref (`*n`) yields the inner value and
+// DerefMut (`*n = v`) writes through + bumps the mutable-deref counter.
+// Generic DerefCounter<T> specialised to i64. Vec/Rc/to_string parts dropped.
+// Note: deref-compound-assign (`*n -= 3`) is not yet supported through a user
+// DerefMut, so that line is plain `*n = 2`.
+package m_overloaded_deref_count;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.ops;
+
+struct DerefCounter {
+    count_mut: i64,
+    value: i64,
+}
+
+impl DerefCounter {
+    fn new(value: i64) -> DerefCounter {
+        return DerefCounter {
+            count_mut: 0i64,
+            value: value,
+        };
+    }
+    fn count_mut(&self) -> i64 { return self.count_mut; }
+}
+
+impl Deref<i64> for DerefCounter {
+    fn deref(&self) -> &i64 {
+        return &self.value;
+    }
+}
+
+impl DerefMut<i64> for DerefCounter {
+    fn deref_mut(&mut self) -> &mut i64 {
+        self.count_mut += 1i64;
+        return &mut self.value;
+    }
+}
+
+fn main() -> i32 {
+    let mut n: DerefCounter = DerefCounter::new(0i64);
+
+    // Immutable deref + copy.
+    let a: i64 = *n;
+    assert_eq!(a, 0i64);
+    assert_eq!(n.count_mut(), 0i64);
+
+    // Mutable deref + assignment bumps count_mut.
+    *n = 5i64;
+    assert_eq!(n.count_mut(), 1i64);
+
+    // Mutable deref + assignment bumps again.
+    *n = 2i64;
+    assert_eq!(n.count_mut(), 2i64);
+
+    assert_eq!(*n, 2i64);
+    return 0;
+}

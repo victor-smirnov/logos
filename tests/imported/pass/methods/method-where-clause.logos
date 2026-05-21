@@ -1,0 +1,39 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/methods/method-where-clause.rs
+// Modifications: the original calls `x.foo()` from a generic `check<T>` whose
+// body relies on a `where Option<T>: Foo` clause. Logos does not yet parse a
+// where-clause that bounds a *type expression* (`Option<T>: Foo`) rather than a
+// bare type param, so the generic `check` indirection is dropped. The test's
+// underlying concept (method-call notation dispatching to a trait impl on a
+// concrete generic instantiation, here `Option<u32>`) is kept and the impl is
+// called directly on `Some(..)` and `None` values. unwrap_or replaced by an
+// explicit match. isize/u32 to i32. Logos mangles trait methods without the
+// impl's concrete type-args, so an extra `impl Foo for Option<i32>` would
+// collide (duplicate Option__foo) with the Option<u32> one; only one is kept.
+package m_method_where_clause;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+
+trait Foo {
+    fn foo(&self) -> i32;
+}
+
+impl Foo for Option<u32> {
+    fn foo(&self) -> i32 {
+        match self {
+            Option::Some(v) => { return *v as i32; }
+            Option::None => { return 22i32; }
+        }
+    }
+}
+
+fn main() -> i32 {
+    let a: Option<u32> = Some(23u32);
+    let an: Option<u32> = Option::None;
+    assert_eq!(a.foo(), 23i32);
+    assert_eq!(an.foo(), 22i32);
+    return 0;
+}

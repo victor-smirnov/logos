@@ -1,0 +1,48 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/overloaded/overloaded-autoderef-order.rs
+// Modifications: the original nests `DerefWrapper { x, y: DerefWrapper { x, y }}`
+// and checks that field access / method resolution pick the shallowest level
+// first, also going through Rc and a private module. Logos resolves a *method*
+// through a user `Deref` differently (autoderef-in-method-resolution is not yet
+// implemented — see gap note), so the `get_x()` method calls and the Rc/private
+// rows are dropped. The retained concept is field-access ordering: `w.x` finds
+// the wrapper's own `x` field, while `(*w).x` reaches the deref target's `x`.
+// Generic <X,Y> specialised to (bool, Inner) for the observable case.
+package m_overloaded_autoderef_order;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.ops;
+
+struct Inner {
+    x: i64,
+    y: i64,
+}
+
+struct DerefWrapper {
+    x: bool,
+    y: Inner,
+}
+
+impl Deref<Inner> for DerefWrapper {
+    fn deref(&self) -> &Inner {
+        return &self.y;
+    }
+}
+
+fn main() -> i32 {
+    let nested: DerefWrapper = DerefWrapper {
+        x: true,
+        y: Inner { x: 0i64, y: 1i64 },
+    };
+
+    // Use the first field that you can find: the wrapper's own `x`.
+    assert_eq!(nested.x, true);
+
+    // Explicit deref reaches the target's `x`.
+    let inner: Inner = *nested;
+    assert_eq!(inner.x, 0i64);
+    assert_eq!(inner.y, 1i64);
+    return 0;
+}

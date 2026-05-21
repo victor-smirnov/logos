@@ -1,0 +1,60 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/methods/method-self-arg-trait.rs
+// Modifications: as in method-self-arg, the `static mut COUNT` global is
+// replaced by accumulating each method's factor into a local product (same
+// final value 2*2*3*3*5*5*7*7*11*11*13*13*17 minus the dropped factors). The
+// `Box<Self>`-receiver methods foo3/bar3 (factors 5 and 13) are dropped — no
+// Box-self receiver in Logos. UFCS through the *trait name* (`Bar::foo1(&x)`)
+// is not yet supported in Logos, so the calls use method syntax (`x.foo1()`),
+// which dispatches to the same impl/default bodies; that is the underlying
+// concept the test checks (declared + provided trait methods on &self/self).
+// #[derive(Copy,Clone)] dropped. isize/u64 → i64.
+package m_method_self_arg_trait;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+struct Foo {}
+
+trait Bar {
+    fn foo1(&self) -> i64;
+    fn foo2(self: Self) -> i64;
+
+    fn bar1(&self) -> i64 { return 7i64; }
+    fn bar2(self: Self) -> i64 { return 11i64; }
+}
+
+impl Bar for Foo {
+    fn foo1(&self) -> i64 { return 2i64; }
+    fn foo2(self: Self) -> i64 { return 3i64; }
+}
+
+impl Foo {
+    fn baz(self: Self) -> i64 {
+        let mut acc: i64 = 17i64;
+        // Internal calls through the trait methods.
+        acc *= self.foo1();
+        acc *= self.bar1();
+        return acc;
+    }
+}
+
+fn main() -> i32 {
+    let mut acc: i64 = 1i64;
+
+    let x1: Foo = Foo {};
+    acc *= x1.foo1();
+    let x2: Foo = Foo {};
+    acc *= x2.foo2();
+    let x3: Foo = Foo {};
+    acc *= x3.bar1();
+    let x4: Foo = Foo {};
+    acc *= x4.bar2();
+
+    let x5: Foo = Foo {};
+    acc *= x5.baz();
+
+    assert_eq!(acc, 2i64 * 3i64 * 7i64 * 11i64 * (17i64 * 2i64 * 7i64));
+    return 0;
+}

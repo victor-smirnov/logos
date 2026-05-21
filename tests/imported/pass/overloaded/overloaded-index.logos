@@ -1,0 +1,66 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/overloaded/overloaded-index.rs
+// Modifications: isize → i64; Logos Index/IndexMut take both Idx and Output
+// as trait type-params (Index<i64, i64>). `f[0] = 3` write-side dispatch via
+// IndexMut works. The `&mut f[1]` / `&f[1]` raw-place-borrow tests dropped
+// (place-borrow through overloaded index not exercised). Int trait methods
+// (get/get_from_ref/inc) kept and called on the index result via a local.
+package m_overloaded_index;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.ops;
+
+struct Foo {
+    x: i64,
+    y: i64,
+}
+
+impl Index<i64, i64> for Foo {
+    fn index(&self, z: i64) -> &i64 {
+        if z == 0i64 {
+            return &self.x;
+        } else {
+            return &self.y;
+        }
+    }
+}
+
+impl IndexMut<i64, i64> for Foo {
+    fn index_mut(&mut self, z: i64) -> &mut i64 {
+        if z == 0i64 {
+            return &mut self.x;
+        } else {
+            return &mut self.y;
+        }
+    }
+}
+
+trait Int {
+    fn get(self: Self) -> i64;
+    fn get_from_ref(&self) -> i64;
+    fn inc(&mut self);
+}
+
+impl Int for i64 {
+    fn get(self: Self) -> i64 { return self; }
+    fn get_from_ref(&self) -> i64 { return *self; }
+    fn inc(&mut self) { *self += 1i64; }
+}
+
+fn main() -> i32 {
+    let mut f: Foo = Foo {
+        x: 1i64,
+        y: 2i64,
+    };
+    assert_eq!(f[1i64], 2i64);
+    f[0i64] = 3i64;
+    assert_eq!(f[0i64], 3i64);
+
+    let mut a: i64 = f[1i64];
+    a.inc();
+    assert_eq!(a.get(), 3i64);
+    assert_eq!(a.get_from_ref(), 3i64);
+    return 0;
+}

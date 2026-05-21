@@ -1,0 +1,49 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/overloaded/overloaded_deref_with_ref_pattern.rs
+// Modifications: the original uses `ref`/`ref mut` bindings in `let` patterns
+// over `DerefOk`/`DerefMutOk` newtypes (whose wrong-mutability impl `panic!`s)
+// to prove the compiler picks Deref for `&` reads and DerefMut for `&mut`
+// writes. Logos selects the same way for the `*x` read / `*x = v` write
+// operators, so the concept is ported via those: reading `*d` must route
+// through `deref` (the "wrong" deref_mut panics if hit) and writing `*d = v`
+// must route through `deref_mut` (the "wrong" deref panics if hit). Two
+// structs, each panicking on the path it must NOT take, confirm the selection.
+// generic <T> specialised to i64; Self::Target → i64.
+package m_overloaded_deref_with_ref_pattern;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.ops;
+
+// Reads must use deref; deref_mut must never run.
+struct DerefOk { v: i64 }
+impl Deref<i64> for DerefOk {
+    fn deref(&self) -> &i64 { return &self.v; }
+}
+impl DerefMut<i64> for DerefOk {
+    fn deref_mut(&mut self) -> &mut i64 {
+        panic!("DerefOk: deref_mut should not be called");
+    }
+}
+
+// Writes must use deref_mut; deref must never run.
+struct DerefMutOk { v: i64 }
+impl Deref<i64> for DerefMutOk {
+    fn deref(&self) -> &i64 {
+        panic!("DerefMutOk: deref should not be called");
+    }
+}
+impl DerefMut<i64> for DerefMutOk {
+    fn deref_mut(&mut self) -> &mut i64 { return &mut self.v; }
+}
+
+fn main() -> i32 {
+    let a: DerefOk = DerefOk { v: 5i64 };
+    let r: i64 = *a;            // read -> deref
+    assert_eq!(r, 5i64);
+
+    let mut b: DerefMutOk = DerefMutOk { v: 0i64 };
+    *b = 9i64;                  // write -> deref_mut
+    return 0;
+}

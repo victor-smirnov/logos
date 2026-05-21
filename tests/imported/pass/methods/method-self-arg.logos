@@ -1,0 +1,52 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/methods/method-self-arg.rs
+// Modifications: the original threads side effects through a `static mut COUNT`
+// global multiplied by each method. Logos has no `static mut`, so each method
+// instead returns its factor and the call sites accumulate the product into a
+// local; the final product is asserted to the same value
+// (2*3*3*3*5*5*5*7*7*7). The `Box<Foo>`-receiver method `qux` is dropped (no
+// Box-self receiver). `#[derive(Copy,Clone)]` dropped (Foo is trivially
+// copied as a plain value here). isize/usize → i64. Tests method calls with
+// self passed as an argument via UFCS (`Foo::bar(&self)`, `Foo::baz(self)`),
+// both internal (from `foo`) and external.
+package m_method_self_arg;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+struct Foo {}
+
+impl Foo {
+    fn foo(&self, x: &Foo) -> i64 {
+        let mut acc: i64 = 2i64;
+        // Internal calls.
+        acc *= Foo::bar(self);
+        acc *= Foo::bar(x);
+        acc *= Foo::baz(*self);
+        acc *= Foo::baz(*x);
+        return acc;
+    }
+
+    fn bar(&self) -> i64 {
+        return 3i64;
+    }
+
+    fn baz(self: Self) -> i64 {
+        return 5i64;
+    }
+}
+
+fn main() -> i32 {
+    let x: Foo = Foo {};
+    let mut acc: i64 = 1i64;
+    // External calls.
+    acc *= Foo::bar(&x);
+    acc *= Foo::baz(x);
+
+    let y: Foo = Foo {};
+    acc *= y.foo(&y);
+
+    assert_eq!(acc, 1i64 * 3i64 * 5i64 * (2i64 * 3i64 * 3i64 * 5i64 * 5i64));
+    return 0;
+}
