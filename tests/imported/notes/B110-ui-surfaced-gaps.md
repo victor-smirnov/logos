@@ -52,12 +52,16 @@ compiler-bug #1).
 `&mut T`). Now it also matches a `&mut self` / `&self` param by peeling one ref
 level — no codegen change needed, since the SDrop call already passes the
 value's address (structs pass by pointer; `&mut self` is the same pointer).
-Regression: `tests/logos/pass/drop_mut_self_and_enum.logos`. **Follow-up (NOT
-done):** a GENERIC struct with `&mut self` Drop (`impl<T> Drop for Box2<T> {
-fn drop(&mut self) }`) — drop_fn_for resolves it (`&mut Box2<T>` base-name
-match) and the SDrop is emitted + re-mangled, but mono/clone_struct_def does
-not INSTANTIATE the `&mut self` drop method for the concrete spec (the by-value
-generic form IS instantiated and works). Distinct clone-instantiation facet.
+Regression: `tests/logos/pass/drop_mut_self_and_enum.logos`. **Follow-up — ALSO FIXED (2026-05-21):** a GENERIC struct with a stdlib `Drop`
+impl never instantiated `drop` in lazy-method mode (the default), so its
+destructor silently never ran — for BOTH by-value and `&mut self` (the earlier
+"by-value generic works" observation was an artifact of a test using a *local*
+`trait Drop`). Root cause: `drop` is invoked implicitly by drop-glue (SDrop),
+`scan_fn`'s SDrop case is a no-op (never demand-pins), and the lazy method-pin
+loop pinned only methods of traits present in `out_.traits` — but the lang-item
+`Drop` trait lives in a precompiled library and is absent there. Fix: pin `drop`
+directly for any non-blanket `Drop` impl on a generic struct. Regression
+`tests/logos/pass/drop_generic_struct.logos`.
 
 Original report:
 - Surfaced while porting every `drop/` test.

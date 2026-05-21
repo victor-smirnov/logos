@@ -1,0 +1,26 @@
+// Regression: a GENERIC struct with a stdlib `Drop` impl runs its destructor
+// in lazy-method mode (the default). drop-glue is invoked implicitly (never via
+// an explicit call site), and scan_fn's SDrop case is a no-op, so `drop` is the
+// one method never demand-pinned. The lazy method-pin loop only pinned methods
+// of traits present in out_.traits — but the lang-item `Drop` trait lives in a
+// precompiled library and is absent there, so a generic struct's `impl Drop`
+// never instantiated `drop` and the destructor silently never ran. Now `Drop`
+// impls pin `drop` directly. Covers by-value and `&mut self` forms.
+package drop_generic_struct;
+
+struct ByVal<T> { v: T, p: *mut i64 }
+impl<T> Drop for ByVal<T> { fn drop(self: ByVal<T>) { unsafe { *self.p = *self.p + 1i64; } } }
+
+struct ByMut<T> { v: T, p: *mut i64 }
+impl<T> Drop for ByMut<T> { fn drop(&mut self) { unsafe { *self.p = *self.p + 7i64; } } }
+
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    { let _a: ByVal<i64> = ByVal { v: 5i64, p: &mut c as *mut i64 }; }
+    unsafe { if *(&mut c as *mut i64) != 1i64 { return 1i32; } }
+
+    let mut d: i64 = 0i64;
+    { let _b: ByMut<bool> = ByMut { v: true, p: &mut d as *mut i64 }; }
+    unsafe { if *(&mut d as *mut i64) != 7i64 { return 2i32; } }
+    return 0i32;
+}

@@ -673,6 +673,17 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                         enqueue_method_inst(cit->second, tm.name);
                     }
                 }
+                // `Drop` is special: its `drop` is invoked IMPLICITLY by
+                // drop-glue (SDrop), which scan_fn does not demand-pin — and
+                // the lang-item `Drop` trait lives in a precompiled library, so
+                // it is absent from out_.traits and the loop above pins
+                // nothing. Without this, a generic struct's `impl Drop` (the
+                // common `Box`/`Vec` shape) never instantiates `drop` in lazy
+                // mode and the destructor silently never runs. Pin it directly.
+                if (impl.trait_name == "Drop") {
+                    pinned_method_roots_.insert(sd.name + "__drop");
+                    enqueue_method_inst(cit->second, "drop");
+                }
             }
         }
         // Re-drain — methods may transitively pull in more functions/methods.
