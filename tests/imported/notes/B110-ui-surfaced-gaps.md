@@ -86,8 +86,23 @@ compiler-bug #1).
   variant's *payload* (e.g. a `Foo` inside `FooBar::VFoo(Foo)`) is not recursively
   dropped. The destructor-run-for-let port was reduced to the three struct cases.
 
-### 3. Reassigning a generic enum from a payload variant to a no-payload variant,
-       then matching, SIGSEGVs
+### 3. Reassigning a generic enum from a payload variant to a no-payload variant, then matching, SIGSEGVs — FIXED (2026-05-21)
+**Fixed.** `a = Opt::VNone` was lowered without the expected type, so the
+literal carried a bare `Opt` (no type-args) and mlir-gen emitted a C-style i32
+discriminant — storing the integer `1` into `a`'s pointer slot, so the next
+match deref'd address `1` → SIGSEGV. Fix in `lower_assign`: retype an
+incompletely-typed generic enum literal (no type-args, or any `<error>`
+type-arg) to the LHS's concrete enum spec, provided the known type-args match
+(so a genuine mismatch still errors). Also covers the multi-param sibling
+(`b = Res::Err(true)` over `Res<i64,bool>` → `Res<error,bool>` → "unknown
+tagged enum"). Regression: `tests/logos/pass/enum_reassign_generic_variant.logos`.
+Mirrors finish_generic_call's retype_bare_enum_arg
+([[baghunt-replace-ref-option-cascade]]). NOTE: an INVALID program
+(`Res::Err(true)` into `Res<i64,i64>`) still produces a poor "unknown tagged
+enum" message instead of a clean type error — a separate diagnostic gap, left
+as-is (invalid input, no miscompile of valid code).
+
+Original report:
 - Surfaced while porting `generics/generic-tag.rs`
   (`a = option::none::<isize>;` after `a = option::some(Box::new(10))`).
 - Minimal trigger (compiles + links, segfaults at runtime):

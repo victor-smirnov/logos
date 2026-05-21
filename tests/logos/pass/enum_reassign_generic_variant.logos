@@ -1,0 +1,36 @@
+// Regression: reassigning a generic-enum variable to a variant whose type is
+// not fully pinned by the assigned literal, then matching. Lowered without the
+// expected type, `a = Opt::VNone` carried a bare `Opt` (no type-args) and
+// `a = Res::Err(true)` carried `Res<error, bool>`; mlir-gen then emitted a
+// C-style i32 discriminant (no-payload → stored the int into the pointer slot
+// → next match deref'd address 1 → SIGSEGV) or "unknown tagged enum
+// Res__<error>__bool". The assignment target type now pins the missing params.
+package enum_reassign_generic_variant;
+
+enum Opt<T> { VSome(T), VNone }
+enum Res<T, E> { Ok(T), Err(E) }
+
+fn main() -> i32 {
+    // no-payload variant reassign (the original SIGSEGV)
+    let mut a: Opt<i64> = Opt::VSome(10i64);
+    a = Opt::VNone;
+    let r1 = match a { Opt::VSome(_) => 1i32, Opt::VNone => 0i32, };
+    if r1 != 0i32 { return 1i32; }
+
+    // payload variant whose other type-param isn't pinned by the payload
+    let mut b: Res<i64, bool> = Res::Ok(7i64);
+    b = Res::Err(true);
+    let r2 = match b { Res::Ok(_) => 1i32, Res::Err(_) => 0i32, };
+    if r2 != 0i32 { return 2i32; }
+
+    // reassign back to the payload variant + bind it
+    b = Res::Ok(9i64);
+    let r3 = match b { Res::Ok(x) => x, Res::Err(_) => -1i64, };
+    if r3 != 9i64 { return 3i32; }
+
+    // same-variant reassign still fine
+    a = Opt::VSome(42i64);
+    let r4 = match a { Opt::VSome(x) => x, Opt::VNone => -1i64, };
+    if r4 != 42i64 { return 4i32; }
+    return 0i32;
+}

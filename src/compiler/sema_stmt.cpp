@@ -1573,6 +1573,53 @@ lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
     lir::LExprPtr rhs = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code)))
         : error_expr();
+    // Retype an incompletely-typed generic enum literal in `a = <enum-lit>`
+    // to the LHS's concrete enum spec. A literal lowered without the expected
+    // type carries either NO type-args (no-payload `Opt::VNone` → bare `Opt`)
+    // or `<error>` type-args for the params not pinned by the payload
+    // (`Res::Err(true)` infers only `E=bool`, leaving `Res<error, bool>`).
+    // mlir-gen then can't resolve the layout: the no-payload case emits a
+    // C-style i32 discriminant into the pointer slot (next match derefs
+    // address `1` → SIGSEGV), and the `<error>` case emits no/garbage code
+    // ("unknown tagged enum Res__<error>__bool"). The assignment target type
+    // pins the missing params. Mirrors finish_generic_call's
+    // retype_bare_enum_arg ([[baghunt-replace-ref-option-cascade]]).
+    if (rhs && var_type &&
+        TypeRef(rhs->type).kind() == LogosType::Kind::Enum &&
+        TypeRef(var_type).kind() == LogosType::Kind::Enum &&
+        !TypeRef(var_type).type_args().empty() &&
+        TypeRef(var_type).enum_name() == TypeRef(rhs->type).enum_name()) {
+        auto rk = expr_ref_of(*rhs).kind();
+        bool is_enum_lit = rk == lir_schema::expr::Code::EnumLit ||
+                           rk == lir_schema::expr::Code::EnumLitData;
+        auto rhs_args = TypeRef(rhs->type).type_args();
+        auto tgt_args = TypeRef(var_type).type_args();
+        // "Incompletely typed" = no type-args, or any type-arg is Error.
+        bool incomplete = rhs_args.empty();
+        if (!incomplete)
+            for (auto ta : rhs_args)
+                if (!ta || TypeRef(ta).kind() == LogosType::Kind::Error) { incomplete = true; break; }
+        // Target must be fully concrete (no Error type-args).
+        bool target_concrete = true;
+        for (auto ta : tgt_args)
+            if (!ta || TypeRef(ta).kind() == LogosType::Kind::Error) { target_concrete = false; break; }
+        // Preserve type-error detection: every KNOWN (non-error) type-arg of
+        // the literal must already match the target's at that position, so a
+        // genuine mismatch (`Res::Err(true)` into `Res<i64,i64>`) is left for
+        // the type-compat check below to reject rather than silently coerced.
+        bool known_args_match = true;
+        if (!rhs_args.empty() && rhs_args.size() == tgt_args.size()) {
+            for (size_t i = 0; i < rhs_args.size(); ++i) {
+                TypeRef ra = rhs_args[i];
+                if (ra && TypeRef(ra).kind() != LogosType::Kind::Error &&
+                    !types_compatible(ra, tgt_args[i])) { known_args_match = false; break; }
+            }
+        } else if (!rhs_args.empty()) {
+            known_args_match = false;  // arity mismatch — don't touch
+        }
+        if (is_enum_lit && incomplete && target_concrete && known_args_match)
+            builder().retype_expr(rhs, var_type);
+    }
     if (TypeRef(var_type).kind() != LogosType::Kind::Error &&
         TypeRef(rhs->type).kind() != LogosType::Kind::Error &&
         !types_compatible(rhs->type, var_type)) {
