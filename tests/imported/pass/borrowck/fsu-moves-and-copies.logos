@@ -1,0 +1,56 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/borrowck/fsu-moves-and-copies.rs
+// Modifications: the `MoveFoo`/`DropMoveFoo` cases (which need Box-owned, move-only
+// fields) are dropped — Logos has no Box; the FRU move/copy semantics are exercised
+// with the non-Box `NoFoo`/`DropNoFoo` cases over a nested `ncint` value field.
+// `ncint(v)` tuple-style constructor fn → a `ncint_new` builder; `DropNoFoo`'s
+// `impl Drop` kept as the local-`trait Drop` no-op idiom (it just needs to exist to
+// prove FRU works even for a Drop type — the original's point); isize→i64;
+// `assert_eq!`→return-code checks; `pub fn main()`→`fn main()->i32`.
+// The test's point (issue #4691): functional-struct-update copies copyable fields
+// from the base rather than moving the whole base, even for Drop types.
+package m_borrowck_fsu_moves_and_copies;
+
+trait Drop { fn drop(self: Self); }
+
+struct Ncint { v: i64 }
+fn ncint_new(v: i64) -> Ncint { return Ncint { v: v }; }
+
+struct NoFoo { copied: i64, nocopy: Ncint }
+fn nofoo_new(x: i64, y: i64) -> NoFoo { return NoFoo { copied: x, nocopy: ncint_new(y) }; }
+
+struct DropNoFoo { inner: NoFoo }
+fn dropnofoo_new(x: i64, y: i64) -> DropNoFoo { return DropNoFoo { inner: nofoo_new(x, y) }; }
+impl Drop for DropNoFoo { fn drop(self: DropNoFoo) { } }
+
+fn test0() -> i32 {
+    let f = dropnofoo_new(1i64, 2i64);
+    let b = DropNoFoo { inner: NoFoo { nocopy: ncint_new(3i64), ..f.inner } };
+    let c = DropNoFoo { inner: NoFoo { nocopy: ncint_new(4i64), ..f.inner } };
+    if f.inner.copied != 1i64 { return 1; }
+    if f.inner.nocopy.v != 2i64 { return 2; }
+    if b.inner.copied != 1i64 { return 3; }
+    if b.inner.nocopy.v != 3i64 { return 4; }
+    if c.inner.copied != 1i64 { return 5; }
+    if c.inner.nocopy.v != 4i64 { return 6; }
+    return 0;
+}
+
+fn test2() -> i32 {
+    let f = nofoo_new(21i64, 22i64);
+    let b = NoFoo { nocopy: ncint_new(23i64), ..f };
+    let c = NoFoo { copied: 24i64, ..f };
+    if b.copied != 21i64 { return 7; }
+    if b.nocopy.v != 23i64 { return 8; }
+    if c.copied != 24i64 { return 9; }
+    if c.nocopy.v != 22i64 { return 10; }
+    return 0;
+}
+
+fn main() -> i32 {
+    let r0 = test0();
+    if r0 != 0 { return r0; }
+    let r2 = test2();
+    if r2 != 0 { return r2; }
+    return 0;
+}

@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-recursive-tag.rs
+// Modifications: the recursive enum `list<T> { cons(Box<T>, Box<list<T>>), nil }`
+// → `List<T> { Cons(T, &List<T>), Nil }` (Logos has no Box; the payload is held by
+// value and the recursive link by reference — the self-referential generic enum
+// construction is the point); 1-char enum/variant names→`List::Cons/Nil`;
+// turbofish `::<isize>` dropped (inferred); isize→i64; `pub fn main()`
+// →`fn main()->i32`.
+package m_generics_generic_recursive_tag;
+
+enum List<T> { Cons(T, &List<T>), Nil }
+
+fn main() -> i32 {
+    let a: List<i64> = List::Nil;
+    let b: List<i64> = List::Cons(13i64, &a);
+    let c: List<i64> = List::Cons(12i64, &b);
+    let _d: List<i64> = List::Cons(10i64, &c);
+    return 0;
+}

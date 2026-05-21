@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/box/self-assignment.rs
+// Modifications: `Box<_>` → plain i64 (Logos has no Box; the self-assignment
+// `x = x` must type-check and preserve the value — regression #3290); `assert_eq!`
+// →return-code check; `pub fn main()`→`fn main()->i32`.
+package m_box_self_assignment;
+
+fn main() -> i32 {
+    let mut x: i64 = 3i64;
+    x = x;
+    if x != 3i64 { return 1; }
+    return 0;
+}

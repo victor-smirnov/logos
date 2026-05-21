@@ -1,0 +1,37 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/struct-order-of-eval-3.rs
+// Modifications: as struct-order-of-eval-4 — the `static AtomicUsize LOG` event
+// log → a `*mut i64` shift-and-or counter; `u32`/`usize`→i64; `assert_eq!`/`assert!`
+// →return-code checks; `pub fn main()`→`fn main()->i32`. The test's point:
+// functional-record-update (`..S { .. }`) field expressions evaluate in source
+// order (the explicit f0 first → 0x01, then the base's f0 → 0x02 → log == 0x0102).
+package s_struct_order_of_eval_3;
+
+struct W { wrapped: i64 }
+struct S { f0: W, _f1: i64 }
+
+fn event(log: *mut i64, tag: i64) {
+    unsafe {
+        let old = *log;
+        *log = (old << 8i64) + tag;
+    }
+}
+
+fn main() -> i32 {
+    let val: i64 = 1234i64;
+    let mut log: i64 = 0i64;
+    let lp = &mut log as *mut i64;
+
+    let w = W { wrapped: val };
+    let s = S {
+        f0: { event(lp, 1i64); W { wrapped: w.wrapped + 1i64 } },
+        ..S {
+            f0: { event(lp, 2i64); w },
+            _f1: 23i64,
+        }
+    };
+    if s.f0.wrapped != val + 1i64 { return 1; }
+    let expect: i64 = (1i64 << 8i64) + 2i64;
+    unsafe { if log != expect { return 2; } }
+    return 0;
+}

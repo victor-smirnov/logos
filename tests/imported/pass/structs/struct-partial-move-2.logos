@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/struct-partial-move-2.rs
+// Modifications: generic `Partial<T>`/`S`-newtype/`Drop`/`PartialEq` specialized to
+// a concrete `Partial { x:i64, y:i64 }` (generic struct + FRU + FnMut bound fails
+// to resolve the type-param — B110 gap note); the `Two<T>` type alias inlined as a
+// 2-tuple; `(b1,b2)`/`(b3,b4)` tuple params → flat i64 params; `mut f: F` where
+// FnMut → an unannotated closure value (the `mut F`/where-FnMut param form does not
+// parse — B110 gap note); the closure `|S { val: z }| ..`→`|z: i64| -> i64`;
+// isize→i64; `assert_eq!`→return-code checks. The test's point: each of the two
+// returned structs FRU-moves a base (`..p`, `..q`) even though one field of each
+// base was already moved into the f(...) call — two legal partial moves.
+package s_struct_partial_move_2;
+
+use logos.lang.ops;
+
+struct Partial { x: i64, y: i64 }
+
+fn f(b1: i64, b2: i64, b3: i64, b4: i64, g: |i64| -> i64) -> (Partial, Partial) {
+    let p = Partial { x: b1, y: b2 };
+    let q = Partial { x: b3, y: b4 };
+    return (Partial { x: g(q.y), ..p }, Partial { y: g(p.x), ..q });
+}
+
+fn main() -> i32 {
+    let inc = |z: i64| -> i64 { return z + 1i64; };
+    let two = f(1i64, 3i64, 5i64, 7i64, inc);
+    if two.0.x != 8i64 { return 1; }
+    if two.0.y != 3i64 { return 2; }
+    if two.1.x != 5i64 { return 3; }
+    if two.1.y != 2i64 { return 4; }
+    return 0;
+}

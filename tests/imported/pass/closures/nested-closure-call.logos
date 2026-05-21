@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/nested-closure-call.rs
+// Modifications: the one-liner `(|| || 42)()()` is spelled out with explicit
+// closure types (Logos closures need annotated param/return types) — an outer
+// closure returning an inner closure that returns 42; `assert_eq!`→return-code
+// check; `pub fn main()`→`fn main()->i32`. The test's point (regression #24779):
+// calling a closure that returns a closure, then calling the result.
+package m_closures_nested_closure_call;
+
+fn main() -> i32 {
+    let outer = || -> (|| -> i32) { return || -> i32 { return 42i32; }; };
+    let inner = outer();
+    if inner() != 42i32 { return 1; }
+    return 0;
+}

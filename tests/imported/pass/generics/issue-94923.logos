@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/issue-94923.rs
+// Modifications: usize→u64; the unused `<T>` type-param threading
+// `f0::<(i8, T)>(f0::<(u8, T)>(x))` is kept verbatim — it exponentially
+// instantiates 2^8 distinct monomorphizations of f0 (the regression's point: the
+// monomorphizer must not blow up). `x *= 123; x %= 99` → explicit assigns;
+// `assert_eq!`→return-code check; `pub fn main()`→`fn main()->i32`.
+package m_generics_issue_94923;
+
+fn f0<T>(x: u64) -> u64 {
+    let mut y = x;
+    for _ in 0..1000 {
+        y = y * 123u64;
+        y = y % 99u64;
+    }
+    return y + 321u64;
+}
+
+fn f1<T>(x: u64) -> u64 { return f0::<(i8, T)>(f0::<(u8, T)>(x)); }
+fn f2<T>(x: u64) -> u64 { return f1::<(i8, T)>(f1::<(u8, T)>(x)); }
+fn f3<T>(x: u64) -> u64 { return f2::<(i8, T)>(f2::<(u8, T)>(x)); }
+fn f4<T>(x: u64) -> u64 { return f3::<(i8, T)>(f3::<(u8, T)>(x)); }
+fn f5<T>(x: u64) -> u64 { return f4::<(i8, T)>(f4::<(u8, T)>(x)); }
+fn f6<T>(x: u64) -> u64 { return f5::<(i8, T)>(f5::<(u8, T)>(x)); }
+fn f7<T>(x: u64) -> u64 { return f6::<(i8, T)>(f6::<(u8, T)>(x)); }
+fn f8<T>(x: u64) -> u64 { return f7::<(i8, T)>(f7::<(u8, T)>(x)); }
+
+fn main() -> i32 {
+    let y = f8::<u8>(1u64);
+    if y != 348u64 { return 1; }
+    return 0;
+}

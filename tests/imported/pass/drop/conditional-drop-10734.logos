@@ -1,0 +1,37 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/conditional-drop-10734.rs
+// Modifications: `static mut drop_count` global → a `*mut i64` counter passed into
+// Foo; observable drop uses the Logos local-`trait Drop { fn drop(self: Self) }`
+// idiom; the `assert!(!self.dropped)` double-drop guard and `self.dropped = true`
+// are dropped (drop runs exactly once in Logos too, but the field-write in a
+// by-value `self` drop is moot); `assert_eq!`→return-code checks. The test's
+// point: `if true { e }` and `if false {} else { e }` drop `e` at the block end.
+// `pub fn main()`→`fn main()->i32`.
+package m_drop_conditional_10734;
+
+trait Drop { fn drop(self: Self); }
+
+struct Foo { c: *mut i64 }
+
+impl Drop for Foo {
+    fn drop(self: Foo) { unsafe { *self.c = *self.c + 1i64; } }
+}
+
+fn main() -> i32 {
+    let mut counter: i64 = 0i64;
+    let c = &mut counter as *mut i64;
+    unsafe {
+        if true {
+            let _a = Foo { c: c };
+        }
+        if *c != 1i64 { return 1; }
+
+        if false {
+            return 9;
+        } else {
+            let _a = Foo { c: c };
+        }
+        if *c != 2i64 { return 2; }
+    }
+    return 0;
+}

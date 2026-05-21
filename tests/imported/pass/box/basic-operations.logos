@@ -1,0 +1,51 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/box/unit/basic-operations.rs
+// Modifications: all `Box<_>` → plain values (Logos has no Box); `*i = v`/`*i`
+// deref → direct value assign/read; the `cmp`/`assign_copy`/`arg_mut` subtests
+// (which need Box `<`/`<=`/clone/`&mut Box<isize>` reassign-through-deref) are
+// dropped; the remaining subtests — deref-mut (mutate then read), box_if (if-expr
+// returning a value), autoderef_field (field read), assign_generic (move a generic
+// value through a fn) — are preserved; nested `struct J`/`fn f` hoisted to top
+// level (Logos has no in-fn item declarations — B110 gap note); `assert_eq!`
+// →return-code checks; `pub fn main()`→`fn main()->i32`.
+package m_box_basic_operations;
+
+struct J { j: i64 }
+
+fn idf<T>(t: T) -> T {
+    let t1 = t;
+    return t1;
+}
+
+fn deref_mut() -> i32 {
+    let mut i: i64 = 0i64;
+    i = 1i64;
+    if i != 1i64 { return 1; }
+    return 0;
+}
+
+fn box_if() -> i32 {
+    let rs: i64 = if true { 100i64 } else { 101i64 };
+    if rs != 100i64 { return 2; }
+    return 0;
+}
+
+fn autoderef_field() -> i32 {
+    let i = J { j: 100i64 };
+    if i.j != 100i64 { return 3; }
+    return 0;
+}
+
+fn assign_generic() -> i32 {
+    let t = idf::<i64>(100i64);
+    if t != 100i64 { return 4; }
+    return 0;
+}
+
+fn main() -> i32 {
+    let r1 = deref_mut(); if r1 != 0 { return r1; }
+    let r2 = box_if(); if r2 != 0 { return r2; }
+    let r3 = autoderef_field(); if r3 != 0 { return r3; }
+    let r4 = assign_generic(); if r4 != 0 { return r4; }
+    return 0;
+}

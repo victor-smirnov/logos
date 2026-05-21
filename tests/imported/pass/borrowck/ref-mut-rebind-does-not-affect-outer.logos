@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/borrowck/ref-mut-rebind-does-not-affect-outer.rs
+// Modifications: the `let ref mut x = &*x; *x = &*y;` inner re-binding (which
+// shadows the outer `x` with a fresh mutable reference local) → `let mut xr = &x;
+// xr = &y;` (Logos `let` takes only struct/value patterns, not `ref mut` binders —
+// see B109 gap #9; the semantic point is preserved: rebinding the inner local does
+// NOT mutate the outer `x`); `assert_eq!`→return-code check; str via
+// logos.mem.string/lang.str; `pub fn main()`→`fn main()->i32`.
+package m_borrowck_ref_mut_rebind;
+
+use logos.mem.string;
+use logos.lang.str;
+
+fn main() -> i32 {
+    let x = "x";
+    {
+        let y = "y";
+        let mut xr = &x;
+        xr = &y;
+        let _ = xr;
+    }
+    if x != "x" { return 1; }
+    return 0;
+}

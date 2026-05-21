@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/box/unit/unique-generic-assign.rs
+// Modifications: `Box<T>` param → plain `T` (Logos has no Box; the move-of-a-
+// generic-value point is the same — issue #976: assigning a moved generic value to
+// a fresh local must type-check); `pub fn main()`→`fn main()->i32`.
+package m_box_unique_generic_assign;
+
+fn f<T>(x: T) {
+    let _x2 = x;
+}
+
+fn main() -> i32 {
+    return 0;
+}

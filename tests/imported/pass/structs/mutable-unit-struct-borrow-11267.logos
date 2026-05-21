@@ -1,0 +1,34 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/mutable-unit-struct-borrow-11267.rs
+// Modifications: `struct Empty;` (unit struct)→`struct Empty {}` (Logos zero-field
+// form); the generic trait `T<U>`→a concrete `trait T { fn next(&mut self)
+// -> Option<i64> }` (the test's point is mutably borrowing a zero-field struct as
+// a `&mut dyn T`, not the generic param); isize→i64; `println!` → return-code
+// check on the matched `None`; `pub fn main()`→`fn main()->i32`.
+package m_structs_mutable_unit_struct_borrow;
+
+use logos.lang.option;
+
+struct Empty {}
+
+trait T {
+    fn next(&mut self) -> Option<i64>;
+}
+
+impl T for Empty {
+    fn next(&mut self) -> Option<i64> { return Option::None; }
+}
+
+fn do_something_with(a: &mut dyn T) -> i64 {
+    match a.next() {
+        Option::Some(v) => { return v; },
+        Option::None => { return -1i64; },
+    }
+}
+
+fn main() -> i32 {
+    let mut e = Empty {};
+    let r = do_something_with(&mut e);
+    if r != -1i64 { return 1; }
+    return 0;
+}

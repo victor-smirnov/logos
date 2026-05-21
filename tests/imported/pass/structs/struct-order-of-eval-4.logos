@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/struct-order-of-eval-4.rs
+// Modifications: the `static AtomicUsize LOG` event log → a `*mut i64` counter
+// (Logos has no atomics-as-global; a raw-ptr accumulator records the same
+// shift-and-or event order); `event(0x01)`/`event(0x02)` shift the running log by
+// 8 and OR the tag; `assert_eq!`/`assert!`→return-code checks; `u32`/`usize`→i64;
+// `pub fn main()`→`fn main()->i32`. The test's point: struct-literal field
+// expressions evaluate in source order (here 0x01 then 0x02 → log == 0x0102).
+package s_struct_order_of_eval_4;
+
+struct W { wrapped: i64 }
+struct S { f0: W, _f1: i64 }
+
+fn event(log: *mut i64, tag: i64) {
+    unsafe {
+        let old = *log;
+        *log = (old << 8i64) + tag;
+    }
+}
+
+fn main() -> i32 {
+    let val: i64 = 1234i64;
+    let mut log: i64 = 0i64;
+    let lp = &mut log as *mut i64;
+
+    let w = W { wrapped: val };
+    let s = S {
+        _f1: { event(lp, 1i64); 23i64 },
+        f0: { event(lp, 2i64); w },
+    };
+    if s.f0.wrapped != val { return 1; }
+    let expect: i64 = (1i64 << 8i64) + 2i64;
+    unsafe { if log != expect { return 2; } }
+    return 0;
+}

@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/box/unit/unique-in-tag.rs
+// Modifications: enum payload `Box<isize>` → `i64` (Logos has no Box; the
+// match-binds-and-derefs-the-payload point is the same); 1-char enum/variant names
+// `bar::u/w`→`Bar::U/W` (1-letter type names collide with stdlib generic params —
+// B109 gap #4); `println!` dropped; `assert!(.. == 10)`→return-code check;
+// `pub fn main()`→`fn main()->i32`.
+package m_box_unique_in_tag;
+
+enum Bar { U(i64), W(i64) }
+
+fn test1() -> i32 {
+    let x = Bar::U(10i64);
+    let r = match x {
+        Bar::U(a) => { a },
+        Bar::W(_) => { 66i64 },
+    };
+    if r != 10i64 { return 1; }
+    return 0;
+}
+
+fn main() -> i32 {
+    return test1();
+}

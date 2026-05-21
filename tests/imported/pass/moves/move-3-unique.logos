@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/moves/move-3-unique.rs
+// Modifications: `Box<Triple>` → `Triple` by value (Logos has no Box; the test's
+// point is moving a value through a conditional rebind); the 10000-iteration
+// `clone()` loop is dropped (Logos has no derive(Clone); the move semantics are
+// exercised once per branch with a fresh value); isize→i64; `assert_eq!`
+// →return-code checks; `pub fn main()`→`fn main()->i32`.
+package m_moves_move_3_unique;
+
+struct Triple { x: i64, y: i64, z: i64 }
+
+fn test(x: bool, foo: Triple) -> i64 {
+    let bar = foo;
+    let mut y: Triple;
+    if x { y = bar; } else { y = Triple { x: 4i64, y: 5i64, z: 6i64 }; }
+    return y.y;
+}
+
+fn main() -> i32 {
+    let a = Triple { x: 1i64, y: 2i64, z: 3i64 };
+    if test(true, a) != 2i64 { return 1; }
+    let b = Triple { x: 1i64, y: 2i64, z: 3i64 };
+    if test(false, b) != 5i64 { return 2; }
+    return 0;
+}

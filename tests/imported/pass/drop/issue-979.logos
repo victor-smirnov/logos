@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/issue-979.rs
+// Modifications: isize→i64; R<'a> lifetime param elided; `Some(r(b))` Option
+// wrapper dropped (incidental — the point is the Drop fires at end of the inner
+// scope); observable drop uses the Logos local-`trait Drop { fn drop(self: Self) }`
+// idiom (the by-value drop-glue trigger) over a `*mut i64` counter (the original's
+// `&Cell<isize>` channel — Logos's stdlib Cell pulls in logos.lang.drop's Drop
+// trait, which collides with the local one (B-mv-02), so a raw-ptr counter is used
+// instead); `assert_eq!`→return-code check; `pub fn main()`→`fn main()->i32`.
+package m_drop_issue_979;
+
+trait Drop { fn drop(self: Self); }
+
+struct R {
+    b: *mut i64,
+}
+
+impl Drop for R {
+    fn drop(self: R) {
+        unsafe { *self.b = *self.b + 1i64; }
+    }
+}
+
+fn r(b: *mut i64) -> R {
+    return R { b: b };
+}
+
+fn main() -> i32 {
+    let mut counter: i64 = 0i64;
+    let b = &mut counter as *mut i64;
+    {
+        let _p = r(b);
+    }
+    unsafe { if *b != 1i64 { return 1; } }
+    return 0;
+}

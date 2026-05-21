@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/struct-partial-move-1.rs
+// Modifications: the generic `Partial<T>` + `S` newtype + `Drop`/`PartialEq`
+// derives are specialized to a concrete `Partial { x:i64, y:i64 }` (a generic
+// struct combined with FRU `..p` and an `FnMut(T)->T` bound fails to resolve the
+// type-param — B110 gap note; the move-semantics point is preserved at i64);
+// `mut f: F` closure param → an unannotated closure value (the `mut F`/where-FnMut
+// param form does not parse — B110 gap note); the closure `|S { val: z }| ..` →
+// `|z: i64| -> i64 { z + 1 }`; isize→i64; `assert_eq!`→return-code checks.
+// The test's point: `Partial { y: f(p.y), ..p }` moves all fields of `p` EXCEPT
+// `p.y` (which was already moved into the f(...) call) — a legal partial move.
+package s_struct_partial_move_1;
+
+use logos.lang.ops;
+
+struct Partial { x: i64, y: i64 }
+
+fn f(b1: i64, b2: i64, g: |i64| -> i64) -> Partial {
+    let p = Partial { x: b1, y: b2 };
+    return Partial { y: g(p.y), ..p };
+}
+
+fn main() -> i32 {
+    let inc = |z: i64| -> i64 { return z + 1i64; };
+    let p = f(3i64, 4i64, inc);
+    if p.x != 3i64 { return 1; }
+    if p.y != 5i64 { return 2; }
+    return 0;
+}

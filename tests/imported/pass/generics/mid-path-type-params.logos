@@ -1,0 +1,37 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/mid-path-type-params.rs
+// Modifications: isize→i64; trait-name UFCS `Trait::<isize>::new::<f64>(..)` →
+// concrete-type UFCS `S2::new(..)` (Logos resolves only concrete-type UFCS — see
+// B108 gap #3); method-level turbofish `::new::<f64>` dropped (method-call turbofish
+// does not parse — B110 gap note; the `U` arg is inferred from the f64 argument);
+// type-level turbofish `S::<i64>::new(..)` is kept (it works); a return-code check
+// confirms the constructed contents; `pub fn main()`→`fn main()->i32`.
+package m_generics_mid_path_type_params;
+
+struct S<T> {
+    contents: T,
+}
+
+impl<T> S<T> {
+    fn new<U>(x: T, _y: U) -> S<T> {
+        return S { contents: x };
+    }
+}
+
+struct S2 {
+    contents: i64,
+}
+
+impl S2 {
+    fn new<U>(x: i64, _y: U) -> S2 {
+        return S2 { contents: x };
+    }
+}
+
+fn main() -> i32 {
+    let a = S::<i64>::new(1i64, 1.0f64);
+    let b = S2::new(2i64, 1.0f64);
+    if a.contents != 1i64 { return 1; }
+    if b.contents != 2i64 { return 2; }
+    return 0;
+}

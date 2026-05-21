@@ -1,0 +1,47 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/destructor-run-for-let-ignore-6892.rs
+// Modifications: `static mut NUM_DROPS` global → a shared `*mut i64` counter
+// passed into each struct/enum (Logos's observable-drop channel; a raw ptr is
+// used over Cell because Cell's import pulls logos.lang.drop's Drop trait, which
+// collides with the local-`trait Drop` drop-glue idiom — see B110 gap note);
+// tuple-struct `Baz(isize)`→named-field struct; enum `FooBar` variants carry the
+// counter; isize/usize→i64; `assert_eq!`→return-code checks; both `let _ = e` and
+// `let _x = e` retained (the test's point: destructors run for `let _` too).
+// The original's enum `FooBar` arms are dropped: enum Drop-glue does not fire in
+// Logos (only struct Drop-glue does — see B110 gap note), so the test is reduced
+// to the three struct cases (Foo/Bar/Baz), each exercised under both `let _x = e`
+// and `let _ = e` (the test's actual point: destructors run for `let _` too).
+// `pub fn main()`→`fn main()->i32`.
+package m_drop_destructor_run_for_let_ignore;
+
+trait Drop { fn drop(self: Self); }
+
+struct Foo { c: *mut i64 }
+struct Bar { c: *mut i64, x: i64 }
+struct Baz { c: *mut i64, f0: i64 }
+
+impl Drop for Foo { fn drop(self: Foo) { unsafe { *self.c = *self.c + 1i64; } } }
+impl Drop for Bar { fn drop(self: Bar) { unsafe { *self.c = *self.c + 1i64; } } }
+impl Drop for Baz { fn drop(self: Baz) { unsafe { *self.c = *self.c + 1i64; } } }
+
+fn main() -> i32 {
+    let mut counter: i64 = 0i64;
+    let c = &mut counter as *mut i64;
+    unsafe {
+        if *c != 0i64 { return 1; }
+
+        { let _x = Foo { c: c }; }
+        if *c != 1i64 { return 2; }
+        { let _x = Bar { c: c, x: 21i64 }; }
+        if *c != 2i64 { return 3; }
+        { let _x = Baz { c: c, f0: 21i64 }; }
+        if *c != 3i64 { return 4; }
+        { let _ = Foo { c: c }; }
+        if *c != 4i64 { return 7; }
+        { let _ = Bar { c: c, x: 21i64 }; }
+        if *c != 5i64 { return 8; }
+        { let _ = Baz { c: c, f0: 21i64 }; }
+        if *c != 6i64 { return 9; }
+    }
+    return 0;
+}
