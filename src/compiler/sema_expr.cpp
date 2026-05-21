@@ -3254,27 +3254,258 @@ lir::LExprPtr SemaChecker::lower_intrinsic_type_code_of(TinyMapView node) {
     return builder().lit_int((int64_t)code, prim(LogosType::Kind::U64));
 }
 
-std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node, std::string_view callee) {
-    auto collect_type_args = [&]() -> std::vector<TypeRef> {
-        std::vector<TypeRef> out;
-        if (!node.has_key(la::TYPE_PARAMS)) return out;
+std::vector<TypeRef> SemaChecker::collect_type_args(TinyMapView node) {
+    std::vector<TypeRef> out;
+    if (!node.has_key(la::TYPE_PARAMS)) return out;
+    auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+    if (!tplist.has_key(la::ITEMS)) return out;
+    auto items = arr_of(tplist.get(la::ITEMS.code));
+    for (size_t i = 0; i < items.size(); ++i)
+        out.push_back(resolve_type(map_of(items.get(i))));
+    return out;
+}
+
+lir::LExprPtr SemaChecker::bool_lit(bool v) {
+    return builder().lit_int(v ? 1LL : 0LL, prim(LogosType::Kind::Bool));
+}
+
+lir::LExprPtr SemaChecker::lower_intrinsic_dst_from_raw_parts(TinyMapView node, std::string_view callee) {
+    auto ts = collect_type_args(node);
+    if (ts.size() != 1 || !ts[0]) {
+        error("dst_from_raw_parts::<S>(ptr, len) requires exactly one type argument");
+        return error_expr();
+    }
+    if (!inside_unsafe_) {
+        error("dst_from_raw_parts requires unsafe context");
+    }
+    TypeRef S = ts[0];
+    // Validate S is a struct flagged is_dst.
+    bool ok_kind = S && (S.kind() == LogosType::Kind::Struct ||
+                         S.kind() == LogosType::Kind::ZonedStruct);
+    if (!ok_kind) {
+        error(std::format("dst_from_raw_parts::<S>: '{}' is not a struct type",
+                          type_str(S)));
+        return error_expr();
+    }
+    std::string sn(S.struct_name());
+    auto [spkg, ssi] = find_struct_by_name(sn);
+    if (!ssi) { auto [dpkg, dsi] = find_datatype_by_name(sn); ssi = dsi; }
+    if (!ssi) {
+        error(std::format("dst_from_raw_parts::<S>: '{}' is not a struct type", sn));
+        return error_expr();
+    }
+    // Phase 1B-15: check is_dst either directly (template declared
+    // with `[T]` last field) or post-substitution (generic struct
+    // instantiated with an unsized type for the last-field TypeVar).
+    bool effective_dst = ssi->is_dst;
+    if (!effective_dst && !ssi->fields.empty() &&
+        !S.type_args().empty() && !ssi->type_params.empty()) {
+        // Build subst map and check substituted last-field type.
+        SemaSubst tmp_subst;
+        for (size_t i = 0; i < ssi->type_params.size() && i < S.type_args().size(); ++i)
+            tmp_subst[ssi->type_params[i].name] = S.type_args()[i];
+        auto subst_last = subst_type_sema(ssi->fields.back().type, tmp_subst);
+        if (subst_last && (subst_last.kind() == LogosType::Kind::UnsizedSlice ||
+                           subst_last.kind() == LogosType::Kind::UnsizedDyn)) {
+            effective_dst = true;
+        }
+    }
+    if (!effective_dst) {
+        error(std::format("dst_from_raw_parts::<S>: '{}' is not a custom-DST struct "
+                          "(last field must resolve to `[T]` or `dyn Trait`)", sn));
+        return error_expr();
+    }
+    // Lower the two value arguments — ptr and len.
+    std::vector<lir::LExprPtr> rargs;
+    if (node.has_key(la::ARGS)) {
+        AnyVal av = node.get(la::ARGS.code);
+        if (!av.is_null()) {
+            auto args_list = map_of(av);
+            if (args_list.has_key(la::ITEMS)) {
+                auto items = arr_of(args_list.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i)
+                    rargs.push_back(lower_expr(map_of(items.get(i))));
+            }
+        }
+    }
+    if (rargs.size() != 2) {
+        error("dst_from_raw_parts::<S>(ptr, len): expected 2 args");
+        return error_expr();
+    }
+    widen_int_expr(rargs[1], prim(LogosType::Kind::I64), builder());
+    // Result is Kind::DstRef — same {data, len} ABI as Kind::Slice
+    // (slice_lit codegen produces the right MLIR fat-pair). Mut
+    // variant differs only in the DstRef type's mut flag. Carry
+    // type_args from S so post-substitution field-access can read
+    // the generic instantiation's concrete tail-element type.
+    bool is_mut = (callee == "dst_from_raw_parts_mut");
+    std::vector<TypeRef> S_args = S.type_args();
+    auto dst_ref_t = make_dst_ref(sn, spkg, is_mut, std::move(S_args));
+    return builder().slice_lit(std::move(rargs[0]), std::move(rargs[1]), dst_ref_t);
+}
+
+lir::LExprPtr SemaChecker::lower_intrinsic_reflect(TinyMapView node) {
+    // Check if the single type arg is a genos name (before resolve_type, which rejects traits).
+    if (node.has_key(la::TYPE_PARAMS)) {
         auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
-        if (!tplist.has_key(la::ITEMS)) return out;
-        auto items = arr_of(tplist.get(la::ITEMS.code));
-        for (size_t i = 0; i < items.size(); ++i)
-            out.push_back(resolve_type(map_of(items.get(i))));
-        return out;
+        if (tplist.has_key(la::ITEMS)) {
+            auto items = arr_of(tplist.get(la::ITEMS.code));
+            if (items.size() == 1) {
+                auto tnode = map_of(items.get(0));
+                if (tnode.has_key(la::NAME)) {
+                    std::string tname(str_of(tnode.get(la::NAME.code)));
+                    auto tit = traits_.find(tname);
+                    if (tit != traits_.end() && tit->second.is_hermes) {
+                        if (cur_prog_) {
+                            std::string pkg = std::string(cur_package_);
+                            std::string fqn = pkg.empty() ? tname : pkg + "::" + tname;
+                            cur_prog_->reflect_requests.insert(fqn);
+                        }
+                        auto hs_type = make_struct_type("HermesStatic");
+                        // Synthesize a ZonedStruct type for EReflectOf codegen.
+                        TypeRef gtp = make_datatype_type(tname, cur_package_);
+                        return builder().reflect_of(gtp, hs_type);
+                    }
+                }
+            }
+        }
+    }
+    auto ts = collect_type_args(node);
+    if (ts.size() != 1 || !ts[0]) {
+        error("reflect::<T>() requires exactly one type argument");
+        return error_expr();
+    }
+    TypeRef T = ts[0];
+    if (TypeRef(T).kind() == LogosType::Kind::TypeVar) {
+        // Inside a generic function — defer; mono will resolve and register.
+        auto hs_type = make_struct_type("HermesStatic");
+        return builder().reflect_of(T, hs_type);
+    }
+    if (TypeRef(T).kind() != LogosType::Kind::ZonedStruct || !TypeRef(T).type_args().empty()) {
+        error("reflect::<T>() requires a concrete (non-generic) datatype argument");
+        return error_expr();
+    }
+    if (cur_prog_) {
+        std::string pkg = TypeRef(T).pkg_name().empty() ? std::string(cur_package_) : std::string(TypeRef(T).pkg_name());
+        std::string fqn = pkg.empty() ? std::string(TypeRef(T).struct_name()) : pkg + "::" + std::string(TypeRef(T).struct_name());
+        cur_prog_->reflect_requests.insert(fqn);
+    }
+    auto hs_type = make_struct_type("HermesStatic");
+    return builder().reflect_of(T, hs_type);
+}
+
+lir::LExprPtr SemaChecker::lower_intrinsic_get_annotation(TinyMapView node) {
+    auto ts = collect_type_args(node);
+    if (ts.size() != 2 || !ts[0] || !ts[1]) {
+        error("get_annotation::<T, A>() requires exactly two type arguments");
+        return error_expr();
+    }
+    TypeRef T = ts[0];
+    TypeRef A = ts[1];
+    if (TypeRef(A).kind() != LogosType::Kind::ZonedStruct) {
+        error("get_annotation: second type argument must be an annotation datatype");
+        return error_expr();
+    }
+    std::string a_fqn, a_pkg;
+    SemaStructInfo* a_info = nullptr;
+    {
+        auto [apkg, asi] = find_datatype_by_name(TypeRef(A).struct_name());
+        if (!asi || !asi->is_annotation_type) {
+            error(std::format("get_annotation: '{}' is not an annotation type", TypeRef(A).struct_name()));
+            return error_expr();
+        }
+        a_fqn = apkg.empty() ? std::string(TypeRef(A).struct_name()) : apkg + "::" + std::string(TypeRef(A).struct_name());
+        a_pkg = std::string(apkg);
+        a_info = asi;
+    }
+    // Find Option enum — must be imported
+    auto [opt_pkg, opt_esi] = find_enum_by_name("Option");
+    if (!opt_esi) {
+        error("get_annotation: 'Option' enum not in scope (add 'use std;')");
+        return error_expr();
+    }
+    // Find Some/None disc values
+    int64_t some_disc = -1, none_disc = -1;
+    for (auto& v : opt_esi->variants) {
+        if (v.name == "Some") some_disc = v.value;
+        else if (v.name == "None") none_disc = v.value;
+    }
+    // Build Option<A> type
+    TypeRef result_type = make_generic_enum("Option", {A}, {}, opt_pkg);
+    // Build Datatype<A> type for the struct literal
+    TypeRef a_type = A;  // already a Datatype type
+    // Find the annotation instance on T
+    const lir::LAnnotationInstance* found_inst = nullptr;
+    if (TypeRef(T).kind() == LogosType::Kind::ZonedStruct && cur_prog_) {
+        for (auto& sd : cur_prog_->structs) {
+            if (sd.name == TypeRef(T).struct_name()) {
+                for (auto& inst : sd.annotations)
+                    if (inst.ann_fqn == a_fqn || inst.ann_name == TypeRef(A).struct_name())
+                        { found_inst = &inst; break; }
+                break;
+            }
+        }
+    }
+    if (!found_inst) {
+        // Return Option::None
+        return builder().enum_lit("Option", "None", none_disc, result_type);
+    }
+    // Materialize the annotation as A{field: value, ...}
+    // Helper: convert LAnnotationValue to LExprPtr
+    std::function<lir::LExprPtr(const lir::LAnnotationValue&, TypeRef)> annot_val_to_expr;
+    annot_val_to_expr = [&](const lir::LAnnotationValue& av, TypeRef expected) -> lir::LExprPtr {
+        using K = lir::LAnnotationValue::Kind;
+        switch (av.kind) {
+        case K::Int:   return builder().lit_int(av.i, expected ? expected : prim(LogosType::Kind::I64));
+        case K::Float: return builder().lit_float(av.f, expected ? expected : prim(LogosType::Kind::F64));
+        case K::Bool:  return builder().lit_int(av.i, prim(LogosType::Kind::Bool));
+        case K::Str:   return builder().lit_str(av.s, make_slice_type(u8_t()));
+        case K::Enum:  {
+            // Emit as enum literal: av.enum_name::av.enum_variant
+            auto [epkg2, esi2] = find_enum_by_name(av.enum_name);
+            int64_t disc2 = 0;
+            if (esi2) for (auto& v : esi2->variants)
+                if (v.name == av.enum_variant) { disc2 = v.value; break; }
+            auto etype = make_enum_type(av.enum_name, epkg2);
+            return builder().enum_lit(av.enum_name, av.enum_variant, disc2, etype);
+        }
+        case K::Array: {
+            std::vector<lir::LExprPtr> elems;
+            TypeRef elem_t = (expected && TypeRef(expected).kind() == LogosType::Kind::Array)
+                                      ? TypeRef(expected).elem() : nullptr;
+            for (auto& item : av.arr) elems.push_back(annot_val_to_expr(item, elem_t));
+            LogosTypeBuilder at; at.kind = LogosType::Kind::Array;
+            at.elem = elem_t ? elem_t : (elems.empty() ? prim(LogosType::Kind::I64) : elems[0]->type);
+            at.arr_size = (int64_t)elems.size();
+            return builder().arr_lit(std::move(elems), pool_->alloc(std::move(at)));
+        }
+        }
+        return error_expr();
     };
-    auto bool_lit = [&](bool v) {
-        return builder().lit_int(v ? 1LL : 0LL, prim(LogosType::Kind::Bool));
-    };
+    // Build field list for the struct literal
+    std::vector<std::pair<std::string, lir::LExprPtr>> fields;
+    for (auto& [fname, fval] : found_inst->kv) {
+        // Find expected type from annotation type's fields
+        TypeRef ftype = nullptr;
+        if (a_info) for (auto& f : a_info->fields)
+            if (f.name == fname) { ftype = f.type; break; }
+        fields.emplace_back(fname, annot_val_to_expr(fval, ftype));
+    }
+    auto struct_expr = builder().struct_lit(std::string(TypeRef(A).struct_name()), std::move(fields), a_type);
+    // Wrap in Option<A>::Some(struct_expr)
+    std::vector<lir::LExprPtr> payload;
+    payload.push_back(std::move(struct_expr));
+    return builder().enum_lit_data("Option", "Some", some_disc, std::move(payload), result_type);
+}
+
+std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node, std::string_view callee) {
 
     // Type-trait predicates lower to magic calls so mono can evaluate them
     // *after* substitution — inside generic bodies, T is a TypeVar at sema.
     // Pre-mono folding at sema would freeze the answer to "TypeVar" semantics
     // (almost always false), defeating the point.
     if (callee == "is_same") {
-        auto ts = collect_type_args();
+        auto ts = collect_type_args(node);
         if (ts.size() != 2 || !ts[0] || !ts[1]) {
             error("is_same::<T1,T2>() requires exactly two type arguments");
             return error_expr();
@@ -3288,7 +3519,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
     // is uniform across element types so we share the str_from_raw
     // codegen at mlir-gen.
     if (callee == "slice_from_raw") {
-        auto ts = collect_type_args();
+        auto ts = collect_type_args(node);
         if (ts.size() != 1 || !ts[0]) {
             error("slice_from_raw::<T>(ptr, len) requires exactly one type argument");
             return error_expr();
@@ -3320,7 +3551,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
     // CFG is still a const-generic param at sema time, so the call is
     // deferred to mono via __hstatic_hash_of__ magic callee.
     if (callee == "hstatic_hash_of") {
-        auto ts = collect_type_args();
+        auto ts = collect_type_args(node);
         if (ts.size() != 1 || !ts[0]) {
             error("hstatic_hash_of::<CFG>() requires exactly one type argument");
             return error_expr();
@@ -3335,7 +3566,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
     // through the same recursion (Foo<i32> ≠ Foo<u32>). Folded at mono
     // via __type_hash_of__ to a u64 literal.
     if (callee == "type_hash") {
-        auto ts = collect_type_args();
+        auto ts = collect_type_args(node);
         if (ts.size() != 1 || !ts[0]) {
             error("type_hash::<T>() requires exactly one type argument");
             return error_expr();
@@ -3350,7 +3581,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
     // `Type` struct (which lives above the lang tier). Foundation for
     // `logos.lang.any::TypeId`. Folded at mono via __type_uid_of__.
     if (callee == "type_uid") {
-        auto ts = collect_type_args();
+        auto ts = collect_type_args(node);
         if (ts.size() != 1 || !ts[0]) {
             error("type_uid::<T>() requires exactly one type argument");
             return error_expr();
@@ -3367,86 +3598,13 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
     // returning, and storing. Tail-field reads on the result use the
     // length to synthesise an `&[T]` slice; sized-prefix reads use the
     // data pointer as the struct base.
-    if (callee == "dst_from_raw_parts" || callee == "dst_from_raw_parts_mut") {
-        auto ts = collect_type_args();
-        if (ts.size() != 1 || !ts[0]) {
-            error("dst_from_raw_parts::<S>(ptr, len) requires exactly one type argument");
-            return error_expr();
-        }
-        if (!inside_unsafe_) {
-            error("dst_from_raw_parts requires unsafe context");
-        }
-        TypeRef S = ts[0];
-        // Validate S is a struct flagged is_dst.
-        bool ok_kind = S && (S.kind() == LogosType::Kind::Struct ||
-                             S.kind() == LogosType::Kind::ZonedStruct);
-        if (!ok_kind) {
-            error(std::format("dst_from_raw_parts::<S>: '{}' is not a struct type",
-                              type_str(S)));
-            return error_expr();
-        }
-        std::string sn(S.struct_name());
-        auto [spkg, ssi] = find_struct_by_name(sn);
-        if (!ssi) { auto [dpkg, dsi] = find_datatype_by_name(sn); ssi = dsi; }
-        if (!ssi) {
-            error(std::format("dst_from_raw_parts::<S>: '{}' is not a struct type", sn));
-            return error_expr();
-        }
-        // Phase 1B-15: check is_dst either directly (template declared
-        // with `[T]` last field) or post-substitution (generic struct
-        // instantiated with an unsized type for the last-field TypeVar).
-        bool effective_dst = ssi->is_dst;
-        if (!effective_dst && !ssi->fields.empty() &&
-            !S.type_args().empty() && !ssi->type_params.empty()) {
-            // Build subst map and check substituted last-field type.
-            SemaSubst tmp_subst;
-            for (size_t i = 0; i < ssi->type_params.size() && i < S.type_args().size(); ++i)
-                tmp_subst[ssi->type_params[i].name] = S.type_args()[i];
-            auto subst_last = subst_type_sema(ssi->fields.back().type, tmp_subst);
-            if (subst_last && (subst_last.kind() == LogosType::Kind::UnsizedSlice ||
-                               subst_last.kind() == LogosType::Kind::UnsizedDyn)) {
-                effective_dst = true;
-            }
-        }
-        if (!effective_dst) {
-            error(std::format("dst_from_raw_parts::<S>: '{}' is not a custom-DST struct "
-                              "(last field must resolve to `[T]` or `dyn Trait`)", sn));
-            return error_expr();
-        }
-        // Lower the two value arguments — ptr and len.
-        std::vector<lir::LExprPtr> rargs;
-        if (node.has_key(la::ARGS)) {
-            AnyVal av = node.get(la::ARGS.code);
-            if (!av.is_null()) {
-                auto args_list = map_of(av);
-                if (args_list.has_key(la::ITEMS)) {
-                    auto items = arr_of(args_list.get(la::ITEMS.code));
-                    for (uint64_t i = 0; i < items.size(); ++i)
-                        rargs.push_back(lower_expr(map_of(items.get(i))));
-                }
-            }
-        }
-        if (rargs.size() != 2) {
-            error("dst_from_raw_parts::<S>(ptr, len): expected 2 args");
-            return error_expr();
-        }
-        widen_int_expr(rargs[1], prim(LogosType::Kind::I64), builder());
-        // Result is Kind::DstRef — same {data, len} ABI as Kind::Slice
-        // (slice_lit codegen produces the right MLIR fat-pair). Mut
-        // variant differs only in the DstRef type's mut flag. Carry
-        // type_args from S so post-substitution field-access can read
-        // the generic instantiation's concrete tail-element type.
-        bool is_mut = (callee == "dst_from_raw_parts_mut");
-        std::vector<TypeRef> S_args = S.type_args();
-        auto dst_ref_t = make_dst_ref(sn, spkg, is_mut, std::move(S_args));
-        return builder().slice_lit(std::move(rargs[0]), std::move(rargs[1]), dst_ref_t);
-    }
+    if (callee == "dst_from_raw_parts" || callee == "dst_from_raw_parts_mut") return lower_intrinsic_dst_from_raw_parts(node, callee);
     if (callee == "is_ptr" || callee == "is_ref" || callee == "is_mut_ref" ||
         callee == "is_struct" || callee == "is_zoned" || callee == "is_enum" ||
         callee == "is_tuple" || callee == "is_slice" || callee == "is_array" ||
         callee == "is_integer" || callee == "is_signed" || callee == "is_unsigned" ||
         callee == "is_float" || callee == "is_bool" || callee == "is_primitive") {
-        auto ts = collect_type_args();
+        auto ts = collect_type_args(node);
         if (ts.size() != 1 || !ts[0]) {
             error(std::string(callee) + "::<T>() requires exactly one type argument");
             return error_expr();
@@ -3983,60 +4141,12 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
     // reflect::<T>() -> HermesStatic — compile-time request for TypeInfo rodata.
     // Adds T to reflect_requests so reflection_emit pass builds the TypeInfo global.
     // Returns EReflectOf{T}; mlir_gen lowers it to AddressOf(__logos_reflect__<hash>) + offset 8.
-    if (callee == "reflect") {
-        // Check if the single type arg is a genos name (before resolve_type, which rejects traits).
-        if (node.has_key(la::TYPE_PARAMS)) {
-            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
-            if (tplist.has_key(la::ITEMS)) {
-                auto items = arr_of(tplist.get(la::ITEMS.code));
-                if (items.size() == 1) {
-                    auto tnode = map_of(items.get(0));
-                    if (tnode.has_key(la::NAME)) {
-                        std::string tname(str_of(tnode.get(la::NAME.code)));
-                        auto tit = traits_.find(tname);
-                        if (tit != traits_.end() && tit->second.is_hermes) {
-                            if (cur_prog_) {
-                                std::string pkg = std::string(cur_package_);
-                                std::string fqn = pkg.empty() ? tname : pkg + "::" + tname;
-                                cur_prog_->reflect_requests.insert(fqn);
-                            }
-                            auto hs_type = make_struct_type("HermesStatic");
-                            // Synthesize a ZonedStruct type for EReflectOf codegen.
-                            TypeRef gtp = make_datatype_type(tname, cur_package_);
-                            return builder().reflect_of(gtp, hs_type);
-                        }
-                    }
-                }
-            }
-        }
-        auto ts = collect_type_args();
-        if (ts.size() != 1 || !ts[0]) {
-            error("reflect::<T>() requires exactly one type argument");
-            return error_expr();
-        }
-        TypeRef T = ts[0];
-        if (TypeRef(T).kind() == LogosType::Kind::TypeVar) {
-            // Inside a generic function — defer; mono will resolve and register.
-            auto hs_type = make_struct_type("HermesStatic");
-            return builder().reflect_of(T, hs_type);
-        }
-        if (TypeRef(T).kind() != LogosType::Kind::ZonedStruct || !TypeRef(T).type_args().empty()) {
-            error("reflect::<T>() requires a concrete (non-generic) datatype argument");
-            return error_expr();
-        }
-        if (cur_prog_) {
-            std::string pkg = TypeRef(T).pkg_name().empty() ? std::string(cur_package_) : std::string(TypeRef(T).pkg_name());
-            std::string fqn = pkg.empty() ? std::string(TypeRef(T).struct_name()) : pkg + "::" + std::string(TypeRef(T).struct_name());
-            cur_prog_->reflect_requests.insert(fqn);
-        }
-        auto hs_type = make_struct_type("HermesStatic");
-        return builder().reflect_of(T, hs_type);
-    }
+    if (callee == "reflect") return lower_intrinsic_reflect(node);
 
     // has_annotation::<T, A>() -> bool  (compile-time const-fold)
     // Returns true if datatype T has a user annotation of type A attached.
     if (callee == "has_annotation") {
-        auto ts = collect_type_args();
+        auto ts = collect_type_args(node);
         if (ts.size() != 2 || !ts[0] || !ts[1]) {
             error("has_annotation::<T, A>() requires exactly two type arguments");
             return error_expr();
@@ -4073,109 +4183,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
 
     // get_annotation::<T, A>() -> Option<A>  (compile-time const-fold)
     // Returns Option<A>::Some(A{...}) if T has annotation A, else Option<A>::None.
-    if (callee == "get_annotation") {
-        auto ts = collect_type_args();
-        if (ts.size() != 2 || !ts[0] || !ts[1]) {
-            error("get_annotation::<T, A>() requires exactly two type arguments");
-            return error_expr();
-        }
-        TypeRef T = ts[0];
-        TypeRef A = ts[1];
-        if (TypeRef(A).kind() != LogosType::Kind::ZonedStruct) {
-            error("get_annotation: second type argument must be an annotation datatype");
-            return error_expr();
-        }
-        std::string a_fqn, a_pkg;
-        SemaStructInfo* a_info = nullptr;
-        {
-            auto [apkg, asi] = find_datatype_by_name(TypeRef(A).struct_name());
-            if (!asi || !asi->is_annotation_type) {
-                error(std::format("get_annotation: '{}' is not an annotation type", TypeRef(A).struct_name()));
-                return error_expr();
-            }
-            a_fqn = apkg.empty() ? std::string(TypeRef(A).struct_name()) : apkg + "::" + std::string(TypeRef(A).struct_name());
-            a_pkg = std::string(apkg);
-            a_info = asi;
-        }
-        // Find Option enum — must be imported
-        auto [opt_pkg, opt_esi] = find_enum_by_name("Option");
-        if (!opt_esi) {
-            error("get_annotation: 'Option' enum not in scope (add 'use std;')");
-            return error_expr();
-        }
-        // Find Some/None disc values
-        int64_t some_disc = -1, none_disc = -1;
-        for (auto& v : opt_esi->variants) {
-            if (v.name == "Some") some_disc = v.value;
-            else if (v.name == "None") none_disc = v.value;
-        }
-        // Build Option<A> type
-        TypeRef result_type = make_generic_enum("Option", {A}, {}, opt_pkg);
-        // Build Datatype<A> type for the struct literal
-        TypeRef a_type = A;  // already a Datatype type
-        // Find the annotation instance on T
-        const lir::LAnnotationInstance* found_inst = nullptr;
-        if (TypeRef(T).kind() == LogosType::Kind::ZonedStruct && cur_prog_) {
-            for (auto& sd : cur_prog_->structs) {
-                if (sd.name == TypeRef(T).struct_name()) {
-                    for (auto& inst : sd.annotations)
-                        if (inst.ann_fqn == a_fqn || inst.ann_name == TypeRef(A).struct_name())
-                            { found_inst = &inst; break; }
-                    break;
-                }
-            }
-        }
-        if (!found_inst) {
-            // Return Option::None
-            return builder().enum_lit("Option", "None", none_disc, result_type);
-        }
-        // Materialize the annotation as A{field: value, ...}
-        // Helper: convert LAnnotationValue to LExprPtr
-        std::function<lir::LExprPtr(const lir::LAnnotationValue&, TypeRef)> annot_val_to_expr;
-        annot_val_to_expr = [&](const lir::LAnnotationValue& av, TypeRef expected) -> lir::LExprPtr {
-            using K = lir::LAnnotationValue::Kind;
-            switch (av.kind) {
-            case K::Int:   return builder().lit_int(av.i, expected ? expected : prim(LogosType::Kind::I64));
-            case K::Float: return builder().lit_float(av.f, expected ? expected : prim(LogosType::Kind::F64));
-            case K::Bool:  return builder().lit_int(av.i, prim(LogosType::Kind::Bool));
-            case K::Str:   return builder().lit_str(av.s, make_slice_type(u8_t()));
-            case K::Enum:  {
-                // Emit as enum literal: av.enum_name::av.enum_variant
-                auto [epkg2, esi2] = find_enum_by_name(av.enum_name);
-                int64_t disc2 = 0;
-                if (esi2) for (auto& v : esi2->variants)
-                    if (v.name == av.enum_variant) { disc2 = v.value; break; }
-                auto etype = make_enum_type(av.enum_name, epkg2);
-                return builder().enum_lit(av.enum_name, av.enum_variant, disc2, etype);
-            }
-            case K::Array: {
-                std::vector<lir::LExprPtr> elems;
-                TypeRef elem_t = (expected && TypeRef(expected).kind() == LogosType::Kind::Array)
-                                          ? TypeRef(expected).elem() : nullptr;
-                for (auto& item : av.arr) elems.push_back(annot_val_to_expr(item, elem_t));
-                LogosTypeBuilder at; at.kind = LogosType::Kind::Array;
-                at.elem = elem_t ? elem_t : (elems.empty() ? prim(LogosType::Kind::I64) : elems[0]->type);
-                at.arr_size = (int64_t)elems.size();
-                return builder().arr_lit(std::move(elems), pool_->alloc(std::move(at)));
-            }
-            }
-            return error_expr();
-        };
-        // Build field list for the struct literal
-        std::vector<std::pair<std::string, lir::LExprPtr>> fields;
-        for (auto& [fname, fval] : found_inst->kv) {
-            // Find expected type from annotation type's fields
-            TypeRef ftype = nullptr;
-            if (a_info) for (auto& f : a_info->fields)
-                if (f.name == fname) { ftype = f.type; break; }
-            fields.emplace_back(fname, annot_val_to_expr(fval, ftype));
-        }
-        auto struct_expr = builder().struct_lit(std::string(TypeRef(A).struct_name()), std::move(fields), a_type);
-        // Wrap in Option<A>::Some(struct_expr)
-        std::vector<lir::LExprPtr> payload;
-        payload.push_back(std::move(struct_expr));
-        return builder().enum_lit_data("Option", "Some", some_disc, std::move(payload), result_type);
-    }
+    if (callee == "get_annotation") return lower_intrinsic_get_annotation(node);
     return std::nullopt;
 }
 
