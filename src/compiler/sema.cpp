@@ -3645,6 +3645,537 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
 
 // ── Type resolution ──────────────────────────────────────────────────────────
 
+TypeRef SemaChecker::resolve_type_cfg_slot(TinyMapView node) {
+    int32_t tc = code_of(node); (void)tc;
+    // <type:CFG.path> — extract a type from a HermesStatic-typed binding
+    // through an arbitrary path of field/index steps. Each step is an
+    // AST item with OP discriminator (0=field_str, 1=field_int,
+    // 2=array_idx). Two resolution paths:
+    //   • CFG is a const-generic type-param of the enclosing item.
+    //     Defer; mono_subst resolves once the param is bound.
+    //   • CFG is a type alias to an HStaticLit (`pub type Cfg = @{…};`).
+    //     Resolve eagerly by walking the registered LIR mirror.
+    //
+    // The path is encoded into assoc_type_name (string-typed slot we
+    // already reuse on CfgSlotType) using a delimited form:
+    //   "F<name>\x1F" | "I<int>\x1F" | "A<int>\x1F"  (one per step)
+    // Decoded by mono_subst at concretisation time.
+    auto cfg_name = std::string(str_of(node.get(la::NAME.code)));
+    bool is_typeparam = current_type_params_.count(cfg_name) > 0;
+
+    // B-ty-06: when CFG is a generic type-param, it must be a const-
+    // generic of HermesStatic kind for cfg_slot extraction to make
+    // sense.  Inspect current_type_params_[cfg_name] — for const params
+    // push_type_params stores a ConstVar whose pointee is const_type.
+    if (is_typeparam) {
+        auto it = current_type_params_.find(cfg_name);
+        if (it != current_type_params_.end()) {
+            TypeRef tv = it->second;
+            bool ok = TypeRef(tv).kind() == LogosType::Kind::ConstVar &&
+                      TypeRef(tv).pointee() &&
+                      TypeRef(TypeRef(tv).pointee()).kind() == LogosType::Kind::Struct &&
+                      TypeRef(TypeRef(tv).pointee()).struct_name() == "HermesStatic";
+            if (!ok) {
+                error(std::format(
+                    "'<type:{0}.…>': type-param '{0}' must be declared "
+                    "as 'const {0}: HermesStatic' for cfg_slot extraction",
+                    cfg_name));
+            }
+        }
+    }
+
+    // Read path steps from ITEMS array.
+    struct Step {
+        int kind;          // 0=field_str, 1=field_int, 2=array_idx
+        std::string name;  // for kind=0
+        int64_t  index;    // for kind=1, 2
+    };
+    std::vector<Step> steps;
+    if (node.has_key(la::ITEMS)) {
+        auto items_av = node.get(la::ITEMS.code);
+        if (!items_av.is_null()) {
+            auto items = arr_of(items_av);
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                auto step_node = map_of(items.get(i));
+                Step s{};
+                if (step_node.has_key(la::OP)) {
+                    auto opv = step_node.get(la::OP.code);
+                    if (opv.is_value() && !opv.is_pointer())
+                        s.kind = (int)opv.as_value<int32_t>();
+                }
+                if (s.kind == 0) {
+                    s.name = std::string(str_of(step_node.get(la::NAME.code)));
+                } else {
+                    // INTEGER token comes through as a string (peg lexer).
+                    if (step_node.has_key(la::INDEX)) {
+                        auto sv = str_of(step_node.get(la::INDEX.code));
+                        s.index = parse_int_literal(sv);
+                    }
+                }
+                steps.push_back(std::move(s));
+            }
+        }
+    }
+    if (steps.empty()) {
+        error("<type:CFG.path>: empty path");
+        return error_t();
+    }
+
+    // Encode path for deferred resolution.
+    auto encode = [&] {
+        std::string r;
+        for (auto& s : steps) {
+            if (s.kind == 0) { r += 'F'; r += s.name; }
+            else if (s.kind == 1) { r += 'I'; r += std::to_string(s.index); }
+            else { r += 'A'; r += std::to_string(s.index); }
+            r += '\x1F';
+        }
+        return r;
+    };
+
+    if (!is_typeparam) {
+        // Eager resolution against an HStaticLit alias.
+        TypeRef cfg_t = try_resolve_as_known_type(cfg_name);
+        if (cfg_t && TypeRef(cfg_t).kind() == LogosType::Kind::HStaticLit && cur_prog_) {
+            uint64_t hash = (uint64_t)cfg_t.const_val().value_or(0);
+            auto rit = cur_prog_->hstatic_registry_.find(hash);
+            if (rit != cur_prog_->hstatic_registry_.end() && rit->second &&
+                rit->second->mirror_offset_ != hermes::arena_offset_t{}) {
+                lir_view::ExprRef eref(cur_prog_->type_pool.arena(), rit->second->mirror_offset_);
+                if (eref.kind() == lir_schema::expr::Code::HermesLit) {
+                    // Walk path through the Hermes value.
+                    lir_view::HermesValRef cur = lir_view::EHermesLitView{eref}.root();
+                    bool ok = true;
+                    for (auto& s : steps) {
+                        using K = lir_schema::hermes_val::Code;
+                        if (s.kind == 0 || s.kind == 1) {
+                            if (cur.kind() != K::Map) { ok = false; break; }
+                            auto map = lir_view::HVMapView{cur};
+                            bool found = false;
+                            if (s.kind == 0 && !map.int_keyed()) {
+                                for (uint64_t i = 0, n = map.size(); i < n; ++i)
+                                    if (map.str_key(i) == s.name) {
+                                        cur = map.value(i); found = true; break;
+                                    }
+                            } else if (s.kind == 1 && map.int_keyed()) {
+                                for (uint64_t i = 0, n = map.size(); i < n; ++i)
+                                    if (map.int_key(i) == s.index) {
+                                        cur = map.value(i); found = true; break;
+                                    }
+                            }
+                            if (!found) { ok = false; break; }
+                        } else { // s.kind == 2 — array
+                            if (cur.kind() != K::Array) { ok = false; break; }
+                            auto arr = lir_view::HVArrayView{cur};
+                            if ((uint64_t)s.index >= arr.size()) { ok = false; break; }
+                            cur = arr.elem((uint64_t)s.index);
+                        }
+                    }
+                    if (ok && cur.kind() == lir_schema::hermes_val::Code::Type) {
+                        std::string tname(lir_view::HVTypeView{cur}.name());
+                        if (auto resolved = try_resolve_as_known_type(tname))
+                            return resolved;
+                    }
+                }
+            }
+        }
+    }
+    LogosTypeBuilder t;
+    t.kind = LogosType::Kind::CfgSlotType;
+    t.type_var_name = cfg_name;       // CFG ident
+    t.assoc_type_name = encode();     // encoded path
+    return pool_->alloc(std::move(t));
+}
+
+TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
+    int32_t tc = code_of(node); (void)tc;
+    // base::Item or base::Item<A,B> — associated type reference (plain or GAT)
+    auto base_type = resolve_type(map_of(node.get(la::RECEIVER.code)));
+    auto assoc      = std::string(str_of(node.get(la::FIELD.code)));  // "Item"
+    // Read GAT type args if present (e.g. T::Item<i32>)
+    std::vector<TypeRef> gat_args;
+    // B88: GAT lifetime args (e.g. T::Item<'a>) — separate from gat_args
+    // (which holds type-position args) so they can be matched against
+    // the trait's GAT lt-params at use-site validation.
+    std::vector<std::string> gat_lt_args;
+    if (node.has_key(la::TYPE_PARAMS)) {
+        auto tpav = node.get(la::TYPE_PARAMS.code);
+        if (!tpav.is_null()) {
+            auto tplist = map_of(tpav);
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i) {
+                    auto item = map_of(items.get(i));
+                    if (code_of(item) == la::LIFETIME_PARAM) {
+                        auto name_av = item.get(la::NAME.code);
+                        if (!name_av.is_null()) {
+                            std::string lt(str_of(name_av));
+                            gat_lt_args.push_back(std::move(lt));
+                        }
+                        continue;
+                    }
+                    gat_args.push_back(resolve_type(item));
+                }
+            }
+        }
+    }
+    std::string trait_for_assoc;
+
+    if (TypeRef(base_type).kind() == LogosType::Kind::TypeVar) {
+        auto tp_name = TypeRef(base_type).type_var_name();
+        if (tp_name == "Self" && !current_trait_name_.empty()) {
+            trait_for_assoc = current_trait_name_;
+        } else {
+            auto bit = current_type_bounds_.find(tp_name);
+            if (bit != current_type_bounds_.end()) {
+                // Walk each bound trait AND its supertrait chain to find
+                // the assoc type. A `Container: Datatype` bound pulls in
+                // Datatype's `View` through the supertrait edge.
+                std::vector<std::string> worklist;
+                StrSet seen;
+                for (auto& b : bit->second) worklist.push_back(b.trait_name);
+                while (!worklist.empty() && trait_for_assoc.empty()) {
+                    std::string tn = std::move(worklist.back());
+                    worklist.pop_back();
+                    if (!seen.insert(tn).second) continue;
+                    auto tit = traits_.find(tn);
+                    if (tit == traits_.end()) continue;
+                    for (auto& at : tit->second.assoc_types) {
+                        if (at.name == assoc) { trait_for_assoc = tn; break; }
+                    }
+                    if (!trait_for_assoc.empty()) break;
+                    for (auto& sup : tit->second.supertraits)
+                        worklist.push_back(sup.trait_name);
+                }
+            }
+        }
+    } else if (TypeRef(base_type).kind() == LogosType::Kind::CfgSlotType) {
+        // CfgSlotType base — type isn't known until mono substitutes
+        // CFG. Resolve by assoc-name alone: pick the first trait that
+        // declares an assoc type with this name. Mono's subst_type
+        // for AssocType then resolves via concrete_impls_ /
+        // blanket_impls_ once the base becomes concrete.
+        for (auto& [tname, tinfo] : traits_) {
+            for (auto& at : tinfo.assoc_types) {
+                if (at.name == assoc) { trait_for_assoc = tname; break; }
+            }
+            if (!trait_for_assoc.empty()) break;
+        }
+    } else if (TypeRef(base_type).kind() == LogosType::Kind::AssocType) {
+        // T::A::B — search bounds of the associated type itself if we had them,
+        // but currently we only store trait_name for the assoc type.
+        // We'll search the trait indicated by base_type's own resolution.
+        auto tit = traits_.find(TypeRef(base_type).trait_name());
+        if (tit != traits_.end()) {
+            // This is slightly wrong: T::A might be bound to traits OTHER than the one it's defined in.
+            // But our current system doesn't support "type Item: Bound;".
+            // So we look in the trait that owns the associated type.
+        }
+        // Fallback: check all traits implemented by the concrete type if base is already concrete,
+        // or just error if we can't find it.
+    }
+
+    // Phase 6: check the current impl's trait first. When `Self::Item<X>`
+    // appears inside an impl method body (or signature), `Self` resolves
+    // to the impl's target type (concrete struct, not TypeVar), and the
+    // impl itself isn't yet in impls_ when collect_impl is still walking
+    // method signatures. Look up the assoc-type definition on the
+    // impl's trait directly.
+    if (trait_for_assoc.empty() && !current_impl_trait_name_.empty()) {
+        auto tit = traits_.find(current_impl_trait_name_);
+        if (tit != traits_.end()) {
+            for (auto& at : tit->second.assoc_types) {
+                if (at.name == assoc) {
+                    trait_for_assoc = current_impl_trait_name_;
+                    break;
+                }
+            }
+        }
+    }
+    if (trait_for_assoc.empty()) {
+        // Check all traits for ANY type that might have this assoc type (last resort lookup).
+        // Try both the full concrete name (e.g. "Box<i32>") and the base struct name ("Box")
+        // to handle generic impls like impl<V> Trait for Box<V>.
+        std::string cname = type_str(base_type);
+        std::string base_name;
+        if (TypeRef(base_type).kind() == LogosType::Kind::Struct ||
+            TypeRef(base_type).kind() == LogosType::Kind::ZonedStruct)
+            base_name = TypeRef(base_type).struct_name();
+
+        for (auto& [tname, tinfo] : traits_) {
+            bool found_impl = impls_.count(tname + "::" + cname) > 0
+                           || (!base_name.empty() && impls_.count(tname + "::" + base_name) > 0);
+            if (found_impl) {
+                for (auto& at : tinfo.assoc_types) {
+                    if (at.name == assoc) { trait_for_assoc = tname; break; }
+                }
+            }
+            if (!trait_for_assoc.empty()) break;
+        }
+    }
+
+    if (trait_for_assoc.empty()) {
+        error(std::format("no associated type '{}' found for '{}'", assoc, type_str(base_type)));
+        return error_t();
+    }
+    // Bug 5 fix: check GAT arity against the trait's declaration.
+    auto tit_gat = traits_.find(trait_for_assoc);
+    if (tit_gat != traits_.end()) {
+        for (auto& at_def : tit_gat->second.assoc_types) {
+            if (at_def.name == assoc) {
+                size_t expected_gat = at_def.type_params.size();
+                if (!at_def.type_params.empty() && gat_args.size() != expected_gat)
+                    error(std::format("associated type '{}::{}' expects {} GAT argument(s), got {}",
+                                      trait_for_assoc, assoc, expected_gat, gat_args.size()));
+                // Enforce trait bounds on GAT type parameters.
+                if (!at_def.type_params.empty() && gat_args.size() == expected_gat)
+                    check_type_bounds(trait_for_assoc + "::" + assoc,
+                                      at_def.type_params, gat_args);
+                break;
+            }
+        }
+    }
+    LogosTypeBuilder t;
+    t.kind            = LogosType::Kind::AssocType;
+    t.assoc_base      = base_type;
+    t.trait_name      = trait_for_assoc;
+    t.assoc_type_name = assoc;
+    t.gat_args        = std::move(gat_args);
+    // B88: stash GAT lifetime args on lifetime_args field — distinct
+    // from struct lt args (AssocType doesn't have struct lt_args
+    // semantics) so reusing the slot is safe and lets the existing
+    // lifetime_args mirror accessor read them.
+    t.lifetime_args   = std::move(gat_lt_args);
+
+    auto result = pool_->alloc(std::move(t));
+    // Propagate bounds for T::Item back into the context
+    auto tit = traits_.find(trait_for_assoc);
+    if (tit != traits_.end()) {
+        for (auto& at : tit->second.assoc_types) {
+            if (at.name == assoc && !at.bounds.empty()) {
+                current_type_bounds_[type_str(result)] = at.bounds;
+                break;
+            }
+        }
+    }
+    return result;
+}
+
+TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
+    int32_t tc = code_of(node); (void)tc;
+    auto name = str_of(node.get(la::NAME.code));
+
+    // Generic compile-time const: `pub const X<T1, T2>: HermesStatic =
+    // @{...};`. Push type-args into current_type_params_ and re-resolve
+    // the saved value-AST under that scope. resolve_hstatic_value walks
+    // the AST and substitutes TypeVar HERMES_TYPE_LIT names through
+    // current_type_params_, producing a fresh per-instantiation
+    // HStaticLit identity.
+    {
+        auto git = generic_consts_.find(std::string(name));
+        if (git != generic_consts_.end()) {
+            std::vector<TypeRef> args;
+            if (node.has_key(la::ITEMS)) {
+                auto items = arr_of(node.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i)
+                    args.push_back(resolve_type(map_of(items.get(i))));
+            }
+            if (args.size() != git->second.type_params.size()) {
+                error(std::format("generic const '{}' expects {} type argument(s), got {}",
+                                  name, git->second.type_params.size(), args.size()));
+                return error_t();
+            }
+            // Save + push type-param bindings.
+            StrMap<TypeRef> saved_params;
+            for (size_t i = 0; i < args.size(); ++i) {
+                const std::string& pname = git->second.type_params[i].name;
+                auto it = current_type_params_.find(pname);
+                if (it != current_type_params_.end()) saved_params[pname] = it->second;
+                current_type_params_[pname] = args[i];
+            }
+            // Switch holder_ to the const decl's holder so arr_of/map_of
+            // resolve offsets against the correct base. Restored after.
+            auto* saved_holder = holder_;
+            if (git->second.holder) holder_ = git->second.holder;
+            TypeRef result = resolve_hstatic_value(git->second.value_node);
+            holder_ = saved_holder;
+            // Restore type-params.
+            for (size_t i = 0; i < args.size(); ++i) {
+                const std::string& pname = git->second.type_params[i].name;
+                auto sit = saved_params.find(pname);
+                if (sit != saved_params.end()) current_type_params_[pname] = sit->second;
+                else current_type_params_.erase(pname);
+            }
+            return result;
+        }
+    }
+
+    // Generic type alias: type Foo<T> = Bar<T>;  →  Foo<i32> resolves to Bar<i32>
+    {
+        auto ait = type_aliases_.find(std::string(name));
+        if (ait != type_aliases_.end() &&
+            (!ait->second.type_params.empty() || !ait->second.lifetime_params.empty())) {
+            // Resolve type and lifetime arguments at the call site.
+            std::vector<TypeRef> args;
+            std::vector<std::string> lt_args;
+            if (node.has_key(la::ITEMS)) {
+                auto items = arr_of(node.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i) {
+                    auto item = map_of(items.get(i));
+                    if (code_of(item) == la::LIFETIME_PARAM) {
+                        lt_args.push_back(std::string(str_of(item.get(la::NAME.code))));
+                        continue;
+                    }
+                    args.push_back(resolve_type(item));
+                }
+            }
+            size_t expected = ait->second.type_params.size();
+            if (args.size() != expected)
+                error(std::format("type alias '{}' expects {} type argument(s), got {}",
+                                  name, expected, args.size()));
+            size_t lt_expected = ait->second.lifetime_params.size();
+            if (lt_args.size() != lt_expected)
+                error(std::format("type alias '{}' expects {} lifetime argument(s), got {}",
+                                  name, lt_expected, lt_args.size()));
+            SemaSubst s;
+            for (size_t i = 0; i < expected && i < args.size(); ++i)
+                s[ait->second.type_params[i].name] = args[i];
+            SemaLifetimeSubst ls;
+            auto& lparams = ait->second.lifetime_params;
+            for (size_t i = 0; i < lparams.size() && i < lt_args.size(); ++i)
+                ls[lparams[i]] = lt_args[i];
+            return subst_type_sema(ait->second.type, s, ls);
+        }
+    }
+
+    // Special case: Box<dyn Trait> = owned trait object (same layout as &dyn Trait)
+    if (name == "Box" && node.has_key(la::ITEMS)) {
+        auto items = arr_of(node.get(la::ITEMS.code));
+        if (items.size() == 1) {
+            auto inner = resolve_type(map_of(items.get(0)));
+            if (inner && TypeRef(inner).kind() == LogosType::Kind::TraitObject)
+                return inner;  // Box<dyn T> ≡ &dyn T in our type system
+        }
+    }
+    auto [spkg, ssi] = find_struct_by_name(name);
+    auto [dpkg, dsi] = find_datatype_by_name(name);
+    auto [epkg, esi] = find_enum_by_name(name);
+    // Cross-pkg ambiguity: user's local `pub struct Foo` shadowing a
+    // datatype `#[zoned] pub struct Foo` from an imported package
+    // would otherwise lose to the datatype because the dispatch
+    // below checks is_dtype before is_struct. Pin to cur_package_
+    // when one kind is local and the other isn't.
+    if (!cur_package_.empty()) {
+        bool s_local = ssi && spkg == cur_package_;
+        bool d_local = dsi && dpkg == cur_package_;
+        bool e_local = esi && epkg == cur_package_;
+        if (s_local && !d_local) { dsi = nullptr; }
+        if (s_local && !e_local) { esi = nullptr; }
+        if (d_local && !s_local) { ssi = nullptr; }
+        if (d_local && !e_local) { esi = nullptr; }
+        if (e_local && !s_local) { ssi = nullptr; }
+        if (e_local && !d_local) { dsi = nullptr; }
+    }
+    bool is_struct = ssi != nullptr;
+    bool is_dtype  = dsi != nullptr;
+    bool is_enum   = esi != nullptr;
+    if (!is_struct && !is_dtype && !is_enum) {
+        // Metaprog discovery loop runs sema BEFORE handler hooks
+        // emit derived items. Unknown types referenced from any
+        // user-side ast may be ones a hook will synthesise — the
+        // final, non-metaprog sema pass after the loop will
+        // re-resolve and surface a real error if the type still
+        // doesn't exist. Silently fall through here.
+        if (metaprog_mode_)
+            return error_t();
+        error(std::format("unknown generic type '{}'", name));
+        return error_t();
+    }
+    // Resolve each type arg (TypeVars in current scope are expanded).
+    // Collect LIFETIME_PARAM items ('a) separately — erased at codegen but
+    // tracked for borrow checking (struct fields that borrow through a lifetime).
+    // Phase 1B-5: when the target type-param at index i has
+    // `implicit_sized=false` (declared with `?Sized`), enable unsized_ok_
+    // for that arg's resolution so bare `[T]` / `dyn Trait` parse without
+    // the unsized-by-value diagnostic. The Sized-enforcement check below
+    // catches the inverse case (unsized arg at sized param).
+    const std::vector<TypeParam>* target_params =
+        ssi ? &ssi->type_params :
+        dsi ? &dsi->type_params :
+        esi ? &esi->type_params : nullptr;
+    std::vector<TypeRef> args;
+    std::vector<std::string> lt_args;
+    if (node.has_key(la::ITEMS)) {
+        auto items = arr_of(node.get(la::ITEMS.code));
+        size_t type_arg_idx = 0;  // separate index — lifetimes don't consume a param slot
+        for (uint64_t i = 0; i < items.size(); ++i) {
+            auto item = map_of(items.get(i));
+            if (code_of(item) == la::LIFETIME_PARAM) {
+                lt_args.push_back(std::string(str_of(item.get(la::NAME.code))));
+                continue;
+            }
+            bool was_ok = unsized_ok_;
+            if (target_params && type_arg_idx < target_params->size() &&
+                !(*target_params)[type_arg_idx].implicit_sized) {
+                unsized_ok_ = true;
+            }
+            args.push_back(resolve_type(item));
+            unsized_ok_ = was_ok;
+            ++type_arg_idx;
+        }
+    }
+    // Phase 1B-5/10: Sized-enforcement at struct/enum/datatype generic
+    // instantiation. Parallel to the fn-call path in finish_generic_call.
+    // Phase 1B-10 adds the TypeVar→Sized propagation check too.
+    if (target_params) {
+        for (size_t i = 0; i < args.size() && i < target_params->size(); ++i) {
+            if (!(*target_params)[i].implicit_sized) continue;
+            auto t = args[i];
+            if (!t) continue;
+            auto k = t.kind();
+            if (k == LogosType::Kind::UnsizedSlice ||
+                k == LogosType::Kind::UnsizedDyn) {
+                error(std::format(
+                    "generic '{}': type argument '{}' has unsized type `{}` "
+                    "but the type parameter '{}' requires `Sized` "
+                    "(add `T: ?Sized` to relax the bound)",
+                    name, type_str(t), type_str(t),
+                    (*target_params)[i].name));
+            } else if (k == LogosType::Kind::TypeVar) {
+                std::string tvname(t.type_var_name());
+                if (current_type_relaxed_sized_.count(tvname)) {
+                    error(std::format(
+                        "generic '{}': type argument '{}' is a `?Sized` "
+                        "outer type parameter; cannot be passed to '{}' "
+                        "which requires `Sized` (add `?Sized` to the "
+                        "target's bound or constrain the outer parameter "
+                        "to `Sized`)",
+                        name, tvname, (*target_params)[i].name));
+                }
+            }
+        }
+    }
+    if (is_enum) {
+        if (esi) {
+            check_type_arg_arity(name, esi->type_params, args, "enum");
+            check_type_bounds(std::string(name), esi->type_params, args);
+        }
+        return make_generic_enum(name, std::move(args), std::move(lt_args), epkg);
+    }
+    if (is_dtype) {
+        if (dsi) {
+            check_type_arg_arity(name, dsi->type_params, args, "datatype");
+            check_type_bounds(std::string(name), dsi->type_params, args);
+        }
+        return make_generic_datatype(name, std::move(args), std::move(lt_args), dpkg);
+    }
+    if (ssi) {
+        check_type_arg_arity(name, ssi->type_params, args, "struct");
+        check_type_bounds(std::string(name), ssi->type_params, args);
+    }
+    return make_generic_struct(name, std::move(args), std::move(lt_args), spkg);
+}
+
 TypeRef SemaChecker::resolve_type(TinyMapView node) {
     int32_t tc = code_of(node);
 
@@ -3671,146 +4202,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         return lex->type;
     }
 
-    if (tc == la::CFG_SLOT_TYPE) {
-        // <type:CFG.path> — extract a type from a HermesStatic-typed binding
-        // through an arbitrary path of field/index steps. Each step is an
-        // AST item with OP discriminator (0=field_str, 1=field_int,
-        // 2=array_idx). Two resolution paths:
-        //   • CFG is a const-generic type-param of the enclosing item.
-        //     Defer; mono_subst resolves once the param is bound.
-        //   • CFG is a type alias to an HStaticLit (`pub type Cfg = @{…};`).
-        //     Resolve eagerly by walking the registered LIR mirror.
-        //
-        // The path is encoded into assoc_type_name (string-typed slot we
-        // already reuse on CfgSlotType) using a delimited form:
-        //   "F<name>\x1F" | "I<int>\x1F" | "A<int>\x1F"  (one per step)
-        // Decoded by mono_subst at concretisation time.
-        auto cfg_name = std::string(str_of(node.get(la::NAME.code)));
-        bool is_typeparam = current_type_params_.count(cfg_name) > 0;
-
-        // B-ty-06: when CFG is a generic type-param, it must be a const-
-        // generic of HermesStatic kind for cfg_slot extraction to make
-        // sense.  Inspect current_type_params_[cfg_name] — for const params
-        // push_type_params stores a ConstVar whose pointee is const_type.
-        if (is_typeparam) {
-            auto it = current_type_params_.find(cfg_name);
-            if (it != current_type_params_.end()) {
-                TypeRef tv = it->second;
-                bool ok = TypeRef(tv).kind() == LogosType::Kind::ConstVar &&
-                          TypeRef(tv).pointee() &&
-                          TypeRef(TypeRef(tv).pointee()).kind() == LogosType::Kind::Struct &&
-                          TypeRef(TypeRef(tv).pointee()).struct_name() == "HermesStatic";
-                if (!ok) {
-                    error(std::format(
-                        "'<type:{0}.…>': type-param '{0}' must be declared "
-                        "as 'const {0}: HermesStatic' for cfg_slot extraction",
-                        cfg_name));
-                }
-            }
-        }
-
-        // Read path steps from ITEMS array.
-        struct Step {
-            int kind;          // 0=field_str, 1=field_int, 2=array_idx
-            std::string name;  // for kind=0
-            int64_t  index;    // for kind=1, 2
-        };
-        std::vector<Step> steps;
-        if (node.has_key(la::ITEMS)) {
-            auto items_av = node.get(la::ITEMS.code);
-            if (!items_av.is_null()) {
-                auto items = arr_of(items_av);
-                for (uint64_t i = 0; i < items.size(); ++i) {
-                    auto step_node = map_of(items.get(i));
-                    Step s{};
-                    if (step_node.has_key(la::OP)) {
-                        auto opv = step_node.get(la::OP.code);
-                        if (opv.is_value() && !opv.is_pointer())
-                            s.kind = (int)opv.as_value<int32_t>();
-                    }
-                    if (s.kind == 0) {
-                        s.name = std::string(str_of(step_node.get(la::NAME.code)));
-                    } else {
-                        // INTEGER token comes through as a string (peg lexer).
-                        if (step_node.has_key(la::INDEX)) {
-                            auto sv = str_of(step_node.get(la::INDEX.code));
-                            s.index = parse_int_literal(sv);
-                        }
-                    }
-                    steps.push_back(std::move(s));
-                }
-            }
-        }
-        if (steps.empty()) {
-            error("<type:CFG.path>: empty path");
-            return error_t();
-        }
-
-        // Encode path for deferred resolution.
-        auto encode = [&] {
-            std::string r;
-            for (auto& s : steps) {
-                if (s.kind == 0) { r += 'F'; r += s.name; }
-                else if (s.kind == 1) { r += 'I'; r += std::to_string(s.index); }
-                else { r += 'A'; r += std::to_string(s.index); }
-                r += '\x1F';
-            }
-            return r;
-        };
-
-        if (!is_typeparam) {
-            // Eager resolution against an HStaticLit alias.
-            TypeRef cfg_t = try_resolve_as_known_type(cfg_name);
-            if (cfg_t && TypeRef(cfg_t).kind() == LogosType::Kind::HStaticLit && cur_prog_) {
-                uint64_t hash = (uint64_t)cfg_t.const_val().value_or(0);
-                auto rit = cur_prog_->hstatic_registry_.find(hash);
-                if (rit != cur_prog_->hstatic_registry_.end() && rit->second &&
-                    rit->second->mirror_offset_ != hermes::arena_offset_t{}) {
-                    lir_view::ExprRef eref(cur_prog_->type_pool.arena(), rit->second->mirror_offset_);
-                    if (eref.kind() == lir_schema::expr::Code::HermesLit) {
-                        // Walk path through the Hermes value.
-                        lir_view::HermesValRef cur = lir_view::EHermesLitView{eref}.root();
-                        bool ok = true;
-                        for (auto& s : steps) {
-                            using K = lir_schema::hermes_val::Code;
-                            if (s.kind == 0 || s.kind == 1) {
-                                if (cur.kind() != K::Map) { ok = false; break; }
-                                auto map = lir_view::HVMapView{cur};
-                                bool found = false;
-                                if (s.kind == 0 && !map.int_keyed()) {
-                                    for (uint64_t i = 0, n = map.size(); i < n; ++i)
-                                        if (map.str_key(i) == s.name) {
-                                            cur = map.value(i); found = true; break;
-                                        }
-                                } else if (s.kind == 1 && map.int_keyed()) {
-                                    for (uint64_t i = 0, n = map.size(); i < n; ++i)
-                                        if (map.int_key(i) == s.index) {
-                                            cur = map.value(i); found = true; break;
-                                        }
-                                }
-                                if (!found) { ok = false; break; }
-                            } else { // s.kind == 2 — array
-                                if (cur.kind() != K::Array) { ok = false; break; }
-                                auto arr = lir_view::HVArrayView{cur};
-                                if ((uint64_t)s.index >= arr.size()) { ok = false; break; }
-                                cur = arr.elem((uint64_t)s.index);
-                            }
-                        }
-                        if (ok && cur.kind() == lir_schema::hermes_val::Code::Type) {
-                            std::string tname(lir_view::HVTypeView{cur}.name());
-                            if (auto resolved = try_resolve_as_known_type(tname))
-                                return resolved;
-                        }
-                    }
-                }
-            }
-        }
-        LogosTypeBuilder t;
-        t.kind = LogosType::Kind::CfgSlotType;
-        t.type_var_name = cfg_name;       // CFG ident
-        t.assoc_type_name = encode();     // encoded path
-        return pool_->alloc(std::move(t));
-    }
+    if (tc == la::CFG_SLOT_TYPE) return resolve_type_cfg_slot(node);
 
     if (tc == la::PTR_TYPE) {
         bool mut = false;
@@ -4198,178 +4590,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         return make_array(elem, n, symbolic);
     }
 
-    if (tc == la::ASSOC_TYPE_REF) {
-        // base::Item or base::Item<A,B> — associated type reference (plain or GAT)
-        auto base_type = resolve_type(map_of(node.get(la::RECEIVER.code)));
-        auto assoc      = std::string(str_of(node.get(la::FIELD.code)));  // "Item"
-        // Read GAT type args if present (e.g. T::Item<i32>)
-        std::vector<TypeRef> gat_args;
-        // B88: GAT lifetime args (e.g. T::Item<'a>) — separate from gat_args
-        // (which holds type-position args) so they can be matched against
-        // the trait's GAT lt-params at use-site validation.
-        std::vector<std::string> gat_lt_args;
-        if (node.has_key(la::TYPE_PARAMS)) {
-            auto tpav = node.get(la::TYPE_PARAMS.code);
-            if (!tpav.is_null()) {
-                auto tplist = map_of(tpav);
-                if (tplist.has_key(la::ITEMS)) {
-                    auto items = arr_of(tplist.get(la::ITEMS.code));
-                    for (uint64_t i = 0; i < items.size(); ++i) {
-                        auto item = map_of(items.get(i));
-                        if (code_of(item) == la::LIFETIME_PARAM) {
-                            auto name_av = item.get(la::NAME.code);
-                            if (!name_av.is_null()) {
-                                std::string lt(str_of(name_av));
-                                gat_lt_args.push_back(std::move(lt));
-                            }
-                            continue;
-                        }
-                        gat_args.push_back(resolve_type(item));
-                    }
-                }
-            }
-        }
-        std::string trait_for_assoc;
-
-        if (TypeRef(base_type).kind() == LogosType::Kind::TypeVar) {
-            auto tp_name = TypeRef(base_type).type_var_name();
-            if (tp_name == "Self" && !current_trait_name_.empty()) {
-                trait_for_assoc = current_trait_name_;
-            } else {
-                auto bit = current_type_bounds_.find(tp_name);
-                if (bit != current_type_bounds_.end()) {
-                    // Walk each bound trait AND its supertrait chain to find
-                    // the assoc type. A `Container: Datatype` bound pulls in
-                    // Datatype's `View` through the supertrait edge.
-                    std::vector<std::string> worklist;
-                    StrSet seen;
-                    for (auto& b : bit->second) worklist.push_back(b.trait_name);
-                    while (!worklist.empty() && trait_for_assoc.empty()) {
-                        std::string tn = std::move(worklist.back());
-                        worklist.pop_back();
-                        if (!seen.insert(tn).second) continue;
-                        auto tit = traits_.find(tn);
-                        if (tit == traits_.end()) continue;
-                        for (auto& at : tit->second.assoc_types) {
-                            if (at.name == assoc) { trait_for_assoc = tn; break; }
-                        }
-                        if (!trait_for_assoc.empty()) break;
-                        for (auto& sup : tit->second.supertraits)
-                            worklist.push_back(sup.trait_name);
-                    }
-                }
-            }
-        } else if (TypeRef(base_type).kind() == LogosType::Kind::CfgSlotType) {
-            // CfgSlotType base — type isn't known until mono substitutes
-            // CFG. Resolve by assoc-name alone: pick the first trait that
-            // declares an assoc type with this name. Mono's subst_type
-            // for AssocType then resolves via concrete_impls_ /
-            // blanket_impls_ once the base becomes concrete.
-            for (auto& [tname, tinfo] : traits_) {
-                for (auto& at : tinfo.assoc_types) {
-                    if (at.name == assoc) { trait_for_assoc = tname; break; }
-                }
-                if (!trait_for_assoc.empty()) break;
-            }
-        } else if (TypeRef(base_type).kind() == LogosType::Kind::AssocType) {
-            // T::A::B — search bounds of the associated type itself if we had them,
-            // but currently we only store trait_name for the assoc type.
-            // We'll search the trait indicated by base_type's own resolution.
-            auto tit = traits_.find(TypeRef(base_type).trait_name());
-            if (tit != traits_.end()) {
-                // This is slightly wrong: T::A might be bound to traits OTHER than the one it's defined in.
-                // But our current system doesn't support "type Item: Bound;".
-                // So we look in the trait that owns the associated type.
-            }
-            // Fallback: check all traits implemented by the concrete type if base is already concrete,
-            // or just error if we can't find it.
-        }
-
-        // Phase 6: check the current impl's trait first. When `Self::Item<X>`
-        // appears inside an impl method body (or signature), `Self` resolves
-        // to the impl's target type (concrete struct, not TypeVar), and the
-        // impl itself isn't yet in impls_ when collect_impl is still walking
-        // method signatures. Look up the assoc-type definition on the
-        // impl's trait directly.
-        if (trait_for_assoc.empty() && !current_impl_trait_name_.empty()) {
-            auto tit = traits_.find(current_impl_trait_name_);
-            if (tit != traits_.end()) {
-                for (auto& at : tit->second.assoc_types) {
-                    if (at.name == assoc) {
-                        trait_for_assoc = current_impl_trait_name_;
-                        break;
-                    }
-                }
-            }
-        }
-        if (trait_for_assoc.empty()) {
-            // Check all traits for ANY type that might have this assoc type (last resort lookup).
-            // Try both the full concrete name (e.g. "Box<i32>") and the base struct name ("Box")
-            // to handle generic impls like impl<V> Trait for Box<V>.
-            std::string cname = type_str(base_type);
-            std::string base_name;
-            if (TypeRef(base_type).kind() == LogosType::Kind::Struct ||
-                TypeRef(base_type).kind() == LogosType::Kind::ZonedStruct)
-                base_name = TypeRef(base_type).struct_name();
-
-            for (auto& [tname, tinfo] : traits_) {
-                bool found_impl = impls_.count(tname + "::" + cname) > 0
-                               || (!base_name.empty() && impls_.count(tname + "::" + base_name) > 0);
-                if (found_impl) {
-                    for (auto& at : tinfo.assoc_types) {
-                        if (at.name == assoc) { trait_for_assoc = tname; break; }
-                    }
-                }
-                if (!trait_for_assoc.empty()) break;
-            }
-        }
-
-        if (trait_for_assoc.empty()) {
-            error(std::format("no associated type '{}' found for '{}'", assoc, type_str(base_type)));
-            return error_t();
-        }
-        // Bug 5 fix: check GAT arity against the trait's declaration.
-        auto tit_gat = traits_.find(trait_for_assoc);
-        if (tit_gat != traits_.end()) {
-            for (auto& at_def : tit_gat->second.assoc_types) {
-                if (at_def.name == assoc) {
-                    size_t expected_gat = at_def.type_params.size();
-                    if (!at_def.type_params.empty() && gat_args.size() != expected_gat)
-                        error(std::format("associated type '{}::{}' expects {} GAT argument(s), got {}",
-                                          trait_for_assoc, assoc, expected_gat, gat_args.size()));
-                    // Enforce trait bounds on GAT type parameters.
-                    if (!at_def.type_params.empty() && gat_args.size() == expected_gat)
-                        check_type_bounds(trait_for_assoc + "::" + assoc,
-                                          at_def.type_params, gat_args);
-                    break;
-                }
-            }
-        }
-        LogosTypeBuilder t;
-        t.kind            = LogosType::Kind::AssocType;
-        t.assoc_base      = base_type;
-        t.trait_name      = trait_for_assoc;
-        t.assoc_type_name = assoc;
-        t.gat_args        = std::move(gat_args);
-        // B88: stash GAT lifetime args on lifetime_args field — distinct
-        // from struct lt args (AssocType doesn't have struct lt_args
-        // semantics) so reusing the slot is safe and lets the existing
-        // lifetime_args mirror accessor read them.
-        t.lifetime_args   = std::move(gat_lt_args);
-
-        auto result = pool_->alloc(std::move(t));
-        // Propagate bounds for T::Item back into the context
-        auto tit = traits_.find(trait_for_assoc);
-        if (tit != traits_.end()) {
-            for (auto& at : tit->second.assoc_types) {
-                if (at.name == assoc && !at.bounds.empty()) {
-                    current_type_bounds_[type_str(result)] = at.bounds;
-                    break;
-                }
-            }
-        }
-        return result;
-    }
+    if (tc == la::ASSOC_TYPE_REF) return resolve_type_assoc_ref(node);
 
     // <ElemType>[] and <K,V>{} — Hermes typed container type-expressions.
     // Resolved to a special Struct type: struct_name="HermesArr"/"HermesMap",
@@ -4478,219 +4699,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         return error_t();
     }
 
-    if (tc == la::GENERIC_INST) {
-        auto name = str_of(node.get(la::NAME.code));
-
-        // Generic compile-time const: `pub const X<T1, T2>: HermesStatic =
-        // @{...};`. Push type-args into current_type_params_ and re-resolve
-        // the saved value-AST under that scope. resolve_hstatic_value walks
-        // the AST and substitutes TypeVar HERMES_TYPE_LIT names through
-        // current_type_params_, producing a fresh per-instantiation
-        // HStaticLit identity.
-        {
-            auto git = generic_consts_.find(std::string(name));
-            if (git != generic_consts_.end()) {
-                std::vector<TypeRef> args;
-                if (node.has_key(la::ITEMS)) {
-                    auto items = arr_of(node.get(la::ITEMS.code));
-                    for (uint64_t i = 0; i < items.size(); ++i)
-                        args.push_back(resolve_type(map_of(items.get(i))));
-                }
-                if (args.size() != git->second.type_params.size()) {
-                    error(std::format("generic const '{}' expects {} type argument(s), got {}",
-                                      name, git->second.type_params.size(), args.size()));
-                    return error_t();
-                }
-                // Save + push type-param bindings.
-                StrMap<TypeRef> saved_params;
-                for (size_t i = 0; i < args.size(); ++i) {
-                    const std::string& pname = git->second.type_params[i].name;
-                    auto it = current_type_params_.find(pname);
-                    if (it != current_type_params_.end()) saved_params[pname] = it->second;
-                    current_type_params_[pname] = args[i];
-                }
-                // Switch holder_ to the const decl's holder so arr_of/map_of
-                // resolve offsets against the correct base. Restored after.
-                auto* saved_holder = holder_;
-                if (git->second.holder) holder_ = git->second.holder;
-                TypeRef result = resolve_hstatic_value(git->second.value_node);
-                holder_ = saved_holder;
-                // Restore type-params.
-                for (size_t i = 0; i < args.size(); ++i) {
-                    const std::string& pname = git->second.type_params[i].name;
-                    auto sit = saved_params.find(pname);
-                    if (sit != saved_params.end()) current_type_params_[pname] = sit->second;
-                    else current_type_params_.erase(pname);
-                }
-                return result;
-            }
-        }
-
-        // Generic type alias: type Foo<T> = Bar<T>;  →  Foo<i32> resolves to Bar<i32>
-        {
-            auto ait = type_aliases_.find(std::string(name));
-            if (ait != type_aliases_.end() &&
-                (!ait->second.type_params.empty() || !ait->second.lifetime_params.empty())) {
-                // Resolve type and lifetime arguments at the call site.
-                std::vector<TypeRef> args;
-                std::vector<std::string> lt_args;
-                if (node.has_key(la::ITEMS)) {
-                    auto items = arr_of(node.get(la::ITEMS.code));
-                    for (uint64_t i = 0; i < items.size(); ++i) {
-                        auto item = map_of(items.get(i));
-                        if (code_of(item) == la::LIFETIME_PARAM) {
-                            lt_args.push_back(std::string(str_of(item.get(la::NAME.code))));
-                            continue;
-                        }
-                        args.push_back(resolve_type(item));
-                    }
-                }
-                size_t expected = ait->second.type_params.size();
-                if (args.size() != expected)
-                    error(std::format("type alias '{}' expects {} type argument(s), got {}",
-                                      name, expected, args.size()));
-                size_t lt_expected = ait->second.lifetime_params.size();
-                if (lt_args.size() != lt_expected)
-                    error(std::format("type alias '{}' expects {} lifetime argument(s), got {}",
-                                      name, lt_expected, lt_args.size()));
-                SemaSubst s;
-                for (size_t i = 0; i < expected && i < args.size(); ++i)
-                    s[ait->second.type_params[i].name] = args[i];
-                SemaLifetimeSubst ls;
-                auto& lparams = ait->second.lifetime_params;
-                for (size_t i = 0; i < lparams.size() && i < lt_args.size(); ++i)
-                    ls[lparams[i]] = lt_args[i];
-                return subst_type_sema(ait->second.type, s, ls);
-            }
-        }
-
-        // Special case: Box<dyn Trait> = owned trait object (same layout as &dyn Trait)
-        if (name == "Box" && node.has_key(la::ITEMS)) {
-            auto items = arr_of(node.get(la::ITEMS.code));
-            if (items.size() == 1) {
-                auto inner = resolve_type(map_of(items.get(0)));
-                if (inner && TypeRef(inner).kind() == LogosType::Kind::TraitObject)
-                    return inner;  // Box<dyn T> ≡ &dyn T in our type system
-            }
-        }
-        auto [spkg, ssi] = find_struct_by_name(name);
-        auto [dpkg, dsi] = find_datatype_by_name(name);
-        auto [epkg, esi] = find_enum_by_name(name);
-        // Cross-pkg ambiguity: user's local `pub struct Foo` shadowing a
-        // datatype `#[zoned] pub struct Foo` from an imported package
-        // would otherwise lose to the datatype because the dispatch
-        // below checks is_dtype before is_struct. Pin to cur_package_
-        // when one kind is local and the other isn't.
-        if (!cur_package_.empty()) {
-            bool s_local = ssi && spkg == cur_package_;
-            bool d_local = dsi && dpkg == cur_package_;
-            bool e_local = esi && epkg == cur_package_;
-            if (s_local && !d_local) { dsi = nullptr; }
-            if (s_local && !e_local) { esi = nullptr; }
-            if (d_local && !s_local) { ssi = nullptr; }
-            if (d_local && !e_local) { esi = nullptr; }
-            if (e_local && !s_local) { ssi = nullptr; }
-            if (e_local && !d_local) { dsi = nullptr; }
-        }
-        bool is_struct = ssi != nullptr;
-        bool is_dtype  = dsi != nullptr;
-        bool is_enum   = esi != nullptr;
-        if (!is_struct && !is_dtype && !is_enum) {
-            // Metaprog discovery loop runs sema BEFORE handler hooks
-            // emit derived items. Unknown types referenced from any
-            // user-side ast may be ones a hook will synthesise — the
-            // final, non-metaprog sema pass after the loop will
-            // re-resolve and surface a real error if the type still
-            // doesn't exist. Silently fall through here.
-            if (metaprog_mode_)
-                return error_t();
-            error(std::format("unknown generic type '{}'", name));
-            return error_t();
-        }
-        // Resolve each type arg (TypeVars in current scope are expanded).
-        // Collect LIFETIME_PARAM items ('a) separately — erased at codegen but
-        // tracked for borrow checking (struct fields that borrow through a lifetime).
-        // Phase 1B-5: when the target type-param at index i has
-        // `implicit_sized=false` (declared with `?Sized`), enable unsized_ok_
-        // for that arg's resolution so bare `[T]` / `dyn Trait` parse without
-        // the unsized-by-value diagnostic. The Sized-enforcement check below
-        // catches the inverse case (unsized arg at sized param).
-        const std::vector<TypeParam>* target_params =
-            ssi ? &ssi->type_params :
-            dsi ? &dsi->type_params :
-            esi ? &esi->type_params : nullptr;
-        std::vector<TypeRef> args;
-        std::vector<std::string> lt_args;
-        if (node.has_key(la::ITEMS)) {
-            auto items = arr_of(node.get(la::ITEMS.code));
-            size_t type_arg_idx = 0;  // separate index — lifetimes don't consume a param slot
-            for (uint64_t i = 0; i < items.size(); ++i) {
-                auto item = map_of(items.get(i));
-                if (code_of(item) == la::LIFETIME_PARAM) {
-                    lt_args.push_back(std::string(str_of(item.get(la::NAME.code))));
-                    continue;
-                }
-                bool was_ok = unsized_ok_;
-                if (target_params && type_arg_idx < target_params->size() &&
-                    !(*target_params)[type_arg_idx].implicit_sized) {
-                    unsized_ok_ = true;
-                }
-                args.push_back(resolve_type(item));
-                unsized_ok_ = was_ok;
-                ++type_arg_idx;
-            }
-        }
-        // Phase 1B-5/10: Sized-enforcement at struct/enum/datatype generic
-        // instantiation. Parallel to the fn-call path in finish_generic_call.
-        // Phase 1B-10 adds the TypeVar→Sized propagation check too.
-        if (target_params) {
-            for (size_t i = 0; i < args.size() && i < target_params->size(); ++i) {
-                if (!(*target_params)[i].implicit_sized) continue;
-                auto t = args[i];
-                if (!t) continue;
-                auto k = t.kind();
-                if (k == LogosType::Kind::UnsizedSlice ||
-                    k == LogosType::Kind::UnsizedDyn) {
-                    error(std::format(
-                        "generic '{}': type argument '{}' has unsized type `{}` "
-                        "but the type parameter '{}' requires `Sized` "
-                        "(add `T: ?Sized` to relax the bound)",
-                        name, type_str(t), type_str(t),
-                        (*target_params)[i].name));
-                } else if (k == LogosType::Kind::TypeVar) {
-                    std::string tvname(t.type_var_name());
-                    if (current_type_relaxed_sized_.count(tvname)) {
-                        error(std::format(
-                            "generic '{}': type argument '{}' is a `?Sized` "
-                            "outer type parameter; cannot be passed to '{}' "
-                            "which requires `Sized` (add `?Sized` to the "
-                            "target's bound or constrain the outer parameter "
-                            "to `Sized`)",
-                            name, tvname, (*target_params)[i].name));
-                    }
-                }
-            }
-        }
-        if (is_enum) {
-            if (esi) {
-                check_type_arg_arity(name, esi->type_params, args, "enum");
-                check_type_bounds(std::string(name), esi->type_params, args);
-            }
-            return make_generic_enum(name, std::move(args), std::move(lt_args), epkg);
-        }
-        if (is_dtype) {
-            if (dsi) {
-                check_type_arg_arity(name, dsi->type_params, args, "datatype");
-                check_type_bounds(std::string(name), dsi->type_params, args);
-            }
-            return make_generic_datatype(name, std::move(args), std::move(lt_args), dpkg);
-        }
-        if (ssi) {
-            check_type_arg_arity(name, ssi->type_params, args, "struct");
-            check_type_bounds(std::string(name), ssi->type_params, args);
-        }
-        return make_generic_struct(name, std::move(args), std::move(lt_args), spkg);
-    }
+    if (tc == la::GENERIC_INST) return resolve_type_generic_inst(node);
 
     if (tc == la::LIT_HSTATIC) {
         // HermesStatic literal at type-arg position: Foo::<@{...}>.

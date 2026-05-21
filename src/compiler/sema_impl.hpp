@@ -2547,6 +2547,12 @@ private:
     lir::LExprPtr lower_unary(hermes::TinyMapView node);
     lir::LExprPtr lower_deref(hermes::TinyMapView node);
     lir::LExprPtr lower_call(hermes::TinyMapView node);
+    // resolve_type sub-handlers, factored out of the resolve_type tc-dispatch.
+    // Each lowers one type-syntax kind (keyed by node's CODE) to a TypeRef and
+    // depends only on `node` + members (no state shared across branches).
+    TypeRef resolve_type_generic_inst(hermes::TinyMapView node);
+    TypeRef resolve_type_assoc_ref(hermes::TinyMapView node);
+    TypeRef resolve_type_cfg_slot(hermes::TinyMapView node);
     void unify_types(TypeRef formal, TypeRef actual,
                      logos::compiler::StrMap<TypeRef>& bindings);
     bool infer_type_args(const SemaFuncInfo& fi,
