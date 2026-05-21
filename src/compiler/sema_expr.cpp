@@ -1853,6 +1853,24 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                   callee_type)
             : builder().var_ref(std::string(callee), vr_type);
         TypeRef ret = TypeRef(callee_type).closure_ret() ? TypeRef(callee_type).closure_ret() : void_t();
+        // Move semantics for the `f(args)` call form (closure/fn-ptr var as
+        // callee): a by-value concrete move-type argument transfers ownership
+        // into the callee, so mark the source moved — otherwise a `String`
+        // passed to `f(s)` is dropped by both the callee and the caller's
+        // scope-exit (double-free). Skip TypeVar args (move-ness unknown at the
+        // generic site; `T: Copy` reuses the value) and by-ref params.
+        {
+            auto cps = TypeRef(callee_type).closure_params();
+            for (size_t i = 0; i < arg_exprs.size(); ++i) {
+                auto& a = arg_exprs[i];
+                if (!a || !is_move_type(a->type)) continue;
+                if (TypeRef(a->type).kind() == LogosType::Kind::TypeVar) continue;
+                if (i < cps.size() && cps[i] &&
+                    (TypeRef(cps[i]).kind() == LogosType::Kind::Ref ||
+                     TypeRef(cps[i]).kind() == LogosType::Kind::MutRef)) continue;
+                mark_moved_expr(expr_ref_of(*a));
+            }
+        }
         if (is_fn_ptr)
             return builder().fn_ptr_call(std::move(callee_expr), std::move(arg_exprs), ret);
         return builder().closure_call(std::move(callee_expr), std::move(arg_exprs), ret);
@@ -4521,12 +4539,44 @@ lir::LExprPtr SemaChecker::lower_invoke_expr(TinyMapView node) {
         }
         auto ret = TypeRef(rt).closure_ret()
             ? TypeRef(rt).closure_ret() : void_t();
+        // Move semantics: a by-value move-type closure-call argument transfers
+        // ownership into the callee (the closure drops it). Mark the source
+        // moved so the caller's scope-end Drop doesn't ALSO fire — otherwise a
+        // `String` passed to `f(s)` is freed twice (double-free / SIGSEGV).
+        // Gate on the PARAM type: a `FnMut(&T)` closure borrows its arg (param
+        // is Ref/MutRef) and does NOT consume it, so don't mark those moved.
+        {
+            auto cps = TypeRef(rt).closure_params();
+            for (size_t i = 0; i < arg_exprs.size(); ++i) {
+                auto& a = arg_exprs[i];
+                if (!a || !is_move_type(a->type)) continue;
+                // Skip TypeVar args: in a generic fn, `v: T` move-ness is
+                // unknown here (`T: Copy` → passed by copy, reused after the
+                // call, e.g. SuccessorsIter). Concrete move types (String, …)
+                // are still marked.
+                if (TypeRef(a->type).kind() == LogosType::Kind::TypeVar) continue;
+                if (i < cps.size() && cps[i] &&
+                    (TypeRef(cps[i]).kind() == LogosType::Kind::Ref ||
+                     TypeRef(cps[i]).kind() == LogosType::Kind::MutRef)) continue;
+                mark_moved_expr(expr_ref_of(*a));
+            }
+        }
         return builder().closure_call(std::move(recv),
                                       std::move(arg_exprs), ret);
     }
     if (rt && TypeRef(rt).kind() == LogosType::Kind::FnPtr) {
         auto ret = TypeRef(rt).closure_ret()
             ? TypeRef(rt).closure_ret() : void_t();
+        auto cps = TypeRef(rt).closure_params();
+        for (size_t i = 0; i < arg_exprs.size(); ++i) {
+            auto& a = arg_exprs[i];
+            if (!a || !is_move_type(a->type)) continue;
+            if (TypeRef(a->type).kind() == LogosType::Kind::TypeVar) continue;
+            if (i < cps.size() && cps[i] &&
+                (TypeRef(cps[i]).kind() == LogosType::Kind::Ref ||
+                 TypeRef(cps[i]).kind() == LogosType::Kind::MutRef)) continue;
+            mark_moved_expr(expr_ref_of(*a));
+        }
         return builder().fn_ptr_call(std::move(recv),
                                      std::move(arg_exprs), ret);
     }

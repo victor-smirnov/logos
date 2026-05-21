@@ -92,7 +92,21 @@ _Original:_
   thunk's tuple-by-value ABI handling. Direct (non-dyn) calls work; tuple-of-3
   by value through a normal fn works.
 
-### 3. String moved through nested FnMut-bounded closures → double-free
+### 3. String through closure/fn-ptr call → double-free — FIXED (2026-05-21)
+**Fixed.** A by-value owned (non-Copy) argument passed to a closure / fn-ptr
+call did not transfer ownership: regular fn calls mark the source moved (so the
+caller's scope-exit Drop is suppressed) but the closure/fn-ptr call paths
+(`f(args)` via lower_call AND lower_invoke_expr) did not, so a `String` threaded
+through a closure was freed twice. Fix: mark a concrete move-type closure/fn-ptr
+call argument moved at both sites — gated to skip TypeVar args (`T: Copy` reuses
+the value after the call, e.g. SuccessorsIter) and by-ref `FnMut(&T)` params.
+Regression `tests/logos/pass/closure_call_moves_string.logos` (named-var,
+single generic FnMut, nested-FnMut threading). **Remaining minor edge:** a
+TEMPORARY passed directly (`f(String::from("x"))`) still double-frees — no
+named source to mark; needs caller-side temp-drop suppression at the closure
+call (codegen-level), deferred.
+
+_Original:_
 - Surfaced while porting `closures/closure-last-use-move.rs` (SKIPPED).
 - Minimal trigger (compiles + links; aborts at runtime):
   ```

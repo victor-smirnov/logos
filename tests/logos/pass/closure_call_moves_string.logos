@@ -1,0 +1,31 @@
+// Regression: a by-value owned (non-Copy) argument passed to a closure / fn-ptr
+// call must transfer ownership — mark the source moved so the caller's
+// scope-exit Drop doesn't ALSO free it (double-free). Regular fn calls already
+// did this; closure/fn-ptr calls (both the `f(args)` form via lower_call and
+// the lower_invoke_expr form) did not, so a `String` threaded through a closure
+// (incl. nested generic FnMut bounds) was freed twice. Gated on concrete
+// move-types (TypeVar args are left alone — `T: Copy` reuses the value, e.g.
+// SuccessorsIter; by-ref `FnMut(&T)` params don't consume).
+package closure_call_moves_string;
+
+use logos.mem.string;
+
+fn g<Ty, F: FnMut(String) -> Ty>(s: String, f: F) -> Ty { return f(s); }
+fn apply<Ty, F: FnMut(String) -> Ty>(s: String, f: F) -> Ty {
+    return g(s, |v: String| -> Ty { let r = f(v); return r; });
+}
+
+fn main() -> i32 {
+    // direct closure call with a named String var
+    let f = |s: String| -> i64 { return s.len(); };
+    let st = String::from("test");
+    if f(st) != 4i64 { return 1i32; }
+
+    // single generic FnMut bound
+    if g(String::from("hello"), |s: String| -> i64 { return s.len(); }) != 5i64 { return 2i32; }
+
+    // nested: inner closure captures another FnMut and forwards the String
+    let r = apply(String::from("test"), |s: String| -> i64 { return s.len(); });
+    if r != 4i64 { return 3i32; }
+    return 0i32;
+}
