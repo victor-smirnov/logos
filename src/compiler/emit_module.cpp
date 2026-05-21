@@ -20,6 +20,7 @@
 #include <logos/compiler/mono.hpp>
 #include <logos/hermes/arena_publish.hpp>
 #include <logos/hermes/binary_codec.hpp>
+#include <logos/hermes/clone.hpp>
 #include <logos/hermes/document.hpp>
 #include <logos/hermes/import_table.hpp>
 #include <logos/hermes/type_ops.hpp>
@@ -591,7 +592,48 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
             }
 
             const auto& chunk = arena->head();
-            out_lir_blob->assign(chunk.data(), chunk.data() + chunk.used);
+
+            // A-LIR foundation: compactify the type-pool arena (reachability
+            // GC from the LirArenaRoot) before dumping. The append-only arena
+            // accumulates dead interned types that no published export
+            // reaches; clone-from-root packs them out. Every mirror edge is an
+            // AnyVal-offset pointer (no RelativePtr), so clone faithfully
+            // remaps the LirArenaRoot + EXPORTS/DIRECTORY (incl. EXPORT_ID
+            // stamps) and every body. Dep-type subgraphs stay reachable today
+            // (own->dep offset edges intact) so they're still copied — cutting
+            // those edges (TypeUID indirection) is the next A-LIR step, after
+            // which this same clone drops them.
+            //
+            // Only when a LirArenaRoot was published (module_name set + finalize
+            // ran); legacy/per-file emit without a root falls back to the raw
+            // dump. On any clone failure we fall back rather than ship nothing.
+            bool dumped = false;
+            if (!module_name.empty()) {
+                if (auto* h = prog.type_pool.holder()) {
+                    auto src_view = hermes::HermesView(h);
+                    if (auto cl = hermes::clone(src_view, nullptr)) {
+                        const auto& cchunk = cl->holder()->arena().head();
+                        out_lir_blob->assign(cchunk.data(),
+                                             cchunk.data() + cchunk.used);
+                        dumped = true;
+                        if (std::getenv("LOGOS_TRACE_PHASES")) {
+                            std::fprintf(stderr,
+                                "emit_module: compactified LIR blob %zu -> %zu "
+                                "bytes (%.2fx)\n",
+                                (size_t)chunk.used, (size_t)cchunk.used,
+                                cchunk.used ? double(chunk.used) / double(cchunk.used)
+                                            : 0.0);
+                        }
+                    } else {
+                        std::fprintf(stderr,
+                            "emit_module: LIR compactify failed for '%s' — "
+                            "falling back to raw arena dump\n",
+                            module_name.c_str());
+                    }
+                }
+            }
+            if (!dumped)
+                out_lir_blob->assign(chunk.data(), chunk.data() + chunk.used);
         }
     }
 
