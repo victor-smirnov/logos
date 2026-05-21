@@ -2561,6 +2561,56 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                 var_elem_types_[name] = sv.getType();
                 added.push_back(name);
             }
+        } else if (pat_ref.kind() == pc::Code::RefBind) {
+            // `ref r` / `ref mut r` — bind name as a pointer to the scrutinee
+            // slot so `*r` in a guard or body reads through the original
+            // value. Mirrors the match-statement path (mlir_gen_stmt.cpp).
+            // Without this, the binding is missing and a deref-in-guard
+            // (`ref r if *r < 0`) yields a null guard value → CondBranchOp
+            // crash.
+            std::string prbn(lir_view::PatRefBindView{pat_ref}.name());
+            if (!prbn.empty() && prbn != "_") {
+                mlir::Value bind_val;
+                if (scrut_ptr) {
+                    bind_val = scrut_ptr;
+                } else if (scrut.getType() == ptr_type()) {
+                    bind_val = scrut;
+                } else {
+                    auto tmp = create_entry_alloca(scrut.getType());
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, scrut, tmp);
+                    bind_val = tmp;
+                }
+                auto alloca = create_entry_alloca(ptr_type());
+                builder_.create<mlir::LLVM::StoreOp>(loc_, bind_val, alloca);
+                scope_[prbn] = alloca;
+                let_vars_.insert(prbn);
+                var_elem_types_[prbn] = ptr_type();
+                added.push_back(prbn);
+            }
+        } else if (pat_ref.kind() == pc::Code::RefPat) {
+            // &pat / &mut pat — recurse into the inner pattern.
+            if (auto inner = lir_view::PatRefPatView{pat_ref}.inner())
+                added = extract_arm_payload(inner);
+        } else if (pat_ref.kind() == pc::Code::At) {
+            // `name @ sub` — bind the outer name to the whole scrutinee,
+            // then recurse into the sub-pattern. Mirrors the match-statement
+            // path (mlir_gen_stmt.cpp). Without this the binding was missing
+            // and the arm read garbage.
+            lir_view::PatAtView pa{pat_ref};
+            std::string aname(pa.name());
+            if (!aname.empty() && aname != "_") {
+                mlir::Value sv = scrut_ptr ? scrut_ptr : scrut;
+                auto alloca = create_entry_alloca(sv.getType());
+                builder_.create<mlir::LLVM::StoreOp>(loc_, sv, alloca);
+                scope_[aname] = alloca;
+                let_vars_.insert(aname);
+                var_elem_types_[aname] = sv.getType();
+                added.push_back(aname);
+            }
+            if (auto sub = pa.sub()) {
+                auto inner = extract_arm_payload(sub);
+                added.insert(added.end(), inner.begin(), inner.end());
+            }
         } else if (pat_ref.kind() == pc::Code::Or) {
             // Or-pattern bindings: sema's NG4 check guarantees every alternative
             // binds the same name set. For variant alts that share payload
@@ -2663,6 +2713,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                 auto* guard_le = lexpr_of(arm_guard_ref);
                 auto gval = guard_le ? gen_expr(*guard_le) : nullptr;
                 gval = coerce_int(gval, builder_.getI1Type());
+                if (!gval) {
+                    // Defensive: a null guard value would crash CondBranchOp.
+                    // Treat an unevaluable guard as always-false (fall through
+                    // to the next arm) rather than SIGSEGV.
+                    gval = builder_.create<mlir::LLVM::ConstantOp>(
+                        loc_, builder_.getI1Type(),
+                        builder_.getIntegerAttr(builder_.getI1Type(), 0));
+                }
                 builder_.create<mlir::cf::CondBranchOp>(loc_, gval, body_block, else_block);
             }
             arm_entry = guard_block;
@@ -2697,7 +2755,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             }
         }
 
-        bool is_wild = arm_pat_ref.kind() == pc::Code::Wild;
+        // `ref r` / `ref mut r` is an irrefutable binding pattern — like a
+        // named wildcard, it matches every value and lets the (optional)
+        // guard decide. Without this it fell into the catch-all `else`
+        // branch below and was dispatched as `scrut == 0` (get_disc default),
+        // so `ref r if <guard>` only entered its guard when scrut == 0.
+        bool is_wild = arm_pat_ref.kind() == pc::Code::Wild ||
+                       arm_pat_ref.kind() == pc::Code::RefBind;
         auto get_disc = [](lir_view::PatRef p) -> int64_t {
             switch (p.kind()) {
             case pc::Code::Variant:     return lir_view::PatVariantView{p}.disc();
@@ -2970,6 +3034,54 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                 builder_.create<mlir::cf::CondBranchOp>(loc_, eq, arm_entry, else_block);
             }
             else_block = test_block;
+        } else if (arm_pat_ref.kind() == pc::Code::At) {
+            // `name @ sub` (match-as-expr): dispatch on the sub-pattern.
+            // Mirrors the match-statement path. Without this, an At arm fell
+            // into the catch-all below and was dispatched as `scrut == 0`
+            // (get_disc default), so `e @ 1..=100 => …` only matched scrut==0.
+            auto sub = lir_view::PatAtView{arm_pat_ref}.sub();
+            if (sub && sub.kind() == pc::Code::Range) {
+                lir_view::PatRangeView pr{sub};
+                auto pred_ge = scrut_unsigned() ? mlir::arith::CmpIPredicate::uge
+                                                : mlir::arith::CmpIPredicate::sge;
+                auto pred_le = scrut_unsigned() ? mlir::arith::CmpIPredicate::ule
+                                                : mlir::arith::CmpIPredicate::sle;
+                auto* test_block = new mlir::Block();
+                region->push_back(test_block);
+                {
+                    mlir::OpBuilder::InsertionGuard ig(builder_);
+                    builder_.setInsertionPointToStart(test_block);
+                    auto lo_val = coerce_int(
+                        builder_.create<mlir::arith::ConstantIntOp>(loc_, pr.lo(), 64), scrut_type);
+                    auto hi_val = coerce_int(
+                        builder_.create<mlir::arith::ConstantIntOp>(loc_, pr.hi(), 64), scrut_type);
+                    auto ge = builder_.create<mlir::arith::CmpIOp>(loc_, pred_ge, scrut, lo_val);
+                    auto le = builder_.create<mlir::arith::CmpIOp>(loc_, pred_le, scrut, hi_val);
+                    auto both = builder_.create<mlir::arith::AndIOp>(loc_, ge, le);
+                    builder_.create<mlir::cf::CondBranchOp>(loc_, both, arm_entry, else_block);
+                }
+                else_block = test_block;
+            } else if (sub && (sub.kind() == pc::Code::Int ||
+                               sub.kind() == pc::Code::Bool ||
+                               sub.kind() == pc::Code::Variant ||
+                               sub.kind() == pc::Code::VariantData)) {
+                int64_t disc = get_disc(sub);
+                auto* test_block = new mlir::Block();
+                region->push_back(test_block);
+                {
+                    mlir::OpBuilder::InsertionGuard ig(builder_);
+                    builder_.setInsertionPointToStart(test_block);
+                    auto disc_val = coerce_int(
+                        builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 64), scrut_type);
+                    auto eq = builder_.create<mlir::arith::CmpIOp>(
+                        loc_, mlir::arith::CmpIPredicate::eq, scrut, disc_val);
+                    builder_.create<mlir::cf::CondBranchOp>(loc_, eq, arm_entry, else_block);
+                }
+                else_block = test_block;
+            } else {
+                // Irrefutable sub-pattern (e.g. `n @ _`) — arm always runs.
+                else_block = arm_entry;
+            }
         } else {
             int64_t disc = get_disc(arm_pat_ref);
 

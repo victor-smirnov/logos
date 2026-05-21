@@ -1,0 +1,22 @@
+// Regression: match-EXPRESSION with a `ref r` binding whose guard
+// dereferences the bound ref (`ref r if *r < 0`). Previously the
+// match-expr codegen's extract_arm_payload did not handle PatRefBind,
+// so `r` was unbound, `*r` lowered to null, and the null guard value
+// crashed CondBranchOp (SIGSEGV). Now RefBind binds `r` as a pointer
+// to the scrutinee slot, mirroring the match-statement path.
+package match_expr_ref_guard;
+
+fn classify(x: i32) -> i32 {
+    return match x {
+        ref r if *r < 0i32 => 100i32,
+        ref r if *r == 0i32 => 200i32,
+        _ => 300i32,
+    };
+}
+
+fn main() -> i32 {
+    if classify(-5i32) != 100i32 { return 1i32; }
+    if classify(0i32) != 200i32 { return 2i32; }
+    if classify(7i32) != 300i32 { return 3i32; }
+    return 0i32;
+}

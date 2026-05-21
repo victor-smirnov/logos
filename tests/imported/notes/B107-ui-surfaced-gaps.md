@@ -96,8 +96,23 @@ regression test. None were fixed in this batch (tests-only).
 
 ## Compiler crashes (highest priority)
 
-17. **`@`-binding over an inclusive range pattern SEGFAULTS** — `match x { e @ 1..=100 => … }`
-    crashes logosc (SIGSEGV). Hit by `issues/issue-35423.rs`.
+17. **match-EXPRESSION binding-pattern gaps — FIXED (2026-05-21).** The
+    reported crash was misattributed to `@`-over-range; bisection found two
+    distinct match-as-expression bugs, both now fixed in `mlir_gen_expr.cpp`
+    (`gen_expr_kind(EMatchExprView)`):
+    - **`ref r if *r < …` SIGSEGV.** `extract_arm_payload` did not handle the
+      `RefBind` pattern, so `r` was never bound; `*r` in the guard lowered to
+      a null Value that crashed `CondBranchOp`. Fix: handle `RefBind` (+
+      `RefPat`) in `extract_arm_payload` (mirrors the match-stmt path) and
+      treat `RefBind` as irrefutable in dispatch (was dispatched as
+      `scrut == 0`). Defensive null-guard added on the guard value too.
+      Regression: `tests/logos/pass/match_expr_ref_guard.logos`.
+    - **`e @ 1..=100 => e` returned garbage** (not a crash). `At` was handled
+      in neither binding-extraction (so `e` was unbound) nor dispatch (so the
+      arm was treated as `scrut == 0`). Fix: handle `At` in both, dispatching
+      on the sub-pattern (Range / scalar / irrefutable). Regression:
+      `tests/logos/pass/match_expr_at_range.logos`. Hit by
+      `issues/issue-35423.rs`.
 
 ## Runtime aborts / segfaults (codegen produces bad code)
 

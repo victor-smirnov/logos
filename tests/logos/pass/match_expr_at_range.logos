@@ -1,0 +1,23 @@
+// Regression: match-EXPRESSION with an `@`-binding over an inclusive range
+// (`e @ 1..=100 => e`). Previously the match-expr codegen handled neither
+// the At binding-extraction (so `e` read garbage) nor At dispatch (the arm
+// was treated as `scrut == 0` via the get_disc default, so it only matched
+// scrut==0). Now At binds the whole scrutinee and dispatches on the range
+// sub-pattern, mirroring the match-statement path.
+package match_expr_at_range;
+
+fn f(x: i32) -> i32 {
+    return match x {
+        e @ 1i32..=100i32 => e,
+        _ => -1i32,
+    };
+}
+
+fn main() -> i32 {
+    if f(50i32) != 50i32 { return 1i32; }
+    if f(1i32) != 1i32 { return 2i32; }     // lower boundary (inclusive)
+    if f(100i32) != 100i32 { return 3i32; } // upper boundary (inclusive)
+    if f(0i32) != -1i32 { return 4i32; }    // below range
+    if f(101i32) != -1i32 { return 5i32; }  // above range
+    return 0i32;
+}
