@@ -1258,36 +1258,15 @@ struct SemaOptions {
     // Used by run_metaprog_dispatch to avoid re-processing ASTs that were
     // already lowered in a prior iter of the dispatch loop.
     size_t delta_start_idx = 0;
-    // Phase 4 fix: force the LOGOS_SEMA_USE_BLOB skeleton path OFF for this
-    // call regardless of env. emit_module sets this when building a library:
-    // its ast_only files are stamped from_binary=true post-dispatch so the
-    // codegen pass treats their host-extern wrappers as "already provided",
-    // but those wrappers contain GENERIC_CALLs (e.g. vec_new::<QuoteItemBlob>)
-    // that mono's scan_fn needs to walk to discover required instantiations.
-    // Blob-skipping their bodies leaves those instantiations un-emitted in
-    // the output archive — invisible until a downstream JIT (showcase, etc.)
-    // tries to call them and crashes on the unresolved symbol.
-    bool disable_blob_skeletons = false;
-
-    // Layer .hermes0 dedup (library build): skeleton-skip only NON-generic
-    // from_binary dep functions — their bodies are dead weight in this layer's
-    // LIR blob (the consumer references them cross-arena / links them from the
-    // dep's .o). Generic templates keep LOCAL bodies so mono instantiates them
-    // here directly, avoiding the producer-side cross-arena clone path (which
-    // can emit wrong-layout instantiations → heap corruption). Consumers leave
-    // this false → full generic skeleton-skip (the Phase 5.B fast path).
-    bool blob_skip_nongeneric_only = false;
-
-    // Principled skeleton-skip gate (multi-arena IR follow-up): the set of
-    // symbol names already compiled into a linked archive's .o (collected via
-    // `nm --defined-only` over the search-path / dependency archives). A
-    // from_binary non-generic fn whose name is in here has its body in that
-    // .o, so the consumer skeleton-skips lowering it and links the symbol.
-    // This subsumes the old LIR-blob `lookup_export` proxy: generic template
-    // names and non-generic methods of generic structs are NOT concrete .o
-    // symbols, so they are absent here and keep local bodies (lowered for
-    // consumer-side instantiation) — exactly the right behavior, without the
-    // blob_skip_nongeneric_only / disable_blob_skeletons heuristics.
+    // Skeleton-skip gate: the set of symbol names already compiled into a
+    // linked archive's .o (collected via `nm --defined-only` over the
+    // search-path / dependency archives). A from_binary fn whose name is in
+    // here has its body in that .o, so sema skips lowering it and the linker
+    // resolves the symbol — the same membership test mlir_gen's is_binary_skip
+    // uses, so sema-skip and codegen-forward-declare stay in lockstep. Generic
+    // template names and non-generic methods of generic structs are NOT
+    // concrete .o symbols, so they're absent here and keep local bodies
+    // (lowered for consumer-side instantiation).
     StrSet binary_symbols;
 
     // Three-layer split Phase 3.4: dotted package name to inject as an

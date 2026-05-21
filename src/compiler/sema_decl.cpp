@@ -2,9 +2,6 @@
 
 #include "sema_impl.hpp"
 
-#include <logos/hermes/arena_pool.hpp>   // Phase 4.B: lookup_export()
-#include <logos/hermes/external_ref.hpp> // ExternalRef::make
-
 #include <cstdio>
 #include <format>
 #include <functional>
@@ -598,18 +595,17 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     // is never used — we skip producing it and link the symbol from the .o.
     //
     // Gate = "the symbol is in binary_symbols_" (the nm --defined-only set of
-    // the linked archives). This is the principled membership test that
-    // replaces the old LIR-blob lookup_export proxy:
+    // the linked archives) — the same membership test mlir_gen's is_binary_skip
+    // uses, so sema-skip and codegen-forward-declare stay in lockstep:
     //   - non-generic free fn   → name IS in the dep .o → skip, link it
     //   - generic template      → only INSTANTIATIONS are in the .o, not the
     //                              template name → not skipped → lowered for
     //                              consumer-side instantiation
     //   - non-generic method of a generic struct → not a concrete .o symbol
     //                              → not skipped → lowered per instantiation
-    // It also subsumes blob_skip_nongeneric_only / disable_blob_skeletons:
-    // a library build's own (not-yet-compiled) fns are absent from
-    // binary_symbols_, so their bodies are lowered locally and mono's scan_fn
-    // still discovers their generic calls.
+    // Self-gating for library builds: own (not-yet-compiled) fns are absent
+    // from binary_symbols_, so their bodies are lowered locally and mono's
+    // scan_fn still discovers their generic calls.
     //
     // Carve-outs: metaprog handlers / metaprog-keep fns can be invoked at
     // compile time and need bodies. Specializations go through lower_spec_fn.
@@ -621,8 +617,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                        && binary_symbols_->count(fn.name) > 0;
     if (skel_skip_body) {
         skip_body = true;
-        ++blob_skip_count_;
-        ++blob_resolved_count_;
+        ++skel_skip_count_;
     }
 
     // Body (extern fns have no body)

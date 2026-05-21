@@ -407,17 +407,11 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
         from_binary[i] = ao || bm;
     }
     // Sema — all files in the module are being compiled from source.
-    // Layer .hermes0 dedup: keep blob skeletons ON so `depends`-archive
-    // modules are skeleton-skipped (referenced cross-arena, not re-embedded
-    // in this layer's LIR blob). Two guards keep it correct for a PRODUCER
-    // build (vs the consumer fast-path):
-    //  - lookup_export-gated (sema_decl.cpp): ast_only same-build files miss
-    //    the lookup → keep full bodies so mono's scan_fn sees their generics.
-    //  - blob_skip_nongeneric_only: generic templates keep local bodies so
-    //    mono instantiates them here directly, avoiding the producer-side
-    //    cross-arena clone (which can emit wrong-layout instantiations).
+    // dep_symbols (nm of the `depends`-archive .o files) is the skeleton-skip
+    // gate: dep fns already in those .o have their bodies skipped + linked,
+    // while this layer's own (not-yet-compiled) fns are absent → lowered
+    // locally so mono's scan_fn sees their generic calls.
     SemaOptions sema_opts;
-    sema_opts.blob_skip_nongeneric_only = true;
     sema_opts.implicit_prelude = implicit_prelude;
     sema_opts.binary_symbols = dep_symbols;  // skeleton-skip gate
     auto prog = sema_lower(asts, filenames, from_binary, sema_opts);

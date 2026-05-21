@@ -5260,16 +5260,11 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
             "[sema-lower] per-ast: binary=%zu/%lldus(max=%lld) user=%zu/%lldus(max=%lld)\n",
             count_binary, (long long)total_binary_us, (long long)max_binary_us,
             count_user, (long long)total_user_us, (long long)max_user_us);
-        // Phase 4.A/B: report how many binary-fn bodies were skipped this
-        // run, and of those how many resolved a body_external_ref via
-        // pool.lookup_export. blob_skip_count - blob_resolved_count >0 means
-        // some skips left body_external_ref INVALID (lookup miss). Zero
-        // unless LOGOS_SEMA_USE_BLOB=1 is set.
+        // How many from_binary fn bodies were skeleton-skipped this run
+        // (their symbol is in a linked .o, so the body is forward-declared
+        // + linked rather than lowered).
         std::fprintf(stderr,
-            "[sema-lower] blob_skip_count=%zu blob_resolved_count=%zu "
-            "(use_blob_skeletons=%d)\n",
-            blob_skip_count_, blob_resolved_count_,
-            use_blob_skeletons_ ? 1 : 0);
+            "[sema-lower] skel_skip_count=%zu\n", skel_skip_count_);
     }
     cur_package_ = {};
     cur_imports_ = {};
@@ -6370,26 +6365,11 @@ lir::LProgram sema_lower(const std::vector<logos::hermes::Hermes>& asts,
     checker.set_cache(opts.cache);
     checker.set_delta_start_idx(opts.delta_start_idx);
     checker.set_implicit_prelude(std::move(opts.implicit_prelude));
-    // Phase 4.C: skeleton-only lowering for non-generic from_binary fns is
-    // ON by default. mono short-circuits on empty mirror_offset_, mlir_gen
-    // forward-declares from_binary_module fns, borrow_check walks empty
-    // bodies as a no-op — all three pass audits + 3194/3194 ctest with
-    // flag=1 cleared the way. LOGOS_SEMA_USE_BLOB=0 is retained as an
-    // explicit debug fallback so regressions can be bisected against the
-    // pre-Phase-4 lowering path.
-    {
-        const char* e = std::getenv("LOGOS_SEMA_USE_BLOB");
-        // Default ON; only explicit "0" disables. Empty value keeps default
-        // (matches the "set but blank" idiom common in CI configs).
-        bool on = !(e && e[0] == '0' && e[1] == '\0');
-        // Caller-side opt-out (Phase 4 fix): emit_module's library-build
-        // sema_lower needs full body lowering for ast_only files so mono's
-        // scan_fn discovers generic instantiations called from those bodies.
-        if (opts.disable_blob_skeletons) on = false;
-        checker.set_use_blob_skeletons(on);
-        checker.set_blob_skip_nongeneric_only(opts.blob_skip_nongeneric_only);
-        checker.set_binary_symbols(&opts.binary_symbols);
-    }
+    // Skeleton-skip gate: a from_binary fn whose symbol is already in a linked
+    // archive's .o has its body skipped (forward-declared + linked). The set is
+    // self-gating — a library build's own not-yet-compiled fns are absent, so
+    // their bodies are lowered locally and mono's scan_fn sees their generics.
+    checker.set_binary_symbols(&opts.binary_symbols);
     // Phase 2-4: ingest cfg flags. `feature=name` adds `name` to the
     // feature set; bare `flag` is reserved (future use). Equal sign is
     // the discriminator.

@@ -134,11 +134,10 @@ public:
         metaprog_mode_ = mode;
         metaprog_entry_ast_idx_ = entry_ast_idx;
     }
-    // Phase 4.A (multi-arena IR): opt into skeleton-only lowering for
-    // non-generic from_binary fns. Set by sema_lower from getenv("LOGOS_SEMA_USE_BLOB").
-    void set_use_blob_skeletons(bool v) { use_blob_skeletons_ = v; }
-    void set_blob_skip_nongeneric_only(bool v) { blob_skip_nongeneric_only_ = v; }
-    // Principled skeleton-skip gate: names already in a linked archive's .o.
+    // Skeleton-skip gate: names already compiled into a linked archive's .o.
+    // A from_binary fn whose symbol is here has its body in that .o, so sema
+    // skips lowering it and the linker resolves the symbol (codegen
+    // forward-declares it — same predicate as mlir_gen's is_binary_skip).
     void set_binary_symbols(const logos::compiler::StrSet* s) { binary_symbols_ = s; }
     void set_metaprog_keep_fns(std::vector<std::string> names) {
         metaprog_keep_fns_ = std::move(names);
@@ -1256,34 +1255,14 @@ private:
     std::vector<std::string> metaprog_keep_fns_;
     size_t cur_ast_idx_             = static_cast<size_t>(-1);
 
-    // Phase 4.A (multi-arena IR): when true, lower_fn / lower_spec_fn skip
-    // body lowering for non-generic, non-extern, non-spec fns that came
-    // from a binary module (cur_from_binary_=true). The resulting LFunction
-    // has empty body.stmts; mlir_gen already treats from_binary_module fns
-    // as forward-declarations so codegen is unaffected.
-    // Set from getenv("LOGOS_SEMA_USE_BLOB") at sema_lower entry — opt-in.
-    // Phase 4.B will populate body_external_ref via lib export tables;
-    // Phase 4.C wires mono + flips default.
-    bool   use_blob_skeletons_      = false;
-    // Library build: restrict skeleton-skip to non-generic from_binary fns
-    // (keep generic template bodies local for correct local instantiation).
-    bool   blob_skip_nongeneric_only_ = false;
-    // Principled skeleton-skip gate: symbol names already compiled into a
-    // linked archive's .o (nm --defined-only). Caller-owned; outlives sema.
+    // Skeleton-skip gate: symbol names already compiled into a linked
+    // archive's .o (nm --defined-only). Caller-owned; outlives sema. When a
+    // from_binary fn's name is in here, lower_fn skips its body (mlir_gen
+    // forward-declares it on the same predicate; the linker resolves it).
     const logos::compiler::StrSet* binary_symbols_ = nullptr;
-    // Phase 4.A counter: how many fn bodies were skipped via the blob path
-    // in the current run. Surfaced when LOGOS_TRACE_PHASES is set to give
-    // an observability hook for the skip path (otherwise the field would
-    // be silent — only the timing difference would betray it).
-    size_t blob_skip_count_         = 0;
-    // Phase 4.B counter: of the skipped bodies, how many resolved to a
-    // concrete body_external_ref via pool lookup_export. blob_skip_count_
-    // > blob_resolved_count_ means some skips left body_external_ref
-    // INVALID (lookup miss). With Phase 4.B publish wired in emit_module
-    // and stdlib re-built, this should equal blob_skip_count_ on a normal
-    // run; a gap signals a publish/lookup naming mismatch worth digging
-    // into.
-    size_t blob_resolved_count_     = 0;
+    // How many from_binary fn bodies were skeleton-skipped this run. Surfaced
+    // under LOGOS_SEMA_PHASE_TIMING as an observability hook for the skip path.
+    size_t skel_skip_count_         = 0;
 
     // M5: optional cache for binary-AST sema state, shared across
     // multiple sema_lower invocations in one compile session.
