@@ -3071,6 +3071,22 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
                             var_elem_types_[bindings[bi]] = ptr_type();
                             continue;
                         }
+                        // Inline aggregate payload (struct / zoned-struct):
+                        // the value is stored inline in the payload, so `fp`
+                        // already points at its bytes — bind it directly as the
+                        // struct pointer (mirrors extract_payload). Loading
+                        // vp->field_types[bi] (a collapsed `ptr`) would read the
+                        // struct's first 8 bytes as if they were the value
+                        // (e.g. `Option<String>` via let-else → corrupt String).
+                        TypeRef lt = bi < vp->logos_types.size()
+                                          ? vp->logos_types[bi] : nullptr;
+                        if (lt && (TypeRef(lt).kind() == LogosType::Kind::Struct ||
+                                   TypeRef(lt).kind() == LogosType::Kind::ZonedStruct)) {
+                            scope_[bindings[bi]]      = fp;
+                            let_vars_.insert(bindings[bi]);
+                            var_struct_[bindings[bi]] = mlir_struct_key(lt);
+                            continue;
+                        }
                         auto val = builder_.create<mlir::LLVM::LoadOp>(
                             loc_, vp->field_types[bi], fp);
                         auto alloca = create_entry_alloca(vp->field_types[bi]);

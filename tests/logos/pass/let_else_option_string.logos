@@ -1,0 +1,22 @@
+// Regression: extracting a heap-aggregate payload (String) from an Option via
+// a let-else binding. The let-else VariantData extraction always LOADED
+// vp->field_types[bi] (a collapsed `ptr` for a struct payload), reading the
+// inline String's first 8 bytes as if they were the String value → corrupt
+// String (wrong len / SIGSEGV). It lacked the inline-struct binding the match
+// path (extract_payload) has; now a struct/zoned-struct payload binds the GEP
+// directly. (`Option<i64>` via let-else always worked — scalar payload.)
+package let_else_option_string;
+
+use logos.lang.option;
+use logos.mem.string;
+
+fn get() -> Option<String> { return Some(String::from("hi")); }
+fn none() -> Option<String> { return None; }
+
+fn main() -> i32 {
+    let Some(s) = get() else { return 1i32; };
+    if s.len() != 2i64 { return 2i32; }
+    // else-branch taken on None
+    let Some(_t) = none() else { return 0i32; };
+    return 3i32;
+}

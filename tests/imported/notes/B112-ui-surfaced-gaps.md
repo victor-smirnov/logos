@@ -203,3 +203,24 @@ Categories below: `compiler-bug` (crash / wrong runtime value / verifier fail),
 - `modules/*`, `imports/*`, `non_modrs_mods/*`, `shadowed/use-shadows-reexport` —
   in-file `mod{}` + `use` re-export shadowing; Logos uses packages, not in-file
   modules. Out of scope (re B111 #5).
+
+
+## Resolutions (2026-05-21)
+- **#1 `Option<String>` (heap payload) via let-else — FIXED.** The let-else
+  VariantData extraction always LOADed the payload field as `vp->field_types[bi]`
+  (a collapsed `ptr` for a struct payload), reading the inline String's first 8
+  bytes as the value. Added the inline-struct binding (bind the GEP directly +
+  set var_struct_) that the match path already had. Regression
+  `tests/logos/pass/let_else_option_string.logos`.
+- **#2 `{:?}` of a tuple containing a `str` — ROOT-CAUSED, deferred.** A `str`
+  (Slice = fat {ptr,len}) element inside a TUPLE is laid out as a collapsed
+  `ptr` (8 bytes) because `tuple_llvm_type` uses `logos_to_mlir(Slice)=ptr`,
+  dropping `len`. So the tuple stores only the data pointer; reading the str
+  element back reconstructs a slice with garbage `len` → SIGSEGV in `write_str`.
+  Int-tuple Debug and standalone-str Debug both work; struct-with-str-field
+  works (different field path). Fix needs a coordinated tuple-layout change
+  (tuple_llvm_type uses the inline `slice_llvm_type()` for Slice elements +
+  tuple-index load + tuple construction store), analogous to the B111 #2
+  variant_payload_struct fix. Deferred to a focused tuple-layout pass.
+- **#3 array-param indexed inside an `F: Fn([T;N])` closure — still open** (MLIR
+  verify fail: getelementptr on an SSA array value). Deferred.
