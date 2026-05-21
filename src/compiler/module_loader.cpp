@@ -1298,9 +1298,17 @@ std::vector<ParsedModule> load_modules(
         // AnyVal, ...) keep auto-loading after their package moves.
         // Phase 7 cleanup replaces this prefix-based hack with the
         // manifest-driven tier system.
-        return starts("std.lang") || starts("std.hermes") || starts("std.mem")
-            || starts("logos.lang") || starts("logos.mem")
-            || starts("logos.lang.hermes") || starts("logos.mem.hermes");
+        // R1: the cross-cutting foundation lives entirely in `logos.lang.*`
+        // (marker/clone/cmp/ops/convert/default/hash/iter/option/result traits
+        // + the lang.hermes genos substrate: AnyVal, Map, view, ...). The
+        // `logos.mem.*` layer (collections, encoding, mem.hermes builders/
+        // parser/clone/stringify) is NOT cross-cutting — modules that need
+        // those `use` them explicitly. Auto-dragging the whole mem layer on
+        // every compile that touches Vec/String was a perf regression AND
+        // force-lowered mem generic templates in the consumer (exposing the
+        // ObjectMap::init / Array__equal force-lower artifacts). Drop it.
+        return starts("std.lang") || starts("std.hermes")
+            || starts("logos.lang");
     };
     auto visit_binary_module = [&](const std::string& cache_key,
                                    const std::string& archive_path,

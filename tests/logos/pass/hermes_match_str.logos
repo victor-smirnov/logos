@@ -6,6 +6,7 @@ use logos.lang.hermes.anyval;
 use logos.mem.hermes.ctr;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
+use logos.mem.hermes.pat;   // hermes_pat_eq_str — `@"str"` pattern helper
 
 unsafe fn mk_str(s: str) -> Hermes {
     let mut c: Hermes = Hermes::builder(128 as i64);
