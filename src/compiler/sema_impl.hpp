@@ -138,6 +138,8 @@ public:
     // non-generic from_binary fns. Set by sema_lower from getenv("LOGOS_SEMA_USE_BLOB").
     void set_use_blob_skeletons(bool v) { use_blob_skeletons_ = v; }
     void set_blob_skip_nongeneric_only(bool v) { blob_skip_nongeneric_only_ = v; }
+    // Principled skeleton-skip gate: names already in a linked archive's .o.
+    void set_binary_symbols(const logos::compiler::StrSet* s) { binary_symbols_ = s; }
     void set_metaprog_keep_fns(std::vector<std::string> names) {
         metaprog_keep_fns_ = std::move(names);
     }
@@ -1266,6 +1268,9 @@ private:
     // Library build: restrict skeleton-skip to non-generic from_binary fns
     // (keep generic template bodies local for correct local instantiation).
     bool   blob_skip_nongeneric_only_ = false;
+    // Principled skeleton-skip gate: symbol names already compiled into a
+    // linked archive's .o (nm --defined-only). Caller-owned; outlives sema.
+    const logos::compiler::StrSet* binary_symbols_ = nullptr;
     // Phase 4.A counter: how many fn bodies were skipped via the blob path
     // in the current run. Surfaced when LOGOS_TRACE_PHASES is set to give
     // an observability hook for the skip path (otherwise the field would

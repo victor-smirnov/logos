@@ -2196,6 +2196,8 @@ int run_metaprog_dispatch(
     meta_opts.cfg_flags = opts.cfg_flags;
     // M5: same cache pointer is reused by every sema_lower we drive.
     meta_opts.cache     = opts.sema_cache;
+    // Skeleton-skip gate: from_binary fns already in a linked archive .o.
+    meta_opts.binary_symbols = opts.binary_symbols;
 
     // M6.1: enable incremental dispatch. Cache preserves user-AST state
     // across iters; each iter's sema_lower is given a delta_start_idx so
@@ -3321,8 +3323,9 @@ int main(int argc, char** argv) {
     // Phase 2-4: build a default SemaOptions carrying cfg_flags, shared
     // across the remaining sema_lower call sites in main().
     logos::compiler::SemaOptions default_opts;
-    default_opts.cfg_flags = cfg_flags;
-    default_opts.cache     = &sema_cache;  // M5
+    default_opts.cfg_flags      = cfg_flags;
+    default_opts.cache          = &sema_cache;  // M5
+    default_opts.binary_symbols = binary_symbols;  // skeleton-skip gate
     prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts, is_lazy);
     prog.print_diags(stderr);
     if (!prog.ok()) return 1;

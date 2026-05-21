@@ -287,8 +287,32 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
         if (i < from_binary_module_flags.size() && from_binary_module_flags[i])
             from_binary[i] = true;
     }
+
+    // Collect the `nm --defined-only` symbol set of the dependency archives
+    // ONCE, up front. It's the skeleton-skip gate (sema skips lowering bodies
+    // of from_binary fns already compiled into a dep .o) AND the codegen
+    // forward-declare gate (mlir_gen's is_binary_skip keys on
+    // prog.binary_symbols). Collected before sema so the gate is populated by
+    // the time bodies are lowered. (Was collected post-sema — too late for the
+    // sema gate, which previously relied on the LIR-blob lookup_export proxy.)
+    StrSet dep_symbols;
+    for (const auto& a : dep_archives) {
+        FILE* pipe = ::popen(("nm --defined-only -j " + a + " 2>/dev/null").c_str(), "r");
+        if (!pipe) continue;
+        char line[512];
+        while (std::fgets(line, sizeof(line), pipe)) {
+            std::string_view sv(line);
+            while (!sv.empty() && (sv.back() == '\n' || sv.back() == '\r' || sv.back() == ' '))
+                sv.remove_suffix(1);
+            if (!sv.empty() && sv.front() != '/')
+                dep_symbols.emplace(sv);
+        }
+        ::pclose(pipe);
+    }
+
     {
         MetaprogDispatchOpts mopts;
+        mopts.binary_symbols = dep_symbols;  // skeleton-skip gate for dispatch sema
         // Stdlib build chicken-and-egg: dispatch needs to JIT-compile
         // handler fns whose bodies reach into stdlib (Vec, AnyVal, etc.).
         // The metaprog mlir module spans the whole stdlib, so JIT lookup
@@ -395,6 +419,7 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
     SemaOptions sema_opts;
     sema_opts.blob_skip_nongeneric_only = true;
     sema_opts.implicit_prelude = implicit_prelude;
+    sema_opts.binary_symbols = dep_symbols;  // skeleton-skip gate
     auto prog = sema_lower(asts, filenames, from_binary, sema_opts);
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
@@ -649,20 +674,9 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
     // (the old self-contained-archive scheme). is_binary_skip in mlir_gen
     // keys on prog.binary_symbols == the exact `nm`-defined symbols of the
     // deps, so a name match guarantees the linker (and the metacall JIT, which
-    // now loads all layers) finds the body elsewhere.
-    for (const auto& a : dep_archives) {
-        FILE* pipe = ::popen(("nm --defined-only -j " + a + " 2>/dev/null").c_str(), "r");
-        if (!pipe) continue;
-        char line[512];
-        while (std::fgets(line, sizeof(line), pipe)) {
-            std::string_view sv(line);
-            while (!sv.empty() && (sv.back() == '\n' || sv.back() == '\r' || sv.back() == ' '))
-                sv.remove_suffix(1);
-            if (!sv.empty() && sv.front() != '/')
-                prog.binary_symbols.emplace(sv);
-        }
-        ::pclose(pipe);
-    }
+    // now loads all layers) finds the body elsewhere. dep_symbols was already
+    // collected up front (it doubles as the sema skeleton-skip gate).
+    prog.binary_symbols.insert(dep_symbols.begin(), dep_symbols.end());
 
     // Shared lowering tail (mlir_gen → MLIR→LLVM → object).
     LowerEmitOpts lopts;

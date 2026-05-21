@@ -6388,6 +6388,7 @@ lir::LProgram sema_lower(const std::vector<logos::hermes::Hermes>& asts,
         if (opts.disable_blob_skeletons) on = false;
         checker.set_use_blob_skeletons(on);
         checker.set_blob_skip_nongeneric_only(opts.blob_skip_nongeneric_only);
+        checker.set_binary_symbols(&opts.binary_symbols);
     }
     // Phase 2-4: ingest cfg flags. `feature=name` adds `name` to the
     // feature set; bare `flag` is reserved (future use). Equal sign is

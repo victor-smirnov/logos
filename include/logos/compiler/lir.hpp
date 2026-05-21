@@ -1278,6 +1278,18 @@ struct SemaOptions {
     // this false → full generic skeleton-skip (the Phase 5.B fast path).
     bool blob_skip_nongeneric_only = false;
 
+    // Principled skeleton-skip gate (multi-arena IR follow-up): the set of
+    // symbol names already compiled into a linked archive's .o (collected via
+    // `nm --defined-only` over the search-path / dependency archives). A
+    // from_binary non-generic fn whose name is in here has its body in that
+    // .o, so the consumer skeleton-skips lowering it and links the symbol.
+    // This subsumes the old LIR-blob `lookup_export` proxy: generic template
+    // names and non-generic methods of generic structs are NOT concrete .o
+    // symbols, so they are absent here and keep local bodies (lowered for
+    // consumer-side instantiation) — exactly the right behavior, without the
+    // blob_skip_nongeneric_only / disable_blob_skeletons heuristics.
+    StrSet binary_symbols;
+
     // Three-layer split Phase 3.4: dotted package name to inject as an
     // implicit wildcard import for every NON-binary AST in this run that
     // does not carry `#![no_implicit_prelude]`. Empty means "no implicit

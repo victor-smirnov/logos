@@ -590,39 +590,39 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                   && !fn_is_metaprog_keep(fn.name);
     if (skip_body) fn.is_metaprog_stub = true;
 
-    // Phase 4.A + Phase 5.B step 3 (multi-arena IR): skeleton-only lowering
-    // for from_binary fns. The binary archive already contains the lowered
-    // LIR (we registered the arena in module_loader); body lowering here
-    // is pure overhead. mlir_gen treats from_binary_module fns as forward-
-    // declarations, and mono cross-arena clone walks the body via the
-    // body_external_ref published in stdlib's EXPORTS.
+    // Skeleton-only lowering for from_binary fns whose body is already
+    // compiled into a linked archive's .o. Lowering the body here is pure
+    // overhead: type-checking a call needs only the signature, mlir_gen
+    // forward-declares from_binary fns (is_binary_skip), and mono takes the
+    // signature-only clone path for binary symbols (no scan_fn). So the body
+    // is never used — we skip producing it and link the symbol from the .o.
+    //
+    // Gate = "the symbol is in binary_symbols_" (the nm --defined-only set of
+    // the linked archives). This is the principled membership test that
+    // replaces the old LIR-blob lookup_export proxy:
+    //   - non-generic free fn   → name IS in the dep .o → skip, link it
+    //   - generic template      → only INSTANTIATIONS are in the .o, not the
+    //                              template name → not skipped → lowered for
+    //                              consumer-side instantiation
+    //   - non-generic method of a generic struct → not a concrete .o symbol
+    //                              → not skipped → lowered per instantiation
+    // It also subsumes blob_skip_nongeneric_only / disable_blob_skeletons:
+    // a library build's own (not-yet-compiled) fns are absent from
+    // binary_symbols_, so their bodies are lowered locally and mono's scan_fn
+    // still discovers their generic calls.
     //
     // Carve-outs: metaprog handlers / metaprog-keep fns can be invoked at
-    // compile time and need bodies. Specializations go through lower_spec_fn
-    // and have their own gate.
-    bool blob_skip_body = use_blob_skeletons_
-                       && cur_from_binary_
+    // compile time and need bodies. Specializations go through lower_spec_fn.
+    bool skel_skip_body = cur_from_binary_
                        && !fn.is_extern
                        && !fn_is_metaprog_handler(fn.name)
                        && !fn_is_metaprog_keep(fn.name)
-                       // Library build: keep generic template bodies LOCAL so
-                       // mono instantiates them here (no producer cross-arena
-                       // clone). Only non-generic dep bodies are skeleton-
-                       // skipped (dead weight in this layer's LIR blob).
-                       && (!blob_skip_nongeneric_only_ || fn.type_params.empty());
-    if (blob_skip_body) {
-        // Skeleton-skip ONLY when a registered arena actually provides the
-        // body (lookup succeeds) — lets the library build skeleton-skip its
-        // `depends`-archive modules (mem referencing lang cross-arena) while
-        // ast_only same-build files (lookup miss) keep full bodies so mono's
-        // scan_fn discovers their generic calls.
-        auto hit = hermes::global_arena_pool().lookup_export(fn.name);
-        if (hit.ok()) {
-            skip_body = true;
-            ++blob_skip_count_;
-            fn.body_external_ref = hermes::ExternalRef::make(hit.arena_id, hit.obj_id);
-            ++blob_resolved_count_;
-        }
+                       && binary_symbols_
+                       && binary_symbols_->count(fn.name) > 0;
+    if (skel_skip_body) {
+        skip_body = true;
+        ++blob_skip_count_;
+        ++blob_resolved_count_;
     }
 
     // Body (extern fns have no body)
