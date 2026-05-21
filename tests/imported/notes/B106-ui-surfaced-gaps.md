@@ -47,18 +47,20 @@ fixed, the corresponding upstream test becomes a regression.
 
 ## Pattern-match lowering
 
-3. **Or-pattern with ANY variable binding** (broader than first thought) —
-   `match t { (1,a) | (2,a) => … }` already fails with `'func.return' op
-   expects parent op 'func.func'` / MLIR lowering failure; cross-position
-   rebind `(1,a,b)|(2,b,a)` is the same root. Value-only or-patterns
-   (`1 | 2 =>`) work. The scalar-discriminant or-pattern codegen
-   (mlir_gen_stmt.cpp ~2420) explicitly bails on non-scalar alts ("Callers
-   must not pass PatOr with non-scalar alts"), and the binding-extraction
-   takes only the first alt (~2297). **Recommended fundamental fix:** desugar
-   a PAT_OR arm into N separate arms (one per alternative, body cloned) at
-   sema match-lowering — handles scalar/structural/cross-rebind uniformly and
-   lets the fragile scalar-or codegen be retired. Risk: touches the
-   heavily-used match-lowering path → wants a dedicated, full-ctest pass.
+3. **Or-pattern with ANY variable binding — FIXED (2026-05-21, 609afbf5).**
+   The recommended desugar landed: a binding/structural top-level PAT_OR arm
+   is fanned out into N arms (one per alternative) at sema match-lowering
+   (`lower_match` + `lower_match_expr`), and the match-expr codegen now
+   extracts Tuple/At/RefBind/RefPat bindings. `(1,a)|(2,a)`, cross-rebind
+   `(1,a,b)|(2,b,a)`, and enum-variant-or `A(x)|B(x)` all work in statement
+   and expression position. Pure scalar or-patterns (`1|2|3`) stay merged.
+   **Follow-up gap (NOT yet done):** NESTED or-patterns — an or-pattern inside
+   a tuple element (`((true,y)|(y,true), z)`), inside a variant payload
+   (`Err(x @ (6 | 8))`), or inside an `@`-binding (`z @ (0 | 4)`). The fan-out
+   only triggers on a top-level PAT_OR arm; nested ones need recursive
+   expansion (cartesian product of alternatives) or a sub-pattern OR-guard.
+   Upstream `or-patterns/bindings-runpass-{1,2}.rs` exercise these and remain
+   un-ported. Scope: another dedicated match-lowering pass.
 
 4. **Multi-arm `Some(_) if guard` / `Some(_)` over `Option<i64>` that
    returns** — a 2+ arm match on `Option<i64>` where guarded and unguarded

@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-35423.rs
+// Modifications: `pub fn main()` → `fn main() -> i32` returning an exit
+// code; int literals suffixed (`4i32`, `0i32`, `1i32 ..= 100i32`). The
+// three `println!` arm bodies are replaced by recording which arm fired
+// into `hit`, then asserting the expected arm (x = 4 lands in `1..=100`).
+// This exercises both an irrefutable `ref r` binding with a deref guard
+// (`*r < 0`) and an `@`-binding over an inclusive range — both previously
+// miscompiled in match position (the ref+deref-guard form even SIGSEGV'd
+// the compiler). Fixed 2026-05-21; see notes/B107-ui-surfaced-gaps.md #17.
+package issue_35423;
+
+fn main() -> i32 {
+    let x = 4i32;
+    let hit = match x {
+        ref r if *r < 0i32 => 1i32,
+        e @ 1i32 ..= 100i32 => e,
+        _ => 3i32,
+    };
+    // x = 4 is in [1, 100] and not < 0, so the `@`-range arm binds e = 4.
+    if hit != 4i32 { return 1i32; }
+    return 0i32;
+}

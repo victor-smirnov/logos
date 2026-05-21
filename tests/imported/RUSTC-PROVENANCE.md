@@ -18,6 +18,7 @@ per-file rows below.
 
 | Batch | rustc commit (SHA) | Date | Imported by | Scope |
 |---|---|---|---|---|
+| B107.1 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-21 | Victor Smirnov | gap-closure re-import (1 test): `issues/issue-35423.rs` — was skipped in B107 (#17, compiler SIGSEGV). Both the `ref r if *r < 0` deref-guard and the `e @ 1..=100` at-binding-over-range now compile + run correctly in match position (fixed in 43bcc3d1). `println!` arm bodies → record-which-arm-fired + assert; literals suffixed; `pub fn main()` → `fn main()->i32`. |
 | B1 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | parser top-level (11 tests) |
 | B2 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | borrowck — move/copy/reference (11 tests) |
 | B3 | `4b0c9d76ae7d387229caea55cfa73c280b08b8a7` | 2026-05-11 | Victor Smirnov | generics — generic fn / struct / enum / type-alias / fn-ptr (12 tests) |
