@@ -224,9 +224,23 @@ private:
             return it->second;
         auto dot = qkey.rfind('.');
         if (dot != std::string_view::npos) {
-            if (auto it = struct_templates_.find(std::string(qkey.substr(dot + 1)));
-                it != struct_templates_.end())
+            // B-mv-02: the bare-name fallback must NOT cross package
+            // boundaries. `struct_templates_` keys every generic struct under
+            // both `pkg.Name` and the bare `Name` (last-wins). When `qkey` is
+            // package-qualified but has no qualified entry (e.g. a NON-generic
+            // user `struct Box` whose package owns the name), the bare slot may
+            // hold a same-name GENERIC struct from a DIFFERENT package (e.g.
+            // `logos.mem.boxed.Box<T>`). Returning that makes mono treat the
+            // user struct as generic and splice a method's type-arg into a
+            // bogus `$G1$..` struct slot. Only accept the bare hit when its
+            // owning package matches `qkey`'s.
+            auto bare = qkey.substr(dot + 1);
+            auto pkg  = qkey.substr(0, dot);
+            if (auto it = struct_templates_.find(std::string(bare));
+                it != struct_templates_.end() &&
+                it->second && it->second->pkg == pkg)
                 return it->second;
+            return nullptr;
         }
         return nullptr;
     }
