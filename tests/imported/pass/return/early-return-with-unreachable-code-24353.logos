@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/return/early-return-with-unreachable-code-24353.rs
+// Modifications: `return ();`→`return;` and the trailing `let x = (); x` →
+// suffixed-int unreachable statements (no `()` value); the body moved into a
+// helper `g()` so `main` can return its i32 status; `pub fn main()`→`fn
+// main()->i32`. Exercises an early `return` followed by unreachable code.
+package ret_early_return_unreachable_24353;
+
+fn g() {
+    return;
+    let x = 5i64;
+    let _ = x;
+}
+
+fn main() -> i32 {
+    g();
+    return 0;
+}

@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum-discriminant/issue-90038.rs
+// Modifications: `#[repr(u32)]` + explicit discriminant dropped (Logos enums are
+// heap-ptr tagged; the test's point is matching a multi-const-variant enum that
+// carries another enum in its first variant's payload); `unreachable!()`→return
+// code; `pub fn main()`→`fn main()->i32`.
+package ed_issue_90038;
+
+enum Foo {
+    A,
+}
+
+enum Bar {
+    A(Foo),
+    B,
+    C,
+}
+
+fn main() -> i32 {
+    match Bar::A(Foo::A) {
+        Bar::A(_) => { return 0; },
+        _ => { return 1; },
+    }
+}

@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-4759.rs
+// Modifications: `Box<isize>`→`i64` (no Box); the trait `U` impl moved from
+// `Box<isize>` to `i64`; by-value `self`→`self: Self`; `pub fn main()`→`fn
+// main()->i32`. Exercises destructuring a struct field by name and then calling
+// a user-trait method on the bound value.
+package iss_issue_4759;
+
+struct Tholder { a: i64 }
+
+trait Uu {
+    fn f(self: Self);
+}
+
+impl Uu for i64 {
+    fn f(self: Self) {}
+}
+
+fn main() -> i32 {
+    let Tholder { a: aa } = Tholder { a: 0i64 };
+    aa.f();
+    return 0;
+}

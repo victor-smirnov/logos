@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-41604.rs
+// Modifications: `struct B;`→`struct Bz { v: i64 }` (Logos has no unit struct;
+// added a field so the method has observable effect); `init` writes `v` so the
+// run can verify the indexed-then-method-called element; `pub fn main()`→`fn
+// main()->i32`. Exercises an array index by a computed expression (`b[1-1]`)
+// followed by a `&mut self` method call on the element place.
+package iss_issue_41604;
+
+struct Bz { v: i64 }
+
+impl Bz {
+    fn init(&mut self) { self.v = 5i64; }
+}
+
+fn main() -> i32 {
+    let mut b = [Bz { v: 0i64 }];
+    b[1i64 - 1i64].init();
+    if b[0i64].v != 5i64 { return 1; }
+    return 0;
+}

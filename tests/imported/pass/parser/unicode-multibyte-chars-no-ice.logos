@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/parser/unicode-multibyte-chars-no-ice.rs
+// Modifications: assert/fmt imports added for `println!`; `pub fn main()`→`fn
+// main()->i32`. Exercises a multibyte-Unicode string literal flowing through the
+// lexer and `println!`.
+package par_unicode_multibyte_chars_no_ice;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn main() -> i32 {
+    println!("마이너스 사인이 없으면");
+    return 0;
+}

@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/owned-implies-static.rs
+// Modifications: the `T: 'static` bound dropped (Logos has no named-lifetime
+// bound on a type parameter here) and `Box::new(5)`→the plain value `5i64` (no
+// Box); `pub fn main()`→`fn main()->i32`. Exercises passing an owned value to a
+// generic function.
+package reg_owned_implies_static;
+
+fn f<T>(_x: T) {}
+
+fn main() -> i32 {
+    f(5i64);
+    return 0;
+}

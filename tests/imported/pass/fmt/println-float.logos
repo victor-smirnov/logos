@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/fmt/println-float.rs
+// Modifications: float literal suffixed `1.2`→`1.2f64`; assert/fmt imports added
+// for `println!`; `pub fn main()`→`fn main()->i32`. Exercises formatting a
+// float through `println!`.
+package fmt_println_float;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn main() -> i32 {
+    println!("{}", 1.2f64);
+    return 0;
+}

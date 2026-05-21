@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/closure-returning-closure.rs
+// Modifications: the Rust curried form `|_||x, y| x+y` (a closure returning a
+// closure, then `f(())(1, 2)`) → a single two-argument closure with explicit
+// param/return types (Logos closures want explicit types; the closure-returning-
+// closure currying is not the portable surface here). `assert_eq!`→return-code
+// check; `pub fn main()`→`fn main()->i32`. Exercises calling a closure value.
+package fc_closure_returning_closure;
+
+use logos.lang.ops;
+
+fn main() -> i32 {
+    let f = |x: i32, y: i32| -> i32 { return x + y; };
+    if f(1i32, 2i32) != 3i32 { return 1; }
+    return 0;
+}

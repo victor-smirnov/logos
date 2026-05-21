@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/reachable/boolean-negation-in-unreachable-code-7344.rs
+// Modifications: `!foo();`→`let _ = !foo();` (expression-statement form); the
+// `""` string comparison kept; `pub fn main()`→`fn main()->i32`. Exercises a
+// boolean-negation and an `if` over a string `==` in unreachable code after an
+// early `return`.
+package rch_boolean_negation_unreachable_7344;
+
+fn foo() -> bool { return false; }
+
+fn bar() {
+    return;
+    let _ = !foo();
+}
+
+fn baz() {
+    return;
+    if "" == "" {}
+}
+
+fn main() -> i32 {
+    bar();
+    baz();
+    return 0;
+}

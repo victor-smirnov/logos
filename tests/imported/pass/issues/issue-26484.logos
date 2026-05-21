@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-26484.rs
+// Modifications: `usize`→`u64`; `helper` returns the closure result (instead of
+// `print!("")`) so the run can verify the captured-variable comparison; the
+// closure is given explicit param/return types; `pub fn main()`→`fn
+// main()->i32`. Exercises passing a closure that captures a local to a generic
+// `F: FnOnce(u64) -> bool` function parameter.
+package iss_issue_26484;
+
+use logos.lang.ops;
+
+fn helper<F: FnOnce(u64) -> bool>(f: F) -> bool { return f(1u64); }
+
+fn main() -> i32 {
+    let cond = 0u64;
+    let r = helper(|v: u64| -> bool { return v == cond; });
+    if r { return 1; }
+    return 0;
+}

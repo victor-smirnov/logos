@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/expr-match-unique.rs
+// Modifications: `Box::new(100)`/`*res` → the plain value `100i64` (no Box);
+// `panic!()` arm → `0i64`; `assert_eq!`→return-code check; `pub fn main()`→`fn
+// main()->i32`. Exercises a `match` used as an expression whose arm produces the
+// bound value.
+package bind_expr_match_unique;
+
+fn test_box() -> i32 {
+    let res = match true { true => { 100i64 }, _ => { 0i64 } };
+    if res != 100i64 { return 1; }
+    return 0;
+}
+
+fn main() -> i32 {
+    return test_box();
+}

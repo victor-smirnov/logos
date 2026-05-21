@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-18845.rs
+// Modifications: `*Box::new(9)`→the plain value `9u8` (Logos has no Box); types
+// suffixed; `assert_eq!`→return-code check; `pub fn main()`→`fn main()->i32`.
+// Exercises a `match` expression in tail position whose arms are the result
+// value of a function.
+package iss_issue_18845;
+
+fn test(foo: bool) -> u8 {
+    match foo {
+        true => 9u8,
+        false => 0u8,
+    }
+}
+
+fn main() -> i32 {
+    if test(true) != 9u8 { return 1; }
+    if test(false) != 0u8 { return 2; }
+    return 0;
+}

@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/return/return-nil.rs
+// Modifications: `let x = (); return x;` (returning a unit value) → a bare
+// `return;` from a unit-returning fn (Logos has no `()` value to bind/return);
+// `pub fn main()`→`fn main()->i32`. Exercises an explicit `return` from a
+// unit-returning function.
+package ret_return_nil;
+
+fn f() { return; }
+
+fn main() -> i32 {
+    f();
+    return 0;
+}

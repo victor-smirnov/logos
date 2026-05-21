@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-3847.rs
+// Modifications: the `mod buildings { pub struct Tower {..} }` wrapper dropped
+// (Logos organizes namespaces via packages, not in-file `mod` blocks) and the
+// struct hoisted to top level; `isize`/`usize`→`u64`; `buildings::Tower {..}`
+// pattern → `Tower {..}`; `println!`→return-code check on the bound field; `pub
+// fn main()`→`fn main()->i32`. Exercises binding a struct field through a
+// struct-pattern match arm.
+package iss_issue_3847;
+
+struct Tower { height: u64 }
+
+fn main() -> i32 {
+    let sears = Tower { height: 1451u64 };
+    let h: u64 = match sears {
+        Tower { height: hh } => { hh },
+    };
+    if h != 1451u64 { return 1; }
+    return 0;
+}

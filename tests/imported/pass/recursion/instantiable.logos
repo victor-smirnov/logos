@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/recursion/instantiable.rs
+// Modifications: the tuple-struct `foo(X)`→a named-field `Foonode { inner: Xnode }`
+// (Logos tuple-structs become named fields; renamed to avoid 1-char/stdlib
+// collisions); `usize`→`u64`; `ptr::null()`→`null::<Foonode>()`; `pub fn
+// main()`→`fn main()->i32`. Exercises a struct whose field is a raw `*const`
+// pointer back to the enclosing type (an otherwise-uninstantiable cycle made
+// instantiable by the raw pointer), initialised with a null pointer.
+package rec_instantiable;
+
+use logos.lang.ptr;
+
+struct Xnode { x: u64, nxt: *const Foonode }
+struct Foonode { inner: Xnode }
+
+fn main() -> i32 {
+    let _x = Foonode { inner: Xnode { x: 0u64, nxt: null::<Foonode>() } };
+    return 0;
+}

@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/match-value-binding-in-guard-3291.rs
+// Modifications: `Option<Box<isize>>`→`Option<i64>` (no Box); `Some(ref x) if b`
+// → `Some(v) if b` and `*x.clone()`→`v`; `isize`→`i64`; the four call sites now
+// feed return-code checks; `pub fn main()`→`fn main()->i32`. Exercises a match
+// arm with a payload binding plus a boolean guard, and a later catch-all arm
+// for the same variant.
+package bind_match_value_guard_3291;
+
+use logos.lang.option;
+
+fn foo(x: Option<i64>, b: bool) -> i64 {
+    match x {
+        None => { return 1i64; },
+        Some(v) if b => { return v; },
+        Some(_) => { return 0i64; },
+    }
+}
+
+fn main() -> i32 {
+    if foo(Some(22i64), true) != 22i64 { return 1; }
+    if foo(Some(22i64), false) != 0i64 { return 2; }
+    if foo(None, true) != 1i64 { return 3; }
+    if foo(None, false) != 1i64 { return 4; }
+    return 0;
+}

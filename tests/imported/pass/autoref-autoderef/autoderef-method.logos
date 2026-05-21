@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/autoref-autoderef/autoderef-method.rs
+// Modifications: `Box<Self>`/`Box<usize>` receivers → by-value `self: Self` (no
+// Box; the test's point is method dispatch on a primitive through a user trait);
+// `usize`→`u64`; `*self * 2`→`self * 2`; `assert_eq!`→return-code check; `pub fn
+// main()`→`fn main()->i32`. Exercises a user-trait method implemented on a
+// primitive integer type.
+package ad_autoderef_method;
+
+trait Doubler {
+    fn double(self: Self) -> u64;
+}
+
+impl Doubler for u64 {
+    fn double(self: Self) -> u64 { return self * 2u64; }
+}
+
+fn main() -> i32 {
+    let x = 3u64;
+    if x.double() != 6u64 { return 1; }
+    return 0;
+}

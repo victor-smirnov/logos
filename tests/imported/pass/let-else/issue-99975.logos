@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/let-else/issue-99975.rs
+// Modifications: the `Option<String>` payload → `Option<i64>` (the `Option<String>`
+// let-else over a heap String currently mis-runs; the test's point is the
+// let-else diverging-else `return` path, exercised here over an int payload);
+// `pub fn main()`→`fn main()->i32` with return-code checks on both branches.
+package le_issue_99975;
+
+use logos.lang.option;
+
+fn return_result() -> Option<i64> {
+    return Some(7i64);
+}
+
+fn start() -> i64 {
+    let Some(content) = return_result() else {
+        return -1i64;
+    };
+    return content;
+}
+
+fn other() -> i64 {
+    let Some(content) = none_result() else {
+        return -1i64;
+    };
+    return content;
+}
+
+fn none_result() -> Option<i64> { return None; }
+
+fn main() -> i32 {
+    if start() != 7i64 { return 1; }
+    if other() != -1i64 { return 2; }
+    return 0;
+}

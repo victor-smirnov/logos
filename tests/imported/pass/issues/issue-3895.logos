@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-3895.rs
+// Modifications: enum hoisted out of `pub fn main()` (no in-fn item decls);
+// `panic!()` arm → distinct return code; the unused or-pattern arm
+// `BadChar | BadSyntax` dropped (its match value flows to the `_ if true` guard
+// arm first); `pub fn main()`→`fn main()->i32`. Exercises a guarded wildcard arm
+// (`_ if true`) firing before a later catch-all over an enum scrutinee.
+package iss_issue_3895;
+
+enum St {
+    BadChar,
+    BadSyntax,
+}
+
+fn main() -> i32 {
+    let r = match St::BadChar {
+        _ if true => 0i64,
+        _ => 1i64,
+    };
+    if r != 0i64 { return 1; }
+    return 0;
+}

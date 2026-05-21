@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-4228.rs
+// Modifications: `struct Foo;`→`struct Foobar { v: i64 }` (no unit struct);
+// the two associated functions return distinct values so the run can verify each
+// resolved through its own `impl` block; `pub fn main()`→`fn main()->i32`.
+// Exercises two separate `impl` blocks on the same type each contributing an
+// associated function.
+package iss_issue_4228;
+
+struct Foobar { v: i64 }
+
+impl Foobar {
+    fn first() -> i64 { return 1i64; }
+}
+
+impl Foobar {
+    fn second() -> i64 { return 2i64; }
+}
+
+fn main() -> i32 {
+    if Foobar::first() != 1i64 { return 1; }
+    if Foobar::second() != 2i64 { return 2; }
+    return 0;
+}

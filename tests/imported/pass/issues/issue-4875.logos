@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-4875.rs
+// Modifications: 1-char type/param names left as the generic struct `Foowrap<T>`
+// (the `Foo{..}` rest-pattern as a fn argument is moved into the body as a `let`
+// binding since Logos's fn-arg pattern position is a plain binder); `pub fn
+// main()`→`fn main()->i32`. Exercises a struct rest-pattern (`{ .. }`) over a
+// generic struct.
+package iss_issue_4875;
+
+struct Foowrap<T> { data: T }
+
+fn foo<T>(arg: Foowrap<T>) {
+    let Foowrap { .. } = arg;
+}
+
+fn main() -> i32 {
+    foo(Foowrap { data: 5i64 });
+    return 0;
+}

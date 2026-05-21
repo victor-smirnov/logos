@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum-discriminant/issue-104519.rs
+// Modifications: `#[repr(i32)]` + negative discriminant dropped; the `()`
+// variant payloads → a one-field `Unit { d: i32 }` struct (Logos has no `()`
+// payloads); `#[inline(never)]` dropped; `assert_eq!`→return-code check; `pub fn
+// main()`→`fn main()->i32`. Exercises matching a multi-variant enum whose first
+// arm carries a struct payload.
+package ed_issue_104519;
+
+struct Unit { d: i32 }
+
+enum TransportErr {
+    UnknownMethod,
+}
+
+enum OpenResult {
+    Ok(Unit),
+    Err(Unit),
+    TransportErr(TransportErr),
+}
+
+fn some_match(result: OpenResult) -> u8 {
+    match result {
+        OpenResult::Ok(_) => { return 0u8; },
+        _ => { return 1u8; },
+    }
+}
+
+fn main() -> i32 {
+    let result = OpenResult::Ok(Unit { d: 0i32 });
+    if some_match(result) != 0u8 { return 1; }
+    return 0;
+}
