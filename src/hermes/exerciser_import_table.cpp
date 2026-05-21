@@ -86,6 +86,47 @@ int main() {
             ch.arena_id, ExternalRef::make(arena_id_t{2}, oid), pool);
         LOGOS_ASSERT(!bad.ok(), "IMP-RES-007", "out-of-range local arena_id must fail");
         std::printf("    out-of-range local arena_id → fail OK\n");
+
+        // Repeat resolution → served from the lazy cache (same result).
+        auto r2 = resolve_external_ref_local(ch.arena_id, local_ref, pool);
+        LOGOS_ASSERT(r2.ok() && r2.mem == r.mem && r2.offset.value() == r.offset.value(),
+            "IMP-RES-008", "cached re-resolution should match");
+        std::printf("    cached re-resolution OK\n");
+    }
+
+    std::printf("--- lazy fill: target library loaded AFTER the importer ---\n");
+    {
+        InMemoryArenaPool pool;
+
+        // Consumer registered first, importing "liblate.a" at arena_id 1 — but
+        // that library is NOT loaded yet, so the slot stays null (unresolved).
+        auto consumer = make_doc(4096).get();
+        auto cb = lir_arena_root_begin(consumer, "consumer_mod", {}).get();
+        lir_arena_root_finalize(cb).get();
+        auto ch = register_lir_arena(consumer, pool).get();
+        std::vector<ImportEntry> cimps;
+        cimps.push_back(ImportEntry{});
+        cimps.push_back(ImportEntry{"liblate.a", ""});
+        pool.set_module_imports(ch.arena_id, "libconsumer.a", std::move(cimps));
+
+        ExternalRef ref = ExternalRef::make(arena_id_t{1}, 1u);
+        LOGOS_ASSERT(!resolve_external_ref_local(ch.arena_id, ref, pool).ok(),
+            "IMP-LAZY-001", "unresolved before the target library is loaded");
+
+        // Now load the late provider and register its file. The previously-null
+        // cache slot resolves on the next access (lazy retry).
+        auto provider = make_doc(4096).get();
+        auto pb = lir_arena_root_begin(provider, "late_mod", {}).get();
+        auto target_off = pb.doc.make_tiny_map(2).get().offset();
+        auto oid = arena_publish(pb, AnyVal::from_offset(target_off)).get();
+        lir_arena_root_finalize(pb).get();
+        auto ph = register_lir_arena(provider, pool).get();
+        pool.set_module_imports(ph.arena_id, "liblate.a", {});
+
+        auto r = resolve_external_ref_local(ch.arena_id, ExternalRef::make(arena_id_t{1}, oid), pool);
+        LOGOS_ASSERT(r.ok() && r.mem == pool.get(ph.arena_id), "IMP-LAZY-002",
+            "resolves once the target library becomes available");
+        std::printf("    null slot → resolves after target load OK\n");
     }
 
     std::printf("ALL IMPORT-TABLE TESTS PASSED\n");

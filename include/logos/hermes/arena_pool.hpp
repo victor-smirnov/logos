@@ -169,6 +169,11 @@ private:
         // target); imports[local_aid] = (file_name, doc_name) it references.
         std::string               file_name;
         std::vector<ImportEntry>  imports;
+        // Lazy resolution cache, parallel to `imports` (index = local arena_id).
+        // INVALID (null) slot = not resolved yet; resolve_local_arena_id fills
+        // it on first access. Most slots stay null in a small compilation that
+        // only touches a few imported libraries.
+        std::vector<arena_id_t>   import_map;
     };
     // Index = arena_id.value. Slot 0 is the invalid sentinel.
     std::vector<Entry> slots_;

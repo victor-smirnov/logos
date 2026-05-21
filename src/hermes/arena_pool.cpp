@@ -59,7 +59,7 @@ InMemoryArenaPool::register_module(MemHolder*               mem,
     // Pool takes its own ref on mem; caller is free to drop theirs.
     mem->ref();
 
-    slots_.push_back(Entry{mem, name, dep_ids});
+    slots_.push_back(Entry{mem, name, dep_ids, {}, {}, {}});
     by_name_.emplace(name, aid);
 
     return ModuleHandle{aid, std::move(name), std::move(dep_ids)};
@@ -142,6 +142,9 @@ void InMemoryArenaPool::set_module_imports(arena_id_t               aid,
     if (!file_name.empty()) by_file_.insert_or_assign(file_name, aid);
     slot.file_name = std::move(file_name);
     slot.imports   = std::move(imports);
+    // Reset the lazy resolution cache to all-null (= unresolved). Slots fill
+    // on first resolve_local_arena_id access.
+    slot.import_map.assign(slot.imports.size(), INVALID_ARENA_ID);
 }
 
 arena_id_t InMemoryArenaPool::find_arena_by_file(std::string_view file_name) noexcept {
@@ -153,12 +156,22 @@ arena_id_t InMemoryArenaPool::resolve_local_arena_id(arena_id_t source_aid,
                                                      arena_id_t local_aid) noexcept {
     if (source_aid.value == 0 || source_aid.value >= slots_.size())
         return INVALID_ARENA_ID;
-    const auto& slot = slots_[source_aid.value];
+    auto& slot = slots_[source_aid.value];
     if (local_aid.value == 0 || local_aid.value >= slot.imports.size())
         return INVALID_ARENA_ID;
+    // Lazy cache: a non-null slot is an already-resolved global arena_id.
+    if (local_aid.value < slot.import_map.size()) {
+        arena_id_t cached = slot.import_map[local_aid.value];
+        if (cached.is_valid()) return cached;
+    }
     const auto& entry = slot.imports[local_aid.value];
     if (entry.file_name.empty()) return INVALID_ARENA_ID;
-    return find_arena_by_file(entry.file_name);
+    arena_id_t resolved = find_arena_by_file(entry.file_name);
+    // Cache only successful resolutions; leave the slot null on miss so a
+    // later load of the target library is retried on the next access.
+    if (resolved.is_valid() && local_aid.value < slot.import_map.size())
+        slot.import_map[local_aid.value] = resolved;
+    return resolved;
 }
 
 ArenaPool& global_arena_pool() {
