@@ -921,9 +921,14 @@ bool emit_module(const ModuleManifest& manifest,
                          only_file_canon.empty() ? "" : ")",
                          obj_path.c_str());
         }
+        // out_lir_blob = nullptr: the LIR blob is no longer emitted. Consumer
+        // sema skeleton-skips non-generic dep bodies via binary_symbols (nm of
+        // the dep .o) and links them; it never reads a published body. Passing
+        // nullptr also skips the (expensive) compactify pass. The exports
+        // trailer is computed for the verbose summary but no longer written.
         if (!compile_to_object(asts, filenames, ast_only_flags,
                                from_binary_module_flags, obj_path,
-                               only_file_canon, &exports, &lir_blob,
+                               only_file_canon, &exports, /*out_lir_blob=*/nullptr,
                                /*module_name=*/manifest.name,
                                /*implicit_prelude=*/manifest.prelude,
                                /*dep_archives=*/all_lib_files)) {
@@ -1017,7 +1022,7 @@ bool emit_module(const ModuleManifest& manifest,
         if (verbose) {
             std::fprintf(stderr, "emit_module: writing → %s (single file)\n", h0_path.c_str());
         }
-        if (!write_hermes0(h0_path, single, &exports, &lir_blob)) {
+        if (!write_hermes0(h0_path, single, /*exports=*/nullptr, /*lir_blob=*/nullptr)) {
             std::fprintf(stderr, "emit_module: .hermes0 write failed\n");
             return false;
         }
@@ -1076,9 +1081,12 @@ bool emit_module(const ModuleManifest& manifest,
         std::fprintf(stderr, "emit_module: writing → %s\n", h0_path.c_str());
     }
     uint64_t mflags = manifest.lazy ? module_flag::LAZY : 0;
+    // No exports trailer, no LIR blob: the .hm0 now ships only the own-module
+    // AST (signatures + generic templates + impls). Non-generic dep bodies
+    // live in the dep .o and are linked; the consumer's sema skeleton-skips
+    // them via binary_symbols.
     if (!write_hermes0(h0_path, own_modules_for_h0,
-                       manifest.lazy ? nullptr : &exports,
-                       manifest.lazy ? nullptr : &lir_blob,
+                       /*exports=*/nullptr, /*lir_blob=*/nullptr,
                        mflags)) {
         std::fprintf(stderr, "emit_module: .hermes0 write failed\n");
         return false;
